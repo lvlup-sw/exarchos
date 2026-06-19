@@ -5,8 +5,10 @@
  * #1476 + #1485: the hook layer is observe-only (see
  * docs/adrs/2026-05-24-hook-layer-observe-only.md). The former enforcement /
  * control hooks were retired; enforcement lives entirely inside the MCP tools.
- * Only the two lifecycle observers remain: `session-start` (binding) and
- * `session-end` (provenance). The unused `subagent-stop` observer was removed.
+ * Three lifecycle observers remain: `session-start` (binding), `session-end`
+ * (provenance), and `subagent-stop` (per-subagent token telemetry, restored in
+ * #1525 W2 Half 1 — still observe-only; it appends a `subagent.tokens_used`
+ * atom and never blocks the subagent).
  *
  * Extracted from index.ts to create a clean three-way dispatcher:
  * hooks → CLI → MCP.
@@ -16,10 +18,13 @@
 // These are detected early in main() and routed through a lightweight path
 // that avoids the expensive backend initialization and heavy eval deps.
 //
-// Observe-only set (#1476 + #1485): both entries are lifecycle observers. They
-// report on harness lifecycle events and never block tool execution.
+// Observe-only set (#1476 + #1485 + #1525): all three entries are lifecycle
+// observers. They report on harness lifecycle events and never block tool
+// execution. `subagent-stop` opens the event store to append its atom (it must,
+// to record the token fact) but is otherwise observe-only — it drives no state
+// transition and fails open on any error.
 export const HOOK_COMMANDS = new Set([
-  'session-start', 'session-end',
+  'session-start', 'session-end', 'subagent-stop',
 ]);
 
 /**
@@ -88,6 +93,10 @@ export async function handleHookCommand(
     'session-end': async () => {
       const { handleSessionEnd } = await import('../cli-commands/session-end.js');
       return handleSessionEnd(stdinData, resolveStateDir());
+    },
+    'subagent-stop': async () => {
+      const { handleSubagentStop } = await import('../cli-commands/subagent-stop.js');
+      return handleSubagentStop(stdinData, resolveStateDir());
     },
   };
 

@@ -1,14 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// #1476 + #1485: the hook layer is observe-only. Only the two lifecycle
-// observers (`session-start`, `session-end`) are dispatched; the enforcement/
-// control handlers (guard, task-gate, teammate-gate, subagent-context) and the
-// unused `subagent-stop` observer were retired.
+// #1476 + #1485: the hook layer is observe-only. The enforcement/control
+// handlers (guard, task-gate, teammate-gate, subagent-context) stay retired.
+// #1525 W2 Half 1: the `subagent-stop` observer is RESTORED (now three lifecycle
+// observers) to capture per-subagent token telemetry — still observe-only.
 vi.mock('../cli-commands/session-end.js', () => ({
   handleSessionEnd: vi.fn(),
 }));
 vi.mock('../cli-commands/session-start.js', () => ({
   handleSessionStart: vi.fn(),
+}));
+vi.mock('../cli-commands/subagent-stop.js', () => ({
+  handleSubagentStop: vi.fn(),
 }));
 
 // Mock the workflow state-store module (re-exports resolveStateDir)
@@ -28,9 +31,9 @@ describe('isHookCommand', () => {
     expect(isHookCommand('session-start')).toBe(true);
   });
 
-  it('isHookCommand_SubagentStop_ReturnsFalse', () => {
-    // #1485: the unused subagent-stop observer was retired.
-    expect(isHookCommand('subagent-stop')).toBe(false);
+  it('isHookCommand_SubagentStop_ReturnsTrue', () => {
+    // #1525 W2 Half 1: restored as an observe-only token-telemetry hook.
+    expect(isHookCommand('subagent-stop')).toBe(true);
   });
 
   it('isHookCommand_RetiredEnforcementHooks_ReturnFalse', () => {
@@ -55,7 +58,7 @@ describe('isHookCommand', () => {
   });
 
   it('HOOK_COMMANDS_IsObserverOnlySet', () => {
-    expect([...HOOK_COMMANDS].sort()).toEqual(['session-end', 'session-start']);
+    expect([...HOOK_COMMANDS].sort()).toEqual(['session-end', 'session-start', 'subagent-stop']);
   });
 });
 
@@ -82,6 +85,9 @@ describe('handleHookCommand', () => {
 
     const sessionStart = await import('../cli-commands/session-start.js');
     vi.mocked(sessionStart.handleSessionStart).mockResolvedValue({ continue: true });
+
+    const subagentStop = await import('../cli-commands/subagent-stop.js');
+    vi.mocked(subagentStop.handleSubagentStop).mockResolvedValue({ continue: true });
   });
 
   afterEach(() => {
@@ -149,6 +155,21 @@ describe('handleHookCommand', () => {
     );
 
     expect(result).toEqual({ handled: true });
+    expect(outputJson).toHaveBeenCalledWith({ continue: true });
+  });
+
+  it('handleHookCommand_SubagentStop_RoutesToHandler_ReturnsHandledTrue', async () => {
+    const subagentStop = await import('../cli-commands/subagent-stop.js');
+    const result = await handleHookCommand(
+      'subagent-stop',
+      ['node', 'exarchos', 'subagent-stop'],
+      readStdin,
+      parseStdin,
+      outputJson,
+    );
+
+    expect(result).toEqual({ handled: true });
+    expect(subagentStop.handleSubagentStop).toHaveBeenCalledWith({}, '/mock/state-dir');
     expect(outputJson).toHaveBeenCalledWith({ continue: true });
   });
 
