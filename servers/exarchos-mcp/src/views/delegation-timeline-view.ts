@@ -18,6 +18,9 @@ export interface TimelineTask {
   assignedAt: string;
   completedAt: string | null;
   durationMs: number;
+  // #1525 — output tokens attributed to this task, folded from subagent.tokens_used
+  // atoms whose resolved taskId matches. Accumulates across re-runs/fix-cycles.
+  outputTokens: number;
 }
 
 export interface Bottleneck {
@@ -92,6 +95,7 @@ export const delegationTimelineProjection: ViewProjection<DelegationTimelineView
           assignedAt: event.timestamp,
           completedAt: null,
           durationMs: 0,
+          outputTokens: 0,
         };
 
         const newTasks = [...view.tasks, task];
@@ -133,6 +137,32 @@ export const delegationTimelineProjection: ViewProjection<DelegationTimelineView
           ...view,
           tasks: updatedTasks,
           bottleneck: findBottleneck(updatedTasks),
+        };
+      }
+
+      case 'subagent.tokens_used': {
+        // #1525 — attribute the output-token total to its task. The atom carries
+        // a taskId the SubagentStop hook resolved from the dispatch; accumulate
+        // (re-runs/fix-cycles emit more than one). No matching task → ignore.
+        const data = event.data as {
+          taskId?: string;
+          outputTokens?: number;
+        } | undefined;
+
+        const taskId = data?.taskId;
+        const tokens = data?.outputTokens;
+        if (!taskId || typeof tokens !== 'number' || tokens < 0) return view;
+        if (!view.tasks.some((t) => t.taskId === taskId)) return view;
+
+        const updatedTasks = view.tasks.map((t) =>
+          t.taskId === taskId
+            ? { ...t, outputTokens: t.outputTokens + tokens }
+            : t,
+        );
+
+        return {
+          ...view,
+          tasks: updatedTasks,
         };
       }
 

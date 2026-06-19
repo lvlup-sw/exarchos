@@ -94,6 +94,28 @@ describe('View Handlers', () => {
       const teammates = data.teammates as Record<string, unknown>;
       expect(teammates).toHaveProperty('worker-1');
     });
+
+    it('handleViewTeamPerformance_SurfacesTokenTelemetry', async () => {
+      // H1-E (#1525) — token fields folded by team-performance-view must ride
+      // through the handler output (EnvelopeSchema(z.unknown()) — no strip).
+      const store = new EventStore(tmpDir);
+      await store.append('tok-wf', {
+        streamId: 'tok-wf',
+        sequence: 1,
+        timestamp: new Date().toISOString(),
+        type: 'subagent.tokens_used',
+        data: { agentId: 'a1', teammateName: 'worker-1', outputTokens: 1234 },
+        schemaVersion: '1.0',
+      });
+
+      const result = await handleViewTeamPerformance({ workflowId: 'tok-wf' }, tmpDir, store);
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        teammates: Record<string, { totalOutputTokens?: number; avgOutputTokensPerTask?: number }>;
+      };
+      expect(data.teammates['worker-1']?.totalOutputTokens).toBe(1234);
+      expect(data.teammates['worker-1']?.avgOutputTokensPerTask).toBe(1234);
+    });
   });
 
   describe('handleViewDelegationTimeline', () => {
@@ -136,6 +158,32 @@ describe('View Handlers', () => {
       expect(data).toHaveProperty('tasks');
       const tasks = data.tasks as unknown[];
       expect(tasks).toHaveLength(1);
+    });
+
+    it('handleViewDelegationTimeline_SurfacesPerTaskTokens', async () => {
+      // H1-E (#1525) — per-task outputTokens must surface through the handler.
+      const store = new EventStore(tmpDir);
+      await store.append('tok-wf', {
+        streamId: 'tok-wf',
+        sequence: 1,
+        timestamp: new Date().toISOString(),
+        type: 'team.task.assigned',
+        data: { taskId: 'task-1', teammateName: 'w1', worktreePath: '/tmp/wt-1', modules: [] },
+        schemaVersion: '1.0',
+      });
+      await store.append('tok-wf', {
+        streamId: 'tok-wf',
+        sequence: 2,
+        timestamp: new Date().toISOString(),
+        type: 'subagent.tokens_used',
+        data: { agentId: 'a1', teammateName: 'w1', taskId: 'task-1', outputTokens: 777 },
+        schemaVersion: '1.0',
+      });
+
+      const result = await handleViewDelegationTimeline({ workflowId: 'tok-wf' }, tmpDir, store);
+      expect(result.success).toBe(true);
+      const data = result.data as { tasks: Array<{ taskId: string; outputTokens?: number }> };
+      expect(data.tasks.find((t) => t.taskId === 'task-1')?.outputTokens).toBe(777);
     });
   });
 

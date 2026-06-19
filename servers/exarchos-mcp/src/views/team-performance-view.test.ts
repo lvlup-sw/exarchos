@@ -232,4 +232,55 @@ describe('TeamPerformanceView', () => {
       expect(state.teamSizing.avgTasksPerTeammate).toBe(2);
     });
   });
+
+  // ─── H1-D (#1525): subagent.tokens_used fold ───────────────────────────────
+
+  describe('apply - subagent.tokens_used', () => {
+    it('TeamPerformance_FoldsTokenAtom_AttributesTokensToTeammate', () => {
+      let state = teamPerformanceProjection.init();
+      state = teamPerformanceProjection.apply(state, makeEvent('subagent.tokens_used', {
+        agentId: 'a1', teammateName: 'alice', outputTokens: 1000, taskId: 'T-1',
+      }, 1));
+      state = teamPerformanceProjection.apply(state, makeEvent('subagent.tokens_used', {
+        agentId: 'a2', teammateName: 'alice', outputTokens: 3000, taskId: 'T-2',
+      }, 2));
+
+      const alice = state.teammates['alice'];
+      expect(alice).toBeDefined();
+      expect(alice.totalOutputTokens).toBe(4000);
+      expect(alice.subagentRuns).toBe(2);
+      expect(alice.avgOutputTokensPerTask).toBe(2000);
+    });
+
+    it('TeamPerformance_TokenAtom_SurvivesSubsequentTaskCompleted', () => {
+      // The team.task.completed handler rebuilds the teammate object explicitly;
+      // token fields must be carried forward, not dropped.
+      let state = teamPerformanceProjection.init();
+      state = teamPerformanceProjection.apply(state, makeEvent('subagent.tokens_used', {
+        agentId: 'a1', teammateName: 'bob', outputTokens: 500,
+      }, 1));
+      state = teamPerformanceProjection.apply(state, makeEvent('team.task.completed', {
+        taskId: 'T-1', teammateName: 'bob', durationMs: 100,
+        filesChanged: ['src/x.ts'], testsPassed: true, qualityGateResults: {},
+      }, 2));
+
+      expect(state.teammates['bob'].totalOutputTokens).toBe(500);
+      expect(state.teammates['bob'].tasksCompleted).toBe(1);
+    });
+
+    it('TeamPerformance_TokenAtom_IgnoresMissingTeammateOrTokens', () => {
+      let state = teamPerformanceProjection.init();
+      const before = state;
+      // No teammateName → unattributable → view unchanged.
+      state = teamPerformanceProjection.apply(state, makeEvent('subagent.tokens_used', {
+        agentId: 'a1', outputTokens: 100,
+      }, 1));
+      expect(state).toBe(before);
+      // No numeric outputTokens → ignored, no teammate created.
+      state = teamPerformanceProjection.apply(state, makeEvent('subagent.tokens_used', {
+        agentId: 'a1', teammateName: 'x',
+      }, 2));
+      expect(state.teammates['x']).toBeUndefined();
+    });
+  });
 });

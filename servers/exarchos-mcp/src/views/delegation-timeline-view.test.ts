@@ -326,4 +326,50 @@ describe('DelegationTimelineView', () => {
       expect(state.bottleneck).toBeNull();
     });
   });
+
+  // ─── H1-D (#1525): subagent.tokens_used per-task fold ──────────────────────
+
+  describe('apply - subagent.tokens_used', () => {
+    it('DelegationTimeline_PerTask_CarriesTokenTotals', () => {
+      let state = delegationTimelineProjection.init();
+      state = delegationTimelineProjection.apply(state, makeEvent('team.task.assigned', {
+        taskId: 'T-1', teammateName: 'alice', worktreePath: '/wt', modules: [],
+      }, 1));
+      state = delegationTimelineProjection.apply(state, makeEvent('subagent.tokens_used', {
+        agentId: 'a1', teammateName: 'alice', taskId: 'T-1', outputTokens: 2500,
+      }, 2));
+
+      expect(state.tasks.find((x) => x.taskId === 'T-1')?.outputTokens).toBe(2500);
+    });
+
+    it('DelegationTimeline_TokenAtom_AccumulatesAndSurvivesCompletion', () => {
+      let state = delegationTimelineProjection.init();
+      state = delegationTimelineProjection.apply(state, makeEvent('team.task.assigned', {
+        taskId: 'T-1', teammateName: 'alice', worktreePath: '/wt', modules: [],
+      }, 1));
+      state = delegationTimelineProjection.apply(state, makeEvent('subagent.tokens_used', {
+        agentId: 'a1', teammateName: 'alice', taskId: 'T-1', outputTokens: 100,
+      }, 2));
+      state = delegationTimelineProjection.apply(state, makeEvent('subagent.tokens_used', {
+        agentId: 'a2', teammateName: 'alice', taskId: 'T-1', outputTokens: 50,
+      }, 3));
+      state = delegationTimelineProjection.apply(state, makeEvent('team.task.completed', {
+        taskId: 'T-1', teammateName: 'alice', durationMs: 10,
+        filesChanged: [], testsPassed: true, qualityGateResults: {},
+      }, 4));
+
+      const t = state.tasks.find((x) => x.taskId === 'T-1');
+      expect(t?.outputTokens).toBe(150);
+      expect(t?.status).toBe('completed');
+    });
+
+    it('DelegationTimeline_TokenAtom_NoMatchingTask_Ignored', () => {
+      let state = delegationTimelineProjection.init();
+      const before = state;
+      state = delegationTimelineProjection.apply(state, makeEvent('subagent.tokens_used', {
+        agentId: 'a1', teammateName: 'alice', taskId: 'UNKNOWN', outputTokens: 99,
+      }, 1));
+      expect(state).toBe(before);
+    });
+  });
 });

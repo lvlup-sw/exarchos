@@ -14,6 +14,13 @@ export interface TeammateMetrics {
   totalDurationMs: number;
   moduleExpertise: string[];
   qualityGatePassRate: number;
+  // #1525 — token telemetry, folded from subagent.tokens_used atoms emitted by
+  // the SubagentStop hook (attributed to this teammate by worktree↔cwd match).
+  // `subagentRuns` is the number of token atoms folded (≈ subagent invocations);
+  // `avgOutputTokensPerTask` = totalOutputTokens / subagentRuns (order-independent).
+  totalOutputTokens: number;
+  subagentRuns: number;
+  avgOutputTokensPerTask: number;
 }
 
 export interface ModuleMetrics {
@@ -59,6 +66,9 @@ function defaultTeammate(): TeammateMetrics {
     totalDurationMs: 0,
     moduleExpertise: [],
     qualityGatePassRate: 0,
+    totalOutputTokens: 0,
+    subagentRuns: 0,
+    avgOutputTokensPerTask: 0,
   };
 }
 
@@ -136,6 +146,11 @@ export const teamPerformanceProjection: ViewProjection<TeamPerformanceViewState>
           totalDurationMs: prev.totalDurationMs + durationMs,
           moduleExpertise: [...new Set([...prev.moduleExpertise, ...newModules])],
           qualityGatePassRate: calcPassRate(newCompleted, prev.tasksFailed),
+          // Token telemetry is folded from a separate atom (subagent.tokens_used)
+          // that may arrive before or after this event — carry it forward verbatim.
+          totalOutputTokens: prev.totalOutputTokens,
+          subagentRuns: prev.subagentRuns,
+          avgOutputTokensPerTask: prev.avgOutputTokensPerTask,
         };
 
         // Update module metrics
@@ -155,6 +170,37 @@ export const teamPerformanceProjection: ViewProjection<TeamPerformanceViewState>
           ...view,
           teammates: { ...view.teammates, [name]: updatedTeammate },
           modules: updatedModules,
+        };
+      }
+
+      case 'subagent.tokens_used': {
+        // #1525 — clean single-stream left-fold: the SubagentStop hook already
+        // resolved teammate identity (worktree↔cwd) before emitting, so the view
+        // just attributes the output-token total to that teammate.
+        const data = event.data as {
+          teammateName?: string;
+          outputTokens?: number;
+        } | undefined;
+
+        const name = data?.teammateName;
+        const tokens = data?.outputTokens;
+        if (!name || typeof tokens !== 'number' || tokens < 0) return view;
+
+        const prev = getTeammate(view.teammates, name);
+        const subagentRuns = prev.subagentRuns + 1;
+        const totalOutputTokens = prev.totalOutputTokens + tokens;
+
+        return {
+          ...view,
+          teammates: {
+            ...view.teammates,
+            [name]: {
+              ...prev,
+              totalOutputTokens,
+              subagentRuns,
+              avgOutputTokensPerTask: totalOutputTokens / subagentRuns,
+            },
+          },
         };
       }
 
