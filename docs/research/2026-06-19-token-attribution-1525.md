@@ -8,6 +8,34 @@
 
 ---
 
+> ## ⚠️ CORRECTION (W2-1 spike, 2026-06-19) — Option A is INFEASIBLE; this doc's core premise was false
+>
+> This research's load-bearing premise — that the per-turn token atom (`turn.completed.outputTokens`)
+> is *"already emitted"* (see §TL;DR, §2 table "already emitted", §4) — is **factually wrong**.
+> The W2-1 precondition spike found, in the running system:
+> - **`turn.completed` has zero producers.** It is declared in the schema and folded by
+>   `telemetry-projection.ts`, but nothing ever appends it. So there is no atom to correlate.
+> - The only real per-turn token data lives in the **session-JSONL substrate** (written by the
+>   SessionEnd hook via transcript parse), keyed by `sessionId`, **teammate-blind, and not on the
+>   feature stream** the views fold. Subagents share the parent `session_id` and never fire
+>   SessionStart/End, so that substrate never even captures them.
+> - The `operationId` (#1291) correlation primitive is single-process AsyncLocalStorage; it cannot
+>   reach a subagent's turns.
+>
+> **Therefore Option A (pure projection over an already-joinable atom) cannot be built**, and
+> Option C "correlate the per-turn atoms" is also not directly implementable (no per-turn atom
+> exists on the stream).
+>
+> **Corrected decision → Option C, sited at the SubagentStop hook** — which is what design §5.1
+> ("emit `subagent.tokens_used` at subagent-dispatch completion") proposed before this research
+> detoured to A. The SubagentStop hook handler reads the subagent's **own** transcript
+> (`agent_transcript_path`), sums `usage.output_tokens`, and emits one correctly-sourced
+> `subagent.tokens_used` atom to the feature stream; the views fold it. The SoTA framing in this
+> doc (token = a per-call atom, attribution by correlation) still holds — only the claim that
+> Exarchos *already had* the atom was wrong. See the wave-2 plan "Half-1 RESHAPE" for the build.
+
+---
+
 ## TL;DR
 
 Across every authoritative source — OpenTelemetry's GenAI semantic conventions, LangSmith, Langfuse, and the event-sourcing canon — the pattern is identical and unambiguous:
