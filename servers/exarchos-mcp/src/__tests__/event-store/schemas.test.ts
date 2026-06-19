@@ -480,7 +480,11 @@ describe('EventTypes', () => {
     // phase-kind binding DR-13 (task 012): bumped 123 → 125 to include
     // `phase.entered` + `phase.exited`, the resolve-then-freeze pair appended at
     // the executeTransition boundary (workflow/state-machine.ts).
-    expect(EventTypes).toHaveLength(125);
+    // #1525 W2 Half 1 (task H1-C): bumped 125 → 126 to include
+    // `subagent.tokens_used`, the per-subagent output-token total emitted by the
+    // restored SubagentStop hook (cli-commands/subagent-stop.ts).
+    expect(EventTypes).toHaveLength(126);
+    expect(EventTypes).toContain('subagent.tokens_used');
     // Explicit membership pin: a future replacement that swaps one event
     // for another would keep the length stable but silently lose the
     // migration progress type. The membership assert catches that.
