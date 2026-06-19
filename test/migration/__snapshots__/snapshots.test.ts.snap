@@ -955,6 +955,8 @@ The composite action performs:
 
 **If \`ready: true\`:** Extract the \`worktrees\` paths and \`qualityHints\` for prompt construction.
 
+**Native isolation — verify worktrees before agents edit (#1542).** Under native isolation (\`nativeIsolation: true\`), \`prepare_delegation\` returns \`ready: true\` even when the host has not yet materialized worktrees (\`worktrees.ready: 0\`), because isolation is the host's responsibility — readiness cannot be confirmed at prepare-time. When \`worktrees.expected > 0\` and none are confirmed ready, the response carries a **warning**: *"native isolation requested; N worktree(s) expected but 0 confirmed ready — verify the host materializes worktrees or dispatch may land in the shared checkout."* Do not ignore it. After dispatching, and **before any agent edits files**, confirm each agent's working directory is under \`.worktrees/\` (e.g. the agent's first reported \`pwd\`). If an agent is NOT in a worktree it has landed in the shared checkout — stop it, create the worktree manually with \`git worktree add -b <task-branch> .worktrees/task-<id> <integration-tip>\`, redirect the agent to that path, and only then allow edits. Skipping this check risks silent shared-tree corruption across parallel agents.
+
 ### Task Extraction
 
 From the implementation plan, extract for each task:
@@ -6085,6 +6087,8 @@ The composite action performs:
 
 **If \`ready: true\`:** Extract the \`worktrees\` paths and \`qualityHints\` for prompt construction.
 
+**Native isolation — verify worktrees before agents edit (#1542).** Under native isolation (\`nativeIsolation: true\`), \`prepare_delegation\` returns \`ready: true\` even when the host has not yet materialized worktrees (\`worktrees.ready: 0\`), because isolation is the host's responsibility — readiness cannot be confirmed at prepare-time. When \`worktrees.expected > 0\` and none are confirmed ready, the response carries a **warning**: *"native isolation requested; N worktree(s) expected but 0 confirmed ready — verify the host materializes worktrees or dispatch may land in the shared checkout."* Do not ignore it. After dispatching, and **before any agent edits files**, confirm each agent's working directory is under \`.worktrees/\` (e.g. the agent's first reported \`pwd\`). If an agent is NOT in a worktree it has landed in the shared checkout — stop it, create the worktree manually with \`git worktree add -b <task-branch> .worktrees/task-<id> <integration-tip>\`, redirect the agent to that path, and only then allow edits. Skipping this check risks silent shared-tree corruption across parallel agents.
+
 ### Task Extraction
 
 From the implementation plan, extract for each task:
@@ -11157,6 +11161,8 @@ The composite action performs:
 
 **If \`ready: true\`:** Extract the \`worktrees\` paths and \`qualityHints\` for prompt construction.
 
+**Native isolation — verify worktrees before agents edit (#1542).** Under native isolation (\`nativeIsolation: true\`), \`prepare_delegation\` returns \`ready: true\` even when the host has not yet materialized worktrees (\`worktrees.ready: 0\`), because isolation is the host's responsibility — readiness cannot be confirmed at prepare-time. When \`worktrees.expected > 0\` and none are confirmed ready, the response carries a **warning**: *"native isolation requested; N worktree(s) expected but 0 confirmed ready — verify the host materializes worktrees or dispatch may land in the shared checkout."* Do not ignore it. After dispatching, and **before any agent edits files**, confirm each agent's working directory is under \`.worktrees/\` (e.g. the agent's first reported \`pwd\`). If an agent is NOT in a worktree it has landed in the shared checkout — stop it, create the worktree manually with \`git worktree add -b <task-branch> .worktrees/task-<id> <integration-tip>\`, redirect the agent to that path, and only then allow edits. Skipping this check risks silent shared-tree corruption across parallel agents.
+
 ### Task Extraction
 
 From the implementation plan, extract for each task:
@@ -16220,6 +16226,8 @@ The composite action performs:
 **If \`ready: false\`:** Stop. Report the reason to the user. Do not proceed.
 
 **If \`ready: true\`:** Extract the \`worktrees\` paths and \`qualityHints\` for prompt construction.
+
+**Native isolation — verify worktrees before agents edit (#1542).** Under native isolation (\`nativeIsolation: true\`), \`prepare_delegation\` returns \`ready: true\` even when the host has not yet materialized worktrees (\`worktrees.ready: 0\`), because isolation is the host's responsibility — readiness cannot be confirmed at prepare-time. When \`worktrees.expected > 0\` and none are confirmed ready, the response carries a **warning**: *"native isolation requested; N worktree(s) expected but 0 confirmed ready — verify the host materializes worktrees or dispatch may land in the shared checkout."* Do not ignore it. After dispatching, and **before any agent edits files**, confirm each agent's working directory is under \`.worktrees/\` (e.g. the agent's first reported \`pwd\`). If an agent is NOT in a worktree it has landed in the shared checkout — stop it, create the worktree manually with \`git worktree add -b <task-branch> .worktrees/task-<id> <integration-tip>\`, redirect the agent to that path, and only then allow edits. Skipping this check risks silent shared-tree corruption across parallel agents.
 
 ### Task Extraction
 
@@ -21295,6 +21303,8 @@ The composite action performs:
 
 **If \`ready: true\`:** Extract the \`worktrees\` paths and \`qualityHints\` for prompt construction.
 
+**Native isolation — verify worktrees before agents edit (#1542).** Under native isolation (\`nativeIsolation: true\`), \`prepare_delegation\` returns \`ready: true\` even when the host has not yet materialized worktrees (\`worktrees.ready: 0\`), because isolation is the host's responsibility — readiness cannot be confirmed at prepare-time. When \`worktrees.expected > 0\` and none are confirmed ready, the response carries a **warning**: *"native isolation requested; N worktree(s) expected but 0 confirmed ready — verify the host materializes worktrees or dispatch may land in the shared checkout."* Do not ignore it. After dispatching, and **before any agent edits files**, confirm each agent's working directory is under \`.worktrees/\` (e.g. the agent's first reported \`pwd\`). If an agent is NOT in a worktree it has landed in the shared checkout — stop it, create the worktree manually with \`git worktree add -b <task-branch> .worktrees/task-<id> <integration-tip>\`, redirect the agent to that path, and only then allow edits. Skipping this check risks silent shared-tree corruption across parallel agents.
+
 ### Task Extraction
 
 From the implementation plan, extract for each task:
@@ -26339,6 +26349,8 @@ The composite action performs:
 **If \`ready: false\`:** Stop. Report the reason to the user. Do not proceed.
 
 **If \`ready: true\`:** Extract the \`worktrees\` paths and \`qualityHints\` for prompt construction.
+
+**Native isolation — verify worktrees before agents edit (#1542).** Under native isolation (\`nativeIsolation: true\`), \`prepare_delegation\` returns \`ready: true\` even when the host has not yet materialized worktrees (\`worktrees.ready: 0\`), because isolation is the host's responsibility — readiness cannot be confirmed at prepare-time. When \`worktrees.expected > 0\` and none are confirmed ready, the response carries a **warning**: *"native isolation requested; N worktree(s) expected but 0 confirmed ready — verify the host materializes worktrees or dispatch may land in the shared checkout."* Do not ignore it. After dispatching, and **before any agent edits files**, confirm each agent's working directory is under \`.worktrees/\` (e.g. the agent's first reported \`pwd\`). If an agent is NOT in a worktree it has landed in the shared checkout — stop it, create the worktree manually with \`git worktree add -b <task-branch> .worktrees/task-<id> <integration-tip>\`, redirect the agent to that path, and only then allow edits. Skipping this check risks silent shared-tree corruption across parallel agents.
 
 ### Task Extraction
 
