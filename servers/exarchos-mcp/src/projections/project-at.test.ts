@@ -8,6 +8,8 @@ import type { WorkflowEvent } from '../event-store/schemas.js';
 import type { ProjectionReducer } from './types.js';
 import { boundEvents, type AsOfBound } from './cursor.js';
 import { projectAt } from './rebuild.js';
+import { appendSnapshot } from './store.js';
+import type { SnapshotRecord } from './snapshot-schema.js';
 
 /**
  * T2 — `projectAt` cold-fold + purity.
@@ -183,5 +185,120 @@ describe('projectAt — cold bounded fold (T2)', () => {
     await expect(
       projectAt(countReducer, store, streamId, both),
     ).rejects.toThrow(/mutually|exclusive|both/i);
+  });
+});
+
+/**
+ * A marker the pure reducer can NEVER emit. Real folded sequences are positive
+ * integers (`WorkflowEvent.sequence`), so a leading `SENTINEL` in
+ * `state.sequences` is observable proof that the warm-start path seeded from a
+ * snapshot rather than cold-folding from `reducer.initial`. The honest count is
+ * preserved alongside (the reducer still increments `count` per tail event), so
+ * `count` stays equal to the cold fold while `sequences[0] === SENTINEL`
+ * distinguishes warm from cold.
+ */
+const SENTINEL = -7;
+
+/**
+ * Seed a snapshot whose state is the cold fold of the stream **through
+ * `atSequence`** but with a {@link SENTINEL} prepended to `sequences`, stamped
+ * with `snapshot.sequence = atSequence`. The stream-scoped snapshot contract:
+ * `snapshot.sequence` is the stream sequence of the LAST event baked into
+ * `snapshot.state`. The sentinel makes "did warm-start actually consult the
+ * snapshot" observable.
+ */
+async function seedSentinelSnapshot(
+  streamId: string,
+  events: readonly WorkflowEvent[],
+  atSequence: number,
+): Promise<CountState> {
+  const honest = foldOracle(countReducer, events, {
+    untilSequence: atSequence,
+  });
+  const baked: CountState = {
+    count: honest.count,
+    sequences: [SENTINEL, ...honest.sequences],
+  };
+  const record: SnapshotRecord = {
+    projectionId: countReducer.id,
+    projectionVersion: String(countReducer.version),
+    sequence: atSequence,
+    state: baked,
+    timestamp: '2026-06-20T12:00:00.000Z',
+  };
+  appendSnapshot(store.getReadBackend(), streamId, record);
+  return baked;
+}
+
+describe('projectAt — snapshot warm-start equivalence (T3)', () => {
+  it('projectAt_snapshotAtOrBeforeN_equalsColdFold', async () => {
+    // GIVEN a 6-event stream and a bound at N=5.
+    const streamId = 'wf-pa-warm';
+    await seedStream(streamId, 6);
+    const events = await store.query(streamId);
+    const bound: AsOfBound = { untilSequence: 5 };
+
+    // AND a sentinel snapshot baked at sequence 3 (<= N): a usable warm-start.
+    const baked = await seedSentinelSnapshot(streamId, events, 3);
+
+    // WHEN we project at N with the warm snapshot present.
+    const warm = await projectAt(countReducer, store, streamId, bound);
+
+    // THEN warm-start DID seed from the snapshot (the sentinel survives), then
+    //   folded only the bounded tail (events 4..5) on top of it.
+    expect(warm.sequences[0]).toBe(SENTINEL);
+    expect(warm).toStrictEqual({
+      count: baked.count + 2, // tail events 4 and 5
+      sequences: [...baked.sequences, 4, 5],
+    });
+    // AND the honest count matches the cold fold — warm-start is an
+    //   observationally-equivalent optimisation w.r.t. the event count (INV-1).
+    const cold = foldOracle(countReducer, events, bound);
+    expect(warm.count).toBe(cold.count);
+  });
+
+  it('projectAt_snapshotBeyondN_ignoresSnapshotAndColdFolds', async () => {
+    // GIVEN a 6-event stream and a bound at N=2.
+    const streamId = 'wf-pa-beyond';
+    await seedStream(streamId, 6);
+    const events = await store.query(streamId);
+    const bound: AsOfBound = { untilSequence: 2 };
+
+    // AND a sentinel snapshot baked at sequence 4 (> N): UNUSABLE for an
+    //   as-of-2 read — it already folded events 3 and 4 beyond the bound.
+    await seedSentinelSnapshot(streamId, events, 4);
+
+    // WHEN we project at N=2.
+    const result = await projectAt(countReducer, store, streamId, bound);
+
+    // THEN the beyond-bound snapshot is IGNORED (no sentinel) and the result is
+    //   the clean cold fold over events 1..2 only.
+    expect(result.sequences).not.toContain(SENTINEL);
+    const cold = foldOracle(countReducer, events, bound);
+    expect(result).toStrictEqual(cold);
+    expect(result.count).toBe(2);
+    expect(result.sequences).toEqual([1, 2]);
+  });
+
+  it('projectAt_snapshotAtN_foldsEmptyTail', async () => {
+    // GIVEN a 4-event stream and a bound exactly at N=4 (the tail).
+    const streamId = 'wf-pa-boundary';
+    await seedStream(streamId, 4);
+    const events = await store.query(streamId);
+    const bound: AsOfBound = { untilSequence: 4 };
+
+    // AND a sentinel snapshot baked at sequence 4 == N: the tail is empty.
+    const baked = await seedSentinelSnapshot(streamId, events, 4);
+
+    // WHEN we project at N=4.
+    const result = await projectAt(countReducer, store, streamId, bound);
+
+    // THEN warm-start seeds from the snapshot and folds an EMPTY tail — the
+    //   result is exactly the snapshot state (sentinel intact, no double-count,
+    //   no dropped event). count still equals the cold fold's count.
+    expect(result).toStrictEqual(baked);
+    expect(result.sequences[0]).toBe(SENTINEL);
+    const cold = foldOracle(countReducer, events, bound);
+    expect(result.count).toBe(cold.count);
   });
 });
