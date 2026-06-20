@@ -71,9 +71,9 @@ function walk(a: unknown, b: unknown, path: string, delta: StateDelta): void {
       const bChild = (b as Record<string, unknown>)[key];
 
       if (inA && !inB) {
-        recordRemoved(aChild, childPath, delta);
+        collectLeaves(aChild, childPath, delta.removed);
       } else if (!inA && inB) {
-        recordAdded(bChild, childPath, delta);
+        collectLeaves(bChild, childPath, delta.added);
       } else {
         walk(aChild, bChild, childPath, delta);
       }
@@ -99,31 +99,24 @@ function byPathSegment(x: string, y: string): number {
 }
 
 /**
- * Record an entire subtree present only in `b` as `added` leaves, one entry per
- * leaf dot-path so the delta can be replayed key-by-key.
+ * Flatten a subtree present on only one side into `bucket`, one entry per leaf
+ * dot-path so the delta replays key-by-key. Used for both `added` (subtree only
+ * in `b`) and `removed` (subtree only in `a`) — the only difference is which
+ * bucket the leaves land in. A bare primitive is itself a leaf and is written
+ * directly at `path`.
  */
-function recordAdded(value: unknown, path: string, delta: StateDelta): void {
+function collectLeaves(
+  value: unknown,
+  path: string,
+  bucket: Record<string, unknown>,
+): void {
   if (isPlainContainer(value)) {
     for (const key of containerKeys(value)) {
-      recordAdded((value as Record<string, unknown>)[key], joinPath(path, key), delta);
+      collectLeaves((value as Record<string, unknown>)[key], joinPath(path, key), bucket);
     }
     return;
   }
-  delta.added[path] = value;
-}
-
-/**
- * Record an entire subtree present only in `a` as `removed` leaves, one entry
- * per leaf dot-path (mirror of {@link recordAdded}).
- */
-function recordRemoved(value: unknown, path: string, delta: StateDelta): void {
-  if (isPlainContainer(value)) {
-    for (const key of containerKeys(value)) {
-      recordRemoved((value as Record<string, unknown>)[key], joinPath(path, key), delta);
-    }
-    return;
-  }
-  delta.removed[path] = value;
+  bucket[path] = value;
 }
 
 /**
