@@ -28,6 +28,7 @@ import {
   defaultRegistry,
   type ProjectionRegistry,
 } from './registry.js';
+import { boundEvents, type AsOfBound } from './cursor.js';
 
 /**
  * Optional overrides for {@link rebuildProjection}.
@@ -100,14 +101,65 @@ export async function rebuildProjection(
   // in sequence order, merged with any sidecar entries (see `store.ts`).
   // No filters → full replay from the beginning of the log (DR-18).
   const events = await eventStore.query(streamId);
-  // Manual loop (rather than `events.reduce(...)`) to keep the hot path
-  // allocation-free beyond the per-event `reducer.apply` return value, and
-  // to preserve reducer-side stack traces without a reduce frame on top.
-  let state: unknown = reducer.initial;
+  return foldEvents(reducer, events);
+}
+
+/**
+ * Fold a reducer over an ordered event list starting from `reducer.initial`.
+ *
+ * Shared cold-fold kernel for {@link rebuildProjection} (full replay) and
+ * {@link projectAt} (bounded replay). Pure: no I/O, no mutation of inputs.
+ *
+ * Uses a manual loop (rather than `events.reduce(...)`) to keep the hot path
+ * allocation-free beyond the per-event `reducer.apply` return value, and to
+ * preserve reducer-side stack traces without a reduce frame on top.
+ */
+function foldEvents(
+  reducer: ProjectionReducer<unknown, unknown>,
+  events: readonly unknown[],
+  seed: unknown = reducer.initial,
+): unknown {
+  let state: unknown = seed;
   for (const event of events) {
     state = reducer.apply(state, event);
   }
   return state;
+}
+
+/**
+ * Fold a projection's state **as of** an optional point in the stream's
+ * history — the bounded analogue of {@link rebuildProjection} (T2, #1555).
+ *
+ * Reads the stream via `eventStore.query(streamId)` (full, sequence-ordered),
+ * narrows it to the events at or before `bound` via {@link boundEvents}, then
+ * cold-folds the reducer over that slice. With no `bound` the result is
+ * identical to `rebuildProjection` (the bound past the tail is a no-op).
+ *
+ * Cold path only — no snapshot warm-start (added in T3). Determinism flows
+ * through the reducer's purity contract: the fold over a bounded prefix
+ * reproduces the state the live system observed at that point.
+ *
+ * @typeParam State - The projected state type the reducer produces.
+ * @typeParam Event - The event type the reducer consumes.
+ * @param reducer - A stream-scoped {@link ProjectionReducer}.
+ * @param eventStore - Initialised event store to read from.
+ * @param streamId - The stream to fold.
+ * @param bound - Optional as-of ceiling (`untilSequence` | `untilTimestamp`).
+ * @returns The projected state as of `bound`.
+ * @throws {MutuallyExclusiveBoundError} when `bound` carries both keys.
+ */
+export async function projectAt<State, Event>(
+  reducer: ProjectionReducer<State, Event>,
+  eventStore: EventStore,
+  streamId: string,
+  bound?: AsOfBound,
+): Promise<State> {
+  const events = await eventStore.query(streamId);
+  const bounded = boundEvents(events, bound);
+  return foldEvents(
+    reducer as ProjectionReducer<unknown, unknown>,
+    bounded,
+  ) as State;
 }
 
 /**

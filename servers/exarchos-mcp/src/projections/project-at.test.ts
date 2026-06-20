@@ -77,16 +77,29 @@ function foldOracle(
   );
 }
 
-/** Append `n` events to `streamId` and return the appended events in order. */
+/**
+ * Append `n` events to `streamId` and return the appended events in order.
+ *
+ * Stamps strictly-increasing timestamps (one second apart) so the
+ * `untilTimestamp` bound is meaningfully discriminating. A tight append loop
+ * otherwise lands every event in the same millisecond, collapsing the
+ * timestamp axis and making `untilTimestamp` indistinguishable from "all
+ * events" — which is correct `<= T` behaviour but not what the timestamp test
+ * means to exercise.
+ */
 async function seedStream(
   streamId: string,
   n: number,
 ): Promise<WorkflowEvent[]> {
   const out: WorkflowEvent[] = [];
   for (let i = 0; i < n; i++) {
+    const timestamp = new Date(
+      Date.UTC(2026, 5, 20, 0, 0, i),
+    ).toISOString();
     out.push(
       await store.append(streamId, {
         type: 'task.assigned',
+        timestamp,
         data: { taskId: `T${i}` },
       }),
     );
