@@ -50,6 +50,12 @@ const HooksDescriptorSchema = z
     canInjectContext: z.boolean(),
     sessionStartEvent: z.string().nullable(),
     sessionEndEvent: z.string().nullable(),
+    // #1525 W2 Half 1 — the runtime's native subagent-completion event, if it has
+    // one (Claude Code: `SubagentStop`). Gates emission of the per-subagent
+    // token-telemetry hook block. Optional + nullable: runtimes without a
+    // subagent-completion hook omit it (or set null) and get no SubagentStop block
+    // (INV-4 — dispatch on the declared capability, never a runtime-name literal).
+    subagentStopEvent: z.string().nullable().optional(),
   })
   .strict()
   // A `none` profile means "no hook system" — it cannot inject context and has
@@ -60,10 +66,11 @@ const HooksDescriptorSchema = z
       d.profile !== 'none' ||
       (!d.canInjectContext &&
         d.sessionStartEvent === null &&
-        d.sessionEndEvent === null),
+        d.sessionEndEvent === null &&
+        (d.subagentStopEvent ?? null) === null),
     {
       message:
-        'profile "none" requires canInjectContext:false and null sessionStartEvent/sessionEndEvent',
+        'profile "none" requires canInjectContext:false and null sessionStartEvent/sessionEndEvent/subagentStopEvent',
     },
   );
 

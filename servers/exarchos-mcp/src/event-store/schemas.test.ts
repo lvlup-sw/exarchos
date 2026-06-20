@@ -553,7 +553,12 @@ describe('EventTypes', () => {
     //   epic #1546 — resolve-then-freeze; the executeTransition boundary freezes
     //   the resolved obligation as `phase.entered` and records the aggregate
     //   gate status as `phase.exited` on advance).
-    expect(EventTypes).toHaveLength(125);
+    // Bumped 125 → 126: subagent.tokens_used (#1525 W2 Half 1 — per-subagent
+    //   output-token total emitted by the restored SubagentStop hook
+    //   `cli-commands/subagent-stop.ts`, folded by team-performance /
+    //   delegation-timeline for the token-reduction acceptance gate).
+    expect(EventTypes).toHaveLength(126);
+    expect(EventTypes).toContain('subagent.tokens_used');
     expect(EventTypes).toContain('onboard.requested');
     expect(EventTypes).toContain('onboard.executed');
     expect(EventTypes).toContain('mutation.executing_started');
@@ -561,6 +566,37 @@ describe('EventTypes', () => {
     expect(EventTypes).toContain('phase.blocked');
     // Retirement guard: init.executed removed in DR-5 (task 018).
     expect(EventTypes as readonly string[]).not.toContain('init.executed');
+  });
+
+  it('eventSchemas_SubagentTokensUsed_ValidateAndRegister', () => {
+    // #1525 W2 Half 1 — the restored SubagentStop hook emits subagent.tokens_used
+    // to the feature stream (the handler owns the append) → 'auto' classification.
+    expect(EventTypes).toContain('subagent.tokens_used');
+    expect(EVENT_EMISSION_REGISTRY['subagent.tokens_used']).toBe('auto');
+
+    const schema = EVENT_DATA_SCHEMAS['subagent.tokens_used'];
+    expect(schema).toBeDefined();
+
+    // Minimal valid payload: the hook always has agentId + summed outputTokens.
+    expect(schema!.safeParse({ agentId: 'agent-abc', outputTokens: 1234 }).success).toBe(true);
+
+    // Fully-correlated payload (teammate resolved via worktree↔cwd at emit time).
+    const full = schema!.safeParse({
+      agentId: 'agent-abc',
+      agentType: 'exarchos-implementer',
+      outputTokens: 5000,
+      teammateName: 'alice',
+      taskId: 'W2-6',
+      sessionId: 'sess-1',
+      cwd: '/tmp/wt',
+    });
+    expect(full.success).toBe(true);
+
+    // Reject missing agentId / negative tokens / fractional tokens (#1560 — token
+    // counts are integers; fractional values would corrupt downstream aggregates).
+    expect(schema!.safeParse({ outputTokens: 10 }).success).toBe(false);
+    expect(schema!.safeParse({ agentId: 'a', outputTokens: -1 }).success).toBe(false);
+    expect(schema!.safeParse({ agentId: 'a', outputTokens: 12.5 }).success).toBe(false);
   });
 
   it('eventSchemas_PhaseEnteredExited_ValidateAndRegister', () => {

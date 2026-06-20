@@ -16,6 +16,7 @@
  *   - servers/exarchos-mcp/src/index.ts
  *   - servers/exarchos-mcp/src/core/context.ts
  *   - servers/exarchos-mcp/src/cli-commands/assemble-context.ts
+ *   - servers/exarchos-mcp/src/cli-commands/subagent-stop.ts
  *   - servers/exarchos-mcp/src/evals/run-evals-cli.ts
  *
  * Excluded automatically (test/bench surface):
@@ -47,6 +48,13 @@ const ALLOWLIST = new Set([
   'index.ts',
   path.join('core', 'context.ts'),
   path.join('cli-commands', 'assemble-context.ts'),
+  // #1525 W2 Half 1 — the subagent-stop hook is a process entry point (invoked as
+  // a fresh `exarchos subagent-stop` subprocess by Claude Code's SubagentStop
+  // hook), so there is no parent composition root to receive the store from. Like
+  // assemble-context, it legitimately constructs its own EventStore to append the
+  // token-telemetry atom; production construction is guarded by `deps.eventStore`
+  // injection for tests.
+  path.join('cli-commands', 'subagent-stop.ts'),
   path.join('evals', 'run-evals-cli.ts'),
 ]);
 

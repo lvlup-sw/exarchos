@@ -43,7 +43,8 @@ function collectCommands(config: HooksConfig): Array<{ hookType: string; command
 // docs/adrs/2026-05-24-hook-layer-observe-only.md.
 const ENFORCEMENT_HOOK_TYPES = ['PreToolUse', 'TaskCompleted', 'TeammateIdle', 'SubagentStart'];
 const ENFORCEMENT_SUBCOMMANDS = ['guard', 'task-gate', 'teammate-gate', 'subagent-context'];
-const OBSERVER_HOOK_TYPES = ['SessionStart', 'SessionEnd'];
+// #1525 W2 Half 1: SubagentStop restored as an observe-only token-telemetry hook.
+const OBSERVER_HOOK_TYPES = ['SessionStart', 'SessionEnd', 'SubagentStop'];
 
 describe('hooks/hooks.json — observe-only (#1476)', () => {
   const hooksPath = join(repoRoot, 'hooks', 'hooks.json');
@@ -68,9 +69,9 @@ describe('hooks/hooks.json — observe-only (#1476)', () => {
       expect(hookTypes, `enforcement hook type still present: ${t}`).not.toContain(t);
     }
 
-    // T-40 removal stays removed; #1485 retired the unused SubagentStop observer.
+    // T-40 removal stays removed. (SubagentStop is now a live observer — see
+    // OBSERVER_HOOK_TYPES — restored for token telemetry in #1525.)
     expect(hookTypes).not.toContain('PreCompact');
-    expect(hookTypes).not.toContain('SubagentStop');
   });
 
   it('HooksJson_NoEnforcementSubcommands', () => {

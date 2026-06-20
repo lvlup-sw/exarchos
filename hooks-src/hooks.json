@@ -15,6 +15,14 @@
         "command": "exarchos session-end",
         "timeout": 30
       }]
+    }],
+    "SubagentStop": [{
+      "matcher": "*",
+      "hooks": [{
+        "type": "command",
+        "command": "exarchos subagent-stop",
+        "timeout": 30
+      }]
     }]
   }
 }

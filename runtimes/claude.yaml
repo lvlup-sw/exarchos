@@ -34,6 +34,9 @@ capabilities:
     canInjectContext: true
     sessionStartEvent: SessionStart
     sessionEndEvent: SessionEnd
+    # #1525 W2 Half 1 — Claude Code fires SubagentStop on subagent completion,
+    # carrying the subagent's own transcript path. Gates the token-telemetry hook.
+    subagentStopEvent: SubagentStop
   hasSkillChaining: true
   mcpPrefix: "mcp__plugin_exarchos_exarchos__"
 # Fine-grained support matrix consumed by the prose renderer (Tasks 8/9)

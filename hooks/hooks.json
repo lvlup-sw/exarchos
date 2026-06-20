@@ -23,6 +23,18 @@
           }
         ]
       }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "exarchos subagent-stop",
+            "timeout": 30
+          }
+        ]
+      }
     ]
   }
 }

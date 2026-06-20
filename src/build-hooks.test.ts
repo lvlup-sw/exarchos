@@ -41,13 +41,15 @@ afterEach(() => {
 });
 
 describe('hooks-src/hooks.json source (#1485 T5)', () => {
-  it('HooksSource_ContainsSessionStartAndEnd_NoSubagentStop', () => {
+  it('HooksSource_ContainsSessionStartEndAndSubagentStop', () => {
+    // #1525 W2 Half 1: subagent-stop restored as a token-telemetry observer.
     const src = JSON.parse(readFileSync(join(HOOKS_SRC, 'hooks.json'), 'utf8'));
     const events = Object.keys(src.hooks);
     expect(events).toContain('SessionStart');
     expect(events).toContain('SessionEnd');
-    expect(events).not.toContain('SubagentStop');
+    expect(events).toContain('SubagentStop');
     expect(src.hooks.SessionStart[0].hooks[0].command).toContain('session-start');
+    expect(src.hooks.SubagentStop[0].hooks[0].command).toContain('subagent-stop');
   });
 });
 
@@ -99,15 +101,20 @@ describe('buildAllHooks — claude-json profile (#1485 T6)', () => {
     const json = JSON.parse(readFileSync(join(outDir, 'hooks.json'), 'utf8'));
     expect(Object.keys(json.hooks)).toContain('SessionStart');
     expect(Object.keys(json.hooks)).toContain('SessionEnd');
+    // #1525: Claude declares subagentStopEvent → SubagentStop block present.
+    expect(Object.keys(json.hooks)).toContain('SubagentStop');
+    expect(json.hooks.SubagentStop[0].hooks[0].command).toContain('subagent-stop');
     expect(json.hooks.SessionStart[0].hooks[0].command).toContain('--directive');
   });
 
   it('BuildBinding_Codex_RendersSessionStartOnly', () => {
     // G1: Codex's end event is `Stop` (deferred) — no SessionEnd block emitted.
+    // #1525: Codex has no subagentStopEvent capability → no SubagentStop block.
     const { outDir } = build();
     const json = JSON.parse(readFileSync(join(outDir, 'codex', 'hooks.json'), 'utf8'));
     expect(Object.keys(json.hooks)).toContain('SessionStart');
     expect(Object.keys(json.hooks)).not.toContain('SessionEnd');
+    expect(Object.keys(json.hooks)).not.toContain('SubagentStop');
     expect(json.hooks.SessionStart[0].hooks[0].command).toContain('--directive');
   });
 

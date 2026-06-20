@@ -588,3 +588,86 @@ describe('CodeQualityView', () => {
     });
   });
 });
+
+// ─── W2-6 (#1525): per-skill mutation-score trend ───────────────────────────
+
+describe('CodeQualityView - mutation-score trend (W2-6, #1525)', () => {
+  const mutationGate = (
+    skill: string,
+    mutationScore: number,
+    seq: number,
+    commit?: string,
+  ): WorkflowEvent =>
+    makeEvent(
+      'gate.executed',
+      {
+        gateName: 'mutation-adequacy',
+        layer: 'verification',
+        passed: true,
+        details: { skill, mutationScore, ...(commit ? { commit } : {}) },
+      },
+      seq,
+    );
+
+  it('CodeQuality_FoldsMutationScore_ExposesPerSkillTrend', () => {
+    let state: CodeQualityViewState = codeQualityProjection.init();
+    const scores = [0.5, 0.6, 0.72];
+    scores.forEach((score, i) => {
+      state = codeQualityProjection.apply(state, mutationGate('delegation', score, i + 1, `c${i}`));
+    });
+
+    const skill = state.skills['delegation'];
+    expect(skill).toBeDefined();
+    // Ordered samples folded as a left-fold trend (mirrors BenchmarkTrend; INV-1, no side table).
+    expect(skill.mutationScoreTrend).toBeDefined();
+    expect(skill.mutationScoreTrend!.values.map((v) => v.value)).toEqual([0.5, 0.6, 0.72]);
+    // Rising mutation score = improving (higher-is-better — inverse of the latency trend).
+    expect(skill.mutationScoreTrend!.trend).toBe('improving');
+  });
+
+  it('CodeQuality_MutationScore_AttributesPerSkillIndependently', () => {
+    let state: CodeQualityViewState = codeQualityProjection.init();
+    state = codeQualityProjection.apply(state, mutationGate('delegation', 0.4, 1));
+    state = codeQualityProjection.apply(state, mutationGate('review', 0.9, 2));
+
+    expect(state.skills['delegation'].mutationScoreTrend!.values.map((v) => v.value)).toEqual([0.4]);
+    expect(state.skills['review'].mutationScoreTrend!.values.map((v) => v.value)).toEqual([0.9]);
+  });
+
+  it('CodeQuality_GateWithoutMutationScore_LeavesTrendUntouched', () => {
+    let state: CodeQualityViewState = codeQualityProjection.init();
+    // A non-mutation gate for the same skill must not create or append a mutation trend.
+    state = codeQualityProjection.apply(
+      state,
+      makeEvent('gate.executed', {
+        gateName: 'typecheck',
+        layer: 'build',
+        passed: true,
+        details: { skill: 'delegation' },
+      }, 1),
+    );
+
+    expect(state.skills['delegation']).toBeDefined();
+    expect(state.skills['delegation'].mutationScoreTrend).toBeUndefined();
+  });
+
+  it('CodeQuality_NonMutationGateWithNumericMutationScore_IsIgnored', () => {
+    // Defensive (#1560): only the mutation-adequacy gate may feed the trend.
+    // Even if another gate ever carries a numeric `mutationScore` in details,
+    // the fold is gated on gateName — not the mere presence of a numeric field —
+    // so it must not contaminate the per-skill trend.
+    let state: CodeQualityViewState = codeQualityProjection.init();
+    state = codeQualityProjection.apply(
+      state,
+      makeEvent('gate.executed', {
+        gateName: 'check_static_analysis',
+        layer: 'build',
+        passed: true,
+        details: { skill: 'delegation', mutationScore: 0.95 },
+      }, 1),
+    );
+
+    expect(state.skills['delegation']).toBeDefined();
+    expect(state.skills['delegation'].mutationScoreTrend).toBeUndefined();
+  });
+});

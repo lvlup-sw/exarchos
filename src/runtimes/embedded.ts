@@ -43,7 +43,8 @@ const RAW_RUNTIMES = [
         "profile": "claude-json",
         "canInjectContext": true,
         "sessionStartEvent": "SessionStart",
-        "sessionEndEvent": "SessionEnd"
+        "sessionEndEvent": "SessionEnd",
+        "subagentStopEvent": "SubagentStop"
       },
       "hasSkillChaining": true,
       "mcpPrefix": "mcp__plugin_exarchos_exarchos__"

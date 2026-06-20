@@ -43,6 +43,12 @@ export const EventTypes = [
   // (catalog: `telemetry/quality-hints.ts`) fires off this stream when a
   // turn's `outputTokens` crosses the configured threshold.
   'turn.completed',
+  // #1525 W2 Half 1 — per-subagent output-token total emitted by the restored
+  // SubagentStop hook (`cli-commands/subagent-stop.ts`). The handler parses the
+  // subagent's own transcript, sums output tokens, and resolves teammate identity
+  // by matching the subagent cwd to a dispatched worktree before appending to the
+  // feature stream. Folded by team-performance / delegation-timeline.
+  'subagent.tokens_used',
   'benchmark.completed',
   'team.spawned',
   'team.task.assigned',
@@ -359,6 +365,8 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'tool.action_errored': 'auto',
   // #1262 — auto-emitted by telemetry middleware on agent-turn boundary.
   'turn.completed': 'auto',
+  // #1525 — hook-owned append (the SubagentStop handler emits it), like turn.completed.
+  'subagent.tokens_used': 'auto',
   'quality.hint.generated': 'auto',
   'quality.refinement.suggested': 'auto',
   'stack.position-filled': 'auto',
@@ -987,6 +995,24 @@ export const TurnCompletedDataSchema = z.object({
   outputTokens: z.number().nonnegative().describe('Total output tokens consumed by the turn.'),
 }).passthrough();
 export type TurnCompletedData = z.infer<typeof TurnCompletedDataSchema>;
+
+// #1525 W2 Half 1 — per-subagent output-token total, emitted by the restored
+// SubagentStop hook. The hook resolves teammate identity (teammateName/taskId)
+// by matching the subagent's `cwd` to a dispatched worktree on the feature stream
+// before appending, so the projection fold stays a clean single-stream left-fold.
+// `teammateName`/`taskId` are optional: a non-worktree-isolated subagent has an
+// ambiguous (shared) cwd and degrades to agentType-only attribution (INV-4).
+// `.passthrough()` keeps room for future per-subagent samples (cache tokens, etc).
+export const SubagentTokensUsedDataSchema = z.object({
+  agentId: z.string().min(1).describe('Stable subagent invocation id from the SubagentStop hook (agent_id).'),
+  outputTokens: z.number().int().nonnegative().describe('Summed output tokens across the subagent\'s own transcript.'),
+  agentType: z.string().optional().describe('Subagent type/name (agent_type), e.g. "exarchos-implementer".'),
+  teammateName: z.string().optional().describe('Resolved teammate name when the subagent cwd matched a dispatched worktree.'),
+  taskId: z.string().optional().describe('Resolved task id from the matching team dispatch.'),
+  sessionId: z.string().optional().describe('Parent session id (subagents share the parent session).'),
+  cwd: z.string().optional().describe('Subagent working directory; the worktree path for isolated teammates.'),
+}).passthrough();
+export type SubagentTokensUsedData = z.infer<typeof SubagentTokensUsedDataSchema>;
 
 // ─── Benchmark Event Data ───────────────────────────────────────────────────
 
@@ -2284,6 +2310,7 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'tool.action_errored': ToolActionErroredData,
   // #1262 — per-turn output-token sample (CodeRabbit F2 on PR #1409).
   'turn.completed': TurnCompletedDataSchema,
+  'subagent.tokens_used': SubagentTokensUsedDataSchema,
 
   // Benchmark
   'benchmark.completed': BenchmarkCompletedData,
