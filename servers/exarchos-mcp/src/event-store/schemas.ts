@@ -1494,8 +1494,9 @@ export const MergeRequestedData = z.object({
 /**
  * merge.executed — records that a merge has been performed. `mergeSha` is
  * the resulting commit on the target branch; `rollbackSha` is the parent
- * commit captured prior to merge so a downstream rollback handler can
- * `git reset --hard <rollbackSha>` deterministically.
+ * commit captured prior to merge so a downstream rollback handler can rewind
+ * to it deterministically via the INV-14 ladder (`git merge --abort` →
+ * `git reset --keep <rollbackSha>`, never `--hard`).
  */
 export const MergeExecutedData = z.object({
   taskId: z.string().optional(),
@@ -1512,9 +1513,10 @@ export const MergeExecutedData = z.object({
  * merge.rollback — emitted when a merge is reverted. `reason` is a closed
  * enum so observability dashboards don't fragment across free-form text.
  * Preflight failures are NOT a rollback cause — they short-circuit before
- * any merge occurs. `rollbackError` carries the reset-failure detail when
- * `git reset --hard <rollbackSha>` itself failed: presence signals the
- * worktree may be in an indeterminate state, so consumers can page operators.
+ * any merge occurs. `rollbackError` carries the human-readable recovery-failure
+ * detail (paired with the `recoveryError` discriminator below) when the INV-14
+ * recovery ladder did not land cleanly: presence signals the worktree may be in
+ * an indeterminate state, so consumers can page operators.
  */
 export const MergeRollbackData = z.object({
   taskId: z.string().optional(),
@@ -1525,12 +1527,12 @@ export const MergeRollbackData = z.object({
   rollbackError: z.string().min(1).optional(),
   // INV-14 discriminator on the recovery outcome — distinguishes the three
   // cases the invariant names so downstream observability sees indeterminate
-  // worktrees explicitly rather than as silent successes. Reserved values
-  // not yet emitted: `'reset-keep-blocked'` requires the producer to attempt
-  // `git reset --keep` before falling back; `'unexpected-mid-merge-drift'`
-  // requires a post-merge drift check. The current producer in
-  // `pure/execute-merge.ts` uses `git reset --hard` and emits `'reset-failed'`
-  // when the reset itself exits non-zero. Tracking ticket: see INV-14 in
+  // worktrees explicitly rather than as silent successes. The producer in
+  // `pure/execute-merge.ts` runs the full ladder (`git merge --abort` →
+  // `git reset --keep <rollbackSha>`, never `--hard`) and emits:
+  // `'reset-keep-blocked'` when `reset --keep` refuses to discard local work,
+  // `'reset-failed'` when the reset errors, and `'unexpected-mid-merge-drift'`
+  // when HEAD ≠ the anchor after recovery. See INV-14 in
   // `.exarchos/invariants.md` for the full primitive-ordering contract.
   recoveryError: z
     .enum(['reset-keep-blocked', 'reset-failed', 'unexpected-mid-merge-drift'])

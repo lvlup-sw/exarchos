@@ -131,7 +131,10 @@ describe('executeMerge', () => {
       if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
         return { stdout: 'abc\n', exitCode: 0 };
       }
-      if (args[0] === 'reset' && args[1] === '--hard') {
+      if (args[0] === 'merge' && args[1] === '--abort') {
+        return { stdout: '', exitCode: 0 };
+      }
+      if (args[0] === 'reset' && args[1] === '--keep') {
         return { stdout: '', exitCode: 0 };
       }
       throw new Error(`unexpected git args: ${args.join(' ')}`);
@@ -156,7 +159,11 @@ describe('executeMerge', () => {
       rollbackSha: 'abc',
       reason: 'merge-failed',
     });
-    expect(gitCalls).toContainEqual(['reset', '--hard', 'abc']);
+    // INV-14: native primitive first (`git merge --abort`), then refuse-to-discard
+    // substrate undo (`git reset --keep`). NEVER the destructive `--hard`.
+    expect(gitCalls).toContainEqual(['merge', '--abort']);
+    expect(gitCalls).toContainEqual(['reset', '--keep', 'abc']);
+    expect(gitCalls.some((c) => c[0] === 'reset' && c[1] === '--hard')).toBe(false);
   });
 
   it('executeMerge_VerificationFails_ReasonVerificationFailed', async () => {
@@ -165,7 +172,10 @@ describe('executeMerge', () => {
       if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
         return { stdout: 'abc\n', exitCode: 0 };
       }
-      if (args[0] === 'reset' && args[1] === '--hard') {
+      if (args[0] === 'merge' && args[1] === '--abort') {
+        return { stdout: '', exitCode: 0 };
+      }
+      if (args[0] === 'reset' && args[1] === '--keep') {
         return { stdout: '', exitCode: 0 };
       }
       throw new Error(`unexpected git args: ${args.join(' ')}`);
@@ -198,7 +208,10 @@ describe('executeMerge', () => {
       if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
         return { stdout: 'abc\n', exitCode: 0 };
       }
-      if (args[0] === 'reset' && args[1] === '--hard') {
+      if (args[0] === 'merge' && args[1] === '--abort') {
+        return { stdout: '', exitCode: 0 };
+      }
+      if (args[0] === 'reset' && args[1] === '--keep') {
         return { stdout: '', exitCode: 0 };
       }
       throw new Error(`unexpected git args: ${args.join(' ')}`);
@@ -228,15 +241,21 @@ describe('executeMerge', () => {
   });
 
   it('executeMerge_RollbackPath_AfterReset_PhaseRolledBack', async () => {
-    // Ordering: git reset --hard <sha> must execute BEFORE the rolled-back result is returned.
+    // INV-14 ordering: `git merge --abort` (native primitive) then
+    // `git reset --keep <sha>` (substrate undo) must run BEFORE the rolled-back
+    // result is returned — and `--hard` must never be invoked.
     const calls: string[] = [];
     const gitExec: GitExec = vi.fn((_repoRoot: string, args: readonly string[]) => {
       if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
         calls.push('rev-parse-HEAD');
         return { stdout: 'abc\n', exitCode: 0 };
       }
-      if (args[0] === 'reset' && args[1] === '--hard') {
-        calls.push(`reset-hard-${args[2]}`);
+      if (args[0] === 'merge' && args[1] === '--abort') {
+        calls.push('merge-abort');
+        return { stdout: '', exitCode: 0 };
+      }
+      if (args[0] === 'reset' && args[1] === '--keep') {
+        calls.push(`reset-keep-${args[2]}`);
         return { stdout: '', exitCode: 0 };
       }
       throw new Error(`unexpected git args: ${args.join(' ')}`);
@@ -259,29 +278,33 @@ describe('executeMerge', () => {
       repoRoot: '/some/repo',
     });
 
-    // Reset must happen before the result is finalized.
-    const resetIdx = calls.indexOf('reset-hard-abc');
+    // Recovery happens before finalize; native primitive precedes substrate undo.
+    const abortIdx = calls.indexOf('merge-abort');
+    const resetIdx = calls.indexOf('reset-keep-abc');
     const mergeIdx = calls.indexOf('vcsMerge-rejects');
-    expect(resetIdx).toBeGreaterThan(-1);
     expect(mergeIdx).toBeGreaterThan(-1);
-    expect(resetIdx).toBeGreaterThan(mergeIdx);
+    expect(abortIdx).toBeGreaterThan(mergeIdx);
+    expect(resetIdx).toBeGreaterThan(abortIdx);
     expect(result.phase).toBe('rolled-back');
     if (result.phase === 'rolled-back') {
       expect(result.rollbackSha).toBe('abc');
     }
   });
 
-  it('executeMerge_ResetExitsNonZero_SurfacesRollbackError', async () => {
-    // When the rollback `git reset --hard` itself fails, the working tree is
-    // stranded. The handler must NOT silently return phase: 'rolled-back' as
-    // if rollback succeeded — it must surface a `rollbackError` field so the
-    // caller can escalate to operator intervention.
+  it('executeMerge_ResetKeepExitsNonZero_SurfacesResetKeepBlocked', async () => {
+    // When `git reset --keep` refuses (exits non-zero) rather than discard
+    // local work, the worktree is indeterminate but NON-destructive. INV-14's
+    // 'reset-keep-blocked' case — surfaced so callers escalate, not silently
+    // treated as a clean rollback.
     const gitExec: GitExec = vi.fn((_repoRoot: string, args: readonly string[]) => {
       if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
         return { stdout: 'abc\n', exitCode: 0 };
       }
-      if (args[0] === 'reset' && args[1] === '--hard') {
-        return { stdout: '', exitCode: 128 };
+      if (args[0] === 'merge' && args[1] === '--abort') {
+        return { stdout: '', exitCode: 0 };
+      }
+      if (args[0] === 'reset' && args[1] === '--keep') {
+        return { stdout: 'error: would overwrite untracked file', exitCode: 128 };
       }
       throw new Error(`unexpected git args: ${args.join(' ')}`);
     });
@@ -304,18 +327,22 @@ describe('executeMerge', () => {
     if (result.phase === 'rolled-back') {
       expect(result.rollbackSha).toBe('abc');
       expect(result.reason).toBe('merge-failed');
+      expect(result.recoveryError).toBe('reset-keep-blocked');
       expect(result.rollbackError).toMatch(/exited 128/);
     }
   });
 
-  it('executeMerge_ResetThrows_SurfacesRollbackError', async () => {
-    // Same contract as above when gitExec throws (rather than returns a
-    // non-zero exitCode).
+  it('executeMerge_ResetKeepThrows_SurfacesResetFailed', async () => {
+    // When `git reset --keep` itself throws (e.g. git missing), the worktree is
+    // indeterminate — INV-14's 'reset-failed' case.
     const gitExec: GitExec = vi.fn((_repoRoot: string, args: readonly string[]) => {
       if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
         return { stdout: 'abc\n', exitCode: 0 };
       }
-      if (args[0] === 'reset' && args[1] === '--hard') {
+      if (args[0] === 'merge' && args[1] === '--abort') {
+        return { stdout: '', exitCode: 0 };
+      }
+      if (args[0] === 'reset' && args[1] === '--keep') {
         throw new Error('git binary missing');
       }
       throw new Error(`unexpected git args: ${args.join(' ')}`);
@@ -337,7 +364,48 @@ describe('executeMerge', () => {
 
     expect(result.phase).toBe('rolled-back');
     if (result.phase === 'rolled-back') {
+      expect(result.recoveryError).toBe('reset-failed');
       expect(result.rollbackError).toMatch(/git binary missing/);
+    }
+  });
+
+  it('executeMerge_RecoveryLeavesDrift_SurfacesUnexpectedMidMergeDrift', async () => {
+    // `git merge --abort` + `git reset --keep` both report success (exit 0) but
+    // HEAD does NOT land on the rollback anchor — INV-14's indeterminate
+    // post-recovery case. First rev-parse records the anchor; the post-recovery
+    // drift check sees a different sha.
+    let headCall = 0;
+    const gitExec: GitExec = vi.fn((_repoRoot: string, args: readonly string[]) => {
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        headCall += 1;
+        return { stdout: headCall === 1 ? 'abc\n' : 'deadbeef\n', exitCode: 0 };
+      }
+      if (args[0] === 'merge' && args[1] === '--abort') {
+        return { stdout: '', exitCode: 0 };
+      }
+      if (args[0] === 'reset' && args[1] === '--keep') {
+        return { stdout: '', exitCode: 0 };
+      }
+      throw new Error(`unexpected git args: ${args.join(' ')}`);
+    });
+    const vcsMerge = vi.fn(async () => {
+      throw new Error('merge conflict');
+    });
+    const persistState = vi.fn(async () => {});
+
+    const result = await executeMerge({
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      strategy: 'squash',
+      gitExec,
+      vcsMerge,
+      persistState,
+      repoRoot: '/some/repo',
+    });
+
+    expect(result.phase).toBe('rolled-back');
+    if (result.phase === 'rolled-back') {
+      expect(result.recoveryError).toBe('unexpected-mid-merge-drift');
     }
   });
 });

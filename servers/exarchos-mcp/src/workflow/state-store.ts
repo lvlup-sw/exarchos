@@ -845,6 +845,7 @@ function applyEventToState(
         ...(data.targetBranch !== undefined ? { targetBranch: data.targetBranch } : {}),
         ...(data.rollbackSha !== undefined ? { rollbackSha: data.rollbackSha } : {}),
         ...(data.reason !== undefined ? { reason: data.reason } : {}),
+        ...(data.recoveryError !== undefined ? { recoveryError: data.recoveryError } : {}),
         ...(data.rollbackError !== undefined ? { rollbackError: data.rollbackError } : {}),
       };
       state.updatedAt = event.timestamp;

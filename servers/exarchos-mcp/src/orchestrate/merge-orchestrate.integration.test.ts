@@ -365,9 +365,11 @@ describe('Merge orchestrator happy timeline (T23, DR-MO-1, DR-MO-2)', () => {
 // ───────────────────────────────────────────────────────────────────────────
 
 /**
- * Build a `gitExec` stub for the executor's rollback path:
- *   1. `git rev-parse HEAD` — must return the rollback sha.
- *   2. `git reset --hard <rollbackSha>` — must succeed (exitCode 0).
+ * Build a `gitExec` stub for the executor's INV-14 rollback ladder:
+ *   1. `git rev-parse HEAD` — returns the rollback sha (anchor record + the
+ *      post-recovery drift check both see it, so recovery lands clean).
+ *   2. `git merge --abort` then `git reset --keep <rollbackSha>` — succeed (the
+ *      catch-all returns exitCode 0). `--hard` is never invoked.
  */
 function makeGitExecForRollback(): (
   repoRoot: string,
@@ -377,9 +379,7 @@ function makeGitExecForRollback(): (
     if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
       return { stdout: `${ROLLBACK_SHA}\n`, exitCode: 0 };
     }
-    if (args[0] === 'reset' && args[1] === '--hard') {
-      return { stdout: '', exitCode: 0 };
-    }
+    // `git merge --abort` / `git reset --keep <rollbackSha>` both succeed here.
     return { stdout: '', exitCode: 0 };
   };
 }
