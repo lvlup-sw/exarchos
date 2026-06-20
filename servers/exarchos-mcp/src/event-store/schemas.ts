@@ -1005,7 +1005,7 @@ export type TurnCompletedData = z.infer<typeof TurnCompletedDataSchema>;
 // `.passthrough()` keeps room for future per-subagent samples (cache tokens, etc).
 export const SubagentTokensUsedDataSchema = z.object({
   agentId: z.string().min(1).describe('Stable subagent invocation id from the SubagentStop hook (agent_id).'),
-  outputTokens: z.number().nonnegative().describe('Summed output tokens across the subagent\'s own transcript.'),
+  outputTokens: z.number().int().nonnegative().describe('Summed output tokens across the subagent\'s own transcript.'),
   agentType: z.string().optional().describe('Subagent type/name (agent_type), e.g. "exarchos-implementer".'),
   teammateName: z.string().optional().describe('Resolved teammate name when the subagent cwd matched a dispatched worktree.'),
   taskId: z.string().optional().describe('Resolved task id from the matching team dispatch.'),

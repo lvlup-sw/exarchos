@@ -650,4 +650,24 @@ describe('CodeQualityView - mutation-score trend (W2-6, #1525)', () => {
     expect(state.skills['delegation']).toBeDefined();
     expect(state.skills['delegation'].mutationScoreTrend).toBeUndefined();
   });
+
+  it('CodeQuality_NonMutationGateWithNumericMutationScore_IsIgnored', () => {
+    // Defensive (#1560): only the mutation-adequacy gate may feed the trend.
+    // Even if another gate ever carries a numeric `mutationScore` in details,
+    // the fold is gated on gateName — not the mere presence of a numeric field —
+    // so it must not contaminate the per-skill trend.
+    let state: CodeQualityViewState = codeQualityProjection.init();
+    state = codeQualityProjection.apply(
+      state,
+      makeEvent('gate.executed', {
+        gateName: 'check_static_analysis',
+        layer: 'build',
+        passed: true,
+        details: { skill: 'delegation', mutationScore: 0.95 },
+      }, 1),
+    );
+
+    expect(state.skills['delegation']).toBeDefined();
+    expect(state.skills['delegation'].mutationScoreTrend).toBeUndefined();
+  });
 });

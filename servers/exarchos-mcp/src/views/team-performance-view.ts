@@ -17,10 +17,10 @@ export interface TeammateMetrics {
   // #1525 — token telemetry, folded from subagent.tokens_used atoms emitted by
   // the SubagentStop hook (attributed to this teammate by worktree↔cwd match).
   // `subagentRuns` is the number of token atoms folded (≈ subagent invocations);
-  // `avgOutputTokensPerTask` = totalOutputTokens / subagentRuns (order-independent).
+  // `avgOutputTokensPerRun` = totalOutputTokens / subagentRuns (order-independent).
   totalOutputTokens: number;
   subagentRuns: number;
-  avgOutputTokensPerTask: number;
+  avgOutputTokensPerRun: number;
 }
 
 export interface ModuleMetrics {
@@ -68,7 +68,7 @@ function defaultTeammate(): TeammateMetrics {
     qualityGatePassRate: 0,
     totalOutputTokens: 0,
     subagentRuns: 0,
-    avgOutputTokensPerTask: 0,
+    avgOutputTokensPerRun: 0,
   };
 }
 
@@ -150,7 +150,7 @@ export const teamPerformanceProjection: ViewProjection<TeamPerformanceViewState>
           // that may arrive before or after this event — carry it forward verbatim.
           totalOutputTokens: prev.totalOutputTokens,
           subagentRuns: prev.subagentRuns,
-          avgOutputTokensPerTask: prev.avgOutputTokensPerTask,
+          avgOutputTokensPerRun: prev.avgOutputTokensPerRun,
         };
 
         // Update module metrics
@@ -198,7 +198,7 @@ export const teamPerformanceProjection: ViewProjection<TeamPerformanceViewState>
               ...prev,
               totalOutputTokens,
               subagentRuns,
-              avgOutputTokensPerTask: totalOutputTokens / subagentRuns,
+              avgOutputTokensPerRun: totalOutputTokens / subagentRuns,
             },
           },
         };

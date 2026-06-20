@@ -23,14 +23,25 @@
 // seam; runtimes without this hook simply produce no atoms and the views fold
 // what exists (empty per-teammate metrics, never an error).
 
+import { z } from 'zod';
 import type { CommandResult } from './types.js';
 import { EventStore } from '../event-store/store.js';
 import { parseTranscript } from '../session/transcript-parser.js';
 import type { SessionSummaryEvent } from '../session/types.js';
 
-function asString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.length > 0 ? value : undefined;
-}
+// Input contract for the SubagentStop hook payload. Only `agent_id` +
+// `agent_transcript_path` are load-bearing; the rest aid attribution. Parsed
+// with safeParse so a malformed payload degrades fail-open (never throws, never
+// blocks). `.passthrough()` tolerates extra hook fields without rejecting.
+const SubagentStopInputSchema = z
+  .object({
+    agent_id: z.string().min(1),
+    agent_transcript_path: z.string().min(1),
+    cwd: z.string().min(1).optional(),
+    session_id: z.string().min(1).optional(),
+    agent_type: z.string().min(1).optional(),
+  })
+  .passthrough();
 
 /** Resolved teammate identity + the feature stream the atom belongs on. */
 export interface ResolvedTeammate {
@@ -41,10 +52,14 @@ export interface ResolvedTeammate {
 
 /**
  * Resolve a teammate (and the feature stream) by matching a subagent's working
- * directory to a dispatched worktree. Scans every stream for a
- * `team.task.assigned` (preferred — carries `taskId`) or `team.teammate.dispatched`
- * whose `worktreePath` equals `cwd`. Returns null when nothing matches — the
- * caller treats that as "cannot attribute" and skips the emission.
+ * directory to a dispatched worktree. Scans every stream for `team.task.assigned`
+ * (preferred — carries `taskId`) or `team.teammate.dispatched` events whose
+ * `worktreePath` equals `cwd`, and returns the MOST RECENT match by
+ * (timestamp, sequence). Latest-wins matters because a worktree path can be
+ * reused across features over time, so the first match is not necessarily the
+ * current owner — taking the first would misattribute tokens to a stale stream
+ * (#1560 review). Returns null when nothing matches — the caller treats that as
+ * "cannot attribute" and skips the emission.
  *
  * Clean attribution requires worktree-isolated dispatch (so `cwd` is unique to the
  * teammate). A non-isolated subagent shares the parent `cwd`, which matches no
@@ -54,35 +69,60 @@ export async function resolveTeammateByWorktree(
   eventStore: EventStore,
   cwd: string,
 ): Promise<ResolvedTeammate | null> {
+  interface Candidate {
+    readonly featureId: string;
+    readonly teammateName: string;
+    readonly taskId?: string;
+    readonly timestamp: string;
+    readonly sequence: number;
+  }
+  const candidates: Candidate[] = [];
+
   for (const streamId of eventStore.listStreams()) {
     const assigned = await eventStore.query(streamId, { type: 'team.task.assigned' });
-    const a = assigned.find(
-      (e) => (e.data as { worktreePath?: unknown } | undefined)?.worktreePath === cwd,
-    );
-    if (a) {
-      const d = a.data as { teammateName?: string; taskId?: string };
-      if (d.teammateName) {
-        return d.taskId !== undefined
-          ? { featureId: streamId, teammateName: d.teammateName, taskId: d.taskId }
-          : { featureId: streamId, teammateName: d.teammateName };
+    for (const e of assigned) {
+      const d = e.data as { worktreePath?: unknown; teammateName?: string; taskId?: string } | undefined;
+      if (d?.worktreePath === cwd && d.teammateName) {
+        candidates.push({
+          featureId: streamId,
+          teammateName: d.teammateName,
+          ...(d.taskId !== undefined ? { taskId: d.taskId } : {}),
+          timestamp: e.timestamp,
+          sequence: e.sequence,
+        });
       }
     }
 
     const dispatched = await eventStore.query(streamId, { type: 'team.teammate.dispatched' });
-    const t = dispatched.find(
-      (e) => (e.data as { worktreePath?: unknown } | undefined)?.worktreePath === cwd,
-    );
-    if (t) {
-      const d = t.data as { teammateName?: string; assignedTaskIds?: string[] };
-      if (d.teammateName) {
+    for (const e of dispatched) {
+      const d = e.data as { worktreePath?: unknown; teammateName?: string; assignedTaskIds?: string[] } | undefined;
+      if (d?.worktreePath === cwd && d.teammateName) {
         const firstTask = d.assignedTaskIds?.[0];
-        return firstTask !== undefined
-          ? { featureId: streamId, teammateName: d.teammateName, taskId: firstTask }
-          : { featureId: streamId, teammateName: d.teammateName };
+        candidates.push({
+          featureId: streamId,
+          teammateName: d.teammateName,
+          ...(firstTask !== undefined ? { taskId: firstTask } : {}),
+          timestamp: e.timestamp,
+          sequence: e.sequence,
+        });
       }
     }
   }
-  return null;
+
+  if (candidates.length === 0) return null;
+
+  // Later timestamp wins; ties break by sequence, then prefer a candidate that
+  // carries a taskId (team.task.assigned) over one that does not.
+  const isBetter = (c: Candidate, b: Candidate): boolean => {
+    if (c.timestamp !== b.timestamp) return c.timestamp > b.timestamp;
+    if (c.sequence !== b.sequence) return c.sequence > b.sequence;
+    return c.taskId !== undefined && b.taskId === undefined;
+  };
+  const chosen = candidates.reduce((best, c) => (isBetter(c, best) ? c : best));
+
+  return chosen.taskId !== undefined
+    ? { featureId: chosen.featureId, teammateName: chosen.teammateName, taskId: chosen.taskId }
+    : { featureId: chosen.featureId, teammateName: chosen.teammateName };
 }
 
 /** Default token source: sum `output_tokens` across the subagent's own transcript. */
@@ -127,13 +167,17 @@ export async function handleSubagentStop(
   // Observe-only: a single fail-open return shape. Never block the subagent.
   const ok: CommandResult = { continue: true };
 
-  const agentId = asString(input.agent_id);
-  const transcriptPath = asString(input.agent_transcript_path);
-  if (!agentId || !transcriptPath) return ok;
-
-  const cwd = asString(input.cwd);
-  const sessionId = asString(input.session_id);
-  const agentType = asString(input.agent_type);
+  // Validate the hook payload at the boundary. A malformed payload (missing the
+  // load-bearing agent_id / transcript path) degrades fail-open.
+  const parsed = SubagentStopInputSchema.safeParse(input);
+  if (!parsed.success) return ok;
+  const {
+    agent_id: agentId,
+    agent_transcript_path: transcriptPath,
+    cwd,
+    session_id: sessionId,
+    agent_type: agentType,
+  } = parsed.data;
 
   // 1. Sum the subagent's own output tokens.
   const readTokens = deps.readTranscriptOutputTokens ?? defaultReadTranscriptOutputTokens;
@@ -144,6 +188,11 @@ export async function handleSubagentStop(
     return ok;
   }
   if (outputTokens === null) return ok;
+  // A zero-token run carries no usage signal to attribute. The run itself is
+  // already recorded by team.teammate.dispatched / team.task.completed, so
+  // skipping the atom keeps the token metrics clean without losing provenance
+  // (#1560 review).
+  if (outputTokens === 0) return ok;
 
   // 2. Resolve teammate identity + target feature stream by worktree↔cwd.
   // 3. Append the correctly-sourced atom. Any failure → fail-open.

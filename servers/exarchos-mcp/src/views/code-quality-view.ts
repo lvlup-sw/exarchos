@@ -231,9 +231,13 @@ function handleGateExecuted(state: InternalState, event: WorkflowEvent): CodeQua
   const commit = typeof details.commit === 'string' ? details.commit : undefined;
   const reason = typeof details.reason === 'string' ? details.reason : undefined;
   const promptVersion = typeof details.promptVersion === 'string' ? details.promptVersion : undefined;
-  // #1525 — the mutation-adequacy gate carries a numeric score in details; any
-  // other gate omits it and leaves the per-skill mutation trend untouched.
-  const mutationScore = typeof details.mutationScore === 'number' ? details.mutationScore : undefined;
+  // #1525 — ONLY the mutation-adequacy gate's numeric score feeds the per-skill
+  // mutation trend. Gating on gateName (not just presence of a numeric field)
+  // prevents cross-gate contamination if any other gate ever carries a
+  // `mutationScore` key in its details.
+  const mutationScore = gateName === 'mutation-adequacy' && typeof details.mutationScore === 'number'
+    ? details.mutationScore
+    : undefined;
 
   // Update gate metrics
   const prevGate = state.gates[gateName] ?? defaultGateMetrics(gateName);

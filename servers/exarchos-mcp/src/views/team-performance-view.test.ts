@@ -249,7 +249,7 @@ describe('TeamPerformanceView', () => {
       expect(alice).toBeDefined();
       expect(alice.totalOutputTokens).toBe(4000);
       expect(alice.subagentRuns).toBe(2);
-      expect(alice.avgOutputTokensPerTask).toBe(2000);
+      expect(alice.avgOutputTokensPerRun).toBe(2000);
     });
 
     it('TeamPerformance_TokenAtom_SurvivesSubsequentTaskCompleted', () => {

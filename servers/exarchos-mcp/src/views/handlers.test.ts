@@ -111,10 +111,10 @@ describe('View Handlers', () => {
       const result = await handleViewTeamPerformance({ workflowId: 'tok-wf' }, tmpDir, store);
       expect(result.success).toBe(true);
       const data = result.data as {
-        teammates: Record<string, { totalOutputTokens?: number; avgOutputTokensPerTask?: number }>;
+        teammates: Record<string, { totalOutputTokens?: number; avgOutputTokensPerRun?: number }>;
       };
       expect(data.teammates['worker-1']?.totalOutputTokens).toBe(1234);
-      expect(data.teammates['worker-1']?.avgOutputTokensPerTask).toBe(1234);
+      expect(data.teammates['worker-1']?.avgOutputTokensPerRun).toBe(1234);
     });
   });
 

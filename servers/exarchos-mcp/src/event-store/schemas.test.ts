@@ -592,9 +592,11 @@ describe('EventTypes', () => {
     });
     expect(full.success).toBe(true);
 
-    // Reject missing agentId / negative tokens.
+    // Reject missing agentId / negative tokens / fractional tokens (#1560 — token
+    // counts are integers; fractional values would corrupt downstream aggregates).
     expect(schema!.safeParse({ outputTokens: 10 }).success).toBe(false);
     expect(schema!.safeParse({ agentId: 'a', outputTokens: -1 }).success).toBe(false);
+    expect(schema!.safeParse({ agentId: 'a', outputTokens: 12.5 }).success).toBe(false);
   });
 
   it('eventSchemas_PhaseEnteredExited_ValidateAndRegister', () => {
