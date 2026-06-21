@@ -265,17 +265,21 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   # grep-gates
   # ─────────────────────────────────────────────────────────────────────
-  # Fast pre-test layering checks that enforce two architectural
-  # invariants from #1342 P1.D / P1.E:
+  # Fast pre-test structural checks that enforce architectural invariants
+  # by scanning servers/exarchos-mcp/src — no full install, no build:
   #
   #   1. `withSession({...})` calls in production code must include
   #      `operationId` or `allowNonIdempotent: true` (#1342 P1.D).
   #   2. The literal `BEGIN IMMEDIATE` may only appear inside the SQLite
   #      substrate (`storage/`, `event-store/`); leakage into application
   #      code is a layering violation (#1342 P1.E).
+  #   3. Event-sourcing read-path gates (v2.11.0 Wave 3): the upcast
+  #      choke-point (#1556), no raw `.state.json` IO (#1504), a single
+  #      canonical workflow-state fold (#1554), and event-store access only
+  #      via the composition root. Zero-dependency node scripts.
   #
-  # Both gates are pure bash + grep — no install step, ~5s expected runtime.
-  # Blocking gate via the `ci-gate` aggregator below.
+  # The #1342 gates are pure bash + grep; the Wave-3 gates are pure node
+  # (built-ins only). Blocking gate via the `ci-gate` aggregator below.
   # ─────────────────────────────────────────────────────────────────────
   grep-gates:
     name: Grep Gates (idempotency + substrate)
@@ -289,6 +293,27 @@ jobs:
 
       - name: BEGIN IMMEDIATE substrate-only (#1342 P1.E)
         run: bash scripts/check-begin-immediate-substrate.sh servers/exarchos-mcp/src
+
+      # Event-sourcing read-path structural gates (v2.11.0 Wave 3). Each is a
+      # zero-dependency node script that scans servers/exarchos-mcp/src for an
+      # architectural violation and exits non-zero on a regression. These
+      # previously ran only via `npm run validate`, which no workflow invoked —
+      # so a real regression in the event-store read path would have passed CI.
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Upcast choke-point — migrateEvents at the read seam (#1556)
+        run: node scripts/check-query-upcast-choke-point.mjs
+
+      - name: No raw .state.json read/write in production (#1504)
+        run: node scripts/check-no-state-json.mjs
+
+      - name: Single workflow-state fold — one canonical reducer (#1554)
+        run: node scripts/check-single-workflow-fold.mjs
+
+      - name: Event-store access via composition root (#1342)
+        run: node scripts/check-event-store-composition-root.mjs
 
       - name: npm-ci-retry helper tests
         run: bash scripts/npm-ci-retry.test.sh

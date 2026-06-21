@@ -1,6 +1,6 @@
 # Field-Coverage Audit — #1504 delete legacy `.state.json` (SQLite as sole SoT)
 
-> **Date:** 2026-06-20 · **Gate for:** #1504 (W3 / `v2-11-w3-es-read-path`) · **Verdict:** **NOT SAFE TO DELETE TODAY** — one hard blocker + a `state.patched`-coverage precondition.
+> **Date:** 2026-06-20 · **Gate for:** #1504 (W3 / `v2-11-w3-es-read-path`) · **Verdict (at audit time):** **NOT SAFE TO DELETE TODAY** — one hard blocker + a `state.patched`-coverage precondition. · **RESOLVED — see Addenda 2–3:** the `mergeOrchestrator` fold gap was closed (`merge.*` folded into `workflowStateProjection`, `mergeOrchestrator` added to `WorkflowStateView`), event-store-first shipped green, and the equivalence proof (`resolve-state.test.ts` `diffStates`) passes. The headline finding below is preserved as the original at-audit-time record.
 >
 > Coverage of every field the `.state.json` schema (`WorkflowState`, `workflow/schemas.ts`) permits against what `workflowStateProjection` (`views/workflow-state-projection.ts`) reconstructs from events. This audit is the gate the design (`docs/designs/2026-06-20-w3-event-sourcing-read-path.md` §3.2) places before any deletion.
 
