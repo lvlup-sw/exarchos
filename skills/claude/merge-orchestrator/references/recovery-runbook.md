@@ -35,9 +35,11 @@ Inspect each guard field in order (the orchestrator evaluates them in this prece
 
 After resolving the underlying condition, re-invoke `merge_orchestrate` with the same arguments. The fresh dispatch re-runs preflight; if all guards now pass, the executor proceeds.
 
-## `phase: 'rolled-back'` — merge attempted, reverted
+## `phase: 'rolled-back'` — merge attempted, recovered
 
-The executor recorded the rollback SHA, attempted the merge, the merge or post-merge verification failed, and `git reset --hard <rollbackSha>` ran. The integration branch is restored to its pre-merge state.
+> The phase value is still `rolled-back` — a load-bearing state token intentionally unchanged by the #1306 recovery reframe. The *behavior* it describes is recovery to the recorded recovery point.
+
+The executor recorded the recovery point, attempted the merge, the merge or post-merge verification failed, and the INV-14 recovery ladder (`git merge --abort` → `git reset --keep <recoveryPointSha>`, never `--hard`) ran. The integration branch is rewound to its pre-merge state.
 
 ### Diagnose
 
@@ -49,28 +51,32 @@ Check `data.reason`:
 | `verification-failed` | Post-merge verification step rejected the merge | Custom verification adapter detected a problem (rare in default config) |
 | `timeout` | Underlying operation exceeded the 120s timeout | Repo size, slow disk, lock contention |
 
-### Then check `data.rollbackError`
+### Then check `data.recoveryError` / `data.recoveryErrorDetail`
 
-If present, the reset itself failed and **the working tree is stranded**. The integration branch may not be back at the recorded `rollbackSha`. This is a critical condition requiring manual intervention:
+If present, the recovery itself failed and **the working tree is stranded**. The integration branch may not be back at the recorded recovery point. `data.recoveryError` is the INV-14 discriminator (`reset-keep-blocked` / `reset-failed` / `unexpected-mid-merge-drift`) and `data.recoveryErrorDetail` is the human-readable detail. This is a critical condition requiring manual intervention:
 
 ```bash
 # Verify current state
 git status
 git log --oneline -5
 
-# If the integration branch is in an unexpected state:
+# If the integration branch is in an unexpected state, rewind it to the
+# recovery point. Prefer --keep (refuse-to-discard); use --hard only if you
+# have already confirmed there is no uncommitted work you need to preserve.
 git checkout <integration-branch>
-git reset --hard <rollbackSha-from-the-event-log>
+git reset --keep <recoveryPointSha-from-the-event-log>
 
-# Where <rollbackSha-from-the-event-log> can be retrieved from the most recent
-# merge.executed (completed run) or merge.rollback (rolled-back run) event:
-exarchos_event query stream=<featureId> filter='{"type":"merge.rollback"}'
-# fall back to merge.executed if no rollback was emitted.
-# (merge.preflight does NOT carry rollbackSha — it runs before the rollback
-# anchor is captured.)
+# Where <recoveryPointSha-from-the-event-log> can be retrieved from the most
+# recent recovery event. Prefer the canonical merge.recovered (#1306), which
+# carries recoveryPointSha; fall back to the legacy merge.rollback, whose
+# rollbackSha wire field holds the same value during the deprecation window:
+exarchos_event query stream=<featureId> filter='{"type":"merge.recovered"}'
+# fall back to merge.rollback, then merge.executed, if no recovery event exists.
+# (merge.preflight does NOT carry the recovery point — it runs before the
+# recovery point is captured.)
 ```
 
-If `rollbackError` is absent, the reset succeeded and the working tree is back to the recorded state — proceed to the conflict-resolution flow below.
+If neither `recoveryError` nor `recoveryErrorDetail` is present, the recovery succeeded and the working tree is back to the recorded state — proceed to the conflict-resolution flow below.
 
 ### Resolve a `merge-failed` outcome
 
@@ -87,6 +93,8 @@ For merge conflicts (most common cause of `merge-failed`):
 // Event first — the repository treats event append as the commit point.
 // Use the same `strategy` the original dispatch was invoked with so the
 // projected state matches what the auto-emit path would have produced.
+// NOTE: the merge.executed EVENT keeps the legacy `rollbackSha` wire field
+// during the v2.11.x deprecation window — supply the recovery-point SHA there.
 mcp__plugin_exarchos_exarchos__exarchos_event({ action: "append", stream: "<featureId>", event: {
   type: "merge.executed",
   data: {
@@ -95,11 +103,14 @@ mcp__plugin_exarchos_exarchos__exarchos_event({ action: "append", stream: "<feat
     targetBranch: "<target>",
     strategy: "<squash|merge|rebase>",
     mergeSha: "<the-manual-merge-commit-sha>",
-    rollbackSha: "<rollbackSha-from-prior-event>",
+    rollbackSha: "<recovery-point-sha-from-prior-event>",
   },
 }});
 
 // Then update workflow state to reflect the terminal phase.
+// The mergeOrchestrator STATE field is `recoveryPointSha` (renamed from
+// `rollbackSha` in #1306 — the state file follows the canonical recovery frame
+// even while the legacy event wire field above does not yet).
 mcp__plugin_exarchos_exarchos__exarchos_workflow({ action: "update", featureId: "<featureId>",
   updates: { mergeOrchestrator: {
     phase: "completed",
@@ -107,7 +118,7 @@ mcp__plugin_exarchos_exarchos__exarchos_workflow({ action: "update", featureId: 
     taskId: "<task-id>",
     strategy: "<squash|merge|rebase>",
     mergeSha: "<the-manual-merge-commit-sha>",
-    rollbackSha: "<rollbackSha-from-prior-event>",
+    recoveryPointSha: "<recovery-point-sha-from-prior-event>",
   } } });
 ```
 

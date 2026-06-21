@@ -8,9 +8,9 @@
 
 ## Overview
 
-Subagent worktrees corrupt during the dispatch -> merge dance, and the team spends substantial cycles untangling failed merges by hand. The pre-existing dispatch guards in `dispatch-guard.ts` (DR-1 ancestry validation, DR-2 worktree assertion) catch some of the upstream causes at delegation time but do nothing about the merge itself: when a subagent's branch lands back on the integration branch, there is no automated preflight, no rollback, and no recovery. This design closes that loop.
+Subagent worktrees corrupt during the dispatch -> merge dance, and the team spends substantial cycles untangling failed merges by hand. The pre-existing dispatch guards in `dispatch-guard.ts` (DR-1 ancestry validation, DR-2 worktree assertion) catch some of the upstream causes at delegation time but do nothing about the merge itself: when a subagent's branch lands back on the integration branch, there is no automated preflight, no recorded recovery point, and no recovery. This design closes that loop.
 
-The orchestrator is two flat handlers in `orchestrate/`. The first composes existing dispatch guards with a worktree drift check and emits a single preflight event. The second records a rollback SHA, delegates the merge to the existing VCS provider, and resets to the recorded SHA on any failure. Triggering is event-sourcing-native: the HSM defines a transition guarded on `task.completed` for tasks with worktree associations, and the existing `next-action@v1` projection surfaces `merge_orchestrate` as the next required action. Per-runtime delegation skills (post #1181) already direct every supported runtime to consume `next_actions`, so auto-dispatch is portable across Claude / Codex / OpenCode / Cursor / Copilot without any platform-specific hook.
+The orchestrator is two flat handlers in `orchestrate/`. The first composes existing dispatch guards with a worktree drift check and emits a single preflight event. The second records a **recovery point** SHA, performs a local `git merge`, and recovers the integration branch back to the recorded point on any failure. The recovery point is durably persisted *before* the merge mutates any ref — a write-ahead-log discipline borrowed from database transactions: the persisted `executing` state is the WAL record, so a crash between recording the point and completing the merge is recoverable from disk. Triggering is event-sourcing-native: the HSM defines a transition guarded on `task.completed` for tasks with worktree associations, and the existing `next-action@v1` projection surfaces `merge_orchestrate` as the next required action. Per-runtime delegation skills (post #1181) already direct every supported runtime to consume `next_actions`, so auto-dispatch is portable across Claude / Codex / OpenCode / Cursor / Copilot without any platform-specific hook.
 
 ## Reuse audit
 
@@ -23,7 +23,7 @@ The most important section of this design. Each row is a piece of infrastructure
 | Main worktree assertion | `dispatch-guard.ts:147` `assertMainWorktree(cwd?)` | Imported and called as-is. |
 | Composition pattern | `prepare-delegation.ts:295-360` (composes all four guards in sequence) | Followed verbatim. |
 | Multi-VCS provider | `vcs/factory.ts:21` `createVcsProvider({ config: ctx.projectConfig })` (GitHub / GitLab / Azure DevOps) | **Not used by `merge_orchestrate`** — its merge is local-git (#1194). VCS provider remains in use by `merge_pr` and other synthesize-phase remote operations. |
-| Local git merge | `execFileSync('git', ['merge', ...])` via `orchestrate/local-git-merge.ts` (#1194) | Production `vcsMerge` adapter. The executor's recorded `rollbackSha` corresponds to a real local ref the rollback `git reset --hard` can undo. |
+| Local git merge | `execFileSync('git', ['merge', ...])` via `orchestrate/local-git-merge.ts` (#1194) | Production `vcsMerge` adapter. The executor's recorded `recoveryPointSha` corresponds to a real local ref the recovery ladder (`git merge --abort` → `git reset --keep`) can rewind to. |
 | Worktree validation pattern | `verify-worktree.ts`, `verify-worktree-baseline.ts` | Drift detection extends this pattern in-place; no parallel module. |
 | Git command exec | `setup-worktree.ts:32` `gitExec(repoRoot, args)` helper using `execFileSync('git', ['-C', repoRoot, ...])` | Same shape, 120s timeout matching `post-merge.ts:48`. |
 | Event emission | `gate-utils.ts:emitGateEvent(store, featureId, gateName, gateType, passed, payload)` | All five orchestrator events emitted through this. |
@@ -44,14 +44,14 @@ Flat, matching every other handler in `orchestrate/`. No sub-directory.
 servers/exarchos-mcp/src/orchestrate/
   merge-orchestrate.ts            # Composer: preflight -> emit; resumes from WorkflowState.mergeOrchestrator
   merge-orchestrate.test.ts
-  execute-merge.ts                # Executor: record rollback SHA -> local git merge -> reset on failure
+  execute-merge.ts                # Executor: record recovery point SHA -> local git merge -> recover on failure
   execute-merge.test.ts
   local-git-merge.ts              # Production vcsMerge adapter: local `git merge` of source into target (#1194)
-  local-git-merge.test.ts         # Integration: real temp git repos, real merges, rollback round-trip
+  local-git-merge.test.ts         # Integration: real temp git repos, real merges, recovery round-trip
   pure/
     merge-preflight.ts            # Pure composer over dispatch-guard fns + drift detection
     merge-preflight.test.ts
-    execute-merge.ts              # Pure rollback logic (SHA recording, reset decision tree)
+    execute-merge.ts              # Pure recovery logic (recovery-point recording, reset decision tree)
     execute-merge.test.ts
   merge-orchestrate.parity.test.ts  # CLI <-> MCP parity assertion
 ```
@@ -83,12 +83,15 @@ export interface MergePreflightResult {
 ```ts
 // orchestrate/merge-orchestrate.ts
 export interface MergeOrchestrateOutput {
+  // `phase: 'rolled-back'` is the recovery-terminal value — intentionally
+  // retained as-is (the phase string is a load-bearing wire/state token, not
+  // renamed in the #1306 recovery reframe).
   readonly phase: 'preflight' | 'executing' | 'completed' | 'rolled-back' | 'aborted';
   readonly preflight: MergePreflightResult;
   readonly mergeSha?: string;
-  readonly rollbackSha?: string;
+  readonly recoveryPointSha?: string;
   readonly abortReason?: 'preflight-failed';
-  readonly rollbackReason?: 'merge-failed' | 'verification-failed' | 'timeout';
+  readonly recoveryReason?: 'merge-failed' | 'verification-failed' | 'timeout';
 }
 ```
 
@@ -118,11 +121,13 @@ exarchos merge-orchestrate (CLI)     exarchos_orchestrate({action:"merge_orchest
   4. IF !preflight.passed: persist WorkflowState.mergeOrchestrator = { phase: 'aborted', ... }; return
                             v
   5. handleExecuteMerge(args, ctx)                            <- orchestrate/execute-merge.ts
-       a. rollbackSha = git rev-parse HEAD
-       b. persist mergeOrchestrator = { phase: 'executing', rollbackSha, ... }
-       c. delegate to vcs/merge-pr.ts (uses VcsProvider — platform-agnostic)
+       a. recoveryPointSha = git rev-parse HEAD            (the WAL recovery point)
+       b. persist mergeOrchestrator = { phase: 'executing', recoveryPointSha, ... }
+       c. local git merge via buildLocalGitMergeAdapter (#1194)
        d. emitGateEvent('merge.executed', success)
-       e. ON FAILURE: git reset --hard <rollbackSha>; emitGateEvent('merge.rollback', { reason })
+       e. ON FAILURE: recovery ladder (git merge --abort → git reset --keep
+          <recoveryPointSha>, never --hard); dual-emit merge.rollback (legacy)
+          + merge.recovered (successor) { reason } during the v2.11.x window
                             v
   6. persist mergeOrchestrator.phase = 'completed' | 'rolled-back'
                             v
@@ -159,24 +164,24 @@ Composes the existing dispatch guards into a single merge-time check.
 4. All git invocations are injectable via `GitExec` (the existing type from `dispatch-guard.ts`). Tests exercise the composer with no live git.
 5. The preflight pure function lives in `pure/merge-preflight.ts` and contains zero direct `execFileSync` calls; the impure handler injects `gitExec`.
 
-### DR-MO-2: Merge execution with rollback
+### DR-MO-2: Merge execution with recovery
 
-The executor records a recovery point before the merge, performs a *local* `git merge` of source into target, and resets to the recovery point on any failure.
+The executor records a **recovery point** before the merge, performs a *local* `git merge` of source into target, and recovers to the recovery point on any failure. The model is a database-transaction one, not a saga: the recovery point is a write-ahead-log marker recorded (and persisted) before the merge mutates any ref, and the recovery itself rewinds the worktree to that point rather than running a compensating action.
 
-> **Revised post-#1194:** earlier drafts of this section delegated the merge to `vcs/merge-pr.ts` (a remote VCS provider call). That made the recorded `rollbackSha` dead code in production — a server-side merge does not move local HEAD, so `git reset --hard <rollbackSha>` is a no-op. The orchestrator's preflight (worktree drift, ancestry, main-worktree assertion) and rollback (`git reset --hard`) are local-git semantics; the executor must use a matching local-git primitive. The remote PR merge is a different concern handled by `merge_pr` in the synthesize-phase shepherd loop.
+> **Revised post-#1194:** earlier drafts of this section delegated the merge to `vcs/merge-pr.ts` (a remote VCS provider call). That made the recorded recovery point dead code in production — a server-side merge does not move local HEAD, so a reset to the recovery point is a no-op. The orchestrator's preflight (worktree drift, ancestry, main-worktree assertion) and recovery (a local `git reset` to the recovery point) are local-git semantics; the executor must use a matching local-git primitive. The remote PR merge is a different concern handled by `merge_pr` in the synthesize-phase shepherd loop.
 
 **Capabilities**
-- Record pre-merge `HEAD` via `git rev-parse HEAD` and persist to `WorkflowState.mergeOrchestrator.rollbackSha` *before* the merge command runs.
+- Record pre-merge `HEAD` via `git rev-parse HEAD` and persist to `WorkflowState.mergeOrchestrator.recoveryPointSha` *before* the merge command runs.
 - Perform the merge via `buildLocalGitMergeAdapter` (`orchestrate/local-git-merge.ts`): checks out `targetBranch`, runs `git merge --no-ff` / `--squash` / rebase + ff-only depending on strategy, captures the new HEAD as `mergeSha`. No `prId`, no remote API call.
-- On merge failure or post-merge verification failure, run `git reset --hard <rollbackSha>` and emit `merge.rollback` with a categorized reason (`merge-failed`, `verification-failed`, `timeout`).
-- Emit distinct events for success (`merge.executed`) and rollback (`merge.rollback`).
+- On merge failure or post-merge verification failure, run the INV-14 recovery ladder (`git merge --abort` → `git reset --keep <recoveryPointSha>`, never `--hard`) and dual-emit `merge.rollback` (legacy wire shape) plus `merge.recovered` (the canonical successor, #1306) with a categorized reason (`merge-failed`, `verification-failed`, `timeout`).
+- Emit distinct events for success (`merge.executed`) and recovery (`merge.rollback` / `merge.recovered`).
 
 **Acceptance criteria**
-1. The rollback SHA is persisted to `WorkflowState.mergeOrchestrator` *before* any ref-mutating git command runs. A test asserts ordering by injecting a runner that fails after the persistence step.
-2. After rollback, `git rev-parse HEAD` matches the recorded rollback SHA.
-3. The rollback event payload includes `{ rollbackSha, reason, sourceBranch, targetBranch, taskId }`.
+1. The recovery point SHA is persisted to `WorkflowState.mergeOrchestrator` *before* any ref-mutating git command runs (write-ahead-log ordering). A test asserts ordering by injecting a runner that fails after the persistence step.
+2. After recovery, `git rev-parse HEAD` matches the recorded recovery point SHA.
+3. The recovery event payload includes `{ recoveryPointSha, reason, sourceBranch, targetBranch, taskId }` (the legacy `merge.rollback` event keeps its `rollbackSha` wire field during the v2.11.x deprecation window; `merge.recovered` carries `recoveryPointSha`).
 4. All `execFileSync('git', ...)` calls use the no-shell form and a 120s timeout, matching `post-merge.ts:48`.
-5. Handler returns `ToolResult { success: false, error: { code, message } }` on rollback. The structured error matches existing handler conventions (e.g., `post-merge.ts`).
+5. Handler returns `ToolResult { success: false, error: { code, message } }` on recovery. The structured error matches existing handler conventions (e.g., `post-merge.ts`).
 
 ### DR-MO-4: Worktree drift detection
 
@@ -200,7 +205,7 @@ These were in the original 2026-04-17 design and are deliberately deferred or re
 
 | Original requirement | Disposition |
 |---|---|
-| **DR-MO-3** (semantic conflict resolution, line-level + AST-aware) | Deferred to a follow-up. Rollback covers the failure mode for v2.9.0: any unresolvable conflict triggers a clean rollback rather than a partial-merge state. AST-aware resolution would add a parser dependency and substantial surface area without proportionate value while rollback exists. |
+| **DR-MO-3** (semantic conflict resolution, line-level + AST-aware) | Deferred to a follow-up. Recovery covers the failure mode for v2.9.0: any unresolvable conflict triggers a clean recovery to the recorded recovery point rather than a partial-merge state. AST-aware resolution would add a parser dependency and substantial surface area without proportionate value while recovery exists. |
 | **DR-MO-5** (separate JSON state file at `<stateDir>/merge-orchestrator/<featureId>.json`) | Reframed. State persistence uses the existing `WorkflowState` schema with a new optional `mergeOrchestrator` field. A parallel state file with its own atomic-write semantics, expiry policy, and corruption modes is the divergent-implementations antipattern (DIM-5) the codebase actively cleaned up in #1185. Resume-on-entry comes for free from the existing workflow state loader. |
 
 ## WorkflowState extension
@@ -209,11 +214,14 @@ One new optional field. The schema lives alongside the existing `WorkflowState` 
 
 ```ts
 export interface MergeOrchestratorState {
+  // `'rolled-back'` is the recovery-terminal phase value — intentionally NOT
+  // renamed in the #1306 recovery reframe (the phase string is a load-bearing
+  // wire/state token).
   readonly phase: 'pending' | 'executing' | 'completed' | 'rolled-back' | 'aborted';
   readonly sourceBranch: string;
   readonly targetBranch: string;
   readonly taskId?: string;            // present when auto-dispatched via next_actions
-  readonly rollbackSha?: string;       // populated before merge ref-mutation
+  readonly recoveryPointSha?: string;  // WAL recovery point, recorded before merge ref-mutation
   readonly mergeSha?: string;          // populated after successful merge
   readonly preflight?: MergePreflightResult;
 }
@@ -230,9 +238,12 @@ mergeOrchestrator?: MergeOrchestratorState;
 |---|---|---|
 | `merge.preflight` | `merge-orchestrate.ts` (via `emitGateEvent`) | `{ featureId, sourceBranch, targetBranch, taskId?, ancestry, worktree, currentBranchProtection, drift }` |
 | `merge.executed` | `execute-merge.ts` (via `emitGateEvent`) | `{ featureId, sourceBranch, targetBranch, taskId?, mergeSha, rollbackSha }` |
-| `merge.rollback` | `execute-merge.ts` (via `emitGateEvent`) | `{ featureId, sourceBranch, targetBranch, taskId?, rollbackSha, reason }` |
+| `merge.rollback` | `execute-merge.ts` (via `emitGateEvent`) | `{ featureId, sourceBranch, targetBranch, taskId?, rollbackSha, reason }` — **legacy** wire shape |
+| `merge.recovered` | `execute-merge.ts` (#1306 successor) | `{ sourceBranch, targetBranch, taskId?, recoveryPointSha, reason, recoveryError?, recoveryErrorDetail? }` |
 
 All events flow through the `orchestrate` stream via `ctx.eventStore.append()` and carry `featureId` as the correlation key. The full merge lifecycle is reconstructable from the event log alone (#1109).
+
+> **Recovery vocabulary (#1306).** The canonical frame is database-transaction, not saga: a **recovery point** (recorded HEAD SHA) and a **recovery event** (`merge.recovered`), not a "rollback anchor" / "compensation". `merge.recovered` is the additive successor to `merge.rollback` and carries the resolved field names (`recoveryPointSha`, `recoveryErrorDetail`) alongside the unchanged INV-14 `recoveryError` discriminator. During the v2.11.x deprecation window the executor dual-emits both events for the same logical recovery; the legacy `merge.rollback` keeps its `rollbackSha` / `rollbackError` wire fields until v2.12 removes the legacy emission. The state-file / `ToolResult.data` carry the renamed `recoveryPointSha` / `recoveryErrorDetail` today. The phase value `'rolled-back'` is intentionally retained.
 
 The two events from the original design (`merge.conflict.detected`, `merge.conflict.resolved`) are out of scope for v2.9.0 along with DR-MO-3.
 
@@ -254,7 +265,7 @@ exarchos merge-orchestrate \
 Exit codes follow the existing `CLI_EXIT_CODES` contract:
 - 0: merge completed successfully (or preflight passed for `--dry-run`)
 - 1: invalid input
-- 2: merge failed (preflight blocked or rollback executed)
+- 2: merge failed (preflight blocked or recovery executed)
 - 3: uncaught exception
 
 `--dry-run` exits after preflight without invoking the executor. This enables CI integration where merge readiness is checked before the merge window opens.
@@ -282,7 +293,7 @@ Return shape: `ToolResult` wrapping `MergeOrchestrateOutput`. CLI and MCP call t
 
 | Constraint | How this design complies | Verification |
 |---|---|---|
-| **Event-sourcing integrity** | Every phase transition emits an event (3 event types covering the full v2.9.0 lifecycle). The trigger itself is derived from state + HSM via the existing `next-action@v1` projection -- not a side effect of a handler call. The merge lifecycle is fully reconstructable from the event log. | A test reconstructs the merge timeline from events alone for a passing run, a rollback run, and an aborted-by-preflight run. |
+| **Event-sourcing integrity** | Every phase transition emits an event (3 event types covering the full v2.9.0 lifecycle). The trigger itself is derived from state + HSM via the existing `next-action@v1` projection -- not a side effect of a handler call. The merge lifecycle is fully reconstructable from the event log. | A test reconstructs the merge timeline from events alone for a passing run, a recovery run, and an aborted-by-preflight run. |
 | **MCP parity** | One handler function (`handleMergeOrchestrate`) called by both the CLI adapter and the MCP composite router. One Zod schema shared by both. No CLI-only code paths. | `merge-orchestrate.parity.test.ts` invokes through both adapters and asserts identical `ToolResult` shape. |
 | **Basileus-forward** | Handler accepts `DispatchContext` (not raw `stateDir`). VCS operations route through `VcsProvider` via `createVcsProvider({ config: ctx.projectConfig })`. State persistence uses the existing JSON `WorkflowState` schema (portable across transports). No `process.stdin` / `process.stdout` assumptions. | Code-review checklist: no raw `gh` / `git push` invocations, no `process.std*`, no module-global EventStore. The CI gate `scripts/check-event-store-composition-root.mjs` enforces the EventStore composition rule structurally. |
 
@@ -293,7 +304,7 @@ Per `axiom:backend-quality` dimensions.
 | Dimension | Risk in original design | How this design addresses it |
 |---|---|---|
 | **DIM-1 Topology** | Original AC "checks are injectable" implied novel -- already enforced by existing `GitExec` injection. | No new injection scaffolding. Handlers receive `EventStore` via `DispatchContext` (post-#1185); pure modules receive `gitExec`. The CI gate at `scripts/check-event-store-composition-root.mjs` blocks regressions. |
-| **DIM-2 Observability** | Catch-all rollback could hide failure causes. | `merge.rollback` payload includes a categorized `reason`. Handler `ToolResult` carries a structured error with `code` + `message`. No silent fallbacks; any caught exception is either re-emitted as a structured error or logged with cause. |
+| **DIM-2 Observability** | Catch-all recovery could hide failure causes. | The recovery event (`merge.rollback` legacy / `merge.recovered` successor) payload includes a categorized `reason`. Handler `ToolResult` carries a structured error with `code` + `message`. No silent fallbacks; any caught exception is either re-emitted as a structured error or logged with cause. |
 | **DIM-3 Contracts** | Original redefined `MergePreflightResultSchema` from scratch. | `MergePreflightResult` composes the existing `AncestryResult` / `WorktreeAssertionResult` / `CurrentBranchProtectionResult` types from `dispatch-guard.ts`. Zod schemas derive from the TS types via `z.infer`. One source of truth per concept. |
 | **DIM-4 Test Fidelity** | Risk of over-mocked tests that pass while production wiring is broken. | Parity test invokes through real composite dispatchers. Integration test reconstructs the merge timeline from a real event store. EventStore is constructed the same way production constructs it (via `DispatchContext`). |
 | **DIM-5 Hygiene** | Original sub-directory `merge-orchestrator/` diverged from the flat `orchestrate/` convention; original separate state file paralleled `WorkflowState`. | Flat layout matching every other handler. One state field on the existing `WorkflowState` schema. No parallel modules, no parallel persistence. |
@@ -313,7 +324,7 @@ Per `axiom:backend-quality` dimensions.
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| Auto-rollback resets a worktree the user expected to keep modifying | High | Drift detection in DR-MO-4 fails preflight whenever uncommitted work is present, *before* the executor records a rollback SHA. The executor only ever resets to the SHA it just recorded -- never to an arbitrary point in history. |
+| Auto-recovery resets a worktree the user expected to keep modifying | High | Drift detection in DR-MO-4 fails preflight whenever uncommitted work is present, *before* the executor records a recovery point. The executor only ever recovers to the SHA it just recorded -- never to an arbitrary point in history. |
 | `WorkflowState.mergeOrchestrator` field corrupts on partial write | Medium | Reuses `workflow/state-store.ts` atomic-write semantics (already battle-tested for the rest of `WorkflowState`). On `VersionConflictError`, the orchestrator re-reads and retries, matching `handleTaskClaim`'s `MAX_CLAIM_RETRIES` pattern in `tasks/tools.ts`. |
 | Auto-dispatch loops on transient failures | Medium | Idempotency key `${streamId}:merge_orchestrate:${taskId}` collapses re-entries. The `next-actions` projection only surfaces `merge_orchestrate` while `mergeOrchestrator.phase` is `pending` or absent; once `phase` becomes `rolled-back` or `aborted`, the projection no longer suggests it (manual re-dispatch required). |
 | Git operations hang on large repos | Low | All `execFileSync('git', ...)` calls use a 120s timeout matching the codebase convention. Preflight has its own 2s soft target enforced by AC. |
