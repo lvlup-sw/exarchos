@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { AsOfSchema, CheckpointHandoffSchema, WorkflowTypeSchema } from './workflow/schemas.js';
 import { agentSpecSchema as agentSpecSchemaForRegistry } from './agents/handler.js';
 import { EnvelopeSchema } from './schemas/envelope.js';
+import type { AgentPosture } from './agents/spec.js';
 export { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray } from './coerce.js';
 import { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray } from './coerce.js';
 
@@ -337,6 +338,19 @@ export interface ToolAction {
    * human prompting.
    */
   readonly deprecated?: boolean;
+  /**
+   * #1305 — Trust-tier posture for this action's handler. When declared, the
+   * capability resolver mints this action's write capabilities from the
+   * posture table (`capabilities/posture-mapping.ts`) rather than inferring
+   * them from the (advisory, MCP-untrusted) annotation hints. Today only
+   * `merge_orchestrate` declares a posture: `shared-mutating`, because it
+   * mutates shared state (the integration branch, the working tree, the
+   * event store) from the main worktree with no worktree isolation. Most
+   * actions leave this undefined and rely on annotations alone; #1305 T14/T15
+   * (read-only-caller rejection, transition exclusivity) build on this
+   * declaration being the trust-tier source of truth.
+   */
+  readonly posture?: AgentPosture;
   /**
    * Typed Zod schema describing the action's response envelope (Wave 0
    * task E.1-E.5, DR-11, design §2.1). All actions in the built-in
@@ -1885,6 +1899,11 @@ const orchestrateActions: readonly ToolAction[] = [
     // dispatch. Advisory — the binding opt-in gate stays at
     // `core/dispatch.ts:927-954`.
     dispatch: { taskSuitable: true, taskTtlSuggestionMs: 60_000 },
+    // #1305 T13: merge_orchestrate mutates shared state (the integration
+    // branch, the working tree, the event store) from the main worktree with
+    // no worktree isolation — the strictest mutating trust tier. The resolver
+    // mints fs:write + shell:exec from this posture.
+    posture: 'shared-mutating',
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: COMPENSABLE_REMOTE,
   },

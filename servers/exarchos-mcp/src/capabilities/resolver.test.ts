@@ -12,6 +12,7 @@ import {
 } from './resolver.js';
 import type { Capability } from '../agents/capabilities.js';
 import { KIND_OBLIGATIONS } from '../workflow/phase-kind.js';
+import { findActionInRegistry } from '../registry.js';
 
 describe('CapabilityResolver (T017, DR-14)', () => {
   it('CapabilityResolver_AnthropicNative_ReturnsTrue', () => {
@@ -306,5 +307,35 @@ describe('mintCapabilitiesForKind (POLA bundle, DR-14)', () => {
     // REFACTOR guard (DR-14): IMPLEMENT runs in an isolated worktree (#1512), so
     // its posture must stay task-isolated — never shared-mutating.
     expect(KIND_OBLIGATIONS.IMPLEMENT.posture).toBe('task-isolated');
+  });
+});
+
+// ─── #1305 T13 — merge_orchestrate declares shared-mutating posture ─────────
+//
+// merge_orchestrate mutates shared state (the integration branch, the repo's
+// working tree, the event store) from the main worktree — it has no worktree
+// isolation. Per the posture table (`shared-mutating` → fs:read + fs:write +
+// shell:exec), its registration must declare `posture: 'shared-mutating'` so
+// the resolver mints the fs:write + shell:exec write-capability set. This is
+// the trust-tier source of truth that #1305 T14/T15 (read-only-caller
+// rejection, transition exclusivity) build on.
+
+describe('merge_orchestrate posture (#1305 T13)', () => {
+  it('MergeOrchestrate_Posture_ResolvesSharedMutatingWriteCaps', () => {
+    const action = findActionInRegistry('exarchos_orchestrate', 'merge_orchestrate');
+    expect(action).toBeDefined();
+
+    // The registration declares the shared-mutating trust tier.
+    expect(action!.posture).toBe('shared-mutating');
+
+    // Resolving that posture (empty handshake) yields the shared-mutating
+    // write-capability set: fs:write + shell:exec (plus fs:read). isolation
+    // :worktree is NOT in this tier — shared-mutating runs from the main
+    // worktree without worktree isolation.
+    const effective = resolvePosture({ posture: action!.posture }, {});
+    expect(effective.has('fs:write')).toBe(true);
+    expect(effective.has('shell:exec')).toBe(true);
+    expect(effective.has('fs:read')).toBe(true);
+    expect(effective.has('isolation:worktree')).toBe(false);
   });
 });
