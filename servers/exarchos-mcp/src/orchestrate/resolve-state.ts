@@ -75,20 +75,14 @@ export function classifyStateFile(stateFile: string | undefined): StateFileStatu
  * 3. If neither source is available, return a NO_STATE_SOURCE error.
  */
 export async function resolveWorkflowState(opts: ResolveOpts): Promise<ResolveResult> {
-  // ── Try state file first ──────────────────────────────────────────────────
-
-  if (opts.stateFile && existsSync(opts.stateFile)) {
-    try {
-      const raw = readFileSync(opts.stateFile, 'utf-8');
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      return { state: parsed };
-    } catch {
-      // File exists but is unreadable or invalid JSON — fall through to event store
-    }
-  }
-
-  // ── Fall back to event store materialization ──────────────────────────────
-
+  // ── Event store FIRST (#1504, INV-1) ──────────────────────────────────────
+  // The SQLite event log is the source of truth; the on-disk `.state.json` is a
+  // derived stamp that can go stale and silently SHADOW the authoritative
+  // projection (the bug #1504 fixes). When the event store is available,
+  // materialize from it. The file is a fallback ONLY when no event store is
+  // supplied (CLI/legacy paths). For a caller that explicitly needs the on-disk
+  // file (e.g. a file↔projection drift comparison), read it directly rather
+  // than relying on resolution order.
   if (opts.featureId && opts.eventStore) {
     try {
       const events = await opts.eventStore.query(opts.featureId);
@@ -111,6 +105,18 @@ export async function resolveWorkflowState(opts: ResolveOpts): Promise<ResolveRe
           },
         },
       };
+    }
+  }
+
+  // ── Fallback: file-only resolution (no event store available) ─────────────
+
+  if (opts.stateFile && existsSync(opts.stateFile)) {
+    try {
+      const raw = readFileSync(opts.stateFile, 'utf-8');
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      return { state: parsed };
+    } catch {
+      // File exists but is unreadable or invalid JSON — fall through to error
     }
   }
 

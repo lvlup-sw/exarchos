@@ -1,6 +1,6 @@
 import type { ViewProjection } from './materializer.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
-import { deepMerge, isPlainObject } from '../workflow/state-store.js';
+import { deepMerge, isPlainObject, applyDotPath } from '../workflow/state-store.js';
 
 // ─── View Name Constant ────────────────────────────────────────────────────
 
@@ -453,9 +453,27 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
         const data = event.data as { patch?: unknown } | undefined;
         if (!data?.patch || !isPlainObject(data.patch)) return view;
 
+        // The patch keys MAY be dot-paths — handleSet emits `patch:
+        // input.updates` verbatim (tools.ts), where `updates` uses dot-path
+        // notation like `oneshot.synthesisPolicy`. Expand them with the SAME
+        // `applyDotPath` the on-disk write uses, so the fold agrees with the
+        // file (#1504/#1554). Without this, `{'oneshot.synthesisPolicy': x}`
+        // deepMerges as a literal dotted KEY and every nested read misses it
+        // (the finalize-oneshot synthesisPolicy regression under
+        // event-store-first). Reserved-field paths are rejected at write time;
+        // on replay just skip them rather than throw.
+        const expanded: Record<string, unknown> = {};
+        for (const [dotPath, value] of Object.entries(data.patch as Record<string, unknown>)) {
+          try {
+            applyDotPath(expanded, dotPath, value);
+          } catch {
+            // Reserved-field path — already rejected at write time; skip on replay.
+          }
+        }
+
         return deepMerge(
           view as unknown as Record<string, unknown>,
-          data.patch as Record<string, unknown>,
+          expanded,
         ) as unknown as WorkflowStateView;
       }
 
