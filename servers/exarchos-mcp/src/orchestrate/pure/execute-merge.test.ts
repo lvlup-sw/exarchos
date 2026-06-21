@@ -1,4 +1,4 @@
-// ─── execute-merge: recordRollbackPoint tests ──────────────────────────────
+// ─── execute-merge: recordRecoveryPoint tests ──────────────────────────────
 //
 // T08 — pure helper that captures HEAD sha as a rollback point before merge
 // execution (T09/T10 compose executeMerge on top). Must NEVER throw — all
@@ -6,25 +6,25 @@
 // ───────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, vi } from 'vitest';
-import { recordRollbackPoint, executeMerge, type GitExec } from './execute-merge.js';
+import { recordRecoveryPoint, executeMerge, type GitExec } from './execute-merge.js';
 
-describe('recordRollbackPoint', () => {
-  it('recordRollbackPoint_HappyPath_ReturnsHeadSha', () => {
+describe('recordRecoveryPoint', () => {
+  it('recordRecoveryPoint_HappyPath_ReturnsHeadSha', () => {
     const gitExec: GitExec = vi.fn((_repoRoot: string, args: readonly string[]) => {
       expect(args).toEqual(['rev-parse', 'HEAD']);
       return { stdout: 'abc1234567890\n', exitCode: 0 };
     });
 
-    const result = recordRollbackPoint(gitExec, '/some/repo');
+    const result = recordRecoveryPoint(gitExec, '/some/repo');
 
     expect(result).toEqual({ sha: 'abc1234567890' });
     expect(gitExec).toHaveBeenCalledTimes(1);
   });
 
-  it('recordRollbackPoint_GitFails_ReturnsStructuredError', () => {
+  it('recordRecoveryPoint_GitFails_ReturnsStructuredError', () => {
     const gitExec: GitExec = vi.fn(() => ({ stdout: '', exitCode: 128 }));
 
-    const result = recordRollbackPoint(gitExec, '/some/repo');
+    const result = recordRecoveryPoint(gitExec, '/some/repo');
 
     expect('error' in result).toBe(true);
     if ('error' in result) {
@@ -33,23 +33,23 @@ describe('recordRollbackPoint', () => {
     }
   });
 
-  it('recordRollbackPoint_GitThrows_ReturnsStructuredError_DoesNotThrow', () => {
+  it('recordRecoveryPoint_GitThrows_ReturnsStructuredError_DoesNotThrow', () => {
     const gitExec: GitExec = vi.fn(() => {
       throw new Error('spawn ENOENT');
     });
 
-    expect(() => recordRollbackPoint(gitExec, '/some/repo')).not.toThrow();
-    const result = recordRollbackPoint(gitExec, '/some/repo');
+    expect(() => recordRecoveryPoint(gitExec, '/some/repo')).not.toThrow();
+    const result = recordRecoveryPoint(gitExec, '/some/repo');
     expect('error' in result).toBe(true);
     if ('error' in result) {
       expect(result.error).toContain('spawn ENOENT');
     }
   });
 
-  it('recordRollbackPoint_EmptyStdout_ReturnsStructuredError', () => {
+  it('recordRecoveryPoint_EmptyStdout_ReturnsStructuredError', () => {
     const gitExec: GitExec = vi.fn(() => ({ stdout: '   \n', exitCode: 0 }));
 
-    const result = recordRollbackPoint(gitExec, '/some/repo');
+    const result = recordRecoveryPoint(gitExec, '/some/repo');
 
     expect('error' in result).toBe(true);
   });
@@ -76,7 +76,7 @@ describe('executeMerge', () => {
     expect(result).toEqual({
       phase: 'completed',
       mergeSha: 'merge-sha-xyz',
-      rollbackSha: 'rollback-sha-abc',
+      recoveryPointSha: 'rollback-sha-abc',
     });
     expect(vcsMerge).toHaveBeenCalledWith({
       sourceBranch: 'feat/x',
@@ -96,8 +96,8 @@ describe('executeMerge', () => {
       throw new Error(`unexpected git args: ${args.join(' ')}`);
     });
 
-    const persistState = vi.fn(async (state: { phase: 'executing'; rollbackSha: string }) => {
-      calls.push(`persistState({phase:${state.phase},rollbackSha:${state.rollbackSha}})`);
+    const persistState = vi.fn(async (state: { phase: 'executing'; recoveryPointSha: string }) => {
+      calls.push(`persistState({phase:${state.phase},recoveryPointSha:${state.recoveryPointSha}})`);
     });
 
     const vcsMerge = vi.fn(async () => {
@@ -116,7 +116,7 @@ describe('executeMerge', () => {
 
     expect(calls).toEqual([
       'rev-parse-HEAD',
-      'persistState({phase:executing,rollbackSha:rollback-sha-abc})',
+      'persistState({phase:executing,recoveryPointSha:rollback-sha-abc})',
       'vcsMerge',
     ]);
     expect(result.phase).toBe('completed');
@@ -156,7 +156,7 @@ describe('executeMerge', () => {
 
     expect(result).toEqual({
       phase: 'rolled-back',
-      rollbackSha: 'abc',
+      recoveryPointSha: 'abc',
       reason: 'merge-failed',
     });
     // INV-14: native primitive first (`git merge --abort`), then refuse-to-discard
@@ -197,7 +197,7 @@ describe('executeMerge', () => {
 
     expect(result).toEqual({
       phase: 'rolled-back',
-      rollbackSha: 'abc',
+      recoveryPointSha: 'abc',
       reason: 'verification-failed',
     });
   });
@@ -235,7 +235,7 @@ describe('executeMerge', () => {
 
     expect(result).toEqual({
       phase: 'rolled-back',
-      rollbackSha: 'abc',
+      recoveryPointSha: 'abc',
       reason: 'timeout',
     });
   });
@@ -264,7 +264,7 @@ describe('executeMerge', () => {
       calls.push('vcsMerge-rejects');
       throw new Error('boom');
     });
-    const persistState = vi.fn(async (state: { phase: 'executing'; rollbackSha: string }) => {
+    const persistState = vi.fn(async (state: { phase: 'executing'; recoveryPointSha: string }) => {
       calls.push(`persistState({phase:${state.phase}})`);
     });
 
@@ -287,7 +287,7 @@ describe('executeMerge', () => {
     expect(resetIdx).toBeGreaterThan(abortIdx);
     expect(result.phase).toBe('rolled-back');
     if (result.phase === 'rolled-back') {
-      expect(result.rollbackSha).toBe('abc');
+      expect(result.recoveryPointSha).toBe('abc');
     }
   });
 
@@ -325,10 +325,10 @@ describe('executeMerge', () => {
 
     expect(result.phase).toBe('rolled-back');
     if (result.phase === 'rolled-back') {
-      expect(result.rollbackSha).toBe('abc');
+      expect(result.recoveryPointSha).toBe('abc');
       expect(result.reason).toBe('merge-failed');
       expect(result.recoveryError).toBe('reset-keep-blocked');
-      expect(result.rollbackError).toMatch(/exited 128/);
+      expect(result.recoveryErrorDetail).toMatch(/exited 128/);
     }
   });
 
@@ -365,7 +365,7 @@ describe('executeMerge', () => {
     expect(result.phase).toBe('rolled-back');
     if (result.phase === 'rolled-back') {
       expect(result.recoveryError).toBe('reset-failed');
-      expect(result.rollbackError).toMatch(/git binary missing/);
+      expect(result.recoveryErrorDetail).toMatch(/git binary missing/);
     }
   });
 

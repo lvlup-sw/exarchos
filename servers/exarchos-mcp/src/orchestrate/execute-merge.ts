@@ -3,15 +3,16 @@
 // Wraps the pure `executeMerge` (T08+T09+T10) with:
 //   • a local-git merge adapter via `buildLocalGitMergeAdapter` (#1194 —
 //     replaced the previous remote VcsProvider call so the recorded
-//     rollbackSha actually corresponds to a local ref the executor's
-//     INV-14 rollback (`git reset --keep`) can undo)
+//     recovery point sha actually corresponds to a local ref the executor's
+//     INV-14 recovery (`git reset --keep`) can undo)
 //   • a `gitExec` adapter using `execFileSync` (120s timeout, matches
 //     post-merge.ts:48)
 //   • a `persistState` callback that updates the workflow state's
 //     `mergeOrchestrator` field (T01+T02 schema)
 //   • on `phase: 'completed'`, emits `merge.executed` to the workflow's
 //     event stream (stream id = featureId) carrying both the post-merge
-//     `mergeSha` and the pre-merge `rollbackSha`
+//     `mergeSha` and the pre-merge recovery point sha (the legacy
+//     `rollbackSha` event field — kept during the #1306 deprecation window)
 //
 // The merge adapter is injectable via `args.vcsMerge` so tests bypass real
 // git operations. Same for `gitExec` and `persistState`. In production,
@@ -20,7 +21,7 @@
 //
 // T16 extends this with the `phase: 'rolled-back'` branch: the pure executor
 // has already run the INV-14 recovery ladder (`git merge --abort` →
-// `git reset --keep <rollbackSha>`), so the handler emits a
+// `git reset --keep <recoveryPointSha>`), so the handler emits a
 // `merge.rollback` event (categorized reason: 'merge-failed' |
 // 'verification-failed' | 'timeout') and returns a structured error.
 // ───────────────────────────────────────────────────────────────────────────
@@ -92,16 +93,16 @@ interface VcsMergeAdapter {
  * HSM exit guards and resume semantics.
  */
 export type ExecutorPersistStatePayload =
-  | { phase: 'executing'; rollbackSha: string }
-  | { phase: 'completed'; rollbackSha: string; mergeSha: string }
+  | { phase: 'executing'; recoveryPointSha: string }
+  | { phase: 'completed'; recoveryPointSha: string; mergeSha: string }
   | {
       phase: 'rolled-back';
-      rollbackSha: string;
+      recoveryPointSha: string;
       reason: 'merge-failed' | 'verification-failed' | 'timeout';
-      /** INV-14 recovery-outcome discriminator; absent on a clean rollback. */
+      /** INV-14 recovery-outcome discriminator; absent on a clean recovery. */
       recoveryError?: 'reset-keep-blocked' | 'reset-failed' | 'unexpected-mid-merge-drift';
-      /** Human-readable detail for `recoveryError`; absent on clean rollback. */
-      rollbackError?: string;
+      /** Human-readable detail for `recoveryError`; absent on clean recovery. */
+      recoveryErrorDetail?: string;
     };
 
 interface PersistStateCallback {
@@ -124,8 +125,8 @@ export interface HandleExecuteMergeInput extends HandleExecuteMergeArgs {
 /**
  * Build the default `vcsMerge` adapter — a *local* `git merge` of source
  * into target. See `local-git-merge.ts` for the full contract; the executor
- * uses this adapter so the recorded `rollbackSha` actually corresponds to
- * a local ref the rollback `git reset --keep` can undo (#1194).
+ * uses this adapter so the recorded `recoveryPointSha` actually corresponds to
+ * a local ref the recovery `git reset --keep` can undo (#1194).
  */
 function buildDefaultVcsMerge(
   input: HandleExecuteMergeInput,
@@ -141,7 +142,7 @@ function buildDefaultVcsMerge(
  *
  * Shallow-merges (rather than replacing) the existing `mergeOrchestrator`
  * block so terminal-phase fields like `mergeSha` and `reason` ride alongside
- * the always-present `phase` + `rollbackSha`. This is intentionally
+ * the always-present `phase` + `recoveryPointSha`. This is intentionally
  * different from `merge-orchestrate.ts`'s `buildDefaultPersistState`, which
  * REPLACES the block on `aborted`: the executor progresses through
  * `executing` → `completed`/`rolled-back`, so merging preserves
@@ -422,7 +423,7 @@ export async function handleExecuteMerge(
             targetBranch: args.targetBranch,
             strategy: args.strategy,
             mergeSha: result.mergeSha,
-            rollbackSha: result.rollbackSha,
+            rollbackSha: result.recoveryPointSha,
           },
         },
         appendOptionsExecuted,
@@ -562,7 +563,7 @@ export async function handleExecuteMerge(
             ...(args.taskId !== undefined ? { taskId: args.taskId } : {}),
             sourceBranch: args.sourceBranch,
             targetBranch: args.targetBranch,
-            rollbackSha: result.rollbackSha,
+            rollbackSha: result.recoveryPointSha,
             reason: result.reason,
             // INV-14 discriminator — the pure executor's recovery ladder
             // (`git merge --abort` → `git reset --keep`, never `--hard`)
@@ -572,8 +573,8 @@ export async function handleExecuteMerge(
             ...(result.recoveryError !== undefined
               ? {
                   recoveryError: result.recoveryError,
-                  ...(result.rollbackError !== undefined
-                    ? { rollbackError: result.rollbackError }
+                  ...(result.recoveryErrorDetail !== undefined
+                    ? { rollbackError: result.recoveryErrorDetail }
                     : {}),
                 }
               : {}),
@@ -605,16 +606,16 @@ export async function handleExecuteMerge(
     if (result.phase === 'completed') {
       await persistState({
         phase: 'completed',
-        rollbackSha: result.rollbackSha,
+        recoveryPointSha: result.recoveryPointSha,
         mergeSha: result.mergeSha,
       });
     } else {
       await persistState({
         phase: 'rolled-back',
-        rollbackSha: result.rollbackSha,
+        recoveryPointSha: result.recoveryPointSha,
         reason: result.reason,
         ...(result.recoveryError !== undefined ? { recoveryError: result.recoveryError } : {}),
-        ...(result.rollbackError !== undefined ? { rollbackError: result.rollbackError } : {}),
+        ...(result.recoveryErrorDetail !== undefined ? { recoveryErrorDetail: result.recoveryErrorDetail } : {}),
       });
     }
   } catch (err) {
@@ -650,7 +651,7 @@ export async function handleExecuteMerge(
       data: {
         phase: 'completed' as const,
         mergeSha: result.mergeSha,
-        rollbackSha: result.rollbackSha,
+        recoveryPointSha: result.recoveryPointSha,
       },
     };
   }
@@ -663,10 +664,10 @@ export async function handleExecuteMerge(
     },
     data: {
       phase: 'rolled-back' as const,
-      rollbackSha: result.rollbackSha,
+      recoveryPointSha: result.recoveryPointSha,
       reason: result.reason,
       ...(result.recoveryError !== undefined ? { recoveryError: result.recoveryError } : {}),
-      ...(result.rollbackError !== undefined ? { rollbackError: result.rollbackError } : {}),
+      ...(result.recoveryErrorDetail !== undefined ? { recoveryErrorDetail: result.recoveryErrorDetail } : {}),
     },
   };
 }

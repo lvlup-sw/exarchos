@@ -802,7 +802,7 @@ export async function handleMergeOrchestrate(
   const execData = execResult.data as {
     phase: 'completed';
     mergeSha: string;
-    rollbackSha: string;
+    recoveryPointSha: string;
   };
 
   return {
@@ -810,7 +810,7 @@ export async function handleMergeOrchestrate(
     data: {
       phase: 'completed' as const,
       mergeSha: execData.mergeSha,
-      rollbackSha: execData.rollbackSha,
+      recoveryPointSha: execData.recoveryPointSha,
       preflight,
     },
   };

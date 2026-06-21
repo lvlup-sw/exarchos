@@ -304,18 +304,18 @@ describe('handleExecuteMerge (T15)', () => {
       ctx,
     );
 
-    // Ordering: persistState({phase:'executing', rollbackSha}) BEFORE vcsMerge.
+    // Ordering: persistState({phase:'executing', recoveryPointSha}) BEFORE vcsMerge.
     expect(callOrder.length).toBeGreaterThanOrEqual(2);
     expect(callOrder[0]).toBe(
       `persistState:${JSON.stringify({
         phase: 'executing',
-        rollbackSha: ROLLBACK_SHA,
+        recoveryPointSha: ROLLBACK_SHA,
       })}`,
     );
     expect(callOrder.indexOf('vcsMerge')).toBeGreaterThan(0);
     expect(persistState).toHaveBeenCalledWith({
       phase: 'executing',
-      rollbackSha: ROLLBACK_SHA,
+      recoveryPointSha: ROLLBACK_SHA,
     });
   });
 });
@@ -439,14 +439,14 @@ describe('handleExecuteMerge rollback (T16)', () => {
     // The handler also surfaces `data` so the caller can introspect.
     expect(result.data).toMatchObject({
       phase: 'rolled-back',
-      rollbackSha: ROLLBACK_SHA,
+      recoveryPointSha: ROLLBACK_SHA,
       reason: 'verification-failed',
     });
   });
 
   // The recovery-failure path is the one that populates `recoveryError` +
-  // `rollbackError` end-to-end — exercising it here keeps the operator recovery
-  // contract (state file + emitted event + ToolResult all carry the
+  // the recovery-error detail end-to-end — exercising it here keeps the operator
+  // recovery contract (state file + emitted event + ToolResult all carry the
   // indeterminate-worktree signal) covered by the test suite.
   it('handleExecuteMerge_ResetKeepRefuses_SurfacesRecoveryErrorOnEventAndToolResult', async () => {
     const ctx = makeMockCtx();
@@ -486,22 +486,23 @@ describe('handleExecuteMerge rollback (T16)', () => {
     expect(result.error?.code).toBe('MERGE_ROLLED_BACK');
     expect(result.data).toMatchObject({
       phase: 'rolled-back',
-      rollbackSha: ROLLBACK_SHA,
+      recoveryPointSha: ROLLBACK_SHA,
       reason: 'merge-failed',
     });
-    // `recoveryError` (discriminator) + `rollbackError` (detail) ride on the
-    // ToolResult `data` so callers detect the indeterminate worktree without
+    // `recoveryError` (discriminator) + `recoveryErrorDetail` (detail) ride on
+    // the ToolResult `data` so callers detect the indeterminate worktree without
     // re-querying the event stream.
     expect((result.data as { recoveryError?: string }).recoveryError).toBe(
       'reset-keep-blocked',
     );
-    expect((result.data as { rollbackError?: string }).rollbackError).toContain(
+    expect((result.data as { recoveryErrorDetail?: string }).recoveryErrorDetail).toContain(
       'reset --keep',
     );
 
     // Same signals must appear on the emitted `merge.rollback` event so
     // event-stream consumers (projections, dashboards, alerting) see them
-    // without reading the state file.
+    // without reading the state file. The legacy event keeps its `rollbackError`
+    // wire field during the #1306 deprecation window.
     expect(ctx.eventStore.append).toHaveBeenCalledTimes(1);
     const [, eventPayload] = (ctx.eventStore.append as ReturnType<typeof vi.fn>)
       .mock.calls[0];
@@ -604,8 +605,8 @@ describe('handleExecuteMerge default persistState retries on VersionConflictErro
 // The pure executor (T09) writes the intermediate `phase: 'executing'` shape
 // before invoking vcsMerge. After T27, the handler is responsible for the
 // terminal-phase write so disk state always reflects the actual outcome:
-//   • completed  → persist {phase, rollbackSha, mergeSha}
-//   • rolled-back → persist {phase, rollbackSha, reason}
+//   • completed  → persist {phase, recoveryPointSha, mergeSha}
+//   • rolled-back → persist {phase, recoveryPointSha, reason}
 // Without this, a successful merge or rollback leaves disk state at
 // 'executing' indefinitely, breaking HSM exit guards and resume semantics.
 
@@ -637,7 +638,7 @@ describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
     expect(persistState).toHaveBeenCalledTimes(2);
     expect(persistState).toHaveBeenNthCalledWith(2, {
       phase: 'completed',
-      rollbackSha: ROLLBACK_SHA,
+      recoveryPointSha: ROLLBACK_SHA,
       mergeSha: MERGE_SHA,
     });
   });
@@ -664,7 +665,7 @@ describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
     expect(persistState).toHaveBeenCalledTimes(2);
     expect(persistState).toHaveBeenNthCalledWith(2, {
       phase: 'rolled-back',
-      rollbackSha: ROLLBACK_SHA,
+      recoveryPointSha: ROLLBACK_SHA,
       reason: 'merge-failed',
     });
   });
