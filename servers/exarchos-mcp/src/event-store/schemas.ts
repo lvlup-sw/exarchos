@@ -126,6 +126,11 @@ export const EventTypes = [
   // #1306 — successor to `merge.rollback`; dual-emitted during the v2.11.x
   // deprecation window. Legacy `merge.rollback` removed in v2.12 (tracked).
   'merge.recovered',
+  // #1308 — audit record of a transient-failure retry of the merge attempt.
+  // Records the retry `attempt` ordinal, the backoff `delayMs` before it, and
+  // the transient-failure `reason` (e.g. 'timeout') that triggered it. The
+  // emission site lands in a later #1308 task; this registration is additive.
+  'merge.retry_attempt',
   // Terminal lifecycle event — emitted by the executor (`handleExecuteMerge`)
   // immediately after a successful `merge.executed` append. Folded by the
   // `merge-orchestrator@v1` projection (#1304) as the transition into the
@@ -494,6 +499,9 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'merge.rollback': 'auto',
   // #1306 successor — same auto family as the legacy event it replaces.
   'merge.recovered': 'auto',
+  // #1308 — emitted by the merge executor's retry loop (server-deterministic
+  // plumbing), so it lives in the auto family alongside the other merge events.
+  'merge.retry_attempt': 'auto',
   // auto — emitted by `handleExecuteMerge` immediately after `merge.executed`
   // succeeds, as the projection's terminal lifecycle marker (#1304 / INV-10).
   'merge.completed': 'auto',
@@ -1597,6 +1605,19 @@ export const MergeRecoveredData = z.object({
 });
 
 /**
+ * merge.retry_attempt — #1308 audit record of a transient-failure retry of the
+ * merge attempt. `attempt` is the retry ordinal, `delayMs` is the backoff
+ * applied before the retry fired, and `reason` is the transient-failure reason
+ * that triggered the retry (e.g. `'timeout'`). The emission site lands in a
+ * later #1308 task; this registration is additive (no behavior change).
+ */
+export const MergeRetryAttemptData = z.object({
+  attempt: z.number().int().nonnegative(),
+  delayMs: z.number().int().nonnegative(),
+  reason: z.string().min(1),
+});
+
+/**
  * merge.completed — terminal lifecycle event emitted immediately after a
  * successful `merge.executed`. Folded by the `merge-orchestrator@v1`
  * projection (#1304) as the transition into the `completed` phase, which is
@@ -2446,6 +2467,7 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'merge.executed': MergeExecutedData,
   'merge.rollback': MergeRollbackData,
   'merge.recovered': MergeRecoveredData,
+  'merge.retry_attempt': MergeRetryAttemptData,
   'merge.completed': MergeCompletedData,
 
   // Command resolver (#1199 T15) — audit trail for runtime resolver decisions.
@@ -2579,6 +2601,7 @@ export type MergeRequested = z.infer<typeof MergeRequestedData>;
 export type MergeExecuted = z.infer<typeof MergeExecutedData>;
 export type MergeRollback = z.infer<typeof MergeRollbackData>;
 export type MergeRecovered = z.infer<typeof MergeRecoveredData>;
+export type MergeRetryAttempt = z.infer<typeof MergeRetryAttemptData>;
 export type MergeCompleted = z.infer<typeof MergeCompletedData>;
 export type HsmDeprecatedActionInvoked = z.infer<typeof HsmDeprecatedActionInvokedData>;
 export type SpecLegacyCapabilitiesArray = z.infer<typeof SpecLegacyCapabilitiesArrayData>;
@@ -2705,6 +2728,7 @@ export type EventDataMap = {
   'merge.executed': MergeExecuted;
   'merge.rollback': MergeRollback;
   'merge.recovered': MergeRecovered;
+  'merge.retry_attempt': MergeRetryAttempt;
   'merge.completed': MergeCompleted;
   'command.resolved': CommandResolvedEvent;
   'hsm.deprecated_action_invoked': HsmDeprecatedActionInvoked;

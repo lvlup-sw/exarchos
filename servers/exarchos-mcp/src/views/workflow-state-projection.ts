@@ -654,6 +654,10 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       case 'dispatch.preflight':
       case 'merge.requested':
       case 'merge.completed':
+      // #1308 — audit-only retry record; it does not transition the
+      // mergeOrchestrator phase (the retry sits between attempts), so the
+      // projection treats it as an observation and folds to identity.
+      case 'merge.retry_attempt':
       case 'command.resolved':
       case 'hsm.deprecated_action_invoked':
       case 'spec.legacy_capabilities_array':

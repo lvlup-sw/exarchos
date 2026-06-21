@@ -559,8 +559,11 @@ describe('EventTypes', () => {
     //   delegation-timeline for the token-reduction acceptance gate).
     // Bumped 126 → 127: merge.recovered (#1306 — successor to merge.rollback,
     //   dual-emitted during the v2.11.x deprecation window; legacy removed v2.12).
-    expect(EventTypes).toHaveLength(127);
+    // Bumped 127 → 128: merge.retry_attempt (#1308 — audit record of a
+    //   transient-failure retry of the merge attempt; emission lands later).
+    expect(EventTypes).toHaveLength(128);
     expect(EventTypes).toContain('merge.recovered');
+    expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('subagent.tokens_used');
     expect(EventTypes).toContain('onboard.requested');
     expect(EventTypes).toContain('onboard.executed');
@@ -3677,5 +3680,27 @@ describe('merge.recovered (#1306 successor to merge.rollback)', () => {
     expect(() =>
       recoveredSchema!.parse({ sourceBranch: 'a', targetBranch: 'b', reason: 'merge-failed' }),
     ).toThrow();
+  });
+});
+
+describe('merge.retry_attempt (#1308 transient-failure retry)', () => {
+  const retrySchema = (
+    EVENT_DATA_SCHEMAS as Record<string, { parse: (v: unknown) => unknown } | undefined>
+  )['merge.retry_attempt'];
+
+  it('Schemas_MergeRetryAttempt_Registered', () => {
+    // Registered as an event type with the expected retry payload shape.
+    expect(EventTypes).toContain('merge.retry_attempt');
+    expect(retrySchema).toBeDefined();
+    const parsed = retrySchema!.parse({
+      attempt: 2,
+      delayMs: 500,
+      reason: 'timeout',
+    });
+    expect(parsed).toMatchObject({
+      attempt: 2,
+      delayMs: 500,
+      reason: 'timeout',
+    });
   });
 });
