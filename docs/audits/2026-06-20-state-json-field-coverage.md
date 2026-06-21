@@ -42,3 +42,13 @@
 4. Only then migrate the ~25 call sites and add the no-read/write CI gate.
 
 This is a substantially larger and more #1554-entangled refactor than the issue scoped. See the checkpoint decision in the workflow.
+
+## Addendum — empirical event-store-first probe (2026-06-20)
+
+After closing the `mergeOrchestrator` projection gap, we **flipped `resolveWorkflowState` to event-store-first** and ran the full mcp suite to measure the blast radius precisely. Result: **13 failures / 7857 tests**, in exactly 3 files — the flip was then reverted to keep the tree green. The failures ARE the migration surface:
+
+1. **`request-synthesize.test.ts` (10)** — root cause: tests seed state by **mocking the file read** (`existsSync→true`, `readFileSync→oneshotState`) with an **empty event-store stub**. Event-store-first correctly ignores the mocked file → empty-projection skeleton. **Migration:** seed the `workflow.started`(+`workflow.transition`) events the projection folds instead of mocking `node:fs`. Mechanical, one helper.
+2. **`finalize-oneshot.test.ts` (2)** — same root cause (file-mock vs event-seed).
+3. **`reconcile-state.projection-drift.test.ts` (1)** — **NOT a test-seed fix.** `handleReconcileState`'s drift check exists to compare the **file (canonical)** against the **event-projection (pipeline)** and report `canonical=N projected=M delta=…`. Event-store-first makes `resolveWorkflowState` return the *projection* for "canonical", so the check compares projection-vs-projection (always agrees) — **defeated by construction.** The drift check's entire premise is the file/event duality #1504 *removes*, so `handleReconcileState`'s drift machinery must be **retired** (or re-pointed to read the file directly) as part of #1504, not merely re-seeded.
+
+**Net for the follow-on:** the event-store-first flip itself is a ~10-line change and correct; landing it green requires (a) migrating the request-synthesize + finalize-oneshot tests to event-seeding, (b) retiring/reworking the reconcile_state projection-drift check, THEN (c) the broader write-path removal (~25 files) with each direct `writeStateFile`/`readStateFile` site moved to event-append + projection. The `mergeOrchestrator` fold (shipped this session) is the enabling precondition.
