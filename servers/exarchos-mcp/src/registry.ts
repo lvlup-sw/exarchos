@@ -1872,7 +1872,7 @@ const orchestrateActions: readonly ToolAction[] = [
   // ─── Merge Orchestrator (DR-MO-1) ─────────────────────────────────────────
   {
     name: 'merge_orchestrate',
-    description: 'Top-level merge orchestrator: runs preflight, emits merge.preflight, then delegates to the executor on pass. Handles abort/dryRun/resume per DR-MO-1.',
+    description: 'Top-level merge orchestrator (DR-MO-1): runs preflight, emits merge.preflight, then delegates to the executor on pass; handles abort/dryRun/resume. Use for: merging a task/feature source branch into the integration target with full preflight + compensating recovery from the main worktree. Do NOT use for: a raw provider PR/MR merge (use merge_pr); verifying a directory is a git worktree (use verify_worktree); or requesting synthesis/PR creation on a oneshot workflow (use request_synthesize).',
     schema: z.object({
       featureId: z.string().min(1),
       sourceBranch: z.string().min(1),
