@@ -723,6 +723,9 @@ export async function dispatch(
           rootsClient: ctx.rootsClient,
           cwd: ctx.cwd ?? process.cwd(),
           eventStore: ctx.eventStore,
+          // #1504 — authoritative workflow enumeration via the projected
+          // `workflow_state` table when probing this server's own workspace.
+          storage: ctx.storage,
         });
         if (resolution !== undefined) {
           if (resolution.success) {

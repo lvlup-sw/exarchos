@@ -31,6 +31,7 @@ import { fileURLToPath } from 'node:url';
 
 import type { CapabilityResolver } from '../capabilities/resolver.js';
 import type { EventStore } from '../event-store/store.js';
+import type { StorageBackend } from '../storage/backend.js';
 
 // ─── Public types ───────────────────────────────────────────────────────────
 
@@ -80,16 +81,33 @@ export interface ResolveWorkspaceOpts {
   readonly cwd: string;
   /** Event store used to emit `workspace.resolved` on single-match. */
   readonly eventStore: EventStore;
+  /**
+   * Storage backend exposing the projected `workflow_state` table (#1504).
+   * When the probed workspace is the one this backend serves
+   * (`wfDir === eventStore.dir`), `deriveFeatureId` enumerates tracked
+   * workflows from `listStates()` — the authoritative source — instead of
+   * scanning `.state.json` files (which are absent once the write-path is
+   * removed). Optional: CLI/legacy callers that omit it fall back to the
+   * file scan.
+   */
+  readonly storage?: StorageBackend;
 }
 
 // ─── Pure detector ──────────────────────────────────────────────────────────
 
+/** Event-store SQLite filenames that signal a tracked workspace (#1504). */
+const EVENT_DB_FILENAMES = new Set(['exarchos.db', 'events.db']);
+
 /**
  * Synchronous workspace detector. Returns `true` when `dir` carries an
- * Exarchos workspace signature: either a `.exarchos.yml` file at the
- * root, or at least one `<id>.state.json` under
- * `docs/workflow-state/`. Exported so unit tests can pin the contract
- * independently of `resolveWorkspace`'s integration surface.
+ * Exarchos workspace signature: a `.exarchos.yml` file at the root, an
+ * event-store db (`exarchos.db`/`events.db`) under `docs/workflow-state/`,
+ * or at least one `<id>.state.json` there. Exported so unit tests can pin
+ * the contract independently of `resolveWorkspace`'s integration surface.
+ *
+ * The db check (#1504) keeps detection working after the `.state.json`
+ * write-path is removed: a tracked workspace may then carry only the event
+ * store, with no state files on disk.
  */
 export function isExarchosWorkspace(dir: string): boolean {
   // The detector is sync because discovery walks N roots in a tight
@@ -105,7 +123,7 @@ export function isExarchosWorkspace(dir: string): boolean {
     const wfDir = path.join(dir, 'docs', 'workflow-state');
     if (!fsSync.existsSync(wfDir)) return false;
     const entries = fsSync.readdirSync(wfDir);
-    return entries.some((e) => e.endsWith('.state.json'));
+    return entries.some((e) => e.endsWith('.state.json') || EVENT_DB_FILENAMES.has(e));
   } catch {
     return false;
   }
@@ -132,12 +150,33 @@ function uriToPath(uri: string): string | undefined {
 
 /**
  * Find a `featureId` inside a known-good workspace directory. Picks the
- * lexically-first `*.state.json` under `docs/workflow-state/` so the
- * result is deterministic across calls. Returns `undefined` when the
- * workspace has `.exarchos.yml` but no state files yet.
+ * lexically-first tracked workflow so the result is deterministic across
+ * calls. Returns `undefined` when the workspace carries the `.exarchos.yml`
+ * (or db) signature but has no tracked workflows yet.
+ *
+ * Backend-first (#1504): when `storage` is supplied AND the probed workspace
+ * is the one this server's event store serves (`wfDir === eventStore.dir`),
+ * enumerate the authoritative `workflow_state` projection via `listStates()`
+ * — `.state.json` files are absent once the write-path is removed. Other
+ * roots (a different repo in the roots list) fall back to the file scan; the
+ * single server-bound backend knows nothing about them. Mirrors the
+ * lifecycle/prune migration (`storage/lifecycle.ts`).
  */
-async function deriveFeatureId(workspace: string): Promise<string | undefined> {
+async function deriveFeatureId(
+  workspace: string,
+  eventStore: EventStore,
+  storage?: StorageBackend,
+): Promise<string | undefined> {
   const wfDir = path.join(workspace, 'docs', 'workflow-state');
+
+  if (storage && path.resolve(wfDir) === path.resolve(eventStore.dir)) {
+    const featureIds = storage
+      .listStates()
+      .map((s) => s.featureId)
+      .sort();
+    return featureIds.length > 0 ? featureIds[0] : undefined;
+  }
+
   let entries: string[];
   try {
     entries = await fs.readdir(wfDir);
@@ -247,7 +286,7 @@ async function emitResolved(
 export async function resolveWorkspace(
   opts: ResolveWorkspaceOpts,
 ): Promise<WorkspaceResolution | undefined> {
-  const { resolver, rootsClient, cwd, eventStore } = opts;
+  const { resolver, rootsClient, cwd, eventStore, storage } = opts;
 
   // Explicit featureId short-circuits — the dispatch boundary should
   // have filtered this case out before calling, but the guard keeps
@@ -267,7 +306,7 @@ export async function resolveWorkspace(
       const rootPath = uriToPath(root.uri);
       if (rootPath === undefined) continue;
       if (!isExarchosWorkspace(rootPath)) continue;
-      const featureId = await deriveFeatureId(rootPath);
+      const featureId = await deriveFeatureId(rootPath, eventStore, storage);
       if (featureId === undefined) continue;
       matches.push({ featureId, path: rootPath });
     }
@@ -302,7 +341,7 @@ export async function resolveWorkspace(
   // required` envelope.
   const cwdHit = cwdWalk(cwd);
   if (cwdHit === undefined) return undefined;
-  const featureId = await deriveFeatureId(cwdHit);
+  const featureId = await deriveFeatureId(cwdHit, eventStore, storage);
   if (featureId === undefined) return undefined;
 
   await emitResolved(eventStore, {
