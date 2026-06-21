@@ -68,33 +68,43 @@ prevents* its use (fact 2). The leak is a designed-in capability, not a harness 
   receives `tool_input.file_path` and `cwd` on stdin; under `isolation: worktree` `cwd` **is the
   worktree path** and agent-scoped frontmatter hooks fire only for that subagent.
 
-## Structural fix (guaranteed by construction)
+## Structural fix
 
-Two layers — the hook is load-bearing; the contract change removes the source.
+Defense-in-depth across the dispatch lifecycle. **INV-4 is load-bearing here: the structural
+fix must hold on every runtime's path, so the *platform-agnostic* mechanisms are primary.** A
+Claude-only mechanism cannot *be* the fix — it would leave codex/cursor/copilot/opencode
+unprotected. exarchos has exactly two runtime-agnostic seams (it never spawns the agent and has
+no agnostic during-work interception point), and both are used:
 
-**Layer A — Enforcement (the guarantee): a PreToolUse worktree-boundary hook.**
-Add a new CLI subcommand `exarchos verify-worktree-boundary` (mirrors `exarchos run-tests`):
-read the PreToolUse JSON on stdin, resolve `tool_input.file_path` against `cwd`, and **deny
-(exit 2) any write whose realpath escapes the worktree root**. Wire it by adding a `pre-write`
-`validationRule` *with a `command`* to the `task-isolated` agent specs (IMPLEMENTER, FIXER,
-SCAFFOLDER) in `definitions.ts`; the existing `claude.ts` adapter renders it as a `PreToolUse`
-`Write|Edit` hook automatically. Extend the matcher to `Write|Edit|MultiEdit` (+ `NotebookEdit`).
-Result: an absolute main-repo path → realpath outside cwd → **denied**; a correct
-relative/worktree path → inside cwd → allowed. The leak becomes unrepresentable (INV-11).
+**Primary — agnostic prevention: the relative-path contract.** Remove the leak source. The
+dispatch contract — delegation `SKILL.md`, the IMPLEMENTER/FIXER/SCAFFOLDER system prompts
+(`definitions.ts`), and the `implementer-prompt.md` reference — emits **worktree-relative** file
+paths (absolute only for the `cd` target). With cwd = worktree and only relative paths, no agent
+on *any* runtime is handed a main-repo address. Path construction is the orchestrator's job on
+every runtime, so this is enforced by a *consistent, prominent contract* rather than a code
+rewrite — but it is the one mechanism that reaches all five runtimes, so it is the load-bearing
+line. (It propagates into all 5 rendered agent artifacts + all 8 skill variants.)
 
-**Layer B — Prevention (remove the source): relative path contract.**
-Invert "Key Principles" #3 to *"repo-relative paths, resolved against the worktree root — never
-absolute paths into the parent repo,"* and make `renderImplementerPrompt`/the orchestrator emit
-worktree-relative `filePaths`. With cwd = worktree (harness chdir) and only relative paths, the
-common case never even reaches the hook.
+**Primary — agnostic detection: the merge-time backstop.** `verify-worktree-baseline`'s
+`leaked-committed` classifier runs in exarchos code at merge on **every** runtime, catching any
+leak the contract misses and surfacing a safe `git checkout -- <path>` remediation. By
+construction, runtime-independent — the agnostic safety net.
 
-**Cross-runtime parity (INV-4).** The guarantee must exist on every runtime's path, not just
-Claude. Map the `pre-write→PreToolUse-equivalent` trigger in the other runtime adapters
-(codex/cursor/copilot/opencode); where a runtime has no pre-write hook surface, **log the gap
-explicitly** rather than silently shipping an unprotected path.
+**Per-runtime hardening (NOT the guarantee): the PreToolUse boundary hook.** On Claude — the one
+runtime that exposes a during-work tool-call interception seam — `exarchos
+verify-worktree-boundary` is wired as a `PreToolUse` deny-hook (via a `pre-write` validationRule
+*with a command*; the `claude.ts` adapter renders it automatically; matcher
+`Write|Edit|MultiEdit|NotebookEdit`). It makes an out-of-worktree write impossible *on Claude*.
+This is **belt-and-suspenders on top of the agnostic layers, explicitly not a substitute** for
+them: codex/cursor/copilot/opencode treat `isolation:worktree` as advisory and expose no hook,
+so elevating this to "the fix" would violate INV-4.
 
-**Backstop demotion.** The merge-time `verify-worktree-baseline` `leaked-committed` classifier
-stays as defense-in-depth, but is no longer the only line — the hook prevents the leak upstream.
+**INV-4 parity — extension path, logged gaps.** The correct way to extend *by-construction*
+enforcement beyond Claude is each runtime's **native confinement** primitive, not one Claude
+mechanism: e.g. codex's `sandbox_mode: workspace-write` scoped to the worktree, or each host's
+equivalent sandbox/workspace seam. Where a runtime exposes no confinement seam, the gap is
+**logged** (a regression test pins that the hook renders on Claude only) — never faked. Until
+those land, the agnostic prevention + detection layers above are what hold the line everywhere.
 
 ## Verification plan (debug → fix, TDD)
 
@@ -110,10 +120,16 @@ stays as defense-in-depth, but is no longer the only line — the hook prevents 
 
 ## Definition of done
 
-- `exarchos verify-worktree-boundary` ships and denies out-of-worktree writes (exit 2).
-- `task-isolated` agents render the PreToolUse boundary hook on Claude; parity mapped or gap
-  logged on every other runtime.
-- Implementer prompt contract uses worktree-relative paths; no absolute main-repo path is
-  emitted by the renderer.
-- Snapshots + `skills:guard`/`hooks:guard` green; the #1301 leak no longer reproduces by
-  construction; merge-time backstop retained as secondary.
+- **Agnostic prevention (primary):** the dispatch contract emits worktree-relative paths
+  everywhere it is stated — delegation `SKILL.md`, the IMPLEMENTER/FIXER/SCAFFOLDER system
+  prompts (→ all 5 rendered agent artifacts), and `implementer-prompt.md`. No surface instructs
+  absolute parent-repo paths. (This is the line that holds on every runtime.)
+- **Agnostic detection (primary):** the merge-time `verify-worktree-baseline` `leaked-committed`
+  backstop is retained as the runtime-independent safety net.
+- **Per-runtime hardening (Claude):** `exarchos verify-worktree-boundary` ships, denies
+  out-of-worktree writes (exit 2), and renders as a `PreToolUse` hook on Claude only. The
+  Claude-only scope is **logged** (parity regression test), with native-confinement on other
+  runtimes (e.g. codex `sandbox_mode`) noted as the extension path — not faked as parity.
+- Snapshots + `skills:guard`/`hooks:guard` green. The #1301 leak is prevented by contract +
+  detected by backstop on **every** runtime, and additionally unrepresentable by construction
+  on Claude.
