@@ -193,18 +193,11 @@ export async function initStateFile(
       throw err;
     }
 
-    // Write-through: also write .state.json as crash-recovery backup.
-    try {
-      await fs.mkdir(stateDir, { recursive: true });
-      const tmpPath = `${stateFile}.init.${process.pid}`;
-      await fs.writeFile(tmpPath, JSON.stringify(state, null, 2), 'utf-8');
-      await fs.rename(tmpPath, stateFile);
-    } catch (err) {
-      logger.warn(
-        { stateFile, err: err instanceof Error ? err.message : String(err) },
-        'Failed to write .state.json backup; backend write succeeded',
-      );
-    }
+    // #1504 — the SQLite backend is the authoritative store; no `.state.json`
+    // crash-backup is written. A derived file on disk would go stale and could
+    // shadow the projection (the bug #1504 fixes); the no-read/write gate
+    // (1504-4) forbids `.state.json` I/O in production. `stateFile` is returned
+    // as a stable path identifier only — callers must not assume it exists.
     return { stateFile, state };
   }
 
@@ -393,20 +386,9 @@ export async function writeStateFile(
       throw err;
     }
 
-    // Write-through: also write .state.json as crash-recovery backup.
-    // Backend is the primary store; file write failure is non-fatal.
-    try {
-      const dir = path.dirname(stateFile);
-      await fs.mkdir(dir, { recursive: true });
-      const tmpPath = `${stateFile}.tmp.${process.pid}`;
-      await fs.writeFile(tmpPath, JSON.stringify(stateWithVersion, null, 2), 'utf-8');
-      await fs.rename(tmpPath, stateFile);
-    } catch (err) {
-      logger.warn(
-        { stateFile, err: err instanceof Error ? err.message : String(err) },
-        'Failed to write .state.json backup; backend write succeeded',
-      );
-    }
+    // #1504 — backend is the authoritative store; no `.state.json`
+    // write-through. The derived file is never written in backend mode so it
+    // cannot go stale or shadow the projection.
     return;
   }
 
