@@ -54,6 +54,32 @@ export interface WorkflowStateView {
    * `phase.entered` is folded.
    */
   phaseObligation: PhaseObligationEntry | null;
+  /**
+   * Terminal merge-orchestrator state (#1504/#1554). Folded from the
+   * `merge.preflight` / `merge.executed` / `merge.rollback` events, mirroring
+   * the file-path `applyEventToState` (state-store.ts) so `resolveWorkflowState`
+   * reconstructs the block instead of silently dropping it. `undefined` until
+   * the first terminal merge event is folded (matches the file's
+   * absence-until-merge). Each terminal event REPLACES the block so no stale
+   * fields leak across phases.
+   */
+  mergeOrchestrator?: MergeOrchestratorView;
+  [key: string]: unknown;
+}
+
+interface MergeOrchestratorView {
+  phase: 'pending' | 'executing' | 'completed' | 'rolled-back' | 'aborted';
+  sourceBranch?: string;
+  targetBranch?: string;
+  taskId?: string;
+  strategy?: 'squash' | 'rebase' | 'merge';
+  rollbackSha?: string;
+  mergeSha?: string;
+  reason?: 'merge-failed' | 'verification-failed' | 'timeout';
+  rollbackError?: string;
+  recoveryError?: 'reset-keep-blocked' | 'reset-failed' | 'unexpected-mid-merge-drift';
+  abortReason?: string;
+  preflight?: unknown;
   [key: string]: unknown;
 }
 
@@ -350,6 +376,73 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
           reviews: {
             ...view.reviews,
             [String(data.pr)]: data,
+          },
+        };
+      }
+
+      // ── Merge Orchestrator (#1504/#1554 — close the projection gap) ─────
+      // Mirrors the file-path applyEventToState (state-store.ts:804-853): each
+      // terminal merge event REPLACES `mergeOrchestrator` (no spread) so the
+      // block is self-consistent — no stale fields from a prior phase. Without
+      // these, resolveWorkflowState silently dropped the whole block (the
+      // #1504 audit's headline gap).
+
+      case 'merge.preflight': {
+        const data = event.data as Record<string, unknown> | undefined;
+        if (!data) return view;
+        // Only a FAILED preflight produces a terminal `aborted` block. A passing
+        // preflight is observation — the executor's merge.executed/rollback
+        // produces the next terminal write.
+        if (data.passed === false) {
+          return {
+            ...view,
+            updatedAt: event.timestamp,
+            mergeOrchestrator: {
+              phase: 'aborted',
+              preflight: data,
+              abortReason: 'preflight-failed',
+              ...(data.taskId !== undefined ? { taskId: data.taskId as string } : {}),
+              ...(data.sourceBranch !== undefined ? { sourceBranch: data.sourceBranch as string } : {}),
+              ...(data.targetBranch !== undefined ? { targetBranch: data.targetBranch as string } : {}),
+            },
+          };
+        }
+        return view;
+      }
+
+      case 'merge.executed': {
+        const data = event.data as Record<string, unknown> | undefined;
+        if (!data) return view;
+        return {
+          ...view,
+          updatedAt: event.timestamp,
+          mergeOrchestrator: {
+            phase: 'completed',
+            ...(data.taskId !== undefined ? { taskId: data.taskId as string } : {}),
+            ...(data.sourceBranch !== undefined ? { sourceBranch: data.sourceBranch as string } : {}),
+            ...(data.targetBranch !== undefined ? { targetBranch: data.targetBranch as string } : {}),
+            ...(data.strategy !== undefined ? { strategy: data.strategy as MergeOrchestratorView['strategy'] } : {}),
+            ...(data.mergeSha !== undefined ? { mergeSha: data.mergeSha as string } : {}),
+            ...(data.rollbackSha !== undefined ? { rollbackSha: data.rollbackSha as string } : {}),
+          },
+        };
+      }
+
+      case 'merge.rollback': {
+        const data = event.data as Record<string, unknown> | undefined;
+        if (!data) return view;
+        return {
+          ...view,
+          updatedAt: event.timestamp,
+          mergeOrchestrator: {
+            phase: 'rolled-back',
+            ...(data.taskId !== undefined ? { taskId: data.taskId as string } : {}),
+            ...(data.sourceBranch !== undefined ? { sourceBranch: data.sourceBranch as string } : {}),
+            ...(data.targetBranch !== undefined ? { targetBranch: data.targetBranch as string } : {}),
+            ...(data.rollbackSha !== undefined ? { rollbackSha: data.rollbackSha as string } : {}),
+            ...(data.reason !== undefined ? { reason: data.reason as MergeOrchestratorView['reason'] } : {}),
+            ...(data.recoveryError !== undefined ? { recoveryError: data.recoveryError as MergeOrchestratorView['recoveryError'] } : {}),
+            ...(data.rollbackError !== undefined ? { rollbackError: data.rollbackError as string } : {}),
           },
         };
       }

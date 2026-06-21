@@ -941,3 +941,72 @@ describe('WorkflowStateProjection phase.entered / phase.exited', () => {
     expect(afterEntered.phaseObligation?.posture).toBe('read-only');
   });
 });
+
+// ─── Merge Orchestrator fold (#1504/#1554 — close the projection gap) ───────
+// Pre-fix, workflowStateProjection dropped merge.* on the floor (default arm),
+// so resolveWorkflowState materialized state with NO mergeOrchestrator block —
+// the headline gap the #1504 field-coverage audit found. These fold the merge
+// terminal events the file-path applyEventToState (state-store.ts:804-853) did.
+describe('WorkflowStateProjection mergeOrchestrator fold', () => {
+  it('MergeExecuted_FoldsCompletedBlock', () => {
+    let view = workflowStateProjection.init();
+    view = workflowStateProjection.apply(view, makeEvent('workflow.started', {
+      featureId: 'feat-m', workflowType: 'feature',
+    }));
+    view = workflowStateProjection.apply(view, makeEvent('merge.executed', {
+      taskId: 't1', sourceBranch: 'task/t1', targetBranch: 'integration',
+      strategy: 'squash', mergeSha: 'abc123',
+    }));
+
+    expect(view.mergeOrchestrator).toBeDefined();
+    expect(view.mergeOrchestrator).toMatchObject({
+      phase: 'completed',
+      taskId: 't1',
+      sourceBranch: 'task/t1',
+      targetBranch: 'integration',
+      strategy: 'squash',
+      mergeSha: 'abc123',
+    });
+  });
+
+  it('MergeRollback_FoldsRolledBackBlockWithRecoveryError', () => {
+    let view = workflowStateProjection.init();
+    view = workflowStateProjection.apply(view, makeEvent('merge.rollback', {
+      taskId: 't2', sourceBranch: 'task/t2', targetBranch: 'integration',
+      rollbackSha: 'def456', reason: 'verification-failed',
+      recoveryError: 'reset-keep-blocked',
+    }));
+
+    expect(view.mergeOrchestrator).toMatchObject({
+      phase: 'rolled-back',
+      taskId: 't2',
+      rollbackSha: 'def456',
+      reason: 'verification-failed',
+      recoveryError: 'reset-keep-blocked',
+    });
+  });
+
+  it('MergePreflightFailed_FoldsAbortedBlock', () => {
+    let view = workflowStateProjection.init();
+    view = workflowStateProjection.apply(view, makeEvent('merge.preflight', {
+      passed: false, taskId: 't3', sourceBranch: 'task/t3', targetBranch: 'integration',
+    }));
+
+    expect(view.mergeOrchestrator).toMatchObject({
+      phase: 'aborted',
+      abortReason: 'preflight-failed',
+      taskId: 't3',
+    });
+  });
+
+  it('MergePreflightPassed_IsObservationOnly_NoBlock', () => {
+    let view = workflowStateProjection.init();
+    view = workflowStateProjection.apply(view, makeEvent('merge.preflight', {
+      passed: true, taskId: 't4', sourceBranch: 'task/t4', targetBranch: 'integration',
+    }));
+
+    // A passing preflight is observation; the executor's merge.executed produces
+    // the next terminal write. Mirrors applyEventToState (returns false → no-op).
+    expect(view.mergeOrchestrator).toBeUndefined();
+  });
+});
