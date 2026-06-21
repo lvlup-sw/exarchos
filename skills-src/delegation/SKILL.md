@@ -110,8 +110,8 @@ The composite action performs:
 
 From the implementation plan, extract for each task:
 - Full task description (paste inline; never reference external files)
-- Files to create/modify with absolute worktree paths
-- Test file paths and expected test names
+- Files to create/modify as **worktree-relative paths** (e.g. `src/foo.ts`) — NEVER absolute parent-repo paths. An `Edit`/`Write` resolves an absolute path literally and ignores the agent's worktree cwd, so an absolute parent-repo path silently writes into the main worktree (#1301). This is the platform-agnostic line of defense — it must hold on every runtime.
+- Test file paths (worktree-relative) and expected test names
 - Dependencies on other tasks (for sequencing)
 - Property-based testing flag (`testingStrategy.propertyTests`)
 

@@ -78,6 +78,7 @@ NOT rebase or reset to self-heal; the orchestrator owns base correction.
 {{taskDescription}}
 
 ## Files
+Paths below are **relative to your worktree** (your cwd). Never read/edit/write an absolute parent-repo path — an absolute path bypasses the worktree cwd and leaks into the main worktree (#1301). This rule is your responsibility on every runtime; on Claude it is also enforced by a PreToolUse boundary hook.
 {{filePaths}}
 
 ## Protocol
