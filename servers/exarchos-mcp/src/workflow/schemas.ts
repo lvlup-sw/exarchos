@@ -426,10 +426,44 @@ export const InitInputSchema = z.object({
 
 export const ListInputSchema = z.object({});
 
+// ─── As-Of Bound Schema (#1555 bounded-fold primitive) ──────────────────────
+//
+// `asOf` bounds a read to `events[0..N]` — a time-travel projection over the
+// immutable log. The two ceilings are MUTUALLY EXCLUSIVE: a value carries
+// either `untilSequence` (a stream-sequence ceiling) or `untilTimestamp` (an
+// ISO-8601 timestamp ceiling), never both. Exclusion is enforced here at the
+// schema via `.refine` so the CLI and MCP carriers reject a both-bounds value
+// identically (INV-2) before it reaches the dispatch core.
+//
+// This field shape mirrors `AsOfBound` in `projections/cursor.ts`; the
+// dispatch core (Task 7) folds the bounded event list through `boundEvents`.
+//
+// Zod-v4 note: `.refine()` on a `ZodObject` returns a `ZodObject` (the check
+// is stored in `def.checks`, not wrapped in a `ZodEffects`/pipe as in Zod v3).
+// So `AsOfSchema` still classifies as `'object'` in
+// `adapters/schema-to-flags.ts::resolveType`, and the CLI `--as-of` string is
+// JSON-parsed identically to the MCP object payload (CLI↔MCP parity, Task 8).
+// The single source of truth lives here; `get`/`view` registry actions and
+// `GetInputSchema` all reference this one definition.
+export const AsOfSchema = z
+  .object({
+    untilSequence: z.number().int().nonnegative().optional(),
+    untilTimestamp: z.string().datetime().optional(),
+  })
+  .refine(
+    (v) => !(v.untilSequence !== undefined && v.untilTimestamp !== undefined),
+    {
+      message:
+        'asOf must carry exactly one of untilSequence or untilTimestamp, not both',
+    },
+  );
+
 export const GetInputSchema = z.object({
   featureId: FeatureIdSchema,
   query: z.string().optional(),
   fields: coercedStringArray().optional(),
+  // #1555 — optional bounded-fold (time-travel) read. Omitted ⇒ live tip.
+  asOf: AsOfSchema.optional(),
 });
 
 export const SetInputSchema = z.object({
