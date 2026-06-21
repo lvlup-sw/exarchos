@@ -301,4 +301,38 @@ describe('projectAt — snapshot warm-start equivalence (T3)', () => {
     const cold = foldOracle(countReducer, events, bound);
     expect(result.count).toBe(cold.count);
   });
+
+  it('projectAt_honestSnapshotPresent_structurallyEqualsColdFold', async () => {
+    // The keystone INV-1 guard: with an HONEST snapshot (one whose state is
+    //   exactly the cold fold through its sequence, no sentinel), the warm path
+    //   must be byte/structurally identical to the cold path — proving
+    //   warm-start is a pure optimisation, not just count-equivalent.
+
+    // GIVEN a 6-event stream and a bound at N=5.
+    const streamId = 'wf-pa-honest';
+    await seedStream(streamId, 6);
+    const events = await store.query(streamId);
+    const bound: AsOfBound = { untilSequence: 5 };
+
+    // AND an HONEST snapshot at sequence 3 == foldOracle(events, untilSeq 3),
+    //   with NO sentinel — a faithful warm-start point.
+    const honestState = foldOracle(countReducer, events, {
+      untilSequence: 3,
+    });
+    const honestRecord: SnapshotRecord = {
+      projectionId: countReducer.id,
+      projectionVersion: String(countReducer.version),
+      sequence: 3,
+      state: honestState,
+      timestamp: '2026-06-20T12:00:00.000Z',
+    };
+    appendSnapshot(store.getReadBackend(), streamId, honestRecord);
+
+    // WHEN we project at N with the honest snapshot present.
+    const warm = await projectAt(countReducer, store, streamId, bound);
+
+    // THEN warm ≡ cold by FULL structural equality (not merely .count).
+    const cold = foldOracle(countReducer, events, bound);
+    expect(warm).toStrictEqual(cold);
+  });
 });
