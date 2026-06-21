@@ -238,6 +238,45 @@ describe('mergeOrchestratorReducer.apply — phase transitions (Wave 2B.2)', () 
     expect(next.projectionSequence).toBe(2);
   });
 
+  it('Apply_MergeRecovered_AdvancesToRecovering_WithoutLegacyRollback', () => {
+    // #1306 dual-emit robustness (Sentry #1571 review): the canonical
+    // `merge.recovered` is emitted FIRST; if the second legacy `merge.rollback`
+    // append loses a sequence race (the two appends are not atomic), the stream
+    // carries `merge.recovered` alone. The projection MUST still advance to
+    // `recovering` off the canonical event so it never strands at `executing`.
+    const state: MergeOrchestratorState = mergeOrchestratorReducer.apply(
+      mergeOrchestratorReducer.initial,
+      makeEvent(
+        'merge.executed',
+        {
+          taskId: 'task-1',
+          sourceBranch: 'feature/x',
+          targetBranch: 'main',
+          mergeSha: 'abc1234',
+          recoveryPointSha: 'def5678',
+        },
+        1,
+      ),
+    );
+    // WHEN we fold a merge.recovered event ALONE (no merge.rollback follows).
+    const event = makeEvent(
+      'merge.recovered',
+      {
+        taskId: 'task-1',
+        sourceBranch: 'feature/x',
+        targetBranch: 'main',
+        recoveryPointSha: 'def5678',
+        reason: 'verification-failed',
+      },
+      2,
+    );
+    const next = mergeOrchestratorReducer.apply(state, event);
+    // THEN phase advances to 'recovering' off the canonical event.
+    expect(next.phase).toBe('recovering');
+    expect(next.recovery?.reason).toBe('verification-failed');
+    expect(next.projectionSequence).toBe(2);
+  });
+
   it('Apply_MergeRollback_FoldsRecoveryErrorDiscriminator', () => {
     // INV-14: indeterminate worktree must surface explicitly via the closed
     // `recoveryError` enum, not as a silent success.

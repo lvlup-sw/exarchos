@@ -1,15 +1,17 @@
 # Local-Git Semantics
 
-This reference explains why `merge_orchestrate` performs a local `git merge` rather than calling the VCS provider — and why that distinction matters for the rollback contract.
+This reference explains why `merge_orchestrate` performs a local `git merge` rather than calling the VCS provider — and why that distinction matters for the recovery contract.
+
+> **Recovery vocabulary (#1306).** The orchestrator's failure handling is modeled as a database transaction, not a saga: it records a **recovery point** (the integration branch's pre-merge HEAD) and, on failure, runs the INV-14 **recovery ladder** (`git merge --abort` → `git reset --keep <recoveryPointSha>`, never `--hard`) to rewind to that point. "Recovery point" and "recovery" replace the older "rollback anchor" / "rollback" / "compensation" framing throughout. The legacy `merge.rollback` event name and its `rollbackSha` wire field are retained during the v2.11.x deprecation window; the canonical successor event is `merge.recovered`.
 
 ## The model
 
 `merge_orchestrate` is the SDLC handoff for landing a subagent's worktree branch onto the integration branch in the **main worktree**. Every operation in the orchestrator is a local-git operation:
 
 - **Preflight** — `git status --porcelain`, `git diff --cached --quiet`, `git rev-parse --abbrev-ref HEAD`, `git merge-base --is-ancestor`, `git rev-parse --git-dir`. All run against local refs.
-- **Rollback anchor** — `git rev-parse HEAD` captures the integration branch's tip before the merge.
+- **Recovery point** — `git rev-parse HEAD` captures the integration branch's tip before the merge, persisted as a write-ahead-log marker before any ref mutation.
 - **Merge** — `git merge --no-ff` / `--squash` / rebase + ff-only against local branches, in the main worktree's working directory.
-- **Rollback execution** — `git reset --hard <rollbackSha>` restores the integration branch's tip if the merge or post-merge verification fails.
+- **Recovery execution** — the INV-14 recovery ladder (`git merge --abort` → `git reset --keep <recoveryPointSha>`, never `--hard`) rewinds the integration branch's tip to the recovery point if the merge or post-merge verification fails.
 
 The integration branch may eventually be pushed to a remote and merged into `main` via a PR — that is a separate concern handled by `merge_pr` in the synthesize phase, when the full feature is ready for human review.
 
@@ -20,13 +22,13 @@ An earlier implementation of this orchestrator routed the merge through `provide
 | What runs locally | What runs remotely |
 |-------------------|--------------------|
 | Preflight (drift, ancestry, branch protection, worktree assertion) | (nothing) |
-| Rollback anchor `git rev-parse HEAD` | (nothing) |
-| Rollback `git reset --hard` | (nothing) |
+| Recovery point `git rev-parse HEAD` | (nothing) |
+| Recovery `git reset --keep` | (nothing) |
 | ❌ Merge | ✅ Merge (server-side via VCS API) |
 
-A server-side merge does not move local `HEAD`. So the recorded `rollbackSha` corresponded to a local ref the merge never touched, and `git reset --hard <rollbackSha>` was a **no-op** in production. Worse, a server-side merge that succeeded with a post-merge verification failure left a local/remote divergence with no automatic recovery.
+A server-side merge does not move local `HEAD`. So the recorded recovery point corresponded to a local ref the merge never touched, and the reset back to it was a **no-op** in production. Worse, a server-side merge that succeeded with a post-merge verification failure left a local/remote divergence with no automatic recovery.
 
-The fix was structural: align the merge primitive with the rollback primitive. Both are now local-git, and the rollback is a real undo operation.
+The fix was structural: align the merge primitive with the recovery primitive. Both are now local-git, and the recovery is a real undo operation that rewinds the integration branch to the recorded recovery point.
 
 ## Why the integration branch and not main?
 
@@ -50,14 +52,16 @@ The preflight composer separately asserts main-worktree (`git rev-parse --git-di
 
 `rebase` rewrites the source branch's history. For ephemeral subagent branches (created by `delegate`, deleted after merge), this is fine — the branch has no consumers other than the orchestrator. Don't pick `rebase` for source branches that are pushed and shared.
 
-## What the rollback actually undoes
+## What the recovery actually undoes
 
-`git reset --hard <rollbackSha>` on the integration branch restores `HEAD` to the recorded SHA. This **does** undo:
+The recovery ladder — `git merge --abort` (the operation's own recovery primitive, best-effort) followed by `git reset --keep <recoveryPointSha>` (a refuse-to-discard substrate undo, never `--hard`) — restores the integration branch's `HEAD` to the recorded recovery point. This **does** undo:
 
 - A merge commit created by `--no-ff`
 - A squash commit created by `--squash` + `git commit`
 - A fast-forward advance from a `rebase` strategy (target moves back to its pre-rebase tip)
 
-The reset **does not** undo:
+`--keep` refuses to clobber uncommitted local changes (where `--hard` would silently destroy them); the executor surfaces an indeterminate outcome (`recoveryError` + `recoveryErrorDetail`) rather than masking a stranded worktree as a clean recovery.
+
+The recovery **does not** undo:
 
 - The source branch's history rewrite from a `rebase` strategy. The source branch keeps the rebased commits; only the integration branch's reference returns to its prior state. This is acceptable in the SDLC model because the source branch is ephemeral — it gets deleted after the merge cycle either way. If you need to inspect the original source commits, the reflog still has them until expiry.

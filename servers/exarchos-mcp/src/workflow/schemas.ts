@@ -246,14 +246,14 @@ export const MergeOrchestratorStateSchema = z.object({
   // Operator-selected merge strategy — set on `executing`/`completed`/
   // `rolled-back` writes via the executor.
   strategy: z.enum(['squash', 'rebase', 'merge']).optional(),
-  rollbackSha: z.string().optional(),
+  recoveryPointSha: z.string().optional(),
   mergeSha: z.string().optional(),
-  // Terminal-failure descriptors. `reason` and `rollbackError` come from
+  // Terminal-failure descriptors. `reason` and `recoveryErrorDetail` come from
   // the executor's rolled-back write; `abortReason` from the orchestrator's
   // preflight-fail abort write. Modeling them explicitly gives downstream
   // consumers strong typing instead of leaning on `.passthrough()`.
   reason: z.enum(['merge-failed', 'verification-failed', 'timeout']).optional(),
-  rollbackError: z.string().min(1).optional(),
+  recoveryErrorDetail: z.string().min(1).optional(),
   // INV-14 recovery-outcome discriminator on the executor's rolled-back write
   // (mirrors `MergeRollbackData.recoveryError`). Modeled explicitly rather than
   // leaning on `.passthrough()` so consumers get strong typing.

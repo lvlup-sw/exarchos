@@ -34,7 +34,7 @@
 // `ctx.projectConfig` + `ctx.stateDir`.
 // ───────────────────────────────────────────────────────────────────────────
 
-import { execFileSync } from 'node:child_process';
+import { defaultGitExec } from './git-exec-default.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { z } from 'zod';
@@ -187,42 +187,6 @@ function normalizePath(p: string): string {
 }
 
 // ─── Default gitExec ───────────────────────────────────────────────────────
-
-/**
- * Default `gitExec` for the preflight composer. Mirrors the convention used
- * by `handleExecuteMerge`: synchronous shell-out with a 120s ceiling, never
- * throws (we surface failures via `exitCode`).
- */
-function defaultGitExec(repoRoot: string, args: readonly string[]): GitExecResult {
-  try {
-    const stdout = execFileSync('git', [...args], {
-      cwd: repoRoot,
-      timeout: 120_000,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    return { stdout, stderr: '', exitCode: 0 };
-  } catch (err) {
-    // Capture stderr separately so #1362 phase-1 diagnostics can read the
-    // actual git error output (e.g., for `merge-base --is-ancestor` exit
-    // codes != 0/1 indicating a real failure vs the documented "non-ancestor"
-    // signal). Also fold stderr into stdout for backwards-compat with
-    // existing callers that read `stdout` as the failure-message channel.
-    const status = (err as { status?: number }).status;
-    const rawStderr = (err as { stderr?: string | Buffer }).stderr;
-    const rawStdout = (err as { stdout?: string | Buffer }).stdout;
-    const stderr =
-      typeof rawStderr === 'string' ? rawStderr : rawStderr?.toString('utf-8') ?? '';
-    const stdoutOnly =
-      typeof rawStdout === 'string' ? rawStdout : rawStdout?.toString('utf-8') ?? '';
-    const message = [stdoutOnly, stderr].filter(Boolean).join('\n');
-    return {
-      stdout: message,
-      stderr,
-      exitCode: typeof status === 'number' ? status : 1,
-    };
-  }
-}
 
 /**
  * Default `persistState` for the orchestrator. Reads the workflow state
@@ -838,7 +802,7 @@ export async function handleMergeOrchestrate(
   const execData = execResult.data as {
     phase: 'completed';
     mergeSha: string;
-    rollbackSha: string;
+    recoveryPointSha: string;
   };
 
   return {
@@ -846,7 +810,7 @@ export async function handleMergeOrchestrate(
     data: {
       phase: 'completed' as const,
       mergeSha: execData.mergeSha,
-      rollbackSha: execData.rollbackSha,
+      recoveryPointSha: execData.recoveryPointSha,
       preflight,
     },
   };

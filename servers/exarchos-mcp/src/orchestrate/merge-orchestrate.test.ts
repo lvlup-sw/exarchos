@@ -4,7 +4,7 @@
 // (T06/T07) with executor (T15) and emits the `merge.preflight` event for
 // observability. Asserts:
 //   1. on preflight pass + execute success returns
-//      { success: true, data: { phase: 'completed', mergeSha, rollbackSha,
+//      { success: true, data: { phase: 'completed', mergeSha, recoveryPointSha,
 //        preflight } }.
 //   2. emits `merge.preflight` exactly once (direct stream append, NOT
 //      wrapped in `gate.executed` — the dedicated schema (T03) is top-level).
@@ -138,7 +138,7 @@ describe('handleMergeOrchestrate (T11)', () => {
       data: {
         phase: 'completed' as const,
         mergeSha: MERGE_SHA,
-        rollbackSha: ROLLBACK_SHA,
+        recoveryPointSha: ROLLBACK_SHA,
       },
     });
 
@@ -160,7 +160,7 @@ describe('handleMergeOrchestrate (T11)', () => {
     expect(result.data).toEqual({
       phase: 'completed',
       mergeSha: MERGE_SHA,
-      rollbackSha: ROLLBACK_SHA,
+      recoveryPointSha: ROLLBACK_SHA,
       preflight: PASSING_PREFLIGHT,
     });
     expect(preflight).toHaveBeenCalledTimes(1);
@@ -175,7 +175,7 @@ describe('handleMergeOrchestrate (T11)', () => {
       data: {
         phase: 'completed' as const,
         mergeSha: MERGE_SHA,
-        rollbackSha: ROLLBACK_SHA,
+        recoveryPointSha: ROLLBACK_SHA,
       },
     });
 
@@ -492,7 +492,7 @@ describe('handleMergeOrchestrate (#1362 — preflight.debug event-wire)', () => 
       data: {
         phase: 'completed' as const,
         mergeSha: MERGE_SHA,
-        rollbackSha: ROLLBACK_SHA,
+        recoveryPointSha: ROLLBACK_SHA,
       },
     });
     const persistState = vi.fn().mockResolvedValue(undefined);
@@ -603,7 +603,7 @@ describe('handleMergeOrchestrate (T14 — resume path)', () => {
       data: {
         phase: 'completed' as const,
         mergeSha: MERGE_SHA,
-        rollbackSha: ROLLBACK_SHA,
+        recoveryPointSha: ROLLBACK_SHA,
       },
     });
     const persistState = vi.fn().mockResolvedValue(undefined);
@@ -653,7 +653,7 @@ describe('handleMergeOrchestrate (T14 — resume path)', () => {
         targetBranch: 'main',
         taskId: 'T14',
         mergeSha: MERGE_SHA,
-        rollbackSha: ROLLBACK_SHA,
+        recoveryPointSha: ROLLBACK_SHA,
       },
     });
 
@@ -685,7 +685,7 @@ describe('handleMergeOrchestrate (T14 — resume path)', () => {
     expect(result.data).toMatchObject({
       phase: 'completed',
       mergeSha: MERGE_SHA,
-      rollbackSha: ROLLBACK_SHA,
+      recoveryPointSha: ROLLBACK_SHA,
     });
   });
 
@@ -697,7 +697,7 @@ describe('handleMergeOrchestrate (T14 — resume path)', () => {
       data: {
         phase: 'completed' as const,
         mergeSha: MERGE_SHA,
-        rollbackSha: ROLLBACK_SHA,
+        recoveryPointSha: ROLLBACK_SHA,
       },
     });
     const persistState = vi.fn().mockResolvedValue(undefined);
@@ -706,7 +706,7 @@ describe('handleMergeOrchestrate (T14 — resume path)', () => {
       mergeOrchestrator: {
         phase: 'completed',
         mergeSha: 'old-merge-sha',
-        rollbackSha: 'old-rollback-sha',
+        recoveryPointSha: 'old-rollback-sha',
       },
     });
 

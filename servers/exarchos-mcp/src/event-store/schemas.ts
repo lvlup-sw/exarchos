@@ -123,6 +123,14 @@ export const EventTypes = [
   'merge.requested',
   'merge.executed',
   'merge.rollback',
+  // #1306 — successor to `merge.rollback`; dual-emitted during the v2.11.x
+  // deprecation window. Legacy `merge.rollback` removed in v2.12 (tracked).
+  'merge.recovered',
+  // #1308 — audit record of a transient-failure retry of the merge attempt.
+  // Records the retry `attempt` ordinal, the backoff `delayMs` before it, and
+  // the transient-failure `reason` (e.g. 'timeout') that triggered it. The
+  // emission site lands in a later #1308 task; this registration is additive.
+  'merge.retry_attempt',
   // Terminal lifecycle event — emitted by the executor (`handleExecuteMerge`)
   // immediately after a successful `merge.executed` append. Folded by the
   // `merge-orchestrator@v1` projection (#1304) as the transition into the
@@ -131,6 +139,14 @@ export const EventTypes = [
   // "lifecycle formally terminated" as two states — matching INV-10's
   // executing_started + paired terminal event pattern.
   'merge.completed',
+  // #1309 — merge-executor liveness event. Emitted by `handleExecuteMerge`
+  // after the recovery point sha is recorded and BEFORE the first `vcsMerge`
+  // attempt, so a long-running merge is observable as "started but not yet
+  // terminated" — the INV-10 `<surface>.executing_started` + paired terminal
+  // (`merge.executed` / `merge.recovered`) pattern, mirroring
+  // `mutation.executing_started`. Audit-only: it does NOT transition the
+  // `merge-orchestrator@v1` projection phase.
+  'merge.executing_started',
   'command.resolved',
   // Durable event-store substrate (#1259) — deprecation telemetry + migration
   // pipeline. T02 / T03 / T04 of the substrate plan.
@@ -489,9 +505,18 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'merge.requested': 'model',
   'merge.executed': 'auto',
   'merge.rollback': 'auto',
+  // #1306 successor — same auto family as the legacy event it replaces.
+  'merge.recovered': 'auto',
+  // #1308 — emitted by the merge executor's retry loop (server-deterministic
+  // plumbing), so it lives in the auto family alongside the other merge events.
+  'merge.retry_attempt': 'auto',
   // auto — emitted by `handleExecuteMerge` immediately after `merge.executed`
   // succeeds, as the projection's terminal lifecycle marker (#1304 / INV-10).
   'merge.completed': 'auto',
+  // #1309 — emitted by `handleExecuteMerge` (server-deterministic plumbing)
+  // before the first vcsMerge, so it lives in the auto family alongside the
+  // other merge-executor events.
+  'merge.executing_started': 'auto',
 
   // auto — emitted by the test/typecheck/install runtime resolver (#1199 T15).
   // Audit-only: records where each command resolution came from so downstream
@@ -1566,6 +1591,45 @@ export const MergeRollbackData = z.object({
 });
 
 /**
+ * merge.recovered — the #1306 successor to `merge.rollback`. Emitted when a
+ * merge is reverted via the INV-14 recovery ladder. Same closed `reason` enum.
+ * `recoveryPointSha` is the anchor the worktree was rewound to (was
+ * `rollbackSha`); `recoveryErrorDetail` is the human-readable recovery-failure
+ * string (was `rollbackError`) paired with the `recoveryError` discriminator.
+ *
+ * During the v2.11.x deprecation window the executor dual-emits this AND the
+ * legacy `merge.rollback` for the same logical event; v2.12 removes the legacy
+ * emission (tracked separately). Vocabulary follows the canonical frame —
+ * recovery point / recovery event, not saga compensation / rollback.
+ */
+export const MergeRecoveredData = z.object({
+  taskId: z.string().optional(),
+  sourceBranch: z.string().min(1),
+  targetBranch: z.string().min(1),
+  recoveryPointSha: z.string().min(1),
+  reason: z.enum(['merge-failed', 'verification-failed', 'timeout']),
+  recoveryErrorDetail: z.string().min(1).optional(),
+  // INV-14 discriminator on the recovery outcome — see MergeRollbackData above
+  // for the full primitive-ordering contract. Kept under the canonical name.
+  recoveryError: z
+    .enum(['reset-keep-blocked', 'reset-failed', 'unexpected-mid-merge-drift'])
+    .optional(),
+});
+
+/**
+ * merge.retry_attempt — #1308 audit record of a transient-failure retry of the
+ * merge attempt. `attempt` is the retry ordinal, `delayMs` is the backoff
+ * applied before the retry fired, and `reason` is the transient-failure reason
+ * that triggered the retry (e.g. `'timeout'`). The emission site lands in a
+ * later #1308 task; this registration is additive (no behavior change).
+ */
+export const MergeRetryAttemptData = z.object({
+  attempt: z.number().int().nonnegative(),
+  delayMs: z.number().int().nonnegative(),
+  reason: z.string().min(1),
+});
+
+/**
  * merge.completed — terminal lifecycle event emitted immediately after a
  * successful `merge.executed`. Folded by the `merge-orchestrator@v1`
  * projection (#1304) as the transition into the `completed` phase, which is
@@ -1599,6 +1663,28 @@ export const MergeCompletedData = MergeExecutedData.pick({
     .string()
     .optional()
     .describe('Feature stream id; useful for cross-stream observability'),
+});
+
+/**
+ * merge.executing_started — #1309 merge-executor liveness event. Emitted by
+ * `handleExecuteMerge` after the recovery point sha is recorded and BEFORE the
+ * first `vcsMerge` attempt, so a long-running merge is observable as "started
+ * but not yet terminated" — the INV-10 `<surface>.executing_started` + paired
+ * terminal (`merge.executed` / `merge.recovered`) pattern, mirroring
+ * `mutation.executing_started`.
+ *
+ * `recoveryPointSha` is the anchor HEAD the merge can be rewound to (the same
+ * sha the terminal events carry as `rollbackSha` / `recoveryPointSha`).
+ * `startedAt` is the ISO timestamp at which the merge attempt began. `taskId`
+ * is optional (CLI direct-invocation has no task context), matching the other
+ * merge events.
+ */
+export const MergeExecutingStartedData = z.object({
+  taskId: z.string().optional(),
+  sourceBranch: z.string().min(1),
+  targetBranch: z.string().min(1),
+  recoveryPointSha: z.string().min(1),
+  startedAt: z.string().min(1),
 });
 
 // ─── Wave B Two-Event Split Schemas (#1342) ──────────────────────────────────
@@ -2414,7 +2500,10 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'merge.requested': MergeRequestedData,
   'merge.executed': MergeExecutedData,
   'merge.rollback': MergeRollbackData,
+  'merge.recovered': MergeRecoveredData,
+  'merge.retry_attempt': MergeRetryAttemptData,
   'merge.completed': MergeCompletedData,
+  'merge.executing_started': MergeExecutingStartedData,
 
   // Command resolver (#1199 T15) — audit trail for runtime resolver decisions.
   'command.resolved': CommandResolvedEventSchema,
@@ -2546,7 +2635,10 @@ export type MergePreflight = z.infer<typeof MergePreflightData>;
 export type MergeRequested = z.infer<typeof MergeRequestedData>;
 export type MergeExecuted = z.infer<typeof MergeExecutedData>;
 export type MergeRollback = z.infer<typeof MergeRollbackData>;
+export type MergeRecovered = z.infer<typeof MergeRecoveredData>;
+export type MergeRetryAttempt = z.infer<typeof MergeRetryAttemptData>;
 export type MergeCompleted = z.infer<typeof MergeCompletedData>;
+export type MergeExecutingStarted = z.infer<typeof MergeExecutingStartedData>;
 export type HsmDeprecatedActionInvoked = z.infer<typeof HsmDeprecatedActionInvokedData>;
 export type SpecLegacyCapabilitiesArray = z.infer<typeof SpecLegacyCapabilitiesArrayData>;
 export type PhaseContractMissing = z.infer<typeof PhaseContractMissingData>;
@@ -2671,7 +2763,10 @@ export type EventDataMap = {
   'merge.requested': MergeRequested;
   'merge.executed': MergeExecuted;
   'merge.rollback': MergeRollback;
+  'merge.recovered': MergeRecovered;
+  'merge.retry_attempt': MergeRetryAttempt;
   'merge.completed': MergeCompleted;
+  'merge.executing_started': MergeExecutingStarted;
   'command.resolved': CommandResolvedEvent;
   'hsm.deprecated_action_invoked': HsmDeprecatedActionInvoked;
   'spec.legacy_capabilities_array': SpecLegacyCapabilitiesArray;

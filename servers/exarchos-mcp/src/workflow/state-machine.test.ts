@@ -448,6 +448,30 @@ describe('Feature workflow merge-pending substate', () => {
     expect(result.newPhase).toBe('delegate');
   });
 
+  it('featureHsm_MergeRecoveredEvent_LeavesMergePendingState', () => {
+    // #1306 — merge.recovered (successor to merge.rollback) is a terminal exit
+    // event for merge-pending during the dual-emit window. No terminal
+    // mergeOrchestrator.phase is set, so this exercises the EVENT-recognition
+    // path specifically (not the EXCLUDED_MERGE_PHASES fallback).
+    const hsm = getHSMDefinition('feature');
+    const state = {
+      phase: 'merge-pending',
+      _events: [
+        {
+          type: 'task.completed',
+          data: { taskId: 'T01', worktree: '/path/to/worktree' },
+        },
+        {
+          type: 'merge.recovered',
+          data: { taskId: 'T01', recoveryPointSha: 'abc123', reason: 'timeout' },
+        },
+      ],
+    };
+    const result = executeTransition(hsm, state, 'delegate');
+    expect(result.success).toBe(true);
+    expect(result.newPhase).toBe('delegate');
+  });
+
   it('featureHsm_TaskCompletedWithWorktree_DoesNotTransitionWhenMergeCompleted', () => {
     // Excluded phase guard: even with a worktree-bearing task.completed, do
     // not re-enter merge-pending if the merge already terminated.

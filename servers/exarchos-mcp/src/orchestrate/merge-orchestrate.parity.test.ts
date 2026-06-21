@@ -131,7 +131,7 @@ function buildMergeOrchestrateCompositeStub(
           data: {
             phase: 'completed' as const,
             mergeSha: MERGE_SHA,
-            rollbackSha: ROLLBACK_SHA,
+            recoveryPointSha: ROLLBACK_SHA,
           },
         };
       }
@@ -145,7 +145,7 @@ function buildMergeOrchestrateCompositeStub(
         data: {
           phase: 'rolled-back' as const,
           mergeSha: MERGE_SHA,
-          rollbackSha: ROLLBACK_SHA,
+          recoveryPointSha: ROLLBACK_SHA,
         },
       };
     };
@@ -242,12 +242,12 @@ describe('exarchos merge-orchestrate CLI↔MCP parity (T22, DR-MO-1)', () => {
     const cliData = cliResult.data as {
       phase: string;
       mergeSha: string;
-      rollbackSha: string;
+      recoveryPointSha: string;
       preflight: MergePreflightResult;
     };
     expect(cliData.phase).toBe('completed');
     expect(cliData.mergeSha).toBe(MERGE_SHA);
-    expect(cliData.rollbackSha).toBe(ROLLBACK_SHA);
+    expect(cliData.recoveryPointSha).toBe(ROLLBACK_SHA);
     expect(cliData.preflight).toEqual(PASSING_PREFLIGHT);
 
     // Assert — both surfaces project byte-equal ToolResult after stripping

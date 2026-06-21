@@ -557,7 +557,18 @@ describe('EventTypes', () => {
     //   output-token total emitted by the restored SubagentStop hook
     //   `cli-commands/subagent-stop.ts`, folded by team-performance /
     //   delegation-timeline for the token-reduction acceptance gate).
-    expect(EventTypes).toHaveLength(126);
+    // Bumped 126 → 127: merge.recovered (#1306 — successor to merge.rollback,
+    //   dual-emitted during the v2.11.x deprecation window; legacy removed v2.12).
+    // Bumped 127 → 128: merge.retry_attempt (#1308 — audit record of a
+    //   transient-failure retry of the merge attempt; emission lands later).
+    // Bumped 128 → 129: merge.executing_started (#1309 — merge-executor liveness
+    //   event; emitted after the recovery point is recorded, before the first
+    //   vcsMerge, so a long-running merge is observable as started-but-unterminated,
+    //   the INV-10 executing_started + paired terminal pattern).
+    expect(EventTypes).toHaveLength(129);
+    expect(EventTypes).toContain('merge.recovered');
+    expect(EventTypes).toContain('merge.retry_attempt');
+    expect(EventTypes).toContain('merge.executing_started');
     expect(EventTypes).toContain('subagent.tokens_used');
     expect(EventTypes).toContain('onboard.requested');
     expect(EventTypes).toContain('onboard.executed');
@@ -3644,5 +3655,107 @@ describe('EventStoreSchemas_ToolActionErrored_HasRegisteredType', () => {
       },
     });
     expect(event.success).toBe(true);
+  });
+});
+
+describe('merge.recovered (#1306 successor to merge.rollback)', () => {
+  const recoveredSchema = (
+    EVENT_DATA_SCHEMAS as Record<string, { parse: (v: unknown) => unknown } | undefined>
+  )['merge.recovered'];
+
+  it('MergeRecovered_RegisteredWithRecoveryShape_ParsesValidPayload', () => {
+    expect(recoveredSchema).toBeDefined();
+    const parsed = recoveredSchema!.parse({
+      taskId: 't-1',
+      sourceBranch: 'feat/x',
+      targetBranch: 'integration',
+      recoveryPointSha: 'abc123',
+      reason: 'timeout',
+      recoveryErrorDetail: 'git reset --keep abc123 exited 1',
+      recoveryError: 'reset-failed',
+    });
+    expect(parsed).toMatchObject({
+      recoveryPointSha: 'abc123',
+      recoveryError: 'reset-failed',
+    });
+  });
+
+  it('MergeRecovered_RejectsMissingRecoveryPointSha', () => {
+    expect(recoveredSchema).toBeDefined();
+    expect(() =>
+      recoveredSchema!.parse({ sourceBranch: 'a', targetBranch: 'b', reason: 'merge-failed' }),
+    ).toThrow();
+  });
+});
+
+describe('merge.retry_attempt (#1308 transient-failure retry)', () => {
+  const retrySchema = (
+    EVENT_DATA_SCHEMAS as Record<string, { parse: (v: unknown) => unknown } | undefined>
+  )['merge.retry_attempt'];
+
+  it('Schemas_MergeRetryAttempt_Registered', () => {
+    // Registered as an event type with the expected retry payload shape.
+    expect(EventTypes).toContain('merge.retry_attempt');
+    expect(retrySchema).toBeDefined();
+    const parsed = retrySchema!.parse({
+      attempt: 2,
+      delayMs: 500,
+      reason: 'timeout',
+    });
+    expect(parsed).toMatchObject({
+      attempt: 2,
+      delayMs: 500,
+      reason: 'timeout',
+    });
+  });
+});
+
+describe('merge.executing_started (#1309 liveness event)', () => {
+  const startedSchema = (
+    EVENT_DATA_SCHEMAS as Record<string, { parse: (v: unknown) => unknown } | undefined>
+  )['merge.executing_started'];
+
+  it('Schemas_MergeExecutingStarted_Registered', () => {
+    // Registered as an event type carrying the liveness payload shape
+    // { taskId, sourceBranch, targetBranch, recoveryPointSha, startedAt }.
+    expect(EventTypes).toContain('merge.executing_started');
+    expect(startedSchema).toBeDefined();
+    const parsed = startedSchema!.parse({
+      taskId: 't-1',
+      sourceBranch: 'feat/x',
+      targetBranch: 'integration',
+      recoveryPointSha: 'abc123',
+      startedAt: '2026-06-21T00:00:00.000Z',
+    });
+    expect(parsed).toMatchObject({
+      sourceBranch: 'feat/x',
+      targetBranch: 'integration',
+      recoveryPointSha: 'abc123',
+      startedAt: '2026-06-21T00:00:00.000Z',
+    });
+  });
+
+  it('MergeExecutingStarted_TaskIdOptional_ParsesWithoutIt', () => {
+    // taskId is optional (CLI direct-invocation has no task context), mirroring
+    // the other merge events.
+    expect(startedSchema).toBeDefined();
+    const parsed = startedSchema!.parse({
+      sourceBranch: 'feat/x',
+      targetBranch: 'integration',
+      recoveryPointSha: 'abc123',
+      startedAt: '2026-06-21T00:00:00.000Z',
+    });
+    expect(parsed).toMatchObject({ recoveryPointSha: 'abc123' });
+  });
+
+  it('MergeExecutingStarted_RejectsMissingRecoveryPointSha', () => {
+    expect(startedSchema).toBeDefined();
+    expect(() =>
+      startedSchema!.parse({
+        sourceBranch: 'feat/x',
+        targetBranch: 'integration',
+        startedAt: '2026-06-21T00:00:00.000Z',
+      }),
+    ).toThrow();
   });
 });

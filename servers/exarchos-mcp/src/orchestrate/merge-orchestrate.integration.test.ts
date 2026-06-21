@@ -58,6 +58,7 @@ import {
   executeTransition,
 } from '../workflow/state-machine.js';
 import { createFeatureHSM } from '../workflow/hsm-definitions.js';
+import { handleWorkflow } from '../workflow/composite.js';
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -254,14 +255,14 @@ describe('Merge orchestrator happy timeline (T23, DR-MO-1, DR-MO-2)', () => {
     const data = dispatchResult.data as {
       phase: string;
       mergeSha: string;
-      rollbackSha: string;
+      recoveryPointSha: string;
       preflight: MergePreflightResult;
       // Composite envelope wrapping (T038) may add `next_actions`, `_meta`,
       // `_perf` here — we only assert the shape we contracted on.
     };
     expect(data.phase).toBe('completed');
     expect(data.mergeSha).toBe(MERGE_SHA);
-    expect(data.rollbackSha).toBe(ROLLBACK_SHA);
+    expect(data.recoveryPointSha).toBe(ROLLBACK_SHA);
     expect(stubVcsMerge).toHaveBeenCalledTimes(1);
     expect(stubVcsMerge).toHaveBeenCalledWith({
       sourceBranch: SOURCE_BRANCH,
@@ -275,12 +276,15 @@ describe('Merge orchestrator happy timeline (T23, DR-MO-1, DR-MO-2)', () => {
     // The expected order is the production contract (post Wave 4 / audit
     // §F1.2 two-event split):
     //
-    //   sequence 1: task.completed  (the T17 trigger, from step 2)
-    //   sequence 2: merge.preflight (T11 emits before delegating)
-    //   sequence 3: merge.requested (Wave 4 Phase A — durable intent
-    //                                emitted via `decide` BEFORE the
-    //                                executor's local git merge side effect)
-    //   sequence 4: merge.executed  (T15 emits on phase: 'completed')
+    //   sequence 1: task.completed          (the T17 trigger, from step 2)
+    //   sequence 2: merge.preflight          (T11 emits before delegating)
+    //   sequence 3: merge.requested          (Wave 4 Phase A — durable intent
+    //                                          emitted via `decide` BEFORE the
+    //                                          executor's local git merge side effect)
+    //   sequence 4: merge.executing_started  (#1309 liveness — emitted after the
+    //                                          recovery point is recorded, before
+    //                                          the first vcsMerge)
+    //   sequence 5: merge.executed           (T15 emits on phase: 'completed')
     //
     // No other events are expected on the happy path (no merge.rollback,
     // no merge.aborted).
@@ -290,6 +294,9 @@ describe('Merge orchestrator happy timeline (T23, DR-MO-1, DR-MO-2)', () => {
       'task.completed',
       'merge.preflight',
       'merge.requested',
+      // #1309 INV-10 liveness — emitted before the merge so a long-running merge
+      // is observable as started-but-unterminated.
+      'merge.executing_started',
       'merge.executed',
       // #1304 INV-10 terminal marker — emitted adjacent to merge.executed
       // by `handleExecuteMerge` once `merge.executed` lands successfully.
@@ -303,7 +310,7 @@ describe('Merge orchestrator happy timeline (T23, DR-MO-1, DR-MO-2)', () => {
     // racing the sequence counter, sidecar mode leaking into the happy path)
     // shows up in this integration suite, not just in store-level unit tests.
     const sequences = finalEvents.map((e) => e.sequence);
-    expect(sequences).toEqual([1, 2, 3, 4, 5]);
+    expect(sequences).toEqual([1, 2, 3, 4, 5, 6]);
     for (let i = 1; i < sequences.length; i += 1) {
       const prev = sequences[i - 1];
       const curr = sequences[i];
@@ -522,7 +529,7 @@ describe('handleMergeOrchestrate integration — rollback timeline (T24)', () =>
     const raw = await fs.readFile(stateFile, 'utf-8');
     const state = JSON.parse(raw) as {
       phase: string;
-      mergeOrchestrator?: { phase?: string; taskId?: string; reason?: string; rollbackSha?: string };
+      mergeOrchestrator?: { phase?: string; taskId?: string; reason?: string; recoveryPointSha?: string };
       featureId: string;
       workflowType: string;
     };
@@ -533,7 +540,7 @@ describe('handleMergeOrchestrate integration — rollback timeline (T24)', () =>
     //  gap; now strict per the design.)
     expect(state.mergeOrchestrator?.phase).toBe('rolled-back');
     expect(state.mergeOrchestrator?.reason).toBe('merge-failed');
-    expect(typeof state.mergeOrchestrator?.rollbackSha).toBe('string');
+    expect(typeof state.mergeOrchestrator?.recoveryPointSha).toBe('string');
 
     // T19 contract: when state carries `mergeOrchestrator.phase ===
     // 'rolled-back'`, `merge_orchestrate` is omitted from next-actions.
@@ -728,5 +735,221 @@ describe('handleMergeOrchestrate integration — idempotency & concurrency (#130
     expect(mergeExecuted).toHaveLength(1);
   });
 
+});
+
+// ─── #1305 T15 — merge-pending transitions emit workflow.transition ─────────
+//
+// INVARIANT: the `merge-pending` entry (`delegate → merge-pending`) and exit
+// (`merge-pending → delegate`) phase transitions MUST go through the
+// canonical HSM transition primitive — `handleWorkflow({ action: 'transition' })`
+// → `handleTransition` → `hsmTransitionGuard.attempt` — which emits exactly
+// one `workflow.transition` event per call and NEVER a bare top-level
+// phase-set that would bypass the event log and desync the projection.
+//
+// v2.11 (composite.ts T5a.1) hard-cut the prior `set({phase})` rerouting
+// path; `transition` is now the single phase-mutation entry point. These
+// tests pin that the merge-pending edges resolve through it and produce the
+// canonical event — `workflow.transition`, not `workflow.set` / a bare
+// phase-set.
+//
+// Coverage split:
+//   • The EXIT edge (`merge-pending → delegate`) is driven END-TO-END through
+//     the real store + canonical primitive: its guard (`mergePendingExit`)
+//     inspects only `_events[].type` for terminal events, so it evaluates
+//     correctly against the store-hydrated `_events` shape.
+//   • The ENTRY edge (`delegate → merge-pending`) is asserted reachable
+//     through the HSM evaluator (the production projection path consumes the
+//     same evaluator) and confirmed to route through the canonical primitive.
+//     The entry guard reads `task.completed.data.worktree`; the store
+//     hydration helper flattens event `data` to the top level (worktree lands
+//     under `metadata`, not `.data`), so an entry transition cannot be driven
+//     through `handleTransition` against a live store today. That `.data`-vs-
+//     `metadata` impedance is a pre-existing hydration concern (out of scope
+//     for T15 — the resolver/projection work is #1305 T13/T14), so the entry
+//     edge is exercised at the HSM-evaluator seam the projection uses.
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * Seed a minimal feature workflow state file at the given phase. Same minimal
+ * shape as the rollback seed helper, with a fresh `mergeOrchestrator` block
+ * (`phase: 'pending'`) so the entry guard's "not in a terminal phase" check
+ * passes.
+ */
+async function seedFeatureStateAtPhase(
+  stateDir: string,
+  featureId: string,
+  phase: 'delegate' | 'merge-pending',
+): Promise<string> {
+  const stateFile = path.join(stateDir, `${featureId}.state.json`);
+  const now = new Date().toISOString();
+  const state = {
+    version: '1.1',
+    workflowType: 'feature' as const,
+    featureId,
+    phase,
+    createdAt: now,
+    updatedAt: now,
+    artifacts: { design: null, plan: null, pr: null },
+    tasks: [],
+    worktrees: {},
+    reviews: {},
+    integration: null,
+    synthesis: {
+      integrationBranch: null,
+      mergeOrder: [],
+      mergedBranches: [],
+      prUrl: null,
+      prFeedback: [],
+    },
+    mergeOrchestrator: {
+      phase: 'pending' as const,
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      taskId: 'T15',
+    },
+  };
+  await writeStateFile(stateFile, state as never);
+  return stateFile;
+}
+
+describe('MergePendingTransitions_EmitWorkflowTransition_NotSet (#1305 T15)', () => {
+  let stateDir: string;
+  let eventStore: EventStore;
+  let ctx: DispatchContext;
+
+  beforeEach(async () => {
+    stateDir = await mkdtemp(path.join(tmpdir(), 'merge-orch-transition-'));
+    eventStore = new EventStore(stateDir);
+    await eventStore.initialize();
+    ctx = {
+      stateDir,
+      eventStore,
+      enableTelemetry: false,
+    };
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await rm(stateDir, {
+      recursive: true,
+      force: true,
+      maxRetries: 3,
+      retryDelay: 100,
+    });
+  });
+
+  it('MergePendingExit_DrivenThroughCanonicalPrimitive_EmitsWorkflowTransitionNotBarePhaseSet', async () => {
+    const featureId = 'feat-t15-exit';
+    await seedFeatureStateAtPhase(stateDir, featureId, 'merge-pending');
+
+    // Terminal events that authorize the `merge-pending → delegate` edge
+    // (mergePendingExit guard): a worktree-bearing task.completed followed by
+    // a merge.executed. Both land on the real stream so the guard evaluates
+    // against production-shaped (store-hydrated) `_events`.
+    await eventStore.append(featureId, {
+      type: 'task.completed',
+      data: { taskId: 'T15', worktree: WORKTREE_PATH },
+    });
+    await eventStore.append(featureId, {
+      type: 'merge.executed',
+      data: {
+        taskId: 'T15',
+        sourceBranch: SOURCE_BRANCH,
+        targetBranch: TARGET_BRANCH,
+        mergeSha: MERGE_SHA,
+        rollbackSha: ROLLBACK_SHA,
+      },
+    });
+
+    // No transition events before the exit call.
+    const before = await eventStore.query(featureId);
+    expect(
+      before.filter((e) => e.type === 'workflow.transition'),
+    ).toHaveLength(0);
+
+    // ─── EXIT transition through the canonical primitive ────────────────────
+    const exitResult = await handleWorkflow(
+      { action: 'transition', featureId, target: 'delegate' },
+      ctx,
+    );
+    expect(exitResult.success).toBe(true);
+
+    // Exactly one workflow.transition event, from merge-pending → delegate.
+    const after = await eventStore.query(featureId);
+    const transitions = after.filter((e) => e.type === 'workflow.transition');
+    expect(transitions).toHaveLength(1);
+    expect(transitions[0]!.data).toMatchObject({
+      from: 'merge-pending',
+      to: 'delegate',
+      featureId,
+    });
+
+    // ─── No bare phase-set bypass ───────────────────────────────────────────
+    // The event log is the ONLY phase-mutation seam: the phase change is
+    // carried by a `workflow.transition` event. No separate `workflow.set` /
+    // phase-mutation event exists that would indicate a `set({phase})` bypass.
+    const phaseMutationEvents = after.filter(
+      (e) =>
+        e.type === 'workflow.transition' ||
+        // Defensive: catch a hypothetical future `workflow.set` phase event.
+        e.type === ('workflow.set' as typeof e.type),
+    );
+    expect(
+      phaseMutationEvents.every((e) => e.type === 'workflow.transition'),
+    ).toBe(true);
+    expect(phaseMutationEvents).toHaveLength(1);
+
+    // Final on-disk phase reflects the exit transition (delegate), proving the
+    // CAS write that accompanies the transition primitive landed.
+    const finalRaw = await fs.readFile(
+      path.join(stateDir, `${featureId}.state.json`),
+      'utf-8',
+    );
+    const finalState = JSON.parse(finalRaw) as { phase: string };
+    expect(finalState.phase).toBe('delegate');
+  });
+
+  it('MergePendingEntry_IsReachableThroughHsmEvaluatorAndCanonicalPrimitive', async () => {
+    // The entry edge (`delegate → merge-pending`) is the same edge the
+    // production rehydration projection consults. Assert it is reachable
+    // through the HSM evaluator with a worktree-bearing task.completed, and
+    // that the only declared edge into `merge-pending` from `delegate` is the
+    // guarded transition (so the sole phase-mutation seam is the canonical
+    // `workflow.transition` primitive, never a bare set).
+    const hsm = getHSMDefinition('feature');
+
+    // (1) HSM evaluator — the entry edge fires with a worktree association.
+    const stateForEntry = {
+      phase: 'delegate',
+      featureId: 'feat-t15-entry',
+      mergeOrchestrator: { taskId: 'T15', phase: 'pending' },
+      _events: [
+        { type: 'task.completed', data: { taskId: 'T15', worktree: WORKTREE_PATH } },
+      ],
+    };
+    const entryEval = executeTransition(hsm, stateForEntry, 'merge-pending');
+    expect(entryEval.success).toBe(true);
+    expect(entryEval.newPhase).toBe('merge-pending');
+
+    // (2) Topology — `delegate → merge-pending` is a declared, guarded edge.
+    //     A declared HSM edge is mutated ONLY by the canonical transition
+    //     primitive (which emits `workflow.transition`); there is no separate
+    //     phase-set code path for it.
+    const entryEdges = hsm.transitions.filter(
+      (t) => t.from === 'delegate' && t.to === 'merge-pending',
+    );
+    expect(entryEdges).toHaveLength(1);
+    expect(entryEdges[0]!.guard).toBeDefined();
+
+    // (3) Without a worktree association the entry edge does NOT fire — the
+    //     guard, not a bare phase-set, gates entry.
+    const stateNoWorktree = {
+      phase: 'delegate',
+      featureId: 'feat-t15-entry',
+      _events: [{ type: 'task.completed', data: { taskId: 'T15' } }],
+    };
+    const blockedEval = executeTransition(hsm, stateNoWorktree, 'merge-pending');
+    expect(blockedEval.success).toBe(false);
+  });
 });
 

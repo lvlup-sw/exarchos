@@ -307,6 +307,24 @@ describe('buildRegistrationSchema', () => {
   });
 });
 
+// ─── merge_orchestrate description guidance (#1310 T16) ──────────────────────
+
+describe('merge_orchestrate description', () => {
+  it('MergeOrchestrateDescription_StatesDoNotUseFor_WithPointers', () => {
+    const action = findActionInRegistry('exarchos_orchestrate', 'merge_orchestrate');
+    expect(action).toBeDefined();
+    const description = action!.description;
+
+    // Negative-space guidance must be explicit.
+    expect(description).toContain('Do NOT use for');
+
+    // Each misuse must point at the right alternative action.
+    expect(description).toContain('merge_pr');
+    expect(description).toContain('verify_worktree');
+    expect(description).toContain('request_synthesize');
+  });
+});
+
 // ─── Type Coercion Tests ─────────────────────────────────────────────────────
 
 describe('coercedRecord', () => {

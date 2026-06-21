@@ -469,6 +469,29 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
         };
       }
 
+      case 'merge.recovered': {
+        // #1306 successor to merge.rollback — same logical fold, reading the
+        // renamed event fields (recoveryPointSha / recoveryErrorDetail) onto the
+        // existing view fields. Dual-emitted alongside merge.rollback during the
+        // v2.11.x deprecation window; folding both is idempotent (same view).
+        const data = event.data as Record<string, unknown> | undefined;
+        if (!data) return view;
+        return {
+          ...view,
+          updatedAt: event.timestamp,
+          mergeOrchestrator: {
+            phase: 'rolled-back',
+            ...(data.taskId !== undefined ? { taskId: data.taskId as string } : {}),
+            ...(data.sourceBranch !== undefined ? { sourceBranch: data.sourceBranch as string } : {}),
+            ...(data.targetBranch !== undefined ? { targetBranch: data.targetBranch as string } : {}),
+            ...(data.recoveryPointSha !== undefined ? { rollbackSha: data.recoveryPointSha as string } : {}),
+            ...(data.reason !== undefined ? { reason: data.reason as MergeOrchestratorView['reason'] } : {}),
+            ...(data.recoveryError !== undefined ? { recoveryError: data.recoveryError as MergeOrchestratorView['recoveryError'] } : {}),
+            ...(data.recoveryErrorDetail !== undefined ? { rollbackError: data.recoveryErrorDetail as string } : {}),
+          },
+        };
+      }
+
       // ── State Patch (generic field updates) ────────────────────────────
 
       case 'state.patched': {
@@ -631,6 +654,15 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       case 'dispatch.preflight':
       case 'merge.requested':
       case 'merge.completed':
+      // #1308 — audit-only retry record; it does not transition the
+      // mergeOrchestrator phase (the retry sits between attempts), so the
+      // projection treats it as an observation and folds to identity.
+      case 'merge.retry_attempt':
+      // #1309 — audit-only liveness marker emitted before the first vcsMerge;
+      // it does not transition the mergeOrchestrator phase (the terminal
+      // merge.executed / merge.recovered events drive the phase), so the
+      // projection treats it as an observation and folds to identity.
+      case 'merge.executing_started':
       case 'command.resolved':
       case 'hsm.deprecated_action_invoked':
       case 'spec.legacy_capabilities_array':

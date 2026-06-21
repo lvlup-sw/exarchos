@@ -3,15 +3,16 @@
 // Wraps the pure `executeMerge` (T08+T09+T10) with:
 //   • a local-git merge adapter via `buildLocalGitMergeAdapter` (#1194 —
 //     replaced the previous remote VcsProvider call so the recorded
-//     rollbackSha actually corresponds to a local ref the executor's
-//     INV-14 rollback (`git reset --keep`) can undo)
+//     recovery point sha actually corresponds to a local ref the executor's
+//     INV-14 recovery (`git reset --keep`) can undo)
 //   • a `gitExec` adapter using `execFileSync` (120s timeout, matches
 //     post-merge.ts:48)
 //   • a `persistState` callback that updates the workflow state's
 //     `mergeOrchestrator` field (T01+T02 schema)
 //   • on `phase: 'completed'`, emits `merge.executed` to the workflow's
 //     event stream (stream id = featureId) carrying both the post-merge
-//     `mergeSha` and the pre-merge `rollbackSha`
+//     `mergeSha` and the pre-merge recovery point sha (the legacy
+//     `rollbackSha` event field — kept during the #1306 deprecation window)
 //
 // The merge adapter is injectable via `args.vcsMerge` so tests bypass real
 // git operations. Same for `gitExec` and `persistState`. In production,
@@ -20,12 +21,12 @@
 //
 // T16 extends this with the `phase: 'rolled-back'` branch: the pure executor
 // has already run the INV-14 recovery ladder (`git merge --abort` →
-// `git reset --keep <rollbackSha>`), so the handler emits a
+// `git reset --keep <recoveryPointSha>`), so the handler emits a
 // `merge.rollback` event (categorized reason: 'merge-failed' |
 // 'verification-failed' | 'timeout') and returns a structured error.
 // ───────────────────────────────────────────────────────────────────────────
 
-import { execFileSync } from 'node:child_process';
+import { defaultGitExec } from './git-exec-default.js';
 import * as path from 'node:path';
 import { z } from 'zod';
 
@@ -92,16 +93,16 @@ interface VcsMergeAdapter {
  * HSM exit guards and resume semantics.
  */
 export type ExecutorPersistStatePayload =
-  | { phase: 'executing'; rollbackSha: string }
-  | { phase: 'completed'; rollbackSha: string; mergeSha: string }
+  | { phase: 'executing'; recoveryPointSha: string }
+  | { phase: 'completed'; recoveryPointSha: string; mergeSha: string }
   | {
       phase: 'rolled-back';
-      rollbackSha: string;
+      recoveryPointSha: string;
       reason: 'merge-failed' | 'verification-failed' | 'timeout';
-      /** INV-14 recovery-outcome discriminator; absent on a clean rollback. */
+      /** INV-14 recovery-outcome discriminator; absent on a clean recovery. */
       recoveryError?: 'reset-keep-blocked' | 'reset-failed' | 'unexpected-mid-merge-drift';
-      /** Human-readable detail for `recoveryError`; absent on clean rollback. */
-      rollbackError?: string;
+      /** Human-readable detail for `recoveryError`; absent on clean recovery. */
+      recoveryErrorDetail?: string;
     };
 
 interface PersistStateCallback {
@@ -116,43 +117,25 @@ export interface HandleExecuteMergeInput extends HandleExecuteMergeArgs {
   readonly vcsMerge?: VcsMergeAdapter;
   readonly gitExec?: GitExec;
   readonly persistState?: PersistStateCallback;
+  /**
+   * #1308 T09 — bounded timeout-retry seams forwarded verbatim to the pure
+   * `executeMerge`. Both are test-only DI hooks (never supplied over the wire):
+   * `jitter` pins the backoff jitter for determinism, `sleep` skips the real
+   * wall-clock backoff. Production leaves them undefined → real Math.random
+   * jitter + real setTimeout sleep.
+   */
+  readonly jitter?: () => number;
+  readonly sleep?: (ms: number) => Promise<void>;
 }
 
 // ─── Default adapters ──────────────────────────────────────────────────────
 
-/** Default `gitExec`: synchronous shell-out with 120s timeout.
- * Captures stderr so failures (merge conflicts, ref errors) surface in the
- * returned `stdout` channel rather than vanishing — `gitOrThrow` includes
- * this output in the thrown error so categorization and operator diagnostics
- * have the actual git failure message. */
-function defaultGitExec(repoRoot: string, args: readonly string[]): { stdout: string; exitCode: number } {
-  try {
-    const stdout = execFileSync('git', [...args], {
-      cwd: repoRoot,
-      timeout: 120_000,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    return { stdout, exitCode: 0 };
-  } catch (err) {
-    const status = (err as { status?: number }).status;
-    const stderr = (err as { stderr?: string | Buffer }).stderr;
-    const stdout = (err as { stdout?: string | Buffer }).stdout;
-    const message = [
-      typeof stdout === 'string' ? stdout : stdout?.toString('utf-8') ?? '',
-      typeof stderr === 'string' ? stderr : stderr?.toString('utf-8') ?? '',
-    ]
-      .filter(Boolean)
-      .join('\n');
-    return { stdout: message, exitCode: typeof status === 'number' ? status : 1 };
-  }
-}
 
 /**
  * Build the default `vcsMerge` adapter — a *local* `git merge` of source
  * into target. See `local-git-merge.ts` for the full contract; the executor
- * uses this adapter so the recorded `rollbackSha` actually corresponds to
- * a local ref the rollback `git reset --keep` can undo (#1194).
+ * uses this adapter so the recorded `recoveryPointSha` actually corresponds to
+ * a local ref the recovery `git reset --keep` can undo (#1194).
  */
 function buildDefaultVcsMerge(
   input: HandleExecuteMergeInput,
@@ -168,7 +151,7 @@ function buildDefaultVcsMerge(
  *
  * Shallow-merges (rather than replacing) the existing `mergeOrchestrator`
  * block so terminal-phase fields like `mergeSha` and `reason` ride alongside
- * the always-present `phase` + `rollbackSha`. This is intentionally
+ * the always-present `phase` + `recoveryPointSha`. This is intentionally
  * different from `merge-orchestrate.ts`'s `buildDefaultPersistState`, which
  * REPLACES the block on `aborted`: the executor progresses through
  * `executing` → `completed`/`rolled-back`, so merging preserves
@@ -252,12 +235,72 @@ export async function handleExecuteMerge(
       ctx.stateDir,
     );
 
+  // #1309 — `merge.executing_started` liveness emission. Appended ONCE, after
+  // the pure executor has recorded the recovery point and BEFORE the first
+  // `vcsMerge` fires (the pure executor calls `persistState({phase:'executing',
+  // recoveryPointSha})` exactly once at that seam). Emitting from inside the
+  // `persistState` wrapper on the `executing` payload pins the liveness event to
+  // that precise lifecycle point so a long-running merge is observable as
+  // "started but not yet terminated" (INV-10), without touching the terminal
+  // emission path. The recovery-point sha rides on the payload, so the audit
+  // record carries the same anchor the terminal events report.
+  //
+  // Best-effort like `onRetryAttempt`: a lost sequence race on this audit append
+  // must NOT abort the merge (the merge attempt is the load-bearing action). The
+  // fresh-tail CAS + own idempotency key (`:merge.executing_started` suffix)
+  // make a crash-replay a clean no-op (project_cas_pin_idempotency_trap).
+  const emitExecutingStarted = async (recoveryPointSha: string): Promise<void> => {
+    const tailEventsStarted = await ctx.eventStore.query(args.featureId);
+    const expectedSequenceStarted =
+      tailEventsStarted.length > 0
+        ? Math.max(...tailEventsStarted.map((e) => e.sequence))
+        : 0;
+    try {
+      await ctx.eventStore.append(
+        args.featureId,
+        {
+          type: 'merge.executing_started',
+          data: {
+            ...(args.taskId !== undefined ? { taskId: args.taskId } : {}),
+            sourceBranch: args.sourceBranch,
+            targetBranch: args.targetBranch,
+            recoveryPointSha,
+            startedAt: new Date().toISOString(),
+          },
+        },
+        {
+          expectedSequence: expectedSequenceStarted,
+          idempotencyKey: buildMergeOrchestrateIdempotencyKey(
+            args.featureId,
+            args.taskId,
+            'merge.executing_started',
+          ),
+        },
+      );
+    } catch (err) {
+      // Swallow a lost sequence race (a concurrent writer advanced the tail) so
+      // the merge proceeds; the liveness record is best-effort observability.
+      if (!(err instanceof SequenceConflictError)) {
+        throw err;
+      }
+    }
+  };
+
   // T29: wrap every state write in `withStateRetry` so concurrent writers
   // (e.g. another orchestrate handler updating the same workflow state file)
   // don't fail this merge permanently on a single CAS conflict. Wraps both
   // injected and default `persistState` so caller-supplied hooks share the
   // same race-tolerance contract.
+  //
+  // #1309 — on the `executing` payload, emit the liveness event BEFORE the
+  // state write (and thus before the first `vcsMerge`). Guarded so it fires at
+  // most once across any `withStateRetry` re-attempts of the `executing` write.
+  let executingStartedEmitted = false;
   const persistState: PersistStateCallback = async (state) => {
+    if (state.phase === 'executing' && !executingStartedEmitted) {
+      executingStartedEmitted = true;
+      await emitExecutingStarted(state.recoveryPointSha);
+    }
     await withStateRetry(async () => {
       await rawPersistState(state);
     });
@@ -349,6 +392,55 @@ export async function handleExecuteMerge(
     throw err;
   }
 
+  // #1308 T09 — `merge.retry_attempt` audit emission. The pure executor invokes
+  // this once per bounded timeout-retry, BEFORE the re-attempt fires, so each
+  // retry leaves a durable audit record on the stream ahead of the terminal
+  // `merge.executed`/`merge.recovered` events. Each append reads the LIVE stream
+  // tail FRESH for its own `expectedSequence` and carries its OWN idempotency
+  // key (the `:${attempt}` suffix disambiguates the per-attempt rows so a
+  // crash-replay of a given retry dedups rather than colliding with sibling
+  // attempts — `project_cas_pin_idempotency_trap`).
+  const onRetryAttempt = async (info: {
+    attempt: number;
+    delayMs: number;
+    reason: 'timeout';
+  }): Promise<void> => {
+    const tailEventsRetry = await ctx.eventStore.query(args.featureId);
+    const expectedSequenceRetry =
+      tailEventsRetry.length > 0
+        ? Math.max(...tailEventsRetry.map((e) => e.sequence))
+        : 0;
+    try {
+      await ctx.eventStore.append(
+        args.featureId,
+        {
+          type: 'merge.retry_attempt',
+          data: {
+            attempt: info.attempt,
+            delayMs: info.delayMs,
+            reason: info.reason,
+          },
+        },
+        {
+          expectedSequence: expectedSequenceRetry,
+          idempotencyKey: buildMergeOrchestrateIdempotencyKey(
+            args.featureId,
+            args.taskId,
+            `merge.retry_attempt:${info.attempt}`,
+          ),
+        },
+      );
+    } catch (err) {
+      // A lost sequence race on the audit append must NOT abort the merge — the
+      // retry itself is the load-bearing action; the audit record is
+      // best-effort. Swallow the SequenceConflict (a concurrent writer advanced
+      // the tail) so the bounded-retry loop proceeds to its re-attempt.
+      if (!(err instanceof SequenceConflictError)) {
+        throw err;
+      }
+    }
+  };
+
   let result;
   try {
     result = await executeMerge({
@@ -358,6 +450,9 @@ export async function handleExecuteMerge(
       gitExec,
       vcsMerge,
       persistState,
+      onRetryAttempt,
+      ...(input.jitter !== undefined ? { jitter: input.jitter } : {}),
+      ...(input.sleep !== undefined ? { sleep: input.sleep } : {}),
       ...(args.repoRoot !== undefined ? { repoRoot: args.repoRoot } : {}),
     });
   } catch (err) {
@@ -449,7 +544,7 @@ export async function handleExecuteMerge(
             targetBranch: args.targetBranch,
             strategy: args.strategy,
             mergeSha: result.mergeSha,
-            rollbackSha: result.rollbackSha,
+            rollbackSha: result.recoveryPointSha,
           },
         },
         appendOptionsExecuted,
@@ -557,13 +652,86 @@ export async function handleExecuteMerge(
     // `--hard`). Surface `recoveryError` + detail (when recovery was not clean)
     // so consumers can detect an indeterminate worktree.
     //
-    // #1303 (α-05): pass `idempotencyKey` (when `taskId` is present) and
-    // `expectedSequence` (CAS on stream high-water mark) so the substrate
-    // guarantees from #1259 / #1323 reach this append site too. Symmetric
-    // with α-02 (merge.executed) and α-04 (merge.preflight). The three
-    // append sites in this orchestrator surface — preflight, executed,
-    // rollback — each carry a distinct dedup key via the trailing
-    // `:${eventType}` segment.
+    // #1306 T4 — DUAL-EMIT during the v2.11.x deprecation window. The recovery
+    // path appends TWO events for the same logical recovery:
+    //
+    //   1) the canonical `merge.recovered` (successor; renamed fields
+    //      `recoveryPointSha` / `recoveryErrorDetail`), then
+    //   2) the legacy `merge.rollback` (kept until v2.12; carries the
+    //      `_meta.deprecation` envelope on its `data`).
+    //
+    // CAS HAZARD (project_cas_pin_idempotency_trap / PR #1492): each append
+    // reads the LIVE stream tail FRESH to compute its own `expectedSequence`
+    // and carries its OWN independent idempotency key (the trailing
+    // `:${eventType}` segment disambiguates). The `merge.recovered` append is
+    // NEVER re-pinned to the `merge.rollback` append's returned sequence — a
+    // cache-hit precedes the CAS, so a static cross-pin would make a retried
+    // recovery conflict FOREVER. Independent keys + independent fresh-tail CAS
+    // make a retried recovery a clean no-op across BOTH event types.
+    //
+    // #1303 (α-05): each append carries `idempotencyKey` + `expectedSequence`
+    // so the substrate guarantees from #1259 / #1323 reach both sites.
+    //
+    // The legacy event still drives the `merge-orchestrator@v1` projection's
+    // `recovering` phase (the reducer folds `merge.rollback`, NOT
+    // `merge.recovered`, during the deprecation window); emitting both does
+    // NOT double-advance the projection. The v2.12 swap is tracked separately.
+
+    // ── 1) Canonical `merge.recovered` (fresh-tail CAS, own idempotency key) ──
+    const tailEventsRecovered = await ctx.eventStore.query(args.featureId);
+    const expectedSequenceRecovered =
+      tailEventsRecovered.length > 0
+        ? Math.max(...tailEventsRecovered.map((e) => e.sequence))
+        : 0;
+    const appendOptionsRecovered: { idempotencyKey: string; expectedSequence: number } = {
+      expectedSequence: expectedSequenceRecovered,
+      idempotencyKey: buildMergeOrchestrateIdempotencyKey(
+        args.featureId,
+        args.taskId,
+        'merge.recovered',
+      ),
+    };
+    try {
+      await ctx.eventStore.append(
+        args.featureId,
+        {
+          type: 'merge.recovered',
+          data: {
+            ...(args.taskId !== undefined ? { taskId: args.taskId } : {}),
+            sourceBranch: args.sourceBranch,
+            targetBranch: args.targetBranch,
+            recoveryPointSha: result.recoveryPointSha,
+            reason: result.reason,
+            // INV-14 discriminator under the CANONICAL field names
+            // (`recoveryError` enum + `recoveryErrorDetail` detail). Both
+            // absent on a clean recovery.
+            ...(result.recoveryError !== undefined
+              ? {
+                  recoveryError: result.recoveryError,
+                  ...(result.recoveryErrorDetail !== undefined
+                    ? { recoveryErrorDetail: result.recoveryErrorDetail }
+                    : {}),
+                }
+              : {}),
+          },
+        },
+        appendOptionsRecovered,
+      );
+    } catch (err) {
+      if (err instanceof SequenceConflictError) {
+        return {
+          success: false,
+          error: {
+            code: 'STATE_CONFLICT',
+            message: `merge.recovered append lost sequence race: expected=${err.expected} actual=${err.actual}`,
+          },
+        };
+      }
+      throw err;
+    }
+
+    // ── 2) Legacy `merge.rollback` (own FRESH-tail CAS — re-read so it sees
+    //       the `merge.recovered` we just appended; own idempotency key) ──────
     const tailEventsRollback = await ctx.eventStore.query(args.featureId);
     const expectedSequenceRollback =
       tailEventsRollback.length > 0
@@ -589,18 +757,32 @@ export async function handleExecuteMerge(
             ...(args.taskId !== undefined ? { taskId: args.taskId } : {}),
             sourceBranch: args.sourceBranch,
             targetBranch: args.targetBranch,
-            rollbackSha: result.rollbackSha,
+            rollbackSha: result.recoveryPointSha,
             reason: result.reason,
+            // #1306 deprecation envelope — surfaced on the legacy event's
+            // `data` so consumers reading the legacy stream see the migration
+            // window and the canonical replacement. Lives under `data._meta`
+            // (the top-level event shape strips unknown keys); byte-identical
+            // across every emission surface because both CLI and MCP funnel
+            // through this single code path.
+            _meta: {
+              deprecation: {
+                since: '2.11.0',
+                removeIn: '2.12.0',
+                replacement: 'merge.recovered',
+              },
+            },
             // INV-14 discriminator — the pure executor's recovery ladder
             // (`git merge --abort` → `git reset --keep`, never `--hard`)
             // classifies any indeterminate outcome so observability distinguishes
             // a stranded worktree from a clean rollback. Forward the enum + detail
-            // verbatim; both absent on a clean recovery.
+            // verbatim under the LEGACY `rollbackError` wire field; both absent
+            // on a clean recovery.
             ...(result.recoveryError !== undefined
               ? {
                   recoveryError: result.recoveryError,
-                  ...(result.rollbackError !== undefined
-                    ? { rollbackError: result.rollbackError }
+                  ...(result.recoveryErrorDetail !== undefined
+                    ? { rollbackError: result.recoveryErrorDetail }
                     : {}),
                 }
               : {}),
@@ -632,16 +814,16 @@ export async function handleExecuteMerge(
     if (result.phase === 'completed') {
       await persistState({
         phase: 'completed',
-        rollbackSha: result.rollbackSha,
+        recoveryPointSha: result.recoveryPointSha,
         mergeSha: result.mergeSha,
       });
     } else {
       await persistState({
         phase: 'rolled-back',
-        rollbackSha: result.rollbackSha,
+        recoveryPointSha: result.recoveryPointSha,
         reason: result.reason,
         ...(result.recoveryError !== undefined ? { recoveryError: result.recoveryError } : {}),
-        ...(result.rollbackError !== undefined ? { rollbackError: result.rollbackError } : {}),
+        ...(result.recoveryErrorDetail !== undefined ? { recoveryErrorDetail: result.recoveryErrorDetail } : {}),
       });
     }
   } catch (err) {
@@ -677,7 +859,7 @@ export async function handleExecuteMerge(
       data: {
         phase: 'completed' as const,
         mergeSha: result.mergeSha,
-        rollbackSha: result.rollbackSha,
+        recoveryPointSha: result.recoveryPointSha,
       },
     };
   }
@@ -690,10 +872,10 @@ export async function handleExecuteMerge(
     },
     data: {
       phase: 'rolled-back' as const,
-      rollbackSha: result.rollbackSha,
+      recoveryPointSha: result.recoveryPointSha,
       reason: result.reason,
       ...(result.recoveryError !== undefined ? { recoveryError: result.recoveryError } : {}),
-      ...(result.rollbackError !== undefined ? { rollbackError: result.rollbackError } : {}),
+      ...(result.recoveryErrorDetail !== undefined ? { recoveryErrorDetail: result.recoveryErrorDetail } : {}),
     },
   };
 }
