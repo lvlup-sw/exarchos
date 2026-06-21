@@ -5,6 +5,7 @@ import type { WorkflowEvent } from './schemas.js';
 import type { StorageBackend } from '../storage/backend.js';
 import { validateStreamId } from '../shared/validation.js';
 import { AtomicAppender } from './atomic-appender.js';
+import { migrateEvents } from './event-migration.js';
 import { getDispatchContext } from '../dispatch/dispatch-context.js';
 
 // ─── #1291 — Dispatch-boundary correlation stamping ─────────────────────────
@@ -496,7 +497,12 @@ export class EventStore {
     // v2.11 Phase 3: JSONL fallback removed. The read backend is always
     // present (SqliteBackend force-eager via getReadBackend), so reads
     // converge on the substrate the appender writes to.
-    return this.getReadBackend().queryEvents(streamId, filters);
+    //
+    // #1556: read-time upcasting choke point. Every backend row folds through
+    // migrateEvents so a registered schema migration is applied uniformly to
+    // every reader. Identity no-op today (eventMigrations === []).
+    const events = this.getReadBackend().queryEvents(streamId, filters);
+    return migrateEvents(events);
   }
 
   /**
@@ -564,7 +570,11 @@ export class EventStore {
       const offset = filters?.offset ?? 0;
       const limit = filters?.limit;
       const slicedBackend = offset > 0 ? sortedBackend.slice(offset) : sortedBackend;
-      return limit !== undefined ? slicedBackend.slice(0, limit) : slicedBackend;
+      // #1556: this fast-path reads the backend directly (bypassing query),
+      // so it upcasts here. The per-stream fallback below composes via
+      // this.query(), which already routes through migrateEvents — no
+      // double-migration.
+      return migrateEvents(limit !== undefined ? slicedBackend.slice(0, limit) : slicedBackend);
     }
 
     // Backend without queryEventsByType (test fixtures, in-memory): use
