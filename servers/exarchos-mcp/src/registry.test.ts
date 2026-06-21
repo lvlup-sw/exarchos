@@ -2482,3 +2482,61 @@ describe('Registry — taskSuitable annotations (T9, #1440 Op 2)', () => {
     }
   });
 });
+
+// ─── T6 (#1555) — `asOf` bounded-fold param on get / view actions ───────────
+//
+// The registered `get` (and the chosen `view` actions) accept an optional
+// mutually-exclusive `asOf` bound, validated identically to
+// `GetInputSchema.asOf`. INV-5b: adding `asOf` changes WHICH point is
+// projected, never the result SHAPE — so each action's registered
+// `outputSchema` stays byte-identical (`EnvelopeSchema(z.unknown())`).
+
+describe('asOf registry schema (T6, #1555)', () => {
+  it('registry_getAction_asOfUntilSequence_parses', () => {
+    const action = findAction('exarchos_workflow', 'get');
+    expect(action).toBeDefined();
+    const parsed = action!.schema.safeParse({
+      featureId: 'my-feature',
+      asOf: { untilSequence: 4 },
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('registry_getAction_asOfBothBounds_rejects', () => {
+    const action = findAction('exarchos_workflow', 'get');
+    const parsed = action!.schema.safeParse({
+      featureId: 'my-feature',
+      asOf: { untilSequence: 4, untilTimestamp: '2026-06-20T00:00:00.000Z' },
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it('registry_workflowStatusAction_asOfUntilSequence_parses', () => {
+    const action = findAction('exarchos_view', 'workflow_status');
+    expect(action).toBeDefined();
+    const parsed = action!.schema.safeParse({
+      workflowId: 'my-feature',
+      asOf: { untilSequence: 4 },
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('registry_getAction_outputSchemaUnchanged', () => {
+    // INV-5b: the `get` action result shape is the unchanged generic
+    // envelope. Adding `asOf` must NOT touch the registered outputSchema.
+    const action = findAction('exarchos_workflow', 'get');
+    expect(action!.outputSchema).toBeDefined();
+    // A generic envelope accepts any `data` payload — the asOf addition
+    // does not narrow or reshape it. Round-trip a representative envelope
+    // through the registered schema to pin the shape.
+    const envelope = wrap({ phase: 'ideate' }, {}, { ms: 1 }, []);
+    expect(action!.outputSchema!.safeParse(envelope).success).toBe(true);
+  });
+
+  it('registry_workflowStatusAction_outputSchemaUnchanged', () => {
+    const action = findAction('exarchos_view', 'workflow_status');
+    expect(action!.outputSchema).toBeDefined();
+    const envelope = wrap({ phase: 'ideate', tasksTotal: 0 }, {}, { ms: 1 }, []);
+    expect(action!.outputSchema!.safeParse(envelope).success).toBe(true);
+  });
+});

@@ -10,6 +10,7 @@ import {
   toCamel,
   formatZodError,
 } from './schema-to-flags.js';
+import { AsOfSchema, GetInputSchema } from '../workflow/schemas.js';
 
 // ─── Task 6: extractSchemaFields ────────────────────────────────────────────
 
@@ -472,5 +473,76 @@ describe('formatZodError snapshot pinning (F-024 #7)', () => {
     expect(output).toMatchInlineSnapshot(
       `"(root): Invalid input: expected object, received string"`,
     );
+  });
+});
+
+// ─── T8 (#1555) — `asOf` flag classification (CLI↔MCP parity prerequisite) ───
+//
+// `coerceFlags` JSON-parses a string flag value ONLY when the field classifies
+// as `'object'` (`resolveType`). The original design flagged a Zod-v3 trap:
+// `z.union` classifies `'unknown'`, and `.refine()` produced a `ZodEffects`
+// that `unwrapWrappers` does NOT see through — so a union/refined `asOf` would
+// NOT be JSON-coerced on the CLI and parity would break.
+//
+// Mechanism (b) — keep the schema-level refinement: under Zod v4 `.refine()`
+// on a `ZodObject` returns a `ZodObject` (the check lives in `def.checks`, not
+// a `ZodEffects` wrapper), so the field STILL classifies `'object'` and the
+// CLI string is JSON-parsed identically to the MCP object payload — no change
+// to `schema-to-flags.ts` was needed. These tests pin that classification so a
+// future regression (someone switching `AsOfSchema` to a `z.union`, or a Zod
+// downgrade reintroducing `ZodEffects`) is caught: the field would silently
+// re-classify `'unknown'`, drop JSON coercion, and break CLI↔MCP parity.
+
+describe('asOf flag classification (T8, #1555)', () => {
+  it('resolveType_asOfField_returnsObject', () => {
+    // The `get` schema's `asOf` field — an OPTIONAL refined object — must
+    // classify as `'object'` so `coerceFlags` JSON-parses the CLI `--as-of`
+    // string. (Asserted via the public `extractSchemaFields`.)
+    const fields = extractSchemaFields(GetInputSchema);
+    const asOf = fields.find((f) => f.name === 'asOf');
+    expect(asOf).toBeDefined();
+    expect(asOf!.type).toBe('object');
+  });
+
+  it('resolveType_bareAsOfSchema_classifiesObject', () => {
+    // The bare (non-optional) refined AsOfSchema also classifies `'object'` —
+    // proving Zod-v4 `.refine()` keeps it a ZodObject rather than a ZodEffects.
+    const wrapper = z.object({ asOf: AsOfSchema });
+    const fields = extractSchemaFields(wrapper);
+    expect(fields.find((f) => f.name === 'asOf')!.type).toBe('object');
+  });
+
+  it('coerceFlags_asOfObjectField_jsonParsesCliString', () => {
+    // The CLI hands `coerceFlags` a kebab string value (`--as-of '<json>'`).
+    // Because `asOf` classifies `'object'`, the string is JSON-parsed into the
+    // same object MCP passes natively — the CLI↔MCP parity prerequisite.
+    const coerced = coerceFlags(
+      { 'feature-id': 'my-feature', 'as-of': '{"untilSequence":3}' },
+      GetInputSchema,
+    );
+    expect(coerced.asOf).toEqual({ untilSequence: 3 });
+    expect(typeof coerced.asOf).toBe('object');
+  });
+
+  it('coerceFlags_asOfUntilTimestamp_jsonParsesCliString', () => {
+    const coerced = coerceFlags(
+      { 'feature-id': 'my-feature', 'as-of': '{"untilTimestamp":"2026-06-20T00:00:00.000Z"}' },
+      GetInputSchema,
+    );
+    expect(coerced.asOf).toEqual({ untilTimestamp: '2026-06-20T00:00:00.000Z' });
+  });
+
+  it('coercedAsOfString_roundTripsThroughGetInputSchema', () => {
+    // End-to-end: the coerced object must satisfy GetInputSchema validation —
+    // proving the CLI string lands as a schema-valid `asOf` object.
+    const coerced = coerceFlags(
+      { 'feature-id': 'my-feature', 'as-of': '{"untilSequence":3}' },
+      GetInputSchema,
+    );
+    const parsed = GetInputSchema.safeParse(coerced);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.asOf).toEqual({ untilSequence: 3 });
+    }
   });
 });

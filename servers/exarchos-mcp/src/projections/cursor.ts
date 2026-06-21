@@ -104,3 +104,64 @@ export function boundEvents(
   const ceiling = bound.untilTimestamp;
   return events.filter((e) => e.timestamp <= ceiling);
 }
+
+/**
+ * The public `asOf` param shape (`workflow/schemas.ts::AsOfSchema`): an
+ * optional bound where BOTH keys are individually optional. The schema's
+ * `.refine` already rejects a value carrying both keys, so by the time a
+ * value reaches the dispatch core at most one key is set. This is the
+ * loosely-typed sibling of {@link AsOfBound} (exactly-one), kept here so the
+ * dispatch core has a single normalize-and-bound seam.
+ */
+export interface AsOfParam {
+  readonly untilSequence?: number;
+  readonly untilTimestamp?: string;
+}
+
+/**
+ * Dispatch-core seam shared by the `get` and `view` `asOf` surfaces.
+ *
+ * Normalizes the schema-shaped {@link AsOfParam} (optional-both) into the
+ * exactly-one {@link AsOfBound} and bounds `events` through {@link boundEvents}.
+ * An omitted/empty param returns all events (a copy). A param carrying both
+ * keys is rejected upstream by `AsOfSchema.refine`; should one slip through
+ * (an internal caller bypassing the schema), {@link boundEvents} fails fast
+ * with {@link MutuallyExclusiveBoundError}.
+ *
+ * Centralizing the normalization here keeps `get` and `view` bounding
+ * byte-identical (INV-2 facade equivalence) — neither surface re-implements
+ * the `untilSequence` / `untilTimestamp` branch.
+ *
+ * @param events - An ordered single-stream event list (not mutated).
+ * @param asOf - Optional schema-shaped bound. Omitted/empty ⇒ all events.
+ * @returns A new array of the retained events.
+ */
+export function resolveAsOfEvents(
+  events: readonly WorkflowEvent[],
+  asOf?: AsOfParam,
+): WorkflowEvent[] {
+  const bound = toAsOfBound(asOf);
+  return boundEvents(events, bound);
+}
+
+/**
+ * Normalize an optional-both {@link AsOfParam} into the exactly-one
+ * {@link AsOfBound}. Returns `undefined` for an omitted or empty param.
+ * Both-keys-present is preserved as a both-keys {@link AsOfBound} so
+ * {@link boundEvents} surfaces the {@link MutuallyExclusiveBoundError} rather
+ * than this helper silently preferring one.
+ */
+function toAsOfBound(asOf?: AsOfParam): AsOfBound | undefined {
+  if (!asOf) return undefined;
+  const hasSeq = asOf.untilSequence !== undefined;
+  const hasTs = asOf.untilTimestamp !== undefined;
+  if (hasSeq && hasTs) {
+    // Defer to boundEvents' fail-fast (MutuallyExclusiveBoundError) by
+    // returning the both-keys shape; the static AsOfBound type can't model it
+    // so we widen through `unknown` at this single, documented seam.
+    return asOf as unknown as AsOfBound;
+  }
+  if (hasSeq) return { untilSequence: asOf.untilSequence! };
+  if (hasTs) return { untilTimestamp: asOf.untilTimestamp! };
+  return undefined;
+}

@@ -7,6 +7,8 @@ import {
   WorkflowTypeSchema,
   MergeOrchestratorStateSchema,
   FeaturePhaseSchema,
+  GetInputSchema,
+  AsOfSchema,
 } from './schemas.js';
 import { z } from 'zod';
 
@@ -698,5 +700,80 @@ describe('RESERVED_FIELDS_DESCRIPTOR (#1360)', () => {
     const { ReservedFieldsDescriptorSchema, RESERVED_FIELDS_DESCRIPTOR } = await import('./schemas.js');
     const result = ReservedFieldsDescriptorSchema.safeParse(RESERVED_FIELDS_DESCRIPTOR);
     expect(result.success).toBe(true);
+  });
+});
+
+// ─── T6 (#1555) — `asOf` bounded-fold param on `get` ────────────────────────
+//
+// `asOf` is an optional, mutually-exclusive `{ untilSequence } | { untilTimestamp }`
+// bound on the existing `get` action. Exclusion is enforced at the schema
+// (a single shared `AsOfSchema` refinement) so both the CLI and MCP carriers
+// reject a both-bounds value identically before reaching the dispatch core.
+// The `untilSequence`/`untilTimestamp` field shape mirrors `AsOfBound` from
+// `projections/cursor.ts` — see Task 7 for the wiring that folds events
+// through `boundEvents`.
+
+describe('AsOfSchema (T6, #1555)', () => {
+  it('AsOfSchema_untilSequenceOnly_parses', () => {
+    const result = AsOfSchema.safeParse({ untilSequence: 5 });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toEqual({ untilSequence: 5 });
+    }
+  });
+
+  it('AsOfSchema_untilTimestampOnly_parses', () => {
+    const result = AsOfSchema.safeParse({ untilTimestamp: '2026-06-20T00:00:00.000Z' });
+    expect(result.success).toBe(true);
+  });
+
+  it('AsOfSchema_bothBounds_rejects', () => {
+    const result = AsOfSchema.safeParse({
+      untilSequence: 5,
+      untilTimestamp: '2026-06-20T00:00:00.000Z',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('AsOfSchema_negativeSequence_rejects', () => {
+    const result = AsOfSchema.safeParse({ untilSequence: -1 });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('GetInputSchema asOf (T6, #1555)', () => {
+  it('GetInputSchema_asOfUntilSequence_parses', () => {
+    const result = GetInputSchema.safeParse({
+      featureId: 'my-feature',
+      asOf: { untilSequence: 3 },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.asOf).toEqual({ untilSequence: 3 });
+    }
+  });
+
+  it('GetInputSchema_asOfUntilTimestamp_parses', () => {
+    const result = GetInputSchema.safeParse({
+      featureId: 'my-feature',
+      asOf: { untilTimestamp: '2026-06-20T12:00:00.000Z' },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('GetInputSchema_asOfOmitted_parses', () => {
+    const result = GetInputSchema.safeParse({ featureId: 'my-feature' });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.asOf).toBeUndefined();
+    }
+  });
+
+  it('GetInputSchema_asOfBothBounds_rejects', () => {
+    const result = GetInputSchema.safeParse({
+      featureId: 'my-feature',
+      asOf: { untilSequence: 3, untilTimestamp: '2026-06-20T12:00:00.000Z' },
+    });
+    expect(result.success).toBe(false);
   });
 });
