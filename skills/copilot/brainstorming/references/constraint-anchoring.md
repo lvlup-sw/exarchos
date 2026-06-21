@@ -1,8 +1,8 @@
-# Constraint anchoring — design-time Constraints selection rules
+# Constraint anchoring — Constraints selection rules (design-time and evaluation-time)
 
-This is the **single source of truth** for the design-time "Constraints" step shared by `/ideate` (Phase 0), `/refactor` (brief phase), and `/debug` (rca + design phases). Each design-time surface loads this reference rather than duplicating the selection rules.
+This is the **single source of truth** for the "Constraints" step shared by `/ideate` (Phase 0), `/refactor` (brief phase), `/debug` (rca + design phases), and `/shepherd` (when evaluating PR feedback and composing fixes). Each surface loads this reference rather than duplicating the selection rules.
 
-**Goal:** Surface the architectural invariants relevant to the proposal *before* committing to an approach, so the design is anchored to load-bearing constraints from the first turn.
+**Goal:** Surface the architectural invariants relevant to the work *before* committing to an approach or a change, so it is anchored to load-bearing constraints rather than re-discovering them mid-flight. Design-time surfaces (`/ideate`, `/refactor`, `/debug`) anchor the *proposal* before choosing an approach; `/shepherd` anchors the *changes it composes to address feedback* — same selection rules and devCatalog gating, applied at evaluation time instead of design time.
 
 ## Source of truth
 
@@ -28,7 +28,7 @@ The catalog tags every entry with a `cost-of-load` field. It governs whether an 
 | Basileus or cross-product coordination | `INV-3` (basileus-forward), `basileus-boundary` |
 | Multi-surface design (most non-trivial proposals) | Union of the above rows that apply |
 
-## Emit format (before the clarifying / brief / design step)
+## Emit format (before the clarifying / brief / design step — or, for `/shepherd`, before composing fixes)
 
 ```markdown
 ## Constraints
