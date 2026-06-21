@@ -473,7 +473,14 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
 
       case 'state.patched': {
         const data = event.data as { patch?: unknown } | undefined;
-        if (!data?.patch || !isPlainObject(data.patch)) return view;
+        // Return the SAME reference for a missing/non-object/empty patch so the
+        // projection honors its no-op-returns-identity contract. An empty `{}`
+        // patch would otherwise `structuredClone` into a fresh reference, which
+        // reconcileFromEvents' `next !== folded` check miscounts as applied —
+        // spuriously flipping `reconciled: true` and forcing a no-op write-back.
+        if (!data?.patch || !isPlainObject(data.patch) || Object.keys(data.patch).length === 0) {
+          return view;
+        }
 
         // The patch keys MAY be dot-paths — handleSet emits `patch:
         // input.updates` verbatim (tools.ts), where `updates` uses dot-path

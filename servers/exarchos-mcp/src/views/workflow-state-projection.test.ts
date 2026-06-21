@@ -403,6 +403,17 @@ describe('WorkflowStateProjection state.patched', () => {
 
       expect(next).toEqual(state);
     });
+
+    it('should return the SAME reference for an empty patch (no-op identity)', () => {
+      // Regression (Seer): an empty `{}` patch must not structuredClone into a
+      // fresh reference — reconcileFromEvents' `next !== folded` check would
+      // miscount it as applied and force a spurious no-op write-back.
+      const state = workflowStateProjection.init();
+      const event = makeEvent('state.patched', { patch: {} });
+      const next = workflowStateProjection.apply(state, event);
+
+      expect(next).toBe(state); // reference identity, not just deep equality
+    });
   });
 
   describe('Apply_StatePatched_ArrayIndexPath_MergesInPlace', () => {
