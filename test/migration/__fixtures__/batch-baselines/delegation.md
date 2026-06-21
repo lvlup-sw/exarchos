@@ -11,7 +11,7 @@ metadata:
 
 # Delegation Skill
 
-Dispatch implementation tasks to Claude Code subagents with proper context, worktree isolation, and TDD requirements. This skill follows a three-step flow: **Prepare, Dispatch, Monitor.**
+Dispatch implementation tasks to subagents with proper context, worktree isolation, and TDD requirements. This skill follows a three-step flow: **Prepare, Dispatch, Monitor.**
 
 ## Triggers
 
@@ -36,9 +36,14 @@ Rationalization patterns that violate this principle are catalogued in `referenc
 
 ### Delegation Modes
 
+The default `subagent` mode dispatches each task using the runtime's spawn primitive: `Task`.
+
+
+On Claude Code (and any future runtime declaring `team:agent-teams`), an additional `agent-team` mode is available — `Task` invocations bind to a `team_name` for interactive multi-pane coordination.
+
 | Mode | Mechanism | Best for |
 |------|-----------|----------|
-| `subagent` (default) | `Task` with `run_in_background` | 1-3 independent tasks, CI, headless |
+| `subagent` (default) | runtime spawn primitive | 1-3 independent tasks, CI, headless |
 | `agent-team` | `Task` with `team_name` | 3+ interdependent tasks, interactive sessions |
 
 **Auto-detection:** tmux + `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` present means `agent-team`. Otherwise `subagent`. Override with `/exarchos:delegate --mode subagent|agent-team`.
@@ -58,6 +63,25 @@ Before dispatching, query decision runbooks to classify the work and select the 
 
 Use the `prepare_delegation` composite action to validate readiness in a single call. This replaces manual script invocations and individual checks.
 
+> **Authoritative spec:** the canonical list of preconditions, blockers, and arguments for `prepare_delegation` lives in the runtime — query it with `exarchos_orchestrate({ action: "describe", actions: ["prepare_delegation"] })` if anything in this skill drifts from observed behavior. Treat the runtime `describe` output as the source of truth.
+
+### Step 0 — Pre-emit (required before `prepare_delegation`)
+
+Before calling `prepare_delegation`, the workflow stream must contain a `task.assigned` event for each task. The readiness view counts these events to populate `taskCount`; without them, `prepare_delegation` returns `{ ready: false, blockers: ["no task.assigned events found ..."] }`.
+
+```typescript
+exarchos_event({
+  action: "batch_append",
+  stream: "<featureId>",
+  events: tasks.map((t) => ({
+    type: "task.assigned",
+    data: { taskId: t.id, title: t.title, branch: t.branch },
+  })),
+})
+```
+
+### Step 1 — Prepare (readiness check)
+
 ```typescript
 exarchos_orchestrate({
   action: "prepare_delegation",
@@ -73,16 +97,20 @@ The composite action performs:
 4. **Benchmark detection** — sets `verification.hasBenchmarks` if any task has benchmark criteria
 5. **Readiness verdict** — returns `{ ready: true, worktrees: [...], qualityHints: [...] }` or `{ ready: false, reason: "..." }`
 
+**If `blocked: true` with `reason: "current-branch-protected"`:** the response includes a `hint` field (e.g. "checkout the feature/phase branch before dispatching delegation"). Apply the hint, then re-call.
+
 **If `ready: false`:** Stop. Report the reason to the user. Do not proceed.
 
 **If `ready: true`:** Extract the `worktrees` paths and `qualityHints` for prompt construction.
+
+**Native isolation — verify worktrees before agents edit (#1542).** Under native isolation (`nativeIsolation: true`), `prepare_delegation` returns `ready: true` even when the host has not yet materialized worktrees (`worktrees.ready: 0`), because isolation is the host's responsibility — readiness cannot be confirmed at prepare-time. When `worktrees.expected > 0` and none are confirmed ready, the response carries a **warning**: *"native isolation requested; N worktree(s) expected but 0 confirmed ready — verify the host materializes worktrees or dispatch may land in the shared checkout."* Do not ignore it. After dispatching, and **before any agent edits files**, confirm each agent's working directory is under `.worktrees/` (e.g. the agent's first reported `pwd`). If an agent is NOT in a worktree it has landed in the shared checkout — stop it, create the worktree manually with `git worktree add -b <task-branch> .worktrees/task-<id> <integration-tip>`, redirect the agent to that path, and only then allow edits. Skipping this check risks silent shared-tree corruption across parallel agents.
 
 ### Task Extraction
 
 From the implementation plan, extract for each task:
 - Full task description (paste inline; never reference external files)
-- Files to create/modify with absolute worktree paths
-- Test file paths and expected test names
+- Files to create/modify as **worktree-relative paths** (e.g. `src/foo.ts`) — NEVER absolute parent-repo paths. An `Edit`/`Write` resolves an absolute path literally and ignores the agent's worktree cwd, so an absolute parent-repo path silently writes into the main worktree (#1301). This is the platform-agnostic line of defense — it must hold on every runtime.
+- Test file paths (worktree-relative) and expected test names
 - Dependencies on other tasks (for sequencing)
 - Property-based testing flag (`testingStrategy.propertyTests`)
 
@@ -96,16 +124,17 @@ Build subagent prompts using `references/implementer-prompt.md` as the template.
 
 ### Prompt Construction
 
-**Claude Code (native agent definitions):**
 
-The `exarchos-implementer` agent spec already includes the system prompt, model, isolation, skills, hooks, and memory. The dispatch prompt should contain ONLY task-specific context:
+**On runtimes with native agent definitions:**
+
+The implementer agent definition already includes the system prompt, model, isolation, skills, hooks, and memory. The dispatch prompt should contain ONLY task-specific context:
 1. Full task description (requirements, acceptance criteria)
 2. Working directory (worktree path from Step 1)
 3. File paths to create/modify and test file paths
 4. Quality hints (if any)
 5. PBT flag when `propertyTests: true`
 
-**Cross-platform (full prompt template):**
+**Full prompt template (default):**
 
 For each task:
 1. Fill the implementer prompt template with task-specific details
@@ -121,9 +150,10 @@ For dispatch strategy decisions, query the decision runbook:
 
 This runbook provides structured criteria for parallel vs sequential dispatch, team sizing, and failure escalation.
 
+
 ### Parallel Dispatch
 
-Dispatch all independent tasks using the runtime's native spawn primitive. On runtimes with subagent support, fan out in a **single message** so the dispatches run in parallel. On runtimes without a subagent primitive, execute each task sequentially against its prepared worktree and emit one operator-visible warning per batch so users know they are not getting parallelism.
+Dispatch all independent tasks using the runtime's native spawn primitive in a **single message** so the dispatches run in parallel.
 
 ```typescript
 Task({
@@ -135,9 +165,10 @@ Task({
 
 ```
 
-> **Note:** On Claude Code, the `exarchos-implementer` agent definition already contains the system prompt, model, isolation, skills, hooks, and memory — the dispatch prompt should carry ONLY task-specific context. On runtimes without native agent definitions, include the full implementer prompt template from `references/implementer-prompt.md` in the `prompt` field so the spawned agent has a self-contained context.
+> **Note:** Include the full implementer prompt template from `references/implementer-prompt.md` in the dispatch payload so the spawned agent has a self-contained context — runtimes that pre-bind the implementer prompt to a named agent will discard the redundant content automatically.
 
 For parallel grouping strategy and model selection, see `references/parallel-strategy.md`.
+
 
 ### Agent Teams Dispatch
 
@@ -151,6 +182,7 @@ The delegate phase requires these events (checked by `check-event-emissions`):
 
 | Event | When | Emitted By |
 |-------|------|------------|
+| `task.assigned` | Before `prepare_delegation` (one per task; see Step 0) | Orchestrator |
 | `team.spawned` | After team creation, before dispatch | Orchestrator |
 | `team.task.planned` | For each task in the plan (use `batch_append`) | Orchestrator |
 | `team.teammate.dispatched` | After each subagent is spawned | Orchestrator |
@@ -167,10 +199,10 @@ See `references/agent-teams-saga.md` for full event schemas and emission order.
 
 ### Subagent Monitoring
 
-Poll background tasks and collect results:
+Collect background task results using the runtime's result-collection primitive (this may be a poll/await per task or inline replies, depending on the runtime):
 
-```typescript
-TaskOutput({ task_id: "<id>", block: true })
+```text
+TaskOutput({ task_id, block: true })
 ```
 
 After each subagent reports completion:
@@ -203,7 +235,7 @@ exarchos_orchestrate({
 })
 ```
 
-6. **Update workflow state** — set each passing `tasks[].status` to `"complete"` via `exarchos_workflow set`
+6. **Update workflow state** — set each passing `tasks[].status` to `"complete"` via `exarchos_workflow update`
 7. **Delegation completion gate (D4, advisory)** — after ALL tasks pass, run an operational resilience check on the full branch diff before transitioning to review:
 
 ```typescript
@@ -219,36 +251,40 @@ This is advisory — findings are recorded for the convergence view but do not b
 
 8. **Schema sync** — if any task modified API files (`*Endpoints.cs`, `Models/*.cs`), run `npm run sync:schemas`
 
+
 ### Agent Teams Monitoring
 
 - Teammates visible in tmux split panes
-- `TeammateIdle` hook auto-runs quality gates and emits completion/failure events
+- `TeammateIdle hook` auto-runs quality gates and emits completion/failure events
 - Orchestrator monitors via `exarchos_view delegation_timeline` for bottleneck detection
 - See `references/agent-teams-saga.md` for disbanding and reconciliation
 
 ### Failure Recovery
 
 When a task fails:
-1. Read the failure output from `TaskOutput`
+1. Read the failure output from the runtime's result-collection primitive (`TaskOutput({ task_id, block: true })`)
 2. Diagnose root cause — do NOT trust the implementer's self-assessment (see R3 adversarial posture)
-3. Fix the task using the resume-aware fixer flow below
+3. Fix the task using the fixer flow below
 4. Run the `task-fix` runbook gate chain after the fix completes
 
 For the full recovery flow with a concrete example, see `references/worked-example.md`.
 
 ### Fix Failed Tasks
 
-Dispatch a fix agent with the full failure context and the original task description. On runtimes that support session resume (e.g. Claude Code with an `agentId` in workflow state), prefer resuming the original agent so it retains its implementer context; otherwise dispatch a fresh fixer agent using the runtime's native spawn primitive.
+Dispatch a fresh fixer agent using the runtime's native spawn primitive, carrying the full failure context and the original task description:
 
 ```typescript
 Task({
-  subagent_type: "exarchos-implementer",
+  subagent_type: "exarchos-fixer",
   run_in_background: true,
   description: "Fix failed task-001",
   prompt: "Your implementation failed. [failure context from test output]. Apply adversarial verification: do NOT trust your previous self-assessment, re-read actual test output, identify root cause not symptoms. [Original task context]."
 })
 
 ```
+
+
+**Optimization (opt-in):** On runtimes with native session resume (e.g. Claude Code with an `agentId` in workflow state), you may resume the original agent instead so it retains its implementer context. Fresh dispatch above remains correct and is the canonical default.
 
 After fix completes, run the `task-fix` runbook gate chain:
 `exarchos_orchestrate({ action: "runbook", id: "task-fix" })`
@@ -307,7 +343,15 @@ For the full transition table, consult `@skills/workflow-state/references/phase-
 
 **Quick reference:** The `delegate` → `review` transition requires guard `all-tasks-complete` — all `tasks[].status` must be `"complete"` in workflow state.
 
-> **Before transitioning to review:** You MUST first update all task statuses to `"complete"` via `exarchos_workflow set` with the tasks array. The phase transition will be rejected by the guard if any task is still pending/in_progress/failed. Update tasks first, then set the phase in a separate call.
+> **Before transitioning to review:** You MUST first update all task statuses to `"complete"` via `exarchos_workflow update` with the tasks array. The phase transition will be rejected by the guard if any task is still pending/in_progress/failed. Update tasks first, then set the phase in a separate call.
+
+### Worktree-Bearing Tasks: Auto-Detour to `merge-pending`
+
+When a `task.completed` event carries a worktree association (`data.worktree` or `data.worktreePath`), the HSM auto-transitions through `feature/merge-pending` before reaching `review`. The `next_actions` projection surfaces a `merge_orchestrate` verb (idempotency-keyed by `${streamId}:merge_orchestrate:${taskId}`) so a runtime that consumes `next_actions` will dispatch the merge automatically.
+
+The merge lands the subagent's branch on the integration branch via a local `git merge` with a recorded rollback SHA — see `@skills/merge-orchestrator/SKILL.md`. The HSM exits `merge-pending` back to `delegate` once the merge terminates (`completed` / `rolled-back` / `aborted`), at which point `delegate` either re-enters `merge-pending` for the next worktree-bearing task or transitions on to `review` when all delegation is complete.
+
+This detour is invisible to the delegation skill itself — the all-tasks-complete guard still gates the `delegate → review` transition. The merge-pending substate just sits between task completion and the next dispatch decision.
 
 ### Task Status Values
 
@@ -320,18 +364,148 @@ For the full transition table, consult `@skills/workflow-state/references/phase-
 
 ### Schema Discovery
 
-Use `exarchos_workflow({ action: "describe", actions: ["set", "init"] })` for
+Use `exarchos_workflow({ action: "describe", actions: ["update", "init"] })` for
 parameter schemas and `exarchos_workflow({ action: "describe", playbook: "feature" })`
 for phase transitions, guards, and playbook guidance. Use
 `exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "task_complete"] })`
 for orchestrate action schemas.
+
+---
+
+## When integration advances mid-wave
+
+Runbook for recovering when a subagent worktree's branch has diverged from the
+integration branch. Triggered by `merge_orchestrate` ancestry preflight: the
+failure message links here verbatim and includes the manual `git rebase`
+command. Auto-rebase is **not** wired today (tracked in #1119) — operators
+must drive recovery by hand.
+
+### Symptom
+
+The merge-orchestrator reports an ancestry failure of the form:
+
+```text
+source branch <feature-branch> is not a descendant of <integration-branch>.
+Rebase manually with: git rebase <integration-branch> (run from the <feature-branch> worktree).
+Runbook: skills-src/delegation/SKILL.md#when-integration-advances-mid-wave
+```
+
+This means the integration branch advanced (typically because an earlier
+worktree merge landed) while the failing worktree was still in flight.
+Fast-forward merge is no longer safe — the working branch must catch up
+first.
+
+### Why this happens
+
+With the worktree base pinned to local HEAD (see prerequisite below), each
+subagent worktree is created at the integration branch's tip at dispatch time.
+When the orchestrator merges sibling worktrees serially, each merge moves the
+integration branch forward. A worktree that was dispatched against an older
+integration tip will fail the ancestry preflight when its turn comes.
+
+This is expected behavior under the current single-writer merge contract —
+preflight is fail-only on purpose so the operator stays in control.
+
+
+> **Prerequisite — pin the worktree base.** Native `isolation: worktree`
+> branches subagent worktrees from the repository's default branch
+> (`origin/HEAD` → `main`), **not** the integration tip, unless
+> `worktree.baseRef: "head"` is set in `.claude/settings.json`. Without the pin,
+> a subagent dispatched onto any stacked / non-`main` integration branch gets a
+> base missing every in-branch prerequisite commit (issues #1509 / #1501).
+> `prepare_delegation` fails loud with this exact remediation when
+> `nativeIsolation` is requested and the pin is absent:
+>
+> ```json
+> { "worktree": { "baseRef": "head" } }
+> ```
+>
+> Worktrees are a clean checkout, so only *committed* HEAD state propagates —
+> commit design / plan / research before dispatching.
+>
+> With the pin in place (and the implementer's own base assert as backstop),
+> operators no longer hand-prepend a `git reset --hard <integration-tip>` STEP 0
+> to each dispatch — base correctness is enforced by configuration + guard.
+
+### Recovery procedure
+
+Before each step, verify you are in the **main worktree** (not the failing
+subagent worktree) and that `git status` is clean.
+
+1. **Capture the rollback SHA** before doing anything destructive:
+
+   ```bash
+   git rev-parse <feature-branch> > /tmp/rollback.sha
+   ```
+
+   Keep this until the merge has been verified. If anything goes wrong,
+   `git reset --hard "$(cat /tmp/rollback.sha)"` on the feature branch
+   restores the pre-rebase state. The filename is intentionally
+   branch-name-free so slash-delimited branches like `feature/dr-6`
+   don't break the path with embedded `/` characters.
+
+2. **Rebase the feature branch onto the current integration tip:**
+
+   ```bash
+   cd <feature-worktree-path>
+   git fetch origin
+   git rebase <integration-branch>
+   ```
+
+   Resolve any conflicts that surface. The conflicts are real — they reflect
+   genuine drift between the two branches, not preflight noise. Do **not**
+   pass `--strategy-option=theirs` blindly; that drops the subagent's work.
+
+3. **Re-run ancestry preflight from the main worktree:**
+
+   ```typescript
+   exarchos_orchestrate({
+     action: "merge_orchestrate",
+     featureId: "<featureId>",
+     taskId: "<taskId>",
+   })
+   ```
+
+   The preflight should now pass. Proceed with the orchestrator's normal
+   merge flow.
+
+### Rollback procedure
+
+If the rebase produces conflicts you cannot resolve safely, or the merge
+still fails after rebase:
+
+1. **Reset the feature branch** to the captured rollback SHA:
+
+   ```bash
+   cd <feature-worktree-path>
+   git rebase --abort   # if mid-rebase
+   git reset --hard "$(cat /tmp/rollback.sha)"
+   ```
+
+2. **Mark the task `failed`** in workflow state and dispatch a fixer (see
+   the Failure Recovery section above). Do **not** delete the worktree —
+   the fixer needs the original branch state to diagnose the conflict.
+
+3. **Record the incident** by emitting a `merge.aborted` event with
+   `reason: "ancestry-rebase-conflict"` and the failing branch's pre-rebase
+   SHA so the convergence view captures the rollback.
+
+### Why no auto-rebase yet
+
+Auto-rebase is deferred to issue #1119. Today the orchestrator stops at
+the ancestry preflight on purpose: a botched auto-rebase across diverged
+worktrees risks silently dropping subagent work, and the recovery path
+above is short enough that operator-driven rebase is preferable to
+clever-but-fragile automation.
+
+---
 
 ## Transition
 
 After all tasks complete, **auto-continue immediately** (no user confirmation):
 
 1. Verify all `tasks[].status === "complete"` in workflow state
-2. Update state: `exarchos_workflow set` with `phase: "review"`
+2. Update state: `exarchos_workflow update` with `phase: "review"`
 3. Invoke: `Skill({ skill: "exarchos:review", args: "<plan-path>" })`
 
 This is NOT a human checkpoint — the workflow continues autonomously.
@@ -346,6 +520,7 @@ This is NOT a human checkpoint — the workflow continues autonomously.
 | `references/fixer-prompt.md` | Fix agent prompt with adversarial verification posture |
 | `references/worked-example.md` | Complete delegation trace with recovery path (R1) |
 | `references/rationalization-refutation.md` | Common rationalizations and counter-arguments (R2) |
+
 | `references/agent-teams-saga.md` | 6-step agent-team saga with event payloads |
 | `references/parallel-strategy.md` | Parallel grouping and model selection |
 | `references/testing-patterns.md` | Arrange/Act/Assert, naming, mocking conventions |

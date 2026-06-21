@@ -112,7 +112,7 @@ those land, the agnostic prevention + detection layers above are what hold the l
   worktree-relative path; allow nested worktree path; deny `..`-escape; handle missing/symlink
   paths. Unit-test the resolver against a temp repo + worktree.
 - **Medium tier** — adapter: a `pre-write` rule *with* command renders a `PreToolUse`
-  `Write|Edit|MultiEdit` hook; command-less `pre-write` still renders nothing (regression).
+  `Write|Edit|MultiEdit|NotebookEdit` hook; command-less `pre-write` still renders nothing (regression).
 - **Snapshot** — `generate-agents.test.ts` byte-pins agent markdown; dual-baseline update
   (`vitest -u` + regenerate `agents/` + per-runtime trees) is expected and intentional.
 - **Regression guard retained** — the T-09 `ImplementerDispatch_WorktreeEdit_DoesNotAppearInMainWorktree`

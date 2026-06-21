@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   handleVerifyWorktreeBoundary,
   type VerifyWorktreeBoundaryDeps,
@@ -20,11 +20,15 @@ function makeDeps(overrides: Partial<VerifyWorktreeBoundaryDeps> = {}): {
   const rec: Recorder = { out: [], err: [] };
   const deps: VerifyWorktreeBoundaryDeps = {
     // Default: cwd is a real linked worktree whose toplevel is the worktree.
-    gitToplevel: () => WORKTREE,
+    gitToplevel: vi.fn(() => WORKTREE),
     // Identity realpath keeps the unit test free of the filesystem.
-    realpath: (p) => p,
-    stdout: (s) => rec.out.push(s),
-    stderr: (s) => rec.err.push(s),
+    realpath: vi.fn((p: string) => p),
+    stdout: vi.fn((s: string) => {
+      rec.out.push(s);
+    }),
+    stderr: vi.fn((s: string) => {
+      rec.err.push(s);
+    }),
     ...overrides,
   };
   return { deps, rec };
@@ -101,6 +105,18 @@ describe('handleVerifyWorktreeBoundary', () => {
     const { deps } = makeDeps();
     const code = handleVerifyWorktreeBoundary(preToolUse({ pattern: 'foo' }, 'Grep'), deps);
     expect(code).toBe(0);
+  });
+
+  it('VerifyWorktreeBoundary_NonStringFilePath_AllowsWithoutThrowing', () => {
+    // Valid JSON, wrong-typed path field — must not throw a TypeError from
+    // path.*; treated as a shape mismatch → allow + stderr (fail-open).
+    const { deps, rec } = makeDeps();
+    let code: number | undefined;
+    expect(() => {
+      code = handleVerifyWorktreeBoundary(preToolUse({ file_path: 123 } as never), deps);
+    }).not.toThrow();
+    expect(code).toBe(0);
+    expect(rec.err.length).toBeGreaterThan(0);
   });
 
   it('VerifyWorktreeBoundary_MalformedJson_AllowsWithStderr', () => {

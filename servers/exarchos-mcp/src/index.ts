@@ -362,7 +362,10 @@ async function main() {
     const { handleVerifyWorktreeBoundary } = await import(
       './cli-commands/verify-worktree-boundary.js'
     );
-    const stdin = fs.readFileSync(0, 'utf8');
+    // Read the hook payload from stdin. Guard against an interactive TTY (no
+    // piped input): `fs.readFileSync(0)` would block forever waiting on the
+    // terminal. With no payload there is nothing to evaluate — allow.
+    const stdin = process.stdin.isTTY ? '' : fs.readFileSync(0, 'utf8');
     process.exitCode = handleVerifyWorktreeBoundary(stdin);
     return;
   }

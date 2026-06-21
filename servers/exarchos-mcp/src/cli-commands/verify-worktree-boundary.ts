@@ -33,6 +33,23 @@
 import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { z } from 'zod';
+
+/**
+ * Shape of the PreToolUse hook payload we depend on. Validated with `safeParse`
+ * so a payload that is valid JSON but wrong-typed (e.g. `{file_path: 123}`) is
+ * treated exactly like malformed JSON — allow + stderr — never a thrown
+ * `TypeError` from a non-string reaching `path.*`. Unknown keys are ignored.
+ */
+const preToolUsePayloadSchema = z.object({
+  cwd: z.string().optional(),
+  tool_input: z
+    .object({
+      file_path: z.string().optional(),
+      notebook_path: z.string().optional(),
+    })
+    .optional(),
+});
 
 /** Allow / deny exit codes per the Claude Code PreToolUse block contract. */
 const ALLOW = 0;
@@ -91,17 +108,22 @@ export function handleVerifyWorktreeBoundary(
   const realpath = deps.realpath ?? defaultRealpath;
   const stderr = deps.stderr ?? ((s) => process.stderr.write(`${s}\n`));
 
-  let payload: {
-    cwd?: string;
-    tool_input?: { file_path?: string; notebook_path?: string };
-  };
+  let parsedJson: unknown;
   try {
-    payload = JSON.parse(stdin);
+    parsedJson = JSON.parse(stdin);
   } catch {
     // Can't make a boundary decision on unparseable input — allow, but surface.
     stderr('exarchos verify-worktree-boundary: unparseable hook input; skipping boundary check');
     return ALLOW;
   }
+  const result = preToolUsePayloadSchema.safeParse(parsedJson);
+  if (!result.success) {
+    // Valid JSON but the wrong shape (e.g. a non-string path) — same policy as
+    // malformed JSON: never throw, never brick a write; skip visibly.
+    stderr('exarchos verify-worktree-boundary: unexpected hook payload shape; skipping boundary check');
+    return ALLOW;
+  }
+  const payload = result.data;
 
   const cwd = payload.cwd ?? process.cwd();
   const targetField = payload.tool_input?.file_path ?? payload.tool_input?.notebook_path;
