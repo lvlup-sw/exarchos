@@ -531,13 +531,86 @@ export async function handleExecuteMerge(
     // `--hard`). Surface `recoveryError` + detail (when recovery was not clean)
     // so consumers can detect an indeterminate worktree.
     //
-    // #1303 (α-05): pass `idempotencyKey` (when `taskId` is present) and
-    // `expectedSequence` (CAS on stream high-water mark) so the substrate
-    // guarantees from #1259 / #1323 reach this append site too. Symmetric
-    // with α-02 (merge.executed) and α-04 (merge.preflight). The three
-    // append sites in this orchestrator surface — preflight, executed,
-    // rollback — each carry a distinct dedup key via the trailing
-    // `:${eventType}` segment.
+    // #1306 T4 — DUAL-EMIT during the v2.11.x deprecation window. The recovery
+    // path appends TWO events for the same logical recovery:
+    //
+    //   1) the canonical `merge.recovered` (successor; renamed fields
+    //      `recoveryPointSha` / `recoveryErrorDetail`), then
+    //   2) the legacy `merge.rollback` (kept until v2.12; carries the
+    //      `_meta.deprecation` envelope on its `data`).
+    //
+    // CAS HAZARD (project_cas_pin_idempotency_trap / PR #1492): each append
+    // reads the LIVE stream tail FRESH to compute its own `expectedSequence`
+    // and carries its OWN independent idempotency key (the trailing
+    // `:${eventType}` segment disambiguates). The `merge.recovered` append is
+    // NEVER re-pinned to the `merge.rollback` append's returned sequence — a
+    // cache-hit precedes the CAS, so a static cross-pin would make a retried
+    // recovery conflict FOREVER. Independent keys + independent fresh-tail CAS
+    // make a retried recovery a clean no-op across BOTH event types.
+    //
+    // #1303 (α-05): each append carries `idempotencyKey` + `expectedSequence`
+    // so the substrate guarantees from #1259 / #1323 reach both sites.
+    //
+    // The legacy event still drives the `merge-orchestrator@v1` projection's
+    // `recovering` phase (the reducer folds `merge.rollback`, NOT
+    // `merge.recovered`, during the deprecation window); emitting both does
+    // NOT double-advance the projection. The v2.12 swap is tracked separately.
+
+    // ── 1) Canonical `merge.recovered` (fresh-tail CAS, own idempotency key) ──
+    const tailEventsRecovered = await ctx.eventStore.query(args.featureId);
+    const expectedSequenceRecovered =
+      tailEventsRecovered.length > 0
+        ? Math.max(...tailEventsRecovered.map((e) => e.sequence))
+        : 0;
+    const appendOptionsRecovered: { idempotencyKey: string; expectedSequence: number } = {
+      expectedSequence: expectedSequenceRecovered,
+      idempotencyKey: buildMergeOrchestrateIdempotencyKey(
+        args.featureId,
+        args.taskId,
+        'merge.recovered',
+      ),
+    };
+    try {
+      await ctx.eventStore.append(
+        args.featureId,
+        {
+          type: 'merge.recovered',
+          data: {
+            ...(args.taskId !== undefined ? { taskId: args.taskId } : {}),
+            sourceBranch: args.sourceBranch,
+            targetBranch: args.targetBranch,
+            recoveryPointSha: result.recoveryPointSha,
+            reason: result.reason,
+            // INV-14 discriminator under the CANONICAL field names
+            // (`recoveryError` enum + `recoveryErrorDetail` detail). Both
+            // absent on a clean recovery.
+            ...(result.recoveryError !== undefined
+              ? {
+                  recoveryError: result.recoveryError,
+                  ...(result.recoveryErrorDetail !== undefined
+                    ? { recoveryErrorDetail: result.recoveryErrorDetail }
+                    : {}),
+                }
+              : {}),
+          },
+        },
+        appendOptionsRecovered,
+      );
+    } catch (err) {
+      if (err instanceof SequenceConflictError) {
+        return {
+          success: false,
+          error: {
+            code: 'STATE_CONFLICT',
+            message: `merge.recovered append lost sequence race: expected=${err.expected} actual=${err.actual}`,
+          },
+        };
+      }
+      throw err;
+    }
+
+    // ── 2) Legacy `merge.rollback` (own FRESH-tail CAS — re-read so it sees
+    //       the `merge.recovered` we just appended; own idempotency key) ──────
     const tailEventsRollback = await ctx.eventStore.query(args.featureId);
     const expectedSequenceRollback =
       tailEventsRollback.length > 0
@@ -565,11 +638,25 @@ export async function handleExecuteMerge(
             targetBranch: args.targetBranch,
             rollbackSha: result.recoveryPointSha,
             reason: result.reason,
+            // #1306 deprecation envelope — surfaced on the legacy event's
+            // `data` so consumers reading the legacy stream see the migration
+            // window and the canonical replacement. Lives under `data._meta`
+            // (the top-level event shape strips unknown keys); byte-identical
+            // across every emission surface because both CLI and MCP funnel
+            // through this single code path.
+            _meta: {
+              deprecation: {
+                since: '2.11.0',
+                removeIn: '2.12.0',
+                replacement: 'merge.recovered',
+              },
+            },
             // INV-14 discriminator — the pure executor's recovery ladder
             // (`git merge --abort` → `git reset --keep`, never `--hard`)
             // classifies any indeterminate outcome so observability distinguishes
             // a stranded worktree from a clean rollback. Forward the enum + detail
-            // verbatim; both absent on a clean recovery.
+            // verbatim under the LEGACY `rollbackError` wire field; both absent
+            // on a clean recovery.
             ...(result.recoveryError !== undefined
               ? {
                   recoveryError: result.recoveryError,
