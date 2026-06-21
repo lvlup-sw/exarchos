@@ -49,7 +49,9 @@ export function deriveClaudeToolsFromCapabilities(spec: AgentSpec): readonly str
 // #1485: `pre-edit` removed — no agent validation rule uses that trigger
 // (verified: only `pre-write` + `post-test` are referenced in definitions.ts).
 const TRIGGER_MAP: Record<string, { hookType: string; matcher: string }> = {
-  'pre-write': { hookType: 'PreToolUse', matcher: 'Write|Edit' },
+  // `pre-write` covers every file-write tool so the worktree-boundary guard
+  // (#1301) cannot be bypassed via MultiEdit/NotebookEdit.
+  'pre-write': { hookType: 'PreToolUse', matcher: 'Write|Edit|MultiEdit|NotebookEdit' },
   'post-test': { hookType: 'PostToolUse', matcher: 'Bash' },
 };
 

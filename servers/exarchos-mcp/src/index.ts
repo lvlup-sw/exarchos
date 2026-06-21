@@ -352,6 +352,24 @@ async function main() {
     return;
   }
 
+  // ─── verify-worktree-boundary Fast Path ──────────────────────────────────
+  // `exarchos verify-worktree-boundary` is the PreToolUse boundary guard for
+  // task-isolated agents (#1301). The Claude Code hook feeds the tool call as
+  // JSON on stdin; the guard denies (exit 2) any write that escapes the
+  // worktree. Like run-tests it is stateless — it must NOT open the SQLite
+  // backend, and it must stay fast (it runs before every agent file write).
+  if (process.argv[2] === 'verify-worktree-boundary') {
+    const { handleVerifyWorktreeBoundary } = await import(
+      './cli-commands/verify-worktree-boundary.js'
+    );
+    // Read the hook payload from stdin. Guard against an interactive TTY (no
+    // piped input): `fs.readFileSync(0)` would block forever waiting on the
+    // terminal. With no payload there is nothing to evaluate — allow.
+    const stdin = process.stdin.isTTY ? '' : fs.readFileSync(0, 'utf8');
+    process.exitCode = handleVerifyWorktreeBoundary(stdin);
+    return;
+  }
+
   const stateDir = await resolveStateDir();
 
   // Ensure state directory exists

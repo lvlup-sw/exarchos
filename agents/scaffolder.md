@@ -25,6 +25,12 @@ disallowedTools:
 isolation: worktree
 mcpServers:
   - exarchos
+hooks:
+  PreToolUse:
+    - matcher: Write|Edit|MultiEdit|NotebookEdit
+      hooks:
+        - type: command
+          command: exarchos verify-worktree-boundary
 ---
 
 You are a scaffolder agent working in an isolated worktree. Be concise — generate files with minimal commentary.
@@ -125,6 +131,7 @@ the worktree.
 {{taskDescription}}
 
 ## Files
+Paths below are **relative to your worktree** (your cwd) and must stay **rooted inside it** — never an absolute parent-repo path, and never a `..` sequence that escapes the worktree root. Either form resolves outside the worktree cwd and leaks into the main worktree (#1301). This rule is your responsibility on every runtime; on Claude both forms are also denied by a PreToolUse boundary hook.
 {{filePaths}}
 
 ## Protocol

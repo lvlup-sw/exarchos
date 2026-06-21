@@ -47,6 +47,7 @@ import {
   FIXER,
   REVIEWER,
   SCAFFOLDER,
+  WORKTREE_BOUNDARY_COMMAND,
 } from './definitions.js';
 import type { AgentSpec } from './types.js';
 import { claudeAdapter } from './adapters/claude.js';
@@ -390,6 +391,33 @@ describe('generateAgents', () => {
         expect(actual).toBe(expected);
       },
     );
+  });
+
+  // ─── #1301 worktree-boundary parity (INV-4 gap, logged) ───────────────────
+  //
+  // The PreToolUse worktree-boundary deny-hook is the structural guarantee for
+  // the #1301 leak. It exists ONLY on Claude: the other four tier-1 runtimes
+  // treat `isolation:worktree` as advisory (orchestrator-managed) and render no
+  // hooks, so they have no surface to enforce the boundary by construction.
+  // This test pins that asymmetry as a KNOWN, INTENTIONAL gap (per INV-4 we log
+  // it, we do not fake it) — and will start failing the day a non-Claude
+  // adapter grows a pre-write hook surface, prompting us to wire the guard
+  // there too. See docs/rca/2026-06-21-worktree-isolation-write-leak.md §parity.
+  describe('Worktree-boundary cross-runtime parity (#1301 / INV-4)', () => {
+    it('GenerateAgents_WorktreeBoundaryHook_EnforcedOnClaudeOnly', () => {
+      // Enforced on Claude: the implementer artifact carries the guard command.
+      const claudeOut = claudeAdapter.lowerSpec(IMPLEMENTER).contents;
+      expect(claudeOut).toContain(WORKTREE_BOUNDARY_COMMAND);
+
+      // Gap (logged, not faked): advisory-isolation runtimes render no hook,
+      // so the guard command never reaches their artifacts.
+      for (const adapter of [codexAdapter, CursorAdapter, new CopilotAdapter(), OpenCodeAdapter]) {
+        const out = adapter.lowerSpec(IMPLEMENTER).contents;
+        expect(out, `${adapter.runtime} unexpectedly renders the boundary hook`).not.toContain(
+          WORKTREE_BOUNDARY_COMMAND,
+        );
+      }
+    });
   });
 
   it('GenerateAgents_AdvisoryCapability_NotEmittedInTools', () => {
