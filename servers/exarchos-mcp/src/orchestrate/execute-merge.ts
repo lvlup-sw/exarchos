@@ -25,7 +25,7 @@
 // 'verification-failed' | 'timeout') and returns a structured error.
 // ───────────────────────────────────────────────────────────────────────────
 
-import { execFileSync } from 'node:child_process';
+import { defaultGitExec } from './git-exec-default.js';
 import * as path from 'node:path';
 import { z } from 'zod';
 
@@ -120,33 +120,6 @@ export interface HandleExecuteMergeInput extends HandleExecuteMergeArgs {
 
 // ─── Default adapters ──────────────────────────────────────────────────────
 
-/** Default `gitExec`: synchronous shell-out with 120s timeout.
- * Captures stderr so failures (merge conflicts, ref errors) surface in the
- * returned `stdout` channel rather than vanishing — `gitOrThrow` includes
- * this output in the thrown error so categorization and operator diagnostics
- * have the actual git failure message. */
-function defaultGitExec(repoRoot: string, args: readonly string[]): { stdout: string; exitCode: number } {
-  try {
-    const stdout = execFileSync('git', [...args], {
-      cwd: repoRoot,
-      timeout: 120_000,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    return { stdout, exitCode: 0 };
-  } catch (err) {
-    const status = (err as { status?: number }).status;
-    const stderr = (err as { stderr?: string | Buffer }).stderr;
-    const stdout = (err as { stdout?: string | Buffer }).stdout;
-    const message = [
-      typeof stdout === 'string' ? stdout : stdout?.toString('utf-8') ?? '',
-      typeof stderr === 'string' ? stderr : stderr?.toString('utf-8') ?? '',
-    ]
-      .filter(Boolean)
-      .join('\n');
-    return { stdout: message, exitCode: typeof status === 'number' ? status : 1 };
-  }
-}
 
 /**
  * Build the default `vcsMerge` adapter — a *local* `git merge` of source
