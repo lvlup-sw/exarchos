@@ -172,7 +172,9 @@ describe('bisect — binary search over projectAt (T5)', () => {
     const n = 64;
     await seedStream(streamId, n);
 
-    // AND a counting reducer that tallies every `apply` across all probes.
+    // AND a counting reducer that tallies every `apply` across all probes. Each
+    //   `projectAt` probe cold-folds up to its bound (no snapshot is seeded), so
+    //   the apply tally is the total folded-event work the search performed.
     const counter = { applies: 0 };
     const reducer = countingReducer(counter);
 
@@ -185,19 +187,14 @@ describe('bisect — binary search over projectAt (T5)', () => {
     // THEN the boundary is found at sequence 33.
     expect(result?.sequence).toBe(33);
 
-    // AND the total folded-event work is O(log n): a binary search runs
-    //   ~ceil(log2(n)) probes, each a bounded fold of <= n events but on
-    //   average ~n/2 — the meaningful bound is the PROBE COUNT, which we cap
-    //   independently below. Here we assert the cheaper invariant that the
-    //   number of distinct probes (full folds) is logarithmic, by capping the
-    //   probe count via the dedicated counter the impl is wired to expose
-    //   indirectly: a linear scan would call the predicate n times; a binary
-    //   search calls it O(log n) times.
-    //
-    //   We measure probe count through a predicate spy rather than apply (apply
-    //   work is per-fold, not per-probe). See the predicate-spy assertion.
-    expect(result?.sequence).toBe(33);
-    void counter; // apply tally is informational; the probe-count cap is below.
+    // AND the total folded-event work is bounded by a logarithmic number of
+    //   probes, each folding at most `n` events: applies <= n * probeBudget.
+    //   A linear *replay scan* (fold once, evaluate the predicate after every
+    //   event) would do n applies in a single pass but would have to materialise
+    //   n intermediate states; the bisect bound here proves we never explode
+    //   past a logarithmic number of bounded folds.
+    const probeBudget = 2 * Math.ceil(Math.log2(n)) + 2;
+    expect(counter.applies).toBeLessThanOrEqual(n * probeBudget);
   });
 
   it('bisect_logarithmicProbeCount_predicateCalledOLogN', async () => {
