@@ -130,7 +130,11 @@ describe('implementer contract is tier-conditional (CR-1)', () => {
   });
 
   it('ImplementerSpec_PreWriteRule_ScopedToKillProbeTiers', () => {
-    const preWrite = IMPLEMENTER.validationRules?.find((r) => r.trigger === 'pre-write');
+    // There are now two `pre-write` rules (the #1301 worktree-boundary guard is
+    // also pre-write); target the TDD/kill-probe one specifically.
+    const preWrite = IMPLEMENTER.validationRules
+      ?.filter((r) => r.trigger === 'pre-write')
+      .find((r) => /check_test_adequacy|medium\/high/.test(r.rule));
     expect(preWrite).toBeDefined();
     // The rule must self-scope to the stamped verification sequence rather
     // than demanding a test file on every dispatch.
