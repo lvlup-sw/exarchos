@@ -9,6 +9,7 @@ import {
   readStateFile,
   StateStoreError,
 } from './state-store.js';
+import { resolveWorkflowState } from '../orchestrate/resolve-state.js';
 import { buildCheckpointMeta } from './checkpoint.js';
 import { getRecentEventsFromStore } from './events.js';
 import { getHSMDefinition } from './state-machine.js';
@@ -49,23 +50,39 @@ export async function handleSummary(
   stateDir: string,
   eventStore: EventStore | null,
 ): Promise<ToolResult> {
-  // eventStore is now passed as parameter
+  // Event-store-first resolution (#1504): fold the event log when an event
+  // store is available; fall back to the on-disk state file only for the
+  // legacy/CLI path where no event store is threaded through. The SQLite event
+  // store is the sole source of truth — a stale `.state.json` never shadows
+  // newer events.
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
 
-  let state: WorkflowState;
-  try {
-    state = await readStateFile(stateFile);
-  } catch (err) {
-    if (err instanceof StateStoreError && err.code === ErrorCode.STATE_NOT_FOUND) {
-      return {
-        success: false,
-        error: {
-          code: ErrorCode.STATE_NOT_FOUND,
-          message: `State not found for feature: ${input.featureId}`,
-        },
-      };
-    }
-    throw err;
+  const resolved = await resolveWorkflowState({
+    featureId: input.featureId,
+    eventStore: eventStore ?? undefined,
+    stateFile,
+  });
+
+  const notFound: ToolResult = {
+    success: false,
+    error: {
+      code: ErrorCode.STATE_NOT_FOUND,
+      message: `State not found for feature: ${input.featureId}`,
+    },
+  };
+
+  if ('error' in resolved) {
+    // NO_STATE_SOURCE (no event store AND no readable file) reads as "not
+    // found"; surface any other resolution error (e.g. EVENT_STORE_ERROR)
+    // verbatim rather than masking it as a missing feature.
+    return resolved.error.error?.code === 'NO_STATE_SOURCE' ? notFound : resolved.error;
+  }
+
+  const state = resolved.state as unknown as WorkflowState;
+  // A folded view with no `featureId` means no `workflow.started` was ever
+  // recorded — the feature was never started as a workflow.
+  if (!state.featureId) {
+    return notFound;
   }
 
   // Task progress

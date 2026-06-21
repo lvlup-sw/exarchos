@@ -87,22 +87,13 @@ describe('handleSummary', () => {
   });
 
   it('handleSummary_ValidWorkflow_ReturnsProgressAndEvents', async () => {
-    const state = makeBaseState({
-      tasks: [
-        { id: 't1', title: 'Task 1', status: 'complete', blockedBy: [] },
-        { id: 't2', title: 'Task 2', status: 'pending', blockedBy: [] },
-      ],
-    });
-    backend.setState('test-feature', state as never, 0);
-
+    // Event-sourced (#1504): seed the truth as the event log the projection
+    // folds, not a decoupled backend snapshot.
     const mockEvents: WorkflowEvent[] = [
-      {
-        streamId: 'test-feature',
-        sequence: 1,
-        timestamp: NOW,
-        type: 'workflow.started',
-        schemaVersion: '1.0',
-      },
+      { streamId: 'test-feature', sequence: 1, timestamp: NOW, type: 'workflow.started', schemaVersion: '1.0', data: { featureId: 'test-feature', workflowType: 'feature' } },
+      { streamId: 'test-feature', sequence: 2, timestamp: NOW, type: 'task.assigned', schemaVersion: '1.0', data: { taskId: 't1', title: 'Task 1' } },
+      { streamId: 'test-feature', sequence: 3, timestamp: NOW, type: 'task.assigned', schemaVersion: '1.0', data: { taskId: 't2', title: 'Task 2' } },
+      { streamId: 'test-feature', sequence: 4, timestamp: NOW, type: 'task.completed', schemaVersion: '1.0', data: { taskId: 't1' } },
     ];
     const mockStore = createMockEventStore(mockEvents);
 
@@ -119,7 +110,7 @@ describe('handleSummary', () => {
     const progress = data.taskProgress as { completed: number; total: number };
     expect(progress.completed).toBe(1);
     expect(progress.total).toBe(2);
-    expect((data.recentEvents as unknown[]).length).toBe(1);
+    expect((data.recentEvents as unknown[]).length).toBe(4);
   });
 
   it('handleSummary_NonExistentFeature_ReturnsError', async () => {
@@ -136,15 +127,29 @@ describe('handleSummary', () => {
   });
 
   it('handleSummary_CompoundState_IncludesCircuitBreaker', async () => {
-    // delegate is inside the 'implementation' compound in feature workflow
-    const state = makeBaseState({ phase: 'delegate' });
-    backend.setState('test-feature', state as never, 0);
-
-    // Events with a compound-entry and a fix-cycle for the 'implementation' compound
+    // delegate is inside the 'implementation' compound in the feature workflow.
+    // Event-sourced (#1504): the phase is folded from a workflow.transition,
+    // not seeded into a decoupled backend snapshot.
     const mockEvents: WorkflowEvent[] = [
       {
         streamId: 'test-feature',
         sequence: 1,
+        timestamp: NOW,
+        type: 'workflow.started',
+        schemaVersion: '1.0',
+        data: { featureId: 'test-feature', workflowType: 'feature' },
+      },
+      {
+        streamId: 'test-feature',
+        sequence: 2,
+        timestamp: NOW,
+        type: 'workflow.transition',
+        schemaVersion: '1.0',
+        data: { to: 'delegate' },
+      },
+      {
+        streamId: 'test-feature',
+        sequence: 3,
         timestamp: NOW,
         type: 'workflow.compound-entry',
         schemaVersion: '1.0',
@@ -152,7 +157,7 @@ describe('handleSummary', () => {
       },
       {
         streamId: 'test-feature',
-        sequence: 2,
+        sequence: 4,
         timestamp: NOW,
         type: 'workflow.fix-cycle',
         schemaVersion: '1.0',
@@ -175,6 +180,30 @@ describe('handleSummary', () => {
     expect(cb.fixCycleCount).toBe(1);
     expect(cb.maxFixCycles).toBe(3);
     expect(cb.open).toBe(false);
+  });
+
+  it('handleSummary_TruthInEventStoreNotBackend_FoldsTaskProgress', async () => {
+    // Event-store-first (#1504): the event log is the sole source of truth.
+    // Seed the truth ONLY in the event store — no backend.setState — and assert
+    // handleSummary folds it. Under the legacy readStateFile path this fails
+    // (the backend has no state → STATE_NOT_FOUND).
+    const mockEvents: WorkflowEvent[] = [
+      { streamId: 'es-feature', sequence: 1, timestamp: NOW, type: 'workflow.started', schemaVersion: '1.0', data: { featureId: 'es-feature', workflowType: 'feature' } },
+      { streamId: 'es-feature', sequence: 2, timestamp: NOW, type: 'task.assigned', schemaVersion: '1.0', data: { taskId: 't1', title: 'Task 1' } },
+      { streamId: 'es-feature', sequence: 3, timestamp: NOW, type: 'task.assigned', schemaVersion: '1.0', data: { taskId: 't2', title: 'Task 2' } },
+      { streamId: 'es-feature', sequence: 4, timestamp: NOW, type: 'task.completed', schemaVersion: '1.0', data: { taskId: 't1' } },
+    ];
+    const mockStore = createMockEventStore(mockEvents);
+
+    const result = await handleSummary({ featureId: 'es-feature' }, '/fake/state-dir', mockStore);
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.featureId).toBe('es-feature');
+    expect(data.workflowType).toBe('feature');
+    const progress = data.taskProgress as { completed: number; total: number };
+    expect(progress.completed).toBe(1);
+    expect(progress.total).toBe(2);
   });
 });
 
@@ -364,11 +393,10 @@ describe('HandleQuery edge cases', () => {
     } as unknown as InMemoryBackend;
     configureStateStoreBackend(throwingBackend);
 
-    await expect(
-      handleSummary({ featureId: 'test-feature' }, '/fake/state-dir', null),
-    ).rejects.toThrow(StateStoreError);
-
-    // Also verify handleReconcile rethrows non-NOT_FOUND errors
+    // handleReconcile still reads validated state via readStateFile (backend),
+    // so a non-NOT_FOUND StateStoreError propagates rather than being masked.
+    // (handleSummary migrated to event-store-first (#1504) and no longer reads
+    // the backend — its resolution is covered by the event-sourced tests above.)
     await expect(
       handleReconcile({ featureId: 'test-feature' }, '/fake/state-dir', null),
     ).rejects.toThrow(StateStoreError);
