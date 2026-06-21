@@ -533,6 +533,38 @@ describe('executeMerge', () => {
     });
   });
 
+  it('ExecuteMerge_VerificationFailed_NoRetry', async () => {
+    // T11: a verification-failed (non-transient) outcome must NOT enter the
+    // retry loop — exactly one vcsMerge attempt, zero retries reported, then
+    // immediate recovery with reason 'verification-failed'. Only 'timeout' retries.
+    const vcsMerge = vi.fn(async () => {
+      throw new Error('post-merge verification failed: tests red');
+    });
+    const persistState = vi.fn(async () => {});
+    const onRetryAttempt = vi.fn();
+
+    const result = await executeMerge({
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      strategy: 'squash',
+      gitExec: happyGitExec(),
+      vcsMerge,
+      persistState,
+      repoRoot: '/some/repo',
+      jitter: zeroJitter,
+      sleep: noSleep,
+      onRetryAttempt,
+    });
+
+    expect(vcsMerge).toHaveBeenCalledTimes(1);
+    expect(onRetryAttempt).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      phase: 'rolled-back',
+      recoveryPointSha: 'abc',
+      reason: 'verification-failed',
+    });
+  });
+
   it('ExecuteMerge_TimeoutExhaustsRetries_RecoversWithTimeoutReason', async () => {
     // Persistent timeout: 3 total vcsMerge calls (initial + 2 retries), 2 retry
     // attempts reported, then recovery with reason 'timeout'. Backoff grows by
