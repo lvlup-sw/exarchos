@@ -123,6 +123,9 @@ export const EventTypes = [
   'merge.requested',
   'merge.executed',
   'merge.rollback',
+  // #1306 — successor to `merge.rollback`; dual-emitted during the v2.11.x
+  // deprecation window. Legacy `merge.rollback` removed in v2.12 (tracked).
+  'merge.recovered',
   // Terminal lifecycle event — emitted by the executor (`handleExecuteMerge`)
   // immediately after a successful `merge.executed` append. Folded by the
   // `merge-orchestrator@v1` projection (#1304) as the transition into the
@@ -489,6 +492,8 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'merge.requested': 'model',
   'merge.executed': 'auto',
   'merge.rollback': 'auto',
+  // #1306 successor — same auto family as the legacy event it replaces.
+  'merge.recovered': 'auto',
   // auto — emitted by `handleExecuteMerge` immediately after `merge.executed`
   // succeeds, as the projection's terminal lifecycle marker (#1304 / INV-10).
   'merge.completed': 'auto',
@@ -1566,6 +1571,32 @@ export const MergeRollbackData = z.object({
 });
 
 /**
+ * merge.recovered — the #1306 successor to `merge.rollback`. Emitted when a
+ * merge is reverted via the INV-14 recovery ladder. Same closed `reason` enum.
+ * `recoveryPointSha` is the anchor the worktree was rewound to (was
+ * `rollbackSha`); `recoveryErrorDetail` is the human-readable recovery-failure
+ * string (was `rollbackError`) paired with the `recoveryError` discriminator.
+ *
+ * During the v2.11.x deprecation window the executor dual-emits this AND the
+ * legacy `merge.rollback` for the same logical event; v2.12 removes the legacy
+ * emission (tracked separately). Vocabulary follows the canonical frame —
+ * recovery point / recovery event, not saga compensation / rollback.
+ */
+export const MergeRecoveredData = z.object({
+  taskId: z.string().optional(),
+  sourceBranch: z.string().min(1),
+  targetBranch: z.string().min(1),
+  recoveryPointSha: z.string().min(1),
+  reason: z.enum(['merge-failed', 'verification-failed', 'timeout']),
+  recoveryErrorDetail: z.string().min(1).optional(),
+  // INV-14 discriminator on the recovery outcome — see MergeRollbackData above
+  // for the full primitive-ordering contract. Kept under the canonical name.
+  recoveryError: z
+    .enum(['reset-keep-blocked', 'reset-failed', 'unexpected-mid-merge-drift'])
+    .optional(),
+});
+
+/**
  * merge.completed — terminal lifecycle event emitted immediately after a
  * successful `merge.executed`. Folded by the `merge-orchestrator@v1`
  * projection (#1304) as the transition into the `completed` phase, which is
@@ -2414,6 +2445,7 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'merge.requested': MergeRequestedData,
   'merge.executed': MergeExecutedData,
   'merge.rollback': MergeRollbackData,
+  'merge.recovered': MergeRecoveredData,
   'merge.completed': MergeCompletedData,
 
   // Command resolver (#1199 T15) — audit trail for runtime resolver decisions.
@@ -2546,6 +2578,7 @@ export type MergePreflight = z.infer<typeof MergePreflightData>;
 export type MergeRequested = z.infer<typeof MergeRequestedData>;
 export type MergeExecuted = z.infer<typeof MergeExecutedData>;
 export type MergeRollback = z.infer<typeof MergeRollbackData>;
+export type MergeRecovered = z.infer<typeof MergeRecoveredData>;
 export type MergeCompleted = z.infer<typeof MergeCompletedData>;
 export type HsmDeprecatedActionInvoked = z.infer<typeof HsmDeprecatedActionInvokedData>;
 export type SpecLegacyCapabilitiesArray = z.infer<typeof SpecLegacyCapabilitiesArrayData>;
@@ -2671,6 +2704,7 @@ export type EventDataMap = {
   'merge.requested': MergeRequested;
   'merge.executed': MergeExecuted;
   'merge.rollback': MergeRollback;
+  'merge.recovered': MergeRecovered;
   'merge.completed': MergeCompleted;
   'command.resolved': CommandResolvedEvent;
   'hsm.deprecated_action_invoked': HsmDeprecatedActionInvoked;

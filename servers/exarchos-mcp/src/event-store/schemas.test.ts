@@ -557,7 +557,10 @@ describe('EventTypes', () => {
     //   output-token total emitted by the restored SubagentStop hook
     //   `cli-commands/subagent-stop.ts`, folded by team-performance /
     //   delegation-timeline for the token-reduction acceptance gate).
-    expect(EventTypes).toHaveLength(126);
+    // Bumped 126 → 127: merge.recovered (#1306 — successor to merge.rollback,
+    //   dual-emitted during the v2.11.x deprecation window; legacy removed v2.12).
+    expect(EventTypes).toHaveLength(127);
+    expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('subagent.tokens_used');
     expect(EventTypes).toContain('onboard.requested');
     expect(EventTypes).toContain('onboard.executed');
@@ -3644,5 +3647,35 @@ describe('EventStoreSchemas_ToolActionErrored_HasRegisteredType', () => {
       },
     });
     expect(event.success).toBe(true);
+  });
+});
+
+describe('merge.recovered (#1306 successor to merge.rollback)', () => {
+  const recoveredSchema = (
+    EVENT_DATA_SCHEMAS as Record<string, { parse: (v: unknown) => unknown } | undefined>
+  )['merge.recovered'];
+
+  it('MergeRecovered_RegisteredWithRecoveryShape_ParsesValidPayload', () => {
+    expect(recoveredSchema).toBeDefined();
+    const parsed = recoveredSchema!.parse({
+      taskId: 't-1',
+      sourceBranch: 'feat/x',
+      targetBranch: 'integration',
+      recoveryPointSha: 'abc123',
+      reason: 'timeout',
+      recoveryErrorDetail: 'git reset --keep abc123 exited 1',
+      recoveryError: 'reset-failed',
+    });
+    expect(parsed).toMatchObject({
+      recoveryPointSha: 'abc123',
+      recoveryError: 'reset-failed',
+    });
+  });
+
+  it('MergeRecovered_RejectsMissingRecoveryPointSha', () => {
+    expect(recoveredSchema).toBeDefined();
+    expect(() =>
+      recoveredSchema!.parse({ sourceBranch: 'a', targetBranch: 'b', reason: 'merge-failed' }),
+    ).toThrow();
   });
 });

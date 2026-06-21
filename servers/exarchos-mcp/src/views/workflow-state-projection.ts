@@ -469,6 +469,29 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
         };
       }
 
+      case 'merge.recovered': {
+        // #1306 successor to merge.rollback — same logical fold, reading the
+        // renamed event fields (recoveryPointSha / recoveryErrorDetail) onto the
+        // existing view fields. Dual-emitted alongside merge.rollback during the
+        // v2.11.x deprecation window; folding both is idempotent (same view).
+        const data = event.data as Record<string, unknown> | undefined;
+        if (!data) return view;
+        return {
+          ...view,
+          updatedAt: event.timestamp,
+          mergeOrchestrator: {
+            phase: 'rolled-back',
+            ...(data.taskId !== undefined ? { taskId: data.taskId as string } : {}),
+            ...(data.sourceBranch !== undefined ? { sourceBranch: data.sourceBranch as string } : {}),
+            ...(data.targetBranch !== undefined ? { targetBranch: data.targetBranch as string } : {}),
+            ...(data.recoveryPointSha !== undefined ? { rollbackSha: data.recoveryPointSha as string } : {}),
+            ...(data.reason !== undefined ? { reason: data.reason as MergeOrchestratorView['reason'] } : {}),
+            ...(data.recoveryError !== undefined ? { recoveryError: data.recoveryError as MergeOrchestratorView['recoveryError'] } : {}),
+            ...(data.recoveryErrorDetail !== undefined ? { rollbackError: data.recoveryErrorDetail as string } : {}),
+          },
+        };
+      }
+
       // ── State Patch (generic field updates) ────────────────────────────
 
       case 'state.patched': {

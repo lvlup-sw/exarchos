@@ -483,7 +483,10 @@ describe('EventTypes', () => {
     // #1525 W2 Half 1 (task H1-C): bumped 125 → 126 to include
     // `subagent.tokens_used`, the per-subagent output-token total emitted by the
     // restored SubagentStop hook (cli-commands/subagent-stop.ts).
-    expect(EventTypes).toHaveLength(126);
+    // #1306: bumped 126 → 127 to include `merge.recovered` (successor to
+    // `merge.rollback`, dual-emitted during the v2.11.x deprecation window).
+    expect(EventTypes).toHaveLength(127);
+    expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('subagent.tokens_used');
     // Explicit membership pin: a future replacement that swaps one event
     // for another would keep the length stable but silently lose the
