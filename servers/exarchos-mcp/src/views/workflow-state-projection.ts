@@ -2,7 +2,8 @@ import type { ViewProjection } from './materializer.js';
 import type { WorkflowEvent, EventType } from '../event-store/schemas.js';
 import { isBuiltInEventType } from '../event-store/schemas.js';
 import { getInitialPhase, isBuiltInWorkflowType } from '../workflow/state-machine.js';
-import { isPlainObject, applyDotPath } from '../workflow/state-store.js';
+import { isPlainObject, applyDotPath, StateStoreError } from '../workflow/state-store.js';
+import { ErrorCode } from '../workflow/schemas.js';
 
 // ─── View Name Constant ────────────────────────────────────────────────────
 
@@ -217,7 +218,17 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
           featureId: data.featureId ?? view.featureId,
           workflowType,
           phase,
-          createdAt: event.timestamp,
+          // `createdAt` is set once, by the FIRST fold of `workflow.started`. On
+          // a full fold from the initial view (resolveWorkflowState) `view.createdAt`
+          // is the empty-string sentinel from `init()`, so the event timestamp
+          // wins — canonical behavior. On a partial re-fold (reconcileFromEvents
+          // replaying from sequence 0 when a state lacks `_eventSequence`), an
+          // already-stamped `createdAt` is preserved rather than clobbered, keeping
+          // the fold idempotent. `||` (not `??`) so the `''` sentinel — not just
+          // undefined — falls back. The event log stays the source of truth either
+          // way (INV-1): the value is the `workflow.started` timestamp from the
+          // first application.
+          createdAt: view.createdAt || event.timestamp,
           updatedAt: event.timestamp,
           ...(nextOneshot !== undefined ? { oneshot: nextOneshot } : {}),
         };
@@ -488,8 +499,16 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
         for (const [dotPath, value] of Object.entries(data.patch as Record<string, unknown>)) {
           try {
             applyDotPath(next, dotPath, value);
-          } catch {
-            // Reserved-field path — already rejected at write time; skip on replay.
+          } catch (err) {
+            // Reserved-field paths are rejected at write time, so they cannot be
+            // committed to the log — skip them on replay. Any OTHER applyDotPath
+            // failure means the patch event is malformed/corrupt; swallowing it
+            // would silently drop a mutation and mask projection divergence
+            // (INV-1). Re-throw so the fold surfaces the inconsistency.
+            if (err instanceof StateStoreError && err.code === ErrorCode.RESERVED_FIELD) {
+              continue;
+            }
+            throw err;
           }
         }
 

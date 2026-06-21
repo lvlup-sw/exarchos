@@ -7,48 +7,22 @@
  * or go through the backend-aware `readStateFile` / `writeStateFile` wrappers.
  */
 import { describe, it, expect } from 'vitest';
-import { spawnSync } from 'node:child_process';
-import {
-  mkdtempSync,
-  mkdirSync,
-  rmSync,
-  writeFileSync,
-  readFileSync,
-  existsSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, existsSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runScriptCheck, makeFixtureSrc as makeFixtureSrcShared } from './test-utils.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..');
 const SCRIPT = path.join(REPO_ROOT, 'scripts', 'check-no-state-json.mjs');
 const ROOT_PACKAGE_JSON = path.join(REPO_ROOT, 'package.json');
 
-function runCheck(extraArgs: string[] = []): {
-  status: number | null;
-  stdout: string;
-  stderr: string;
-} {
-  const result = spawnSync('node', [SCRIPT, ...extraArgs], {
-    cwd: REPO_ROOT,
-    encoding: 'utf8',
-    env: { ...process.env },
-  });
-  return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
+function runCheck(extraArgs: string[] = []) {
+  return runScriptCheck(SCRIPT, REPO_ROOT, extraArgs);
 }
 
-function makeFixtureSrc(files: Record<string, string>): {
-  srcRoot: string;
-  cleanup: () => void;
-} {
-  const dir = mkdtempSync(path.join(tmpdir(), 'no-state-json-'));
-  for (const [relPath, content] of Object.entries(files)) {
-    const fullPath = path.join(dir, relPath);
-    mkdirSync(path.dirname(fullPath), { recursive: true });
-    writeFileSync(fullPath, content, 'utf8');
-  }
-  return { srcRoot: dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+function makeFixtureSrc(files: Record<string, string>) {
+  return makeFixtureSrcShared('no-state-json-', files);
 }
 
 describe('check-no-state-json CLI (#1504)', () => {

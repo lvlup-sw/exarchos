@@ -97,6 +97,28 @@ describe('WorkflowStateProjection workflow lifecycle', () => {
       expect(next.updatedAt).toBe(ts);
     });
 
+    it('should preserve an existing createdAt when workflow.started is re-folded (reconcile idempotency)', () => {
+      // Regression: reconcileFromEvents replays from sequence 0 when a state
+      // lacks `_eventSequence`, re-folding `workflow.started` onto an
+      // already-stamped view. createdAt must NOT be clobbered to the (same)
+      // event timestamp on the second fold — it is set once, then preserved.
+      const created = '2026-02-19T10:00:00.000Z';
+      const later = '2026-03-01T12:00:00.000Z';
+      const start = workflowStateProjection.apply(
+        workflowStateProjection.init(),
+        makeEvent('workflow.started', { featureId: 'f', workflowType: 'feature' }, { timestamp: created }),
+      );
+      expect(start.createdAt).toBe(created);
+
+      const refolded = workflowStateProjection.apply(
+        start,
+        makeEvent('workflow.started', { featureId: 'f', workflowType: 'feature' }, { timestamp: later }),
+      );
+
+      expect(refolded.createdAt).toBe(created); // preserved, not overwritten
+      expect(refolded.updatedAt).toBe(later); // updatedAt still advances
+    });
+
     it('should set phase to triage for debug workflows', () => {
       const state = workflowStateProjection.init();
       const event = makeEvent('workflow.started', {

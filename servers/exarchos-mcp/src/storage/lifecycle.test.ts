@@ -155,6 +155,41 @@ describe('Workflow Compaction', () => {
     expect(backend.getState(featureId)).toBeNull();
   });
 
+  it('compactWorkflow_MalformedBackendState_SkipsCompaction', async () => {
+    // Regression: the backend path must validate the state row before any
+    // destructive archive/delete, exactly as the file path does. A malformed
+    // row whose `phase`/`updatedAt` look eligible must NOT be compacted away —
+    // skip and warn so the corruption stays observable (CodeRabbit #1563).
+    const featureId = 'malformed-feature';
+    const updatedAt = daysAgo(60);
+
+    const backend = new InMemoryBackend();
+    backend.appendEvent(featureId, {
+      streamId: featureId,
+      sequence: 1,
+      timestamp: new Date().toISOString(),
+      type: 'workflow.started',
+      schemaVersion: '1.0',
+    });
+    // Eligible-looking phase + age, but missing required schema fields.
+    backend.setState(featureId, {
+      featureId,
+      phase: 'completed',
+      updatedAt,
+    } as never);
+
+    const policy: LifecyclePolicy = { ...DEFAULT_LIFECYCLE_POLICY, retentionDays: 30 };
+
+    await compactWorkflow(backend, stateDir, featureId, policy);
+
+    // Assert — nothing was archived or deleted; the corrupt row is left intact.
+    const archivePath = path.join(stateDir, 'archives', `${featureId}.archive.json`);
+    const archiveExists = await fs.access(archivePath).then(() => true).catch(() => false);
+    expect(archiveExists).toBe(false);
+    expect(backend.queryEvents(featureId)).toHaveLength(1);
+    expect(backend.getState(featureId)).not.toBeNull();
+  });
+
   it('compactWorkflow_ActiveWorkflow_NoOps', async () => {
     // Arrange
     const featureId = 'active-feature';

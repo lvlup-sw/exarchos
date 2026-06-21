@@ -85,7 +85,19 @@ export async function compactWorkflow(
   if (backend) {
     const backendState = backend.getState(featureId);
     if (!backendState) return; // no state row → nothing to compact
-    state = backendState;
+    // Validate the backend row before any destructive archive/delete, exactly
+    // as the no-backend file path does below. A malformed row whose `phase` and
+    // `updatedAt` happen to look eligible must not be silently compacted away —
+    // skip and warn so the corruption is observable rather than erased.
+    const parsed = WorkflowStateSchema.safeParse(backendState);
+    if (!parsed.success) {
+      logger.warn(
+        { featureId, error: parsed.error.message },
+        'Skipping compaction — backend state fails schema validation',
+      );
+      return;
+    }
+    state = parsed.data as WorkflowState;
   } else {
     let stateRaw: string;
     try {

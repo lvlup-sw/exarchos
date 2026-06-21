@@ -84,7 +84,11 @@ describe('Event Migration', () => {
       const b = row({ sequence: 2 });
       const input = [a, b];
 
-      const result = migrateEvents(input);
+      // Pass `[]` explicitly so this fast-path assertion is hermetic — it
+      // verifies the identity behavior of the empty-migrations case directly,
+      // not the incidental fact that the global `eventMigrations` registry is
+      // empty today. Stays green when real migrations are registered.
+      const result = migrateEvents(input, []);
 
       expect(result).toBe(input);
       expect(result[0]).toBe(a);
