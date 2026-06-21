@@ -114,13 +114,13 @@ const mergePendingEntry: Guard = {
 
 /**
  * Guard for `merge-pending → delegate`: fires when the event stream contains
- * a `merge.executed`, `merge.rollback`, or any explicit abort signal
- * (`merge.aborted`, or `mergeOrchestrator.phase === 'aborted'`).
+ * a `merge.executed`, `merge.rollback`/`merge.recovered`, or any explicit abort
+ * signal (`merge.aborted`, or `mergeOrchestrator.phase === 'aborted'`).
  */
 const mergePendingExit: Guard = {
   id: 'merge-pending-exit',
   description:
-    'A merge.executed/merge.rollback/merge.aborted must follow the latest task.completed (or mergeOrchestrator.phase must be terminal)',
+    'A merge.executed/merge.rollback/merge.recovered/merge.aborted must follow the latest task.completed (or mergeOrchestrator.phase must be terminal)',
   evaluate: (state: Record<string, unknown>): GuardResult => {
     const events = (state._events as readonly Record<string, unknown>[]) ?? [];
     // Cycle-scoped: only terminal events that follow the latest task.completed
@@ -141,6 +141,9 @@ const mergePendingExit: Guard = {
       (e) =>
         e.type === 'merge.executed' ||
         e.type === 'merge.rollback' ||
+        // #1306 — merge.recovered is the successor to merge.rollback; both are
+        // terminal during the v2.11.x dual-emit deprecation window.
+        e.type === 'merge.recovered' ||
         e.type === 'merge.aborted',
     );
     if (hasTerminalEvent) return true;
@@ -150,7 +153,7 @@ const mergePendingExit: Guard = {
     return {
       passed: false,
       reason:
-        'merge-pending-exit not satisfied: no merge.executed/merge.rollback/merge.aborted event found after the latest task.completed and mergeOrchestrator.phase is not terminal',
+        'merge-pending-exit not satisfied: no merge.executed/merge.rollback/merge.recovered/merge.aborted event found after the latest task.completed and mergeOrchestrator.phase is not terminal',
     };
   },
 };
