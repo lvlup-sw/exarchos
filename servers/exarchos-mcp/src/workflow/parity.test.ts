@@ -14,6 +14,13 @@ import {
 } from '../__tests__/parity-harness.js';
 import type { ToolResult } from '../format.js';
 import type { RehydrationDocument } from '../projections/rehydration/schema.js';
+import { configureWorkflowMaterializer, handleInit } from './tools.js';
+import { resetMaterializerCache } from '../views/tools.js';
+import { ViewMaterializer } from '../views/materializer.js';
+import {
+  workflowStateProjection,
+  WORKFLOW_STATE_VIEW,
+} from '../views/workflow-state-projection.js';
 
 // ─── Task 014: CLI-vs-MCP Parity for exarchos_workflow (DR-3) ─────────────────
 // These tests prove that the CLI adapter (task 013 work) and the MCP adapter
@@ -223,5 +230,108 @@ describe('exarchos_workflow CLI/MCP parity (DR-3)', () => {
     // assert it explicitly to make the contract self-documenting.
     expect(normalize(cliResult)).toEqual(normalize(mcpResult));
     expect(cliDoc.phasePlaybook).toEqual(mcpDoc.phasePlaybook);
+  });
+});
+
+// ─── T8 (#1555) — `asOf` CLI↔MCP parity (INV-2 facade equivalence) ───────────
+//
+// `asOf` behavior lives entirely in the shared dispatch core; the CLI and MCP
+// adapters only thread the param through. These tests prove the carriers emit
+// byte-equivalent ToolResults for a bounded (`untilSequence`) read on both
+// `get` (`exarchos_workflow`) and `workflow_status` (`exarchos_view`).
+//
+// The CLI arm passes `--as-of '{"untilSequence":N}'` (a JSON string); the MCP
+// arm passes `asOf: { untilSequence: N }` (a native object). Equivalence here
+// is the end-to-end proof that the CLI string is JSON-coerced identically to
+// the MCP payload (the flag-classification contract pinned in
+// `schema-to-flags.test.ts`) AND that both carriers route the same bounded
+// fold through the dispatch core.
+
+describe('asOf CLI/MCP parity (T8, #1555, INV-2)', () => {
+  let cliDir: string;
+  let mcpDir: string;
+  let cliCtx: DispatchContext;
+  let mcpCtx: DispatchContext;
+
+  // Seed a feature workflow advanced ideate → plan → delegate so a bound at
+  // seq 1 yields a DIFFERENT phase than the live tip — the asOf must actually
+  // bite for the parity comparison to be meaningful.
+  async function seed(ctx: DispatchContext): Promise<void> {
+    await handleInit({ featureId: 'asof-parity', workflowType: 'feature' }, ctx.stateDir, ctx.eventStore);
+    await ctx.eventStore.append('asof-parity', {
+      type: 'workflow.transition',
+      data: { from: 'ideate', to: 'plan' },
+    });
+    await ctx.eventStore.append('asof-parity', {
+      type: 'workflow.transition',
+      data: { from: 'plan', to: 'delegate' },
+    });
+  }
+
+  beforeEach(async () => {
+    resetMaterializerCache();
+    cliDir = await fs.mkdtemp(path.join(os.tmpdir(), 'exarchos-asof-cli-'));
+    mcpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'exarchos-asof-mcp-'));
+    cliCtx = makeCtx(cliDir);
+    mcpCtx = makeCtx(mcpDir);
+    // `get` ES-v2 path needs a configured workflow materializer. A single
+    // module-level instance serves both arms (each call passes its own
+    // stateDir/eventStore, and asOf reads bypass the cache anyway).
+    const materializer = new ViewMaterializer();
+    materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
+    configureWorkflowMaterializer(materializer);
+    await seed(cliCtx);
+    await seed(mcpCtx);
+  });
+
+  afterEach(async () => {
+    configureWorkflowMaterializer(null);
+    resetMaterializerCache();
+    await fs.rm(cliDir, { recursive: true, force: true });
+    await fs.rm(mcpDir, { recursive: true, force: true });
+  });
+
+  it('parity_getAsOfUntilSequence_cliEqualsMcp', async () => {
+    // MCP: native object asOf.
+    const mcpResult = await harnessCallMcp(mcpCtx, 'exarchos_workflow', {
+      action: 'get',
+      featureId: 'asof-parity',
+      query: 'phase',
+      asOf: { untilSequence: 1 },
+    });
+    // CLI: --as-of '<json>' string, JSON-coerced by the object-classified flag.
+    const { result: cliResult, exitCode } = await harnessCallCli(
+      cliCtx,
+      'wf',
+      'status',
+      { featureId: 'asof-parity', query: 'phase', asOf: { untilSequence: 1 } },
+    );
+
+    expect(exitCode).toBe(CLI_EXIT_CODES.SUCCESS);
+    // The bound bit: phase at seq 1 is 'ideate', NOT the live 'delegate'.
+    expect((mcpResult as { data?: unknown }).data).toBe('ideate');
+    expect(normalize(cliResult)).toEqual(normalize(mcpResult));
+  });
+
+  it('parity_viewAsOf_cliEqualsMcp', async () => {
+    // MCP: native object asOf on the workflow_status view.
+    const mcpResult = await harnessCallMcp(mcpCtx, 'exarchos_view', {
+      action: 'workflow_status',
+      workflowId: 'asof-parity',
+      asOf: { untilSequence: 1 },
+    });
+    // CLI: `vw workflow_status -w asof-parity --as-of '<json>'`.
+    const { result: cliResult, exitCode } = await harnessCallCli(
+      cliCtx,
+      'vw',
+      'workflow_status',
+      { workflowId: 'asof-parity', asOf: { untilSequence: 1 } },
+    );
+
+    expect(exitCode).toBe(CLI_EXIT_CODES.SUCCESS);
+    // The workflow-status view reports phase 'started' at seq 1 (literal seed),
+    // distinct from the live 'delegate' — the bound bit.
+    expect((mcpResult as { data?: { phase?: string } }).data?.phase).toBe('started');
+    expect(normalize(cliResult)).toEqual(normalize(mcpResult));
   });
 });
