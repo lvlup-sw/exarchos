@@ -814,6 +814,77 @@ describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
       'persist:rolled-back',
     ]);
   });
+
+  // ─── T09 (#1308): merge.retry_attempt emission on timeout-then-success ────
+
+  it('handleExecuteMerge_TimeoutOnceThenSuccess_EmitsOneRetryThenExecuted', async () => {
+    // A vcsMerge that times out once then succeeds emits exactly ONE
+    // `merge.retry_attempt` (the retry audit record) followed by the normal
+    // `merge.executed` / `merge.completed` terminal pair — with NO
+    // `merge.recovered` / `merge.rollback` (no recovery ladder runs).
+    const ctx = makeMockCtx();
+    const appendedTypes: string[] = [];
+    (ctx.eventStore.append as ReturnType<typeof vi.fn>).mockImplementation(
+      async (_stream: string, event: { type: string }) => {
+        appendedTypes.push(event.type);
+        return { sequence: 1, type: event.type, timestamp: '' };
+      },
+    );
+
+    let call = 0;
+    const vcsMerge = vi.fn().mockImplementation(async () => {
+      call += 1;
+      if (call === 1) {
+        const err = new Error('operation timed out');
+        (err as Error & { code?: string }).code = 'ETIMEDOUT';
+        throw err;
+      }
+      return { mergeSha: MERGE_SHA };
+    });
+    const persistState = vi.fn().mockResolvedValue(undefined);
+
+    const result = await handleExecuteMerge(
+      {
+        featureId: 'feat-x',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        taskId: 'T11',
+        strategy: 'squash',
+        vcsMerge,
+        persistState,
+        gitExec: makeGitExec(),
+        // Bounded-retry seams (passed through to the pure executor) so the test
+        // is deterministic and instant.
+        jitter: () => 0,
+        sleep: async () => {},
+      },
+      ctx,
+    );
+
+    expect(result.success).toBe(true);
+    expect(vcsMerge).toHaveBeenCalledTimes(2);
+    // Exactly ONE retry attempt event, BEFORE merge.executed, then the
+    // terminal completed marker. NO recovery/rollback events.
+    expect(appendedTypes).toEqual([
+      'merge.retry_attempt',
+      'merge.executed',
+      'merge.completed',
+    ]);
+    expect(appendedTypes).not.toContain('merge.recovered');
+    expect(appendedTypes).not.toContain('merge.rollback');
+
+    // The retry_attempt carries the #1308 audit payload
+    // ({ attempt, delayMs, reason }) for the single retry.
+    const retryCall = (ctx.eventStore.append as ReturnType<typeof vi.fn>).mock.calls.find(
+      (c) => (c[1] as { type: string }).type === 'merge.retry_attempt',
+    );
+    expect(retryCall).toBeDefined();
+    expect((retryCall![1] as { data: unknown }).data).toMatchObject({
+      attempt: 1,
+      delayMs: 1000,
+      reason: 'timeout',
+    });
+  });
 });
 
 // ─── #1306 T4 — dual-emit + deprecation envelope + CAS idempotency ──────────

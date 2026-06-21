@@ -117,6 +117,15 @@ export interface HandleExecuteMergeInput extends HandleExecuteMergeArgs {
   readonly vcsMerge?: VcsMergeAdapter;
   readonly gitExec?: GitExec;
   readonly persistState?: PersistStateCallback;
+  /**
+   * #1308 T09 — bounded timeout-retry seams forwarded verbatim to the pure
+   * `executeMerge`. Both are test-only DI hooks (never supplied over the wire):
+   * `jitter` pins the backoff jitter for determinism, `sleep` skips the real
+   * wall-clock backoff. Production leaves them undefined → real Math.random
+   * jitter + real setTimeout sleep.
+   */
+  readonly jitter?: () => number;
+  readonly sleep?: (ms: number) => Promise<void>;
 }
 
 // ─── Default adapters ──────────────────────────────────────────────────────
@@ -323,6 +332,55 @@ export async function handleExecuteMerge(
     throw err;
   }
 
+  // #1308 T09 — `merge.retry_attempt` audit emission. The pure executor invokes
+  // this once per bounded timeout-retry, BEFORE the re-attempt fires, so each
+  // retry leaves a durable audit record on the stream ahead of the terminal
+  // `merge.executed`/`merge.recovered` events. Each append reads the LIVE stream
+  // tail FRESH for its own `expectedSequence` and carries its OWN idempotency
+  // key (the `:${attempt}` suffix disambiguates the per-attempt rows so a
+  // crash-replay of a given retry dedups rather than colliding with sibling
+  // attempts — `project_cas_pin_idempotency_trap`).
+  const onRetryAttempt = async (info: {
+    attempt: number;
+    delayMs: number;
+    reason: 'timeout';
+  }): Promise<void> => {
+    const tailEventsRetry = await ctx.eventStore.query(args.featureId);
+    const expectedSequenceRetry =
+      tailEventsRetry.length > 0
+        ? Math.max(...tailEventsRetry.map((e) => e.sequence))
+        : 0;
+    try {
+      await ctx.eventStore.append(
+        args.featureId,
+        {
+          type: 'merge.retry_attempt',
+          data: {
+            attempt: info.attempt,
+            delayMs: info.delayMs,
+            reason: info.reason,
+          },
+        },
+        {
+          expectedSequence: expectedSequenceRetry,
+          idempotencyKey: buildMergeOrchestrateIdempotencyKey(
+            args.featureId,
+            args.taskId,
+            `merge.retry_attempt:${info.attempt}`,
+          ),
+        },
+      );
+    } catch (err) {
+      // A lost sequence race on the audit append must NOT abort the merge — the
+      // retry itself is the load-bearing action; the audit record is
+      // best-effort. Swallow the SequenceConflict (a concurrent writer advanced
+      // the tail) so the bounded-retry loop proceeds to its re-attempt.
+      if (!(err instanceof SequenceConflictError)) {
+        throw err;
+      }
+    }
+  };
+
   let result;
   try {
     result = await executeMerge({
@@ -332,6 +390,9 @@ export async function handleExecuteMerge(
       gitExec,
       vcsMerge,
       persistState,
+      onRetryAttempt,
+      ...(input.jitter !== undefined ? { jitter: input.jitter } : {}),
+      ...(input.sleep !== undefined ? { sleep: input.sleep } : {}),
       ...(args.repoRoot !== undefined ? { repoRoot: args.repoRoot } : {}),
     });
   } catch (err) {
