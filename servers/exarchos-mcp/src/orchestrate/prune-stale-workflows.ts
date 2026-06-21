@@ -15,13 +15,13 @@
  *    so tests can pass stubs instead of shelling out to `gh`/`git`.
  */
 
-import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { ToolResult } from '../format.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import type { EventType } from '../event-store/schemas.js';
 import { handleList } from '../workflow/tools.js';
 import { handleCancel } from '../workflow/cancel.js';
+import { readStateFile } from '../workflow/state-store.js';
 import { isTerminalPhase as baseIsTerminalPhase } from '../workflow/terminal-phases.js';
 import { orchestrateLogger } from '../logger.js';
 import { defaultSafeguards, type PruneSafeguards } from './prune-safeguards.js';
@@ -414,10 +414,12 @@ async function defaultReadBranchName(
   stateDir: string,
 ): Promise<string | undefined> {
   try {
+    // Read via readStateFile (#1504): backend (SoT) in production, on-disk file
+    // only on the no-backend (test/legacy) path. `branchName` rides the
+    // passthrough state schema, so it survives both reads.
     const stateFile = path.join(stateDir, `${featureId}.state.json`);
-    const raw = await fs.readFile(stateFile, 'utf-8');
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    const branchName = parsed.branchName;
+    const state = (await readStateFile(stateFile)) as unknown as Record<string, unknown>;
+    const branchName = state.branchName;
     return typeof branchName === 'string' && branchName.length > 0 ? branchName : undefined;
   } catch {
     return undefined;

@@ -222,6 +222,23 @@ describe('Workflow Compaction', () => {
         schemaVersion: '1.0',
       });
     }
+    // State is read from the backend (#1504): seed the eligible row.
+    backend.setState(featureId, {
+      version: '4.0',
+      featureId,
+      workflowType: 'feature',
+      createdAt: updatedAt,
+      updatedAt,
+      phase: 'completed',
+      artifacts: { design: null, plan: null, pr: null },
+      tasks: [],
+      worktrees: {},
+      reviews: {},
+      synthesis: { integrationBranch: null, mergeOrder: [], mergedBranches: [], prUrl: null, prFeedback: [] },
+      _version: 1,
+      _history: {},
+      _checkpoint: { timestamp: updatedAt, phase: 'completed', summary: 'test', operationsSince: 0, fixCycleCount: 0, lastActivityTimestamp: updatedAt, staleAfterMinutes: 120 },
+    } as never);
 
     const policy: LifecyclePolicy = { ...DEFAULT_LIFECYCLE_POLICY, retentionDays: 30 };
 
