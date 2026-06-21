@@ -59,6 +59,9 @@ import { appendSnapshot } from '../projections/store.js';
 import type { SnapshotRecord } from '../projections/snapshot-schema.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import { buildValidatedEvent } from '../event-store/event-factory.js';
+// #1555 — shared `asOf` bounded-fold seam (dispatch-core, INV-2). Bounds the
+// event list to `events[0..N]` before the cache-bypassing fresh fold.
+import { resolveAsOfEvents } from '../projections/cursor.js';
 
 // ─── Module-Level EventStore (removed — now threaded via DispatchContext) ─────
 
@@ -323,7 +326,11 @@ export async function handleGet(
   // Fast path for simple top-level scalar queries — skips Zod validation.
   // The state file is kept in sync for v2 workflows, so fast path is safe
   // for both legacy and ES v2 workflows.
-  if (input.query && FAST_PATH_FIELDS.has(input.query)) {
+  //
+  // #1555 — an `asOf` (bounded-fold) read must NEVER take the fast path: the
+  // state file holds the LIVE scalar, not a `events[0..N]` projection. Bypass
+  // it so the bounded read always materializes from the bounded event list.
+  if (input.asOf === undefined && input.query && FAST_PATH_FIELDS.has(input.query)) {
     try {
       const { value, checkpoint } = await readFieldFast(stateFile, input.query);
       if (value === undefined || checkpoint == null) {
@@ -377,12 +384,32 @@ async function handleGetFromEvents(
   fileState: WorkflowState,
   eventStore: EventStore,
 ): Promise<ToolResult> {
-  const events = await eventStore.query(input.featureId);
-  const materialized = moduleViewMaterializer!.materialize<WorkflowStateView>(
-    input.featureId,
-    WORKFLOW_STATE_VIEW,
-    events,
-  );
+  const allEvents = await eventStore.query(input.featureId);
+
+  // #1555 — an `asOf` (bounded-fold) read folds `events[0..N]` through the
+  // cache-bypassing fresh fold. This is load-bearing: `materialize` is
+  // hwm-cache-based (it folds only events past the cached high-water mark and
+  // writes the cache), so handing it a BOUNDED list would (a) return the
+  // cached LIVE state when a warm cache already sits past N, and (b) pollute
+  // the cache for later live reads. `materializeFresh` folds from
+  // `projection.init()` over the bounded list and never reads/writes the LRU.
+  // The live path keeps the cached `materialize`. Both bound through the
+  // shared `resolveAsOfEvents` seam; the CLI/MCP adapters only pass `asOf`
+  // through (INV-2).
+  let materialized: WorkflowStateView;
+  if (input.asOf !== undefined) {
+    const bounded = resolveAsOfEvents(allEvents, input.asOf);
+    materialized = moduleViewMaterializer!.materializeFresh<WorkflowStateView>(
+      WORKFLOW_STATE_VIEW,
+      bounded,
+    );
+  } else {
+    materialized = moduleViewMaterializer!.materialize<WorkflowStateView>(
+      input.featureId,
+      WORKFLOW_STATE_VIEW,
+      allEvents,
+    );
+  }
 
   const materializedRecord = materialized as unknown as Record<string, unknown>;
   // Checkpoint meta comes from state file (not materialized) since it's the

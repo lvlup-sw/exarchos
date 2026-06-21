@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CheckpointHandoffSchema, WorkflowTypeSchema } from './workflow/schemas.js';
+import { AsOfSchema, CheckpointHandoffSchema, WorkflowTypeSchema } from './workflow/schemas.js';
 import { agentSpecSchema as agentSpecSchemaForRegistry } from './agents/handler.js';
 import { EnvelopeSchema } from './schemas/envelope.js';
 export { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray } from './coerce.js';
@@ -1016,13 +1016,21 @@ const workflowActions: readonly ToolAction[] = [
       featureId: featureIdSchema,
       query: z.string().optional(),
       fields: coercedStringArray().optional(),
+      // #1555 — optional bounded-fold (as-of/time-travel) read. Shares the
+      // single-source `AsOfSchema`; mutually-exclusive untilSequence /
+      // untilTimestamp enforced at the schema. Omitted ⇒ live tip.
+      asOf: AsOfSchema.optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
     cli: {
       alias: 'status',
       flags: { featureId: { alias: 'f' }, query: { alias: 'q' } },
-      examples: ['exarchos wf status -f my-feature', 'exarchos wf status -f my-feature -q phase'],
+      examples: [
+        'exarchos wf status -f my-feature',
+        'exarchos wf status -f my-feature -q phase',
+        'exarchos wf status -f my-feature --as-of \'{"untilSequence":3}\'',
+      ],
     },
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: READ_ONLY_LOCAL,
@@ -2705,9 +2713,23 @@ const viewActions: readonly ToolAction[] = [
     description: 'Workflow phase, task counts, and metadata',
     schema: z.object({
       workflowId: z.string().optional(),
+      // #1555 — optional bounded-fold (as-of/time-travel) read over a single
+      // stream. Same single-source `AsOfSchema` as `get`. The bounded read
+      // bypasses the hwm cache (see views/tools.ts) so the projection folds
+      // only `events[0..N]`. `pipeline` is intentionally excluded: its
+      // cross-stream aggregation has no single `(timestamp, sequence)` axis
+      // to bound coherently.
+      asOf: AsOfSchema.optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    cli: {
+      flags: { workflowId: { alias: 'w' } },
+      examples: [
+        'exarchos vw workflow_status -w my-feature',
+        'exarchos vw workflow_status -w my-feature --as-of \'{"untilSequence":3}\'',
+      ],
+    },
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: READ_ONLY_LOCAL,
   },

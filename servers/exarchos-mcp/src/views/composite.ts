@@ -110,8 +110,10 @@ export async function handleView(
 
     case 'workflow_status':
       return envelopeWrap(
+        // #1555 — `asOf` rides through `rest` unchanged; the dispatch core
+        // (`handleViewWorkflowStatus`) owns the bounded-fold behavior (INV-2).
         await handleViewWorkflowStatus(
-          rest as { workflowId?: string },
+          rest as { workflowId?: string; asOf?: import('../projections/cursor.js').AsOfParam },
           stateDir,
           eventStore,
         ),
