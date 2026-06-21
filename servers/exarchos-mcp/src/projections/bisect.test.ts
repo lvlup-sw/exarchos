@@ -103,7 +103,9 @@ describe('bisect — binary search over projectAt (T5)', () => {
   it('bisect_plantedTransition_returnsFirstFlipEvent', async () => {
     // GIVEN an 8-event stream where the count reaches 5 at sequence 5.
     const streamId = 'wf-bisect-planted';
-    const events = await seedStream(streamId, 8);
+    await seedStream(streamId, 8);
+    // The canonical event view is what `query` (and thus `bisect`) returns.
+    const events = await store.query(streamId);
 
     // AND a monotonic predicate that flips true once count >= 5 — i.e. at the
     //   5th folded event, whose stream sequence is 5.
@@ -136,7 +138,9 @@ describe('bisect — binary search over projectAt (T5)', () => {
   it('bisect_predicateTrueFromFirstEvent_returnsFirstEvent', async () => {
     // GIVEN a 5-event stream.
     const streamId = 'wf-bisect-first';
-    const events = await seedStream(streamId, 5);
+    await seedStream(streamId, 5);
+    // The canonical event view is what `query` (and thus `bisect`) returns.
+    const events = await store.query(streamId);
 
     // AND a predicate already true after the very first folded event.
     const predicate = (s: CountState): boolean => s.count >= 1;
