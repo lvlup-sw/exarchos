@@ -29,6 +29,8 @@ import {
   type ProjectionRegistry,
 } from './registry.js';
 import { boundEvents, type AsOfBound } from './cursor.js';
+import { readLatestSnapshot } from './store.js';
+import type { WorkflowEvent } from '../event-store/schemas.js';
 
 /**
  * Optional overrides for {@link rebuildProjection}.
@@ -128,16 +130,39 @@ function foldEvents(
 
 /**
  * Fold a projection's state **as of** an optional point in the stream's
- * history — the bounded analogue of {@link rebuildProjection} (T2, #1555).
+ * history — the bounded analogue of {@link rebuildProjection} (T2/T3, #1555).
  *
  * Reads the stream via `eventStore.query(streamId)` (full, sequence-ordered),
  * narrows it to the events at or before `bound` via {@link boundEvents}, then
- * cold-folds the reducer over that slice. With no `bound` the result is
- * identical to `rebuildProjection` (the bound past the tail is a no-op).
+ * folds the reducer over that slice. With no `bound` the result is identical to
+ * `rebuildProjection` (the bound past the tail is a no-op).
  *
- * Cold path only — no snapshot warm-start (added in T3). Determinism flows
- * through the reducer's purity contract: the fold over a bounded prefix
- * reproduces the state the live system observed at that point.
+ * ## Snapshot warm-start (T3)
+ *
+ * When the reducer carries an `id`, `projectAt` consults the stream-scoped
+ * snapshot store for a usable warm-start point. A snapshot is usable iff its
+ * `snapshot.sequence <= effectiveN`, where `effectiveN` is the stream sequence
+ * of the LAST bounded event (the bound resolved to a concrete sequence ceiling;
+ * 0 for an empty bounded slice). When usable, state is seeded from
+ * `snapshot.state` and only the bounded tail strictly after `snapshot.sequence`
+ * is folded. Otherwise the reducer cold-folds the full bounded slice from
+ * `reducer.initial`.
+ *
+ * The **stream-scoped snapshot contract**: `snapshot.sequence` is the stream
+ * sequence of the last event baked into `snapshot.state`. This is DISTINCT from
+ * the count-as-position semantics `store.ts::readProjection` uses for GLOBAL
+ * reducers (where the HWM is the number of cross-stream events folded). The two
+ * must not be conflated — a stream snapshot's sequence is a real event
+ * coordinate, not a count.
+ *
+ * INV-1 purity: warm-start is an optimisation. Seeding from a snapshot at or
+ * before the bound and folding the remaining tail is observationally identical
+ * to cold-folding every bounded event from `reducer.initial`, because reducer
+ * `apply` is pure and the snapshot state equals the cold fold through
+ * `snapshot.sequence` by construction.
+ *
+ * A reducer with no `id` cannot key a snapshot, so warm-start is skipped and
+ * the cold path runs unconditionally.
  *
  * @typeParam State - The projected state type the reducer produces.
  * @typeParam Event - The event type the reducer consumes.
@@ -155,11 +180,64 @@ export async function projectAt<State, Event>(
   bound?: AsOfBound,
 ): Promise<State> {
   const events = await eventStore.query(streamId);
-  const bounded = boundEvents(events, bound);
-  return foldEvents(
-    reducer as ProjectionReducer<unknown, unknown>,
-    bounded,
-  ) as State;
+  // `boundEvents` resolves both bound forms (`untilSequence` / `untilTimestamp`)
+  // into a concrete prefix of `WorkflowEvent`s. The last element's sequence is
+  // the effective sequence ceiling we test snapshot eligibility against.
+  const bounded = boundEvents(events, bound) as WorkflowEvent[];
+  const erasedReducer = reducer as ProjectionReducer<unknown, unknown>;
+
+  const warm = resolveWarmStart(erasedReducer, eventStore, streamId, bounded);
+  return foldEvents(erasedReducer, warm.tail, warm.seed) as State;
+}
+
+/** A resolved warm-start: the seed state and the tail still to fold over it. */
+interface WarmStart {
+  readonly seed: unknown;
+  readonly tail: readonly WorkflowEvent[];
+}
+
+/**
+ * Resolve a snapshot warm-start for {@link projectAt}, or fall back to the cold
+ * fold (seed = `reducer.initial`, tail = the full bounded slice).
+ *
+ * Eligibility: the reducer must carry an `id` (else no snapshot key), and the
+ * latest snapshot for `(streamId, reducer.id, String(reducer.version))` must
+ * exist with `snapshot.sequence <= effectiveN` (the last bounded event's
+ * sequence). A snapshot beyond the bound has already folded events past the
+ * as-of point and is therefore unusable — we cold-fold instead.
+ */
+function resolveWarmStart(
+  reducer: ProjectionReducer<unknown, unknown>,
+  eventStore: EventStore,
+  streamId: string,
+  bounded: readonly WorkflowEvent[],
+): WarmStart {
+  const cold: WarmStart = { seed: reducer.initial, tail: bounded };
+
+  // A reducer without an id cannot address a snapshot — cold-fold.
+  if (!reducer.id) return cold;
+
+  const effectiveN =
+    bounded.length > 0 ? bounded[bounded.length - 1].sequence : 0;
+
+  const snapshot = readLatestSnapshot(
+    eventStore.getReadBackend(),
+    streamId,
+    reducer.id,
+    String(reducer.version),
+  );
+
+  // No snapshot, or a snapshot beyond the as-of bound: cold-fold.
+  if (snapshot === undefined || snapshot.sequence > effectiveN) {
+    return cold;
+  }
+
+  // Usable: seed from the snapshot, fold only the bounded tail strictly after
+  // the snapshot's baked-in sequence.
+  return {
+    seed: snapshot.state,
+    tail: bounded.filter((e) => e.sequence > snapshot.sequence),
+  };
 }
 
 /**
