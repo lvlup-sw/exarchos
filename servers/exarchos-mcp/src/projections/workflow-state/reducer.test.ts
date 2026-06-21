@@ -9,6 +9,23 @@ import { workflowStateReducer } from './index.js';
 import { workflowStateProjection } from '../../views/workflow-state-projection.js';
 import { assertReducerImmutable } from '../testing.js';
 import { EventTypes, type WorkflowEvent } from '../../event-store/schemas.js';
+import { getInitialPhase } from '../../workflow/state-machine.js';
+
+function ev(type: string, data: Record<string, unknown>, sequence: number): WorkflowEvent {
+  return {
+    type,
+    timestamp: `2026-06-20T00:00:${String(sequence).padStart(2, '0')}.000Z`,
+    sequence,
+    data,
+  } as unknown as WorkflowEvent;
+}
+
+function fold(events: WorkflowEvent[]) {
+  return events.reduce(
+    (view, event) => workflowStateReducer.apply(view, event),
+    workflowStateReducer.initial,
+  );
+}
 
 describe('workflow-state@v1 canonical reducer (#1554-1)', () => {
   it('workflowStateReducer_Registered_HasCanonicalId', () => {
@@ -188,5 +205,77 @@ describe('workflow-state@v1 exhaustiveness (#1554-2)', () => {
       expect(workflowStateReducer.apply(workflowStateReducer.initial, event))
         .toEqual(workflowStateProjection.apply(workflowStateProjection.init(), event));
     }
+  });
+});
+
+describe('workflow-state@v1 initial phase from HSM (#1554-3)', () => {
+  it('initialPhase_DerivedFromHsm_MatchesGetInitialPhase', () => {
+    // workflow.started seeds the initial phase straight from the HSM SoT
+    // (getInitialPhase) — no hand-synced map. Every built-in type, including
+    // `discovery` which the deleted manual table had drifted out of.
+    for (const workflowType of ['feature', 'debug', 'refactor', 'oneshot', 'discovery']) {
+      const view = fold([ev('workflow.started', { featureId: 'demo', workflowType }, 1)]);
+      expect(view.phase).toBe(getInitialPhase(workflowType));
+      expect(view.workflowType).toBe(workflowType);
+    }
+  });
+
+  it('initialPhase_DiscoveryNoLongerDrifts_IsGathering', () => {
+    // Regression for the latent drift the manual INITIAL_PHASE table carried:
+    // it omitted `discovery`, so a discovery start was mis-seeded to the view
+    // default ('ideate'). HSM derivation fixes it to 'gathering'.
+    const view = fold([ev('workflow.started', { featureId: 'd', workflowType: 'discovery' }, 1)]);
+    expect(view.phase).toBe('gathering');
+  });
+
+  it('initialPhase_UnknownWorkflowType_FallsBackToSeed_NoThrow', () => {
+    // A projection must tolerate any historical event. getInitialPhase throws on
+    // unknown types, so the fold guards with isBuiltInWorkflowType and keeps the
+    // seed phase rather than crashing the replay.
+    let view!: ReturnType<typeof fold>;
+    expect(() => {
+      view = fold([ev('workflow.started', { featureId: 'x', workflowType: 'bespoke-custom' }, 1)]);
+    }).not.toThrow();
+    expect(view.phase).toBe(workflowStateReducer.initial.phase);
+    expect(view.workflowType).toBe('bespoke-custom');
+  });
+
+  it('goldenReplay_FeatureLifecycle_ByteEqualSnapshot', () => {
+    // Golden replay over a representative feature log. For the 4 common types the
+    // HSM derivation is identical to the deleted table, so this fold is byte-equal
+    // to the pre-#1554 projection (acceptance: golden replay byte-equal). Pinned
+    // here so any future fold change must consciously re-bless the snapshot.
+    const view = fold([
+      ev('workflow.started', { featureId: 'golden', workflowType: 'feature' }, 1),
+      ev('workflow.transition', { to: 'plan' }, 2),
+      ev('task.assigned', { taskId: 't1', title: 'T1', branch: 'feat/t1' }, 3),
+      ev('task.assigned', { taskId: 't2', title: 'T2' }, 4),
+      ev('task.completed', { taskId: 't1' }, 5),
+      ev('workflow.transition', { to: 'review' }, 6),
+    ]);
+    expect({
+      featureId: view.featureId,
+      workflowType: view.workflowType,
+      phase: view.phase,
+      tasks: view.tasks,
+    }).toEqual({
+      featureId: 'golden',
+      workflowType: 'feature',
+      phase: 'review',
+      tasks: [
+        { id: 't1', title: 'T1', status: 'complete', branch: 'feat/t1', worktreePath: undefined, completedAt: '2026-06-20T00:00:05.000Z' },
+        { id: 't2', title: 'T2', status: 'pending', branch: undefined, worktreePath: undefined },
+      ],
+    });
+    // The canonical reducer fold equals the ViewProjection fold over the same log.
+    const viaView = [
+      ev('workflow.started', { featureId: 'golden', workflowType: 'feature' }, 1),
+      ev('workflow.transition', { to: 'plan' }, 2),
+      ev('task.assigned', { taskId: 't1', title: 'T1', branch: 'feat/t1' }, 3),
+      ev('task.assigned', { taskId: 't2', title: 'T2' }, 4),
+      ev('task.completed', { taskId: 't1' }, 5),
+      ev('workflow.transition', { to: 'review' }, 6),
+    ].reduce((v, e) => workflowStateProjection.apply(v, e), workflowStateProjection.init());
+    expect(view).toEqual(viaView);
   });
 });

@@ -1,6 +1,7 @@
 import type { ViewProjection } from './materializer.js';
 import type { WorkflowEvent, EventType } from '../event-store/schemas.js';
 import { isBuiltInEventType } from '../event-store/schemas.js';
+import { getInitialPhase, isBuiltInWorkflowType } from '../workflow/state-machine.js';
 import { isPlainObject, applyDotPath } from '../workflow/state-store.js';
 
 // ─── View Name Constant ────────────────────────────────────────────────────
@@ -8,17 +9,13 @@ import { isPlainObject, applyDotPath } from '../workflow/state-store.js';
 export const WORKFLOW_STATE_VIEW = 'workflow-state';
 
 // ─── Initial Phase by Workflow Type ────────────────────────────────────────
-// Kept in sync with `getInitialPhase` in `workflow/state-machine.ts`. If a
-// new built-in workflow type is added there, mirror it here so the
-// event-sourced projection agrees with the file-based state store on the
-// initial phase seeded by `workflow.started`.
-
-const INITIAL_PHASE: Record<string, string> = {
-  feature: 'ideate',
-  debug: 'triage',
-  refactor: 'explore',
-  oneshot: 'plan',
-};
+// Derived from the HSM (`getInitialPhase`, the single source of truth) rather
+// than a hand-synced copy (#1554). The previous manual `INITIAL_PHASE` table
+// had silently drifted — it omitted `discovery: 'gathering'` — exactly the
+// failure mode its own "keep in sync" comment warned about. `getInitialPhase`
+// throws for unknown types, so the fold guards with `isBuiltInWorkflowType`
+// and falls back to the seed phase for custom/unknown types (a projection must
+// tolerate any historical event without crashing the replay).
 
 // ─── WorkflowState View Shape ──────────────────────────────────────────────
 
@@ -193,7 +190,11 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
         if (!data) return view;
 
         const workflowType = data.workflowType ?? view.workflowType;
-        const phase = INITIAL_PHASE[workflowType] ?? view.phase;
+        // Built-in types resolve their initial phase from the HSM (SoT);
+        // unknown/custom types keep the seed phase rather than throw on replay.
+        const phase = isBuiltInWorkflowType(workflowType)
+          ? getInitialPhase(workflowType)
+          : view.phase;
 
         // Oneshot-only: surface the init-time `synthesisPolicy` on the
         // projected view under `state.oneshot.synthesisPolicy` so the
