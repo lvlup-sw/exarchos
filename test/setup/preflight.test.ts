@@ -60,7 +60,7 @@ describe('assertExarchosOnPath', () => {
 describe('assertExarchosVersion', () => {
   it('assertExarchosVersion_staleBinary_throwsVersionMismatch', async () => {
     // Stub the version resolver to simulate a binary that advertises an
-    // older v2.8 release. The check must reject with both the expected
+    // older release. The check must reject with both the expected
     // major.minor and the actual version named in the message.
     const stub = async () => '2.8.3';
     let caught: unknown;
@@ -71,20 +71,20 @@ describe('assertExarchosVersion', () => {
     }
     expect(caught).toBeInstanceOf(Error);
     const message = (caught as Error).message;
-    expect(message).toContain('2.10');
+    expect(message).toContain('2.11');
     expect(message).toContain('2.8.3');
   });
 
   it('AssertExarchosVersion_MatchingMajorMinor_DoesNotThrow', async () => {
-    const stub = async () => '2.10.7';
+    const stub = async () => '2.11.7';
     await expect(
       assertExarchosVersion({ resolveVersion: stub }),
     ).resolves.toBeUndefined();
   });
 
   it('AssertExarchosVersion_PrereleaseSuffix_DoesNotThrow', async () => {
-    // Pre-release tags (e.g. `2.10.0-rc.3`) must compare on major.minor only.
-    const stub = async () => '2.10.0-rc.3';
+    // Pre-release tags (e.g. `2.11.0-rc.3`) must compare on major.minor only.
+    const stub = async () => '2.11.0-rc.3';
     await expect(
       assertExarchosVersion({ resolveVersion: stub }),
     ).resolves.toBeUndefined();
