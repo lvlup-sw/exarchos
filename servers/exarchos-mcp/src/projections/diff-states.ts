@@ -111,7 +111,17 @@ function collectLeaves(
   bucket: Record<string, unknown>,
 ): void {
   if (isPlainContainer(value)) {
-    for (const key of containerKeys(value)) {
+    const keys = containerKeys(value);
+    // An empty container is itself a leaf: emit the bare `{}`/`[]` so a
+    // one-sided empty object/array (e.g. removed `x: {}`) survives in the
+    // delta. Without this a zero-key container iterates nothing and silently
+    // vanishes from added/removed, breaking structural fidelity and the
+    // round-trip property (INV-1).
+    if (keys.length === 0) {
+      bucket[path] = Array.isArray(value) ? [] : {};
+      return;
+    }
+    for (const key of keys) {
       collectLeaves((value as Record<string, unknown>)[key], joinPath(path, key), bucket);
     }
     return;

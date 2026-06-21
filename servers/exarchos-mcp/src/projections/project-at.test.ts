@@ -335,4 +335,43 @@ describe('projectAt — snapshot warm-start equivalence (T3)', () => {
     const cold = foldOracle(countReducer, events, bound);
     expect(warm).toStrictEqual(cold);
   });
+
+  it('projectAt_untilTimestampNonPrefix_bypassesWarmStartAndColdFolds', async () => {
+    // Single-stream `query` orders by SEQUENCE, not timestamp. A backwards clock
+    // skew (seq 2 stamped LATER than seq 3) makes an `untilTimestamp` bound drop
+    // an interior event, so the bounded slice is NOT a prefix of the log. A
+    // snapshot seeded against that subset would smuggle the excluded event's
+    // effect into the result — warm-start MUST be bypassed (INV-1 purity).
+    const streamId = 'wf-pa-skew';
+    const tsAt = (s: number) =>
+      new Date(Date.UTC(2026, 5, 20, 0, 0, s)).toISOString();
+
+    // Sequence order 1..4 with NON-monotonic timestamps (seq 2 is the latest):
+    //   seq1→t0, seq2→t3, seq3→t1, seq4→t2
+    for (const ts of [tsAt(0), tsAt(3), tsAt(1), tsAt(2)]) {
+      await store.append(streamId, {
+        type: 'task.assigned',
+        timestamp: ts,
+        data: {},
+      });
+    }
+    const events = await store.query(streamId);
+
+    // Bound at t1 keeps timestamp <= t1: seq1 (t0) and seq3 (t1), NOT seq2 (t3).
+    // Bounded = [seq1, seq3] — a non-prefix subset (seq 2 is missing).
+    const bound: AsOfBound = { untilTimestamp: tsAt(1) };
+
+    // A snapshot baked at sequence 2 is eligible by the sequence-only check
+    // (2 <= effectiveN 3) but bakes in seq 2, which the ceiling excludes.
+    await seedSentinelSnapshot(streamId, events, 2);
+
+    const result = await projectAt(countReducer, store, streamId, bound);
+
+    // Warm-start bypassed (no sentinel); the result is the honest cold fold of
+    // the timestamp-bounded slice — seq 2's effect never leaks in.
+    expect(result.sequences).not.toContain(SENTINEL);
+    const cold = foldOracle(countReducer, events, bound);
+    expect(result).toStrictEqual(cold);
+    expect(result.sequences).toEqual([1, 3]);
+  });
 });

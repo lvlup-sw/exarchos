@@ -374,9 +374,20 @@ export async function handleViewWorkflowStatus(
     // `task.assigned` only fires for tasks that get dispatched. Sourcing the
     // count from state.tasks.length avoids under-reporting when the planner
     // has declared work that hasn't been kicked off yet.
-    const state = await readWorkflowStateJson(stateDir, streamId);
-    const stateTasks = state?.['tasks'];
-    const tasksTotal = Array.isArray(stateTasks) ? stateTasks.length : view.tasksTotal;
+    //
+    // #1555 — but ONLY for a LIVE read. state.json carries the CURRENT tip task
+    // list, so folding it into a bounded `asOf` response would leak tip-state
+    // counts into a historical projection (INV-1: a bounded read is a pure fold
+    // of `events[0..N]`). For a bounded read the fold's own `view.tasksTotal` is
+    // the as-of-correct count.
+    let tasksTotal = view.tasksTotal;
+    if (args.asOf === undefined) {
+      const state = await readWorkflowStateJson(stateDir, streamId);
+      const stateTasks = state?.['tasks'];
+      if (Array.isArray(stateTasks)) {
+        tasksTotal = stateTasks.length;
+      }
+    }
 
     // C4 (#1226) — strip projection-internal dedup bookkeeping from the
     // public envelope. The `_seen*TaskIds` arrays are needed for replay

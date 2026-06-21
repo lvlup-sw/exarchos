@@ -108,6 +108,32 @@ describe('diffStates (T4) — pure structural delta of two projected States', ()
     });
   });
 
+  describe('diffStates_emptyContainers_survivesInDelta (#1555 review)', () => {
+    // Regression: a zero-key container ({}/[] ) on only one side must surface as
+    // a leaf, not silently vanish. Without the collectLeaves empty-container
+    // branch the delta drops it and the round-trip is no longer lossless.
+    it('records an added empty object as a leaf at its path', () => {
+      const delta = diffStates({}, { x: {} });
+      expect(delta.added).toEqual({ x: {} });
+      expect(delta.removed).toEqual({});
+      expect(delta.changed).toEqual({});
+    });
+
+    it('records a removed empty array as a leaf at its path', () => {
+      const delta = diffStates({ items: [] }, {});
+      expect(delta.removed).toEqual({ items: [] });
+      expect(delta.added).toEqual({});
+      expect(delta.changed).toEqual({});
+    });
+
+    it('records a nested added empty container under its dot-path', () => {
+      const delta = diffStates({ meta: {} }, { meta: { tags: [] } });
+      expect(delta.added).toEqual({ 'meta.tags': [] });
+      expect(delta.removed).toEqual({});
+      expect(delta.changed).toEqual({});
+    });
+  });
+
   describe('diffStates_roundTrip_applyingDeltaToAReconcilesToB', () => {
     // Applies the structural delta back onto `a` and asserts the result deep-equals `b`.
     // This is the load-bearing property: the delta must be lossless.
@@ -207,6 +233,18 @@ describe('diffStates (T4) — pure structural delta of two projected States', ()
       const b = { meta: { sealed: true } };
       const delta = diffStates(a, b);
       expect(applyDelta(a, delta)).toEqual(b);
+    });
+
+    it('reconciles a to b when an empty container is added', () => {
+      const a = {};
+      const b = { x: {}, y: [] };
+      expect(applyDelta(a, diffStates(a, b))).toEqual(b);
+    });
+
+    it('reconciles a to b when an empty container is removed', () => {
+      const a = { x: {}, y: [] };
+      const b = {};
+      expect(applyDelta(a, diffStates(a, b))).toEqual(b);
     });
   });
 

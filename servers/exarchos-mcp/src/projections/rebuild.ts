@@ -186,7 +186,7 @@ export async function projectAt<State, Event>(
   const bounded = boundEvents(events, bound) as WorkflowEvent[];
   const erasedReducer = reducer as ProjectionReducer<unknown, unknown>;
 
-  const warm = resolveWarmStart(erasedReducer, eventStore, streamId, bounded);
+  const warm = resolveWarmStart(erasedReducer, eventStore, streamId, bounded, events);
   return foldEvents(erasedReducer, warm.tail, warm.seed) as State;
 }
 
@@ -200,22 +200,42 @@ interface WarmStart {
  * Resolve a snapshot warm-start for {@link projectAt}, or fall back to the cold
  * fold (seed = `reducer.initial`, tail = the full bounded slice).
  *
- * Eligibility: the reducer must carry an `id` (else no snapshot key), and the
- * latest snapshot for `(streamId, reducer.id, String(reducer.version))` must
- * exist with `snapshot.sequence <= effectiveN` (the last bounded event's
+ * Eligibility: the reducer must carry an `id` (else no snapshot key); the
+ * bounded slice must be a true prefix of the sequence-ordered log (see below);
+ * and the latest snapshot for `(streamId, reducer.id, String(reducer.version))`
+ * must exist with `snapshot.sequence <= effectiveN` (the last bounded event's
  * sequence). A snapshot beyond the bound has already folded events past the
  * as-of point and is therefore unusable — we cold-fold instead.
+ *
+ * ## Prefix soundness (timestamp bounds)
+ *
+ * Warm-start seeds the snapshot (the cold fold through `snapshot.sequence`) and
+ * folds only the bounded tail after it. That is observationally identical to
+ * cold-folding the whole bounded slice ONLY when `bounded` is a true prefix of
+ * the log — every bounded event sitting at its original sequence index. Single-
+ * stream `EventStore.query` orders by SEQUENCE, not timestamp, so an
+ * `untilSequence` bound always yields a prefix, but an `untilTimestamp` bound
+ * does so only while stream timestamps stay monotonic with sequence. A
+ * backwards clock skew makes `boundEvents` drop an interior event, yielding a
+ * non-prefix subset; seeding a snapshot against it would smuggle the excluded
+ * event's effect into the result. We therefore validate prefix-ness rather than
+ * assume it (INV-1: warm-start must never change the observed fold).
  */
 function resolveWarmStart(
   reducer: ProjectionReducer<unknown, unknown>,
   eventStore: EventStore,
   streamId: string,
   bounded: readonly WorkflowEvent[],
+  events: readonly WorkflowEvent[],
 ): WarmStart {
   const cold: WarmStart = { seed: reducer.initial, tail: bounded };
 
   // A reducer without an id cannot address a snapshot — cold-fold.
   if (!reducer.id) return cold;
+
+  // Only a genuine prefix can be safely warm-started (see doc above). A
+  // timestamp bound over a non-monotonic clock can produce a non-prefix subset.
+  if (!isSequencePrefix(bounded, events)) return cold;
 
   const effectiveN =
     bounded.length > 0 ? bounded[bounded.length - 1].sequence : 0;
@@ -238,6 +258,20 @@ function resolveWarmStart(
     seed: snapshot.state,
     tail: bounded.filter((e) => e.sequence > snapshot.sequence),
   };
+}
+
+/**
+ * True iff `bounded` is the leading run of the sequence-ordered `events` — each
+ * bounded event sits at its original index. `events` is ascending by sequence
+ * and `bounded` is an order-preserving subset, so a positional sequence match
+ * across the whole slice proves prefix-ness. Cheap integer compares only, no
+ * `reducer.apply`; strictly less work than the cold fold it may unlock.
+ */
+function isSequencePrefix(
+  bounded: readonly WorkflowEvent[],
+  events: readonly WorkflowEvent[],
+): boolean {
+  return bounded.every((e, i) => e.sequence === events[i].sequence);
 }
 
 /**

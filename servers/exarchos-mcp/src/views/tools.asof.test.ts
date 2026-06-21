@@ -118,4 +118,46 @@ describe('handleViewWorkflowStatus asOf (T7, #1555)', () => {
     expect(bounded.success).toBe(true);
     expect((bounded.data as Record<string, unknown>).phase).toBe('plan');
   });
+
+  it('handleView_asOfTasksTotal_usesFoldNotTipStateJson (#1555 review)', async () => {
+    // state.json carries the planner's TIP task list. A live read folds it in
+    // (the #1184 plan-state count); a bounded `asOf` read must NOT — doing so
+    // leaks tip-state counts into a historical projection (INV-1).
+    await store.append(STREAM_ID, {
+      type: 'workflow.started',
+      timestamp: '2026-06-20T00:00:01.000Z',
+      data: { featureId: STREAM_ID, workflowType: 'feature' },
+    });
+    await store.append(STREAM_ID, {
+      type: 'task.assigned',
+      timestamp: '2026-06-20T00:00:02.000Z',
+      data: { taskId: 'T1' },
+    });
+    await store.append(STREAM_ID, {
+      type: 'task.assigned',
+      timestamp: '2026-06-20T00:00:03.000Z',
+      data: { taskId: 'T2' },
+    });
+
+    // The tip stamp declares THREE tasks — more than were ever assigned.
+    await fs.writeFile(
+      path.join(tmpDir, `${STREAM_ID}.state.json`),
+      JSON.stringify({ tasks: [{ id: 'T1' }, { id: 'T2' }, { id: 'T3' }] }),
+    );
+
+    // Live read → tip count from state.json (3). Confirms the live path is
+    // unchanged.
+    const live = await handleViewWorkflowStatus({ workflowId: STREAM_ID }, tmpDir, store);
+    expect((live.data as Record<string, unknown>).tasksTotal).toBe(3);
+
+    // Bounded read at seq 2 (only T1 assigned) → the fold's count (1), NEVER the
+    // tip state.json count. The old code unconditionally leaked 3.
+    const bounded = await handleViewWorkflowStatus(
+      { workflowId: STREAM_ID, asOf: { untilSequence: 2 } },
+      tmpDir,
+      store,
+    );
+    expect(bounded.success).toBe(true);
+    expect((bounded.data as Record<string, unknown>).tasksTotal).toBe(1);
+  });
 });

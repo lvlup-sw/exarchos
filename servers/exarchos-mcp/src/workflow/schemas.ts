@@ -445,10 +445,24 @@ export const ListInputSchema = z.object({});
 // JSON-parsed identically to the MCP object payload (CLI↔MCP parity, Task 8).
 // The single source of truth lives here; `get`/`view` registry actions and
 // `GetInputSchema` all reference this one definition.
+// `untilTimestamp` is constrained to the EXACT storage format — UTC `Z`,
+// millisecond precision (`new Date().toISOString()`, the event store's stamp).
+// `boundEvents` compares timestamps LEXICOGRAPHICALLY, which only matches
+// chronological order when every string has uniform width; `z.string().datetime()`
+// would admit variable fractional-second precision (e.g. `…01Z`, `…01.5Z`) and
+// silently break the `<=` ceiling. Constrain at the schema (INV-5a), not in prose.
+const UTC_MILLIS_ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
 export const AsOfSchema = z
   .object({
     untilSequence: z.number().int().nonnegative().optional(),
-    untilTimestamp: z.string().datetime().optional(),
+    untilTimestamp: z
+      .string()
+      .regex(
+        UTC_MILLIS_ISO,
+        'asOf.untilTimestamp must be a UTC ISO-8601 timestamp with millisecond precision (e.g. 2026-06-20T00:00:01.123Z)',
+      )
+      .optional(),
   })
   .refine(
     (v) => !(v.untilSequence !== undefined && v.untilTimestamp !== undefined),
