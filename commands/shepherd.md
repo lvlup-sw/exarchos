@@ -19,6 +19,15 @@ This command operates as an **iteration loop within the synthesize phase**. The 
 
 Follow the shepherd skill: `@skills/shepherd/SKILL.md`
 
+## Default Objective
+
+`/exarchos:shepherd` (with no extra instructions) already does two things by default — appending them to the invocation is redundant:
+
+1. **Address all feedback on the PR.** Every CI failure, `CHANGES_REQUESTED` review, and inline comment — including minor/nit-level — is fixed and/or replied to. Approval is requested only once every thread has a response. See the skill's *Default Objective*.
+2. **Apply `.exarchos/invariants.md` when evaluating changes.** Before composing fixes, each change is anchored to the architectural invariant catalog (see Step 2, devCatalog-gated).
+
+So `/exarchos:shepherd address all feedback; when evaluating changes, apply .exarchos/invariants.md` is equivalent to plain `/exarchos:shepherd`.
+
 ## Prerequisites
 
 - [ ] Active workflow with PRs published
@@ -54,13 +63,15 @@ mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
 
 Act on the `recommendation`:
 - `fix-and-resubmit` — Proceed to Step 2
-- `request-approval` — Skip to Step 4
+- `request-approval` — Skip to Step 4 **only if every `comment-reply` item is addressed**; otherwise treat as `fix-and-resubmit` and address remaining comments first (see Default Objective). The recommendation is advisory — it forces `fix-and-resubmit` only on critical/major items.
 - `wait` — Inform user, pause, re-assess after delay
 - `escalate` — Report to user with escalation context
 
 ### Step 2: Fix Issues
 
-Address each `actionItem` from the assessment:
+**Constraints (evaluation-time).** Before composing any change, load `.exarchos/invariants.md` (entries marked `cost-of-load: always-load`) and surface a **Constraints** section naming the invariants the fix must preserve, then probe each change against them. This is the shepherd evaluation-time equivalent of `/exarchos:ideate`'s Phase 0 and uses the **same single shared source of truth** for the selection rules and devCatalog gating: `@skills/brainstorming/references/constraint-anchoring.md`. **devCatalog-gated:** when `.exarchos.yml: invariants.devCatalog: enabled` is unset or `disabled`, surface no Constraints section and fix directly.
+
+Address each `actionItem` from the assessment (every inline comment — including minor — gets a fix and/or reply; see Default Objective):
 - `ci-fix` — Read CI logs, reproduce locally, fix, commit
 - `comment-reply` — Read context, compose response, post via GitHub MCP
 - `review-address` — Fix code for CHANGES_REQUESTED, reply to each thread

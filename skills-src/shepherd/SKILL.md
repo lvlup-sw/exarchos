@@ -29,6 +29,16 @@ Iterative loop that shepherds published PRs through CI checks and code reviews t
               ^^^^^^^^^ runs within synthesize phase
 ```
 
+## Default Objective
+
+By default, shepherd seeks to **address every piece of feedback on the PR** — appending "address all feedback" to the invocation is redundant, because it is the default, not an opt-in. Each iteration drives toward zero outstanding items across all three feedback channels:
+
+- **CI / checks** — every failing or pending check is fixed or resolved.
+- **Formal reviews** — every `CHANGES_REQUESTED` review is addressed.
+- **Inline comments** — every inline review comment (human, CodeRabbit, Sentry, bots) gets a fix and/or a reply, **regardless of severity**. A minor or nit-level comment is still feedback: address it, or reply explaining why it is intentionally declined. The goal is that a human scanning the PR sees **every** thread has a response.
+
+`assess_stack` is advisory: its `computeRecommendation` only forces `fix-and-resubmit` on critical/major items, so it can return `request-approval` while minor `comment-reply` items remain. **Do not treat that as license to skip them** — only request approval once every `comment-reply` action item is addressed (fix or reply). "Address all feedback" is the standing default.
+
 ## Pipeline Hygiene
 
 When `{{MCP_PREFIX}}exarchos_view pipeline` accumulates stale workflows (inactive > 7 days), run `@skills/prune-workflows/SKILL.md` to bulk-cancel abandoned workflows before starting a new shepherd cycle. Safeguards skip workflows with open PRs or recent commits, so active shepherd targets are never touched. A clean pipeline makes shepherd iteration reporting easier to read and reduces noise in the stale-count view.
@@ -88,12 +98,14 @@ Review the returned `actionItems` and `recommendation`:
 
 | Recommendation | Action |
 |----------------|--------|
-| `request-approval` | Skip to Step 4 |
+| `request-approval` | Skip to Step 4 **only if every `comment-reply` item is addressed**. If any inline comment is still unaddressed, treat as `fix-and-resubmit` and address it first (see [Default Objective](#default-objective)). |
 | `fix-and-resubmit` | Proceed to Step 2 |
 | `wait` | Inform user, pause, re-assess after delay |
 | `escalate` | See `references/escalation-criteria.md` |
 
 ### Step 2 — Fix
+
+**Anchor every change to the invariant catalog (evaluation-time Constraints).** Before composing any code fix, load `.exarchos/invariants.md` (entries marked `cost-of-load: always-load`) and surface a **Constraints** section naming the invariants the fix must preserve, then probe each proposed change against them. This is the shepherd evaluation-time equivalent of `{{COMMAND_PREFIX}}ideate`'s Phase 0 and uses the **same single shared source of truth** for the selection rules and devCatalog gating: `@skills/brainstorming/references/constraint-anchoring.md`. **devCatalog-gated:** when `.exarchos.yml: invariants.devCatalog: enabled` is unset or `disabled`, surface no Constraints section and fix directly. This makes "when evaluating changes, apply `.exarchos/invariants.md`" the default — there is no need to request it per invocation.
 
 Before iterating over individual action items, classify them so the loop
 knows which to fix inline vs. delegate. Call `classify_review_items` on
@@ -175,6 +187,8 @@ Return to Step 1 for the next iteration. Track iteration count against the limit
 ### Step 4 — Request Approval
 
 When `assess_stack` returns `recommendation: 'request-approval'` (all checks green, all comments addressed):
+
+> **Guard:** Confirm there are no remaining `comment-reply` action items before requesting approval. Per the [Default Objective](#default-objective), every inline comment — including minor/nit-level — must be addressed first. If any remain, return to Step 2 instead of requesting approval.
 
 1. Request review via GitHub MCP:
    ```
@@ -272,6 +286,8 @@ This runbook provides structured criteria for deciding whether to keep iterating
 | Poll CI/reviews directly | Use `assess_stack` composite action |
 | Force-merge with failing CI | Fix the failures first |
 | Ignore inline comments | Address every thread with a reply |
+| Skip minor/nit comments because `assess_stack` said `request-approval` | Address every `comment-reply` item first — the recommendation is advisory (see Default Objective) |
+| Compose fixes without checking invariants | Anchor each change to `.exarchos/invariants.md` (Step 2, devCatalog-gated) |
 | Loop indefinitely | Respect iteration limits, escalate |
 | Skip remediation events | Emit `remediation.attempted` / `remediation.succeeded` for every fix |
 | Push directly to main | All fixes go through stack branches |
