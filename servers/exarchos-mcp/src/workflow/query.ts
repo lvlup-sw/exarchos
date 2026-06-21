@@ -5,10 +5,7 @@ import type {
   WorkflowState,
 } from './types.js';
 import { ErrorCode } from './schemas.js';
-import {
-  readStateFile,
-  StateStoreError,
-} from './state-store.js';
+import { resolveWorkflowState } from '../orchestrate/resolve-state.js';
 import { buildCheckpointMeta } from './checkpoint.js';
 import { getRecentEventsFromStore } from './events.js';
 import { getHSMDefinition } from './state-machine.js';
@@ -49,23 +46,39 @@ export async function handleSummary(
   stateDir: string,
   eventStore: EventStore | null,
 ): Promise<ToolResult> {
-  // eventStore is now passed as parameter
+  // Event-store-first resolution (#1504): fold the event log when an event
+  // store is available; fall back to the on-disk state file only for the
+  // legacy/CLI path where no event store is threaded through. The SQLite event
+  // store is the sole source of truth — a stale `.state.json` never shadows
+  // newer events.
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
 
-  let state: WorkflowState;
-  try {
-    state = await readStateFile(stateFile);
-  } catch (err) {
-    if (err instanceof StateStoreError && err.code === ErrorCode.STATE_NOT_FOUND) {
-      return {
-        success: false,
-        error: {
-          code: ErrorCode.STATE_NOT_FOUND,
-          message: `State not found for feature: ${input.featureId}`,
-        },
-      };
-    }
-    throw err;
+  const resolved = await resolveWorkflowState({
+    featureId: input.featureId,
+    eventStore: eventStore ?? undefined,
+    stateFile,
+  });
+
+  const notFound: ToolResult = {
+    success: false,
+    error: {
+      code: ErrorCode.STATE_NOT_FOUND,
+      message: `State not found for feature: ${input.featureId}`,
+    },
+  };
+
+  if ('error' in resolved) {
+    // NO_STATE_SOURCE (no event store AND no readable file) reads as "not
+    // found"; surface any other resolution error (e.g. EVENT_STORE_ERROR)
+    // verbatim rather than masking it as a missing feature.
+    return resolved.error.error?.code === 'NO_STATE_SOURCE' ? notFound : resolved.error;
+  }
+
+  const state = resolved.state as unknown as WorkflowState;
+  // A folded view with no `featureId` means no `workflow.started` was ever
+  // recorded — the feature was never started as a workflow.
+  if (!state.featureId) {
+    return notFound;
   }
 
   // Task progress
@@ -293,21 +306,31 @@ export async function handleReconcile(
 ): Promise<ToolResult> {
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
 
-  // Read validated state for metadata and checkpoint
-  let state: WorkflowState;
-  try {
-    state = await readStateFile(stateFile);
-  } catch (err) {
-    if (err instanceof StateStoreError && err.code === ErrorCode.STATE_NOT_FOUND) {
-      return {
-        success: false,
-        error: {
-          code: ErrorCode.STATE_NOT_FOUND,
-          message: `State not found for feature: ${input.featureId}`,
-        },
-      };
-    }
-    throw err;
+  // Event-store-first resolution (#1504): fold worktrees + tasks (incl.
+  // `nativeTaskId`, folded via `state.patched` after the array-index fold fix)
+  // from the event log. The SQLite event store is the sole source of truth; the
+  // on-disk file is a fallback only for the no-event-store (CLI/legacy) path.
+  const resolved = await resolveWorkflowState({
+    featureId: input.featureId,
+    eventStore: eventStore ?? undefined,
+    stateFile,
+  });
+
+  const notFound: ToolResult = {
+    success: false,
+    error: {
+      code: ErrorCode.STATE_NOT_FOUND,
+      message: `State not found for feature: ${input.featureId}`,
+    },
+  };
+
+  if ('error' in resolved) {
+    return resolved.error.error?.code === 'NO_STATE_SOURCE' ? notFound : resolved.error;
+  }
+
+  const state = resolved.state as unknown as WorkflowState;
+  if (!state.featureId) {
+    return notFound;
   }
 
   // With .passthrough() on WorktreeSchema, path field is preserved through Zod parsing
@@ -343,24 +366,17 @@ export async function handleReconcile(
     worktreeResults.push(result);
   }
 
-  // Task reconciliation: read raw state to access nativeTaskId (stripped by Zod)
+  // Task reconciliation reads `nativeTaskId` straight from the folded tasks
+  // (#1504): the array-index `state.patched` fold now carries it, so no raw
+  // `.state.json` read is needed. `reconcileTasks` only runs when at least one
+  // task carries a `nativeTaskId`.
   let taskDrift: TaskDriftReport | undefined;
-  try {
-    const rawJson = await fs.readFile(stateFile, 'utf-8');
-    const rawState = JSON.parse(rawJson) as Record<string, unknown>;
-    const rawTasks = rawState.tasks as Array<Record<string, unknown>> | undefined;
-
-    const hasNativeTasks = rawTasks?.some(
-      (t) => typeof t.nativeTaskId === 'string',
-    );
-
-    if (hasNativeTasks && rawTasks) {
-      const baseDir = nativeTaskBaseDir ?? defaultNativeTaskBaseDir();
-      const nativeTaskDir = path.join(baseDir, input.featureId);
-      taskDrift = await reconcileTasks(rawTasks, nativeTaskDir);
-    }
-  } catch {
-    // If raw read fails, skip task reconciliation gracefully
+  const tasks = (state.tasks ?? []) as Array<Record<string, unknown>>;
+  const hasNativeTasks = tasks.some((t) => typeof t.nativeTaskId === 'string');
+  if (hasNativeTasks) {
+    const baseDir = nativeTaskBaseDir ?? defaultNativeTaskBaseDir();
+    const nativeTaskDir = path.join(baseDir, input.featureId);
+    taskDrift = await reconcileTasks(tasks, nativeTaskDir);
   }
 
   return {

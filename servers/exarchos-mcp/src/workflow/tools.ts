@@ -78,16 +78,6 @@ export function configureWorkflowMaterializer(materializer: ViewMaterializer | n
 export { handleCancel } from './cancel.js';
 export { handleSummary, handleReconcile, handleTransitions } from './query.js';
 
-// ─── Fast-Path Query Fields ──────────────────────────────────────────────────
-
-const FAST_PATH_FIELDS = new Set(['phase', 'featureId', 'workflowType', 'track', 'version']);
-
-async function readFieldFast(stateFile: string, field: string): Promise<{ value: unknown; checkpoint: unknown }> {
-  const raw = await fs.readFile(stateFile, 'utf-8');
-  const parsed = JSON.parse(raw);
-  return { value: parsed[field], checkpoint: parsed._checkpoint };
-}
-
 // ─── Internal Field Stripping ────────────────────────────────────────────────
 
 const INTERNAL_FIELDS = ['_events', '_eventSequence', '_history'] as const;
@@ -323,28 +313,14 @@ export async function handleGet(
 ): Promise<ToolResult> {
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
 
-  // Fast path for simple top-level scalar queries — skips Zod validation.
-  // The state file is kept in sync for v2 workflows, so fast path is safe
-  // for both legacy and ES v2 workflows.
-  //
-  // #1555 — an `asOf` (bounded-fold) read must NEVER take the fast path: the
-  // state file holds the LIVE scalar, not a `events[0..N]` projection. Bypass
-  // it so the bounded read always materializes from the bounded event list.
-  if (input.asOf === undefined && input.query && FAST_PATH_FIELDS.has(input.query)) {
-    try {
-      const { value, checkpoint } = await readFieldFast(stateFile, input.query);
-      if (value === undefined || checkpoint == null) {
-        throw new Error('FAST_PATH_MISS');
-      }
-      return {
-        success: true,
-        data: value,
-        _meta: buildCheckpointMeta(checkpoint as WorkflowState['_checkpoint']),
-      };
-    } catch {
-      // Fall through to full validation path (handles STATE_NOT_FOUND etc.)
-    }
-  }
+  // #1504 — there is no scalar fast path off the `.state.json` file. The file
+  // is a derived stamp that goes stale (and, once the write-path is removed,
+  // absent), so a top-level scalar query (`query: 'phase'`) must fold the
+  // authoritative event log exactly like a full read does — events win over a
+  // stale on-disk scalar. All queries (scalar, dot-path, field-projection)
+  // route through the shared resolution below, which materializes from events
+  // for ES v2 workflows (`handleGetFromEvents`) and reads the file only on the
+  // legacy / no-event-store degradation path (`handleGetFromStateFile`).
 
   // Read state file — needed for version check and as fallback for legacy path
   let state: WorkflowState;

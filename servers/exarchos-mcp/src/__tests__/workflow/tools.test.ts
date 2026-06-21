@@ -531,58 +531,48 @@ describe('Core Tools', () => {
     });
   });
 
-  // ─── Fast-Path Query Tests ─────────────────────────────────────────────────
+  // ─── Scalar / Simple Query Tests ───────────────────────────────────────────
+  //
+  // #1504 removed the file-scalar fast path; scalar queries now route through
+  // the shared resolution path (event-fold for ES v2, file for legacy), so
+  // these assert returned values + `_meta` rather than which source was read.
 
-  describe('handleGet_FastPath_Phase_ReturnsCorrectValue', () => {
-    it('should return the phase value via fast path without full Zod validation', async () => {
-      await handleInit({ featureId: 'fast-phase', workflowType: 'feature' }, tmpDir, null);
-
-      // Spy on readStateFile to verify fast path skips it
-      const stateStoreMod = await import('../../workflow/state-store.js');
-      const readSpy = vi.spyOn(stateStoreMod, 'readStateFile');
+  describe('handleGet_ScalarQuery_Phase_ReturnsCorrectValue', () => {
+    it('should return the phase value for a top-level scalar query', async () => {
+      await handleInit({ featureId: 'scalar-phase', workflowType: 'feature' }, tmpDir, null);
 
       const result = await handleGet(
-        { featureId: 'fast-phase', query: 'phase' },
+        { featureId: 'scalar-phase', query: 'phase' },
         tmpDir,
         null,
       );
 
       expect(result.success).toBe(true);
       expect(result.data).toBe('ideate');
-      // Fast path should NOT call readStateFile
-      expect(readSpy).not.toHaveBeenCalled();
-
-      readSpy.mockRestore();
     });
   });
 
-  describe('handleGet_FastPath_FeatureId_ReturnsCorrectValue', () => {
-    it('should return the featureId value via fast path', async () => {
-      await handleInit({ featureId: 'fast-fid', workflowType: 'feature' }, tmpDir, null);
-
-      const stateStoreMod = await import('../../workflow/state-store.js');
-      const readSpy = vi.spyOn(stateStoreMod, 'readStateFile');
+  describe('handleGet_ScalarQuery_FeatureId_ReturnsCorrectValue', () => {
+    it('should return the featureId value for a top-level scalar query', async () => {
+      await handleInit({ featureId: 'scalar-fid', workflowType: 'feature' }, tmpDir, null);
 
       const result = await handleGet(
-        { featureId: 'fast-fid', query: 'featureId' },
+        { featureId: 'scalar-fid', query: 'featureId' },
         tmpDir,
         null,
       );
 
       expect(result.success).toBe(true);
-      expect(result.data).toBe('fast-fid');
-      expect(readSpy).not.toHaveBeenCalled();
-
-      readSpy.mockRestore();
+      expect(result.data).toBe('scalar-fid');
     });
   });
 
-  describe('handleGet_FastPath_IncludesMeta', () => {
-    it('should include _meta.checkpointAdvised in fast-path responses', async () => {
-      await handleInit({ featureId: 'fast-meta', workflowType: 'feature' }, tmpDir, null);
+  describe('handleGet_ScalarQuery_IncludesMeta', () => {
+    it('should include _meta.checkpointAdvised in scalar-query responses', async () => {
+      await handleInit({ featureId: 'scalar-meta', workflowType: 'feature' }, tmpDir, null);
 
       const result = await handleGet(
-        { featureId: 'fast-meta', query: 'phase' },
+        { featureId: 'scalar-meta', query: 'phase' },
         tmpDir,
         null,
       );
@@ -593,109 +583,91 @@ describe('Core Tools', () => {
       expect(result._meta?.checkpointAdvised).toBe(false);
     });
 
-    it('should return consistent _meta shape between fast-path and normal path', async () => {
-      await handleInit({ featureId: 'fast-meta-consistent', workflowType: 'feature' }, tmpDir, null);
+    it('should return consistent _meta shape between scalar and dot-path queries', async () => {
+      await handleInit({ featureId: 'scalar-meta-consistent', workflowType: 'feature' }, tmpDir, null);
 
-      // Fast-path query
-      const fastResult = await handleGet(
-        { featureId: 'fast-meta-consistent', query: 'phase' },
+      // Scalar query
+      const scalarResult = await handleGet(
+        { featureId: 'scalar-meta-consistent', query: 'phase' },
         tmpDir,
         null,
       );
 
-      // Normal path query (dot-path, not in FAST_PATH_FIELDS)
-      const normalResult = await handleGet(
-        { featureId: 'fast-meta-consistent', query: 'artifacts.design' },
+      // Dot-path query
+      const dotPathResult = await handleGet(
+        { featureId: 'scalar-meta-consistent', query: 'artifacts.design' },
         tmpDir,
         null,
       );
 
       // Both should have _meta with checkpointAdvised
-      expect(fastResult._meta).toBeDefined();
-      expect(normalResult._meta).toBeDefined();
-      expect(typeof fastResult._meta?.checkpointAdvised).toBe('boolean');
-      expect(typeof normalResult._meta?.checkpointAdvised).toBe('boolean');
+      expect(scalarResult._meta).toBeDefined();
+      expect(dotPathResult._meta).toBeDefined();
+      expect(typeof scalarResult._meta?.checkpointAdvised).toBe('boolean');
+      expect(typeof dotPathResult._meta?.checkpointAdvised).toBe('boolean');
     });
   });
 
-  describe('handleGet_FastPath_FallsThrough_WhenFieldMissing', () => {
-    it('should fall through to full validation when fast-path field is missing from state', async () => {
-      await handleInit({ featureId: 'fast-missing-field', workflowType: 'feature' }, tmpDir, null);
+  describe('handleGet_ScalarQuery_MissingField_ReturnsUndefined', () => {
+    it('should return undefined when a queried scalar field is absent from state', async () => {
+      await handleInit({ featureId: 'scalar-missing-field', workflowType: 'feature' }, tmpDir, null);
 
-      // Manually corrupt the state file by removing the 'track' field
-      // (track is in FAST_PATH_FIELDS but may not exist on feature workflows)
-      const stateFile = path.join(tmpDir, 'fast-missing-field.state.json');
+      // Remove the 'track' field (feature workflows do not carry it).
+      const stateFile = path.join(tmpDir, 'scalar-missing-field.state.json');
       const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
       delete raw.track;
       await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
 
-      const stateStoreMod = await import('../../workflow/state-store.js');
-      const readSpy = vi.spyOn(stateStoreMod, 'readStateFile');
-
       const result = await handleGet(
-        { featureId: 'fast-missing-field', query: 'track' },
+        { featureId: 'scalar-missing-field', query: 'track' },
         tmpDir,
         null,
       );
 
       expect(result.success).toBe(true);
-      // Should fall through to full validation, returning undefined via resolveDotPath
-      expect(readSpy).toHaveBeenCalled();
-
-      readSpy.mockRestore();
+      // Absent field resolves to undefined via resolveDotPath.
+      expect(result.data).toBeUndefined();
     });
   });
 
-  describe('handleGet_FastPath_FallsThrough_WhenCheckpointMissing', () => {
-    it('should fall through to full validation when _checkpoint is missing from state', async () => {
-      await handleInit({ featureId: 'fast-no-ckpt', workflowType: 'feature' }, tmpDir, null);
+  describe('handleGet_ScalarQuery_MissingCheckpoint_StillResolves', () => {
+    it('should still resolve a scalar query when _checkpoint is absent from state', async () => {
+      await handleInit({ featureId: 'scalar-no-ckpt', workflowType: 'feature' }, tmpDir, null);
 
-      // Manually corrupt the state file by removing _checkpoint
-      const stateFile = path.join(tmpDir, 'fast-no-ckpt.state.json');
+      // Remove _checkpoint from the on-disk state.
+      const stateFile = path.join(tmpDir, 'scalar-no-ckpt.state.json');
       const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
       delete raw._checkpoint;
       await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
 
-      const stateStoreMod = await import('../../workflow/state-store.js');
-      const readSpy = vi.spyOn(stateStoreMod, 'readStateFile');
-
       const result = await handleGet(
-        { featureId: 'fast-no-ckpt', query: 'phase' },
+        { featureId: 'scalar-no-ckpt', query: 'phase' },
         tmpDir,
         null,
       );
 
-      // Should fall through to full validation path
-      expect(readSpy).toHaveBeenCalled();
-
-      readSpy.mockRestore();
+      expect(result.success).toBe(true);
+      expect(result.data).toBe('ideate');
     });
   });
 
-  describe('handleGet_ComplexQuery_UsesFullValidation', () => {
-    it('should use full validation for complex dot-path queries', async () => {
-      await handleInit({ featureId: 'fast-complex', workflowType: 'feature' }, tmpDir, null);
+  describe('handleGet_ComplexQuery_ResolvesNestedValue', () => {
+    it('should resolve a nested dot-path query', async () => {
+      await handleInit({ featureId: 'query-complex', workflowType: 'feature' }, tmpDir, null);
       await handleSet(
-        { featureId: 'fast-complex', updates: { 'tasks[0]': { id: 't1', title: 'Task 1', status: 'pending' } } },
+        { featureId: 'query-complex', updates: { 'tasks[0]': { id: 't1', title: 'Task 1', status: 'pending' } } },
         tmpDir,
         null,
       );
 
-      const stateStoreMod = await import('../../workflow/state-store.js');
-      const readSpy = vi.spyOn(stateStoreMod, 'readStateFile');
-
       const result = await handleGet(
-        { featureId: 'fast-complex', query: 'tasks[0].status' },
+        { featureId: 'query-complex', query: 'tasks[0].status' },
         tmpDir,
         null,
       );
 
       expect(result.success).toBe(true);
       expect(result.data).toBe('pending');
-      // Complex query should use full readStateFile validation
-      expect(readSpy).toHaveBeenCalled();
-
-      readSpy.mockRestore();
     });
   });
 
@@ -3109,6 +3081,34 @@ describe('HandleGet_EsVersion2_MaterializesFromEvents', () => {
     expect(data.phase).toBe('ideate');
     expect(data.featureId).toBe('es-get-v2');
     expect(data.workflowType).toBe('feature');
+  });
+});
+
+describe('HandleGet_ScalarQuery_EsVersion2_FoldsEventsNotStaleFile', () => {
+  it('should fold events for a scalar query on a v2 workflow, ignoring a stale on-disk scalar (#1504)', async () => {
+    // Regression for the fast-path bug: a top-level scalar query
+    // (`query: 'phase'`) used to read the `.state.json` scalar directly,
+    // shadowing the authoritative event log. Once the file stops being written
+    // (#1504) that scalar goes stale/absent, so a scalar query MUST fold events
+    // exactly like a full read does.
+    const eventStore = new EventStore(tmpDir);
+    const materializer = new ViewMaterializer();
+    materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
+    configureWorkflowMaterializer(materializer);
+
+    await handleInit({ featureId: 'fast-es-v2', workflowType: 'feature' }, tmpDir, eventStore);
+
+    // Tamper the on-disk scalar — the read path must NOT trust it.
+    const stateFile = path.join(tmpDir, 'fast-es-v2.state.json');
+    const rawState = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+    rawState.phase = 'plan';
+    await fs.writeFile(stateFile, JSON.stringify(rawState));
+
+    const result = await handleGet({ featureId: 'fast-es-v2', query: 'phase' }, tmpDir, eventStore);
+
+    expect(result.success).toBe(true);
+    // 'ideate' folded from workflow.started, NOT the tampered 'plan'.
+    expect(result.data).toBe('ideate');
   });
 });
 

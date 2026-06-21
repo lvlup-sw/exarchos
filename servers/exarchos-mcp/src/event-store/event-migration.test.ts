@@ -3,7 +3,14 @@ import { Database } from 'bun:sqlite';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { migrateEvent, EVENT_SCHEMA_VERSION } from './event-migration.js';
+import {
+  migrateEvent,
+  migrateEvents,
+  assertMigrationCoverage,
+  EVENT_SCHEMA_VERSION,
+  eventMigrations,
+  type EventMigration,
+} from './event-migration.js';
 import { SqliteBackend } from '../storage/sqlite-backend.js';
 import type { WorkflowEvent } from './schemas.js';
 
@@ -57,6 +64,101 @@ describe('Event Migration', () => {
     // Returns a copy since it enters the migration loop
     expect(result.streamId).toBe('test-stream');
     expect(result.schemaVersion).toBe('99.0');
+  });
+
+  // ─── #1556: batch read-time upcasting seam (migrateEvents) ────────────────
+  describe('migrateEvents (read-time upcasting choke point)', () => {
+    const row = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+      streamId: 'stream-1',
+      sequence: 1,
+      type: 'workflow.started',
+      schemaVersion: '1.0',
+      timestamp: '2025-01-15T10:00:00Z',
+      ...overrides,
+    });
+
+    it('MigrateEvents_NoMigrations_ReturnsSameArrayAndElementReferences', () => {
+      // Identity fast-path: with eventMigrations === [] (today), the hot read
+      // path must stay allocation-free — same array ref, same element refs.
+      const a = row();
+      const b = row({ sequence: 2 });
+      const input = [a, b];
+
+      // Pass `[]` explicitly so this fast-path assertion is hermetic — it
+      // verifies the identity behavior of the empty-migrations case directly,
+      // not the incidental fact that the global `eventMigrations` registry is
+      // empty today. Stays green when real migrations are registered.
+      const result = migrateEvents(input, []);
+
+      expect(result).toBe(input);
+      expect(result[0]).toBe(a);
+      expect(result[1]).toBe(b);
+    });
+
+    it('MigrateEvents_WithFixtureMigration_UpcastsMatchingEvents', () => {
+      // A 0.9 → current('1.0') fixture migration must fold an old-version row
+      // up to the current shape when routed through the batch seam.
+      const fixture: EventMigration = {
+        from: '0.9',
+        to: EVENT_SCHEMA_VERSION,
+        eventTypes: ['workflow.started'],
+        migrate: (e) => ({
+          ...e,
+          schemaVersion: EVENT_SCHEMA_VERSION,
+          data: { ...(e.data as object), upgraded: true },
+        }),
+      };
+      const old = row({ schemaVersion: '0.9', data: { featureId: 'f1' } });
+
+      const [result] = migrateEvents([old], [fixture]);
+
+      expect(result.schemaVersion).toBe(EVENT_SCHEMA_VERSION);
+      expect((result.data as { upgraded?: boolean }).upgraded).toBe(true);
+    });
+
+    it('MigrateEvents_FixtureMigration_LeavesNonMatchingTypesUntouched', () => {
+      // eventTypes scoping is honored — a migration for 'workflow.started'
+      // must not rewrite a 'task.assigned' row of the same old version.
+      const fixture: EventMigration = {
+        from: '0.9',
+        to: EVENT_SCHEMA_VERSION,
+        eventTypes: ['workflow.started'],
+        migrate: (e) => ({ ...e, schemaVersion: EVENT_SCHEMA_VERSION, rewritten: true }),
+      };
+      const other = row({ schemaVersion: '0.9', type: 'task.assigned' });
+
+      const [result] = migrateEvents([other], [fixture]);
+
+      // No matching migration → forward-compat as-is (still 0.9, not rewritten).
+      expect(result.schemaVersion).toBe('0.9');
+      expect(result.rewritten).toBeUndefined();
+    });
+  });
+
+  // ─── #1556: build-time version-coverage guard (assertMigrationCoverage) ────
+  describe('assertMigrationCoverage (version-coverage build guard)', () => {
+    it('AssertMigrationCoverage_LiveRegistry_DoesNotThrow', () => {
+      // The real registry + EVENT_SCHEMA_VERSION must always be coverage-clean.
+      // This is the build-time guard: a future Zod-shape/version change without
+      // a matching migration trips it here.
+      expect(() => assertMigrationCoverage(EVENT_SCHEMA_VERSION, eventMigrations)).not.toThrow();
+    });
+
+    it('AssertMigrationCoverage_CompleteChain_DoesNotThrow', () => {
+      const migrations: EventMigration[] = [
+        { from: '0.8', to: '0.9', eventTypes: 'all', migrate: (e) => e },
+        { from: '0.9', to: '1.0', eventTypes: 'all', migrate: (e) => e },
+      ];
+      expect(() => assertMigrationCoverage('1.0', migrations)).not.toThrow();
+    });
+
+    it('AssertMigrationCoverage_DanglingSourceVersion_Throws', () => {
+      // 0.8 → 0.9 with no edge from 0.9 to current('1.0') leaves 0.8 stranded.
+      const migrations: EventMigration[] = [
+        { from: '0.8', to: '0.9', eventTypes: 'all', migrate: (e) => e },
+      ];
+      expect(() => assertMigrationCoverage('1.0', migrations)).toThrow(/no migration path/i);
+    });
   });
 
   // ─── DR-10 AC2: V3 reader tolerance for V2-era event rows ────────────────

@@ -38,6 +38,18 @@ export interface ProjectionRegistry {
 }
 
 /**
+ * Extract the **domain** of a reducer id. Ids follow the `domain@vN` convention
+ * (e.g. `workflow-state@v1` → `workflow-state`); an id without an `@` is its own
+ * domain. The domain is the registry-singularity key — at most one reducer may
+ * claim a given domain (#1554), so a `workflow-state@v2` cannot silently
+ * coexist with `workflow-state@v1` and produce a divergent second left-fold.
+ */
+function reducerDomain(id: string): string {
+  const at = id.lastIndexOf('@');
+  return at === -1 ? id : id.slice(0, at);
+}
+
+/**
  * Create a fresh, empty {@link ProjectionRegistry}.
  *
  * Each call returns an independent registry instance; this is primarily
@@ -49,8 +61,21 @@ export function createRegistry(): ProjectionRegistry {
 
   return {
     register(reducer) {
+      // Exact-id collision first (preserves the original message + the
+      // ES-module idempotency contract for re-imported barrels).
       if (reducers.has(reducer.id)) {
         throw new Error(`duplicate projection id: ${reducer.id}`);
+      }
+      // Registry singularity (#1554): reject a second reducer claiming the same
+      // domain. One canonical left-fold per domain — a versioned successor must
+      // replace, not shadow, its predecessor.
+      const domain = reducerDomain(reducer.id);
+      for (const existing of reducers.values()) {
+        if (reducerDomain(existing.id) === domain) {
+          throw new Error(
+            `duplicate projection domain: ${domain} (already registered as ${existing.id}, cannot also register ${reducer.id})`,
+          );
+        }
       }
       reducers.set(reducer.id, reducer);
     },

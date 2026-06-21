@@ -1,8 +1,10 @@
 // ─── Workflow State Resolution ──────────────────────────────────────────────
 //
-// Unified state resolution with fallback chain:
-//   1. State file on disk (legacy / file-based workflows)
-//   2. Event store materialization (MCP-managed workflows)
+// Unified state resolution. The SQLite event store is the source of truth; the
+// on-disk `.state.json` is a derived stamp consulted only when no event store
+// is available. Resolution order (event-store-first, #1504):
+//   1. Event store materialization (when featureId + eventStore are supplied)
+//   2. State file on disk (fallback — legacy / CLI paths with no event store)
 //   3. Error if neither source is available
 //
 // Replaces inline parseStateFile / existsSync patterns in
@@ -68,27 +70,22 @@ export function classifyStateFile(stateFile: string | undefined): StateFileStatu
 /**
  * Resolve workflow state from the best available source.
  *
- * Resolution order:
- * 1. If `stateFile` is provided and exists on disk, read and parse it.
- * 2. If the file is missing/unreadable, or no `stateFile` was provided,
- *    fall back to materializing state from the event store via projection.
+ * Resolution order (event-store-first, #1504):
+ * 1. If `featureId` and `eventStore` are provided, materialize state from the
+ *    event store via projection — the authoritative source of truth.
+ * 2. Otherwise, if a `stateFile` is provided and exists on disk, read and parse
+ *    it (legacy / CLI fallback when no event store is available).
  * 3. If neither source is available, return a NO_STATE_SOURCE error.
  */
 export async function resolveWorkflowState(opts: ResolveOpts): Promise<ResolveResult> {
-  // ── Try state file first ──────────────────────────────────────────────────
-
-  if (opts.stateFile && existsSync(opts.stateFile)) {
-    try {
-      const raw = readFileSync(opts.stateFile, 'utf-8');
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      return { state: parsed };
-    } catch {
-      // File exists but is unreadable or invalid JSON — fall through to event store
-    }
-  }
-
-  // ── Fall back to event store materialization ──────────────────────────────
-
+  // ── Event store FIRST (#1504, INV-1) ──────────────────────────────────────
+  // The SQLite event log is the source of truth; the on-disk `.state.json` is a
+  // derived stamp that can go stale and silently SHADOW the authoritative
+  // projection (the bug #1504 fixes). When the event store is available,
+  // materialize from it. The file is a fallback ONLY when no event store is
+  // supplied (CLI/legacy paths). For a caller that explicitly needs the on-disk
+  // file (e.g. a file↔projection drift comparison), read it directly rather
+  // than relying on resolution order.
   if (opts.featureId && opts.eventStore) {
     try {
       const events = await opts.eventStore.query(opts.featureId);
@@ -111,6 +108,18 @@ export async function resolveWorkflowState(opts: ResolveOpts): Promise<ResolveRe
           },
         },
       };
+    }
+  }
+
+  // ── Fallback: file-only resolution (no event store available) ─────────────
+
+  if (opts.stateFile && existsSync(opts.stateFile)) {
+    try {
+      const raw = readFileSync(opts.stateFile, 'utf-8');
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      return { state: parsed };
+    } catch {
+      // File exists but is unreadable or invalid JSON — fall through to error
     }
   }
 

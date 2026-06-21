@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { StorageBackend } from './backend.js';
+import type { WorkflowState } from '../workflow/types.js';
 import { logger } from '../logger.js';
 import { WorkflowStateSchema } from '../workflow/schemas.js';
 import { TELEMETRY_STREAM } from '../telemetry/constants.js';
@@ -74,34 +75,56 @@ export async function compactWorkflow(
   featureId: string,
   policy: LifecyclePolicy,
 ): Promise<void> {
-  // Read state file to check eligibility
   const stateFile = path.join(stateDir, `${featureId}.state.json`);
 
-  let stateRaw: string;
-  try {
-    stateRaw = await fs.readFile(stateFile, 'utf-8');
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
-    throw err;
-  }
+  // Read state to check eligibility. The SQLite backend is the source of truth
+  // (#1504); the on-disk `.state.json` is read only on the no-backend
+  // (test/legacy) path. Production always wires a backend (index.ts), so no
+  // production compaction reads the file.
+  let state: WorkflowState;
+  if (backend) {
+    const backendState = backend.getState(featureId);
+    if (!backendState) return; // no state row → nothing to compact
+    // Validate the backend row before any destructive archive/delete, exactly
+    // as the no-backend file path does below. A malformed row whose `phase` and
+    // `updatedAt` happen to look eligible must not be silently compacted away —
+    // skip and warn so the corruption is observable rather than erased.
+    const parsed = WorkflowStateSchema.safeParse(backendState);
+    if (!parsed.success) {
+      logger.warn(
+        { featureId, error: parsed.error.message },
+        'Skipping compaction — backend state fails schema validation',
+      );
+      return;
+    }
+    state = parsed.data as WorkflowState;
+  } else {
+    let stateRaw: string;
+    try {
+      stateRaw = await fs.readFile(stateFile, 'utf-8');
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+      throw err;
+    }
 
-  let rawJson: unknown;
-  try {
-    rawJson = JSON.parse(stateRaw);
-  } catch {
-    logger.warn({ featureId, file: stateFile }, 'Skipping compaction — corrupt JSON in state file');
-    return;
-  }
+    let rawJson: unknown;
+    try {
+      rawJson = JSON.parse(stateRaw);
+    } catch {
+      logger.warn({ featureId, file: stateFile }, 'Skipping compaction — corrupt JSON in state file');
+      return;
+    }
 
-  const parsed = WorkflowStateSchema.safeParse(rawJson);
-  if (!parsed.success) {
-    logger.warn(
-      { featureId, file: stateFile, error: parsed.error.message },
-      'Skipping compaction — state file fails schema validation',
-    );
-    return;
+    const parsed = WorkflowStateSchema.safeParse(rawJson);
+    if (!parsed.success) {
+      logger.warn(
+        { featureId, file: stateFile, error: parsed.error.message },
+        'Skipping compaction — state file fails schema validation',
+      );
+      return;
+    }
+    state = parsed.data as WorkflowState;
   }
-  const state = parsed.data;
 
   const phase = state.phase as string | undefined;
   const updatedAt = state.updatedAt as string | undefined;
@@ -158,20 +181,26 @@ export async function checkCompaction(
   stateDir: string,
   policy: LifecyclePolicy,
 ): Promise<void> {
-  // List all state files
-  let entries: string[];
-  try {
-    entries = await fs.readdir(stateDir);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
-    throw err;
+  // Enumerate workflows. The SQLite backend is the source of truth (#1504);
+  // the `.state.json` directory scan is the no-backend (test/legacy) fallback.
+  let featureIds: string[];
+  if (backend) {
+    featureIds = backend.listStates().map((s) => s.featureId);
+  } else {
+    let entries: string[];
+    try {
+      entries = await fs.readdir(stateDir);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+      throw err;
+    }
+    featureIds = entries
+      .filter((f) => f.endsWith('.state.json'))
+      .map((f) => f.replace('.state.json', ''));
   }
 
-  const stateFiles = entries.filter((f) => f.endsWith('.state.json'));
-
   // Compact eligible workflows
-  for (const file of stateFiles) {
-    const featureId = file.replace('.state.json', '');
+  for (const featureId of featureIds) {
     await compactWorkflow(backend, stateDir, featureId, policy);
   }
 

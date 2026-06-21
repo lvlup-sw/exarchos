@@ -126,6 +126,56 @@ describe('isPlainObject', () => {
   });
 });
 
+// ─── #1504: backend-mode writers do not write .state.json ─────────────────
+
+describe('#1504 — backend-mode writers do not write .state.json', () => {
+  let nwTmpDir: string;
+
+  beforeEach(async () => {
+    nwTmpDir = await mkdtemp(path.join(tmpdir(), 'statestore-nowrite-'));
+  });
+
+  afterEach(async () => {
+    configureStateStoreBackend(undefined as unknown as InMemoryBackend);
+    await rm(nwTmpDir, { recursive: true, force: true });
+  });
+
+  it('initStateFile_BackendMode_DoesNotWriteStateJson', async () => {
+    configureStateStoreBackend(new InMemoryBackend());
+
+    const { stateFile } = await initStateFile(nwTmpDir, 'no-init-file', 'feature');
+
+    // Backend is the authoritative store (#1504); no `.state.json` crash-backup
+    // is written so the file can never go stale or shadow the projection.
+    await expect(fs.access(stateFile)).rejects.toThrow();
+  });
+
+  it('writeStateFile_BackendMode_DoesNotWriteStateJson', async () => {
+    const backend = new InMemoryBackend();
+    configureStateStoreBackend(backend);
+    await initStateFile(nwTmpDir, 'no-write-file', 'feature');
+
+    const stateFile = path.join(nwTmpDir, 'no-write-file.state.json');
+    const state = backend.getState('no-write-file');
+    expect(state).not.toBeNull();
+    await writeStateFile(stateFile, { ...(state as WorkflowState), phase: 'plan' } as WorkflowState);
+
+    // The mutation landed in the backend, not on disk.
+    expect(backend.getState('no-write-file')?.phase).toBe('plan');
+    await expect(fs.access(stateFile)).rejects.toThrow();
+  });
+
+  it('initStateFile_NoBackend_StillWritesStateJson', async () => {
+    // Degradation path (CLI/legacy, no backend): the file remains the only
+    // store, so it must still be written.
+    configureStateStoreBackend(undefined as unknown as InMemoryBackend);
+
+    const { stateFile } = await initStateFile(nwTmpDir, 'degraded-init', 'feature');
+
+    await expect(fs.access(stateFile)).resolves.toBeUndefined();
+  });
+});
+
 // ─── Issue 4: extractFeatureIdFromPath Validation ─────────────────────────
 
 describe('extractFeatureIdFromPath validation', () => {
@@ -608,99 +658,9 @@ describe('State Store CAS Property Test', () => {
   });
 });
 
-// ─── Write-Through .state.json Backup ────────────────────────────────────────
-
-describe('writeStateFile_WithBackend_WritesJsonBackup', () => {
-  let tempDir: string;
-  let backend: InMemoryBackend;
-
-  function makeState(overrides?: Record<string, unknown>): WorkflowState {
-    const now = new Date().toISOString();
-    return {
-      version: '1.1',
-      featureId: 'test',
-      workflowType: 'feature',
-      createdAt: now,
-      updatedAt: now,
-      phase: 'ideate',
-      artifacts: { design: null, plan: null, pr: null },
-      tasks: [],
-      worktrees: {},
-      reviews: {},
-      synthesis: { integrationBranch: null, mergeOrder: [], mergedBranches: [], prUrl: null, prFeedback: [] },
-      _version: 1,
-      _history: {},
-      _checkpoint: { timestamp: now, phase: 'ideate', summary: '', operationsSince: 0, fixCycleCount: 0, lastActivityTimestamp: now, staleAfterMinutes: 120 },
-      ...overrides,
-    } as WorkflowState;
-  }
-
-  beforeEach(async () => {
-    tempDir = await mkdtemp(path.join(tmpdir(), 'state-write-through-'));
-    backend = new InMemoryBackend();
-    configureStateStoreBackend(backend);
-  });
-
-  afterEach(async () => {
-    configureStateStoreBackend(undefined as unknown as InMemoryBackend);
-    await rm(tempDir, { recursive: true, force: true });
-  });
-
-  it('writeStateFile_WithBackend_AlsoWritesJsonFile', async () => {
-    const state = makeState({ featureId: 'wt-test', phase: 'ideate' });
-    backend.setState('wt-test', state);
-
-    const stateFile = path.join(tempDir, 'wt-test.state.json');
-    const updated = makeState({ featureId: 'wt-test', phase: 'plan' });
-
-    await writeStateFile(stateFile, updated, { expectedVersion: 1 });
-
-    // Backend should have the state
-    const backendState = backend.getState('wt-test');
-    expect(backendState).toBeDefined();
-    expect(backendState!.phase).toBe('plan');
-
-    // JSON file should ALSO exist as backup
-    const fileContent = await fs.readFile(stateFile, 'utf-8');
-    const fileState = JSON.parse(fileContent);
-    expect(fileState.phase).toBe('plan');
-    expect(fileState.featureId).toBe('wt-test');
-  });
-
-  it('initStateFile_WithBackend_AlsoWritesJsonFile', async () => {
-    const { stateFile, state } = await initStateFile(tempDir, 'init-wt', 'feature');
-
-    // Backend should have the state
-    const backendState = backend.getState('init-wt');
-    expect(backendState).toBeDefined();
-    expect(backendState!.phase).toBe('ideate');
-
-    // JSON file should ALSO exist as backup
-    const fileContent = await fs.readFile(stateFile, 'utf-8');
-    const fileState = JSON.parse(fileContent);
-    expect(fileState.phase).toBe('ideate');
-    expect(fileState.featureId).toBe('init-wt');
-  });
-
-  it('writeStateFile_BackendSucceeds_FileWriteFailure_DoesNotThrow', async () => {
-    const state = makeState({ featureId: 'wt-fail', phase: 'ideate' });
-    backend.setState('wt-fail', state);
-
-    // Create a regular file where mkdir expects a directory — this forces
-    // the write-through path to fail (ENOTDIR) deterministically
-    const blocker = path.join(tempDir, 'blocker');
-    await fs.writeFile(blocker, 'not-a-dir', 'utf-8');
-    const stateFile = path.join(blocker, 'nested', 'wt-fail.state.json');
-    const updated = makeState({ featureId: 'wt-fail', phase: 'plan' });
-
-    // Should NOT throw — backend write succeeds, file write failure is logged
-    await expect(writeStateFile(stateFile, updated, { expectedVersion: 1 })).resolves.toBeUndefined();
-
-    // Backend should still have the updated state
-    const backendState = backend.getState('wt-fail');
-    expect(backendState!.phase).toBe('plan');
-  });
-});
+// Write-through `.state.json` backup removed (#1504): the backend is the sole
+// authoritative store in backend mode. The no-write contract is pinned by the
+// `#1504 — backend-mode writers do not write .state.json` block above.
 
 // ─── hydrateEventsFromStore ──────────────────────────────────────────────────
 

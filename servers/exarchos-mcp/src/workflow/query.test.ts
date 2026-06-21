@@ -3,7 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { handleSummary, handleReconcile, handleTransitions } from './query.js';
-import { configureStateStoreBackend, StateStoreError } from './state-store.js';
+import { configureStateStoreBackend } from './state-store.js';
 import { handleGet } from './tools.js';
 import { InMemoryBackend } from '../storage/memory-backend.js';
 import type { EventStore } from '../event-store/store.js';
@@ -87,22 +87,13 @@ describe('handleSummary', () => {
   });
 
   it('handleSummary_ValidWorkflow_ReturnsProgressAndEvents', async () => {
-    const state = makeBaseState({
-      tasks: [
-        { id: 't1', title: 'Task 1', status: 'complete', blockedBy: [] },
-        { id: 't2', title: 'Task 2', status: 'pending', blockedBy: [] },
-      ],
-    });
-    backend.setState('test-feature', state as never, 0);
-
+    // Event-sourced (#1504): seed the truth as the event log the projection
+    // folds, not a decoupled backend snapshot.
     const mockEvents: WorkflowEvent[] = [
-      {
-        streamId: 'test-feature',
-        sequence: 1,
-        timestamp: NOW,
-        type: 'workflow.started',
-        schemaVersion: '1.0',
-      },
+      { streamId: 'test-feature', sequence: 1, timestamp: NOW, type: 'workflow.started', schemaVersion: '1.0', data: { featureId: 'test-feature', workflowType: 'feature' } },
+      { streamId: 'test-feature', sequence: 2, timestamp: NOW, type: 'task.assigned', schemaVersion: '1.0', data: { taskId: 't1', title: 'Task 1' } },
+      { streamId: 'test-feature', sequence: 3, timestamp: NOW, type: 'task.assigned', schemaVersion: '1.0', data: { taskId: 't2', title: 'Task 2' } },
+      { streamId: 'test-feature', sequence: 4, timestamp: NOW, type: 'task.completed', schemaVersion: '1.0', data: { taskId: 't1' } },
     ];
     const mockStore = createMockEventStore(mockEvents);
 
@@ -119,7 +110,7 @@ describe('handleSummary', () => {
     const progress = data.taskProgress as { completed: number; total: number };
     expect(progress.completed).toBe(1);
     expect(progress.total).toBe(2);
-    expect((data.recentEvents as unknown[]).length).toBe(1);
+    expect((data.recentEvents as unknown[]).length).toBe(4);
   });
 
   it('handleSummary_NonExistentFeature_ReturnsError', async () => {
@@ -136,15 +127,29 @@ describe('handleSummary', () => {
   });
 
   it('handleSummary_CompoundState_IncludesCircuitBreaker', async () => {
-    // delegate is inside the 'implementation' compound in feature workflow
-    const state = makeBaseState({ phase: 'delegate' });
-    backend.setState('test-feature', state as never, 0);
-
-    // Events with a compound-entry and a fix-cycle for the 'implementation' compound
+    // delegate is inside the 'implementation' compound in the feature workflow.
+    // Event-sourced (#1504): the phase is folded from a workflow.transition,
+    // not seeded into a decoupled backend snapshot.
     const mockEvents: WorkflowEvent[] = [
       {
         streamId: 'test-feature',
         sequence: 1,
+        timestamp: NOW,
+        type: 'workflow.started',
+        schemaVersion: '1.0',
+        data: { featureId: 'test-feature', workflowType: 'feature' },
+      },
+      {
+        streamId: 'test-feature',
+        sequence: 2,
+        timestamp: NOW,
+        type: 'workflow.transition',
+        schemaVersion: '1.0',
+        data: { to: 'delegate' },
+      },
+      {
+        streamId: 'test-feature',
+        sequence: 3,
         timestamp: NOW,
         type: 'workflow.compound-entry',
         schemaVersion: '1.0',
@@ -152,7 +157,7 @@ describe('handleSummary', () => {
       },
       {
         streamId: 'test-feature',
-        sequence: 2,
+        sequence: 4,
         timestamp: NOW,
         type: 'workflow.fix-cycle',
         schemaVersion: '1.0',
@@ -176,6 +181,30 @@ describe('handleSummary', () => {
     expect(cb.maxFixCycles).toBe(3);
     expect(cb.open).toBe(false);
   });
+
+  it('handleSummary_TruthInEventStoreNotBackend_FoldsTaskProgress', async () => {
+    // Event-store-first (#1504): the event log is the sole source of truth.
+    // Seed the truth ONLY in the event store — no backend.setState — and assert
+    // handleSummary folds it. Under the legacy readStateFile path this fails
+    // (the backend has no state → STATE_NOT_FOUND).
+    const mockEvents: WorkflowEvent[] = [
+      { streamId: 'es-feature', sequence: 1, timestamp: NOW, type: 'workflow.started', schemaVersion: '1.0', data: { featureId: 'es-feature', workflowType: 'feature' } },
+      { streamId: 'es-feature', sequence: 2, timestamp: NOW, type: 'task.assigned', schemaVersion: '1.0', data: { taskId: 't1', title: 'Task 1' } },
+      { streamId: 'es-feature', sequence: 3, timestamp: NOW, type: 'task.assigned', schemaVersion: '1.0', data: { taskId: 't2', title: 'Task 2' } },
+      { streamId: 'es-feature', sequence: 4, timestamp: NOW, type: 'task.completed', schemaVersion: '1.0', data: { taskId: 't1' } },
+    ];
+    const mockStore = createMockEventStore(mockEvents);
+
+    const result = await handleSummary({ featureId: 'es-feature' }, '/fake/state-dir', mockStore);
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.featureId).toBe('es-feature');
+    expect(data.workflowType).toBe('feature');
+    const progress = data.taskProgress as { completed: number; total: number };
+    expect(progress.completed).toBe(1);
+    expect(progress.total).toBe(2);
+  });
 });
 
 describe('handleReconcile', () => {
@@ -198,17 +227,16 @@ describe('handleReconcile', () => {
     const worktreePath = path.join(tmpDir, 'wt-1');
     await fs.mkdir(worktreePath, { recursive: true });
 
-    const state = makeBaseState({
-      worktrees: {
-        'wt-1': { branch: 'feat/task-1', taskId: 't1', status: 'active', path: worktreePath },
-      },
-    });
-    backend.setState('test-feature', state as never, 0);
+    // Event-sourced (#1504): worktrees fold from a state.patched.
+    const mockStore = createMockEventStore([
+      { streamId: 'test-feature', sequence: 1, timestamp: NOW, type: 'workflow.started', schemaVersion: '1.0', data: { featureId: 'test-feature', workflowType: 'feature' } },
+      { streamId: 'test-feature', sequence: 2, timestamp: NOW, type: 'state.patched', schemaVersion: '1.0', data: { patch: { 'worktrees.wt-1': { branch: 'feat/task-1', taskId: 't1', status: 'active', path: worktreePath } } } },
+    ]);
 
     const result = await handleReconcile(
       { featureId: 'test-feature' },
       '/fake/state-dir',
-      null,
+      mockStore,
     );
 
     expect(result.success).toBe(true);
@@ -219,17 +247,15 @@ describe('handleReconcile', () => {
   });
 
   it('handleReconcile_MissingWorktree_ReportsInaccessible', async () => {
-    const state = makeBaseState({
-      worktrees: {
-        'wt-1': { branch: 'feat/task-1', taskId: 't1', status: 'active', path: '/nonexistent/path/xyz' },
-      },
-    });
-    backend.setState('test-feature', state as never, 0);
+    const mockStore = createMockEventStore([
+      { streamId: 'test-feature', sequence: 1, timestamp: NOW, type: 'workflow.started', schemaVersion: '1.0', data: { featureId: 'test-feature', workflowType: 'feature' } },
+      { streamId: 'test-feature', sequence: 2, timestamp: NOW, type: 'state.patched', schemaVersion: '1.0', data: { patch: { 'worktrees.wt-1': { branch: 'feat/task-1', taskId: 't1', status: 'active', path: '/nonexistent/path/xyz' } } } },
+    ]);
 
     const result = await handleReconcile(
       { featureId: 'test-feature' },
       '/fake/state-dir',
-      null,
+      mockStore,
     );
 
     expect(result.success).toBe(true);
@@ -287,6 +313,47 @@ describe('handleReconcile', () => {
     expect(driftEntry).toBeDefined();
     expect(driftEntry!.exarchosStatus).toBe('pending');
     expect(driftEntry!.nativeStatus).toBe('completed');
+  });
+
+  it('handleReconcile_TruthInEventStore_FoldsWorktreesAndNativeTaskId', async () => {
+    // Event-store-first (#1504): worktrees + nativeTaskId fold from the log —
+    // nativeTaskId rides a `tasks[0].nativeTaskId` state.patched (the array-index
+    // fold fix). No backend.setState, no state file.
+    const nativeTaskDir = path.join(tmpDir, 'native-tasks', 'es-feature');
+    await fs.mkdir(nativeTaskDir, { recursive: true });
+    await fs.writeFile(
+      path.join(nativeTaskDir, 'nt-9.json'),
+      JSON.stringify({ id: 'nt-9', subject: 'Task 1', status: 'completed' }),
+    );
+    const wtPath = path.join(tmpDir, 'wt-es');
+    await fs.mkdir(wtPath, { recursive: true });
+
+    const mockEvents: WorkflowEvent[] = [
+      { streamId: 'es-feature', sequence: 1, timestamp: NOW, type: 'workflow.started', schemaVersion: '1.0', data: { featureId: 'es-feature', workflowType: 'feature' } },
+      { streamId: 'es-feature', sequence: 2, timestamp: NOW, type: 'task.assigned', schemaVersion: '1.0', data: { taskId: 't1', title: 'Task 1' } },
+      { streamId: 'es-feature', sequence: 3, timestamp: NOW, type: 'state.patched', schemaVersion: '1.0', data: { patch: { 'tasks[0].nativeTaskId': 'nt-9', 'worktrees.wt-1': { branch: 'feat/1', taskId: 't1', status: 'active', path: wtPath } } } },
+    ];
+    const mockStore = createMockEventStore(mockEvents);
+
+    const result = await handleReconcile(
+      { featureId: 'es-feature' },
+      '/fake/state-dir',
+      mockStore,
+      path.join(tmpDir, 'native-tasks'),
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    const worktrees = data.worktrees as Array<Record<string, unknown>>;
+    expect(worktrees).toHaveLength(1);
+    expect(worktrees[0].pathStatus).toBe('OK');
+    const taskDrift = data.taskDrift as Record<string, unknown>;
+    expect(taskDrift).toBeDefined();
+    const drift = taskDrift.drift as Array<Record<string, unknown>>;
+    const entry = drift.find((d) => d.taskId === 't1');
+    expect(entry).toBeDefined();
+    expect(entry!.exarchosStatus).toBe('pending');
+    expect(entry!.nativeStatus).toBe('completed');
   });
 });
 
@@ -352,44 +419,25 @@ describe('HandleQuery edge cases', () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
-  it('HandleQuery_StateStoreNonNotFoundError_Rethrows', async () => {
-    // Use a custom backend that throws a non-STATE_NOT_FOUND StateStoreError
-    const throwingBackend = {
-      getState: () => {
-        throw new StateStoreError('STATE_CORRUPT', 'parse error in state file');
-      },
-      setState: () => {},
-      listStates: () => [],
-      initialize: () => {},
-    } as unknown as InMemoryBackend;
-    configureStateStoreBackend(throwingBackend);
-
-    await expect(
-      handleSummary({ featureId: 'test-feature' }, '/fake/state-dir', null),
-    ).rejects.toThrow(StateStoreError);
-
-    // Also verify handleReconcile rethrows non-NOT_FOUND errors
-    await expect(
-      handleReconcile({ featureId: 'test-feature' }, '/fake/state-dir', null),
-    ).rejects.toThrow(StateStoreError);
-  });
+  // (Removed HandleQuery_StateStoreNonNotFoundError_Rethrows: both handleSummary
+  // and handleReconcile migrated to event-store-first (#1504) — neither reads the
+  // backend directly, so the "rethrow a non-NOT_FOUND backend StateStoreError"
+  // contract no longer applies to these handlers.)
 
   it('HandleQuery_WorktreePathFsAccessFails_ReportsPathMissing', async () => {
     // Create a path that will fail fs.access with a permission error (e.g., EACCES)
     // Using a non-existent deeply nested path triggers ENOENT which is caught as MISSING too
     const inaccessiblePath = path.join(tmpDir, 'no-perms', 'deeply', 'nested', 'nonexistent');
 
-    const state = makeBaseState({
-      worktrees: {
-        'wt-1': { branch: 'feat/task-1', taskId: 't1', status: 'active', path: inaccessiblePath },
-      },
-    });
-    backend.setState('test-feature', state as never, 0);
+    const mockStore = createMockEventStore([
+      { streamId: 'test-feature', sequence: 1, timestamp: NOW, type: 'workflow.started', schemaVersion: '1.0', data: { featureId: 'test-feature', workflowType: 'feature' } },
+      { streamId: 'test-feature', sequence: 2, timestamp: NOW, type: 'state.patched', schemaVersion: '1.0', data: { patch: { 'worktrees.wt-1': { branch: 'feat/task-1', taskId: 't1', status: 'active', path: inaccessiblePath } } } },
+    ]);
 
     const result = await handleReconcile(
       { featureId: 'test-feature' },
       '/fake/state-dir',
-      null,
+      mockStore,
     );
 
     expect(result.success).toBe(true);
@@ -400,58 +448,12 @@ describe('HandleQuery edge cases', () => {
     expect(worktrees[0].pathStatus).toBe('MISSING');
   });
 
-  it('HandleQuery_RawStateJsonParseFailure_SkipsDriftGracefully', async () => {
-    // Switch to file-based mode so handleReconcile reads raw JSON from disk
-    configureStateStoreBackend(undefined);
-
-    const stateDir = path.join(tmpDir, 'workflow-state');
-    await fs.mkdir(stateDir, { recursive: true });
-
-    // Write a valid state file for readStateFile to succeed
-    const stateData = makeBaseState({
-      tasks: [
-        { id: 't1', title: 'Task 1', status: 'pending', nativeTaskId: 'native-t1', blockedBy: [] },
-      ],
-      worktrees: {},
-    });
-    const stateFile = path.join(stateDir, 'test-feature.state.json');
-    await fs.writeFile(stateFile, JSON.stringify(stateData, null, 2));
-
-    // Now corrupt the state file AFTER readStateFile would cache it
-    // But handleReconcile reads raw JSON separately via fs.readFile.
-    // We need to make the raw read fail. Since readStateFile and raw read both
-    // read the same file, we need to write the file, let readStateFile parse it
-    // through Zod (which succeeds), then have the raw re-read also succeed but
-    // produce invalid JSON. We can't easily do that with one file.
-    //
-    // Instead, test the graceful skip by making the raw state file contain
-    // malformed JSON for the second read. We'll use a backend for the first read
-    // and file for the raw re-read.
-    const corruptBackend = new InMemoryBackend();
-    const validState = makeBaseState({
-      tasks: [
-        { id: 't1', title: 'Task 1', status: 'pending', blockedBy: [] },
-      ],
-      worktrees: {},
-    });
-    corruptBackend.setState('test-feature', validState as never, 0);
-    configureStateStoreBackend(corruptBackend);
-
-    // Write malformed JSON to the state file that handleReconcile will read raw
-    await fs.writeFile(stateFile, '{{{invalid json!!!');
-
-    const result = await handleReconcile(
-      { featureId: 'test-feature' },
-      stateDir,
-      null,
-    );
-
-    // Query should succeed (worktree section works)
-    expect(result.success).toBe(true);
-    const data = result.data as Record<string, unknown>;
-    // taskDrift should be absent because the raw JSON parse failed and was caught
-    expect(data.taskDrift).toBeUndefined();
-  });
+  // (Removed HandleQuery_RawStateJsonParseFailure_SkipsDriftGracefully:
+  // handleReconcile no longer does a separate raw `.state.json` read for
+  // nativeTaskId (#1504) — it reads tasks from the event fold — so the
+  // "raw JSON parse fails → skip drift gracefully" failure mode is gone.
+  // Native reconciliation now simply doesn't run when no folded task carries a
+  // nativeTaskId.)
 
   it('HandleQuery_NativeTaskIdPresent_ReconcilesTaskDrift', async () => {
     // Switch to file-based mode so handleReconcile reads raw state with nativeTaskId

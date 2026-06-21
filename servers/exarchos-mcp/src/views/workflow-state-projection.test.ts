@@ -97,6 +97,28 @@ describe('WorkflowStateProjection workflow lifecycle', () => {
       expect(next.updatedAt).toBe(ts);
     });
 
+    it('should preserve an existing createdAt when workflow.started is re-folded (reconcile idempotency)', () => {
+      // Regression: reconcileFromEvents replays from sequence 0 when a state
+      // lacks `_eventSequence`, re-folding `workflow.started` onto an
+      // already-stamped view. createdAt must NOT be clobbered to the (same)
+      // event timestamp on the second fold — it is set once, then preserved.
+      const created = '2026-02-19T10:00:00.000Z';
+      const later = '2026-03-01T12:00:00.000Z';
+      const start = workflowStateProjection.apply(
+        workflowStateProjection.init(),
+        makeEvent('workflow.started', { featureId: 'f', workflowType: 'feature' }, { timestamp: created }),
+      );
+      expect(start.createdAt).toBe(created);
+
+      const refolded = workflowStateProjection.apply(
+        start,
+        makeEvent('workflow.started', { featureId: 'f', workflowType: 'feature' }, { timestamp: later }),
+      );
+
+      expect(refolded.createdAt).toBe(created); // preserved, not overwritten
+      expect(refolded.updatedAt).toBe(later); // updatedAt still advances
+    });
+
     it('should set phase to triage for debug workflows', () => {
       const state = workflowStateProjection.init();
       const event = makeEvent('workflow.started', {
@@ -380,6 +402,71 @@ describe('WorkflowStateProjection state.patched', () => {
       const next = workflowStateProjection.apply(state, event);
 
       expect(next).toEqual(state);
+    });
+
+    it('should return the SAME reference for an empty patch (no-op identity)', () => {
+      // Regression (Seer): an empty `{}` patch must not structuredClone into a
+      // fresh reference — reconcileFromEvents' `next !== folded` check would
+      // miscount it as applied and force a spurious no-op write-back.
+      const state = workflowStateProjection.init();
+      const event = makeEvent('state.patched', { patch: {} });
+      const next = workflowStateProjection.apply(state, event);
+
+      expect(next).toBe(state); // reference identity, not just deep equality
+    });
+  });
+
+  describe('Apply_StatePatched_ArrayIndexPath_MergesInPlace', () => {
+    it('should apply an array-index dot-path patch in place without clobbering sibling tasks', () => {
+      let state = workflowStateProjection.init();
+
+      // Two tasks land via task.assigned.
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('task.assigned', { taskId: 'task-1', title: 'First', branch: 'feat/1', worktree: '/tmp/wt-1' }),
+      );
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('task.assigned', { taskId: 'task-2', title: 'Second' }),
+      );
+
+      // An array-index patch (the shape handleSet emits for `tasks[0].nativeTaskId`).
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('state.patched', { patch: { 'tasks[0].nativeTaskId': 'nt-1' } }),
+      );
+
+      // fold ≡ write: tasks[0] keeps its identity AND gains the patched field,
+      // and tasks[1] survives (the array is NOT replaced wholesale).
+      expect(state.tasks).toHaveLength(2);
+      expect(state.tasks[0]).toMatchObject({
+        id: 'task-1',
+        title: 'First',
+        status: 'pending',
+        nativeTaskId: 'nt-1',
+      });
+      expect(state.tasks[1]).toMatchObject({ id: 'task-2', title: 'Second', status: 'pending' });
+    });
+
+    it('should update an existing field at an array index in place', () => {
+      let state = workflowStateProjection.init();
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('task.assigned', { taskId: 'task-1', title: 'First' }),
+      );
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('task.assigned', { taskId: 'task-2', title: 'Second' }),
+      );
+
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('state.patched', { patch: { 'tasks[1].status': 'complete' } }),
+      );
+
+      expect(state.tasks).toHaveLength(2);
+      expect(state.tasks[0]).toMatchObject({ id: 'task-1', status: 'pending' });
+      expect(state.tasks[1]).toMatchObject({ id: 'task-2', status: 'complete' });
     });
   });
 });
@@ -939,5 +1026,74 @@ describe('WorkflowStateProjection phase.entered / phase.exited', () => {
     expect(afterEntered.phaseObligation?.resolver).toBeNull();
     expect(afterEntered.phaseObligation?.resolvedGates).toEqual([]);
     expect(afterEntered.phaseObligation?.posture).toBe('read-only');
+  });
+});
+
+// ─── Merge Orchestrator fold (#1504/#1554 — close the projection gap) ───────
+// Pre-fix, workflowStateProjection dropped merge.* on the floor (default arm),
+// so resolveWorkflowState materialized state with NO mergeOrchestrator block —
+// the headline gap the #1504 field-coverage audit found. These fold the merge
+// terminal events the file-path applyEventToState (state-store.ts:804-853) did.
+describe('WorkflowStateProjection mergeOrchestrator fold', () => {
+  it('MergeExecuted_FoldsCompletedBlock', () => {
+    let view = workflowStateProjection.init();
+    view = workflowStateProjection.apply(view, makeEvent('workflow.started', {
+      featureId: 'feat-m', workflowType: 'feature',
+    }));
+    view = workflowStateProjection.apply(view, makeEvent('merge.executed', {
+      taskId: 't1', sourceBranch: 'task/t1', targetBranch: 'integration',
+      strategy: 'squash', mergeSha: 'abc123',
+    }));
+
+    expect(view.mergeOrchestrator).toBeDefined();
+    expect(view.mergeOrchestrator).toMatchObject({
+      phase: 'completed',
+      taskId: 't1',
+      sourceBranch: 'task/t1',
+      targetBranch: 'integration',
+      strategy: 'squash',
+      mergeSha: 'abc123',
+    });
+  });
+
+  it('MergeRollback_FoldsRolledBackBlockWithRecoveryError', () => {
+    let view = workflowStateProjection.init();
+    view = workflowStateProjection.apply(view, makeEvent('merge.rollback', {
+      taskId: 't2', sourceBranch: 'task/t2', targetBranch: 'integration',
+      rollbackSha: 'def456', reason: 'verification-failed',
+      recoveryError: 'reset-keep-blocked',
+    }));
+
+    expect(view.mergeOrchestrator).toMatchObject({
+      phase: 'rolled-back',
+      taskId: 't2',
+      rollbackSha: 'def456',
+      reason: 'verification-failed',
+      recoveryError: 'reset-keep-blocked',
+    });
+  });
+
+  it('MergePreflightFailed_FoldsAbortedBlock', () => {
+    let view = workflowStateProjection.init();
+    view = workflowStateProjection.apply(view, makeEvent('merge.preflight', {
+      passed: false, taskId: 't3', sourceBranch: 'task/t3', targetBranch: 'integration',
+    }));
+
+    expect(view.mergeOrchestrator).toMatchObject({
+      phase: 'aborted',
+      abortReason: 'preflight-failed',
+      taskId: 't3',
+    });
+  });
+
+  it('MergePreflightPassed_IsObservationOnly_NoBlock', () => {
+    let view = workflowStateProjection.init();
+    view = workflowStateProjection.apply(view, makeEvent('merge.preflight', {
+      passed: true, taskId: 't4', sourceBranch: 'task/t4', targetBranch: 'integration',
+    }));
+
+    // A passing preflight is observation; the executor's merge.executed produces
+    // the next terminal write. Mirrors applyEventToState (returns false → no-op).
+    expect(view.mergeOrchestrator).toBeUndefined();
   });
 });

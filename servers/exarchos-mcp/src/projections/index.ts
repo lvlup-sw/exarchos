@@ -20,6 +20,9 @@ import './taskstore/index.js';
 // Wave 2B — mergeOrchestrator per-stream projection registration (side-effect import)
 import './merge-orchestrator/index.js';
 
+// Wave 3 (#1554) — canonical workflow-state@v1 reducer registration (side-effect import)
+import './workflow-state/index.js';
+
 export type { ProjectionReducer } from './types.js';
 export { assertReducerImmutable } from './testing.js';
 

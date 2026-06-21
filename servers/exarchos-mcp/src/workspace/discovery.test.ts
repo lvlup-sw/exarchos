@@ -12,9 +12,11 @@ import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { EventStore } from '../event-store/store.js';
+import { InMemoryBackend } from '../storage/memory-backend.js';
 import { createInMemoryResolver } from '../capabilities/resolver.js';
 import type { RootsClient } from './discovery.js';
 import { resolveWorkspace, isExarchosWorkspace } from './discovery.js';
+import type { WorkflowState } from '../workflow/types.js';
 
 async function mktemp(prefix: string): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), `discovery-${prefix}-`));
@@ -71,6 +73,68 @@ describe('isExarchosWorkspace detector (#1290)', () => {
       expect(isExarchosWorkspace(dir)).toBe(false);
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('IsExarchosWorkspace_EventDbPresent_ReturnsTrue', async () => {
+    // #1504 — once the write-path is removed a tracked workspace may carry NO
+    // `.state.json`, only the event-store SQLite db. The detector must still
+    // recognize it via the db file under `docs/workflow-state/`.
+    const dir = await mktemp('iexa-db');
+    try {
+      await fs.mkdir(path.join(dir, 'docs', 'workflow-state'), { recursive: true });
+      await fs.writeFile(
+        path.join(dir, 'docs', 'workflow-state', 'exarchos.db'),
+        '',
+        'utf8',
+      );
+      expect(isExarchosWorkspace(dir)).toBe(true);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('resolveWorkspace backend-first featureId derivation (#1504)', () => {
+  it('WorkspaceDiscovery_NoStateFileButBackendRow_ResolvesFromListStates', async () => {
+    // The workspace has the `.exarchos.yml` signature but NO `*.state.json`
+    // (write-path removed). `deriveFeatureId` must enumerate the authoritative
+    // `workflow_state` projection via the storage backend rather than the
+    // (now absent) file scan — guarded by the probed workflow-state dir
+    // matching the event store's dir.
+    const tmp = await mktemp('backend-cwd');
+    try {
+      const root = path.join(tmp, 'project');
+      const wfDir = path.join(root, 'docs', 'workflow-state');
+      await fs.mkdir(wfDir, { recursive: true });
+      await fs.writeFile(path.join(root, '.exarchos.yml'), '', 'utf8');
+
+      // Event store bound to THIS workspace's workflow-state dir so the
+      // backend guard (wfdir === eventStore.dir) matches.
+      const eventStore = new EventStore(wfDir);
+      await eventStore.initialize();
+
+      const storage = new InMemoryBackend();
+      storage.setState('feat-from-backend', {
+        featureId: 'feat-from-backend',
+        workflowType: 'feature',
+      } as unknown as WorkflowState);
+
+      const resolver = createInMemoryResolver([]);
+      // No rootsClient → discovery skips the roots branch and uses cwd-walk.
+      const result = await resolveWorkspace({
+        resolver,
+        cwd: root,
+        eventStore,
+        storage,
+      });
+
+      expect(result).toBeDefined();
+      expect(result!.success).toBe(true);
+      expect(result!.source).toBe('cwd');
+      expect(result!.featureId).toBe('feat-from-backend');
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
     }
   });
 });

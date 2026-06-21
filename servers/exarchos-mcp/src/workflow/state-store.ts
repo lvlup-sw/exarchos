@@ -5,6 +5,11 @@ import { mapExternalToInternalType } from './events.js';
 import type { WorkflowState, WorkflowType } from './types.js';
 import type { EventStore } from '../event-store/store.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
+// Canonical workflow-state fold (#1554). Imported for its `apply` at call time
+// only (inside reconcileFromEvents) — the state-store ↔ workflow-state-projection
+// edge is a call-time-only ESM cycle (the projection imports isPlainObject/
+// applyDotPath from here, also call-time), which live bindings resolve safely.
+import { workflowStateProjection, type WorkflowStateView } from '../views/workflow-state-projection.js';
 import type { StorageBackend } from '../storage/backend.js';
 import { mergeSidecarEvents } from '../storage/sidecar-merger.js';
 import { isPidAlive } from '../utils/process.js';
@@ -193,18 +198,11 @@ export async function initStateFile(
       throw err;
     }
 
-    // Write-through: also write .state.json as crash-recovery backup.
-    try {
-      await fs.mkdir(stateDir, { recursive: true });
-      const tmpPath = `${stateFile}.init.${process.pid}`;
-      await fs.writeFile(tmpPath, JSON.stringify(state, null, 2), 'utf-8');
-      await fs.rename(tmpPath, stateFile);
-    } catch (err) {
-      logger.warn(
-        { stateFile, err: err instanceof Error ? err.message : String(err) },
-        'Failed to write .state.json backup; backend write succeeded',
-      );
-    }
+    // #1504 — the SQLite backend is the authoritative store; no `.state.json`
+    // crash-backup is written. A derived file on disk would go stale and could
+    // shadow the projection (the bug #1504 fixes); the no-read/write gate
+    // (1504-4) forbids `.state.json` I/O in production. `stateFile` is returned
+    // as a stable path identifier only — callers must not assume it exists.
     return { stateFile, state };
   }
 
@@ -393,20 +391,9 @@ export async function writeStateFile(
       throw err;
     }
 
-    // Write-through: also write .state.json as crash-recovery backup.
-    // Backend is the primary store; file write failure is non-fatal.
-    try {
-      const dir = path.dirname(stateFile);
-      await fs.mkdir(dir, { recursive: true });
-      const tmpPath = `${stateFile}.tmp.${process.pid}`;
-      await fs.writeFile(tmpPath, JSON.stringify(stateWithVersion, null, 2), 'utf-8');
-      await fs.rename(tmpPath, stateFile);
-    } catch (err) {
-      logger.warn(
-        { stateFile, err: err instanceof Error ? err.message : String(err) },
-        'Failed to write .state.json backup; backend write succeeded',
-      );
-    }
+    // #1504 — backend is the authoritative store; no `.state.json`
+    // write-through. The derived file is never written in backend mode so it
+    // cannot go stale or shadow the projection.
     return;
   }
 
@@ -755,125 +742,15 @@ export async function listStateFiles(
   return { valid, corrupt };
 }
 
-// ─── Apply Event to State (pure helper) ─────────────────────────────────────
-
-/**
- * Apply a single event's mutation to a workflow state object (in-place).
- * Returns true if the event was meaningfully applied.
- */
-function applyEventToState(
-  state: Record<string, unknown>,
-  event: WorkflowEvent,
-): boolean {
-  const data = event.data as Record<string, unknown> | undefined;
-
-  switch (event.type) {
-    case 'workflow.started':
-      // workflow.started is used to create the state file; no mutation needed
-      // when state already exists
-      return true;
-
-    case 'workflow.transition': {
-      if (!data) return false;
-      const to = data.to as string | undefined;
-      if (!to) return false;
-      state.phase = to;
-      state.updatedAt = event.timestamp;
-      return true;
-    }
-
-    case 'workflow.checkpoint': {
-      if (!data) return false;
-      const checkpointPhase = data.phase as string | undefined;
-      const counter = data.counter as number | undefined;
-      const checkpoint = state._checkpoint as Record<string, unknown> | undefined;
-      if (checkpoint && checkpointPhase) {
-        checkpoint.phase = checkpointPhase;
-        checkpoint.timestamp = event.timestamp;
-        checkpoint.lastActivityTimestamp = event.timestamp;
-        if (counter !== undefined) {
-          checkpoint.operationsSince = counter;
-        }
-      }
-      return true;
-    }
-
-    // ─── Merge orchestrator projections (#1109 §1 reconstructability) ──────
-    // Replace `mergeOrchestrator` rather than spread so each terminal event
-    // produces a self-consistent block — no stale fields from prior phases.
-    case 'merge.preflight': {
-      if (!data) return false;
-      // Only failed preflight produces a terminal `aborted` phase. A passed
-      // preflight is observation; the executor's merge.executed/rollback
-      // produces the next terminal write.
-      if (data.passed === false) {
-        state.mergeOrchestrator = {
-          phase: 'aborted' as const,
-          preflight: data,
-          abortReason: 'preflight-failed' as const,
-          ...(data.taskId !== undefined ? { taskId: data.taskId } : {}),
-          ...(data.sourceBranch !== undefined ? { sourceBranch: data.sourceBranch } : {}),
-          ...(data.targetBranch !== undefined ? { targetBranch: data.targetBranch } : {}),
-        };
-        state.updatedAt = event.timestamp;
-        return true;
-      }
-      return false;
-    }
-
-    case 'merge.executed': {
-      if (!data) return false;
-      state.mergeOrchestrator = {
-        phase: 'completed' as const,
-        ...(data.taskId !== undefined ? { taskId: data.taskId } : {}),
-        ...(data.sourceBranch !== undefined ? { sourceBranch: data.sourceBranch } : {}),
-        ...(data.targetBranch !== undefined ? { targetBranch: data.targetBranch } : {}),
-        ...(data.strategy !== undefined ? { strategy: data.strategy } : {}),
-        ...(data.mergeSha !== undefined ? { mergeSha: data.mergeSha } : {}),
-        ...(data.rollbackSha !== undefined ? { rollbackSha: data.rollbackSha } : {}),
-      };
-      state.updatedAt = event.timestamp;
-      return true;
-    }
-
-    case 'merge.rollback': {
-      if (!data) return false;
-      state.mergeOrchestrator = {
-        phase: 'rolled-back' as const,
-        ...(data.taskId !== undefined ? { taskId: data.taskId } : {}),
-        ...(data.sourceBranch !== undefined ? { sourceBranch: data.sourceBranch } : {}),
-        ...(data.targetBranch !== undefined ? { targetBranch: data.targetBranch } : {}),
-        ...(data.rollbackSha !== undefined ? { rollbackSha: data.rollbackSha } : {}),
-        ...(data.reason !== undefined ? { reason: data.reason } : {}),
-        ...(data.recoveryError !== undefined ? { recoveryError: data.recoveryError } : {}),
-        ...(data.rollbackError !== undefined ? { rollbackError: data.rollbackError } : {}),
-      };
-      state.updatedAt = event.timestamp;
-      return true;
-    }
-
-    // Mirrors the workflow-state-projection (views/workflow-state-projection.ts)
-    // case for `state.patched`. Without this, runbooks/definitions.ts:46,88
-    // direction to emit `state.patched` post-`set` removal in v2.11 would
-    // silently drop on the floor — _eventSequence advances but the patch
-    // never lands, so guards reading state.artifacts (e.g.
-    // design-artifact-exists) stay false forever.
-    case 'state.patched': {
-      const patch = data?.patch;
-      if (!isPlainObject(patch)) return false;
-      const merged = deepMerge(state, patch);
-      for (const key of Object.keys(merged)) {
-        state[key] = merged[key];
-      }
-      state.updatedAt = event.timestamp;
-      return true;
-    }
-
-    default:
-      // Unknown event types are skipped
-      return false;
-  }
-}
+// ─── Apply Event to State ───────────────────────────────────────────────────
+// The former in-place `applyEventToState` fold was deleted in #1554: it was the
+// last duplicate of the canonical workflow-state fold (a parallel
+// `switch (event.type)` over WorkflowEvent that derived a WorkflowStateView).
+// `reconcileFromEvents` now folds through `workflowStateProjection.apply` — the
+// single registered `workflow-state@v1` reducer — so reconcile and
+// `resolveWorkflowState` can never diverge (its `state.patched` deepMerge vs the
+// canonical applyDotPath was the last dual-mutation gap). The single-fold CI
+// gate (`scripts/check-single-workflow-fold.mjs`) keeps it that way.
 
 // ─── Hydrate Events from Store ──────────────────────────────────────────────
 
@@ -981,17 +858,26 @@ export async function reconcileFromEvents(
     return { reconciled: false, eventsApplied: 0 };
   }
 
-  // Apply each event to the state, tracking the last transition for phase reconciliation
-  const stateRecord = state as unknown as Record<string, unknown>;
+  // Fold new events through the single canonical workflow-state reducer
+  // (#1554) instead of the former duplicate `applyEventToState` (deleted). This
+  // retires the last dual-mutation divergence: `applyEventToState`'s
+  // `state.patched` used `deepMerge` (whole-array clobber), whereas the
+  // canonical fold uses `applyDotPath` (the #1504 array-index in-place fix), so
+  // reconcile and resolveWorkflowState now agree byte-for-byte. `eventsApplied`
+  // counts events the fold acted on (reference-changed result) — for the
+  // mutating events reconcile callers exercise (started/transition/checkpoint/
+  // state.patched/merge.*) this preserves the pre-#1554 count contract.
+  let folded = state as unknown as WorkflowStateView;
   let eventsApplied = 0;
   let maxSequence = currentSeq;
   let lastTransition: WorkflowEvent | undefined;
 
   for (const event of newEvents) {
-    const applied = applyEventToState(stateRecord, event);
-    if (applied) {
+    const next = workflowStateProjection.apply(folded, event);
+    if (next !== folded) {
       eventsApplied++;
     }
+    folded = next;
     if (event.sequence > maxSequence) {
       maxSequence = event.sequence;
     }
@@ -999,6 +885,10 @@ export async function reconcileFromEvents(
       lastTransition = event;
     }
   }
+
+  // Carry the folded result forward as the state to reconcile + persist.
+  state = folded as unknown as WorkflowState;
+  const stateRecord = state as unknown as Record<string, unknown>;
 
   // Update _eventSequence
   stateRecord._eventSequence = maxSequence;
