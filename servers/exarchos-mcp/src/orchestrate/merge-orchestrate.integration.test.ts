@@ -254,14 +254,14 @@ describe('Merge orchestrator happy timeline (T23, DR-MO-1, DR-MO-2)', () => {
     const data = dispatchResult.data as {
       phase: string;
       mergeSha: string;
-      rollbackSha: string;
+      recoveryPointSha: string;
       preflight: MergePreflightResult;
       // Composite envelope wrapping (T038) may add `next_actions`, `_meta`,
       // `_perf` here — we only assert the shape we contracted on.
     };
     expect(data.phase).toBe('completed');
     expect(data.mergeSha).toBe(MERGE_SHA);
-    expect(data.rollbackSha).toBe(ROLLBACK_SHA);
+    expect(data.recoveryPointSha).toBe(ROLLBACK_SHA);
     expect(stubVcsMerge).toHaveBeenCalledTimes(1);
     expect(stubVcsMerge).toHaveBeenCalledWith({
       sourceBranch: SOURCE_BRANCH,
@@ -522,7 +522,7 @@ describe('handleMergeOrchestrate integration — rollback timeline (T24)', () =>
     const raw = await fs.readFile(stateFile, 'utf-8');
     const state = JSON.parse(raw) as {
       phase: string;
-      mergeOrchestrator?: { phase?: string; taskId?: string; reason?: string; rollbackSha?: string };
+      mergeOrchestrator?: { phase?: string; taskId?: string; reason?: string; recoveryPointSha?: string };
       featureId: string;
       workflowType: string;
     };
@@ -533,7 +533,7 @@ describe('handleMergeOrchestrate integration — rollback timeline (T24)', () =>
     //  gap; now strict per the design.)
     expect(state.mergeOrchestrator?.phase).toBe('rolled-back');
     expect(state.mergeOrchestrator?.reason).toBe('merge-failed');
-    expect(typeof state.mergeOrchestrator?.rollbackSha).toBe('string');
+    expect(typeof state.mergeOrchestrator?.recoveryPointSha).toBe('string');
 
     // T19 contract: when state carries `mergeOrchestrator.phase ===
     // 'rolled-back'`, `merge_orchestrate` is omitted from next-actions.
