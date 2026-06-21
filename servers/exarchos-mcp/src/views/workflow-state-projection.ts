@@ -1,5 +1,6 @@
 import type { ViewProjection } from './materializer.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import type { WorkflowEvent, EventType } from '../event-store/schemas.js';
+import { isBuiltInEventType } from '../event-store/schemas.js';
 import { isPlainObject, applyDotPath } from '../workflow/state-store.js';
 
 // ─── View Name Constant ────────────────────────────────────────────────────
@@ -171,7 +172,16 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
   }),
 
   apply: (view: WorkflowStateView, event: WorkflowEvent): WorkflowStateView => {
-    switch (event.type) {
+    // Custom (runtime-registered) event types are not in the closed `EventTypes`
+    // union and never mutate workflow-state — return identity, exactly as the
+    // pre-#1554 catch-all `default` did. Narrowing to the closed union below is
+    // what lets the exhaustive `switch` + the `never`-assignment default PROVE
+    // (at `npm run typecheck`) that every BUILT-IN event type is accounted for:
+    // adding an `EventTypes` entry without a case here is a compile error
+    // (#1554 guard (a) — compile-time exhaustiveness).
+    if (!isBuiltInEventType(event.type)) return view;
+    const type: EventType = event.type as EventType;
+    switch (type) {
       // ── Workflow Lifecycle ──────────────────────────────────────────────
 
       case 'workflow.started': {
@@ -485,7 +495,9 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
         return next as unknown as WorkflowStateView;
       }
 
-      // ── Observability-only (return state unchanged) ────────────────────
+      // ── Observability-only: tracked in `_events` (no state mutation) ────
+      // These four append a breadcrumb to `_events` but do not otherwise mutate
+      // the view. Behavior preserved verbatim from the pre-#1554 fold.
 
       case 'team.spawned':
       case 'team.disbanded':
@@ -496,38 +508,137 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
           _events: [...(view._events ?? []), { type: event.type, timestamp: event.timestamp, data: event.data }],
         };
 
+      // ── Observability-only: pure no-op (return identity) ───────────────
+      // The EXPLICIT no-op set (#1554 guard (a)). Every built-in event type
+      // that legitimately does not mutate workflow-state is listed here by
+      // name rather than swallowed by a catch-all `default`. A new `EventTypes`
+      // entry that belongs here must be added explicitly; one that should
+      // mutate state but is left out becomes a `never`-assignment compile error
+      // at the `default` below. Preserves the pre-#1554 behavior exactly (all of
+      // these previously fell through `default: return view`).
+
+      case 'task.claimed':
+      case 'task.progressed':
+      case 'task.created':
+      case 'task.polled':
+      case 'task.result':
+      case 'task.cancelled':
+      case 'gate.executed':
+      case 'stack.restacked':
+      case 'stack.enqueued':
+      case 'stack.submitted':
+      case 'workflow.fix-cycle':
+      case 'workflow.guard-failed':
+      case 'workflow.compound-entry':
+      case 'workflow.compound-exit':
+      case 'workflow.cancel':
+      case 'workflow.cleanup':
+      case 'workflow.compensation':
+      case 'workflow.circuit-open':
+      case 'workflow.cas-failed':
+      case 'workflow.checkpoint_requested':
+      case 'workflow.checkpoint_written':
+      case 'workflow.checkpoint_superseded':
+      case 'workflow.rehydrated':
+      case 'workflow.snapshot_taken':
+      case 'workflow.projection_degraded':
+      case 'tool.invoked':
+      case 'tool.completed':
+      case 'tool.errored':
+      case 'tool.action_errored':
+      case 'turn.completed':
+      case 'subagent.tokens_used':
+      case 'benchmark.completed':
       case 'team.task.assigned':
       case 'team.task.completed':
       case 'team.task.failed':
       case 'team.task.planned':
       case 'team.teammate.dispatched':
-      case 'tool.invoked':
-      case 'tool.completed':
-      case 'tool.errored':
-      case 'benchmark.completed':
       case 'quality.regression':
-      case 'gate.executed':
+      case 'quality.hint.generated':
+      case 'quality.refinement.suggested':
+      case 'review.completed':
       case 'review.finding':
       case 'review.escalated':
-      case 'workflow.fix-cycle':
-      case 'workflow.guard-failed':
-      case 'workflow.compound-entry':
-      case 'workflow.compound-exit':
-      case 'workflow.compensation':
-      case 'workflow.circuit-open':
-      case 'workflow.cas-failed':
-      case 'workflow.cancel':
-      case 'workflow.cleanup':
-      case 'stack.restacked':
-      case 'stack.enqueued':
-      case 'task.claimed':
-      case 'task.progressed':
+      case 'eval.run.started':
+      case 'eval.case.completed':
+      case 'eval.run.completed':
+      case 'eval.judge.calibrated':
+      case 'shepherd.started':
+      case 'shepherd.iteration':
+      case 'shepherd.approval_requested':
+      case 'shepherd.completed':
+      case 'remediation.attempted':
+      case 'remediation.succeeded':
+      case 'session.tagged':
+      case 'session.machinery_consumed':
+      case 'worktree.created':
+      case 'worktree.baseline':
+      case 'worktree.remove.requested':
+      case 'worktree.remove.executed':
+      case 'test.result':
+      case 'typecheck.result':
+      case 'ci.status':
+      case 'comment.posted':
+      case 'comment.resolved':
+      case 'diagnostic.executed':
+      case 'pr.created':
+      case 'pr.merged':
+      case 'pr.commented':
+      case 'pr.create.requested':
+      case 'pr.create.executed':
+      case 'pr.comment.requested':
+      case 'pr.comment.executed':
+      case 'issue.created':
+      case 'issue.create.requested':
+      case 'issue.create.executed':
+      case 'onboard.requested':
+      case 'onboard.executed':
+      case 'checkpoint.enforced':
+      case 'checkpoint.state_missing':
+      case 'preflight.executed':
+      case 'preflight.blocked':
+      case 'provider.unknown-tier':
+      case 'provider.parse-error':
+      case 'dispatch.classified':
+      case 'dispatch.preflight':
+      case 'merge.requested':
+      case 'merge.completed':
+      case 'command.resolved':
+      case 'hsm.deprecated_action_invoked':
+      case 'spec.legacy_capabilities_array':
+      case 'phase.contract_missing':
+      case 'phase.blocked':
+      case 'migration.legacy_jsonl_imported':
+      case 'migration.completed':
+      case 'migration.failed':
+      case 'migration.workflow_type_unknown':
+      case 'migration.correlation_backfill_progress':
+      case 'branch.delete.requested':
+      case 'branch.delete.executed':
+      case 'workspace.resolved':
+      case 'elicitation.requested':
+      case 'elicitation.fulfilled':
+      case 'elicitation.declined':
+      case 'stash.detected':
+      case 'invariant.authored':
+      case 'catalog.registered':
+      case 'mutation.executing_started':
+      case 'mutation.executed':
         return view;
 
-      // ── Default (unrecognized event types) ─────────────────────────────
-
-      default:
-        return view;
+      // ── Exhaustiveness guard (#1554 guard (a)) ─────────────────────────
+      // `type` is the closed `EventType` union; every member is handled above,
+      // so this assignment narrows to `never`. Add an `EventTypes` entry
+      // without a case → `type` is no longer `never` → COMPILE error here. The
+      // throw is unreachable for built-in types (and custom types returned
+      // early), so it never fires at runtime; it mirrors `assertNever`
+      // (workflow/phase-kind.ts) but with a workflow-event-correct message and
+      // no coupling to the gate-resolver module graph.
+      default: {
+        const _exhaustive: never = type;
+        throw new Error(`Unhandled workflow event type: ${JSON.stringify(_exhaustive)}`);
+      }
     }
   },
 };

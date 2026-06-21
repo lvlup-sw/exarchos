@@ -8,7 +8,7 @@ import { createRegistry, defaultRegistry } from '../registry.js';
 import { workflowStateReducer } from './index.js';
 import { workflowStateProjection } from '../../views/workflow-state-projection.js';
 import { assertReducerImmutable } from '../testing.js';
-import type { WorkflowEvent } from '../../event-store/schemas.js';
+import { EventTypes, type WorkflowEvent } from '../../event-store/schemas.js';
 
 describe('workflow-state@v1 canonical reducer (#1554-1)', () => {
   it('workflowStateReducer_Registered_HasCanonicalId', () => {
@@ -103,5 +103,90 @@ describe('projection registry — domain singularity (#1554-1)', () => {
     ];
     for (const r of reducers) registry.register(r);
     expect(registry.list()).toHaveLength(3);
+  });
+});
+
+describe('workflow-state@v1 exhaustiveness (#1554-2)', () => {
+  // Compile-time exhaustiveness is enforced by the `never`-assignment `default`
+  // in the canonical fold (`views/workflow-state-projection.ts`): adding an
+  // `EventTypes` entry without a case is a `npm run typecheck` error. These
+  // tests are the EXECUTABLE companion — they prove the explicit no-op set
+  // stays complete at runtime (the throwing default never fires for a built-in).
+
+  it('fold_EveryBuiltInEventType_DoesNotHitThrowingDefault', () => {
+    // Fold one minimal event of EVERY built-in type from the seed. Every type
+    // must route to an explicit arm (mutating / _events-tracking / no-op); if a
+    // future EventTypes entry is left uncased, the `never`-assignment default
+    // throws and this test goes red — the runtime backstop to the type check.
+    for (const type of EventTypes) {
+      const event = {
+        type,
+        timestamp: '2026-06-20T00:00:00.000Z',
+        sequence: 1,
+        data: {},
+      } as unknown as WorkflowEvent;
+      expect(() => workflowStateReducer.apply(workflowStateReducer.initial, event)).not.toThrow();
+    }
+  });
+
+  it('fold_EveryBuiltInEventType_YieldsValidView', () => {
+    // Folding any single built-in event from the seed returns a structurally
+    // intact WorkflowStateView (core keys preserved) — no arm corrupts shape.
+    for (const type of EventTypes) {
+      const event = {
+        type,
+        timestamp: '2026-06-20T00:00:00.000Z',
+        sequence: 1,
+        data: {},
+      } as unknown as WorkflowEvent;
+      const next = workflowStateReducer.apply(workflowStateReducer.initial, event);
+      expect(next).toHaveProperty('phase');
+      expect(next).toHaveProperty('tasks');
+      expect(Array.isArray(next.tasks)).toBe(true);
+    }
+  });
+
+  it('fold_CustomEventType_ReturnsIdentity', () => {
+    // A non-built-in (runtime-registered) event type is filtered before the
+    // closed-union narrowing and returns the input view by identity — exactly
+    // as the pre-#1554 catch-all default did. Reference equality proves no
+    // accidental copy / mutation.
+    const seed = workflowStateReducer.initial;
+    const custom = {
+      type: 'totally.custom.event',
+      timestamp: '2026-06-20T00:00:00.000Z',
+      sequence: 1,
+      data: { anything: true },
+    } as unknown as WorkflowEvent;
+    expect(workflowStateReducer.apply(seed, custom)).toBe(seed);
+  });
+
+  it('fold_ObservabilityEvent_AppendsToEventsBreadcrumb', () => {
+    // The four _events-tracking observability events still append a breadcrumb
+    // (behavior preserved verbatim across the #1554-2 restructure).
+    const event = {
+      type: 'team.spawned',
+      timestamp: '2026-06-20T00:00:00.000Z',
+      sequence: 1,
+      data: { teamSize: 2 },
+    } as unknown as WorkflowEvent;
+    const next = workflowStateReducer.apply(workflowStateReducer.initial, event);
+    expect(next._events).toHaveLength(1);
+    expect(next._events[0]).toMatchObject({ type: 'team.spawned' });
+  });
+
+  it('fold_ParityWithViewProjection_AcrossAllTypes', () => {
+    // The bridge stays a faithful delegate: reducer.apply ≡ projection.apply for
+    // every built-in type (byte-equal fold — #1554 acceptance is byte-equality).
+    for (const type of EventTypes) {
+      const event = {
+        type,
+        timestamp: '2026-06-20T00:00:00.000Z',
+        sequence: 1,
+        data: {},
+      } as unknown as WorkflowEvent;
+      expect(workflowStateReducer.apply(workflowStateReducer.initial, event))
+        .toEqual(workflowStateProjection.apply(workflowStateProjection.init(), event));
+    }
   });
 });
