@@ -204,6 +204,36 @@ describe('ClaudeAdapter_GenerateMarkdown_HandlesYamlSpecialChars', () => {
     expect(hooks.PostToolUse[0].hooks[0].command).toBe(command);
   });
 
+  it('ClaudeAdapter_PreWriteRuleWithCommand_RendersWorktreeBoundaryDenyHook', () => {
+    // #1301 structural fix: a `pre-write` rule carrying a command renders a
+    // PreToolUse hook matching every file-write tool, so an out-of-worktree
+    // write is denied by construction (INV-11).
+    const command = 'exarchos verify-worktree-boundary';
+    const spec = withOverrides(IMPLEMENTER, {
+      validationRules: [{ trigger: 'pre-write', rule: 'Writes must stay in the worktree', command }],
+    });
+    const md = generateClaudeAgentMarkdown(spec);
+    const parsed = parseYaml(extractFrontmatter(md)) as Record<string, unknown>;
+    const hooks = parsed.hooks as Record<string, Array<{
+      matcher: string;
+      hooks: Array<{ type: string; command: string }>;
+    }>>;
+    expect(hooks.PreToolUse).toBeDefined();
+    expect(hooks.PreToolUse[0].matcher).toBe('Write|Edit|MultiEdit|NotebookEdit');
+    expect(hooks.PreToolUse[0].hooks[0].command).toBe(command);
+  });
+
+  it('ClaudeAdapter_PreWriteRuleWithoutCommand_RendersNoHook', () => {
+    // Guidance-only rules (the TDD "test file must exist first" rule) carry no
+    // command and must remain guidance — they must NOT emit an enforced hook.
+    const spec = withOverrides(IMPLEMENTER, {
+      validationRules: [{ trigger: 'pre-write', rule: 'Test file must exist before implementation' }],
+    });
+    const md = generateClaudeAgentMarkdown(spec);
+    const parsed = parseYaml(extractFrontmatter(md)) as Record<string, unknown>;
+    expect((parsed.hooks as Record<string, unknown> | undefined)?.PreToolUse).toBeUndefined();
+  });
+
   it('DisallowedTool_WithEmbeddedColon_RoundTripsThroughYamlParse', () => {
     // Synthetic case: a tool name with a colon. Not a realistic Claude
     // tool name, but it proves the renderer escapes scalar list entries

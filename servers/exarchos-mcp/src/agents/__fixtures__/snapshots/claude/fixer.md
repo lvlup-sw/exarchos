@@ -28,6 +28,11 @@ mcpServers:
 skills:
   - tdd-patterns
 hooks:
+  PreToolUse:
+    - matcher: Write|Edit|MultiEdit|NotebookEdit
+      hooks:
+        - type: command
+          command: exarchos verify-worktree-boundary
   PostToolUse:
     - matcher: Bash
       hooks:

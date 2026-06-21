@@ -28,6 +28,24 @@ import type { RiskTier } from '../workflow/verification-policy.js';
 // The same string is correct for every runtime and every toolchain.
 export const POST_TEST_COMMAND = 'exarchos run-tests';
 
+// Wired as the `pre-write` PreToolUse hook on every `task-isolated` agent
+// (#1301). Like POST_TEST_COMMAND it is a runtime-resolving exarchos verb, not
+// a baked path: the guard reads the hook JSON on stdin and denies (exit 2) any
+// Write/Edit/MultiEdit/NotebookEdit whose target escapes the agent's worktree.
+// This makes the worktree-isolation write leak unrepresentable by construction
+// (INV-11) rather than detected after the fact by the merge-time backstop.
+export const WORKTREE_BOUNDARY_COMMAND = 'exarchos verify-worktree-boundary';
+
+// The shared `pre-write` boundary rule. Carrying a `command` is what makes the
+// claude adapter emit an enforced PreToolUse hook (a command-less pre-write
+// rule stays guidance-only — see adapters/claude.ts buildHooksFromRules).
+const WORKTREE_BOUNDARY_RULE = {
+  trigger: 'pre-write',
+  rule:
+    'Writes must target the isolated worktree. Out-of-worktree paths (absolute parent-repo paths, `..` escapes) are denied (#1301, INV-11).',
+  command: WORKTREE_BOUNDARY_COMMAND,
+} as const;
+
 // ─── Shared worktree-entry contract ─────────────────────────────────────────
 //
 // Every isolated agent (IMPLEMENTER, FIXER, SCAFFOLDER) must boot into the
@@ -318,6 +336,7 @@ Implementation task requiring test-first development triggers the implementer ag
     { name: 'testing-patterns', content: '' },
   ],
   validationRules: [
+    WORKTREE_BOUNDARY_RULE,
     {
       trigger: 'pre-write',
       rule:
@@ -390,6 +409,7 @@ When done, output a JSON completion report:
     { name: 'tdd-patterns', content: '' },
   ],
   validationRules: [
+    WORKTREE_BOUNDARY_RULE,
     { trigger: 'post-test', rule: 'All tests must pass after fix', command: POST_TEST_COMMAND },
   ],
   resumable: false,
@@ -522,7 +542,7 @@ When done, output a JSON completion report:
   effort: 'low',
   isolation: 'worktree',
   skills: [],
-  validationRules: [],
+  validationRules: [WORKTREE_BOUNDARY_RULE],
   resumable: false,
   mcpServers: ['exarchos'],
 };

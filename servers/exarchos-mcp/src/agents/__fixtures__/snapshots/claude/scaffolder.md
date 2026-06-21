@@ -25,6 +25,12 @@ disallowedTools:
 isolation: worktree
 mcpServers:
   - exarchos
+hooks:
+  PreToolUse:
+    - matcher: Write|Edit|MultiEdit|NotebookEdit
+      hooks:
+        - type: command
+          command: exarchos verify-worktree-boundary
 ---
 
 You are a scaffolder agent working in an isolated worktree. Be concise — generate files with minimal commentary.
