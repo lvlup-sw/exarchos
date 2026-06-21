@@ -1,6 +1,6 @@
 import type { ViewProjection } from './materializer.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
-import { deepMerge, isPlainObject, applyDotPath } from '../workflow/state-store.js';
+import { isPlainObject, applyDotPath } from '../workflow/state-store.js';
 
 // ─── View Name Constant ────────────────────────────────────────────────────
 
@@ -455,26 +455,34 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
 
         // The patch keys MAY be dot-paths — handleSet emits `patch:
         // input.updates` verbatim (tools.ts), where `updates` uses dot-path
-        // notation like `oneshot.synthesisPolicy`. Expand them with the SAME
-        // `applyDotPath` the on-disk write uses, so the fold agrees with the
-        // file (#1504/#1554). Without this, `{'oneshot.synthesisPolicy': x}`
-        // deepMerges as a literal dotted KEY and every nested read misses it
-        // (the finalize-oneshot synthesisPolicy regression under
-        // event-store-first). Reserved-field paths are rejected at write time;
-        // on replay just skip them rather than throw.
-        const expanded: Record<string, unknown> = {};
+        // notation like `oneshot.synthesisPolicy` or `tasks[0].nativeTaskId`.
+        // Apply each one directly onto a deep clone of the view with the SAME
+        // `applyDotPath` the on-disk write uses, so the fold is byte-identical
+        // to the file (fold ≡ write, #1504/#1554).
+        //
+        // The earlier expand-into-a-fresh-object + `deepMerge(view, expanded)`
+        // approach was correct for nested OBJECTS (Addendum 2 fix) but wrong
+        // for ARRAY-INDEX paths: expanding `tasks[0].nativeTaskId` yields a
+        // sparse `{tasks:[{nativeTaskId}]}`, and `deepMerge` REPLACES arrays
+        // wholesale, so an index patch clobbered every sibling task down to the
+        // one sparse entry (#1504 audit Addendum 3). Applying onto the clone
+        // navigates the existing array and mutates in place — preserving
+        // siblings — exactly as the live write does. Whole-array replacement
+        // (`{tasks: [...]}`) still replaces (applyDotPath's array leaf), and
+        // nested-object merge is preserved (applyDotPath's plain-object leaf).
+        //
+        // Reserved-field paths are rejected at write time; on replay just skip
+        // them rather than throw.
+        const next = structuredClone(view) as unknown as Record<string, unknown>;
         for (const [dotPath, value] of Object.entries(data.patch as Record<string, unknown>)) {
           try {
-            applyDotPath(expanded, dotPath, value);
+            applyDotPath(next, dotPath, value);
           } catch {
             // Reserved-field path — already rejected at write time; skip on replay.
           }
         }
 
-        return deepMerge(
-          view as unknown as Record<string, unknown>,
-          expanded,
-        ) as unknown as WorkflowStateView;
+        return next as unknown as WorkflowStateView;
       }
 
       // ── Observability-only (return state unchanged) ────────────────────

@@ -382,6 +382,60 @@ describe('WorkflowStateProjection state.patched', () => {
       expect(next).toEqual(state);
     });
   });
+
+  describe('Apply_StatePatched_ArrayIndexPath_MergesInPlace', () => {
+    it('should apply an array-index dot-path patch in place without clobbering sibling tasks', () => {
+      let state = workflowStateProjection.init();
+
+      // Two tasks land via task.assigned.
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('task.assigned', { taskId: 'task-1', title: 'First', branch: 'feat/1', worktree: '/tmp/wt-1' }),
+      );
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('task.assigned', { taskId: 'task-2', title: 'Second' }),
+      );
+
+      // An array-index patch (the shape handleSet emits for `tasks[0].nativeTaskId`).
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('state.patched', { patch: { 'tasks[0].nativeTaskId': 'nt-1' } }),
+      );
+
+      // fold ≡ write: tasks[0] keeps its identity AND gains the patched field,
+      // and tasks[1] survives (the array is NOT replaced wholesale).
+      expect(state.tasks).toHaveLength(2);
+      expect(state.tasks[0]).toMatchObject({
+        id: 'task-1',
+        title: 'First',
+        status: 'pending',
+        nativeTaskId: 'nt-1',
+      });
+      expect(state.tasks[1]).toMatchObject({ id: 'task-2', title: 'Second', status: 'pending' });
+    });
+
+    it('should update an existing field at an array index in place', () => {
+      let state = workflowStateProjection.init();
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('task.assigned', { taskId: 'task-1', title: 'First' }),
+      );
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('task.assigned', { taskId: 'task-2', title: 'Second' }),
+      );
+
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('state.patched', { patch: { 'tasks[1].status': 'complete' } }),
+      );
+
+      expect(state.tasks).toHaveLength(2);
+      expect(state.tasks[0]).toMatchObject({ id: 'task-1', status: 'pending' });
+      expect(state.tasks[1]).toMatchObject({ id: 'task-2', status: 'complete' });
+    });
+  });
 });
 
 // ─── Stack and Review Events ───────────────────────────────────────────────
