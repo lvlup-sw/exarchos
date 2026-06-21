@@ -305,10 +305,17 @@ export const mergeOrchestratorReducer: ProjectionReducer<
         return applyMergeRequested(state, event);
       case 'merge.executed':
         return applyMergeExecuted(state, event);
-      // #1306 rename tracker: when `merge.rollback` is renamed to
-      // `merge.recovered`, swap the case label here alongside the schema
-      // change. The recovery-context shape and `recovering` phase do not
-      // change with the rename.
+      // #1306 deprecation window — the recovery path DUAL-EMITS the canonical
+      // `merge.recovered` (emitted first) + the legacy `merge.rollback`. Fold
+      // BOTH into the `any → recovering` transition so the projection advances
+      // on whichever event lands. The two appends are NOT atomic: a concurrent
+      // writer between them (or a lost sequence race on the second) can leave a
+      // `merge.recovered`-only stream; keying the projection on the legacy
+      // second event alone would strand it at `executing` (Sentry review,
+      // #1571). Folding both is safe — `applyMergeRollback` sets
+      // `phase: 'recovering'` from any prior phase and the recovery context is
+      // identical across the pair. v2.12 (#1570) drops the `merge.rollback` case.
+      case 'merge.recovered':
       case 'merge.rollback':
         return applyMergeRollback(state, event);
       case 'merge.completed':
