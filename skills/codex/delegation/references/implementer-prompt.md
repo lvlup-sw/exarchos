@@ -69,6 +69,8 @@ git merge-base --is-ancestor "[integration-tip]" HEAD \
 
 ## Files to Modify
 
+> Paths are **relative to your worktree** (the Working Directory above). Never an absolute parent-repo path — see Key Principle #3 (#1301).
+
 ### Create/Modify:
 - `[path/to/file.ts]` - [Brief description of changes]
 
@@ -430,7 +432,7 @@ describe('validateEmail', () => {
 
 1. **Full Context** - Include everything the implementer needs
 2. **No File References** - Don't say "see plan.md" - paste content
-3. **Explicit Paths** - Absolute paths to working directory and files
+3. **Worktree-relative file paths** - Give an **absolute** path for the *working directory* (the `cd` target) only. Every file to read/edit/write must be a **path relative to that worktree** (e.g. `src/foo.ts`), **never** an absolute path into the parent/main repo. An `Edit`/`Write` resolves an absolute path literally and **ignores the agent's worktree cwd**, so an absolute parent-repo path silently writes into the orchestrator's main worktree (#1301). On Claude this is now enforced by a PreToolUse boundary hook that denies out-of-worktree writes; emitting relative paths keeps every runtime on the safe path.
 4. **Verification scaled to risk** - Include the tier-appropriate verification block (the ladder), not blanket TDD
 5. **Git-First** - Standard git commit + push. PR creation handled by synthesis phase.
 6. **Clear Success Criteria** - Checkboxes for completion
