@@ -485,8 +485,11 @@ describe('EventTypes', () => {
     // restored SubagentStop hook (cli-commands/subagent-stop.ts).
     // #1306: bumped 126 → 127 to include `merge.recovered` (successor to
     // `merge.rollback`, dual-emitted during the v2.11.x deprecation window).
-    expect(EventTypes).toHaveLength(127);
+    // #1308 T8: bumped 127 → 128 to include `merge.retry_attempt` (bounded
+    // timeout-retry telemetry; registration-only, emission lands in later #1308 tasks).
+    expect(EventTypes).toHaveLength(128);
     expect(EventTypes).toContain('merge.recovered');
+    expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('subagent.tokens_used');
     // Explicit membership pin: a future replacement that swaps one event
     // for another would keep the length stable but silently lose the
