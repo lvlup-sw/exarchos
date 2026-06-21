@@ -135,11 +135,32 @@ describe('handleExecuteMerge (T15)', () => {
     );
 
     expect(result.success).toBe(true);
-    // Two appends: `merge.executed` (side-effect record) and `merge.completed`
+    // Three appends: `merge.executing_started` (#1309 liveness, BEFORE the first
+    // vcsMerge), then `merge.executed` (side-effect record) and `merge.completed`
     // (terminal lifecycle marker). Distinct events per #1304 INV-10 alignment.
-    expect(ctx.eventStore.append).toHaveBeenCalledTimes(2);
+    // The liveness append is leading, so the terminal pair is the 2nd/3rd call;
+    // the terminal payloads themselves are unchanged.
+    expect(ctx.eventStore.append).toHaveBeenCalledTimes(3);
     expect(ctx.eventStore.append).toHaveBeenNthCalledWith(
       1,
+      'feat-x',
+      {
+        type: 'merge.executing_started',
+        data: {
+          taskId: 'T11',
+          sourceBranch: 'feat/x',
+          targetBranch: 'main',
+          recoveryPointSha: ROLLBACK_SHA,
+          startedAt: expect.any(String),
+        },
+      },
+      {
+        expectedSequence: 0,
+        idempotencyKey: 'feat-x:merge_orchestrate:T11:merge.executing_started',
+      },
+    );
+    expect(ctx.eventStore.append).toHaveBeenNthCalledWith(
+      2,
       'feat-x',
       {
         type: 'merge.executed',
@@ -159,7 +180,7 @@ describe('handleExecuteMerge (T15)', () => {
       },
     );
     expect(ctx.eventStore.append).toHaveBeenNthCalledWith(
-      2,
+      3,
       'feat-x',
       {
         type: 'merge.completed',
@@ -193,11 +214,13 @@ describe('handleExecuteMerge (T15)', () => {
     // (idempotency-key cache-hit) so the pinned CAS reproduced the conflict
     // forever with no recovery. A live-tail CAS self-heals on retry.
     const ctx = makeMockCtx();
-    // First tail read (before merge.executed) → empty. By the second read
-    // (before merge.completed) a concurrent writer has advanced the tail to
-    // seq 7. merge.executed still returns its own seq 1 from the append mock —
-    // a frozen pin would carry that stale 1 into the merge.completed CAS.
+    // Tail reads, in order: (1) before merge.executing_started (#1309 liveness),
+    // (2) before merge.executed, both empty. By the third read (before
+    // merge.completed) a concurrent writer has advanced the tail to seq 7.
+    // merge.executed still returns its own seq 1 from the append mock — a frozen
+    // pin would carry that stale 1 into the merge.completed CAS.
     (ctx.eventStore.query as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ sequence: 7 }]);
     const vcsMerge = vi.fn().mockResolvedValue({ mergeSha: MERGE_SHA });
@@ -217,10 +240,11 @@ describe('handleExecuteMerge (T15)', () => {
       ctx,
     );
 
-    // merge.completed (2nd append) CAS-pins to the LIVE tail (7), not the
-    // merge.executed append's returned sequence (1).
+    // merge.completed (3rd append, after the liveness + merge.executed appends)
+    // CAS-pins to the LIVE tail (7), not the merge.executed append's returned
+    // sequence (1).
     expect(ctx.eventStore.append).toHaveBeenNthCalledWith(
-      2,
+      3,
       'feat-x',
       expect.objectContaining({ type: 'merge.completed' }),
       expect.objectContaining({ expectedSequence: 7 }),
@@ -346,14 +370,35 @@ describe('handleExecuteMerge rollback (T16)', () => {
     );
 
     expect(result.success).toBe(false);
-    // #1306 T4 dual-emit: the recovery path appends BOTH the canonical
+    // #1309 prepends the `merge.executing_started` liveness append (BEFORE the
+    // first vcsMerge). #1306 T4 dual-emit then appends BOTH the canonical
     // `merge.recovered` event AND the legacy `merge.rollback` event during the
-    // v2.11.x deprecation window. Order is canonical-first, legacy-second.
-    expect(ctx.eventStore.append).toHaveBeenCalledTimes(2);
-    // 1) canonical `merge.recovered` — renamed fields (recoveryPointSha), its
-    //    OWN idempotency key + its OWN fresh-tail CAS read.
+    // v2.11.x deprecation window. Order: liveness → canonical → legacy. The
+    // terminal recovery payloads are unchanged.
+    expect(ctx.eventStore.append).toHaveBeenCalledTimes(3);
+    // 1) #1309 liveness `merge.executing_started`, emitted before the merge.
     expect(ctx.eventStore.append).toHaveBeenNthCalledWith(
       1,
+      'feat-x',
+      {
+        type: 'merge.executing_started',
+        data: {
+          taskId: 'T11',
+          sourceBranch: 'feat/x',
+          targetBranch: 'main',
+          recoveryPointSha: ROLLBACK_SHA,
+          startedAt: expect.any(String),
+        },
+      },
+      {
+        expectedSequence: 0,
+        idempotencyKey: 'feat-x:merge_orchestrate:T11:merge.executing_started',
+      },
+    );
+    // 2) canonical `merge.recovered` — renamed fields (recoveryPointSha), its
+    //    OWN idempotency key + its OWN fresh-tail CAS read.
+    expect(ctx.eventStore.append).toHaveBeenNthCalledWith(
+      2,
       'feat-x',
       {
         type: 'merge.recovered',
@@ -370,10 +415,10 @@ describe('handleExecuteMerge rollback (T16)', () => {
         idempotencyKey: 'feat-x:merge_orchestrate:T11:merge.recovered',
       },
     );
-    // 2) legacy `merge.rollback` — kept during the deprecation window, carries
+    // 3) legacy `merge.rollback` — kept during the deprecation window, carries
     //    the `_meta.deprecation` envelope, its OWN independent idempotency key.
     expect(ctx.eventStore.append).toHaveBeenNthCalledWith(
-      2,
+      3,
       'feat-x',
       {
         type: 'merge.rollback',
@@ -536,16 +581,21 @@ describe('handleExecuteMerge rollback (T16)', () => {
     // `merge.recovered` (renamed `recoveryErrorDetail` field) AND the legacy
     // `merge.rollback` (which keeps its `rollbackError` wire field + the
     // `_meta.deprecation` envelope during the deprecation window).
-    expect(ctx.eventStore.append).toHaveBeenCalledTimes(2);
+    // #1309 prepends the liveness append, so the recovery terminal pair is the
+    // 2nd/3rd append. The terminal recovery payloads are unchanged.
+    expect(ctx.eventStore.append).toHaveBeenCalledTimes(3);
     const calls = (ctx.eventStore.append as ReturnType<typeof vi.fn>).mock.calls;
+    // 0) #1309 liveness merge.executing_started — emitted before the merge.
+    const [, startedPayload] = calls[0];
+    expect(startedPayload.type).toBe('merge.executing_started');
     // 1) canonical merge.recovered — carries recoveryError + recoveryErrorDetail.
-    const [, recoveredPayload] = calls[0];
+    const [, recoveredPayload] = calls[1];
     expect(recoveredPayload.type).toBe('merge.recovered');
     expect(recoveredPayload.data.recoveryError).toBe('reset-keep-blocked');
     expect(recoveredPayload.data.recoveryErrorDetail).toContain('reset --keep');
     // 2) legacy merge.rollback — carries recoveryError + the legacy
     //    `rollbackError` detail field, plus the `_meta.deprecation` envelope.
-    const [, rollbackPayload] = calls[1];
+    const [, rollbackPayload] = calls[2];
     expect(rollbackPayload.type).toBe('merge.rollback');
     expect(rollbackPayload.data.recoveryError).toBe('reset-keep-blocked');
     expect(rollbackPayload.data.rollbackError).toContain('reset --keep');
@@ -754,13 +804,16 @@ describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
     // fails, replay can still reconstruct from the event stream; if the
     // state write fails after, a reconcile recovers from the events alone.
     //
-    // Order: persist(executing) → vcsMerge → event(merge.executed) →
-    //        event(merge.completed) → persist(completed).
-    // The merge.completed terminal marker (#1304) follows merge.executed and
-    // both precede the state-file write. Ordering is what the projection fold
-    // requires; strict log adjacency is NOT enforced (the CAS reads the live
-    // tail), so an unrelated interleaved event would not break this.
+    // Order: event(merge.executing_started) → persist(executing) → vcsMerge →
+    //        event(merge.executed) → event(merge.completed) → persist(completed).
+    // #1309: the liveness event is emitted inside the persistState wrapper on the
+    // `executing` payload, BEFORE the state write (and thus before the first
+    // vcsMerge). The merge.completed terminal marker (#1304) follows
+    // merge.executed and both precede the state-file write. Ordering is what the
+    // projection fold requires; strict log adjacency is NOT enforced (the CAS
+    // reads the live tail), so an unrelated interleaved event would not break this.
     expect(callOrder).toEqual([
+      'event:merge.executing_started',
       'persist:executing',
       'vcsMerge',
       'event:merge.executed',
@@ -803,10 +856,13 @@ describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
       { ...ctx, eventStore },
     );
 
-    // #1306 T4 dual-emit: BOTH the canonical `merge.recovered` and the legacy
+    // #1309: the liveness event leads, emitted inside the persistState wrapper on
+    // the `executing` payload (before the state write / first vcsMerge). #1306 T4
+    // dual-emit: BOTH the canonical `merge.recovered` and the legacy
     // `merge.rollback` are appended (canonical-first) BEFORE the terminal
     // state-file write (event-first commit point, #1109 §1).
     expect(callOrder).toEqual([
+      'event:merge.executing_started',
       'persist:executing',
       'vcsMerge',
       'event:merge.recovered',
@@ -863,9 +919,11 @@ describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
 
     expect(result.success).toBe(true);
     expect(vcsMerge).toHaveBeenCalledTimes(2);
-    // Exactly ONE retry attempt event, BEFORE merge.executed, then the
-    // terminal completed marker. NO recovery/rollback events.
+    // #1309 liveness event leads (before the first vcsMerge), then exactly ONE
+    // retry attempt event, then merge.executed, then the terminal completed
+    // marker. NO recovery/rollback events.
     expect(appendedTypes).toEqual([
+      'merge.executing_started',
       'merge.retry_attempt',
       'merge.executed',
       'merge.completed',
@@ -884,6 +942,132 @@ describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
       delayMs: 1000,
       reason: 'timeout',
     });
+  });
+
+  // ─── #1309 T12: merge.executing_started liveness event timeline ───────────
+
+  it('ExecuteMerge_Timeline_ExecutingStartedBeforeTerminal', async () => {
+    // The liveness event `merge.executing_started` is emitted EXACTLY ONCE,
+    // after the recovery point is recorded and BEFORE the first vcsMerge — so it
+    // lands before any merge.retry_attempt AND before the terminal event. The
+    // timeout-then-success scenario exercises the full ordering:
+    //   merge.executing_started → merge.retry_attempt → merge.executed →
+    //   merge.completed.
+    const ctx = makeMockCtx();
+    const appendedTypes: string[] = [];
+    (ctx.eventStore.append as ReturnType<typeof vi.fn>).mockImplementation(
+      async (_stream: string, event: { type: string }) => {
+        appendedTypes.push(event.type);
+        return { sequence: 1, type: event.type, timestamp: '' };
+      },
+    );
+
+    let call = 0;
+    const vcsMerge = vi.fn().mockImplementation(async () => {
+      call += 1;
+      if (call === 1) {
+        const err = new Error('operation timed out');
+        (err as Error & { code?: string }).code = 'ETIMEDOUT';
+        throw err;
+      }
+      return { mergeSha: MERGE_SHA };
+    });
+    const persistState = vi.fn().mockResolvedValue(undefined);
+
+    const result = await handleExecuteMerge(
+      {
+        featureId: 'feat-x',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        taskId: 'T11',
+        strategy: 'squash',
+        vcsMerge,
+        persistState,
+        gitExec: makeGitExec(),
+        jitter: () => 0,
+        sleep: async () => {},
+      },
+      ctx,
+    );
+
+    expect(result.success).toBe(true);
+
+    // Emitted exactly once.
+    const startedCount = appendedTypes.filter(
+      (t) => t === 'merge.executing_started',
+    ).length;
+    expect(startedCount).toBe(1);
+
+    // Position invariants: executing_started precedes EVERY retry_attempt and
+    // the terminal event.
+    const startedIdx = appendedTypes.indexOf('merge.executing_started');
+    const retryIdx = appendedTypes.indexOf('merge.retry_attempt');
+    const executedIdx = appendedTypes.indexOf('merge.executed');
+    expect(startedIdx).toBe(0);
+    expect(retryIdx).toBeGreaterThan(startedIdx);
+    expect(executedIdx).toBeGreaterThan(retryIdx);
+
+    // Full ordering, with the terminal emission path (#1308/#1304) unchanged.
+    expect(appendedTypes).toEqual([
+      'merge.executing_started',
+      'merge.retry_attempt',
+      'merge.executed',
+      'merge.completed',
+    ]);
+
+    // The liveness payload carries the recovery point sha (captured pre-merge)
+    // plus the branch/task context and a startedAt timestamp.
+    const startedCall = (ctx.eventStore.append as ReturnType<typeof vi.fn>).mock.calls.find(
+      (c) => (c[1] as { type: string }).type === 'merge.executing_started',
+    );
+    expect(startedCall).toBeDefined();
+    const startedData = (startedCall![1] as { data: Record<string, unknown> }).data;
+    expect(startedData).toMatchObject({
+      taskId: 'T11',
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      recoveryPointSha: ROLLBACK_SHA,
+    });
+    expect(typeof startedData.startedAt).toBe('string');
+    expect((startedData.startedAt as string).length).toBeGreaterThan(0);
+  });
+
+  it('ExecuteMerge_Timeline_ExecutingStartedBeforeRecoveryTerminal', async () => {
+    // On the rollback path the liveness event still lands first, before the
+    // recovery terminal pair (merge.recovered → merge.rollback). The terminal
+    // emission path stays byte-for-byte unchanged.
+    const ctx = makeMockCtx();
+    const appendedTypes: string[] = [];
+    (ctx.eventStore.append as ReturnType<typeof vi.fn>).mockImplementation(
+      async (_stream: string, event: { type: string }) => {
+        appendedTypes.push(event.type);
+        return { sequence: 1, type: event.type, timestamp: '' };
+      },
+    );
+
+    const vcsMerge = vi.fn().mockRejectedValue(new Error('merge conflict'));
+    const persistState = vi.fn().mockResolvedValue(undefined);
+
+    const result = await handleExecuteMerge(
+      {
+        featureId: 'feat-x',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        taskId: 'T11',
+        strategy: 'squash',
+        vcsMerge,
+        persistState,
+        gitExec: makeGitExec(),
+      },
+      ctx,
+    );
+
+    expect(result.success).toBe(false);
+    expect(appendedTypes).toEqual([
+      'merge.executing_started',
+      'merge.recovered',
+      'merge.rollback',
+    ]);
   });
 });
 

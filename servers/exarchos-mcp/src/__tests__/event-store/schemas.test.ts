@@ -487,9 +487,13 @@ describe('EventTypes', () => {
     // `merge.rollback`, dual-emitted during the v2.11.x deprecation window).
     // #1308 T8: bumped 127 → 128 to include `merge.retry_attempt` (bounded
     // timeout-retry telemetry; registration-only, emission lands in later #1308 tasks).
-    expect(EventTypes).toHaveLength(128);
+    // #1309 T12: bumped 128 → 129 to include `merge.executing_started` (the
+    // merge-executor liveness event, emitted after the recovery point is recorded
+    // and before the first vcsMerge — INV-10 executing_started + paired terminal).
+    expect(EventTypes).toHaveLength(129);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
+    expect(EventTypes).toContain('merge.executing_started');
     expect(EventTypes).toContain('subagent.tokens_used');
     // Explicit membership pin: a future replacement that swaps one event
     // for another would keep the length stable but silently lose the

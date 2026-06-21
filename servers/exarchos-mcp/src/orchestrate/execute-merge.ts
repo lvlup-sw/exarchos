@@ -235,12 +235,72 @@ export async function handleExecuteMerge(
       ctx.stateDir,
     );
 
+  // #1309 — `merge.executing_started` liveness emission. Appended ONCE, after
+  // the pure executor has recorded the recovery point and BEFORE the first
+  // `vcsMerge` fires (the pure executor calls `persistState({phase:'executing',
+  // recoveryPointSha})` exactly once at that seam). Emitting from inside the
+  // `persistState` wrapper on the `executing` payload pins the liveness event to
+  // that precise lifecycle point so a long-running merge is observable as
+  // "started but not yet terminated" (INV-10), without touching the terminal
+  // emission path. The recovery-point sha rides on the payload, so the audit
+  // record carries the same anchor the terminal events report.
+  //
+  // Best-effort like `onRetryAttempt`: a lost sequence race on this audit append
+  // must NOT abort the merge (the merge attempt is the load-bearing action). The
+  // fresh-tail CAS + own idempotency key (`:merge.executing_started` suffix)
+  // make a crash-replay a clean no-op (project_cas_pin_idempotency_trap).
+  const emitExecutingStarted = async (recoveryPointSha: string): Promise<void> => {
+    const tailEventsStarted = await ctx.eventStore.query(args.featureId);
+    const expectedSequenceStarted =
+      tailEventsStarted.length > 0
+        ? Math.max(...tailEventsStarted.map((e) => e.sequence))
+        : 0;
+    try {
+      await ctx.eventStore.append(
+        args.featureId,
+        {
+          type: 'merge.executing_started',
+          data: {
+            ...(args.taskId !== undefined ? { taskId: args.taskId } : {}),
+            sourceBranch: args.sourceBranch,
+            targetBranch: args.targetBranch,
+            recoveryPointSha,
+            startedAt: new Date().toISOString(),
+          },
+        },
+        {
+          expectedSequence: expectedSequenceStarted,
+          idempotencyKey: buildMergeOrchestrateIdempotencyKey(
+            args.featureId,
+            args.taskId,
+            'merge.executing_started',
+          ),
+        },
+      );
+    } catch (err) {
+      // Swallow a lost sequence race (a concurrent writer advanced the tail) so
+      // the merge proceeds; the liveness record is best-effort observability.
+      if (!(err instanceof SequenceConflictError)) {
+        throw err;
+      }
+    }
+  };
+
   // T29: wrap every state write in `withStateRetry` so concurrent writers
   // (e.g. another orchestrate handler updating the same workflow state file)
   // don't fail this merge permanently on a single CAS conflict. Wraps both
   // injected and default `persistState` so caller-supplied hooks share the
   // same race-tolerance contract.
+  //
+  // #1309 — on the `executing` payload, emit the liveness event BEFORE the
+  // state write (and thus before the first `vcsMerge`). Guarded so it fires at
+  // most once across any `withStateRetry` re-attempts of the `executing` write.
+  let executingStartedEmitted = false;
   const persistState: PersistStateCallback = async (state) => {
+    if (state.phase === 'executing' && !executingStartedEmitted) {
+      executingStartedEmitted = true;
+      await emitExecutingStarted(state.recoveryPointSha);
+    }
     await withStateRetry(async () => {
       await rawPersistState(state);
     });

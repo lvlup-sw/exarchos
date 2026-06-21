@@ -276,12 +276,15 @@ describe('Merge orchestrator happy timeline (T23, DR-MO-1, DR-MO-2)', () => {
     // The expected order is the production contract (post Wave 4 / audit
     // §F1.2 two-event split):
     //
-    //   sequence 1: task.completed  (the T17 trigger, from step 2)
-    //   sequence 2: merge.preflight (T11 emits before delegating)
-    //   sequence 3: merge.requested (Wave 4 Phase A — durable intent
-    //                                emitted via `decide` BEFORE the
-    //                                executor's local git merge side effect)
-    //   sequence 4: merge.executed  (T15 emits on phase: 'completed')
+    //   sequence 1: task.completed          (the T17 trigger, from step 2)
+    //   sequence 2: merge.preflight          (T11 emits before delegating)
+    //   sequence 3: merge.requested          (Wave 4 Phase A — durable intent
+    //                                          emitted via `decide` BEFORE the
+    //                                          executor's local git merge side effect)
+    //   sequence 4: merge.executing_started  (#1309 liveness — emitted after the
+    //                                          recovery point is recorded, before
+    //                                          the first vcsMerge)
+    //   sequence 5: merge.executed           (T15 emits on phase: 'completed')
     //
     // No other events are expected on the happy path (no merge.rollback,
     // no merge.aborted).
@@ -291,6 +294,9 @@ describe('Merge orchestrator happy timeline (T23, DR-MO-1, DR-MO-2)', () => {
       'task.completed',
       'merge.preflight',
       'merge.requested',
+      // #1309 INV-10 liveness — emitted before the merge so a long-running merge
+      // is observable as started-but-unterminated.
+      'merge.executing_started',
       'merge.executed',
       // #1304 INV-10 terminal marker — emitted adjacent to merge.executed
       // by `handleExecuteMerge` once `merge.executed` lands successfully.
@@ -304,7 +310,7 @@ describe('Merge orchestrator happy timeline (T23, DR-MO-1, DR-MO-2)', () => {
     // racing the sequence counter, sidecar mode leaking into the happy path)
     // shows up in this integration suite, not just in store-level unit tests.
     const sequences = finalEvents.map((e) => e.sequence);
-    expect(sequences).toEqual([1, 2, 3, 4, 5]);
+    expect(sequences).toEqual([1, 2, 3, 4, 5, 6]);
     for (let i = 1; i < sequences.length; i += 1) {
       const prev = sequences[i - 1];
       const curr = sequences[i];

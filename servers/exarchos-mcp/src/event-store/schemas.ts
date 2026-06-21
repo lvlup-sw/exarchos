@@ -139,6 +139,14 @@ export const EventTypes = [
   // "lifecycle formally terminated" as two states — matching INV-10's
   // executing_started + paired terminal event pattern.
   'merge.completed',
+  // #1309 — merge-executor liveness event. Emitted by `handleExecuteMerge`
+  // after the recovery point sha is recorded and BEFORE the first `vcsMerge`
+  // attempt, so a long-running merge is observable as "started but not yet
+  // terminated" — the INV-10 `<surface>.executing_started` + paired terminal
+  // (`merge.executed` / `merge.recovered`) pattern, mirroring
+  // `mutation.executing_started`. Audit-only: it does NOT transition the
+  // `merge-orchestrator@v1` projection phase.
+  'merge.executing_started',
   'command.resolved',
   // Durable event-store substrate (#1259) — deprecation telemetry + migration
   // pipeline. T02 / T03 / T04 of the substrate plan.
@@ -505,6 +513,10 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   // auto — emitted by `handleExecuteMerge` immediately after `merge.executed`
   // succeeds, as the projection's terminal lifecycle marker (#1304 / INV-10).
   'merge.completed': 'auto',
+  // #1309 — emitted by `handleExecuteMerge` (server-deterministic plumbing)
+  // before the first vcsMerge, so it lives in the auto family alongside the
+  // other merge-executor events.
+  'merge.executing_started': 'auto',
 
   // auto — emitted by the test/typecheck/install runtime resolver (#1199 T15).
   // Audit-only: records where each command resolution came from so downstream
@@ -1653,6 +1665,28 @@ export const MergeCompletedData = MergeExecutedData.pick({
     .describe('Feature stream id; useful for cross-stream observability'),
 });
 
+/**
+ * merge.executing_started — #1309 merge-executor liveness event. Emitted by
+ * `handleExecuteMerge` after the recovery point sha is recorded and BEFORE the
+ * first `vcsMerge` attempt, so a long-running merge is observable as "started
+ * but not yet terminated" — the INV-10 `<surface>.executing_started` + paired
+ * terminal (`merge.executed` / `merge.recovered`) pattern, mirroring
+ * `mutation.executing_started`.
+ *
+ * `recoveryPointSha` is the anchor HEAD the merge can be rewound to (the same
+ * sha the terminal events carry as `rollbackSha` / `recoveryPointSha`).
+ * `startedAt` is the ISO timestamp at which the merge attempt began. `taskId`
+ * is optional (CLI direct-invocation has no task context), matching the other
+ * merge events.
+ */
+export const MergeExecutingStartedData = z.object({
+  taskId: z.string().optional(),
+  sourceBranch: z.string().min(1),
+  targetBranch: z.string().min(1),
+  recoveryPointSha: z.string().min(1),
+  startedAt: z.string().min(1),
+});
+
 // ─── Wave B Two-Event Split Schemas (#1342) ──────────────────────────────────
 //
 // Each VCS side-effect handler emits *.requested BEFORE the side effect fires
@@ -2469,6 +2503,7 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'merge.recovered': MergeRecoveredData,
   'merge.retry_attempt': MergeRetryAttemptData,
   'merge.completed': MergeCompletedData,
+  'merge.executing_started': MergeExecutingStartedData,
 
   // Command resolver (#1199 T15) — audit trail for runtime resolver decisions.
   'command.resolved': CommandResolvedEventSchema,
@@ -2603,6 +2638,7 @@ export type MergeRollback = z.infer<typeof MergeRollbackData>;
 export type MergeRecovered = z.infer<typeof MergeRecoveredData>;
 export type MergeRetryAttempt = z.infer<typeof MergeRetryAttemptData>;
 export type MergeCompleted = z.infer<typeof MergeCompletedData>;
+export type MergeExecutingStarted = z.infer<typeof MergeExecutingStartedData>;
 export type HsmDeprecatedActionInvoked = z.infer<typeof HsmDeprecatedActionInvokedData>;
 export type SpecLegacyCapabilitiesArray = z.infer<typeof SpecLegacyCapabilitiesArrayData>;
 export type PhaseContractMissing = z.infer<typeof PhaseContractMissingData>;
@@ -2730,6 +2766,7 @@ export type EventDataMap = {
   'merge.recovered': MergeRecovered;
   'merge.retry_attempt': MergeRetryAttempt;
   'merge.completed': MergeCompleted;
+  'merge.executing_started': MergeExecutingStarted;
   'command.resolved': CommandResolvedEvent;
   'hsm.deprecated_action_invoked': HsmDeprecatedActionInvoked;
   'spec.legacy_capabilities_array': SpecLegacyCapabilitiesArray;

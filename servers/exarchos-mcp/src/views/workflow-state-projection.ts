@@ -658,6 +658,11 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       // mergeOrchestrator phase (the retry sits between attempts), so the
       // projection treats it as an observation and folds to identity.
       case 'merge.retry_attempt':
+      // #1309 — audit-only liveness marker emitted before the first vcsMerge;
+      // it does not transition the mergeOrchestrator phase (the terminal
+      // merge.executed / merge.recovered events drive the phase), so the
+      // projection treats it as an observation and folds to identity.
+      case 'merge.executing_started':
       case 'command.resolved':
       case 'hsm.deprecated_action_invoked':
       case 'spec.legacy_capabilities_array':
