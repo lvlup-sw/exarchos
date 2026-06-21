@@ -9,6 +9,8 @@ import { isFeatureStream } from '../core/infra-streams.js';
 import { getDispatchContext } from '../dispatch/dispatch-context.js';
 import { ViewMaterializer } from './materializer.js';
 import { SnapshotStore, isSnapshotSafeId } from './snapshot-store.js';
+// #1555 — shared `asOf` bounded-fold seam (dispatch-core, INV-2).
+import { resolveAsOfEvents, type AsOfParam } from '../projections/cursor.js';
 import {
   workflowStatusProjection,
   WORKFLOW_STATUS_VIEW,
@@ -260,20 +262,12 @@ export function materializeFiltered<T>(
   viewName: string,
   events: WorkflowEvent[],
 ): T {
-  const projection = materializer.getProjection<T>(viewName);
-  if (!projection) {
-    throw new Error(`No projection registered for view: ${viewName}`);
-  }
-  // #1448 item 5: record the bypass on every successful call so the
-  // correlation-filtered traffic is visible alongside the LRU hit/miss stats.
-  // Without this, a healthy hitRate can mask thousands of cache-skipping calls
-  // (PR #1447 DIM-2 audit).
-  materializer.recordBypass();
-  let view = projection.init();
-  for (const event of events) {
-    view = projection.apply(view, event);
-  }
-  return view;
+  // Delegates to the shared cache-bypassing fresh fold (#1555 consolidation).
+  // `materializeFresh` records the bypass on every successful call so the
+  // correlation-filtered traffic is visible alongside the LRU hit/miss stats —
+  // without it, a healthy hitRate can mask thousands of cache-skipping calls
+  // (PR #1447 DIM-2 audit) — and never touches the LRU cache.
+  return materializer.materializeFresh<T>(viewName, events);
 }
 
 // ─── Helper: discover all event stream files ───────────────────────────────
@@ -347,7 +341,7 @@ async function readWorkflowStateJson(
 // ─── View Workflow Status Handler ──────────────────────────────────────────
 
 export async function handleViewWorkflowStatus(
-  args: { workflowId?: string },
+  args: { workflowId?: string; asOf?: AsOfParam },
   stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
@@ -356,12 +350,24 @@ export async function handleViewWorkflowStatus(
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
-    const events = await queryDeltaEvents(store, materializer, streamId, WORKFLOW_STATUS_VIEW);
-    const view = materializer.materialize<WorkflowStatusViewState>(
-      streamId,
-      WORKFLOW_STATUS_VIEW,
-      events,
-    );
+    // #1555 — an `asOf` (bounded-fold) read MUST bypass the hwm cache: fetch
+    // ALL events for the stream, bound to `events[0..N]` via the shared
+    // `resolveAsOfEvents` seam, and fold fresh from `projection.init()`
+    // (`materializeFresh`). Mirrors the correlation-filter precedent so a warm
+    // unbounded cache can never bleed into the bounded fold, and the bounded
+    // read never contaminates the cache. The live path keeps the cached
+    // `queryDeltaEvents` → `materialize`. Behavior lives here in the dispatch
+    // core; CLI/MCP adapters only thread `asOf` through (INV-2).
+    const view = args.asOf !== undefined
+      ? materializer.materializeFresh<WorkflowStatusViewState>(
+          WORKFLOW_STATUS_VIEW,
+          resolveAsOfEvents(await store.query(streamId), args.asOf),
+        )
+      : materializer.materialize<WorkflowStatusViewState>(
+          streamId,
+          WORKFLOW_STATUS_VIEW,
+          await queryDeltaEvents(store, materializer, streamId, WORKFLOW_STATUS_VIEW),
+        );
 
     // Fix 2 (#1184) — `tasksTotal` is a plan-state fact: the planner stamps
     // the full task list via `workflow set` (state.patched events), and

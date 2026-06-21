@@ -364,6 +364,37 @@ export class ViewMaterializer {
   }
 
   /**
+   * Cache-bypassing fresh fold over an explicit, already-bounded event list.
+   *
+   * Folds `events` from `projection.init()` and returns the result WITHOUT
+   * reading or writing the LRU cache (so the next cached `materialize` call
+   * still sees the full unbounded roll-up). Records a bypass for telemetry.
+   *
+   * Used by:
+   *  - correlation-filtered view queries (`materializeFiltered` in
+   *    `views/tools.ts` delegates here — #1437), and
+   *  - `asOf` bounded-fold reads (#1555) on both the `get` and `view`
+   *    surfaces, where the caller has already trimmed the list to
+   *    `events[0..N]` via `boundEvents`/`resolveAsOfEvents`.
+   *
+   * Centralizing the fresh fold here keeps the cache-bypass contract in ONE
+   * place: a bounded read can never bleed the hwm-cached unbounded base into
+   * its result, and can never contaminate the cache for later live reads.
+   */
+  materializeFresh<T>(viewName: string, events: readonly WorkflowEvent[]): T {
+    const projection = this.getProjection<T>(viewName);
+    if (!projection) {
+      throw new Error(`No projection registered for view: ${viewName}`);
+    }
+    this.recordBypass();
+    let view = projection.init();
+    for (const event of events) {
+      view = projection.apply(view, event);
+    }
+    return view;
+  }
+
+  /**
    * Evict the least recently used cache entry if the cache exceeds maxCacheEntries.
    * Uses Map insertion order: the first key is the least recently used.
    */
