@@ -14,8 +14,10 @@
  * inclusive filter:
  *
  *   - `untilSequence: N` ⇒ keep events with `e.sequence <= N`.
- *   - `untilTimestamp: T` ⇒ keep events with `e.timestamp <= T`
- *     (ISO-8601 strings compare correctly under lexicographic `<=`); an event
+ *   - `untilTimestamp: T` ⇒ keep events with `e.timestamp <= T`. This relies on
+ *     lexicographic `<=` matching chronological order, which holds only because
+ *     store timestamps are normalized UTC `Z` ISO-8601 strings of uniform width
+ *     (mixed UTC offsets or widths would break the lexical ordering). An event
  *     whose timestamp equals `T` is INCLUDED. Ties at the same timestamp are
  *     already ordered by sequence in the input, so no re-sort is needed.
  *

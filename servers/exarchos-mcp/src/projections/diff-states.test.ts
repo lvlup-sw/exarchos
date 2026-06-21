@@ -146,6 +146,14 @@ describe('diffStates (T4) — pure structural delta of two projected States', ()
         return head;
       };
 
+      // Oracle limitation (documented, not exercised): this applies `removed`
+      // paths leaf-by-leaf. Removing a *multi-leaf array object element* (e.g.
+      // both `tasks.1.id` and `tasks.1.status`) deletes the leaves but leaves a
+      // hollow `{}` at that index rather than splicing the element out, and two
+      // sibling primitive-array removals would splice shifting indices. The
+      // fixtures below never remove a multi-leaf/array element, so the round-trip
+      // holds. Production `diffStates` is unaffected — it only emits leaf deltas
+      // and makes no apply/reconcile claim; this helper is a test oracle only.
       const deletePath = (target: unknown, path: string): void => {
         const segments = path.split('.');
         let cursor = target as Record<string, unknown> | unknown[];

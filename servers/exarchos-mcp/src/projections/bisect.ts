@@ -24,9 +24,13 @@
  *
  * The candidate boundaries are the stream's own event sequences (read once via
  * `store.query`), so a returned `event` is always a real event. The search then
- * probes `O(log n)` of those candidates; each probe is a `projectAt` bounded
- * fold that warm-starts from the nearest snapshot via `projectAt`'s snapshot
- * path, keeping every probe a cheap incremental fold rather than a full replay.
+ * probes `O(log n)` of those candidates. When a projection snapshot exists,
+ * `projectAt` warm-starts each probe from the nearest snapshot — a cheap
+ * incremental fold rather than a full replay. With NO snapshot present each
+ * probe cold-folds `events[0..mid]`, so the search costs `O(n log n)` total
+ * `apply`s; the win there is still `O(log n)` *probes* to locate the boundary
+ * (versus a linear predicate scan), and the warm-start path makes the probes
+ * genuinely cheap once snapshots are in play.
  *
  * `bisect` is an internal projection primitive — it is not exposed as a public
  * verb (no `get`/`view` action) yet.
