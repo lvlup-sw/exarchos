@@ -19,18 +19,13 @@ cd servers/exarchos-mcp && npm run test:run   # MCP server tests (build via root
 
 ## Tooling (use the plugins/MCP available in this repo)
 
-Tools are deferred via Tool Search — prefer them when a task fits; don't enumerate their APIs here.
+Global tooling (rtk/sem/weave/serena, context7/exa research) is covered by USER-CONTEXT — not repeated here. Exarchos-specific note:
 
 - **Dogfood Exarchos itself.** Drive non-trivial features through the workflow commands
   (`/exarchos:ideate` → `/plan` → `/delegate` → `/review` → `/synthesize`); the `exarchos` MCP
   server (`exarchos_workflow`, `exarchos_event`, `exarchos_orchestrate`, `exarchos_view`) is the
   state surface. Run `/exarchos:dogfood` to triage tool failures into code/doc/user-error.
-- **Code navigation & edits** — prefer **serena** symbol tools over raw grep for TypeScript
-  symbol lookup/rename (call `activate_project` with project `exarchos` first; it errors otherwise).
-- **Semantic git** — use **sem** (entity-level diff/blame/impact) and **weave** (entity claim +
-  merge coordination) when coordinating multi-agent edits across files.
-- **Library/API docs** — pull current docs via **context7** or **exa** instead of relying on
-  training memory.
+- For serena symbol tools, call `activate_project` with project `exarchos` first (it errors otherwise).
 
 ## Architecture
 
