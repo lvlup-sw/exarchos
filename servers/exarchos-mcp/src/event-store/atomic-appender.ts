@@ -281,6 +281,13 @@ export interface AtomicAppenderOptions {
    * this to keep their fixture databases out of the shared file.
    */
   sqliteDbFilename?: string;
+  /**
+   * Durability posture for the lazily-constructed backend (DR-4), threaded
+   * to `SqliteBackend`'s `PRAGMA synchronous`. Resolved from `.exarchos.yml`
+   * `storage.synchronous` by the EventStore/lifecycle wiring. Omitted →
+   * `'normal'` (unchanged default).
+   */
+  synchronous?: 'normal' | 'full';
 }
 
 interface PersistedEvent {
@@ -353,10 +360,13 @@ export class AtomicAppender {
    */
   private sqliteBackendPromise?: Promise<SqliteBackend>;
   private readonly sqliteBackendInjected: boolean;
+  /** Durability posture for lazily-constructed backends (DR-4). */
+  private readonly synchronous?: 'normal' | 'full';
 
   constructor(options: AtomicAppenderOptions) {
     this.stateDir = options.stateDir;
     this.sqliteDbFilename = options.sqliteDbFilename ?? 'exarchos.db';
+    this.synchronous = options.synchronous;
     if (options.sqliteBackend) {
       this.sqliteBackend = options.sqliteBackend;
       // Pre-resolved Promise so the singleton invariant holds for the
@@ -837,7 +847,10 @@ export class AtomicAppender {
     // step) inside one Promise that all concurrent callers share.
     const inflight = (async (): Promise<SqliteBackend> => {
       const dbPath = path.join(this.stateDir, this.sqliteDbFilename);
-      const backend = new SqliteBackend(dbPath);
+      const backend = new SqliteBackend(
+        dbPath,
+        this.synchronous ? { synchronous: this.synchronous } : {},
+      );
       backend.initialize();
       this.sqliteBackend = backend;
       return backend;

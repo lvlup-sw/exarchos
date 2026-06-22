@@ -280,6 +280,31 @@ export class SequenceGateConflictError extends Error {
 }
 
 /**
+ * Thrown by `initialize()` when the SQLite driver does not expose the
+ * `transaction(fn).immediate()` variant. Cross-process write correctness
+ * depends on `BEGIN IMMEDIATE` acquiring the write lock up-front: a deferred
+ * `BEGIN` that reads then upgrades to a write is the classic SQLite
+ * lock-upgrade deadlock that `busy_timeout` cannot resolve, and it reopens
+ * the very TOCTOU window the stream-version gate closes. Rather than
+ * silently degrade to that path, the substrate refuses to start — fail-fast,
+ * operator-visible (DR-3). Both supported drivers (`bun:sqlite` in
+ * production, `better-sqlite3` via the test shim) expose `.immediate`.
+ */
+export class SqliteImmediateUnsupportedError extends Error {
+  override readonly name = 'SqliteImmediateUnsupportedError';
+  readonly code = 'SQLITE_IMMEDIATE_UNSUPPORTED';
+  constructor() {
+    super(
+      'SQLite driver does not expose transaction(fn).immediate(): BEGIN ' +
+        'IMMEDIATE is required for cross-process write correctness (the ' +
+        'stream-version gate and lock-upgrade-deadlock avoidance both depend ' +
+        'on it). Refusing to start rather than silently using a deferred ' +
+        'BEGIN. Use bun:sqlite (production) or better-sqlite3 (tests).',
+    );
+  }
+}
+
+/**
  * Thrown by `initialize()` when the SQLite database file cannot be
  * opened or read because its bytes are not a valid SQLite database
  * (`SQLITE_NOTADB`) or are structurally broken (`SQLITE_CORRUPT`).
@@ -372,8 +397,31 @@ export class SqliteBackend implements StorageBackend {
    */
   private readonly clock: () => Date;
 
-  constructor(private readonly dbPath: string, opts: { clock?: () => Date } = {}) {
+  /**
+   * Durability posture for `PRAGMA synchronous` (DR-4). `'normal'` (the
+   * default) is durable across process crash but may lose the last
+   * committed transaction(s) on OS crash / power loss — consistent with the
+   * INV-13 intent/result crash-recovery design, which tolerates tail loss.
+   * `'full'` fsyncs on every commit (power-loss durable, lower throughput).
+   * Resolved from `.exarchos.yml` `storage.synchronous` by the caller.
+   */
+  private readonly synchronous: 'normal' | 'full';
+
+  constructor(
+    private readonly dbPath: string,
+    opts: { clock?: () => Date; synchronous?: 'normal' | 'full' } = {},
+  ) {
     this.clock = opts.clock ?? (() => new Date());
+    if (
+      opts.synchronous !== undefined &&
+      opts.synchronous !== 'normal' &&
+      opts.synchronous !== 'full'
+    ) {
+      throw new Error(
+        `invalid storage.synchronous: ${String(opts.synchronous)} (expected 'normal' | 'full')`,
+      );
+    }
+    this.synchronous = opts.synchronous ?? 'normal';
   }
 
   // ─── Lifecycle ──────────────────────────────────────────────────────────
@@ -387,6 +435,11 @@ export class SqliteBackend implements StorageBackend {
       // Note: `bun:sqlite` has no `.pragma()` helper — write-pragmas go through
       // `db.exec()` and read-pragmas through `db.query().all()`.
       this.applyConnectionPragmas();
+
+      // Fail fast if the driver cannot open BEGIN IMMEDIATE (DR-3). The
+      // stream-version gate and lock-upgrade-deadlock avoidance both require
+      // it; a deferred-BEGIN fallback is not a safe degradation.
+      this.assertImmediateSupported();
 
       // Execute schema DDL
       this.db.exec(SCHEMA_DDL);
@@ -479,9 +532,33 @@ export class SqliteBackend implements StorageBackend {
    * layer eliminates the observability surface — a 5-second silent
    * stall is indistinguishable from a healthy write.
    */
+  /**
+   * Assert the driver exposes `transaction(fn).immediate()` (DR-3). Probes a
+   * no-op transaction wrapper for the `.immediate` method. Throws
+   * {@link SqliteImmediateUnsupportedError} when absent so `atomicAppend`
+   * never falls back to a deferred `BEGIN`.
+   */
+  private assertImmediateSupported(): void {
+    const probe = this.db.transaction(() => {}) as unknown as {
+      immediate?: (...args: unknown[]) => void;
+    };
+    if (typeof probe.immediate !== 'function') {
+      throw new SqliteImmediateUnsupportedError();
+    }
+  }
+
   private applyConnectionPragmas(): void {
     this.db.exec('PRAGMA journal_mode = WAL');
-    this.db.exec('PRAGMA synchronous = NORMAL');
+    // Durability posture (DR-4). NORMAL (default): the WAL is fsync'd at
+    // checkpoint, not at every commit — durable across a PROCESS crash, but
+    // the last committed transaction(s) can be lost on OS crash / power loss.
+    // This is the SQLite-recommended WAL setting and is consistent with the
+    // INV-13 intent/result recovery model (a lost tail is re-derived, not
+    // trusted). FULL fsyncs on every commit (power-loss durable, slower).
+    // Configurable via `.exarchos.yml` `storage.synchronous`.
+    this.db.exec(
+      `PRAGMA synchronous = ${this.synchronous === 'full' ? 'FULL' : 'NORMAL'}`,
+    );
     this.db.exec('PRAGMA mmap_size = 268435456');
     // C-layer BUSY safety net (audit §F2.2). See JSDoc above for the
     // two-tier model that this pragma anchors.
@@ -1711,21 +1788,15 @@ export class SqliteBackend implements StorageBackend {
     // `bun:sqlite` exposes `transaction(fn).immediate(args)` to open
     // BEGIN IMMEDIATE explicitly. The shimmed `better-sqlite3` driver
     // supports the same shape (the shim wraps better-sqlite3 1:1 — see
-    // src/storage/__shims__/bun-sqlite-node.ts).
+    // src/storage/__shims__/bun-sqlite-node.ts). `initialize()` asserts
+    // `.immediate` exists (DR-3), so there is NO deferred fallback here: a
+    // deferred BEGIN would reopen the lock-upgrade deadlock and the TOCTOU
+    // window the gate closes.
     const txnUnknown = txn as unknown as {
-      immediate?: (...args: unknown[]) => void;
+      immediate: (...args: unknown[]) => void;
     };
     const runOnce = (): void => {
-      if (typeof txnUnknown.immediate === 'function') {
-        txnUnknown.immediate();
-      } else {
-        // Fallback: the wrapper opens a default `BEGIN` (deferred). The
-        // per-stream Promise mutex (AtomicAppender's first-tier guard)
-        // still prevents intra-process write races; the deferred-vs-
-        // immediate distinction matters for cross-process writers, which
-        // are out of scope for the POC.
-        txn();
-      }
+      txnUnknown.immediate();
     };
 
     // Bounded retry loop over SQLITE_BUSY — DR-12 (#1259, T09).

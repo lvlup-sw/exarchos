@@ -96,6 +96,13 @@ export interface QueryFilters {
 
 export interface EventStoreOptions {
   backend?: StorageBackend;
+  /**
+   * Durability posture (DR-4) threaded to the lazily-constructed
+   * AtomicAppender → SqliteBackend (`PRAGMA synchronous`). Resolved from
+   * `.exarchos.yml` `storage.synchronous` by the lifecycle wiring. Omitted →
+   * `'normal'` (unchanged default).
+   */
+  synchronous?: 'normal' | 'full';
 }
 
 // ─── Integrity Result ───────────────────────────────────────────────────────
@@ -175,8 +182,12 @@ export class EventStore {
    *  locks and sequence counters share state across handler calls. */
   private atomicAppender?: AtomicAppender;
 
+  /** Durability posture threaded to the lazily-created appender (DR-4). */
+  private readonly synchronous?: 'normal' | 'full';
+
   constructor(private readonly stateDir: string, options?: EventStoreOptions) {
     this.backend = options?.backend;
+    this.synchronous = options?.synchronous;
   }
 
   /** Returns the state directory path used by this event store. */
@@ -201,6 +212,7 @@ export class EventStore {
     if (!this.atomicAppender) {
       this.atomicAppender = new AtomicAppender({
         stateDir: this.stateDir,
+        ...(this.synchronous ? { synchronous: this.synchronous } : {}),
       });
     }
     return this.atomicAppender;
