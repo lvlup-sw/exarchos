@@ -61,7 +61,7 @@ After the fix completes, run the `task-fix` runbook:
 exarchos_orchestrate({ action: "runbook", id: "task-fix" })
 ```
 
-This executes the gate chain: re-run tests → TDD compliance check → static analysis → mark task complete if all pass. If runbook unavailable, use `describe` to retrieve gate schemas: `exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis", "task_complete"] })`
+This executes the gate chain: re-run tests → static analysis → mark task complete if all pass. If runbook unavailable, use `describe` to retrieve gate schemas: `exarchos_orchestrate({ action: "describe", actions: ["check_static_analysis", "task_complete"] })`
 
 ## Fix Task Structure
 

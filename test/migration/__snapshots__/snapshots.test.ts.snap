@@ -1069,13 +1069,13 @@ After each subagent reports completion:
 > \`exarchos_orchestrate({ action: "runbook", id: "task-completion" })\`
 > Execute the returned steps in order. Stop on gate failure.
 > If the runbook action is unavailable, use \`describe\` to retrieve gate schemas and run manually:
-> \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis", "task_complete"] })\`
+> \`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })\`
 
 1. **Extract provenance from subagent report** — parse the subagent's completion output and extract structured provenance fields (\`implements\`, \`tests\`, \`files\`). These fields are reported by the subagent following the Provenance Reporting section of the implementer prompt.
 
 2. **Verify worktree state** — confirm each worktree has clean \`git status\` and passing tests
 
-3. **Run blocking gates** — the \`task-completion\` runbook (referenced above) defines the exact gate sequence (TDD compliance, static analysis, then task_complete). On any gate failure, keep the task in-progress and report findings. All gate handlers auto-emit \`gate.executed\` events, so manual \`exarchos_event\` calls are not needed.
+3. **Run blocking gates** — the \`task-completion\` runbook (referenced above) defines the exact gate sequence (test adequacy, static analysis, then task_complete). On any gate failure, keep the task in-progress and report findings. All gate handlers auto-emit \`gate.executed\` events, so manual \`exarchos_event\` calls are not needed.
 
 5. **Pass provenance in task completion** — when marking a task complete, pass the extracted provenance fields in the \`result\` parameter so they flow into the \`task.completed\` event:
 
@@ -1146,7 +1146,7 @@ Task({
 
 After fix completes, run the \`task-fix\` runbook gate chain:
 \`exarchos_orchestrate({ action: "runbook", id: "task-fix" })\`
-If runbook unavailable, use \`describe\` to retrieve gate schemas: \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis", "task_complete"] })\`
+If runbook unavailable, use \`describe\` to retrieve gate schemas: \`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })\`
 
 ---
 
@@ -1225,7 +1225,7 @@ This detour is invisible to the delegation skill itself — the all-tasks-comple
 Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
-\`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "task_complete"] })\`
+\`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "task_complete"] })\`
 for orchestrate action schemas.
 
 ---
@@ -1406,8 +1406,8 @@ metadata:
 
 # Discovery Workflow Skill
 
-A workflow type for tasks whose deliverable is a **document, not code**. Explicitly
-exempt from the Iron Law (no failing test requirement) because there is nothing to test.
+A workflow type for tasks whose deliverable is a **document, not code**. It carries
+no verification gates (nothing to test), so the verification ladder does not apply.
 
 ## When to Use
 
@@ -3504,7 +3504,7 @@ This enables catching:
 
 **Does NOT re-check:**
 - Functional completeness (spec review)
-- TDD compliance (spec review)
+- Test adequacy (spec review)
 
 ## Review Process
 
@@ -3617,10 +3617,11 @@ After the quality-review fix loop completes and quality passes, re-verify that t
    \`\`\`
    \`\`\`typescript
    exarchos_orchestrate({
-     action: "check_tdd_compliance",
+     action: "check_test_adequacy",
      featureId: "<featureId>",
      taskId: "<taskId>",
-     branch: "<branch>"
+     branch: "<branch>",
+     riskTier: "<low|medium|high>"
    })
    \`\`\`
 2. If all pass: proceed to APPROVED transition
@@ -4300,7 +4301,7 @@ After approval is granted and PRs merge, run \`/exarchos:cleanup\` to resolve th
 exports[`task 025 — per-runtime snapshot baselines > runtime: claude > Snapshots_AllSkillsAllRuntimes_MatchBaseline: skills/claude/spec-review/SKILL.md > skills/claude/spec-review/SKILL.md 1`] = `
 "---
 name: spec-review
-description: "Stage 1 spec compliance review. Triggers: /review stage 1. Verifies implementation matches design specification — functional completeness, TDD compliance, and test coverage. Do NOT use for code quality checks — use quality-review instead. Do NOT use for debugging."
+description: "Stage 1 spec compliance review. Triggers: /review stage 1. Verifies implementation matches design specification — functional completeness, test adequacy, and test coverage. Do NOT use for code quality checks — use quality-review instead. Do NOT use for debugging."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -4395,7 +4396,7 @@ This enables catching:
 
 **Spec Review focuses on:**
 - Functional completeness
-- TDD compliance
+- Test adequacy (outcome-based, tier-scaled — not test-first ordering)
 - Specification alignment
 - Test coverage
 
@@ -4418,10 +4419,11 @@ npm run typecheck
 
 \`\`\`typescript
 exarchos_orchestrate({
-  action: "check_tdd_compliance",
+  action: "check_test_adequacy",
   featureId: "<featureId>",
   taskId: "<taskId>",
-  branch: "<branch>"
+  branch: "<branch>",
+  riskTier: "<low|medium|high>"
 })
 \`\`\`
 
@@ -4536,7 +4538,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
-\`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis"] })\`
+\`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis"] })\`
 for orchestrate action schemas.
 
 ## Transition
@@ -4584,14 +4586,14 @@ This is NOT a human checkpoint - workflow continues autonomously.
 |-------|-------|------------|
 | Test file not found | Task didn't create expected test | Check plan for test file paths, verify worktree contents |
 | Coverage below threshold | Implementation incomplete or tests superficial | Add missing test cases, verify assertions are meaningful |
-| TDD compliance check fails | Implementation committed before tests | Check git log order — test commits must precede or accompany implementation |
+| Test-adequacy kill-probe fails | A new/changed test still passes against reverted source (vacuous) | Strengthen the test so reverting the implementation makes it fail |
 | Diff too large for context | Many tasks with large changes | Generate per-worktree diffs with \`exarchos_orchestrate({ action: "review_diff", worktreePath: "<task-worktree>" })\` to review incrementally |
 
 ## Performance Notes
 
 - Use the integrated diff (\`exarchos_orchestrate({ action: "review_diff" })\`) instead of reading full files — reduces context by 80-90%
 - Review per-task when the combined diff exceeds 2,000 lines
-- Run TDD compliance check (\`exarchos_orchestrate({ action: "check_tdd_compliance" })\`) in parallel with spec tracing
+- Run the test-adequacy kill-probe (\`exarchos_orchestrate({ action: "check_test_adequacy" })\`) in parallel with spec tracing
 "
 `;
 
@@ -6203,13 +6205,13 @@ After each subagent reports completion:
 > \`exarchos_orchestrate({ action: "runbook", id: "task-completion" })\`
 > Execute the returned steps in order. Stop on gate failure.
 > If the runbook action is unavailable, use \`describe\` to retrieve gate schemas and run manually:
-> \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis", "task_complete"] })\`
+> \`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })\`
 
 1. **Extract provenance from subagent report** — parse the subagent's completion output and extract structured provenance fields (\`implements\`, \`tests\`, \`files\`). These fields are reported by the subagent following the Provenance Reporting section of the implementer prompt.
 
 2. **Verify worktree state** — confirm each worktree has clean \`git status\` and passing tests
 
-3. **Run blocking gates** — the \`task-completion\` runbook (referenced above) defines the exact gate sequence (TDD compliance, static analysis, then task_complete). On any gate failure, keep the task in-progress and report findings. All gate handlers auto-emit \`gate.executed\` events, so manual \`exarchos_event\` calls are not needed.
+3. **Run blocking gates** — the \`task-completion\` runbook (referenced above) defines the exact gate sequence (test adequacy, static analysis, then task_complete). On any gate failure, keep the task in-progress and report findings. All gate handlers auto-emit \`gate.executed\` events, so manual \`exarchos_event\` calls are not needed.
 
 5. **Pass provenance in task completion** — when marking a task complete, pass the extracted provenance fields in the \`result\` parameter so they flow into the \`task.completed\` event:
 
@@ -6269,7 +6271,7 @@ spawn_agent({
 
 After fix completes, run the \`task-fix\` runbook gate chain:
 \`exarchos_orchestrate({ action: "runbook", id: "task-fix" })\`
-If runbook unavailable, use \`describe\` to retrieve gate schemas: \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis", "task_complete"] })\`
+If runbook unavailable, use \`describe\` to retrieve gate schemas: \`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })\`
 
 ---
 
@@ -6348,7 +6350,7 @@ This detour is invisible to the delegation skill itself — the all-tasks-comple
 Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
-\`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "task_complete"] })\`
+\`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "task_complete"] })\`
 for orchestrate action schemas.
 
 ---
@@ -6507,8 +6509,8 @@ metadata:
 
 # Discovery Workflow Skill
 
-A workflow type for tasks whose deliverable is a **document, not code**. Explicitly
-exempt from the Iron Law (no failing test requirement) because there is nothing to test.
+A workflow type for tasks whose deliverable is a **document, not code**. It carries
+no verification gates (nothing to test), so the verification ladder does not apply.
 
 ## When to Use
 
@@ -8605,7 +8607,7 @@ This enables catching:
 
 **Does NOT re-check:**
 - Functional completeness (spec review)
-- TDD compliance (spec review)
+- Test adequacy (spec review)
 
 ## Review Process
 
@@ -8718,10 +8720,11 @@ After the quality-review fix loop completes and quality passes, re-verify that t
    \`\`\`
    \`\`\`typescript
    exarchos_orchestrate({
-     action: "check_tdd_compliance",
+     action: "check_test_adequacy",
      featureId: "<featureId>",
      taskId: "<taskId>",
-     branch: "<branch>"
+     branch: "<branch>",
+     riskTier: "<low|medium|high>"
    })
    \`\`\`
 2. If all pass: proceed to APPROVED transition
@@ -9401,7 +9404,7 @@ After approval is granted and PRs merge, run \`cleanup\` to resolve the workflow
 exports[`task 025 — per-runtime snapshot baselines > runtime: codex > Snapshots_AllSkillsAllRuntimes_MatchBaseline: skills/codex/spec-review/SKILL.md > skills/codex/spec-review/SKILL.md 1`] = `
 "---
 name: spec-review
-description: "Stage 1 spec compliance review. Triggers: /review stage 1. Verifies implementation matches design specification — functional completeness, TDD compliance, and test coverage. Do NOT use for code quality checks — use quality-review instead. Do NOT use for debugging."
+description: "Stage 1 spec compliance review. Triggers: /review stage 1. Verifies implementation matches design specification — functional completeness, test adequacy, and test coverage. Do NOT use for code quality checks — use quality-review instead. Do NOT use for debugging."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -9496,7 +9499,7 @@ This enables catching:
 
 **Spec Review focuses on:**
 - Functional completeness
-- TDD compliance
+- Test adequacy (outcome-based, tier-scaled — not test-first ordering)
 - Specification alignment
 - Test coverage
 
@@ -9519,10 +9522,11 @@ npm run typecheck
 
 \`\`\`typescript
 exarchos_orchestrate({
-  action: "check_tdd_compliance",
+  action: "check_test_adequacy",
   featureId: "<featureId>",
   taskId: "<taskId>",
-  branch: "<branch>"
+  branch: "<branch>",
+  riskTier: "<low|medium|high>"
 })
 \`\`\`
 
@@ -9637,7 +9641,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
-\`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis"] })\`
+\`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis"] })\`
 for orchestrate action schemas.
 
 ## Transition
@@ -9685,14 +9689,14 @@ This is NOT a human checkpoint - workflow continues autonomously.
 |-------|-------|------------|
 | Test file not found | Task didn't create expected test | Check plan for test file paths, verify worktree contents |
 | Coverage below threshold | Implementation incomplete or tests superficial | Add missing test cases, verify assertions are meaningful |
-| TDD compliance check fails | Implementation committed before tests | Check git log order — test commits must precede or accompany implementation |
+| Test-adequacy kill-probe fails | A new/changed test still passes against reverted source (vacuous) | Strengthen the test so reverting the implementation makes it fail |
 | Diff too large for context | Many tasks with large changes | Generate per-worktree diffs with \`exarchos_orchestrate({ action: "review_diff", worktreePath: "<task-worktree>" })\` to review incrementally |
 
 ## Performance Notes
 
 - Use the integrated diff (\`exarchos_orchestrate({ action: "review_diff" })\`) instead of reading full files — reduces context by 80-90%
 - Review per-task when the combined diff exceeds 2,000 lines
-- Run TDD compliance check (\`exarchos_orchestrate({ action: "check_tdd_compliance" })\`) in parallel with spec tracing
+- Run the test-adequacy kill-probe (\`exarchos_orchestrate({ action: "check_test_adequacy" })\`) in parallel with spec tracing
 "
 `;
 
@@ -11300,13 +11304,13 @@ After each subagent reports completion:
 > \`exarchos_orchestrate({ action: "runbook", id: "task-completion" })\`
 > Execute the returned steps in order. Stop on gate failure.
 > If the runbook action is unavailable, use \`describe\` to retrieve gate schemas and run manually:
-> \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis", "task_complete"] })\`
+> \`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })\`
 
 1. **Extract provenance from subagent report** — parse the subagent's completion output and extract structured provenance fields (\`implements\`, \`tests\`, \`files\`). These fields are reported by the subagent following the Provenance Reporting section of the implementer prompt.
 
 2. **Verify worktree state** — confirm each worktree has clean \`git status\` and passing tests
 
-3. **Run blocking gates** — the \`task-completion\` runbook (referenced above) defines the exact gate sequence (TDD compliance, static analysis, then task_complete). On any gate failure, keep the task in-progress and report findings. All gate handlers auto-emit \`gate.executed\` events, so manual \`exarchos_event\` calls are not needed.
+3. **Run blocking gates** — the \`task-completion\` runbook (referenced above) defines the exact gate sequence (test adequacy, static analysis, then task_complete). On any gate failure, keep the task in-progress and report findings. All gate handlers auto-emit \`gate.executed\` events, so manual \`exarchos_event\` calls are not needed.
 
 5. **Pass provenance in task completion** — when marking a task complete, pass the extracted provenance fields in the \`result\` parameter so they flow into the \`task.completed\` event:
 
@@ -11362,7 +11366,7 @@ task --agent fixer 'Fix failed task-001: Your implementation failed. [failure co
 
 After fix completes, run the \`task-fix\` runbook gate chain:
 \`exarchos_orchestrate({ action: "runbook", id: "task-fix" })\`
-If runbook unavailable, use \`describe\` to retrieve gate schemas: \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis", "task_complete"] })\`
+If runbook unavailable, use \`describe\` to retrieve gate schemas: \`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })\`
 
 ---
 
@@ -11441,7 +11445,7 @@ This detour is invisible to the delegation skill itself — the all-tasks-comple
 Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
-\`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "task_complete"] })\`
+\`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "task_complete"] })\`
 for orchestrate action schemas.
 
 ---
@@ -11600,8 +11604,8 @@ metadata:
 
 # Discovery Workflow Skill
 
-A workflow type for tasks whose deliverable is a **document, not code**. Explicitly
-exempt from the Iron Law (no failing test requirement) because there is nothing to test.
+A workflow type for tasks whose deliverable is a **document, not code**. It carries
+no verification gates (nothing to test), so the verification ladder does not apply.
 
 ## When to Use
 
@@ -13698,7 +13702,7 @@ This enables catching:
 
 **Does NOT re-check:**
 - Functional completeness (spec review)
-- TDD compliance (spec review)
+- Test adequacy (spec review)
 
 ## Review Process
 
@@ -13811,10 +13815,11 @@ After the quality-review fix loop completes and quality passes, re-verify that t
    \`\`\`
    \`\`\`typescript
    exarchos_orchestrate({
-     action: "check_tdd_compliance",
+     action: "check_test_adequacy",
      featureId: "<featureId>",
      taskId: "<taskId>",
-     branch: "<branch>"
+     branch: "<branch>",
+     riskTier: "<low|medium|high>"
    })
    \`\`\`
 2. If all pass: proceed to APPROVED transition
@@ -14494,7 +14499,7 @@ After approval is granted and PRs merge, run \`/cleanup\` to resolve the workflo
 exports[`task 025 — per-runtime snapshot baselines > runtime: copilot > Snapshots_AllSkillsAllRuntimes_MatchBaseline: skills/copilot/spec-review/SKILL.md > skills/copilot/spec-review/SKILL.md 1`] = `
 "---
 name: spec-review
-description: "Stage 1 spec compliance review. Triggers: /review stage 1. Verifies implementation matches design specification — functional completeness, TDD compliance, and test coverage. Do NOT use for code quality checks — use quality-review instead. Do NOT use for debugging."
+description: "Stage 1 spec compliance review. Triggers: /review stage 1. Verifies implementation matches design specification — functional completeness, test adequacy, and test coverage. Do NOT use for code quality checks — use quality-review instead. Do NOT use for debugging."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -14589,7 +14594,7 @@ This enables catching:
 
 **Spec Review focuses on:**
 - Functional completeness
-- TDD compliance
+- Test adequacy (outcome-based, tier-scaled — not test-first ordering)
 - Specification alignment
 - Test coverage
 
@@ -14612,10 +14617,11 @@ npm run typecheck
 
 \`\`\`typescript
 exarchos_orchestrate({
-  action: "check_tdd_compliance",
+  action: "check_test_adequacy",
   featureId: "<featureId>",
   taskId: "<taskId>",
-  branch: "<branch>"
+  branch: "<branch>",
+  riskTier: "<low|medium|high>"
 })
 \`\`\`
 
@@ -14730,7 +14736,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
-\`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis"] })\`
+\`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis"] })\`
 for orchestrate action schemas.
 
 ## Transition
@@ -14778,14 +14784,14 @@ This is NOT a human checkpoint - workflow continues autonomously.
 |-------|-------|------------|
 | Test file not found | Task didn't create expected test | Check plan for test file paths, verify worktree contents |
 | Coverage below threshold | Implementation incomplete or tests superficial | Add missing test cases, verify assertions are meaningful |
-| TDD compliance check fails | Implementation committed before tests | Check git log order — test commits must precede or accompany implementation |
+| Test-adequacy kill-probe fails | A new/changed test still passes against reverted source (vacuous) | Strengthen the test so reverting the implementation makes it fail |
 | Diff too large for context | Many tasks with large changes | Generate per-worktree diffs with \`exarchos_orchestrate({ action: "review_diff", worktreePath: "<task-worktree>" })\` to review incrementally |
 
 ## Performance Notes
 
 - Use the integrated diff (\`exarchos_orchestrate({ action: "review_diff" })\`) instead of reading full files — reduces context by 80-90%
 - Review per-task when the combined diff exceeds 2,000 lines
-- Run TDD compliance check (\`exarchos_orchestrate({ action: "check_tdd_compliance" })\`) in parallel with spec tracing
+- Run the test-adequacy kill-probe (\`exarchos_orchestrate({ action: "check_test_adequacy" })\`) in parallel with spec tracing
 "
 `;
 
@@ -16398,13 +16404,13 @@ After each subagent reports completion:
 > \`exarchos_orchestrate({ action: "runbook", id: "task-completion" })\`
 > Execute the returned steps in order. Stop on gate failure.
 > If the runbook action is unavailable, use \`describe\` to retrieve gate schemas and run manually:
-> \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis", "task_complete"] })\`
+> \`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })\`
 
 1. **Extract provenance from subagent report** — parse the subagent's completion output and extract structured provenance fields (\`implements\`, \`tests\`, \`files\`). These fields are reported by the subagent following the Provenance Reporting section of the implementer prompt.
 
 2. **Verify worktree state** — confirm each worktree has clean \`git status\` and passing tests
 
-3. **Run blocking gates** — the \`task-completion\` runbook (referenced above) defines the exact gate sequence (TDD compliance, static analysis, then task_complete). On any gate failure, keep the task in-progress and report findings. All gate handlers auto-emit \`gate.executed\` events, so manual \`exarchos_event\` calls are not needed.
+3. **Run blocking gates** — the \`task-completion\` runbook (referenced above) defines the exact gate sequence (test adequacy, static analysis, then task_complete). On any gate failure, keep the task in-progress and report findings. All gate handlers auto-emit \`gate.executed\` events, so manual \`exarchos_event\` calls are not needed.
 
 5. **Pass provenance in task completion** — when marking a task complete, pass the extracted provenance fields in the \`result\` parameter so they flow into the \`task.completed\` event:
 
@@ -16465,7 +16471,7 @@ Task({
 
 After fix completes, run the \`task-fix\` runbook gate chain:
 \`exarchos_orchestrate({ action: "runbook", id: "task-fix" })\`
-If runbook unavailable, use \`describe\` to retrieve gate schemas: \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis", "task_complete"] })\`
+If runbook unavailable, use \`describe\` to retrieve gate schemas: \`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })\`
 
 ---
 
@@ -16544,7 +16550,7 @@ This detour is invisible to the delegation skill itself — the all-tasks-comple
 Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
-\`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "task_complete"] })\`
+\`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "task_complete"] })\`
 for orchestrate action schemas.
 
 ---
@@ -16703,8 +16709,8 @@ metadata:
 
 # Discovery Workflow Skill
 
-A workflow type for tasks whose deliverable is a **document, not code**. Explicitly
-exempt from the Iron Law (no failing test requirement) because there is nothing to test.
+A workflow type for tasks whose deliverable is a **document, not code**. It carries
+no verification gates (nothing to test), so the verification ladder does not apply.
 
 ## When to Use
 
@@ -18801,7 +18807,7 @@ This enables catching:
 
 **Does NOT re-check:**
 - Functional completeness (spec review)
-- TDD compliance (spec review)
+- Test adequacy (spec review)
 
 ## Review Process
 
@@ -18914,10 +18920,11 @@ After the quality-review fix loop completes and quality passes, re-verify that t
    \`\`\`
    \`\`\`typescript
    exarchos_orchestrate({
-     action: "check_tdd_compliance",
+     action: "check_test_adequacy",
      featureId: "<featureId>",
      taskId: "<taskId>",
-     branch: "<branch>"
+     branch: "<branch>",
+     riskTier: "<low|medium|high>"
    })
    \`\`\`
 2. If all pass: proceed to APPROVED transition
@@ -19597,7 +19604,7 @@ After approval is granted and PRs merge, run \`cleanup\` to resolve the workflow
 exports[`task 025 — per-runtime snapshot baselines > runtime: cursor > Snapshots_AllSkillsAllRuntimes_MatchBaseline: skills/cursor/spec-review/SKILL.md > skills/cursor/spec-review/SKILL.md 1`] = `
 "---
 name: spec-review
-description: "Stage 1 spec compliance review. Triggers: /review stage 1. Verifies implementation matches design specification — functional completeness, TDD compliance, and test coverage. Do NOT use for code quality checks — use quality-review instead. Do NOT use for debugging."
+description: "Stage 1 spec compliance review. Triggers: /review stage 1. Verifies implementation matches design specification — functional completeness, test adequacy, and test coverage. Do NOT use for code quality checks — use quality-review instead. Do NOT use for debugging."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -19692,7 +19699,7 @@ This enables catching:
 
 **Spec Review focuses on:**
 - Functional completeness
-- TDD compliance
+- Test adequacy (outcome-based, tier-scaled — not test-first ordering)
 - Specification alignment
 - Test coverage
 
@@ -19715,10 +19722,11 @@ npm run typecheck
 
 \`\`\`typescript
 exarchos_orchestrate({
-  action: "check_tdd_compliance",
+  action: "check_test_adequacy",
   featureId: "<featureId>",
   taskId: "<taskId>",
-  branch: "<branch>"
+  branch: "<branch>",
+  riskTier: "<low|medium|high>"
 })
 \`\`\`
 
@@ -19833,7 +19841,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
-\`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis"] })\`
+\`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis"] })\`
 for orchestrate action schemas.
 
 ## Transition
@@ -19881,14 +19889,14 @@ This is NOT a human checkpoint - workflow continues autonomously.
 |-------|-------|------------|
 | Test file not found | Task didn't create expected test | Check plan for test file paths, verify worktree contents |
 | Coverage below threshold | Implementation incomplete or tests superficial | Add missing test cases, verify assertions are meaningful |
-| TDD compliance check fails | Implementation committed before tests | Check git log order — test commits must precede or accompany implementation |
+| Test-adequacy kill-probe fails | A new/changed test still passes against reverted source (vacuous) | Strengthen the test so reverting the implementation makes it fail |
 | Diff too large for context | Many tasks with large changes | Generate per-worktree diffs with \`exarchos_orchestrate({ action: "review_diff", worktreePath: "<task-worktree>" })\` to review incrementally |
 
 ## Performance Notes
 
 - Use the integrated diff (\`exarchos_orchestrate({ action: "review_diff" })\`) instead of reading full files — reduces context by 80-90%
 - Review per-task when the combined diff exceeds 2,000 lines
-- Run TDD compliance check (\`exarchos_orchestrate({ action: "check_tdd_compliance" })\`) in parallel with spec tracing
+- Run the test-adequacy kill-probe (\`exarchos_orchestrate({ action: "check_test_adequacy" })\`) in parallel with spec tracing
 "
 `;
 
@@ -21477,13 +21485,13 @@ After each subagent reports completion:
 > \`exarchos_orchestrate({ action: "runbook", id: "task-completion" })\`
 > Execute the returned steps in order. Stop on gate failure.
 > If the runbook action is unavailable, use \`describe\` to retrieve gate schemas and run manually:
-> \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis", "task_complete"] })\`
+> \`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })\`
 
 1. **Extract provenance from subagent report** — parse the subagent's completion output and extract structured provenance fields (\`implements\`, \`tests\`, \`files\`). These fields are reported by the subagent following the Provenance Reporting section of the implementer prompt.
 
 2. **Verify worktree state** — confirm each worktree has clean \`git status\` and passing tests
 
-3. **Run blocking gates** — the \`task-completion\` runbook (referenced above) defines the exact gate sequence (TDD compliance, static analysis, then task_complete). On any gate failure, keep the task in-progress and report findings. All gate handlers auto-emit \`gate.executed\` events, so manual \`exarchos_event\` calls are not needed.
+3. **Run blocking gates** — the \`task-completion\` runbook (referenced above) defines the exact gate sequence (test adequacy, static analysis, then task_complete). On any gate failure, keep the task in-progress and report findings. All gate handlers auto-emit \`gate.executed\` events, so manual \`exarchos_event\` calls are not needed.
 
 5. **Pass provenance in task completion** — when marking a task complete, pass the extracted provenance fields in the \`result\` parameter so they flow into the \`task.completed\` event:
 
@@ -21539,7 +21547,7 @@ Execute each task sequentially in the current session, one at a time, against th
 
 After fix completes, run the \`task-fix\` runbook gate chain:
 \`exarchos_orchestrate({ action: "runbook", id: "task-fix" })\`
-If runbook unavailable, use \`describe\` to retrieve gate schemas: \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis", "task_complete"] })\`
+If runbook unavailable, use \`describe\` to retrieve gate schemas: \`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })\`
 
 ---
 
@@ -21618,7 +21626,7 @@ This detour is invisible to the delegation skill itself — the all-tasks-comple
 Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
-\`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "task_complete"] })\`
+\`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "task_complete"] })\`
 for orchestrate action schemas.
 
 ---
@@ -21777,8 +21785,8 @@ metadata:
 
 # Discovery Workflow Skill
 
-A workflow type for tasks whose deliverable is a **document, not code**. Explicitly
-exempt from the Iron Law (no failing test requirement) because there is nothing to test.
+A workflow type for tasks whose deliverable is a **document, not code**. It carries
+no verification gates (nothing to test), so the verification ladder does not apply.
 
 ## When to Use
 
@@ -23875,7 +23883,7 @@ This enables catching:
 
 **Does NOT re-check:**
 - Functional completeness (spec review)
-- TDD compliance (spec review)
+- Test adequacy (spec review)
 
 ## Review Process
 
@@ -23988,10 +23996,11 @@ After the quality-review fix loop completes and quality passes, re-verify that t
    \`\`\`
    \`\`\`typescript
    exarchos_orchestrate({
-     action: "check_tdd_compliance",
+     action: "check_test_adequacy",
      featureId: "<featureId>",
      taskId: "<taskId>",
-     branch: "<branch>"
+     branch: "<branch>",
+     riskTier: "<low|medium|high>"
    })
    \`\`\`
 2. If all pass: proceed to APPROVED transition
@@ -24671,7 +24680,7 @@ After approval is granted and PRs merge, run \`cleanup\` to resolve the workflow
 exports[`task 025 — per-runtime snapshot baselines > runtime: generic > Snapshots_AllSkillsAllRuntimes_MatchBaseline: skills/generic/spec-review/SKILL.md > skills/generic/spec-review/SKILL.md 1`] = `
 "---
 name: spec-review
-description: "Stage 1 spec compliance review. Triggers: /review stage 1. Verifies implementation matches design specification — functional completeness, TDD compliance, and test coverage. Do NOT use for code quality checks — use quality-review instead. Do NOT use for debugging."
+description: "Stage 1 spec compliance review. Triggers: /review stage 1. Verifies implementation matches design specification — functional completeness, test adequacy, and test coverage. Do NOT use for code quality checks — use quality-review instead. Do NOT use for debugging."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -24766,7 +24775,7 @@ This enables catching:
 
 **Spec Review focuses on:**
 - Functional completeness
-- TDD compliance
+- Test adequacy (outcome-based, tier-scaled — not test-first ordering)
 - Specification alignment
 - Test coverage
 
@@ -24789,10 +24798,11 @@ npm run typecheck
 
 \`\`\`typescript
 exarchos_orchestrate({
-  action: "check_tdd_compliance",
+  action: "check_test_adequacy",
   featureId: "<featureId>",
   taskId: "<taskId>",
-  branch: "<branch>"
+  branch: "<branch>",
+  riskTier: "<low|medium|high>"
 })
 \`\`\`
 
@@ -24907,7 +24917,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
-\`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis"] })\`
+\`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis"] })\`
 for orchestrate action schemas.
 
 ## Transition
@@ -24955,14 +24965,14 @@ This is NOT a human checkpoint - workflow continues autonomously.
 |-------|-------|------------|
 | Test file not found | Task didn't create expected test | Check plan for test file paths, verify worktree contents |
 | Coverage below threshold | Implementation incomplete or tests superficial | Add missing test cases, verify assertions are meaningful |
-| TDD compliance check fails | Implementation committed before tests | Check git log order — test commits must precede or accompany implementation |
+| Test-adequacy kill-probe fails | A new/changed test still passes against reverted source (vacuous) | Strengthen the test so reverting the implementation makes it fail |
 | Diff too large for context | Many tasks with large changes | Generate per-worktree diffs with \`exarchos_orchestrate({ action: "review_diff", worktreePath: "<task-worktree>" })\` to review incrementally |
 
 ## Performance Notes
 
 - Use the integrated diff (\`exarchos_orchestrate({ action: "review_diff" })\`) instead of reading full files — reduces context by 80-90%
 - Review per-task when the combined diff exceeds 2,000 lines
-- Run TDD compliance check (\`exarchos_orchestrate({ action: "check_tdd_compliance" })\`) in parallel with spec tracing
+- Run the test-adequacy kill-probe (\`exarchos_orchestrate({ action: "check_test_adequacy" })\`) in parallel with spec tracing
 "
 `;
 
@@ -26574,13 +26584,13 @@ After each subagent reports completion:
 > \`exarchos_orchestrate({ action: "runbook", id: "task-completion" })\`
 > Execute the returned steps in order. Stop on gate failure.
 > If the runbook action is unavailable, use \`describe\` to retrieve gate schemas and run manually:
-> \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis", "task_complete"] })\`
+> \`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })\`
 
 1. **Extract provenance from subagent report** — parse the subagent's completion output and extract structured provenance fields (\`implements\`, \`tests\`, \`files\`). These fields are reported by the subagent following the Provenance Reporting section of the implementer prompt.
 
 2. **Verify worktree state** — confirm each worktree has clean \`git status\` and passing tests
 
-3. **Run blocking gates** — the \`task-completion\` runbook (referenced above) defines the exact gate sequence (TDD compliance, static analysis, then task_complete). On any gate failure, keep the task in-progress and report findings. All gate handlers auto-emit \`gate.executed\` events, so manual \`exarchos_event\` calls are not needed.
+3. **Run blocking gates** — the \`task-completion\` runbook (referenced above) defines the exact gate sequence (test adequacy, static analysis, then task_complete). On any gate failure, keep the task in-progress and report findings. All gate handlers auto-emit \`gate.executed\` events, so manual \`exarchos_event\` calls are not needed.
 
 5. **Pass provenance in task completion** — when marking a task complete, pass the extracted provenance fields in the \`result\` parameter so they flow into the \`task.completed\` event:
 
@@ -26640,7 +26650,7 @@ Task({
 
 After fix completes, run the \`task-fix\` runbook gate chain:
 \`exarchos_orchestrate({ action: "runbook", id: "task-fix" })\`
-If runbook unavailable, use \`describe\` to retrieve gate schemas: \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis", "task_complete"] })\`
+If runbook unavailable, use \`describe\` to retrieve gate schemas: \`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })\`
 
 ---
 
@@ -26719,7 +26729,7 @@ This detour is invisible to the delegation skill itself — the all-tasks-comple
 Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
-\`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "task_complete"] })\`
+\`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "task_complete"] })\`
 for orchestrate action schemas.
 
 ---
@@ -26878,8 +26888,8 @@ metadata:
 
 # Discovery Workflow Skill
 
-A workflow type for tasks whose deliverable is a **document, not code**. Explicitly
-exempt from the Iron Law (no failing test requirement) because there is nothing to test.
+A workflow type for tasks whose deliverable is a **document, not code**. It carries
+no verification gates (nothing to test), so the verification ladder does not apply.
 
 ## When to Use
 
@@ -28976,7 +28986,7 @@ This enables catching:
 
 **Does NOT re-check:**
 - Functional completeness (spec review)
-- TDD compliance (spec review)
+- Test adequacy (spec review)
 
 ## Review Process
 
@@ -29089,10 +29099,11 @@ After the quality-review fix loop completes and quality passes, re-verify that t
    \`\`\`
    \`\`\`typescript
    exarchos_orchestrate({
-     action: "check_tdd_compliance",
+     action: "check_test_adequacy",
      featureId: "<featureId>",
      taskId: "<taskId>",
-     branch: "<branch>"
+     branch: "<branch>",
+     riskTier: "<low|medium|high>"
    })
    \`\`\`
 2. If all pass: proceed to APPROVED transition
@@ -29772,7 +29783,7 @@ After approval is granted and PRs merge, run \`/cleanup\` to resolve the workflo
 exports[`task 025 — per-runtime snapshot baselines > runtime: opencode > Snapshots_AllSkillsAllRuntimes_MatchBaseline: skills/opencode/spec-review/SKILL.md > skills/opencode/spec-review/SKILL.md 1`] = `
 "---
 name: spec-review
-description: "Stage 1 spec compliance review. Triggers: /review stage 1. Verifies implementation matches design specification — functional completeness, TDD compliance, and test coverage. Do NOT use for code quality checks — use quality-review instead. Do NOT use for debugging."
+description: "Stage 1 spec compliance review. Triggers: /review stage 1. Verifies implementation matches design specification — functional completeness, test adequacy, and test coverage. Do NOT use for code quality checks — use quality-review instead. Do NOT use for debugging."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -29867,7 +29878,7 @@ This enables catching:
 
 **Spec Review focuses on:**
 - Functional completeness
-- TDD compliance
+- Test adequacy (outcome-based, tier-scaled — not test-first ordering)
 - Specification alignment
 - Test coverage
 
@@ -29890,10 +29901,11 @@ npm run typecheck
 
 \`\`\`typescript
 exarchos_orchestrate({
-  action: "check_tdd_compliance",
+  action: "check_test_adequacy",
   featureId: "<featureId>",
   taskId: "<taskId>",
-  branch: "<branch>"
+  branch: "<branch>",
+  riskTier: "<low|medium|high>"
 })
 \`\`\`
 
@@ -30008,7 +30020,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
-\`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis"] })\`
+\`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis"] })\`
 for orchestrate action schemas.
 
 ## Transition
@@ -30056,14 +30068,14 @@ This is NOT a human checkpoint - workflow continues autonomously.
 |-------|-------|------------|
 | Test file not found | Task didn't create expected test | Check plan for test file paths, verify worktree contents |
 | Coverage below threshold | Implementation incomplete or tests superficial | Add missing test cases, verify assertions are meaningful |
-| TDD compliance check fails | Implementation committed before tests | Check git log order — test commits must precede or accompany implementation |
+| Test-adequacy kill-probe fails | A new/changed test still passes against reverted source (vacuous) | Strengthen the test so reverting the implementation makes it fail |
 | Diff too large for context | Many tasks with large changes | Generate per-worktree diffs with \`exarchos_orchestrate({ action: "review_diff", worktreePath: "<task-worktree>" })\` to review incrementally |
 
 ## Performance Notes
 
 - Use the integrated diff (\`exarchos_orchestrate({ action: "review_diff" })\`) instead of reading full files — reduces context by 80-90%
 - Review per-task when the combined diff exceeds 2,000 lines
-- Run TDD compliance check (\`exarchos_orchestrate({ action: "check_tdd_compliance" })\`) in parallel with spec tracing
+- Run the test-adequacy kill-probe (\`exarchos_orchestrate({ action: "check_test_adequacy" })\`) in parallel with spec tracing
 "
 `;
 

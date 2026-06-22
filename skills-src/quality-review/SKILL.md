@@ -99,7 +99,7 @@ This enables catching:
 
 **Does NOT re-check:**
 - Functional completeness (spec review)
-- TDD compliance (spec review)
+- Test adequacy (spec review)
 
 ## Review Process
 
@@ -212,10 +212,11 @@ After the quality-review fix loop completes and quality passes, re-verify that t
    ```
    ```typescript
    exarchos_orchestrate({
-     action: "check_tdd_compliance",
+     action: "check_test_adequacy",
      featureId: "<featureId>",
      taskId: "<taskId>",
-     branch: "<branch>"
+     branch: "<branch>",
+     riskTier: "<low|medium|high>"
    })
    ```
 2. If all pass: proceed to APPROVED transition
