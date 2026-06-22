@@ -116,4 +116,39 @@ describe('AtomicAppender stream-version gate', () => {
     const events = appender.ensureSqliteBackendSync().queryEvents(streamId);
     expect(events).toHaveLength(1);
   });
+
+  it('TranslateAtomicAppendError_PkViolation_SurfacesIoErrorAnomaly', async () => {
+    // DR-6: post-gate, an `events` PRIMARY KEY violation is a genuine integrity
+    // ANOMALY (the gate guarantees a free slot), so the backstop translator
+    // must surface it as `io-error` with the cause preserved — NOT re-map it to
+    // a `sequence-conflict` (which the gate now owns) or a cache-hit. This is
+    // the kill-probe for a regression that re-introduces the old conflict
+    // re-map on an events-PK collision.
+    const appender = new AtomicAppender({ stateDir });
+    const backend = appender.ensureSqliteBackendSync();
+    const pkError = new Error(
+      'UNIQUE constraint failed: events.streamId, events.sequence',
+    );
+
+    const result = (
+      appender as unknown as {
+        translateAtomicAppendError: (args: {
+          error: Error;
+          backend: ReturnType<AtomicAppender['ensureSqliteBackendSync']>;
+          streamId: string;
+          keyed: { idempotencyKey: string } | null;
+        }) => { ok: boolean; reason?: string; cause?: unknown };
+      }
+    ).translateAtomicAppendError({
+      error: pkError,
+      backend,
+      streamId: 'anomaly-stream',
+      keyed: null,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('io-error');
+    expect(result.reason).not.toBe('sequence-conflict');
+    expect(result.cause).toBe(pkError);
+  });
 });

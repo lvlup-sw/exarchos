@@ -6,7 +6,7 @@ import * as path from 'node:path';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import type { WorkflowState } from '../workflow/types.js';
 import type { EventSender } from './backend.js';
-import { SqliteBackend } from './sqlite-backend.js';
+import { SqliteBackend, SqliteImmediateUnsupportedError } from './sqlite-backend.js';
 import { VersionConflictError } from './memory-backend.js';
 
 // ─── DR-4 durability posture + DR-3 immediate fail-fast ─────────────────────
@@ -45,6 +45,23 @@ describe('SqliteBackend durability + immediate (DR-3 / DR-4)', () => {
     const txn = db.transaction(() => {}) as { immediate?: unknown };
     expect(typeof txn.immediate).toBe('function');
     backend.close();
+  });
+
+  it('Initialize_DriverLacksImmediate_ThrowsTyped', () => {
+    // The DR-3 negative path: a driver whose `transaction(fn)` wrapper omits
+    // `.immediate` must hard-fail with the typed error, NOT silently degrade
+    // to a deferred BEGIN. Inject such a wrapper into the private `db` handle
+    // and drive the assertion directly — this is the kill-probe for a
+    // regression that replaces the throw with a deferred-BEGIN fallback.
+    const backend = new SqliteBackend(':memory:');
+    (backend as unknown as { db: { transaction: (fn: () => void) => unknown } }).db = {
+      transaction: (_fn: () => void) => ({
+        /* deferred-only wrapper: no `.immediate` method */
+      }),
+    };
+    expect(() =>
+      (backend as unknown as { assertImmediateSupported: () => void }).assertImmediateSupported(),
+    ).toThrowError(SqliteImmediateUnsupportedError);
   });
 });
 
