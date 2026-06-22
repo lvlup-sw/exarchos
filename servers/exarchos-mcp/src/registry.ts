@@ -1115,7 +1115,7 @@ const workflowActions: readonly ToolAction[] = [
     roles: ROLE_LEAD,
     cli: {
       flags: { featureId: { alias: 'f' } },
-      examples: ['exarchos wf update -f my-feature --updates \'{"artifacts":{"design":"docs/designs/foo.md"}}\''],
+      examples: ['exarchos wf update -f my-feature --updates \'{"artifacts":{"spec":"docs/specs/foo.md"}}\''],
     },
     autoEmits: [
       { event: 'state.patched', condition: 'always' },

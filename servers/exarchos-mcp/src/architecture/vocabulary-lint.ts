@@ -170,17 +170,32 @@ function walkDirectory(
  *   - `docs/architecture/` — the catalog itself plus its reference prose.
  *   - `docs/guides/` — consumer-facing guides that cite `INV-*` IDs.
  *
- * It intentionally does NOT walk all of `docs/`. Dated record trees
- * (`docs/designs/`, `docs/plans/`, `docs/research/`, `docs/rca/`,
- * `docs/contexts/`, `docs/followups/`, `docs/proposals/`) are point-in-time
- * artifacts: a token that was valid vocabulary when the doc was written (e.g.
- * the `DIM-*` axiom dimensions, retired in #1477) should not retroactively
- * fail the lint forever. Policing only the live surfaces keeps the gate
- * meaningful — a stale reference in a templated or architecture doc still
+ * It intentionally does NOT walk all of `docs/`. The {@link DATED_RECORD_TREES}
+ * are point-in-time artifacts: a token that was valid vocabulary when the doc was
+ * written (e.g. the `DIM-*` axiom dimensions, retired in #1477) should not
+ * retroactively fail the lint forever. Policing only the live surfaces keeps the
+ * gate meaningful — a stale reference in a templated or architecture doc still
  * surfaces — without churning historical record. (The exclusion also omits
- * `skills/<runtime>/` generated content; drift there surfaces via
- * `skills:guard`.)
+ * `skills/<runtime>/` generated content; drift there surfaces via `skills:guard`.)
  */
+/**
+ * Dated record trees — point-in-time artifacts NOT walked by the vocabulary lint
+ * (the depth-axis sibling of why the live surfaces above ARE walked). `docs/specs/`
+ * is included (#1581 task 019): the collapsed flow's unified design+plan artifact
+ * is a dated record like the former `docs/designs/` + `docs/plans/` it replaces,
+ * so it must be classified the same way — never retroactively linted.
+ */
+export const DATED_RECORD_TREES: readonly string[] = Object.freeze([
+  'docs/designs/',
+  'docs/plans/',
+  'docs/specs/',
+  'docs/research/',
+  'docs/rca/',
+  'docs/contexts/',
+  'docs/followups/',
+  'docs/proposals/',
+]);
+
 export function scanRepoDefaults(
   options: ScanOptions = {},
 ): VocabularyFinding[] {
