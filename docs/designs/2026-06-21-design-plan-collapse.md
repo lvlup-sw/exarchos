@@ -171,3 +171,40 @@ Mirror the verification-ladder test suite: superset-ordering test for the depth 
 - `designDepth` proposal signals — exact weighting of uncertainty vs. blast-radius vs. task-count (tune during #1583; default conservative — propose `standard` unless strong `deep` signal).
 - Whether `thin` should also drop `spec_coverage_check` or only shorten the design section (resolve in DR-2 sequence pinning).
 - `docs/specs/` vs. repurposing `docs/plans/` carries a one-time tooling-update cost (DR-9); confirmed acceptable for the cleaner spec-driven mental model.
+
+## SDK-combinator lowering appendix (DR-8, roadmap #1599 rule 3)
+
+This appendix is the durable record of the behavior-preserving combinator mapping for each substrate edit in this epic, so #1253 (P7 migration) lowers the post-collapse `hsm-definitions.ts` → `ship-gate`-style `.workflow.ts` IR as a *consolidation*, not a redesign (mirrors how #1592 DR-6 / #1598 attach their mapping notes). Each implementing PR body links back here. Combinator vocabulary is from [`docs/designs/2026-05-06-workflow-builder-sdk.md`](2026-05-06-workflow-builder-sdk.md) (`Workflow.create` / `startWith` / `.then` / `Step.delegate` / `Step.gate` / `awaitApproval(...).onRejection(...)`).
+
+### A1 — The collapse: GATHER (`ideate`) folded into PLAN (DR-4, task 010)
+
+**Before** — the feature head was two sequential authoring steps gated by a single approval:
+
+```ts
+Workflow.create<FeatureState>('feature')
+  .startWith(Step.delegate('brainstorming'))         // ideate / GATHER → docs/designs/ artifact
+  .then(Step.delegate('implementation-planning'))    // plan           → docs/plans/ artifact
+  .awaitApproval('author', a => a                    // plan-review (single approval)
+    .onRejection(r => r.then(Step.delegate('implementation-planning'))))
+  .then(Step.delegate('implementer'))                // delegate …
+```
+
+**After** — the two authoring steps contract into one; the approval edge is unchanged:
+
+```ts
+Workflow.create<FeatureState>('feature')
+  .startWith(Step.delegate('implementation-planning')) // PLAN (read-only) → unified docs/specs/ artifact
+  .awaitApproval('author', a => a                       // plan-review (single approval; fresh-context adversarial — DR-10)
+    .onRejection(r => r.then(Step.delegate('implementation-planning'))))
+  .then(Step.delegate('implementer'))                  // delegate …
+```
+
+**Why the lowering is behavior-preserving:**
+
+- The removed `ideate` step is a `startWith(…).then(…)` **sequence contraction**: two adjacent `Step.delegate` authoring hops whose combined output (design + plan) is subsumed by the single unified `docs/specs/` artifact the surviving step now produces. No downstream combinator consumed the intermediate `docs/designs/` artifact as a *distinct* input — `plan-review` and `implementer` read the artifact set, not a specific file — so contracting the sequence changes no observable step output.
+- The lone `awaitApproval('author', …)` (plan-review) is the **only** approval edge in both forms; the collapse removes a redundant authoring hop, never an approval. Its `onRejection` back-edge (plan-review → plan) lowers verbatim.
+- The retired `ideate → plan` HSM edge carried the `designArtifactExists` guard; in IR terms it was an implicit `Step.gate` *between* the two authoring steps. Contracting the sequence removes that gate together with the second hop it guarded — it never gated a surviving edge, so no remaining edge loses a precondition.
+
+Net: `phase(ideate) ⊕ phase(plan) ↦ phase(plan)` is a behavior-preserving IR transform. The P7 lowering of the post-collapse `feature` HSM yields the same observable `(author → approve → delegate …)` step sequence, minus the redundant authoring hop. A divergence guard (per #1599 rule 3 / ship-gate DR-6) flags any future edit that re-introduces a second pre-approval authoring step or a second approval edge before the SDK consolidation lands.
+
+> §A2 — the depth-resolver lowering note (DR-2/DR-3: the `designDepth` resolve-then-freeze + `'plan-structure'` ctx-resolver) — is **task 022**, which extends this appendix in the same neighborhood.
