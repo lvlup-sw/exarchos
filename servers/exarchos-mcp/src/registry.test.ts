@@ -270,6 +270,61 @@ describe('buildRegistrationSchema', () => {
     expect(() => buildRegistrationSchema(orchestrate.actions)).not.toThrow();
   });
 
+  // ─── Joint-schema collision guard (DR-1, #1581 task 004, rule 1) ───────────
+  // `riskTier` (#1515) and `designDepth` (#1581) are siblings on the SHARED
+  // ResolveGateSetCtx, surfaced as action input fields alongside the #1592
+  // obligation fields. The JOINT-REVIEW constraint requires they compose into
+  // ONE coordinated registration schema with NO field shadowing — adding
+  // `designDepth` next to `riskTier` (and any concurrent obligation field) must
+  // not make `buildRegistrationSchema` throw at startup. These canonical base
+  // types mirror the registry declarations (`riskTier: z.enum(['low','medium',
+  // 'high']).optional()`, `designDepth: z.enum(['thin','standard','deep'])`).
+  it('RegistrationSchema_RiskTierPlusDesignDepth_NoFieldCollision', () => {
+    const riskTier = z.enum(['low', 'medium', 'high']).optional();
+    const designDepth = z.enum(['thin', 'standard', 'deep']).optional();
+    const boundaryTouching = z.boolean().optional(); // representative #1592 obligation field
+
+    const combined: readonly ToolAction[] = [
+      {
+        name: 'prepare_delegation',
+        description: 'Carries riskTier + designDepth',
+        schema: z.object({ riskTier, designDepth, boundaryTouching }),
+        phases: new Set(['plan']),
+        roles: new Set(['any']),
+      },
+      {
+        name: 'transition',
+        description: 'Re-declares the same fields with identical base types',
+        schema: z.object({ riskTier, designDepth, boundaryTouching }),
+        phases: new Set(['plan']),
+        roles: new Set(['any']),
+      },
+    ];
+
+    expect(() => buildRegistrationSchema(combined)).not.toThrow();
+
+    // Guard liveness: a divergent `designDepth` value set across actions MUST
+    // still be caught — so a future #1515/#1592 ctx mutation that shadows
+    // `designDepth` with a different enum fails loud at startup, not silently.
+    const shadowed: readonly ToolAction[] = [
+      {
+        name: 'first',
+        description: 'Declares the canonical designDepth',
+        schema: z.object({ designDepth }),
+        phases: new Set(['plan']),
+        roles: new Set(['any']),
+      },
+      {
+        name: 'second',
+        description: 'Shadows designDepth with a divergent enum',
+        schema: z.object({ designDepth: z.enum(['shallow', 'full']).optional() }),
+        phases: new Set(['plan']),
+        roles: new Set(['any']),
+      },
+    ];
+    expect(() => buildRegistrationSchema(shadowed)).toThrow(/collides/);
+  });
+
   it('should accept doctor format values against the real orchestrate registration schema', () => {
     const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate')!;
     const schema = buildRegistrationSchema(orchestrate.actions);
