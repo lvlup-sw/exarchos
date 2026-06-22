@@ -42,14 +42,6 @@ vi.mock('../tasks/tools.js', () => ({
   }),
 }));
 
-vi.mock('./tdd-compliance.js', () => ({
-  handleTddCompliance: vi.fn().mockResolvedValue({
-    success: true,
-    data: { passed: true, taskId: 't1', branch: 'feat-branch' },
-    _meta: { checkpointAdvised: false },
-  }),
-}));
-
 vi.mock('./static-analysis.js', () => ({
   handleStaticAnalysis: vi.fn().mockResolvedValue({
     success: true,

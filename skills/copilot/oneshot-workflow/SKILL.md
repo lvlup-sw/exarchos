@@ -37,8 +37,8 @@ Reach for oneshot when **all** of the following are true:
 
 - The change is bounded — typically a single file, or a tightly-coupled
   cluster of 2-3 files
-- No subagent dispatch is needed — the work fits comfortably in one TDD
-  loop in a single session
+- No subagent dispatch is needed — the work fits comfortably in a single
+  in-session implement-and-verify loop
 - No design document is required — the goal is obvious from the task
   description, and a one-page plan is enough scaffolding
 - No two-stage review is required — either the change is trivial enough
@@ -108,7 +108,7 @@ pure functions of `state.oneshot.synthesisPolicy` and the
 | Phase | What happens | Exit criteria |
 |---|---|---|
 | `plan` | Lightweight one-page plan: goal, approach, files to touch, tests to add. No design doc. No subagent dispatch. | `artifacts.plan` set → transition to `implementing` |
-| `implementing` | In-session loop, verification scaled to risk. Defaults to the low tier (static analysis suffices); higher-blast changes get the failing-test-first red-green-refactor discipline. Commit as you go. | Tests pass + typecheck clean + finalize_oneshot called |
+| `implementing` | In-session loop, verification scaled to risk. Defaults to the low tier (static analysis suffices); higher-blast changes add tests covering the changed behavior (test-after) under the `check_test_adequacy` kill-probe. Commit as you go. | Tests pass + typecheck clean + finalize_oneshot called |
 | `synthesize` | Reached **only** when `synthesisOptedIn` is true. Hands off to the existing synthesis flow — see `@skills/synthesis/SKILL.md`. PR created via `exarchos_orchestrate({ action: "create_pr" })`, auto-merge enabled, CI gates apply. | PR merged → `completed` |
 | `completed` | Terminal. For direct-commit path, commits are already on the branch — there's nothing more to do. For synthesize path, the PR merge event terminates the workflow. | — |
 
@@ -177,26 +177,30 @@ Run an in-session loop, with verification scaled to the change's risk (the
 ladder in `@skills/_shared/references/verification.md`). A oneshot defaults to
 the **low tier** — static analysis suffices for a trivial fix. When the change
 touches a higher-blast surface (schema/type/API/shared contract, or it crosses
-an I/O boundary), it is a higher-tier task and gets the failing-test-first
-discipline.
+an I/O boundary), it is a higher-tier task: cover the new/changed behavior with
+tests (test-after is fine) and expect the `check_test_adequacy` kill-probe to
+reject tests that cannot actually fail.
 
 For each higher-tier behavior in the plan:
 
-1. **[RED]** Write a failing test. Run the test. Confirm it fails for
-   the right reason.
-2. **[GREEN]** Write the minimum production code to make the test pass.
-   Run the test. Confirm it passes.
-3. **[REFACTOR]** Clean up while keeping the test green.
+1. Implement the behavior.
+2. Add the tests its tier requires (scoped tests for the change; an integration
+   test across the seam at high tier), named `Method_Scenario_Outcome`.
+3. Refactor while the tests stay green.
 
-Commit each red-green-refactor cycle as a single commit. Do not batch
+Granular per-behavior red-green is available as an explicit opt-in, never a
+requirement.
+
+Commit each logical change as a single atomic commit. Do not batch
 multiple unrelated changes into one commit — keeping commits atomic
 matters even more in oneshot, where there's no separate review phase
 to catch bundled changes.
 
 There is **no subagent dispatch** in oneshot. The main agent does the
 work directly. There is **no separate review phase**. Quality is
-maintained by the TDD loop and (if the user opts in) the synthesize PR
-review.
+maintained by the tier-scaled verification (static analysis plus, above the
+low tier, the `check_test_adequacy` kill-probe) and (if the user opts in)
+the synthesize PR review.
 
 #### Mid-workflow: opting in to a PR
 
@@ -321,10 +325,9 @@ Agent:
          "oneshot.planSummary": "..."
        }
      }
-  4. [RED] writes test that greps README for 'recieve' and expects 0 matches
-        — fails (1 match exists)
-  5. [GREEN] edits README, fixes typo
-        — test passes
+  4. edits README, fixes typo (low tier — a docs one-liner; static analysis
+        suffices, no test-first ceremony)
+  5. verifies: greps README for 'recieve' → 0 matches
   6. git commit -m "docs: fix 'recieve' typo in README"
   7. exarchos_orchestrate finalize_oneshot { featureId: "fix-readme-typo" }
      → guard sees policy='on-request' + no synthesize.requested event
@@ -343,9 +346,9 @@ Agent:
      → 'plan' phase, default 'on-request'
   2. plans (goal: validate input, files: [parser.ts, parser.test.ts])
   3. transitions to 'implementing'
-  4. [RED] writes test for null-input case
-  5. [GREEN] adds null check
-  6. [REFACTOR] extracts validateInput helper
+  4. adds the null-input validation to parseConfig
+  5. adds a test for the null-input case (test-after)
+  6. refactors: extracts validateInput helper (tests stay green)
   7. commits
 
 User: "Actually, this is touching the parser — I want a review on it before
@@ -374,7 +377,7 @@ Agent:
        workflowType: "oneshot",
        synthesisPolicy: "always"
      }
-  2-7. plan + TDD + commits, identical to Example A
+  2-7. plan + implement + verify + commits, identical to Example A
   8. exarchos_orchestrate finalize_oneshot { featureId }
      → guard sees policy='always' (short-circuits — no event check needed)
      → resolves to 'synthesize'
@@ -449,9 +452,9 @@ risk signals say otherwise*. Specifically:
 - A low-risk change (docs/config/rename-only, near-zero blast radius) needs only
   static analysis to pass; add a focused test only if behavior is non-obvious.
 - If the change touches a higher-blast surface (schema/type/API/shared contract,
-  or it crosses an I/O boundary), it is **not** a low-tier task: write the failing
-  test first and follow red-green-refactor, and expect the `check_test_adequacy`
-  kill-probe to flag tests that cannot actually fail.
+  or it crosses an I/O boundary), it is **not** a low-tier task: cover the
+  new/changed behavior with tests (test-after is fine), and expect the
+  `check_test_adequacy` kill-probe to flag tests that cannot actually fail.
 - Commits stay atomic — one logical change per commit, regardless of tier.
 
 The temptation in a oneshot is to assume *everything* is "just one line" and skip
@@ -464,8 +467,8 @@ full feature ceremony on a trivial edit.
 | Don't | Do Instead |
 |-------|------------|
 | Skip the plan phase ("it's obvious") | Write the four-line plan anyway — it's the artifact future-you reads |
-| Apply full RED → GREEN → REFACTOR to a trivial one-liner | Match verification to risk: low-tier leans on static analysis; reserve test-first for higher-blast changes |
-| Skip verification entirely because "it's a oneshot" | Even low-tier must pass static analysis; higher-blast changes still need the failing test first |
+| Apply full red-green-refactor ceremony to a trivial one-liner | Match verification to risk: low-tier leans on static analysis; higher-blast changes add tests covering the changed behavior |
+| Skip verification entirely because "it's a oneshot" | Even low-tier must pass static analysis; higher-blast changes still need tests covering the changed behavior |
 | Use oneshot for multi-file refactors | Use `/ideate` and the full feature workflow |
 | Try to grow a oneshot into a feature workflow mid-stream | Cancel and restart with `/ideate` |
 | Call `request_synthesize` without listening for the user's intent | Wait for the user to ask for a PR, then call it |
@@ -477,7 +480,7 @@ full feature ceremony on a trivial edit.
 - [ ] `exarchos_workflow init` called with `workflowType: "oneshot"`
 - [ ] One-page plan persisted to `artifacts.plan`
 - [ ] Phase transitioned to `implementing`
-- [ ] All planned behaviors implemented via TDD with atomic commits
+- [ ] All planned behaviors implemented and verified to their risk tier, with atomic commits
 - [ ] `finalize_oneshot` called and resolved to either `completed` or `synthesize`
 - [ ] If direct-commit path: commits pushed
 - [ ] If synthesize path: PR created via `@skills/synthesis/SKILL.md` and merged

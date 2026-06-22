@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 // scripts/lint-test-first-drift.mjs — ENFORCING lint guarding against the return
-// of test-FIRST ordering framing in command + agent surfaces (#1591, #1515 Phase 4).
+// of test-FIRST ordering framing across the SDLC content surfaces (#1591, #1515
+// Phase 4).
 //
 // The verification-ladder reconciliation (#1586–#1590) excised mandatory
-// test-first ordering from commands/ and agents/. The drift returned last time
-// precisely because nothing guarded these surfaces. This lint fails CI when the
-// retired framing reappears:
+// test-first ordering from commands/, agents/, and the skill sources. The drift
+// returned last time precisely because nothing guarded these surfaces — and the
+// first pass guarded only commands/ + agents/, leaving the skill sources
+// (skills-src/) uncovered, where two residual mandates survived silently. This
+// lint fails CI when the retired framing reappears:
 //   1. iron-law                  — the literal "Iron Law"
 //   2. no-production-code-first  — "NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST"
 //   3. unconditional-rgr-template — a [RED]/[GREEN]/[REFACTOR] task-phase template
@@ -13,7 +16,10 @@
 //      explicit opt-in marker `<!-- ladder-rgr-optin -->` (the legitimate
 //      high-tier opt-in lane). Rules 1 and 2 are never allowlisted.
 //
-// Scope: every *.md under the scanned directories (default: commands/ agents/).
+// Scope: every *.md under the scanned directories (default: commands/ agents/
+// skills-src/). skills-src/ is the source-of-truth for skills; guarding it (not
+// the generated skills/<runtime>/ trees) catches drift at the authoring layer,
+// mirroring how lint:inv6 scans skills-src/.
 // Output: JSON to stdout: { findings: [...], advisory: false }.
 // Exit code: 1 when findings exist (enforcing), else 0.
 //
@@ -23,7 +29,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-const DEFAULT_DIRS = ['commands', 'agents'];
+const DEFAULT_DIRS = ['commands', 'agents', 'skills-src'];
 const OPT_IN_MARKER = '<!-- ladder-rgr-optin -->';
 
 const RULES = {
