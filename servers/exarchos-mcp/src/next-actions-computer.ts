@@ -1,6 +1,7 @@
 import { NextAction } from './next-action.js';
 import type { HSMDefinition } from './workflow/state-machine.js';
 import { EXCLUDED_MERGE_PHASES } from './workflow/hsm-definitions.js';
+import type { DesignDepth } from './workflow/plan-depth-policy.js';
 
 // Wave 0 / Task D.8 — safety-semantics consumer contract.
 //
@@ -41,7 +42,7 @@ export interface NextActionsState {
    * `next_actions` (INV-12) — opt-in escalations the author may invoke; they
    * are never auto-run. Absent / `'thin'` / `'standard'` ⇒ not surfaced.
    */
-  designDepth?: string;
+  designDepth?: DesignDepth;
   mergeOrchestrator?: {
     /**
      * Sub-state of the merge orchestrator. `pending` means the merge has

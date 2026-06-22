@@ -22,7 +22,7 @@ import { handleInit, handleSet } from '../workflow/tools.js';
 import { handleWorkflow } from '../workflow/composite.js';
 import { EventStore } from '../event-store/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
-import { getHSMDefinition } from '../workflow/state-machine.js';
+import { getHSMDefinition, getInitialPhase } from '../workflow/state-machine.js';
 import {
   callCli,
   callMcp,
@@ -95,9 +95,12 @@ describe('WorkflowTransition_ValidTarget (T36, DR-4)', () => {
     await handleInit({ featureId, workflowType: 'feature' }, tmpDir, ctx.eventStore);
 
     const hsm = getHSMDefinition('feature');
-    // The feature topology declares `ideate → plan` but does NOT declare
-    // `ideate → completed`. Probe the absent edge to assert rejection.
-    const fromPhase = 'ideate';
+    // The collapse made `plan` the initial feature phase (DR-4); it declares
+    // `plan → plan-review` but NOT `plan → completed`. Probe from the ACTUAL
+    // initial phase (not a hardcoded, now-removed `ideate`) so the topology
+    // check stays anchored to the real transition source under test.
+    const fromPhase = getInitialPhase('feature');
+    expect(fromPhase).toBe('plan');
     const undeclaredTarget = 'completed';
 
     // Sanity — the HSM agrees the edge is undeclared.

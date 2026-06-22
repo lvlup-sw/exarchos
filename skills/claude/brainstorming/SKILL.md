@@ -116,7 +116,7 @@ Initialize workflow state using `mcp__plugin_exarchos_exarchos__exarchos_workflo
 
 Persist the unified-spec path as `artifacts.spec` (NOT `artifacts.design` — the new flow produces one `docs/specs/` artifact):
 
-```
+```text
 action: "update", featureId: "<id>", updates: { "artifacts": { "spec": "<docs/specs/...>" } }
 ```
 
@@ -126,7 +126,7 @@ Do **not** transition the phase here — `/exarchos:plan` finalizes the unified 
 
 This skill is the entry point for the **feature workflow** (`workflowType: "feature"`). The collapsed lifecycle is:
 
-```
+```text
 plan → plan-review → delegate ⇄ review → synthesize → completed
 ```
 

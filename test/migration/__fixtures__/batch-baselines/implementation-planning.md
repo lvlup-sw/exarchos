@@ -226,7 +226,7 @@ The ladder already prices in genuinely low-risk work — so these excuses apply 
 
 On spec save, record the artifact and transition phase based on `workflowType`: feature → `plan-review`, refactor → `overhaul-plan-review`. Set `artifacts.plan` to the **unified `docs/specs/` path** — this is the key the `planArtifactExists` guard reads, and it points at the one unified doc (the same path `/exarchos:ideate` recorded as `artifacts.spec`). Artifacts and phase are two separate calls — `update` is non-phase mutation only; phase changes go through the HSM-guarded `transition` action:
 
-```
+```text
 action: "update", featureId: "<id>", updates: {
   "artifacts": { "plan": "docs/specs/<date>-<feature>.md" },
   "tasks": [{ "id": "001", "title": "...", "status": "pending", "branch": "...", "blockedBy": [] }, ...]

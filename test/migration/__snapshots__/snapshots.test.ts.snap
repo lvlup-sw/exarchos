@@ -340,7 +340,7 @@ Initialize workflow state using \`mcp__plugin_exarchos_exarchos__exarchos_workfl
 
 Persist the unified-spec path as \`artifacts.spec\` (NOT \`artifacts.design\` — the new flow produces one \`docs/specs/\` artifact):
 
-\`\`\`
+\`\`\`text
 action: "update", featureId: "<id>", updates: { "artifacts": { "spec": "<docs/specs/...>" } }
 \`\`\`
 
@@ -350,7 +350,7 @@ Do **not** transition the phase here — \`/exarchos:plan\` finalizes the unifie
 
 This skill is the entry point for the **feature workflow** (\`workflowType: "feature"\`). The collapsed lifecycle is:
 
-\`\`\`
+\`\`\`text
 plan → plan-review → delegate ⇄ review → synthesize → completed
 \`\`\`
 
@@ -2157,7 +2157,7 @@ The ladder already prices in genuinely low-risk work — so these excuses apply 
 
 On spec save, record the artifact and transition phase based on \`workflowType\`: feature → \`plan-review\`, refactor → \`overhaul-plan-review\`. Set \`artifacts.plan\` to the **unified \`docs/specs/\` path** — this is the key the \`planArtifactExists\` guard reads, and it points at the one unified doc (the same path \`/exarchos:ideate\` recorded as \`artifacts.spec\`). Artifacts and phase are two separate calls — \`update\` is non-phase mutation only; phase changes go through the HSM-guarded \`transition\` action:
 
-\`\`\`
+\`\`\`text
 action: "update", featureId: "<id>", updates: {
   "artifacts": { "plan": "docs/specs/<date>-<feature>.md" },
   "tasks": [{ "id": "001", "title": "...", "status": "pending", "branch": "...", "blockedBy": [] }, ...]
@@ -5504,7 +5504,7 @@ Initialize workflow state using \`mcp__exarchos__exarchos_workflow\` with \`acti
 
 Persist the unified-spec path as \`artifacts.spec\` (NOT \`artifacts.design\` — the new flow produces one \`docs/specs/\` artifact):
 
-\`\`\`
+\`\`\`text
 action: "update", featureId: "<id>", updates: { "artifacts": { "spec": "<docs/specs/...>" } }
 \`\`\`
 
@@ -5514,7 +5514,7 @@ Do **not** transition the phase here — \`plan\` finalizes the unified doc with
 
 This skill is the entry point for the **feature workflow** (\`workflowType: "feature"\`). The collapsed lifecycle is:
 
-\`\`\`
+\`\`\`text
 plan → plan-review → delegate ⇄ review → synthesize → completed
 \`\`\`
 
@@ -7254,7 +7254,7 @@ The ladder already prices in genuinely low-risk work — so these excuses apply 
 
 On spec save, record the artifact and transition phase based on \`workflowType\`: feature → \`plan-review\`, refactor → \`overhaul-plan-review\`. Set \`artifacts.plan\` to the **unified \`docs/specs/\` path** — this is the key the \`planArtifactExists\` guard reads, and it points at the one unified doc (the same path \`ideate\` recorded as \`artifacts.spec\`). Artifacts and phase are two separate calls — \`update\` is non-phase mutation only; phase changes go through the HSM-guarded \`transition\` action:
 
-\`\`\`
+\`\`\`text
 action: "update", featureId: "<id>", updates: {
   "artifacts": { "plan": "docs/specs/<date>-<feature>.md" },
   "tasks": [{ "id": "001", "title": "...", "status": "pending", "branch": "...", "blockedBy": [] }, ...]
@@ -10601,7 +10601,7 @@ Initialize workflow state using \`mcp__exarchos__exarchos_workflow\` with \`acti
 
 Persist the unified-spec path as \`artifacts.spec\` (NOT \`artifacts.design\` — the new flow produces one \`docs/specs/\` artifact):
 
-\`\`\`
+\`\`\`text
 action: "update", featureId: "<id>", updates: { "artifacts": { "spec": "<docs/specs/...>" } }
 \`\`\`
 
@@ -10611,7 +10611,7 @@ Do **not** transition the phase here — \`/plan\` finalizes the unified doc wit
 
 This skill is the entry point for the **feature workflow** (\`workflowType: "feature"\`). The collapsed lifecycle is:
 
-\`\`\`
+\`\`\`text
 plan → plan-review → delegate ⇄ review → synthesize → completed
 \`\`\`
 
@@ -12343,7 +12343,7 @@ The ladder already prices in genuinely low-risk work — so these excuses apply 
 
 On spec save, record the artifact and transition phase based on \`workflowType\`: feature → \`plan-review\`, refactor → \`overhaul-plan-review\`. Set \`artifacts.plan\` to the **unified \`docs/specs/\` path** — this is the key the \`planArtifactExists\` guard reads, and it points at the one unified doc (the same path \`/ideate\` recorded as \`artifacts.spec\`). Artifacts and phase are two separate calls — \`update\` is non-phase mutation only; phase changes go through the HSM-guarded \`transition\` action:
 
-\`\`\`
+\`\`\`text
 action: "update", featureId: "<id>", updates: {
   "artifacts": { "plan": "docs/specs/<date>-<feature>.md" },
   "tasks": [{ "id": "001", "title": "...", "status": "pending", "branch": "...", "blockedBy": [] }, ...]
@@ -15690,7 +15690,7 @@ Initialize workflow state using \`mcp__exarchos__exarchos_workflow\` with \`acti
 
 Persist the unified-spec path as \`artifacts.spec\` (NOT \`artifacts.design\` — the new flow produces one \`docs/specs/\` artifact):
 
-\`\`\`
+\`\`\`text
 action: "update", featureId: "<id>", updates: { "artifacts": { "spec": "<docs/specs/...>" } }
 \`\`\`
 
@@ -15700,7 +15700,7 @@ Do **not** transition the phase here — \`plan\` finalizes the unified doc with
 
 This skill is the entry point for the **feature workflow** (\`workflowType: "feature"\`). The collapsed lifecycle is:
 
-\`\`\`
+\`\`\`text
 plan → plan-review → delegate ⇄ review → synthesize → completed
 \`\`\`
 
@@ -17442,7 +17442,7 @@ The ladder already prices in genuinely low-risk work — so these excuses apply 
 
 On spec save, record the artifact and transition phase based on \`workflowType\`: feature → \`plan-review\`, refactor → \`overhaul-plan-review\`. Set \`artifacts.plan\` to the **unified \`docs/specs/\` path** — this is the key the \`planArtifactExists\` guard reads, and it points at the one unified doc (the same path \`ideate\` recorded as \`artifacts.spec\`). Artifacts and phase are two separate calls — \`update\` is non-phase mutation only; phase changes go through the HSM-guarded \`transition\` action:
 
-\`\`\`
+\`\`\`text
 action: "update", featureId: "<id>", updates: {
   "artifacts": { "plan": "docs/specs/<date>-<feature>.md" },
   "tasks": [{ "id": "001", "title": "...", "status": "pending", "branch": "...", "blockedBy": [] }, ...]
@@ -20789,7 +20789,7 @@ Initialize workflow state using \`mcp__exarchos__exarchos_workflow\` with \`acti
 
 Persist the unified-spec path as \`artifacts.spec\` (NOT \`artifacts.design\` — the new flow produces one \`docs/specs/\` artifact):
 
-\`\`\`
+\`\`\`text
 action: "update", featureId: "<id>", updates: { "artifacts": { "spec": "<docs/specs/...>" } }
 \`\`\`
 
@@ -20799,7 +20799,7 @@ Do **not** transition the phase here — \`plan\` finalizes the unified doc with
 
 This skill is the entry point for the **feature workflow** (\`workflowType: "feature"\`). The collapsed lifecycle is:
 
-\`\`\`
+\`\`\`text
 plan → plan-review → delegate ⇄ review → synthesize → completed
 \`\`\`
 
@@ -22512,7 +22512,7 @@ The ladder already prices in genuinely low-risk work — so these excuses apply 
 
 On spec save, record the artifact and transition phase based on \`workflowType\`: feature → \`plan-review\`, refactor → \`overhaul-plan-review\`. Set \`artifacts.plan\` to the **unified \`docs/specs/\` path** — this is the key the \`planArtifactExists\` guard reads, and it points at the one unified doc (the same path \`ideate\` recorded as \`artifacts.spec\`). Artifacts and phase are two separate calls — \`update\` is non-phase mutation only; phase changes go through the HSM-guarded \`transition\` action:
 
-\`\`\`
+\`\`\`text
 action: "update", featureId: "<id>", updates: {
   "artifacts": { "plan": "docs/specs/<date>-<feature>.md" },
   "tasks": [{ "id": "001", "title": "...", "status": "pending", "branch": "...", "blockedBy": [] }, ...]
@@ -25859,7 +25859,7 @@ Initialize workflow state using \`mcp__exarchos__exarchos_workflow\` with \`acti
 
 Persist the unified-spec path as \`artifacts.spec\` (NOT \`artifacts.design\` — the new flow produces one \`docs/specs/\` artifact):
 
-\`\`\`
+\`\`\`text
 action: "update", featureId: "<id>", updates: { "artifacts": { "spec": "<docs/specs/...>" } }
 \`\`\`
 
@@ -25869,7 +25869,7 @@ Do **not** transition the phase here — \`/plan\` finalizes the unified doc wit
 
 This skill is the entry point for the **feature workflow** (\`workflowType: "feature"\`). The collapsed lifecycle is:
 
-\`\`\`
+\`\`\`text
 plan → plan-review → delegate ⇄ review → synthesize → completed
 \`\`\`
 
@@ -27609,7 +27609,7 @@ The ladder already prices in genuinely low-risk work — so these excuses apply 
 
 On spec save, record the artifact and transition phase based on \`workflowType\`: feature → \`plan-review\`, refactor → \`overhaul-plan-review\`. Set \`artifacts.plan\` to the **unified \`docs/specs/\` path** — this is the key the \`planArtifactExists\` guard reads, and it points at the one unified doc (the same path \`/ideate\` recorded as \`artifacts.spec\`). Artifacts and phase are two separate calls — \`update\` is non-phase mutation only; phase changes go through the HSM-guarded \`transition\` action:
 
-\`\`\`
+\`\`\`text
 action: "update", featureId: "<id>", updates: {
   "artifacts": { "plan": "docs/specs/<date>-<feature>.md" },
   "tasks": [{ "id": "001", "title": "...", "status": "pending", "branch": "...", "blockedBy": [] }, ...]

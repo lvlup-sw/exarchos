@@ -119,7 +119,7 @@ function buildPlanReviewProvisioning(args: PrepareReviewArgs): ToolResult {
       success: false,
       error: {
         code: 'INVALID_INPUT',
-        message: 'artifact (the unified docs/specs/ path under review) is required for scope "plan"',
+        message: 'artifact (the unified docs/specs/ path under review) is required for the plan-review provisioning scope ("plan" / "plan-review")',
       },
     };
   }

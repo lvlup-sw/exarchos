@@ -42,7 +42,7 @@ export async function handleDesignCompleteness(
   // Resolve the unified artifact path: explicit arg first, then the workflow
   // state's recorded artifacts (plan preferred — it is the unified spec under
   // the collapse — then design for legacy two-artifact resume, DR-9 / task 020).
-  let artifactPath = args.designPath ?? args.planPath;
+  let artifactPath = args.designPath || args.planPath;
   if (!artifactPath) {
     const streamId = args.featureId;
     const stateFile = args.stateFile ?? `${stateDir}/${streamId}.state.json`;
@@ -55,7 +55,7 @@ export async function handleDesignCompleteness(
     const artifacts = resolved.state.artifacts;
     if (artifacts && typeof artifacts === 'object' && !Array.isArray(artifacts)) {
       const rec = artifacts as Record<string, unknown>;
-      const candidate = rec.plan ?? rec.design;
+      const candidate = rec.plan || rec.design;
       if (typeof candidate === 'string' && candidate.length > 0) {
         artifactPath = candidate;
       }

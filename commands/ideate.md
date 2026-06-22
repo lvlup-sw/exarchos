@@ -10,7 +10,7 @@ Begin design exploration for: "$ARGUMENTS"
 
 This command is the **entry point** of the development workflow. In the collapsed flow (#1581) `/ideate` and `/plan` author **one unified `docs/specs/` artifact** within the single `plan` phase — there is no separate design phase or design approval:
 
-```
+```text
 /exarchos:ideate → /exarchos:plan → [CONFIRM] → /exarchos:delegate → /exarchos:review → /exarchos:synthesize → [CONFIRM] → merge
   ▲ Design & Rationale §  ▲ Decomposition §       ↑                      (auto)             (auto)
         (one docs/specs/ artifact)          plan-review                  │

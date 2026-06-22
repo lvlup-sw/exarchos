@@ -77,13 +77,11 @@ Write the Decomposition section into `docs/specs/YYYY-MM-DD-<feature>.md` (the s
 
 ## State Management
 
-After saving the spec, persist the artifact + tasks and transition the phase via two separate calls — the runtime rejects `updates.phase` (`update` is non-phase mutation only; phase changes go through the HSM-guarded `transition` action):
+After saving the spec, persist the artifact + tasks with a single `update` call — the runtime rejects `updates.phase` (`update` is non-phase mutation only; the phase transition to plan-review is owned by **Auto-Chain** below, through the HSM-guarded `transition` action):
 
-1. Update artifacts + tasks using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "update"`:
-   - Set `updates.artifacts.plan` to the unified `docs/specs/...` path (the key the `planArtifactExists` guard reads — same file `/ideate` recorded as `artifacts.spec`)
-   - Set `updates.tasks` to an array of task objects (id, title, status, branch)
-2. Transition phase using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "transition"`:
-   - Set `target: "plan-review"`
+- Update artifacts + tasks using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "update"`:
+  - Set `updates.artifacts.plan` to the unified `docs/specs/...` path (the key the `planArtifactExists` guard reads — same file `/ideate` recorded as `artifacts.spec`)
+  - Set `updates.tasks` to an array of task objects (id, title, status, branch)
 
 ## Output
 

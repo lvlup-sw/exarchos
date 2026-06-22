@@ -424,5 +424,6 @@ describe('computeNextActions — deep-rung affordances (DR-7, task 018)', () => 
       hsm,
     ).map((a) => a.verb);
     expect(verbs).not.toContain('discover_bridge');
+    expect(verbs).not.toContain('divergent_loop');
   });
 });

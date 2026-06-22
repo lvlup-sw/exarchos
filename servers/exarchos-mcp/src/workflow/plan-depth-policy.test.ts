@@ -138,6 +138,8 @@ describe('plan-depth-policy', () => {
     const a = resolvePlanDepthPolicy('standard').sequence;
     expect(Object.isFrozen(a)).toBe(true);
     const b = resolvePlanDepthPolicy('standard').sequence;
-    expect(a).toEqual([...b]);
+    // Same frozen base-table reference, not a per-call copy (the test's stated
+    // intent) — assert reference identity, not just structural equality.
+    expect(a).toBe(b);
   });
 });
