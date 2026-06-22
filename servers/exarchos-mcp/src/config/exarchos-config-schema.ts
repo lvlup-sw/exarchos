@@ -247,6 +247,22 @@ const ContractCommandConfigSchema = z
   })
   .strict();
 
+/**
+ * Storage substrate tuning (DR-4). `synchronous` selects the SQLite
+ * `PRAGMA synchronous` durability posture: `'normal'` (the default — durable
+ * across a process crash, but the last committed transaction(s) can be lost
+ * on OS crash / power loss; consistent with the INV-13 intent/result recovery
+ * model) or `'full'` (fsync on every commit — power-loss durable, lower write
+ * throughput).
+ */
+export const StorageConfigSchema = z
+  .object({
+    synchronous: z.enum(['normal', 'full']).optional(),
+  })
+  .strict();
+
+export type StorageConfig = z.infer<typeof StorageConfigSchema>;
+
 export const ExarchosConfigSchema = z
   .object({
     test: safeCommand.optional(),
@@ -264,6 +280,7 @@ export const ExarchosConfigSchema = z
     handoffLint: HandoffLintConfigSchema.optional(),
     cli: CliConfigSchema.optional(),
     invariants: InvariantsConfigSchema.optional(),
+    storage: StorageConfigSchema.optional(),
   })
   .strict();
 

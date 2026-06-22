@@ -3,6 +3,17 @@ import type { ProjectConfig } from './yaml-schema.js';
 import { resolveConfig, DEFAULTS } from './resolve.js';
 
 describe('resolveConfig', () => {
+  it('resolveConfig_NoStorageBlock_DefaultsSynchronousNormal', () => {
+    // DR-4 — the durability posture defaults to 'normal' (unchanged behavior)
+    // when `.exarchos.yml` omits the storage block.
+    expect(resolveConfig({}).storage.synchronous).toBe('normal');
+  });
+
+  it('resolveConfig_StorageSynchronousFull_SurfacesFull', () => {
+    const project: ProjectConfig = { storage: { synchronous: 'full' } };
+    expect(resolveConfig(project).storage.synchronous).toBe('full');
+  });
+
   it('resolveConfig_EmptyProject_ReturnsAllDefaults', () => {
     const result = resolveConfig({});
 

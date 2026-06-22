@@ -144,6 +144,12 @@ export async function initializeContext(
   const vcsProvider = await createVcsProvider({ config: projectConfig });
   const hookRunner = createConfigHookRunner(projectConfig);
 
+  // DR-4 — apply the resolved storage durability posture before the first
+  // append (the lazily-created appender reads it at construction). The
+  // EventStore was built above before `.exarchos.yml` was loaded, so this is
+  // the wiring point that honours `storage.synchronous`.
+  eventStore.setStorageDurability(projectConfig.storage.synchronous);
+
   // T58 / DR-7 — load `<projectRoot>/topology.yaml` once at lifecycle start.
   // v2.11 hard-cut: the loader THROWS on any phase missing a `staleness`
   // block. We swallow that throw here so a malformed topology does not

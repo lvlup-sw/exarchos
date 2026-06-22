@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { InvariantsConfigSchema, ExarchosConfigSchema } from './exarchos-config-schema.js';
+import { InvariantsConfigSchema, ExarchosConfigSchema, StorageConfigSchema } from './exarchos-config-schema.js';
 import { VERIFICATION_GATE_NAMES } from '../workflow/verification-policy.js';
 
 // ─── Dimension Configuration ────────────────────────────────────────────────
@@ -231,6 +231,7 @@ export const ProjectConfigSchema = z.object({
   checkpoint: CheckpointConfig.optional(),
   verification: VerificationConfig.optional(),
   invariants: InvariantsConfigSchema.optional(),
+  storage: StorageConfigSchema.optional(),
 }).strict();
 
 export type ProjectConfig = z.infer<typeof ProjectConfigSchema>;

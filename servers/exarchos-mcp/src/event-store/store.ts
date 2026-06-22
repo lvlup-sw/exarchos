@@ -183,11 +183,23 @@ export class EventStore {
   private atomicAppender?: AtomicAppender;
 
   /** Durability posture threaded to the lazily-created appender (DR-4). */
-  private readonly synchronous?: 'normal' | 'full';
+  private synchronous?: 'normal' | 'full';
 
   constructor(private readonly stateDir: string, options?: EventStoreOptions) {
     this.backend = options?.backend;
     this.synchronous = options?.synchronous;
+  }
+
+  /**
+   * Set the storage durability posture (DR-4) AFTER construction. The
+   * production lifecycle builds the EventStore before `.exarchos.yml` is
+   * loaded, so the resolved `storage.synchronous` is applied here before the
+   * first append. It is honoured only by the lazily-created appender; once
+   * the backend handle exists the pragma is already fixed, so a late call
+   * (after the first write) is a no-op against the live connection.
+   */
+  setStorageDurability(synchronous: 'normal' | 'full'): void {
+    this.synchronous = synchronous;
   }
 
   /** Returns the state directory path used by this event store. */
