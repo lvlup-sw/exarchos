@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { computeNextActions } from './next-actions-computer.js';
 import { NextAction } from './next-action.js';
-import { getHSMDefinition, executeTransition } from './workflow/state-machine.js';
+import { getHSMDefinition, executeTransition, getInitialPhase } from './workflow/state-machine.js';
 import { findActionInRegistry } from './registry.js';
 
 describe('computeNextActions (T040, DR-8)', () => {
@@ -192,6 +192,66 @@ describe('computeNextActions (T040, DR-8)', () => {
     expect(merge).toBeDefined();
     expect(merge?.validTargets).toEqual(['merge_orchestrate']);
     expect(merge?.reason).toBe('Pending subagent worktree merge');
+  });
+});
+
+// ─── Task 008 (#1581 DR-4): post-collapse affordance integrity (INV-12) ──────
+//
+// DR-4 (commit 3ff69818) removed the `ideate` (GATHER) state and made `plan`
+// the feature workflow's INITIAL phase. `computeNextActions` is purely
+// HSM-topology driven, so no surgery was needed in the computer itself — but
+// that is exactly why a regression here would be silent. These tests PIN the
+// post-collapse affordance contract end-to-end:
+//   1. post-init the workflow sits in `plan` (not the removed `ideate`),
+//   2. the surfaced affordance advances the plan flow to `plan-review`,
+//   3. NO affordance verb/target is `ideate`, and
+//   4. the feature HSM carries no dangling `ideate` state or `ideate→plan`
+//      edge (the transition that referenced the now-retired
+//      `designArtifactExists` guard).
+// Together these close INV-12 (affordance integrity): a caller can never be
+// handed a next-action pointing at a phase that no longer exists.
+describe('NextActions post-collapse affordance integrity (Task 008, #1581 DR-4, INV-12)', () => {
+  it('NextActions_PostInit_AdvertisesPlanNotIdeate', () => {
+    const hsm = getHSMDefinition('feature');
+
+    // Post-init phase is the feature workflow's initial state: `plan`, not the
+    // removed `ideate`/GATHER state.
+    const postInitPhase = getInitialPhase('feature');
+    expect(postInitPhase).toBe('plan');
+
+    const actions = computeNextActions(
+      { phase: postInitPhase, workflowType: 'feature' },
+      hsm,
+    );
+
+    // Every affordance validates against the schema and the forward step is
+    // surfaced: PLAN advances to the single approval point, `plan-review`.
+    expect(actions.length).toBeGreaterThan(0);
+    for (const a of actions) {
+      expect(NextAction.safeParse(a).success).toBe(true);
+    }
+    const advancesToPlanReview = actions.some(
+      (a) => a.verb === 'plan-review' || a.validTargets?.includes('plan-review') === true,
+    );
+    expect(advancesToPlanReview).toBe(true);
+
+    // No dangling `ideate` affordance — neither as a verb nor a valid target.
+    for (const a of actions) {
+      expect(a.verb).not.toBe('ideate');
+      expect(a.validTargets ?? []).not.toContain('ideate');
+    }
+  });
+
+  it('FeatureHSM_NoDanglingIdeateTopology_PostCollapse', () => {
+    const hsm = getHSMDefinition('feature');
+    // The removed GATHER state is gone…
+    expect(hsm.states['ideate']).toBeUndefined();
+    // …and no transition still references it (the `ideate→plan` edge that
+    // carried the retired `designArtifactExists` guard).
+    for (const t of hsm.transitions) {
+      expect(t.from).not.toBe('ideate');
+      expect(t.to).not.toBe('ideate');
+    }
   });
 });
 
