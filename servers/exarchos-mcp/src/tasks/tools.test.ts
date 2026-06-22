@@ -793,40 +793,18 @@ describe('handleTaskComplete gate enforcement', () => {
     expect(result.success).toBe(true);
   });
 
-  it('HandleTaskComplete_FailingTddGate_RejectsCompletion', async () => {
-    // Arrange: seed with gate.executed event that FAILED for this taskId
-    const store = new EventStore(tempDir);
-    await store.append('wf-gate-3', {
-      type: 'task.assigned',
-      data: { taskId: 'T-01', title: 'Gate test', assignee: 'agent-1' },
-    });
-    await store.append('wf-gate-3', {
-      type: 'gate.executed',
-      data: { gateName: 'tdd-compliance', layer: 'task', passed: false, details: { taskId: 'T-01' } },
-    });
+  // (#1587 retired the `tdd-compliance` task_complete hard gate; a failing
+  // per-task verification gate no longer blocks completion here — the runbook
+  // chain's `onFail:'stop'` ordering enforces tier-scaled adequacy instead.
+  // The former `HandleTaskComplete_FailingTddGate_RejectsCompletion` test was
+  // removed because that behavior no longer exists.)
 
-    // Act
-    const result = await handleTaskComplete(
-      { taskId: 'T-01', streamId: 'wf-gate-3' },
-      tempDir,
-      store,
-    );
-
-    // Assert
-    expect(result.success).toBe(false);
-    expect(result.error?.code).toBe('GATE_NOT_PASSED');
-  });
-
-  it('HandleTaskComplete_TddPassedButNoStaticAnalysis_RejectsCompletion', async () => {
-    // Arrange: seed with passing TDD gate but NO static-analysis gate
+  it('HandleTaskComplete_NoStaticAnalysis_RejectsCompletion', async () => {
+    // Arrange: no static-analysis gate — the sole hard task_complete gate.
     const store = new EventStore(tempDir);
     await store.append('wf-gate-d2-1', {
       type: 'task.assigned',
       data: { taskId: 'T-01', title: 'D2 gate test', assignee: 'agent-1' },
-    });
-    await store.append('wf-gate-d2-1', {
-      type: 'gate.executed',
-      data: { gateName: 'tdd-compliance', layer: 'task', passed: true, details: { taskId: 'T-01' } },
     });
 
     // Act
@@ -836,7 +814,7 @@ describe('handleTaskComplete gate enforcement', () => {
       store,
     );
 
-    // Assert: should reject because D2 gate is missing
+    // Assert: rejected because the static-analysis gate is missing.
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('GATE_NOT_PASSED');
     expect(result.error?.message).toContain('static');
@@ -1127,8 +1105,11 @@ describe('handleTaskComplete gate enforcement', () => {
 // ─── Batch Gate Failures (DR-2) ──────────────────────────────────────────────
 
 describe('handleTaskComplete batch gate failures', () => {
-  it('handleTaskComplete_WhenMultipleGatesFail_ReturnsAllUnmetGates', async () => {
-    // Arrange: no gate events at all — both gates should fail
+  it('handleTaskComplete_WhenHardGateFails_ReturnsUnmetGates', async () => {
+    // Arrange: no gate events at all — the sole hard task_complete gate
+    // (static-analysis) is unmet. #1587 retired the universal `tdd-compliance`
+    // hard requirement; per-task verification (check_test_adequacy) is now
+    // tier-scaled and enforced by the runbook chain, not a task_complete gate.
     const store = new EventStore(tempDir);
     await store.append('wf-batch-1', {
       type: 'task.assigned',
@@ -1142,13 +1123,12 @@ describe('handleTaskComplete batch gate failures', () => {
       store,
     );
 
-    // Assert: both unmet gates reported in a single response
+    // Assert: the unmet hard gate is reported via the batch unmetGates array.
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('GATE_NOT_PASSED');
-    expect(result.error?.unmetGates).toContain('tdd-compliance');
     expect(result.error?.unmetGates).toContain('static-analysis');
-    expect(result.error?.unmetGates).toHaveLength(2);
-    expect(result.error?.message).toContain('tdd-compliance');
+    expect(result.error?.unmetGates).not.toContain('tdd-compliance');
+    expect(result.error?.unmetGates).toHaveLength(1);
     expect(result.error?.message).toContain('static-analysis');
   });
 

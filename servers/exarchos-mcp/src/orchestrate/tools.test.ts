@@ -130,14 +130,6 @@ describe('OrchestrateToolResponses_AllActions_ReturnEnvelope (T038, DR-7)', () =
     assertEnvelopeShape(result);
   });
 
-  it('check_tdd_compliance action returns Envelope', async () => {
-    const result = await handleOrchestrate(
-      { action: 'check_tdd_compliance', featureId: 'f1', taskId: 't1', branch: 'main' },
-      ctx,
-    );
-    assertEnvelopeShape(result);
-  });
-
   it('check_static_analysis action returns Envelope', async () => {
     const result = await handleOrchestrate(
       { action: 'check_static_analysis', featureId: 'f1' },

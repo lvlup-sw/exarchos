@@ -271,7 +271,6 @@ export const READ_ONLY_ACTIONS = {
     'check_provenance_chain',
     'check_design_completeness',
     'check_plan_coverage',
-    'check_tdd_compliance',
     'check_post_merge',
     'check_task_decomposition',
     'check_event_emissions',

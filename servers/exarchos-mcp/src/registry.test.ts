@@ -643,7 +643,9 @@ describe('TOOL_REGISTRY', () => {
       // handler, and `init.executed` event were fully removed in DR-5 (task 018).
       // The 72 baseline = 71 prior + `mutation-adequacy` (verification-ladder
       // slice 3 R5 — the diff-scoped mutation backstop review-dimension action).
-      expect(composite!.actions).toHaveLength(72);
+      // #1587 retired `check_tdd_compliance` (the test-FIRST ordering gate): 72 → 71.
+      // The keeper is `check_test_adequacy` (outcome-based adequacy, test-after).
+      expect(composite!.actions).toHaveLength(71);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -657,7 +659,6 @@ describe('TOOL_REGISTRY', () => {
           'assess_stack',
           'check_design_completeness',
           'check_plan_coverage',
-          'check_tdd_compliance',
           'check_test_adequacy',
           'check_contract_drift',
           'check_mock_boundary',
@@ -1535,7 +1536,7 @@ describe('Gate Metadata', () => {
     // check_event_emissions is intentionally excluded — it's an advisory hint action
     // that returns missing event suggestions, not a gate with blocking/dimension metadata.
     const expectedCheckActions = new Set([
-      'check_tdd_compliance', 'check_static_analysis', 'check_security_scan',
+      'check_static_analysis', 'check_security_scan',
       'check_context_economy', 'check_operational_resilience', 'check_workflow_determinism',
       'check_review_verdict', 'check_convergence', 'check_provenance_chain',
       'check_design_completeness', 'check_plan_coverage', 'check_task_decomposition',
@@ -1849,44 +1850,6 @@ describe('Plugin Integration Registry Wiring', () => {
     expect(action, 'exarchos_orchestrate should have a request_synthesize action').toBeDefined();
     expect(action!.phases.has('plan')).toBe(true);
     expect(action!.phases.has('implementing')).toBe(true);
-  });
-});
-
-// RED for debug-delegation-gate Issue B: the check_tdd_compliance schema
-// silently accepted unknown keys (e.g. `base` instead of `baseBranch`),
-// causing `baseBranch` to default to `main` without warning. The schema
-// must be `.strict()` so the dispatch layer rejects unknown keys with a
-// clear validation error.
-describe('check_tdd_compliance schema strictness', () => {
-  const findAction = (toolName: string, actionName: string) => {
-    const tool = TOOL_REGISTRY.find((t) => t.name === toolName);
-    return tool?.actions.find((a) => a.name === actionName);
-  };
-
-  it('TddComplianceSchema_KnownKeys_Parses', () => {
-    const action = findAction('exarchos_orchestrate', 'check_tdd_compliance');
-    expect(action).toBeDefined();
-    const result = action!.schema.safeParse({
-      featureId: 'demo',
-      taskId: '001',
-      branch: 'feature/demo',
-      baseBranch: 'main',
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it('TddComplianceSchema_UnknownKey_Rejects', () => {
-    const action = findAction('exarchos_orchestrate', 'check_tdd_compliance');
-    expect(action).toBeDefined();
-    // Passing `base` (the common mistake) instead of `baseBranch` must fail,
-    // not silently strip.
-    const result = action!.schema.safeParse({
-      featureId: 'demo',
-      taskId: '001',
-      branch: 'feature/demo',
-      base: 'feature/integration',
-    });
-    expect(result.success).toBe(false);
   });
 });
 

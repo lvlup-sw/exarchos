@@ -411,7 +411,7 @@ describe('dispatch', () => {
       // before dispatch sees it. Sibling-action defaults like
       // `nativeIsolation` (from prepare_delegation) and `outputFormat`
       // (from agent_spec) end up on payloads for actions whose schema is
-      // .strict() — like `check_tdd_compliance` — causing
+      // .strict() — like `check_test_adequacy` — causing
       // "Unrecognized key(s) in object" rejections.
       //
       // Dispatch must strip parent-tool defaults that are not declared
@@ -423,7 +423,7 @@ describe('dispatch', () => {
       const result = await dispatch(
         'exarchos_orchestrate',
         {
-          action: 'check_tdd_compliance',
+          action: 'check_test_adequacy',
           featureId: 'leak-test',
           taskId: 'T1',
           branch: 'feat/leak-test',
@@ -453,7 +453,7 @@ describe('dispatch', () => {
       const result = await dispatch(
         'exarchos_orchestrate',
         {
-          action: 'check_tdd_compliance',
+          action: 'check_test_adequacy',
           featureId: 'typo-test',
           taskId: 'T1',
           branch: 'feat/typo-test',

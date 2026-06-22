@@ -1461,7 +1461,7 @@ const orchestrateActions: readonly ToolAction[] = [
       'integration worktree (or "auto" to resolve the calling delegation\'s ' +
       'worktree). Emits a gate.executed event (gate "integration-suite", layer ' +
       '"post-merge"). Do NOT use for a single task\'s scoped tests — use ' +
-      'check_static_analysis / check_tdd_compliance for per-task verification; ' +
+      'check_static_analysis / check_test_adequacy for per-task verification; ' +
       'this gate is the cumulative-regression backstop between merges.',
     schema: z.object({
       featureId: z.string().min(1),
@@ -1654,29 +1654,6 @@ const orchestrateActions: readonly ToolAction[] = [
     annotations: LOCAL_MUTATION,
   },
   {
-    name: 'check_tdd_compliance',
-    description:
-      'Per-task TDD compliance gate (ADVISORY). Emits gate.executed event with ' +
-      'dimension D1. Verification-ladder slice 1: demoted from blocking — the ' +
-      'kill-probe gate `check_test_adequacy` is the load-bearing per-task ' +
-      'verification; commit-order TDD is corroborating advice.',
-    schema: z.object({
-      featureId: z.string().min(1),
-      taskId: z.string().min(1),
-      branch: z.string().min(1),
-      baseBranch: z.string().optional(),
-      repoRoot: z.string().optional(),
-    }).strict(),
-    phases: DELEGATE_PHASES,
-    roles: ROLE_LEAD,
-    gate: { blocking: false, dimension: 'D1' },
-    autoEmits: [
-      { event: 'gate.executed', condition: 'always' },
-    ],
-    outputSchema: EnvelopeSchema(z.unknown()),
-    annotations: LOCAL_MUTATION,
-  },
-  {
     name: 'check_test_adequacy',
     description:
       'Per-task test-adequacy kill probe (mutation-testing-at-N=1): reverts the ' +
@@ -1687,7 +1664,10 @@ const orchestrateActions: readonly ToolAction[] = [
       "resolve the calling delegation's worktree); operationId makes the gate " +
       'emission idempotent (INV-8). Stamp riskTier + boundaryTouching (from ' +
       'prepare_delegation) to let the gate self-skip when the verification ' +
-      'policy excludes it for that tier (skipped-by-policy).',
+      'policy excludes it for that tier (skipped-by-policy). This is the sole ' +
+      'per-task verification gate: it subsumes the regression-coverage intent of ' +
+      'the retired check_tdd_compliance (#1587) — outcome-based test adequacy, ' +
+      'test-after, NOT commit-order test-first.',
     schema: z.object({
       featureId: z.string().min(1),
       taskId: z.string().min(1),
@@ -1698,7 +1678,12 @@ const orchestrateActions: readonly ToolAction[] = [
       operationId: z.string().optional(),
       riskTier: z.enum(['low', 'medium', 'high']).optional(),
       boundaryTouching: z.boolean().optional(),
-    }),
+      // .strict() so the dispatch layer rejects unknown keys (e.g. `base`
+      // instead of `baseBranch`) rather than silently defaulting — the #1188
+      // protection, inherited from the retired check_tdd_compliance (#1587).
+      // Tolerant dispatch strips leaked sibling-action defaults BEFORE this
+      // per-action validation, so strict never false-rejects a real dispatch.
+    }).strict(),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: true, dimension: 'D1' },
@@ -3083,7 +3068,7 @@ export const TOOL_REGISTRY: readonly CompositeTool[] = [
     description: 'Task coordination — claim, complete, and fail tasks',
     actions: orchestrateActions,
     cli: { alias: 'orch' },
-    slimDescription: 'Task coordination, quality gates, validation actions, and VCS operations. Use describe(actions) for schemas.\n\nActions: task_claim, task_complete, task_fail, review_triage, prepare_delegation, prepare_synthesis, assess_stack, check_static_analysis, check_integration_suite, check_security_scan, check_context_economy, check_operational_resilience, check_workflow_determinism, check_review_verdict, check_convergence, check_provenance_chain, check_design_completeness, check_plan_coverage, check_tdd_compliance, check_post_merge, check_task_decomposition, check_event_emissions, extract_task, review_diff, verify_worktree, select_debug_track, investigation_timer, check_coverage_thresholds, assess_refactor_scope, check_pr_comments, validate_pr_body, validate_pr_stack, debug_review_gate, extract_fix_tasks, generate_traceability, spec_coverage_check, verify_worktree_baseline, setup_worktree, verify_delegation_saga, post_delegation_check, reconcile_state, pre_synthesis_check, runbook, agent_spec, onboard, doctor, create_pr, merge_pr, check_ci, list_prs, get_pr_comments, add_pr_comment, create_issue, merge_orchestrate, check_invariant_conformance',
+    slimDescription: 'Task coordination, quality gates, validation actions, and VCS operations. Use describe(actions) for schemas.\n\nActions: task_claim, task_complete, task_fail, review_triage, prepare_delegation, prepare_synthesis, assess_stack, check_static_analysis, check_integration_suite, check_security_scan, check_context_economy, check_operational_resilience, check_workflow_determinism, check_review_verdict, check_convergence, check_provenance_chain, check_design_completeness, check_plan_coverage, check_post_merge, check_task_decomposition, check_event_emissions, extract_task, review_diff, verify_worktree, select_debug_track, investigation_timer, check_coverage_thresholds, assess_refactor_scope, check_pr_comments, validate_pr_body, validate_pr_stack, debug_review_gate, extract_fix_tasks, generate_traceability, spec_coverage_check, verify_worktree_baseline, setup_worktree, verify_delegation_saga, post_delegation_check, reconcile_state, pre_synthesis_check, runbook, agent_spec, onboard, doctor, create_pr, merge_pr, check_ci, list_prs, get_pr_comments, add_pr_comment, create_issue, merge_orchestrate, check_invariant_conformance',
   },
   {
     name: 'exarchos_view',

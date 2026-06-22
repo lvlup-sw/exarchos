@@ -42,25 +42,25 @@ describe('Runbook definitions', () => {
     }
   });
 
-  it('TaskCompletion_HasSevenSteps_InCorrectOrder', () => {
+  it('TaskCompletion_HasSixSteps_InCorrectOrder', () => {
     // #1329 / T-07 appended a post-merge `check_integration_suite` gate after
     // `task_complete`, taking the runbook from 3 to 4 steps. Verification-ladder
     // slice 1 prepended the `check_test_adequacy` kill-probe gate as the new
-    // load-bearing per-task verification (5 steps), with `check_tdd_compliance`
-    // demoted to advisory immediately after it. Bundle B3 inserted the
-    // `check_contract_drift` gate right after the kill probe (6 steps). SIV-4
+    // load-bearing per-task verification. Bundle B3 inserted the
+    // `check_contract_drift` gate right after the kill probe. SIV-4
     // (#1530) inserted the advisory `check_mock_boundary` gate after
-    // contract-drift (7 steps) — it flags unowned mocks in new test hunks and
-    // steers toward hermetic fixtures, but is `onFail:'continue'` (advisory), so
-    // it never blocks the completion loop.
-    expect(TASK_COMPLETION.steps).toHaveLength(7);
+    // contract-drift — it flags unowned mocks in new test hunks and steers
+    // toward hermetic fixtures, but is `onFail:'continue'` (advisory). #1587
+    // RETIRED the advisory `check_tdd_compliance` step (test-FIRST ordering
+    // gate), taking the runbook from 7 back to 6 steps; `check_test_adequacy`
+    // is the sole per-task verification gate.
+    expect(TASK_COMPLETION.steps).toHaveLength(6);
     expect(TASK_COMPLETION.steps[0].action).toBe('check_test_adequacy');
     expect(TASK_COMPLETION.steps[1].action).toBe('check_contract_drift');
     expect(TASK_COMPLETION.steps[2].action).toBe('check_mock_boundary');
-    expect(TASK_COMPLETION.steps[3].action).toBe('check_tdd_compliance');
-    expect(TASK_COMPLETION.steps[4].action).toBe('check_static_analysis');
-    expect(TASK_COMPLETION.steps[5].action).toBe('task_complete');
-    expect(TASK_COMPLETION.steps[6].action).toBe('check_integration_suite');
+    expect(TASK_COMPLETION.steps[3].action).toBe('check_static_analysis');
+    expect(TASK_COMPLETION.steps[4].action).toBe('task_complete');
+    expect(TASK_COMPLETION.steps[5].action).toBe('check_integration_suite');
     expect(TASK_COMPLETION.phase).toBe('delegate');
   });
 
@@ -106,13 +106,15 @@ describe('Runbook definitions', () => {
     expect(TASK_FIX.steps[0].action).toBe('resume_or_spawn');
   });
 
-  it('TaskFixRunbook_IncludesGateChain_TddThenStatic', () => {
+  it('TaskFixRunbook_IncludesStaticGate_NoRetiredTddGate', () => {
+    // #1587 retired check_tdd_compliance from the fix chain; check_static_analysis
+    // remains the gate before task_complete.
     const actions = TASK_FIX.steps.map(s => s.action);
-    const tddIndex = actions.indexOf('check_tdd_compliance');
+    expect(actions).not.toContain('check_tdd_compliance');
     const staticIndex = actions.indexOf('check_static_analysis');
-    expect(tddIndex).toBeGreaterThan(-1);
+    const completeIndex = actions.indexOf('task_complete');
     expect(staticIndex).toBeGreaterThan(-1);
-    expect(tddIndex).toBeLessThan(staticIndex);
+    expect(staticIndex).toBeLessThan(completeIndex);
   });
 
   it('TaskFixRunbook_TemplateVarsIncludeAgentId_ForResume', () => {

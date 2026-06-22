@@ -5,12 +5,13 @@ export const TASK_COMPLETION: RunbookDefinition = {
   phase: 'delegate',
   description: 'Complete a task after execution: run blocking gates, then mark complete.',
   steps: [
-    // Verification-ladder slice 1: the kill-probe gate is the load-bearing
-    // per-task verification. It reverts the task's source hunks, re-runs the
+    // Verification-ladder: the kill-probe gate is the load-bearing per-task
+    // verification — the sole per-task gate after check_tdd_compliance was
+    // retired (#1587). It reverts the task's source hunks, re-runs the
     // new/changed tests, and asserts at least one goes red — proving the tests
-    // are not vacuous. Runs against the agent worktree (repoRoot:auto +
-    // worktreePath, the #1330 resolver) and BEFORE check_tdd_compliance, which
-    // is now advisory (commit-order TDD corroborates, it no longer gates).
+    // are not vacuous (outcome-based adequacy, test-after, NOT commit-order
+    // test-first). Runs against the agent worktree (repoRoot:auto +
+    // worktreePath, the #1330 resolver).
     { tool: 'exarchos_orchestrate', action: 'check_test_adequacy', onFail: 'stop',
       params: { repoRoot: 'auto', worktreePath: '<worktreePath>' },
       note: 'kill probe: reverts source, re-runs new tests, asserts red — the load-bearing per-task gate' },
@@ -32,8 +33,6 @@ export const TASK_COMPLETION: RunbookDefinition = {
     { tool: 'exarchos_orchestrate', action: 'check_mock_boundary', onFail: 'continue',
       params: { repoRoot: 'auto', worktreePath: '<worktreePath>' },
       note: 'ADVISORY (SIV-4 #1530): flags unowned mocks in new test hunks; steers toward hermetic fixtures' },
-    { tool: 'exarchos_orchestrate', action: 'check_tdd_compliance', onFail: 'continue',
-      note: 'ADVISORY (verification-ladder slice 1): demoted from blocking — corroborates the kill probe' },
     // #1330 / T-05: the static-analysis gate must run against the agent's
     // worktree, not the orchestrator's cwd. `repoRoot: 'auto'` triggers the
     // worktree-aware resolver (T-04, gate-utils.resolveRepoRoot); the
@@ -184,7 +183,6 @@ export const TASK_FIX: RunbookDefinition = {
         fallbackAgent: 'fixer',
       },
       note: 'CC: resume agentId with full context. Others: agent_spec("fixer") + fresh dispatch.' },
-    { tool: 'exarchos_orchestrate', action: 'check_tdd_compliance', onFail: 'stop' },
     { tool: 'exarchos_orchestrate', action: 'check_static_analysis', onFail: 'stop' },
     { tool: 'exarchos_orchestrate', action: 'task_complete', onFail: 'stop' },
   ],
