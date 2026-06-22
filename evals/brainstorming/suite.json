@@ -1,9 +1,10 @@
 {
-  "description": "Brainstorming skill evaluation suite",
+  "description": "Brainstorming skill evaluation suite — one-artifact flow (#1581)",
   "metadata": {
     "skill": "brainstorming",
-    "phaseAffinity": "ideate",
-    "version": "1.0.0"
+    "phaseAffinity": "plan",
+    "version": "2.0.0",
+    "notes": "Post-#1581: /ideate authors the Design & Rationale section of the unified docs/specs/ artifact within the initial `plan` phase (no separate `ideate` phase, no ideate→plan transition). It records artifacts.spec via exarchos_workflow update and chains to /plan without transitioning. The 2-3 approach divergent loop is the `deep` rung, not a default — exercised by the capability-llm and deep regression/golden scenarios."
   },
   "assertions": [
     {
@@ -13,13 +14,13 @@
       "config": {
         "required": [
           { "tool": "exarchos_workflow", "action": "init" },
-          { "tool": "exarchos_workflow", "action": "set" }
+          { "tool": "exarchos_workflow", "action": "update" }
         ]
       }
     },
     {
       "type": "trace-pattern",
-      "name": "phase-transition-sequence",
+      "name": "no-premature-phase-transition",
       "threshold": 0.8,
       "config": {
         "ordered": true
@@ -27,10 +28,10 @@
     },
     {
       "type": "exact-match",
-      "name": "design-artifact-created",
+      "name": "spec-artifact-created",
       "threshold": 1.0,
       "config": {
-        "fields": ["artifacts.design"]
+        "fields": ["artifacts.spec"]
       }
     },
     {
@@ -38,7 +39,7 @@
       "name": "ideation-quality",
       "threshold": 0.7,
       "config": {
-        "rubric": "Evaluate whether the ideation trace explores multiple approaches with trade-off analysis before selecting one. Score 1 if 2+ approaches are explored with pros/cons and a selection rationale. Score 0.5 if 2+ approaches are explored with pros/cons but no selection rationale is provided. Score 0 if only one approach is considered or no trade-off analysis is present.",
+        "rubric": "Evaluate the Design & Rationale ideation for a `deep`-depth feature. Score 1 if 2+ distinct approaches are explored with pros/cons AND a selection rationale is given. Score 0.5 if 2+ approaches are explored with pros/cons but no selection rationale. Score 0 if only one approach is considered or no trade-off analysis is present. (At thin/standard depth a single converged approach is correct and is graded by the spec-artifact and DR-N coverage assertions, not by this multi-approach rubric.)",
         "outputPath": "approaches"
       }
     }
@@ -46,15 +47,15 @@
   "datasets": {
     "regression": {
       "path": "./datasets/regression.jsonl",
-      "description": "Known-good brainstorming traces that must not regress"
+      "description": "Known-good brainstorming traces that must not regress (one-artifact flow)"
     },
     "capability": {
       "path": "./datasets/golden.jsonl",
-      "description": "Brainstorming capability scenarios"
+      "description": "Brainstorming capability scenarios (one-artifact flow)"
     },
     "capability-llm": {
       "path": "./datasets/capability-llm.jsonl",
-      "description": "LLM-graded ideation quality scenarios"
+      "description": "LLM-graded deep-rung ideation quality scenarios"
     }
   }
 }
