@@ -358,17 +358,21 @@ export function validateTaskStructure(block: string): TaskStructureResult {
 /**
  * #1544: extract a task block's stamped verification-ladder `riskTier`, if any.
  *
- * Matches a real `riskTier` stamp — the key, then a colon, then the tier word —
- * tolerating the planner's markdown bold around either (e.g. `**riskTier:** high
- * · ...` or `riskTier: high`). Binding the tier to the key (rather than reading
- * any tier word anywhere on a line that merely mentions "riskTier") avoids two
- * misclassifications: prose like "the riskTier governs high-blast tasks" no
- * longer reads as `high`, and a line with several tier words yields the one
- * bound to the key, not the first that appears. Returns `undefined` when the
- * block carries no stamp — the conservative path that still requires tests.
+ * Matches a real risk-tier stamp — the key, then a colon, then the tier word —
+ * tolerating both spellings planners actually use: the camelCase `**riskTier:**
+ * high` (used by existing plans) and the title-case `**Risk Tier:** high` that
+ * the task template (`@skills/implementation-planning/references/task-template.md`)
+ * literally prescribes — plus the markdown bold around either. The optional space
+ * in `risk\s*tier` is load-bearing: without it a plan authored to the canonical
+ * template reads as unstamped and a low-tier task wrongly fails (#1544).
+ * Binding the tier to the key (rather than reading any tier word on a line that
+ * merely mentions the term) avoids two misclassifications: prose like "the
+ * riskTier governs high-blast tasks" no longer reads as `high`, and a line with
+ * several tier words yields the one bound to the key. Returns `undefined` when
+ * the block carries no stamp — the conservative path that still requires tests.
  */
 function extractTaskRiskTier(block: string): RiskTier | undefined {
-  const stamp = /risktier\*{0,2}\s*:\s*\*{0,2}\s*(low|medium|high)\b/i;
+  const stamp = /risk\s*tier\*{0,2}\s*:\s*\*{0,2}\s*(low|medium|high)\b/i;
   for (const line of block.split('\n')) {
     const match = stamp.exec(line);
     if (match) return match[1].toLowerCase() as RiskTier;

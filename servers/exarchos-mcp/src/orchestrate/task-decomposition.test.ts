@@ -325,6 +325,17 @@ ${riskLine}
       expect(result.status).toBe('FAIL');
     });
 
+    it('ValidateTaskStructure_CanonicalTemplateRiskTierStamp_LowTierNoTests_StatusPass', () => {
+      // The task template prescribes the title-case, spaced form
+      // `**Risk Tier:** low` (task-template.md:10). A plan authored to the
+      // template must be read correctly — otherwise a low-tier task wrongly
+      // fails for lacking tests, defeating #1544.
+      const result = validateTaskStructure(filesNoTests('**Risk Tier:** low'));
+      expect(result.riskTier).toBe('low');
+      expect(result.hasTests).toBe(false);
+      expect(result.status).toBe('PASS');
+    });
+
     it('ValidateTaskStructure_ProseMentionsTierWords_NotTreatedAsStamp', () => {
       // Prose that mentions "riskTier" alongside a tier word but is NOT a
       // `riskTier: <tier>` stamp must not be read as a stamp — otherwise an
