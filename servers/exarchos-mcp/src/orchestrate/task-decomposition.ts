@@ -372,7 +372,11 @@ export function validateTaskStructure(block: string): TaskStructureResult {
  * the block carries no stamp — the conservative path that still requires tests.
  */
 function extractTaskRiskTier(block: string): RiskTier | undefined {
-  const stamp = /risk\s*tier\*{0,2}\s*:\s*\*{0,2}\s*(low|medium|high)\b/i;
+  // `(?![\w-])` (not plain `\b`): the tier word must end the token. `\b` would
+  // match before a hyphen, so `riskTier: low-priority` would wrongly read as
+  // `low`; rejecting a trailing hyphen/word-char makes a malformed stamp fall
+  // through to the conservative default instead of silently misclassifying.
+  const stamp = /risk\s*tier\*{0,2}\s*:\s*\*{0,2}\s*(low|medium|high)(?![\w-])/i;
   for (const line of block.split('\n')) {
     const match = stamp.exec(line);
     if (match) return match[1].toLowerCase() as RiskTier;

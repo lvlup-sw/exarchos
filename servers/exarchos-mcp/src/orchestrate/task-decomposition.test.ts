@@ -336,6 +336,15 @@ ${riskLine}
       expect(result.status).toBe('PASS');
     });
 
+    it('ValidateTaskStructure_HyphenatedTierSuffix_NotTreatedAsStamp', () => {
+      // A malformed stamp like `riskTier: low-priority` must NOT read as `low`
+      // (the `\b` boundary used to match before the hyphen). Falls through to the
+      // conservative default rather than silently misclassifying.
+      const result = validateTaskStructure(filesNoTests('**riskTier:** low-priority cleanup'));
+      expect(result.riskTier).toBeUndefined();
+      expect(result.status).toBe('FAIL');
+    });
+
     it('ValidateTaskStructure_ProseMentionsTierWords_NotTreatedAsStamp', () => {
       // Prose that mentions "riskTier" alongside a tier word but is NOT a
       // `riskTier: <tier>` stamp must not be read as a stamp — otherwise an
