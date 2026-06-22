@@ -257,6 +257,24 @@ export function checkAcceptanceCriteria(content: string): AcceptanceCriteriaResu
 }
 
 /**
+ * The advisory finding string for DR-N entries lacking acceptance criteria
+ * (Given/When/Then, or a structural acceptance-criteria header), or `null` when
+ * every DR-N entry carries criteria — or there are no DR-N entries at all.
+ *
+ * Extracted as the SINGLE source of this finding string so the standalone
+ * design-completeness gate (Check 5 in {@link handleDesignCompleteness}) and
+ * `check_plan_coverage`'s folded reproduction of it on the unified
+ * `docs/specs/` artifact (DR-6 gate fold, #1581 task 011) cannot drift apart.
+ */
+export function acceptanceCriteriaFinding(content: string): string | null {
+  const result = checkAcceptanceCriteria(content);
+  if (result.passed || result.missingCriteria.length === 0) {
+    return null;
+  }
+  return `Advisory: DR entries missing acceptance criteria: ${result.missingCriteria.join(', ')}`;
+}
+
+/**
  * Heading level of a line — number of leading `#` for a markdown heading, or 0
  * if the line is not a (non-indented) heading. A bullet-form DR (`- DR-1:`) has
  * level 0; a heading-form DR (`### DR-1:`) has its hash count.
@@ -500,12 +518,12 @@ export function handleDesignCompleteness(args: HandleDesignCompletenessArgs): De
     }
   }
 
-  // Check 5: Acceptance criteria on DR-N entries (advisory — does not affect pass/fail)
-  const criteriaResult = checkAcceptanceCriteria(content);
-  if (!criteriaResult.passed && criteriaResult.missingCriteria.length > 0) {
-    findings.push(
-      `Advisory: DR entries missing acceptance criteria: ${criteriaResult.missingCriteria.join(', ')}`,
-    );
+  // Check 5: Acceptance criteria on DR-N entries (advisory — does not affect
+  // pass/fail). Routed through the shared finding-string source so the folded
+  // `check_plan_coverage` reproduction (DR-6, #1581 task 011) cannot drift.
+  const acFinding = acceptanceCriteriaFinding(content);
+  if (acFinding) {
+    findings.push(acFinding);
   }
 
   const checkCount = passCount + failCount;

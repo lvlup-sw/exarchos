@@ -38,6 +38,7 @@ import {
   parseAcceptanceTestTasks,
   checkAcceptanceTestCoverage,
 } from './plan-coverage.js';
+import { acceptanceCriteriaFinding } from './pure/design-completeness.js';
 
 const STATE_DIR = '/tmp/test-plan-coverage';
 
@@ -684,6 +685,117 @@ describe('acceptance test coverage in computeCoverage', () => {
     // No advisories — DR-2 only has bullet-point criteria, no GWT
     expect(result.advisories ?? []).toEqual([]);
     expect(result.passed).toBe(true);
+  });
+});
+
+// ─── Task 011 (#1581 DR-6): gate fold — design-completeness → plan-coverage ──
+//
+// The design+plan collapse retires the standalone `check_design_completeness`
+// gate (tasks 013/014). DR-6 requires its acceptance-criteria ("error-coverage")
+// finding to be REPRODUCED by `check_plan_coverage` on the same (now unified)
+// input, so no coverage is lost when it leaves the chain. The fold is advisory:
+// it surfaces the finding without flipping plan-coverage's `passed`. The pure
+// `computeCoverage` (and its parity snapshots) is untouched — the fold lives in
+// the handler, sourced from the same `acceptanceCriteriaFinding` string the
+// standalone gate uses, so the two cannot drift.
+describe('plan-coverage folds design-completeness acceptance-criteria (Task 011, #1581 DR-6)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockStore.append.mockResolvedValue(undefined);
+    mockStore.query.mockResolvedValue([]);
+  });
+
+  // In the collapsed world designPath === planPath (one docs/specs/ file); both
+  // reads return the same unified artifact.
+  function mockUnifiedArtifact(content: string): void {
+    vi.mocked(readFile).mockImplementation(async () => content);
+  }
+
+  const UNIFIED_ARGS = {
+    featureId: 'feat-1',
+    designPath: '/tmp/specs/feat.md',
+    planPath: '/tmp/specs/feat.md',
+  };
+
+  it('CheckPlanCoverage_FoldsDesignCompletenessChecks_ReproducesFindings', async () => {
+    // Unified artifact: a covered design section + a DR-N entry (bullet form, so
+    // it is NOT itself a coverage section) that carries no acceptance criteria —
+    // exactly what check_design_completeness would have flagged.
+    const unified = [
+      '## Technical Design',
+      '',
+      '### Widget Component',
+      'Renders the main UI.',
+      '',
+      '## Design & Rationale',
+      '',
+      '- DR-3: Error handling',
+      '',
+      '## Decomposition',
+      '',
+      '### Task 001: Create Widget Component',
+      'Build the widget rendering layer.',
+    ].join('\n');
+
+    mockUnifiedArtifact(unified);
+
+    const result = await handlePlanCoverage(
+      UNIFIED_ARGS,
+      STATE_DIR,
+      mockStore as unknown as EventStore,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as { passed: boolean; advisories?: string[] };
+
+    // The folded advisory reproduces design-completeness's finding EXACTLY —
+    // same single-source string (no drift).
+    const expectedFinding = acceptanceCriteriaFinding(unified);
+    expect(expectedFinding).not.toBeNull();
+    expect(expectedFinding).toContain('DR-3');
+    expect(data.advisories ?? []).toContain(expectedFinding!);
+
+    // Advisory only — the fold never flips plan-coverage's pass/fail. The lone
+    // design section (Widget Component) is covered by Task 001, so it PASSES
+    // despite the acceptance-criteria advisory.
+    expect(data.passed).toBe(true);
+  });
+
+  it('CheckPlanCoverage_AllDrCarryCriteria_NoFoldedAdvisory', async () => {
+    // Same shape, but DR-3 now carries Given/When/Then — design-completeness
+    // would NOT flag it, so plan-coverage must not either.
+    const unified = [
+      '## Technical Design',
+      '',
+      '### Widget Component',
+      'Renders the main UI.',
+      '',
+      '## Design & Rationale',
+      '',
+      '- DR-3: Error handling',
+      '  - Given malformed input, when the widget renders, then it shows a fallback',
+      '',
+      '## Decomposition',
+      '',
+      '### Task 001: Create Widget Component',
+      'Build the widget rendering layer.',
+    ].join('\n');
+
+    mockUnifiedArtifact(unified);
+
+    const result = await handlePlanCoverage(
+      UNIFIED_ARGS,
+      STATE_DIR,
+      mockStore as unknown as EventStore,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as { advisories?: string[] };
+    const folded = (data.advisories ?? []).filter((a) =>
+      a.includes('missing acceptance criteria'),
+    );
+    expect(folded).toEqual([]);
+    expect(acceptanceCriteriaFinding(unified)).toBeNull();
   });
 });
 
