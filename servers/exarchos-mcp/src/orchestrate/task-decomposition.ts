@@ -11,6 +11,7 @@
 import { readFile } from 'node:fs/promises';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
+import type { RiskTier } from '../workflow/verification-policy.js';
 import { emitGateEvent } from './gate-utils.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────
@@ -36,6 +37,12 @@ export interface TaskStructureResult {
   readonly fileCount: number;
   readonly hasTests: boolean;
   readonly testCount: number;
+  /**
+   * #1544: the task's stamped verification-ladder tier, if the block declares
+   * one. Drives whether tests are REQUIRED for a PASS (high/unstamped require
+   * them; low/medium do not). `undefined` when the block carries no stamp.
+   */
+  readonly riskTier?: RiskTier;
   readonly status: 'PASS' | 'FAIL';
 }
 
@@ -324,12 +331,17 @@ export function validateTaskStructure(block: string): TaskStructureResult {
   }
   const hasTests = testCount > 0;
 
-  // #1544: gate on the substantive signals (files + tests), not the description
-  // word-count. The word-count threshold blanket-FAILED descriptive tasks
-  // (40/40 false-FAILs) and trained operators to ignore the gate.
-  // `hasDescription`/`descriptionWordCount` remain in the result as an
-  // informational column, but no longer hard-FAIL a task that has files + tests.
-  const status = hasFiles && hasTests ? 'PASS' : 'FAIL';
+  // #1544: the test requirement SCALES BY the task's verification-ladder tier.
+  // The universal `hasFiles && hasTests` hard-FAIL flagged every low/medium-tier
+  // task lacking tests — the over-flag that trained operators to ignore the gate
+  // (the same gate that false-FAILed this very feature's low-tier authoring
+  // tasks at plan-review). Under the ladder, low/medium tasks need not carry
+  // tests to PASS; high-tier — and, conservatively, UNSTAMPED — tasks still do.
+  // (The word-count threshold was already removed; it remains an informational
+  // column only.)
+  const riskTier = extractTaskRiskTier(block);
+  const testsRequired = riskTier !== 'low' && riskTier !== 'medium';
+  const status = hasFiles && (!testsRequired || hasTests) ? 'PASS' : 'FAIL';
 
   return {
     hasDescription,
@@ -338,8 +350,28 @@ export function validateTaskStructure(block: string): TaskStructureResult {
     fileCount,
     hasTests,
     testCount,
+    ...(riskTier ? { riskTier } : {}),
     status,
   };
+}
+
+/**
+ * #1544: extract a task block's stamped verification-ladder `riskTier`, if any.
+ *
+ * Scans for a line mentioning `riskTier` and reads the tier word on that same
+ * line (the planner stamps it inline, e.g. `**riskTier:** high · ...`). Word
+ * boundaries keep substrings like "below"/"premium"/"highlight" from matching.
+ * Returns `undefined` when the block carries no stamp — the conservative path
+ * that still requires tests.
+ */
+function extractTaskRiskTier(block: string): RiskTier | undefined {
+  for (const line of block.split('\n')) {
+    if (!/risktier/i.test(line)) continue;
+    if (/\bhigh\b/i.test(line)) return 'high';
+    if (/\bmedium\b/i.test(line)) return 'medium';
+    if (/\blow\b/i.test(line)) return 'low';
+  }
+  return undefined;
 }
 
 // ─── Dependency DAG Validation ──────────────────────────────────────────
@@ -763,9 +795,13 @@ export async function handleTaskDecomposition(
     const filesStatus = result.hasFiles
       ? `\u2713 (${result.fileCount} files)`
       : `\u2717 (0 files)`;
+    // #1544: a low/medium-tier task without tests is not a FAIL \u2014 show it as
+    // not-required-for-tier rather than a bare \u2717 that contradicts the PASS.
     const testsStatus = result.hasTests
       ? `\u2713 (${result.testCount} tests)`
-      : `\u2717 (0 tests)`;
+      : result.riskTier === 'low' || result.riskTier === 'medium'
+        ? `\u2014 (n/a: ${result.riskTier} tier)`
+        : `\u2717 (0 tests)`;
 
     structureRows.push(
       `| ${block.id} | ${descStatus} | ${filesStatus} | ${testsStatus} | ${result.status} |`,

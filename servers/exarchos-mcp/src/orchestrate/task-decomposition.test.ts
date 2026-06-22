@@ -275,6 +275,73 @@ Test names:
     expect(result.testCount).toBeGreaterThanOrEqual(2);
   });
 
+  // ─── #1544: hasTests scales by riskTier (verification ladder) ──────────────
+  //
+  // The universal `hasFiles && hasTests` hard-FAIL flagged every low/medium-tier
+  // task lacking tests — the exact over-flag that trained operators to ignore
+  // the gate. Under the ladder, low/medium tasks need not carry tests to PASS;
+  // only high-tier (or unstamped, conservatively) require them.
+  describe('validateTaskStructure — hasTests scales by riskTier (#1544)', () => {
+    const filesNoTests = (riskLine: string) => `### Task T-01: Reconcile the planning SoT
+
+${riskLine}
+
+**Description:** Reconcile the planning SoT reference files with the verification ladder so the prose no longer mandates universal test ordering on every task.
+
+**Files:**
+- \`skills-src/implementation-planning/SKILL.md\`
+`;
+
+    it('ValidateTaskStructure_LowTierNoTests_StatusPass', () => {
+      const result = validateTaskStructure(
+        filesNoTests('**riskTier:** low · **boundaryTouching:** false'),
+      );
+      expect(result.hasTests).toBe(false);
+      expect(result.riskTier).toBe('low');
+      expect(result.status).toBe('PASS');
+    });
+
+    it('ValidateTaskStructure_MediumTierNoTests_StatusPass', () => {
+      const result = validateTaskStructure(filesNoTests('**riskTier:** medium'));
+      expect(result.hasTests).toBe(false);
+      expect(result.status).toBe('PASS');
+    });
+
+    it('ValidateTaskStructure_HighTierNoTests_StatusFail', () => {
+      const result = validateTaskStructure(
+        filesNoTests('**riskTier:** high · **boundaryTouching:** true'),
+      );
+      expect(result.hasTests).toBe(false);
+      expect(result.riskTier).toBe('high');
+      expect(result.status).toBe('FAIL');
+    });
+
+    it('ValidateTaskStructure_UnstampedNoTests_StatusFail_ConservativeDefault', () => {
+      // No riskTier stamp → conservative: tests still required (preserves the
+      // pre-ladder strictness for legacy/unstamped plans).
+      const result = validateTaskStructure(filesNoTests('**Dependencies:** None'));
+      expect(result.hasTests).toBe(false);
+      expect(result.riskTier).toBeUndefined();
+      expect(result.status).toBe('FAIL');
+    });
+
+    it('ValidateTaskStructure_HighTierWithTests_StatusPass', () => {
+      const block = `### Task T-01: Reshape the schema
+
+**riskTier:** high
+
+**Files:**
+- \`src/schema.ts\`
+
+**Tests:**
+- [RED] \`Schema_Reshape_Validates\`
+`;
+      const result = validateTaskStructure(block);
+      expect(result.hasTests).toBe(true);
+      expect(result.status).toBe('PASS');
+    });
+  });
+
   // ─── T-12 description-span contract (DR-5 step 1/3) ──────────────────────
   //
   // The description span is "everything between the task heading and the next
