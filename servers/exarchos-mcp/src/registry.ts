@@ -2375,6 +2375,29 @@ const orchestrateActions: readonly ToolAction[] = [
     annotations: LOCAL_MUTATION,
   },
   {
+    name: 'discover_bridge',
+    description: 'Opt-in deep-rung escalation (DR-7): bridge the unified spec to a /exarchos:discover research pre-pass, stitched by a deterministic correlationId. Requires author confirmation (confirm:true) — never auto-spawns. On confirmation it records the link as a state.patched event on the feature stream (report path + discover stream id + correlationId) so provenance spans both documents.',
+    schema: z.object({
+      featureId: featureIdSchema,
+      artifact: z.string().min(1),
+      confirm: z.boolean().optional(),
+      reportPath: z.string().optional(),
+      discoverFeatureId: z.string().optional(),
+      correlationId: z.string().optional(),
+    }),
+    // The deep-rung authoring affordance fires during PLAN authoring. A single
+    // 'plan' phase — deliberately NOT the full PLAN_PHASES set (the task-013
+    // canonical-plan-gate binding trap).
+    phases: new Set<string>(['plan']),
+    roles: ROLE_LEAD,
+    gate: { blocking: false },
+    autoEmits: [
+      { event: 'state.patched', condition: 'conditional', description: 'On confirm:true — records the discover-bridge link, stitched by correlationId' },
+    ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
+  },
+  {
     name: 'prune_stale_workflows',
     description: 'Find stale non-terminal workflows and cancel them. Defaults to dry-run; pass dryRun:false to actually prune. Auto-emits workflow.pruned event per pruned workflow.',
     schema: z.object({

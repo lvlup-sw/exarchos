@@ -382,3 +382,47 @@ describe('D.8 — annotations.safety is queryable from registry (DIM-1 SoT)', ()
     }
   });
 });
+
+// ─── DR-7 (#1581 task 018): deep-rung discover-bridge affordances ────────────
+describe('computeNextActions — deep-rung affordances (DR-7, task 018)', () => {
+  it('NextActions_DeepDepth_PublishesDiscoverBridge', () => {
+    // At the `deep` planning rung, PLAN authoring surfaces the opt-in
+    // divergent-loop + discover-bridge affordances on next_actions (INV-12).
+    const hsm = getHSMDefinition('feature');
+    const actions = computeNextActions(
+      { phase: 'plan', workflowType: 'feature', designDepth: 'deep' },
+      hsm,
+    );
+    const verbs = actions.map((a) => a.verb);
+    expect(verbs).toContain('discover_bridge');
+    expect(verbs).toContain('divergent_loop');
+    for (const a of actions) {
+      expect(NextAction.safeParse(a).success).toBe(true);
+    }
+  });
+
+  it('NextActions_StandardDepth_NoDiscoverBridge', () => {
+    // standard/thin/absent depth must NOT surface the deep-rung escalation —
+    // cost stays risk-proportional.
+    const hsm = getHSMDefinition('feature');
+    for (const designDepth of ['standard', 'thin', undefined]) {
+      const verbs = computeNextActions(
+        { phase: 'plan', workflowType: 'feature', designDepth },
+        hsm,
+      ).map((a) => a.verb);
+      expect(verbs).not.toContain('discover_bridge');
+      expect(verbs).not.toContain('divergent_loop');
+    }
+  });
+
+  it('NextActions_DeepDepth_ReviewPhase_NoDiscoverBridge', () => {
+    // plan-review is a PLAN-kind gate, not an authoring phase — the bridge is an
+    // authoring escalation, so it is NOT surfaced there even at deep depth.
+    const hsm = getHSMDefinition('feature');
+    const verbs = computeNextActions(
+      { phase: 'plan-review', workflowType: 'feature', designDepth: 'deep' },
+      hsm,
+    ).map((a) => a.verb);
+    expect(verbs).not.toContain('discover_bridge');
+  });
+});

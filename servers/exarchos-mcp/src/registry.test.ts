@@ -700,7 +700,8 @@ describe('TOOL_REGISTRY', () => {
       // slice 3 R5 — the diff-scoped mutation backstop review-dimension action).
       // #1587 retired `check_tdd_compliance` (the test-FIRST ordering gate): 72 → 71.
       // The keeper is `check_test_adequacy` (outcome-based adequacy, test-after).
-      expect(composite!.actions).toHaveLength(71);
+      // #1581 task 018 added `discover_bridge` (the deep-rung discover escalation): 71 → 72.
+      expect(composite!.actions).toHaveLength(72);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
