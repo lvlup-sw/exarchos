@@ -41,7 +41,7 @@ describe('CommandShimEmitter', () => {
 
     expect(result.runtime).toBe('copilot');
     expect(result.status).toBe('written');
-    expect(result.commandCount).toBe(18);
+    expect(result.commandCount).toBe(17);
 
     // Verify the file was written
     const written = fs.files.get('/project/.github/copilot-instructions.md');
@@ -60,7 +60,7 @@ describe('CommandShimEmitter', () => {
 
     expect(result.runtime).toBe('cursor');
     expect(result.status).toBe('written');
-    expect(result.commandCount).toBe(18);
+    expect(result.commandCount).toBe(17);
 
     // Verify the file was written to .cursor/rules/
     const written = fs.files.get('/project/.cursor/rules/exarchos-commands.md');
@@ -90,7 +90,7 @@ describe('CommandShimEmitter', () => {
     expect(written).toBeDefined();
 
     const expectedCommands = [
-      'ideate', 'plan', 'tdd', 'review', 'synthesize', 'shepherd',
+      'ideate', 'plan', 'review', 'synthesize', 'shepherd',
       'debug', 'refactor', 'oneshot', 'delegate', 'rehydrate',
       'checkpoint', 'cleanup', 'prune', 'autocompact', 'dogfood',
       'reload', 'tag',
@@ -100,7 +100,20 @@ describe('CommandShimEmitter', () => {
       expect(written).toContain(`/${cmd}`);
     }
 
-    // Verify CANONICAL_COMMANDS export has all 18
-    expect(CANONICAL_COMMANDS).toHaveLength(18);
+    // Verify CANONICAL_COMMANDS export has all 17
+    expect(CANONICAL_COMMANDS).toHaveLength(17);
+  });
+
+  it('CommandShimEmitter_DoesNotAdvertiseRetiredTddCommand', async () => {
+    // Regression for the #1590 retirement gap: commands/tdd.md, its alias, and
+    // the COMMAND_TO_SKILL entry were deleted, but this hardcoded shim list still
+    // advertised `/tdd` → exarchos:tdd (a skill that no longer exists), so every
+    // runtime consuming command shims dispatched a dead command. Lock it out.
+    expect(CANONICAL_COMMANDS.some((c) => c.name === 'tdd')).toBe(false);
+    expect(CANONICAL_COMMANDS.some((c) => c.skill === 'exarchos:tdd')).toBe(false);
+
+    await emitCommandShim('copilot', '/project', { fs });
+    const written = fs.files.get('/project/.github/copilot-instructions.md')!;
+    expect(written).not.toContain('/tdd');
   });
 });
