@@ -418,9 +418,10 @@ describe('validateEmail', () => {
 
 ## Success Criteria
 
-- [ ] Test written BEFORE implementation
-- [ ] Test fails for the right reason
-- [ ] Implementation passes test
+- [ ] Behavior implemented per the task description
+- [ ] Scoped tests cover the new/changed behavior (order flexible — test-after is fine)
+- [ ] Tests pass when run with the project test command
+- [ ] Kill-probe holds: at least one test goes red when the implementation is reverted
 - [ ] No extra code beyond requirements
 - [ ] All tests in worktree pass
 ```

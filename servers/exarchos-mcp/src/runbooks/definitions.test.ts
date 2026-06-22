@@ -106,15 +106,30 @@ describe('Runbook definitions', () => {
     expect(TASK_FIX.steps[0].action).toBe('resume_or_spawn');
   });
 
-  it('TaskFixRunbook_IncludesStaticGate_NoRetiredTddGate', () => {
-    // #1587 retired check_tdd_compliance from the fix chain; check_static_analysis
-    // remains the gate before task_complete.
+  it('TaskFixRunbook_IncludesAdequacyAndStaticGates_NoRetiredTddGate', () => {
+    // #1587 retired check_tdd_compliance from the fix chain. Its replacement —
+    // check_test_adequacy (the kill-probe) — gates the fix chain just as it
+    // gates TASK_COMPLETION, so a fixed task meets the same adequacy bar as a
+    // first-time completion. Order: adequacy → static analysis → task_complete.
     const actions = TASK_FIX.steps.map(s => s.action);
     expect(actions).not.toContain('check_tdd_compliance');
+    const adequacyIndex = actions.indexOf('check_test_adequacy');
     const staticIndex = actions.indexOf('check_static_analysis');
     const completeIndex = actions.indexOf('task_complete');
-    expect(staticIndex).toBeGreaterThan(-1);
+    expect(adequacyIndex).toBeGreaterThan(-1);
+    expect(adequacyIndex).toBeLessThan(staticIndex);
     expect(staticIndex).toBeLessThan(completeIndex);
+  });
+
+  it('TaskFixRunbook_AdequacyStepThreadsWorktreePath', () => {
+    // The kill-probe must run against the agent worktree (#1330): repoRoot:auto
+    // + the worktreePath template var, matching TASK_COMPLETION.
+    expect(TASK_FIX.templateVars).toContain('worktreePath');
+    const adequacyStep = TASK_FIX.steps.find(s => s.action === 'check_test_adequacy');
+    expect(adequacyStep).toBeDefined();
+    const params = adequacyStep?.params as { repoRoot?: unknown; worktreePath?: unknown } | undefined;
+    expect(params?.repoRoot).toBe('auto');
+    expect(params?.worktreePath).toBe('<worktreePath>');
   });
 
   it('TaskFixRunbook_TemplateVarsIncludeAgentId_ForResume', () => {

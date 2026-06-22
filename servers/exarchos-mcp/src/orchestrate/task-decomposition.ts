@@ -358,18 +358,20 @@ export function validateTaskStructure(block: string): TaskStructureResult {
 /**
  * #1544: extract a task block's stamped verification-ladder `riskTier`, if any.
  *
- * Scans for a line mentioning `riskTier` and reads the tier word on that same
- * line (the planner stamps it inline, e.g. `**riskTier:** high · ...`). Word
- * boundaries keep substrings like "below"/"premium"/"highlight" from matching.
- * Returns `undefined` when the block carries no stamp — the conservative path
- * that still requires tests.
+ * Matches a real `riskTier` stamp — the key, then a colon, then the tier word —
+ * tolerating the planner's markdown bold around either (e.g. `**riskTier:** high
+ * · ...` or `riskTier: high`). Binding the tier to the key (rather than reading
+ * any tier word anywhere on a line that merely mentions "riskTier") avoids two
+ * misclassifications: prose like "the riskTier governs high-blast tasks" no
+ * longer reads as `high`, and a line with several tier words yields the one
+ * bound to the key, not the first that appears. Returns `undefined` when the
+ * block carries no stamp — the conservative path that still requires tests.
  */
 function extractTaskRiskTier(block: string): RiskTier | undefined {
+  const stamp = /risktier\*{0,2}\s*:\s*\*{0,2}\s*(low|medium|high)\b/i;
   for (const line of block.split('\n')) {
-    if (!/risktier/i.test(line)) continue;
-    if (/\bhigh\b/i.test(line)) return 'high';
-    if (/\bmedium\b/i.test(line)) return 'medium';
-    if (/\blow\b/i.test(line)) return 'low';
+    const match = stamp.exec(line);
+    if (match) return match[1].toLowerCase() as RiskTier;
   }
   return undefined;
 }

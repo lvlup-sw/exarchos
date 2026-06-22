@@ -41,7 +41,7 @@ Each pattern includes a **Debug trace check** showing which MCP self-service que
 
 **Diagnosis:** Check if the gate has exemption logic for the task's characteristics (file types changed, task category). If not, the gate needs conditional enforcement.
 
-**Debug trace check:** Use `exarchos_orchestrate describe(actions: ['check_tdd_compliance'])` to inspect gate metadata (blocking, dimension). Use `exarchos_view convergence` to see if this gate is systematically failing. Use `exarchos_workflow get` to check task metadata that should trigger exemptions.
+**Debug trace check:** Use `exarchos_orchestrate describe(actions: ['check_test_adequacy'])` to inspect gate metadata (blocking, dimension). Use `exarchos_view convergence` to see if this gate is systematically failing. Use `exarchos_workflow get` to check task metadata that should trigger exemptions.
 
 **Historical:** #940 (TDD gate on docs-only tasks)
 
@@ -71,7 +71,7 @@ Each pattern includes a **Debug trace check** showing which MCP self-service que
 **Symptom:** An action's gate metadata declares `autoEmits` events, but those events don't appear in the event log after the action succeeds.
 **Examples:**
 - `task_complete` should auto-emit `task.completed` but no such event appears
-- `check_tdd_compliance` should auto-emit `gate.executed` but the gate event is missing
+- `check_test_adequacy` should auto-emit `gate.executed` but the gate event is missing
 
 **Diagnosis:** Compare `exarchos_orchestrate describe(actions: ['<action>'])` auto-emission metadata against `exarchos_event query(stream)` filtered for the expected event type after the action's timestamp.
 

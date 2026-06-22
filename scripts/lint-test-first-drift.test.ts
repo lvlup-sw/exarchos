@@ -65,6 +65,47 @@ describe('test-first drift guard (#1591)', () => {
     }
   });
 
+  it('DriftGuard_LowercaseRgrVariant_Fails', () => {
+    // The unconditional-RGR rule is case-insensitive: a `[Red]`/`[green]`
+    // variant must not bypass the guard. (Iron-Law / NO-PRODUCTION literals
+    // are already case-insensitive.)
+    const dir = mkdtempSync(join(tmpdir(), 'drift-guard-'));
+    try {
+      writeFileSync(
+        join(dir, 'bad.md'),
+        [
+          '# Plan',
+          '1. [Red] write test',
+          '2. [green] impl',
+          '3. [Refactor] clean',
+        ].join('\n'),
+      );
+      const { code, findings } = runGuard([dir]);
+      expect(findings.map((f) => f.rule)).toContain('unconditional-rgr-template');
+      expect(code).toBe(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('DriftGuard_MissingScanDir_FailsFast', () => {
+    // A missing scan root must abort loudly rather than silently scanning zero
+    // files (which would let a misconfigured dir list read as a clean tree).
+    let code = 0;
+    let stderr = '';
+    try {
+      execFileSync('node', [SCRIPT, join(tmpdir(), 'drift-guard-does-not-exist-xyz')], {
+        encoding: 'utf8',
+      });
+    } catch (err) {
+      const e = err as { status?: number; stderr?: Buffer | string };
+      code = e.status ?? 1;
+      stderr = e.stderr?.toString() ?? '';
+    }
+    expect(code).not.toBe(0);
+    expect(stderr).toMatch(/scan directory does not exist/i);
+  });
+
   it('DriftGuard_OptInMarker_ExemptsRgrTemplate', () => {
     // A deliberate high-tier opt-in lane marks itself and is NOT flagged for the
     // RGR template (the Iron-Law / NO-PRODUCTION-CODE literals are never exempt).

@@ -31,7 +31,7 @@ Each task carries a **Risk Tier** that sets its verification depth (the ladder i
 | 5 | medium | `StreamReader_NoSnapshot_ReadsFullStream` | Task 4 | No (after 4) |
 | 6 | high | `ViewTool_WithCompaction_ReturnsCorrectState` (boundaryTouching — adds the integration suite across the seam) | Tasks 2, 4 | No |
 
-**Parallel groups:** Tasks 1-3 run simultaneously. Task 4 waits for 1. Task 5 waits for 4. Task 6 is the high-tier integration task, last.
+**Parallel groups:** Tasks 1-3 run simultaneously. Task 4 waits for 1, then 5 waits for 4. The high-tier integration task, Task 6, runs last.
 
 ## Step 3: Plan Verification
 

@@ -183,10 +183,21 @@ export const TASK_FIX: RunbookDefinition = {
         fallbackAgent: 'fixer',
       },
       note: 'CC: resume agentId with full context. Others: agent_spec("fixer") + fresh dispatch.' },
+    // #1587 retired check_tdd_compliance; TASK_COMPLETION received check_test_adequacy
+    // (the kill-probe) as its replacement per-task gate, but the fix chain had no
+    // equivalent — a fixed task could complete without the adequacy probe a
+    // first-time completion gets. Mirror TASK_COMPLETION here: revert the fix's
+    // source hunks, re-run the new/changed tests, assert red. Advisory carrier —
+    // it self-skips low-tier and passes when the fix adds no tests, so it only
+    // halts on a genuinely vacuous test. Runs against the agent worktree
+    // (repoRoot:auto + worktreePath, #1330 resolver).
+    { tool: 'exarchos_orchestrate', action: 'check_test_adequacy', onFail: 'stop',
+      params: { repoRoot: 'auto', worktreePath: '<worktreePath>' },
+      note: 'kill probe: reverts source, re-runs new tests, asserts red — the load-bearing per-task gate' },
     { tool: 'exarchos_orchestrate', action: 'check_static_analysis', onFail: 'stop' },
     { tool: 'exarchos_orchestrate', action: 'task_complete', onFail: 'stop' },
   ],
-  templateVars: ['taskId', 'featureId', 'streamId', 'branch', 'agentId', 'failureContext'],
+  templateVars: ['taskId', 'featureId', 'streamId', 'branch', 'agentId', 'failureContext', 'worktreePath'],
   autoEmits: ['gate.executed', 'task.completed'],
 };
 

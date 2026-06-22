@@ -51,7 +51,13 @@ const SEVERITY = 'HIGH';
 
 function walkMarkdown(dir) {
   const out = [];
-  if (!fs.existsSync(dir)) return out;
+  // Fail fast on a missing scan root: silently returning zero files would let
+  // the guard PASS while scanning less than intended (a misconfigured dir list
+  // reads as a clean tree). A missing subdir mid-walk is still tolerated below
+  // (readdirSync try/catch) — only the requested root must exist.
+  if (!fs.existsSync(dir)) {
+    throw new Error(`lint-test-first-drift: scan directory does not exist: ${dir}`);
+  }
   const stack = [dir];
   while (stack.length > 0) {
     const cur = stack.pop();
@@ -101,12 +107,13 @@ function lintFile(file, findings) {
 
   // Whole-file rule: an unconditional [RED]/[GREEN]/[REFACTOR] task template —
   // all three bracketed phase markers present, with no explicit opt-in marker.
-  const hasRed = /\[RED\]/.test(text);
-  const hasGreen = /\[GREEN\]/.test(text);
-  const hasRefactor = /\[REFACTOR\]/.test(text);
+  // Case-insensitive so a trivial `[Red]`/`[red]` variant can't bypass the guard.
+  const hasRed = /\[red\]/i.test(text);
+  const hasGreen = /\[green\]/i.test(text);
+  const hasRefactor = /\[refactor\]/i.test(text);
   const optedIn = text.includes(OPT_IN_MARKER);
   if (hasRed && hasGreen && hasRefactor && !optedIn) {
-    const redLine = lines.findIndex((l) => /\[RED\]/.test(l));
+    const redLine = lines.findIndex((l) => /\[red\]/i.test(l));
     findings.push({
       file,
       line: redLine >= 0 ? redLine + 1 : 1,

@@ -325,6 +325,18 @@ ${riskLine}
       expect(result.status).toBe('FAIL');
     });
 
+    it('ValidateTaskStructure_ProseMentionsTierWords_NotTreatedAsStamp', () => {
+      // Prose that mentions "riskTier" alongside a tier word but is NOT a
+      // `riskTier: <tier>` stamp must not be read as a stamp — otherwise an
+      // unstamped task is silently misclassified. Conservative default applies:
+      // no stamp → tests still required → FAIL.
+      const result = validateTaskStructure(
+        filesNoTests('The riskTier model governs high-blast-radius edits.'),
+      );
+      expect(result.riskTier).toBeUndefined();
+      expect(result.status).toBe('FAIL');
+    });
+
     it('ValidateTaskStructure_HighTierWithTests_StatusPass', () => {
       const block = `### Task T-01: Reshape the schema
 

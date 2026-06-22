@@ -150,7 +150,7 @@ red-green is opt-in").
 | H | `spec-review/SKILL.md:3,16,98`; `references/review-checklist.md:31-38,70` | Makes "TDD compliance" a **universal** spec-review dimension; runs `check_tdd_compliance` per `taskId` as a hard completion criterion for every review |
 | M | `quality-review/SKILL.md:204-220` | "Post-Fix Spec Compliance Check (MANDATORY)" re-runs `check_tdd_compliance` per task, no tier (rest of skill is exemplary) |
 | M | `oneshot-workflow/SKILL.md:324-328,480` | Completion criterion "implemented **via TDD**"; **Example A walks a README-typo fix through `[RED]/[GREEN]`** — teaches the wrong default (body is otherwise correct) |
-| M | `debug/SKILL.md:128,234`; `refactor/references/phases/overhaul-plan.md:188-205` | Phase label "(worktree + TDD)"; overhaul task template hardcodes `[RED|GREEN|REFACTOR]` for every refactor task |
+| M | `debug/SKILL.md:128,234`; `refactor/references/phases/overhaul-plan.md:188-205` | Phase label "(worktree + TDD)"; overhaul task template hardcodes `[RED\|GREEN\|REFACTOR]` for every refactor task |
 | H | `discovery/SKILL.md:15,27` | "Explicitly **exempt from the Iron Law**" (references a retired concept) + "If you need TDD enforcement → use any other workflow type" (implies all other workflows enforce TDD universally) |
 | M | `_shared/prompts/report-format.md:19-22` | Task-completion report template hardcodes a RED/GREEN checklist for every task (shared across implementers) |
 | L | `delegation/references/implementer-prompt.md:169-175,447-451` | Tier-conditional template, but the **Success Criteria** block unconditionally says "Test written BEFORE implementation" |
