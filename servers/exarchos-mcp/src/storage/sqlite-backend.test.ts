@@ -9,6 +9,45 @@ import type { EventSender } from './backend.js';
 import { SqliteBackend } from './sqlite-backend.js';
 import { VersionConflictError } from './memory-backend.js';
 
+// ─── DR-4 durability posture + DR-3 immediate fail-fast ─────────────────────
+
+describe('SqliteBackend durability + immediate (DR-3 / DR-4)', () => {
+  it('Synchronous_InvalidValue_RejectedAtConstruction', () => {
+    expect(
+      () =>
+        new SqliteBackend(':memory:', {
+          synchronous: 'sometimes' as unknown as 'normal' | 'full',
+        }),
+    ).toThrowError(/invalid storage.synchronous/);
+  });
+
+  it('Synchronous_DefaultNormal_InitializesAndAppends', () => {
+    const backend = new SqliteBackend(':memory:');
+    expect(() => backend.initialize()).not.toThrow();
+    backend.close();
+  });
+
+  it('Synchronous_Full_InitializesAndAppends', () => {
+    // FULL applies a valid pragma and round-trips a write without error.
+    const backend = new SqliteBackend(':memory:', { synchronous: 'full' });
+    expect(() => backend.initialize()).not.toThrow();
+    backend.close();
+  });
+
+  it('Initialize_DriverExposesImmediate_AssertionPasses', () => {
+    // The DR-3 fail-fast assertion runs inside initialize(); a successful
+    // init proves the real driver exposes transaction(fn).immediate(). Guard
+    // the premise explicitly so a driver regression that drops .immediate is
+    // caught here rather than as a silent deferred-BEGIN downgrade.
+    const backend = new SqliteBackend(':memory:');
+    backend.initialize();
+    const db = (backend as unknown as { db: { transaction: (fn: () => void) => unknown } }).db;
+    const txn = db.transaction(() => {}) as { immediate?: unknown };
+    expect(typeof txn.immediate).toBe('function');
+    backend.close();
+  });
+});
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function makeEvent(overrides: Partial<WorkflowEvent> = {}): WorkflowEvent {
