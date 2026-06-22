@@ -1,37 +1,35 @@
 # Verification Ladder
 
-Verification depth matches a task's **blast radius**. Pick the cheapest rung that still captures the risk — strict red-green-refactor is the high-tier discipline, not a blanket rule for every change.
+Verification depth matches a task's **blast radius**. Pick the cheapest rung that still captures the risk — the deeper rungs add tests, an adequacy kill-probe, and integration coverage, all judged by **outcome (test-after)**, not by a failing-test-first ordering ceremony on every change (#1587).
 
 ## The Ladder
 
 | Risk tier | What it adds on top of the rung below | Why this depth |
 |-----------|----------------------------------------|----------------|
-| **low** | Static analysis only (typecheck + lint) | Docs/config/rename-only edits have near-zero blast radius. A failing-test-first ceremony is pure overhead here. |
-| **medium** | Scoped tests + the `check_test_adequacy` kill-probe | The kill-probe recaptures test-first's unique guarantee — that a test can actually fail — at lower cost than mandating RED-first on every commit. |
-| **high** | Full red-green-refactor + the integration suite | Schema/type/API/shared-contract surfaces span the codebase. Here the discipline of writing the failing test first earns its cost. |
+| **low** | Static analysis only (typecheck + lint) | Docs/config/rename-only edits have near-zero blast radius. A test ceremony is pure overhead here. |
+| **medium** | Scoped tests + the `check_test_adequacy` kill-probe | The kill-probe recaptures test-first's one real guarantee — that a test can actually fail — at lower cost, judged test-after instead of mandating a failing test first on every commit. |
+| **high** | The integration suite (and mutation-adequacy at the boundary) on top of medium | Schema/type/API/shared-contract surfaces span the codebase. Cover them with adequacy-judged tests plus real-collaborator integration coverage across the seam. |
 
 `boundaryTouching` is an orthogonal flag: a boundary-crossing task (I/O adapter, client, schema artifact) adds contract-drift verification, and at medium/high also mock-boundary verification, regardless of its tier.
 
 The task's `riskTier` / `boundaryTouching` stamp comes from the planner (or the classifier's blast-radius heuristic). Both the dispatched implementer prompt and the gate sequence scale off that stamp — the verification effort is data-driven, not hand-applied per task.
 
-## High-Tier Discipline: Red-Green-Refactor
+## High-Tier Discipline: Outcome-Based Adequacy (test-after)
 
-When a task is high-tier (or you have chosen to write a test for a medium-tier behavior), follow the cycle:
+When a task is high-tier (or you have chosen to write a test for a medium-tier behavior), the discipline is **outcome-based**, not ordering-based. Write the behavior and its tests in whatever order is natural — test-after is fine — then let the gates judge whether the tests are adequate. The cost-effective guarantee is that your tests *can actually fail*, captured by the `check_test_adequacy` kill-probe rather than by mandating a failing test first (#1587).
 
-### RED Phase
-1. Write a test that describes expected behavior
-2. Run tests — test MUST fail
-3. Verify it fails for the RIGHT reason (not a compilation error)
+### Cover the behavior
+1. Write scoped tests that exercise the new/changed behavior and pin its contract
+2. Use `Method_Scenario_Outcome` naming; one behavior per test
+3. Property tests (where they fit) are written alongside the example tests
 
-### GREEN Phase
-1. Write the minimum code to make the test pass
-2. Run tests — test MUST pass
-3. No extra features or optimizations
+### Prove the tests are not vacuous
+1. The `check_test_adequacy` gate reverts your source hunks (keeping the tests) and re-runs them, asserting at least one goes red
+2. A test that still passes against the reverted source is vacuous — strengthen it
 
-### REFACTOR Phase
-1. Clean up code while tests stay green
-2. Extract helpers, improve naming, apply SOLID
-3. Run tests after each change
+### Integration coverage (high tier)
+1. The `check_integration_suite` rung exercises real collaborators across the seam
+2. Refactor freely while the suite stays green
 
 ## Conventions
 
@@ -65,7 +63,7 @@ remediation text rather than failed.
 For test code patterns and examples, see `@skills/delegation/references/testing-patterns.md`.
 For property-based testing templates, see `@skills/delegation/references/pbt-patterns.md`.
 
-Property tests are written alongside example tests in the RED phase. They complement, not replace, example tests.
+Property tests are written alongside the example tests. They complement, not replace, example tests.
 
 ## Sociable vs Solitary Tests
 

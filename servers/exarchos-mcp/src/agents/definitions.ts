@@ -199,16 +199,19 @@ export function buildVerificationNote(ctx: ImplementerVerificationContext): stri
       'Low blast-radius task: lean on static analysis (typecheck + lint). No test-first ceremony required; add a focused test only if behavior is non-obvious.',
     );
   } else {
-    // medium / high: full block + the check_test_adequacy kill-probe.
-    lines.push('## Verification (verification ladder)');
-    lines.push('');
-    lines.push('Follow the high-tier discipline:');
-    lines.push('1. **RED** — write a failing test that defines the expected behavior; witness it fail for the right reason.');
-    lines.push('2. **GREEN** — write the minimum code to make the test pass.');
-    lines.push('3. **REFACTOR** — clean up while keeping tests green.');
+    // medium / high: scoped tests + the check_test_adequacy kill-probe. #1587
+    // excised the test-FIRST ordering ceremony (RED→GREEN→REFACTOR) even from
+    // the high rung — the keeper is OUTCOME-based adequacy, judged test-after.
+    lines.push('## Verification (verification ladder — outcome-based adequacy)');
     lines.push('');
     lines.push(
-      'Kill-probe: the `check_test_adequacy` gate runs after your tests. It recaptures test-first\'s unique guarantee (that the test can actually fail) at lower cost — expect it to flag tests that pass against a stubbed-out implementation.',
+      'Cover the new/changed behavior with focused tests, judged by OUTCOME not by commit order — test-after is fine; the failing-test-first ordering ceremony is not required (#1587). What matters is that your tests can actually fail:',
+    );
+    lines.push('- Write scoped tests that exercise the behavior and pin the contract.');
+    lines.push('- Keep the change minimal and refactor freely while the tests stay green.');
+    lines.push('');
+    lines.push(
+      'Kill-probe: the `check_test_adequacy` gate runs after your tests — it reverts your source hunks (keeping the tests) and asserts at least one test goes red. This recaptures the one real guarantee of test-first (that a test CAN fail) at lower cost; expect it to flag tests that pass against a stubbed-out implementation.',
     );
     if (ctx.riskTier === 'high') {
       lines.push('');
@@ -236,7 +239,7 @@ export function buildVerificationNote(ctx: ImplementerVerificationContext): stri
  * tier context) bakes the medium-tier default so the generated artifact is
  * self-contained.
  */
-const IMPLEMENTER_PROMPT_HEAD = `You are an implementer agent on the verification ladder, working in an isolated worktree. Your verification discipline is set by the tier-selected note below — strict test-first ceremony applies on the medium/high rungs, not universally.
+const IMPLEMENTER_PROMPT_HEAD = `You are an implementer agent on the verification ladder, working in an isolated worktree. Your verification discipline is set by the tier-selected note below — outcome-based test adequacy on the medium/high rungs (judged test-after, not by commit order), static analysis on the low rung.
 
 ${WORKTREE_ENTRY_CONTRACT}
 

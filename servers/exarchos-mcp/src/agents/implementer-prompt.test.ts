@@ -58,17 +58,18 @@ describe('renderImplementerPrompt — tier-conditional verification note', () =>
     expect(note.toLowerCase()).toMatch(/static analysis/);
   });
 
-  it('RenderImplementerPrompt_MediumHighTier_EmitsFullBlockWithKillProbe', () => {
+  it('RenderImplementerPrompt_MediumHighTier_EmitsAdequacyBlock_TestAfter', () => {
     for (const riskTier of ['medium', 'high'] as const) {
       const prompt = renderImplementerPrompt({ riskTier, boundaryTouching: false });
       const note = verificationNoteOf(prompt);
 
-      // Full verification block: RED-GREEN-REFACTOR discipline is present.
-      expect(note, `${riskTier} note missing RED`).toMatch(/RED/);
-      expect(note, `${riskTier} note missing GREEN`).toMatch(/GREEN/);
+      // #1587: outcome-based adequacy, judged TEST-AFTER — the RED-GREEN-REFACTOR
+      // ordering ceremony is excised even from the high rung.
+      expect(note, `${riskTier} note must not impose RGR ordering`).not.toMatch(/REFACTOR/);
+      expect(note.toLowerCase(), `${riskTier} note must frame test-after`).toContain('test-after');
 
       // The kill-probe expectation: check_test_adequacy recaptures test-first's
-      // unique guarantee at lower cost.
+      // unique guarantee (that a test can fail) at lower cost.
       expect(
         note,
         `${riskTier} verification block must name the check_test_adequacy kill-probe`,
@@ -123,10 +124,12 @@ describe('implementer contract is tier-conditional (CR-1)', () => {
     expect(low.toLowerCase()).not.toContain('witness it fail');
   });
 
-  it('RenderImplementerPrompt_MediumTier_CarriesTddDisciplineInNote', () => {
+  it('RenderImplementerPrompt_MediumTier_CarriesAdequacyDisciplineInNote', () => {
     const medium = renderImplementerPrompt({ riskTier: 'medium', boundaryTouching: false });
-    expect(medium).toContain('RED');
-    expect(medium.toLowerCase()).toContain('witness it fail');
+    // #1587: medium carries the outcome-based adequacy kill-probe (test-after),
+    // not the RED-GREEN-REFACTOR ordering ceremony.
+    expect(medium).toContain('check_test_adequacy');
+    expect(medium.toLowerCase()).toContain('test-after');
   });
 
   it('ImplementerSpec_PreWriteRule_ScopedToKillProbeTiers', () => {
