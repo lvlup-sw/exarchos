@@ -319,6 +319,44 @@ describe('resolveGateSetFailClosed (DR-10)', () => {
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) expect(outcome.reason).toMatch(/boom/);
   });
+
+  it('ResolveGateSet_MalformedDesignDepth_FailsClosedBlocked', () => {
+    // DR-9 (task 021): a malformed `designDepth` (a value outside the frozen
+    // thin/standard/deep ladder — e.g. a corrupt frozen state or a typo'd
+    // config override that survives to resolution) MUST fail the PLAN gate-set
+    // resolution CLOSED through the REAL resolver path (no injected thrower):
+    // `resolveGateSetFailClosed` returns `{ ok: false }` so the caller appends
+    // `phase.blocked`, never a silent OPEN transition. The reason names the bad
+    // depth so the block is diagnosable.
+    const malformed = { riskTier: 'low', boundaryTouching: false, designDepth: 'shallow' } as unknown as ResolveGateSetCtx;
+    const outcome = resolveGateSetFailClosed('PLAN', malformed);
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.reason).toMatch(/designDepth/);
+      expect(outcome.reason).toMatch(/shallow/);
+    }
+    // The raw resolver throws on the same input — the fault is real, not an
+    // artifact of the fail-closed wrapper masking a valid resolution.
+    expect(() => resolveGateSet('PLAN', malformed)).toThrow(/shallow/);
+  });
+
+  it('ResolveGateSet_AbsentDesignDepth_ResolvesOpenNotBlocked', () => {
+    // DR-9 (task 021) — the OTHER half of fail-closed: an ABSENT `designDepth`
+    // is NOT a fault. It normalises to `'standard'` and resolves OPEN (ok),
+    // pinning that fail-closed fires only on a genuinely malformed depth, never
+    // on the ordinary predates-planning-depth call site.
+    const outcome = resolveGateSetFailClosed('PLAN', { riskTier: 'low', boundaryTouching: false });
+    expect(outcome.ok).toBe(true);
+    if (outcome.ok) {
+      expect(outcome.gates.map((g) => g.gate)).toEqual([
+        'check_task_decomposition',
+        'check_plan_coverage',
+        'spec_coverage_check',
+        'check_provenance_chain',
+        'generate_traceability',
+      ]);
+    }
+  });
 });
 
 // ─── DR-9: synthesis-readiness resolver ─────────────────────────────────────

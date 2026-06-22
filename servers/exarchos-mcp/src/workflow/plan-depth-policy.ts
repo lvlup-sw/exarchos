@@ -121,5 +121,21 @@ export function resolvePlanDepthPolicy(
   // `verification-policy-resolver.ts` optional-chains `config?.verification`.
   void config;
 
-  return { sequence: BASE_SEQUENCE_BY_DEPTH[designDepth] };
+  // Fail CLOSED on an out-of-table depth (DR-9, task 021). A malformed/absent
+  // `designDepth` config that survives to here (e.g. a corrupt frozen value
+  // that is neither `thin`/`standard`/`deep`) must surface as an explicit,
+  // descriptive throw — NOT an `{ sequence: undefined }` that detonates later
+  // as a cryptic `undefined.map` TypeError. `resolveGateSetFailClosed` converts
+  // this throw into a `phase.blocked`, never a silent OPEN transition. (Absent
+  // is normalised to `'standard'` by the `'plan-structure'` resolver BEFORE it
+  // reaches this module, so only a genuinely malformed depth lands here.)
+  const sequence = BASE_SEQUENCE_BY_DEPTH[designDepth];
+  if (sequence === undefined) {
+    throw new Error(
+      `resolvePlanDepthPolicy: unknown designDepth '${String(designDepth)}' ` +
+        `(expected one of ${Object.keys(BASE_SEQUENCE_BY_DEPTH).join(', ')})`,
+    );
+  }
+
+  return { sequence };
 }
