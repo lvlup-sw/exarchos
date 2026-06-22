@@ -131,6 +131,8 @@ Analyze dependencies to find sequential chains and parallel-safe groups that can
 Save to: `docs/plans/YYYY-MM-DD-<feature>.md`
 Use the template from `references/plan-document-template.md`.
 
+> For features authored under the unified-artifact flow (design + plan in one depth-scaled document under `docs/specs/`), use `references/spec-template.md` instead — its `## Decomposition` section carries the same task breakdown, with traceability resolved within the single document.
+
 ### Step 5: Plan Verification
 
 Run deterministic verification scripts instead of manual checklist review.
