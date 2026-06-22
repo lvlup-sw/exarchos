@@ -89,7 +89,7 @@ git merge-base --is-ancestor "[integration-tip]" HEAD \
 
   Evidence basis (TDAD): cutting a skill 107→20 lines QUADRUPLED resolution.
   Prompt bloat is a token AND an accuracy cost — so a low-risk task carries the
-  terse note, not the full red-green-refactor ceremony.
+  terse note, not the full verification block.
 -->
 
 ### [TIER: low] — static analysis suffices
@@ -98,13 +98,13 @@ Low blast-radius task: lean on static analysis (typecheck + lint). No test-first
 
 ### [TIER: medium | high] — verification ladder (full block)
 
-Follow the high-tier red-green-refactor discipline:
+Cover the new/changed behavior with focused tests, judged by OUTCOME not by commit order — test-after is fine; the failing-test-first ordering ceremony is not required (#1587):
 
-1. **RED** — write a failing test named `[MethodName]_[Scenario]_[ExpectedOutcome]`. Run the project test command (from `.exarchos.yml`, e.g. `cargo test` / `pytest` / `dotnet test` / `npm run test:run`). VERIFY it fails for the expected reason; do NOT proceed until you have witnessed the failure.
-2. **GREEN** — write the minimum code to make the test pass. No extra features. Run the project test command and VERIFY it passes.
-3. **REFACTOR** — clean up (SOLID, extract helpers) while keeping tests green; run tests after each change.
+1. Implement the behavior for this task.
+2. Add scoped tests named `[MethodName]_[Scenario]_[ExpectedOutcome]` that exercise it; run the project test command (from `.exarchos.yml`, e.g. `cargo test` / `pytest` / `dotnet test` / `npm run test:run`) and confirm they pass.
+3. Refactor (SOLID, extract helpers) while the tests stay green.
 
-Kill-probe: the `check_test_adequacy` gate runs after your tests. It recaptures test-first's unique guarantee — that a test can actually fail — at lower cost than mandating RED-first on every commit. Expect it to flag tests that pass against a stubbed-out implementation.
+Kill-probe: the `check_test_adequacy` gate runs after your tests — it reverts your source hunks (keeping the tests) and asserts at least one goes red. This recaptures test-first's one real guarantee — that a test can actually fail — at lower cost. Expect it to flag tests that pass against a stubbed-out implementation. (Granular per-behavior red-green is available as an opt-in if it helps, never a requirement.)
 
 (For **high** tier only, the `check_integration_suite` rung also runs — exercise real collaborators across the seam, not just unit isolation.)
 
@@ -399,28 +399,24 @@ Implement email validation for user registration. The validator should:
 <!-- This task is high-tier + boundary-touching (MX lookup crosses an I/O seam),
      so the assembly selected the full block AND appended the boundary steer. -->
 
-Follow the high-tier red-green-refactor discipline:
+Cover the behavior with tests, judged test-after by outcome (no failing-test-first ceremony):
 
-### Phase 1: RED - Write Failing Test
+### Step 1: Implement the behavior
+
+1. Write the implementation in src/validators/email.ts
+
+### Step 2: Add scoped tests
 
 1. Create test file at src/validators/email.test.ts
 2. Write test: `validateEmail_InvalidFormat_ReturnsError`
-3. Run the project test command (from `.exarchos.yml`, e.g. `cargo test` / `pytest` / `dotnet test` / `npm run test:run`)
-4. VERIFY test fails for the expected reason
+3. Run the project test command (from `.exarchos.yml`, e.g. `cargo test` / `pytest` / `dotnet test` / `npm run test:run`) and confirm it passes
 
-### Phase 2: GREEN - Minimum Implementation
-
-1. Write minimum code in src/validators/email.ts
-2. Run the project test command (from `.exarchos.yml`, e.g. `cargo test` / `pytest` / `dotnet test` / `npm run test:run`)
-3. VERIFY test passes
-
-### Phase 3: REFACTOR - Clean Up
+### Step 3: Refactor
 
 1. Extract regex to constant
-2. Run tests after change
-3. VERIFY tests stay green
+2. Run tests after change; they stay green
 
-Kill-probe: the `check_test_adequacy` gate runs after your tests — expect it to flag tests that pass against a stubbed-out implementation.
+Kill-probe: the `check_test_adequacy` gate runs after your tests — it reverts your source and asserts at least one test goes red, flagging tests that pass against a stubbed-out implementation.
 
 Boundary task: mock only what you own. The MX lookup is an unowned external dependency — use a hermetic fixture or a contract-verified stub, never an unverified hand-mock.
 
@@ -444,9 +440,10 @@ describe('validateEmail', () => {
 
 ## Success Criteria
 
-- [ ] Test written BEFORE implementation
-- [ ] Test fails for the right reason
-- [ ] Implementation passes test
+- [ ] Behavior implemented per the task description
+- [ ] Scoped tests cover the new/changed behavior (order flexible — test-after is fine)
+- [ ] Tests pass when run with the project test command
+- [ ] Kill-probe holds: at least one test goes red when the implementation is reverted
 - [ ] No extra code beyond requirements
 - [ ] All tests in worktree pass
 ```

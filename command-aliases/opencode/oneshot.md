@@ -1,5 +1,5 @@
 ---
-description: Run a lightweight oneshot workflow — plan + TDD implement + optional PR
+description: Run a lightweight oneshot workflow — plan + laddered (tier-scaled) implement + optional PR
 ---
 
 # /oneshot

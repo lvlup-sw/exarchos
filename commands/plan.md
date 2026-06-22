@@ -1,5 +1,5 @@
 ---
-description: Create TDD implementation plan from design document
+description: Create a verification-laddered implementation plan from a design document
 ---
 
 # Plan
@@ -20,9 +20,15 @@ After plan is saved, runs plan-review (delta analysis). User confirms at plan-re
 
 Follow the implementation-planning skill: `@skills/implementation-planning/SKILL.md`
 
-## Iron Law
+## Verification Ladder
 
-> **NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST**
+Verification depth scales with each task's **blast radius** — it is not a blanket failing-test-first rule (#1587). Stamp every task with a `riskTier`; the depth follows:
+
+- **low** — static analysis (typecheck + lint); no tests required.
+- **medium** — scoped tests + the `check_test_adequacy` kill-probe, judged test-after.
+- **high** — the medium set + the integration suite across the seam.
+
+See `@skills/_shared/references/verification.md` and the reframed `@skills/implementation-planning/SKILL.md`.
 
 ## Process
 
@@ -37,8 +43,8 @@ Read the design document and identify:
 ### Step 2: Decompose into Tasks
 Create tasks with:
 - 2-5 minute granularity
-- [RED], [GREEN], [REFACTOR] phases
-- Test file paths
+- A `riskTier` stamp (low | medium | high) + optional `boundaryTouching`
+- Test file paths for the tier's verification (medium/high)
 - Expected test names (Method_Scenario_Outcome)
 - Dependencies
 
@@ -54,17 +60,15 @@ Write to `docs/plans/YYYY-MM-DD-<feature>.md`
 
 ```markdown
 ### Task [N]: [Description]
-**Phase:** RED → GREEN → REFACTOR
+**Risk Tier:** low | medium | high   ← drives verification depth
+**Boundary Touching:** true | false (optional)
 
-1. [RED] Write test: `TestName_Scenario_Outcome`
-   - File: `path/to/test.ts`
-   - Expected failure: [reason]
+**Verification (scales with Risk Tier):**
+- low → static analysis only (typecheck + lint)
+- medium → scoped tests + `check_test_adequacy` kill-probe (test-after)
+- high → the medium set + the integration suite across the seam
 
-2. [GREEN] Implement minimum code
-   - File: `path/to/impl.ts`
-
-3. [REFACTOR] Clean up if needed
-
+**Files:** `path/to/impl.ts`, `path/to/test.ts` (medium/high)
 **Dependencies:** [Task IDs or None]
 **Parallelizable:** [Yes/No]
 ```

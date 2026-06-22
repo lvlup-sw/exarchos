@@ -1,38 +1,31 @@
-# TDD Task Template
+# Task Template
 
 ## Task Format
 
-Each task follows this structure:
+Each task follows this structure. The verification fields lead: `riskTier` selects how deeply the task is verified (see the ladder in `@skills/_shared/references/verification.md`). Tests are judged by **outcome, test-after** — the failing-test-first ordering ceremony is not required (#1587).
 
 ```markdown
 ### Task [N]: [Brief Description]
 
-**Phase:** [RED | GREEN | REFACTOR]
-**Test Layer:** [acceptance | integration | unit | property]
-**Risk Tier:** [low | medium | high — optional; omit to let `classifyTask` derive it]
+**Risk Tier:** [low | medium | high]   ← REQUIRED — drives the verification depth
 **Boundary Touching:** [true | false — optional; omit to let `classifyTask` derive it]
+**Test Layer:** [acceptance | integration | unit | property]
 **Acceptance Test Ref:** [Task ID of parent acceptance test, or omit]
 **Implements:** [DR-N identifiers]
 
-**TDD Steps:**
-1. [RED] Write test: `TestName_Scenario_ExpectedOutcome`
-   - File: `path/to/test.ts`
-   - Expected failure: [Specific failure reason]
-   - Run: `npm run test:run` - MUST FAIL
+**Files:**
+- `path/to/implementation.ts`
+- `path/to/implementation.test.ts` (medium/high tiers)
 
-2. [GREEN] Implement minimum code
-   - File: `path/to/implementation.ts`
-   - Changes: [Brief description]
-   - Run: `npm run test:run` - MUST PASS
+**Verification (scales with Risk Tier):**
+- **low** — static analysis (typecheck + lint). No tests required; add a focused test only if behavior is non-obvious.
+- **medium** — scoped tests covering the new/changed behavior + the `check_test_adequacy` kill-probe. Test-after is fine.
+- **high** — the medium set + the integration suite across the seam. Granular per-behavior red-green is available as an explicit opt-in, never a requirement.
 
-3. [REFACTOR] Clean up (optional)
-   - Apply: [SOLID principle or improvement]
-   - Run: `npm run test:run` - MUST STAY GREEN
-
-**Verification:**
-- [ ] Witnessed test fail for the right reason
-- [ ] Test passes after implementation
-- [ ] No extra code beyond test requirements
+**Steps:**
+1. Implement the behavior for this task.
+2. Add the tests its tier requires (above), named `Method_Scenario_Outcome`, and confirm they exercise the behavior — the `check_test_adequacy` kill-probe will reject vacuous tests.
+3. Refactor while the tests stay green.
 
 **Dependencies:** [Task IDs this depends on, or "None"]
 **Parallelizable:** [Yes/No]
@@ -40,9 +33,11 @@ Each task follows this structure:
 
 ## Risk Tier and Boundary Tag
 
-Each task carries two orthogonal verification-routing signals, derived **mechanically** by
-`classifyTask` (`prepare-delegation.ts`) — no LLM in the hot path. An explicit value in the plan
-**always wins** over derivation (override-first, mirroring the toolchain resolver's layering).
+Each task carries two orthogonal verification-routing signals. The planner **always stamps `riskTier`
+explicitly** (it is a required task field); `boundaryTouching` may be omitted. `classifyTask`
+(`prepare-delegation.ts`) derives both **mechanically** as a runtime fallback — no LLM in the hot
+path — and an explicit value in the plan **always wins** over derivation (override-first, mirroring
+the toolchain resolver's layering).
 
 | Signal | Derivation (when omitted) |
 |---|---|

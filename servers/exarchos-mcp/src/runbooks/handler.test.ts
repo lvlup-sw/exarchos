@@ -76,8 +76,8 @@ describe('handleRunbook', () => {
 
   it('HandleRunbook_DetailMode_ResolvesGateFromRegistry', async () => {
     // task-completion's check_test_adequacy has gate: { blocking: true,
-    // dimension: 'D1' } — the load-bearing kill-probe gate. check_tdd_compliance
-    // is now ADVISORY (verification-ladder slice 1 demotion: blocking:false).
+    // dimension: 'D1' } — the load-bearing kill-probe gate, and the sole per-task
+    // verification gate after #1587 retired check_tdd_compliance.
     const result = await handleRunbook({ id: 'task-completion' });
     expect(result.success).toBe(true);
     const data = result.data as {
@@ -91,12 +91,9 @@ describe('handleRunbook', () => {
     expect(adequacyStep!.gate!.blocking).toBe(true);
     expect(adequacyStep!.gate!.dimension).toBe('D1');
 
-    // The demoted tdd-compliance gate resolves as advisory (blocking:false).
+    // The retired test-FIRST ordering gate is gone from every chain (#1587).
     const tddStep = data.steps.find(s => s.action === 'check_tdd_compliance');
-    expect(tddStep).toBeDefined();
-    expect(tddStep!.gate).not.toBeNull();
-    expect(tddStep!.gate!.blocking).toBe(false);
-    expect(tddStep!.gate!.dimension).toBe('D1');
+    expect(tddStep).toBeUndefined();
   });
 
   it('HandleRunbook_DetailMode_SkipsSchemaForNativeTools', async () => {

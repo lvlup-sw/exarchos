@@ -20,16 +20,18 @@ Agent runs `exarchos_orchestrate({ action: "generate_traceability" })` to pre-po
 
 ## Step 2: Decompose into Tasks
 
-| Task | Test Name | Dependencies | Parallel |
-|------|-----------|-------------|----------|
-| 1 | `SnapshotEvent_Serialize_RoundTrips` | None | Yes |
-| 2 | `SnapshotWriter_ThresholdReached_WritesSnapshot` | Task 1 | Yes |
-| 3 | `SnapshotWriter_BelowThreshold_NoSnapshot` | Task 1 | Yes |
-| 4 | `StreamReader_SnapshotExists_StartsFromSnapshot` | Task 1 | No (after 1) |
-| 5 | `StreamReader_NoSnapshot_ReadsFullStream` | Task 4 | No (after 4) |
-| 6 | `ViewTool_WithCompaction_ReturnsCorrectState` | Tasks 2, 4 | No |
+Each task carries a **Risk Tier** that sets its verification depth (the ladder in `@skills/_shared/references/verification.md`). The plan mixes tiers — medium kill-probe tasks and a high-tier integration task — rather than imposing red-green-refactor uniformly. Tests are judged test-after by adequacy, not by commit order.
 
-**Parallel groups:** Tasks 1-3 run simultaneously. Task 4 waits for 1. Task 5 waits for 4. Task 6 is the integration task, last.
+| Task | Risk Tier | Test Name / Verification | Dependencies | Parallel |
+|------|-----------|--------------------------|-------------|----------|
+| 1 | medium | `SnapshotEvent_Serialize_RoundTrips` + `check_test_adequacy` kill-probe | None | Yes |
+| 2 | medium | `SnapshotWriter_ThresholdReached_WritesSnapshot` | Task 1 | Yes |
+| 3 | medium | `SnapshotWriter_BelowThreshold_NoSnapshot` | Task 1 | Yes |
+| 4 | medium | `StreamReader_SnapshotExists_StartsFromSnapshot` | Task 1 | No (after 1) |
+| 5 | medium | `StreamReader_NoSnapshot_ReadsFullStream` | Task 4 | No (after 4) |
+| 6 | high | `ViewTool_WithCompaction_ReturnsCorrectState` (boundaryTouching — adds the integration suite across the seam) | Tasks 2, 4 | No |
+
+**Parallel groups:** Tasks 1-3 run simultaneously. Task 4 waits for 1, then 5 waits for 4. The high-tier integration task, Task 6, runs last.
 
 ## Step 3: Plan Verification
 
@@ -47,13 +49,13 @@ exarchos_orchestrate({
 
 ## Gap Detected: Re-Planning
 
-The design specifies a configurable threshold (default 500 events). No task covers configuration parsing.
+The design specifies a configurable threshold (default 500 events). The default is a single constant read from the resolved config plus a doc note — no parsing logic — so it is a **low-tier, static-only** task: typecheck + lint suffice, no test ceremony.
 
-**Agent adds Task 7:**
+**Agent adds Task 7 (low tier):**
 
-| Task | Test Name | Dependencies | Parallel |
-|------|-----------|-------------|----------|
-| 7 | `CompactionConfig_CustomThreshold_OverridesDefault` | None | Yes |
+| Task | Risk Tier | Test Name / Verification | Dependencies | Parallel |
+|------|-----------|--------------------------|-------------|----------|
+| 7 | low | — (static only: add the `compactionThreshold` default constant + document it) | None | Yes |
 
 Agent re-runs verification:
 

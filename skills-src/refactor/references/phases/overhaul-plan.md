@@ -187,22 +187,18 @@ Save to: `docs/plans/YYYY-MM-DD-<refactor-name>.md`
 
 ### Task 001: [Title]
 
-**Phase:** [RED | GREEN | REFACTOR]
+**Risk Tier:** [low | medium | high]   ← REQUIRED — drives the verification depth (see the ladder in `@skills/_shared/references/verification.md`)
+**Boundary Touching:** [true | false — optional; omit to let `classifyTask` derive it]
 
-**TDD Steps:**
-1. [RED] Write test: `TestName_Scenario_ExpectedOutcome`
-   - File: `path/to/test.ts`
-   - Expected failure: [Reason]
-   - Run: `npm run test:run` - MUST FAIL
+**Verification (scales with Risk Tier — tests are judged by outcome, test-after; the failing-test-first ordering ceremony is not required, #1587):**
+- **low** — static analysis (typecheck + lint). Pure renames/moves with no behavior change.
+- **medium** — characterization tests capturing current behavior + scoped tests for the change, under the `check_test_adequacy` kill-probe. Test-after is fine.
+- **high** — the medium set + the integration suite across the seam. Granular per-behavior red-green is available as an explicit opt-in, never a requirement.
 
-2. [GREEN] Implement minimum code
-   - File: `path/to/implementation.ts`
-   - Changes: [Description]
-   - Run: `npm run test:run` - MUST PASS
-
-3. [REFACTOR] Clean up (if needed)
-   - Apply: [Improvement]
-   - Run: `npm run test:run` - MUST STAY GREEN
+**Steps:**
+1. When modifying existing behavior, capture it as characterization tests first — the refactor safety net against unintended regressions.
+2. Apply the incremental change, keeping the codebase in a working state.
+3. Add the tests this task's tier requires (above), named `Method_Scenario_Outcome`, and refactor while the tests stay green.
 
 **Working State Check:**
 - [ ] Code compiles

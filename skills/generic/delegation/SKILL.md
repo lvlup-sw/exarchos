@@ -125,6 +125,12 @@ For each task:
 4. Include PBT section from `references/pbt-patterns.md` when `propertyTests: true`
 5. Include testing patterns from `references/testing-patterns.md`
 
+### Tier-selected verification note — dispatch the rendered prompt (#1586)
+
+`prepare_delegation` resolves each task's risk tier and returns a **per-task rendered prompt** on its classification: `taskClassifications[i].implementerPrompt`. This is the implementer system prompt with the verification note already selected for that task's `riskTier`/`boundaryTouching` — a low-tier task carries a terse static-analysis steer, a high-tier task carries the test-after + integration-suite rung.
+
+**Dispatch THAT prompt — not the static agent default.** The shipped `agents/implementer.md` bakes a fixed medium-tier note (a self-contained fallback for runtimes that pre-bind a named agent). Use it verbatim only when no classification exists (e.g. a fixer dispatch). Otherwise, the orchestrator's dispatch payload must be built from `taskClassifications[i].implementerPrompt`, then fill its `taskDescription` / `requirements` / `filePaths` placeholders (the same template slots in `references/implementer-prompt.md`) with the task-specific context above. Dispatching the static default instead re-imposes medium-RGR ceremony on every task regardless of tier — the exact gap this seam closes. The tier is pure data from the classification stamp; no workflow-type branching is involved.
+
 ### Decision Runbooks
 
 For dispatch strategy decisions, query the decision runbook:
@@ -154,13 +160,13 @@ After each subagent reports completion:
 > `exarchos_orchestrate({ action: "runbook", id: "task-completion" })`
 > Execute the returned steps in order. Stop on gate failure.
 > If the runbook action is unavailable, use `describe` to retrieve gate schemas and run manually:
-> `exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis", "task_complete"] })`
+> `exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })`
 
 1. **Extract provenance from subagent report** — parse the subagent's completion output and extract structured provenance fields (`implements`, `tests`, `files`). These fields are reported by the subagent following the Provenance Reporting section of the implementer prompt.
 
 2. **Verify worktree state** — confirm each worktree has clean `git status` and passing tests
 
-3. **Run blocking gates** — the `task-completion` runbook (referenced above) defines the exact gate sequence (TDD compliance, static analysis, then task_complete). On any gate failure, keep the task in-progress and report findings. All gate handlers auto-emit `gate.executed` events, so manual `exarchos_event` calls are not needed.
+3. **Run blocking gates** — the `task-completion` runbook (referenced above) defines the exact gate sequence (test adequacy, static analysis, then task_complete). On any gate failure, keep the task in-progress and report findings. All gate handlers auto-emit `gate.executed` events, so manual `exarchos_event` calls are not needed.
 
 5. **Pass provenance in task completion** — when marking a task complete, pass the extracted provenance fields in the `result` parameter so they flow into the `task.completed` event:
 
@@ -216,7 +222,7 @@ Execute each task sequentially in the current session, one at a time, against th
 
 After fix completes, run the `task-fix` runbook gate chain:
 `exarchos_orchestrate({ action: "runbook", id: "task-fix" })`
-If runbook unavailable, use `describe` to retrieve gate schemas: `exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis", "task_complete"] })`
+If runbook unavailable, use `describe` to retrieve gate schemas: `exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })`
 
 ---
 
@@ -295,7 +301,7 @@ This detour is invisible to the delegation skill itself — the all-tasks-comple
 Use `exarchos_workflow({ action: "describe", actions: ["update", "init"] })` for
 parameter schemas and `exarchos_workflow({ action: "describe", playbook: "feature" })`
 for phase transitions, guards, and playbook guidance. Use
-`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "task_complete"] })`
+`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "task_complete"] })`
 for orchestrate action schemas.
 
 ---

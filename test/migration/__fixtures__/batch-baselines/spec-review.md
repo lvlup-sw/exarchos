@@ -1,6 +1,6 @@
 ---
 name: spec-review
-description: "Stage 1 spec compliance review. Triggers: /review stage 1. Verifies implementation matches design specification — functional completeness, TDD compliance, and test coverage. Do NOT use for code quality checks — use quality-review instead. Do NOT use for debugging."
+description: "Stage 1 spec compliance review. Triggers: /review stage 1. Verifies implementation matches design specification — functional completeness, test adequacy, and test coverage. Do NOT use for code quality checks — use quality-review instead. Do NOT use for debugging."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -95,7 +95,7 @@ This enables catching:
 
 **Spec Review focuses on:**
 - Functional completeness
-- TDD compliance
+- Test adequacy (outcome-based, tier-scaled — not test-first ordering)
 - Specification alignment
 - Test coverage
 
@@ -118,10 +118,11 @@ npm run typecheck
 
 ```typescript
 exarchos_orchestrate({
-  action: "check_tdd_compliance",
+  action: "check_test_adequacy",
   featureId: "<featureId>",
   taskId: "<taskId>",
-  branch: "<branch>"
+  branch: "<branch>",
+  riskTier: "<low|medium|high>"
 })
 ```
 
@@ -236,7 +237,7 @@ For the full transition table, consult `@skills/workflow-state/references/phase-
 Use `exarchos_workflow({ action: "describe", actions: ["update", "init"] })` for
 parameter schemas and `exarchos_workflow({ action: "describe", playbook: "feature" })`
 for phase transitions, guards, and playbook guidance. Use
-`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis"] })`
+`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis"] })`
 for orchestrate action schemas.
 
 ## Transition
@@ -284,11 +285,11 @@ This is NOT a human checkpoint - workflow continues autonomously.
 |-------|-------|------------|
 | Test file not found | Task didn't create expected test | Check plan for test file paths, verify worktree contents |
 | Coverage below threshold | Implementation incomplete or tests superficial | Add missing test cases, verify assertions are meaningful |
-| TDD compliance check fails | Implementation committed before tests | Check git log order — test commits must precede or accompany implementation |
+| Test-adequacy kill-probe fails | A new/changed test still passes against reverted source (vacuous) | Strengthen the test so reverting the implementation makes it fail |
 | Diff too large for context | Many tasks with large changes | Generate per-worktree diffs with `exarchos_orchestrate({ action: "review_diff", worktreePath: "<task-worktree>" })` to review incrementally |
 
 ## Performance Notes
 
 - Use the integrated diff (`exarchos_orchestrate({ action: "review_diff" })`) instead of reading full files — reduces context by 80-90%
 - Review per-task when the combined diff exceeds 2,000 lines
-- Run TDD compliance check (`exarchos_orchestrate({ action: "check_tdd_compliance" })`) in parallel with spec tracing
+- Run the test-adequacy kill-probe (`exarchos_orchestrate({ action: "check_test_adequacy" })`) in parallel with spec tracing

@@ -81,21 +81,27 @@ const RAW_SDLC_ENTRIES: ReadonlyArray<Record<string, unknown>> = [
     'integrity-class': 'sdlc',
     'applies-to': ['implementation-tasks', 'test-suites'],
     summary:
-      'Test-before-implementation for workflow types that declare it (feature, ' +
-      'oneshot); discovery is exempt; debug and refactor have their own gates.',
+      'Outcome-based test adequacy for workflow types that declare it (feature, ' +
+      'oneshot): new/changed behavior is covered by tests that can actually fail ' +
+      '(the check_test_adequacy kill probe), judged test-AFTER — NOT commit-order ' +
+      'test-first (#1587); discovery is exempt; debug and refactor have their own gates.',
     references: [GUIDE],
     'phase-affinity': ['review'],
     'workflow-affinity': ['feature', 'oneshot'],
     severity: { default: 'blocking', 'by-workflow': { oneshot: 'advisory' } },
     enforcement: {
       mode: 'audit',
-      // Points at the existing gate rather than re-expressing TDD as catalog
-      // enforcement — avoids double-gating (research OQ#3 / design DR-1).
+      // Points at the existing adequacy gate rather than re-expressing test
+      // adequacy as catalog enforcement — avoids double-gating (research OQ#3 /
+      // design DR-1). #1587 retired the test-FIRST ordering gate; the keeper is
+      // the outcome-based kill probe.
       'audit-prompt':
-        'For a workflow that declares TDD (feature, oneshot), was each unit of ' +
-        'production code preceded by a failing test? This mirrors the ' +
-        'check_tdd_compliance gate; defer to that gate where it runs and flag ' +
-        'only implementation that landed with no prior failing test.',
+        'For a workflow that declares verification (feature, oneshot), is each ' +
+        'unit of new/changed production code covered by a test that can actually ' +
+        'fail (not vacuous)? This mirrors the check_test_adequacy kill-probe gate; ' +
+        'defer to that gate where it runs and flag only production code that landed ' +
+        'with no adequacy-verified test. Test ORDERING (first vs after) is NOT a ' +
+        'finding (#1587).',
     },
   },
   {

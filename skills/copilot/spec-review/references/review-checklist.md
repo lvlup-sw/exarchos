@@ -28,12 +28,13 @@ npm run typecheck
 ```
 
 ```typescript
-// TDD compliance (test-first ordering, naming conventions, coverage)
+// Test adequacy (outcome-based kill-probe: revert source, assert a test goes red)
 exarchos_orchestrate({
-  action: "check_tdd_compliance",
+  action: "check_test_adequacy",
   featureId: "<featureId>",
   taskId: "<taskId>",
-  branch: "<branch>"
+  branch: "<branch>",
+  riskTier: "<low|medium|high>"
 })
 ```
 
@@ -67,7 +68,7 @@ After scripts pass, verify:
 
 ## Completion Criteria
 
-- [ ] `check_tdd_compliance` orchestrate action passes
+- [ ] `check_test_adequacy` orchestrate action passes (medium/high tiers)
 - [ ] All tests pass
 - [ ] Coverage meets thresholds
 - [ ] All spec requirements verified

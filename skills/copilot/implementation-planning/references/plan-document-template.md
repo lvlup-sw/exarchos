@@ -35,7 +35,8 @@ Link: `docs/designs/YYYY-MM-DD-<feature>.md`
 [Open questions or design sections not addressed, with rationale]
 
 ## Completion Checklist
-- [ ] All tests written before implementation
+- [ ] Every task carries a `riskTier` stamp
+- [ ] Medium/high-tier tasks carry adequacy-judged tests (test-after); low-tier tasks lean on static analysis
 - [ ] All tests pass
 - [ ] Code coverage meets standards
 - [ ] Ready for review

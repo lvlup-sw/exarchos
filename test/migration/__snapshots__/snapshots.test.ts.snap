@@ -995,6 +995,12 @@ For each task:
 4. Include PBT section from \`references/pbt-patterns.md\` when \`propertyTests: true\`
 5. Include testing patterns from \`references/testing-patterns.md\`
 
+### Tier-selected verification note — dispatch the rendered prompt (#1586)
+
+\`prepare_delegation\` resolves each task's risk tier and returns a **per-task rendered prompt** on its classification: \`taskClassifications[i].implementerPrompt\`. This is the implementer system prompt with the verification note already selected for that task's \`riskTier\`/\`boundaryTouching\` — a low-tier task carries a terse static-analysis steer, a high-tier task carries the test-after + integration-suite rung.
+
+**Dispatch THAT prompt — not the static agent default.** The shipped \`agents/implementer.md\` bakes a fixed medium-tier note (a self-contained fallback for runtimes that pre-bind a named agent). Use it verbatim only when no classification exists (e.g. a fixer dispatch). Otherwise, the orchestrator's dispatch payload must be built from \`taskClassifications[i].implementerPrompt\`, then fill its \`taskDescription\` / \`requirements\` / \`filePaths\` placeholders (the same template slots in \`references/implementer-prompt.md\`) with the task-specific context above. Dispatching the static default instead re-imposes medium-RGR ceremony on every task regardless of tier — the exact gap this seam closes. The tier is pure data from the classification stamp; no workflow-type branching is involved.
+
 ### Decision Runbooks
 
 For dispatch strategy decisions, query the decision runbook:
@@ -1063,13 +1069,13 @@ After each subagent reports completion:
 > \`exarchos_orchestrate({ action: "runbook", id: "task-completion" })\`
 > Execute the returned steps in order. Stop on gate failure.
 > If the runbook action is unavailable, use \`describe\` to retrieve gate schemas and run manually:
-> \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis", "task_complete"] })\`
+> \`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })\`
 
 1. **Extract provenance from subagent report** — parse the subagent's completion output and extract structured provenance fields (\`implements\`, \`tests\`, \`files\`). These fields are reported by the subagent following the Provenance Reporting section of the implementer prompt.
 
 2. **Verify worktree state** — confirm each worktree has clean \`git status\` and passing tests
 
-3. **Run blocking gates** — the \`task-completion\` runbook (referenced above) defines the exact gate sequence (TDD compliance, static analysis, then task_complete). On any gate failure, keep the task in-progress and report findings. All gate handlers auto-emit \`gate.executed\` events, so manual \`exarchos_event\` calls are not needed.
+3. **Run blocking gates** — the \`task-completion\` runbook (referenced above) defines the exact gate sequence (test adequacy, static analysis, then task_complete). On any gate failure, keep the task in-progress and report findings. All gate handlers auto-emit \`gate.executed\` events, so manual \`exarchos_event\` calls are not needed.
 
 5. **Pass provenance in task completion** — when marking a task complete, pass the extracted provenance fields in the \`result\` parameter so they flow into the \`task.completed\` event:
 
@@ -1140,7 +1146,7 @@ Task({
 
 After fix completes, run the \`task-fix\` runbook gate chain:
 \`exarchos_orchestrate({ action: "runbook", id: "task-fix" })\`
-If runbook unavailable, use \`describe\` to retrieve gate schemas: \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis", "task_complete"] })\`
+If runbook unavailable, use \`describe\` to retrieve gate schemas: \`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })\`
 
 ---
 
@@ -1219,7 +1225,7 @@ This detour is invisible to the delegation skill itself — the all-tasks-comple
 Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
-\`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "task_complete"] })\`
+\`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "task_complete"] })\`
 for orchestrate action schemas.
 
 ---
@@ -1400,8 +1406,8 @@ metadata:
 
 # Discovery Workflow Skill
 
-A workflow type for tasks whose deliverable is a **document, not code**. Explicitly
-exempt from the Iron Law (no failing test requirement) because there is nothing to test.
+A workflow type for tasks whose deliverable is a **document, not code**. It carries
+no verification gates (nothing to test), so the verification ladder does not apply.
 
 ## When to Use
 
@@ -1938,7 +1944,7 @@ For worktree cleanup:
 exports[`task 025 — per-runtime snapshot baselines > runtime: claude > Snapshots_AllSkillsAllRuntimes_MatchBaseline: skills/claude/implementation-planning/SKILL.md > skills/claude/implementation-planning/SKILL.md 1`] = `
 "---
 name: implementation-planning
-description: "Transform design documents into implementation plans with parallelizable tasks. Triggers: 'plan implementation', 'create tasks from design', or /plan. Applies the verification ladder: verification depth matches each task's blast radius — static analysis for low-risk tasks, scoped tests plus a kill-probe for medium, full red-green-refactor for high-risk surfaces. Requires an existing design document — use /ideate first if none exists. Do NOT use for brainstorming, debugging, or code review."
+description: "Transform design documents into implementation plans with parallelizable tasks. Triggers: 'plan implementation', 'create tasks from design', or /plan. Applies the verification ladder: verification depth matches each task's blast radius — static analysis for low-risk tasks, scoped tests plus a kill-probe for medium, the integration suite on top for high-risk surfaces (judged test-after, not test-first ordering). Requires an existing design document — use /ideate first if none exists. Do NOT use for brainstorming, debugging, or code review."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -1982,34 +1988,35 @@ After 3 failed revisions:
 
 ## The Verification Ladder
 
-Verification depth matches blast radius — red-green-refactor is the **HIGH-tier path**, not a universal law. Each task gets the cheapest verification that still captures its risk:
+Verification depth matches blast radius. The deeper rungs add tests, an adequacy kill-probe, and integration coverage — judged by **outcome, test-after**, not by a universal failing-test-first law (#1587). Each task gets the cheapest verification that still captures its risk:
 
 | Risk tier | What it adds | Why |
 |-----------|--------------|-----|
-| **low** | Static analysis (typecheck + lint) suffices | A docs/config/rename-only edit has near-zero blast radius; test-first ceremony is pure overhead. |
-| **medium** | Scoped tests + the \`check_test_adequacy\` kill-probe | The kill-probe recaptures test-first's unique guarantee — that a test can actually fail — at lower cost than mandating RED-first on every commit. |
-| **high** | Full red-green-refactor + the integration suite | Schema/type/API/shared-contract surfaces span the codebase; here the failing-test-first discipline earns its cost. |
+| **low** | Static analysis (typecheck + lint) suffices | A docs/config/rename-only edit has near-zero blast radius; a test ceremony is pure overhead. |
+| **medium** | Scoped tests + the \`check_test_adequacy\` kill-probe | The kill-probe recaptures test-first's one real guarantee — that a test can actually fail — at lower cost, judged test-after instead of mandating a failing test first on every commit. |
+| **high** | The integration suite (and mutation-adequacy at the boundary) on top of medium | Schema/type/API/shared-contract surfaces span the codebase; here adequacy-judged coverage plus real-collaborator integration across the seam earns its cost. |
 
 The planner stamps each task's \`riskTier\` (and \`boundaryTouching\`); the classifier derives it from blast radius when the planner does not override. The dispatched implementer prompt and the gate sequence both scale off that stamp — so the verification effort is data-driven, not a blanket rule.
 
-For a **high-tier** task, the discipline is:
-1. Start with writing a failing test
-2. Specify the expected failure reason
-3. Only then implement minimum code to pass
+For a **high-tier** task, the discipline is **outcome-based** (write the behavior and its tests in whatever order is natural — test-after is fine):
+1. Cover the new/changed behavior with scoped tests that pin its contract
+2. Let the \`check_test_adequacy\` kill-probe prove the tests can actually fail (it reverts your source and asserts at least one test goes red)
+3. Add real-collaborator integration coverage across the seam
 
-**Verify high-tier TDD compliance** in git history after implementation:
+**Verify high-tier test adequacy** after implementation — the keeper gate (the test-FIRST ordering gate \`check_tdd_compliance\` was retired in #1587):
 
 \`\`\`typescript
 exarchos_orchestrate({
-  action: "check_tdd_compliance",
+  action: "check_test_adequacy",
   featureId: "<featureId>",
   taskId: "<taskId>",
-  branch: "feature/<name>"
+  branch: "feature/<name>",
+  riskTier: "high"
 })
 \`\`\`
 
-- **\`passed: true\`** — All commits have test files before or alongside implementation
-- **\`passed: false\`** — Violations found; commits have implementation without corresponding tests
+- **\`passed: true\`** — Reverting the task's source makes at least one new/changed test fail: the tests are not vacuous
+- **\`passed: false\`** — A test still passes against the reverted source; strengthen it
 
 ## Planning Process
 
@@ -2138,12 +2145,13 @@ For reference, consult \`references/spec-tracing-guide.md\` for the underlying m
 
 | Don't | Do Instead |
 |-------|------------|
-| Write implementation first | Write failing test first |
+| Ship medium/high-tier behavior with no tests | Cover it with adequacy-judged tests (test-after is fine) |
+| Mandate red-green-refactor on every task | Scale verification to the task's \`riskTier\`; RGR is a high-tier opt-in |
 | Create large tasks | Break into 2-5 min chunks |
 | Skip dependency analysis | Identify parallel opportunities |
 | Vague test descriptions | Specific: Method_Scenario_Outcome |
-| Assume tests pass | Verify each test fails first |
-| Add "nice to have" code | Only what the test requires |
+| Assume your tests can fail | Let \`check_test_adequacy\` prove they can (revert source, re-run, expect red) |
+| Add "nice to have" code | Only what the behavior requires |
 
 ## Rationalization Debunking
 
@@ -2186,7 +2194,7 @@ for orchestrate action schemas.
 - [ ] Spec traceability table created (\`exarchos_orchestrate({ action: "generate_traceability" })\`)
 - [ ] Scope declared (full or partial with rationale)
 - [ ] Tasks decomposed to 2-5 min granularity
-- [ ] Each task carries a \`riskTier\` (and \`boundaryTouching\`) stamp; high-tier tasks start with a failing test
+- [ ] Each task carries a \`riskTier\` (and \`boundaryTouching\`) stamp; medium/high-tier tasks carry adequacy-judged tests (test-after), high-tier adds the integration suite
 - [ ] Dependencies mapped
 - [ ] Parallel groups identified
 - [ ] Plan verification passed — \`exarchos_orchestrate({ action: "check_plan_coverage" })\` returns passed: true
@@ -2647,8 +2655,8 @@ Reach for oneshot when **all** of the following are true:
 
 - The change is bounded — typically a single file, or a tightly-coupled
   cluster of 2-3 files
-- No subagent dispatch is needed — the work fits comfortably in one TDD
-  loop in a single session
+- No subagent dispatch is needed — the work fits comfortably in a single
+  in-session implement-and-verify loop
 - No design document is required — the goal is obvious from the task
   description, and a one-page plan is enough scaffolding
 - No two-stage review is required — either the change is trivial enough
@@ -2718,7 +2726,7 @@ pure functions of \`state.oneshot.synthesisPolicy\` and the
 | Phase | What happens | Exit criteria |
 |---|---|---|
 | \`plan\` | Lightweight one-page plan: goal, approach, files to touch, tests to add. No design doc. No subagent dispatch. | \`artifacts.plan\` set → transition to \`implementing\` |
-| \`implementing\` | In-session loop, verification scaled to risk. Defaults to the low tier (static analysis suffices); higher-blast changes get the failing-test-first red-green-refactor discipline. Commit as you go. | Tests pass + typecheck clean + finalize_oneshot called |
+| \`implementing\` | In-session loop, verification scaled to risk. Defaults to the low tier (static analysis suffices); higher-blast changes add tests covering the changed behavior (test-after) under the \`check_test_adequacy\` kill-probe. Commit as you go. | Tests pass + typecheck clean + finalize_oneshot called |
 | \`synthesize\` | Reached **only** when \`synthesisOptedIn\` is true. Hands off to the existing synthesis flow — see \`@skills/synthesis/SKILL.md\`. PR created via \`exarchos_orchestrate({ action: "create_pr" })\`, auto-merge enabled, CI gates apply. | PR merged → \`completed\` |
 | \`completed\` | Terminal. For direct-commit path, commits are already on the branch — there's nothing more to do. For synthesize path, the PR merge event terminates the workflow. | — |
 
@@ -2787,26 +2795,30 @@ Run an in-session loop, with verification scaled to the change's risk (the
 ladder in \`@skills/_shared/references/verification.md\`). A oneshot defaults to
 the **low tier** — static analysis suffices for a trivial fix. When the change
 touches a higher-blast surface (schema/type/API/shared contract, or it crosses
-an I/O boundary), it is a higher-tier task and gets the failing-test-first
-discipline.
+an I/O boundary), it is a higher-tier task: cover the new/changed behavior with
+tests (test-after is fine) and expect the \`check_test_adequacy\` kill-probe to
+reject tests that cannot actually fail.
 
 For each higher-tier behavior in the plan:
 
-1. **[RED]** Write a failing test. Run the test. Confirm it fails for
-   the right reason.
-2. **[GREEN]** Write the minimum production code to make the test pass.
-   Run the test. Confirm it passes.
-3. **[REFACTOR]** Clean up while keeping the test green.
+1. Implement the behavior.
+2. Add the tests its tier requires (scoped tests for the change; an integration
+   test across the seam at high tier), named \`Method_Scenario_Outcome\`.
+3. Refactor while the tests stay green.
 
-Commit each red-green-refactor cycle as a single commit. Do not batch
+Granular per-behavior red-green is available as an explicit opt-in, never a
+requirement.
+
+Commit each logical change as a single atomic commit. Do not batch
 multiple unrelated changes into one commit — keeping commits atomic
 matters even more in oneshot, where there's no separate review phase
 to catch bundled changes.
 
 There is **no subagent dispatch** in oneshot. The main agent does the
 work directly. There is **no separate review phase**. Quality is
-maintained by the TDD loop and (if the user opts in) the synthesize PR
-review.
+maintained by the tier-scaled verification (static analysis plus, above the
+low tier, the \`check_test_adequacy\` kill-probe) and (if the user opts in)
+the synthesize PR review.
 
 #### Mid-workflow: opting in to a PR
 
@@ -2931,10 +2943,9 @@ Agent:
          "oneshot.planSummary": "..."
        }
      }
-  4. [RED] writes test that greps README for 'recieve' and expects 0 matches
-        — fails (1 match exists)
-  5. [GREEN] edits README, fixes typo
-        — test passes
+  4. edits README, fixes typo (low tier — a docs one-liner; static analysis
+        suffices, no test-first ceremony)
+  5. verifies: greps README for 'recieve' → 0 matches
   6. git commit -m "docs: fix 'recieve' typo in README"
   7. exarchos_orchestrate finalize_oneshot { featureId: "fix-readme-typo" }
      → guard sees policy='on-request' + no synthesize.requested event
@@ -2953,9 +2964,9 @@ Agent:
      → 'plan' phase, default 'on-request'
   2. plans (goal: validate input, files: [parser.ts, parser.test.ts])
   3. transitions to 'implementing'
-  4. [RED] writes test for null-input case
-  5. [GREEN] adds null check
-  6. [REFACTOR] extracts validateInput helper
+  4. adds the null-input validation to parseConfig
+  5. adds a test for the null-input case (test-after)
+  6. refactors: extracts validateInput helper (tests stay green)
   7. commits
 
 User: "Actually, this is touching the parser — I want a review on it before
@@ -2984,7 +2995,7 @@ Agent:
        workflowType: "oneshot",
        synthesisPolicy: "always"
      }
-  2-7. plan + TDD + commits, identical to Example A
+  2-7. plan + implement + verify + commits, identical to Example A
   8. exarchos_orchestrate finalize_oneshot { featureId }
      → guard sees policy='always' (short-circuits — no event check needed)
      → resolves to 'synthesize'
@@ -3059,9 +3070,9 @@ risk signals say otherwise*. Specifically:
 - A low-risk change (docs/config/rename-only, near-zero blast radius) needs only
   static analysis to pass; add a focused test only if behavior is non-obvious.
 - If the change touches a higher-blast surface (schema/type/API/shared contract,
-  or it crosses an I/O boundary), it is **not** a low-tier task: write the failing
-  test first and follow red-green-refactor, and expect the \`check_test_adequacy\`
-  kill-probe to flag tests that cannot actually fail.
+  or it crosses an I/O boundary), it is **not** a low-tier task: cover the
+  new/changed behavior with tests (test-after is fine), and expect the
+  \`check_test_adequacy\` kill-probe to flag tests that cannot actually fail.
 - Commits stay atomic — one logical change per commit, regardless of tier.
 
 The temptation in a oneshot is to assume *everything* is "just one line" and skip
@@ -3074,8 +3085,8 @@ full feature ceremony on a trivial edit.
 | Don't | Do Instead |
 |-------|------------|
 | Skip the plan phase ("it's obvious") | Write the four-line plan anyway — it's the artifact future-you reads |
-| Apply full RED → GREEN → REFACTOR to a trivial one-liner | Match verification to risk: low-tier leans on static analysis; reserve test-first for higher-blast changes |
-| Skip verification entirely because "it's a oneshot" | Even low-tier must pass static analysis; higher-blast changes still need the failing test first |
+| Apply full red-green-refactor ceremony to a trivial one-liner | Match verification to risk: low-tier leans on static analysis; higher-blast changes add tests covering the changed behavior |
+| Skip verification entirely because "it's a oneshot" | Even low-tier must pass static analysis; higher-blast changes still need tests covering the changed behavior |
 | Use oneshot for multi-file refactors | Use \`/exarchos:ideate\` and the full feature workflow |
 | Try to grow a oneshot into a feature workflow mid-stream | Cancel and restart with \`/exarchos:ideate\` |
 | Call \`request_synthesize\` without listening for the user's intent | Wait for the user to ask for a PR, then call it |
@@ -3087,7 +3098,7 @@ full feature ceremony on a trivial edit.
 - [ ] \`exarchos_workflow init\` called with \`workflowType: "oneshot"\`
 - [ ] One-page plan persisted to \`artifacts.plan\`
 - [ ] Phase transitioned to \`implementing\`
-- [ ] All planned behaviors implemented via TDD with atomic commits
+- [ ] All planned behaviors implemented and verified to their risk tier, with atomic commits
 - [ ] \`finalize_oneshot\` called and resolved to either \`completed\` or \`synthesize\`
 - [ ] If direct-commit path: commits pushed
 - [ ] If synthesize path: PR created via \`@skills/synthesis/SKILL.md\` and merged
@@ -3496,7 +3507,7 @@ This enables catching:
 
 **Does NOT re-check:**
 - Functional completeness (spec review)
-- TDD compliance (spec review)
+- Test adequacy (spec review)
 
 ## Review Process
 
@@ -3609,10 +3620,11 @@ After the quality-review fix loop completes and quality passes, re-verify that t
    \`\`\`
    \`\`\`typescript
    exarchos_orchestrate({
-     action: "check_tdd_compliance",
+     action: "check_test_adequacy",
      featureId: "<featureId>",
      taskId: "<taskId>",
-     branch: "<branch>"
+     branch: "<branch>",
+     riskTier: "<low|medium|high>"
    })
    \`\`\`
 2. If all pass: proceed to APPROVED transition
@@ -4292,7 +4304,7 @@ After approval is granted and PRs merge, run \`/exarchos:cleanup\` to resolve th
 exports[`task 025 — per-runtime snapshot baselines > runtime: claude > Snapshots_AllSkillsAllRuntimes_MatchBaseline: skills/claude/spec-review/SKILL.md > skills/claude/spec-review/SKILL.md 1`] = `
 "---
 name: spec-review
-description: "Stage 1 spec compliance review. Triggers: /review stage 1. Verifies implementation matches design specification — functional completeness, TDD compliance, and test coverage. Do NOT use for code quality checks — use quality-review instead. Do NOT use for debugging."
+description: "Stage 1 spec compliance review. Triggers: /review stage 1. Verifies implementation matches design specification — functional completeness, test adequacy, and test coverage. Do NOT use for code quality checks — use quality-review instead. Do NOT use for debugging."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -4387,7 +4399,7 @@ This enables catching:
 
 **Spec Review focuses on:**
 - Functional completeness
-- TDD compliance
+- Test adequacy (outcome-based, tier-scaled — not test-first ordering)
 - Specification alignment
 - Test coverage
 
@@ -4410,10 +4422,11 @@ npm run typecheck
 
 \`\`\`typescript
 exarchos_orchestrate({
-  action: "check_tdd_compliance",
+  action: "check_test_adequacy",
   featureId: "<featureId>",
   taskId: "<taskId>",
-  branch: "<branch>"
+  branch: "<branch>",
+  riskTier: "<low|medium|high>"
 })
 \`\`\`
 
@@ -4528,7 +4541,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
-\`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis"] })\`
+\`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis"] })\`
 for orchestrate action schemas.
 
 ## Transition
@@ -4576,14 +4589,14 @@ This is NOT a human checkpoint - workflow continues autonomously.
 |-------|-------|------------|
 | Test file not found | Task didn't create expected test | Check plan for test file paths, verify worktree contents |
 | Coverage below threshold | Implementation incomplete or tests superficial | Add missing test cases, verify assertions are meaningful |
-| TDD compliance check fails | Implementation committed before tests | Check git log order — test commits must precede or accompany implementation |
+| Test-adequacy kill-probe fails | A new/changed test still passes against reverted source (vacuous) | Strengthen the test so reverting the implementation makes it fail |
 | Diff too large for context | Many tasks with large changes | Generate per-worktree diffs with \`exarchos_orchestrate({ action: "review_diff", worktreePath: "<task-worktree>" })\` to review incrementally |
 
 ## Performance Notes
 
 - Use the integrated diff (\`exarchos_orchestrate({ action: "review_diff" })\`) instead of reading full files — reduces context by 80-90%
 - Review per-task when the combined diff exceeds 2,000 lines
-- Run TDD compliance check (\`exarchos_orchestrate({ action: "check_tdd_compliance" })\`) in parallel with spec tracing
+- Run the test-adequacy kill-probe (\`exarchos_orchestrate({ action: "check_test_adequacy" })\`) in parallel with spec tracing
 "
 `;
 
@@ -6146,6 +6159,12 @@ For each task:
 4. Include PBT section from \`references/pbt-patterns.md\` when \`propertyTests: true\`
 5. Include testing patterns from \`references/testing-patterns.md\`
 
+### Tier-selected verification note — dispatch the rendered prompt (#1586)
+
+\`prepare_delegation\` resolves each task's risk tier and returns a **per-task rendered prompt** on its classification: \`taskClassifications[i].implementerPrompt\`. This is the implementer system prompt with the verification note already selected for that task's \`riskTier\`/\`boundaryTouching\` — a low-tier task carries a terse static-analysis steer, a high-tier task carries the test-after + integration-suite rung.
+
+**Dispatch THAT prompt — not the static agent default.** The shipped \`agents/implementer.md\` bakes a fixed medium-tier note (a self-contained fallback for runtimes that pre-bind a named agent). Use it verbatim only when no classification exists (e.g. a fixer dispatch). Otherwise, the orchestrator's dispatch payload must be built from \`taskClassifications[i].implementerPrompt\`, then fill its \`taskDescription\` / \`requirements\` / \`filePaths\` placeholders (the same template slots in \`references/implementer-prompt.md\`) with the task-specific context above. Dispatching the static default instead re-imposes medium-RGR ceremony on every task regardless of tier — the exact gap this seam closes. The tier is pure data from the classification stamp; no workflow-type branching is involved.
+
 ### Decision Runbooks
 
 For dispatch strategy decisions, query the decision runbook:
@@ -6189,13 +6208,13 @@ After each subagent reports completion:
 > \`exarchos_orchestrate({ action: "runbook", id: "task-completion" })\`
 > Execute the returned steps in order. Stop on gate failure.
 > If the runbook action is unavailable, use \`describe\` to retrieve gate schemas and run manually:
-> \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis", "task_complete"] })\`
+> \`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })\`
 
 1. **Extract provenance from subagent report** — parse the subagent's completion output and extract structured provenance fields (\`implements\`, \`tests\`, \`files\`). These fields are reported by the subagent following the Provenance Reporting section of the implementer prompt.
 
 2. **Verify worktree state** — confirm each worktree has clean \`git status\` and passing tests
 
-3. **Run blocking gates** — the \`task-completion\` runbook (referenced above) defines the exact gate sequence (TDD compliance, static analysis, then task_complete). On any gate failure, keep the task in-progress and report findings. All gate handlers auto-emit \`gate.executed\` events, so manual \`exarchos_event\` calls are not needed.
+3. **Run blocking gates** — the \`task-completion\` runbook (referenced above) defines the exact gate sequence (test adequacy, static analysis, then task_complete). On any gate failure, keep the task in-progress and report findings. All gate handlers auto-emit \`gate.executed\` events, so manual \`exarchos_event\` calls are not needed.
 
 5. **Pass provenance in task completion** — when marking a task complete, pass the extracted provenance fields in the \`result\` parameter so they flow into the \`task.completed\` event:
 
@@ -6255,7 +6274,7 @@ spawn_agent({
 
 After fix completes, run the \`task-fix\` runbook gate chain:
 \`exarchos_orchestrate({ action: "runbook", id: "task-fix" })\`
-If runbook unavailable, use \`describe\` to retrieve gate schemas: \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis", "task_complete"] })\`
+If runbook unavailable, use \`describe\` to retrieve gate schemas: \`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })\`
 
 ---
 
@@ -6334,7 +6353,7 @@ This detour is invisible to the delegation skill itself — the all-tasks-comple
 Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
-\`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "task_complete"] })\`
+\`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "task_complete"] })\`
 for orchestrate action schemas.
 
 ---
@@ -6493,8 +6512,8 @@ metadata:
 
 # Discovery Workflow Skill
 
-A workflow type for tasks whose deliverable is a **document, not code**. Explicitly
-exempt from the Iron Law (no failing test requirement) because there is nothing to test.
+A workflow type for tasks whose deliverable is a **document, not code**. It carries
+no verification gates (nothing to test), so the verification ladder does not apply.
 
 ## When to Use
 
@@ -7031,7 +7050,7 @@ For worktree cleanup:
 exports[`task 025 — per-runtime snapshot baselines > runtime: codex > Snapshots_AllSkillsAllRuntimes_MatchBaseline: skills/codex/implementation-planning/SKILL.md > skills/codex/implementation-planning/SKILL.md 1`] = `
 "---
 name: implementation-planning
-description: "Transform design documents into implementation plans with parallelizable tasks. Triggers: 'plan implementation', 'create tasks from design', or /plan. Applies the verification ladder: verification depth matches each task's blast radius — static analysis for low-risk tasks, scoped tests plus a kill-probe for medium, full red-green-refactor for high-risk surfaces. Requires an existing design document — use /ideate first if none exists. Do NOT use for brainstorming, debugging, or code review."
+description: "Transform design documents into implementation plans with parallelizable tasks. Triggers: 'plan implementation', 'create tasks from design', or /plan. Applies the verification ladder: verification depth matches each task's blast radius — static analysis for low-risk tasks, scoped tests plus a kill-probe for medium, the integration suite on top for high-risk surfaces (judged test-after, not test-first ordering). Requires an existing design document — use /ideate first if none exists. Do NOT use for brainstorming, debugging, or code review."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -7075,34 +7094,35 @@ After 3 failed revisions:
 
 ## The Verification Ladder
 
-Verification depth matches blast radius — red-green-refactor is the **HIGH-tier path**, not a universal law. Each task gets the cheapest verification that still captures its risk:
+Verification depth matches blast radius. The deeper rungs add tests, an adequacy kill-probe, and integration coverage — judged by **outcome, test-after**, not by a universal failing-test-first law (#1587). Each task gets the cheapest verification that still captures its risk:
 
 | Risk tier | What it adds | Why |
 |-----------|--------------|-----|
-| **low** | Static analysis (typecheck + lint) suffices | A docs/config/rename-only edit has near-zero blast radius; test-first ceremony is pure overhead. |
-| **medium** | Scoped tests + the \`check_test_adequacy\` kill-probe | The kill-probe recaptures test-first's unique guarantee — that a test can actually fail — at lower cost than mandating RED-first on every commit. |
-| **high** | Full red-green-refactor + the integration suite | Schema/type/API/shared-contract surfaces span the codebase; here the failing-test-first discipline earns its cost. |
+| **low** | Static analysis (typecheck + lint) suffices | A docs/config/rename-only edit has near-zero blast radius; a test ceremony is pure overhead. |
+| **medium** | Scoped tests + the \`check_test_adequacy\` kill-probe | The kill-probe recaptures test-first's one real guarantee — that a test can actually fail — at lower cost, judged test-after instead of mandating a failing test first on every commit. |
+| **high** | The integration suite (and mutation-adequacy at the boundary) on top of medium | Schema/type/API/shared-contract surfaces span the codebase; here adequacy-judged coverage plus real-collaborator integration across the seam earns its cost. |
 
 The planner stamps each task's \`riskTier\` (and \`boundaryTouching\`); the classifier derives it from blast radius when the planner does not override. The dispatched implementer prompt and the gate sequence both scale off that stamp — so the verification effort is data-driven, not a blanket rule.
 
-For a **high-tier** task, the discipline is:
-1. Start with writing a failing test
-2. Specify the expected failure reason
-3. Only then implement minimum code to pass
+For a **high-tier** task, the discipline is **outcome-based** (write the behavior and its tests in whatever order is natural — test-after is fine):
+1. Cover the new/changed behavior with scoped tests that pin its contract
+2. Let the \`check_test_adequacy\` kill-probe prove the tests can actually fail (it reverts your source and asserts at least one test goes red)
+3. Add real-collaborator integration coverage across the seam
 
-**Verify high-tier TDD compliance** in git history after implementation:
+**Verify high-tier test adequacy** after implementation — the keeper gate (the test-FIRST ordering gate \`check_tdd_compliance\` was retired in #1587):
 
 \`\`\`typescript
 exarchos_orchestrate({
-  action: "check_tdd_compliance",
+  action: "check_test_adequacy",
   featureId: "<featureId>",
   taskId: "<taskId>",
-  branch: "feature/<name>"
+  branch: "feature/<name>",
+  riskTier: "high"
 })
 \`\`\`
 
-- **\`passed: true\`** — All commits have test files before or alongside implementation
-- **\`passed: false\`** — Violations found; commits have implementation without corresponding tests
+- **\`passed: true\`** — Reverting the task's source makes at least one new/changed test fail: the tests are not vacuous
+- **\`passed: false\`** — A test still passes against the reverted source; strengthen it
 
 ## Planning Process
 
@@ -7231,12 +7251,13 @@ For reference, consult \`references/spec-tracing-guide.md\` for the underlying m
 
 | Don't | Do Instead |
 |-------|------------|
-| Write implementation first | Write failing test first |
+| Ship medium/high-tier behavior with no tests | Cover it with adequacy-judged tests (test-after is fine) |
+| Mandate red-green-refactor on every task | Scale verification to the task's \`riskTier\`; RGR is a high-tier opt-in |
 | Create large tasks | Break into 2-5 min chunks |
 | Skip dependency analysis | Identify parallel opportunities |
 | Vague test descriptions | Specific: Method_Scenario_Outcome |
-| Assume tests pass | Verify each test fails first |
-| Add "nice to have" code | Only what the test requires |
+| Assume your tests can fail | Let \`check_test_adequacy\` prove they can (revert source, re-run, expect red) |
+| Add "nice to have" code | Only what the behavior requires |
 
 ## Rationalization Debunking
 
@@ -7279,7 +7300,7 @@ for orchestrate action schemas.
 - [ ] Spec traceability table created (\`exarchos_orchestrate({ action: "generate_traceability" })\`)
 - [ ] Scope declared (full or partial with rationale)
 - [ ] Tasks decomposed to 2-5 min granularity
-- [ ] Each task carries a \`riskTier\` (and \`boundaryTouching\`) stamp; high-tier tasks start with a failing test
+- [ ] Each task carries a \`riskTier\` (and \`boundaryTouching\`) stamp; medium/high-tier tasks carry adequacy-judged tests (test-after), high-tier adds the integration suite
 - [ ] Dependencies mapped
 - [ ] Parallel groups identified
 - [ ] Plan verification passed — \`exarchos_orchestrate({ action: "check_plan_coverage" })\` returns passed: true
@@ -7740,8 +7761,8 @@ Reach for oneshot when **all** of the following are true:
 
 - The change is bounded — typically a single file, or a tightly-coupled
   cluster of 2-3 files
-- No subagent dispatch is needed — the work fits comfortably in one TDD
-  loop in a single session
+- No subagent dispatch is needed — the work fits comfortably in a single
+  in-session implement-and-verify loop
 - No design document is required — the goal is obvious from the task
   description, and a one-page plan is enough scaffolding
 - No two-stage review is required — either the change is trivial enough
@@ -7811,7 +7832,7 @@ pure functions of \`state.oneshot.synthesisPolicy\` and the
 | Phase | What happens | Exit criteria |
 |---|---|---|
 | \`plan\` | Lightweight one-page plan: goal, approach, files to touch, tests to add. No design doc. No subagent dispatch. | \`artifacts.plan\` set → transition to \`implementing\` |
-| \`implementing\` | In-session loop, verification scaled to risk. Defaults to the low tier (static analysis suffices); higher-blast changes get the failing-test-first red-green-refactor discipline. Commit as you go. | Tests pass + typecheck clean + finalize_oneshot called |
+| \`implementing\` | In-session loop, verification scaled to risk. Defaults to the low tier (static analysis suffices); higher-blast changes add tests covering the changed behavior (test-after) under the \`check_test_adequacy\` kill-probe. Commit as you go. | Tests pass + typecheck clean + finalize_oneshot called |
 | \`synthesize\` | Reached **only** when \`synthesisOptedIn\` is true. Hands off to the existing synthesis flow — see \`@skills/synthesis/SKILL.md\`. PR created via \`exarchos_orchestrate({ action: "create_pr" })\`, auto-merge enabled, CI gates apply. | PR merged → \`completed\` |
 | \`completed\` | Terminal. For direct-commit path, commits are already on the branch — there's nothing more to do. For synthesize path, the PR merge event terminates the workflow. | — |
 
@@ -7880,26 +7901,30 @@ Run an in-session loop, with verification scaled to the change's risk (the
 ladder in \`@skills/_shared/references/verification.md\`). A oneshot defaults to
 the **low tier** — static analysis suffices for a trivial fix. When the change
 touches a higher-blast surface (schema/type/API/shared contract, or it crosses
-an I/O boundary), it is a higher-tier task and gets the failing-test-first
-discipline.
+an I/O boundary), it is a higher-tier task: cover the new/changed behavior with
+tests (test-after is fine) and expect the \`check_test_adequacy\` kill-probe to
+reject tests that cannot actually fail.
 
 For each higher-tier behavior in the plan:
 
-1. **[RED]** Write a failing test. Run the test. Confirm it fails for
-   the right reason.
-2. **[GREEN]** Write the minimum production code to make the test pass.
-   Run the test. Confirm it passes.
-3. **[REFACTOR]** Clean up while keeping the test green.
+1. Implement the behavior.
+2. Add the tests its tier requires (scoped tests for the change; an integration
+   test across the seam at high tier), named \`Method_Scenario_Outcome\`.
+3. Refactor while the tests stay green.
 
-Commit each red-green-refactor cycle as a single commit. Do not batch
+Granular per-behavior red-green is available as an explicit opt-in, never a
+requirement.
+
+Commit each logical change as a single atomic commit. Do not batch
 multiple unrelated changes into one commit — keeping commits atomic
 matters even more in oneshot, where there's no separate review phase
 to catch bundled changes.
 
 There is **no subagent dispatch** in oneshot. The main agent does the
 work directly. There is **no separate review phase**. Quality is
-maintained by the TDD loop and (if the user opts in) the synthesize PR
-review.
+maintained by the tier-scaled verification (static analysis plus, above the
+low tier, the \`check_test_adequacy\` kill-probe) and (if the user opts in)
+the synthesize PR review.
 
 #### Mid-workflow: opting in to a PR
 
@@ -8024,10 +8049,9 @@ Agent:
          "oneshot.planSummary": "..."
        }
      }
-  4. [RED] writes test that greps README for 'recieve' and expects 0 matches
-        — fails (1 match exists)
-  5. [GREEN] edits README, fixes typo
-        — test passes
+  4. edits README, fixes typo (low tier — a docs one-liner; static analysis
+        suffices, no test-first ceremony)
+  5. verifies: greps README for 'recieve' → 0 matches
   6. git commit -m "docs: fix 'recieve' typo in README"
   7. exarchos_orchestrate finalize_oneshot { featureId: "fix-readme-typo" }
      → guard sees policy='on-request' + no synthesize.requested event
@@ -8046,9 +8070,9 @@ Agent:
      → 'plan' phase, default 'on-request'
   2. plans (goal: validate input, files: [parser.ts, parser.test.ts])
   3. transitions to 'implementing'
-  4. [RED] writes test for null-input case
-  5. [GREEN] adds null check
-  6. [REFACTOR] extracts validateInput helper
+  4. adds the null-input validation to parseConfig
+  5. adds a test for the null-input case (test-after)
+  6. refactors: extracts validateInput helper (tests stay green)
   7. commits
 
 User: "Actually, this is touching the parser — I want a review on it before
@@ -8077,7 +8101,7 @@ Agent:
        workflowType: "oneshot",
        synthesisPolicy: "always"
      }
-  2-7. plan + TDD + commits, identical to Example A
+  2-7. plan + implement + verify + commits, identical to Example A
   8. exarchos_orchestrate finalize_oneshot { featureId }
      → guard sees policy='always' (short-circuits — no event check needed)
      → resolves to 'synthesize'
@@ -8152,9 +8176,9 @@ risk signals say otherwise*. Specifically:
 - A low-risk change (docs/config/rename-only, near-zero blast radius) needs only
   static analysis to pass; add a focused test only if behavior is non-obvious.
 - If the change touches a higher-blast surface (schema/type/API/shared contract,
-  or it crosses an I/O boundary), it is **not** a low-tier task: write the failing
-  test first and follow red-green-refactor, and expect the \`check_test_adequacy\`
-  kill-probe to flag tests that cannot actually fail.
+  or it crosses an I/O boundary), it is **not** a low-tier task: cover the
+  new/changed behavior with tests (test-after is fine), and expect the
+  \`check_test_adequacy\` kill-probe to flag tests that cannot actually fail.
 - Commits stay atomic — one logical change per commit, regardless of tier.
 
 The temptation in a oneshot is to assume *everything* is "just one line" and skip
@@ -8167,8 +8191,8 @@ full feature ceremony on a trivial edit.
 | Don't | Do Instead |
 |-------|------------|
 | Skip the plan phase ("it's obvious") | Write the four-line plan anyway — it's the artifact future-you reads |
-| Apply full RED → GREEN → REFACTOR to a trivial one-liner | Match verification to risk: low-tier leans on static analysis; reserve test-first for higher-blast changes |
-| Skip verification entirely because "it's a oneshot" | Even low-tier must pass static analysis; higher-blast changes still need the failing test first |
+| Apply full red-green-refactor ceremony to a trivial one-liner | Match verification to risk: low-tier leans on static analysis; higher-blast changes add tests covering the changed behavior |
+| Skip verification entirely because "it's a oneshot" | Even low-tier must pass static analysis; higher-blast changes still need tests covering the changed behavior |
 | Use oneshot for multi-file refactors | Use \`ideate\` and the full feature workflow |
 | Try to grow a oneshot into a feature workflow mid-stream | Cancel and restart with \`ideate\` |
 | Call \`request_synthesize\` without listening for the user's intent | Wait for the user to ask for a PR, then call it |
@@ -8180,7 +8204,7 @@ full feature ceremony on a trivial edit.
 - [ ] \`exarchos_workflow init\` called with \`workflowType: "oneshot"\`
 - [ ] One-page plan persisted to \`artifacts.plan\`
 - [ ] Phase transitioned to \`implementing\`
-- [ ] All planned behaviors implemented via TDD with atomic commits
+- [ ] All planned behaviors implemented and verified to their risk tier, with atomic commits
 - [ ] \`finalize_oneshot\` called and resolved to either \`completed\` or \`synthesize\`
 - [ ] If direct-commit path: commits pushed
 - [ ] If synthesize path: PR created via \`@skills/synthesis/SKILL.md\` and merged
@@ -8589,7 +8613,7 @@ This enables catching:
 
 **Does NOT re-check:**
 - Functional completeness (spec review)
-- TDD compliance (spec review)
+- Test adequacy (spec review)
 
 ## Review Process
 
@@ -8702,10 +8726,11 @@ After the quality-review fix loop completes and quality passes, re-verify that t
    \`\`\`
    \`\`\`typescript
    exarchos_orchestrate({
-     action: "check_tdd_compliance",
+     action: "check_test_adequacy",
      featureId: "<featureId>",
      taskId: "<taskId>",
-     branch: "<branch>"
+     branch: "<branch>",
+     riskTier: "<low|medium|high>"
    })
    \`\`\`
 2. If all pass: proceed to APPROVED transition
@@ -9385,7 +9410,7 @@ After approval is granted and PRs merge, run \`cleanup\` to resolve the workflow
 exports[`task 025 — per-runtime snapshot baselines > runtime: codex > Snapshots_AllSkillsAllRuntimes_MatchBaseline: skills/codex/spec-review/SKILL.md > skills/codex/spec-review/SKILL.md 1`] = `
 "---
 name: spec-review
-description: "Stage 1 spec compliance review. Triggers: /review stage 1. Verifies implementation matches design specification — functional completeness, TDD compliance, and test coverage. Do NOT use for code quality checks — use quality-review instead. Do NOT use for debugging."
+description: "Stage 1 spec compliance review. Triggers: /review stage 1. Verifies implementation matches design specification — functional completeness, test adequacy, and test coverage. Do NOT use for code quality checks — use quality-review instead. Do NOT use for debugging."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -9480,7 +9505,7 @@ This enables catching:
 
 **Spec Review focuses on:**
 - Functional completeness
-- TDD compliance
+- Test adequacy (outcome-based, tier-scaled — not test-first ordering)
 - Specification alignment
 - Test coverage
 
@@ -9503,10 +9528,11 @@ npm run typecheck
 
 \`\`\`typescript
 exarchos_orchestrate({
-  action: "check_tdd_compliance",
+  action: "check_test_adequacy",
   featureId: "<featureId>",
   taskId: "<taskId>",
-  branch: "<branch>"
+  branch: "<branch>",
+  riskTier: "<low|medium|high>"
 })
 \`\`\`
 
@@ -9621,7 +9647,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
-\`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis"] })\`
+\`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis"] })\`
 for orchestrate action schemas.
 
 ## Transition
@@ -9669,14 +9695,14 @@ This is NOT a human checkpoint - workflow continues autonomously.
 |-------|-------|------------|
 | Test file not found | Task didn't create expected test | Check plan for test file paths, verify worktree contents |
 | Coverage below threshold | Implementation incomplete or tests superficial | Add missing test cases, verify assertions are meaningful |
-| TDD compliance check fails | Implementation committed before tests | Check git log order — test commits must precede or accompany implementation |
+| Test-adequacy kill-probe fails | A new/changed test still passes against reverted source (vacuous) | Strengthen the test so reverting the implementation makes it fail |
 | Diff too large for context | Many tasks with large changes | Generate per-worktree diffs with \`exarchos_orchestrate({ action: "review_diff", worktreePath: "<task-worktree>" })\` to review incrementally |
 
 ## Performance Notes
 
 - Use the integrated diff (\`exarchos_orchestrate({ action: "review_diff" })\`) instead of reading full files — reduces context by 80-90%
 - Review per-task when the combined diff exceeds 2,000 lines
-- Run TDD compliance check (\`exarchos_orchestrate({ action: "check_tdd_compliance" })\`) in parallel with spec tracing
+- Run the test-adequacy kill-probe (\`exarchos_orchestrate({ action: "check_test_adequacy" })\`) in parallel with spec tracing
 "
 `;
 
@@ -11239,6 +11265,12 @@ For each task:
 4. Include PBT section from \`references/pbt-patterns.md\` when \`propertyTests: true\`
 5. Include testing patterns from \`references/testing-patterns.md\`
 
+### Tier-selected verification note — dispatch the rendered prompt (#1586)
+
+\`prepare_delegation\` resolves each task's risk tier and returns a **per-task rendered prompt** on its classification: \`taskClassifications[i].implementerPrompt\`. This is the implementer system prompt with the verification note already selected for that task's \`riskTier\`/\`boundaryTouching\` — a low-tier task carries a terse static-analysis steer, a high-tier task carries the test-after + integration-suite rung.
+
+**Dispatch THAT prompt — not the static agent default.** The shipped \`agents/implementer.md\` bakes a fixed medium-tier note (a self-contained fallback for runtimes that pre-bind a named agent). Use it verbatim only when no classification exists (e.g. a fixer dispatch). Otherwise, the orchestrator's dispatch payload must be built from \`taskClassifications[i].implementerPrompt\`, then fill its \`taskDescription\` / \`requirements\` / \`filePaths\` placeholders (the same template slots in \`references/implementer-prompt.md\`) with the task-specific context above. Dispatching the static default instead re-imposes medium-RGR ceremony on every task regardless of tier — the exact gap this seam closes. The tier is pure data from the classification stamp; no workflow-type branching is involved.
+
 ### Decision Runbooks
 
 For dispatch strategy decisions, query the decision runbook:
@@ -11278,13 +11310,13 @@ After each subagent reports completion:
 > \`exarchos_orchestrate({ action: "runbook", id: "task-completion" })\`
 > Execute the returned steps in order. Stop on gate failure.
 > If the runbook action is unavailable, use \`describe\` to retrieve gate schemas and run manually:
-> \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis", "task_complete"] })\`
+> \`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })\`
 
 1. **Extract provenance from subagent report** — parse the subagent's completion output and extract structured provenance fields (\`implements\`, \`tests\`, \`files\`). These fields are reported by the subagent following the Provenance Reporting section of the implementer prompt.
 
 2. **Verify worktree state** — confirm each worktree has clean \`git status\` and passing tests
 
-3. **Run blocking gates** — the \`task-completion\` runbook (referenced above) defines the exact gate sequence (TDD compliance, static analysis, then task_complete). On any gate failure, keep the task in-progress and report findings. All gate handlers auto-emit \`gate.executed\` events, so manual \`exarchos_event\` calls are not needed.
+3. **Run blocking gates** — the \`task-completion\` runbook (referenced above) defines the exact gate sequence (test adequacy, static analysis, then task_complete). On any gate failure, keep the task in-progress and report findings. All gate handlers auto-emit \`gate.executed\` events, so manual \`exarchos_event\` calls are not needed.
 
 5. **Pass provenance in task completion** — when marking a task complete, pass the extracted provenance fields in the \`result\` parameter so they flow into the \`task.completed\` event:
 
@@ -11340,7 +11372,7 @@ task --agent fixer 'Fix failed task-001: Your implementation failed. [failure co
 
 After fix completes, run the \`task-fix\` runbook gate chain:
 \`exarchos_orchestrate({ action: "runbook", id: "task-fix" })\`
-If runbook unavailable, use \`describe\` to retrieve gate schemas: \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis", "task_complete"] })\`
+If runbook unavailable, use \`describe\` to retrieve gate schemas: \`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })\`
 
 ---
 
@@ -11419,7 +11451,7 @@ This detour is invisible to the delegation skill itself — the all-tasks-comple
 Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
-\`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "task_complete"] })\`
+\`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "task_complete"] })\`
 for orchestrate action schemas.
 
 ---
@@ -11578,8 +11610,8 @@ metadata:
 
 # Discovery Workflow Skill
 
-A workflow type for tasks whose deliverable is a **document, not code**. Explicitly
-exempt from the Iron Law (no failing test requirement) because there is nothing to test.
+A workflow type for tasks whose deliverable is a **document, not code**. It carries
+no verification gates (nothing to test), so the verification ladder does not apply.
 
 ## When to Use
 
@@ -12116,7 +12148,7 @@ For worktree cleanup:
 exports[`task 025 — per-runtime snapshot baselines > runtime: copilot > Snapshots_AllSkillsAllRuntimes_MatchBaseline: skills/copilot/implementation-planning/SKILL.md > skills/copilot/implementation-planning/SKILL.md 1`] = `
 "---
 name: implementation-planning
-description: "Transform design documents into implementation plans with parallelizable tasks. Triggers: 'plan implementation', 'create tasks from design', or /plan. Applies the verification ladder: verification depth matches each task's blast radius — static analysis for low-risk tasks, scoped tests plus a kill-probe for medium, full red-green-refactor for high-risk surfaces. Requires an existing design document — use /ideate first if none exists. Do NOT use for brainstorming, debugging, or code review."
+description: "Transform design documents into implementation plans with parallelizable tasks. Triggers: 'plan implementation', 'create tasks from design', or /plan. Applies the verification ladder: verification depth matches each task's blast radius — static analysis for low-risk tasks, scoped tests plus a kill-probe for medium, the integration suite on top for high-risk surfaces (judged test-after, not test-first ordering). Requires an existing design document — use /ideate first if none exists. Do NOT use for brainstorming, debugging, or code review."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -12160,34 +12192,35 @@ After 3 failed revisions:
 
 ## The Verification Ladder
 
-Verification depth matches blast radius — red-green-refactor is the **HIGH-tier path**, not a universal law. Each task gets the cheapest verification that still captures its risk:
+Verification depth matches blast radius. The deeper rungs add tests, an adequacy kill-probe, and integration coverage — judged by **outcome, test-after**, not by a universal failing-test-first law (#1587). Each task gets the cheapest verification that still captures its risk:
 
 | Risk tier | What it adds | Why |
 |-----------|--------------|-----|
-| **low** | Static analysis (typecheck + lint) suffices | A docs/config/rename-only edit has near-zero blast radius; test-first ceremony is pure overhead. |
-| **medium** | Scoped tests + the \`check_test_adequacy\` kill-probe | The kill-probe recaptures test-first's unique guarantee — that a test can actually fail — at lower cost than mandating RED-first on every commit. |
-| **high** | Full red-green-refactor + the integration suite | Schema/type/API/shared-contract surfaces span the codebase; here the failing-test-first discipline earns its cost. |
+| **low** | Static analysis (typecheck + lint) suffices | A docs/config/rename-only edit has near-zero blast radius; a test ceremony is pure overhead. |
+| **medium** | Scoped tests + the \`check_test_adequacy\` kill-probe | The kill-probe recaptures test-first's one real guarantee — that a test can actually fail — at lower cost, judged test-after instead of mandating a failing test first on every commit. |
+| **high** | The integration suite (and mutation-adequacy at the boundary) on top of medium | Schema/type/API/shared-contract surfaces span the codebase; here adequacy-judged coverage plus real-collaborator integration across the seam earns its cost. |
 
 The planner stamps each task's \`riskTier\` (and \`boundaryTouching\`); the classifier derives it from blast radius when the planner does not override. The dispatched implementer prompt and the gate sequence both scale off that stamp — so the verification effort is data-driven, not a blanket rule.
 
-For a **high-tier** task, the discipline is:
-1. Start with writing a failing test
-2. Specify the expected failure reason
-3. Only then implement minimum code to pass
+For a **high-tier** task, the discipline is **outcome-based** (write the behavior and its tests in whatever order is natural — test-after is fine):
+1. Cover the new/changed behavior with scoped tests that pin its contract
+2. Let the \`check_test_adequacy\` kill-probe prove the tests can actually fail (it reverts your source and asserts at least one test goes red)
+3. Add real-collaborator integration coverage across the seam
 
-**Verify high-tier TDD compliance** in git history after implementation:
+**Verify high-tier test adequacy** after implementation — the keeper gate (the test-FIRST ordering gate \`check_tdd_compliance\` was retired in #1587):
 
 \`\`\`typescript
 exarchos_orchestrate({
-  action: "check_tdd_compliance",
+  action: "check_test_adequacy",
   featureId: "<featureId>",
   taskId: "<taskId>",
-  branch: "feature/<name>"
+  branch: "feature/<name>",
+  riskTier: "high"
 })
 \`\`\`
 
-- **\`passed: true\`** — All commits have test files before or alongside implementation
-- **\`passed: false\`** — Violations found; commits have implementation without corresponding tests
+- **\`passed: true\`** — Reverting the task's source makes at least one new/changed test fail: the tests are not vacuous
+- **\`passed: false\`** — A test still passes against the reverted source; strengthen it
 
 ## Planning Process
 
@@ -12316,12 +12349,13 @@ For reference, consult \`references/spec-tracing-guide.md\` for the underlying m
 
 | Don't | Do Instead |
 |-------|------------|
-| Write implementation first | Write failing test first |
+| Ship medium/high-tier behavior with no tests | Cover it with adequacy-judged tests (test-after is fine) |
+| Mandate red-green-refactor on every task | Scale verification to the task's \`riskTier\`; RGR is a high-tier opt-in |
 | Create large tasks | Break into 2-5 min chunks |
 | Skip dependency analysis | Identify parallel opportunities |
 | Vague test descriptions | Specific: Method_Scenario_Outcome |
-| Assume tests pass | Verify each test fails first |
-| Add "nice to have" code | Only what the test requires |
+| Assume your tests can fail | Let \`check_test_adequacy\` prove they can (revert source, re-run, expect red) |
+| Add "nice to have" code | Only what the behavior requires |
 
 ## Rationalization Debunking
 
@@ -12364,7 +12398,7 @@ for orchestrate action schemas.
 - [ ] Spec traceability table created (\`exarchos_orchestrate({ action: "generate_traceability" })\`)
 - [ ] Scope declared (full or partial with rationale)
 - [ ] Tasks decomposed to 2-5 min granularity
-- [ ] Each task carries a \`riskTier\` (and \`boundaryTouching\`) stamp; high-tier tasks start with a failing test
+- [ ] Each task carries a \`riskTier\` (and \`boundaryTouching\`) stamp; medium/high-tier tasks carry adequacy-judged tests (test-after), high-tier adds the integration suite
 - [ ] Dependencies mapped
 - [ ] Parallel groups identified
 - [ ] Plan verification passed — \`exarchos_orchestrate({ action: "check_plan_coverage" })\` returns passed: true
@@ -12825,8 +12859,8 @@ Reach for oneshot when **all** of the following are true:
 
 - The change is bounded — typically a single file, or a tightly-coupled
   cluster of 2-3 files
-- No subagent dispatch is needed — the work fits comfortably in one TDD
-  loop in a single session
+- No subagent dispatch is needed — the work fits comfortably in a single
+  in-session implement-and-verify loop
 - No design document is required — the goal is obvious from the task
   description, and a one-page plan is enough scaffolding
 - No two-stage review is required — either the change is trivial enough
@@ -12896,7 +12930,7 @@ pure functions of \`state.oneshot.synthesisPolicy\` and the
 | Phase | What happens | Exit criteria |
 |---|---|---|
 | \`plan\` | Lightweight one-page plan: goal, approach, files to touch, tests to add. No design doc. No subagent dispatch. | \`artifacts.plan\` set → transition to \`implementing\` |
-| \`implementing\` | In-session loop, verification scaled to risk. Defaults to the low tier (static analysis suffices); higher-blast changes get the failing-test-first red-green-refactor discipline. Commit as you go. | Tests pass + typecheck clean + finalize_oneshot called |
+| \`implementing\` | In-session loop, verification scaled to risk. Defaults to the low tier (static analysis suffices); higher-blast changes add tests covering the changed behavior (test-after) under the \`check_test_adequacy\` kill-probe. Commit as you go. | Tests pass + typecheck clean + finalize_oneshot called |
 | \`synthesize\` | Reached **only** when \`synthesisOptedIn\` is true. Hands off to the existing synthesis flow — see \`@skills/synthesis/SKILL.md\`. PR created via \`exarchos_orchestrate({ action: "create_pr" })\`, auto-merge enabled, CI gates apply. | PR merged → \`completed\` |
 | \`completed\` | Terminal. For direct-commit path, commits are already on the branch — there's nothing more to do. For synthesize path, the PR merge event terminates the workflow. | — |
 
@@ -12965,26 +12999,30 @@ Run an in-session loop, with verification scaled to the change's risk (the
 ladder in \`@skills/_shared/references/verification.md\`). A oneshot defaults to
 the **low tier** — static analysis suffices for a trivial fix. When the change
 touches a higher-blast surface (schema/type/API/shared contract, or it crosses
-an I/O boundary), it is a higher-tier task and gets the failing-test-first
-discipline.
+an I/O boundary), it is a higher-tier task: cover the new/changed behavior with
+tests (test-after is fine) and expect the \`check_test_adequacy\` kill-probe to
+reject tests that cannot actually fail.
 
 For each higher-tier behavior in the plan:
 
-1. **[RED]** Write a failing test. Run the test. Confirm it fails for
-   the right reason.
-2. **[GREEN]** Write the minimum production code to make the test pass.
-   Run the test. Confirm it passes.
-3. **[REFACTOR]** Clean up while keeping the test green.
+1. Implement the behavior.
+2. Add the tests its tier requires (scoped tests for the change; an integration
+   test across the seam at high tier), named \`Method_Scenario_Outcome\`.
+3. Refactor while the tests stay green.
 
-Commit each red-green-refactor cycle as a single commit. Do not batch
+Granular per-behavior red-green is available as an explicit opt-in, never a
+requirement.
+
+Commit each logical change as a single atomic commit. Do not batch
 multiple unrelated changes into one commit — keeping commits atomic
 matters even more in oneshot, where there's no separate review phase
 to catch bundled changes.
 
 There is **no subagent dispatch** in oneshot. The main agent does the
 work directly. There is **no separate review phase**. Quality is
-maintained by the TDD loop and (if the user opts in) the synthesize PR
-review.
+maintained by the tier-scaled verification (static analysis plus, above the
+low tier, the \`check_test_adequacy\` kill-probe) and (if the user opts in)
+the synthesize PR review.
 
 #### Mid-workflow: opting in to a PR
 
@@ -13109,10 +13147,9 @@ Agent:
          "oneshot.planSummary": "..."
        }
      }
-  4. [RED] writes test that greps README for 'recieve' and expects 0 matches
-        — fails (1 match exists)
-  5. [GREEN] edits README, fixes typo
-        — test passes
+  4. edits README, fixes typo (low tier — a docs one-liner; static analysis
+        suffices, no test-first ceremony)
+  5. verifies: greps README for 'recieve' → 0 matches
   6. git commit -m "docs: fix 'recieve' typo in README"
   7. exarchos_orchestrate finalize_oneshot { featureId: "fix-readme-typo" }
      → guard sees policy='on-request' + no synthesize.requested event
@@ -13131,9 +13168,9 @@ Agent:
      → 'plan' phase, default 'on-request'
   2. plans (goal: validate input, files: [parser.ts, parser.test.ts])
   3. transitions to 'implementing'
-  4. [RED] writes test for null-input case
-  5. [GREEN] adds null check
-  6. [REFACTOR] extracts validateInput helper
+  4. adds the null-input validation to parseConfig
+  5. adds a test for the null-input case (test-after)
+  6. refactors: extracts validateInput helper (tests stay green)
   7. commits
 
 User: "Actually, this is touching the parser — I want a review on it before
@@ -13162,7 +13199,7 @@ Agent:
        workflowType: "oneshot",
        synthesisPolicy: "always"
      }
-  2-7. plan + TDD + commits, identical to Example A
+  2-7. plan + implement + verify + commits, identical to Example A
   8. exarchos_orchestrate finalize_oneshot { featureId }
      → guard sees policy='always' (short-circuits — no event check needed)
      → resolves to 'synthesize'
@@ -13237,9 +13274,9 @@ risk signals say otherwise*. Specifically:
 - A low-risk change (docs/config/rename-only, near-zero blast radius) needs only
   static analysis to pass; add a focused test only if behavior is non-obvious.
 - If the change touches a higher-blast surface (schema/type/API/shared contract,
-  or it crosses an I/O boundary), it is **not** a low-tier task: write the failing
-  test first and follow red-green-refactor, and expect the \`check_test_adequacy\`
-  kill-probe to flag tests that cannot actually fail.
+  or it crosses an I/O boundary), it is **not** a low-tier task: cover the
+  new/changed behavior with tests (test-after is fine), and expect the
+  \`check_test_adequacy\` kill-probe to flag tests that cannot actually fail.
 - Commits stay atomic — one logical change per commit, regardless of tier.
 
 The temptation in a oneshot is to assume *everything* is "just one line" and skip
@@ -13252,8 +13289,8 @@ full feature ceremony on a trivial edit.
 | Don't | Do Instead |
 |-------|------------|
 | Skip the plan phase ("it's obvious") | Write the four-line plan anyway — it's the artifact future-you reads |
-| Apply full RED → GREEN → REFACTOR to a trivial one-liner | Match verification to risk: low-tier leans on static analysis; reserve test-first for higher-blast changes |
-| Skip verification entirely because "it's a oneshot" | Even low-tier must pass static analysis; higher-blast changes still need the failing test first |
+| Apply full red-green-refactor ceremony to a trivial one-liner | Match verification to risk: low-tier leans on static analysis; higher-blast changes add tests covering the changed behavior |
+| Skip verification entirely because "it's a oneshot" | Even low-tier must pass static analysis; higher-blast changes still need tests covering the changed behavior |
 | Use oneshot for multi-file refactors | Use \`/ideate\` and the full feature workflow |
 | Try to grow a oneshot into a feature workflow mid-stream | Cancel and restart with \`/ideate\` |
 | Call \`request_synthesize\` without listening for the user's intent | Wait for the user to ask for a PR, then call it |
@@ -13265,7 +13302,7 @@ full feature ceremony on a trivial edit.
 - [ ] \`exarchos_workflow init\` called with \`workflowType: "oneshot"\`
 - [ ] One-page plan persisted to \`artifacts.plan\`
 - [ ] Phase transitioned to \`implementing\`
-- [ ] All planned behaviors implemented via TDD with atomic commits
+- [ ] All planned behaviors implemented and verified to their risk tier, with atomic commits
 - [ ] \`finalize_oneshot\` called and resolved to either \`completed\` or \`synthesize\`
 - [ ] If direct-commit path: commits pushed
 - [ ] If synthesize path: PR created via \`@skills/synthesis/SKILL.md\` and merged
@@ -13674,7 +13711,7 @@ This enables catching:
 
 **Does NOT re-check:**
 - Functional completeness (spec review)
-- TDD compliance (spec review)
+- Test adequacy (spec review)
 
 ## Review Process
 
@@ -13787,10 +13824,11 @@ After the quality-review fix loop completes and quality passes, re-verify that t
    \`\`\`
    \`\`\`typescript
    exarchos_orchestrate({
-     action: "check_tdd_compliance",
+     action: "check_test_adequacy",
      featureId: "<featureId>",
      taskId: "<taskId>",
-     branch: "<branch>"
+     branch: "<branch>",
+     riskTier: "<low|medium|high>"
    })
    \`\`\`
 2. If all pass: proceed to APPROVED transition
@@ -14470,7 +14508,7 @@ After approval is granted and PRs merge, run \`/cleanup\` to resolve the workflo
 exports[`task 025 — per-runtime snapshot baselines > runtime: copilot > Snapshots_AllSkillsAllRuntimes_MatchBaseline: skills/copilot/spec-review/SKILL.md > skills/copilot/spec-review/SKILL.md 1`] = `
 "---
 name: spec-review
-description: "Stage 1 spec compliance review. Triggers: /review stage 1. Verifies implementation matches design specification — functional completeness, TDD compliance, and test coverage. Do NOT use for code quality checks — use quality-review instead. Do NOT use for debugging."
+description: "Stage 1 spec compliance review. Triggers: /review stage 1. Verifies implementation matches design specification — functional completeness, test adequacy, and test coverage. Do NOT use for code quality checks — use quality-review instead. Do NOT use for debugging."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -14565,7 +14603,7 @@ This enables catching:
 
 **Spec Review focuses on:**
 - Functional completeness
-- TDD compliance
+- Test adequacy (outcome-based, tier-scaled — not test-first ordering)
 - Specification alignment
 - Test coverage
 
@@ -14588,10 +14626,11 @@ npm run typecheck
 
 \`\`\`typescript
 exarchos_orchestrate({
-  action: "check_tdd_compliance",
+  action: "check_test_adequacy",
   featureId: "<featureId>",
   taskId: "<taskId>",
-  branch: "<branch>"
+  branch: "<branch>",
+  riskTier: "<low|medium|high>"
 })
 \`\`\`
 
@@ -14706,7 +14745,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
-\`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis"] })\`
+\`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis"] })\`
 for orchestrate action schemas.
 
 ## Transition
@@ -14754,14 +14793,14 @@ This is NOT a human checkpoint - workflow continues autonomously.
 |-------|-------|------------|
 | Test file not found | Task didn't create expected test | Check plan for test file paths, verify worktree contents |
 | Coverage below threshold | Implementation incomplete or tests superficial | Add missing test cases, verify assertions are meaningful |
-| TDD compliance check fails | Implementation committed before tests | Check git log order — test commits must precede or accompany implementation |
+| Test-adequacy kill-probe fails | A new/changed test still passes against reverted source (vacuous) | Strengthen the test so reverting the implementation makes it fail |
 | Diff too large for context | Many tasks with large changes | Generate per-worktree diffs with \`exarchos_orchestrate({ action: "review_diff", worktreePath: "<task-worktree>" })\` to review incrementally |
 
 ## Performance Notes
 
 - Use the integrated diff (\`exarchos_orchestrate({ action: "review_diff" })\`) instead of reading full files — reduces context by 80-90%
 - Review per-task when the combined diff exceeds 2,000 lines
-- Run TDD compliance check (\`exarchos_orchestrate({ action: "check_tdd_compliance" })\`) in parallel with spec tracing
+- Run the test-adequacy kill-probe (\`exarchos_orchestrate({ action: "check_test_adequacy" })\`) in parallel with spec tracing
 "
 `;
 
@@ -16324,6 +16363,12 @@ For each task:
 4. Include PBT section from \`references/pbt-patterns.md\` when \`propertyTests: true\`
 5. Include testing patterns from \`references/testing-patterns.md\`
 
+### Tier-selected verification note — dispatch the rendered prompt (#1586)
+
+\`prepare_delegation\` resolves each task's risk tier and returns a **per-task rendered prompt** on its classification: \`taskClassifications[i].implementerPrompt\`. This is the implementer system prompt with the verification note already selected for that task's \`riskTier\`/\`boundaryTouching\` — a low-tier task carries a terse static-analysis steer, a high-tier task carries the test-after + integration-suite rung.
+
+**Dispatch THAT prompt — not the static agent default.** The shipped \`agents/implementer.md\` bakes a fixed medium-tier note (a self-contained fallback for runtimes that pre-bind a named agent). Use it verbatim only when no classification exists (e.g. a fixer dispatch). Otherwise, the orchestrator's dispatch payload must be built from \`taskClassifications[i].implementerPrompt\`, then fill its \`taskDescription\` / \`requirements\` / \`filePaths\` placeholders (the same template slots in \`references/implementer-prompt.md\`) with the task-specific context above. Dispatching the static default instead re-imposes medium-RGR ceremony on every task regardless of tier — the exact gap this seam closes. The tier is pure data from the classification stamp; no workflow-type branching is involved.
+
 ### Decision Runbooks
 
 For dispatch strategy decisions, query the decision runbook:
@@ -16368,13 +16413,13 @@ After each subagent reports completion:
 > \`exarchos_orchestrate({ action: "runbook", id: "task-completion" })\`
 > Execute the returned steps in order. Stop on gate failure.
 > If the runbook action is unavailable, use \`describe\` to retrieve gate schemas and run manually:
-> \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis", "task_complete"] })\`
+> \`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })\`
 
 1. **Extract provenance from subagent report** — parse the subagent's completion output and extract structured provenance fields (\`implements\`, \`tests\`, \`files\`). These fields are reported by the subagent following the Provenance Reporting section of the implementer prompt.
 
 2. **Verify worktree state** — confirm each worktree has clean \`git status\` and passing tests
 
-3. **Run blocking gates** — the \`task-completion\` runbook (referenced above) defines the exact gate sequence (TDD compliance, static analysis, then task_complete). On any gate failure, keep the task in-progress and report findings. All gate handlers auto-emit \`gate.executed\` events, so manual \`exarchos_event\` calls are not needed.
+3. **Run blocking gates** — the \`task-completion\` runbook (referenced above) defines the exact gate sequence (test adequacy, static analysis, then task_complete). On any gate failure, keep the task in-progress and report findings. All gate handlers auto-emit \`gate.executed\` events, so manual \`exarchos_event\` calls are not needed.
 
 5. **Pass provenance in task completion** — when marking a task complete, pass the extracted provenance fields in the \`result\` parameter so they flow into the \`task.completed\` event:
 
@@ -16435,7 +16480,7 @@ Task({
 
 After fix completes, run the \`task-fix\` runbook gate chain:
 \`exarchos_orchestrate({ action: "runbook", id: "task-fix" })\`
-If runbook unavailable, use \`describe\` to retrieve gate schemas: \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis", "task_complete"] })\`
+If runbook unavailable, use \`describe\` to retrieve gate schemas: \`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })\`
 
 ---
 
@@ -16514,7 +16559,7 @@ This detour is invisible to the delegation skill itself — the all-tasks-comple
 Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
-\`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "task_complete"] })\`
+\`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "task_complete"] })\`
 for orchestrate action schemas.
 
 ---
@@ -16673,8 +16718,8 @@ metadata:
 
 # Discovery Workflow Skill
 
-A workflow type for tasks whose deliverable is a **document, not code**. Explicitly
-exempt from the Iron Law (no failing test requirement) because there is nothing to test.
+A workflow type for tasks whose deliverable is a **document, not code**. It carries
+no verification gates (nothing to test), so the verification ladder does not apply.
 
 ## When to Use
 
@@ -17211,7 +17256,7 @@ For worktree cleanup:
 exports[`task 025 — per-runtime snapshot baselines > runtime: cursor > Snapshots_AllSkillsAllRuntimes_MatchBaseline: skills/cursor/implementation-planning/SKILL.md > skills/cursor/implementation-planning/SKILL.md 1`] = `
 "---
 name: implementation-planning
-description: "Transform design documents into implementation plans with parallelizable tasks. Triggers: 'plan implementation', 'create tasks from design', or /plan. Applies the verification ladder: verification depth matches each task's blast radius — static analysis for low-risk tasks, scoped tests plus a kill-probe for medium, full red-green-refactor for high-risk surfaces. Requires an existing design document — use /ideate first if none exists. Do NOT use for brainstorming, debugging, or code review."
+description: "Transform design documents into implementation plans with parallelizable tasks. Triggers: 'plan implementation', 'create tasks from design', or /plan. Applies the verification ladder: verification depth matches each task's blast radius — static analysis for low-risk tasks, scoped tests plus a kill-probe for medium, the integration suite on top for high-risk surfaces (judged test-after, not test-first ordering). Requires an existing design document — use /ideate first if none exists. Do NOT use for brainstorming, debugging, or code review."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -17255,34 +17300,35 @@ After 3 failed revisions:
 
 ## The Verification Ladder
 
-Verification depth matches blast radius — red-green-refactor is the **HIGH-tier path**, not a universal law. Each task gets the cheapest verification that still captures its risk:
+Verification depth matches blast radius. The deeper rungs add tests, an adequacy kill-probe, and integration coverage — judged by **outcome, test-after**, not by a universal failing-test-first law (#1587). Each task gets the cheapest verification that still captures its risk:
 
 | Risk tier | What it adds | Why |
 |-----------|--------------|-----|
-| **low** | Static analysis (typecheck + lint) suffices | A docs/config/rename-only edit has near-zero blast radius; test-first ceremony is pure overhead. |
-| **medium** | Scoped tests + the \`check_test_adequacy\` kill-probe | The kill-probe recaptures test-first's unique guarantee — that a test can actually fail — at lower cost than mandating RED-first on every commit. |
-| **high** | Full red-green-refactor + the integration suite | Schema/type/API/shared-contract surfaces span the codebase; here the failing-test-first discipline earns its cost. |
+| **low** | Static analysis (typecheck + lint) suffices | A docs/config/rename-only edit has near-zero blast radius; a test ceremony is pure overhead. |
+| **medium** | Scoped tests + the \`check_test_adequacy\` kill-probe | The kill-probe recaptures test-first's one real guarantee — that a test can actually fail — at lower cost, judged test-after instead of mandating a failing test first on every commit. |
+| **high** | The integration suite (and mutation-adequacy at the boundary) on top of medium | Schema/type/API/shared-contract surfaces span the codebase; here adequacy-judged coverage plus real-collaborator integration across the seam earns its cost. |
 
 The planner stamps each task's \`riskTier\` (and \`boundaryTouching\`); the classifier derives it from blast radius when the planner does not override. The dispatched implementer prompt and the gate sequence both scale off that stamp — so the verification effort is data-driven, not a blanket rule.
 
-For a **high-tier** task, the discipline is:
-1. Start with writing a failing test
-2. Specify the expected failure reason
-3. Only then implement minimum code to pass
+For a **high-tier** task, the discipline is **outcome-based** (write the behavior and its tests in whatever order is natural — test-after is fine):
+1. Cover the new/changed behavior with scoped tests that pin its contract
+2. Let the \`check_test_adequacy\` kill-probe prove the tests can actually fail (it reverts your source and asserts at least one test goes red)
+3. Add real-collaborator integration coverage across the seam
 
-**Verify high-tier TDD compliance** in git history after implementation:
+**Verify high-tier test adequacy** after implementation — the keeper gate (the test-FIRST ordering gate \`check_tdd_compliance\` was retired in #1587):
 
 \`\`\`typescript
 exarchos_orchestrate({
-  action: "check_tdd_compliance",
+  action: "check_test_adequacy",
   featureId: "<featureId>",
   taskId: "<taskId>",
-  branch: "feature/<name>"
+  branch: "feature/<name>",
+  riskTier: "high"
 })
 \`\`\`
 
-- **\`passed: true\`** — All commits have test files before or alongside implementation
-- **\`passed: false\`** — Violations found; commits have implementation without corresponding tests
+- **\`passed: true\`** — Reverting the task's source makes at least one new/changed test fail: the tests are not vacuous
+- **\`passed: false\`** — A test still passes against the reverted source; strengthen it
 
 ## Planning Process
 
@@ -17411,12 +17457,13 @@ For reference, consult \`references/spec-tracing-guide.md\` for the underlying m
 
 | Don't | Do Instead |
 |-------|------------|
-| Write implementation first | Write failing test first |
+| Ship medium/high-tier behavior with no tests | Cover it with adequacy-judged tests (test-after is fine) |
+| Mandate red-green-refactor on every task | Scale verification to the task's \`riskTier\`; RGR is a high-tier opt-in |
 | Create large tasks | Break into 2-5 min chunks |
 | Skip dependency analysis | Identify parallel opportunities |
 | Vague test descriptions | Specific: Method_Scenario_Outcome |
-| Assume tests pass | Verify each test fails first |
-| Add "nice to have" code | Only what the test requires |
+| Assume your tests can fail | Let \`check_test_adequacy\` prove they can (revert source, re-run, expect red) |
+| Add "nice to have" code | Only what the behavior requires |
 
 ## Rationalization Debunking
 
@@ -17459,7 +17506,7 @@ for orchestrate action schemas.
 - [ ] Spec traceability table created (\`exarchos_orchestrate({ action: "generate_traceability" })\`)
 - [ ] Scope declared (full or partial with rationale)
 - [ ] Tasks decomposed to 2-5 min granularity
-- [ ] Each task carries a \`riskTier\` (and \`boundaryTouching\`) stamp; high-tier tasks start with a failing test
+- [ ] Each task carries a \`riskTier\` (and \`boundaryTouching\`) stamp; medium/high-tier tasks carry adequacy-judged tests (test-after), high-tier adds the integration suite
 - [ ] Dependencies mapped
 - [ ] Parallel groups identified
 - [ ] Plan verification passed — \`exarchos_orchestrate({ action: "check_plan_coverage" })\` returns passed: true
@@ -17920,8 +17967,8 @@ Reach for oneshot when **all** of the following are true:
 
 - The change is bounded — typically a single file, or a tightly-coupled
   cluster of 2-3 files
-- No subagent dispatch is needed — the work fits comfortably in one TDD
-  loop in a single session
+- No subagent dispatch is needed — the work fits comfortably in a single
+  in-session implement-and-verify loop
 - No design document is required — the goal is obvious from the task
   description, and a one-page plan is enough scaffolding
 - No two-stage review is required — either the change is trivial enough
@@ -17991,7 +18038,7 @@ pure functions of \`state.oneshot.synthesisPolicy\` and the
 | Phase | What happens | Exit criteria |
 |---|---|---|
 | \`plan\` | Lightweight one-page plan: goal, approach, files to touch, tests to add. No design doc. No subagent dispatch. | \`artifacts.plan\` set → transition to \`implementing\` |
-| \`implementing\` | In-session loop, verification scaled to risk. Defaults to the low tier (static analysis suffices); higher-blast changes get the failing-test-first red-green-refactor discipline. Commit as you go. | Tests pass + typecheck clean + finalize_oneshot called |
+| \`implementing\` | In-session loop, verification scaled to risk. Defaults to the low tier (static analysis suffices); higher-blast changes add tests covering the changed behavior (test-after) under the \`check_test_adequacy\` kill-probe. Commit as you go. | Tests pass + typecheck clean + finalize_oneshot called |
 | \`synthesize\` | Reached **only** when \`synthesisOptedIn\` is true. Hands off to the existing synthesis flow — see \`@skills/synthesis/SKILL.md\`. PR created via \`exarchos_orchestrate({ action: "create_pr" })\`, auto-merge enabled, CI gates apply. | PR merged → \`completed\` |
 | \`completed\` | Terminal. For direct-commit path, commits are already on the branch — there's nothing more to do. For synthesize path, the PR merge event terminates the workflow. | — |
 
@@ -18060,26 +18107,30 @@ Run an in-session loop, with verification scaled to the change's risk (the
 ladder in \`@skills/_shared/references/verification.md\`). A oneshot defaults to
 the **low tier** — static analysis suffices for a trivial fix. When the change
 touches a higher-blast surface (schema/type/API/shared contract, or it crosses
-an I/O boundary), it is a higher-tier task and gets the failing-test-first
-discipline.
+an I/O boundary), it is a higher-tier task: cover the new/changed behavior with
+tests (test-after is fine) and expect the \`check_test_adequacy\` kill-probe to
+reject tests that cannot actually fail.
 
 For each higher-tier behavior in the plan:
 
-1. **[RED]** Write a failing test. Run the test. Confirm it fails for
-   the right reason.
-2. **[GREEN]** Write the minimum production code to make the test pass.
-   Run the test. Confirm it passes.
-3. **[REFACTOR]** Clean up while keeping the test green.
+1. Implement the behavior.
+2. Add the tests its tier requires (scoped tests for the change; an integration
+   test across the seam at high tier), named \`Method_Scenario_Outcome\`.
+3. Refactor while the tests stay green.
 
-Commit each red-green-refactor cycle as a single commit. Do not batch
+Granular per-behavior red-green is available as an explicit opt-in, never a
+requirement.
+
+Commit each logical change as a single atomic commit. Do not batch
 multiple unrelated changes into one commit — keeping commits atomic
 matters even more in oneshot, where there's no separate review phase
 to catch bundled changes.
 
 There is **no subagent dispatch** in oneshot. The main agent does the
 work directly. There is **no separate review phase**. Quality is
-maintained by the TDD loop and (if the user opts in) the synthesize PR
-review.
+maintained by the tier-scaled verification (static analysis plus, above the
+low tier, the \`check_test_adequacy\` kill-probe) and (if the user opts in)
+the synthesize PR review.
 
 #### Mid-workflow: opting in to a PR
 
@@ -18204,10 +18255,9 @@ Agent:
          "oneshot.planSummary": "..."
        }
      }
-  4. [RED] writes test that greps README for 'recieve' and expects 0 matches
-        — fails (1 match exists)
-  5. [GREEN] edits README, fixes typo
-        — test passes
+  4. edits README, fixes typo (low tier — a docs one-liner; static analysis
+        suffices, no test-first ceremony)
+  5. verifies: greps README for 'recieve' → 0 matches
   6. git commit -m "docs: fix 'recieve' typo in README"
   7. exarchos_orchestrate finalize_oneshot { featureId: "fix-readme-typo" }
      → guard sees policy='on-request' + no synthesize.requested event
@@ -18226,9 +18276,9 @@ Agent:
      → 'plan' phase, default 'on-request'
   2. plans (goal: validate input, files: [parser.ts, parser.test.ts])
   3. transitions to 'implementing'
-  4. [RED] writes test for null-input case
-  5. [GREEN] adds null check
-  6. [REFACTOR] extracts validateInput helper
+  4. adds the null-input validation to parseConfig
+  5. adds a test for the null-input case (test-after)
+  6. refactors: extracts validateInput helper (tests stay green)
   7. commits
 
 User: "Actually, this is touching the parser — I want a review on it before
@@ -18257,7 +18307,7 @@ Agent:
        workflowType: "oneshot",
        synthesisPolicy: "always"
      }
-  2-7. plan + TDD + commits, identical to Example A
+  2-7. plan + implement + verify + commits, identical to Example A
   8. exarchos_orchestrate finalize_oneshot { featureId }
      → guard sees policy='always' (short-circuits — no event check needed)
      → resolves to 'synthesize'
@@ -18332,9 +18382,9 @@ risk signals say otherwise*. Specifically:
 - A low-risk change (docs/config/rename-only, near-zero blast radius) needs only
   static analysis to pass; add a focused test only if behavior is non-obvious.
 - If the change touches a higher-blast surface (schema/type/API/shared contract,
-  or it crosses an I/O boundary), it is **not** a low-tier task: write the failing
-  test first and follow red-green-refactor, and expect the \`check_test_adequacy\`
-  kill-probe to flag tests that cannot actually fail.
+  or it crosses an I/O boundary), it is **not** a low-tier task: cover the
+  new/changed behavior with tests (test-after is fine), and expect the
+  \`check_test_adequacy\` kill-probe to flag tests that cannot actually fail.
 - Commits stay atomic — one logical change per commit, regardless of tier.
 
 The temptation in a oneshot is to assume *everything* is "just one line" and skip
@@ -18347,8 +18397,8 @@ full feature ceremony on a trivial edit.
 | Don't | Do Instead |
 |-------|------------|
 | Skip the plan phase ("it's obvious") | Write the four-line plan anyway — it's the artifact future-you reads |
-| Apply full RED → GREEN → REFACTOR to a trivial one-liner | Match verification to risk: low-tier leans on static analysis; reserve test-first for higher-blast changes |
-| Skip verification entirely because "it's a oneshot" | Even low-tier must pass static analysis; higher-blast changes still need the failing test first |
+| Apply full red-green-refactor ceremony to a trivial one-liner | Match verification to risk: low-tier leans on static analysis; higher-blast changes add tests covering the changed behavior |
+| Skip verification entirely because "it's a oneshot" | Even low-tier must pass static analysis; higher-blast changes still need tests covering the changed behavior |
 | Use oneshot for multi-file refactors | Use \`ideate\` and the full feature workflow |
 | Try to grow a oneshot into a feature workflow mid-stream | Cancel and restart with \`ideate\` |
 | Call \`request_synthesize\` without listening for the user's intent | Wait for the user to ask for a PR, then call it |
@@ -18360,7 +18410,7 @@ full feature ceremony on a trivial edit.
 - [ ] \`exarchos_workflow init\` called with \`workflowType: "oneshot"\`
 - [ ] One-page plan persisted to \`artifacts.plan\`
 - [ ] Phase transitioned to \`implementing\`
-- [ ] All planned behaviors implemented via TDD with atomic commits
+- [ ] All planned behaviors implemented and verified to their risk tier, with atomic commits
 - [ ] \`finalize_oneshot\` called and resolved to either \`completed\` or \`synthesize\`
 - [ ] If direct-commit path: commits pushed
 - [ ] If synthesize path: PR created via \`@skills/synthesis/SKILL.md\` and merged
@@ -18769,7 +18819,7 @@ This enables catching:
 
 **Does NOT re-check:**
 - Functional completeness (spec review)
-- TDD compliance (spec review)
+- Test adequacy (spec review)
 
 ## Review Process
 
@@ -18882,10 +18932,11 @@ After the quality-review fix loop completes and quality passes, re-verify that t
    \`\`\`
    \`\`\`typescript
    exarchos_orchestrate({
-     action: "check_tdd_compliance",
+     action: "check_test_adequacy",
      featureId: "<featureId>",
      taskId: "<taskId>",
-     branch: "<branch>"
+     branch: "<branch>",
+     riskTier: "<low|medium|high>"
    })
    \`\`\`
 2. If all pass: proceed to APPROVED transition
@@ -19565,7 +19616,7 @@ After approval is granted and PRs merge, run \`cleanup\` to resolve the workflow
 exports[`task 025 — per-runtime snapshot baselines > runtime: cursor > Snapshots_AllSkillsAllRuntimes_MatchBaseline: skills/cursor/spec-review/SKILL.md > skills/cursor/spec-review/SKILL.md 1`] = `
 "---
 name: spec-review
-description: "Stage 1 spec compliance review. Triggers: /review stage 1. Verifies implementation matches design specification — functional completeness, TDD compliance, and test coverage. Do NOT use for code quality checks — use quality-review instead. Do NOT use for debugging."
+description: "Stage 1 spec compliance review. Triggers: /review stage 1. Verifies implementation matches design specification — functional completeness, test adequacy, and test coverage. Do NOT use for code quality checks — use quality-review instead. Do NOT use for debugging."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -19660,7 +19711,7 @@ This enables catching:
 
 **Spec Review focuses on:**
 - Functional completeness
-- TDD compliance
+- Test adequacy (outcome-based, tier-scaled — not test-first ordering)
 - Specification alignment
 - Test coverage
 
@@ -19683,10 +19734,11 @@ npm run typecheck
 
 \`\`\`typescript
 exarchos_orchestrate({
-  action: "check_tdd_compliance",
+  action: "check_test_adequacy",
   featureId: "<featureId>",
   taskId: "<taskId>",
-  branch: "<branch>"
+  branch: "<branch>",
+  riskTier: "<low|medium|high>"
 })
 \`\`\`
 
@@ -19801,7 +19853,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
-\`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis"] })\`
+\`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis"] })\`
 for orchestrate action schemas.
 
 ## Transition
@@ -19849,14 +19901,14 @@ This is NOT a human checkpoint - workflow continues autonomously.
 |-------|-------|------------|
 | Test file not found | Task didn't create expected test | Check plan for test file paths, verify worktree contents |
 | Coverage below threshold | Implementation incomplete or tests superficial | Add missing test cases, verify assertions are meaningful |
-| TDD compliance check fails | Implementation committed before tests | Check git log order — test commits must precede or accompany implementation |
+| Test-adequacy kill-probe fails | A new/changed test still passes against reverted source (vacuous) | Strengthen the test so reverting the implementation makes it fail |
 | Diff too large for context | Many tasks with large changes | Generate per-worktree diffs with \`exarchos_orchestrate({ action: "review_diff", worktreePath: "<task-worktree>" })\` to review incrementally |
 
 ## Performance Notes
 
 - Use the integrated diff (\`exarchos_orchestrate({ action: "review_diff" })\`) instead of reading full files — reduces context by 80-90%
 - Review per-task when the combined diff exceeds 2,000 lines
-- Run TDD compliance check (\`exarchos_orchestrate({ action: "check_tdd_compliance" })\`) in parallel with spec tracing
+- Run the test-adequacy kill-probe (\`exarchos_orchestrate({ action: "check_test_adequacy" })\`) in parallel with spec tracing
 "
 `;
 
@@ -21410,6 +21462,12 @@ For each task:
 4. Include PBT section from \`references/pbt-patterns.md\` when \`propertyTests: true\`
 5. Include testing patterns from \`references/testing-patterns.md\`
 
+### Tier-selected verification note — dispatch the rendered prompt (#1586)
+
+\`prepare_delegation\` resolves each task's risk tier and returns a **per-task rendered prompt** on its classification: \`taskClassifications[i].implementerPrompt\`. This is the implementer system prompt with the verification note already selected for that task's \`riskTier\`/\`boundaryTouching\` — a low-tier task carries a terse static-analysis steer, a high-tier task carries the test-after + integration-suite rung.
+
+**Dispatch THAT prompt — not the static agent default.** The shipped \`agents/implementer.md\` bakes a fixed medium-tier note (a self-contained fallback for runtimes that pre-bind a named agent). Use it verbatim only when no classification exists (e.g. a fixer dispatch). Otherwise, the orchestrator's dispatch payload must be built from \`taskClassifications[i].implementerPrompt\`, then fill its \`taskDescription\` / \`requirements\` / \`filePaths\` placeholders (the same template slots in \`references/implementer-prompt.md\`) with the task-specific context above. Dispatching the static default instead re-imposes medium-RGR ceremony on every task regardless of tier — the exact gap this seam closes. The tier is pure data from the classification stamp; no workflow-type branching is involved.
+
 ### Decision Runbooks
 
 For dispatch strategy decisions, query the decision runbook:
@@ -21439,13 +21497,13 @@ After each subagent reports completion:
 > \`exarchos_orchestrate({ action: "runbook", id: "task-completion" })\`
 > Execute the returned steps in order. Stop on gate failure.
 > If the runbook action is unavailable, use \`describe\` to retrieve gate schemas and run manually:
-> \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis", "task_complete"] })\`
+> \`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })\`
 
 1. **Extract provenance from subagent report** — parse the subagent's completion output and extract structured provenance fields (\`implements\`, \`tests\`, \`files\`). These fields are reported by the subagent following the Provenance Reporting section of the implementer prompt.
 
 2. **Verify worktree state** — confirm each worktree has clean \`git status\` and passing tests
 
-3. **Run blocking gates** — the \`task-completion\` runbook (referenced above) defines the exact gate sequence (TDD compliance, static analysis, then task_complete). On any gate failure, keep the task in-progress and report findings. All gate handlers auto-emit \`gate.executed\` events, so manual \`exarchos_event\` calls are not needed.
+3. **Run blocking gates** — the \`task-completion\` runbook (referenced above) defines the exact gate sequence (test adequacy, static analysis, then task_complete). On any gate failure, keep the task in-progress and report findings. All gate handlers auto-emit \`gate.executed\` events, so manual \`exarchos_event\` calls are not needed.
 
 5. **Pass provenance in task completion** — when marking a task complete, pass the extracted provenance fields in the \`result\` parameter so they flow into the \`task.completed\` event:
 
@@ -21501,7 +21559,7 @@ Execute each task sequentially in the current session, one at a time, against th
 
 After fix completes, run the \`task-fix\` runbook gate chain:
 \`exarchos_orchestrate({ action: "runbook", id: "task-fix" })\`
-If runbook unavailable, use \`describe\` to retrieve gate schemas: \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis", "task_complete"] })\`
+If runbook unavailable, use \`describe\` to retrieve gate schemas: \`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })\`
 
 ---
 
@@ -21580,7 +21638,7 @@ This detour is invisible to the delegation skill itself — the all-tasks-comple
 Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
-\`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "task_complete"] })\`
+\`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "task_complete"] })\`
 for orchestrate action schemas.
 
 ---
@@ -21739,8 +21797,8 @@ metadata:
 
 # Discovery Workflow Skill
 
-A workflow type for tasks whose deliverable is a **document, not code**. Explicitly
-exempt from the Iron Law (no failing test requirement) because there is nothing to test.
+A workflow type for tasks whose deliverable is a **document, not code**. It carries
+no verification gates (nothing to test), so the verification ladder does not apply.
 
 ## When to Use
 
@@ -22277,7 +22335,7 @@ For worktree cleanup:
 exports[`task 025 — per-runtime snapshot baselines > runtime: generic > Snapshots_AllSkillsAllRuntimes_MatchBaseline: skills/generic/implementation-planning/SKILL.md > skills/generic/implementation-planning/SKILL.md 1`] = `
 "---
 name: implementation-planning
-description: "Transform design documents into implementation plans with parallelizable tasks. Triggers: 'plan implementation', 'create tasks from design', or /plan. Applies the verification ladder: verification depth matches each task's blast radius — static analysis for low-risk tasks, scoped tests plus a kill-probe for medium, full red-green-refactor for high-risk surfaces. Requires an existing design document — use /ideate first if none exists. Do NOT use for brainstorming, debugging, or code review."
+description: "Transform design documents into implementation plans with parallelizable tasks. Triggers: 'plan implementation', 'create tasks from design', or /plan. Applies the verification ladder: verification depth matches each task's blast radius — static analysis for low-risk tasks, scoped tests plus a kill-probe for medium, the integration suite on top for high-risk surfaces (judged test-after, not test-first ordering). Requires an existing design document — use /ideate first if none exists. Do NOT use for brainstorming, debugging, or code review."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -22321,34 +22379,35 @@ After 3 failed revisions:
 
 ## The Verification Ladder
 
-Verification depth matches blast radius — red-green-refactor is the **HIGH-tier path**, not a universal law. Each task gets the cheapest verification that still captures its risk:
+Verification depth matches blast radius. The deeper rungs add tests, an adequacy kill-probe, and integration coverage — judged by **outcome, test-after**, not by a universal failing-test-first law (#1587). Each task gets the cheapest verification that still captures its risk:
 
 | Risk tier | What it adds | Why |
 |-----------|--------------|-----|
-| **low** | Static analysis (typecheck + lint) suffices | A docs/config/rename-only edit has near-zero blast radius; test-first ceremony is pure overhead. |
-| **medium** | Scoped tests + the \`check_test_adequacy\` kill-probe | The kill-probe recaptures test-first's unique guarantee — that a test can actually fail — at lower cost than mandating RED-first on every commit. |
-| **high** | Full red-green-refactor + the integration suite | Schema/type/API/shared-contract surfaces span the codebase; here the failing-test-first discipline earns its cost. |
+| **low** | Static analysis (typecheck + lint) suffices | A docs/config/rename-only edit has near-zero blast radius; a test ceremony is pure overhead. |
+| **medium** | Scoped tests + the \`check_test_adequacy\` kill-probe | The kill-probe recaptures test-first's one real guarantee — that a test can actually fail — at lower cost, judged test-after instead of mandating a failing test first on every commit. |
+| **high** | The integration suite (and mutation-adequacy at the boundary) on top of medium | Schema/type/API/shared-contract surfaces span the codebase; here adequacy-judged coverage plus real-collaborator integration across the seam earns its cost. |
 
 The planner stamps each task's \`riskTier\` (and \`boundaryTouching\`); the classifier derives it from blast radius when the planner does not override. The dispatched implementer prompt and the gate sequence both scale off that stamp — so the verification effort is data-driven, not a blanket rule.
 
-For a **high-tier** task, the discipline is:
-1. Start with writing a failing test
-2. Specify the expected failure reason
-3. Only then implement minimum code to pass
+For a **high-tier** task, the discipline is **outcome-based** (write the behavior and its tests in whatever order is natural — test-after is fine):
+1. Cover the new/changed behavior with scoped tests that pin its contract
+2. Let the \`check_test_adequacy\` kill-probe prove the tests can actually fail (it reverts your source and asserts at least one test goes red)
+3. Add real-collaborator integration coverage across the seam
 
-**Verify high-tier TDD compliance** in git history after implementation:
+**Verify high-tier test adequacy** after implementation — the keeper gate (the test-FIRST ordering gate \`check_tdd_compliance\` was retired in #1587):
 
 \`\`\`typescript
 exarchos_orchestrate({
-  action: "check_tdd_compliance",
+  action: "check_test_adequacy",
   featureId: "<featureId>",
   taskId: "<taskId>",
-  branch: "feature/<name>"
+  branch: "feature/<name>",
+  riskTier: "high"
 })
 \`\`\`
 
-- **\`passed: true\`** — All commits have test files before or alongside implementation
-- **\`passed: false\`** — Violations found; commits have implementation without corresponding tests
+- **\`passed: true\`** — Reverting the task's source makes at least one new/changed test fail: the tests are not vacuous
+- **\`passed: false\`** — A test still passes against the reverted source; strengthen it
 
 ## Planning Process
 
@@ -22477,12 +22536,13 @@ For reference, consult \`references/spec-tracing-guide.md\` for the underlying m
 
 | Don't | Do Instead |
 |-------|------------|
-| Write implementation first | Write failing test first |
+| Ship medium/high-tier behavior with no tests | Cover it with adequacy-judged tests (test-after is fine) |
+| Mandate red-green-refactor on every task | Scale verification to the task's \`riskTier\`; RGR is a high-tier opt-in |
 | Create large tasks | Break into 2-5 min chunks |
 | Skip dependency analysis | Identify parallel opportunities |
 | Vague test descriptions | Specific: Method_Scenario_Outcome |
-| Assume tests pass | Verify each test fails first |
-| Add "nice to have" code | Only what the test requires |
+| Assume your tests can fail | Let \`check_test_adequacy\` prove they can (revert source, re-run, expect red) |
+| Add "nice to have" code | Only what the behavior requires |
 
 ## Rationalization Debunking
 
@@ -22525,7 +22585,7 @@ for orchestrate action schemas.
 - [ ] Spec traceability table created (\`exarchos_orchestrate({ action: "generate_traceability" })\`)
 - [ ] Scope declared (full or partial with rationale)
 - [ ] Tasks decomposed to 2-5 min granularity
-- [ ] Each task carries a \`riskTier\` (and \`boundaryTouching\`) stamp; high-tier tasks start with a failing test
+- [ ] Each task carries a \`riskTier\` (and \`boundaryTouching\`) stamp; medium/high-tier tasks carry adequacy-judged tests (test-after), high-tier adds the integration suite
 - [ ] Dependencies mapped
 - [ ] Parallel groups identified
 - [ ] Plan verification passed — \`exarchos_orchestrate({ action: "check_plan_coverage" })\` returns passed: true
@@ -22986,8 +23046,8 @@ Reach for oneshot when **all** of the following are true:
 
 - The change is bounded — typically a single file, or a tightly-coupled
   cluster of 2-3 files
-- No subagent dispatch is needed — the work fits comfortably in one TDD
-  loop in a single session
+- No subagent dispatch is needed — the work fits comfortably in a single
+  in-session implement-and-verify loop
 - No design document is required — the goal is obvious from the task
   description, and a one-page plan is enough scaffolding
 - No two-stage review is required — either the change is trivial enough
@@ -23057,7 +23117,7 @@ pure functions of \`state.oneshot.synthesisPolicy\` and the
 | Phase | What happens | Exit criteria |
 |---|---|---|
 | \`plan\` | Lightweight one-page plan: goal, approach, files to touch, tests to add. No design doc. No subagent dispatch. | \`artifacts.plan\` set → transition to \`implementing\` |
-| \`implementing\` | In-session loop, verification scaled to risk. Defaults to the low tier (static analysis suffices); higher-blast changes get the failing-test-first red-green-refactor discipline. Commit as you go. | Tests pass + typecheck clean + finalize_oneshot called |
+| \`implementing\` | In-session loop, verification scaled to risk. Defaults to the low tier (static analysis suffices); higher-blast changes add tests covering the changed behavior (test-after) under the \`check_test_adequacy\` kill-probe. Commit as you go. | Tests pass + typecheck clean + finalize_oneshot called |
 | \`synthesize\` | Reached **only** when \`synthesisOptedIn\` is true. Hands off to the existing synthesis flow — see \`@skills/synthesis/SKILL.md\`. PR created via \`exarchos_orchestrate({ action: "create_pr" })\`, auto-merge enabled, CI gates apply. | PR merged → \`completed\` |
 | \`completed\` | Terminal. For direct-commit path, commits are already on the branch — there's nothing more to do. For synthesize path, the PR merge event terminates the workflow. | — |
 
@@ -23126,26 +23186,30 @@ Run an in-session loop, with verification scaled to the change's risk (the
 ladder in \`@skills/_shared/references/verification.md\`). A oneshot defaults to
 the **low tier** — static analysis suffices for a trivial fix. When the change
 touches a higher-blast surface (schema/type/API/shared contract, or it crosses
-an I/O boundary), it is a higher-tier task and gets the failing-test-first
-discipline.
+an I/O boundary), it is a higher-tier task: cover the new/changed behavior with
+tests (test-after is fine) and expect the \`check_test_adequacy\` kill-probe to
+reject tests that cannot actually fail.
 
 For each higher-tier behavior in the plan:
 
-1. **[RED]** Write a failing test. Run the test. Confirm it fails for
-   the right reason.
-2. **[GREEN]** Write the minimum production code to make the test pass.
-   Run the test. Confirm it passes.
-3. **[REFACTOR]** Clean up while keeping the test green.
+1. Implement the behavior.
+2. Add the tests its tier requires (scoped tests for the change; an integration
+   test across the seam at high tier), named \`Method_Scenario_Outcome\`.
+3. Refactor while the tests stay green.
 
-Commit each red-green-refactor cycle as a single commit. Do not batch
+Granular per-behavior red-green is available as an explicit opt-in, never a
+requirement.
+
+Commit each logical change as a single atomic commit. Do not batch
 multiple unrelated changes into one commit — keeping commits atomic
 matters even more in oneshot, where there's no separate review phase
 to catch bundled changes.
 
 There is **no subagent dispatch** in oneshot. The main agent does the
 work directly. There is **no separate review phase**. Quality is
-maintained by the TDD loop and (if the user opts in) the synthesize PR
-review.
+maintained by the tier-scaled verification (static analysis plus, above the
+low tier, the \`check_test_adequacy\` kill-probe) and (if the user opts in)
+the synthesize PR review.
 
 #### Mid-workflow: opting in to a PR
 
@@ -23270,10 +23334,9 @@ Agent:
          "oneshot.planSummary": "..."
        }
      }
-  4. [RED] writes test that greps README for 'recieve' and expects 0 matches
-        — fails (1 match exists)
-  5. [GREEN] edits README, fixes typo
-        — test passes
+  4. edits README, fixes typo (low tier — a docs one-liner; static analysis
+        suffices, no test-first ceremony)
+  5. verifies: greps README for 'recieve' → 0 matches
   6. git commit -m "docs: fix 'recieve' typo in README"
   7. exarchos_orchestrate finalize_oneshot { featureId: "fix-readme-typo" }
      → guard sees policy='on-request' + no synthesize.requested event
@@ -23292,9 +23355,9 @@ Agent:
      → 'plan' phase, default 'on-request'
   2. plans (goal: validate input, files: [parser.ts, parser.test.ts])
   3. transitions to 'implementing'
-  4. [RED] writes test for null-input case
-  5. [GREEN] adds null check
-  6. [REFACTOR] extracts validateInput helper
+  4. adds the null-input validation to parseConfig
+  5. adds a test for the null-input case (test-after)
+  6. refactors: extracts validateInput helper (tests stay green)
   7. commits
 
 User: "Actually, this is touching the parser — I want a review on it before
@@ -23323,7 +23386,7 @@ Agent:
        workflowType: "oneshot",
        synthesisPolicy: "always"
      }
-  2-7. plan + TDD + commits, identical to Example A
+  2-7. plan + implement + verify + commits, identical to Example A
   8. exarchos_orchestrate finalize_oneshot { featureId }
      → guard sees policy='always' (short-circuits — no event check needed)
      → resolves to 'synthesize'
@@ -23398,9 +23461,9 @@ risk signals say otherwise*. Specifically:
 - A low-risk change (docs/config/rename-only, near-zero blast radius) needs only
   static analysis to pass; add a focused test only if behavior is non-obvious.
 - If the change touches a higher-blast surface (schema/type/API/shared contract,
-  or it crosses an I/O boundary), it is **not** a low-tier task: write the failing
-  test first and follow red-green-refactor, and expect the \`check_test_adequacy\`
-  kill-probe to flag tests that cannot actually fail.
+  or it crosses an I/O boundary), it is **not** a low-tier task: cover the
+  new/changed behavior with tests (test-after is fine), and expect the
+  \`check_test_adequacy\` kill-probe to flag tests that cannot actually fail.
 - Commits stay atomic — one logical change per commit, regardless of tier.
 
 The temptation in a oneshot is to assume *everything* is "just one line" and skip
@@ -23413,8 +23476,8 @@ full feature ceremony on a trivial edit.
 | Don't | Do Instead |
 |-------|------------|
 | Skip the plan phase ("it's obvious") | Write the four-line plan anyway — it's the artifact future-you reads |
-| Apply full RED → GREEN → REFACTOR to a trivial one-liner | Match verification to risk: low-tier leans on static analysis; reserve test-first for higher-blast changes |
-| Skip verification entirely because "it's a oneshot" | Even low-tier must pass static analysis; higher-blast changes still need the failing test first |
+| Apply full red-green-refactor ceremony to a trivial one-liner | Match verification to risk: low-tier leans on static analysis; higher-blast changes add tests covering the changed behavior |
+| Skip verification entirely because "it's a oneshot" | Even low-tier must pass static analysis; higher-blast changes still need tests covering the changed behavior |
 | Use oneshot for multi-file refactors | Use \`ideate\` and the full feature workflow |
 | Try to grow a oneshot into a feature workflow mid-stream | Cancel and restart with \`ideate\` |
 | Call \`request_synthesize\` without listening for the user's intent | Wait for the user to ask for a PR, then call it |
@@ -23426,7 +23489,7 @@ full feature ceremony on a trivial edit.
 - [ ] \`exarchos_workflow init\` called with \`workflowType: "oneshot"\`
 - [ ] One-page plan persisted to \`artifacts.plan\`
 - [ ] Phase transitioned to \`implementing\`
-- [ ] All planned behaviors implemented via TDD with atomic commits
+- [ ] All planned behaviors implemented and verified to their risk tier, with atomic commits
 - [ ] \`finalize_oneshot\` called and resolved to either \`completed\` or \`synthesize\`
 - [ ] If direct-commit path: commits pushed
 - [ ] If synthesize path: PR created via \`@skills/synthesis/SKILL.md\` and merged
@@ -23835,7 +23898,7 @@ This enables catching:
 
 **Does NOT re-check:**
 - Functional completeness (spec review)
-- TDD compliance (spec review)
+- Test adequacy (spec review)
 
 ## Review Process
 
@@ -23948,10 +24011,11 @@ After the quality-review fix loop completes and quality passes, re-verify that t
    \`\`\`
    \`\`\`typescript
    exarchos_orchestrate({
-     action: "check_tdd_compliance",
+     action: "check_test_adequacy",
      featureId: "<featureId>",
      taskId: "<taskId>",
-     branch: "<branch>"
+     branch: "<branch>",
+     riskTier: "<low|medium|high>"
    })
    \`\`\`
 2. If all pass: proceed to APPROVED transition
@@ -24631,7 +24695,7 @@ After approval is granted and PRs merge, run \`cleanup\` to resolve the workflow
 exports[`task 025 — per-runtime snapshot baselines > runtime: generic > Snapshots_AllSkillsAllRuntimes_MatchBaseline: skills/generic/spec-review/SKILL.md > skills/generic/spec-review/SKILL.md 1`] = `
 "---
 name: spec-review
-description: "Stage 1 spec compliance review. Triggers: /review stage 1. Verifies implementation matches design specification — functional completeness, TDD compliance, and test coverage. Do NOT use for code quality checks — use quality-review instead. Do NOT use for debugging."
+description: "Stage 1 spec compliance review. Triggers: /review stage 1. Verifies implementation matches design specification — functional completeness, test adequacy, and test coverage. Do NOT use for code quality checks — use quality-review instead. Do NOT use for debugging."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -24726,7 +24790,7 @@ This enables catching:
 
 **Spec Review focuses on:**
 - Functional completeness
-- TDD compliance
+- Test adequacy (outcome-based, tier-scaled — not test-first ordering)
 - Specification alignment
 - Test coverage
 
@@ -24749,10 +24813,11 @@ npm run typecheck
 
 \`\`\`typescript
 exarchos_orchestrate({
-  action: "check_tdd_compliance",
+  action: "check_test_adequacy",
   featureId: "<featureId>",
   taskId: "<taskId>",
-  branch: "<branch>"
+  branch: "<branch>",
+  riskTier: "<low|medium|high>"
 })
 \`\`\`
 
@@ -24867,7 +24932,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
-\`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis"] })\`
+\`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis"] })\`
 for orchestrate action schemas.
 
 ## Transition
@@ -24915,14 +24980,14 @@ This is NOT a human checkpoint - workflow continues autonomously.
 |-------|-------|------------|
 | Test file not found | Task didn't create expected test | Check plan for test file paths, verify worktree contents |
 | Coverage below threshold | Implementation incomplete or tests superficial | Add missing test cases, verify assertions are meaningful |
-| TDD compliance check fails | Implementation committed before tests | Check git log order — test commits must precede or accompany implementation |
+| Test-adequacy kill-probe fails | A new/changed test still passes against reverted source (vacuous) | Strengthen the test so reverting the implementation makes it fail |
 | Diff too large for context | Many tasks with large changes | Generate per-worktree diffs with \`exarchos_orchestrate({ action: "review_diff", worktreePath: "<task-worktree>" })\` to review incrementally |
 
 ## Performance Notes
 
 - Use the integrated diff (\`exarchos_orchestrate({ action: "review_diff" })\`) instead of reading full files — reduces context by 80-90%
 - Review per-task when the combined diff exceeds 2,000 lines
-- Run TDD compliance check (\`exarchos_orchestrate({ action: "check_tdd_compliance" })\`) in parallel with spec tracing
+- Run the test-adequacy kill-probe (\`exarchos_orchestrate({ action: "check_test_adequacy" })\`) in parallel with spec tracing
 "
 `;
 
@@ -26485,6 +26550,12 @@ For each task:
 4. Include PBT section from \`references/pbt-patterns.md\` when \`propertyTests: true\`
 5. Include testing patterns from \`references/testing-patterns.md\`
 
+### Tier-selected verification note — dispatch the rendered prompt (#1586)
+
+\`prepare_delegation\` resolves each task's risk tier and returns a **per-task rendered prompt** on its classification: \`taskClassifications[i].implementerPrompt\`. This is the implementer system prompt with the verification note already selected for that task's \`riskTier\`/\`boundaryTouching\` — a low-tier task carries a terse static-analysis steer, a high-tier task carries the test-after + integration-suite rung.
+
+**Dispatch THAT prompt — not the static agent default.** The shipped \`agents/implementer.md\` bakes a fixed medium-tier note (a self-contained fallback for runtimes that pre-bind a named agent). Use it verbatim only when no classification exists (e.g. a fixer dispatch). Otherwise, the orchestrator's dispatch payload must be built from \`taskClassifications[i].implementerPrompt\`, then fill its \`taskDescription\` / \`requirements\` / \`filePaths\` placeholders (the same template slots in \`references/implementer-prompt.md\`) with the task-specific context above. Dispatching the static default instead re-imposes medium-RGR ceremony on every task regardless of tier — the exact gap this seam closes. The tier is pure data from the classification stamp; no workflow-type branching is involved.
+
 ### Decision Runbooks
 
 For dispatch strategy decisions, query the decision runbook:
@@ -26528,13 +26599,13 @@ After each subagent reports completion:
 > \`exarchos_orchestrate({ action: "runbook", id: "task-completion" })\`
 > Execute the returned steps in order. Stop on gate failure.
 > If the runbook action is unavailable, use \`describe\` to retrieve gate schemas and run manually:
-> \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis", "task_complete"] })\`
+> \`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })\`
 
 1. **Extract provenance from subagent report** — parse the subagent's completion output and extract structured provenance fields (\`implements\`, \`tests\`, \`files\`). These fields are reported by the subagent following the Provenance Reporting section of the implementer prompt.
 
 2. **Verify worktree state** — confirm each worktree has clean \`git status\` and passing tests
 
-3. **Run blocking gates** — the \`task-completion\` runbook (referenced above) defines the exact gate sequence (TDD compliance, static analysis, then task_complete). On any gate failure, keep the task in-progress and report findings. All gate handlers auto-emit \`gate.executed\` events, so manual \`exarchos_event\` calls are not needed.
+3. **Run blocking gates** — the \`task-completion\` runbook (referenced above) defines the exact gate sequence (test adequacy, static analysis, then task_complete). On any gate failure, keep the task in-progress and report findings. All gate handlers auto-emit \`gate.executed\` events, so manual \`exarchos_event\` calls are not needed.
 
 5. **Pass provenance in task completion** — when marking a task complete, pass the extracted provenance fields in the \`result\` parameter so they flow into the \`task.completed\` event:
 
@@ -26594,7 +26665,7 @@ Task({
 
 After fix completes, run the \`task-fix\` runbook gate chain:
 \`exarchos_orchestrate({ action: "runbook", id: "task-fix" })\`
-If runbook unavailable, use \`describe\` to retrieve gate schemas: \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis", "task_complete"] })\`
+If runbook unavailable, use \`describe\` to retrieve gate schemas: \`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })\`
 
 ---
 
@@ -26673,7 +26744,7 @@ This detour is invisible to the delegation skill itself — the all-tasks-comple
 Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
-\`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "task_complete"] })\`
+\`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "task_complete"] })\`
 for orchestrate action schemas.
 
 ---
@@ -26832,8 +26903,8 @@ metadata:
 
 # Discovery Workflow Skill
 
-A workflow type for tasks whose deliverable is a **document, not code**. Explicitly
-exempt from the Iron Law (no failing test requirement) because there is nothing to test.
+A workflow type for tasks whose deliverable is a **document, not code**. It carries
+no verification gates (nothing to test), so the verification ladder does not apply.
 
 ## When to Use
 
@@ -27370,7 +27441,7 @@ For worktree cleanup:
 exports[`task 025 — per-runtime snapshot baselines > runtime: opencode > Snapshots_AllSkillsAllRuntimes_MatchBaseline: skills/opencode/implementation-planning/SKILL.md > skills/opencode/implementation-planning/SKILL.md 1`] = `
 "---
 name: implementation-planning
-description: "Transform design documents into implementation plans with parallelizable tasks. Triggers: 'plan implementation', 'create tasks from design', or /plan. Applies the verification ladder: verification depth matches each task's blast radius — static analysis for low-risk tasks, scoped tests plus a kill-probe for medium, full red-green-refactor for high-risk surfaces. Requires an existing design document — use /ideate first if none exists. Do NOT use for brainstorming, debugging, or code review."
+description: "Transform design documents into implementation plans with parallelizable tasks. Triggers: 'plan implementation', 'create tasks from design', or /plan. Applies the verification ladder: verification depth matches each task's blast radius — static analysis for low-risk tasks, scoped tests plus a kill-probe for medium, the integration suite on top for high-risk surfaces (judged test-after, not test-first ordering). Requires an existing design document — use /ideate first if none exists. Do NOT use for brainstorming, debugging, or code review."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -27414,34 +27485,35 @@ After 3 failed revisions:
 
 ## The Verification Ladder
 
-Verification depth matches blast radius — red-green-refactor is the **HIGH-tier path**, not a universal law. Each task gets the cheapest verification that still captures its risk:
+Verification depth matches blast radius. The deeper rungs add tests, an adequacy kill-probe, and integration coverage — judged by **outcome, test-after**, not by a universal failing-test-first law (#1587). Each task gets the cheapest verification that still captures its risk:
 
 | Risk tier | What it adds | Why |
 |-----------|--------------|-----|
-| **low** | Static analysis (typecheck + lint) suffices | A docs/config/rename-only edit has near-zero blast radius; test-first ceremony is pure overhead. |
-| **medium** | Scoped tests + the \`check_test_adequacy\` kill-probe | The kill-probe recaptures test-first's unique guarantee — that a test can actually fail — at lower cost than mandating RED-first on every commit. |
-| **high** | Full red-green-refactor + the integration suite | Schema/type/API/shared-contract surfaces span the codebase; here the failing-test-first discipline earns its cost. |
+| **low** | Static analysis (typecheck + lint) suffices | A docs/config/rename-only edit has near-zero blast radius; a test ceremony is pure overhead. |
+| **medium** | Scoped tests + the \`check_test_adequacy\` kill-probe | The kill-probe recaptures test-first's one real guarantee — that a test can actually fail — at lower cost, judged test-after instead of mandating a failing test first on every commit. |
+| **high** | The integration suite (and mutation-adequacy at the boundary) on top of medium | Schema/type/API/shared-contract surfaces span the codebase; here adequacy-judged coverage plus real-collaborator integration across the seam earns its cost. |
 
 The planner stamps each task's \`riskTier\` (and \`boundaryTouching\`); the classifier derives it from blast radius when the planner does not override. The dispatched implementer prompt and the gate sequence both scale off that stamp — so the verification effort is data-driven, not a blanket rule.
 
-For a **high-tier** task, the discipline is:
-1. Start with writing a failing test
-2. Specify the expected failure reason
-3. Only then implement minimum code to pass
+For a **high-tier** task, the discipline is **outcome-based** (write the behavior and its tests in whatever order is natural — test-after is fine):
+1. Cover the new/changed behavior with scoped tests that pin its contract
+2. Let the \`check_test_adequacy\` kill-probe prove the tests can actually fail (it reverts your source and asserts at least one test goes red)
+3. Add real-collaborator integration coverage across the seam
 
-**Verify high-tier TDD compliance** in git history after implementation:
+**Verify high-tier test adequacy** after implementation — the keeper gate (the test-FIRST ordering gate \`check_tdd_compliance\` was retired in #1587):
 
 \`\`\`typescript
 exarchos_orchestrate({
-  action: "check_tdd_compliance",
+  action: "check_test_adequacy",
   featureId: "<featureId>",
   taskId: "<taskId>",
-  branch: "feature/<name>"
+  branch: "feature/<name>",
+  riskTier: "high"
 })
 \`\`\`
 
-- **\`passed: true\`** — All commits have test files before or alongside implementation
-- **\`passed: false\`** — Violations found; commits have implementation without corresponding tests
+- **\`passed: true\`** — Reverting the task's source makes at least one new/changed test fail: the tests are not vacuous
+- **\`passed: false\`** — A test still passes against the reverted source; strengthen it
 
 ## Planning Process
 
@@ -27570,12 +27642,13 @@ For reference, consult \`references/spec-tracing-guide.md\` for the underlying m
 
 | Don't | Do Instead |
 |-------|------------|
-| Write implementation first | Write failing test first |
+| Ship medium/high-tier behavior with no tests | Cover it with adequacy-judged tests (test-after is fine) |
+| Mandate red-green-refactor on every task | Scale verification to the task's \`riskTier\`; RGR is a high-tier opt-in |
 | Create large tasks | Break into 2-5 min chunks |
 | Skip dependency analysis | Identify parallel opportunities |
 | Vague test descriptions | Specific: Method_Scenario_Outcome |
-| Assume tests pass | Verify each test fails first |
-| Add "nice to have" code | Only what the test requires |
+| Assume your tests can fail | Let \`check_test_adequacy\` prove they can (revert source, re-run, expect red) |
+| Add "nice to have" code | Only what the behavior requires |
 
 ## Rationalization Debunking
 
@@ -27618,7 +27691,7 @@ for orchestrate action schemas.
 - [ ] Spec traceability table created (\`exarchos_orchestrate({ action: "generate_traceability" })\`)
 - [ ] Scope declared (full or partial with rationale)
 - [ ] Tasks decomposed to 2-5 min granularity
-- [ ] Each task carries a \`riskTier\` (and \`boundaryTouching\`) stamp; high-tier tasks start with a failing test
+- [ ] Each task carries a \`riskTier\` (and \`boundaryTouching\`) stamp; medium/high-tier tasks carry adequacy-judged tests (test-after), high-tier adds the integration suite
 - [ ] Dependencies mapped
 - [ ] Parallel groups identified
 - [ ] Plan verification passed — \`exarchos_orchestrate({ action: "check_plan_coverage" })\` returns passed: true
@@ -28079,8 +28152,8 @@ Reach for oneshot when **all** of the following are true:
 
 - The change is bounded — typically a single file, or a tightly-coupled
   cluster of 2-3 files
-- No subagent dispatch is needed — the work fits comfortably in one TDD
-  loop in a single session
+- No subagent dispatch is needed — the work fits comfortably in a single
+  in-session implement-and-verify loop
 - No design document is required — the goal is obvious from the task
   description, and a one-page plan is enough scaffolding
 - No two-stage review is required — either the change is trivial enough
@@ -28150,7 +28223,7 @@ pure functions of \`state.oneshot.synthesisPolicy\` and the
 | Phase | What happens | Exit criteria |
 |---|---|---|
 | \`plan\` | Lightweight one-page plan: goal, approach, files to touch, tests to add. No design doc. No subagent dispatch. | \`artifacts.plan\` set → transition to \`implementing\` |
-| \`implementing\` | In-session loop, verification scaled to risk. Defaults to the low tier (static analysis suffices); higher-blast changes get the failing-test-first red-green-refactor discipline. Commit as you go. | Tests pass + typecheck clean + finalize_oneshot called |
+| \`implementing\` | In-session loop, verification scaled to risk. Defaults to the low tier (static analysis suffices); higher-blast changes add tests covering the changed behavior (test-after) under the \`check_test_adequacy\` kill-probe. Commit as you go. | Tests pass + typecheck clean + finalize_oneshot called |
 | \`synthesize\` | Reached **only** when \`synthesisOptedIn\` is true. Hands off to the existing synthesis flow — see \`@skills/synthesis/SKILL.md\`. PR created via \`exarchos_orchestrate({ action: "create_pr" })\`, auto-merge enabled, CI gates apply. | PR merged → \`completed\` |
 | \`completed\` | Terminal. For direct-commit path, commits are already on the branch — there's nothing more to do. For synthesize path, the PR merge event terminates the workflow. | — |
 
@@ -28219,26 +28292,30 @@ Run an in-session loop, with verification scaled to the change's risk (the
 ladder in \`@skills/_shared/references/verification.md\`). A oneshot defaults to
 the **low tier** — static analysis suffices for a trivial fix. When the change
 touches a higher-blast surface (schema/type/API/shared contract, or it crosses
-an I/O boundary), it is a higher-tier task and gets the failing-test-first
-discipline.
+an I/O boundary), it is a higher-tier task: cover the new/changed behavior with
+tests (test-after is fine) and expect the \`check_test_adequacy\` kill-probe to
+reject tests that cannot actually fail.
 
 For each higher-tier behavior in the plan:
 
-1. **[RED]** Write a failing test. Run the test. Confirm it fails for
-   the right reason.
-2. **[GREEN]** Write the minimum production code to make the test pass.
-   Run the test. Confirm it passes.
-3. **[REFACTOR]** Clean up while keeping the test green.
+1. Implement the behavior.
+2. Add the tests its tier requires (scoped tests for the change; an integration
+   test across the seam at high tier), named \`Method_Scenario_Outcome\`.
+3. Refactor while the tests stay green.
 
-Commit each red-green-refactor cycle as a single commit. Do not batch
+Granular per-behavior red-green is available as an explicit opt-in, never a
+requirement.
+
+Commit each logical change as a single atomic commit. Do not batch
 multiple unrelated changes into one commit — keeping commits atomic
 matters even more in oneshot, where there's no separate review phase
 to catch bundled changes.
 
 There is **no subagent dispatch** in oneshot. The main agent does the
 work directly. There is **no separate review phase**. Quality is
-maintained by the TDD loop and (if the user opts in) the synthesize PR
-review.
+maintained by the tier-scaled verification (static analysis plus, above the
+low tier, the \`check_test_adequacy\` kill-probe) and (if the user opts in)
+the synthesize PR review.
 
 #### Mid-workflow: opting in to a PR
 
@@ -28363,10 +28440,9 @@ Agent:
          "oneshot.planSummary": "..."
        }
      }
-  4. [RED] writes test that greps README for 'recieve' and expects 0 matches
-        — fails (1 match exists)
-  5. [GREEN] edits README, fixes typo
-        — test passes
+  4. edits README, fixes typo (low tier — a docs one-liner; static analysis
+        suffices, no test-first ceremony)
+  5. verifies: greps README for 'recieve' → 0 matches
   6. git commit -m "docs: fix 'recieve' typo in README"
   7. exarchos_orchestrate finalize_oneshot { featureId: "fix-readme-typo" }
      → guard sees policy='on-request' + no synthesize.requested event
@@ -28385,9 +28461,9 @@ Agent:
      → 'plan' phase, default 'on-request'
   2. plans (goal: validate input, files: [parser.ts, parser.test.ts])
   3. transitions to 'implementing'
-  4. [RED] writes test for null-input case
-  5. [GREEN] adds null check
-  6. [REFACTOR] extracts validateInput helper
+  4. adds the null-input validation to parseConfig
+  5. adds a test for the null-input case (test-after)
+  6. refactors: extracts validateInput helper (tests stay green)
   7. commits
 
 User: "Actually, this is touching the parser — I want a review on it before
@@ -28416,7 +28492,7 @@ Agent:
        workflowType: "oneshot",
        synthesisPolicy: "always"
      }
-  2-7. plan + TDD + commits, identical to Example A
+  2-7. plan + implement + verify + commits, identical to Example A
   8. exarchos_orchestrate finalize_oneshot { featureId }
      → guard sees policy='always' (short-circuits — no event check needed)
      → resolves to 'synthesize'
@@ -28491,9 +28567,9 @@ risk signals say otherwise*. Specifically:
 - A low-risk change (docs/config/rename-only, near-zero blast radius) needs only
   static analysis to pass; add a focused test only if behavior is non-obvious.
 - If the change touches a higher-blast surface (schema/type/API/shared contract,
-  or it crosses an I/O boundary), it is **not** a low-tier task: write the failing
-  test first and follow red-green-refactor, and expect the \`check_test_adequacy\`
-  kill-probe to flag tests that cannot actually fail.
+  or it crosses an I/O boundary), it is **not** a low-tier task: cover the
+  new/changed behavior with tests (test-after is fine), and expect the
+  \`check_test_adequacy\` kill-probe to flag tests that cannot actually fail.
 - Commits stay atomic — one logical change per commit, regardless of tier.
 
 The temptation in a oneshot is to assume *everything* is "just one line" and skip
@@ -28506,8 +28582,8 @@ full feature ceremony on a trivial edit.
 | Don't | Do Instead |
 |-------|------------|
 | Skip the plan phase ("it's obvious") | Write the four-line plan anyway — it's the artifact future-you reads |
-| Apply full RED → GREEN → REFACTOR to a trivial one-liner | Match verification to risk: low-tier leans on static analysis; reserve test-first for higher-blast changes |
-| Skip verification entirely because "it's a oneshot" | Even low-tier must pass static analysis; higher-blast changes still need the failing test first |
+| Apply full red-green-refactor ceremony to a trivial one-liner | Match verification to risk: low-tier leans on static analysis; higher-blast changes add tests covering the changed behavior |
+| Skip verification entirely because "it's a oneshot" | Even low-tier must pass static analysis; higher-blast changes still need tests covering the changed behavior |
 | Use oneshot for multi-file refactors | Use \`/ideate\` and the full feature workflow |
 | Try to grow a oneshot into a feature workflow mid-stream | Cancel and restart with \`/ideate\` |
 | Call \`request_synthesize\` without listening for the user's intent | Wait for the user to ask for a PR, then call it |
@@ -28519,7 +28595,7 @@ full feature ceremony on a trivial edit.
 - [ ] \`exarchos_workflow init\` called with \`workflowType: "oneshot"\`
 - [ ] One-page plan persisted to \`artifacts.plan\`
 - [ ] Phase transitioned to \`implementing\`
-- [ ] All planned behaviors implemented via TDD with atomic commits
+- [ ] All planned behaviors implemented and verified to their risk tier, with atomic commits
 - [ ] \`finalize_oneshot\` called and resolved to either \`completed\` or \`synthesize\`
 - [ ] If direct-commit path: commits pushed
 - [ ] If synthesize path: PR created via \`@skills/synthesis/SKILL.md\` and merged
@@ -28928,7 +29004,7 @@ This enables catching:
 
 **Does NOT re-check:**
 - Functional completeness (spec review)
-- TDD compliance (spec review)
+- Test adequacy (spec review)
 
 ## Review Process
 
@@ -29041,10 +29117,11 @@ After the quality-review fix loop completes and quality passes, re-verify that t
    \`\`\`
    \`\`\`typescript
    exarchos_orchestrate({
-     action: "check_tdd_compliance",
+     action: "check_test_adequacy",
      featureId: "<featureId>",
      taskId: "<taskId>",
-     branch: "<branch>"
+     branch: "<branch>",
+     riskTier: "<low|medium|high>"
    })
    \`\`\`
 2. If all pass: proceed to APPROVED transition
@@ -29724,7 +29801,7 @@ After approval is granted and PRs merge, run \`/cleanup\` to resolve the workflo
 exports[`task 025 — per-runtime snapshot baselines > runtime: opencode > Snapshots_AllSkillsAllRuntimes_MatchBaseline: skills/opencode/spec-review/SKILL.md > skills/opencode/spec-review/SKILL.md 1`] = `
 "---
 name: spec-review
-description: "Stage 1 spec compliance review. Triggers: /review stage 1. Verifies implementation matches design specification — functional completeness, TDD compliance, and test coverage. Do NOT use for code quality checks — use quality-review instead. Do NOT use for debugging."
+description: "Stage 1 spec compliance review. Triggers: /review stage 1. Verifies implementation matches design specification — functional completeness, test adequacy, and test coverage. Do NOT use for code quality checks — use quality-review instead. Do NOT use for debugging."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -29819,7 +29896,7 @@ This enables catching:
 
 **Spec Review focuses on:**
 - Functional completeness
-- TDD compliance
+- Test adequacy (outcome-based, tier-scaled — not test-first ordering)
 - Specification alignment
 - Test coverage
 
@@ -29842,10 +29919,11 @@ npm run typecheck
 
 \`\`\`typescript
 exarchos_orchestrate({
-  action: "check_tdd_compliance",
+  action: "check_test_adequacy",
   featureId: "<featureId>",
   taskId: "<taskId>",
-  branch: "<branch>"
+  branch: "<branch>",
+  riskTier: "<low|medium|high>"
 })
 \`\`\`
 
@@ -29960,7 +30038,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
-\`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis"] })\`
+\`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis"] })\`
 for orchestrate action schemas.
 
 ## Transition
@@ -30008,14 +30086,14 @@ This is NOT a human checkpoint - workflow continues autonomously.
 |-------|-------|------------|
 | Test file not found | Task didn't create expected test | Check plan for test file paths, verify worktree contents |
 | Coverage below threshold | Implementation incomplete or tests superficial | Add missing test cases, verify assertions are meaningful |
-| TDD compliance check fails | Implementation committed before tests | Check git log order — test commits must precede or accompany implementation |
+| Test-adequacy kill-probe fails | A new/changed test still passes against reverted source (vacuous) | Strengthen the test so reverting the implementation makes it fail |
 | Diff too large for context | Many tasks with large changes | Generate per-worktree diffs with \`exarchos_orchestrate({ action: "review_diff", worktreePath: "<task-worktree>" })\` to review incrementally |
 
 ## Performance Notes
 
 - Use the integrated diff (\`exarchos_orchestrate({ action: "review_diff" })\`) instead of reading full files — reduces context by 80-90%
 - Review per-task when the combined diff exceeds 2,000 lines
-- Run TDD compliance check (\`exarchos_orchestrate({ action: "check_tdd_compliance" })\`) in parallel with spec tracing
+- Run the test-adequacy kill-probe (\`exarchos_orchestrate({ action: "check_test_adequacy" })\`) in parallel with spec tracing
 "
 `;
 

@@ -99,7 +99,7 @@ On the thorough track, the **rca** and **design** phases are the design-time sur
 - Investigate (no time limit)
 - Document RCA
 - Design fix approach
-- Implement with TDD
+- Implement at the fix's verification tier (regression test for the bug, judged test-after)
 - Spec review
 - Create PR
 - Merge checkpoint

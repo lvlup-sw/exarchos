@@ -11,7 +11,7 @@
 //     the `FileDiff[]` shape the pure core consumes (post-image line numbers)
 //   • resolve `ownership.firstParty` globs from `.exarchos.yml`
 //   • resolve this gate's severity (advisory-by-default via DEFAULTS.review.gates,
-//     mirroring `check_tdd_compliance`; a project review-gate override still wins)
+//     like the other advisory ladder gates; a project review-gate override still wins)
 //   • emit gate.executed with operationId idempotency (INV-8)
 //
 // The result is an INV-5b advisory carrier: success:true with data.passed

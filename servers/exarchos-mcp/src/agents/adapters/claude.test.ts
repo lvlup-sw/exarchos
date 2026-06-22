@@ -64,7 +64,7 @@ describe('Claude adapter', () => {
     expect(Array.isArray(fm.tools)).toBe(true);
     expect((fm.tools as string[]).length).toBeGreaterThan(0);
     // Body should include some implementer description text.
-    expect(out.contents).toContain('TDD');
+    expect(out.contents).toContain('verification ladder');
   });
 
   it('ClaudeAdapter_LowerAllFourSpecs_AllProduceValidOutput', () => {

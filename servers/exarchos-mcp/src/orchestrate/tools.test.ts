@@ -42,14 +42,6 @@ vi.mock('../tasks/tools.js', () => ({
   }),
 }));
 
-vi.mock('./tdd-compliance.js', () => ({
-  handleTddCompliance: vi.fn().mockResolvedValue({
-    success: true,
-    data: { passed: true, taskId: 't1', branch: 'feat-branch' },
-    _meta: { checkpointAdvised: false },
-  }),
-}));
-
 vi.mock('./static-analysis.js', () => ({
   handleStaticAnalysis: vi.fn().mockResolvedValue({
     success: true,
@@ -125,14 +117,6 @@ describe('OrchestrateToolResponses_AllActions_ReturnEnvelope (T038, DR-7)', () =
   it('task_fail action returns Envelope', async () => {
     const result = await handleOrchestrate(
       { action: 'task_fail', taskId: 't1', streamId: 's1', error: 'broke' },
-      ctx,
-    );
-    assertEnvelopeShape(result);
-  });
-
-  it('check_tdd_compliance action returns Envelope', async () => {
-    const result = await handleOrchestrate(
-      { action: 'check_tdd_compliance', featureId: 'f1', taskId: 't1', branch: 'main' },
       ctx,
     );
     assertEnvelopeShape(result);

@@ -45,7 +45,10 @@ export interface ShimEmitterDeps {
 export const CANONICAL_COMMANDS: readonly CommandMapping[] = [
   { name: 'ideate', skill: 'exarchos:ideate', description: 'Start collaborative design exploration for a feature or problem' },
   { name: 'plan', skill: 'exarchos:plan', description: 'Create TDD implementation plan from design document' },
-  { name: 'tdd', skill: 'exarchos:tdd', description: 'Plan implementation following strict TDD (Red-Green-Refactor)' },
+  // `tdd` was retired in #1590 (commands/tdd.md + its alias + the COMMAND_TO_SKILL
+  // entry were deleted). This shim list is hardcoded separately, so it must drop
+  // it too — otherwise runtimes that consume command shims (Copilot, Cursor)
+  // advertise `/tdd`, which dispatches to a skill that no longer exists.
   { name: 'review', skill: 'exarchos:review', description: 'Run two-stage review (spec compliance + code quality)' },
   { name: 'synthesize', skill: 'exarchos:synthesize', description: 'Create pull request from feature branch' },
   { name: 'shepherd', skill: 'exarchos:shepherd', description: 'Shepherd PRs through CI and reviews to merge readiness' },

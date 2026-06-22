@@ -9,7 +9,7 @@ description: >-
 
   Context: A delegated task failed its quality gates or tests
 
-  user: "Task-005 failed TDD compliance — fix it"
+  user: "Task-005 failed its test-adequacy gate — fix it"
 
   assistant: "I'll dispatch the exarchos-fixer agent to diagnose and repair the
   failure."

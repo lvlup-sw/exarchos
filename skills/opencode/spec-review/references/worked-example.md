@@ -20,7 +20,7 @@ Subagent reads design (`docs/designs/2026-02-15-hsm-guards.md`) and plan (`docs/
 npm run test:run          — 47 passed, 0 failed
 npm run test:coverage     — 89% line, 82% branch
 npm run typecheck          — clean
-exarchos_orchestrate({ action: "check_tdd_compliance" }) — passed: true
+exarchos_orchestrate({ action: "check_test_adequacy" }) — passed: true
 ```
 
 All automated checks pass.

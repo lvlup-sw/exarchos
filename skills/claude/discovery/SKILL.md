@@ -11,8 +11,8 @@ metadata:
 
 # Discovery Workflow Skill
 
-A workflow type for tasks whose deliverable is a **document, not code**. Explicitly
-exempt from the Iron Law (no failing test requirement) because there is nothing to test.
+A workflow type for tasks whose deliverable is a **document, not code**. It carries
+no verification gates (nothing to test), so the verification ladder does not apply.
 
 ## When to Use
 

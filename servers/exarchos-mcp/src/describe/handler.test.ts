@@ -122,9 +122,9 @@ describe('handleDescribe', () => {
     // Use orchestrate tool which has gate metadata on check_* actions
     // Note: gate metadata may not exist yet (T1 adds it). If action.gate is undefined, expect null.
     const orchTool = TOOL_REGISTRY.find(t => t.name === 'exarchos_orchestrate')!;
-    const result = await handleDescribe({ actions: ['check_tdd_compliance'] }, orchTool.actions);
+    const result = await handleDescribe({ actions: ['check_test_adequacy'] }, orchTool.actions);
     expect(result.success).toBe(true);
-    const desc = (result.data as Record<string, unknown>)['check_tdd_compliance'] as Record<string, unknown>;
+    const desc = (result.data as Record<string, unknown>)['check_test_adequacy'] as Record<string, unknown>;
     // gate field should be present (null if no gate metadata, object if present)
     expect('gate' in desc).toBe(true);
   });

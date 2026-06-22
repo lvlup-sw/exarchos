@@ -27,7 +27,6 @@ import { handlePrepareSynthesis } from './prepare-synthesis.js';
 import { handleAssessStack } from './assess-stack.js';
 import { handleDesignCompleteness } from './design-completeness.js';
 import { handlePlanCoverage } from './plan-coverage.js';
-import { handleTddCompliance } from './tdd-compliance.js';
 import { handleTestAdequacy } from './test-adequacy-handler.js';
 import { handleContractDrift } from './contract-drift-handler.js';
 import { handleMockBoundary } from './mock-boundary-handler.js';
@@ -360,7 +359,6 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   assess_stack: adaptWithEventStore(handleAssessStack),
   check_design_completeness: adaptWithEventStore(handleDesignCompleteness),
   check_plan_coverage: adaptWithEventStore(handlePlanCoverage),
-  check_tdd_compliance: adaptWithEventStore(handleTddCompliance),
   // Verification-ladder gates (task 005): wrapped in adaptLadderGate so a
   // failing advisory verdict picks up its per-workflow severity (oneshot →
   // warning) from the resolved workflowType. The `dimension` mirrors each
