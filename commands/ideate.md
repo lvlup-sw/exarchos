@@ -4,28 +4,26 @@ description: Start collaborative design exploration for a feature or problem
 
 # Ideate
 
-Begin brainstorming session for: "$ARGUMENTS"
+Begin design exploration for: "$ARGUMENTS"
 
 ## Workflow Overview
 
-This command is the **entry point** of the development workflow:
+This command is the **entry point** of the development workflow. In the collapsed flow (#1581) `/ideate` and `/plan` author **one unified `docs/specs/` artifact** within the single `plan` phase — there is no separate design phase or design approval:
 
 ```
 /exarchos:ideate → /exarchos:plan → [CONFIRM] → /exarchos:delegate → /exarchos:review → /exarchos:synthesize → [CONFIRM] → merge
-  ▲▲▲▲▲▲▲▲▲▲▲▲▲▲     (auto)            ↑             (auto)              (auto)             (auto)                     │
-                        │                     ▲                         │
-                        │   ON FAIL ──────────┤                         │
-                        │   --pr-fixes ───────┴─────────────────────────┘
-                        └──────────── ON BLOCKED ───────────────────────┘
+  ▲ Design & Rationale §  ▲ Decomposition §       ↑                      (auto)             (auto)
+        (one docs/specs/ artifact)          plan-review                  │
+                                       (fresh-context adversarial)  ON FAIL --pr-fixes
 ```
 
 **Confirmation points:**
-- After `/exarchos:plan` (plan-review): User confirms implementation plan before delegation begins
-- After `/exarchos:synthesize`: User confirms before PR is merged (or requests feedback fixes)
+- After `/exarchos:plan` (plan-review): a dispatched, fresh-context adversarial pass over the unified artifact, then the user confirms before delegation begins
+- After `/exarchos:synthesize`: user confirms before the PR is merged (or requests feedback fixes)
 
 ## Skill Reference
 
-Follow the brainstorming skill: `@skills/brainstorming/SKILL.md`
+Follow the brainstorming skill: `@skills/brainstorming/SKILL.md`. The unified artifact shape is owned by `@skills/implementation-planning/references/spec-template.md`.
 
 ## Process
 
@@ -45,51 +43,41 @@ Ask clarifying questions (one at a time):
 4. Who/what will consume this?
 5. What does success look like?
 
-### Phase 2: Exploration
-Present 2-3 distinct approaches with:
-- Approach description
-- Pros and cons
-- Best use case
-- Recommendation with rationale
+### Phase 2: Exploration — `deep` rung only
+The 2-3 approach divergent loop is the **`deep`** planning rung, not a default. When `designDepth` is `deep` (resolver-proposed, author-confirmed), present 2-3 distinct approaches with pros/cons and a recommendation, and surface the opt-in **discover bridge** (`next_actions`, never auto-run) to escalate to `/exarchos:discover`. At `thin`/`standard`, converge in one pass — skip this phase.
 
-### Phase 3: Design Presentation
-After user selects approach:
-- Write detailed design (200-300 word sections)
-- Include diagrams if helpful
-- Save to `docs/designs/YYYY-MM-DD-<feature>.md`
+### Phase 3: Design & Rationale section
+Author the `## Design & Rationale` section of the unified `docs/specs/` artifact at the resolved depth (per the spec template): Problem Statement + `### Requirements (DR-N)` with acceptance criteria (at least one DR-N covering error handling), and — at `standard`/`deep` — Chosen Approach, Technical Design, Alternatives. Save to `docs/specs/YYYY-MM-DD-<feature>.md`.
 
 ## State Management
 
-Initialize workflow state at the start using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "init"`, `featureId`, and `workflowType: "feature"`.
+Initialize workflow state at the start using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "init"`, `featureId`, and `workflowType: "feature"`. The feature workflow's **initial phase is `plan`** (#1581 collapsed the former `ideate`/GATHER phase) — do not transition here.
 
-After saving design, persist the artifact and transition the phase via two separate calls — the runtime rejects `updates.phase` (`update` is non-phase mutation only; phase changes go through the HSM-guarded `transition` action):
+After authoring the Design & Rationale section, persist the unified-spec path as `artifacts.spec` (the new flow produces ONE artifact — not `artifacts.design`):
 
 1. Update artifacts using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "update"`:
-   - Set `updates.artifacts.design` to the design path
-2. Transition phase using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "transition"`:
-   - Set `target: "plan"`
+   - Set `updates.artifacts.spec` to the `docs/specs/...` path
+
+Do **not** transition the phase — `/exarchos:plan` adds the `## Decomposition` section to the same doc and transitions `plan → plan-review`.
 
 ## Output
 
-Save design to `docs/designs/YYYY-MM-DD-<feature>.md` and capture the path as `$DESIGN_PATH`.
+Save the unified spec to `docs/specs/YYYY-MM-DD-<feature>.md` and capture the path as `$SPEC_PATH`.
 
 ## Auto-Chain
 
-After saving the design document, **auto-continue to planning** (no user confirmation here):
+After saving the Design & Rationale section, **auto-continue to decomposition** (no user confirmation here):
 
 1. Update artifacts via `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "update"`:
-   - Set `updates.artifacts.design` to the design document path
+   - Set `updates.artifacts.spec` to the unified spec path
 
-2. Transition phase via `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "transition"`:
-   - Set `target: "plan"`
+2. Output: "Design & Rationale saved to the unified spec. Auto-continuing to decomposition..."
 
-3. Output: "Design saved. Auto-continuing to implementation planning..."
-
-4. Invoke immediately:
+3. Invoke immediately:
    ```typescript
-   Skill({ skill: "exarchos:plan", args: "$DESIGN_PATH" })
+   Skill({ skill: "exarchos:plan", args: "$SPEC_PATH" })
    ```
 
-This is NOT a human checkpoint. The human checkpoint occurs after plan review (plan-design delta analysis), before delegation.
+This is NOT a human checkpoint. The human checkpoint occurs at plan-review (the dispatched adversarial pass over the unified artifact), before delegation.
 
 **Workflow continues:** `/exarchos:ideate` → `/exarchos:plan` → plan-review → [HUMAN CHECKPOINT] → `/exarchos:delegate`

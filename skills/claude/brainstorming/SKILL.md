@@ -1,31 +1,45 @@
 ---
 name: brainstorming
-description: "Collaborative design exploration for new features and architecture decisions. Triggers: 'brainstorm', 'ideate', 'explore options', or /ideate. Presents 2-3 approaches with trade-offs, documents chosen approach. Do NOT use for implementation planning or code review. Requires no existing design document — use /plan if one exists."
+description: "Collaborative design exploration that authors the Design & Rationale section of the one unified docs/specs/ spec. Triggers: 'brainstorm', 'ideate', 'explore options', or /ideate. Default is a one-pass design preamble; the deep rung gates the 2-3 approach divergent loop and the discover bridge. Do NOT use for task decomposition (that is /plan, which adds Decomposition to the same doc) or code review."
 metadata:
   author: exarchos
-  version: 1.0.0
+  version: 2.0.0
   mcp-server: exarchos
   category: workflow
-  phase-affinity: ideate
+  phase-affinity: plan
 ---
 
 # Brainstorming Skill
 
 ## Overview
 
-Collaborative design exploration for new features, architecture decisions, and complex problem-solving.
+Collaborative design exploration for new features, architecture decisions, and complex problem-solving. In the collapsed flow (#1581), there is **no separate design phase** — `/exarchos:ideate` authors the `## Design & Rationale` section of **one unified `docs/specs/` artifact**, then auto-chains to `/exarchos:plan`, which adds the `## Decomposition` section to the **same** document. The single approval point is `plan-review` (a dispatched, fresh-context adversarial pass over the unified doc).
+
+The artifact shape is owned by the unified spec template — author against it, do not restate it: see `@skills/implementation-planning/references/spec-template.md`.
 
 ## Triggers
 
 Activate this skill when:
 - User says "let's brainstorm", "let's ideate", or "let's explore"
 - User runs `/exarchos:ideate` command
-- User wants to discuss design options before implementation
-- A problem has multiple valid solutions needing evaluation
+- User wants to discuss design rationale before decomposition
+- A problem has multiple valid solutions needing evaluation (the `deep` rung)
 
 For a complete worked example, see `references/worked-example.md`.
 
-## Four-Phase Process
+## Planning depth (one-pass by default; `deep` gates the divergent loop)
+
+The design section is authored at one of three depths, resolved-then-frozen per feature as `designDepth` on PLAN entry (the per-feature analog of per-task `riskTier`). The resolver **proposes** a depth from brief signals (uncertainty, blast-radius, task count); the author confirms or overrides. A higher rung is a strict superset of the lower.
+
+| `designDepth` | This skill's behavior | When |
+|---|---|---|
+| `thin` | One-pass: Problem Statement + the DR-N list. No alternatives, no exploration. | Trivial, low-blast features where the decomposition is the substance. |
+| `standard` | One-pass: full rationale (Problem, Chosen Approach, DR-N with acceptance criteria, Technical Design, Alternatives). **(default)** | Most features. |
+| `deep` | The divergent loop below: 2-3 genuinely distinct approaches with honest trade-offs and human back-and-forth, **plus** the opt-in discover bridge. | High-uncertainty / high-blast-radius features where the open-design path is warranted. |
+
+**The 2-3 approach exploration is the `deep` rung — not a default ceremony.** At `thin`/`standard`, converge in one pass; do not manufacture alternatives the problem does not warrant.
+
+## Process
 
 ### Phase 0: Constraint anchoring (first turn, before Phase 1)
 
@@ -37,13 +51,13 @@ Emit the **Constraints** section (per that reference) *before* Phase 1 so the cl
 
 ### Phase 1: Understanding
 
-**Goal:** Deeply understand the problem before proposing solutions.
+**Goal:** Deeply understand the problem before proposing a design.
 
 **Rules:**
 - Ask ONE question at a time
 - Wait for response before asking next question
 - Focus on: goals, constraints, existing patterns, user preferences
-- Maximum 5 questions before moving to exploration
+- Maximum 5 questions before moving on
 
 **Question Types:**
 1. "What problem are we solving?" (core need)
@@ -52,29 +66,29 @@ Emit the **Constraints** section (per that reference) *before* Phase 1 so the cl
 4. "Who/what will consume this?" (users, APIs, other systems)
 5. "What does success look like?" (acceptance criteria)
 
-### Phase 2: Exploration
+### Phase 2: Exploration — `deep` rung only
 
-**Goal:** Present 2-3 distinct approaches with trade-offs.
+**Goal (when `designDepth: 'deep'`):** Present 2-3 distinct approaches with honest trade-offs, recommend one, and converge through human back-and-forth.
 
-Use the approach format from `references/design-template.md`. Present genuinely different approaches with honest trade-offs. Recommend one option with rationale.
+Use the approach format from `references/design-template.md`. Present genuinely different approaches; recommend one with rationale. **Opt-in discover bridge:** at the `deep` rung the runtime publishes a discover-bridge affordance via `next_actions` (DR-7) — an event-linked, `correlationId`-stitched escalation to the `/exarchos:discover` research workflow. It **never** auto-runs; surface it to the author and only escalate on confirmation. Cite the discover report by path and `correlationId` in the Exploration section so provenance spans both documents.
 
-### Phase 3: Design Presentation
+At `thin`/`standard`, skip this phase — converge directly in Phase 3.
 
-**Goal:** Document the chosen approach in detail with numbered requirements.
+### Phase 3: Author the Design & Rationale section
 
-Document the chosen approach using the structure in `references/design-template.md`. Sections of 200-300 words max. Use diagrams for complex flows.
+**Goal:** Write the `## Design & Rationale` section of the unified `docs/specs/` artifact, at the resolved depth, using the structure in `@skills/implementation-planning/references/spec-template.md`. Sections of 200-300 words max; diagrams for complex flows.
 
 **Requirements format (MANDATORY):**
-- Use numbered requirement identifiers: `DR-1`, `DR-2`, ..., `DR-N`
-- Each requirement MUST have an `**Acceptance criteria:**` block with concrete, testable criteria
+- Use numbered requirement identifiers: `DR-1`, `DR-2`, ..., `DR-N`, under the `### Requirements (DR-N)` heading
+- Each requirement MUST have an `**Acceptance criteria:**` block with concrete, testable criteria (`thin` may use a single bullet)
 - At least one requirement MUST address error handling, failure modes, or edge cases
-- These DR-N identifiers are provenance anchors — implementation plans trace tasks to them
+- These DR-N identifiers are provenance anchors — the `## Decomposition` section traces tasks to them **within this same document** (no second file)
 
-**Save Location:** `docs/designs/YYYY-MM-DD-<feature>.md`
+**Save location:** `docs/specs/YYYY-MM-DD-<feature>.md`. Capture the path as `$SPEC_PATH`.
 
 ## Iteration Limits
 
-**Design iterations: max 3.** If Phase 2 (Exploration) cycles through 3 rounds of presenting approaches without the user converging on a choice, pause and summarize the trade-offs for the user to make a final decision.
+**Design iterations: max 3** (the `deep` divergent loop). If Phase 2 cycles through 3 rounds without the user converging, pause and summarize the trade-offs for a final decision.
 
 The user can override: `/exarchos:ideate --max-iterations 5`
 
@@ -82,12 +96,13 @@ The user can override: `/exarchos:ideate --max-iterations 5`
 
 | Don't | Do Instead |
 |-------|------------|
-| Jump to solution immediately | Ask clarifying questions first |
-| Present only one option | Always show 2-3 alternatives |
-| Hide drawbacks of preferred option | Be transparent about trade-offs |
+| Jump to a solution immediately | Ask clarifying questions first |
+| Manufacture 2-3 options at thin/standard | Reserve the divergent loop for the `deep` rung |
+| Hide drawbacks of the preferred option | Be transparent about trade-offs |
 | Write walls of text | Use 200-300 word sections max |
 | Ignore existing patterns | Reference codebase conventions |
-| Skip documentation | Save design to docs/designs/ |
+| Write a separate `docs/designs/` doc | Author the Design & Rationale § of the one `docs/specs/` artifact |
+| Auto-escalate to discover | Surface the bridge; escalate only on author confirmation |
 
 ## State Management
 
@@ -95,25 +110,27 @@ This skill manages workflow state for context persistence.
 
 ### On Start (before Phase 1)
 
-Initialize workflow state using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "init"`, `workflowType: "feature"`, and the featureId.
+Initialize workflow state using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "init"`, `workflowType: "feature"`, and the featureId. The feature workflow's **initial phase is `plan`** (#1581 collapsed the former `ideate`/GATHER phase into PLAN) — there is no phase to transition into here.
 
-This creates a state file tracked by the MCP server.
+### On Design-Section Save (after Phase 3)
 
-### On Design Save (after Phase 3)
+Persist the unified-spec path as `artifacts.spec` (NOT `artifacts.design` — the new flow produces one `docs/specs/` artifact):
 
 ```
-action: "update", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"
+action: "update", featureId: "<id>", updates: { "artifacts": { "spec": "<docs/specs/...>" } }
 ```
+
+Do **not** transition the phase here — `/exarchos:plan` finalizes the unified doc with the `## Decomposition` section and transitions `plan → plan-review`.
 
 ### Phase Transitions and Guards
 
-This skill is the entry point for the **feature workflow** (`workflowType: "feature"`). The full lifecycle is:
+This skill is the entry point for the **feature workflow** (`workflowType: "feature"`). The collapsed lifecycle is:
 
 ```
-ideate → plan → plan-review → delegate ⇄ review → synthesize → completed
+plan → plan-review → delegate ⇄ review → synthesize → completed
 ```
 
-For the full transition table, consult `@skills/workflow-state/references/phase-transitions.md`.
+`/exarchos:ideate` and `/exarchos:plan` both author the one `docs/specs/` artifact **within** the initial `plan` phase. For the full transition table, consult `@skills/workflow-state/references/phase-transitions.md`.
 
 ### Schema Discovery
 
@@ -121,65 +138,31 @@ Use `exarchos_workflow({ action: "describe", actions: ["update", "init"] })` for
 parameter schemas and `exarchos_workflow({ action: "describe", playbook: "feature" })`
 for phase transitions, guards, and playbook guidance.
 
-## Completion Verification
+## Completion & Coverage
 
-Run the ideation artifact verification:
-
-```typescript
-mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
-  action: "check_design_completeness",
-  featureId: "<featureId>",
-  designPath: "docs/designs/YYYY-MM-DD-<feature>.md"
-})
-```
-
-**On `passed: true`:** All completion criteria met — proceed to gate check.
-**On `passed: false`:** Missing artifacts — review output and complete before continuing. If the check is advisory (`advisory: true`), emit a warning but do not block auto-chain.
-
-## Adversarial Gate Check (ideate → plan)
-
-After artifact verification passes, run the design completeness gate check. This is the D1 (spec fidelity) lightweight adversarial check at the ideate → plan boundary.
-
-```typescript
-mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
-  action: "check_design_completeness",
-  featureId: "<id>",
-  designPath: "<path>"
-})
-```
-
-The handler returns a structured result: `{ passed, advisory, findings[], checkCount, passCount, failCount }`.
-
-- **`passed=true`:** Design complete — all requirements have acceptance criteria and error coverage.
-- **`passed=false, advisory=true`:** Findings detected. These are advisory — they do NOT block the auto-chain to `/exarchos:plan`. Present `result.data.findings` to the user alongside the transition message.
-
-Gate events (`gate.executed`) are emitted automatically by the handler — no manual event emission is needed.
+There is **no separate design-completeness gate** in the collapsed flow — `check_design_completeness` is a deprecated alias (#1581 DR-6). The design section's acceptance-criteria coverage is validated as part of `check_plan_coverage` over the unified artifact, run by `/exarchos:plan` once the `## Decomposition` section exists. Before chaining, confirm each `DR-N` carries acceptance criteria and at least one DR-N covers error handling / edge cases.
 
 ## Transition
 
-After brainstorming completes, **auto-continue to planning** (no user confirmation):
+After the Design & Rationale section is authored, **auto-continue to decomposition** (no user confirmation):
 
 ### Pre-Chain Validation (MANDATORY)
 
 Before invoking `/exarchos:plan`:
-1. Verify `artifacts.design` exists in workflow state
-2. Verify the design file exists on disk: `test -f "$DESIGN_PATH"`
-3. Run `mcp__plugin_exarchos_exarchos__exarchos_orchestrate({ action: "check_design_completeness", featureId: "<id>", designPath: "<path>" })` (advisory — record findings but don't block)
-4. If steps 1 or 2 fail: "Design artifact not found, cannot auto-chain to /exarchos:plan"
+1. Verify `artifacts.spec` exists in workflow state
+2. Verify the spec file exists on disk: `test -f "$SPEC_PATH"`
+3. If steps 1 or 2 fail: "Spec artifact not found, cannot auto-chain to /exarchos:plan"
 
 ### Chain Steps
 
-1. Update state: `action: "update", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"`
-
-2. If `result.data.passed === false` and `result.data.advisory === true`: Output `result.data.findings` summary, then: "Advisory findings noted. Auto-continuing to implementation planning..."
-   If `result.data.passed === true`: Output: "Design complete. Auto-continuing to implementation planning..."
-
+1. Update state: `action: "update", featureId: "<id>", updates: { "artifacts": { "spec": "<docs/specs/...>" } }`
+2. Output: "Design & Rationale section saved to the unified spec. Auto-continuing to decomposition..."
 3. Invoke immediately:
    ```typescript
-   Skill({ skill: "exarchos:plan", args: "<design-path>" })
+   Skill({ skill: "exarchos:plan", args: "$SPEC_PATH" })
    ```
 
-This is NOT a human checkpoint. The human checkpoint occurs at plan-review (plan approval) and synthesize (merge confirmation).
+This is NOT a human checkpoint. The single human checkpoint occurs at plan-review (the dispatched adversarial pass over the unified artifact) and at synthesize (merge confirmation).
 
 **Workflow continues:** `/exarchos:ideate` -> `/exarchos:plan` -> plan-review -> [HUMAN CHECKPOINT] -> `/exarchos:delegate` -> `/exarchos:review` -> `/exarchos:synthesize` -> [HUMAN CHECKPOINT]
 
