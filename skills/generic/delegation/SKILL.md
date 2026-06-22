@@ -125,6 +125,12 @@ For each task:
 4. Include PBT section from `references/pbt-patterns.md` when `propertyTests: true`
 5. Include testing patterns from `references/testing-patterns.md`
 
+### Tier-selected verification note — dispatch the rendered prompt (#1586)
+
+`prepare_delegation` resolves each task's risk tier and returns a **per-task rendered prompt** on its classification: `taskClassifications[i].implementerPrompt`. This is the implementer system prompt with the verification note already selected for that task's `riskTier`/`boundaryTouching` — a low-tier task carries a terse static-analysis steer, a high-tier task carries the test-after + integration-suite rung.
+
+**Dispatch THAT prompt — not the static agent default.** The shipped `agents/implementer.md` bakes a fixed medium-tier note (a self-contained fallback for runtimes that pre-bind a named agent). Use it verbatim only when no classification exists (e.g. a fixer dispatch). Otherwise, the orchestrator's dispatch payload must be built from `taskClassifications[i].implementerPrompt`, then fill its `taskDescription` / `requirements` / `filePaths` placeholders (the same template slots in `references/implementer-prompt.md`) with the task-specific context above. Dispatching the static default instead re-imposes medium-RGR ceremony on every task regardless of tier — the exact gap this seam closes. The tier is pure data from the classification stamp; no workflow-type branching is involved.
+
 ### Decision Runbooks
 
 For dispatch strategy decisions, query the decision runbook:

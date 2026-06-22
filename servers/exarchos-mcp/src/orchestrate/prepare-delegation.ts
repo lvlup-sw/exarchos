@@ -59,6 +59,7 @@ import {
   type RuntimeHandshake,
 } from '../capabilities/resolver.js';
 import type { Capability } from '../agents/capabilities.js';
+import { renderImplementerPrompt } from '../agents/definitions.js';
 
 // ─── Result Interface ────────────────────────────────────────────────────────
 
@@ -117,6 +118,18 @@ export interface TaskClassification {
    * must clear, resolved from the policy table by (riskTier, boundaryTouching).
    */
   readonly verificationSequence: readonly GateName[];
+  /**
+   * #1586 (root cause): the tier-selected implementer system prompt the
+   * orchestrator dispatches for this task — `renderImplementerPrompt` keyed on
+   * the resolved `riskTier`/`boundaryTouching`. Before this field the tier-aware
+   * renderer had ZERO production callers and every dispatch shipped the static
+   * medium-RGR `agents/implementer.md` default regardless of tier. The
+   * orchestrator fills the `{{taskDescription}}`/`{{requirements}}`/
+   * `{{filePaths}}` placeholders at dispatch; the verification note is already
+   * tier-resolved here (INV-2: rendered in the shared dispatch core, identical
+   * for CLI and MCP).
+   */
+  readonly implementerPrompt: string;
 }
 
 export interface PrepareDelegationResult {
@@ -288,7 +301,7 @@ function resolveModel(
  */
 type CoreClassification = Omit<
   TaskClassification,
-  'riskTier' | 'boundaryTouching' | 'verificationSequence'
+  'riskTier' | 'boundaryTouching' | 'verificationSequence' | 'implementerPrompt'
 >;
 
 /**
@@ -424,6 +437,11 @@ export function classifyTask(
     verificationSequence: ladderGateNames(
       resolveGateSet('IMPLEMENT', { riskTier, boundaryTouching, config }),
     ),
+    // #1586: render the tier-selected implementer prompt HERE, off the same
+    // stamp, so the dispatch layer consumes a prompt whose verification note
+    // already matches the task's blast radius — closing the gap where the
+    // static medium-RGR default leaked onto every dispatch.
+    implementerPrompt: renderImplementerPrompt({ riskTier, boundaryTouching }),
   };
 }
 

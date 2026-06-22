@@ -79,6 +79,7 @@ import {
   BOUNDARY_GLOBS,
 } from './prepare-delegation.js';
 import type { TaskClassification, TaskInput } from './prepare-delegation.js';
+import { renderImplementerPrompt } from '../agents/definitions.js';
 import * as fc from 'fast-check';
 import { delegationReadinessProjection } from '../views/delegation-readiness-view.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
@@ -1834,6 +1835,64 @@ describe('handlePrepareDelegation', () => {
         const expected = resolveVerificationPolicy(riskTier, boundaryTouching).sequence;
         expect(classification.verificationSequence, label).toEqual(expected);
       }
+    });
+  });
+
+  // #1586 (root cause): classifyTask now renders the per-task implementer prompt
+  // via renderImplementerPrompt, so the orchestrator dispatches a TIER-SELECTED
+  // prompt instead of the static medium-RGR `agents/implementer.md` default.
+  // Before this, the tier-aware renderImplementerPrompt had ZERO production
+  // callers and every dispatch shipped the medium RED-GREEN-REFACTOR block
+  // regardless of the resolved tier (Layer 4 of the methodology drift audit).
+  describe('classifyTask — per-task implementer prompt rendering (#1586)', () => {
+    it('ClassifyTask_LowTierTask_RendersStaticAnalysisNote_NotRGR', () => {
+      const task: TaskInput = {
+        id: 'T-LOW',
+        title: 'Update the docs',
+        riskTier: 'low',
+        boundaryTouching: false,
+      };
+
+      const classification = classifyTask(task);
+
+      expect(classification.implementerPrompt).toContain('static analysis suffices');
+      // The uppercase RGR ceremony tokens must NOT leak onto a low-tier dispatch.
+      expect(classification.implementerPrompt).not.toContain('RED');
+      expect(classification.implementerPrompt).not.toContain('REFACTOR');
+    });
+
+    it('ClassifyTask_HighTierTask_RendersTestAfterIntegrationBlock', () => {
+      const task: TaskInput = {
+        id: 'T-HIGH',
+        title: 'Reshape the schema',
+        riskTier: 'high',
+        boundaryTouching: true,
+      };
+
+      const classification = classifyTask(task);
+
+      expect(classification.implementerPrompt).toContain('check_test_adequacy');
+      expect(classification.implementerPrompt).toContain('check_integration_suite');
+    });
+
+    it('ClassifyTask_ImplementerPrompt_ByteIdenticalToRenderForResolvedTier', () => {
+      const task: TaskInput = {
+        id: 'T-MED',
+        title: 'Implement widget',
+        riskTier: 'medium',
+        boundaryTouching: false,
+      };
+
+      const classification = classifyTask(task);
+
+      // The stamp the orchestrator dispatches IS renderImplementerPrompt for the
+      // task's resolved tier — no static medium default in the path.
+      expect(classification.implementerPrompt).toBe(
+        renderImplementerPrompt({
+          riskTier: classification.riskTier,
+          boundaryTouching: classification.boundaryTouching,
+        }),
+      );
     });
   });
 
