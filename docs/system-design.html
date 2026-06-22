@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>exarchos · system design</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    /* OKLCH, tinted toward the violet brand hue; no pure black/white */
+    --bg:oklch(0.16 0.012 285); --bg2:oklch(0.19 0.014 285); --panel:oklch(0.215 0.016 286);
+    --line:oklch(0.66 0.02 285 / .18); --line-soft:oklch(0.66 0.02 285 / .09);
+    --ink:oklch(0.94 0.012 285); --ink-dim:oklch(0.80 0.018 285); --ink-faint:oklch(0.63 0.02 287);
+    --violet:oklch(0.74 0.15 292);   /* primary: the log, governance, the through-line */
+    --teal:oklch(0.80 0.11 196);     /* runtime / liveness */
+    --amber:oklch(0.82 0.13 76);     /* designed / in-flight */
+    --green:oklch(0.81 0.15 150);    /* real today / shipped */
+    --rose:oklch(0.71 0.17 18);      /* rejected / danger */
+    --mono:'IBM Plex Mono',ui-monospace,monospace;
+    --disp:'Space Grotesk',var(--mono);
+    --sans:'IBM Plex Sans',system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.65;-webkit-font-smoothing:antialiased;
+    background-image:radial-gradient(1100px 640px at 82% -8%,oklch(0.74 0.15 292 / .06),transparent 60%),radial-gradient(900px 560px at 4% 1%,oklch(0.80 0.11 196 / .05),transparent 58%);}
+  .wrap{max-width:1060px;margin:0 auto;padding:0 26px 110px}
+  header{padding:62px 0 30px;border-bottom:1px solid var(--line)}
+  .kicker{font-family:var(--mono);font-size:12px;letter-spacing:.24em;text-transform:uppercase;color:var(--ink-faint)}
+  .kicker b{color:var(--violet);font-weight:600}
+  h1{font-family:var(--disp);font-weight:500;font-size:clamp(27px,4.6vw,46px);line-height:1.06;letter-spacing:-.015em;margin:.42em 0 .32em;color:oklch(0.96 0.01 285)}
+  h1 .o{color:var(--teal)}
+  .sub{max-width:740px;color:var(--ink-dim);font-size:17px}
+  .sub b{color:var(--ink);font-weight:600}
+  section{padding:50px 0 6px;border-bottom:1px solid var(--line-soft)}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--violet);display:flex;align-items:center;gap:12px}
+  .eyebrow::before{content:"";width:26px;height:1px;background:var(--violet)}
+  h2{font-family:var(--disp);font-weight:500;font-size:clamp(21px,2.6vw,28px);letter-spacing:-.012em;margin:.5em 0 .25em;color:oklch(0.95 0.01 285)}
+  .lede{color:var(--ink-dim);max-width:790px;margin:0 0 22px;font-size:16px}
+  .lede b{color:var(--ink);font-weight:600}
+  .panel{background:linear-gradient(180deg,var(--panel),var(--bg2));border:1px solid var(--line);border-radius:16px;padding:26px}
+  figure{margin:0}
+  figcaption{font-size:15px;color:var(--ink-dim);margin-top:16px;max-width:880px}
+  figcaption b{color:var(--ink)}
+  figcaption ul{margin:10px 0 0;padding-left:18px}
+  figcaption li{margin:5px 0}
+  svg{display:block;width:100%;height:auto;overflow:visible}
+  .flow{stroke-dasharray:2 8;animation:flow 1.3s linear infinite}
+  @keyframes flow{to{stroke-dashoffset:-20}}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important}}
+
+  .legend{display:flex;flex-wrap:wrap;gap:8px 20px;margin:0 0 16px;font-family:var(--mono);font-size:13px;color:var(--ink-dim)}
+  .legend i{display:inline-block;width:22px;height:3px;border-radius:2px;margin-right:8px;vertical-align:middle}
+  .sw-v{background:var(--violet)} .sw-t{background:var(--teal)} .sw-a{background:var(--amber)} .sw-g{background:var(--green)}
+
+  table{width:100%;border-collapse:collapse;margin-top:6px;font-size:14.5px}
+  th,td{text-align:left;padding:13px 14px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+  th{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-faint);font-weight:500}
+  td b{color:var(--ink)}
+  td.v b{color:var(--violet)} td.t b{color:var(--teal)} td.a b{color:var(--amber)} td.g b{color:var(--green)}
+  .mono{font-family:var(--mono);font-size:.92em}
+  caption{caption-side:top;text-align:left;font-family:var(--disp);font-weight:500;color:oklch(0.95 0.01 285);font-size:15px;padding-bottom:10px}
+
+  /* layered stack (L1..L9) */
+  .layers{display:flex;flex-direction:column;gap:9px;margin-top:6px}
+  .lay{display:grid;grid-template-columns:34px 1fr auto;gap:14px;align-items:center;padding:13px 18px;border:1px solid var(--line);border-radius:11px;background:var(--panel)}
+  .lay .num{font-family:var(--disp);font-size:14px;color:var(--ink-faint)}
+  .lay .what b{font-family:var(--disp);font-weight:500;font-size:14.5px;color:var(--ink)}
+  .lay .what span{display:block;font-size:14px;color:var(--ink-dim);margin-top:2px}
+  .lay .scope{font-family:var(--mono);font-size:12px;color:var(--ink-faint);white-space:nowrap}
+  .lay.spine{border-color:oklch(0.74 0.15 292 / .55);background:oklch(0.74 0.15 292 / .06)}
+  .lay.spine .what b{color:var(--violet)}
+  .lay.fut{border-style:dashed;opacity:.82}
+  @media (max-width:760px){ .lay{grid-template-columns:26px 1fr} .lay .scope{grid-column:2} }
+
+  /* ADR-shaped decision blocks */
+  .decision{margin-top:18px;border:1px solid var(--line);border-radius:12px;background:oklch(0.74 0.15 292 / .05);padding:16px 20px}
+  .decision .dh{display:flex;align-items:baseline;gap:10px;font-family:var(--disp);font-weight:500;font-size:14.5px;color:var(--ink);margin-bottom:12px;flex-wrap:wrap}
+  .decision .dh::before{content:"\25C6";color:var(--violet);font-size:11px;position:relative;top:-1px}
+  .decision .dh .enf{margin-left:auto;font-family:var(--mono);font-size:11.5px;color:var(--green);letter-spacing:.04em}
+  .decision dl{display:grid;grid-template-columns:96px 1fr;gap:9px 16px;margin:0;font-size:14.5px}
+  .decision dt{font-family:var(--mono);font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-faint);padding-top:3px}
+  .decision dd{margin:0;color:var(--ink-dim);line-height:1.55}
+  .decision dd b{color:var(--ink)}
+  .decision dd.rej{color:var(--ink-faint)}
+  @media(max-width:600px){.decision dl{grid-template-columns:1fr;gap:2px 0}.decision dt{padding-top:11px}}
+
+  /* goals / non-goals */
+  .gng{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:18px}
+  .gng .col{border:1px solid var(--line);border-radius:12px;padding:15px 19px}
+  .gng .col.go{border-color:oklch(0.81 0.15 150 / .38);background:oklch(0.81 0.15 150 / .045)}
+  .gng .col.no{border-color:oklch(0.71 0.17 18 / .32);background:oklch(0.71 0.17 18 / .04)}
+  .gng h4{margin:0 0 9px;font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase}
+  .gng .go h4{color:var(--green)} .gng .no h4{color:var(--rose)}
+  .gng ul{margin:0;padding-left:18px;font-size:14.5px;color:var(--ink-dim);line-height:1.55}
+  .gng li{margin:6px 0} .gng li b{color:var(--ink)}
+  @media(max-width:680px){.gng{grid-template-columns:1fr}}
+
+  /* invariants grid */
+  .invs{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;margin-top:8px}
+  .inv{border:1px solid var(--line);border-radius:10px;padding:12px 15px;background:var(--panel)}
+  .inv b{font-family:var(--disp);font-weight:500;font-size:13.5px;color:var(--violet)}
+  .inv span{display:block;font-size:13.5px;color:var(--ink-dim);margin-top:3px;line-height:1.5}
+
+  /* zone rail */
+  .zones{display:flex;flex-direction:column;gap:10px;margin-top:16px}
+  .zone{display:grid;grid-template-columns:54px 1fr;gap:16px;align-items:start;padding:15px 18px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+  .zone .z{font-family:var(--disp);font-size:15px;font-weight:600}
+  .zone.z1 .z{color:var(--violet)} .zone.z2 .z{color:var(--teal)} .zone.z3 .z{color:var(--amber)}
+  .zone .body b{color:var(--ink)} .zone .body{color:var(--ink-dim);font-size:14.5px;line-height:1.55}
+  .zone .ms{font-family:var(--mono);font-size:11px;color:var(--ink-faint);letter-spacing:.08em;text-transform:uppercase}
+
+  /* milestone wave rail */
+  .waves{display:flex;flex-direction:column;gap:9px;margin-top:16px}
+  .wave{display:grid;grid-template-columns:96px 78px 1fr;gap:14px;align-items:baseline;padding:12px 16px;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+  .wave .vv{font-family:var(--disp);font-size:14px;color:var(--violet)}
+  .wave .h{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-faint)}
+  .wave.now{border-color:oklch(0.81 0.15 150 / .42)} .wave.now .vv{color:var(--green)} .wave.now .h{color:var(--green)}
+  .wave .d{font-size:14px;color:var(--ink-dim)} .wave .d b{color:var(--ink)}
+  @media(max-width:680px){.wave{grid-template-columns:96px 1fr}.wave .h{grid-column:2}.wave .d{grid-column:1/3}}
+
+  .chip{display:inline-block;font-family:var(--mono);font-size:11px;padding:1px 9px;border-radius:20px;border:1px solid currentColor;vertical-align:middle}
+  .chip.built{color:var(--green)} .chip.des{color:var(--amber)} .chip.plan{color:var(--ink-faint)}
+
+  .note{font-size:14px;color:var(--ink-faint);margin-top:14px;font-family:var(--mono);line-height:1.55}
+  .refhead{margin-top:64px;padding-top:34px;border-top:1px solid var(--line)}
+  .refhead .eyebrow{color:var(--ink-faint)} .refhead .eyebrow::before{background:var(--ink-faint)}
+  footer{margin-top:46px;padding-top:22px;border-top:1px solid var(--line);font-family:var(--mono);font-size:12.5px;color:var(--ink-faint);display:flex;flex-wrap:wrap;gap:8px 22px;justify-content:space-between}
+  footer a{color:var(--violet);text-decoration:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="kicker">exarchos · <b>system design</b></div>
+    <h1>Event-sourced by design,<br>cooperative by <span class="o">default</span></h1>
+    <p class="sub">Exarchos is local agent governance: a single-machine, event-sourced process manager that lets several coding agents work the same repository at once without stepping on each other. This page reads from the outside in. First <b>what it is built to optimize for</b>, then how a workflow actually moves through the runtime, the two places state lives, how it stays correct when agents run in parallel, why governance scales with risk instead of applying to everything equally, and where the roadmap is heading. Each section names the <b>decision</b> behind it: the force, the choice, and what was given up. A reference tail at the end is there to look things up in.</p>
+    <div class="note" style="margin-top:18px;display:flex;flex-wrap:wrap;gap:6px 24px">
+      <span>canonical architecture reference · living document</span>
+      <span>source of truth · <a href="https://github.com/lvlup-sw/exarchos/issues/1599" style="color:var(--violet);text-decoration:none">issue #1599</a> (roadmap master tracker)</span>
+    </div>
+  </header>
+
+  <!-- ===== 00 · FORCES ===== -->
+  <section id="forces">
+    <div class="eyebrow">00 · the forces</div>
+    <h2>What this system is built to optimize for</h2>
+    <p class="lede">Agents made code generation cheap and parallel. That moved the cost somewhere else. Two pressures now dominate every workflow. The first is <b>ceremony</b>: when every task pays the same heavy process (write the failing test first, author a design then a separate plan, run the full gate suite), a one-line doc fix costs what a schema change costs, and the tax falls hardest on the work that needs it least. The second is <b>contention</b>: point several agents at one git repository and they corrupt the shared index, race on ref updates, and silently lose each other's work. Exarchos spends its design budget on exactly these two. It makes the depth of governance <b>proportional to the risk of the change</b>, and it routes every mutation through <b>one append-only log</b> so concurrent agents serialize by construction rather than by hope. The aim is governed throughput without a flat ceremony tax: as much verified work as the risk warrants, and no more.</p>
+
+    <figure class="panel">
+      <div class="legend">
+        <span><i class="sw-v"></i>the log · single source of truth</span>
+        <span><i class="sw-t"></i>cooperative agents · concurrent, serialized</span>
+        <span><i class="sw-g"></i>governance · depth scales with risk</span>
+      </div>
+      <svg viewBox="0 0 960 210" font-size="13" role="img" aria-label="A change flows from a cooperative agent through risk-proportional governance into the append-only event log, which is the single source of truth that other agents read from.">
+        <defs>
+          <marker id="f-v" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="var(--violet)"/></marker>
+          <marker id="f-n" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="var(--ink-faint)"/></marker>
+        </defs>
+        <rect x="24" y="58" width="206" height="92" rx="12" fill="oklch(0.80 0.11 196 / .07)" stroke="oklch(0.80 0.11 196 / .55)"/>
+        <text x="127" y="98" text-anchor="middle" font-size="16" font-family="var(--disp)" fill="var(--teal)">cooperative agents</text>
+        <text x="127" y="122" text-anchor="middle" font-size="12.5" font-family="var(--mono)" fill="var(--ink-dim)">cheap · parallel</text>
+        <line x1="230" y1="104" x2="266" y2="104" class="flow" stroke="var(--ink-faint)" stroke-width="1.6" marker-end="url(#f-n)"/>
+        <rect x="270" y="58" width="232" height="92" rx="12" fill="oklch(0.81 0.15 150 / .07)" stroke="oklch(0.81 0.15 150 / .55)"/>
+        <text x="386" y="92" text-anchor="middle" font-size="16" font-family="var(--disp)" fill="var(--green)">risk-proportional gates</text>
+        <text x="386" y="116" text-anchor="middle" font-size="12.5" font-family="var(--mono)" fill="var(--ink-dim)">low: typecheck · high: full suite</text>
+        <text x="386" y="134" text-anchor="middle" font-size="12" font-family="var(--mono)" fill="var(--ink-faint)">depth = blast radius</text>
+        <line x1="502" y1="104" x2="538" y2="104" class="flow" stroke="var(--violet)" stroke-width="2" marker-end="url(#f-v)"/>
+        <rect x="542" y="58" width="232" height="92" rx="12" fill="oklch(0.74 0.15 292 / .09)" stroke="var(--violet)" stroke-width="1.7"/>
+        <text x="658" y="92" text-anchor="middle" font-size="16" font-family="var(--disp)" fill="var(--violet)">the event log</text>
+        <text x="658" y="116" text-anchor="middle" font-size="12.5" font-family="var(--mono)" fill="var(--ink-dim)">append-only · totally ordered</text>
+        <text x="658" y="134" text-anchor="middle" font-size="12" font-family="var(--mono)" fill="var(--ink-faint)">the single source of truth</text>
+        <path d="M658,150 C658,184 360,184 200,160 L150,150" fill="none" class="flow" stroke="var(--violet)" stroke-width="1.4" marker-end="url(#f-v)"/>
+        <text x="430" y="200" text-anchor="middle" font-size="12.5" font-family="var(--mono)" fill="var(--violet)">every other agent reads its truth back from the log · projections are a cache</text>
+        <rect x="800" y="58" width="136" height="92" rx="12" fill="none" stroke="var(--line)"/>
+        <text x="868" y="92" text-anchor="middle" font-size="13" font-family="var(--mono)" fill="var(--ink-faint)">no daemon</text>
+        <text x="868" y="112" text-anchor="middle" font-size="13" font-family="var(--mono)" fill="var(--ink-faint)">no distributed</text>
+        <text x="868" y="128" text-anchor="middle" font-size="13" font-family="var(--mono)" fill="var(--ink-faint)">locks</text>
+      </svg>
+      <figcaption>
+        <ul>
+          <li><b>Generation is the cheap, parallel part.</b> It scales with agents; the cost moved to ceremony and contention.</li>
+          <li><b>Governance scales with risk.</b> A low-tier change clears a typecheck and a lint; a boundary-touching change earns the full ladder. Depth tracks blast radius, never a flat rule.</li>
+          <li><b>The log is the only authority.</b> State is a fold over events, not a record anyone edits in place. Replay reconstructs exactly what happened.</li>
+          <li><a href="https://github.com/lvlup-sw/exarchos/issues/1599" style="color:var(--violet);text-decoration:none">Issue #1599</a> is the program tracker; this page is its narrative.</li>
+        </ul>
+      </figcaption>
+    </figure>
+
+    <div class="gng">
+      <div class="col go">
+        <h4>Goals</h4>
+        <ul>
+          <li><b>Governed throughput without a ceremony tax</b>: verification and planning depth proportional to the risk of the change.</li>
+          <li><b>Durable, replayable</b> workflow state: reconstruct what happened and why, from the log alone.</li>
+          <li><b>Cooperative concurrency</b>: many agents on one repository, serialized by the substrate, not by manual coordination.</li>
+          <li><b>One behavior, two faces</b>: the CLI and the MCP surface are facades over a single dispatch core, byte for byte.</li>
+          <li><b>Recovery that never loses work</b>: native undo first, refuse-to-discard second, destructive overwrite never.</li>
+        </ul>
+      </div>
+      <div class="col no">
+        <h4>Non-goals</h4>
+        <ul>
+          <li><b>Not</b> a distributed system. One machine, cooperative agents. No saga, no two-phase commit, no leader election.</li>
+          <li><b>Not</b> a daemon or a background supervisor. Liveness is observed from events, queried on demand.</li>
+          <li><b>Not</b> a model harness. Exarchos governs the workflow; the coding agent stays whatever the operator runs.</li>
+          <li><b>Not</b> uniform process. Mandatory red-green-refactor on every task is the thing being replaced.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 01 · HOW A WORKFLOW MOVES ===== -->
+  <section id="movement">
+    <div class="eyebrow">01 · the pieces</div>
+    <h2>How a workflow moves</h2>
+    <p class="lede">A request enters once and travels down a fixed stack. An agent or the CLI calls a verb. The <b>dispatch core</b> resolves it the same way for both surfaces. Anything that changes state appends an <b>event</b>; nothing is written in place. <b>Projections</b> fold those events into the read models that answer the next question, and the <b>state machine</b> for the workflow type decides which transitions are legal. The response carries <span class="mono">next_actions</span>: the moves now available, which the agent reads and dispatches. It never polls.</p>
+
+    <figure class="panel">
+      <div class="legend">
+        <span><i class="sw-t"></i>read path · query / fold</span>
+        <span><i class="sw-v"></i>write path · append event</span>
+        <span class="mono" style="color:var(--ink-dim)">one dispatch core · two facades</span>
+      </div>
+      <svg viewBox="0 0 960 300" font-size="13" role="img" aria-label="CLI and MCP adapters call one dispatch core; writes append to the event store; projections fold events into read models; the HSM guards transitions; next_actions return to the agent.">
+        <defs>
+          <marker id="m-v" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="var(--violet)"/></marker>
+          <marker id="m-t" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="var(--teal)"/></marker>
+        </defs>
+        <rect x="40" y="24" width="200" height="44" rx="10" fill="none" stroke="var(--line)"/>
+        <text x="140" y="51" text-anchor="middle" font-size="13.5" font-family="var(--mono)" fill="var(--ink-dim)">CLI adapter</text>
+        <rect x="260" y="24" width="200" height="44" rx="10" fill="none" stroke="var(--line)"/>
+        <text x="360" y="51" text-anchor="middle" font-size="13.5" font-family="var(--mono)" fill="var(--ink-dim)">MCP adapter</text>
+        <line x1="140" y1="68" x2="240" y2="104" class="flow" stroke="var(--ink-faint)" stroke-width="1.5" marker-end="url(#m-t)"/>
+        <line x1="360" y1="68" x2="260" y2="104" class="flow" stroke="var(--ink-faint)" stroke-width="1.5" marker-end="url(#m-t)"/>
+        <rect x="150" y="106" width="200" height="58" rx="11" fill="oklch(0.74 0.15 292 / .08)" stroke="var(--violet)"/>
+        <text x="250" y="132" text-anchor="middle" font-size="15" font-family="var(--disp)" fill="var(--violet)">dispatch core</text>
+        <text x="250" y="151" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--ink-dim)">dispatch(verb, args, ctx)</text>
+        <!-- write down to event store -->
+        <line x1="250" y1="164" x2="250" y2="206" class="flow" stroke="var(--violet)" stroke-width="1.8" marker-end="url(#m-v)"/>
+        <text x="262" y="190" font-size="11.5" font-family="var(--mono)" fill="var(--ink-faint)">append event</text>
+        <rect x="120" y="208" width="260" height="56" rx="11" fill="oklch(0.74 0.15 292 / .1)" stroke="var(--violet)" stroke-width="1.6"/>
+        <text x="250" y="232" text-anchor="middle" font-size="14.5" font-family="var(--disp)" fill="var(--violet)">SQLite event store</text>
+        <text x="250" y="251" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--ink-dim)">append-only · WAL · per-stream order</text>
+        <!-- fold to projections -->
+        <line x1="380" y1="236" x2="470" y2="236" class="flow" stroke="var(--teal)" stroke-width="1.6" marker-end="url(#m-t)"/>
+        <text x="425" y="226" text-anchor="middle" font-size="11" font-family="var(--mono)" fill="var(--ink-faint)">fold</text>
+        <rect x="472" y="208" width="210" height="56" rx="11" fill="oklch(0.80 0.11 196 / .07)" stroke="oklch(0.80 0.11 196 / .5)"/>
+        <text x="577" y="232" text-anchor="middle" font-size="14" font-family="var(--disp)" fill="var(--teal)">projections</text>
+        <text x="577" y="251" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--ink-dim)">pure folds · snapshot-cached</text>
+        <!-- HSM -->
+        <rect x="704" y="208" width="216" height="56" rx="11" fill="none" stroke="var(--line)"/>
+        <text x="812" y="232" text-anchor="middle" font-size="14" font-family="var(--disp)" fill="var(--ink-dim)">state machine</text>
+        <text x="812" y="251" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--ink-faint)">guards transitions per type</text>
+        <line x1="682" y1="236" x2="704" y2="236" stroke="var(--line)" stroke-width="1.4"/>
+        <!-- next_actions back up -->
+        <path d="M812,208 C812,150 560,120 360,138" fill="none" class="flow" stroke="var(--teal)" stroke-width="1.5" marker-end="url(#m-t)"/>
+        <text x="640" y="150" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--teal)">next_actions → the agent reads and dispatches</text>
+      </svg>
+      <figcaption>
+        <ul>
+          <li><b>One core, two facades.</b> The CLI parses argv and the MCP adapter unwraps a tool call, then both hand the same arguments to the same dispatch function and get the same result back.</li>
+          <li><b>Writes are events.</b> A mutation is an appended fact, committed in a single transaction. Read models are folds over those facts, so a cold start replays rather than trusts a cache.</li>
+          <li><b>Affordance, not command.</b> <span class="mono">next_actions</span> publishes the legal moves derived from the state machine. Pull a verb from that list and you remove the path to it, not the underlying transition.</li>
+        </ul>
+      </figcaption>
+    </figure>
+
+    <p class="lede" style="margin-top:26px">The same nine layers, named, from storage up to the agents that consume the surface:</p>
+    <div class="layers">
+      <div class="lay"><span class="num">L1</span><span class="what"><b>Storage</b><span>SQLite in WAL mode: the events, the projected state, the streams, the idempotency claims.</span></span><span class="scope">sqlite-backend.ts</span></div>
+      <div class="lay spine"><span class="num">L2</span><span class="what"><b>Event store</b><span>Append with optional expected-sequence and idempotency key. A composite primary key makes a duplicate sequence impossible.</span></span><span class="scope">atomic-appender.ts</span></div>
+      <div class="lay"><span class="num">L3</span><span class="what"><b>Projections</b><span>Pure reducers, registry-bound, snapshot-cached. Reconcile rebuilds any read model from the first event.</span></span><span class="scope">projections/</span></div>
+      <div class="lay"><span class="num">L4</span><span class="what"><b>Workflow primitives</b><span>The per-type state machine, the capability resolver, the phase contracts, the pruner. Only one action mutates a phase.</span></span><span class="scope">topology/ · workflow/</span></div>
+      <div class="lay spine"><span class="num">L5</span><span class="what"><b>Dispatch core</b><span>A single function over a context that carries storage, the event store, the resolver, and telemetry.</span></span><span class="scope">core/dispatch.ts</span></div>
+      <div class="lay"><span class="num">L6</span><span class="what"><b>Composite tools</b><span>Four visible tools, each with an action discriminator, a registered output schema, and per-action annotations.</span></span><span class="scope">orchestrate/ · views/</span></div>
+      <div class="lay fut"><span class="num">L7</span><span class="what"><b>Lifecycle verbs</b><span>ps, describe, wait, export: generic windows over the log, shipping with v2.12. No per-feature lifecycle code.</span></span><span class="scope">cli-commands/</span></div>
+      <div class="lay"><span class="num">L8</span><span class="what"><b>Adapters</b><span>CLI and MCP. Presentation only, zero behavior. A parity harness asserts they return identical results.</span></span><span class="scope">adapters/</span></div>
+      <div class="lay"><span class="num">L9</span><span class="what"><b>Cooperative agents</b><span>Claude Code, Codex, Cursor, OpenCode and others. Each declares a posture; each reads next_actions instead of polling.</span></span><span class="scope">runtime</span></div>
+    </div>
+
+    <div class="decision">
+      <div class="dh">Decision: the log is the authority, read models are a cache <span class="enf">enforces INV-1</span></div>
+      <dl>
+        <dt>Forces</dt><dd>Workflow state is touched from many places: a phase transition, a task completing, a merge recovering. If each writer edits a shared record, two writers race and the record drifts from what actually happened.</dd>
+        <dt>Choice</dt><dd>Every mutation is an <b>appended event</b>. State is a deterministic fold over the event stream. A snapshot accelerates a cold start, and <span class="mono">reconcile</span> rebuilds from event zero when a snapshot is stale or absent.</dd>
+        <dt>Rejected</dt><dd class="rej">A mutable system of record with the event log as an audit sidecar. Familiar, but it makes the cache the truth and the log a story nobody trusts.</dd>
+        <dt>Cost</dt><dd>Read models must be pure and replay-safe, and a projection that throws has to degrade to a rebuild rather than serve a wrong answer.</dd>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ===== 02 · TWO STATE SURFACES ===== -->
+  <section id="state">
+    <div class="eyebrow">02 · state</div>
+    <h2>The two surfaces, and which one is the truth</h2>
+    <p class="lede">State lives in two places, and the distinction is load-bearing. The <b>event store</b> is the only authority on whether a workflow exists. The on-disk <b>state file</b> is a planner's stamp: a convenience that holds a few facts the projection cannot derive. It can be absent for a workflow that is very much alive, so its presence proves nothing. The one mistake to never make is treating a file on disk as an existence signal.</p>
+    <table>
+      <caption>Two surfaces, one authority</caption>
+      <thead><tr><th>surface</th><th>authority</th><th>holds</th><th>existence check</th></tr></thead>
+      <tbody>
+        <tr><td class="v"><b>SQLite event store</b></td><td>authoritative</td><td>the events, plus the workflow-state and streams projections folded from them</td><td><span class="mono">rehydrate</span> / <span class="mono">get</span> then read <span class="mono">_meta.workflowExists</span></td></tr>
+        <tr><td><b>&lt;featureId&gt;.state.json</b></td><td>secondary cache</td><td>planner facts the projection cannot derive; often absent for a tracked workflow</td><td class="mono">never use file presence</td></tr>
+      </tbody>
+    </table>
+    <div class="decision">
+      <div class="dh">Decision: existence is an event-store question, never a filesystem one <span class="enf">enforces INV-1</span></div>
+      <dl>
+        <dt>Forces</dt><dd>A tempting shortcut reads the on-disk state file to decide whether a feature exists. It produces false negatives for workflows that never wrote one, and false positives for stale leftovers.</dd>
+        <dt>Choice</dt><dd>The canonical check is the <span class="mono">_meta.workflowExists</span> field returned by <span class="mono">rehydrate</span> or <span class="mono">get</span>, which is derived from the streams table. A cold probe of an unknown id is side-effect free.</dd>
+        <dt>Rejected</dt><dd class="rej">Filesystem presence as a proxy. Cheap to write, and the source of a real integrity incident (see the state-source RCA).</dd>
+        <dt>Cost</dt><dd>Callers must route through the projection rather than stat a path, even when a file is sitting right there.</dd>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ===== 03 · CONCURRENCY ===== -->
+  <section id="concurrency">
+    <div class="eyebrow">03 · under concurrency</div>
+    <h2>Staying correct when agents run in parallel</h2>
+    <p class="lede">Several agents writing the same repository is the normal case, not the exception. Correctness comes from serializing writes to a stream in two tiers, with no process lock and no advisory file. Inside one process, a per-stream promise chain runs same-stream appends one at a time. Across processes, SQLite's write-ahead log takes the write lock up front, a composite primary key rejects a duplicate sequence outright, and the loser of a race retries against the new tail. That is the whole concurrency story. It is deliberately not a distributed one.</p>
+    <figure class="panel">
+      <div class="legend">
+        <span><i class="sw-t"></i>tier 1 · in-process promise chain</span>
+        <span><i class="sw-v"></i>tier 2 · WAL + primary key + retry</span>
+      </div>
+      <svg viewBox="0 0 960 232" font-size="13" role="img" aria-label="Two writers contend for one stream; the in-process lock serializes same-process writes, and the SQLite write-ahead log plus a composite primary key serialize across processes, with the loser retrying against the new tail.">
+        <defs><marker id="c-v" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="var(--violet)"/></marker></defs>
+        <rect x="30" y="40" width="180" height="56" rx="11" fill="oklch(0.80 0.11 196 / .07)" stroke="oklch(0.80 0.11 196 / .5)"/>
+        <text x="120" y="64" text-anchor="middle" font-size="13.5" font-family="var(--disp)" fill="var(--teal)">agent A</text>
+        <text x="120" y="83" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--ink-dim)">append to stream S</text>
+        <rect x="30" y="132" width="180" height="56" rx="11" fill="oklch(0.80 0.11 196 / .07)" stroke="oklch(0.80 0.11 196 / .5)"/>
+        <text x="120" y="156" text-anchor="middle" font-size="13.5" font-family="var(--disp)" fill="var(--teal)">agent B</text>
+        <text x="120" y="175" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--ink-dim)">append to stream S</text>
+        <line x1="210" y1="68" x2="282" y2="100" class="flow" stroke="var(--ink-faint)" stroke-width="1.5"/>
+        <line x1="210" y1="160" x2="282" y2="128" class="flow" stroke="var(--ink-faint)" stroke-width="1.5"/>
+        <rect x="284" y="86" width="220" height="56" rx="11" fill="none" stroke="var(--teal)" stroke-dasharray="4 4"/>
+        <text x="394" y="110" text-anchor="middle" font-size="13" font-family="var(--disp)" fill="var(--teal)">StreamLockManager</text>
+        <text x="394" y="128" text-anchor="middle" font-size="11" font-family="var(--mono)" fill="var(--ink-faint)">per-stream promise chain</text>
+        <line x1="504" y1="114" x2="566" y2="114" class="flow" stroke="var(--violet)" stroke-width="1.8" marker-end="url(#c-v)"/>
+        <rect x="568" y="70" width="234" height="88" rx="12" fill="oklch(0.74 0.15 292 / .1)" stroke="var(--violet)" stroke-width="1.6"/>
+        <text x="685" y="100" text-anchor="middle" font-size="14.5" font-family="var(--disp)" fill="var(--violet)">WAL · BEGIN IMMEDIATE</text>
+        <text x="685" y="121" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--ink-dim)">PRIMARY KEY (stream, sequence)</text>
+        <text x="685" y="139" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--ink-faint)">duplicate sequence rejected</text>
+        <path d="M685,158 C685,196 760,196 802,150" fill="none" class="flow" stroke="var(--violet)" stroke-width="1.4" marker-end="url(#c-v)"/>
+        <text x="828" y="186" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--violet)">loser retries</text>
+        <text x="828" y="201" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--ink-faint)">against new tail</text>
+      </svg>
+      <figcaption>
+        <ul>
+          <li><b>No PID lock, no mutex file.</b> An earlier per-directory process lock was removed; the write-ahead log and the key constraint are the only serialization primitives.</li>
+          <li><b>Idempotency at the boundary.</b> Every append carries a key, and a unique index collapses a duplicate at storage. A retried handler re-emits its intent as a no-op, so the external side effect runs at most once.</li>
+          <li><b>Two events for one effect.</b> A non-idempotent action records its intent before it acts and its result after. A crash between the two is recovered by an idempotent precheck, not by guesswork.</li>
+        </ul>
+      </figcaption>
+    </figure>
+    <div class="decision">
+      <div class="dh">Decision: a single-machine frame, held on purpose <span class="enf">enforces INV-15</span></div>
+      <dl>
+        <dt>Forces</dt><dd>Concurrent agents look like a distributed-systems problem, and the textbook answers (saga, two-phase commit, leader election, vector clocks) are right there to reach for.</dd>
+        <dt>Choice</dt><dd>Treat it as what it is: one machine, one event store, cooperative agents. Serialize with the write-ahead log and optimistic retry. Compensation is a <b>local rewind over the log</b>, never a command sent to a remote participant.</dd>
+        <dt>Rejected</dt><dd class="rej">Saga orchestration, distributed locks, a supervisor process. They solve partition and multi-owner problems that do not exist here, and they import scaffolding that misleads every future reader.</dd>
+        <dt>Cost</dt><dd>The frame is a boundary, and a candidate design that needs one of those primitives is a signal the boundary is being crossed, not that the primitive is due.</dd>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ===== 04 · ADAPTIVE DEPTH ===== -->
+  <section id="depth">
+    <div class="eyebrow">04 · the thesis</div>
+    <h2>Why depth scales with risk</h2>
+    <p class="lede">This is the idea the rest of the roadmap turns on. Two kinds of effort used to apply uniformly to every task: how hard you <b>verify</b>, and how much you <b>plan</b>. Exarchos makes both proportional to the change. A <span class="mono">riskTier</span> stamped on a task picks its verification ladder, from a bare typecheck at the low end to a full suite with a mutation-adequacy backstop at a boundary. A <span class="mono">designDepth</span> does the same for planning, scaling a single artifact from a terse plan to a full design-and-decompose. Both resolve once, when the phase is entered, and then freeze for the life of the task. They are the same move on one resolver, one applied to verification and one to planning.</p>
+    <table>
+      <caption>The verification ladder, by tier</caption>
+      <thead><tr><th>tier</th><th>what it earns</th><th>cost</th></tr></thead>
+      <tbody>
+        <tr><td class="g"><b>low</b></td><td>typecheck plus lint; structural checks only</td><td>seconds, no tokens</td></tr>
+        <tr><td class="a"><b>medium</b></td><td>scoped tests plus an outcome-based adequacy probe</td><td>a focused run</td></tr>
+        <tr><td class="v"><b>high / boundary</b></td><td>full suite, integration checks, mutation-adequacy backstop</td><td>wall-clock, run offline</td></tr>
+      </tbody>
+    </table>
+    <div class="decision">
+      <div class="dh">Decision: replace mandatory red-green-refactor with a risk-proportional ladder <span class="enf">issue #1515</span></div>
+      <dl>
+        <dt>Forces</dt><dd>The most expensive part of strict test-first, the failing-test-first ordering and the history gate that enforces it, has the least evidence behind it. The benefit lives in the cheap part: an executable check and real feedback. Charging full ceremony per task taxes the work that needs it least.</dd>
+        <dt>Choice</dt><dd>Stamp a <span class="mono">riskTier</span> and a boundary flag per task; resolve the gate set from them. Keep the outcome-based adequacy check, drop the ordering mandate. Relaxing test-first is only safe with a backstop, so mutation testing guards the boundary, where its wall-clock cost belongs.</dd>
+        <dt>Rejected</dt><dd class="rej">Uniform red-green-refactor on every task. Defensible as a slogan, costly as a default, and weakly supported by the research it claims.</dd>
+        <dt>Cost</dt><dd>Tiering has to be wired through dispatch so the resolved tier actually reaches the prompt, and the resolver context now carries more than one depth field, which has to evolve as one schema.</dd>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ===== 05 · WHERE IT'S GOING ===== -->
+  <section id="roadmap">
+    <div class="eyebrow">05 · where it's going</div>
+    <h2>Three zones, converging on one IR</h2>
+    <p class="lede">The open roadmap is not a list of features. It is three zones layered on the same primitives, each a step toward folding the runtime into a single authored intermediate representation. Read top to bottom, they are: make depth adaptive, make the running system observable, then consolidate both into a builder that emits the IR. The discipline that keeps it honest is simple. Every interim change names how it lowers into that IR, or it is churn the consolidation will undo.</p>
+    <div class="zones">
+      <div class="zone z1"><span class="z">Z1</span><span class="body"><span class="ms">v2.11 · adaptive depth</span><br><b>One resolver, two depths.</b> Verification depth (riskTier, #1515) and planning depth (designDepth, #1581) plus the ship-gate obligations (#1592) all extend a single phase-kind resolver. They evolve as one schema, reviewed together.</span></div>
+      <div class="zone z2"><span class="z">Z2</span><span class="body"><span class="ms">v2.12 · runtime supervision</span><br><b>One liveness convention.</b> The lifecycle verbs (#1090) own the subscription and liveness convention; the worktree lifecycle manager (#1574) and the Marten consumers (#1342) emit and read events that conform to it. No parallel liveness model.</span></div>
+      <div class="zone z3"><span class="z">Z3</span><span class="body"><span class="ms">v3.0 · consolidation</span><br><b>One way to define a workflow.</b> The Workflow Builder SDK (#1258) compiles a fluent definition to a typed IR and deletes the closed-form registries. Every Z1 and Z2 edit must lower into a combinator or defer until the migration consumes it.</span></div>
+    </div>
+    <div class="waves">
+      <div class="wave now"><span class="vv">v2.11.0</span><span class="h">now</span><span class="d"><b>Verification &amp; Reliability</b>:the adaptive-depth zone: the verification ladder, the design-and-plan collapse, the ship-gate obligations, the onboarding reconciler.</span></div>
+      <div class="wave now"><span class="vv">v2.12.0</span><span class="h">now</span><span class="d"><b>Process Lifecycle Verbs</b>:ps, describe, wait, export over the log, plus the worktree lifecycle manager and the remaining event-store consumers.</span></div>
+      <div class="wave"><span class="vv">v3.0.0</span><span class="h">next</span><span class="d"><b>Workflow Builder SDK</b>:the consolidation endpoint: a fluent definition compiles to the IR; the hand-written state-machine registries are retired.</span></div>
+      <div class="wave"><span class="vv">v3.1.0</span><span class="h">later</span><span class="d"><b>Ontology</b>:the two-tier eval redesign and the notification pipeline.</span></div>
+      <div class="wave"><span class="vv">v3.2.0</span><span class="h">later</span><span class="d"><b>Workflow / Remote Agent Layer</b>:the remote MCP deployment axis and the proactive-awareness surface, both held against the single-machine frame.</span></div>
+    </div>
+    <p class="note">Milestones are themed to the convergence zones, not feature buckets. The full index, the coordination rules, and the open questions live in <a href="https://github.com/lvlup-sw/exarchos/issues/1599" style="color:var(--violet);text-decoration:none">issue #1599</a>.</p>
+  </section>
+
+  <!-- ===== REFERENCE TAIL ===== -->
+  <section id="invariants" class="refhead">
+    <div class="eyebrow">reference · look it up</div>
+    <h2>The invariants</h2>
+    <p class="lede">Everything above is the narrative. What follows is the reference, built to be scanned while you work. These are the architectural invariants the runtime holds, audited at review and enforced where they can be machine-checked. Full prose lives in <span class="mono">.exarchos/invariants.md</span>.</p>
+    <div class="invs">
+      <div class="inv"><b>INV-1</b><span>The append-only log is the source of truth; every read model is a pure fold over events.</span></div>
+      <div class="inv"><b>INV-2</b><span>CLI and MCP are interchangeable facades over one dispatch core; a parity harness proves it.</span></div>
+      <div class="inv"><b>INV-3</b><span>No decision presumes the transport is local; capability resolution stays handshake-authoritative.</span></div>
+      <div class="inv"><b>INV-4</b><span>Skills and workflows are not coupled to one harness; six runtimes are first-class.</span></div>
+      <div class="inv"><b>INV-5a</b><span>Tool inputs are constrained at the schema level; every tool says when not to use it.</span></div>
+      <div class="inv"><b>INV-5b</b><span>Every result carries a fixed shape; errors carry the fields an agent needs to self-correct.</span></div>
+      <div class="inv"><b>INV-5c</b><span>Verbs are queryable and dry-run-capable, borrowed from Aspire: agents query, they don't drive scripts.</span></div>
+      <div class="inv"><b>INV-5d</b><span>Four visible composite tools, each with an action discriminator and per-action annotations.</span></div>
+      <div class="inv"><b>INV-6</b><span>The runtime makes no assumption about which workflow type is running; specifics live in topology.</span></div>
+      <div class="inv"><b>INV-7</b><span>Concurrency serializes in two tiers: an in-process chain and the write-ahead log. No PID lock.</span></div>
+      <div class="inv"><b>INV-8</b><span>Every append carries an idempotency key; a unique index collapses duplicates at storage.</span></div>
+      <div class="inv"><b>INV-9</b><span>Every workflow type ships a state machine; only one action mutates a phase.</span></div>
+      <div class="inv"><b>INV-10</b><span>Long-running work emits a start event and a terminal event; lifecycle verbs query them generically.</span></div>
+      <div class="inv"><b>INV-11</b><span>Every agent declares a posture; a task-isolated agent cannot write outside its worktree, by construction.</span></div>
+      <div class="inv"><b>INV-12</b><span>next_actions publishes the affordances an agent perceives; agents dispatch them, they don't poll.</span></div>
+      <div class="inv"><b>INV-13</b><span>A non-idempotent effect emits intent before and result after, so a crash is recoverable.</span></div>
+      <div class="inv"><b>INV-14</b><span>Recovery prefers a native undo, then a refuse-to-discard reset, and never a destructive overwrite.</span></div>
+      <div class="inv"><b>INV-15</b><span>One machine, cooperative agents. No saga, no distributed locks, no leader election.</span></div>
+    </div>
+
+    <table style="margin-top:34px">
+      <caption>What's real today, and what's planned</caption>
+      <thead><tr><th>capability</th><th>status</th><th>note</th></tr></thead>
+      <tbody>
+        <tr><td><b>SQLite event store + WAL serialization</b></td><td><span class="chip built">built</span></td><td>the JSONL substrate flip and the PID-lock removal have shipped</td></tr>
+        <tr><td><b>Projections, snapshots, reconcile</b></td><td><span class="chip built">built</span></td><td>pure folds with degrade-to-rebuild fallbacks</td></tr>
+        <tr><td><b>Two-event handler pattern + idempotency</b></td><td><span class="chip built">built</span></td><td>merge-orchestrate, create-pr, branch and worktree cleanup</td></tr>
+        <tr><td><b>CLI = MCP facade parity, 4 composite tools</b></td><td><span class="chip built">built</span></td><td>byte-equal results, schema-checked</td></tr>
+        <tr><td><b>Risk-proportional verification ladder</b></td><td><span class="chip des">in flight</span></td><td>slices shipped; the test-first excision is the live path (#1515)</td></tr>
+        <tr><td><b>Lifecycle verbs · worktree manager</b></td><td><span class="chip des">in flight</span></td><td>the v2.12 zone (#1090, #1574)</td></tr>
+        <tr><td><b>Workflow Builder SDK + authored IR</b></td><td><span class="chip plan">planned</span></td><td>the v3.0 consolidation endpoint (#1258)</td></tr>
+        <tr><td><b>Remote agent layer</b></td><td><span class="chip plan">planned</span></td><td>held against the single-machine frame (#1081, #1137)</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ===== COLOPHON ===== -->
+  <section id="colophon" class="refhead">
+    <div class="eyebrow">colophon · about this document</div>
+    <h2>Why this document is shaped the way it is</h2>
+    <p class="lede">This page is itself a design decision, so it follows the same force, choice, and cost it asks of every section. It has to be one artifact that reads as an explanation, works as a map, and serves as a lookup tool.</p>
+    <div class="decision">
+      <div class="dh">Decision: a decision-spine narrative, not a spec dump <span class="enf">sibling of basileus#182</span></div>
+      <dl>
+        <dt>Forces</dt><dd>A canonical reference is pulled three ways. An exhaustive section-by-section spec is complete but goes unread. A pure case study is compelling but hard to look things up in.</dd>
+        <dt>Choice</dt><dd>An outside-in narrative with an ADR-shaped <b>decision</b> in every section, a consistent visual legend, a forces-and-non-goals opener, and a reference tail kept visually distinct. Narrative to understand, tables to work.</dd>
+        <dt>Rejected</dt><dd class="rej">A strict twelve-section layout that reads as a checklist. Two separate documents, one to explain and one to look up, when the brief was for a single stop.</dd>
+        <dt>Cost</dt><dd>A new section has to earn a decision and a diagram, or it belongs in the reference tail as a table. That rule is what keeps the page canonical.</dd>
+      </dl>
+    </div>
+    <p class="note">Companion to the basileus system-design page; same family language, exarchos hue. If you add a section, give it a decision: the force it answers, the choice, and what that choice gave up.</p>
+  </section>
+
+  <footer>
+    <span>exarchos · system design · canonical reference</span>
+    <span>forces · pieces · state · concurrency · thesis · roadmap · reference</span>
+  </footer>
+</div>
+</body>
+</html>
