@@ -73,7 +73,7 @@ The `sequences` row becomes the single atomic allocation-and-check point, execut
 
 ### DR-2: One retry contract
 
-Plain appends can no longer surface a concurrency conflict, so they are never retry-wrapped. Conflict-surfacing and `withStateRetry` are reserved strictly for genuine OCC callers (`expectedSequence`, `decide`, `withSession`) doing a pure load→decide→save cycle. The retry predicate matches only real `ConcurrencyError`/`StorageBusyError`, and `withStateRetry` is removed from plain-append handler paths.
+Plain appends can no longer surface a concurrency conflict, so they are never retry-wrapped. Conflict-surfacing and `withStateRetry` are reserved strictly for genuine OCC callers (`expectedSequence`, `decide`, `withSession`) doing a pure load→decide→save cycle. The retry predicate matches only genuine OCC/CAS conflicts and transient busy — `VersionConflictError`, `ConcurrencyError`, `StorageBusyError`, and `SequenceConflictError`. (These four are not arbitrary: post-gate, `SequenceConflictError`/`VersionConflictError` are produced *only* by genuine OCC/CAS paths — `store.ts` raises `SequenceConflictError` solely when the gate reports `sequence-conflict` against an explicit `expectedSequence`, and `VersionConflictError` is the state-file CAS — so keeping them is correct OCC behavior, not over-matching.) `withStateRetry` is removed from plain-append handler paths.
 
 **Acceptance criteria:**
 - Given a handler that issues a plain append (no `expectedSequence`)
@@ -117,7 +117,7 @@ The deferred-`BEGIN` fallback in `atomicAppend` (`sqlite-backend.ts:1641-1646`) 
 **Acceptance criteria:**
 - INV-7's `summary` describes the version gate; `vocabulary-lint` and `check_invariant_conformance` pass against the new wording.
 - The system-design §03 text and diagram caption describe transparent serialization for plain appends and reserve "conflict" for genuine OCC.
-- No source comment references a "PID lock" (grep returns zero non-test hits).
+- No source comment *asserts that a PID lock still exists or governs the write path*. The three genuinely-misleading sites (`sqlite-backend.ts:661,1097`, `sidecar-scheduler.ts:61`) are scrubbed. Removal-history references that record where the lock went and when it was deleted (e.g. "that path was deleted in v2.11 (#1082)" in `store.ts`/`hook-event-writer.ts`) are *retained on purpose* — they are correct historical context for a future reader, not stale claims, and are exempt from the grep gate.
 
 ### DR-6: Error handling, failure modes, and recovery semantics
 
