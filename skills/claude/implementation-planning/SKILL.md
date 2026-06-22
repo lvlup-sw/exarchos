@@ -1,6 +1,6 @@
 ---
 name: implementation-planning
-description: "Transform design documents into implementation plans with parallelizable tasks. Triggers: 'plan implementation', 'create tasks from design', or /plan. Applies the verification ladder: verification depth matches each task's blast radius — static analysis for low-risk tasks, scoped tests plus a kill-probe for medium, full red-green-refactor for high-risk surfaces. Requires an existing design document — use /ideate first if none exists. Do NOT use for brainstorming, debugging, or code review."
+description: "Transform design documents into implementation plans with parallelizable tasks. Triggers: 'plan implementation', 'create tasks from design', or /plan. Applies the verification ladder: verification depth matches each task's blast radius — static analysis for low-risk tasks, scoped tests plus a kill-probe for medium, the integration suite on top for high-risk surfaces (judged test-after, not test-first ordering). Requires an existing design document — use /ideate first if none exists. Do NOT use for brainstorming, debugging, or code review."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -44,34 +44,35 @@ After 3 failed revisions:
 
 ## The Verification Ladder
 
-Verification depth matches blast radius — red-green-refactor is the **HIGH-tier path**, not a universal law. Each task gets the cheapest verification that still captures its risk:
+Verification depth matches blast radius. The deeper rungs add tests, an adequacy kill-probe, and integration coverage — judged by **outcome, test-after**, not by a universal failing-test-first law (#1587). Each task gets the cheapest verification that still captures its risk:
 
 | Risk tier | What it adds | Why |
 |-----------|--------------|-----|
-| **low** | Static analysis (typecheck + lint) suffices | A docs/config/rename-only edit has near-zero blast radius; test-first ceremony is pure overhead. |
-| **medium** | Scoped tests + the `check_test_adequacy` kill-probe | The kill-probe recaptures test-first's unique guarantee — that a test can actually fail — at lower cost than mandating RED-first on every commit. |
-| **high** | Full red-green-refactor + the integration suite | Schema/type/API/shared-contract surfaces span the codebase; here the failing-test-first discipline earns its cost. |
+| **low** | Static analysis (typecheck + lint) suffices | A docs/config/rename-only edit has near-zero blast radius; a test ceremony is pure overhead. |
+| **medium** | Scoped tests + the `check_test_adequacy` kill-probe | The kill-probe recaptures test-first's one real guarantee — that a test can actually fail — at lower cost, judged test-after instead of mandating a failing test first on every commit. |
+| **high** | The integration suite (and mutation-adequacy at the boundary) on top of medium | Schema/type/API/shared-contract surfaces span the codebase; here adequacy-judged coverage plus real-collaborator integration across the seam earns its cost. |
 
 The planner stamps each task's `riskTier` (and `boundaryTouching`); the classifier derives it from blast radius when the planner does not override. The dispatched implementer prompt and the gate sequence both scale off that stamp — so the verification effort is data-driven, not a blanket rule.
 
-For a **high-tier** task, the discipline is:
-1. Start with writing a failing test
-2. Specify the expected failure reason
-3. Only then implement minimum code to pass
+For a **high-tier** task, the discipline is **outcome-based** (write the behavior and its tests in whatever order is natural — test-after is fine):
+1. Cover the new/changed behavior with scoped tests that pin its contract
+2. Let the `check_test_adequacy` kill-probe prove the tests can actually fail (it reverts your source and asserts at least one test goes red)
+3. Add real-collaborator integration coverage across the seam
 
-**Verify high-tier TDD compliance** in git history after implementation:
+**Verify high-tier test adequacy** after implementation — the keeper gate (the test-FIRST ordering gate `check_tdd_compliance` was retired in #1587):
 
 ```typescript
 exarchos_orchestrate({
-  action: "check_tdd_compliance",
+  action: "check_test_adequacy",
   featureId: "<featureId>",
   taskId: "<taskId>",
-  branch: "feature/<name>"
+  branch: "feature/<name>",
+  riskTier: "high"
 })
 ```
 
-- **`passed: true`** — All commits have test files before or alongside implementation
-- **`passed: false`** — Violations found; commits have implementation without corresponding tests
+- **`passed: true`** — Reverting the task's source makes at least one new/changed test fail: the tests are not vacuous
+- **`passed: false`** — A test still passes against the reverted source; strengthen it
 
 ## Planning Process
 
@@ -200,12 +201,13 @@ For reference, consult `references/spec-tracing-guide.md` for the underlying met
 
 | Don't | Do Instead |
 |-------|------------|
-| Write implementation first | Write failing test first |
+| Ship medium/high-tier behavior with no tests | Cover it with adequacy-judged tests (test-after is fine) |
+| Mandate red-green-refactor on every task | Scale verification to the task's `riskTier`; RGR is a high-tier opt-in |
 | Create large tasks | Break into 2-5 min chunks |
 | Skip dependency analysis | Identify parallel opportunities |
 | Vague test descriptions | Specific: Method_Scenario_Outcome |
-| Assume tests pass | Verify each test fails first |
-| Add "nice to have" code | Only what the test requires |
+| Assume your tests can fail | Let `check_test_adequacy` prove they can (revert source, re-run, expect red) |
+| Add "nice to have" code | Only what the behavior requires |
 
 ## Rationalization Debunking
 
@@ -248,7 +250,7 @@ for orchestrate action schemas.
 - [ ] Spec traceability table created (`exarchos_orchestrate({ action: "generate_traceability" })`)
 - [ ] Scope declared (full or partial with rationale)
 - [ ] Tasks decomposed to 2-5 min granularity
-- [ ] Each task carries a `riskTier` (and `boundaryTouching`) stamp; high-tier tasks start with a failing test
+- [ ] Each task carries a `riskTier` (and `boundaryTouching`) stamp; medium/high-tier tasks carry adequacy-judged tests (test-after), high-tier adds the integration suite
 - [ ] Dependencies mapped
 - [ ] Parallel groups identified
 - [ ] Plan verification passed — `exarchos_orchestrate({ action: "check_plan_coverage" })` returns passed: true
