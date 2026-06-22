@@ -136,7 +136,7 @@
   <header>
     <div class="kicker">exarchos · <b>system design</b></div>
     <h1>Event-sourced by design,<br>cooperative by <span class="o">default</span></h1>
-    <p class="sub">Exarchos is local agent governance: a single-machine, event-sourced process manager that lets several coding agents work the same repository at once without stepping on each other. This page reads from the outside in. First <b>what it is built to optimize for</b>, then how a workflow actually moves through the runtime, the two places state lives, how it stays correct when agents run in parallel, why governance scales with risk instead of applying to everything equally, and where the roadmap is heading. Each section names the <b>decision</b> behind it: the force, the choice, and what was given up. A reference tail at the end is there to look things up in.</p>
+    <p class="sub">Exarchos is local agent governance: a single-machine, event-sourced process manager that lets several coding agents work the same repository at once without stepping on each other. This page reads from the outside in. First <b>what it is built to optimize for</b>, then how a workflow actually moves through the runtime, where state lives, how it stays correct when agents run in parallel, why governance scales with risk instead of applying to everything equally, how one runtime serves many agent harnesses without hand-rendering each, and where the roadmap is heading. Each section names the <b>decision</b> behind it: the force, the choice, and what was given up. A reference tail at the end is there to look things up in.</p>
     <div class="note" style="margin-top:18px;display:flex;flex-wrap:wrap;gap:6px 24px">
       <span>canonical architecture reference · living document</span>
       <span>source of truth · <a href="https://github.com/lvlup-sw/exarchos/issues/1599" style="color:var(--violet);text-decoration:none">issue #1599</a> (roadmap master tracker)</span>
@@ -197,7 +197,7 @@
           <li><b>Governed throughput without a ceremony tax</b>: verification and planning depth proportional to the risk of the change.</li>
           <li><b>Durable, replayable</b> workflow state: reconstruct what happened and why, from the log alone.</li>
           <li><b>Cooperative concurrency</b>: many agents on one repository, serialized by the substrate, not by manual coordination.</li>
-          <li><b>One behavior, two faces</b>: the CLI and the MCP surface are facades over a single dispatch core, byte for byte.</li>
+          <li><b>One contract, one core</b>: the MCP contract is the single invocation surface, and the CLI is a presentation client over it, equal by construction.</li>
           <li><b>Recovery that never loses work</b>: native undo first, refuse-to-discard second, destructive overwrite never.</li>
         </ul>
       </div>
@@ -208,6 +208,7 @@
           <li><b>Not</b> a daemon or a background supervisor. Liveness is observed from events, queried on demand.</li>
           <li><b>Not</b> a model harness. Exarchos governs the workflow; the coding agent stays whatever the operator runs.</li>
           <li><b>Not</b> uniform process. Mandatory red-green-refactor on every task is the thing being replaced.</li>
+          <li><b>Not</b> a render-everything-per-harness shim. Where an open standard converged we conform to it; bespoke rendering is reserved for what no standard covers.</li>
         </ul>
       </div>
     </div>
@@ -223,46 +224,55 @@
       <div class="legend">
         <span><i class="sw-t"></i>read path · query / fold</span>
         <span><i class="sw-v"></i>write path · append event</span>
-        <span class="mono" style="color:var(--ink-dim)">one dispatch core · two facades</span>
+        <span class="mono" style="color:var(--ink-dim)">the CLI presents the MCP contract</span>
       </div>
-      <svg viewBox="0 0 960 300" font-size="13" role="img" aria-label="CLI and MCP adapters call one dispatch core; writes append to the event store; projections fold events into read models; the HSM guards transitions; next_actions return to the agent.">
+      <svg viewBox="0 0 960 300" font-size="13" role="img" aria-label="The MCP contract is the invocation surface: agents call it directly, and the CLI presents that same contract for humans and scripts, calling its handler in-process. The contract resolves through one dispatch core; writes append to the event store; projections fold events into read models; the state machine guards transitions; next_actions returns to the agent.">
         <defs>
           <marker id="m-v" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="var(--violet)"/></marker>
           <marker id="m-t" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="var(--teal)"/></marker>
         </defs>
-        <rect x="40" y="24" width="200" height="44" rx="10" fill="none" stroke="var(--line)"/>
-        <text x="140" y="51" text-anchor="middle" font-size="13.5" font-family="var(--mono)" fill="var(--ink-dim)">CLI adapter</text>
-        <rect x="260" y="24" width="200" height="44" rx="10" fill="none" stroke="var(--line)"/>
-        <text x="360" y="51" text-anchor="middle" font-size="13.5" font-family="var(--mono)" fill="var(--ink-dim)">MCP adapter</text>
-        <line x1="140" y1="68" x2="240" y2="104" class="flow" stroke="var(--ink-faint)" stroke-width="1.5" marker-end="url(#m-t)"/>
-        <line x1="360" y1="68" x2="260" y2="104" class="flow" stroke="var(--ink-faint)" stroke-width="1.5" marker-end="url(#m-t)"/>
-        <rect x="150" y="106" width="200" height="58" rx="11" fill="oklch(0.74 0.15 292 / .08)" stroke="var(--violet)"/>
-        <text x="250" y="132" text-anchor="middle" font-size="15" font-family="var(--disp)" fill="var(--violet)">dispatch core</text>
-        <text x="250" y="151" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--ink-dim)">dispatch(verb, args, ctx)</text>
+        <!-- CLI presentation layer sits over the MCP contract -->
+        <rect x="130" y="14" width="240" height="36" rx="10" fill="none" stroke="var(--line)"/>
+        <text x="250" y="31" text-anchor="middle" font-size="13" font-family="var(--disp)" fill="var(--ink-dim)">CLI · presentation layer</text>
+        <text x="250" y="44" text-anchor="middle" font-size="10.5" font-family="var(--mono)" fill="var(--ink-faint)">humans · scripts · CI</text>
+        <line x1="250" y1="50" x2="250" y2="62" class="flow" stroke="var(--ink-faint)" stroke-width="1.5" marker-end="url(#m-t)"/>
+        <rect x="130" y="62" width="240" height="46" rx="11" fill="oklch(0.80 0.11 196 / .08)" stroke="oklch(0.80 0.11 196 / .6)"/>
+        <text x="250" y="84" text-anchor="middle" font-size="14.5" font-family="var(--disp)" fill="var(--teal)">MCP contract</text>
+        <text x="250" y="100" text-anchor="middle" font-size="11" font-family="var(--mono)" fill="var(--ink-dim)">the invocation surface</text>
+        <!-- agents call the contract directly -->
+        <rect x="420" y="64" width="120" height="42" rx="10" fill="oklch(0.80 0.11 196 / .07)" stroke="oklch(0.80 0.11 196 / .5)"/>
+        <text x="480" y="82" text-anchor="middle" font-size="13" font-family="var(--disp)" fill="var(--teal)">agents</text>
+        <text x="480" y="98" text-anchor="middle" font-size="10.5" font-family="var(--mono)" fill="var(--ink-dim)">tool calls</text>
+        <line x1="420" y1="85" x2="372" y2="85" class="flow" stroke="var(--teal)" stroke-width="1.5" marker-end="url(#m-t)"/>
+        <!-- contract resolves through the dispatch core -->
+        <line x1="250" y1="108" x2="250" y2="120" class="flow" stroke="var(--violet)" stroke-width="1.7" marker-end="url(#m-v)"/>
+        <rect x="150" y="120" width="200" height="48" rx="11" fill="oklch(0.74 0.15 292 / .08)" stroke="var(--violet)"/>
+        <text x="250" y="142" text-anchor="middle" font-size="15" font-family="var(--disp)" fill="var(--violet)">dispatch core</text>
+        <text x="250" y="159" text-anchor="middle" font-size="11" font-family="var(--mono)" fill="var(--ink-dim)">dispatch(verb, args, ctx)</text>
         <!-- write down to event store -->
-        <line x1="250" y1="164" x2="250" y2="206" class="flow" stroke="var(--violet)" stroke-width="1.8" marker-end="url(#m-v)"/>
-        <text x="262" y="190" font-size="11.5" font-family="var(--mono)" fill="var(--ink-faint)">append event</text>
-        <rect x="120" y="208" width="260" height="56" rx="11" fill="oklch(0.74 0.15 292 / .1)" stroke="var(--violet)" stroke-width="1.6"/>
-        <text x="250" y="232" text-anchor="middle" font-size="14.5" font-family="var(--disp)" fill="var(--violet)">SQLite event store</text>
-        <text x="250" y="251" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--ink-dim)">append-only · WAL · per-stream order</text>
+        <line x1="250" y1="168" x2="250" y2="206" class="flow" stroke="var(--violet)" stroke-width="1.8" marker-end="url(#m-v)"/>
+        <text x="262" y="192" font-size="11" font-family="var(--mono)" fill="var(--ink-faint)">append event</text>
+        <rect x="120" y="208" width="260" height="54" rx="11" fill="oklch(0.74 0.15 292 / .1)" stroke="var(--violet)" stroke-width="1.6"/>
+        <text x="250" y="231" text-anchor="middle" font-size="14.5" font-family="var(--disp)" fill="var(--violet)">SQLite event store</text>
+        <text x="250" y="249" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--ink-dim)">append-only · WAL · per-stream order</text>
         <!-- fold to projections -->
-        <line x1="380" y1="236" x2="470" y2="236" class="flow" stroke="var(--teal)" stroke-width="1.6" marker-end="url(#m-t)"/>
-        <text x="425" y="226" text-anchor="middle" font-size="11" font-family="var(--mono)" fill="var(--ink-faint)">fold</text>
-        <rect x="472" y="208" width="210" height="56" rx="11" fill="oklch(0.80 0.11 196 / .07)" stroke="oklch(0.80 0.11 196 / .5)"/>
-        <text x="577" y="232" text-anchor="middle" font-size="14" font-family="var(--disp)" fill="var(--teal)">projections</text>
-        <text x="577" y="251" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--ink-dim)">pure folds · snapshot-cached</text>
+        <line x1="380" y1="235" x2="470" y2="235" class="flow" stroke="var(--teal)" stroke-width="1.6" marker-end="url(#m-t)"/>
+        <text x="425" y="225" text-anchor="middle" font-size="11" font-family="var(--mono)" fill="var(--ink-faint)">fold</text>
+        <rect x="472" y="208" width="210" height="54" rx="11" fill="oklch(0.80 0.11 196 / .07)" stroke="oklch(0.80 0.11 196 / .5)"/>
+        <text x="577" y="231" text-anchor="middle" font-size="14" font-family="var(--disp)" fill="var(--teal)">projections</text>
+        <text x="577" y="249" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--ink-dim)">pure folds · snapshot-cached</text>
         <!-- HSM -->
-        <rect x="704" y="208" width="216" height="56" rx="11" fill="none" stroke="var(--line)"/>
-        <text x="812" y="232" text-anchor="middle" font-size="14" font-family="var(--disp)" fill="var(--ink-dim)">state machine</text>
-        <text x="812" y="251" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--ink-faint)">guards transitions per type</text>
-        <line x1="682" y1="236" x2="704" y2="236" stroke="var(--line)" stroke-width="1.4"/>
-        <!-- next_actions back up -->
-        <path d="M812,208 C812,150 560,120 360,138" fill="none" class="flow" stroke="var(--teal)" stroke-width="1.5" marker-end="url(#m-t)"/>
-        <text x="650" y="100" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--teal)">next_actions → the agent reads and dispatches</text>
+        <rect x="704" y="208" width="216" height="54" rx="11" fill="none" stroke="var(--line)"/>
+        <text x="812" y="231" text-anchor="middle" font-size="14" font-family="var(--disp)" fill="var(--ink-dim)">state machine</text>
+        <text x="812" y="249" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--ink-faint)">guards transitions per type</text>
+        <line x1="682" y1="235" x2="704" y2="235" stroke="var(--line)" stroke-width="1.4"/>
+        <!-- next_actions back up to the agent -->
+        <path d="M812,208 C812,140 640,108 544,93" fill="none" class="flow" stroke="var(--teal)" stroke-width="1.5" marker-end="url(#m-t)"/>
+        <text x="664" y="150" text-anchor="middle" font-size="11" font-family="var(--mono)" fill="var(--teal)">next_actions → the agent reads and dispatches</text>
       </svg>
       <figcaption>
         <ul>
-          <li><b>One core, two facades.</b> The CLI parses argv and the MCP adapter unwraps a tool call, then both hand the same arguments to the same dispatch function and get the same result back.</li>
+          <li><b>The contract is the surface.</b> Agents call the MCP contract directly; the CLI presents that same contract for humans and scripts, calling its handler in-process. One invocation surface, one core beneath it.</li>
           <li><b>Writes are events.</b> A mutation is an appended fact, committed in a single transaction. Read models are folds over those facts, so a cold start replays rather than trusts a cache.</li>
           <li><b>Affordance, not command.</b> <span class="mono">next_actions</span> publishes the legal moves derived from the state machine. Pull a verb from that list and you remove the path to it, not the underlying transition.</li>
         </ul>
@@ -278,8 +288,8 @@
       <div class="lay spine"><span class="num">L5</span><span class="what"><b>Dispatch core</b><span>A single function over a context that carries storage, the event store, the resolver, and telemetry.</span></span><span class="scope">core/dispatch.ts</span></div>
       <div class="lay"><span class="num">L6</span><span class="what"><b>Composite tools</b><span>Four visible tools, each with an action discriminator, a registered output schema, and per-action annotations.</span></span><span class="scope">orchestrate/ · views/</span></div>
       <div class="lay fut"><span class="num">L7</span><span class="what"><b>Lifecycle verbs</b><span>ps, describe, wait, export: generic windows over the log, shipping with v2.12. No per-feature lifecycle code.</span></span><span class="scope">cli-commands/</span></div>
-      <div class="lay"><span class="num">L8</span><span class="what"><b>Adapters</b><span>CLI and MCP. Presentation only, zero behavior. A parity harness asserts they return identical results.</span></span><span class="scope">adapters/</span></div>
-      <div class="lay"><span class="num">L9</span><span class="what"><b>Cooperative agents</b><span>Claude Code, Codex, Cursor, OpenCode and others. Each declares a posture; each reads next_actions instead of polling.</span></span><span class="scope">runtime</span></div>
+      <div class="lay"><span class="num">L8</span><span class="what"><b>Adapters</b><span>CLI and MCP over one dispatch core. The MCP contract is the invocation surface and the CLI a client over it: asserted equal by a parity harness today, generated from the tool schemas next (§05).</span></span><span class="scope">adapters/</span></div>
+      <div class="lay"><span class="num">L9</span><span class="what"><b>Cooperative agents</b><span>Claude Code, Codex, Cursor, OpenCode and others. Each declares a posture and reads next_actions instead of polling; the runtime meets them through converged standards plus thin on-ramps, not a bespoke render per harness (§05).</span></span><span class="scope">runtime</span></div>
     </div>
     <p class="note">Two rows are highlighted (L2 event store, L5 dispatch core): the load-bearing spine the rest of the stack leans on. One row is dashed (L7 lifecycle verbs): in flight for v2.12, not yet landed.</p>
 
@@ -371,7 +381,7 @@
 
   <!-- ===== 04 · ADAPTIVE DEPTH ===== -->
   <section id="depth">
-    <div class="eyebrow">04 · the thesis</div>
+    <div class="eyebrow">04 · the first thesis</div>
     <h2>Why depth scales with risk</h2>
     <p class="lede">This is the idea the rest of the roadmap turns on. Two kinds of effort used to apply uniformly to every task: how hard you <b>verify</b>, and how much you <b>plan</b>. Exarchos makes both proportional to the change. A <span class="mono">riskTier</span> stamped on a task picks its verification ladder, from a bare typecheck at the low end to a full suite with a mutation-adequacy backstop at a boundary. A <span class="mono">designDepth</span> does the same for planning, scaling a single artifact from a terse plan to a full design-and-decompose. Both resolve once, when the phase is entered, and then freeze for the life of the task. They are the same move on one resolver, one applied to verification and one to planning.</p>
     <table>
@@ -394,9 +404,74 @@
     </div>
   </section>
 
-  <!-- ===== 05 · WHERE IT'S GOING ===== -->
+  <!-- ===== 05 · HARNESS AGNOSTICISM ===== -->
+  <section id="agnosticism">
+    <div class="eyebrow">05 · the second thesis</div>
+    <h2>How one runtime serves many harnesses</h2>
+    <p class="lede">A second thesis runs alongside the first. Exarchos serves several agent harnesses at once, and the naive way to do that, rendering every concern once per harness and then guarding the renders against drift, taxes the system with every new runtime while still proving the wrong thing: a guard proves the artifacts match, never that the guarantee holds. The move is to split by whether an open standard exists. Where one converged, <b>conform</b> to it and ship a single artifact. Where none did, stop rendering and <b>enforce</b> the invariant at a chokepoint every harness must cross.</p>
+
+    <figure class="panel">
+      <div class="legend">
+        <span><i class="sw-g"></i>conform · converged standards</span>
+        <span><i class="sw-v"></i>enforce · dispatch + launcher chokepoints</span>
+        <span class="mono" style="color:var(--ink-dim)">generator → thin on-ramps</span>
+      </div>
+      <svg viewBox="0 0 960 300" font-size="13" role="img" aria-label="N agent harnesses are served two ways. Concerns covered by a converged standard (Agent Skills, AGENTS.md, MCP) are emitted once as a single artifact. Concerns no standard covers (hooks, subagents, worktree isolation) are enforced at chokepoints: state in the dispatch and MCP handler, space in a spawn-bounded launcher that owns the worktree.">
+        <defs>
+          <marker id="a-g" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="var(--green)"/></marker>
+          <marker id="a-v" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="var(--violet)"/></marker>
+        </defs>
+        <rect x="250" y="16" width="460" height="44" rx="11" fill="none" stroke="var(--line)"/>
+        <text x="480" y="37" text-anchor="middle" font-size="14" font-family="var(--disp)" fill="var(--ink-dim)">N agent harnesses</text>
+        <text x="480" y="53" text-anchor="middle" font-size="11" font-family="var(--mono)" fill="var(--ink-faint)">Claude · Codex · Cursor · OpenCode · generic</text>
+        <path d="M360,60 C322,96 292,112 256,150" fill="none" class="flow" stroke="var(--green)" stroke-width="1.6" marker-end="url(#a-g)"/>
+        <text x="250" y="108" text-anchor="end" font-size="10.5" font-family="var(--mono)" fill="var(--green)">covered by a standard</text>
+        <path d="M600,60 C638,96 668,112 704,150" fill="none" class="flow" stroke="var(--violet)" stroke-width="1.6" marker-end="url(#a-v)"/>
+        <text x="712" y="108" text-anchor="start" font-size="10.5" font-family="var(--mono)" fill="var(--violet)">no standard · via thin on-ramps</text>
+        <!-- conform -->
+        <rect x="40" y="152" width="420" height="130" rx="13" fill="oklch(0.81 0.15 150 / .06)" stroke="oklch(0.81 0.15 150 / .5)"/>
+        <text x="250" y="178" text-anchor="middle" font-size="15" font-family="var(--disp)" fill="var(--green)">conform</text>
+        <text x="250" y="196" text-anchor="middle" font-size="11" font-family="var(--mono)" fill="var(--ink-dim)">emit one standard artifact the harness already reads</text>
+        <rect x="58" y="210" width="124" height="28" rx="14" fill="none" stroke="oklch(0.81 0.15 150 / .45)"/>
+        <text x="120" y="228" text-anchor="middle" font-size="11" font-family="var(--mono)" fill="var(--ink)">Agent Skills</text>
+        <rect x="188" y="210" width="124" height="28" rx="14" fill="none" stroke="oklch(0.81 0.15 150 / .45)"/>
+        <text x="250" y="228" text-anchor="middle" font-size="11" font-family="var(--mono)" fill="var(--ink)">AGENTS.md</text>
+        <rect x="318" y="210" width="124" height="28" rx="14" fill="none" stroke="oklch(0.81 0.15 150 / .45)"/>
+        <text x="380" y="228" text-anchor="middle" font-size="11" font-family="var(--mono)" fill="var(--ink)">MCP</text>
+        <text x="250" y="263" text-anchor="middle" font-size="11" font-family="var(--mono)" fill="var(--ink-faint)">one artifact, distributed — not rendered per harness</text>
+        <!-- enforce -->
+        <rect x="500" y="152" width="420" height="130" rx="13" fill="oklch(0.74 0.15 292 / .08)" stroke="var(--violet)" stroke-width="1.4"/>
+        <text x="710" y="178" text-anchor="middle" font-size="15" font-family="var(--disp)" fill="var(--violet)">enforce at a chokepoint</text>
+        <text x="710" y="196" text-anchor="middle" font-size="11" font-family="var(--mono)" fill="var(--ink-dim)">one seam every harness must pass through</text>
+        <rect x="516" y="210" width="190" height="28" rx="9" fill="oklch(0.74 0.15 292 / .12)" stroke="oklch(0.74 0.15 292 / .5)"/>
+        <text x="611" y="228" text-anchor="middle" font-size="11" font-family="var(--mono)" fill="var(--ink)">dispatch · MCP → state</text>
+        <rect x="714" y="210" width="190" height="28" rx="9" fill="oklch(0.74 0.15 292 / .12)" stroke="oklch(0.74 0.15 292 / .5)"/>
+        <text x="809" y="228" text-anchor="middle" font-size="11" font-family="var(--mono)" fill="var(--ink)">launcher → space</text>
+        <text x="710" y="263" text-anchor="middle" font-size="11" font-family="var(--mono)" fill="var(--ink-faint)">holds by construction, on any harness</text>
+      </svg>
+      <figcaption>
+        <ul>
+          <li><b>Render-parity is not enforcement-parity.</b> A skill can render byte-perfect for every harness and still not confine the agent: worktree isolation is native on one runtime and advisory on the rest. Conformance closes the first gap; a chokepoint closes the second.</li>
+          <li><b>Conform where a standard converged.</b> Agent Skills (<span class="mono">SKILL.md</span>), AGENTS.md and MCP are read natively across runtimes, so one artifact replaces the per-harness render. The only residual is the tool prefix, carried by a bare logical name the agent resolves from its own tool list.</li>
+          <li><b>Enforce where none did.</b> Hooks, subagents and worktree isolation have no standard, so the guarantee moves to a seam every harness crosses: state in the dispatch and MCP handler, space in a spawn-bounded launcher that owns the worktree. The generator keeps only the thin on-ramps that route each harness in.</li>
+        </ul>
+      </figcaption>
+    </figure>
+
+    <div class="decision">
+      <div class="dh">Decision: conform where a standard converged, enforce where none did <span class="enf">reframes INV-2 · INV-4 · INV-11 · #1601</span></div>
+      <dl>
+        <dt>Forces</dt><dd>Six runtimes, several concerns apiece: skills, instructions, hooks, subagents, worktree isolation. Rendering each concern per harness and then guarding the renders against drift is a tax that grows with every new runtime, and the guards see only the bytes. They prove the artifacts match, not that the guarantee holds: worktree isolation is enforced <b>by construction</b> on one runtime and merely advised on the others.</dd>
+        <dt>Choice</dt><dd>Split by whether a standard exists. Where one converged — Agent Skills, AGENTS.md, MCP — emit one standard artifact and let the harness read it; a bare logical tool name carries the only per-harness variance. Where none did — hooks, subagents, worktree isolation — enforce at a chokepoint every harness must cross: <b>state</b> in the dispatch and MCP handler, <b>space</b> in a spawn-bounded launcher that owns the worktree. The generator shrinks to the thin on-ramps that route each harness in.</dd>
+        <dt>Rejected</dt><dd class="rej">A bespoke render per harness per concern, kept honest by ever more structural guards. It scales the tax with every runtime and never closes the enforcement gap the guards cannot see.</dd>
+        <dt>Cost</dt><dd>The launcher owns process spawn, held to the single-machine frame: set up, exec, tear down, no daemon. The CLI becomes a client of the MCP contract rather than a peer facade. And INV-11's by-construction promise only becomes true everywhere once the launcher lands.</dd>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ===== 06 · WHERE IT'S GOING ===== -->
   <section id="roadmap">
-    <div class="eyebrow">05 · where it's going</div>
+    <div class="eyebrow">06 · where it's going</div>
     <h2>Three zones, converging on one IR</h2>
     <p class="lede">The open roadmap is not a list of features. It is three zones layered on the same primitives, each a step toward folding the runtime into a single authored intermediate representation. Read top to bottom, they are: make depth adaptive, make the running system observable, then consolidate both into a builder that emits the IR. The discipline that keeps it honest is simple. Every interim change names how it lowers into that IR, or it is churn the consolidation will undo.</p>
     <div class="zones">
@@ -411,7 +486,7 @@
       <div class="wave"><span class="vv">v3.1.0</span><span class="h">later</span><span class="d"><b>Ontology</b>: the two-tier eval redesign and the notification pipeline.</span></div>
       <div class="wave"><span class="vv">v3.2.0</span><span class="h">later</span><span class="d"><b>Workflow / Remote Agent Layer</b>: the remote MCP deployment axis and the proactive-awareness surface, both held against the single-machine frame.</span></div>
     </div>
-    <p class="note">Milestones are themed to the convergence zones, not feature buckets. The full index, the coordination rules, and the open questions live in <a href="https://github.com/lvlup-sw/exarchos/issues/1599" style="color:var(--violet);text-decoration:none">issue #1599</a>.</p>
+    <p class="note">The harness-agnosticism program (#1601) threads both live zones — the launcher and the hooks-into-dispatch move in Z2, the facade-as-MCP-contract codegen in Z3 atop the 2026-07-28 MCP migration (#1604). Milestones are themed to the convergence zones, not feature buckets. The full index, the coordination rules, and the open questions live in <a href="https://github.com/lvlup-sw/exarchos/issues/1599" style="color:var(--violet);text-decoration:none">issue #1599</a>.</p>
   </section>
 
   <!-- ===== REFERENCE TAIL ===== -->
@@ -440,6 +515,8 @@
       <div class="inv"><b>INV-15</b><span>One machine, cooperative agents. No saga, no distributed locks, no leader election.</span></div>
     </div>
 
+    <p class="note">INV-2, INV-4 and INV-11 are being reframed by the harness-agnosticism program (#1601): the CLI becomes a client of the MCP contract (equivalence by construction), runtimes are served by standards-conformance plus a thin shim, and worktree isolation becomes launcher-enforced across harnesses. The catalog edit is tracked in #1608; the decision is §05.</p>
+
     <table style="margin-top:34px">
       <caption>What's real today, and what's planned</caption>
       <thead><tr><th>capability</th><th>status</th><th>note</th></tr></thead>
@@ -451,6 +528,9 @@
         <tr><td><b>Risk-proportional verification ladder</b></td><td><span class="chip des">in flight</span></td><td>slices shipped; the test-first excision is the live path (#1515)</td></tr>
         <tr><td><b>Lifecycle verbs · worktree manager</b></td><td><span class="chip des">in flight</span></td><td>the v2.12 zone (#1090, #1574)</td></tr>
         <tr><td><b>Workflow Builder SDK + authored IR</b></td><td><span class="chip plan">planned</span></td><td>the v3.0 consolidation endpoint (#1258)</td></tr>
+        <tr><td><b>Standards conformance · one SKILL.md, AGENTS.md, MCP</b></td><td><span class="chip plan">planned</span></td><td>bare logical names, vendor distribution (#1601, #1602, #1605)</td></tr>
+        <tr><td><b>Launcher · spatial enforcement chokepoint</b></td><td><span class="chip plan">planned</span></td><td>owns worktree creation, amends #1574 (#1601, #1603)</td></tr>
+        <tr><td><b>Facade as MCP-contract client · presentation codegen</b></td><td><span class="chip plan">planned</span></td><td>rides the 2026-07-28 MCP migration (#1601, #1604, #1606)</td></tr>
         <tr><td><b>Remote agent layer</b></td><td><span class="chip plan">planned</span></td><td>held against the single-machine frame (#1081, #1137)</td></tr>
       </tbody>
     </table>
@@ -475,7 +555,7 @@
 
   <footer>
     <span>exarchos · system design · canonical reference</span>
-    <span>forces · pieces · state · concurrency · thesis · roadmap · reference</span>
+    <span>forces · pieces · state · concurrency · thesis · agnosticism · roadmap · reference</span>
   </footer>
 </div>
 </body>

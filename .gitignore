@@ -52,3 +52,6 @@ docs/marketing/
 
 # Subagent persistent memory (never commit to feature branches)
 .claude/agent-memory/
+
+# Lavish review artifacts (local HTML review surfaces; not source)
+.lavish/
