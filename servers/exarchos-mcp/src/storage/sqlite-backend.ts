@@ -764,7 +764,7 @@ export class SqliteBackend implements StorageBackend {
       //   UPDATE streams SET workflow_type = ? WHERE streamId = ? AND workflow_type = '__legacy'
       // Constraining to '__legacy' protects rows already carrying a typed
       // value (e.g. inserted by a concurrent handleInit during the migration
-      // window — unlikely with the PID lock, but the guard makes the update
+      // window — unlikely under the in-transaction serialization, but the guard makes the update
       // safe regardless). This is the ONLY UPDATE of workflow_type in the
       // codebase — task 1.7 enforces immutability everywhere else via a CI
       // grep gate.
@@ -1200,7 +1200,8 @@ export class SqliteBackend implements StorageBackend {
    * upsert. The `events` table's PK (streamId, sequence) makes the
    * INSERT a hard error on collision — that's the right failure mode if
    * a sibling appender slipped in during the migration window (the
-   * EventStore PID lock should make this impossible in practice).
+   * stream-version gate makes this impossible in practice; the PK is the
+   * integrity backstop).
    *
    * Schema: per the registered EVENT_DATA_SCHEMAS entry for
    * `migration.workflow_type_unknown`, the data carries `streamId` only.

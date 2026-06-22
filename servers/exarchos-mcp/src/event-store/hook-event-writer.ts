@@ -45,8 +45,9 @@ function getSidecarPath(stateDir: string, streamId: string): string {
  * newline-delimited JSON (JSONL). A timestamp defaults to `new Date().toISOString()`
  * if not provided.
  *
- * This function is safe to call from hook subprocesses — it does not require
- * the EventStore PID lock.
+ * This function is safe to call from hook subprocesses — it appends through
+ * the same WAL-serialized substrate and needs no exclusive EventStore lock
+ * (there is none; cross-process writes serialize on the SQLite write lock).
  */
 export async function writeHookEvent(
   stateDir: string,

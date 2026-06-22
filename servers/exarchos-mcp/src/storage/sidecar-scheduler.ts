@@ -58,7 +58,7 @@ function parseEnvInt(envVar: string, defaultValue: number): number {
  * the result.
  *
  * @param stateDir   Directory containing sidecar files
- * @param eventStore EventStore to merge events into (must hold the PID lock)
+ * @param eventStore EventStore to merge events into
  * @param intervalMs Drain interval in milliseconds (default: 5000, overridable via EXARCHOS_SIDECAR_DRAIN_INTERVAL_MS)
  * @param opts       Optional: `immediate` fires one drain before returning; `onDrain` receives observability data
  * @returns A handle with a `stop()` method to cancel the periodic drain

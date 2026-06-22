@@ -54,9 +54,15 @@ invariants:
       Concurrency is serialized in two tiers. Tier 1 (in-process): the
       StreamLockManager runs concurrent same-stream appends sequentially
       via a per-stream Promise-chain mutex. Tier 2 (cross-process): SQLite
-      WAL with BEGIN IMMEDIATE acquires the write lock; the PRIMARY KEY
-      (streamId, sequence) rejects duplicate sequences; OCC retry handles
-      the conflict. No process-level mutex, no PID lock, no advisory file.
+      WAL with BEGIN IMMEDIATE acquires the write lock up-front, and a
+      per-stream version gate assigns-and-checks the sequence atomically
+      INSIDE that transaction (the convergent event-store primitive — Marten
+      mt_streams, SQLStreamStore, EventStoreDB). The PRIMARY KEY
+      (streamId, sequence) is an integrity backstop, not the conflict
+      detector. Plain appends serialize transparently; only a genuine OCC
+      mismatch (a stale expectedSequence) surfaces a conflict, carrying
+      expected/actual directly. No process-level mutex, no PID lock, no
+      advisory file.
     citations:
       - "Mohan et al., *ARIES* (ACM TODS 1992): https://dl.acm.org/doi/10.1145/128765.128770"
       - "Bernstein & Goodman, *Concurrency Control in Distributed Database Systems* (ACM Computing Surveys 1981): https://dl.acm.org/doi/10.1145/356842.356846"
