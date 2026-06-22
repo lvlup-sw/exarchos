@@ -154,9 +154,11 @@ describe('Agent Spec Definitions', () => {
     expect(implementerCaps.has('isolation:worktree')).toBe(true);
     expect(implementerCaps.has('session:resume')).toBe(true);
     expect(IMPLEMENTER.disallowedTools).toContain('Agent');
-    expect(IMPLEMENTER.skills.length).toBeGreaterThanOrEqual(2);
+    expect(IMPLEMENTER.skills.length).toBeGreaterThanOrEqual(1);
     const skillNames = IMPLEMENTER.skills.map(s => s.name);
-    expect(skillNames).toContain('tdd-patterns');
+    // #1590: the dangling `tdd-patterns` skill ref (no source, empty content) was
+    // dropped; `testing-patterns` remains as the tier-neutral test-pattern ref.
+    expect(skillNames).not.toContain('tdd-patterns');
     expect(skillNames).toContain('testing-patterns');
     expect(IMPLEMENTER.validationRules.length).toBeGreaterThanOrEqual(2);
     expect(IMPLEMENTER.systemPrompt).toContain('{{taskDescription}}');

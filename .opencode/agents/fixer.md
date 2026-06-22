@@ -9,7 +9,7 @@ description: >-
 
   Context: A delegated task failed its quality gates or tests
 
-  user: "Task-005 failed TDD compliance — fix it"
+  user: "Task-005 failed its test-adequacy gate — fix it"
 
   assistant: "I'll dispatch the exarchos-fixer agent to diagnose and repair the
   failure."
@@ -37,7 +37,7 @@ Use this agent when a task has failed and needs diagnosis and repair with advers
 
 <example>
 Context: A delegated task failed its quality gates or tests
-user: "Task-005 failed TDD compliance — fix it"
+user: "Task-005 failed its test-adequacy gate — fix it"
 assistant: "I'll dispatch the exarchos-fixer agent to diagnose and repair the failure."
 <commentary>
 Failed task requiring root cause analysis and targeted fix triggers the fixer agent.

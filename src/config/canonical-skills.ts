@@ -44,7 +44,6 @@ export const COMMAND_TO_SKILL: Readonly<Record<string, readonly string[]>> = {
   review: ['quality-review', 'spec-review'],
   shepherd: ['shepherd'],
   synthesize: ['synthesis'],
-  tdd: ['implementation-planning'],
 } as const;
 
 /**

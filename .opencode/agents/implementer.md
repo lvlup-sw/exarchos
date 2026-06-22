@@ -1,8 +1,9 @@
 ---
 mode: subagent
 description: >-
-  Use this agent when dispatching TDD implementation tasks to a subagent in an
-  isolated worktree.
+  Use this agent when dispatching implementation tasks to a subagent in an
+  isolated worktree — verification scales with the task's risk tier (the
+  verification ladder), not a universal test-first ceremony.
 
 
   <example>
@@ -12,11 +13,11 @@ description: >-
   user: "Implement the agent spec handler (task-003)"
 
   assistant: "I'll dispatch the exarchos-implementer agent to implement this
-  task using TDD in an isolated worktree."
+  task on the verification ladder in an isolated worktree."
 
   <commentary>
 
-  Implementation task requiring test-first development triggers the implementer
+  An implementation task at any verification tier triggers the implementer
   agent.
 
   </commentary>
@@ -33,14 +34,14 @@ tools:
 mcp:
   exarchos: true
 ---
-Use this agent when dispatching TDD implementation tasks to a subagent in an isolated worktree.
+Use this agent when dispatching implementation tasks to a subagent in an isolated worktree — verification scales with the task's risk tier (the verification ladder), not a universal test-first ceremony.
 
 <example>
 Context: Orchestrator is dispatching a task from an implementation plan
 user: "Implement the agent spec handler (task-003)"
-assistant: "I'll dispatch the exarchos-implementer agent to implement this task using TDD in an isolated worktree."
+assistant: "I'll dispatch the exarchos-implementer agent to implement this task on the verification ladder in an isolated worktree."
 <commentary>
-Implementation task requiring test-first development triggers the implementer agent.
+An implementation task at any verification tier triggers the implementer agent.
 </commentary>
 </example>
 

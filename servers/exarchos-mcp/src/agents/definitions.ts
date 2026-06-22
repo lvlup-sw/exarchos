@@ -315,14 +315,14 @@ export function renderImplementerPrompt(
 export const IMPLEMENTER: AgentSpec = {
   id: 'implementer',
   posture: 'task-isolated',
-  description: `Use this agent when dispatching TDD implementation tasks to a subagent in an isolated worktree.
+  description: `Use this agent when dispatching implementation tasks to a subagent in an isolated worktree — verification scales with the task's risk tier (the verification ladder), not a universal test-first ceremony.
 
 <example>
 Context: Orchestrator is dispatching a task from an implementation plan
 user: "Implement the agent spec handler (task-003)"
-assistant: "I'll dispatch the exarchos-implementer agent to implement this task using TDD in an isolated worktree."
+assistant: "I'll dispatch the exarchos-implementer agent to implement this task on the verification ladder in an isolated worktree."
 <commentary>
-Implementation task requiring test-first development triggers the implementer agent.
+An implementation task at any verification tier triggers the implementer agent.
 </commentary>
 </example>`,
   color: 'blue',
@@ -336,7 +336,6 @@ Implementation task requiring test-first development triggers the implementer ag
   model: 'inherit',
   isolation: 'worktree',
   skills: [
-    { name: 'tdd-patterns', content: '' },
     { name: 'testing-patterns', content: '' },
   ],
   validationRules: [
@@ -344,7 +343,7 @@ Implementation task requiring test-first development triggers the implementer ag
     {
       trigger: 'pre-write',
       rule:
-        'Test file must exist before implementation file is written — applies when the stamped verification sequence includes check_test_adequacy (medium/high tier); low-tier static-analysis-only dispatches are exempt (PR #1535 CR-1)',
+        'For medium/high-tier tasks (whose stamped verification sequence includes check_test_adequacy), the change must be covered by tests judged adequate (test-after is fine); low-tier static-analysis-only dispatches are exempt (#1587, PR #1535 CR-1)',
     },
     { trigger: 'post-test', rule: 'All tests must pass', command: POST_TEST_COMMAND },
   ],
@@ -362,7 +361,7 @@ export const FIXER: AgentSpec = {
 
 <example>
 Context: A delegated task failed its quality gates or tests
-user: "Task-005 failed TDD compliance — fix it"
+user: "Task-005 failed its test-adequacy gate — fix it"
 assistant: "I'll dispatch the exarchos-fixer agent to diagnose and repair the failure."
 <commentary>
 Failed task requiring root cause analysis and targeted fix triggers the fixer agent.
@@ -410,9 +409,7 @@ When done, output a JSON completion report:
   disallowedTools: ['Agent'],
   model: 'inherit',
   isolation: 'worktree',
-  skills: [
-    { name: 'tdd-patterns', content: '' },
-  ],
+  skills: [],
   validationRules: [
     WORKTREE_BOUNDARY_RULE,
     { trigger: 'post-test', rule: 'All tests must pass after fix', command: POST_TEST_COMMAND },

@@ -13,6 +13,10 @@ Each task follows this structure. The verification fields lead: `riskTier` selec
 **Acceptance Test Ref:** [Task ID of parent acceptance test, or omit]
 **Implements:** [DR-N identifiers]
 
+**Files:**
+- `path/to/implementation.ts`
+- `path/to/implementation.test.ts` (medium/high tiers)
+
 **Verification (scales with Risk Tier):**
 - **low** — static analysis (typecheck + lint). No tests required; add a focused test only if behavior is non-obvious.
 - **medium** — scoped tests covering the new/changed behavior + the `check_test_adequacy` kill-probe. Test-after is fine.
