@@ -12,7 +12,11 @@
 
 import { resolveVerificationPolicy } from './verification-policy-resolver.js';
 import { type GateName, type RiskTier } from './verification-policy.js';
-import { type DesignDepth, resolvePlanDepthPolicy } from './plan-depth-policy.js';
+import {
+  type DesignDepth,
+  type PlanDepthGateName,
+  resolvePlanDepthPolicy,
+} from './plan-depth-policy.js';
 import { getRequiredReviews, type ReviewDimension } from './review-contract.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 
@@ -55,13 +59,18 @@ export type GateResolverName =
 // `GateName` namespace. The `family` tag makes downstream dispatch exhaustively
 // checkable (a missing arm is a compile error via the `assertNever` helper).
 
-/** Plan-structure gate action names (PLAN kind) — the registry `PLAN_PHASES` set. */
-export type PlanGateName =
-  | 'check_task_decomposition'
-  | 'check_plan_coverage'
-  | 'spec_coverage_check'
-  | 'check_provenance_chain'
-  | 'generate_traceability';
+/**
+ * Plan-structure gate names (PLAN kind). Sourced from `plan-depth-policy.ts`
+ * (`PlanDepthGateName`), the single source of truth for which gates a depth
+ * rung may emit — so this type never drifts from the policy table. At the
+ * `'standard'` default rung the set is exactly the registry `PLAN_PHASES`
+ * actions (decompose → coverage → spec-coverage → provenance → traceability);
+ * the `'deep'` rung adds the `check_exploration_depth` obligation (DR-7), which
+ * is therefore a member here so the `'plan'` family of {@link ResolvedGate} can
+ * carry it. (`check_exploration_depth` has no registry action yet — its gate
+ * wiring is DR-7/tasks 016+018; it is reachable only at opt-in `'deep'` depth.)
+ */
+export type PlanGateName = PlanDepthGateName;
 
 /** Synthesis-readiness legs (SYNTHESIZE kind). */
 export type SynthesisLeg = 'task-completion' | 'tests' | 'typecheck' | 'stack';
