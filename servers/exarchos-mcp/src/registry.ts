@@ -755,6 +755,16 @@ const PLAN_PHASES: ReadonlySet<string> = new Set([
   'plan-review',
   'overhaul-plan',
 ]);
+// `prepare_review` serves BOTH the back-of-pipeline code-review catalog (REVIEW
+// phases) and the DR-10 front-of-pipeline plan-review provisioning (the
+// `plan-review` PLAN-kind phase). Deliberately NOT equal to the PLAN_PHASES set
+// — an action whose phase set exactly equals the plan-structure binding counts
+// as a canonical plan gate (the #1581 task-013 binding trap), which prepare_review
+// is not (it is a non-blocking provisioning surface, scope-discriminated).
+const PREPARE_REVIEW_PHASES: ReadonlySet<string> = new Set([
+  ...REVIEW_PHASES,
+  'plan-review',
+]);
 
 // ─── Shared Schema Fragments ────────────────────────────────────────────────
 
@@ -2345,14 +2355,20 @@ const orchestrateActions: readonly ToolAction[] = [
   },
   {
     name: 'prepare_review',
-    description: 'Prepare quality review by serving the check catalog as structured data. Returns deterministic check patterns, structural analysis instructions, and plugin status for any MCP client to execute.',
+    description: 'Prepare a review pass as structured data. Default scope serves the back-of-pipeline code-review check catalog. scope:"plan" serves the DR-10 front-of-pipeline plan-review provisioning — a dispatched, fresh-context, adversarial (refute-the-plan) read-only pass over the unified docs/specs/ artifact, provisioned with only {artifact, spec} (never the authoring transcript) and depth-scaled by the frozen designDepth.',
     schema: z.object({
       featureId: z.string().min(1),
       scope: z.string().optional(),
       dimensions: z.array(z.string()).optional(),
       repoRoot: z.string().optional(),
+      // DR-10 (plan-review scope) — the unified artifact under review, the
+      // spec it must satisfy, and the frozen planning depth (scales the
+      // adversarial rung; the second consumer of designDepth).
+      artifact: z.string().optional(),
+      spec: z.string().optional(),
+      designDepth: z.enum(['thin', 'standard', 'deep']).optional(),
     }),
-    phases: REVIEW_PHASES,
+    phases: PREPARE_REVIEW_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: false },
     outputSchema: EnvelopeSchema(z.unknown()),

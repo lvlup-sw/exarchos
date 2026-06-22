@@ -272,3 +272,47 @@ export function resolveGateSet(kind: PhaseKind, ctx: ResolveGateSetCtx): readonl
   }
   return resolver(ctx);
 }
+
+// ─── DR-10: plan-review adversarial depth (the SECOND consumer of designDepth) ─
+//
+// `plan-review` is reframed (DR-10) into a dispatched, fresh-context, adversarial
+// read-only pass over the unified `docs/specs/` artifact. Its adversarial depth
+// scales with the SAME frozen `designDepth` the `'plan-structure'` design-section
+// resolver reads (DR-2/DR-3) — making plan-review the *second consumer* of one
+// resolved value. This resolver names the rung; the dispatch payload (provisioned
+// context, refutation prompt, voter count) is assembled in `prepare-review.ts`.
+
+/** The plan-review adversarial rungs, ordered light ⊂ standard ⊂ panel. */
+export type PlanReviewRungName = 'light' | 'standard' | 'panel';
+
+/**
+ * A resolved plan-review rung: the rung name plus the number of independent
+ * adversarial voters the dispatched reviewer fans out to. Monotonic in depth —
+ * `thin` stays at a single light pass (cost risk-proportional, DR-10 ac), `deep`
+ * escalates to a multi-voter adversarial panel.
+ */
+export interface PlanReviewRung {
+  readonly name: PlanReviewRungName;
+  readonly voters: number;
+}
+
+/**
+ * Map a feature's frozen `designDepth` to its plan-review adversarial rung
+ * (DR-10). Pure table lookup, the depth-axis analog of how `riskTier` selects a
+ * verification rung. Absent / unknown depth ⇒ the `'standard'` rung — the
+ * behavior-neutral default, never a throw (plan-review provisioning is advisory,
+ * not a transition gate, so it degrades rather than fails closed).
+ *
+ *   thin     → light  (1 voter)  — a single light refutation pass; never exceeds
+ *   standard → standard (2 voters)
+ *   deep     → panel  (3 voters) — multi-voter adversarial panel
+ */
+const PLAN_REVIEW_RUNG_BY_DEPTH: Readonly<Record<DesignDepth, PlanReviewRung>> = Object.freeze({
+  thin: Object.freeze({ name: 'light', voters: 1 }),
+  standard: Object.freeze({ name: 'standard', voters: 2 }),
+  deep: Object.freeze({ name: 'panel', voters: 3 }),
+});
+
+export function resolvePlanReviewDepth(designDepth: DesignDepth | undefined): PlanReviewRung {
+  return PLAN_REVIEW_RUNG_BY_DEPTH[designDepth ?? 'standard'] ?? PLAN_REVIEW_RUNG_BY_DEPTH.standard;
+}
