@@ -1143,7 +1143,15 @@ export class AtomicAppender {
     // callers don't ENOENT against a fresh tmp dir).
     mkdirSync(this.stateDir, { recursive: true });
     const dbPath = path.join(this.stateDir, this.sqliteDbFilename);
-    const backend = new SqliteBackend(dbPath);
+    // DR-4: thread the configured durability posture into the lazily-created
+    // backend, mirroring the async `ensureSqliteBackend()` path. Without this,
+    // a read-before-write sequence (which forces lazy init here and caches the
+    // result as the singleton) pinned the handle to NORMAL even when FULL was
+    // configured, and the later write reused that NORMAL backend.
+    const backend = new SqliteBackend(
+      dbPath,
+      this.synchronous ? { synchronous: this.synchronous } : {},
+    );
     backend.initialize();
     this.sqliteBackend = backend;
     // Pre-populate the Promise cache so any concurrent async path

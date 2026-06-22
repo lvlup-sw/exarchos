@@ -23,14 +23,34 @@ import { AtomicAppender } from './atomic-appender.js';
  */
 describe('AtomicAppender stream-version gate', () => {
   let stateDir: string;
+  let trackedAppenders: AtomicAppender[];
 
   beforeEach(async () => {
     stateDir = await mkdtemp(path.join(tmpdir(), 'gate-test-'));
+    trackedAppenders = [];
   });
 
   afterEach(async () => {
+    // Release every SQLite handle opened during the test BEFORE removing the
+    // state dir — otherwise open connections leak file descriptors across the
+    // suite and can wedge the dir removal on some platforms. getSqliteBackend()
+    // is undefined for an appender that never opened a backend, so the optional
+    // chain is a no-op there.
+    for (const appender of trackedAppenders) {
+      appender.getSqliteBackend()?.close();
+    }
     await rm(stateDir, { recursive: true, force: true });
   });
+
+  // Construct an appender that is auto-closed in afterEach. Every test builds
+  // its appenders through this helper so no handle escapes cleanup.
+  const makeAppender = (
+    options: { synchronous?: 'normal' | 'full' } = {},
+  ): AtomicAppender => {
+    const appender = new AtomicAppender({ stateDir, ...options });
+    trackedAppenders.push(appender);
+    return appender;
+  };
 
   it('HotStream_NConnectionConcurrentPlainAppend_ContiguousZeroConflict', async () => {
     // N independent appenders (= N connections to one db file) all append to
@@ -41,7 +61,7 @@ describe('AtomicAppender stream-version gate', () => {
     // tail under the write lock, so every append commits.
     const N = 8;
     const streamId = 'hot-stream';
-    const appenders = Array.from({ length: N }, () => new AtomicAppender({ stateDir }));
+    const appenders = Array.from({ length: N }, () => makeAppender());
 
     const results = await Promise.all(
       appenders.map((a, i) =>
@@ -66,7 +86,7 @@ describe('AtomicAppender stream-version gate', () => {
   });
 
   it('Occ_StaleExpectedSequence_ReturnsConflictWithExpectedActual', async () => {
-    const appender = new AtomicAppender({ stateDir });
+    const appender = makeAppender();
     const streamId = 'occ-stream';
 
     // Advance the tail to 1.
@@ -95,7 +115,7 @@ describe('AtomicAppender stream-version gate', () => {
   });
 
   it('KeyedRetry_SameIdempotencyKey_ReturnsCacheHit', async () => {
-    const appender = new AtomicAppender({ stateDir });
+    const appender = makeAppender();
     const streamId = 'idem-stream';
 
     const first = await appender.append(streamId, [{ type: 'evt', data: { v: 1 } }], 'dup-key');
@@ -124,7 +144,7 @@ describe('AtomicAppender stream-version gate', () => {
     // a `sequence-conflict` (which the gate now owns) or a cache-hit. This is
     // the kill-probe for a regression that re-introduces the old conflict
     // re-map on an events-PK collision.
-    const appender = new AtomicAppender({ stateDir });
+    const appender = makeAppender();
     const backend = appender.ensureSqliteBackendSync();
     const pkError = new Error(
       'UNIQUE constraint failed: events.streamId, events.sequence',
@@ -150,5 +170,22 @@ describe('AtomicAppender stream-version gate', () => {
     expect(result.reason).toBe('io-error');
     expect(result.reason).not.toBe('sequence-conflict');
     expect(result.cause).toBe(pkError);
+  });
+
+  it('EnsureSqliteBackendSync_FullDurability_PropagatesToLazyReadBackend', () => {
+    // DR-4 regression (PR #1610 review, Sentry r3450561408 + CodeRabbit): the
+    // read-before-write lazy-init path must honour the configured `synchronous`
+    // posture. Previously ensureSqliteBackendSync() constructed the backend
+    // without it, pinning the cached singleton — and therefore the subsequent
+    // write that reuses the same handle — to NORMAL even when FULL was
+    // configured. Force the read-first path and assert the pragma is FULL (2).
+    const appender = makeAppender({ synchronous: 'full' });
+    const backend = appender.ensureSqliteBackendSync();
+    const db = (
+      backend as unknown as {
+        db: { query: (sql: string) => { all: () => Array<{ synchronous: number }> } };
+      }
+    ).db;
+    expect(db.query('PRAGMA synchronous').all()[0]?.synchronous).toBe(2);
   });
 });
