@@ -63,7 +63,8 @@ describe('Task 7: Workflow + Event Round-Trip Tests', () => {
         ctx(),
       );
       expect(initResult.success).toBe(true);
-      expect((initResult.data as Record<string, unknown>).phase).toBe('ideate');
+      // DR-4 (#1581): plan is the initial phase.
+      expect((initResult.data as Record<string, unknown>).phase).toBe('plan');
 
       // Act: get after init
       const getResult1 = await handleWorkflow(
@@ -72,24 +73,24 @@ describe('Task 7: Workflow + Event Round-Trip Tests', () => {
       );
       expect(getResult1.success).toBe(true);
       const state1 = getResult1.data as Record<string, unknown>;
-      expect(state1.phase).toBe('ideate');
+      expect(state1.phase).toBe('plan');
       expect(state1.featureId).toBe('test-feat');
       expect(state1.workflowType).toBe('feature');
 
       // Act: seed guard field via direct handleSet (no longer reachable as
-      // an MCP action) and then transition to plan.
+      // an MCP action) and then transition to plan-review.
       const c = ctx();
       await handleSet(
-        { featureId: 'test-feat', updates: { 'artifacts.design': 'docs/design.md' } },
+        { featureId: 'test-feat', updates: { 'artifacts.plan': 'docs/specs/x.md' } },
         c.stateDir,
         c.eventStore,
       );
       const transitionResult = await handleWorkflow(
-        { action: 'transition', featureId: 'test-feat', target: 'plan' },
+        { action: 'transition', featureId: 'test-feat', target: 'plan-review' },
         c,
       );
       expect(transitionResult.success).toBe(true);
-      expect((transitionResult.data as Record<string, unknown>).phase).toBe('plan');
+      expect((transitionResult.data as Record<string, unknown>).phase).toBe('plan-review');
 
       // Act: get after transition
       const getResult2 = await handleWorkflow(
@@ -97,7 +98,7 @@ describe('Task 7: Workflow + Event Round-Trip Tests', () => {
         ctx(),
       );
       expect(getResult2.success).toBe(true);
-      expect((getResult2.data as Record<string, unknown>).phase).toBe('plan');
+      expect((getResult2.data as Record<string, unknown>).phase).toBe('plan-review');
     });
   });
 
@@ -407,21 +408,22 @@ describe('Task 9: Cross-Tool Lifecycle Integration Tests', () => {
       );
       expect(initResult.success).toBe(true);
 
-      // Step 2: Seed guard field and transition to plan (emits workflow.transition)
-      // T5a.1/DR-4 (v2.11): `set` MCP action removed. Field seeding uses
-      // direct `handleSet`; phase transitions use the `transition` action.
+      // Step 2: Seed guard field and transition plan → plan-review (emits
+      // workflow.transition). DR-4 (#1581): plan is initial, so this is the
+      // FIRST real transition. T5a.1/DR-4 (v2.11): `set` MCP action removed —
+      // field seeding uses direct `handleSet`; transitions use `transition`.
       const lifecycleCtx = ctx();
       await handleSet(
-        { featureId: 'lifecycle-feat', updates: { 'artifacts.design': 'docs/design.md' } },
+        { featureId: 'lifecycle-feat', updates: { 'artifacts.plan': 'docs/specs/x.md' } },
         lifecycleCtx.stateDir,
         lifecycleCtx.eventStore,
       );
-      const toPlan = await handleWorkflow(
-        { action: 'transition', featureId: 'lifecycle-feat', target: 'plan' },
+      const toPlanReview = await handleWorkflow(
+        { action: 'transition', featureId: 'lifecycle-feat', target: 'plan-review' },
         lifecycleCtx,
       );
-      expect(toPlan.success).toBe(true);
-      expect((toPlan.data as Record<string, unknown>).phase).toBe('plan');
+      expect(toPlanReview.success).toBe(true);
+      expect((toPlanReview.data as Record<string, unknown>).phase).toBe('plan-review');
 
       // Step 3: Query events directly via event store — should contain transition event
       const eventQuery = await handleEvent(
@@ -435,11 +437,11 @@ describe('Task 9: Cross-Tool Lifecycle Integration Tests', () => {
       expect(transitionEvents.length).toBeGreaterThanOrEqual(1);
 
       // Verify transition data
-      const ideateToplanTransition = transitionEvents.find(
-        (e) => (e.data as Record<string, unknown>).from === 'ideate',
+      const planToReviewTransition = transitionEvents.find(
+        (e) => (e.data as Record<string, unknown>).from === 'plan',
       );
-      expect(ideateToplanTransition).toBeDefined();
-      expect((ideateToplanTransition!.data as Record<string, unknown>).to).toBe('plan');
+      expect(planToReviewTransition).toBeDefined();
+      expect((planToReviewTransition!.data as Record<string, unknown>).to).toBe('plan-review');
 
       // Step 4: Get workflow status — phase should match
       const getResult = await handleWorkflow(
@@ -447,22 +449,9 @@ describe('Task 9: Cross-Tool Lifecycle Integration Tests', () => {
         ctx(),
       );
       expect(getResult.success).toBe(true);
-      expect((getResult.data as Record<string, unknown>).phase).toBe('plan');
+      expect((getResult.data as Record<string, unknown>).phase).toBe('plan-review');
 
-      // Step 5: Set plan artifact, transition to plan-review
-      await handleSet(
-        { featureId: 'lifecycle-feat', updates: { 'artifacts.plan': 'docs/plan.md' } },
-        lifecycleCtx.stateDir,
-        lifecycleCtx.eventStore,
-      );
-      const toPlanReview = await handleWorkflow(
-        { action: 'transition', featureId: 'lifecycle-feat', target: 'plan-review' },
-        lifecycleCtx,
-      );
-      expect(toPlanReview.success).toBe(true);
-      expect((toPlanReview.data as Record<string, unknown>).phase).toBe('plan-review');
-
-      // Step 6: Set planReview.approved and transition to delegate
+      // Step 5: Set planReview.approved and transition to delegate
       await handleSet(
         { featureId: 'lifecycle-feat', updates: { planReview: { approved: true } } },
         lifecycleCtx.stateDir,
@@ -490,8 +479,8 @@ describe('Task 9: Cross-Tool Lifecycle Integration Tests', () => {
       );
       const allEvents = finalEventQuery.data as Array<Record<string, unknown>>;
       const allTransitions = allEvents.filter((e) => e.type === 'workflow.transition');
-      // Should have: ideate->plan, plan->plan-review, plan-review->delegate
-      expect(allTransitions.length).toBe(3);
+      // DR-4 (#1581): plan is initial — should have: plan->plan-review, plan-review->delegate
+      expect(allTransitions.length).toBe(2);
     });
   });
 

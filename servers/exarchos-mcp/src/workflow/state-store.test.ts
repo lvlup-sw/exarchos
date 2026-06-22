@@ -540,7 +540,7 @@ describe('State Store StorageBackend Integration', () => {
     const stored = backend.getState('new-feature');
     expect(stored).not.toBeNull();
     expect(stored!.featureId).toBe('new-feature');
-    expect(stored!.phase).toBe('ideate');
+    expect(stored!.phase).toBe('plan');
   });
 
   it('listStateFiles_WithBackend_QueriesBackend', async () => {
@@ -564,7 +564,7 @@ describe('State Store StorageBackend Integration', () => {
 
     const result = await readStateFile(stateFile);
     expect(result.featureId).toBe('file-feature');
-    expect(result.phase).toBe('ideate');
+    expect(result.phase).toBe('plan');
   });
 
   it('readStateFile_WithBackend_StateNotFound_Throws', async () => {

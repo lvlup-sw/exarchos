@@ -35,7 +35,7 @@ function kindOf(state: State): string | undefined {
 // states are intentionally absent — they carry no kind).
 const LOCKED_CLASSIFICATION: Record<string, Record<string, PhaseKind>> = {
   feature: {
-    ideate: 'GATHER',
+    // DR-4 (#1581): ideate (GATHER) removed — plan is initial.
     plan: 'PLAN',
     'plan-review': 'PLAN',
     delegate: 'IMPLEMENT',

@@ -65,17 +65,17 @@ describe('HsmTransitionGuard_AllEmittedEvents_HaveCanonicalEnvelope', () => {
   // Line 357 — success path
   it('hsm-transition-guard.ts:357 — success transition events have canonical envelope', async () => {
     const guard = new DefaultHSMTransitionGuard();
-    // Feature workflow: `ideate → plan` requires the `design-artifact-exists`
-    // guard. Provide an `artifacts.design` field so the guard passes and the
-    // primitive enters the success branch at line 357.
+    // Feature workflow (DR-4 #1581): `plan → plan-review` requires the
+    // `plan-artifact-exists` guard. Provide an `artifacts.plan` field so the
+    // guard passes and the primitive enters the success branch at line 357.
     const state: Record<string, unknown> = {
       featureId,
-      phase: 'ideate',
+      phase: 'plan',
       workflowType: 'feature',
-      artifacts: { design: '/tmp/design.md' },
+      artifacts: { plan: '/tmp/specs/x.md' },
     };
 
-    const result = await guard.attempt(featureId, 'ideate', 'plan', {
+    const result = await guard.attempt(featureId, 'plan', 'plan-review', {
       state,
       workflowType: 'feature',
       eventStore: store,

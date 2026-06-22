@@ -50,12 +50,12 @@ async function seedWorkflow(): Promise<void> {
   await eventStore.append(FEATURE_ID, {
     type: 'workflow.transition',
     timestamp: TS_PLAN,
-    data: { from: 'ideate', to: 'plan' },
+    data: { from: 'plan', to: 'plan-review' },
   });
   await eventStore.append(FEATURE_ID, {
     type: 'workflow.transition',
     timestamp: TS_DELEGATE,
-    data: { from: 'plan', to: 'delegate' },
+    data: { from: 'plan-review', to: 'delegate' },
   });
 }
 
@@ -86,16 +86,17 @@ describe('handleGet asOf (T7, #1555)', () => {
       eventStore,
     );
     expect(boundedSeq1.success).toBe(true);
-    expect((boundedSeq1.data as Record<string, unknown>).phase).toBe('ideate');
+    // DR-4 (#1581): workflow.started folds to the initial phase, now 'plan'.
+    expect((boundedSeq1.data as Record<string, unknown>).phase).toBe('plan');
 
-    // Bound at seq 2 → started + first transition → phase 'plan'.
+    // Bound at seq 2 → started + first transition (plan→plan-review).
     const boundedSeq2 = await handleGet(
       { featureId: FEATURE_ID, asOf: { untilSequence: 2 } },
       tmpDir,
       eventStore,
     );
     expect(boundedSeq2.success).toBe(true);
-    expect((boundedSeq2.data as Record<string, unknown>).phase).toBe('plan');
+    expect((boundedSeq2.data as Record<string, unknown>).phase).toBe('plan-review');
   });
 
   it('handleGet_asOfPastTail_equalsLiveGet', async () => {
@@ -126,6 +127,6 @@ describe('handleGet asOf (T7, #1555)', () => {
       eventStore,
     );
     expect(bounded.success).toBe(true);
-    expect((bounded.data as Record<string, unknown>).phase).toBe('plan');
+    expect((bounded.data as Record<string, unknown>).phase).toBe('plan-review');
   });
 });

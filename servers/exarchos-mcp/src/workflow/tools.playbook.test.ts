@@ -63,7 +63,7 @@ describe('handleGet playbook field', () => {
   });
 
   it('handleGet_PlaybookField_ReturnsPlaybookForInitialPhase', async () => {
-    // Arrange: create feature workflow (starts in 'ideate' phase)
+    // Arrange: create feature workflow (DR-4 #1581: starts in 'plan' phase)
     const initResult = await handleInit({ featureId: 'test-ideate', workflowType: 'feature' }, tmpDir, null);
     expect(initResult.success).toBe(true);
 
@@ -78,8 +78,8 @@ describe('handleGet playbook field', () => {
     expect(result.success).toBe(true);
     const playbook = (result.data as Record<string, unknown>).playbook;
     expect(playbook).not.toBeNull();
-    expect((playbook as Record<string, unknown>).phase).toBe('ideate');
-    expect((playbook as Record<string, unknown>).skill).toBe('brainstorming');
+    expect((playbook as Record<string, unknown>).phase).toBe('plan');
+    expect((playbook as Record<string, unknown>).skill).toBe('implementation-planning');
     expect((playbook as Record<string, unknown>).workflowType).toBe('feature');
   });
 
@@ -100,9 +100,9 @@ describe('handleGet playbook field', () => {
     const data = result.data as Record<string, unknown>;
     expect(data).toHaveProperty('playbook');
     expect(data).toHaveProperty('phase');
-    expect(data.phase).toBe('ideate');
+    expect(data.phase).toBe('plan');
     const playbook = data.playbook as Record<string, unknown>;
-    expect(playbook.phase).toBe('ideate');
+    expect(playbook.phase).toBe('plan');
   });
 
   it('handleGet_PlaybookField_WorksForDebugWorkflow', async () => {

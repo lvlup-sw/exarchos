@@ -140,7 +140,9 @@ const hsmRegistry: Record<string, HSMDefinition> = {
 };
 
 const initialPhaseRegistry: Record<string, string> = {
-  feature: 'ideate',
+  // DR-4 (#1581): GATHER (`ideate`) collapsed into PLAN — feature workflows now
+  // start in `plan` (the unified design+plan phase). See createFeatureHSM.
+  feature: 'plan',
   debug: 'triage',
   refactor: 'explore',
   oneshot: 'plan',

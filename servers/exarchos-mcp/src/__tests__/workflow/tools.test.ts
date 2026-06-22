@@ -53,13 +53,13 @@ describe('Core Tools', () => {
       const state = await readStateFile(path.join(tmpDir, 'my-feature.state.json'));
       expect(state.featureId).toBe('my-feature');
       expect(state.workflowType).toBe('feature');
-      expect(state.phase).toBe('ideate');
+      expect(state.phase).toBe('plan');
 
       // Verify slim response contains identity fields
       const data = result.data as Record<string, unknown>;
       expect(data.featureId).toBe('my-feature');
       expect(data.workflowType).toBe('feature');
-      expect(data.phase).toBe('ideate');
+      expect(data.phase).toBe('plan');
 
       // Slim response should NOT include heavy fields
       expect(data.tasks).toBeUndefined();
@@ -413,7 +413,7 @@ describe('Core Tools', () => {
       expect(result.success).toBe(true);
       const data = result.data as Record<string, unknown>;
       expect(data.featureId).toBe('get-full');
-      expect(data.phase).toBe('ideate');
+      expect(data.phase).toBe('plan');
     });
   });
 
@@ -462,7 +462,7 @@ describe('Core Tools', () => {
 
       // Core fields should still be present
       expect(data.featureId).toBe('strip-test');
-      expect(data.phase).toBe('ideate');
+      expect(data.phase).toBe('plan');
 
       // Internal fields should be stripped
       expect(data._events).toBeUndefined();
@@ -477,12 +477,12 @@ describe('Core Tools', () => {
 
       // Set design artifact and transition to plan
       await handleSet(
-        { featureId: 'meta-summary', updates: { 'artifacts.design': 'design.md' } },
+        { featureId: 'meta-summary', updates: { 'artifacts.plan': 'design.md' } },
         tmpDir,
         null,
       );
       await handleSet(
-        { featureId: 'meta-summary', phase: 'plan' },
+        { featureId: 'meta-summary', phase: 'plan-review' },
         tmpDir,
         null,
       );
@@ -509,12 +509,12 @@ describe('Core Tools', () => {
 
       // Generate some state changes
       await handleSet(
-        { featureId: 'query-events', updates: { 'artifacts.design': 'design.md' } },
+        { featureId: 'query-events', updates: { 'artifacts.plan': 'design.md' } },
         tmpDir,
         null,
       );
       await handleSet(
-        { featureId: 'query-events', phase: 'plan' },
+        { featureId: 'query-events', phase: 'plan-review' },
         tmpDir,
         null,
       );
@@ -548,7 +548,7 @@ describe('Core Tools', () => {
       );
 
       expect(result.success).toBe(true);
-      expect(result.data).toBe('ideate');
+      expect(result.data).toBe('plan');
     });
   });
 
@@ -578,7 +578,7 @@ describe('Core Tools', () => {
       );
 
       expect(result.success).toBe(true);
-      expect(result.data).toBe('ideate');
+      expect(result.data).toBe('plan');
       expect(result._meta).toBeDefined();
       expect(result._meta?.checkpointAdvised).toBe(false);
     });
@@ -647,7 +647,7 @@ describe('Core Tools', () => {
       );
 
       expect(result.success).toBe(true);
-      expect(result.data).toBe('ideate');
+      expect(result.data).toBe('plan');
     });
   });
 
@@ -696,16 +696,17 @@ describe('Core Tools', () => {
     it('should validate phase transition via HSM and apply if valid', async () => {
       await handleInit({ featureId: 'phase-test', workflowType: 'feature' }, tmpDir, null);
 
-      // First set the design artifact so the guard passes
+      // DR-4 (#1581): plan is initial. Set the plan artifact so the
+      // plan→plan-review guard (planArtifactExists) passes.
       await handleSet(
-        { featureId: 'phase-test', updates: { 'artifacts.design': 'docs/design.md' } },
+        { featureId: 'phase-test', updates: { 'artifacts.plan': 'docs/specs/x.md' } },
         tmpDir,
         null,
       );
 
-      // Now transition from ideate -> plan
+      // First transition is plan → plan-review.
       const result = await handleSet(
-        { featureId: 'phase-test', phase: 'plan' },
+        { featureId: 'phase-test', phase: 'plan-review' },
         tmpDir,
         null,
       );
@@ -714,19 +715,19 @@ describe('Core Tools', () => {
 
       // Verify phase was updated on disk
       const state = await readStateFile(path.join(tmpDir, 'phase-test.state.json'));
-      expect(state.phase).toBe('plan');
+      expect(state.phase).toBe('plan-review');
     });
 
     it('should apply updates before evaluating phase guards', async () => {
       await handleInit({ featureId: 'update-order', workflowType: 'feature' }, tmpDir, null);
 
       // Provide both updates AND phase in a single call — updates should be
-      // applied first so the guard sees the new state
+      // applied first so the plan→plan-review guard sees the new state
       const result = await handleSet(
         {
           featureId: 'update-order',
-          updates: { 'artifacts.design': 'docs/design.md' },
-          phase: 'plan',
+          updates: { 'artifacts.plan': 'docs/specs/x.md' },
+          phase: 'plan-review',
         },
         tmpDir,
         null,
@@ -735,20 +736,14 @@ describe('Core Tools', () => {
       expect(result.success).toBe(true);
 
       const state = await readStateFile(path.join(tmpDir, 'update-order.state.json'));
-      expect(state.phase).toBe('plan');
-      expect(state.artifacts.design).toBe('docs/design.md');
+      expect(state.phase).toBe('plan-review');
+      expect(state.artifacts.plan).toBe('docs/specs/x.md');
     });
 
     it('should apply dynamic field updates before evaluating guards (planReview.approved)', async () => {
       await handleInit({ featureId: 'dynamic-guard', workflowType: 'feature' }, tmpDir, null);
 
-      // Advance to plan-review
-      await handleSet(
-        { featureId: 'dynamic-guard', updates: { 'artifacts.design': 'design.md' } },
-        tmpDir,
-        null,
-      );
-      await handleSet({ featureId: 'dynamic-guard', phase: 'plan' }, tmpDir, null);
+      // DR-4 (#1581): plan is initial. Advance plan → plan-review.
       await handleSet(
         { featureId: 'dynamic-guard', updates: { 'artifacts.plan': 'plan.md' } },
         tmpDir,
@@ -779,9 +774,9 @@ describe('Core Tools', () => {
     it('should return GUARD_FAILED for transition with unsatisfied guard', async () => {
       await handleInit({ featureId: 'guard-test', workflowType: 'feature' }, tmpDir, null);
 
-      // Try to transition ideate -> plan without setting design artifact
+      // Try to transition plan -> plan-review without setting the plan artifact
       const result = await handleSet(
-        { featureId: 'guard-test', phase: 'plan' },
+        { featureId: 'guard-test', phase: 'plan-review' },
         tmpDir,
         null,
       );
@@ -794,9 +789,9 @@ describe('Core Tools', () => {
     it('should include expectedShape and suggestedFix in guard failure response', async () => {
       await handleInit({ featureId: 'guard-diag-test', workflowType: 'feature' }, tmpDir, null);
 
-      // Try to transition ideate -> plan without setting design artifact
+      // Try to transition plan -> plan-review without setting the plan artifact
       const result = await handleSet(
-        { featureId: 'guard-diag-test', phase: 'plan' },
+        { featureId: 'guard-diag-test', phase: 'plan-review' },
         tmpDir,
         null,
       );
@@ -807,7 +802,7 @@ describe('Core Tools', () => {
       // expectedShape should indicate what artifact is needed
       const error = result.error as Record<string, unknown>;
       expect(error.expectedShape).toBeDefined();
-      expect(error.expectedShape).toEqual({ artifacts: { design: '<path-or-content>' } });
+      expect(error.expectedShape).toEqual({ artifacts: { plan: '<path-or-content>' } });
 
       // suggestedFix should provide actionable remediation
       expect(error.suggestedFix).toBeDefined();
@@ -820,7 +815,7 @@ describe('Core Tools', () => {
     it('should return INVALID_TRANSITION for invalid target phase', async () => {
       await handleInit({ featureId: 'invalid-test', workflowType: 'feature' }, tmpDir, null);
 
-      // Try to transition ideate -> synthesize (not a valid transition)
+      // Try to transition plan -> synthesize (not a valid transition)
       const result = await handleSet(
         { featureId: 'invalid-test', phase: 'synthesize' },
         tmpDir,
@@ -832,12 +827,13 @@ describe('Core Tools', () => {
       expect(result.error?.code).toBe('INVALID_TRANSITION');
       expect(result.error?.validTargets).toBeDefined();
 
-      // Enriched validTargets include guard metadata
+      // Enriched validTargets include guard metadata — from `plan` the valid
+      // target is `plan-review` (guarded by planArtifactExists).
       const targets = result.error?.validTargets as Array<{ phase: string; guard?: { id: string; description: string } }>;
-      const planTarget = targets.find((t) => t.phase === 'plan');
-      expect(planTarget).toBeDefined();
-      expect(planTarget!.guard).toBeDefined();
-      expect(planTarget!.guard!.id).toBe('design-artifact-exists');
+      const planReviewTarget = targets.find((t) => t.phase === 'plan-review');
+      expect(planReviewTarget).toBeDefined();
+      expect(planReviewTarget!.guard).toBeDefined();
+      expect(planReviewTarget!.guard!.id).toBe('plan-artifact-exists');
     });
   });
 
@@ -914,12 +910,12 @@ describe('Core Tools', () => {
 
       // Set design artifact to satisfy guard, then transition
       await handleSet(
-        { featureId: 'set-corr-test', updates: { 'artifacts.design': 'docs/design.md' } },
+        { featureId: 'set-corr-test', updates: { 'artifacts.plan': 'docs/design.md' } },
         tmpDir,
         eventStore,
       );
       await handleSet(
-        { featureId: 'set-corr-test', phase: 'plan' },
+        { featureId: 'set-corr-test', phase: 'plan-review' },
         tmpDir,
         eventStore,
       );
@@ -941,12 +937,12 @@ describe('Core Tools', () => {
       );
 
       await handleSet(
-        { featureId: 'set-src-test', updates: { 'artifacts.design': 'docs/design.md' } },
+        { featureId: 'set-src-test', updates: { 'artifacts.plan': 'docs/design.md' } },
         tmpDir,
         eventStore,
       );
       await handleSet(
-        { featureId: 'set-src-test', phase: 'plan' },
+        { featureId: 'set-src-test', phase: 'plan-review' },
         tmpDir,
         eventStore,
       );
@@ -1018,7 +1014,7 @@ describe('Core Tools', () => {
 
       // Verify state was NOT changed
       const state = await readStateFile(path.join(tmpDir, 'cancel-dry.state.json'));
-      expect(state.phase).toBe('ideate');
+      expect(state.phase).toBe('plan');
     });
   });
 
@@ -1194,7 +1190,7 @@ describe('Query Tools', () => {
       const data = result.data as Record<string, unknown>;
       expect(data.featureId).toBe('summary-test');
       expect(data.workflowType).toBe('feature');
-      expect(data.phase).toBe('ideate');
+      expect(data.phase).toBe('plan');
 
       // Task progress
       const taskProgress = data.taskProgress as Record<string, number>;
@@ -1220,11 +1216,11 @@ describe('Query Tools', () => {
 
       // Set design artifact and transition to plan to generate events
       await handleSet(
-        { featureId: 'summary-cb', updates: { 'artifacts.design': 'design.md' } },
+        { featureId: 'summary-cb', updates: { 'artifacts.plan': 'design.md' } },
         tmpDir,
         eventStore,
       );
-      await handleSet({ featureId: 'summary-cb', phase: 'plan' }, tmpDir, eventStore);
+      await handleSet({ featureId: 'summary-cb', phase: 'plan-review' }, tmpDir, eventStore);
 
       // Set plan artifact and transition to plan-review, then delegate
       await handleSet(
@@ -1357,10 +1353,11 @@ describe('Query Tools', () => {
       expect(states).toBeDefined();
       expect(states.length).toBeGreaterThan(0);
 
-      // Should include ideate, plan, delegate, review, synthesize, completed
+      // DR-4 (#1581): `ideate` is removed — `plan` is the initial state.
       const stateIds = states.map((s) => s.id);
-      expect(stateIds).toContain('ideate');
+      expect(stateIds).not.toContain('ideate');
       expect(stateIds).toContain('plan');
+      expect(stateIds).toContain('plan-review');
       expect(stateIds).toContain('delegate');
       expect(stateIds).toContain('synthesize');
       expect(stateIds).toContain('completed');
@@ -1370,12 +1367,13 @@ describe('Query Tools', () => {
       expect(transitions).toBeDefined();
       expect(transitions.length).toBeGreaterThan(0);
 
-      // Each transition should have guard description
-      const ideateToPlan = transitions.find(
-        (t) => t.from === 'ideate' && t.to === 'plan',
+      // Each transition should have guard description (plan→plan-review is now
+      // the first transition, replacing the retired ideate->plan).
+      const planToReview = transitions.find(
+        (t) => t.from === 'plan' && t.to === 'plan-review',
       );
-      expect(ideateToPlan).toBeDefined();
-      expect(ideateToPlan?.guardDescription).toBeDefined();
+      expect(planToReview).toBeDefined();
+      expect(planToReview?.guardDescription).toBeDefined();
     });
   });
 
@@ -1418,14 +1416,14 @@ describe('handleTransitions sparse responses', () => {
     const data = result.data as Record<string, unknown>;
     const transitions = data.transitions as Array<Record<string, unknown>>;
 
-    // Act — find a transition that should have empty effects (e.g. ideate->plan)
-    const ideateToPlan = transitions.find(
-      (t) => t.from === 'ideate' && t.to === 'plan',
+    // Act — find a transition that should have empty effects (e.g. plan->plan-review)
+    const planToReview = transitions.find(
+      (t) => t.from === 'plan' && t.to === 'plan-review',
     );
 
     // Assert — the transition object should NOT have an `effects` key at all
-    expect(ideateToPlan).toBeDefined();
-    expect('effects' in ideateToPlan!).toBe(false);
+    expect(planToReview).toBeDefined();
+    expect('effects' in planToReview!).toBe(false);
   });
 
   it('handleTransitions_IsFixCycleFalse_StillPresent', async () => {
@@ -1437,14 +1435,14 @@ describe('handleTransitions sparse responses', () => {
     const transitions = data.transitions as Array<Record<string, unknown>>;
 
     // Act — find a non-fix-cycle transition (most of them)
-    const ideateToPlan = transitions.find(
-      (t) => t.from === 'ideate' && t.to === 'plan',
+    const planToReview = transitions.find(
+      (t) => t.from === 'plan' && t.to === 'plan-review',
     );
 
     // Assert — isFixCycle: false should still be present (it's a meaningful boolean)
-    expect(ideateToPlan).toBeDefined();
-    expect('isFixCycle' in ideateToPlan!).toBe(true);
-    expect(ideateToPlan!.isFixCycle).toBe(false);
+    expect(planToReview).toBeDefined();
+    expect('isFixCycle' in planToReview!).toBe(true);
+    expect(planToReview!.isFixCycle).toBe(false);
   });
 
   it('handleTransitions_WithEffects_KeepsEffectsField', async () => {
@@ -1467,19 +1465,19 @@ describe('handleTransitions sparse responses', () => {
   });
 
   it('handleTransitions_NullParent_OmitsParentField', async () => {
-    // Arrange — get feature states, find one with no parent (like ideate)
+    // Arrange — get feature states, find one with no parent (like plan)
     const result = await handleTransitions({ workflowType: 'feature' }, tmpDir, null);
     expect(result.success).toBe(true);
 
     const data = result.data as Record<string, unknown>;
     const states = data.states as Array<Record<string, unknown>>;
 
-    // Act — find a state that has no parent (top-level atomic states like 'ideate')
-    const ideateState = states.find((s) => s.id === 'ideate');
+    // Act — find a state that has no parent (top-level atomic states like 'plan')
+    const planState = states.find((s) => s.id === 'plan');
 
     // Assert — the state object should NOT have a `parent` key
-    expect(ideateState).toBeDefined();
-    expect('parent' in ideateState!).toBe(false);
+    expect(planState).toBeDefined();
+    expect('parent' in planState!).toBe(false);
   });
 
   it('handleTransitions_NullInitial_OmitsInitialField', async () => {
@@ -1491,11 +1489,11 @@ describe('handleTransitions sparse responses', () => {
     const states = data.states as Array<Record<string, unknown>>;
 
     // Act — find an atomic state (should not have 'initial')
-    const ideateState = states.find((s) => s.id === 'ideate');
+    const planState = states.find((s) => s.id === 'plan');
 
     // Assert — atomic state should NOT have `initial` key
-    expect(ideateState).toBeDefined();
-    expect('initial' in ideateState!).toBe(false);
+    expect(planState).toBeDefined();
+    expect('initial' in planState!).toBe(false);
   });
 });
 
@@ -1675,7 +1673,7 @@ describe('ToolSet_SlimResponse_ReturnsMinimalPayload', () => {
     const data = result.data as Record<string, unknown>;
 
     // Slim response should include phase and updatedAt
-    expect(data.phase).toBe('ideate');
+    expect(data.phase).toBe('plan');
     expect(data.updatedAt).toBeDefined();
     expect(typeof data.updatedAt).toBe('string');
 
@@ -1721,7 +1719,7 @@ describe('ToolInit_SlimResponse_ReturnsMinimalPayload', () => {
     // Slim response should include identity fields
     expect(data.featureId).toBe('slim-init');
     expect(data.workflowType).toBe('feature');
-    expect(data.phase).toBe('ideate');
+    expect(data.phase).toBe('plan');
 
     // Should NOT include full state fields
     expect(data.tasks).toBeUndefined();
@@ -1746,7 +1744,7 @@ describe('ToolCheckpoint_SlimResponse_ReturnsMinimalPayload', () => {
     const data = result.data as Record<string, unknown>;
 
     // Slim response should include phase
-    expect(data.phase).toBe('ideate');
+    expect(data.phase).toBe('plan');
 
     // Should NOT include full state fields
     expect(data.tasks).toBeUndefined();
@@ -1763,19 +1761,19 @@ describe('External Event Store Bridge', () => {
   it('handleSet_PhaseTransition_AppendsToExternalStore: after transition, JSONL file has event', async () => {
     const eventStore = new EventStore(tmpDir);
 
-    // Create a feature workflow at ideate
+    // Create a feature workflow at plan (DR-4 #1581: initial phase)
     await handleInit({ featureId: 'bridge-test', workflowType: 'feature' }, tmpDir, eventStore);
 
-    // Set design artifact to satisfy ideate->plan guard
+    // Set plan artifact to satisfy the plan->plan-review guard
     await handleSet(
-      { featureId: 'bridge-test', updates: { 'artifacts.design': 'docs/test.md' } },
+      { featureId: 'bridge-test', updates: { 'artifacts.plan': 'docs/specs/test.md' } },
       tmpDir,
       eventStore,
     );
 
-    // Transition from ideate to plan
+    // Transition from plan to plan-review
     const result = await handleSet(
-      { featureId: 'bridge-test', phase: 'plan' },
+      { featureId: 'bridge-test', phase: 'plan-review' },
       tmpDir,
       eventStore,
     );
@@ -1787,7 +1785,7 @@ describe('External Event Store Bridge', () => {
 
     // Verify the transition event data
     const transitionEvent = events.find(e =>
-      (e.data as Record<string, unknown>)?.to === 'plan'
+      (e.data as Record<string, unknown>)?.to === 'plan-review'
     );
     expect(transitionEvent).toBeDefined();
     expect((transitionEvent!.data as Record<string, unknown>)?.featureId).toBe('bridge-test');
@@ -1808,7 +1806,7 @@ describe('External Event Store Bridge', () => {
     // Query external event store for workflow.checkpoint events
     const events = await eventStore.query('cp-bridge', { type: 'workflow.checkpoint' });
     expect(events.length).toBe(1);
-    expect((events[0].data as Record<string, unknown>)?.phase).toBe('ideate');
+    expect((events[0].data as Record<string, unknown>)?.phase).toBe('plan');
     expect((events[0].data as Record<string, unknown>)?.featureId).toBe('cp-bridge');
   });
 });
@@ -1819,12 +1817,12 @@ describe('Diagnostic Event Emission', () => {
   it('handleSet emits guard-failed event to event store on guard failure', async () => {
     const eventStore = new EventStore(tmpDir);
 
-    // Create a feature workflow at ideate
+    // Create a feature workflow at plan (DR-4 #1581: initial phase)
     await handleInit({ featureId: 'guard-diag', workflowType: 'feature' }, tmpDir, eventStore);
 
-    // Try to transition from ideate to plan WITHOUT setting design artifact (guard will fail)
+    // Try to transition plan -> plan-review WITHOUT setting the plan artifact (guard fails)
     const result = await handleSet(
-      { featureId: 'guard-diag', phase: 'plan' },
+      { featureId: 'guard-diag', phase: 'plan-review' },
       tmpDir,
       eventStore,
     );
@@ -1836,9 +1834,9 @@ describe('Diagnostic Event Emission', () => {
     const events = await eventStore.query('guard-diag', { type: 'workflow.guard-failed' });
     expect(events.length).toBe(1);
     const data = events[0].data as Record<string, unknown>;
-    expect(data.guard).toBe('design-artifact-exists');
-    expect(data.from).toBe('ideate');
-    expect(data.to).toBe('plan');
+    expect(data.guard).toBe('plan-artifact-exists');
+    expect(data.from).toBe('plan');
+    expect(data.to).toBe('plan-review');
     expect(data.featureId).toBe('guard-diag');
   });
 
@@ -1850,11 +1848,11 @@ describe('Diagnostic Event Emission', () => {
 
     // Advance to review phase — set up all the artifacts/state needed
     await handleSet(
-      { featureId: 'circuit-diag', updates: { 'artifacts.design': 'docs/d.md' } },
+      { featureId: 'circuit-diag', updates: { 'artifacts.plan': 'docs/d.md' } },
       tmpDir,
       eventStore,
     );
-    await handleSet({ featureId: 'circuit-diag', phase: 'plan' }, tmpDir, eventStore);
+    await handleSet({ featureId: 'circuit-diag', phase: 'plan-review' }, tmpDir, eventStore);
     await handleSet(
       { featureId: 'circuit-diag', updates: { 'artifacts.plan': 'docs/p.md' } },
       tmpDir,
@@ -1922,7 +1920,7 @@ describe('Diagnostic Event Emission', () => {
 
     // This should not throw even without event store
     const result = await handleSet(
-      { featureId: 'no-store', phase: 'plan' },
+      { featureId: 'no-store', phase: 'plan-review' },
       tmpDir,
       null,
     );
@@ -1941,7 +1939,7 @@ describe('Guaranteed Event Append', () => {
 
     await handleInit({ featureId: 'event-fail', workflowType: 'feature' }, tmpDir, eventStore);
     await handleSet(
-      { featureId: 'event-fail', updates: { 'artifacts.design': 'docs/test.md' } },
+      { featureId: 'event-fail', updates: { 'artifacts.plan': 'docs/test.md' } },
       tmpDir,
       eventStore,
     );
@@ -1960,7 +1958,7 @@ describe('Guaranteed Event Append', () => {
 
     // Act — attempt a phase transition that triggers event append
     const result = await handleSet(
-      { featureId: 'event-fail', phase: 'plan' },
+      { featureId: 'event-fail', phase: 'plan-review' },
       tmpDir,
       eventStore,
     );
@@ -1973,7 +1971,7 @@ describe('Guaranteed Event Append', () => {
 
     // State should NOT have been mutated (event-first contract)
     const state = await readStateFile(path.join(tmpDir, 'event-fail.state.json'));
-    expect(state.phase).toBe('ideate');
+    expect(state.phase).toBe('plan');
 
     appendSpy.mockRestore();
     appendValidatedSpy.mockRestore();
@@ -2051,7 +2049,7 @@ describe('Guaranteed Event Append', () => {
     // distinct events. No-handoff calls produce a stable digest (`{}`),
     // preserving prior dedup behavior.
     expect(checkpointCalls[0].idempotencyKey).toMatch(
-      /^ckpt-idem-key:checkpoint:ideate:\d+:[0-9a-f]{16}$/,
+      /^ckpt-idem-key:checkpoint:plan:\d+:[0-9a-f]{16}$/,
     );
   });
 });
@@ -2062,10 +2060,10 @@ describe('CAS Retry Duplicate Event Prevention', () => {
   it('handleSet_CASRetry_ShouldNotStoreDuplicateEvents: idempotency key prevents duplicates on retry', async () => {
     const eventStore = new EventStore(tmpDir);
 
-    // Arrange: Create workflow and set design artifact
+    // Arrange: Create workflow and set the plan artifact (DR-4 #1581: plan is initial)
     await handleInit({ featureId: 'cas-dup', workflowType: 'feature' }, tmpDir, eventStore);
     await handleSet(
-      { featureId: 'cas-dup', updates: { 'artifacts.design': 'design.md' } },
+      { featureId: 'cas-dup', updates: { 'artifacts.plan': 'plan.md' } },
       tmpDir,
       eventStore,
     );
@@ -2087,9 +2085,9 @@ describe('CAS Retry Duplicate Event Prevention', () => {
       },
     );
 
-    // Act: Transition from ideate to plan (event-first: append before CAS write)
+    // Act: Transition plan -> plan-review (event-first: append before CAS write)
     const result = await handleSet(
-      { featureId: 'cas-dup', phase: 'plan' },
+      { featureId: 'cas-dup', phase: 'plan-review' },
       tmpDir,
       eventStore,
     );
@@ -2097,7 +2095,7 @@ describe('CAS Retry Duplicate Event Prevention', () => {
     // Assert: Transition should succeed (on retry)
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
-    expect(data.phase).toBe('plan');
+    expect(data.phase).toBe('plan-review');
 
     // Assert: Only one transition event should be STORED (idempotency key dedup)
     // Note: append() is called on each retry attempt, but the idempotency key
@@ -2112,10 +2110,10 @@ describe('CAS Retry Duplicate Event Prevention', () => {
   it('handleSet_EventAppendFails_ReturnsErrorBeforeStateWrite', async () => {
     const eventStore = new EventStore(tmpDir);
 
-    // Arrange: Create workflow and set design artifact
+    // Arrange: Create workflow and set the plan artifact (DR-4 #1581: plan is initial)
     await handleInit({ featureId: 'cas-event-warn', workflowType: 'feature' }, tmpDir, eventStore);
     await handleSet(
-      { featureId: 'cas-event-warn', updates: { 'artifacts.design': 'design.md' } },
+      { featureId: 'cas-event-warn', updates: { 'artifacts.plan': 'plan.md' } },
       tmpDir,
       eventStore,
     );
@@ -2129,9 +2127,9 @@ describe('CAS Retry Duplicate Event Prevention', () => {
       new Error('Event store unavailable'),
     );
 
-    // Act: Transition from ideate to plan
+    // Act: Transition plan -> plan-review
     const result = await handleSet(
-      { featureId: 'cas-event-warn', phase: 'plan' },
+      { featureId: 'cas-event-warn', phase: 'plan-review' },
       tmpDir,
       eventStore,
     );
@@ -2141,9 +2139,9 @@ describe('CAS Retry Duplicate Event Prevention', () => {
     expect(result.error?.code).toBe('EVENT_APPEND_FAILED');
     expect(result.error?.message).toContain('Event store unavailable');
 
-    // Verify state was NOT written to disk (still at ideate)
+    // Verify state was NOT written to disk (still at plan, the initial phase)
     const state = await readStateFile(path.join(tmpDir, 'cas-event-warn.state.json'));
-    expect(state.phase).toBe('ideate');
+    expect(state.phase).toBe('plan');
 
     appendSpy.mockRestore();
     appendValidatedSpy.mockRestore();
@@ -2156,14 +2154,14 @@ describe('B5: Event-First Mutation Ordering', () => {
 
     await handleInit({ featureId: 'event-first', workflowType: 'feature' }, tmpDir, eventStore);
     await handleSet(
-      { featureId: 'event-first', updates: { 'artifacts.design': 'docs/test.md' } },
+      { featureId: 'event-first', updates: { 'artifacts.plan': 'docs/specs/test.md' } },
       tmpDir,
       eventStore,
     );
 
-    // Transition from ideate to plan
+    // Transition from plan to plan-review
     const result = await handleSet(
-      { featureId: 'event-first', phase: 'plan' },
+      { featureId: 'event-first', phase: 'plan-review' },
       tmpDir,
       eventStore,
     );
@@ -2175,7 +2173,7 @@ describe('B5: Event-First Mutation Ordering', () => {
 
     // Verify state was updated
     const state = await readStateFile(path.join(tmpDir, 'event-first.state.json'));
-    expect(state.phase).toBe('plan');
+    expect(state.phase).toBe('plan-review');
   });
 
   it('WorkflowStateSchema_NoEventsField: schema does not include _events, _eventSequence is passthrough', async () => {
@@ -2252,7 +2250,7 @@ describe('handleGet fields projection', () => {
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(Object.keys(data)).toEqual(['phase']);
-    expect(data.phase).toBe('ideate');
+    expect(data.phase).toBe('plan');
   });
 
   it('handleGet_WithFields_ReturnsMultipleFields', async () => {
@@ -2270,7 +2268,7 @@ describe('handleGet fields projection', () => {
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(Object.keys(data).sort()).toEqual(['featureId', 'phase', 'workflowType']);
-    expect(data.phase).toBe('ideate');
+    expect(data.phase).toBe('plan');
     expect(data.featureId).toBe('fields-multi');
     expect(data.workflowType).toBe('feature');
   });
@@ -2313,7 +2311,7 @@ describe('handleGet fields projection', () => {
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(Object.keys(data)).toEqual(['phase']);
-    expect(data.phase).toBe('ideate');
+    expect(data.phase).toBe('plan');
   });
 
   it('handleGet_WithFields_InternalFieldsExcluded', async () => {
@@ -2331,7 +2329,7 @@ describe('handleGet fields projection', () => {
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(Object.keys(data)).toEqual(['phase']);
-    expect(data.phase).toBe('ideate');
+    expect(data.phase).toBe('plan');
     expect(data._history).toBeUndefined();
     expect(data._events).toBeUndefined();
   });
@@ -2402,14 +2400,14 @@ describe('handleSet_EventFirst', () => {
 
     await handleInit({ featureId: 'ef-set', workflowType: 'feature' }, tmpDir, eventStore);
 
-    // Set design artifact so ideate->plan guard passes
+    // Set plan artifact so the plan->plan-review guard passes
     await handleSet(
-      { featureId: 'ef-set', updates: { 'artifacts.design': 'docs/design.md' } },
+      { featureId: 'ef-set', updates: { 'artifacts.plan': 'docs/specs/x.md' } },
       tmpDir,
       eventStore,
     );
 
-    const result = await handleSet({ featureId: 'ef-set', phase: 'plan' }, tmpDir, eventStore);
+    const result = await handleSet({ featureId: 'ef-set', phase: 'plan-review' }, tmpDir, eventStore);
 
     expect(result.success).toBe(true);
 
@@ -2417,8 +2415,8 @@ describe('handleSet_EventFirst', () => {
     const events = await eventStore.query('ef-set');
     const transitions = events.filter(e => e.type === 'workflow.transition');
     expect(transitions.length).toBe(1);
-    expect((transitions[0].data as Record<string, unknown>).from).toBe('ideate');
-    expect((transitions[0].data as Record<string, unknown>).to).toBe('plan');
+    expect((transitions[0].data as Record<string, unknown>).from).toBe('plan');
+    expect((transitions[0].data as Record<string, unknown>).to).toBe('plan-review');
 
     // State _eventSequence advances to cover the DR-13 phase.entered freeze,
     // which is appended AFTER the transition (a higher sequence). The cursor
@@ -2438,9 +2436,9 @@ describe('handleSet_EventFirst', () => {
 
     await handleInit({ featureId: 'ef-fail-set', workflowType: 'feature' }, tmpDir, eventStore);
 
-    // Set design artifact so guard passes
+    // Set plan artifact so the plan->plan-review guard passes
     await handleSet(
-      { featureId: 'ef-fail-set', updates: { 'artifacts.design': 'docs/design.md' } },
+      { featureId: 'ef-fail-set', updates: { 'artifacts.plan': 'docs/specs/x.md' } },
       tmpDir,
       eventStore,
     );
@@ -2463,14 +2461,14 @@ describe('handleSet_EventFirst', () => {
       return originalAppendValidated(streamId, event, opts);
     });
 
-    const result = await handleSet({ featureId: 'ef-fail-set', phase: 'plan' }, tmpDir, eventStore);
+    const result = await handleSet({ featureId: 'ef-fail-set', phase: 'plan-review' }, tmpDir, eventStore);
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('EVENT_APPEND_FAILED');
 
-    // State should remain at ideate
+    // State should remain at plan (the initial phase)
     const raw = JSON.parse(await fs.readFile(path.join(tmpDir, 'ef-fail-set.state.json'), 'utf-8'));
-    expect(raw.phase).toBe('ideate');
+    expect(raw.phase).toBe('plan');
 
     appendSpy.mockRestore();
     appendValidatedSpy.mockRestore();
@@ -2483,12 +2481,12 @@ describe('handleSet_EventFirst', () => {
 
     // Set design artifact so guard passes
     await handleSet(
-      { featureId: 'ef-idem', updates: { 'artifacts.design': 'docs/design.md' } },
+      { featureId: 'ef-idem', updates: { 'artifacts.plan': 'docs/design.md' } },
       tmpDir,
       eventStore,
     );
 
-    const result = await handleSet({ featureId: 'ef-idem', phase: 'plan' }, tmpDir, eventStore);
+    const result = await handleSet({ featureId: 'ef-idem', phase: 'plan-review' }, tmpDir, eventStore);
     expect(result.success).toBe(true);
 
     // Verify event has idempotencyKey set
@@ -2533,12 +2531,12 @@ describe('handleSet_EventFirst', () => {
 
     // Set design artifact so guard passes
     await handleSet(
-      { featureId: 'ef-seq', updates: { 'artifacts.design': 'docs/design.md' } },
+      { featureId: 'ef-seq', updates: { 'artifacts.plan': 'docs/design.md' } },
       tmpDir,
       eventStore,
     );
 
-    await handleSet({ featureId: 'ef-seq', phase: 'plan' }, tmpDir, eventStore);
+    await handleSet({ featureId: 'ef-seq', phase: 'plan-review' }, tmpDir, eventStore);
 
     raw = JSON.parse(await fs.readFile(path.join(tmpDir, 'ef-seq.state.json'), 'utf-8'));
     expect(raw._eventSequence).toBeGreaterThan(1);
@@ -2552,12 +2550,12 @@ describe('handleSet_EventFirst', () => {
 
     // Set design artifact so guard passes
     await handleSet(
-      { featureId: 'ef-cas-msg', updates: { 'artifacts.design': 'docs/design.md' } },
+      { featureId: 'ef-cas-msg', updates: { 'artifacts.plan': 'docs/design.md' } },
       tmpDir,
       eventStore,
     );
 
-    const result = await handleSet({ featureId: 'ef-cas-msg', phase: 'plan' }, tmpDir, eventStore);
+    const result = await handleSet({ featureId: 'ef-cas-msg', phase: 'plan-review' }, tmpDir, eventStore);
 
     expect(result.success).toBe(true);
     expect((result.data as Record<string, unknown>).eventWarning).toBeUndefined();
@@ -2569,7 +2567,7 @@ describe('handleSet_EventFirst', () => {
     // Arrange: Create workflow and set design artifact
     await handleInit({ featureId: 'ef-cas-retry', workflowType: 'feature' }, tmpDir, eventStore);
     await handleSet(
-      { featureId: 'ef-cas-retry', updates: { 'artifacts.design': 'design.md' } },
+      { featureId: 'ef-cas-retry', updates: { 'artifacts.plan': 'design.md' } },
       tmpDir,
       eventStore,
     );
@@ -2591,9 +2589,9 @@ describe('handleSet_EventFirst', () => {
       },
     );
 
-    // Act: Transition from ideate to plan (triggers event-first)
+    // Act: Transition from plan to plan-review (triggers event-first)
     const result = await handleSet(
-      { featureId: 'ef-cas-retry', phase: 'plan' },
+      { featureId: 'ef-cas-retry', phase: 'plan-review' },
       tmpDir,
       eventStore,
     );
@@ -2601,7 +2599,7 @@ describe('handleSet_EventFirst', () => {
     // Assert: Transition should succeed (on retry)
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
-    expect(data.phase).toBe('plan');
+    expect(data.phase).toBe('plan-review');
 
     // Assert: Only one transition event should exist (idempotency key prevents dups)
     const events = await eventStore.query('ef-cas-retry');
@@ -2908,7 +2906,7 @@ describe('HandleSet CAS Diagnostic', () => {
     // Arrange: Create workflow and set design artifact
     await handleInit({ featureId: 'cas-diag', workflowType: 'feature' }, tmpDir, eventStore);
     await handleSet(
-      { featureId: 'cas-diag', updates: { 'artifacts.design': 'design.md' } },
+      { featureId: 'cas-diag', updates: { 'artifacts.plan': 'design.md' } },
       tmpDir,
       eventStore,
     );
@@ -2925,9 +2923,9 @@ describe('HandleSet CAS Diagnostic', () => {
       },
     );
 
-    // Act: Transition from ideate to plan (should exhaust CAS retries)
+    // Act: Transition from plan to plan-review (should exhaust CAS retries)
     try {
-      await handleSet({ featureId: 'cas-diag', phase: 'plan' }, tmpDir, eventStore);
+      await handleSet({ featureId: 'cas-diag', phase: 'plan-review' }, tmpDir, eventStore);
     } catch {
       // Expected to throw after CAS exhaustion
     }
@@ -2950,7 +2948,7 @@ describe('HandleSet CAS Diagnostic', () => {
     // Arrange: Create workflow and set design artifact
     await handleInit({ featureId: 'cas-shape', workflowType: 'feature' }, tmpDir, eventStore);
     await handleSet(
-      { featureId: 'cas-shape', updates: { 'artifacts.design': 'design.md' } },
+      { featureId: 'cas-shape', updates: { 'artifacts.plan': 'design.md' } },
       tmpDir,
       eventStore,
     );
@@ -2969,7 +2967,7 @@ describe('HandleSet CAS Diagnostic', () => {
     try {
       // Act: Trigger CAS exhaustion
       try {
-        await handleSet({ featureId: 'cas-shape', phase: 'plan' }, tmpDir, eventStore);
+        await handleSet({ featureId: 'cas-shape', phase: 'plan-review' }, tmpDir, eventStore);
       } catch (err) {
         // Expected: handleSet throws VersionConflictError after CAS exhaustion
         expect(err).toBeInstanceOf(Error);
@@ -3065,20 +3063,21 @@ describe('HandleGet_EsVersion2_MaterializesFromEvents', () => {
     await handleInit({ featureId: 'es-get-v2', workflowType: 'feature' }, tmpDir, eventStore);
 
     // Now tamper with the state file to set a different phase.
-    // If handleGet reads from events, it should return 'ideate' (from the workflow.started event).
-    // If handleGet reads from the state file, it will return 'plan' (the tampered value).
+    // If handleGet reads from events, it returns 'plan' (the feature workflow's
+    // initial phase from workflow.started, DR-4 #1581). If it reads the state
+    // file, it returns the tampered 'delegate'.
     const stateFile = path.join(tmpDir, 'es-get-v2.state.json');
     const rawState = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
-    rawState.phase = 'plan'; // Tamper the phase
+    rawState.phase = 'delegate'; // Tamper the phase to something other than the real one
     await fs.writeFile(stateFile, JSON.stringify(rawState));
 
     // Act: Call handleGet — should materialize from events, not from file
     const result = await handleGet({ featureId: 'es-get-v2' }, tmpDir, eventStore);
 
-    // Assert: Phase should be 'ideate' (from event materialization), NOT 'plan' (from tampered file)
+    // Assert: Phase should be 'plan' (from event materialization), NOT 'delegate' (tampered file)
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
-    expect(data.phase).toBe('ideate');
+    expect(data.phase).toBe('plan');
     expect(data.featureId).toBe('es-get-v2');
     expect(data.workflowType).toBe('feature');
   });
@@ -3101,14 +3100,14 @@ describe('HandleGet_ScalarQuery_EsVersion2_FoldsEventsNotStaleFile', () => {
     // Tamper the on-disk scalar — the read path must NOT trust it.
     const stateFile = path.join(tmpDir, 'fast-es-v2.state.json');
     const rawState = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
-    rawState.phase = 'plan';
+    rawState.phase = 'delegate';
     await fs.writeFile(stateFile, JSON.stringify(rawState));
 
     const result = await handleGet({ featureId: 'fast-es-v2', query: 'phase' }, tmpDir, eventStore);
 
     expect(result.success).toBe(true);
-    // 'ideate' folded from workflow.started, NOT the tampered 'plan'.
-    expect(result.data).toBe('ideate');
+    // 'plan' folded from workflow.started, NOT the tampered 'delegate'.
+    expect(result.data).toBe('plan');
   });
 });
 
@@ -3188,7 +3187,7 @@ describe('HandleGet_EsVersion2_FieldProjection_Works', () => {
     // Assert: Only the requested fields should be returned
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
-    expect(data.phase).toBe('ideate');
+    expect(data.phase).toBe('plan');
     expect(data.featureId).toBe('es-fields');
 
     // Should NOT contain other fields
@@ -3249,13 +3248,15 @@ describe('HandleSet_EsVersion2_PhaseAndFields_EmitsBothEvents', () => {
 
     await handleInit({ featureId: 'es-set-both', workflowType: 'feature' }, tmpDir, eventStore);
 
-    // Act: Set both phase and field updates
+    // Act: Set both phase and field updates. DR-4 (#1581): plan is initial, so
+    // the transition is plan→plan-review; the plan artifact (set in the same
+    // call, applied before the guard) satisfies planArtifactExists.
     const result = await handleSet(
       {
         featureId: 'es-set-both',
-        phase: 'plan',
+        phase: 'plan-review',
         updates: {
-          'artifacts.design': 'design.md',
+          'artifacts.plan': 'docs/specs/x.md',
         },
       },
       tmpDir,
@@ -3276,12 +3277,12 @@ describe('HandleSet_EsVersion2_PhaseAndFields_EmitsBothEvents', () => {
     // Verify the transition event
     const lastTransition = transitionEvents[transitionEvents.length - 1];
     const transitionData = lastTransition.data as Record<string, unknown>;
-    expect(transitionData.to).toBe('plan');
+    expect(transitionData.to).toBe('plan-review');
 
     // Verify the patched event
     const patchedData = patchedEvents[0].data as Record<string, unknown>;
-    expect(patchedData.fields).toEqual(['artifacts.design']);
-    expect(patchedData.patch).toEqual({ 'artifacts.design': 'design.md' });
+    expect(patchedData.fields).toEqual(['artifacts.plan']);
+    expect(patchedData.patch).toEqual({ 'artifacts.plan': 'docs/specs/x.md' });
   });
 });
 

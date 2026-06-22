@@ -162,7 +162,12 @@ const mergePendingExit: Guard = {
 
 export function createFeatureHSM(): HSMDefinition {
   const states: Record<string, State> = {
-    ideate: { id: 'ideate', type: 'atomic', kind: 'GATHER' },
+    // DR-4 (#1581): GATHER collapsed into PLAN. The former `ideate` (GATHER)
+    // state is removed; `plan` (PLAN, read-only) is the feature workflow's
+    // INITIAL state (initialPhaseRegistry.feature === 'plan'). Entry obligation
+    // is the unified `docs/specs/` artifact's existence; `plan-review` remains
+    // the single human approval point. No new kind (INV-6); a phase removed
+    // (INV-15).
     plan: { id: 'plan', type: 'atomic', kind: 'PLAN' },
     'plan-review': { id: 'plan-review', type: 'atomic', kind: 'PLAN' },
     implementation: {
@@ -192,7 +197,9 @@ export function createFeatureHSM(): HSMDefinition {
   };
 
   const transitions: Transition[] = [
-    { from: 'ideate', to: 'plan', guard: guards.designArtifactExists },
+    // DR-4 (#1581): the `ideate → plan` transition (guarded by
+    // `designArtifactExists`) is retired with the `ideate` state — `plan` is now
+    // initial, so it needs no inbound bootstrap transition.
     { from: 'plan', to: 'plan-review', guard: guards.planArtifactExists },
     { from: 'plan-review', to: 'delegate', guard: guards.planReviewComplete },
     {

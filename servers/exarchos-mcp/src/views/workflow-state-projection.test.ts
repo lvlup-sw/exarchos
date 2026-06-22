@@ -92,7 +92,8 @@ describe('WorkflowStateProjection workflow lifecycle', () => {
 
       expect(next.featureId).toBe('my-feature');
       expect(next.workflowType).toBe('feature');
-      expect(next.phase).toBe('ideate');
+      // DR-4 (#1581): workflow.started folds to the initial phase, now 'plan'.
+      expect(next.phase).toBe('plan');
       expect(next.createdAt).toBe(ts);
       expect(next.updatedAt).toBe(ts);
     });
@@ -795,7 +796,7 @@ describe('WorkflowStateProjection round-trip', () => {
         ),
       );
       expect(state.featureId).toBe('round-trip');
-      expect(state.phase).toBe('ideate');
+      expect(state.phase).toBe('plan');
 
       // 2. state.patched (add artifacts)
       state = workflowStateProjection.apply(

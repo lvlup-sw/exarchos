@@ -54,11 +54,11 @@ describe('WorkflowTransition_ValidTarget (T36, DR-4)', () => {
   it('WorkflowTransition_ValidTarget_EmitsTransitionEventOnce', async () => {
     const featureId = 't36-canonical';
 
-    // Arrange — feature workflow primed for `ideate → plan` (requires
-    // `artifacts.design`).
+    // Arrange — feature workflow primed for `plan → plan-review` (requires
+    // `artifacts.plan`). DR-4 (#1581): plan is the initial phase.
     await handleInit({ featureId, workflowType: 'feature' }, tmpDir, ctx.eventStore);
     await handleSet(
-      { featureId, updates: { 'artifacts.design': 'docs/design.md' } },
+      { featureId, updates: { 'artifacts.plan': 'docs/specs/x.md' } },
       tmpDir,
       ctx.eventStore,
     );
@@ -71,7 +71,7 @@ describe('WorkflowTransition_ValidTarget (T36, DR-4)', () => {
 
     // Act — single transition call.
     const result = await handleWorkflow(
-      { action: 'transition', featureId, target: 'plan' },
+      { action: 'transition', featureId, target: 'plan-review' },
       ctx,
     );
     expect(result.success).toBe(true);
@@ -81,8 +81,8 @@ describe('WorkflowTransition_ValidTarget (T36, DR-4)', () => {
     const transitions = after.filter((e) => e.type === 'workflow.transition');
     expect(transitions.length).toBe(1);
     expect(transitions[0].data).toMatchObject({
-      from: 'ideate',
-      to: 'plan',
+      from: 'plan',
+      to: 'plan-review',
       featureId,
     });
   });
@@ -122,14 +122,14 @@ describe('WorkflowTransition_GuardFailure (T42, DR-5)', () => {
   it('WorkflowTransition_GuardFailure_PopulatesValidTargetsAndSuggestedFix', async () => {
     const featureId = 't42-guard-fail';
 
-    // Arrange — fresh feature workflow without `artifacts.design`. The
-    // `ideate → plan` edge has a guard requiring the design artifact, so
-    // the transition will fail with a guard error (not "no transition").
+    // Arrange — fresh feature workflow without `artifacts.plan`. DR-4 (#1581):
+    // plan is initial; the `plan → plan-review` edge has a guard requiring the
+    // plan artifact, so the transition fails with a guard error (not "no transition").
     await handleInit({ featureId, workflowType: 'feature' }, tmpDir, ctx.eventStore);
 
     // Act — transition without the required artifact.
     const result = await handleWorkflow(
-      { action: 'transition', featureId, target: 'plan' },
+      { action: 'transition', featureId, target: 'plan-review' },
       ctx,
     );
 

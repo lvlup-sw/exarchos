@@ -44,7 +44,7 @@ function makeBaseState(overrides: Record<string, unknown> = {}) {
     workflowType: 'feature',
     createdAt: NOW,
     updatedAt: NOW,
-    phase: 'ideate',
+    phase: 'plan',
     artifacts: { design: null, plan: null, pr: null },
     tasks: [],
     worktrees: {},
@@ -61,7 +61,7 @@ function makeBaseState(overrides: Record<string, unknown> = {}) {
     _history: {},
     _checkpoint: {
       timestamp: NOW,
-      phase: 'ideate',
+      phase: 'plan',
       summary: 'Workflow initialized',
       operationsSince: 0,
       fixCycleCount: 0,
@@ -106,7 +106,7 @@ describe('handleSummary', () => {
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(data.featureId).toBe('test-feature');
-    expect(data.phase).toBe('ideate');
+    expect(data.phase).toBe('plan');
     const progress = data.taskProgress as { completed: number; total: number };
     expect(progress.completed).toBe(1);
     expect(progress.total).toBe(2);
@@ -374,7 +374,7 @@ describe('handleTransitions', () => {
     expect(states.length).toBeGreaterThan(0);
     // Should include known phases
     const stateIds = states.map(s => s.id);
-    expect(stateIds).toContain('ideate');
+    expect(stateIds).toContain('plan');
     expect(stateIds).toContain('completed');
   });
 

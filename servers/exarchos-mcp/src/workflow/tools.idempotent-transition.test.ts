@@ -49,7 +49,7 @@ describe('handleTransition idempotent same-target no-op (T73, CR #13)', () => {
     const eventStore = new EventStore(tmpDir);
     await eventStore.initialize();
 
-    // `feature` workflow initialises at phase `ideate`. Transitioning to
+    // `feature` workflow initialises at phase `plan`. Transitioning to
     // the same phase is the canonical no-op case.
     const init = await handleInit(
       { featureId, workflowType: 'feature' },
@@ -58,19 +58,19 @@ describe('handleTransition idempotent same-target no-op (T73, CR #13)', () => {
     );
     expect(init.success).toBe(true);
     const initData = init.data as Record<string, unknown>;
-    expect(initData.phase).toBe('ideate');
+    expect(initData.phase).toBe('plan');
 
-    // Transition `ideate → ideate` twice. Both calls must succeed and
+    // Transition `plan → plan` twice. Both calls must succeed and
     // neither must append a `workflow.transition` event for the no-op.
     const first = await handleTransition(
-      { featureId, target: 'ideate' },
+      { featureId, target: 'plan' },
       tmpDir,
       eventStore,
     );
     expect(first.success).toBe(true);
 
     const second = await handleTransition(
-      { featureId, target: 'ideate' },
+      { featureId, target: 'plan' },
       tmpDir,
       eventStore,
     );
@@ -95,14 +95,14 @@ describe('handleTransition idempotent same-target no-op (T73, CR #13)', () => {
     );
 
     const result = await handleTransition(
-      { featureId, target: 'ideate' },
+      { featureId, target: 'plan' },
       tmpDir,
       eventStore,
     );
 
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
-    expect(data.phase).toBe('ideate');
+    expect(data.phase).toBe('plan');
     // Explicit `idempotent: true` flag — the discriminator callers branch
     // on to distinguish a real transition from a no-op acknowledgement.
     expect(data.idempotent).toBe(true);
@@ -131,7 +131,7 @@ describe('handleTransition idempotent same-target no-op (T73, CR #13)', () => {
 
     // First same-target call.
     const first = await handleTransition(
-      { featureId, target: 'ideate' },
+      { featureId, target: 'plan' },
       tmpDir,
       eventStore,
     );
@@ -155,7 +155,7 @@ describe('handleTransition idempotent same-target no-op (T73, CR #13)', () => {
     // to the post-first snapshot — proving the no-op is stable across
     // repeated invocations.
     const second = await handleTransition(
-      { featureId, target: 'ideate' },
+      { featureId, target: 'plan' },
       tmpDir,
       eventStore,
     );
