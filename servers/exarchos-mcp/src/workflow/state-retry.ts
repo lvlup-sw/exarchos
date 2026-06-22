@@ -11,6 +11,15 @@
 // the retry helper. Inline copies should NOT exist; if a third call site
 // appears, import from here.
 //
+// Contract (post stream-version-gate, DR-2): this retry is reserved for
+// GENUINE optimistic-concurrency callers — state-store CAS writes and
+// event-stream handlers that pass `expectedSequence` (directly or via
+// `decide`/`withSession`). A PLAIN append (no `expectedSequence`) can no
+// longer surface a conflict: the gate assigns its sequence under the write
+// lock, so the loser serializes transparently instead of racing. Plain-append
+// paths are therefore NOT wrapped here — wrapping one would be dead code.
+// (The MCP `exarchos_event append` surface is intentionally un-wrapped.)
+//
 // Designed to be small and dependency-free — only `VersionConflictError`
 // from `state-store.ts` and the standard `setTimeout`. Callers wrap any
 // closure that ends in a `writeStateFile` call.

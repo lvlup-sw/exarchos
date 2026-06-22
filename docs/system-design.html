@@ -332,7 +332,7 @@
   <section id="concurrency">
     <div class="eyebrow">03 · under concurrency</div>
     <h2>Staying correct when agents run in parallel</h2>
-    <p class="lede">Several agents writing the same repository is the normal case, not the exception. Correctness comes from serializing writes to a stream in two tiers, with no process lock and no advisory file. Inside one process, a per-stream promise chain runs same-stream appends one at a time. Across processes, SQLite's write-ahead log takes the write lock up front, a composite primary key rejects a duplicate sequence outright, and the loser of a race retries against the new tail. That is the whole concurrency story. It is deliberately not a distributed one.</p>
+    <p class="lede">Several agents writing the same repository is the normal case, not the exception. Correctness comes from serializing writes to a stream in two tiers, with no process lock and no advisory file. Inside one process, a per-stream promise chain runs same-stream appends one at a time. Across processes, SQLite's write-ahead log takes the write lock up front, and a <b>per-stream version gate</b> assigns and checks the next sequence <b>atomically inside that transaction</b> — the convergent event-store primitive (Marten, SQLStreamStore, EventStoreDB). Because the gate runs under the held write lock, a plain append never races: the second writer simply serializes behind the first and is handed the next sequence. Only a <b>genuine optimistic-concurrency mismatch</b> — a caller that passed a stale expected version — surfaces a conflict, carrying its expected and actual values directly; the composite primary key is retained as an integrity backstop, not the detector. That is the whole concurrency story, and it is deliberately not a distributed one.</p>
     <figure class="panel">
       <div class="legend">
         <span><i class="sw-t"></i>tier 1 · in-process promise chain</span>
@@ -354,15 +354,15 @@
         <line x1="504" y1="114" x2="566" y2="114" class="flow" stroke="var(--violet)" stroke-width="1.8" marker-end="url(#c-v)"/>
         <rect x="568" y="70" width="234" height="88" rx="12" fill="oklch(0.74 0.15 292 / .1)" stroke="var(--violet)" stroke-width="1.6"/>
         <text x="685" y="100" text-anchor="middle" font-size="14.5" font-family="var(--disp)" fill="var(--violet)">WAL · BEGIN IMMEDIATE</text>
-        <text x="685" y="121" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--ink-dim)">PRIMARY KEY (stream, sequence)</text>
-        <text x="685" y="139" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--ink-faint)">duplicate sequence rejected</text>
+        <text x="685" y="121" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--ink-dim)">version gate: assign + check</text>
+        <text x="685" y="139" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--ink-faint)">PK = integrity backstop</text>
         <path d="M685,158 C685,196 760,196 802,150" fill="none" class="flow" stroke="var(--violet)" stroke-width="1.4" marker-end="url(#c-v)"/>
-        <text x="828" y="186" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--violet)">loser retries</text>
-        <text x="828" y="201" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--ink-faint)">against new tail</text>
+        <text x="828" y="186" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--violet)">plain append: serializes</text>
+        <text x="828" y="201" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--ink-faint)">OCC mismatch: conflict</text>
       </svg>
       <figcaption>
         <ul>
-          <li><b>No PID lock, no mutex file.</b> An earlier per-directory process lock was removed; the write-ahead log and the key constraint are the only serialization primitives.</li>
+          <li><b>No PID lock, no mutex file.</b> An earlier per-directory process lock was removed; the write-ahead log plus the in-transaction version gate are the serialization primitives, with the composite key as an integrity backstop.</li>
           <li><b>Idempotency at the boundary.</b> Every append carries a key, and a unique index collapses a duplicate at storage. A retried handler re-emits its intent as a no-op, so the external side effect runs at most once.</li>
           <li><b>Two events for one effect.</b> A non-idempotent action records its intent before it acts and its result after. A crash between the two is recovered by an idempotent precheck, not by guesswork.</li>
         </ul>

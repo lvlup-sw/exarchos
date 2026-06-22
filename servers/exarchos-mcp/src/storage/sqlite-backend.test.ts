@@ -6,8 +6,64 @@ import * as path from 'node:path';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import type { WorkflowState } from '../workflow/types.js';
 import type { EventSender } from './backend.js';
-import { SqliteBackend } from './sqlite-backend.js';
+import { SqliteBackend, SqliteImmediateUnsupportedError } from './sqlite-backend.js';
 import { VersionConflictError } from './memory-backend.js';
+
+// ─── DR-4 durability posture + DR-3 immediate fail-fast ─────────────────────
+
+describe('SqliteBackend durability + immediate (DR-3 / DR-4)', () => {
+  it('Synchronous_InvalidValue_RejectedAtConstruction', () => {
+    expect(
+      () =>
+        new SqliteBackend(':memory:', {
+          synchronous: 'sometimes' as unknown as 'normal' | 'full',
+        }),
+    ).toThrowError(/invalid storage.synchronous/);
+  });
+
+  it('Synchronous_DefaultNormal_InitializesAndAppends', () => {
+    const backend = new SqliteBackend(':memory:');
+    expect(() => backend.initialize()).not.toThrow();
+    backend.close();
+  });
+
+  it('Synchronous_Full_InitializesAndAppends', () => {
+    // FULL applies a valid pragma and round-trips a write without error.
+    const backend = new SqliteBackend(':memory:', { synchronous: 'full' });
+    expect(() => backend.initialize()).not.toThrow();
+    backend.close();
+  });
+
+  it('Initialize_DriverExposesImmediate_AssertionPasses', () => {
+    // The DR-3 fail-fast assertion runs inside initialize(); a successful
+    // init proves the real driver exposes transaction(fn).immediate(). Guard
+    // the premise explicitly so a driver regression that drops .immediate is
+    // caught here rather than as a silent deferred-BEGIN downgrade.
+    const backend = new SqliteBackend(':memory:');
+    backend.initialize();
+    const db = (backend as unknown as { db: { transaction: (fn: () => void) => unknown } }).db;
+    const txn = db.transaction(() => {}) as { immediate?: unknown };
+    expect(typeof txn.immediate).toBe('function');
+    backend.close();
+  });
+
+  it('Initialize_DriverLacksImmediate_ThrowsTyped', () => {
+    // The DR-3 negative path: a driver whose `transaction(fn)` wrapper omits
+    // `.immediate` must hard-fail with the typed error, NOT silently degrade
+    // to a deferred BEGIN. Inject such a wrapper into the private `db` handle
+    // and drive the assertion directly — this is the kill-probe for a
+    // regression that replaces the throw with a deferred-BEGIN fallback.
+    const backend = new SqliteBackend(':memory:');
+    (backend as unknown as { db: { transaction: (fn: () => void) => unknown } }).db = {
+      transaction: (_fn: () => void) => ({
+        /* deferred-only wrapper: no `.immediate` method */
+      }),
+    };
+    expect(() =>
+      (backend as unknown as { assertImmediateSupported: () => void }).assertImmediateSupported(),
+    ).toThrowError(SqliteImmediateUnsupportedError);
+  });
+});
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -529,20 +585,19 @@ describe('SqliteBackend.atomicAppend empty-events guard (T70)', () => {
     backend.close();
   });
 
-  it('throws a structured validation error (not TypeError) when events array is empty', async () => {
-    // Empty-array call previously threw `TypeError: Cannot read properties
-    // of undefined (reading 'sequence')` because the function indexes
-    // args.events[args.events.length - 1] without a non-empty check.
-    // The contract is "at least one event per atomicAppend call"; violating
-    // it should surface as a clear validation error, not a cryptic
-    // undefined-property TypeError.
+  it('throws a structured validation error (not TypeError) when n is zero', async () => {
+    // The contract is "at least one event per atomicAppend call" (n >= 1);
+    // violating it should surface as a clear validation error, not a cryptic
+    // undefined-property TypeError. The gate refactor moved event-count to
+    // the `n` parameter (sequences are assigned inside the txn by finalize).
     await expect(
       backend.atomicAppend({
         streamId: 'test-stream',
         idempotencyKey: null,
-        events: [],
+        n: 0,
+        finalize: () => ({ events: [] }),
       }),
-    ).rejects.toThrowError('atomicAppend requires non-empty events array');
+    ).rejects.toThrowError('atomicAppend requires n >= 1');
 
     // Also verify it's not a TypeError specifically — the cryptic shape
     // we're trying to eliminate.
@@ -550,7 +605,8 @@ describe('SqliteBackend.atomicAppend empty-events guard (T70)', () => {
       backend.atomicAppend({
         streamId: 'test-stream',
         idempotencyKey: null,
-        events: [],
+        n: 0,
+        finalize: () => ({ events: [] }),
       }),
     ).rejects.not.toThrow(TypeError);
   });

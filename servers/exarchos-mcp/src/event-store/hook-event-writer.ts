@@ -45,8 +45,13 @@ function getSidecarPath(stateDir: string, streamId: string): string {
  * newline-delimited JSON (JSONL). A timestamp defaults to `new Date().toISOString()`
  * if not provided.
  *
- * This function is safe to call from hook subprocesses — it does not require
- * the EventStore PID lock.
+ * This function is safe to call from hook subprocesses and never touches the
+ * SQLite database: it `fs.appendFile`s a line to a per-stream JSONL sidecar.
+ * Concurrent writers do not corrupt each other because each append opens with
+ * `O_APPEND`, so the OS positions every write at end-of-file atomically. The
+ * periodic merger (`storage/sidecar-merger.ts`) later replays these sidecar
+ * lines into the EventStore under its own write path — that is where the
+ * SQLite durability/serialization guarantees apply, not here.
  */
 export async function writeHookEvent(
   stateDir: string,

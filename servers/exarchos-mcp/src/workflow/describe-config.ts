@@ -112,5 +112,10 @@ export function buildConfigDescription(config: ResolvedProjectConfig) {
       // replaced that cell's gate sequence.
       policy: annotate(config.verification.policy, DEFAULTS.verification.policy),
     },
+    storage: {
+      // DR-4 — SQLite durability posture (`PRAGMA synchronous`). Default
+      // `'normal'`; `'full'` fsyncs on every commit (power-loss durable).
+      synchronous: annotate(config.storage.synchronous, DEFAULTS.storage.synchronous),
+    },
   };
 }

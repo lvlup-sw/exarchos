@@ -75,6 +75,14 @@ export interface ResolvedProjectConfig {
   readonly verification: {
     readonly policy: VerificationPolicyOverlay;
   };
+  /**
+   * Storage substrate tuning (DR-4). `synchronous` is the SQLite
+   * `PRAGMA synchronous` durability posture threaded through the EventStore
+   * to the lazily-created append substrate. Defaults to `'normal'`.
+   */
+  readonly storage: {
+    readonly synchronous: 'normal' | 'full';
+  };
 }
 
 // ─── Default Values ─────────────────────────────────────────────────────────
@@ -176,6 +184,9 @@ export const DEFAULTS: ResolvedProjectConfig = deepFreeze({
   // cell, so the resolver later falls through to the frozen base policy table.
   verification: {
     policy: {},
+  },
+  storage: {
+    synchronous: 'normal',
   },
 });
 
@@ -364,6 +375,9 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
     prune: { staleAfterDays, maxBatchSize, phaseExclusions, malformedHandling, requireDryRun },
     checkpoint: { operationThreshold, enforceOnPhaseTransition, enforceOnWaveDispatch },
     verification: { policy: verificationPolicy },
+    storage: {
+      synchronous: project.storage?.synchronous ?? DEFAULTS.storage.synchronous,
+    },
   };
 
   return deepFreeze(resolved);

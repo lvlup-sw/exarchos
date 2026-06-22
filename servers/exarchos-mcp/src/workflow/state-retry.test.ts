@@ -16,10 +16,30 @@
 // bubbles past the catch guard.
 
 import { describe, it, expect, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import * as path from 'node:path';
 
 import { withStateRetry, MAX_STATE_RETRIES } from './state-retry.js';
 import { ConcurrencyError } from '../event-store/concurrency-error.js';
 import { StorageBusyError } from '../event-store/storage-busy-error.js';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+
+// ─── DR-2 contract guard: plain event-append surface stays un-wrapped ───────
+//
+// Post stream-version-gate, a plain append (no expectedSequence) cannot
+// surface a conflict, so wrapping the MCP event-append surface in
+// withStateRetry would be dead code. Guard that the contract holds at the
+// source level (DR-2's "grep gate or test").
+describe('DR-2 retry contract — plain append surface is not retry-wrapped', () => {
+  it('EventAppendHandlers_NotWrappedInWithStateRetry', () => {
+    for (const rel of ['../event-store/tools.ts', '../event-store/store.ts']) {
+      const src = readFileSync(path.join(here, rel), 'utf8');
+      expect(src).not.toContain('withStateRetry');
+    }
+  });
+});
 
 describe('withStateRetry — Wave 4 / Task 4.1', () => {
   it('WithStateRetry_RetriesOnConcurrencyError', async () => {

@@ -96,6 +96,13 @@ export interface QueryFilters {
 
 export interface EventStoreOptions {
   backend?: StorageBackend;
+  /**
+   * Durability posture (DR-4) threaded to the lazily-constructed
+   * AtomicAppender → SqliteBackend (`PRAGMA synchronous`). Resolved from
+   * `.exarchos.yml` `storage.synchronous` by the lifecycle wiring. Omitted →
+   * `'normal'` (unchanged default).
+   */
+  synchronous?: 'normal' | 'full';
 }
 
 // ─── Integrity Result ───────────────────────────────────────────────────────
@@ -175,8 +182,24 @@ export class EventStore {
    *  locks and sequence counters share state across handler calls. */
   private atomicAppender?: AtomicAppender;
 
+  /** Durability posture threaded to the lazily-created appender (DR-4). */
+  private synchronous?: 'normal' | 'full';
+
   constructor(private readonly stateDir: string, options?: EventStoreOptions) {
     this.backend = options?.backend;
+    this.synchronous = options?.synchronous;
+  }
+
+  /**
+   * Set the storage durability posture (DR-4) AFTER construction. The
+   * production lifecycle builds the EventStore before `.exarchos.yml` is
+   * loaded, so the resolved `storage.synchronous` is applied here before the
+   * first append. It is honoured only by the lazily-created appender; once
+   * the backend handle exists the pragma is already fixed, so a late call
+   * (after the first write) is a no-op against the live connection.
+   */
+  setStorageDurability(synchronous: 'normal' | 'full'): void {
+    this.synchronous = synchronous;
   }
 
   /** Returns the state directory path used by this event store. */
@@ -201,6 +224,7 @@ export class EventStore {
     if (!this.atomicAppender) {
       this.atomicAppender = new AtomicAppender({
         stateDir: this.stateDir,
+        ...(this.synchronous ? { synchronous: this.synchronous } : {}),
       });
     }
     return this.atomicAppender;
