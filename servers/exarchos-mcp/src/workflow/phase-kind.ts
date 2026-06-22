@@ -12,6 +12,7 @@
 
 import { resolveVerificationPolicy } from './verification-policy-resolver.js';
 import { type GateName, type RiskTier } from './verification-policy.js';
+import { type DesignDepth } from './plan-depth-policy.js';
 import { getRequiredReviews, type ReviewDimension } from './review-contract.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 
@@ -142,6 +143,17 @@ export interface ResolveGateSetCtx {
    * review roster falls back to the empty base, never throws.
    */
   readonly workflowType?: string;
+  /**
+   * The feature's frozen planning depth (thin ⊂ standard ⊂ deep). The
+   * `'plan-structure'` resolver keys its gate sequence off this (the depth-axis
+   * twin of how the IMPLEMENT ladder keys off `riskTier`), resolved once at PLAN
+   * `phase.entered` and frozen (task 005), never re-derived here. This field is
+   * the *carrier* on the resolution ctx (DR-1); task 003 graduates the resolver
+   * to read it. Absent ⇒ `'standard'` at the resolver — the behavior-neutral
+   * default that preserves today's static 5-gate plan-structure binding for
+   * every pre-existing call site, never throws.
+   */
+  readonly designDepth?: DesignDepth;
 }
 
 /**

@@ -5,7 +5,7 @@ import {
   ladderGateNames,
   resolveGateSetFailClosed,
 } from './phase-kind.js';
-import type { ResolvedGate } from './phase-kind.js';
+import type { ResolvedGate, ResolveGateSetCtx } from './phase-kind.js';
 import { resolveVerificationPolicy } from './verification-policy-resolver.js';
 import type { RiskTier } from './verification-policy.js';
 import { TOOL_REGISTRY } from '../registry.js';
@@ -152,6 +152,34 @@ describe('plan-structure resolver (DR-9)', () => {
     );
     const resolverPlanGates = new Set(resolveGateSet('PLAN', ctx).map((g) => g.gate));
     expect(resolverPlanGates).toEqual(registryPlanGates);
+  });
+
+  it('ResolveGateSetCtx_DesignDepthAbsent_DefaultsStandardNoThrow', () => {
+    // DR-1 (task 002): `designDepth` is an OPTIONAL carrier on the resolution
+    // ctx. Adding it must be behavior-neutral for every pre-existing call site:
+    // a ctx that omits `designDepth` resolves without throwing and yields
+    // exactly today's static `'standard'` 5-gate binding (the resolver is not
+    // graduated to read it until task 003). Supplying `designDepth: 'standard'`
+    // explicitly must be indistinguishable from omitting it — pinning that the
+    // default IS standard.
+    const standardGates = [
+      'check_task_decomposition',
+      'check_plan_coverage',
+      'spec_coverage_check',
+      'check_provenance_chain',
+      'generate_traceability',
+    ];
+
+    const absent: ResolveGateSetCtx = { riskTier: 'low', boundaryTouching: false };
+    expect(() => resolveGateSet('PLAN', absent)).not.toThrow();
+    expect(resolveGateSet('PLAN', absent).map((g) => g.gate)).toEqual(standardGates);
+
+    const explicitStandard: ResolveGateSetCtx = {
+      riskTier: 'low',
+      boundaryTouching: false,
+      designDepth: 'standard',
+    };
+    expect(resolveGateSet('PLAN', explicitStandard).map((g) => g.gate)).toEqual(standardGates);
   });
 });
 
