@@ -202,6 +202,43 @@ describe('plan-structure resolver (DR-9)', () => {
     expect(new Set(resolved.map((g) => g.gate))).toEqual(registryPlanGates);
   });
 
+  it('GateChains_DesignCompletenessExcised_AbsentFromSpecReviewChain', () => {
+    // DR-6 (#1581 task 014): the design+plan collapse excises the standalone
+    // check_design_completeness gate from the live gate chains — its
+    // acceptance-criteria finding now rides in check_plan_coverage (task 011).
+    // It survives ONLY as a deprecated callable alias (task 013), never as a
+    // member of a resolved phase gate set.
+    const isDesignCompleteness = (gate: string): boolean =>
+      gate === 'check_design_completeness' || gate.includes('design-completeness');
+
+    // (1) The spec-review chain (REVIEW kind resolves verbatim from the
+    // review-contract dimensions) never lists the design-completeness gate.
+    const reviewChain = resolveGateSet('REVIEW', {
+      riskTier: 'low',
+      boundaryTouching: false,
+      designDepth: 'standard',
+    }).map((g) => g.gate);
+    expect(reviewChain.some(isDesignCompleteness)).toBe(false);
+
+    // (2) Nor does the PLAN plan-structure chain.
+    const planChain = resolveGateSet('PLAN', {
+      riskTier: 'low',
+      boundaryTouching: false,
+      designDepth: 'standard',
+    }).map((g) => g.gate);
+    expect(planChain.some(isDesignCompleteness)).toBe(false);
+
+    const entry = TOOL_REGISTRY.flatMap((t) => t.actions).find(
+      (a) => a.name === 'check_design_completeness',
+    );
+    expect(entry).toBeDefined();
+    // (3) It is NOT a PLAN_PHASE_NAMES-bound plan gate, so it cannot slip back
+    // into the plan-structure binding (the binding pin above).
+    expect(setEqualsNames(entry!.phases, PLAN_PHASE_NAMES)).toBe(false);
+    // (4) And it survives only as a deprecated alias.
+    expect(entry!.deprecated).toBe(true);
+  });
+
   it('PlanStructureResolver_DeepDepth_AddsExplorationObligation', () => {
     // DR-2/DR-7: the `'deep'` rung is a strict superset of `'standard'` — the
     // same five plan-structure gates plus the `check_exploration_depth`
