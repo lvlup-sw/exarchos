@@ -119,14 +119,16 @@ jobs:
             const issue = context.payload.issue;
             const existing = (issue.labels || []).map(l => (typeof l === 'string' ? l : l.name));
 
-            // Respect deliberate labeling. If the author already set ANY type:* label
-            // (e.g. `gh issue create --label type:epic`), the issue is already triaged —
-            // do NOT override the type or stamp status:triage. This is the structural fix
-            // for the epic-mislabeling problem: the previous body-scan matched the literal
-            // word "issue" (and bug/error/fail/broken), so almost every deliberately-filed
-            // epic was wrongly stamped type:bug + status:triage and had to be hand-stripped.
-            if (existing.some(l => l.startsWith('type:'))) {
-              console.log(`#${issue.number} already has a type label (${existing.filter(l => l.startsWith('type:')).join(', ')}); skipping auto-triage.`);
+            // Respect deliberate labeling. If the author set ANY label at creation
+            // (e.g. `gh issue create --label type:epic` or `--label tracking`), the issue
+            // is already triaged — do NOT auto-guess a type or stamp status:triage. This is
+            // the structural fix for the epic-mislabeling problem: the previous body-scan
+            // matched the literal word "issue" (and bug/error/fail/broken), so almost every
+            // deliberately-filed epic was wrongly stamped type:bug + status:triage and had to
+            // be hand-stripped. Under-labeling a blank issue is far cheaper than mislabeling
+            // a deliberately-filed one.
+            if (existing.length > 0) {
+              console.log(`#${issue.number} already carries labels (${existing.join(', ')}); skipping auto-triage to respect deliberate labeling.`);
               return;
             }
 
