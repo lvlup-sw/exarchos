@@ -117,36 +117,54 @@ jobs:
         with:
           script: |
             const issue = context.payload.issue;
-            const text = `${issue.title} ${issue.body}`.toLowerCase();
-            const labels = ['status:triage'];
+            const existing = (issue.labels || []).map(l => (typeof l === 'string' ? l : l.name));
 
-            // Type detection
-            if (text.match(/bug|error|fail|broken|crash|issue/)) {
-              labels.push('type:bug');
-            } else if (text.match(/feature|add|implement|support|enhance/)) {
-              labels.push('type:feature');
-            } else if (text.match(/doc|readme|typo|clarif/)) {
-              labels.push('type:docs');
-            } else if (text.match(/\?|how|what|why|question/)) {
-              labels.push('type:question');
-            }
-
-            // Scope detection
-            if (text.match(/workflow|ideate|plan|review|synthesize/)) {
-              labels.push('scope:workflow');
-            }
-            if (text.match(/renovate|ci|cd|template|terraform|azd/)) {
-              labels.push('scope:templates');
-            }
-            if (text.match(/tdd|rule|standard|typescript|csharp/)) {
-              labels.push('scope:rules');
+            // Respect deliberate labeling. If the author already set ANY type:* label
+            // (e.g. `gh issue create --label type:epic`), the issue is already triaged —
+            // do NOT override the type or stamp status:triage. This is the structural fix
+            // for the epic-mislabeling problem: the previous body-scan matched the literal
+            // word "issue" (and bug/error/fail/broken), so almost every deliberately-filed
+            // epic was wrongly stamped type:bug + status:triage and had to be hand-stripped.
+            if (existing.some(l => l.startsWith('type:'))) {
+              console.log(`#${issue.number} already has a type label (${existing.filter(l => l.startsWith('type:')).join(', ')}); skipping auto-triage.`);
+              return;
             }
 
+            const title = (issue.title || '').toLowerCase();
+            const body = (issue.body || '').toLowerCase();
+            const labels = [];
+
+            // Type detection is TITLE-anchored on the repo's conventional-commit style
+            // (feat/fix/docs/chore(scope): …, or an "epic:" prefix) — never a body scan,
+            // so prose containing "issue"/"fix"/"error" can't mislabel a feature or epic.
+            const type =
+              /^\s*epic\b|\bepic:/.test(title)                              ? 'type:epic' :
+              /^\s*(feat|feature)\b|\bfeat\(/.test(title)                   ? 'type:feature' :
+              /^\s*(fix|bug)\b|\bfix\(/.test(title)                         ? 'type:bug' :
+              /^\s*docs?\b|\bdocs\(/.test(title)                            ? 'type:docs' :
+              /^\s*(chore|refactor|test|ci|build|perf)\b/.test(title)       ? 'type:chore' :
+              /\?\s*$|^\s*(how|what|why|question)\b/.test(title)            ? 'type:question' :
+              null;
+            if (type) {
+              labels.push(type);
+            } else {
+              // No author label and no recognizable title prefix → genuinely needs a human
+              // look. Mark for triage rather than guessing (which is how type:bug spread).
+              labels.push('status:triage');
+            }
+
+            // Scope detection (additive; word-boundaried so "ci"/"cd" don't match inside words).
+            const text = `${title} ${body}`;
+            if (/workflow|ideate|plan|review|synthesize/.test(text)) labels.push('scope:workflow');
+            if (/renovate|\bci\b|\bcd\b|template|terraform|azd/.test(text)) labels.push('scope:templates');
+            if (/\btdd\b|\brule\b|standard|typescript|csharp/.test(text)) labels.push('scope:rules');
+
+            if (labels.length === 0) return;
             await github.rest.issues.addLabels({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issue.number,
-              labels: labels
+              labels: [...new Set(labels)]
             });
 
   # ============================================================
