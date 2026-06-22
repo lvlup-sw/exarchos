@@ -92,7 +92,7 @@ At the **brief phase**, *before* committing to an approach, load the invariants 
 **Overhaul Track:**
 - Brief (detailed goals and approach)
 - Plan (extract tasks via `/exarchos:plan`)
-- Delegate (TDD in worktrees via `/exarchos:delegate`)
+- Delegate (tier-scaled verification in worktrees via `/exarchos:delegate`)
 - Review (quality review via `/exarchos:review`)
 - Update docs
 - Synthesize (PR via `/exarchos:synthesize`)

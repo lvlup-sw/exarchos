@@ -1,5 +1,5 @@
 ---
-description: Create TDD implementation plan from design document
+description: Create a verification-laddered implementation plan from a design document
 ---
 
 # /plan

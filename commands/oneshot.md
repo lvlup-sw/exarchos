@@ -1,5 +1,5 @@
 ---
-description: Run a lightweight oneshot workflow — plan + TDD implement + optional PR
+description: Run a lightweight oneshot workflow — plan + laddered (tier-scaled) implement + optional PR
 ---
 
 # Oneshot
@@ -25,12 +25,13 @@ For anything cross-cutting, multi-file, or needing two-stage review, use
 
 Follow the oneshot workflow skill: `@skills/oneshot-workflow/SKILL.md`
 
-## Iron Law
+## Verification Ladder
 
-> **NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST**
-
-TDD applies to oneshot workflows. There is no exemption for "small" changes —
-the test is what makes the change auditable.
+Oneshot honors the verification ladder (#1587): verification depth scales with the
+change's `riskTier`, judged test-after by outcome — not a blanket failing-test-first rule.
+A genuinely low-tier change (docs/config/rename) leans on static analysis; medium/high
+changes carry scoped tests + the `check_test_adequacy` kill-probe (high adds the
+integration suite). Oneshot's severity is `advisory`, so the gates steer rather than block.
 
 ## Workflow position
 
@@ -80,15 +81,15 @@ phase changes go through the HSM-guarded `transition` action):
 
    - Set `target: "implementing"`
 
-### Step 3: Implementing — in-session TDD loop
+### Step 3: Implementing — in-session loop (verification scales by tier)
 
-For each behavior in the plan:
+For each behavior in the plan, work at its `riskTier`:
 
-1. **[RED]** Write a failing test. Run it. Confirm it fails for the right reason.
-2. **[GREEN]** Write minimum code to pass. Run the test. Confirm green.
-3. **[REFACTOR]** Clean up while keeping tests green.
+1. Implement the behavior.
+2. Add the tests the tier requires (medium/high — test-after is fine), named `Method_Scenario_Outcome`; the `check_test_adequacy` kill-probe rejects vacuous tests. Low-tier behavior leans on static analysis.
+3. Refactor while the tests stay green.
 
-Commit each cycle as a single atomic commit. No subagent dispatch — the main
+Commit each behavior as a single atomic commit. No subagent dispatch — the main
 agent does the work directly.
 
 ### Step 4: Mid-implementing opt-in (optional)
