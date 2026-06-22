@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os';
 import {
   handleViewShepherdStatus,
   handleViewConvergence,
-  handleViewIdeateReadiness,
   handleViewProvenance,
   resetMaterializerCache,
 } from '../../views/tools.js';
@@ -78,25 +77,6 @@ describe('views/tools.ts composite error paths', () => {
       expect(result.error).toBeDefined();
       expect(result.error!.code).toBe('VIEW_ERROR');
       expect(result.error!.message).toBe('connection lost');
-    });
-  });
-
-  // ─── T-12.3: IdeateReadiness — queryDeltaEvents throws non-Error ─────────
-
-  describe('HandleViewIdeateReadiness_QueryThrowsNonError_ReturnsViewError', () => {
-    it('should return VIEW_ERROR when queryDeltaEvents throws a non-Error', async () => {
-      const storeModule = await import('../../event-store/store.js');
-      vi.spyOn(storeModule.EventStore.prototype, 'query').mockImplementation(() => {
-        // eslint-disable-next-line no-throw-literal
-        throw 42; // non-Error, non-string throwable
-      });
-
-      const result = await handleViewIdeateReadiness({}, tempDir, store);
-
-      expect(result.success).toBe(false);
-      expect(result.error).toBeDefined();
-      expect(result.error!.code).toBe('VIEW_ERROR');
-      expect(result.error!.message).toBe('42');
     });
   });
 

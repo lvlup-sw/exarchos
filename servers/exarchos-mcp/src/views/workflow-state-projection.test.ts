@@ -44,7 +44,7 @@ describe('WorkflowStateProjection init', () => {
       expect(state.version).toBe('1.1');
       expect(state.featureId).toBe('');
       expect(state.workflowType).toBe('feature');
-      expect(state.phase).toBe('ideate');
+      expect(state.phase).toBe('plan');
       expect(state.createdAt).toBe('');
       expect(state.updatedAt).toBe('');
       expect(state.artifacts).toEqual({ design: null, plan: null, pr: null });

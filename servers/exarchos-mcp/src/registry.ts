@@ -2990,21 +2990,6 @@ const viewActions: readonly ToolAction[] = [
     annotations: READ_ONLY_LOCAL,
   },
   {
-    name: 'ideate_readiness',
-    description: 'Check ideate-phase readiness: design artifact presence and the gates that gate transition to plan',
-    schema: z.object({
-      workflowId: z.string().optional(),
-      // Underlying handler (`handleViewIdeateReadiness`) queries the event
-      // store via `queryDeltaEvents`; correlation-tuple filter surface
-      // mirrors the Wave 5 (#1437) contract.
-      ...CORRELATION_TUPLE_FILTER_SHAPE,
-    }),
-    phases: ALL_PHASES,
-    roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
-    annotations: READ_ONLY_LOCAL,
-  },
-  {
     name: 'synthesis_readiness',
     description: 'Check synthesis readiness: task completion, reviews, tests, and typecheck status',
     schema: z.object({
@@ -3124,7 +3109,7 @@ export const TOOL_REGISTRY: readonly CompositeTool[] = [
     description: 'CQRS materialized views — pipeline, tasks, workflow status, stack, and telemetry',
     actions: viewActions,
     cli: { alias: 'vw' },
-    slimDescription: 'CQRS materialized views for pipeline, tasks, and telemetry. Use describe(actions) for schemas.\n\nActions: pipeline, tasks, workflow_status, stack_status, stack_place, telemetry, team_performance, delegation_timeline, code_quality, eval_results, quality_correlation, quality_attribution, quality_hints, delegation_readiness, synthesis_readiness, shepherd_status, convergence, session_provenance, provenance, ideate_readiness, invariants_effective',
+    slimDescription: 'CQRS materialized views for pipeline, tasks, and telemetry. Use describe(actions) for schemas.\n\nActions: pipeline, tasks, workflow_status, stack_status, stack_place, telemetry, team_performance, delegation_timeline, code_quality, eval_results, quality_correlation, quality_attribution, quality_hints, delegation_readiness, synthesis_readiness, shepherd_status, convergence, session_provenance, provenance, invariants_effective',
   },
   {
     name: 'exarchos_sync',

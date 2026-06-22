@@ -1105,12 +1105,12 @@ describe('TOOL_REGISTRY', () => {
       expect(result.success).toBe(true);
     });
 
-    // T1 (#1446 residue) — register the three view actions that are
+    // T1 (#1446 residue) — register the view actions that are
     // dispatched through `views/composite.ts` today but were never added to
     // `TOOL_REGISTRY.viewActions`. Without the registry entry, per-action
     // Zod validation at `core/dispatch.ts:801` is silently skipped and
     // `exarchos_view describe` under-lists the dispatched surface.
-    it('TOOL_REGISTRY_viewActions_IncludesSessionProvenanceProvenanceAndIdeateReadiness', () => {
+    it('TOOL_REGISTRY_viewActions_IncludesSessionProvenanceAndProvenance', () => {
       const viewComposite = findComposite('exarchos_view');
       expect(viewComposite).toBeDefined();
 
@@ -1162,30 +1162,6 @@ describe('TOOL_REGISTRY', () => {
       expect(provenanceShape).toHaveProperty('causationId');
       expect(
         provenance!.schema.safeParse({ workflowId: 'wf-1' }).success,
-      ).toBe(true);
-
-      // ── ideate_readiness ──────────────────────────────────────────────
-      // Handler: `handleViewIdeateReadiness(args, stateDir, eventStore)` —
-      // queries the event store; same DR-5 correlation-tuple contract.
-      const ideateReadiness = viewComposite!.actions.find(
-        (a) => a.name === 'ideate_readiness',
-      );
-      expect(
-        ideateReadiness,
-        'ideate_readiness must be registered',
-      ).toBeDefined();
-      expect(
-        ideateReadiness!.schema instanceof z.ZodObject,
-        'ideate_readiness.schema must be a ZodObject',
-      ).toBe(true);
-      const ideateReadinessShape = (
-        ideateReadiness!.schema as z.ZodObject
-      ).shape;
-      expect(ideateReadinessShape).toHaveProperty('operationId');
-      expect(ideateReadinessShape).toHaveProperty('correlationId');
-      expect(ideateReadinessShape).toHaveProperty('causationId');
-      expect(
-        ideateReadiness!.schema.safeParse({ workflowId: 'wf-1' }).success,
       ).toBe(true);
     });
   });

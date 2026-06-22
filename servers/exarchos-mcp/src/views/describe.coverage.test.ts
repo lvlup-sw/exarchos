@@ -86,7 +86,6 @@ describe('ExarchosViewDescribe — registry-vs-dispatch parity (T1, #1446 residu
     expect(dispatched.length).toBeGreaterThan(0);
     expect(dispatched).toContain('session_provenance');
     expect(dispatched).toContain('provenance');
-    expect(dispatched).toContain('ideate_readiness');
 
     const ctx: DispatchContext = {
       stateDir: tempStateDir,

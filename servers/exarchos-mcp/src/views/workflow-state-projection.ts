@@ -151,7 +151,7 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
     version: '1.1',
     featureId: '',
     workflowType: 'feature',
-    phase: 'ideate',
+    phase: 'plan',
     createdAt: '',
     updatedAt: '',
     artifacts: { design: null, plan: null, pr: null },

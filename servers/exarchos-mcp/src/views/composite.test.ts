@@ -19,7 +19,6 @@ vi.mock('./tools.js', () => ({
   handleViewSynthesisReadiness: vi.fn(),
   handleViewShepherdStatus: vi.fn(),
   handleViewProvenance: vi.fn(),
-  handleViewIdeateReadiness: vi.fn(),
 }));
 
 // Mock the stack tools module
@@ -50,7 +49,6 @@ import {
   handleViewSynthesisReadiness,
   handleViewShepherdStatus,
   handleViewProvenance,
-  handleViewIdeateReadiness,
 } from './tools.js';
 import { handleStackStatus, handleStackPlace } from '../stack/tools.js';
 import { handleViewTelemetry } from '../telemetry/tools.js';
@@ -697,39 +695,6 @@ describe('handleView', () => {
     });
   });
 
-  describe('ideate_readiness', () => {
-    it('handleView_IdeateReadiness_DelegatesToHandler', async () => {
-      // Arrange
-      const expected = {
-        success: true,
-        data: {
-          ready: false,
-          designArtifactExists: false,
-          gateResult: { checked: false, passed: false, advisory: false, findings: [] },
-        },
-      };
-      vi.mocked(handleViewIdeateReadiness).mockResolvedValue(expected);
-      const args = { action: 'ideate_readiness', workflowId: 'test-id' };
-
-      // Act
-      const result = await handleView(args, CTX);
-
-      // Assert — T039: envelope wrapping
-      expect(result.success).toBe(true);
-      expect(result.data).toEqual({
-        ready: false,
-        designArtifactExists: false,
-        gateResult: { checked: false, passed: false, advisory: false, findings: [] },
-      });
-      expect((result as Record<string, unknown>).next_actions).toEqual([]);
-      expect(handleViewIdeateReadiness).toHaveBeenCalledWith(
-        { workflowId: 'test-id' },
-        STATE_DIR,
-        CTX.eventStore,
-      );
-    });
-  });
-
   describe('unknown action', () => {
     it('HandleView_UnknownAction_IncludesAllViewActions', async () => {
       // Arrange
@@ -751,7 +716,6 @@ describe('handleView', () => {
       expect(validTargets).toContain('synthesis_readiness');
       expect(validTargets).toContain('shepherd_status');
       expect(validTargets).toContain('provenance');
-      expect(validTargets).toContain('ideate_readiness');
     });
 
     it('should return error for unknown action', async () => {

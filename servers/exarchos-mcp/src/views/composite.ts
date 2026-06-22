@@ -24,7 +24,6 @@ import {
   handleViewSynthesisReadiness,
   handleViewShepherdStatus,
   handleViewProvenance,
-  handleViewIdeateReadiness,
   handleViewConvergence,
 } from './tools.js';
 import { handleViewInvariantsEffective } from './effective-catalog.js';
@@ -337,16 +336,6 @@ export async function handleView(
         startedAt,
       );
 
-    case 'ideate_readiness':
-      return envelopeWrap(
-        await handleViewIdeateReadiness(
-          rest as { workflowId?: string },
-          stateDir,
-          eventStore,
-        ),
-        startedAt,
-      );
-
     case 'convergence':
       return envelopeWrap(
         await handleViewConvergence(
@@ -405,7 +394,6 @@ export async function handleView(
             'synthesis_readiness',
             'shepherd_status',
             'provenance',
-            'ideate_readiness',
             'convergence',
             'invariants_effective',
             'describe',
