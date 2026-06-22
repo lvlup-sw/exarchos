@@ -19,7 +19,9 @@ import { resolveMaxRecords } from './snapshot-retention.js';
 
 /** A single pre-allocated event row ready for INSERT. */
 export interface AtomicAppendEvent {
-  /** Pre-allocated by the appender from `readSequenceHighWaterMark + i + 1`. */
+  /** Assigned by the appender's `finalize(base)` as `base + i + 1`, where
+   *  `base` is the stream-version gate's return value (allocated INSIDE the
+   *  write transaction — not a pre-transaction read). */
   sequence: number;
   type: string;
   timestamp: string;
@@ -247,6 +249,33 @@ export class SqliteBusyExhaustedError extends Error {
     public override readonly cause: Error,
   ) {
     super(`SQLITE_BUSY persisted after ${attempts} attempts: ${cause.message}`);
+  }
+}
+
+/**
+ * Thrown by the in-transaction stream-version gate (`allocateSequence`)
+ * when the caller's `expectedSequence` does not match the stream's durable
+ * tail. This is the convergent event-store OCC primitive (Marten `mt_streams`,
+ * SQLStreamStore `Streams`, EventStoreDB stream metadata, EventFabric
+ * `stream_versions`): the version is assigned **and** checked atomically
+ * inside `BEGIN IMMEDIATE`, so the conflict signal carries the real
+ * `expected`/`actual` directly — no post-hoc PRIMARY KEY violation, no
+ * regex translation of a constraint-error string.
+ *
+ * Thrown inside the transaction body so the wrapping `db.transaction`
+ * rolls the whole append back (the gate bump, the events, the claim) as a
+ * unit. `atomicAppend` lets it propagate past the SQLITE_BUSY retry loop
+ * (it is not a busy error) and the caller (`AtomicAppender`) maps it to the
+ * typed `sequence-conflict` AppendResult.
+ */
+export class SequenceGateConflictError extends Error {
+  override readonly name = 'SequenceGateConflictError';
+  readonly code = 'SEQUENCE_GATE_CONFLICT';
+  constructor(
+    public readonly expected: number,
+    public readonly actual: number,
+  ) {
+    super(`stream-version gate: expected ${expected}, actual ${actual}`);
   }
 }
 
@@ -1543,71 +1572,123 @@ export class SqliteBackend implements StorageBackend {
   }
 
   /**
+   * Stream-version gate (allocate + OCC) — runs INSIDE the caller's
+   * `BEGIN IMMEDIATE` transaction. Reads the durable tail, optionally
+   * checks it against `expected`, and advances it by `n` in one step,
+   * returning the `base` from which the caller assigns the N event
+   * sequences (`base + 1 .. base + n`).
+   *
+   * Correctness rests on the write lock: `atomicAppend` opens the txn with
+   * `BEGIN IMMEDIATE`, so by the time this runs the connection holds the
+   * single SQLite write lock. No other connection can commit until we do,
+   * which makes the read-then-advance race-free WITHOUT a TOCTOU window —
+   * the convergent event-store primitive (assign-and-check the version
+   * atomically in the write txn) in its SQLite-native form. The previous
+   * design read the high-water mark OUTSIDE the txn and leaned on the
+   * `events` PRIMARY KEY to reject the stale insert after the fact; the
+   * gate eliminates that race instead of catching it.
+   *
+   * On OCC mismatch throws {@link SequenceGateConflictError} so the whole
+   * append (gate bump + events + claim) rolls back as a unit; the error
+   * carries the real `expected`/`actual` directly.
+   */
+  private allocateSequence(
+    streamId: string,
+    n: number,
+    expected?: number,
+  ): number {
+    // Race-free under the held write lock (BEGIN IMMEDIATE). 0 when the
+    // stream has no `sequences` row yet (empty stream; sequences start at 1).
+    const current = this.readSequenceHighWaterMark(streamId);
+    if (expected !== undefined && current !== expected) {
+      throw new SequenceGateConflictError(expected, current);
+    }
+    // The gate IS the sequence update — upsert the advanced tail. No
+    // separate post-insert `upsertSequence` is needed (or correct): a
+    // second write would double-count.
+    this.stmts.upsertSequence.run(streamId, current + n);
+    return current;
+  }
+
+  /**
    * Atomic append: a single `BEGIN IMMEDIATE` transaction wrapping the
-   * idempotency-key claim, the per-stream sequence upsert, the event
-   * INSERTs, and (when the caller passes pre-built outbox rows) the
-   * outbox INSERTs. Commits as a unit; rolls back on any error.
+   * stream-version gate (allocate + OCC), the idempotency-key claim, and
+   * the event INSERTs. Commits as a unit; rolls back on any error.
+   *
+   * The caller passes `n` (event count), an optional `expectedSequence`
+   * (OCC), and a pure `finalize(base)` callback that builds the wire events
+   * (with `sequence = base + i + 1`) and the optional claim from the
+   * gate-assigned base. `finalize` runs INSIDE the txn so the persisted
+   * rows and the claim's `events_json` derive from the authoritative
+   * numbers; it must be cheap and side-effect-free (UUID/timestamp/JSON
+   * only — no I/O) so the write lock is held for microseconds.
    *
    * Throws on:
-   *   - SQLITE_CONSTRAINT (idempotency collision or sequence collision)
+   *   - {@link SequenceGateConflictError} (OCC mismatch — `expected`/`actual`)
+   *   - SQLITE_CONSTRAINT on `idempotency_claims` (double-claim race)
+   *   - SQLITE_CONSTRAINT on `events` (genuine integrity anomaly — must not
+   *     happen under the gate; the caller surfaces it as `io-error`)
    *   - Any underlying SQLite error (BUSY, IO, etc.)
    *
-   * The caller (AtomicAppender) translates thrown errors into the typed
-   * `AppendResult` failure shape. Returning instead of throwing would
-   * require leaking SQLite-specific reason codes through the backend
-   * boundary, which inverts the design's storage-handle abstraction.
-   *
    * `bun:sqlite`'s `db.transaction(fn)` wrapper opens a `BEGIN` (deferred)
-   * by default; the design (DR-1) calls for `BEGIN IMMEDIATE` so the
-   * write lock is acquired up-front — preventing two transactions from
-   * running their reads in parallel and racing to write. We pass
-   * `'immediate'` to honour that.
+   * by default; we invoke the `'immediate'` variant so the write lock is
+   * acquired up-front — the precondition the gate relies on.
    */
   async atomicAppend(args: {
     streamId: string;
     idempotencyKey: string | null;
-    events: AtomicAppendEvent[];
-    claim?: {
-      eventIds: string[];
-      sequences: number[];
-      timestamps: string[];
-      events_json: string;
+    n: number;
+    expectedSequence?: number;
+    finalize: (base: number) => {
+      events: AtomicAppendEvent[];
+      claim?: {
+        eventIds: string[];
+        sequences: number[];
+        timestamps: string[];
+        events_json: string;
+      };
     };
-  }): Promise<void> {
-    // Precondition: at least one event per call. The function indexes
-    // `args.events[args.events.length - 1].sequence` for the high-water
-    // mark upsert; an empty array there reads `undefined.sequence` and
-    // throws a cryptic `TypeError`. Surface a usable validation error
-    // instead. (CodeRabbit #10 / PR #1323, T70.)
-    if (args.events.length === 0) {
-      throw new Error('atomicAppend requires non-empty events array');
+  }): Promise<{ base: number; sequences: number[] }> {
+    if (args.n <= 0) {
+      throw new Error('atomicAppend requires n >= 1');
     }
 
+    let assignedBase = 0;
+    let assignedSequences: number[] = [];
+
     const txn = this.db.transaction(() => {
+      // ─── Stream-version gate: allocate + OCC, inside the write lock ───
+      const base = this.allocateSequence(
+        args.streamId,
+        args.n,
+        args.expectedSequence,
+      );
+      // Build the authoritative rows + claim from the gate-assigned base.
+      const { events, claim } = args.finalize(base);
+
       // Idempotency claim (single row per (streamId, key)) — strict INSERT
-      // so a collision aborts the txn, ROLLBACK is automatic via the
-      // wrapper, and no half-written event/claim survives.
-      if (args.idempotencyKey !== null && args.claim) {
+      // so a double-claim race aborts the txn; ROLLBACK is automatic via
+      // the wrapper, undoing the gate bump and any inserted events.
+      if (args.idempotencyKey !== null && claim) {
         this.stmts.insertIdempotencyClaim.run(
           args.streamId,
           args.idempotencyKey,
-          JSON.stringify(args.claim.eventIds),
-          JSON.stringify(args.claim.sequences),
-          JSON.stringify(args.claim.timestamps),
-          args.claim.events_json,
+          JSON.stringify(claim.eventIds),
+          JSON.stringify(claim.sequences),
+          JSON.stringify(claim.timestamps),
+          claim.events_json,
           new Date().toISOString(),
         );
       }
 
-      // Event INSERTs — strict so (streamId, sequence) collisions raise.
-      // #1437 — bind the V6 indexed correlation columns alongside the
-      // existing six. Values come off the wire-shape event populated by
-      // `AtomicAppender.appendEvents` from the stamped
-      // `PublicPersistedEvent` (which `stampWithDispatchContext` in
-      // store.ts already filled from the active `DispatchContext`). The
-      // `?? null` fallback covers events that pre-date dispatch context
-      // (raw `appendEvent` test fixtures and migration paths).
-      for (const evt of args.events) {
+      // Event INSERTs — strict so a (streamId, sequence) collision raises.
+      // Under the gate such a collision is a genuine integrity anomaly
+      // (the gate guarantees a free slot), surfaced as `io-error` by the
+      // caller rather than re-mapped to a conflict. #1437 — bind the V6
+      // indexed correlation columns; `?? null` covers pre-dispatch-context
+      // callers (raw fixtures, migration paths).
+      const seqs: number[] = [];
+      for (const evt of events) {
         const data = evt.data !== undefined ? JSON.stringify(evt.data) : null;
         this.stmts.insertEventStrict.run(
           args.streamId,
@@ -1620,11 +1701,11 @@ export class SqliteBackend implements StorageBackend {
           evt.correlationId ?? null,
           evt.causationId ?? null,
         );
+        seqs.push(evt.sequence);
       }
 
-      // Sequence high-water mark upsert — only the final sequence matters.
-      const finalSeq = args.events[args.events.length - 1].sequence;
-      this.stmts.upsertSequence.run(args.streamId, finalSeq);
+      assignedBase = base;
+      assignedSequences = seqs;
     });
 
     // `bun:sqlite` exposes `transaction(fn).immediate(args)` to open
@@ -1657,7 +1738,7 @@ export class SqliteBackend implements StorageBackend {
     for (let attempt = 1; attempt <= SQLITE_BUSY_RETRY_POLICY.maxAttempts; attempt++) {
       try {
         runOnce();
-        return;
+        return { base: assignedBase, sequences: assignedSequences };
       } catch (err) {
         if (!isSqliteBusy(err)) {
           throw err;

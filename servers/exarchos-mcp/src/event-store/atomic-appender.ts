@@ -7,6 +7,7 @@ import { validateStreamId } from '../shared/validation.js';
 import {
   SqliteBackend,
   SqliteBusyExhaustedError,
+  SequenceGateConflictError,
   type AtomicAppendEvent as SqliteAtomicAppendEvent,
 } from '../storage/sqlite-backend.js';
 import { ConcurrencyError } from './concurrency-error.js';
@@ -910,65 +911,57 @@ export class AtomicAppender {
       }
     }
 
-    // ─── Phase 4: optimistic-concurrency check ───────────────────────────
-    // Read the current high-water mark from the sequences table. Mismatch
-    // returns the typed `sequence-conflict` shape; the caller translates
-    // to its own error type without reaching into substrate internals.
-    let baseSeq: number;
-    try {
-      baseSeq = backend.readSequenceHighWaterMark(streamId);
-    } catch (err) {
-      return { ok: false, reason: 'io-error', cause: toError(err) };
-    }
-    if (options?.expectedSequence !== undefined) {
-      if (baseSeq !== options.expectedSequence) {
-        return {
-          ok: false,
-          reason: 'sequence-conflict',
-          expected: options.expectedSequence,
-          actual: baseSeq,
-        };
-      }
-    }
-
-    // ─── Phase 5: build PersistedEvent rows ──────────────────────────────
-    const persisted: PersistedEvent[] = events.map((evt, i) => {
-      const event: PersistedEvent = {
-        ...evt,
-        streamId,
-        sequence: baseSeq + i + 1,
-        timestamp: evt.timestamp ?? new Date().toISOString(),
-        type: evt.type,
-        eventId: randomUUID(),
+    // ─── Phase 4: stream-version gate + commit, all inside one txn ───────
+    // Sequence allocation and the OCC check now live INSIDE the substrate's
+    // BEGIN IMMEDIATE (see SqliteBackend.allocateSequence). We no longer
+    // read the high-water mark out here and pre-compute `baseSeq + i` — that
+    // pre-transaction read was the TOCTOU window the gate eliminates.
+    //
+    // `finalize(base)` runs inside the txn and builds the authoritative
+    // PersistedEvent rows (sequence = base + i + 1), the wire events, and
+    // the idempotency claim from the gate-assigned base. It captures
+    // `persisted` in this closure so the AppendResult can be built after the
+    // commit. It is cheap and side-effect-free (UUID/timestamp/JSON only).
+    let persisted: PersistedEvent[] = [];
+    const finalize = (base: number): {
+      events: SqliteAtomicAppendEvent[];
+      claim?: {
+        eventIds: string[];
+        sequences: number[];
+        timestamps: string[];
+        events_json: string;
       };
-      if (keyed !== null) {
-        event.idempotencyKey = keyed.idempotencyKey;
-      }
-      return event;
-    });
+    } => {
+      persisted = events.map((evt, i) => {
+        const event: PersistedEvent = {
+          ...evt,
+          streamId,
+          sequence: base + i + 1,
+          timestamp: evt.timestamp ?? new Date().toISOString(),
+          type: evt.type,
+          eventId: randomUUID(),
+        };
+        if (keyed !== null) {
+          event.idempotencyKey = keyed.idempotencyKey;
+        }
+        return event;
+      });
 
-    // #1437 — surface the three dispatch-context correlation IDs onto
-    // the wire shape so the SQLite `insertEventStrict` bind populates
-    // the V6 indexed `operation_id`/`correlation_id`/`causation_id`
-    // columns. The values are already on each `PersistedEvent` because
-    // `EventStore.append*` invoked `stampWithDispatchContext` before
-    // delegating in (store.ts:263 / 293 / 398). Forwarding them here
-    // means the column source-of-data is the same stamped payload —
-    // INV-1 holds (payload JSON remains authoritative; columns are the
-    // indexed filter handle).
-    const wireEvents: SqliteAtomicAppendEvent[] = persisted.map(e => ({
-      sequence: e.sequence,
-      type: e.type,
-      timestamp: e.timestamp,
-      data: e.data,
-      payload: JSON.stringify(e),
-      ...(typeof e.operationId === 'string' ? { operationId: e.operationId } : {}),
-      ...(typeof e.correlationId === 'string' ? { correlationId: e.correlationId } : {}),
-      ...(typeof e.causationId === 'string' ? { causationId: e.causationId } : {}),
-    }));
+      // #1437 — surface the three dispatch-context correlation IDs onto the
+      // wire shape so `insertEventStrict` populates the V6 indexed columns.
+      // INV-1 holds: payload JSON stays authoritative; columns are the
+      // indexed filter handle.
+      const wireEvents: SqliteAtomicAppendEvent[] = persisted.map(e => ({
+        sequence: e.sequence,
+        type: e.type,
+        timestamp: e.timestamp,
+        data: e.data,
+        payload: JSON.stringify(e),
+        ...(typeof e.operationId === 'string' ? { operationId: e.operationId } : {}),
+        ...(typeof e.correlationId === 'string' ? { correlationId: e.correlationId } : {}),
+        ...(typeof e.causationId === 'string' ? { causationId: e.causationId } : {}),
+      }));
 
-    // ─── Phase 6: BEGIN IMMEDIATE (idempotency claim + events + sequence) ─
-    try {
       const claim =
         keyed !== null
           ? {
@@ -978,38 +971,45 @@ export class AtomicAppender {
               events_json: JSON.stringify(persisted),
             }
           : undefined;
+
+      return { events: wireEvents, ...(claim ? { claim } : {}) };
+    };
+
+    try {
       await backend.atomicAppend({
         streamId,
         idempotencyKey: keyed?.idempotencyKey ?? null,
-        events: wireEvents,
-        ...(claim ? { claim } : {}),
+        n: events.length,
+        ...(options?.expectedSequence !== undefined
+          ? { expectedSequence: options.expectedSequence }
+          : {}),
+        finalize,
       });
     } catch (err) {
-      // Translate SQLite errors into the typed AppendResult shape.
-      // SQLITE_CONSTRAINT on idempotency_claims = double-claim race
-      // (two appenders with the same key — the loser sees this); the
-      // first-tier Promise mutex normally prevents this within a process,
-      // but cross-process or driver-level races can still surface it.
-      // SqliteBusyExhaustedError is the typed marker raised by the
-      // substrate's bounded SQLITE_BUSY retry loop (T09, DR-12) —
-      // translate it to the public `storage_busy` reason without
-      // re-inspecting the original SQLite error code.
+      // SqliteBusyExhaustedError — the substrate's bounded SQLITE_BUSY retry
+      // budget expired; surface the transient `storage_busy` reason.
       if (err instanceof SqliteBusyExhaustedError) {
         return { ok: false, reason: 'storage_busy', cause: err };
       }
+      // SequenceGateConflictError — a genuine OCC mismatch from the
+      // in-transaction gate. It carries the real expected/actual directly,
+      // so there is no re-read and no regex translation.
+      if (err instanceof SequenceGateConflictError) {
+        return {
+          ok: false,
+          reason: 'sequence-conflict',
+          expected: err.expected,
+          actual: err.actual,
+        };
+      }
       const e = toError(err);
-      // T64: pre-preflight values (`baseSeq`, our just-built `persisted`)
-      // are STALE if a concurrent writer slipped in between the
-      // preflight read and `atomicAppend`. Translation must re-read
-      // durable state from the backend so the loser's AppendResult
-      // reflects the canonical post-conflict shape.
+      // Any other thrown error (double-claim race, or a genuine `events`
+      // PRIMARY KEY anomaly) is routed through the backstop translator.
       return this.translateAtomicAppendError({
         error: e,
         backend,
         streamId,
         keyed,
-        options,
-        preflightBaseSeq: baseSeq,
       });
     }
 
@@ -1023,49 +1023,36 @@ export class AtomicAppender {
   }
 
   /**
-   * Translate an `atomicAppend` failure into the typed `AppendResult`
-   * shape using FRESH durable reads (T64).
+   * Backstop translator for an `atomicAppend` throw that is NOT a
+   * `SequenceGateConflictError` (handled directly by the caller) and NOT a
+   * `SqliteBusyExhaustedError`. Two cases remain:
    *
-   * The legacy translation reused the pre-preflight values (the
-   * just-allocated `persisted` rows for the idempotency-claim branch
-   * and `baseSeq` for the sequence-conflict branch). Both are stale
-   * once the conflict has fired — by definition, another writer
-   * advanced the durable state between the preflight read and
-   * `atomicAppend`. Returning stale values handed callers the wrong
-   * canonical shape:
+   *   - **Double-claim race** (`UNIQUE constraint failed: idempotency_claims`):
+   *     two appenders raced the same idempotency key. The winner committed a
+   *     canonical claim row; re-read it and surface those events as a
+   *     cache-hit so the loser returns the actually-persisted shape.
    *
-   *   - `idempotency-claimed` lost the WINNER's persisted events. The
-   *     contract is to surface the events ACTUALLY persisted under
-   *     the key, so the caller returns the canonical shape to its own
-   *     caller without reconstructing from the (possibly different)
-   *     current request.
+   *   - **`events` PRIMARY KEY violation** (`UNIQUE constraint failed: events`):
+   *     under the stream-version gate this is a genuine integrity ANOMALY,
+   *     not a concurrency conflict — the gate guarantees a free slot, so a
+   *     collision means something else corrupted the sequence. Surface it as
+   *     `io-error` with the cause (DR-6) rather than re-mapping it to a
+   *     `sequence-conflict` (which the gate now owns) or a cache-hit.
    *
-   *   - `sequence-conflict` reported `actual: baseSeq`. The actual
-   *     value is now the WINNER's high-water mark, so retrying against
-   *     `baseSeq` would just re-trigger the same conflict.
-   *
-   * Re-reads `lookupIdempotencyClaim` and (as a fallback) the
-   * sequence high-water mark to derive the canonical post-conflict
-   * shape. If the re-read itself fails (corrupt DB, lost connection),
-   * downgrades gracefully to the original error so the caller still
-   * sees a typed failure rather than an opaque exception.
+   * If the claim re-read itself fails, downgrade gracefully to the bare
+   * error so the caller still sees a typed failure.
    */
   private translateAtomicAppendError(args: {
     error: Error;
     backend: SqliteBackend;
     streamId: string;
     keyed: { idempotencyKey: string } | null;
-    options: AppendOptions | undefined;
-    preflightBaseSeq: number;
   }): AppendResult {
-    const { error, backend, streamId, keyed, options, preflightBaseSeq } = args;
+    const { error, backend, streamId, keyed } = args;
     const msg = error.message;
     const isIdempotencyConflict =
       /UNIQUE constraint failed: idempotency_claims/.test(msg) ||
       /idempotency_claims.streamId, idempotency_claims.idempotencyKey/.test(msg);
-    const isSequenceConflict =
-      /UNIQUE constraint failed: events/.test(msg) ||
-      /events.streamId, events.sequence/.test(msg);
 
     if (isIdempotencyConflict && keyed !== null) {
       // Re-read the now-committed claim. The race winner inserted a
@@ -1095,26 +1082,10 @@ export class AtomicAppender {
       return { ok: false, reason: 'idempotency-claimed', cause: error };
     }
 
-    if (isSequenceConflict) {
-      // Re-read the high-water mark so the caller's retry computes
-      // against the WINNER's advanced sequence, not our pre-preflight
-      // value. On re-read failure, fall back to the preflight value
-      // (better than nothing — the caller still sees `sequence-conflict`
-      // and can retry).
-      let actual = preflightBaseSeq;
-      try {
-        actual = backend.readSequenceHighWaterMark(streamId);
-      } catch {
-        // Keep `actual = preflightBaseSeq`.
-      }
-      return {
-        ok: false,
-        reason: 'sequence-conflict',
-        expected: options?.expectedSequence,
-        actual,
-      };
-    }
-
+    // Genuine `events` PK anomaly (or any other unrecognized SQLite error):
+    // surface as io-error. The gate prevents concurrency-induced sequence
+    // collisions, so reaching here on an events-PK violation is a bug or
+    // external corruption, not a retryable conflict.
     return { ok: false, reason: 'io-error', cause: error };
   }
 

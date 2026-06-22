@@ -529,20 +529,19 @@ describe('SqliteBackend.atomicAppend empty-events guard (T70)', () => {
     backend.close();
   });
 
-  it('throws a structured validation error (not TypeError) when events array is empty', async () => {
-    // Empty-array call previously threw `TypeError: Cannot read properties
-    // of undefined (reading 'sequence')` because the function indexes
-    // args.events[args.events.length - 1] without a non-empty check.
-    // The contract is "at least one event per atomicAppend call"; violating
-    // it should surface as a clear validation error, not a cryptic
-    // undefined-property TypeError.
+  it('throws a structured validation error (not TypeError) when n is zero', async () => {
+    // The contract is "at least one event per atomicAppend call" (n >= 1);
+    // violating it should surface as a clear validation error, not a cryptic
+    // undefined-property TypeError. The gate refactor moved event-count to
+    // the `n` parameter (sequences are assigned inside the txn by finalize).
     await expect(
       backend.atomicAppend({
         streamId: 'test-stream',
         idempotencyKey: null,
-        events: [],
+        n: 0,
+        finalize: () => ({ events: [] }),
       }),
-    ).rejects.toThrowError('atomicAppend requires non-empty events array');
+    ).rejects.toThrowError('atomicAppend requires n >= 1');
 
     // Also verify it's not a TypeError specifically — the cryptic shape
     // we're trying to eliminate.
@@ -550,7 +549,8 @@ describe('SqliteBackend.atomicAppend empty-events guard (T70)', () => {
       backend.atomicAppend({
         streamId: 'test-stream',
         idempotencyKey: null,
-        events: [],
+        n: 0,
+        finalize: () => ({ events: [] }),
       }),
     ).rejects.not.toThrow(TypeError);
   });
