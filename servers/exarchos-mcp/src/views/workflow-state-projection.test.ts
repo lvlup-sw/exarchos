@@ -1027,6 +1027,50 @@ describe('WorkflowStateProjection phase.entered / phase.exited', () => {
     expect(afterEntered.phaseObligation?.resolvedGates).toEqual([]);
     expect(afterEntered.phaseObligation?.posture).toBe('read-only');
   });
+
+  // ─── DR-3 (#1581 task 005): per-feature designDepth freeze round-trips ──────
+  it('DesignDepth_ProjectionRoundTrip_RecoversFrozenValue', () => {
+    const planEntered = {
+      phase: 'plan',
+      kind: 'PLAN',
+      resolver: 'plan-structure',
+      resolvedGates: [{ family: 'plan', gate: 'check_task_decomposition' }],
+      policySource: 'builtin',
+      mode: 'enforce',
+      posture: 'read-only',
+      designDepth: 'deep',
+    } as const;
+    const events: WorkflowEvent[] = [
+      makeEvent('workflow.started', { featureId: 'f1', workflowType: 'feature' }),
+      makeEvent('phase.entered', { ...planEntered }),
+    ];
+
+    // The frozen depth is folded onto the view and survives a clean replay.
+    expect(fold(events).designDepth).toBe('deep');
+    expect(fold(events).designDepth).toBe('deep');
+
+    // Sticky: a later non-PLAN phase.entered (no designDepth) must NOT clear it.
+    const afterNonPlan = workflowStateProjection.apply(
+      fold(events),
+      makeEvent('phase.entered', {
+        phase: 'implement',
+        kind: 'IMPLEMENT',
+        resolver: 'verification-ladder',
+        resolvedGates: [],
+        policySource: 'builtin',
+        mode: 'enforce',
+        posture: 'task-isolated',
+      }),
+    );
+    expect(afterNonPlan.designDepth).toBe('deep');
+
+    // A workflow that never enters PLAN with a depth leaves it undefined (the
+    // resolver then defaults to 'standard') — no phantom freeze.
+    const noPlan = fold([
+      makeEvent('workflow.started', { featureId: 'f2', workflowType: 'feature' }),
+    ]);
+    expect(noPlan.designDepth).toBeUndefined();
+  });
 });
 
 // ─── Merge Orchestrator fold (#1504/#1554 — close the projection gap) ───────

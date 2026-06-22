@@ -288,6 +288,46 @@ describe('executeTransition resolve-then-freeze (DR-13)', () => {
     expect(result.events.some((e) => e.type === 'phase.entered')).toBe(false);
   });
 
+  // ─── DR-3 (#1581 task 005): resolve-then-freeze `designDepth` at PLAN entry ──
+  it('PhaseEntered_PlanPhase_FreezesDesignDepth', () => {
+    const feature = getHSMDefinition('feature');
+    const designArtifact = { artifacts: { design: 'docs/specs/x.md' } };
+    const mdOf = (r: ReturnType<typeof executeTransition>) =>
+      r.events.find((e) => e.type === 'phase.entered')!.metadata as Record<string, unknown>;
+
+    // Author override patched onto state before PLAN entry ⇒ that depth is frozen.
+    const overridden = executeTransition(
+      feature,
+      { phase: 'ideate', ...designArtifact, designDepth: 'deep', _events: [] },
+      'plan',
+    );
+    expect(overridden.success).toBe(true);
+    expect(overridden.events.filter((e) => e.type === 'phase.entered')).toHaveLength(1);
+    expect(mdOf(overridden).designDepth).toBe('deep');
+
+    // No override ⇒ the behavior-neutral 'standard' default is frozen.
+    const defaulted = executeTransition(
+      feature,
+      { phase: 'ideate', ...designArtifact, _events: [] },
+      'plan',
+    );
+    expect(mdOf(defaulted).designDepth).toBe('standard');
+
+    // The frozen payload (now carrying designDepth) still validates against the
+    // durable phase.entered schema; and the enum is pinned — 'bogus' is rejected.
+    const schema = EVENT_DATA_SCHEMAS['phase.entered'];
+    expect(schema?.safeParse(mdOf(overridden)).success).toBe(true);
+    expect(schema?.safeParse({ ...mdOf(overridden), designDepth: 'bogus' }).success).toBe(false);
+
+    // Single freeze author: a non-PLAN phase.entered omits designDepth entirely.
+    const nonPlan = executeTransition(
+      getHSMDefinition('discovery'),
+      { phase: 'gathering', artifacts: { sources: ['a.md'] }, _events: [] },
+      'synthesizing',
+    );
+    expect(mdOf(nonPlan).designDepth).toBeUndefined();
+  });
+
   it('freeze_PolicyTableMutatedAfterEntry_FrozenObligationUnchanged', () => {
     const hsm = getHSMDefinition('discovery');
     const state = { phase: 'gathering', artifacts: { sources: ['a.md'] }, _events: [] };
