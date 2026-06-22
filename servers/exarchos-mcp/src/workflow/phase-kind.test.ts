@@ -181,6 +181,47 @@ describe('plan-structure resolver (DR-9)', () => {
     };
     expect(resolveGateSet('PLAN', explicitStandard).map((g) => g.gate)).toEqual(standardGates);
   });
+
+  it('PlanStructureResolver_StandardDepth_MatchesRegistryPlanPhasesBinding', () => {
+    // DR-2 (task 003): graduating the resolver to read `ctx.designDepth` must
+    // leave the `'standard'` rung == the registry `PLAN_PHASES`-bound action set
+    // (the behavior-neutral pin). Same SoT cross-check as the default-ctx
+    // binding test, but with `designDepth: 'standard'` supplied explicitly so
+    // the ctx-reading path — not the absent-default — is what's pinned.
+    const registryPlanGates = new Set(
+      TOOL_REGISTRY.flatMap((t) => t.actions)
+        .filter((a) => setEqualsNames(a.phases, PLAN_PHASE_NAMES))
+        .map((a) => a.name),
+    );
+    const resolved = resolveGateSet('PLAN', {
+      riskTier: 'low',
+      boundaryTouching: false,
+      designDepth: 'standard',
+    });
+    expect(resolved.every((g) => g.family === 'plan')).toBe(true);
+    expect(new Set(resolved.map((g) => g.gate))).toEqual(registryPlanGates);
+  });
+
+  it('PlanStructureResolver_DeepDepth_AddsExplorationObligation', () => {
+    // DR-2/DR-7: the `'deep'` rung is a strict superset of `'standard'` — the
+    // same five plan-structure gates plus the `check_exploration_depth`
+    // divergent-loop obligation, appended last in resolution order.
+    const standardCtx: ResolveGateSetCtx = {
+      riskTier: 'low',
+      boundaryTouching: false,
+      designDepth: 'standard',
+    };
+    const deepCtx: ResolveGateSetCtx = {
+      riskTier: 'low',
+      boundaryTouching: false,
+      designDepth: 'deep',
+    };
+    const standardSeq = resolveGateSet('PLAN', standardCtx).map((g) => g.gate);
+    const deepSeq = resolveGateSet('PLAN', deepCtx).map((g) => g.gate);
+
+    expect(deepSeq).toEqual([...standardSeq, 'check_exploration_depth']);
+    expect(resolveGateSet('PLAN', deepCtx).every((g) => g.family === 'plan')).toBe(true);
+  });
 });
 
 // ─── DR-9: review-contract resolver ─────────────────────────────────────────

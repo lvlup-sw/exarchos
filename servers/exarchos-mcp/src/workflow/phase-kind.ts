@@ -12,7 +12,7 @@
 
 import { resolveVerificationPolicy } from './verification-policy-resolver.js';
 import { type GateName, type RiskTier } from './verification-policy.js';
-import { type DesignDepth } from './plan-depth-policy.js';
+import { type DesignDepth, resolvePlanDepthPolicy } from './plan-depth-policy.js';
 import { getRequiredReviews, type ReviewDimension } from './review-contract.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 
@@ -173,24 +173,22 @@ const GATE_RESOLVERS: Readonly<
     resolveVerificationPolicy(ctx.riskTier, ctx.boundaryTouching, ctx.config).sequence.map(
       (gate): ResolvedGate => ({ family: 'ladder', gate }),
     ),
-  // The plan-structure gate-set (DR-9), in plan-validation order: decompose →
-  // coverage → provenance → traceability. These four action names are exactly
-  // the registry's `PLAN_PHASES`-bound gates (`registry.ts`); the binding is
-  // pinned by `ResolveGateSet_PlanKind_MatchesRegistryPlanPhasesBinding` so this
-  // explicit list (no heavy registry import into this foundational module) can
-  // never drift from the registry source of truth. Membership is the obligation;
-  // per-gate severity (`generate_traceability` is advisory) is the resolved
-  // *mode*, handled at the severity binding, not by excluding it from the set.
-  'plan-structure': () =>
-    (
-      [
-        'check_task_decomposition',
-        'check_plan_coverage',
-        'spec_coverage_check',
-        'check_provenance_chain',
-        'generate_traceability',
-      ] as const
-    ).map((gate): ResolvedGate => ({ family: 'plan', gate })),
+  // The plan-structure gate-set (DR-2), resolved off the feature's frozen
+  // `designDepth` — the depth-axis twin of how `'verification-ladder'` resolves
+  // off `riskTier`. The ordered sequence is owned by `plan-depth-policy.ts`
+  // (`resolvePlanDepthPolicy`, the single source of truth); this resolver names
+  // no gates of its own. `designDepth` absent ⇒ `'standard'`, whose sequence is
+  // exactly the registry's `PLAN_PHASES`-bound gates in plan-validation order
+  // (decompose → coverage → provenance → traceability) — the behavior-neutral
+  // default pinned by `PlanStructureResolver_StandardDepth_MatchesRegistryPlanPhasesBinding`,
+  // so graduating to ctx-reading changes nothing at the default depth. `deep`
+  // adds the `check_exploration_depth` obligation (DR-7). Membership is the
+  // obligation; per-gate severity (`generate_traceability` is advisory) is the
+  // resolved *mode*, handled at the severity binding, not by excluding it.
+  'plan-structure': (ctx) =>
+    resolvePlanDepthPolicy(ctx.designDepth ?? 'standard', ctx.config).sequence.map(
+      (gate): ResolvedGate => ({ family: 'plan', gate }),
+    ),
   // The review-contract gate-set (DR-9). Resolves verbatim from
   // `getRequiredReviews` so the dimension vocabulary stays owned by
   // `review-contract.ts` (the single source of truth, pinned by the
