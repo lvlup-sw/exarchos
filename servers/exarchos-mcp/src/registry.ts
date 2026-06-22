@@ -1621,13 +1621,23 @@ const orchestrateActions: readonly ToolAction[] = [
   },
   {
     name: 'check_design_completeness',
-    description: 'Verify design document completeness at ideate→plan boundary. Advisory gate — failures inform but do not block.',
+    description: 'DEPRECATED (#1581): delegates to check_plan_coverage on the unified docs/specs/ artifact; its acceptance-criteria check folded into plan-coverage. Use check_plan_coverage. Removed in a future minor version.',
+    deprecated: true,
     schema: z.object({
       featureId: z.string().min(1),
       stateFile: z.string().optional(),
       designPath: z.string().optional(),
+      // Unified-artifact delegation: when design and plan are one docs/specs/
+      // file, planPath == designPath. Optional — the handler also resolves the
+      // path from workflow-state artifacts.
+      planPath: z.string().optional(),
     }),
-    phases: new Set<string>(['ideate', 'plan']),
+    // Deprecated alias: callable in the (post-collapse) plan phase. Deliberately
+    // NOT the full PLAN_PHASES set — that set marks an action as a canonical
+    // plan-structure gate (see the `setEqualsNames(a.phases, PLAN_PHASE_NAMES)`
+    // binding pin in phase-kind.test.ts); this alias is being excised from the
+    // chains (task 014), so it must not register as a bound plan gate.
+    phases: new Set<string>(['plan']),
     roles: ROLE_LEAD,
     gate: { blocking: false, dimension: 'D1' },
     autoEmits: [
