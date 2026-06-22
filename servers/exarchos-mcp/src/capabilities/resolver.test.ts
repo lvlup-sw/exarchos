@@ -12,6 +12,7 @@ import {
 } from './resolver.js';
 import type { Capability } from '../agents/capabilities.js';
 import { KIND_OBLIGATIONS } from '../workflow/phase-kind.js';
+import { getHSMDefinition } from '../workflow/state-machine.js';
 import { findActionInRegistry } from '../registry.js';
 
 describe('CapabilityResolver (T017, DR-14)', () => {
@@ -307,6 +308,39 @@ describe('mintCapabilitiesForKind (POLA bundle, DR-14)', () => {
     // REFACTOR guard (DR-14): IMPLEMENT runs in an isolated worktree (#1512), so
     // its posture must stay task-isolated — never shared-mutating.
     expect(KIND_OBLIGATIONS.IMPLEMENT.posture).toBe('task-isolated');
+  });
+});
+
+// ─── Task 009 (#1581 DR-4): merged PLAN phase stays read-only (INV-11) ──────
+//
+// DR-4 collapsed the GATHER (`ideate`) phase into PLAN; the feature HSM's
+// `plan` state is now the single authoring phase. INV-11 (POLA) requires the
+// merged phase to stay read-only — the collapse must not silently re-tag it
+// with a mutating kind/posture (e.g. promoting it to IMPLEMENT or
+// SYNTHESIZE). The existing kind-only tests above pin `PLAN → read-only` in
+// isolation; this test closes the loop the collapse actually put at risk —
+// the *phase → kind → posture* chain for the merged `plan` state:
+//   feature HSM `plan` state → kind 'PLAN' → posture 'read-only' → no fs:write.
+describe('merged PLAN phase posture (Task 009, #1581 DR-4, INV-11)', () => {
+  it('PostureResolver_MergedPlanPhase_ResolvesReadOnly', () => {
+    const hsm = getHSMDefinition('feature');
+    const planState = hsm.states['plan'];
+    expect(planState).toBeDefined();
+    // The merged authoring phase carries the PLAN kind — not a mutating kind.
+    expect(planState?.type).toBe('atomic');
+    if (planState?.type !== 'atomic') {
+      throw new Error('feature HSM `plan` state must be an atomic kind-bearing phase');
+    }
+    expect(planState.kind).toBe('PLAN');
+
+    // Mint the POLA bundle from the phase's own kind: read-only, with no
+    // write / exec / worktree tokens — but still able to read to author.
+    const bundle = mintCapabilitiesForKind(planState.kind);
+    expect(bundle.posture).toBe('read-only');
+    expect(bundle.capabilities.has('fs:write')).toBe(false);
+    expect(bundle.capabilities.has('shell:exec')).toBe(false);
+    expect(bundle.capabilities.has('isolation:worktree')).toBe(false);
+    expect(bundle.capabilities.has('fs:read')).toBe(true);
   });
 });
 
