@@ -1,5 +1,5 @@
 ---
-description: Create a verification-laddered implementation plan from a design document
+description: Decompose the unified docs/specs/ artifact into verification-laddered tasks
 ---
 
 # /plan

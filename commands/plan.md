@@ -1,24 +1,24 @@
 ---
-description: Create a verification-laddered implementation plan from a design document
+description: Decompose the unified docs/specs/ artifact into verification-laddered tasks
 ---
 
 # Plan
 
-Create implementation plan for: "$ARGUMENTS"
+Author the Decomposition section for: "$ARGUMENTS"
 
 ## Workflow Position
 
 ```text
 /exarchos:ideate → /exarchos:plan → [CONFIRM] → /exarchos:delegate → /exarchos:review → /exarchos:synthesize → [CONFIRM] → merge
-                       ▲▲▲▲▲▲▲▲▲▲▲▲▲▲       ↑
-                  plan-review
+  Design & Rationale §  Decomposition §   ↑
+       (one docs/specs/ artifact)    plan-review
 ```
 
-After plan is saved, runs plan-review (delta analysis). User confirms at plan-review checkpoint before delegation.
+`/ideate` and `/plan` author **one unified `docs/specs/` artifact** within the single `plan` phase. After the Decomposition section is saved, plan-review runs as a **dispatched, fresh-context adversarial** pass over that artifact (DR-10). User confirms at the plan-review checkpoint before delegation.
 
 ## Skill Reference
 
-Follow the implementation-planning skill: `@skills/implementation-planning/SKILL.md`
+Follow the implementation-planning skill: `@skills/implementation-planning/SKILL.md`. The unified artifact shape is owned by `@skills/implementation-planning/references/spec-template.md`.
 
 ## Verification Ladder
 
@@ -32,18 +32,19 @@ See `@skills/_shared/references/verification.md` and the reframed `@skills/imple
 
 ## Process
 
-### Step 1: Analyze Design
-Read the design document and identify:
+### Step 1: Analyze the Design & Rationale section
+Read the unified spec's `## Design & Rationale` section (already written if `/ideate` ran; otherwise author it now at thin/standard depth). Identify:
+- The `DR-N` requirements every task must trace to
 - Core behaviors to implement
-- Data structures needed
-- API endpoints/interfaces
+- Data structures / interfaces needed
 - Integration points
 - Edge cases
 
 ### Step 2: Decompose into Tasks
-Create tasks with:
+Create tasks (in the `## Decomposition` section of the same doc) with:
 - 2-5 minute granularity
 - A `riskTier` stamp (low | medium | high) + optional `boundaryTouching`
+- An `**Implements:** DR-N` trace to the Design & Rationale section above
 - Test file paths for the tier's verification (medium/high)
 - Expected test names (Method_Scenario_Outcome)
 - Dependencies
@@ -53,8 +54,8 @@ Group tasks into:
 - Sequential chains (dependencies)
 - Parallel-safe groups (can run in worktrees)
 
-### Step 4: Save Plan
-Write to `docs/plans/YYYY-MM-DD-<feature>.md`
+### Step 4: Save the unified spec
+Write the Decomposition section into `docs/specs/YYYY-MM-DD-<feature>.md` (the same file as the Design & Rationale section).
 
 ## Task Format
 
@@ -62,6 +63,7 @@ Write to `docs/plans/YYYY-MM-DD-<feature>.md`
 ### Task [N]: [Description]
 **Risk Tier:** low | medium | high   ← drives verification depth
 **Boundary Touching:** true | false (optional)
+**Implements:** DR-N                  ← traces to the Design & Rationale section
 
 **Verification (scales with Risk Tier):**
 - low → static analysis only (typecheck + lint)
@@ -75,45 +77,44 @@ Write to `docs/plans/YYYY-MM-DD-<feature>.md`
 
 ## State Management
 
-After saving plan, persist the artifact + tasks and transition the phase via two separate calls — the runtime rejects `updates.phase` (`update` is non-phase mutation only; phase changes go through the HSM-guarded `transition` action):
+After saving the spec, persist the artifact + tasks and transition the phase via two separate calls — the runtime rejects `updates.phase` (`update` is non-phase mutation only; phase changes go through the HSM-guarded `transition` action):
 
 1. Update artifacts + tasks using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "update"`:
-   - Set `updates.artifacts.plan` to the plan path
+   - Set `updates.artifacts.plan` to the unified `docs/specs/...` path (the key the `planArtifactExists` guard reads — same file `/ideate` recorded as `artifacts.spec`)
    - Set `updates.tasks` to an array of task objects (id, title, status, branch)
 2. Transition phase using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "transition"`:
    - Set `target: "plan-review"`
 
 ## Output
 
-Save plan to `docs/plans/YYYY-MM-DD-<feature>.md` and capture the path as `$PLAN_PATH`.
+Save the unified spec to `docs/specs/YYYY-MM-DD-<feature>.md` and capture the path as `$SPEC_PATH`.
 
 ## Idempotency
 
-Before planning, check if plan already exists:
+Before planning, check if the spec already carries a Decomposition:
 1. Read state file for `.artifacts.plan`
-2. If plan file exists and is valid, skip planning
+2. If the unified spec exists and already has a `## Decomposition` section, skip planning
 3. Auto-chain directly to plan-review
 
 ## Auto-Chain
 
-After saving the implementation plan, **auto-continue to plan-review**:
+After saving the Decomposition section, **auto-continue to plan-review**:
 
 1. Transition phase via `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "transition"`, `target: "plan-review"`
-2. Output: "Plan saved to `$PLAN_PATH` with [N] tasks. Running plan-design coverage analysis..."
-3. Run plan-review (delta analysis):
-   - Re-read design document
-   - Compare each design section against planned tasks
-   - Generate coverage report with any gaps identified
-   - Present to user with recommendation
+2. Output: "Unified spec saved to `$SPEC_PATH` with [N] tasks. Dispatching the fresh-context plan-review..."
+3. Run plan-review as a **dispatched, fresh-context adversarial** pass (DR-10) — NOT an inline re-read of your own plan:
+   - Provision it: `exarchos_orchestrate({ action: "prepare_review", scope: "plan", artifact: "$SPEC_PATH", designDepth: "<frozen>" })`
+   - The dispatched reviewer receives only {artifact + spec} (never this authoring transcript), is prompted to **refute** the plan, and scales its adversarial depth by the frozen `designDepth`
+   - It returns an evidence-emitting verdict (concrete gaps), not a rubric pass
 
 ## Plan Review: Auto-Loop on Gaps
 
-Plan-review performs delta analysis and **auto-loops** back to `/exarchos:plan` if gaps are found (similar to `/exarchos:review` → `/exarchos:delegate --fixes`):
+Plan-review refutes the plan and **auto-loops** back to `/exarchos:plan` if it finds gaps (similar to `/exarchos:review` → `/exarchos:delegate --fixes`):
 
 ```text
-/exarchos:plan → plan-review → [gaps?] → /exarchos:plan --revise (auto-loop)
+/exarchos:plan → plan-review (dispatched, adversarial) → [refuted?] → /exarchos:plan --revise (auto-loop)
                       ↓
-                 [no gaps]
+                 [survives]
                       ↓
             [HUMAN: approve?] ← checkpoint
                       ↓
@@ -122,28 +123,28 @@ Plan-review performs delta analysis and **auto-loops** back to `/exarchos:plan` 
 
 ### On Gaps Found (Auto-Loop)
 
-If plan-review finds missing coverage:
+If plan-review refutes the plan:
 
 1. Update state with gaps using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "update"`:
    - Set `planReview.gapsFound` to true
-   - Set `planReview.gaps` to an array of gap descriptions
+   - Set `planReview.gaps` to the reviewer's concrete gap list
 
 2. Auto-invoke:
    ```typescript
-   Skill({ skill: "exarchos:plan", args: "--revise $DESIGN_PATH" })
+   Skill({ skill: "exarchos:plan", args: "--revise $SPEC_PATH" })
    ```
 
-The `--revise` flag provides gap context for targeted plan updates.
+The `--revise` flag provides gap context for targeted spec updates.
 
 ### On No Gaps (Human Checkpoint)
 
-If plan-review finds complete coverage:
+If plan-review's verdict survives:
 
-1. Display coverage report showing:
-   - Design sections covered by tasks
-   - Confirmation that all requirements are planned
+1. Display the verdict showing:
+   - Every DR-N requirement covered by tasks
+   - Confirmation that the plan survived refutation
 
-2. **PAUSE for user input**: "Plan covers all design requirements. Approve and continue to delegation? (yes/no)"
+2. **PAUSE for user input**: "Plan survives review and covers all requirements. Approve and continue to delegation? (yes/no)"
 
 3. **On approval**, persist the approval flag and transition phase via two separate calls (the runtime rejects `updates.phase`):
    - First, `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "update"`:
@@ -153,7 +154,7 @@ If plan-review finds complete coverage:
 
    Then invoke:
    ```typescript
-   Skill({ skill: "exarchos:delegate", args: "$PLAN_PATH" })
+   Skill({ skill: "exarchos:delegate", args: "$SPEC_PATH" })
    ```
 
 From here, workflow runs autonomously until PR merge confirmation.
