@@ -147,7 +147,7 @@
   <section id="forces">
     <div class="eyebrow">00 · the forces</div>
     <h2>What this system is built to optimize for</h2>
-    <p class="lede">Agents made code generation cheap and parallel. That moved the cost somewhere else. Two pressures now dominate every workflow. The first is <b>ceremony</b>: when every task pays the same heavy process (write the failing test first, author a design then a separate plan, run the full gate suite), a one-line doc fix costs what a schema change costs, and the tax falls hardest on the work that needs it least. The second is <b>contention</b>: point several agents at one git repository and they corrupt the shared index, race on ref updates, and silently lose each other's work. Exarchos spends its design budget on exactly these two. It makes the depth of governance <b>proportional to the risk of the change</b>, and it routes every mutation through <b>one append-only log</b> so concurrent agents serialize by construction rather than by hope. The aim is governed throughput without a flat ceremony tax: as much verified work as the risk warrants, and no more.</p>
+    <p class="lede">Agents made code generation cheap. The cost did not vanish, it dispersed across the value chain to the two ends a person still bounds: <b>planning and context</b> upstream, where the work gets aimed, and <b>review and verification</b> downstream, where nothing ships until it is checked. Exarchos is a <b>workflow engine that complements the coding agent</b>, not another harness. It earns its keep at those two ends. It makes planning and verification depth <b>proportional to the risk of the change</b> rather than charging every task the same ceremony, and it keeps several agents correct on one repository by routing every mutation through <b>one append-only log</b>. The aim is governed throughput sized to risk: as much planning and verification as the change warrants, and no more.</p>
 
     <figure class="panel">
       <div class="legend">
@@ -166,7 +166,7 @@
         <line x1="230" y1="104" x2="266" y2="104" class="flow" stroke="var(--ink-faint)" stroke-width="1.6" marker-end="url(#f-n)"/>
         <rect x="270" y="58" width="232" height="92" rx="12" fill="oklch(0.81 0.15 150 / .07)" stroke="oklch(0.81 0.15 150 / .55)"/>
         <text x="386" y="92" text-anchor="middle" font-size="16" font-family="var(--disp)" fill="var(--green)">risk-proportional gates</text>
-        <text x="386" y="116" text-anchor="middle" font-size="12.5" font-family="var(--mono)" fill="var(--ink-dim)">low: typecheck · high: full suite</text>
+        <text x="386" y="116" text-anchor="middle" font-size="10.5" font-family="var(--mono)" fill="var(--ink-dim)">low: typecheck · high: full suite</text>
         <text x="386" y="134" text-anchor="middle" font-size="12" font-family="var(--mono)" fill="var(--ink-faint)">depth = blast radius</text>
         <line x1="502" y1="104" x2="538" y2="104" class="flow" stroke="var(--violet)" stroke-width="2" marker-end="url(#f-v)"/>
         <rect x="542" y="58" width="232" height="92" rx="12" fill="oklch(0.74 0.15 292 / .09)" stroke="var(--violet)" stroke-width="1.7"/>
@@ -182,7 +182,7 @@
       </svg>
       <figcaption>
         <ul>
-          <li><b>Generation is the cheap, parallel part.</b> It scales with agents; the cost moved to ceremony and contention.</li>
+          <li><b>Generation is the cheap part.</b> The cost moved to the two ends a person bounds: planning and context upstream, review and verification downstream.</li>
           <li><b>Governance scales with risk.</b> A low-tier change clears a typecheck and a lint; a boundary-touching change earns the full ladder. Depth tracks blast radius, never a flat rule.</li>
           <li><b>The log is the only authority.</b> State is a fold over events, not a record anyone edits in place. Replay reconstructs exactly what happened.</li>
           <li><a href="https://github.com/lvlup-sw/exarchos/issues/1599" style="color:var(--violet);text-decoration:none">Issue #1599</a> is the program tracker; this page is its narrative.</li>
@@ -258,7 +258,7 @@
         <line x1="682" y1="236" x2="704" y2="236" stroke="var(--line)" stroke-width="1.4"/>
         <!-- next_actions back up -->
         <path d="M812,208 C812,150 560,120 360,138" fill="none" class="flow" stroke="var(--teal)" stroke-width="1.5" marker-end="url(#m-t)"/>
-        <text x="640" y="150" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--teal)">next_actions → the agent reads and dispatches</text>
+        <text x="650" y="100" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--teal)">next_actions → the agent reads and dispatches</text>
       </svg>
       <figcaption>
         <ul>
@@ -281,6 +281,7 @@
       <div class="lay"><span class="num">L8</span><span class="what"><b>Adapters</b><span>CLI and MCP. Presentation only, zero behavior. A parity harness asserts they return identical results.</span></span><span class="scope">adapters/</span></div>
       <div class="lay"><span class="num">L9</span><span class="what"><b>Cooperative agents</b><span>Claude Code, Codex, Cursor, OpenCode and others. Each declares a posture; each reads next_actions instead of polling.</span></span><span class="scope">runtime</span></div>
     </div>
+    <p class="note">Two rows are highlighted (L2 event store, L5 dispatch core): the load-bearing spine the rest of the stack leans on. One row is dashed (L7 lifecycle verbs): in flight for v2.12, not yet landed.</p>
 
     <div class="decision">
       <div class="dh">Decision: the log is the authority, read models are a cache <span class="enf">enforces INV-1</span></div>
@@ -296,23 +297,23 @@
   <!-- ===== 02 · TWO STATE SURFACES ===== -->
   <section id="state">
     <div class="eyebrow">02 · state</div>
-    <h2>The two surfaces, and which one is the truth</h2>
-    <p class="lede">State lives in two places, and the distinction is load-bearing. The <b>event store</b> is the only authority on whether a workflow exists. The on-disk <b>state file</b> is a planner's stamp: a convenience that holds a few facts the projection cannot derive. It can be absent for a workflow that is very much alive, so its presence proves nothing. The one mistake to never make is treating a file on disk as an existence signal.</p>
+    <h2>Where state lives, and the file we retired</h2>
+    <p class="lede">State lives in one place: the event log, projected into a SQLite <span class="mono">workflow_state</span> table the runtime folds from events. Whether a workflow exists is an event-store question, answered by <span class="mono">_meta.workflowExists</span>, never by a file on disk. An earlier <span class="mono">&lt;featureId&gt;.state.json</span> planner file was <b>retired in #1504</b>: production no longer reads or writes it, and the path string survives only as a legacy identifier. The rule that outlived the file is the one worth keeping: filesystem presence is never an existence signal.</p>
     <table>
-      <caption>Two surfaces, one authority</caption>
-      <thead><tr><th>surface</th><th>authority</th><th>holds</th><th>existence check</th></tr></thead>
+      <caption>One authoritative surface, and the file we retired</caption>
+      <thead><tr><th>surface</th><th>status</th><th>holds</th><th>existence check</th></tr></thead>
       <tbody>
-        <tr><td class="v"><b>SQLite event store</b></td><td>authoritative</td><td>the events, plus the workflow-state and streams projections folded from them</td><td><span class="mono">rehydrate</span> / <span class="mono">get</span> then read <span class="mono">_meta.workflowExists</span></td></tr>
-        <tr><td><b>&lt;featureId&gt;.state.json</b></td><td>secondary cache</td><td>planner facts the projection cannot derive; often absent for a tracked workflow</td><td class="mono">never use file presence</td></tr>
+        <tr><td class="v"><b>SQLite event store + workflow_state projection</b></td><td>authoritative</td><td>the events, folded into current workflow state and the streams index</td><td><span class="mono">rehydrate</span> / <span class="mono">get</span> then read <span class="mono">_meta.workflowExists</span></td></tr>
+        <tr><td><b>&lt;featureId&gt;.state.json</b></td><td>retired (#1504)</td><td>nothing in production; the path string survives as a legacy identifier only</td><td class="mono">never use file presence</td></tr>
       </tbody>
     </table>
     <div class="decision">
-      <div class="dh">Decision: existence is an event-store question, never a filesystem one <span class="enf">enforces INV-1</span></div>
+      <div class="dh">Decision: retire the state file, keep one surface <span class="enf">#1504 · INV-1</span></div>
       <dl>
-        <dt>Forces</dt><dd>A tempting shortcut reads the on-disk state file to decide whether a feature exists. It produces false negatives for workflows that never wrote one, and false positives for stale leftovers.</dd>
-        <dt>Choice</dt><dd>The canonical check is the <span class="mono">_meta.workflowExists</span> field returned by <span class="mono">rehydrate</span> or <span class="mono">get</span>, which is derived from the streams table. A cold probe of an unknown id is side-effect free.</dd>
-        <dt>Rejected</dt><dd class="rej">Filesystem presence as a proxy. Cheap to write, and the source of a real integrity incident (see the state-source RCA).</dd>
-        <dt>Cost</dt><dd>Callers must route through the projection rather than stat a path, even when a file is sitting right there.</dd>
+        <dt>Forces</dt><dd>A second on-disk surface, the planner's stamp, could drift from the log and tempt callers to read it as truth or to stat its presence as an existence check. That presence check was the source of a real integrity incident.</dd>
+        <dt>Choice</dt><dd>Retire the <span class="mono">.state.json</span> write path (#1504). State is the SQLite <span class="mono">workflow_state</span> projection folded from events; existence is the <span class="mono">_meta.workflowExists</span> field from <span class="mono">rehydrate</span> or <span class="mono">get</span>.</dd>
+        <dt>Rejected</dt><dd class="rej">Keeping the file as a convenience cache. A second source of truth is a second thing to corrupt, and its presence invites the exact filesystem-existence check that broke.</dd>
+        <dt>Cost</dt><dd>A vestigial <span class="mono">stateFile</span> path string lingers as a legacy identifier. Callers route through the projection, never stat a path.</dd>
       </dl>
     </div>
   </section>
@@ -404,11 +405,11 @@
       <div class="zone z3"><span class="z">Z3</span><span class="body"><span class="ms">v3.0 · consolidation</span><br><b>One way to define a workflow.</b> The Workflow Builder SDK (#1258) compiles a fluent definition to a typed IR and deletes the closed-form registries. Every Z1 and Z2 edit must lower into a combinator or defer until the migration consumes it.</span></div>
     </div>
     <div class="waves">
-      <div class="wave now"><span class="vv">v2.11.0</span><span class="h">now</span><span class="d"><b>Verification &amp; Reliability</b>:the adaptive-depth zone: the verification ladder, the design-and-plan collapse, the ship-gate obligations, the onboarding reconciler.</span></div>
-      <div class="wave now"><span class="vv">v2.12.0</span><span class="h">now</span><span class="d"><b>Process Lifecycle Verbs</b>:ps, describe, wait, export over the log, plus the worktree lifecycle manager and the remaining event-store consumers.</span></div>
-      <div class="wave"><span class="vv">v3.0.0</span><span class="h">next</span><span class="d"><b>Workflow Builder SDK</b>:the consolidation endpoint: a fluent definition compiles to the IR; the hand-written state-machine registries are retired.</span></div>
-      <div class="wave"><span class="vv">v3.1.0</span><span class="h">later</span><span class="d"><b>Ontology</b>:the two-tier eval redesign and the notification pipeline.</span></div>
-      <div class="wave"><span class="vv">v3.2.0</span><span class="h">later</span><span class="d"><b>Workflow / Remote Agent Layer</b>:the remote MCP deployment axis and the proactive-awareness surface, both held against the single-machine frame.</span></div>
+      <div class="wave now"><span class="vv">v2.11.0</span><span class="h">now</span><span class="d"><b>Verification &amp; Reliability</b>: the adaptive-depth zone: the verification ladder, the design-and-plan collapse, the ship-gate obligations, the onboarding reconciler.</span></div>
+      <div class="wave now"><span class="vv">v2.12.0</span><span class="h">now</span><span class="d"><b>Process Lifecycle Verbs</b>: ps, describe, wait, export over the log, plus the worktree lifecycle manager and the remaining event-store consumers.</span></div>
+      <div class="wave"><span class="vv">v3.0.0</span><span class="h">next</span><span class="d"><b>Workflow Builder SDK</b>: the consolidation endpoint: a fluent definition compiles to the IR; the hand-written state-machine registries are retired.</span></div>
+      <div class="wave"><span class="vv">v3.1.0</span><span class="h">later</span><span class="d"><b>Ontology</b>: the two-tier eval redesign and the notification pipeline.</span></div>
+      <div class="wave"><span class="vv">v3.2.0</span><span class="h">later</span><span class="d"><b>Workflow / Remote Agent Layer</b>: the remote MCP deployment axis and the proactive-awareness surface, both held against the single-machine frame.</span></div>
     </div>
     <p class="note">Milestones are themed to the convergence zones, not feature buckets. The full index, the coordination rules, and the open questions live in <a href="https://github.com/lvlup-sw/exarchos/issues/1599" style="color:var(--violet);text-decoration:none">issue #1599</a>.</p>
   </section>
