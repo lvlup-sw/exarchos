@@ -207,4 +207,30 @@ Workflow.create<FeatureState>('feature')
 
 Net: `phase(ideate) ⊕ phase(plan) ↦ phase(plan)` is a behavior-preserving IR transform. The P7 lowering of the post-collapse `feature` HSM yields the same observable `(author → approve → delegate …)` step sequence, minus the redundant authoring hop. A divergence guard (per #1599 rule 3 / ship-gate DR-6) flags any future edit that re-introduces a second pre-approval authoring step or a second approval edge before the SDK consolidation lands.
 
-> §A2 — the depth-resolver lowering note (DR-2/DR-3: the `designDepth` resolve-then-freeze + `'plan-structure'` ctx-resolver) — is **task 022**, which extends this appendix in the same neighborhood.
+### A2 — The depth dial: `designDepth` resolve-then-freeze + the `'plan-structure'` ctx-resolver (DR-2/DR-3, task 022)
+
+§A1 contracts the *control flow* (two authoring hops → one). §A2 records how the **depth parameter** rides that surviving hop through lowering. `designDepth` is the planning-axis twin of `riskTier`: both are resolved-then-frozen on `phase.entered` and both feed a ctx-reading `GATE_RESOLVERS` entry — `riskTier → 'verification-ladder'`, `designDepth → 'plan-structure'`. The IR already lowers the `riskTier` story (`Step.delegate('implementer')` carries a `Step.gate` whose sequence is resolved from the frozen per-task tier); `designDepth` lowers by the *same* combinator shape on the PLAN step, so #1253 P7 consumes it unchanged — no new combinator, no new control-flow vocabulary.
+
+**Lowering shape** — the surviving PLAN step carries a depth-parameterized gate, resolved from a frozen value rather than re-derived each entry:
+
+```ts
+Workflow.create<FeatureState>('feature')
+  .startWith(
+    Step.delegate('implementation-planning')             // PLAN (read-only) → unified docs/specs/ artifact
+      .withGate(Step.gate('plan-structure', ctx))        // gate-set resolved from ctx.designDepth (thin ⊂ standard ⊂ deep)
+  )
+  .awaitApproval('author', a => a                         // plan-review — depth-scaled adversarial pass (DR-10, §A3 / #1592)
+    .onRejection(r => r.then(Step.delegate('implementation-planning'))))
+  .then(Step.delegate('implementer'))                     // delegate …
+```
+
+**Why the lowering is behavior-preserving:**
+
+- **Resolve-then-freeze is a deterministic parameter binding, not a branch.** `designDepth` is resolved once (auto-propose → author override) and frozen onto the PLAN `phase.entered` event (`state-machine.ts`, the #1546 resolve-then-freeze seam — the same author as `riskTier`'s wave stamp). In IR terms the freeze is a single state-write on step entry; a left-fold of the log recovers the identical frozen value, so the lowered `Step.gate` reads a constant, never a re-resolution. The depth dial adds *zero* edges to the workflow graph — `thin`/`standard`/`deep` select different gate **sequences inside one `Step.gate`**, not different paths through the HSM.
+- **The `'plan-structure'` resolver is a pure table lookup (`plan-depth-policy.ts`), config-blind at its base.** Each rung is a strict superset of the lower (`thin ⊂ standard ⊂ deep`), mirroring `BASE_SEQUENCE_BY_TIER`. Lowering preserves the superset ordering because the IR `Step.gate` enumerates the resolved sequence verbatim — the combinator does not re-order or dedup. `standard` (the absent-depth default) lowers to exactly today's static 5-gate `PLAN_PHASES` binding, so a feature that never sets `designDepth` lowers byte-identically to the pre-#1581 plan step.
+- **Fail-closed survives lowering as a gate precondition, not a fallthrough.** A malformed frozen depth fails the resolution CLOSED (`resolveGateSetFailClosed` → `phase.blocked`, task 021); the IR models this as the `Step.gate` rejecting entry, never a silent OPEN edge. P7 must lower the block as a refused transition, preserving the no-silent-OPEN invariant.
+- **`designDepth` is resolved once but consumed twice.** The frozen value feeds both the design-section depth (DR-2/DR-3, this note) and the plan-review adversarial depth (DR-10). Lowering must thread the *same* frozen ctx field to both consumers — a second resolution at plan-review time would break determinism. The `Step.gate('plan-structure', ctx)` above and the depth-scaled `awaitApproval` both read `ctx.designDepth`; P7 binds one frozen value to both.
+
+Net: `phase(plan @ static-5-gate) ↦ phase(plan @ Step.gate('plan-structure', frozen designDepth))` is a behavior-preserving IR transform — the depth dial is a parameter on the surviving step, not a structural change. The divergence guard (per #1599 rule 3 / ship-gate DR-6) flags any future edit that re-resolves `designDepth` after freeze, adds a depth-keyed HSM edge, or threads two independent depth values to the two consumers before the SDK consolidation lands.
+
+> §A3 — plan-review reframed as a depth-scaled fresh-context adversarial gate (DR-10, task 024) — composes the *second* consumer of the frozen `designDepth` onto the `awaitApproval('author', …)` edge above; its back-of-pipeline twin (code-review fresh-context/adversarial/cost-scaling + spec-review⊕quality-review collapse) is **#1592 (ship-gate)**, not this epic.
