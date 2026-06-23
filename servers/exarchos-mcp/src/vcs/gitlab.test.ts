@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GitLabProvider } from './gitlab.js';
+import { UnsupportedOperationError } from './provider.js';
 
 // Mock the shell execution helper
 vi.mock('./shell.js', () => ({
@@ -361,5 +362,21 @@ describe('GitLabProvider', () => {
     const result = await provider.getReviewStatus('10');
     expect(result.state).toBe('pending');
     expect(result.reviewers).toHaveLength(0);
+  });
+
+  // ── getPrComments (DR-7 #1592 task 013 — signature conformance) ───────────
+  // The PrComment contract was widened (source/parentId/resolved/state) in task
+  // 010. GitLab still does not implement harvesting (tracked as a DR-7 follow-up
+  // issue), so getPrComments must conform to the widened `Promise<PrComment[]>`
+  // signature — which it does by throwing (it returns no value) — and surface a
+  // structured UnsupportedOperationError rather than a silent no-op.
+
+  it('GitLab_GetPrComments_ThrowsUnsupported', async () => {
+    await expect(provider.getPrComments('10')).rejects.toThrow(
+      UnsupportedOperationError,
+    );
+    await expect(provider.getPrComments('10')).rejects.toThrow(
+      'gitlab: getPrComments is not yet supported',
+    );
   });
 });
