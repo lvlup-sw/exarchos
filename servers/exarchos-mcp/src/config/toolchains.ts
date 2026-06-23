@@ -452,3 +452,145 @@ export function resolveMutationDiffScope(toolchainId: string, base: string): Mut
     : `toolchain '${toolchainId}' has no resolved mutation runner to diff-scope; the mutation run is unscoped`;
   return { kind: 'unscoped-warning', warning: reason };
 }
+
+// ─── Hermetic-double resolution (SIV-5 / #1531) ──────────────────────────────
+//
+// The CONSTRUCTIVE half of SIV-4 (#1530): SIV-4 detects an agent-authored mock
+// of an UNOWNED dependency and steers away from it; SIV-5 says what to use
+// INSTEAD. Banning a practice without supplying the alternative just produces
+// friction, so this resolver maps a detected unowned-dependency CLASS to its
+// preferred high-fidelity double.
+//
+// Shape rationale: hermetic doubles key on the DEPENDENCY's class (a DB vs a
+// cloud API vs an owned interface), NOT on the project's language toolchain —
+// the exact reason `contract` is keyed on schema ARTIFACTS and is `null` on
+// every BUILTIN_TOOLCHAINS entry. So this is a SIBLING resolver (like
+// MUTATION_DIFF_SCOPE / resolveMutationDiffScope above), not a per-toolchain
+// `ToolchainCommands` field. It emits a RESOLUTION descriptor — a named
+// strategy with its fidelity/cadence/caveat — never a baked command or literal
+// (INV-4 gen-time-placeholder trap): the consumer inspects the descriptor and
+// decides, it does not receive a hardcoded "use Testcontainers" string.
+//
+// Fidelity order is Google's canonical real > fake > stub/mock. The honesty
+// caveats are first-class fields, not prose: an emulator (LocalStack) is itself
+// a FAKE of the cloud (a higher-fidelity failure mode, not a guarantee), and a
+// container-backed real double costs real wall-clock ⇒ boundary/offline
+// cadence, never the inner loop.
+
+/** The class of an unowned dependency, for hermetic-double resolution. */
+export type HermeticDependencyClass =
+  | 'database'
+  | 'cloud-api'
+  | 'message-broker'
+  | 'third-party-http'
+  | 'owned-interface';
+
+/** Google's canonical test-double fidelity order: real > fake > stub. */
+export type HermeticFidelity = 'real' | 'fake' | 'stub';
+
+/**
+ * A resolved hermetic double for one dependency class. A DESCRIPTOR, not a
+ * baked command: `double` names the strategy; `fidelity`/`cadence`/`caveat`
+ * carry the honesty the consumer needs to place it correctly.
+ */
+export interface HermeticDouble {
+  readonly depClass: HermeticDependencyClass;
+  /** The resolved double strategy (a name, not a command or literal). */
+  readonly double: string;
+  readonly fidelity: HermeticFidelity;
+  /**
+   * `boundary-offline` for container-backed doubles (real wall-clock cost) —
+   * never the inner loop; `inner-loop` for cheap in-process doubles.
+   */
+  readonly cadence: 'inner-loop' | 'boundary-offline';
+  /** Honesty caveat (e.g. an emulator is itself a fake of the cloud). */
+  readonly caveat?: string;
+}
+
+/** Dep-class → preferred double. The resolution table (resolve, don't bake). */
+const HERMETIC_RESOLUTION: Readonly<Record<HermeticDependencyClass, HermeticDouble>> = {
+  database: {
+    depClass: 'database',
+    double: 'Testcontainers (the real engine in a container)',
+    fidelity: 'real',
+    cadence: 'boundary-offline',
+    caveat:
+      'Docker runtime cost (seconds-to-tens-of-seconds per suite) ⇒ boundary/offline cadence, never the inner loop',
+  },
+  'cloud-api': {
+    depClass: 'cloud-api',
+    double: 'LocalStack (an emulated cloud)',
+    fidelity: 'fake',
+    cadence: 'boundary-offline',
+    caveat:
+      'LocalStack is a FAKE of the cloud — a higher-fidelity failure mode, not a guarantee; the emulator can diverge from the real provider',
+  },
+  'message-broker': {
+    depClass: 'message-broker',
+    double: 'Testcontainers (the real broker in a container)',
+    fidelity: 'real',
+    cadence: 'boundary-offline',
+    caveat: 'Docker runtime cost ⇒ boundary/offline cadence, never the inner loop',
+  },
+  'third-party-http': {
+    depClass: 'third-party-http',
+    double: 'a Pact-verified contract stub',
+    fidelity: 'stub',
+    cadence: 'inner-loop',
+    caveat:
+      'a stub verifies shape, not provider semantics — keep exactly one contract test for the boundary',
+  },
+  'owned-interface': {
+    depClass: 'owned-interface',
+    double: 'a hand-written fake of the owned interface',
+    fidelity: 'fake',
+    cadence: 'inner-loop',
+  },
+};
+
+/**
+ * Signatures mapping a well-known dependency specifier to its class. Bare
+ * package specifiers only (the unowned-mock targets SIV-4 surfaces). A specifier
+ * matching no signature stays UNCLASSIFIED (the resolver returns null rather
+ * than guess a double — resolve, don't bake).
+ */
+const HERMETIC_CLASS_SIGNATURES: ReadonlyArray<{
+  readonly depClass: HermeticDependencyClass;
+  readonly test: RegExp;
+}> = [
+  {
+    depClass: 'database',
+    test: /^(pg|mysql2?|sqlite3?|better-sqlite3|mongodb|mongoose|redis|ioredis|cassandra-driver|typeorm|prisma|knex|@databases\/|sequelize)/i,
+  },
+  {
+    depClass: 'cloud-api',
+    test: /^(aws-sdk|@aws-sdk\/|@azure\/|@google-cloud\/|googleapis|firebase-admin)/i,
+  },
+  {
+    depClass: 'message-broker',
+    test: /^(kafkajs|amqplib|amqp-connection-manager|nats|@nats-io\/|rhea|bullmq|bull)/i,
+  },
+  {
+    depClass: 'third-party-http',
+    test: /^(axios|node-fetch|got|undici|superagent|ky|request|phin)$/i,
+  },
+];
+
+/**
+ * Classify an unowned dependency specifier into a {@link HermeticDependencyClass}
+ * by well-known package signatures, or `null` when no signature matches. The
+ * null arm is load-bearing: an unrecognized dependency gets the generic hermetic
+ * menu, never a guessed-wrong concrete double.
+ */
+export function classifyHermeticDependency(specifier: string): HermeticDependencyClass | null {
+  const match = HERMETIC_CLASS_SIGNATURES.find((s) => s.test.test(specifier));
+  return match ? match.depClass : null;
+}
+
+/**
+ * Resolve a dependency class to its preferred hermetic double (the descriptor).
+ * Total over the class union — every class has a resolution.
+ */
+export function resolveHermeticDouble(depClass: HermeticDependencyClass): HermeticDouble {
+  return HERMETIC_RESOLUTION[depClass];
+}

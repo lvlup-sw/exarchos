@@ -45,17 +45,37 @@ import {
   type AddedLine,
   type MockFinding,
 } from './mock-boundary.js';
+import {
+  classifyHermeticDependency,
+  resolveHermeticDouble,
+} from '../config/toolchains.js';
 
-// ─── The per-finding steer (task 026, INV-12) ────────────────────────────────
+// ─── The per-finding steer (task 026, INV-12; SIV-5 resolution #1531) ─────────
 
 /**
  * Build the per-finding steer for an UNOWNED mock. INV-12: a gate's next action
- * must name WHAT to do, not just that something is wrong. The steer names the
- * mocked dependency and prescribes the hermetic replacements the design calls
- * for — a hermetic fixture, a contract-verified stub, or a fake — so the agent
- * has a concrete remediation rather than "stop mocking".
+ * must name WHAT to do, not just that something is wrong.
+ *
+ * SIV-5 (#1531): the steer is the constructive target of SIV-4's detection. When
+ * the mocked dependency classifies into a known class (DB / cloud-API /
+ * message-broker / third-party-HTTP), it resolves to the CONCRETE hermetic
+ * double (Testcontainers / LocalStack / Pact-verified stub …) with its
+ * fidelity, cadence, and honesty caveat — so the agent gets a specific
+ * remediation, not a generic menu. An UNCLASSIFIED dependency falls back to the
+ * generic hermetic menu (resolve, don't guess a double).
  */
 export function steerForFinding(finding: MockFinding): string {
+  const depClass = classifyHermeticDependency(finding.mockedTarget);
+  if (depClass !== null) {
+    const d = resolveHermeticDouble(depClass);
+    return (
+      `replace the mock of \`${finding.mockedTarget}\` (${depClass}) with ` +
+      `${d.double} [fidelity: ${d.fidelity}; cadence: ${d.cadence}]` +
+      (d.caveat ? ` — ${d.caveat}` : '') +
+      ` — mocking an unowned dependency asserts against a fiction (the mock ` +
+      `cannot be checked against the real contract)`
+    );
+  }
   return (
     `replace the mock of \`${finding.mockedTarget}\` with a hermetic fixture / ` +
     `contract-verified stub / a fake — mocking an unowned dependency asserts ` +
