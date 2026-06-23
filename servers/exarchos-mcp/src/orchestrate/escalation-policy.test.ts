@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_MAX_ITERATIONS,
+  SDK_MIGRATION_CONTRACT,
   resolveEscalationPolicy,
   decideEscalation,
   classifyFinding,
@@ -142,6 +143,103 @@ describe('escalation-policy (DR-3, #1595)', () => {
       expect(
         countShepherdIterations([{ type: 'shepherd.started' }, { type: 'shepherd.completed' }]),
       ).toBe(0);
+    });
+  });
+
+  // ─── DR-6 divergence guard (#1598, task 023) ────────────────────────────────
+  //
+  // This is the DR-6 divergence guard. It pins the interim escalation defaults
+  // to the documented Workflow SDK (#1258) combinator semantics recorded in
+  // `docs/designs/2026-06-23-ship-gate-sdk-migration.md` ("SDK-contract
+  // values"), mirrored as `SDK_MIGRATION_CONTRACT`. The assertions run the LIVE
+  // policy and compare it to that constant — never to hardcoded literals — so a
+  // FAILURE here means the interim policy and the documented SDK semantics have
+  // FORKED. Fix one or the other (code or the migration note + constant), never
+  // silently let them drift.
+  describe('DivergenceGuard_EscalationDefaults_MatchSdkRepeatUntilSemantics', () => {
+    it("names the bound exactly the SDK repeatUntil option ('maxIterations')", () => {
+      // The interim policy's bound field must be named identically to the SDK's
+      // `repeatUntil(cond, body, { maxIterations })` option, so consolidation is
+      // a rename of the call site, not a re-derivation.
+      expect(SDK_MIGRATION_CONTRACT.repeatUntilOption).toBe('maxIterations');
+      const policy = resolveEscalationPolicy();
+      expect(SDK_MIGRATION_CONTRACT.repeatUntilOption in policy).toBe(true);
+      // The bound field is the ONLY field — i.e. `maxIterations` is the policy's
+      // bound, not some incidentally-present key.
+      expect(Object.keys(policy)).toEqual([SDK_MIGRATION_CONTRACT.repeatUntilOption]);
+    });
+
+    it('inherits the contract default bound as the no-config default (kill-probe on DEFAULT_MAX_ITERATIONS)', () => {
+      // Changing DEFAULT_MAX_ITERATIONS without updating the contract breaks
+      // this guard: both the constant and the resolved no-config policy must
+      // equal the documented SDK `repeatUntil({ maxIterations })` default.
+      expect(DEFAULT_MAX_ITERATIONS).toBe(SDK_MIGRATION_CONTRACT.defaultMaxIterations);
+      expect(resolveEscalationPolicy().maxIterations).toBe(
+        SDK_MIGRATION_CONTRACT.defaultMaxIterations,
+      );
+    });
+
+    it('maps the ask-user escalation onto the SDK awaitApproval combinator', () => {
+      expect(SDK_MIGRATION_CONTRACT.approvalCombinator).toBe('awaitApproval');
+    });
+
+    it('escalates in EXACTLY the contract awaitApproval triggers, auto-fixing otherwise', () => {
+      const policy = resolveEscalationPolicy(); // { maxIterations: 5 }, the no-config default
+
+      // Drive `decideEscalation` across the behavioral axes and derive, from the
+      // LIVE policy, the set of triggers under which it escalates. Each probe is
+      // labelled with the contract trigger it is meant to exercise; `null` means
+      // "must NOT escalate" (the `repeatUntil` body auto-fixes).
+      const probes: ReadonlyArray<{
+        readonly decision: ReturnType<typeof decideEscalation>;
+        readonly expectedTrigger: 'bound-reached' | 'intent-touching' | null;
+      }> = [
+        // intent-touching at iteration 0 (well under bound): the
+        // 'intent-touching' trigger fires regardless of remaining budget.
+        {
+          decision: decideEscalation({ findingClass: 'intent-touching', iteration: 0, policy }),
+          expectedTrigger: 'intent-touching',
+        },
+        // mechanical under the bound: no trigger — auto-fix (the repeatUntil body).
+        {
+          decision: decideEscalation({ findingClass: 'mechanical', iteration: 0, policy }),
+          expectedTrigger: null,
+        },
+        // mechanical at the bound: the 'bound-reached' trigger fires.
+        {
+          decision: decideEscalation({
+            findingClass: 'mechanical',
+            iteration: policy.maxIterations,
+            policy,
+          }),
+          expectedTrigger: 'bound-reached',
+        },
+        // mechanical over the bound: still the 'bound-reached' trigger.
+        {
+          decision: decideEscalation({
+            findingClass: 'mechanical',
+            iteration: policy.maxIterations + 4,
+            policy,
+          }),
+          expectedTrigger: 'bound-reached',
+        },
+      ];
+
+      // 1. Each probe's live action must agree with whether a trigger is expected.
+      for (const { decision, expectedTrigger } of probes) {
+        expect(decision.action).toBe(expectedTrigger === null ? 'auto-fix' : 'escalate');
+      }
+
+      // 2. The set of triggers actually observed escalating from the LIVE policy
+      //    must equal the documented contract set 1:1. Adding or removing an
+      //    escalation case in `decideEscalation` without updating
+      //    SDK_MIGRATION_CONTRACT.escalationTriggers breaks this guard.
+      const observedTriggers = new Set(
+        probes
+          .filter((p) => p.decision.action === 'escalate')
+          .map((p) => p.expectedTrigger),
+      );
+      expect(observedTriggers).toEqual(new Set(SDK_MIGRATION_CONTRACT.escalationTriggers));
     });
   });
 });
