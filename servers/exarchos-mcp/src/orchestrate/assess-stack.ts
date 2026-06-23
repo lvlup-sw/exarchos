@@ -426,6 +426,33 @@ async function emitShepherdApprovalRequested(
   });
 }
 
+// DR-3 (#1595): on the bound-hit escalate path, emit a STRUCTURED escalation
+// (NOT a hang — INV-10). The handler records the reason + counts, then returns
+// its normal terminal result carrying `recommendation:'escalate'`; it does not
+// loop or wait. Idempotency-keyed on `iterationCount` so re-assessment at the
+// same count does not double-emit. Mirrors `emitShepherdApprovalRequested`.
+async function emitShepherdEscalated(
+  eventStore: EventStore,
+  featureId: string,
+  prNumbers: readonly number[],
+  iterationCount: number,
+  maxIterations: number,
+): Promise<void> {
+  const reason = `auto-fix bound (${maxIterations}) reached after ${iterationCount} iterations`;
+  await eventStore.append(featureId, {
+    type: 'shepherd.escalated' as const,
+    data: {
+      featureId,
+      prNumbers: [...prNumbers],
+      iterationCount,
+      maxIterations,
+      reason,
+    },
+  }, {
+    idempotencyKey: `${featureId}:shepherd.escalated:${iterationCount}`,
+  });
+}
+
 async function queryPrMergeState(provider: VcsProvider, prNumber: number): Promise<number | null> {
   try {
     const prs = await provider.listPrs({ head: undefined, state: 'all' });
@@ -540,6 +567,21 @@ export async function handleAssessStack(
     if (completedEvents.length === 0) {
       await emitShepherdApprovalRequested(eventStore, args.featureId, args.prNumbers, iterationCount);
     }
+  }
+
+  // Emit shepherd.escalated on the bound-hit path (DR-3, #1595): a STRUCTURED
+  // terminal escalation, NOT a hang (INV-10). The handler records the reason +
+  // counts here, then falls through to RETURN its normal terminal result with
+  // `recommendation:'escalate'` — it does not loop or wait. Idempotency on
+  // `iterationCount` prevents a double-emit if assessed again at the same count.
+  if (recommendation === 'escalate') {
+    await emitShepherdEscalated(
+      eventStore,
+      args.featureId,
+      args.prNumbers,
+      iterationCount,
+      maxIterations,
+    );
   }
 
   // Build result

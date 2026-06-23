@@ -674,6 +674,78 @@ describe('handleAssessStack', () => {
       );
       expect(approvalCalls).toHaveLength(0);
     });
+
+    // DR-3 (#1595): hitting the auto-fix bound emits a STRUCTURED escalation
+    // (NOT a hang — INV-10). The handler records reason + counts, then RETURNS
+    // its normal terminal result with `recommendation:'escalate'`; it does not
+    // loop or wait. Re-assessing at the same iteration count reuses the same
+    // idempotency key, so the store dedups (no double-emit).
+    it('BoundHit_EmitsStructuredEscalation_NotHang', async () => {
+      // Seed N = default-maxIterations (5) `shepherd.iteration` events so the
+      // single event-sourced counter reaches the bound, plus failing CI so there
+      // are findings to fix — `computeRecommendation` returns 'escalate'.
+      const iterationEvents = Array.from({ length: 5 }, (_, i) => ({
+        type: 'shepherd.iteration',
+        streamId: 'test-feature',
+        sequence: i + 1,
+        timestamp: new Date().toISOString(),
+        data: { prUrl: 'https://github.com/test/42', iteration: i + 1, action: 'fix', outcome: 'retry' },
+      }));
+      mockQuery.mockImplementation(async (_streamId: string, opts?: { type?: string }) =>
+        opts?.type === 'shepherd.iteration' ? iterationEvents : [],
+      );
+
+      const provider = createMockProvider({
+        checkCi: { status: 'fail', checks: [{ name: 'ci/build', status: 'fail' }] },
+        prState: 'OPEN',
+      });
+
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42, 43] },
+        STATE_DIR,
+        mockEventStore,
+        provider,
+      );
+
+      // (b) The handler RETURNS a terminal result with recommendation:'escalate'
+      // — it returned (did not hang).
+      expect(result.success).toBe(true);
+      const data = result.data as { recommendation: string };
+      expect(data.recommendation).toBe('escalate');
+
+      // (a) A structured shepherd.escalated event is appended with the data.
+      const escalatedCalls = mockAppend.mock.calls.filter(
+        (call: unknown[]) => (call[1] as { type: string }).type === 'shepherd.escalated',
+      );
+      expect(escalatedCalls.length).toBe(1);
+      expect(escalatedCalls[0][0]).toBe('test-feature');
+      const escalatedData = (escalatedCalls[0][1] as { data: Record<string, unknown> }).data;
+      expect(escalatedData.featureId).toBe('test-feature');
+      expect(escalatedData.prNumbers).toEqual([42, 43]);
+      expect(escalatedData.iterationCount).toBe(5);
+      expect(escalatedData.maxIterations).toBe(5);
+      expect(escalatedData.reason).toBe('auto-fix bound (5) reached after 5 iterations');
+      const firstKey = (escalatedCalls[0][2] as { idempotencyKey: string })?.idempotencyKey;
+      expect(firstKey).toBe('test-feature:shepherd.escalated:5');
+
+      // (c) Idempotency — re-assessing at the same count reuses the same key, so
+      // the store dedups (no double-emit). Assert the key is stable across calls.
+      mockAppend.mockClear();
+      const result2 = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42, 43] },
+        STATE_DIR,
+        mockEventStore,
+        provider,
+      );
+      const data2 = result2.data as { recommendation: string };
+      expect(data2.recommendation).toBe('escalate');
+      const escalatedCalls2 = mockAppend.mock.calls.filter(
+        (call: unknown[]) => (call[1] as { type: string }).type === 'shepherd.escalated',
+      );
+      expect(escalatedCalls2.length).toBe(1);
+      const secondKey = (escalatedCalls2[0][2] as { idempotencyKey: string })?.idempotencyKey;
+      expect(secondKey).toBe(firstKey);
+    });
   });
 
   // ─── Event Emission ──────────────────────────────────────────────────────

@@ -323,6 +323,35 @@ describe('ShepherdStatusView', () => {
     expect(view.overallStatus).toBe('escalate');
   });
 
+  // DR-3 (#1595): the structured `shepherd.escalated` event surfaces the WHY of
+  // an escalation (reason + counts + when) via shepherd_status/ps — not just the
+  // derived 'escalate' status. Folding the event populates `view.escalation`.
+  it('Escalation_SurfacedViaShepherdStatus', () => {
+    const events = [
+      makeEvent(1, 'ci.status', { pr: 42, status: 'failing' }),
+      makeEvent(2, 'shepherd.escalated', {
+        featureId: 'feat-x',
+        prNumbers: [42, 43],
+        iterationCount: 5,
+        maxIterations: 5,
+        reason: 'auto-fix bound (5) reached after 5 iterations',
+      }),
+    ];
+
+    const view = materializer.materialize<ShepherdStatusState>(
+      'wf-001',
+      SHEPHERD_STATUS_VIEW,
+      events,
+    );
+
+    expect(view.escalation).toBeDefined();
+    expect(view.escalation!.reason).toBe('auto-fix bound (5) reached after 5 iterations');
+    expect(view.escalation!.iterationCount).toBe(5);
+    expect(view.escalation!.maxIterations).toBe(5);
+    expect(view.escalation!.escalatedAt).toBe(events[1].timestamp);
+    expect(view.overallStatus).toBe('escalate');
+  });
+
   it('Apply_MultiplePrs_TracksIndependently', () => {
     const events = [
       makeEvent(1, 'ci.status', { pr: 1, status: 'passing' }),
