@@ -79,6 +79,7 @@ export const EventTypes = [
   'shepherd.started',
   'shepherd.iteration',
   'shepherd.approval_requested',
+  'shepherd.escalated',
   'shepherd.completed',
   'remediation.attempted',
   'remediation.succeeded',
@@ -462,6 +463,9 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   // auto — emitted by assess-stack orchestration
   'shepherd.started': 'auto',
   'shepherd.approval_requested': 'auto',
+  // auto — emitted by assess-stack on the bound-hit escalate path (DR-3, #1595):
+  // a structured terminal escalation (NOT a hang), surfaced via shepherd_status/ps.
+  'shepherd.escalated': 'auto',
   'shepherd.completed': 'auto',
 
   // auto — emitted by VCS orchestration handlers
@@ -1161,6 +1165,23 @@ export const ShepherdIterationData = z.object({
 
 export const ShepherdApprovalRequestedData = z.object({
   prUrl: z.string(),
+});
+
+// DR-3 (#1595): structured bound-hit escalation. Hitting the auto-fix bound
+// emits this (a structured terminal, NOT a hang — INV-10) so shepherd_status/ps
+// can surface the WHY (reason + counts), not just the derived 'escalate' status.
+export const ShepherdEscalatedData = z.object({
+  featureId: z.string(),
+  prNumbers: z
+    .array(z.number().int().positive())
+    .describe('PRs in the stack at the time the bound was hit'),
+  iterationCount: z.number().int().nonnegative().describe('Iterations run when the bound was hit'),
+  maxIterations: z
+    .number()
+    .int()
+    .positive()
+    .describe('The resolved auto-fix bound that was reached (a positive integer, per escalation-policy)'),
+  reason: z.string().describe('Human-readable escalation reason'),
 });
 
 export const ShepherdCompletedData = z.object({
@@ -2452,6 +2473,7 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'shepherd.started': ShepherdStartedData,
   'shepherd.iteration': ShepherdIterationData,
   'shepherd.approval_requested': ShepherdApprovalRequestedData,
+  'shepherd.escalated': ShepherdEscalatedData,
   'shepherd.completed': ShepherdCompletedData,
 
   // Eval
@@ -2617,6 +2639,7 @@ export type RefinementSuggestedData = z.infer<typeof RefinementSuggestedDataSche
 export type ShepherdStarted = z.infer<typeof ShepherdStartedData>;
 export type ShepherdIteration = z.infer<typeof ShepherdIterationData>;
 export type ShepherdApprovalRequested = z.infer<typeof ShepherdApprovalRequestedData>;
+export type ShepherdEscalated = z.infer<typeof ShepherdEscalatedData>;
 export type ShepherdCompleted = z.infer<typeof ShepherdCompletedData>;
 export type EvalRunStarted = z.infer<typeof EvalRunStartedData>;
 export type EvalCaseCompleted = z.infer<typeof EvalCaseCompletedData>;
@@ -2747,6 +2770,7 @@ export type EventDataMap = {
   'shepherd.started': ShepherdStarted;
   'shepherd.iteration': ShepherdIteration;
   'shepherd.approval_requested': ShepherdApprovalRequested;
+  'shepherd.escalated': ShepherdEscalated;
   'shepherd.completed': ShepherdCompleted;
   'eval.judge.calibrated': JudgeCalibrated;
   'remediation.attempted': RemediationAttempted;

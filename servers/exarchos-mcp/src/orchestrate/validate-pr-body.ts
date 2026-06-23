@@ -8,6 +8,9 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import type { ToolResult } from '../format.js';
+import type { EventStore } from '../event-store/store.js';
+import type { WorkflowIntent } from '../workflow/schemas.js';
+import { readIntent, bodyHasIntentMarker, isMeaningfulIntent } from './extract-intent.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -16,6 +19,16 @@ export interface ValidatePrBodyArgs {
   readonly bodyFile?: string;
   readonly body?: string;
   readonly template?: string;
+  /**
+   * DR-1 (#1593) task 006: when present (with an event store), the handler
+   * fail-soft reads `artifacts.intent` and adds an ADVISORY grounding check —
+   * does the body reference the intent (its `## Intent` marker, or its summary /
+   * surfaces)? Surfaced as `intentGrounded` + an advisory report line. ADVISORY
+   * ONLY: it never changes `passed` (the required-sections gate stays the gate).
+   * Absent featureId / intent / event store → the grounding fields are omitted
+   * (unchanged legacy result).
+   */
+  readonly featureId?: string;
 }
 
 interface ValidatePrBodyResult {
@@ -23,6 +36,12 @@ interface ValidatePrBodyResult {
   readonly missingSections: readonly string[];
   readonly report: string;
   readonly skipped?: boolean;
+  /**
+   * ADVISORY (DR-1 task 006): whether the body is grounded in `artifacts.intent`.
+   * Present only when a meaningful intent was resolved; omitted otherwise. Does
+   * NOT affect `passed`.
+   */
+  readonly intentGrounded?: boolean;
 }
 
 // ─── Constants ─────────────────────────────────────────────────────────────
@@ -112,10 +131,31 @@ function validateSections(
   };
 }
 
+// ─── DR-1 task 006: advisory intent-grounding check ──────────────────────────
+
+/**
+ * Whether the PR body references the captured intent. A body is considered
+ * grounded when it carries the `## Intent` grounding marker (the deterministic
+ * create_pr enrichment) OR independently references the intent's `summary` or
+ * any of its `surfaces`. Pure — case-insensitive substring match, never throws.
+ */
+function isBodyGroundedInIntent(body: string, intent: WorkflowIntent): boolean {
+  if (bodyHasIntentMarker(body)) return true;
+  const haystack = body.toLowerCase();
+  if (intent.summary.trim().length > 0 && haystack.includes(intent.summary.toLowerCase())) {
+    return true;
+  }
+  return intent.surfaces.some(
+    (s) => s.trim().length > 0 && haystack.includes(s.toLowerCase()),
+  );
+}
+
 // ─── Handler ───────────────────────────────────────────────────────────────
 
 export async function handleValidatePrBody(
   args: ValidatePrBodyArgs,
+  _stateDir?: string,
+  eventStore?: EventStore,
 ): Promise<ToolResult> {
   let body: string;
   let author = '';
@@ -184,9 +224,33 @@ export async function handleValidatePrBody(
     requiredSections = DEFAULT_SECTIONS;
   }
 
-  // Validate
+  // Validate (required-sections gate — the load-bearing pass/fail)
   const { passed, missingSections, report } = validateSections(body, requiredSections);
-  const result: ValidatePrBodyResult = { passed, missingSections, report };
 
+  // ─── DR-1 task 006 — ADVISORY intent-grounding check ──────────────────────
+  //
+  // Fail-soft read `artifacts.intent`; when it is meaningful, surface whether
+  // the body references it (`intentGrounded`) plus an advisory report line. This
+  // is ADVISORY ONLY — it MUST NOT change `passed` (the required-sections gate
+  // stays the gate). When no featureId / event store / meaningful intent is
+  // available, the grounding fields are omitted (unchanged legacy result).
+  // INV-6: no `workflowType` branch. Never throws out of validation.
+  const intent = await readIntent(args.featureId, eventStore);
+  if (intent !== undefined && isMeaningfulIntent(intent)) {
+    const intentGrounded = isBodyGroundedInIntent(body, intent);
+    const advisory = intentGrounded
+      ? `Advisory: PR body is grounded in artifacts.intent (${intent.summary}).`
+      : `Advisory: PR body does NOT reference artifacts.intent (${intent.summary}). ` +
+        'Consider grounding it in the intended change (surfaces/summary).';
+    const result: ValidatePrBodyResult = {
+      passed,
+      missingSections,
+      report: `${report}\n${advisory}`,
+      intentGrounded,
+    };
+    return { success: true, data: result };
+  }
+
+  const result: ValidatePrBodyResult = { passed, missingSections, report };
   return { success: true, data: result };
 }

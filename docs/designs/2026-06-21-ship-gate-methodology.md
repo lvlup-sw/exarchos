@@ -126,7 +126,7 @@ Synthesize stays the sole PR creator (already true). Close the two residual gaps
 
 **Acceptance criteria:**
 - The shepherd loop has no path to `create_pr` (it can only push/assess); a regression test asserts a shepherd-context `create_pr` is refused, and the existing `create-pr.ts:122-191` double-create guard is retained and unit-pinned.
-- All ship-path pushes use `git push --force-with-lease=<ref>:<expected-sha>` with the SHA the loop last observed at the remote (from `assess_stack`), not a bare lease; a unit test asserts the explicit-SHA form is emitted.
+- All ship-path pushes use `git push --force-with-lease=<ref>:<expected-sha>` with the SHA from a **fresh `git ls-remote` immediately before push** (the tightest TOCTOU window — see Decision Log #5), not the last `assess_stack` observation and not a bare lease; a unit test asserts the explicit-SHA form is emitted.
 - The skill-layer PR idempotency check and the handler-layer guard are reconciled to one authority (remove the redundant second layer noted in grounding) so a single rule governs "PR already exists."
 
 ### DR-5: (Optional) forcing-function trigger — inline pre-push hook, no daemon
@@ -144,6 +144,25 @@ Each interim pattern is authored to map onto exactly one Workflow Builder SDK co
 - A migration note (in this design's neighborhood and referenced from #1258) tabulates pattern ↦ combinator (DR-1↦`Step.handler` start step; DR-2↦`Step.handler`/`Step.gate` document step; DR-3↦`repeatUntil(…,{maxIterations})` + `awaitApproval(onTimeout/onRejection)`; DR-4↦single `Step.handler('openPR')` owner + `pushWithLease`; DR-5↦git-hook trigger outside the IR).
 - The interim escalation policy's parameter names/semantics (`maxIterations`, ask-user) match the SDK's `repeatUntil` options and `awaitApproval` shape, so consolidation re-uses values, not re-derives them.
 - A guard (lint/test) flags divergence between the interim escalation defaults and the documented SDK combinator semantics, so the two cannot silently fork before consolidation.
+
+### DR-7: Comprehensive, platform-generic PR-feedback ingestion in `assess_stack`
+*(Added at `/plan`, 2026-06-22 — user requirement.)* The shepherd loop's `assess_stack` must harvest **every** comment on a PR — top-level conversation, inline per-line review comments, and review-summary bodies — from **any** author (human, bot like CodeRabbit/Sentry, or the PR owner), preserving **thread nesting** (replies), so the escalation policy (DR-3) and review consumption decide on the complete feedback set. Today `github.getPrComments` deliberately reads **only** the issues-comments endpoint (`repos/{owner}/{repo}/issues/{id}/comments`) to make the `addComment` post-then-verify round-trip work; inline review comments (`/pulls/{id}/comments`), review summaries (`/pulls/{id}/reviews`), and `in_reply_to_id` threading are invisible, and `getReviewStatus` returns only reviewer *states*, not finding text. The fix is a **contract widening, not a GitHub special-case**: generalize `PrComment` to a platform-neutral, thread-aware shape and have `assess_stack` consume it without overfitting to one provider's quirks (INV-6 workload-agnosticism — no workflow-type branch in the harvest; the provider abstraction owns the platform axis).
+
+**Acceptance criteria:**
+- `PrComment` (in `vcs/provider.ts`) gains a platform-neutral, thread-aware shape: a `source` discriminator (`issue-comment | review-inline | review-summary`), `author` (any party), an optional `parentId`/`threadId` for nesting, an optional `resolved?` (absent ≠ false — unknown is explicit), retaining `path`/`line`. No GitHub field names leak into the contract.
+- `github.getPrComments` aggregates **all three sources** — issues comments + inline review comments + review-summary bodies — paginated (`--paginate`), from every author, with replies linked via `parentId`. The existing `addComment` verify path keeps working (the posted comment is still present in the superset; matching stays id/marker-based, not endpoint-shape-based).
+- `assess_stack` consumes the richer feed generically: unresolved-comment and review-address action items are derived from the unified set regardless of source or author; no provider-name or workflow-type conditional in the harvest loop (INV-6). A bot's inline review comment and a human's threaded reply both surface as action items.
+- `gitlab`/`azure-devops` `getPrComments` conform to the **new signature** (compile against the widened `PrComment`); they keep throwing `UnsupportedOperationError` (status quo for every comment op on those providers) — full harvesting impls are deferred follow-ups, explicitly out of scope here. **The deferral is tracked, not silent:** filing two follow-up issues (GitLab notes/discussions harvesting; Azure DevOps threads-API harvesting), each linked to DR-7/#1592 and carrying the platform-neutral `PrComment` contract as its conformance target, is itself a deliverable of the DR-7 bundle.
+- CLI≡MCP parity + registered `outputSchema` preserved for `get_pr_comments`/`assess_stack` (INV-2); the widened `PrComment` is reflected in any registered shape.
+
+**DR-7 SDK mapping.** No new combinator — DR-7 **widens the data contract** the existing shepherd `repeatUntil(s => s.ci.green, …)` loop and the `assess`/`watchCI` step consume. It is a feedback-model enrichment of `Step.handler('watchCI')`/the assess step, not a new step.
+
+**DR-7 implementation grounding (researched 2026-06-22, live GitHub docs).** The harvest aggregates **three REST surfaces**, all `gh api --paginate` (per_page max 100):
+1. `repos/{o}/{r}/issues/{n}/comments` — PR conversation timeline (today's sole source) → `source: 'issue-comment'`.
+2. `repos/{o}/{r}/pulls/{n}/comments` — inline per-line review comments → `source: 'review-inline'`; carry `in_reply_to_id` → `parentId` (threading is **one-level only** — GitHub disallows replies-to-replies, so a flat `parentId` is complete), plus `path`/`line`, `pull_request_review_id`.
+3. `repos/{o}/{r}/pulls/{n}/reviews` — review verdict bodies → `source: 'review-summary'`; carry `body` + `state` (APPROVED | CHANGES_REQUESTED | COMMENTED). (`getReviewStatus` already reads this for *state*; DR-7 also needs the *body*.)
+
+`author` = `user.login` for every surface (bots included — `user.type === 'Bot'`; the existing `review/registry.ts detectKind` already classifies CodeRabbit/Sentry). **Resolved status** is **GraphQL-only** (REST omits it — the `github.ts:126` comment is right about REST): a best-effort `reviewThreads(first:100){ nodes { isResolved isOutdated comments(first:1){ nodes { databaseId } } } }` pass maps `databaseId === REST id` → `resolved`. This enrichment is **fail-soft** (warn + proceed on GraphQL error; map miss ⇒ leave `resolved` absent — *absent ≠ false*, the contract's unknown-is-explicit rule, independently confirmed by the bun/thunderbird harvesters). The `addComment` verify path stays correct: its posted comment is an issue-comment, still present in surface (1) of the superset; matching stays id/marker-based.
 
 ---
 
@@ -230,6 +249,28 @@ Sub-issues (one per DR, independently shippable):
 3. **Forcing function default (DR-5):** ship opt-in only (chosen), or also document a "run after synthesize" convention? No auto-install regardless (POLA).
 4. **Escalation bound defaults (DR-3):** adopt `no-mistakes`' per-step `auto_fix` limits verbatim, or keep Exarchos's current shepherd `5` as the uniform default and let config tune per loop? Lean: uniform default + per-loop config override.
 5. **Lease SHA source (DR-4):** the SHA from the loop's last `assess_stack` observation vs a fresh `git ls-remote` immediately before push (tighter TOCTOU window). Lean: fresh `ls-remote` at push time.
+
+---
+
+## Decision Log — `/ideate`, 2026-06-22
+
+Resolved at ideate entry (epic addressed as a unit: #1592 → #1593–#1598). The five "Lean" answers above are **adopted as final**; the open questions are closed:
+
+| # | Decision (CHOSEN) | DR |
+|---|---|---|
+| 1 | Docs ships as a **`synthesis-readiness` leg** (structural "docs changed when surface changed"); a REVIEW *dimension* is deferred until doc *quality* (not coverage) is shown to be the gap. | DR-2 |
+| 2 | Intent is **diff-derived (always-available INV-4 floor) + transcript enrichment when present** — single code path, no per-runtime branch. | DR-1 |
+| 3 | Forcing function is **opt-in only, never auto-installed** (POLA); a "run after synthesize" convention may be documented but installs nothing. | DR-5 |
+| 4 | Escalation uses a **uniform default (Exarchos's shepherd `5`) + per-loop config override**, not `no-mistakes`' per-step limits verbatim. | DR-3 |
+| 5 | Lease SHA comes from a **fresh `git ls-remote` immediately before push** (tightest TOCTOU window), not the last `assess_stack` observation. | DR-4 |
+
+**Build structure.** Drive #1592 as **one feature workflow** (`1592-ship-gate-methodology`) whose plan decomposes into six independently-mergeable task-bundles, shipped as a short stack of focused PRs in an overlap-minimizing order:
+
+**DR-2 → DR-1 → DR-4 → DR-7 → DR-3 → DR-5 → DR-6.** Rationale: DR-2 is the isolated resolver change (establishes the leg pattern first); DR-1 and DR-4 both touch `create-pr.ts`/`prepare-synthesis.ts` so DR-1's intent edits land before DR-4 hardens the same file; **DR-7 widens the `assess_stack` feedback contract and DR-3 consumes it, so DR-7 precedes DR-3** (both are the `assess-stack.ts`-heavy cluster, sequenced after DR-4's lighter create-pr touch); DR-5 is isolated (git-hook); DR-6 documents the final shapes, so it goes last and captures the as-shipped escalation defaults **and the widened `PrComment` contract** for the divergence guard / SDK migration table.
+
+DR-7 was added at `/plan` from a user requirement (comprehensive, platform-generic PR-feedback harvesting) with the **contract-generic + GitHub-complete** scope chosen: generalize `PrComment` + complete GitHub's three comment sources now; GitLab/ADO conform to the signature but stay `UnsupportedOperationError`, with their full harvesting tracked via two filed follow-up issues (a DR-7 deliverable).
+
+**Reference refresh (since design date, post #1515-Phase4 + #1581).** Structure unchanged, line numbers drifted: `SynthesisLeg` now `phase-kind.ts:76` (was `:66`); `synthesis-readiness` resolver roster at `phase-kind.ts:215`; `create-pr.ts` double-create guard at `:124–193` (was `:122-191`). The shared `ResolveGateSetCtx` coordination risk (roadmap #1599 rule 1) is cleared now that both `riskTier` (#1515) and `designDepth` (#1581) have merged — #1592's additive obligations extend the same struct with no live contender.
 
 ---
 

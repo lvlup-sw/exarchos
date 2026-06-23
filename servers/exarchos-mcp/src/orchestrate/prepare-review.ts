@@ -6,15 +6,18 @@
 // ──────────────────────────────────────────────────────────────────────────────
 
 import type { ToolResult } from '../format.js';
+import type { EventStore } from '../event-store/store.js';
 import { QUALITY_CHECK_CATALOG } from '../review/check-catalog.js';
 import { loadProjectConfig } from '../config/yaml-loader.js';
 import { resolveConfig, DEFAULTS } from '../config/resolve.js';
 import { resolvePlanReviewDepth, type PlanReviewRung } from '../workflow/phase-kind.js';
 import type { DesignDepth } from '../workflow/plan-depth-policy.js';
+import { changedFilesAgainstBase, deriveIntent, persistIntent } from './extract-intent.js';
+import type { WorkflowIntent } from '../workflow/schemas.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-interface PrepareReviewArgs {
+export interface PrepareReviewArgs {
   readonly featureId: string;
   /**
    * Review scope. `'plan'` / `'plan-review'` selects the DR-10 front-of-pipeline
@@ -43,6 +46,13 @@ interface PrepareReviewArgs {
    * consumer (DR-10). Absent ⇒ the `'standard'` rung.
    */
   readonly designDepth?: DesignDepth;
+  /**
+   * The authoring transcript (code-review scope, DR-1 #1593). When supplied, the
+   * extracted `WorkflowIntent` is enriched beyond the diff floor. Used ONLY on
+   * the back-of-pipeline code-review path; the plan-review path is deliberately
+   * transcript-free (adversarial, fresh-context — DR-10) and never reads this.
+   */
+  readonly transcript?: string;
 }
 
 // ─── Finding Format Schema ──────────────────────────────────────────────────
@@ -55,6 +65,56 @@ const FINDING_FORMAT = `interface PluginFinding {
   line?: number;
   message: string;
 }`;
+
+// ─── DR-1 (#1593): intended-vs-delivered review grounding ─────────────────────
+
+/**
+ * The structured review-grounding directive the orchestrator threads into the
+ * spec-review subagent on the code-review path (DR-1 task 005). It pins the
+ * INTENDED change (the captured `artifacts.intent` — surfaces + summary +
+ * optional transcript line) against the DELIVERED diff so the reviewer can flag
+ * intended-but-missing and delivered-but-unintended (scope-creep) work.
+ *
+ * Emitted ONLY when the intent is meaningful (`intent.changedFiles.length > 0`).
+ * On the `NoIntent` path (empty/un-resolvable diff) the directive is omitted and
+ * the review degrades to diff-only — no fabricated intent. INV-6: no
+ * `workflowType` branch; the same shape rides for every workflow type.
+ */
+export interface IntentGrounding {
+  readonly mode: 'intended-vs-delivered';
+  /** The captured intent the delivered diff is checked against. */
+  readonly intended: {
+    readonly surfaces: readonly string[];
+    readonly summary: string;
+    readonly transcriptSummary?: string;
+  };
+  /** The reviewer instruction: verify INTENDED vs DELIVERED, flag both gaps. */
+  readonly instruction: string;
+}
+
+const INTENT_GROUNDING_INSTRUCTION =
+  'Verify INTENDED vs DELIVERED. The orchestrator captured the intended change ' +
+  'in `artifacts.intent` (the `intended` surfaces/summary below); the DELIVERED ' +
+  'change is the diff under review. Confirm the diff fulfils the intended ' +
+  'change, and flag (a) intended-but-missing work and (b) delivered-but-' +
+  'unintended work (scope creep) as spec issues.';
+
+/**
+ * Build the grounding directive when the intent is meaningful, else `undefined`
+ * (the `NoIntent` degrade-to-diff-only path). Pure — no `workflowType` branch.
+ */
+function buildIntentGrounding(intent: WorkflowIntent): IntentGrounding | undefined {
+  if (intent.changedFiles.length === 0) return undefined;
+  return {
+    mode: 'intended-vs-delivered',
+    intended: {
+      surfaces: intent.surfaces,
+      summary: intent.summary,
+      ...(intent.transcriptSummary ? { transcriptSummary: intent.transcriptSummary } : {}),
+    },
+    instruction: INTENT_GROUNDING_INSTRUCTION,
+  };
+}
 
 // ─── DR-10: plan-review provisioning (front-of-pipeline adversarial gate) ─────
 
@@ -153,7 +213,8 @@ function buildPlanReviewProvisioning(args: PrepareReviewArgs): ToolResult {
 
 export async function handlePrepareReview(
   args: PrepareReviewArgs,
-  _stateDir: string,
+  stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   // 1. Validate required fields
   if (!args.featureId) {
@@ -165,12 +226,15 @@ export async function handlePrepareReview(
 
   // 1a. DR-10 — front-of-pipeline plan-review provisioning. A dispatched,
   // fresh-context, adversarial pass over the unified artifact; distinct from the
-  // back-of-pipeline code-review catalog served below.
+  // back-of-pipeline code-review catalog served below. The plan-review path is
+  // deliberately transcript-free — NO intent extraction happens here.
   if (args.scope && PLAN_REVIEW_SCOPES.has(args.scope)) {
     return buildPlanReviewProvisioning(args);
   }
 
-  // 2. Filter catalog by dimensions if requested
+  // 1b. Validate `dimensions` BEFORE any state mutation. An unknown dimension is
+  // INVALID_INPUT and must fail without persisting intent — otherwise a bad
+  // request would still mutate `artifacts.intent` before erroring.
   let dimensions = QUALITY_CHECK_CATALOG.dimensions;
   if (args.dimensions?.length) {
     const validIds = new Set(QUALITY_CHECK_CATALOG.dimensions.map((d) => d.id));
@@ -187,6 +251,24 @@ export async function handlePrepareReview(
     const requested = new Set(args.dimensions);
     dimensions = QUALITY_CHECK_CATALOG.dimensions.filter((d) => requested.has(d.id));
   }
+
+  // 1c. DR-1 (#1593) — back-of-pipeline code-review path ONLY: derive the
+  // diff-floor intent (enriched when a transcript is supplied) and persist it to
+  // `artifacts.intent` via a single state-patch event. This is the intent
+  // FOUNDATION: REVIEW (task 005) and PR-body generation (task 006) read it
+  // back. Fail-soft — `persistIntent` never throws, so the quality-check catalog
+  // is still served even when the state-patch hiccups (an `intentWarning` rides
+  // along on the response). INV-6: the derivation takes no `workflowType`, so
+  // the same path runs for every workflow type. Runs AFTER dimension validation
+  // so an invalid request never reaches this state-mutating step.
+  const intent = deriveIntent(changedFilesAgainstBase(args.repoRoot), {
+    transcript: args.transcript,
+  });
+  const persisted = await persistIntent(args.featureId, intent, stateDir, eventStore);
+  // DR-1 task 005: the review-grounding directive the orchestrator passes into
+  // the spec-review subagent. Present only when the intent is meaningful;
+  // omitted on the `NoIntent` path so the review degrades to diff-only.
+  const intentGrounding = buildIntentGrounding(intent);
 
   // 3. Resolve plugin status from .exarchos.yml if repoRoot provided, else defaults
   const resolved = args.repoRoot
@@ -209,6 +291,14 @@ export async function handlePrepareReview(
       },
       findingFormat: FINDING_FORMAT,
       pluginStatus,
+      // DR-1 (#1593): the derived intent rides along for convenience; the
+      // load-bearing contract is its persistence to `artifacts.intent` above.
+      // The warning surfaces a fail-soft persist so callers aren't silent.
+      intent,
+      ...(persisted.warning ? { intentWarning: persisted.warning } : {}),
+      // DR-1 task 005: the intended-vs-delivered grounding directive — present
+      // only when the intent is meaningful, omitted on the `NoIntent` path.
+      ...(intentGrounding ? { intentGrounding } : {}),
     },
   };
 }

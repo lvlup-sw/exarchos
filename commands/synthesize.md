@@ -70,14 +70,15 @@ Tests: X pass | Build: 0 errors
 You can make direct edits to stack branches at any time:
 - Edit files in your IDE
 - Stage and amend: `git add <files> && git commit --amend -m "fix: <description>"`
-- Push the changes: `git push --force-with-lease`
+- Push the changes: `git push --force-with-lease=<ref>:<expected-sha>` — always the **explicit-SHA** form, never a bare `--force-with-lease` (a bare lease anchors to the stale local remote-tracking ref and can clobber a concurrent push). `<expected-sha>` is the remote SHA last observed by the loop via `assess_stack`, or read fresh with `git ls-remote --heads origin <ref>`.
 
 ## Idempotency
 
-Before synthesizing, check synthesis status:
-1. Check if `synthesis.prUrl` exists in state
-2. If PR exists and is open, skip to merge confirmation
-3. If PR merged, transition phase to "completed" via `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "transition"`, `target: "completed"` (the runtime rejects `updates.phase`; the canonical `transition` action runs the HSM guard and emits `workflow.transition`). Note: the post-merge `completed` transition is normally owned by `/exarchos:cleanup` via `action: "cleanup"`; this idempotency branch is a manual-cleanup escape hatch.
+`create_pr` is the **single authority** for "PR already exists" — do NOT pre-check `synthesis.prUrl`/`artifacts.pr` before deciding whether to create. Just call `create_pr`: it either returns the existing open PR for this (head, base) via its remote-recovery guard, or refuses with `PR_ALREADY_OWNED` when the workflow already owns a PR. Branch on that structured response instead of pre-checking.
+
+The post-merge cleanup case is distinct from create-time idempotency and is NOT governed by `create_pr`:
+
+- If the PR is already **merged**, transition phase to "completed" via `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "transition"`, `target: "completed"` (the runtime rejects `updates.phase`; the canonical `transition` action runs the HSM guard and emits `workflow.transition`). Note: the post-merge `completed` transition is normally owned by `/exarchos:cleanup` via `action: "cleanup"`; this branch is a manual-cleanup escape hatch.
 
 ## Human Checkpoint
 

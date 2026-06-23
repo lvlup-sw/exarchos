@@ -499,4 +499,183 @@ describe('handleReviewVerdict', () => {
       });
     });
   });
+
+  // ─── Bounded Fix-Loop (DR-3, #1595) ──────────────────────────────────────
+
+  describe('bounded fix-loop escalation', () => {
+    /**
+     * Build a prior `review-verdict` NEEDS_FIXES `gate.executed` event — the
+     * single event-sourced source the handler counts to derive the fix-cycle
+     * iteration. `count` of these seeds an iteration of `count`.
+     */
+    const needsFixesGateEvent = () => ({
+      type: 'gate.executed',
+      data: {
+        gateName: 'review-verdict',
+        layer: 'review',
+        passed: false,
+        details: { verdict: 'NEEDS_FIXES', phase: 'review', high: 1, medium: 0, low: 0 },
+      },
+    });
+
+    const seedPriorFixCycles = (n: number) => {
+      mockStore.query.mockResolvedValue(
+        Array.from({ length: n }, () => needsFixesGateEvent()),
+      );
+    };
+
+    it('SpecReview_FixLoop_BoundedByPolicy', async () => {
+      // 2 prior fix cycles, default bound of 5, mechanical findings → still
+      // routes to fixes, no escalation, report surfaces the remaining budget.
+      seedPriorFixCycles(2);
+      const result = await handleReviewVerdict(
+        { featureId: 'feat-bound', high: 1, medium: 0, low: 0 },
+        STATE_DIR,
+        mockStore as unknown as EventStore,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as { verdict: string; escalate?: boolean; report: string };
+      expect(data.verdict).toBe('NEEDS_FIXES');
+      expect(data.escalate).toBeFalsy();
+      // Routes to fixes as today, with the next-cycle budget surfaced.
+      expect(data.report).toMatch(/delegate.*fixes/i);
+      expect(data.report).toContain('fix cycle 3/5');
+
+      // No escalation gate event emitted on the still-auto-fixable path: only the
+      // summary review-verdict event for this pass.
+      const gateNames = mockStore.append.mock.calls.map(
+        (c) => (c[1] as { data: { gateName: string } }).data.gateName,
+      );
+      expect(gateNames).toContain('review-verdict');
+      expect(gateNames).not.toContain('review-escalation');
+    });
+
+    it('SpecReview_BoundHit_Escalates', async () => {
+      // 5 prior fix cycles == default bound → escalate, no further fix loop, and
+      // a structured escalation event is emitted.
+      seedPriorFixCycles(5);
+      const result = await handleReviewVerdict(
+        { featureId: 'feat-hit', high: 2, medium: 0, low: 0 },
+        STATE_DIR,
+        mockStore as unknown as EventStore,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        verdict: string;
+        escalate?: boolean;
+        escalationReason?: string;
+        report: string;
+      };
+      expect(data.verdict).toBe('NEEDS_FIXES');
+      expect(data.escalate).toBe(true);
+      expect(data.escalationReason).toMatch(/bound/i);
+      // The escalation report does NOT re-issue a /delegate --fixes instruction.
+      expect(data.report).not.toMatch(/Route to `\/delegate --fixes`/);
+      expect(data.report).toMatch(/escalat/i);
+
+      // A structured review-escalation gate event is emitted (event-sourced).
+      const escalationCall = mockStore.append.mock.calls.find(
+        (c) => (c[1] as { data: { gateName: string } }).data.gateName === 'review-escalation',
+      );
+      expect(escalationCall).toBeDefined();
+      const escalationEvent = escalationCall![1] as {
+        type: string;
+        data: { gateName: string; passed: boolean; details: Record<string, unknown> };
+      };
+      expect(escalationEvent.type).toBe('gate.executed');
+      expect(escalationEvent.data.passed).toBe(false);
+      expect(escalationEvent.data.details.priorFixCount).toBe(5);
+      expect(escalationEvent.data.details.maxIterations).toBe(5);
+      expect(escalationEvent.data.details.findingClass).toBe('mechanical');
+    });
+
+    it('SpecReview_IntentTouchingFinding_EscalatesImmediately', async () => {
+      // No prior fix cycles (iteration 0, well under the bound) but a
+      // spec-category finding → escalate immediately, never loop.
+      seedPriorFixCycles(0);
+      const result = await handleReviewVerdict(
+        {
+          featureId: 'feat-intent',
+          high: 1,
+          medium: 0,
+          low: 0,
+          pluginFindings: [
+            { source: 'spec-review', severity: 'HIGH', category: 'spec', message: 'Intended-but-missing surface' },
+          ],
+        },
+        STATE_DIR,
+        mockStore as unknown as EventStore,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as { verdict: string; escalate?: boolean; escalationReason?: string };
+      expect(data.verdict).toBe('NEEDS_FIXES');
+      expect(data.escalate).toBe(true);
+      expect(data.escalationReason).toMatch(/intent-touching/i);
+
+      const escalationCall = mockStore.append.mock.calls.find(
+        (c) => (c[1] as { data: { gateName: string } }).data.gateName === 'review-escalation',
+      );
+      expect(escalationCall).toBeDefined();
+      const escalationEvent = escalationCall![1] as {
+        data: { details: Record<string, unknown> };
+      };
+      expect(escalationEvent.data.details.findingClass).toBe('intent-touching');
+      expect(escalationEvent.data.details.priorFixCount).toBe(0);
+    });
+
+    it('SpecReview_PerLoopOverride_TightensBound', async () => {
+      // maxFixCycles override of 2 (vs default 5): 2 prior cycles hits the bound.
+      seedPriorFixCycles(2);
+      const result = await handleReviewVerdict(
+        { featureId: 'feat-override', high: 1, medium: 0, low: 0, maxFixCycles: 2 },
+        STATE_DIR,
+        mockStore as unknown as EventStore,
+      );
+
+      const data = result.data as { escalate?: boolean; escalationReason?: string };
+      expect(data.escalate).toBe(true);
+      expect(data.escalationReason).toMatch(/bound \(2\)/);
+    });
+
+    it('SpecReview_ConfigBound_Resolves', async () => {
+      // projectConfig.escalation.maxIterations of 3: 3 prior cycles hits the bound.
+      seedPriorFixCycles(3);
+      const result = await handleReviewVerdict(
+        {
+          featureId: 'feat-config',
+          high: 1,
+          medium: 0,
+          low: 0,
+          projectConfig: { escalation: { maxIterations: 3 } } as never,
+        },
+        STATE_DIR,
+        mockStore as unknown as EventStore,
+      );
+
+      const data = result.data as { escalate?: boolean; report: string };
+      expect(data.escalate).toBe(true);
+      expect(data.report).toContain('3/3');
+    });
+
+    it('SpecReview_Approved_NoEscalationFields', async () => {
+      // APPROVED is unchanged — no escalate fields, no escalation event.
+      seedPriorFixCycles(9);
+      const result = await handleReviewVerdict(
+        { featureId: 'feat-approved', high: 0, medium: 2, low: 0 },
+        STATE_DIR,
+        mockStore as unknown as EventStore,
+      );
+
+      const data = result.data as { verdict: string; escalate?: boolean };
+      expect(data.verdict).toBe('APPROVED');
+      expect(data.escalate).toBeUndefined();
+      const gateNames = mockStore.append.mock.calls.map(
+        (c) => (c[1] as { data: { gateName: string } }).data.gateName,
+      );
+      expect(gateNames).not.toContain('review-escalation');
+    });
+  });
 });

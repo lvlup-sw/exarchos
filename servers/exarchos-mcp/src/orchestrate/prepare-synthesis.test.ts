@@ -25,7 +25,13 @@ import { getOrCreateMaterializer } from '../views/tools.js';
 
 // ─── Import handler under test ─────────────────────────────────────────────
 
-import { handlePrepareSynthesis } from './prepare-synthesis.js';
+import {
+  handlePrepareSynthesis,
+  evaluateDocumentLeg,
+  documentLegBlocks,
+  type DocumentLegConfig,
+} from './prepare-synthesis.js';
+import type { ResolvedProjectConfig } from '../config/resolve.js';
 
 // ─── Test Helpers ──────────────────────────────────────────────────────────
 
@@ -527,5 +533,145 @@ describe('handlePrepareSynthesis', () => {
     expect(data.ready).toBe(false);
     expect(data.typecheck.passed).toBe(false);
     expect(data.typecheck.errorCount).toBeGreaterThan(0);
+  });
+
+  // ─── DR-2 (#1594): document-readiness leg ─────────────────────────────────
+
+  it('PrepareSynthesis_DocBearingSurfaceNoDocChange_FailsDocumentLeg', async () => {
+    // Arrange — tasks complete; git diff returns a doc-bearing source file with
+    // no doc change; config marks **/*.ts a surface, severity blocking. Also
+    // exercises the adapter-equivalent projectConfig threading at the handler.
+    const mockMaterializer = createMockMaterializer(mockTaskDetailView({ t1: { status: 'completed' } }));
+    const mockStore = createMockEventStore(tasksToEvents({ t1: { status: 'completed' } }));
+    vi.mocked(getOrCreateMaterializer).mockReturnValue(
+      mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>,
+    );
+    vi.mocked(execSync).mockReturnValue(Buffer.from('src/registry.ts'));
+
+    // Act
+    const result = await handlePrepareSynthesis(
+      {
+        featureId: 'test-feature',
+        projectConfig: {
+          synthesis: {
+            documentLeg: { severity: 'blocking', surfaceGlobs: ['**/*.ts'], docGlobs: ['docs/**'] },
+          },
+        } as unknown as ResolvedProjectConfig,
+      },
+      tmpDir,
+      mockStore as unknown as EventStore,
+    );
+
+    // Assert — document-coverage gate emitted passed:false; synthesis blocked.
+    const docGate = mockStore.append.mock.calls.find((call: unknown[]) => {
+      const e = call[1] as { type: string; data: { gateName: string } };
+      return e.type === 'gate.executed' && e.data.gateName === 'document-coverage';
+    });
+    expect(docGate).toBeDefined();
+    expect((docGate![1] as { data: { passed: boolean; layer: string } }).data.passed).toBe(false);
+    expect((docGate![1] as { data: { layer: string } }).data.layer).toBe('synthesize');
+    const data = result.data as { ready: boolean; readiness: { documentReady: boolean } };
+    expect(data.readiness.documentReady).toBe(false);
+    expect(data.ready).toBe(false);
+  });
+
+  it('PrepareSynthesis_AdvisoryUncoveredDoc_EmitsGateButDoesNotBlock', async () => {
+    // Same surface gap, but advisory severity (the default) ⇒ gate records
+    // passed:false (visible) yet documentReady stays true (warns, never blocks).
+    const mockMaterializer = createMockMaterializer(mockTaskDetailView({ t1: { status: 'completed' } }));
+    const mockStore = createMockEventStore(tasksToEvents({ t1: { status: 'completed' } }));
+    vi.mocked(getOrCreateMaterializer).mockReturnValue(
+      mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>,
+    );
+    vi.mocked(execSync).mockReturnValue(Buffer.from('src/registry.ts'));
+
+    const result = await handlePrepareSynthesis(
+      {
+        featureId: 'test-feature',
+        projectConfig: {
+          synthesis: {
+            documentLeg: { severity: 'advisory', surfaceGlobs: ['**/*.ts'], docGlobs: ['docs/**'] },
+          },
+        } as unknown as ResolvedProjectConfig,
+      },
+      tmpDir,
+      mockStore as unknown as EventStore,
+    );
+
+    const docGate = mockStore.append.mock.calls.find((call: unknown[]) => {
+      const e = call[1] as { type: string; data: { gateName: string } };
+      return e.type === 'gate.executed' && e.data.gateName === 'document-coverage';
+    });
+    expect((docGate![1] as { data: { passed: boolean } }).data.passed).toBe(false);
+    const data = result.data as { readiness: { documentReady: boolean } };
+    expect(data.readiness.documentReady).toBe(true);
+  });
+});
+
+// ─── DR-2 (#1594): document-leg pure evaluation ─────────────────────────────
+
+describe('evaluateDocumentLeg (DR-2)', () => {
+  const cfg = (over: Partial<DocumentLegConfig> = {}): DocumentLegConfig => ({
+    severity: 'advisory',
+    surfaceGlobs: [],
+    docGlobs: ['docs/**', '**/*.md'],
+    ...over,
+  });
+
+  it('DocumentLeg_NoSurfaceTouched_AutoWaives', () => {
+    const r = evaluateDocumentLeg(['src/foo.ts'], cfg({ surfaceGlobs: ['commands/**'] }));
+    expect(r.evaluated).toBe(false);
+    expect(r.covered).toBe(true);
+  });
+
+  it('DocumentLeg_SurfaceTouchedDocsChanged_Covered', () => {
+    const r = evaluateDocumentLeg(
+      ['servers/exarchos-mcp/src/registry.ts', 'docs/guide.md'],
+      cfg({ surfaceGlobs: ['**/registry.ts'] }),
+    );
+    expect(r.evaluated).toBe(true);
+    expect(r.covered).toBe(true);
+  });
+
+  it('DocumentLeg_SurfaceTouchedNoDocs_FailsWithMessage', () => {
+    const r = evaluateDocumentLeg(
+      ['servers/exarchos-mcp/src/registry.ts'],
+      cfg({ surfaceGlobs: ['**/registry.ts'] }),
+    );
+    expect(r.evaluated).toBe(true);
+    expect(r.covered).toBe(false);
+    expect(r.surfaceFiles).toContain('servers/exarchos-mcp/src/registry.ts');
+    expect(r.message).toMatch(/without a documentation update/);
+  });
+});
+
+describe('documentLegBlocks (DR-2)', () => {
+  it('DocumentLeg_DefaultSeverity_IsAdvisory', () => {
+    const r = evaluateDocumentLeg(['src/registry.ts'], {
+      severity: 'advisory',
+      surfaceGlobs: ['**/*.ts'],
+      docGlobs: ['docs/**'],
+    });
+    expect(r.covered).toBe(false);
+    expect(documentLegBlocks(r)).toBe(false);
+  });
+
+  it('DocumentLeg_SeverityConfig_ResolvesAdvisoryToBlocking', () => {
+    const r = evaluateDocumentLeg(['src/registry.ts'], {
+      severity: 'blocking',
+      surfaceGlobs: ['**/*.ts'],
+      docGlobs: ['docs/**'],
+    });
+    expect(r.covered).toBe(false);
+    expect(documentLegBlocks(r)).toBe(true);
+  });
+
+  it('DocumentLegBlocks_CoveredLeg_NeverBlocks', () => {
+    const r = evaluateDocumentLeg(['src/registry.ts', 'docs/x.md'], {
+      severity: 'blocking',
+      surfaceGlobs: ['**/*.ts'],
+      docGlobs: ['docs/**'],
+    });
+    expect(documentLegBlocks(r)).toBe(false);
   });
 });

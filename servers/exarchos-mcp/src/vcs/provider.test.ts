@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { GitLabProvider } from './gitlab.js';
 import { AzureDevOpsProvider } from './azure-devops.js';
-import type { VcsProvider } from './provider.js';
+import { isResolvedKnown } from './provider.js';
+import type { PrComment, VcsProvider } from './provider.js';
 
 describe('VcsProvider', () => {
   it('VcsProvider_Interface_DefinesRequiredMethods', () => {
@@ -77,5 +78,71 @@ describe('VcsProvider', () => {
     await expect(provider.createIssue({ title: 't', body: 'b' })).rejects.toThrow(/not yet supported/i);
     await expect(provider.searchIssuesByMarker('op-1')).rejects.toThrow(/not yet supported/i);
     await expect(provider.getRepository()).rejects.toThrow(/not yet supported/i);
+  });
+
+  it('PrComment_Shape_CarriesSourceAuthorThreadResolved', () => {
+    // Exercise every field of the widened, platform-neutral contract and
+    // assert each round-trips / is accessible.
+    const comment: PrComment = {
+      id: 42,
+      author: 'octocat',
+      body: 'please address this',
+      createdAt: '2026-06-22T00:00:00Z',
+      source: 'review-inline',
+      path: 'src/foo.ts',
+      line: 17,
+      parentId: 7,
+      resolved: true,
+    };
+    expect(comment.id).toBe(42);
+    expect(comment.author).toBe('octocat');
+    expect(comment.body).toBe('please address this');
+    expect(comment.createdAt).toBe('2026-06-22T00:00:00Z');
+    expect(comment.source).toBe('review-inline');
+    expect(comment.path).toBe('src/foo.ts');
+    expect(comment.line).toBe(17);
+    expect(comment.parentId).toBe(7);
+    expect(comment.resolved).toBe(true);
+
+    // `state` rides only on review-summary sources.
+    const summary: PrComment = {
+      id: 1,
+      author: 'reviewer',
+      body: '',
+      createdAt: '2026-06-22T00:00:00Z',
+      source: 'review-summary',
+      state: 'CHANGES_REQUESTED',
+    };
+    expect(summary.source).toBe('review-summary');
+    expect(summary.state).toBe('CHANGES_REQUESTED');
+  });
+
+  it('PrComment_Resolved_AbsentIsUnknownNotFalse', () => {
+    // Tri-state pin: absent `resolved` must stay distinguishable from an
+    // explicit `false`, so a consumer can never silently coerce absent → false.
+    const explicit: PrComment = {
+      id: 1,
+      author: 'a',
+      body: 'b',
+      createdAt: '2026-06-22T00:00:00Z',
+      source: 'issue-comment',
+      resolved: false,
+    };
+    const unknown: PrComment = {
+      id: 2,
+      author: 'a',
+      body: 'b',
+      createdAt: '2026-06-22T00:00:00Z',
+      source: 'issue-comment',
+    };
+
+    // The two are distinguishable at the value level.
+    expect(explicit.resolved).toBe(false);
+    expect(unknown.resolved).toBeUndefined();
+    expect(unknown.resolved).not.toBe(false);
+
+    // The exposed helper treats absent as "unknown", not as resolved/false.
+    expect(isResolvedKnown(explicit)).toBe(true);
+    expect(isResolvedKnown(unknown)).toBe(false);
   });
 });

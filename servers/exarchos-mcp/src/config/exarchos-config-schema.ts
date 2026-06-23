@@ -263,6 +263,47 @@ export const StorageConfigSchema = z
 
 export type StorageConfig = z.infer<typeof StorageConfigSchema>;
 
+/**
+ * `synthesis.documentLeg` (DR-2, #1594) — tunes the SYNTHESIZE-kind `document`
+ * readiness leg. `severity` selects whether an uncovered doc-bearing change
+ * blocks synthesis (`'blocking'`) or merely warns (`'advisory'`, the default —
+ * a safe rollout). `surfaceGlobs` declares which changed paths count as a
+ * doc-bearing surface (default empty ⇒ the leg auto-waives, so it is opt-in and
+ * never overfit to one repo's layout); `docGlobs` declares what counts as a
+ * documentation change (default `docs/**` + any `*.md`).
+ */
+export const SynthesisConfigSchema = z
+  .object({
+    documentLeg: z
+      .object({
+        severity: z.enum(['advisory', 'blocking']).optional(),
+        surfaceGlobs: z.array(z.string()).optional(),
+        docGlobs: z.array(z.string()).optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+export type SynthesisConfig = z.infer<typeof SynthesisConfigSchema>;
+
+/**
+ * `escalation` (DR-3, #1595) — tunes the shared escalation policy consumed by
+ * the spec-review, quality-review, and shepherd fix-loops. `maxIterations` is
+ * the per-loop auto-fix bound: how many times a loop may auto-fix a mechanical
+ * finding before escalating to the user. Resolves to a uniform default of `5`
+ * (see `DEFAULT_MAX_ITERATIONS` in `orchestrate/escalation-policy.ts`); a
+ * project raises or lowers the bound here. A per-loop call-site override takes
+ * precedence over this config value.
+ */
+export const EscalationConfigSchema = z
+  .object({
+    maxIterations: z.number().int().positive().optional(),
+  })
+  .strict();
+
+export type EscalationConfig = z.infer<typeof EscalationConfigSchema>;
+
 export const ExarchosConfigSchema = z
   .object({
     test: safeCommand.optional(),
@@ -281,6 +322,8 @@ export const ExarchosConfigSchema = z
     cli: CliConfigSchema.optional(),
     invariants: InvariantsConfigSchema.optional(),
     storage: StorageConfigSchema.optional(),
+    synthesis: SynthesisConfigSchema.optional(),
+    escalation: EscalationConfigSchema.optional(),
   })
   .strict();
 

@@ -12,7 +12,13 @@ import { requiresGitHub } from '../vcs/require-github.js';
 import { createVcsProvider } from '../vcs/factory.js';
 import type { EventStore } from '../event-store/store.js';
 import type { ToolResult } from '../format.js';
+import type { ResolvedProjectConfig } from '../config/resolve.js';
 import { orchestrateLogger } from '../logger.js';
+import {
+  countShepherdIterations,
+  resolveEscalationPolicy,
+  DEFAULT_MAX_ITERATIONS,
+} from './escalation-policy.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -40,6 +46,12 @@ interface PrComment {
   readonly fullBody: string;   // untruncated; consumed by review provider adapters (#1159)
   readonly isResolved: boolean;
   readonly actionItem?: ActionItem;  // populated by provider adapter dispatch (#1159)
+  // Observability only — carried through from the unified PR-feedback feed so
+  // callers can see which surface a comment came from and whether it threads a
+  // reply. NOT a dispatch branch: the harvest loop treats every source the same
+  // (INV-6). `source`/`parentId` are absent only when the provider omits them.
+  readonly source?: VcsPrComment['source'];
+  readonly parentId?: number;
 }
 
 import type { Severity, ReviewerKind, ActionItem, ReviewAdapterRegistry } from '../review/types.js';
@@ -59,7 +71,10 @@ export interface AssessStackResult {
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const MAX_SHEPHERD_ITERATIONS = 5;
+// Module default auto-fix bound for the shepherd loop. It is the SAME value
+// `resolveEscalationPolicy` falls back to (`DEFAULT_MAX_ITERATIONS`); the live
+// bound is resolved per-dispatch from config (DR-3, #1595), not read from here.
+const MAX_SHEPHERD_ITERATIONS = DEFAULT_MAX_ITERATIONS;
 
 // ─── Comment Truncation ─────────────────────────────────────────────────────
 
@@ -122,8 +137,13 @@ async function queryPrComments(
 ): Promise<PrComment[]> {
   try {
     const comments: VcsPrComment[] = await provider.getPrComments(String(prNumber));
-    // All comments from VcsProvider are treated as unresolved
-    // (GitHub API doesn't provide isResolved for review comments)
+    // `getPrComments` now returns the unified, aggregated PR-feedback feed
+    // (issue-comment | review-inline | review-summary, with one-level threading)
+    // and a tri-state `resolved`. The github provider enriches review threads via
+    // GraphQL; other surfaces leave `resolved` absent. We honor that tri-state
+    // below: ONLY `resolved === true` is treated as resolved. Absent = unknown,
+    // and an unknown-resolution comment still needs attention, so it stays
+    // surfaced (absent ≠ false).
     const results: PrComment[] = [];
     for (const c of comments) {
       const kind = detectKind(c.author);
@@ -168,8 +188,12 @@ async function queryPrComments(
       results.push({
         body: truncateBody(c.body),
         fullBody: c.body,
-        isResolved: false,
+        // Tri-state gate: resolved ONLY when the provider explicitly says so.
+        // `resolved === false` and absent/unknown both stay unresolved.
+        isResolved: c.resolved === true,
         actionItem,
+        source: c.source,
+        ...(c.parentId !== undefined ? { parentId: c.parentId } : {}),
       });
     }
     return results;
@@ -270,8 +294,9 @@ export function computeRecommendation(
   actionItems: readonly ActionItem[],
   iterationCount: number,
   prStatuses?: readonly PrStatus[],
+  maxIterations: number = MAX_SHEPHERD_ITERATIONS,
 ): 'request-approval' | 'fix-and-resubmit' | 'wait' | 'escalate' {
-  if (iterationCount >= MAX_SHEPHERD_ITERATIONS) {
+  if (iterationCount >= maxIterations) {
     return 'escalate';
   }
 
@@ -351,12 +376,17 @@ async function emitGateExecutedEvents(
 
 // ─── Iteration Count from Event Store ───────────────────────────────────────
 
+// The loop's iteration count derives from the SINGLE event-sourced authority
+// (`countShepherdIterations`, DR-3 #1595) — the number of `shepherd.iteration`
+// events — NOT from any `iteration` value stamped in a payload. The shepherd-
+// status view folds the same rule, so the loop and `shepherd_status`/`ps` can
+// never disagree about how many iterations have run (INV-1: one counter).
 async function getIterationCount(
   eventStore: EventStore,
   featureId: string,
 ): Promise<number> {
   const events = await eventStore.query(featureId, { type: 'shepherd.iteration' });
-  return events.length;
+  return countShepherdIterations(events);
 }
 
 // ─── Shepherd Lifecycle Helpers ──────────────────────────────────────────────
@@ -396,6 +426,33 @@ async function emitShepherdApprovalRequested(
   });
 }
 
+// DR-3 (#1595): on the bound-hit escalate path, emit a STRUCTURED escalation
+// (NOT a hang — INV-10). The handler records the reason + counts, then returns
+// its normal terminal result carrying `recommendation:'escalate'`; it does not
+// loop or wait. Idempotency-keyed on `iterationCount` so re-assessment at the
+// same count does not double-emit. Mirrors `emitShepherdApprovalRequested`.
+async function emitShepherdEscalated(
+  eventStore: EventStore,
+  featureId: string,
+  prNumbers: readonly number[],
+  iterationCount: number,
+  maxIterations: number,
+): Promise<void> {
+  const reason = `auto-fix bound (${maxIterations}) reached after ${iterationCount} iterations`;
+  await eventStore.append(featureId, {
+    type: 'shepherd.escalated' as const,
+    data: {
+      featureId,
+      prNumbers: [...prNumbers],
+      iterationCount,
+      maxIterations,
+      reason,
+    },
+  }, {
+    idempotencyKey: `${featureId}:shepherd.escalated:${iterationCount}`,
+  });
+}
+
 async function queryPrMergeState(provider: VcsProvider, prNumber: number): Promise<number | null> {
   try {
     const prs = await provider.listPrs({ head: undefined, state: 'all' });
@@ -428,7 +485,7 @@ async function emitShepherdCompleted(
 // ─── Handler ─────────────────────────────────────────────────────────────────
 
 export async function handleAssessStack(
-  args: { featureId: string; prNumbers: number[] },
+  args: { featureId: string; prNumbers: number[]; projectConfig?: ResolvedProjectConfig },
   _stateDir: string,
   injectedEventStore: EventStore,
   provider?: VcsProvider,
@@ -486,8 +543,21 @@ export async function handleAssessStack(
   // Classify action items
   const actionItems = classifyActionItems(prStatuses);
 
+  // Resolve the auto-fix bound from the shared escalation policy (DR-3, #1595):
+  // config-resolvable, falls back to the module default. The loop and the
+  // recommendation gate use the SAME resolved bound (INV-1; the bound is
+  // workload-agnostic — no per-workflow branch, INV-6).
+  const { maxIterations } = resolveEscalationPolicy({
+    configMaxIterations: args.projectConfig?.escalation?.maxIterations,
+  });
+
   // Compute recommendation
-  const recommendation = computeRecommendation(actionItems, iterationCount, prStatuses);
+  const recommendation = computeRecommendation(
+    actionItems,
+    iterationCount,
+    prStatuses,
+    maxIterations,
+  );
 
   // Emit shepherd.approval_requested when recommendation is request-approval
   // Guard: never emit approval_requested when a PR is already merged (shepherd.completed wins)
@@ -497,6 +567,21 @@ export async function handleAssessStack(
     if (completedEvents.length === 0) {
       await emitShepherdApprovalRequested(eventStore, args.featureId, args.prNumbers, iterationCount);
     }
+  }
+
+  // Emit shepherd.escalated on the bound-hit path (DR-3, #1595): a STRUCTURED
+  // terminal escalation, NOT a hang (INV-10). The handler records the reason +
+  // counts here, then falls through to RETURN its normal terminal result with
+  // `recommendation:'escalate'` — it does not loop or wait. Idempotency on
+  // `iterationCount` prevents a double-emit if assessed again at the same count.
+  if (recommendation === 'escalate') {
+    await emitShepherdEscalated(
+      eventStore,
+      args.featureId,
+      args.prNumbers,
+      iterationCount,
+      maxIterations,
+    );
   }
 
   // Build result

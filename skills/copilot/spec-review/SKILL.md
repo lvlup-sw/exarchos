@@ -98,12 +98,22 @@ This enables catching:
 - Test adequacy (outcome-based, tier-scaled — not test-first ordering)
 - Specification alignment
 - Test coverage
+- Intended-vs-delivered: the delivered diff fulfils `artifacts.intent` — no intended-but-missing or delivered-but-unintended (scope-creep) work (when `intentGrounding` is supplied)
 
 **Does NOT cover (that's Quality Review):**
 - Code style
 - SOLID principles
 - Performance optimization
 - Error handling elegance
+
+### Intended-vs-Delivered Grounding
+
+The orchestrator captures the **intended** change as `artifacts.intent` (surfaces, a summary, and — when available — a one-line transcript summary) and threads it into your dispatch as an `intentGrounding` directive on the back-of-pipeline code-review path. When present, you MUST verify the delivered diff against the intended change:
+
+- **Intended-but-missing** — a surface or outcome the intent calls for that the diff does not deliver. Flag as a `spec` issue.
+- **Delivered-but-unintended (scope creep)** — changes outside the intended surfaces/summary with no spec justification. Flag as a `spec` issue.
+
+When no `intentGrounding` is supplied (an empty or un-resolvable diff), proceed against the diff alone — do NOT fabricate an intent. This grounding is additive to the spec-alignment checks below, not a replacement for them.
 
 ## Review Checklist
 
@@ -128,15 +138,25 @@ exarchos_orchestrate({
 
 ## Fix Loop
 
-If review FAILS:
+If review FAILS, the fix-loop is **bounded by the shared escalation policy** (config-resolvable `escalation.maxIterations`, default **5**) — it does NOT loop unboundedly. `check_review_verdict` returns the escalate decision the loop MUST honor: on a `NEEDS_FIXES` verdict it carries `escalate: true` + `escalationReason` when the loop must stop (the auto-fix bound was hit OR a finding is intent-touching), and the report's routing instruction reflects this.
+
+**Two outcomes:**
+
+1. **Auto-fix (under the bound, MECHANICAL findings)** — `escalate` is absent/falsy. Re-dispatch to the implementer and re-review, as below. The verdict report surfaces the remaining budget (e.g. "fix cycle N/maxIterations").
+2. **Escalate to the user (ask-user)** — `escalate: true`. Do NOT re-dispatch `/delegate --fixes`. Surface the findings and `escalationReason` to the user and ask how to proceed (accept, redesign, or adjust scope). This happens when EITHER:
+   - the auto-fix bound (`escalation.maxIterations`, default 5) is reached — the loop has fixed-and-re-reviewed that many times without converging; OR
+   - a finding is **intent-touching** — a `spec`-category issue (intended-but-missing or scope-creep) that changes what was asked for, so a human decides rather than the loop silently "fixing" it. Intent-touching findings escalate immediately, regardless of how many cycles have run.
+
+The fix-cycle count is event-sourced (prior `review-verdict` NEEDS_FIXES gate events) — there is no separate counter to maintain, and `check_review_verdict` reads it for you.
+
+**Auto-fix path — re-dispatch to implementer:**
 
 1. Create fix task with specific issues
 2. Dispatch to implementer (same or new)
-3. Re-review after fixes
-4. Repeat until PASS
+3. Re-review after fixes — `check_review_verdict` re-evaluates the bound each pass
 
 ```typescript
-// Return to implementer
+// Return to implementer (auto-fix path only — when escalate is falsy)
 Task({
   model: "opus",
   description: "Fix spec review issues",

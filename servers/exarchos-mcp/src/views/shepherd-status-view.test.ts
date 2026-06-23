@@ -6,6 +6,7 @@ import {
 } from './shepherd-status-view.js';
 import type { ShepherdStatusState } from './shepherd-status-view.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
+import { countShepherdIterations } from '../orchestrate/escalation-policy.js';
 
 function makeEvent(
   seq: number,
@@ -178,11 +179,28 @@ describe('ShepherdStatusView', () => {
     expect(view.prs[0].comments.unresolved).toBe(0);
   });
 
+  // DR-3 (#1595): the view's `iteration` is the COUNT of `shepherd.iteration`
+  // events, not the `iteration` value stamped in any payload. Three events with
+  // garbage/duplicate payload values still fold to `iteration === 3`. (Was a
+  // single event with `iteration: 3` expecting `3` — the OLD payload-value
+  // semantics this task removes.)
   it('Apply_ShepherdIteration_IncrementsIteration', () => {
     const events = [
       makeEvent(1, 'shepherd.iteration', {
         prUrl: 'https://github.com/pr/42',
-        iteration: 3,
+        iteration: 99, // payload value is no longer the authority
+        action: 'push-fix',
+        outcome: 'ci-passed',
+      }),
+      makeEvent(2, 'shepherd.iteration', {
+        prUrl: 'https://github.com/pr/42',
+        iteration: 99, // duplicate payload value
+        action: 'push-fix',
+        outcome: 'ci-passed',
+      }),
+      makeEvent(3, 'shepherd.iteration', {
+        prUrl: 'https://github.com/pr/42',
+        // payload `iteration` omitted entirely — count still increments
         action: 'push-fix',
         outcome: 'ci-passed',
       }),
@@ -195,6 +213,39 @@ describe('ShepherdStatusView', () => {
     );
 
     expect(view.iteration).toBe(3);
+  });
+
+  // DR-3 (#1595): the view's `iteration` and the loop's `countShepherdIterations`
+  // are the SAME single event-sourced authority — both are the COUNT of
+  // `shepherd.iteration` events. Folding N events through the view (with garbage,
+  // duplicate, omitted payload `iteration` values) yields `view.iteration === N`,
+  // which equals `countShepherdIterations` of the same events. So
+  // `shepherd_status`/`ps` and the loop can never disagree (INV-1).
+  it('ShepherdStatus_AndLoop_AgreeOnCount', () => {
+    const N = 4;
+    const garbagePayloads = [42, 42, 0, -7]; // non-monotonic, duplicate, garbage
+    const events: WorkflowEvent[] = [];
+    for (let i = 0; i < N; i++) {
+      events.push(
+        makeEvent(i + 1, 'shepherd.iteration', {
+          prUrl: 'https://github.com/pr/1',
+          iteration: garbagePayloads[i], // payload value is NOT the authority
+          action: 'push-fix',
+          outcome: 'ci-passed',
+        }),
+      );
+    }
+
+    const view = materializer.materialize<ShepherdStatusState>(
+      'wf-001',
+      SHEPHERD_STATUS_VIEW,
+      events,
+    );
+
+    // The view's iteration === the count, independent of payload values.
+    expect(view.iteration).toBe(N);
+    // …and that count IS the loop's single authority over the same events.
+    expect(view.iteration).toBe(countShepherdIterations(events));
   });
 
   it('Apply_AllPrsPassing_NoUnresolved_SetsHealthy', () => {
@@ -248,14 +299,42 @@ describe('ShepherdStatusView', () => {
     expect(view.overallStatus).toBe('blocked');
   });
 
+  // DR-3 (#1595): escalation is driven by the COUNT of `shepherd.iteration`
+  // events reaching maxIterations (5), not by a single payload `iteration: 5`.
+  // Five events fold to `iteration === 5 >= maxIterations`. (Was a single event
+  // with `iteration: 5` — the OLD payload-value semantics.)
   it('Apply_MaxIterationsReached_SetsEscalate', () => {
     const events = [
       makeEvent(1, 'ci.status', { pr: 1, status: 'passing' }),
-      makeEvent(2, 'shepherd.iteration', {
-        prUrl: 'https://github.com/pr/1',
-        iteration: 5,
-        action: 'push-fix',
-        outcome: 'ci-passed',
+      makeEvent(2, 'shepherd.iteration', { prUrl: 'https://github.com/pr/1', action: 'push-fix', outcome: 'ci-passed' }),
+      makeEvent(3, 'shepherd.iteration', { prUrl: 'https://github.com/pr/1', action: 'push-fix', outcome: 'ci-passed' }),
+      makeEvent(4, 'shepherd.iteration', { prUrl: 'https://github.com/pr/1', action: 'push-fix', outcome: 'ci-passed' }),
+      makeEvent(5, 'shepherd.iteration', { prUrl: 'https://github.com/pr/1', action: 'push-fix', outcome: 'ci-passed' }),
+      makeEvent(6, 'shepherd.iteration', { prUrl: 'https://github.com/pr/1', action: 'push-fix', outcome: 'ci-passed' }),
+    ];
+
+    const view = materializer.materialize<ShepherdStatusState>(
+      'wf-001',
+      SHEPHERD_STATUS_VIEW,
+      events,
+    );
+
+    expect(view.iteration).toBe(5);
+    expect(view.overallStatus).toBe('escalate');
+  });
+
+  // DR-3 (#1595): the structured `shepherd.escalated` event surfaces the WHY of
+  // an escalation (reason + counts + when) via shepherd_status/ps — not just the
+  // derived 'escalate' status. Folding the event populates `view.escalation`.
+  it('Escalation_SurfacedViaShepherdStatus', () => {
+    const events = [
+      makeEvent(1, 'ci.status', { pr: 42, status: 'failing' }),
+      makeEvent(2, 'shepherd.escalated', {
+        featureId: 'feat-x',
+        prNumbers: [42, 43],
+        iterationCount: 5,
+        maxIterations: 5,
+        reason: 'auto-fix bound (5) reached after 5 iterations',
       }),
     ];
 
@@ -265,6 +344,11 @@ describe('ShepherdStatusView', () => {
       events,
     );
 
+    expect(view.escalation).toBeDefined();
+    expect(view.escalation!.reason).toBe('auto-fix bound (5) reached after 5 iterations');
+    expect(view.escalation!.iterationCount).toBe(5);
+    expect(view.escalation!.maxIterations).toBe(5);
+    expect(view.escalation!.escalatedAt).toBe(events[1].timestamp);
     expect(view.overallStatus).toBe('escalate');
   });
 
@@ -326,15 +410,16 @@ describe('ShepherdStatusView', () => {
   });
 
   it('Apply_EscalateTakesPriorityOverNeedsFixes', () => {
-    // escalate (iteration >= maxIterations) should override needs-fixes
+    // escalate (iteration >= maxIterations) should override needs-fixes.
+    // DR-3 (#1595): the count of five `shepherd.iteration` events drives
+    // escalation, not a payload `iteration: 5` (the OLD payload-value semantics).
     const events = [
       makeEvent(1, 'ci.status', { pr: 1, status: 'failing' }),
-      makeEvent(2, 'shepherd.iteration', {
-        prUrl: 'https://github.com/pr/1',
-        iteration: 5,
-        action: 'push-fix',
-        outcome: 'ci-failed',
-      }),
+      makeEvent(2, 'shepherd.iteration', { prUrl: 'https://github.com/pr/1', action: 'push-fix', outcome: 'ci-failed' }),
+      makeEvent(3, 'shepherd.iteration', { prUrl: 'https://github.com/pr/1', action: 'push-fix', outcome: 'ci-failed' }),
+      makeEvent(4, 'shepherd.iteration', { prUrl: 'https://github.com/pr/1', action: 'push-fix', outcome: 'ci-failed' }),
+      makeEvent(5, 'shepherd.iteration', { prUrl: 'https://github.com/pr/1', action: 'push-fix', outcome: 'ci-failed' }),
+      makeEvent(6, 'shepherd.iteration', { prUrl: 'https://github.com/pr/1', action: 'push-fix', outcome: 'ci-failed' }),
     ];
 
     const view = materializer.materialize<ShepherdStatusState>(

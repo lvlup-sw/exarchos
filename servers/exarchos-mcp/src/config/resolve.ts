@@ -1,4 +1,5 @@
 import type { ProjectConfig, VerificationPolicyOverlay } from './yaml-schema.js';
+import { DEFAULT_MAX_ITERATIONS } from '../orchestrate/escalation-policy.js';
 
 // ─── Resolved Types ─────────────────────────────────────────────────────────
 
@@ -82,6 +83,28 @@ export interface ResolvedProjectConfig {
    */
   readonly storage: {
     readonly synchronous: 'normal' | 'full';
+  };
+  /**
+   * SYNTHESIZE-kind `document` readiness leg config (DR-2, #1594). `severity`
+   * gates whether an uncovered doc-bearing change blocks synthesis; `surfaceGlobs`
+   * declares the doc-bearing paths (empty ⇒ auto-waive); `docGlobs` declares what
+   * counts as a doc change. Always fully resolved (defaults applied).
+   */
+  readonly synthesis: {
+    readonly documentLeg: {
+      readonly severity: 'advisory' | 'blocking';
+      readonly surfaceGlobs: readonly string[];
+      readonly docGlobs: readonly string[];
+    };
+  };
+  /**
+   * Shared escalation policy (DR-3, #1595). `maxIterations` is the per-loop
+   * auto-fix bound threaded to the spec-review, quality-review, and shepherd
+   * fix-loops; consumers pass it as `configMaxIterations` to
+   * `resolveEscalationPolicy`. Always fully resolved (default applied).
+   */
+  readonly escalation: {
+    readonly maxIterations: number;
   };
 }
 
@@ -187,6 +210,16 @@ export const DEFAULTS: ResolvedProjectConfig = deepFreeze({
   },
   storage: {
     synchronous: 'normal',
+  },
+  synthesis: {
+    documentLeg: {
+      severity: 'advisory',
+      surfaceGlobs: [],
+      docGlobs: ['docs/**', '**/*.md'],
+    },
+  },
+  escalation: {
+    maxIterations: DEFAULT_MAX_ITERATIONS,
   },
 });
 
@@ -377,6 +410,24 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
     verification: { policy: verificationPolicy },
     storage: {
       synchronous: project.storage?.synchronous ?? DEFAULTS.storage.synchronous,
+    },
+    synthesis: {
+      documentLeg: {
+        severity:
+          project.synthesis?.documentLeg?.severity ?? DEFAULTS.synthesis.documentLeg.severity,
+        // Spread-clone the arrays so the subsequent deepFreeze() freezes a fresh
+        // copy, never the caller-owned `project.*` input nor the shared DEFAULTS
+        // arrays (both would be a no-freeze-caller-input violation).
+        surfaceGlobs: [
+          ...(project.synthesis?.documentLeg?.surfaceGlobs ?? DEFAULTS.synthesis.documentLeg.surfaceGlobs),
+        ],
+        docGlobs: [
+          ...(project.synthesis?.documentLeg?.docGlobs ?? DEFAULTS.synthesis.documentLeg.docGlobs),
+        ],
+      },
+    },
+    escalation: {
+      maxIterations: project.escalation?.maxIterations ?? DEFAULTS.escalation.maxIterations,
     },
   };
 

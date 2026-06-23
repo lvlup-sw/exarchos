@@ -29,6 +29,16 @@ export interface ShepherdStatusState {
   readonly approvalRequestedAt?: string;
   readonly completedAt?: string;
   readonly outcome?: string;
+  // DR-3 (#1595): the WHY behind an `escalate` status. `overallStatus` already
+  // derives `'escalate'` from the iteration count; this field carries the
+  // structured reason + counts from the `shepherd.escalated` event so
+  // shepherd_status/ps surface a human-readable escalation, not just a status.
+  readonly escalation?: {
+    readonly reason: string;
+    readonly iterationCount: number;
+    readonly maxIterations: number;
+    readonly escalatedAt: string;
+  };
 }
 
 // ─── Per-PR Update Helper ──────────────────────────────────────────────────
@@ -63,7 +73,12 @@ function updatePr(
 // ─── Overall Status Computation ────────────────────────────────────────────
 
 function isEscalated(state: ShepherdStatusState): boolean {
-  return state.iteration >= state.maxIterations;
+  // Escalated when the bound is hit (iteration count) OR when a structured
+  // `shepherd.escalated` event has been folded (DR-3, #1595). The explicit
+  // event is authoritative: it records that the loop terminated on the bound,
+  // so the status reflects escalation even if folded independently of the
+  // iteration events.
+  return state.escalation !== undefined || state.iteration >= state.maxIterations;
 }
 
 function hasBlockedPr(prs: ReadonlyArray<PrStatus>): boolean {
@@ -180,10 +195,15 @@ function handleCommentResolved(state: ShepherdStatusState, event: WorkflowEvent)
 }
 
 function handleShepherdIteration(state: ShepherdStatusState, event: WorkflowEvent): ShepherdStatusState {
-  const data = event.data as { iteration?: number } | undefined;
-  if (!data || data.iteration === undefined) return state;
-
-  const next: ShepherdStatusState = { ...state, iteration: data.iteration };
+  // The COUNT of `shepherd.iteration` events is the single authority (DR-3,
+  // #1595) — increment by 1 per event rather than reading the `iteration` value
+  // in the payload. The payload may still carry an `iteration` field, but it is
+  // no longer the authority. This folds the SAME rule the loop's
+  // `countShepherdIterations` applies, so after N events `view.iteration === N`
+  // regardless of any payload value, and `shepherd_status`/`ps` can never
+  // disagree with the loop's count (INV-1: one event-sourced counter).
+  void event;
+  const next: ShepherdStatusState = { ...state, iteration: state.iteration + 1 };
   return { ...next, overallStatus: computeOverallStatus(next) };
 }
 
@@ -193,6 +213,28 @@ function handleShepherdStarted(state: ShepherdStatusState, event: WorkflowEvent)
 
 function handleShepherdApprovalRequested(state: ShepherdStatusState, event: WorkflowEvent): ShepherdStatusState {
   return { ...state, approvalRequestedAt: event.timestamp };
+}
+
+function handleShepherdEscalated(state: ShepherdStatusState, event: WorkflowEvent): ShepherdStatusState {
+  // DR-3 (#1595): fold the structured bound-hit escalation into a surfaceable
+  // shape. `overallStatus` already reflects `'escalate'` via `isEscalated`; this
+  // adds the WHY (reason + counts) so a human/agent reading shepherd_status/ps
+  // sees why the loop terminated, not just that it did.
+  const data = event.data as
+    | { reason?: string; iterationCount?: number; maxIterations?: number }
+    | undefined;
+  if (!data) return state;
+
+  const next: ShepherdStatusState = {
+    ...state,
+    escalation: {
+      reason: data.reason ?? '',
+      iterationCount: data.iterationCount ?? state.iteration,
+      maxIterations: data.maxIterations ?? state.maxIterations,
+      escalatedAt: event.timestamp,
+    },
+  };
+  return { ...next, overallStatus: computeOverallStatus(next) };
 }
 
 function handleShepherdCompleted(state: ShepherdStatusState, event: WorkflowEvent): ShepherdStatusState {
@@ -239,6 +281,9 @@ export const shepherdStatusProjection: ViewProjection<ShepherdStatusState> = {
 
       case 'shepherd.approval_requested':
         return handleShepherdApprovalRequested(view, event);
+
+      case 'shepherd.escalated':
+        return handleShepherdEscalated(view, event);
 
       case 'shepherd.completed':
         return handleShepherdCompleted(view, event);

@@ -80,9 +80,11 @@ Address each `actionItem` from the assessment (every inline comment — includin
 ### Step 3: Resubmit
 
 ```bash
-git push --force-with-lease
+git push --force-with-lease=<ref>:<expected-sha>
 gh pr merge <number> --auto --squash
 ```
+
+Always use the **explicit-SHA** lease — never a bare `--force-with-lease`. A bare lease anchors to the (possibly stale) local remote-tracking ref and can silently clobber a concurrent push. `<expected-sha>` is the SHA the loop last observed at the remote (from `assess_stack`); if unavailable, read it fresh with `git ls-remote --heads origin <ref>`.
 
 Return to Step 1. Max 5 iterations — escalate if limit reached.
 

@@ -38,13 +38,45 @@ interface GhReviewResponse {
   readonly reviewDecision: string;
 }
 
-interface GhPrCommentEntry {
+// `repos/{owner}/{repo}/issues/{pr}/comments` — PR-level conversation
+// (`gh pr comment` posts here). No diff anchor, no threading.
+interface GhIssueCommentEntry {
+  readonly id: number;
+  readonly user: { readonly login: string };
+  readonly body: string;
+  readonly created_at: string;
+}
+
+// `repos/{owner}/{repo}/pulls/{pr}/comments` — per-line review threads.
+// `in_reply_to_id` (when present) is the id of the top-level comment this one
+// replies to; threading is one level only.
+interface GhReviewCommentEntry {
   readonly id: number;
   readonly user: { readonly login: string };
   readonly body: string;
   readonly created_at: string;
   readonly path?: string;
   readonly line?: number;
+  readonly in_reply_to_id?: number;
+}
+
+// `repos/{owner}/{repo}/pulls/{pr}/reviews` — review submissions. Only those
+// with a non-empty body become `review-summary` comments; state-only reviews
+// are handled by getReviewStatus, not here.
+interface GhReviewSummaryEntry {
+  readonly id: number;
+  readonly user: { readonly login: string };
+  readonly body: string;
+  readonly state: string;
+  readonly submitted_at: string;
+}
+
+// A `reviewThreads` node from the GraphQL resolved-status query. Each thread
+// carries its resolution flag plus the databaseIds of the inline comments it
+// contains, which map back to the REST `pulls/comments` ids.
+interface GhReviewThreadNode {
+  readonly isResolved: boolean;
+  readonly comments: { readonly nodes: ReadonlyArray<{ readonly databaseId: number | null }> };
 }
 
 interface GhRepoViewResponse {
@@ -241,29 +273,177 @@ export class GitHubProvider implements VcsProvider {
   }
 
   async getPrComments(prId: string): Promise<PrComment[]> {
-    // The `/pulls/{prId}/comments` endpoint returns *inline review*
-    // comments — the per-line discussion attached to a diff. General
-    // PR-level conversation (what `gh pr comment` posts) lives on the
-    // shared issues comment endpoint. Reading from the wrong endpoint
-    // means the post-then-verify path never finds the comment it just
-    // wrote, the verification fails, and the recovery branch posts a
-    // duplicate. We fetch the issues endpoint so producer and consumer
-    // see the same comment stream.
-    const output = await exec('gh', [
-      'api',
-      `repos/{owner}/{repo}/issues/${prId}/comments`,
-      '--paginate',
+    // Aggregate all three GitHub feedback surfaces into one PrComment[],
+    // for ANY author (bots included). A single surface never sees the
+    // whole conversation: issue comments, inline review threads, and
+    // review summaries each live on a distinct endpoint.
+    //
+    //  1. issues/{pr}/comments  → 'issue-comment'  (PR-level discussion;
+    //     `gh pr comment` posts here, so this surface is load-bearing for
+    //     add-comment's post-then-verify path).
+    //  2. pulls/{pr}/comments   → 'review-inline'  (per-line threads;
+    //     `in_reply_to_id` → parentId, one level only).
+    //  3. pulls/{pr}/reviews    → 'review-summary' (review bodies only;
+    //     state-only reviews are getReviewStatus's job, not ours).
+    const [issueOut, inlineOut, reviewOut] = await Promise.all([
+      exec('gh', ['api', `repos/{owner}/{repo}/issues/${prId}/comments`, '--paginate']),
+      exec('gh', ['api', `repos/{owner}/{repo}/pulls/${prId}/comments`, '--paginate']),
+      exec('gh', ['api', `repos/{owner}/{repo}/pulls/${prId}/reviews`, '--paginate']),
     ]);
 
-    const entries = JSON.parse(output) as readonly GhPrCommentEntry[];
-    return entries.map((entry) => ({
-      id: entry.id,
-      author: entry.user.login,
-      body: entry.body,
-      createdAt: entry.created_at,
-      path: entry.path,
-      line: entry.line,
-    }));
+    const issueEntries = JSON.parse(issueOut) as readonly GhIssueCommentEntry[];
+    const inlineEntries = JSON.parse(inlineOut) as readonly GhReviewCommentEntry[];
+    const reviewEntries = JSON.parse(reviewOut) as readonly GhReviewSummaryEntry[];
+
+    const comments: PrComment[] = [];
+
+    for (const entry of issueEntries) {
+      comments.push({
+        id: entry.id,
+        author: entry.user.login,
+        body: entry.body,
+        createdAt: entry.created_at,
+        source: 'issue-comment',
+      });
+    }
+
+    for (const entry of inlineEntries) {
+      comments.push({
+        id: entry.id,
+        author: entry.user.login,
+        body: entry.body,
+        createdAt: entry.created_at,
+        source: 'review-inline',
+        path: entry.path,
+        line: entry.line,
+        // One-level threading: a reply points straight at the top-level
+        // comment it answers. Absent in_reply_to_id ⇒ top-level.
+        ...(entry.in_reply_to_id !== undefined ? { parentId: entry.in_reply_to_id } : {}),
+      });
+    }
+
+    for (const entry of reviewEntries) {
+      // Only reviews with an actual body are feedback; a CHANGES_REQUESTED
+      // or APPROVED review with no body is a verdict getReviewStatus reports.
+      if (typeof entry.body !== 'string' || entry.body.trim() === '') continue;
+      comments.push({
+        id: entry.id,
+        author: entry.user.login,
+        body: entry.body,
+        createdAt: entry.submitted_at,
+        source: 'review-summary',
+        state: entry.state,
+      });
+    }
+
+    return this.enrichResolvedStatus(prId, comments);
+  }
+
+  /**
+   * Fail-soft enrichment of `resolved` on `review-inline` comments.
+   *
+   * REST inline comments don't carry resolution state — it lives on GraphQL
+   * `reviewThreads`. We query that, build a `databaseId → isResolved` map, and
+   * stamp `resolved` onto any inline comment whose id appears in it. An inline
+   * comment NOT in the map keeps `resolved` absent (unknown — never coerced to
+   * false); issue-comment and review-summary always stay absent (threads are
+   * inline-only).
+   *
+   * Load-bearing fail-soft: the entire GraphQL pass (exec + parse + mapping) is
+   * wrapped in try/catch. On ANY failure we return the REST comments untouched
+   * with every `resolved` absent, rather than throwing — a missing resolution
+   * signal must degrade to "unknown", not block the whole read.
+   */
+  private async enrichResolvedStatus(
+    prId: string,
+    comments: PrComment[],
+  ): Promise<PrComment[]> {
+    try {
+      const prNumber = Number.parseInt(prId, 10);
+      if (!Number.isFinite(prNumber)) return comments;
+
+      const repoOut = await exec('gh', ['repo', 'view', '--json', 'nameWithOwner']);
+      const { nameWithOwner } = JSON.parse(repoOut) as { nameWithOwner: string };
+      const [owner, repo] = nameWithOwner.split('/');
+      if (!owner || !repo) return comments;
+
+      // Paginate `reviewThreads` with an `after` cursor so resolution is
+      // enriched for EVERY thread, not just the first 100 — on a large PR the
+      // overflow threads would otherwise keep `resolved` absent (unknown). Inner
+      // `comments(first:100)` stays single-page: >100 replies in ONE thread is
+      // not a realistic shape, and an overflow there still degrades safe (absent
+      // → surfaced, never wrongly resolved).
+      const query =
+        'query($owner:String!,$repo:String!,$pr:Int!,$after:String){' +
+        'repository(owner:$owner,name:$repo){' +
+        'pullRequest(number:$pr){' +
+        'reviewThreads(first:100,after:$after){' +
+        'pageInfo{hasNextPage endCursor}' +
+        'nodes{isResolved comments(first:100){nodes{databaseId}}}' +
+        '}}}}';
+
+      const resolvedById = new Map<number, boolean>();
+      let after: string | null = null;
+      // Defensive page cap (50 × 100 = 5000 threads) so a misbehaving
+      // `pageInfo` can never spin this into an unbounded loop.
+      for (let page = 0; page < 50; page++) {
+        const graphqlArgs = [
+          'api',
+          'graphql',
+          '-F',
+          `owner=${owner}`,
+          '-F',
+          `repo=${repo}`,
+          '-F',
+          `pr=${prNumber}`,
+          '-f',
+          `query=${query}`,
+        ];
+        if (after) graphqlArgs.push('-F', `after=${after}`);
+
+        const graphqlOut = await exec('gh', graphqlArgs);
+
+        const parsed = JSON.parse(graphqlOut) as {
+          data?: {
+            repository?: {
+              pullRequest?: {
+                reviewThreads?: {
+                  pageInfo?: { hasNextPage?: boolean; endCursor?: string | null };
+                  nodes?: readonly GhReviewThreadNode[];
+                };
+              };
+            };
+          };
+        };
+
+        const threads = parsed.data?.repository?.pullRequest?.reviewThreads;
+        const nodes = threads?.nodes;
+        if (!Array.isArray(nodes)) break;
+
+        for (const thread of nodes) {
+          for (const c of thread.comments?.nodes ?? []) {
+            if (typeof c.databaseId === 'number') {
+              resolvedById.set(c.databaseId, thread.isResolved);
+            }
+          }
+        }
+
+        const pageInfo = threads?.pageInfo;
+        if (!pageInfo?.hasNextPage || !pageInfo.endCursor) break;
+        after = pageInfo.endCursor;
+      }
+
+      return comments.map((comment) => {
+        if (comment.source !== 'review-inline') return comment;
+        const resolved = resolvedById.get(comment.id);
+        return resolved === undefined ? comment : { ...comment, resolved };
+      });
+    } catch {
+      // GraphQL enrichment is best-effort — any failure leaves every
+      // `resolved` absent (unknown), and getPrComments still returns the
+      // REST comments rather than throwing.
+      return comments;
+    }
   }
 
   async getPrDiff(prId: string): Promise<string> {

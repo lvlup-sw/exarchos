@@ -3,6 +3,7 @@ import type { VcsProvider } from '../../vcs/provider.js';
 import type { EventStore } from '../../event-store/store.js';
 import type { DispatchContext } from '../../core/dispatch.js';
 import { ConcurrencyError } from '../../event-store/index.js';
+import { deriveIntent, INTENT_GROUNDING_MARKER } from '../extract-intent.js';
 
 // Mock the factory before importing the handler
 vi.mock('../../vcs/factory.js', () => ({
@@ -430,5 +431,404 @@ describe('CreatePr_RecoveryAppendFailure_DoesNotFallThroughToCreatePr', () => {
 
     // Sanity: Phase A append + failed recovery append = 2 calls.
     expect(appendCallCount).toBe(2);
+  });
+});
+
+// ─── DR-1 task 006: create_pr grounds the body in artifacts.intent ───────────
+//
+// When `featureId` is supplied and a meaningful `artifacts.intent` is persisted,
+// the handler enriches the PR body with a deterministic `## Intent` section +
+// idempotency marker BEFORE Phase A — so BOTH the durable `pr.create.requested`
+// event AND the created PR carry the grounded body. Degrades cleanly (body
+// unchanged) when there is no featureId / no meaningful intent / the body is
+// already grounded.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('CreatePr_Body_ReferencesIntent (DR-1 task 006)', () => {
+  /**
+   * A `state.patched` event whose dot-path patch materializes `artifacts.intent`
+   * through the real projection — the same surface `readIntent` resolves through.
+   */
+  function intentPatchEvent(patch: Record<string, unknown>) {
+    return {
+      streamId: 'feat-x',
+      sequence: 1,
+      type: 'state.patched',
+      timestamp: new Date().toISOString(),
+      data: { patch },
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    const provider = makeMockProvider();
+    vi.mocked(createVcsProvider).mockResolvedValue(provider);
+  });
+
+  it('CreatePr_MeaningfulIntent_EnrichesRequestedEventAndCreatedPrBody', async () => {
+    const intent = deriveIntent(['servers/a.ts', 'docs/b.md']);
+    const ctx = makeTwoEventCtx({
+      queryResult: [intentPatchEvent({ 'artifacts.intent': intent })],
+    });
+    const provider = makeMockProvider();
+    vi.mocked(createVcsProvider).mockResolvedValue(provider);
+
+    const result = await handleCreatePr(
+      {
+        title: 'feat: thing',
+        body: '## Summary\n\nDoes a thing.',
+        base: 'main',
+        head: 'feature/thing',
+        featureId: 'feat-x',
+      },
+      ctx,
+    );
+
+    expect(result.success).toBe(true);
+
+    // The created PR body carries the grounded `## Intent` section + marker.
+    const createArg = vi.mocked(provider.createPr).mock.calls[0][0];
+    expect(createArg.body).toContain('## Intent');
+    expect(createArg.body).toContain(INTENT_GROUNDING_MARKER);
+    expect(createArg.body).toContain(intent.summary);
+    // Original body content is preserved.
+    expect(createArg.body).toContain('Does a thing.');
+
+    // The durable `pr.create.requested` event carries the SAME grounded body.
+    const requestedCall = vi
+      .mocked(ctx.eventStore.append)
+      .mock.calls.find((call) => (call[1] as { type: string }).type === 'pr.create.requested');
+    expect(requestedCall).toBeDefined();
+    const requestedBody = (requestedCall![1] as { data: { body: string } }).data.body;
+    expect(requestedBody).toContain(INTENT_GROUNDING_MARKER);
+    expect(requestedBody).toBe(createArg.body);
+  });
+
+  it('CreatePr_NoFeatureId_LeavesBodyUntouched', async () => {
+    const ctx = makeTwoEventCtx();
+    const provider = makeMockProvider();
+    vi.mocked(createVcsProvider).mockResolvedValue(provider);
+
+    const body = '## Summary\n\nNo grounding here.';
+    await handleCreatePr(
+      { title: 'feat: thing', body, base: 'main', head: 'feature/thing' },
+      ctx,
+    );
+
+    const createArg = vi.mocked(provider.createPr).mock.calls[0][0];
+    expect(createArg.body).toBe(body);
+    expect(createArg.body).not.toContain(INTENT_GROUNDING_MARKER);
+  });
+
+  it('CreatePr_EmptyIntent_LeavesBodyUntouched', async () => {
+    // A persisted but EMPTY intent (changedFiles: []) is not meaningful — degrade.
+    const empty = deriveIntent([]);
+    const ctx = makeTwoEventCtx({
+      queryResult: [intentPatchEvent({ 'artifacts.intent': empty })],
+    });
+    const provider = makeMockProvider();
+    vi.mocked(createVcsProvider).mockResolvedValue(provider);
+
+    const body = '## Summary\n\nNothing changed.';
+    await handleCreatePr(
+      { title: 'feat: thing', body, base: 'main', head: 'feature/thing', featureId: 'feat-x' },
+      ctx,
+    );
+
+    const createArg = vi.mocked(provider.createPr).mock.calls[0][0];
+    expect(createArg.body).toBe(body);
+    expect(createArg.body).not.toContain(INTENT_GROUNDING_MARKER);
+  });
+
+  it('CreatePr_BodyAlreadyGrounded_DoesNotDoubleInject', async () => {
+    const intent = deriveIntent(['servers/a.ts']);
+    const ctx = makeTwoEventCtx({
+      queryResult: [intentPatchEvent({ 'artifacts.intent': intent })],
+    });
+    const provider = makeMockProvider();
+    vi.mocked(createVcsProvider).mockResolvedValue(provider);
+
+    // Body ALREADY carries the marker — the handler must not append a second section.
+    const body = `## Summary\n\nBody.\n\n## Intent\n\n${INTENT_GROUNDING_MARKER}\n\n**Surfaces:** servers`;
+    await handleCreatePr(
+      { title: 'feat: thing', body, base: 'main', head: 'feature/thing', featureId: 'feat-x' },
+      ctx,
+    );
+
+    const createArg = vi.mocked(provider.createPr).mock.calls[0][0];
+    expect(createArg.body).toBe(body);
+    // Marker appears exactly once.
+    expect(createArg.body.split(INTENT_GROUNDING_MARKER).length - 1).toBe(1);
+  });
+});
+
+// ─── DR-4 task 007: structural single-PR-owner guard ────────────────────────
+//
+// Synthesize is the sole PR creator. The shepherd loop that follows runs WITHIN
+// the SYNTHESIZE phase (so phase-gating cannot fence the initial create from a
+// shepherd resubmit) and can only push/assess. The by-construction
+// differentiator is workflow STATE: once the initial create succeeds the
+// workflow already OWNS a PR. handleCreatePr therefore refuses create_pr when
+// the feature's projected state already records a PR — a shepherd-context
+// create_pr is refused (PR_ALREADY_OWNED) with NO side effect. The refusal is
+// derived from event-sourced state, not a caller-passed boolean (INV-6).
+//
+// The complementary listPrs remote-recovery guard (the requested-but-not-
+// executed crash-recovery window, before state records the PR) is pinned here
+// so a future refactor cannot silently drop it.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('CreatePr_SinglePrOwnerGuard (DR-4 task 007)', () => {
+  /**
+   * A `state.patched` event whose dot-path patch materializes a PR reference
+   * through the real projection — the same `artifacts.pr` / `synthesis.prUrl`
+   * surface `resolveWorkflowState` resolves through. This is the canonical
+   * update path: the projection applies the dot-path onto the view exactly as
+   * the on-disk write does.
+   */
+  function prPatchEvent(patch: Record<string, unknown>) {
+    return {
+      streamId: 'feat-owned',
+      sequence: 1,
+      type: 'state.patched',
+      timestamp: new Date().toISOString(),
+      data: { patch },
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('CreatePr_ShepherdContext_Refused', async () => {
+    // Seed a feature workflow whose projected state records a PR via BOTH the
+    // primary `artifacts.pr` reference and the `synthesis.prUrl` mirror — the
+    // exact state a workflow is in AFTER the initial synthesize created its PR,
+    // i.e. the shepherd loop's documented precondition ("create_pr already ran").
+    const ctx = makeTwoEventCtx({
+      queryResult: [
+        prPatchEvent({
+          'artifacts.pr': 'https://github.com/repo/pull/100',
+          'synthesis.prUrl': 'https://github.com/repo/pull/100',
+        }),
+      ],
+    });
+    const provider = makeMockProvider();
+    vi.mocked(createVcsProvider).mockResolvedValue(provider);
+
+    const result = await handleCreatePr(
+      {
+        title: 'feat: resubmit from shepherd',
+        body: 'Body',
+        base: 'main',
+        head: 'feature/owned',
+        featureId: 'feat-owned',
+      },
+      ctx,
+    );
+
+    // Refused with the structured single-owner error.
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('PR_ALREADY_OWNED');
+    expect(result.error?.message).toContain('feat-owned');
+
+    // NO provider side effect — createPr was NEVER called.
+    expect(provider.createPr).not.toHaveBeenCalled();
+
+    // NO `pr.create.requested` event appended to the vcs stream (the guard fires
+    // before Phase A). Only the state-resolution query ran against the store.
+    const requestedAppend = vi
+      .mocked(ctx.eventStore.append)
+      .mock.calls.find(
+        (call) => (call[1] as { type: string }).type === 'pr.create.requested',
+      );
+    expect(requestedAppend).toBeUndefined();
+    expect(vi.mocked(ctx.eventStore.append)).not.toHaveBeenCalled();
+  });
+
+  it('CreatePr_OwnedViaPrUrlOnly_Refused', async () => {
+    // The mirror-only case: `synthesis.prUrl` records the PR but `artifacts.pr`
+    // is still null. Either field owning a PR must trigger the refusal.
+    const ctx = makeTwoEventCtx({
+      queryResult: [
+        prPatchEvent({ 'synthesis.prUrl': 'https://github.com/repo/pull/101' }),
+      ],
+    });
+    const provider = makeMockProvider();
+    vi.mocked(createVcsProvider).mockResolvedValue(provider);
+
+    const result = await handleCreatePr(
+      {
+        title: 'feat: resubmit',
+        body: 'Body',
+        base: 'main',
+        head: 'feature/owned',
+        featureId: 'feat-owned',
+      },
+      ctx,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('PR_ALREADY_OWNED');
+    expect(provider.createPr).not.toHaveBeenCalled();
+    expect(vi.mocked(ctx.eventStore.append)).not.toHaveBeenCalled();
+  });
+
+  it('CreatePr_DoubleCreateGuard_RetainedAndPinned', async () => {
+    // The existing remote-recovery (listPrs-by-(head,base)) guard is intact and
+    // COMPLEMENTARY to the state-owned guard: it fires in the crash-recovery
+    // window where the workflow state does NOT yet record a PR but the remote
+    // already has one (a prior gh pr create that crashed before
+    // pr.create.executed committed). With NO featureId the state-owned guard is
+    // skipped entirely, exercising this path in isolation.
+    const existingPr = {
+      number: 88,
+      url: 'https://github.com/repo/pull/88',
+      title: 'feat: recovered',
+      headRefName: 'feature/recovered',
+      baseRefName: 'main',
+      state: 'open',
+    };
+    const provider = makeMockProvider({
+      listPrs: vi.fn().mockResolvedValue([existingPr]),
+    });
+    vi.mocked(createVcsProvider).mockResolvedValue(provider);
+    const ctx = makeTwoEventCtx();
+
+    const result = await handleCreatePr(
+      {
+        title: 'feat: recovered',
+        body: 'Body',
+        base: 'main',
+        head: 'feature/recovered',
+      },
+      ctx,
+    );
+
+    // Returns the existing PR (success) without re-firing the side effect.
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual({ url: existingPr.url, number: existingPr.number });
+    expect(provider.createPr).not.toHaveBeenCalled();
+
+    // Emits pr.create.executed referencing the existing PR — not a duplicate create.
+    const executedAppend = vi
+      .mocked(ctx.eventStore.append)
+      .mock.calls.find(
+        (call) => (call[1] as { type: string }).type === 'pr.create.executed',
+      );
+    expect(executedAppend).toBeDefined();
+    const executedData = (
+      executedAppend![1] as { data: { prNumber: number; url: string } }
+    ).data;
+    expect(executedData.prNumber).toBe(88);
+    expect(executedData.url).toBe(existingPr.url);
+  });
+
+  it('CreatePr_FeatureIdButNoPrRecorded_ProceedsToNormalCreate', async () => {
+    // Degrade path: featureId present, but the workflow state records NO PR (the
+    // initial synthesize — the FIRST create). The state-owned guard must NOT
+    // refuse, and with listPrs returning none, normal creation proceeds.
+    const ctx = makeTwoEventCtx({ queryResult: [] });
+    const provider = makeMockProvider();
+    vi.mocked(createVcsProvider).mockResolvedValue(provider);
+
+    const result = await handleCreatePr(
+      {
+        title: 'feat: initial synthesize',
+        body: 'Body',
+        base: 'main',
+        head: 'feature/fresh',
+        featureId: 'feat-fresh',
+      },
+      ctx,
+    );
+
+    expect(result.success).toBe(true);
+    expect(provider.createPr).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ─── DR-4 task 009: PR idempotency is single-authority, handler-side ─────────
+//
+// DR-4 collapses the dual PR-idempotency layers to ONE authority. The redundant
+// second layer was the skill/command create-time PR-exists pre-check (the
+// `commands/synthesize.md` "## Idempotency" guidance to check `synthesis.prUrl`
+// before deciding whether to create). That pre-check is removed; the handler is
+// now the SINGLE authority for "PR already exists."
+//
+// This test pins that the handler is SUFFICIENT WITHOUT any external pre-check:
+// in the realistic synthesis call shape (featureId always passed), a workflow
+// whose state does NOT yet record a PR but whose remote already has an open PR
+// for (head, base) — the requested-but-not-executed crash-recovery window —
+// gets idempotent dedup PURELY from the handler. The state-owned guard
+// (task 007) correctly degrades (no PR recorded), and the listPrs
+// remote-recovery guard returns the existing PR with NO duplicate
+// provider.createPr. No caller pre-check is relied upon.
+//
+// Complement to task 007's CreatePr_DoubleCreateGuard_RetainedAndPinned, which
+// exercises the listPrs path with NO featureId (state-owned guard skipped
+// entirely). This one keeps the featureId present — proving the two handler
+// guards coexist and the handler alone governs idempotency in the real call
+// shape, so no skill/command pre-check is needed.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('PrIdempotency_SingleAuthority_HandlerGuardOnly (DR-4 task 009)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('PrIdempotency_SingleAuthority_HandlerGuardOnly', async () => {
+    // Workflow state records NO PR (queryResult: []) → the task-007 state-owned
+    // guard degrades to the legacy create path. But the remote already has an
+    // open PR for this (head, base): the handler's listPrs remote-recovery guard
+    // must return it idempotently — WITHOUT any caller-side pre-check having run.
+    const existingPr = {
+      number: 55,
+      url: 'https://github.com/repo/pull/55',
+      title: 'feat: single-authority',
+      headRefName: 'feature/single-authority',
+      baseRefName: 'main',
+      state: 'open',
+    };
+    const provider = makeMockProvider({
+      listPrs: vi.fn().mockResolvedValue([existingPr]),
+    });
+    vi.mocked(createVcsProvider).mockResolvedValue(provider);
+    // featureId present (the real synthesis call shape) but NO recorded PR.
+    const ctx = makeTwoEventCtx({ queryResult: [] });
+
+    // A SINGLE handleCreatePr call — no caller pre-check, no skip-create logic.
+    const result = await handleCreatePr(
+      {
+        title: 'feat: single-authority',
+        body: 'Body',
+        base: 'main',
+        head: 'feature/single-authority',
+        featureId: 'feat-single-authority',
+      },
+      ctx,
+    );
+
+    // The handler ALONE governs "PR already exists": it returns the existing PR.
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual({ url: existingPr.url, number: existingPr.number });
+
+    // NO duplicate side effect — provider.createPr was never called.
+    expect(provider.createPr).not.toHaveBeenCalled();
+
+    // Idempotency resolved purely handler-side: it emits pr.create.executed
+    // referencing the existing PR (no second create) — pinning that no
+    // skill/command create-time pre-check is relied upon.
+    const executedAppend = vi
+      .mocked(ctx.eventStore.append)
+      .mock.calls.find(
+        (call) => (call[1] as { type: string }).type === 'pr.create.executed',
+      );
+    expect(executedAppend).toBeDefined();
+    const executedData = (
+      executedAppend![1] as { data: { prNumber: number; url: string } }
+    ).data;
+    expect(executedData.prNumber).toBe(55);
+    expect(executedData.url).toBe(existingPr.url);
   });
 });

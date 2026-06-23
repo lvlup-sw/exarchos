@@ -154,6 +154,32 @@ function adaptWithEventStore<T>(
   };
 }
 
+/**
+ * Like {@link adaptWithEventStore}, but ALSO threads the dispatch-time
+ * `ctx.projectConfig` into the handler's args (when the args do not already
+ * carry one — an explicit arg-level `projectConfig`, e.g. from a test, still
+ * wins). Use for handlers that need both the event store AND resolved config —
+ * e.g. `prepare_synthesis`'s DR-2 `document`-leg severity. The injection mirrors
+ * {@link adaptLadderGate}; the handler reads `args.projectConfig`.
+ */
+function adaptWithEventStoreAndConfig<T>(
+  handler: (args: T, stateDir: string, eventStore: EventStore) => Promise<ToolResult>,
+): ActionHandler {
+  return async (args, stateDir, ctx) => {
+    if (!ctx?.eventStore) {
+      throw new Error(
+        `${handler.name}: ctx.eventStore required (handler dispatched without DispatchContext)`,
+      );
+    }
+    const enrichedArgs =
+      ctx.projectConfig !== undefined &&
+      (args as { projectConfig?: unknown }).projectConfig === undefined
+        ? { ...(args as Record<string, unknown>), projectConfig: ctx.projectConfig }
+        : args;
+    return handler(enrichedArgs as unknown as T, stateDir, ctx.eventStore);
+  };
+}
+
 // ─── Verification-ladder severity dispatch (task 005) ────────────────────────
 //
 // The five verification-ladder gates are INV-5b advisory carriers
@@ -356,8 +382,8 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   task_fail: adaptWithEventStore(handleTaskFail),
   review_triage: adaptWithEventStore(handleReviewTriage),
   prepare_delegation: adaptWithCtx(handlePrepareDelegation),
-  prepare_synthesis: adaptWithEventStore(handlePrepareSynthesis),
-  assess_stack: adaptWithEventStore(handleAssessStack),
+  prepare_synthesis: adaptWithEventStoreAndConfig(handlePrepareSynthesis),
+  assess_stack: adaptWithEventStoreAndConfig(handleAssessStack),
   check_design_completeness: adaptWithEventStore(handleDesignCompleteness),
   check_plan_coverage: adaptWithEventStore(handlePlanCoverage),
   // Verification-ladder gates (task 005): wrapped in adaptLadderGate so a
@@ -382,7 +408,7 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   check_context_economy: adaptWithEventStore(handleContextEconomy),
   check_operational_resilience: adaptWithEventStore(handleOperationalResilience),
   check_workflow_determinism: adaptWithEventStore(handleWorkflowDeterminism),
-  check_review_verdict: adaptWithEventStore(handleReviewVerdict),
+  check_review_verdict: adaptWithEventStoreAndConfig(handleReviewVerdict),
   check_convergence: adaptWithEventStore(handleCheckConvergence),
   check_provenance_chain: adaptWithEventStore(handleProvenanceChain),
   check_task_decomposition: adaptWithEventStore(handleTaskDecomposition),
@@ -396,7 +422,7 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   check_coverage_thresholds: adaptArgs(handleCheckCoverageThresholds),
   assess_refactor_scope: adaptArgsWithEventStore(handleAssessRefactorScope),
   check_pr_comments: adaptArgs(handleCheckPrComments),
-  validate_pr_body: adaptArgs(handleValidatePrBody),
+  validate_pr_body: adaptWithOptionalEventStore(handleValidatePrBody),
   validate_pr_stack: adaptArgs(handleValidatePrStack),
   debug_review_gate: adaptArgs(handleDebugReviewGate),
   extract_fix_tasks: adaptArgsWithStateDirAndEventStore(handleExtractFixTasks),
@@ -414,7 +440,7 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   needs_schema_sync: adaptArgs(handleNeedsSchemaSync),
   verify_doc_links: adaptArgs(handleVerifyDocLinks),
   verify_review_triage: adaptArgsWithStateDirAndEventStore(handleVerifyReviewTriage),
-  prepare_review: adapt(handlePrepareReview),
+  prepare_review: adaptWithEventStore(handlePrepareReview),
   discover_bridge: adaptWithOptionalEventStore(handleDiscoverBridge),
   check_invariant_conformance: adaptWithEventStore(handleCheckInvariantConformance),
   // Oneshot + pruning (T4): handlePruneStaleWorkflows already matches the

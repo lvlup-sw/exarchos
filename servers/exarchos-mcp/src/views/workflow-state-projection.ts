@@ -634,6 +634,7 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       case 'shepherd.started':
       case 'shepherd.iteration':
       case 'shepherd.approval_requested':
+      case 'shepherd.escalated':
       case 'shepherd.completed':
       case 'remediation.attempted':
       case 'remediation.succeeded':

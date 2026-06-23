@@ -117,5 +117,31 @@ export function buildConfigDescription(config: ResolvedProjectConfig) {
       // `'normal'`; `'full'` fsyncs on every commit (power-loss durable).
       synchronous: annotate(config.storage.synchronous, DEFAULTS.storage.synchronous),
     },
+    synthesis: {
+      // DR-2 (#1594) — SYNTHESIZE-kind `document` readiness leg. `severity`
+      // gates whether an uncovered doc-bearing change blocks synthesis;
+      // `surfaceGlobs` declares doc-bearing paths (empty default ⇒ auto-waive);
+      // `docGlobs` declares what counts as a documentation change.
+      documentLeg: {
+        severity: annotate(
+          config.synthesis.documentLeg.severity,
+          DEFAULTS.synthesis.documentLeg.severity,
+        ),
+        surfaceGlobs: annotate(
+          config.synthesis.documentLeg.surfaceGlobs,
+          DEFAULTS.synthesis.documentLeg.surfaceGlobs,
+        ),
+        docGlobs: annotate(
+          config.synthesis.documentLeg.docGlobs,
+          DEFAULTS.synthesis.documentLeg.docGlobs,
+        ),
+      },
+    },
+    escalation: {
+      // DR-3 (#1595) — shared escalation policy. `maxIterations` is the per-loop
+      // auto-fix bound for the spec-review, quality-review, and shepherd
+      // fix-loops; default `5` (DEFAULT_MAX_ITERATIONS).
+      maxIterations: annotate(config.escalation.maxIterations, DEFAULTS.escalation.maxIterations),
+    },
   };
 }

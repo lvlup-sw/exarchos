@@ -565,7 +565,10 @@ describe('EventTypes', () => {
     //   event; emitted after the recovery point is recorded, before the first
     //   vcsMerge, so a long-running merge is observable as started-but-unterminated,
     //   the INV-10 executing_started + paired terminal pattern).
-    expect(EventTypes).toHaveLength(129);
+    // Bumped 129 → 130: shepherd.escalated (DR-3 #1595 — structured bound-hit
+    //   escalation emitted by assess-stack on the escalate path; a structured
+    //   terminal (NOT a hang) surfaced via shepherd_status/ps, INV-10).
+    expect(EventTypes).toHaveLength(130);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');
@@ -1272,7 +1275,7 @@ describe('ShepherdCompletedData validation', () => {
 
 describe('EventType_ShepherdTypes_ExistInUnion', () => {
   it('EventType_ShepherdTypes_ExistInUnion', () => {
-    const shepherdTypes = ['shepherd.started', 'shepherd.iteration', 'shepherd.approval_requested', 'shepherd.completed'];
+    const shepherdTypes = ['shepherd.started', 'shepherd.iteration', 'shepherd.approval_requested', 'shepherd.escalated', 'shepherd.completed'];
     for (const t of shepherdTypes) {
       expect(EventTypes).toContain(t);
     }

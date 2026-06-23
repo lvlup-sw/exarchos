@@ -5,11 +5,13 @@
 // SynthesisReadinessView and CodeQualityView flywheel integration.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
 import { resolveWorkflowState } from './resolve-state.js';
 import { emitGateEvent } from './gate-utils.js';
+import type { ResolvedProjectConfig } from '../config/resolve.js';
+import { globToRegExp } from '../architecture/glob-to-regexp.js';
 
 // ─── Result Types ──────────────────────────────────────────────────────────
 
@@ -17,6 +19,7 @@ interface SynthesisReadinessState {
   tasksComplete: boolean;
   testsPass: boolean;
   typecheckPass: boolean;
+  documentReady: boolean;
   stackHealthy: boolean;
 }
 
@@ -45,6 +48,7 @@ interface PrepareSynthesisResult {
   blockers?: string[];
   tests: TestResult;
   typecheck: TypecheckResult;
+  document: DocumentLegResult;
   stack: StackResult;
 }
 
@@ -147,6 +151,101 @@ function verifyStack(): StackResult {
   }
 }
 
+// ─── DR-2: Document-Readiness Leg (#1594) ───────────────────────────────────
+
+export type DocumentLegConfig = ResolvedProjectConfig['synthesis']['documentLeg'];
+
+/**
+ * Behavior-neutral default when no resolved config is threaded (e.g. a unit
+ * test invoking the handler without `projectConfig`): advisory severity + empty
+ * surface globs ⇒ the leg auto-waives, so the absence of config is never a
+ * blocker.
+ */
+const DEFAULT_DOCUMENT_LEG: DocumentLegConfig = {
+  severity: 'advisory',
+  surfaceGlobs: [],
+  docGlobs: ['docs/**', '**/*.md'],
+};
+
+export interface DocumentLegResult {
+  /** false ⇒ auto-waived: no doc-bearing surface was touched. */
+  readonly evaluated: boolean;
+  /** docs changed (or auto-waived). false ⇒ a doc-bearing surface changed with no doc update. */
+  readonly covered: boolean;
+  readonly severity: 'advisory' | 'blocking';
+  readonly surfaceFiles: readonly string[];
+  readonly message?: string;
+}
+
+/**
+ * Evaluate the `document` readiness leg structurally: when the changeset touches
+ * a configured doc-bearing surface, a configured doc path must also have changed
+ * — otherwise the leg is uncovered. Pure: the caller supplies the changed-file
+ * list (from `git diff --name-only`), so the rule itself is deterministic and
+ * directly testable. No doc-bearing surface touched ⇒ auto-waive (the
+ * no-ceremony default for ordinary changes). INV-6: no workflow-type branch —
+ * the same rule holds for every workflow type.
+ */
+export function evaluateDocumentLeg(
+  files: readonly string[],
+  cfg: DocumentLegConfig,
+): DocumentLegResult {
+  const matchesAny = (globs: readonly string[], f: string): boolean =>
+    globs.some((g) => globToRegExp(g).test(f));
+  const surfaceFiles = files.filter((f) => matchesAny(cfg.surfaceGlobs, f));
+  if (surfaceFiles.length === 0) {
+    return { evaluated: false, covered: true, severity: cfg.severity, surfaceFiles: [] };
+  }
+  const docsChanged = files.some((f) => matchesAny(cfg.docGlobs, f));
+  if (docsChanged) {
+    return { evaluated: true, covered: true, severity: cfg.severity, surfaceFiles };
+  }
+  return {
+    evaluated: true,
+    covered: false,
+    severity: cfg.severity,
+    surfaceFiles,
+    message:
+      `Doc-bearing surface changed without a documentation update: ${surfaceFiles.join(', ')}. ` +
+      `Update the relevant docs, or tune synthesis.documentLeg in .exarchos.yml to waive.`,
+  };
+}
+
+/**
+ * Whether the document leg BLOCKS synthesis readiness. Only a `'blocking'`
+ * severity on an evaluated-and-uncovered leg blocks; an advisory uncovered leg
+ * still records `gate.executed { passed:false }` (visible) but does not block.
+ */
+export function documentLegBlocks(result: DocumentLegResult): boolean {
+  return result.evaluated && !result.covered && result.severity === 'blocking';
+}
+
+/**
+ * Changed files between the default base branch and HEAD (name-only). Returns
+ * `null` — NOT `[]` — when git detection fails, so the document-leg caller can
+ * tell "no surface changed" apart from "couldn't determine" and fail CLOSED on
+ * the latter rather than silently auto-waiving a blocking leg. argv-form
+ * `execFileSync` (not shell-form `execSync`) eliminates the shell surface even
+ * though `baseBranch` is already sanitized by `detectDefaultBranch`.
+ */
+function changedFilesAgainstBase(): string[] | null {
+  try {
+    const baseBranch = detectDefaultBranch();
+    const output = execFileSync('git', ['diff', '--name-only', `${baseBranch}...HEAD`], {
+      encoding: 'buffer',
+      timeout: 15_000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    return output
+      .toString('utf-8')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
+  } catch {
+    return null;
+  }
+}
+
 // ─── Task Readiness Check ──────────────────────────────────────────────────
 
 /** Minimal shape of a task entry in the canonical workflow-state projection. */
@@ -179,7 +278,7 @@ function checkTaskCompletion(
 // ─── Handler ───────────────────────────────────────────────────────────────
 
 export async function handlePrepareSynthesis(
-  args: { featureId: string },
+  args: { featureId: string; projectConfig?: ResolvedProjectConfig },
   stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
@@ -214,6 +313,7 @@ export async function handlePrepareSynthesis(
         tasksComplete: false,
         testsPass: false,
         typecheckPass: false,
+        documentReady: false,
         stackHealthy: false,
       };
 
@@ -223,6 +323,7 @@ export async function handlePrepareSynthesis(
         blockers,
         tests: { passed: false, passCount: 0, failCount: 0 },
         typecheck: { passed: false, errorCount: 0 },
+        document: { evaluated: false, covered: false, severity: 'advisory', surfaceFiles: [] },
         stack: { healthy: false },
       };
 
@@ -254,22 +355,59 @@ export async function handlePrepareSynthesis(
     // 8. Verify branch stack
     const stack = verifyStack();
 
-    // 9. Build readiness state
+    // 9. Evaluate the document-readiness leg (DR-2, #1594) and emit its gate.
+    //    Roster order is task-completion→tests→typecheck→document→stack; gate
+    //    EMISSION order here is immaterial (the readiness view folds
+    //    gate.executed by name), so the leg is evaluated after the stack check.
+    //    `passed` reflects structural coverage; whether an uncovered leg BLOCKS
+    //    readiness is the severity decision (documentLegBlocks).
+    const docCfg = args.projectConfig?.synthesis?.documentLeg ?? DEFAULT_DOCUMENT_LEG;
+    const changedFiles = changedFilesAgainstBase();
+    // Fail CLOSED when git detection is unavailable: report the leg as
+    // evaluated-but-uncovered so a `blocking` severity blocks readiness instead
+    // of being silently auto-waived (an empty-list waive would bypass the gate).
+    // An `advisory` leg still only records a visible `gate.executed{passed:false}`.
+    const documentLeg: DocumentLegResult = changedFiles === null
+      ? {
+          evaluated: true,
+          covered: false,
+          severity: docCfg.severity,
+          surfaceFiles: [],
+          message:
+            'Changed-file detection failed (git unavailable); document-readiness leg '
+            + 'could not be verified. Re-run synthesis, or waive via synthesis.documentLeg.',
+        }
+      : evaluateDocumentLeg(changedFiles, docCfg);
+    await emitGateEvent(store, streamId, 'document-coverage', 'synthesize', documentLeg.covered, {
+      dimension: 'D1',
+      phase: 'synthesize',
+      evaluated: documentLeg.evaluated,
+      severity: documentLeg.severity,
+      surfaceFiles: documentLeg.surfaceFiles,
+      ...(documentLeg.message !== undefined ? { message: documentLeg.message } : {}),
+    });
+
+    // 10. Build readiness state
     const readiness: SynthesisReadinessState = {
       tasksComplete: allComplete,
       testsPass: tests.passed,
       typecheckPass: typecheck.passed,
+      documentReady: !documentLegBlocks(documentLeg),
       stackHealthy: stack.healthy,
     };
 
     const ready = readiness.tasksComplete
       && readiness.testsPass
       && readiness.typecheckPass
+      && readiness.documentReady
       && readiness.stackHealthy;
 
     const allBlockers: string[] = [];
     if (!readiness.testsPass) allBlockers.push('Test suite failed');
     if (!readiness.typecheckPass) allBlockers.push('Typecheck failed');
+    if (!readiness.documentReady) {
+      allBlockers.push(documentLeg.message ?? 'Documentation not updated for a doc-bearing change');
+    }
     if (!readiness.stackHealthy) allBlockers.push('Stack not healthy');
 
     const result: PrepareSynthesisResult = {
@@ -278,6 +416,7 @@ export async function handlePrepareSynthesis(
       ...(allBlockers.length > 0 ? { blockers: allBlockers } : {}),
       tests,
       typecheck,
+      document: documentLeg,
       stack,
     };
 

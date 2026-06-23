@@ -410,6 +410,87 @@ describe('handleAssessStack', () => {
       const data = result.data as { recommendation: string };
       expect(data.recommendation).toBe('escalate');
     });
+
+    // DR-3 (#1595): the loop's iteration count is the COUNT of
+    // `shepherd.iteration` events (the single event-sourced authority,
+    // `countShepherdIterations`), NOT any `iteration` value stamped in a payload.
+    // Five events with arbitrary / non-monotonic / duplicate payload `iteration`
+    // values still report count 5 and escalate at maxIterations — proving the
+    // loop never reads the payload value, so it can never disagree with the view.
+    it('IterationCounter_SingleEventSourcedAuthority', async () => {
+      const garbagePayloads = [99, 99, 1, 0, -3]; // duplicate, non-monotonic, garbage
+      const iterationEvents = garbagePayloads.map((iteration, i) => ({
+        type: 'shepherd.iteration',
+        streamId: 'test-feature',
+        sequence: i + 1,
+        timestamp: new Date().toISOString(),
+        data: { prUrl: 'https://github.com/test/42', iteration, action: 'fix', outcome: 'retry' },
+      }));
+      // Only the `shepherd.iteration` query returns the events; every other
+      // query (started/completed) is empty so the count is purely the event tally.
+      mockQuery.mockImplementation(async (_streamId: string, opts?: { type?: string }) =>
+        opts?.type === 'shepherd.iteration' ? iterationEvents : [],
+      );
+
+      const provider = createMockProvider({
+        checkCi: { status: 'fail', checks: [{ name: 'ci/build', status: 'fail' }] },
+      });
+
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        mockEventStore,
+        provider,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        recommendation: string;
+        status: { iterationCount: number };
+      };
+      // The count is exactly the number of events (5), independent of the
+      // garbage/duplicate/non-monotonic payload `iteration` values.
+      expect(data.status.iterationCount).toBe(garbagePayloads.length);
+      // …and the bound (5) is reached by that count, so the loop escalates.
+      expect(data.recommendation).toBe('escalate');
+    });
+
+    // DR-3 (#1595): the loop's escalation bound is config-resolvable via the
+    // shared escalation policy. With `escalation.maxIterations: 3` injected, the
+    // count reaches the bound at 3 events (where the default 5 would not yet
+    // escalate). Same single counter, smaller resolved bound.
+    it('IterationBound_ConfigResolvable_LowersEscalationThreshold', async () => {
+      const iterationEvents = Array.from({ length: 3 }, (_, i) => ({
+        type: 'shepherd.iteration',
+        streamId: 'test-feature',
+        sequence: i + 1,
+        timestamp: new Date().toISOString(),
+        data: { prUrl: 'https://github.com/test/42', iteration: i + 1, action: 'fix', outcome: 'retry' },
+      }));
+      mockQuery.mockImplementation(async (_streamId: string, opts?: { type?: string }) =>
+        opts?.type === 'shepherd.iteration' ? iterationEvents : [],
+      );
+
+      const provider = createMockProvider({
+        checkCi: { status: 'fail', checks: [{ name: 'ci/build', status: 'fail' }] },
+      });
+
+      const result = await handleAssessStack(
+        {
+          featureId: 'test-feature',
+          prNumbers: [42],
+          projectConfig: { escalation: { maxIterations: 3 } } as never,
+        },
+        STATE_DIR,
+        mockEventStore,
+        provider,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as { recommendation: string };
+      // 3 events hit the config bound of 3 (the default 5 would say fix-and-resubmit).
+      expect(data.recommendation).toBe('escalate');
+    });
   });
 
   // ─── Shepherd Lifecycle Events ──────────────────────────────────────────
@@ -592,6 +673,78 @@ describe('handleAssessStack', () => {
         (call: unknown[]) => (call[1] as { type: string }).type === 'shepherd.approval_requested',
       );
       expect(approvalCalls).toHaveLength(0);
+    });
+
+    // DR-3 (#1595): hitting the auto-fix bound emits a STRUCTURED escalation
+    // (NOT a hang — INV-10). The handler records reason + counts, then RETURNS
+    // its normal terminal result with `recommendation:'escalate'`; it does not
+    // loop or wait. Re-assessing at the same iteration count reuses the same
+    // idempotency key, so the store dedups (no double-emit).
+    it('BoundHit_EmitsStructuredEscalation_NotHang', async () => {
+      // Seed N = default-maxIterations (5) `shepherd.iteration` events so the
+      // single event-sourced counter reaches the bound, plus failing CI so there
+      // are findings to fix — `computeRecommendation` returns 'escalate'.
+      const iterationEvents = Array.from({ length: 5 }, (_, i) => ({
+        type: 'shepherd.iteration',
+        streamId: 'test-feature',
+        sequence: i + 1,
+        timestamp: new Date().toISOString(),
+        data: { prUrl: 'https://github.com/test/42', iteration: i + 1, action: 'fix', outcome: 'retry' },
+      }));
+      mockQuery.mockImplementation(async (_streamId: string, opts?: { type?: string }) =>
+        opts?.type === 'shepherd.iteration' ? iterationEvents : [],
+      );
+
+      const provider = createMockProvider({
+        checkCi: { status: 'fail', checks: [{ name: 'ci/build', status: 'fail' }] },
+        prState: 'OPEN',
+      });
+
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42, 43] },
+        STATE_DIR,
+        mockEventStore,
+        provider,
+      );
+
+      // (b) The handler RETURNS a terminal result with recommendation:'escalate'
+      // — it returned (did not hang).
+      expect(result.success).toBe(true);
+      const data = result.data as { recommendation: string };
+      expect(data.recommendation).toBe('escalate');
+
+      // (a) A structured shepherd.escalated event is appended with the data.
+      const escalatedCalls = mockAppend.mock.calls.filter(
+        (call: unknown[]) => (call[1] as { type: string }).type === 'shepherd.escalated',
+      );
+      expect(escalatedCalls.length).toBe(1);
+      expect(escalatedCalls[0][0]).toBe('test-feature');
+      const escalatedData = (escalatedCalls[0][1] as { data: Record<string, unknown> }).data;
+      expect(escalatedData.featureId).toBe('test-feature');
+      expect(escalatedData.prNumbers).toEqual([42, 43]);
+      expect(escalatedData.iterationCount).toBe(5);
+      expect(escalatedData.maxIterations).toBe(5);
+      expect(escalatedData.reason).toBe('auto-fix bound (5) reached after 5 iterations');
+      const firstKey = (escalatedCalls[0][2] as { idempotencyKey: string })?.idempotencyKey;
+      expect(firstKey).toBe('test-feature:shepherd.escalated:5');
+
+      // (c) Idempotency — re-assessing at the same count reuses the same key, so
+      // the store dedups (no double-emit). Assert the key is stable across calls.
+      mockAppend.mockClear();
+      const result2 = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42, 43] },
+        STATE_DIR,
+        mockEventStore,
+        provider,
+      );
+      const data2 = result2.data as { recommendation: string };
+      expect(data2.recommendation).toBe('escalate');
+      const escalatedCalls2 = mockAppend.mock.calls.filter(
+        (call: unknown[]) => (call[1] as { type: string }).type === 'shepherd.escalated',
+      );
+      expect(escalatedCalls2.length).toBe(1);
+      const secondKey = (escalatedCalls2[0][2] as { idempotencyKey: string })?.idempotencyKey;
+      expect(secondKey).toBe(firstKey);
     });
   });
 
@@ -1014,6 +1167,212 @@ describe('handleAssessStack', () => {
       const bodies = status.prs[0].unresolvedComments.map((c) => c.body);
       expect(bodies).toContain('survives');
       expect(bodies).toContain('explodes');
+    });
+  });
+
+  // ─── Unified PR-Feedback Feed (DR-7, #1592 task 012) ──────────────────────
+  // assess_stack consumes the widened, aggregated PrComment[] generically:
+  // every source (issue-comment | review-inline | review-summary) and threaded
+  // replies flow through the same harvest path with no source/workflowType
+  // branch (INV-6). Tri-state `resolved` is honored: only resolved === true is
+  // filtered out; absent (unknown) stays surfaced (absent ≠ false).
+
+  describe('unified PR-feedback feed consumption', () => {
+    it('AssessStack_InlineReviewComment_BecomesActionItem', async () => {
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: [
+          {
+            id: 1,
+            author: 'alice',
+            body: 'This branch is unreachable',
+            createdAt: '2026-01-01T00:00:00Z',
+            source: 'review-inline',
+            path: 'src/handler.ts',
+            line: 88,
+            // resolved absent → unknown → surfaced
+          },
+        ],
+      });
+
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        mockEventStore,
+        provider,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        actionItems: Array<{ type: string; pr: number; file?: string; line?: number }>;
+      };
+      const commentReply = data.actionItems.find((i) => i.type === 'comment-reply');
+      expect(commentReply).toBeDefined();
+      expect(commentReply?.pr).toBe(42);
+      expect(commentReply?.file).toBe('src/handler.ts');
+      expect(commentReply?.line).toBe(88);
+    });
+
+    it('AssessStack_ThreadedReply_Surfaced', async () => {
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: [
+          {
+            id: 2,
+            author: 'bob',
+            body: 'Replying to the earlier thread — still not addressed',
+            createdAt: '2026-01-01T00:00:00Z',
+            source: 'review-inline',
+            path: 'src/handler.ts',
+            line: 88,
+            parentId: 1, // a reply — must NOT be dropped
+            // resolved absent → unknown → surfaced
+          },
+        ],
+      });
+
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        mockEventStore,
+        provider,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        actionItems: Array<{ type: string; pr: number }>;
+        status: { prs: Array<{ unresolvedComments: Array<{ parentId?: number }> }> };
+      };
+      const commentReply = data.actionItems.find((i) => i.type === 'comment-reply');
+      expect(commentReply).toBeDefined();
+      // Threading is carried through for observability without branching.
+      expect(data.status.prs[0].unresolvedComments[0].parentId).toBe(1);
+    });
+
+    it('AssessStack_ReviewSummaryBody_Surfaced', async () => {
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: [
+          {
+            id: 3,
+            author: 'carol',
+            body: 'Overall this needs another pass on error handling.',
+            createdAt: '2026-01-01T00:00:00Z',
+            source: 'review-summary',
+            state: 'COMMENTED',
+            // resolved absent → unknown → surfaced
+          },
+        ],
+      });
+
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        mockEventStore,
+        provider,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        actionItems: Array<{ type: string }>;
+        status: { prs: Array<{ unresolvedComments: Array<{ source?: string }> }> };
+      };
+      const commentReply = data.actionItems.find((i) => i.type === 'comment-reply');
+      expect(commentReply).toBeDefined();
+      expect(data.status.prs[0].unresolvedComments[0].source).toBe('review-summary');
+    });
+
+    it('AssessStack_ResolvedComment_NotSurfaced', async () => {
+      // Pins absent ≠ resolved: an explicitly-resolved comment is excluded from
+      // comment-reply action items, while an absent-`resolved` comment is kept.
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: [
+          {
+            id: 10,
+            author: 'alice',
+            body: 'Resolved thread — already handled',
+            createdAt: '2026-01-01T00:00:00Z',
+            source: 'review-inline',
+            path: 'src/a.ts',
+            line: 1,
+            resolved: true, // explicitly resolved → filtered out
+          },
+          {
+            id: 11,
+            author: 'bob',
+            body: 'Unknown-resolution thread — still needs attention',
+            createdAt: '2026-01-01T00:00:00Z',
+            source: 'review-inline',
+            path: 'src/b.ts',
+            line: 2,
+            // resolved absent → unknown → surfaced
+          },
+        ],
+      });
+
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        mockEventStore,
+        provider,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        actionItems: Array<{ type: string; file?: string }>;
+        status: { prs: Array<{ unresolvedComments: Array<{ body: string }> }> };
+      };
+      const commentReplies = data.actionItems.filter((i) => i.type === 'comment-reply');
+      // Only the absent-resolved comment is surfaced as an action item.
+      expect(commentReplies).toHaveLength(1);
+      expect(commentReplies[0].file).toBe('src/b.ts');
+
+      const surfacedBodies = data.status.prs[0].unresolvedComments.map((c) => c.body);
+      expect(surfacedBodies).toContain('Unknown-resolution thread — still needs attention');
+      expect(surfacedBodies).not.toContain('Resolved thread — already handled');
+    });
+
+    it('AssessStack_HarvestLoop_NoWorkflowTypeBranch', async () => {
+      // INV-6: the harvest path must consume comments generically — no
+      // source-specific or workflowType-specific branch. Two assertions:
+      //  (1) the assess-stack source carries no `workflowType` token at all;
+      //  (2) behavior is identical regardless of comment `source` — every
+      //      surface yields a comment-reply action item via the same path.
+      const fs = await import('node:fs');
+      const path = await import('node:url');
+      const srcPath = path.fileURLToPath(new URL('./assess-stack.ts', import.meta.url));
+      const src = fs.readFileSync(srcPath, 'utf8');
+      expect(src).not.toMatch(/workflowType/);
+
+      const mkProvider = (source: PrComment['source']): VcsProvider =>
+        createMockProvider({
+          checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+          prComments: [
+            {
+              id: 1,
+              author: 'alice',
+              body: 'needs attention',
+              createdAt: '2026-01-01T00:00:00Z',
+              source,
+              ...(source === 'review-inline' ? { path: 'src/x.ts', line: 3 } : {}),
+            },
+          ],
+        });
+
+      const sources: PrComment['source'][] = ['issue-comment', 'review-inline', 'review-summary'];
+      for (const source of sources) {
+        const result = await handleAssessStack(
+          { featureId: 'test-feature', prNumbers: [42] },
+          STATE_DIR,
+          mockEventStore,
+          mkProvider(source),
+        );
+        expect(result.success).toBe(true);
+        const data = result.data as { actionItems: Array<{ type: string }> };
+        const commentReplies = data.actionItems.filter((i) => i.type === 'comment-reply');
+        expect(commentReplies).toHaveLength(1);
+      }
     });
   });
 });

@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { InvariantsConfigSchema, ExarchosConfigSchema, StorageConfigSchema } from './exarchos-config-schema.js';
+import {
+  InvariantsConfigSchema,
+  ExarchosConfigSchema,
+  StorageConfigSchema,
+  SynthesisConfigSchema,
+  EscalationConfigSchema,
+} from './exarchos-config-schema.js';
 import { VERIFICATION_GATE_NAMES } from '../workflow/verification-policy.js';
 
 // ─── Dimension Configuration ────────────────────────────────────────────────
@@ -232,6 +238,8 @@ export const ProjectConfigSchema = z.object({
   verification: VerificationConfig.optional(),
   invariants: InvariantsConfigSchema.optional(),
   storage: StorageConfigSchema.optional(),
+  synthesis: SynthesisConfigSchema.optional(),
+  escalation: EscalationConfigSchema.optional(),
 }).strict();
 
 export type ProjectConfig = z.infer<typeof ProjectConfigSchema>;

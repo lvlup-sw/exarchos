@@ -1,12 +1,20 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { handlePrepareReview } from './prepare-review.js';
+import { handlePrepareReview, type PrepareReviewArgs } from './prepare-review.js';
 import { QUALITY_CHECK_CATALOG } from '../review/check-catalog.js';
+import { EventStore } from '../event-store/store.js';
 import type { ToolResult } from '../format.js';
 
 // ─── Typed assertion helpers ────────────────────────────────────────────────
+
+interface IntentGrounding {
+  mode: string;
+  intended: { surfaces: string[]; summary: string; transcriptSummary?: string };
+  instruction: string;
+}
 
 interface PrepareReviewData {
   catalog: { version: string; dimensions: readonly { id: string }[] };
@@ -14,6 +22,8 @@ interface PrepareReviewData {
   pluginStatus: {
     impeccable: { enabled: boolean };
   };
+  intent?: { changedFiles: string[]; surfaces: string[]; summary: string };
+  intentGrounding?: IntentGrounding;
 }
 
 function expectSuccess(result: ToolResult): PrepareReviewData {
@@ -28,55 +38,77 @@ function expectError(result: ToolResult): { code: string; message: string } {
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
-const stateDir = '/tmp/test-prepare-review';
+// DR-1 (#1593): the handler now takes (args, stateDir, eventStore). A real
+// store + stateDir is provisioned per-test so the code-review path's
+// `persistIntent` has a canonical surface to write to (and, for featureIds with
+// no inited workflow, fail soft without breaking the catalog response). The
+// plan-review path early-returns before touching intent, so the store is inert
+// there.
+let stateDir: string;
+let eventStore: EventStore;
+
+beforeEach(async () => {
+  stateDir = mkdtempSync(join(tmpdir(), 'prepare-review-state-'));
+  eventStore = new EventStore(stateDir);
+  await eventStore.initialize();
+});
+
+afterEach(() => {
+  rmSync(stateDir, { recursive: true, force: true });
+});
+
+/** Thread the per-test real EventStore + stateDir into the 3-arg handler. */
+function callPrepareReview(args: PrepareReviewArgs): Promise<ToolResult> {
+  return handlePrepareReview(args, stateDir, eventStore);
+}
 
 describe('handlePrepareReview', () => {
   it('HandlePrepareReview_DefaultArgs_ReturnsCatalogWithAllDimensions', async () => {
-    const data = expectSuccess(await handlePrepareReview({ featureId: 'test-default' }, stateDir));
+    const data = expectSuccess(await callPrepareReview({ featureId: 'test-default' }));
     expect(data.catalog.dimensions.length).toBe(QUALITY_CHECK_CATALOG.dimensions.length);
   });
 
   it('HandlePrepareReview_DimensionFilter_ReturnsOnlyRequestedDimensions', async () => {
-    const data = expectSuccess(await handlePrepareReview({
+    const data = expectSuccess(await callPrepareReview({
       featureId: 'test-filter',
       dimensions: ['error-handling', 'resilience'],
-    }, stateDir));
+    }));
     expect(data.catalog.dimensions.length).toBe(2);
     expect(data.catalog.dimensions.map(d => d.id)).toEqual(['error-handling', 'resilience']);
   });
 
   it('HandlePrepareReview_InvalidDimension_ReturnsError', async () => {
-    const err = expectError(await handlePrepareReview({
+    const err = expectError(await callPrepareReview({
       featureId: 'test-invalid',
       dimensions: ['nonexistent-dimension'],
-    }, stateDir));
+    }));
     expect(err.code).toBe('INVALID_INPUT');
   });
 
   it('HandlePrepareReview_PluginStatusNoConfig_DefaultsToEnabled', async () => {
-    const data = expectSuccess(await handlePrepareReview({ featureId: 'test-plugin-default' }, stateDir));
+    const data = expectSuccess(await callPrepareReview({ featureId: 'test-plugin-default' }));
     expect(data.pluginStatus.impeccable.enabled).toBe(true);
   });
 
   it('PrepareReview_PluginStatus_OmitsAxiom', async () => {
     // axiom is excised (#1477) — pluginStatus must not carry an axiom entry.
-    const data = expectSuccess(await handlePrepareReview({ featureId: 'test-omits-axiom' }, stateDir));
+    const data = expectSuccess(await callPrepareReview({ featureId: 'test-omits-axiom' }));
     expect('axiom' in data.pluginStatus).toBe(false);
   });
 
   it('HandlePrepareReview_FindingFormatIncluded_IsNonEmptyString', async () => {
-    const data = expectSuccess(await handlePrepareReview({ featureId: 'test-format' }, stateDir));
+    const data = expectSuccess(await callPrepareReview({ featureId: 'test-format' }));
     expect(typeof data.findingFormat).toBe('string');
     expect(data.findingFormat.length).toBeGreaterThan(0);
   });
 
   it('HandlePrepareReview_CatalogVersion_MatchesCatalogConstant', async () => {
-    const data = expectSuccess(await handlePrepareReview({ featureId: 'test-version' }, stateDir));
+    const data = expectSuccess(await callPrepareReview({ featureId: 'test-version' }));
     expect(data.catalog.version).toBe(QUALITY_CHECK_CATALOG.version);
   });
 
   it('HandlePrepareReview_MissingFeatureId_ReturnsError', async () => {
-    const err = expectError(await handlePrepareReview({ featureId: '' }, stateDir));
+    const err = expectError(await callPrepareReview({ featureId: '' }));
     expect(err.code).toBe('INVALID_INPUT');
   });
 
@@ -95,17 +127,17 @@ describe('handlePrepareReview', () => {
 
     it('HandlePrepareReview_RepoRootWithConfig_ReadsPluginStatus', async () => {
       writeFileSync(join(tempDir, '.exarchos.yml'), `plugins:\n  impeccable:\n    enabled: false\n`);
-      const data = expectSuccess(await handlePrepareReview({ featureId: 'test-config', repoRoot: tempDir }, stateDir));
+      const data = expectSuccess(await callPrepareReview({ featureId: 'test-config', repoRoot: tempDir }));
       expect(data.pluginStatus.impeccable.enabled).toBe(false);
     });
 
     it('HandlePrepareReview_RepoRootNoConfig_DefaultsToEnabled', async () => {
-      const data = expectSuccess(await handlePrepareReview({ featureId: 'test-no-config', repoRoot: tempDir }, stateDir));
+      const data = expectSuccess(await callPrepareReview({ featureId: 'test-no-config', repoRoot: tempDir }));
       expect(data.pluginStatus.impeccable.enabled).toBe(true);
     });
 
     it('HandlePrepareReview_NoRepoRoot_DefaultsToEnabled', async () => {
-      const data = expectSuccess(await handlePrepareReview({ featureId: 'test-no-root' }, stateDir));
+      const data = expectSuccess(await callPrepareReview({ featureId: 'test-no-root' }));
       expect(data.pluginStatus.impeccable.enabled).toBe(true);
     });
   });
@@ -135,14 +167,13 @@ describe('handlePrepareReview', () => {
       // The reviewer is provisioned with ONLY {artifact, spec} — never the
       // authoring transcript (INV-11 read-only, fresh context).
       const data = planData(
-        await handlePrepareReview(
+        await callPrepareReview(
           {
             featureId: 'pr-feat',
             scope: 'plan',
             artifact: 'docs/specs/2026-06-22-feat.md',
             spec: 'docs/specs/2026-06-22-feat.md#requirements',
           },
-          stateDir,
         ),
       );
       expect(data.mode).toBe('plan-review');
@@ -160,9 +191,8 @@ describe('handlePrepareReview', () => {
 
     it('PlanReview_RefutationPosture_EmitsEvidenceVerdict', async () => {
       const data = planData(
-        await handlePrepareReview(
+        await callPrepareReview(
           { featureId: 'pr-feat', scope: 'plan-review', artifact: 'docs/specs/x.md' },
-          stateDir,
         ),
       );
       expect(data.adversarial).toBe(true);
@@ -178,9 +208,8 @@ describe('handlePrepareReview', () => {
       // thin → the light rung, single voter — cost stays risk-proportional and
       // must NOT escalate to the multi-voter panel.
       const data = planData(
-        await handlePrepareReview(
+        await callPrepareReview(
           { featureId: 'pr-feat', scope: 'plan', artifact: 'docs/specs/x.md', designDepth: 'thin' },
-          stateDir,
         ),
       );
       expect(data.rung.name).toBe('light');
@@ -189,9 +218,8 @@ describe('handlePrepareReview', () => {
 
     it('PlanReview_DeepDepth_UsesMultiVoterPanel', async () => {
       const data = planData(
-        await handlePrepareReview(
+        await callPrepareReview(
           { featureId: 'pr-feat', scope: 'plan', artifact: 'docs/specs/x.md', designDepth: 'deep' },
-          stateDir,
         ),
       );
       expect(data.rung.name).toBe('panel');
@@ -200,9 +228,8 @@ describe('handlePrepareReview', () => {
 
     it('PlanReview_AbsentDesignDepth_DefaultsStandardRung', async () => {
       const data = planData(
-        await handlePrepareReview(
+        await callPrepareReview(
           { featureId: 'pr-feat', scope: 'plan', artifact: 'docs/specs/x.md' },
-          stateDir,
         ),
       );
       expect(data.rung.name).toBe('standard');
@@ -212,9 +239,8 @@ describe('handlePrepareReview', () => {
       // In the collapsed world the artifact carries its own design-rationale §,
       // so an omitted spec falls back to the artifact itself.
       const data = planData(
-        await handlePrepareReview(
+        await callPrepareReview(
           { featureId: 'pr-feat', scope: 'plan', artifact: 'docs/specs/x.md' },
-          stateDir,
         ),
       );
       expect(data.provisionedContext.spec).toBe('docs/specs/x.md');
@@ -222,7 +248,7 @@ describe('handlePrepareReview', () => {
 
     it('PlanReview_MissingArtifact_ReturnsError', async () => {
       const err = expectError(
-        await handlePrepareReview({ featureId: 'pr-feat', scope: 'plan' }, stateDir),
+        await callPrepareReview({ featureId: 'pr-feat', scope: 'plan' }),
       );
       expect(err.code).toBe('INVALID_INPUT');
       expect(err.message).toContain('artifact');
@@ -232,9 +258,80 @@ describe('handlePrepareReview', () => {
       // A non-plan scope (or absent) still serves the back-of-pipeline catalog —
       // the plan-review branch must not capture code-review traffic.
       const data = expectSuccess(
-        await handlePrepareReview({ featureId: 'cr-feat', scope: 'code' }, stateDir),
+        await callPrepareReview({ featureId: 'cr-feat', scope: 'code' }),
       );
       expect((data as { catalog?: unknown }).catalog).toBeDefined();
+    });
+  });
+
+  // ─── DR-1 (#1593) task 005: REVIEW grounds the spec-review checklist in the ──
+  //     captured intent (intended-vs-delivered), degrading to diff-only when no
+  //     intent is resolvable.
+  describe('intent grounding (DR-1 task 005)', () => {
+    /**
+     * A self-contained git repo whose `main...HEAD` diff is a single
+     * deterministic file — so `changedFilesAgainstBase(repoRoot)` resolves a
+     * non-empty changed-file set without depending on the live working tree.
+     */
+    function seedRepoWithDiff(): string {
+      const repo = mkdtempSync(join(tmpdir(), 'prepare-review-repo-'));
+      const git = (...a: string[]): void => {
+        execFileSync('git', a, { cwd: repo, stdio: ['pipe', 'pipe', 'pipe'] });
+      };
+      git('init', '-q', '-b', 'main');
+      git('config', 'user.email', 'test@example.com');
+      git('config', 'user.name', 'Test');
+      writeFileSync(join(repo, 'base.txt'), 'base\n');
+      git('add', '-A');
+      git('commit', '-qm', 'base');
+      git('checkout', '-q', '-b', 'feat');
+      mkdirSync(join(repo, 'servers'), { recursive: true });
+      writeFileSync(join(repo, 'servers', 'a.ts'), 'export const x = 1;\n');
+      git('add', '-A');
+      git('commit', '-qm', 'change');
+      return repo;
+    }
+
+    it('PrepareReview_WithIntent_GroundsSpecReviewChecklist', async () => {
+      const repo = seedRepoWithDiff();
+      try {
+        const data = expectSuccess(
+          await callPrepareReview({ featureId: 'cr-grounded', repoRoot: repo, scope: 'code' }),
+        );
+        // Intent is meaningful (non-empty diff) → the grounding directive is present.
+        expect(data.intent?.changedFiles).toContain('servers/a.ts');
+        expect(data.intentGrounding).toBeDefined();
+        const grounding = data.intentGrounding as IntentGrounding;
+        expect(grounding.mode).toBe('intended-vs-delivered');
+        // It references the intent's surfaces + summary (intended-vs-delivered).
+        expect(grounding.intended.surfaces).toEqual(data.intent?.surfaces);
+        expect(grounding.intended.summary).toBe(data.intent?.summary);
+        expect(grounding.intended.surfaces).toContain('servers');
+        expect(grounding.instruction.toLowerCase()).toContain('intended');
+        expect(grounding.instruction.toLowerCase()).toContain('delivered');
+        // The catalog is still served alongside the grounding.
+        expect(data.catalog.dimensions.length).toBe(QUALITY_CHECK_CATALOG.dimensions.length);
+      } finally {
+        rmSync(repo, { recursive: true, force: true });
+      }
+    });
+
+    it('PrepareReview_NoIntent_DegradesToDiffOnly', async () => {
+      // A non-git repoRoot ⇒ `changedFilesAgainstBase` returns [] ⇒ empty intent.
+      const emptyDir = mkdtempSync(join(tmpdir(), 'prepare-review-empty-'));
+      try {
+        const data = expectSuccess(
+          await callPrepareReview({ featureId: 'cr-no-intent', repoRoot: emptyDir, scope: 'code' }),
+        );
+        // No resolvable diff → no fabricated intent grounding (diff-only review).
+        expect(data.intent?.changedFiles).toEqual([]);
+        expect(data.intentGrounding).toBeUndefined();
+        expect('intentGrounding' in data).toBe(false);
+        // The catalog is returned unchanged.
+        expect(data.catalog.dimensions.length).toBe(QUALITY_CHECK_CATALOG.dimensions.length);
+      } finally {
+        rmSync(emptyDir, { recursive: true, force: true });
+      }
     });
   });
 });

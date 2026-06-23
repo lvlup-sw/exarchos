@@ -2,13 +2,20 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { handleValidatePrBody } from './validate-pr-body.js';
+import type { EventStore } from '../event-store/store.js';
+import { deriveIntent, INTENT_GROUNDING_MARKER } from './extract-intent.js';
 
-// Mock child_process and fs
-vi.mock('node:child_process', () => ({
+// Mock child_process and fs. We partially mock `node:child_process` —
+// preserving the real exports (e.g. `execFile`, which `compensation.ts`
+// `promisify`s at import time on the now-wider intent-grounding module graph)
+// and overriding only `execFileSync`, which this handler calls for `gh pr view`.
+vi.mock('node:child_process', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:child_process')>()),
   execFileSync: vi.fn(),
 }));
 
-vi.mock('node:fs', () => ({
+vi.mock('node:fs', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:fs')>()),
   readFileSync: vi.fn(),
 }));
 
@@ -166,5 +173,110 @@ describe('handleValidatePrBody', () => {
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean };
     expect(data.passed).toBe(true);
+  });
+});
+
+// ─── DR-1 task 006: advisory intent-grounding ────────────────────────────────
+//
+// When `featureId` + an event store are supplied and a meaningful
+// `artifacts.intent` resolves, the handler surfaces an ADVISORY `intentGrounded`
+// flag + report line. It is advisory ONLY — never changes the `passed`
+// (required-sections) gate. With no featureId / intent / event store the
+// grounding fields are absent (unchanged legacy result).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('ValidatePrBody_WithIntent_GroundsBody (DR-1 task 006)', () => {
+  interface GroundedResult {
+    passed: boolean;
+    missingSections: readonly string[];
+    report: string;
+    intentGrounded?: boolean;
+  }
+
+  /**
+   * An event store whose `query` returns a real `state.patched` event so
+   * `resolveWorkflowState` materializes `artifacts.intent` through the REAL
+   * projection — the exact read path the handler uses.
+   */
+  function storeWithIntent(patch: Record<string, unknown>): EventStore {
+    return {
+      query: vi.fn().mockResolvedValue([
+        {
+          streamId: 'feat-x',
+          sequence: 1,
+          type: 'state.patched',
+          timestamp: new Date().toISOString(),
+          data: { patch },
+        },
+      ]),
+    } as unknown as EventStore;
+  }
+
+  it('GroundedBody_IntentReferenced_AdvisoryGroundedTrue', async () => {
+    const intent = deriveIntent(['servers/a.ts', 'docs/b.md']);
+    // Body carries the grounding marker (the create_pr enrichment).
+    const body = `${VALID_BODY}\n\n## Intent\n\n${INTENT_GROUNDING_MARKER}\n\n${intent.summary}`;
+    const store = storeWithIntent({ 'artifacts.intent': intent });
+
+    const result = await handleValidatePrBody({ body, featureId: 'feat-x' }, undefined, store);
+
+    expect(result.success).toBe(true);
+    const data = result.data as GroundedResult;
+    expect(data.passed).toBe(true); // required sections still present
+    expect(data.intentGrounded).toBe(true);
+    expect(data.report).toMatch(/grounded in artifacts\.intent/i);
+  });
+
+  it('UngroundedBody_IntentNotReferenced_AdvisoryGroundedFalse_PassUnchanged', async () => {
+    const intent = deriveIntent(['servers/a.ts', 'docs/b.md']);
+    // Valid sections, but NO reference to the intent's marker / summary / surfaces.
+    const body = '## Summary\nUnrelated.\n\n## Changes\n- x\n\n## Test Plan\n- y\n';
+    const store = storeWithIntent({ 'artifacts.intent': intent });
+
+    const result = await handleValidatePrBody({ body, featureId: 'feat-x' }, undefined, store);
+
+    const data = result.data as GroundedResult;
+    expect(data.intentGrounded).toBe(false);
+    // Advisory does NOT flip the required-sections gate — body has all sections.
+    expect(data.passed).toBe(true);
+    expect(data.report).toMatch(/does NOT reference artifacts\.intent/i);
+  });
+
+  it('Advisory_NeverChangesPassed_OnMissingSections', async () => {
+    const intent = deriveIntent(['servers/a.ts']);
+    // Missing Changes + Test Plan — required gate must FAIL regardless of grounding.
+    const body = '## Summary\nOnly summary.\n';
+    const store = storeWithIntent({ 'artifacts.intent': intent });
+
+    const result = await handleValidatePrBody({ body, featureId: 'feat-x' }, undefined, store);
+
+    const data = result.data as GroundedResult;
+    expect(data.passed).toBe(false); // gate stays the gate
+    expect(data.missingSections).toContain('Changes');
+    expect(data.missingSections).toContain('Test Plan');
+    // Grounding advisory is still surfaced alongside the failing gate.
+    expect(typeof data.intentGrounded).toBe('boolean');
+  });
+
+  it('NoFeatureId_GroundingFieldsAbsent_LegacyResult', async () => {
+    // No featureId / event store → unchanged legacy result, no grounding fields.
+    const result = await handleValidatePrBody({ body: VALID_BODY });
+
+    const data = result.data as GroundedResult;
+    expect(data.passed).toBe(true);
+    expect(data.intentGrounded).toBeUndefined();
+    expect(data.report).not.toMatch(/artifacts\.intent/i);
+  });
+
+  it('EmptyIntent_NotMeaningful_GroundingFieldsAbsent', async () => {
+    // A persisted but empty intent (changedFiles: []) is not meaningful — omit.
+    const empty = deriveIntent([]);
+    const store = storeWithIntent({ 'artifacts.intent': empty });
+
+    const result = await handleValidatePrBody({ body: VALID_BODY, featureId: 'feat-x' }, undefined, store);
+
+    const data = result.data as GroundedResult;
+    expect(data.passed).toBe(true);
+    expect(data.intentGrounded).toBeUndefined();
   });
 });
