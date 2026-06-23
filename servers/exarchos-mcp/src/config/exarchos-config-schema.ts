@@ -287,6 +287,23 @@ export const SynthesisConfigSchema = z
 
 export type SynthesisConfig = z.infer<typeof SynthesisConfigSchema>;
 
+/**
+ * `escalation` (DR-3, #1595) — tunes the shared escalation policy consumed by
+ * the spec-review, quality-review, and shepherd fix-loops. `maxIterations` is
+ * the per-loop auto-fix bound: how many times a loop may auto-fix a mechanical
+ * finding before escalating to the user. Resolves to a uniform default of `5`
+ * (see `DEFAULT_MAX_ITERATIONS` in `orchestrate/escalation-policy.ts`); a
+ * project raises or lowers the bound here. A per-loop call-site override takes
+ * precedence over this config value.
+ */
+export const EscalationConfigSchema = z
+  .object({
+    maxIterations: z.number().int().positive().optional(),
+  })
+  .strict();
+
+export type EscalationConfig = z.infer<typeof EscalationConfigSchema>;
+
 export const ExarchosConfigSchema = z
   .object({
     test: safeCommand.optional(),
@@ -306,6 +323,7 @@ export const ExarchosConfigSchema = z
     invariants: InvariantsConfigSchema.optional(),
     storage: StorageConfigSchema.optional(),
     synthesis: SynthesisConfigSchema.optional(),
+    escalation: EscalationConfigSchema.optional(),
   })
   .strict();
 

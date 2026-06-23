@@ -1,4 +1,5 @@
 import type { ProjectConfig, VerificationPolicyOverlay } from './yaml-schema.js';
+import { DEFAULT_MAX_ITERATIONS } from '../orchestrate/escalation-policy.js';
 
 // ─── Resolved Types ─────────────────────────────────────────────────────────
 
@@ -95,6 +96,15 @@ export interface ResolvedProjectConfig {
       readonly surfaceGlobs: readonly string[];
       readonly docGlobs: readonly string[];
     };
+  };
+  /**
+   * Shared escalation policy (DR-3, #1595). `maxIterations` is the per-loop
+   * auto-fix bound threaded to the spec-review, quality-review, and shepherd
+   * fix-loops; consumers pass it as `configMaxIterations` to
+   * `resolveEscalationPolicy`. Always fully resolved (default applied).
+   */
+  readonly escalation: {
+    readonly maxIterations: number;
   };
 }
 
@@ -207,6 +217,9 @@ export const DEFAULTS: ResolvedProjectConfig = deepFreeze({
       surfaceGlobs: [],
       docGlobs: ['docs/**', '**/*.md'],
     },
+  },
+  escalation: {
+    maxIterations: DEFAULT_MAX_ITERATIONS,
   },
 });
 
@@ -406,6 +419,9 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
           project.synthesis?.documentLeg?.surfaceGlobs ?? DEFAULTS.synthesis.documentLeg.surfaceGlobs,
         docGlobs: project.synthesis?.documentLeg?.docGlobs ?? DEFAULTS.synthesis.documentLeg.docGlobs,
       },
+    },
+    escalation: {
+      maxIterations: project.escalation?.maxIterations ?? DEFAULTS.escalation.maxIterations,
     },
   };
 

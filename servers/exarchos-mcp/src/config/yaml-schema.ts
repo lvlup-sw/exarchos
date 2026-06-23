@@ -4,6 +4,7 @@ import {
   ExarchosConfigSchema,
   StorageConfigSchema,
   SynthesisConfigSchema,
+  EscalationConfigSchema,
 } from './exarchos-config-schema.js';
 import { VERIFICATION_GATE_NAMES } from '../workflow/verification-policy.js';
 
@@ -238,6 +239,7 @@ export const ProjectConfigSchema = z.object({
   invariants: InvariantsConfigSchema.optional(),
   storage: StorageConfigSchema.optional(),
   synthesis: SynthesisConfigSchema.optional(),
+  escalation: EscalationConfigSchema.optional(),
 }).strict();
 
 export type ProjectConfig = z.infer<typeof ProjectConfigSchema>;
