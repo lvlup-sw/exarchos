@@ -416,16 +416,50 @@ describe('GitHubProvider', () => {
 
   // ─── T8: getPrComments + getRepository ────────────────────────────────────────
 
+  // Routes a mocked `exec` call to canned JSON keyed by the gh endpoint the
+  // args reference. `getPrComments` now hits five surfaces (3 REST aggregates
+  // + repo view + graphql enrichment), so every getPrComments test stubs via
+  // this matcher rather than a single mockResolvedValue.
+  function stubGhComments(opts: {
+    issues?: unknown;
+    inline?: unknown;
+    reviews?: unknown;
+    repoView?: unknown;
+    graphql?: unknown | (() => never);
+  }): void {
+    mockExec.mockImplementation((_cmd: string, args?: readonly string[]) => {
+      const argv = args ?? [];
+      const joined = argv.join(' ');
+      const isGraphql = argv.includes('graphql');
+      const isRepoView = argv.includes('repo') && argv.includes('view');
+      if (isGraphql) {
+        if (typeof opts.graphql === 'function') return (opts.graphql as () => never)();
+        return Promise.resolve(JSON.stringify(opts.graphql ?? { data: { repository: { pullRequest: { reviewThreads: { nodes: [] } } } } }));
+      }
+      if (isRepoView) {
+        return Promise.resolve(JSON.stringify(opts.repoView ?? { nameWithOwner: 'lvlup-sw/exarchos' }));
+      }
+      if (joined.includes('issues/') && joined.includes('/comments')) {
+        return Promise.resolve(JSON.stringify(opts.issues ?? []));
+      }
+      if (joined.includes('pulls/') && joined.includes('/comments')) {
+        return Promise.resolve(JSON.stringify(opts.inline ?? []));
+      }
+      if (joined.includes('pulls/') && joined.includes('/reviews')) {
+        return Promise.resolve(JSON.stringify(opts.reviews ?? []));
+      }
+      return Promise.resolve('[]');
+    });
+  }
+
   it('GitHubProvider_GetPrComments_ReturnsParsedComments', async () => {
-    mockExec.mockResolvedValue(
-      JSON.stringify([
+    stubGhComments({
+      issues: [
         {
           id: 100,
           user: { login: 'reviewer1' },
           body: 'Looks good!',
           created_at: '2026-04-15T10:00:00Z',
-          path: 'src/main.ts',
-          line: 42,
         },
         {
           id: 101,
@@ -433,8 +467,8 @@ describe('GitHubProvider', () => {
           body: 'Needs a fix here',
           created_at: '2026-04-15T11:00:00Z',
         },
-      ])
-    );
+      ],
+    });
 
     const result = await provider.getPrComments('42');
 
@@ -453,8 +487,6 @@ describe('GitHubProvider', () => {
       body: 'Looks good!',
       createdAt: '2026-04-15T10:00:00Z',
       source: 'issue-comment',
-      path: 'src/main.ts',
-      line: 42,
     });
     expect(result[1]).toEqual({
       id: 101,
@@ -462,9 +494,275 @@ describe('GitHubProvider', () => {
       body: 'Needs a fix here',
       createdAt: '2026-04-15T11:00:00Z',
       source: 'issue-comment',
-      path: undefined,
-      line: undefined,
     });
+  });
+
+  // ─── DR-7 task 011: aggregate all three GitHub feedback surfaces ─────────────
+
+  it('GetPrComments_AggregatesAllThreeSources', async () => {
+    stubGhComments({
+      issues: [
+        {
+          id: 100,
+          user: { login: 'human1' },
+          body: 'PR-level note',
+          created_at: '2026-04-15T10:00:00Z',
+        },
+      ],
+      inline: [
+        {
+          id: 200,
+          user: { login: 'human2' },
+          body: 'inline nit',
+          created_at: '2026-04-15T10:05:00Z',
+          path: 'src/main.ts',
+          line: 42,
+        },
+      ],
+      reviews: [
+        {
+          id: 300,
+          user: { login: 'human3' },
+          body: 'Please address the above',
+          state: 'CHANGES_REQUESTED',
+          submitted_at: '2026-04-15T10:10:00Z',
+        },
+      ],
+    });
+
+    const result = await provider.getPrComments('42');
+
+    const bySource = Object.fromEntries(result.map((c) => [c.source, c]));
+    expect(result).toHaveLength(3);
+
+    expect(bySource['issue-comment']).toEqual({
+      id: 100,
+      author: 'human1',
+      body: 'PR-level note',
+      createdAt: '2026-04-15T10:00:00Z',
+      source: 'issue-comment',
+    });
+    expect(bySource['review-inline']).toEqual({
+      id: 200,
+      author: 'human2',
+      body: 'inline nit',
+      createdAt: '2026-04-15T10:05:00Z',
+      source: 'review-inline',
+      path: 'src/main.ts',
+      line: 42,
+    });
+    expect(bySource['review-summary']).toEqual({
+      id: 300,
+      author: 'human3',
+      body: 'Please address the above',
+      createdAt: '2026-04-15T10:10:00Z',
+      source: 'review-summary',
+      state: 'CHANGES_REQUESTED',
+    });
+
+    // All three REST endpoints were queried with --paginate.
+    expect(mockExec).toHaveBeenCalledWith(
+      'gh',
+      expect.arrayContaining(['api', 'repos/{owner}/{repo}/pulls/42/comments', '--paginate']),
+    );
+    expect(mockExec).toHaveBeenCalledWith(
+      'gh',
+      expect.arrayContaining(['api', 'repos/{owner}/{repo}/pulls/42/reviews', '--paginate']),
+    );
+  });
+
+  it('GetPrComments_LinksRepliesViaParentId', async () => {
+    stubGhComments({
+      inline: [
+        {
+          id: 201,
+          user: { login: 'human1' },
+          body: 'top-level inline',
+          created_at: '2026-04-15T10:00:00Z',
+          path: 'src/a.ts',
+          line: 10,
+        },
+        {
+          id: 202,
+          user: { login: 'human2' },
+          body: 'a reply',
+          created_at: '2026-04-15T10:01:00Z',
+          path: 'src/a.ts',
+          line: 10,
+          in_reply_to_id: 201,
+        },
+      ],
+    });
+
+    const result = await provider.getPrComments('42');
+    const top = result.find((c) => c.id === 201);
+    const reply = result.find((c) => c.id === 202);
+
+    expect(top?.parentId).toBeUndefined();
+    expect(reply?.parentId).toBe(201);
+  });
+
+  // Bots (e.g. CodeRabbit) are real feedback authors and MUST NOT be filtered.
+  it('GetPrComments_AnyAuthor_IncludesBots', async () => {
+    stubGhComments({
+      inline: [
+        {
+          id: 210,
+          user: { login: 'coderabbitai[bot]' },
+          body: 'Potential issue: …',
+          created_at: '2026-04-15T10:00:00Z',
+          path: 'src/x.ts',
+          line: 3,
+        },
+      ],
+    });
+
+    const result = await provider.getPrComments('42');
+    expect(result).toHaveLength(1);
+    expect(result[0].author).toBe('coderabbitai[bot]');
+  });
+
+  // Pins the post-then-verify contract: a comment posted via `gh pr comment`
+  // lands on the issues endpoint and must still surface in the aggregate.
+  it('GetPrComments_AddCommentVerifyPath_StillFindsPostedComment', async () => {
+    stubGhComments({
+      issues: [
+        {
+          id: 999,
+          user: { login: 'exarchos-bot' },
+          body: 'exarchos: synthesis ready',
+          created_at: '2026-04-15T12:00:00Z',
+        },
+      ],
+    });
+
+    const result = await provider.getPrComments('42');
+    const posted = result.find((c) => c.body === 'exarchos: synthesis ready');
+    expect(posted).toBeDefined();
+    expect(posted?.source).toBe('issue-comment');
+  });
+
+  // State-only reviews (empty/whitespace body) are getReviewStatus's job —
+  // they must NOT appear as review-summary comments.
+  it('GetPrComments_BodylessReview_Excluded', async () => {
+    stubGhComments({
+      reviews: [
+        {
+          id: 400,
+          user: { login: 'approver' },
+          body: '',
+          state: 'APPROVED',
+          submitted_at: '2026-04-15T10:00:00Z',
+        },
+        {
+          id: 401,
+          user: { login: 'whitespace' },
+          body: '   \n  ',
+          state: 'COMMENTED',
+          submitted_at: '2026-04-15T10:01:00Z',
+        },
+        {
+          id: 402,
+          user: { login: 'critic' },
+          body: 'Real review feedback',
+          state: 'CHANGES_REQUESTED',
+          submitted_at: '2026-04-15T10:02:00Z',
+        },
+      ],
+    });
+
+    const result = await provider.getPrComments('42');
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe(402);
+    expect(result[0].source).toBe('review-summary');
+  });
+
+  it('GetPrComments_ResolvedStatus_GraphqlEnrichmentFailSoft', async () => {
+    // (a) GraphQL rejects → getPrComments still resolves, resolved absent.
+    stubGhComments({
+      inline: [
+        {
+          id: 500,
+          user: { login: 'r1' },
+          body: 'inline a',
+          created_at: '2026-04-15T10:00:00Z',
+          path: 'src/a.ts',
+          line: 1,
+        },
+      ],
+      graphql: () => {
+        throw new Error('graphql exploded');
+      },
+    });
+
+    const failSoft = await provider.getPrComments('42');
+    expect(failSoft).toHaveLength(1);
+    expect(failSoft[0].resolved).toBeUndefined();
+
+    // (b) GraphQL succeeds: id 500 is in a resolved thread → resolved:true;
+    // id 501 is in no thread → resolved stays absent (unknown, not false).
+    stubGhComments({
+      inline: [
+        {
+          id: 500,
+          user: { login: 'r1' },
+          body: 'inline a',
+          created_at: '2026-04-15T10:00:00Z',
+          path: 'src/a.ts',
+          line: 1,
+        },
+        {
+          id: 501,
+          user: { login: 'r2' },
+          body: 'inline b (no thread)',
+          created_at: '2026-04-15T10:01:00Z',
+          path: 'src/b.ts',
+          line: 2,
+        },
+      ],
+      graphql: {
+        data: {
+          repository: {
+            pullRequest: {
+              reviewThreads: {
+                nodes: [
+                  {
+                    isResolved: true,
+                    comments: { nodes: [{ databaseId: 500 }] },
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const enriched = await provider.getPrComments('42');
+    const c500 = enriched.find((c) => c.id === 500);
+    const c501 = enriched.find((c) => c.id === 501);
+    expect(c500?.resolved).toBe(true);
+    expect(c501?.resolved).toBeUndefined();
+
+    // The exact graphql invocation shape: `gh api graphql` with -F typed
+    // owner/repo/pr and the -f query string.
+    const graphqlCall = mockExec.mock.calls.find((call) =>
+      (call[1] as string[] | undefined)?.includes('graphql'),
+    );
+    expect(graphqlCall?.[1]).toEqual(
+      expect.arrayContaining([
+        'api',
+        'graphql',
+        '-F',
+        'owner=lvlup-sw',
+        '-F',
+        'repo=exarchos',
+        '-F',
+        'pr=42',
+        '-f',
+        expect.stringContaining('reviewThreads'),
+      ]),
+    );
   });
 
   it('GitHubProvider_GetRepository_ReturnsNameWithOwner', async () => {
