@@ -116,13 +116,25 @@ export interface StaticAnalysisResult {
 // rule set lives in a committed `.dependency-cruiser.cjs` at the repo root —
 // the same file an author edits to add boundaries.
 //
-// Layer B (taint analysis — "no raw IO into core", a *dataflow* check) is
-// explicitly DEFERRED. dependency-cruiser only sees the import graph, not the
-// flow of tainted values through it. When Layer B lands, the degrade path for
-// non-TypeScript workloads (where the dependency-cruiser AST parser does not
-// apply) is Semgrep or CodeQL taint queries scoped to the configured source
-// dirs — the boundary concern is language-agnostic even though this Layer-A
-// implementation is TS/JS-graph-specific.
+// Layer B (taint analysis — "no raw IO into core", a *dataflow* check) ships
+// alongside, as `runRawIoTaint` below. dependency-cruiser only sees the import
+// graph, not the flow of tainted values through it, so Layer B is a SEPARATE
+// leg driven by a resolved taint engine (Semgrep) over a committed ruleset.
+//
+// Implementation decision (SIV-3B, #1529): the taint leg is driven by an
+// EXTERNAL resolved engine (Semgrep), not a hand-rolled TypeScript-compiler AST
+// walk. Rationale: (1) bundling the TS compiler into the shipped runtime to
+// re-implement dataflow is disproportionate; (2) one engine (Semgrep) serves
+// TS *and* the non-TS degrade the research names (CodeQL is the heavier
+// alternative), so the guarantee is language-agnostic with a single per-runtime
+// implementation (INV-4 parity) rather than a TS-only primary + a separate
+// degrade; (3) the ruleset — not code — encodes BOTH halves of the invariant:
+// (a) raw IO (`JSON.parse` / `response.json()` / `req.body` / `fs.read*`) whose
+// result is not consumed by a registered parser, AND (b) out-of-band
+// `as Brand` / `as any` casts downstream (Zod `.brand()` is compile-time-only;
+// one stray cast defeats the scheme). The registered-parser surface is a
+// resolved convention (`parsers: ['src/parse/**']`) referenced by the ruleset,
+// not baked into this module.
 //
 // INV-4 degrade discipline: a repo with no `.dependency-cruiser.cjs` (or with
 // dependency-cruiser absent from the toolchain) yields a SKIP leg, never a
@@ -224,6 +236,129 @@ export function runBoundaryLint(input: BoundaryLintInput): BoundaryLintResult {
     result.stderr.trim() ||
     result.stdout.trim() ||
     'dependency-cruiser reported a boundary violation';
+  return { status: 'FAIL', detail };
+}
+
+// ============================================================
+// BOUNDARY-PARSE TAINT (SIV-3 Layer B, #1529)
+// ============================================================
+//
+// "No raw IO into the core": untrusted input must cross a registered parser
+// before entering the domain core, and no out-of-band cast may forge a branded
+// type downstream. This is a DATAFLOW concern dependency-cruiser cannot express
+// (it sees imports, not value flow), so it rides its own resolved engine.
+//
+// The engine is Semgrep (resolved, not bundled — see the decision note above).
+// The leg follows the exact INV-4 degrade discipline as Layer A: it only runs
+// when a repo OPTS IN by committing a taint ruleset at a known path, and a
+// missing ruleset OR a missing engine yields an advisory SKIP, never a hard
+// FAIL. A repo that declares no parse boundary is simply not subject to the
+// leg — keeping the gate noise-free for the majority of repos and never
+// breaking a build that has not adopted the convention.
+
+/** Candidate taint-ruleset filenames, in resolution order. */
+const TAINT_RULESET_FILENAMES: readonly string[] = [
+  '.semgrep/no-raw-io-into-core.yml',
+  '.semgrep/no-raw-io-into-core.yaml',
+];
+
+/** Report label for the boundary-parse taint leg. */
+const BOUNDARY_TAINT_NAME = 'Boundary IO taint';
+
+export interface RawIoTaintInput {
+  /** Repository root to scan for a taint ruleset. */
+  readonly repoRoot: string;
+  /** External command runner (dependency injection). */
+  readonly runCommand: RunCommandFn;
+  /**
+   * Core source dirs to scan. Defaults to `['.']` — the ruleset's own `paths`
+   * include/exclude narrows the real surface, so passing the repoRoot is
+   * sufficient and matches how authors run semgrep locally.
+   */
+  readonly coreSources?: readonly string[];
+}
+
+/** Verdict of the boundary-parse taint leg. SKIP is the INV-4 advisory degrade. */
+export interface RawIoTaintResult {
+  readonly status: 'PASS' | 'FAIL' | 'SKIP';
+  /** Human detail: the violation summary on FAIL, the skip reason on SKIP. */
+  readonly detail?: string;
+}
+
+/**
+ * Locate a taint ruleset in `repoRoot`. Returns the relative path of the first
+ * match, or null when none exists. Detection mirrors `findBoundaryConfig`: a
+ * single directory listing of the `.semgrep` dir, so an fs-mock that stubs
+ * `readdirSync` correctly reports "no ruleset" without invoking the engine.
+ */
+function findTaintRuleset(repoRoot: string): string | null {
+  for (const rel of TAINT_RULESET_FILENAMES) {
+    let entries: string[];
+    try {
+      entries = fs.readdirSync(path.join(repoRoot, path.dirname(rel)));
+    } catch {
+      continue;
+    }
+    if (new Set(entries).has(path.basename(rel))) return rel;
+  }
+  return null;
+}
+
+/**
+ * Run the boundary-parse taint leg over `repoRoot`.
+ *
+ * - No taint ruleset committed → SKIP (advisory; the engine is NOT invoked).
+ * - Ruleset present, `semgrep` finds no violations (exit 0) → PASS.
+ * - Ruleset present, `semgrep` reports findings (exit 1) → FAIL with the
+ *   finding summary in `detail`.
+ * - Ruleset present but the engine is absent or errors (throw / exit ≥2) →
+ *   SKIP (degrade discipline: a missing/mis-resolving tool is inconclusive,
+ *   never a hard failure).
+ *
+ * Invoked as `semgrep --error --quiet --config <ruleset> <coreSources...>` with
+ * `cwd: repoRoot`. The `--error` flag makes findings exit non-zero so a FAIL is
+ * unambiguous; `--quiet` keeps the report compact.
+ */
+export function runRawIoTaint(input: RawIoTaintInput): RawIoTaintResult {
+  const { repoRoot, runCommand, coreSources = ['.'] } = input;
+
+  const ruleset = findTaintRuleset(repoRoot);
+  if (ruleset === null) {
+    return {
+      status: 'SKIP',
+      detail: `no ${TAINT_RULESET_FILENAMES[0]} in repo`,
+    };
+  }
+
+  let result: CommandResult;
+  try {
+    result = runCommand(
+      'semgrep',
+      ['--error', '--quiet', '--config', ruleset, ...coreSources],
+      { cwd: repoRoot },
+    );
+  } catch {
+    // Engine absent / not resolvable → degrade to SKIP, never a hard failure.
+    return { status: 'SKIP', detail: 'semgrep not available' };
+  }
+
+  if (result.exitCode === 0) {
+    return { status: 'PASS' };
+  }
+
+  // Exit 1 = findings (a real boundary violation). Exit ≥2 = engine/config
+  // error → degrade to SKIP, honoring the same discipline as a missing tool.
+  if (result.exitCode >= 2) {
+    return {
+      status: 'SKIP',
+      detail: result.stderr.trim() || 'semgrep engine/config error (exit ≥2)',
+    };
+  }
+
+  const detail =
+    result.stdout.trim() ||
+    result.stderr.trim() ||
+    'semgrep reported a boundary-parse violation';
   return { status: 'FAIL', detail };
 }
 
@@ -530,6 +665,20 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
       name: BOUNDARY_LINT_NAME,
       status: boundary.status,
       ...(boundary.detail ? { detail: boundary.detail } : {}),
+    });
+  }
+
+  // SIV-3 Layer B (#1529): fold the boundary-parse taint leg in on the same
+  // terms as Layer A — only when a repo has opted in with a committed taint
+  // ruleset. An absent ruleset (or an unresolved engine) yields an advisory
+  // SKIP we deliberately do NOT append, so the leg is invisible to repos that
+  // have not adopted the parse-at-edge convention and never breaks their build.
+  const taint = runRawIoTaint({ repoRoot, runCommand });
+  if (taint.status !== 'SKIP') {
+    checks.push({
+      name: BOUNDARY_TAINT_NAME,
+      status: taint.status,
+      ...(taint.detail ? { detail: taint.detail } : {}),
     });
   }
 

@@ -14,7 +14,9 @@ import type { EventStore } from '../event-store/store.js';
 // handler suite.
 import {
   runBoundaryLint,
+  runRawIoTaint,
   type BoundaryLintResult,
+  type RawIoTaintResult,
   type RunCommandFn,
   type StaticAnalysisInput,
   type StaticAnalysisResult,
@@ -652,5 +654,206 @@ describe('runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)', ()
     // The boundary leg is counted as a passing check, so depcruise ran.
     const calls = (runner as ReturnType<typeof vi.fn>).mock.calls;
     expect(calls.some((c: unknown[]) => Array.isArray(c[1]) && (c[1] as string[]).includes('depcruise'))).toBe(true);
+  });
+});
+
+// ─── SIV-3 Layer B: boundary-parse "no raw IO into core" taint leg (#1529) ──
+//
+// Layer B is a DATAFLOW concern dependency-cruiser cannot express, so it rides
+// its own resolved engine (Semgrep) over a committed taint ruleset. The leg
+// follows Layer A's INV-4 degrade discipline exactly: it runs ONLY when a repo
+// opts in by committing `.semgrep/no-raw-io-into-core.yml`, and a missing
+// ruleset OR an absent/erroring engine yields an advisory SKIP, never a hard
+// FAIL. The committed ruleset (not this module) encodes both halves of the
+// invariant: raw IO not crossing a registered parser, AND downstream
+// `as Brand`/`as any` casts. These tests drive the REAL `runRawIoTaint` and the
+// REAL `runStaticAnalysis` against on-disk temp fixtures with an injected runner.
+describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', () => {
+  let tmpDir: string;
+
+  beforeAll(async () => {
+    const actual = await vi.importActual<typeof import('./pure/static-analysis.js')>(
+      './pure/static-analysis.js',
+    );
+    realRunStaticAnalysis = actual.runStaticAnalysis;
+  });
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taint-leg-test-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  /**
+   * Build a fixture project, optionally with a committed taint ruleset. The
+   * ruleset body is illustrative — the leg's behaviour is driven by the injected
+   * runner's exit code, so the ruleset only needs to exist on disk to flip the
+   * leg from SKIP to active. The example encodes both halves of the invariant.
+   */
+  function makeTaintFixture(opts: { withRuleset: boolean }): string {
+    const repoRoot = path.join(tmpDir, 'repo');
+    fs.mkdirSync(path.join(repoRoot, 'src', 'core'), { recursive: true });
+    fs.mkdirSync(path.join(repoRoot, 'src', 'parse'), { recursive: true });
+
+    if (opts.withRuleset) {
+      fs.mkdirSync(path.join(repoRoot, '.semgrep'), { recursive: true });
+      fs.writeFileSync(
+        path.join(repoRoot, '.semgrep', 'no-raw-io-into-core.yml'),
+        [
+          'rules:',
+          '  - id: no-raw-io-into-core',
+          '    languages: [typescript]',
+          '    severity: ERROR',
+          '    message: raw IO must cross a registered parser (src/parse/**) before entering the core',
+          '    paths: { include: ["src/core/**"] }',
+          '    pattern-either:',
+          '      - pattern: JSON.parse(...)',
+          '      - pattern: $RES.json()',
+          '      - pattern: $REQ.body',
+          '      - pattern: fs.read$ANY(...)',
+          '  - id: no-out-of-band-brand-cast',
+          '    languages: [typescript]',
+          '    severity: ERROR',
+          '    message: out-of-band cast forges a branded type; route through a registered parser',
+          '    paths: { include: ["src/core/**"] }',
+          '    pattern-either:',
+          '      - pattern: $X as any',
+          '      - pattern: $X as $T & { __brand: $B }',
+          '',
+        ].join('\n'),
+        'utf-8',
+      );
+    }
+    return repoRoot;
+  }
+
+  it('RawIoTaint_UnparsedRawIoIntoCore_Flags', () => {
+    // Ruleset present, semgrep reports findings (exit 1): the leg FAILs and
+    // surfaces the finding summary.
+    const repoRoot = makeTaintFixture({ withRuleset: true });
+
+    const runner: RunCommandFn = vi.fn(() => ({
+      exitCode: 1,
+      stdout: 'src/core/order.ts:3 no-raw-io-into-core: JSON.parse not crossing a parser\n',
+      stderr: '',
+    }));
+
+    const result: RawIoTaintResult = runRawIoTaint({ repoRoot, runCommand: runner });
+
+    expect(result.status).toBe('FAIL');
+    expect(result.detail ?? '').toContain('no-raw-io-into-core');
+    // The injected runner ran semgrep --error --config <ruleset>.
+    const calls = (runner as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls.length).toBe(1);
+    const [cmd, cmdArgs] = calls[0] as [string, string[]];
+    expect(cmd).toBe('semgrep');
+    expect(cmdArgs).toContain('--config');
+    expect(cmdArgs).toContain('.semgrep/no-raw-io-into-core.yml');
+  });
+
+  it('RawIoTaint_DownstreamBrandCast_Flags', () => {
+    // The second half of the invariant — an out-of-band `as Brand`/`as any`
+    // cast downstream — is encoded in the same ruleset, so a finding (exit 1)
+    // FAILs the leg identically. (The runner stands in for semgrep matching the
+    // no-out-of-band-brand-cast rule.)
+    const repoRoot = makeTaintFixture({ withRuleset: true });
+
+    const runner: RunCommandFn = vi.fn(() => ({
+      exitCode: 1,
+      stdout: 'src/core/order.ts:7 no-out-of-band-brand-cast: `x as any` forges a branded type\n',
+      stderr: '',
+    }));
+
+    const result: RawIoTaintResult = runRawIoTaint({ repoRoot, runCommand: runner });
+
+    expect(result.status).toBe('FAIL');
+    expect(result.detail ?? '').toContain('no-out-of-band-brand-cast');
+  });
+
+  it('RawIoTaint_AllInputsCrossRegisteredParser_Passes', () => {
+    // Ruleset present, semgrep finds nothing (exit 0): the leg PASSes.
+    const repoRoot = makeTaintFixture({ withRuleset: true });
+
+    const runner: RunCommandFn = vi.fn(() => ({ exitCode: 0, stdout: '', stderr: '' }));
+
+    const result: RawIoTaintResult = runRawIoTaint({ repoRoot, runCommand: runner });
+
+    expect(result.status).toBe('PASS');
+    expect((runner as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+  });
+
+  it('RawIoTaint_NoRuleset_LegSkippedAdvisory', () => {
+    // No committed `.semgrep/no-raw-io-into-core.yml` → advisory SKIP. The
+    // engine is NOT invoked: a repo that has not adopted the parse-at-edge
+    // convention is simply not subject to the leg (INV-4 degrade).
+    const repoRoot = makeTaintFixture({ withRuleset: false });
+
+    const runner: RunCommandFn = vi.fn(() => ({ exitCode: 0, stdout: '', stderr: '' }));
+
+    const result: RawIoTaintResult = runRawIoTaint({ repoRoot, runCommand: runner });
+
+    expect(result.status).toBe('SKIP');
+    expect((runner as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+  });
+
+  it('RawIoTaint_EngineAbsent_SkipsNotFail', () => {
+    // Ruleset present but the engine throws (not installed / unresolvable):
+    // degrade to SKIP, never a hard FAIL.
+    const repoRoot = makeTaintFixture({ withRuleset: true });
+
+    const runner: RunCommandFn = vi.fn(() => {
+      throw new Error('semgrep: command not found');
+    });
+
+    const result: RawIoTaintResult = runRawIoTaint({ repoRoot, runCommand: runner });
+
+    expect(result.status).toBe('SKIP');
+    expect(result.detail ?? '').toContain('not available');
+  });
+
+  it('RawIoTaint_EngineConfigError_SkipsNotFail', () => {
+    // Exit ≥2 = semgrep engine/config error (e.g. a malformed ruleset). This is
+    // inconclusive, not a boundary violation → SKIP, honoring the same degrade
+    // discipline as a missing tool.
+    const repoRoot = makeTaintFixture({ withRuleset: true });
+
+    const runner: RunCommandFn = vi.fn(() => ({
+      exitCode: 2,
+      stdout: '',
+      stderr: 'semgrep: invalid rule schema\n',
+    }));
+
+    const result: RawIoTaintResult = runRawIoTaint({ repoRoot, runCommand: runner });
+
+    expect(result.status).toBe('SKIP');
+    // The engine's own error is surfaced as the skip detail (it falls back to a
+    // generic 'engine/config error (exit ≥2)' label only when stderr is empty).
+    expect(result.detail ?? '').toContain('invalid rule schema');
+  });
+
+  it('StaticAnalysis_TaintRulesetPresent_FoldsLegIntoFullReport', () => {
+    // Integration: a committed ruleset makes the full runStaticAnalysis report
+    // fold the taint leg into its output and counts. Drives the REAL
+    // runStaticAnalysis via importActual. The runner returns exit 0 for every
+    // invocation (lint/typecheck/depcruise/semgrep), so the suite PASSes and the
+    // taint leg shows up as a counted check.
+    const repoRoot = makeTaintFixture({ withRuleset: true });
+    fs.writeFileSync(
+      path.join(repoRoot, 'package.json'),
+      JSON.stringify({ name: 'fixture', scripts: { lint: 'eslint .' } }),
+      'utf-8',
+    );
+
+    const runner: RunCommandFn = vi.fn(() => ({ exitCode: 0, stdout: '', stderr: '' }));
+
+    const result = realRunStaticAnalysis({ repoRoot, runCommand: runner });
+
+    expect(result.status).toBe('pass');
+    expect(result.output).toContain('Boundary IO taint');
+    // The taint leg actually invoked semgrep as part of the full report.
+    const calls = (runner as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls.some((c: unknown[]) => c[0] === 'semgrep')).toBe(true);
   });
 });
