@@ -85,6 +85,20 @@ Each task must declare its test layer. This determines the scope and style of te
 
 When a task modifies existing code behavior, the planner should set `characterizationRequired: true` in the testingStrategy. The implementer captures current behavior as characterization tests before making changes, providing a safety net against unintended regressions.
 
+## Model-Based Conformance Provenance (SIV-6)
+
+When a task drives an **external stateful integration** and the plan calls for a model-based conformance test (see *Model-Based Conformance at Stateful Boundaries* in the testing-strategy guide), the task MUST carry a provenance checklist the reviewer can verify — the LLM-authored model is otherwise prone to mirroring the code instead of the spec:
+
+```markdown
+**Model-Based Conformance (SIV-6):**
+- Acceptance criterion cited: [AC-id]   ← required; no citation ⇒ reject the model
+- Model is strictly simpler than the implementation (not a line-by-line mirror)
+- Model authored before/with the code (not reverse-engineered)
+- Known-bad-trace rejection test included (model rejects a seeded-wrong transition)
+```
+
+A model that cites no acceptance criterion, or whose known-bad-trace test does not actually reject the seeded transition, is vacuous — the gate fails it.
+
 ## Test Naming Convention
 
 Follow: `MethodName_Scenario_ExpectedOutcome`
