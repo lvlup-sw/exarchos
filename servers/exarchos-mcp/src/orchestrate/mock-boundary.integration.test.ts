@@ -160,15 +160,15 @@ describe('check_mock_boundary acceptance (through handleOrchestrate)', () => {
       expect(axiosFinding).toBeDefined();
       expect(axiosFinding?.unowned).toBe(true);
 
-      // Per-finding steer (INV-12): names the dep, prescribes a hermetic fixture
-      // / contract-verified stub / a fake.
+      // Per-finding steer (INV-12 + SIV-5 resolution #1531): names the dep, and
+      // since axios classifies as third-party-http, resolves the CONCRETE
+      // hermetic double (a Pact-verified contract stub) rather than a generic menu.
       expect(Array.isArray(data.next_actions)).toBe(true);
       const steer = data.next_actions?.find((s) => s.includes('axios'));
       expect(steer).toBeDefined();
       expect(steer ?? '').toMatch(/replace the mock/i);
-      expect(steer ?? '').toMatch(/hermetic fixture/i);
-      expect(steer!).toMatch(/contract-verified stub/i);
-      expect(steer!).toMatch(/fake/i);
+      expect(steer ?? '').toMatch(/third-party-http/i);
+      expect(steer!).toMatch(/Pact-verified contract stub/i);
     },
     120_000,
   );

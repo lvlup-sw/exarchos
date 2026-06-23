@@ -89,7 +89,7 @@ When a task modifies existing code behavior, the planner should set `characteriz
 
 When a task drives an **external stateful integration** and the plan calls for a model-based conformance test (see *Model-Based Conformance at Stateful Boundaries* in the testing-strategy guide), the task MUST carry a provenance checklist the reviewer can verify — the LLM-authored model is otherwise prone to mirroring the code instead of the spec:
 
-```markdown
+```text
 **Model-Based Conformance (SIV-6):**
 - Acceptance criterion cited: [AC-id]   ← required; no citation ⇒ reject the model
 - Model is strictly simpler than the implementation (not a line-by-line mirror)
