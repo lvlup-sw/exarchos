@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { handlePrepareReview, type PrepareReviewArgs } from './prepare-review.js';
@@ -9,12 +10,20 @@ import type { ToolResult } from '../format.js';
 
 // ─── Typed assertion helpers ────────────────────────────────────────────────
 
+interface IntentGrounding {
+  mode: string;
+  intended: { surfaces: string[]; summary: string; transcriptSummary?: string };
+  instruction: string;
+}
+
 interface PrepareReviewData {
   catalog: { version: string; dimensions: readonly { id: string }[] };
   findingFormat: string;
   pluginStatus: {
     impeccable: { enabled: boolean };
   };
+  intent?: { changedFiles: string[]; surfaces: string[]; summary: string };
+  intentGrounding?: IntentGrounding;
 }
 
 function expectSuccess(result: ToolResult): PrepareReviewData {
@@ -252,6 +261,77 @@ describe('handlePrepareReview', () => {
         await callPrepareReview({ featureId: 'cr-feat', scope: 'code' }),
       );
       expect((data as { catalog?: unknown }).catalog).toBeDefined();
+    });
+  });
+
+  // ─── DR-1 (#1593) task 005: REVIEW grounds the spec-review checklist in the ──
+  //     captured intent (intended-vs-delivered), degrading to diff-only when no
+  //     intent is resolvable.
+  describe('intent grounding (DR-1 task 005)', () => {
+    /**
+     * A self-contained git repo whose `main...HEAD` diff is a single
+     * deterministic file — so `changedFilesAgainstBase(repoRoot)` resolves a
+     * non-empty changed-file set without depending on the live working tree.
+     */
+    function seedRepoWithDiff(): string {
+      const repo = mkdtempSync(join(tmpdir(), 'prepare-review-repo-'));
+      const git = (...a: string[]): void => {
+        execFileSync('git', a, { cwd: repo, stdio: ['pipe', 'pipe', 'pipe'] });
+      };
+      git('init', '-q', '-b', 'main');
+      git('config', 'user.email', 'test@example.com');
+      git('config', 'user.name', 'Test');
+      writeFileSync(join(repo, 'base.txt'), 'base\n');
+      git('add', '-A');
+      git('commit', '-qm', 'base');
+      git('checkout', '-q', '-b', 'feat');
+      mkdirSync(join(repo, 'servers'), { recursive: true });
+      writeFileSync(join(repo, 'servers', 'a.ts'), 'export const x = 1;\n');
+      git('add', '-A');
+      git('commit', '-qm', 'change');
+      return repo;
+    }
+
+    it('PrepareReview_WithIntent_GroundsSpecReviewChecklist', async () => {
+      const repo = seedRepoWithDiff();
+      try {
+        const data = expectSuccess(
+          await callPrepareReview({ featureId: 'cr-grounded', repoRoot: repo, scope: 'code' }),
+        );
+        // Intent is meaningful (non-empty diff) → the grounding directive is present.
+        expect(data.intent?.changedFiles).toContain('servers/a.ts');
+        expect(data.intentGrounding).toBeDefined();
+        const grounding = data.intentGrounding as IntentGrounding;
+        expect(grounding.mode).toBe('intended-vs-delivered');
+        // It references the intent's surfaces + summary (intended-vs-delivered).
+        expect(grounding.intended.surfaces).toEqual(data.intent?.surfaces);
+        expect(grounding.intended.summary).toBe(data.intent?.summary);
+        expect(grounding.intended.surfaces).toContain('servers');
+        expect(grounding.instruction.toLowerCase()).toContain('intended');
+        expect(grounding.instruction.toLowerCase()).toContain('delivered');
+        // The catalog is still served alongside the grounding.
+        expect(data.catalog.dimensions.length).toBe(QUALITY_CHECK_CATALOG.dimensions.length);
+      } finally {
+        rmSync(repo, { recursive: true, force: true });
+      }
+    });
+
+    it('PrepareReview_NoIntent_DegradesToDiffOnly', async () => {
+      // A non-git repoRoot ⇒ `changedFilesAgainstBase` returns [] ⇒ empty intent.
+      const emptyDir = mkdtempSync(join(tmpdir(), 'prepare-review-empty-'));
+      try {
+        const data = expectSuccess(
+          await callPrepareReview({ featureId: 'cr-no-intent', repoRoot: emptyDir, scope: 'code' }),
+        );
+        // No resolvable diff → no fabricated intent grounding (diff-only review).
+        expect(data.intent?.changedFiles).toEqual([]);
+        expect(data.intentGrounding).toBeUndefined();
+        expect('intentGrounding' in data).toBe(false);
+        // The catalog is returned unchanged.
+        expect(data.catalog.dimensions.length).toBe(QUALITY_CHECK_CATALOG.dimensions.length);
+      } finally {
+        rmSync(emptyDir, { recursive: true, force: true });
+      }
     });
   });
 });

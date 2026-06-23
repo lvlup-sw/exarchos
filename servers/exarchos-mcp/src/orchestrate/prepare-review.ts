@@ -13,6 +13,7 @@ import { resolveConfig, DEFAULTS } from '../config/resolve.js';
 import { resolvePlanReviewDepth, type PlanReviewRung } from '../workflow/phase-kind.js';
 import type { DesignDepth } from '../workflow/plan-depth-policy.js';
 import { changedFilesAgainstBase, deriveIntent, persistIntent } from './extract-intent.js';
+import type { WorkflowIntent } from '../workflow/schemas.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -64,6 +65,56 @@ const FINDING_FORMAT = `interface PluginFinding {
   line?: number;
   message: string;
 }`;
+
+// ─── DR-1 (#1593): intended-vs-delivered review grounding ─────────────────────
+
+/**
+ * The structured review-grounding directive the orchestrator threads into the
+ * spec-review subagent on the code-review path (DR-1 task 005). It pins the
+ * INTENDED change (the captured `artifacts.intent` — surfaces + summary +
+ * optional transcript line) against the DELIVERED diff so the reviewer can flag
+ * intended-but-missing and delivered-but-unintended (scope-creep) work.
+ *
+ * Emitted ONLY when the intent is meaningful (`intent.changedFiles.length > 0`).
+ * On the `NoIntent` path (empty/un-resolvable diff) the directive is omitted and
+ * the review degrades to diff-only — no fabricated intent. INV-6: no
+ * `workflowType` branch; the same shape rides for every workflow type.
+ */
+export interface IntentGrounding {
+  readonly mode: 'intended-vs-delivered';
+  /** The captured intent the delivered diff is checked against. */
+  readonly intended: {
+    readonly surfaces: readonly string[];
+    readonly summary: string;
+    readonly transcriptSummary?: string;
+  };
+  /** The reviewer instruction: verify INTENDED vs DELIVERED, flag both gaps. */
+  readonly instruction: string;
+}
+
+const INTENT_GROUNDING_INSTRUCTION =
+  'Verify INTENDED vs DELIVERED. The orchestrator captured the intended change ' +
+  'in `artifacts.intent` (the `intended` surfaces/summary below); the DELIVERED ' +
+  'change is the diff under review. Confirm the diff fulfils the intended ' +
+  'change, and flag (a) intended-but-missing work and (b) delivered-but-' +
+  'unintended work (scope creep) as spec issues.';
+
+/**
+ * Build the grounding directive when the intent is meaningful, else `undefined`
+ * (the `NoIntent` degrade-to-diff-only path). Pure — no `workflowType` branch.
+ */
+function buildIntentGrounding(intent: WorkflowIntent): IntentGrounding | undefined {
+  if (intent.changedFiles.length === 0) return undefined;
+  return {
+    mode: 'intended-vs-delivered',
+    intended: {
+      surfaces: intent.surfaces,
+      summary: intent.summary,
+      ...(intent.transcriptSummary ? { transcriptSummary: intent.transcriptSummary } : {}),
+    },
+    instruction: INTENT_GROUNDING_INSTRUCTION,
+  };
+}
 
 // ─── DR-10: plan-review provisioning (front-of-pipeline adversarial gate) ─────
 
@@ -193,6 +244,10 @@ export async function handlePrepareReview(
     transcript: args.transcript,
   });
   const persisted = await persistIntent(args.featureId, intent, stateDir, eventStore);
+  // DR-1 task 005: the review-grounding directive the orchestrator passes into
+  // the spec-review subagent. Present only when the intent is meaningful;
+  // omitted on the `NoIntent` path so the review degrades to diff-only.
+  const intentGrounding = buildIntentGrounding(intent);
 
   // 2. Filter catalog by dimensions if requested
   let dimensions = QUALITY_CHECK_CATALOG.dimensions;
@@ -238,6 +293,9 @@ export async function handlePrepareReview(
       // The warning surfaces a fail-soft persist so callers aren't silent.
       intent,
       ...(persisted.warning ? { intentWarning: persisted.warning } : {}),
+      // DR-1 task 005: the intended-vs-delivered grounding directive — present
+      // only when the intent is meaningful, omitted on the `NoIntent` path.
+      ...(intentGrounding ? { intentGrounding } : {}),
     },
   };
 }

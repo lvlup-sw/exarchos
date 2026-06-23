@@ -98,12 +98,22 @@ This enables catching:
 - Test adequacy (outcome-based, tier-scaled — not test-first ordering)
 - Specification alignment
 - Test coverage
+- Intended-vs-delivered: the delivered diff fulfils `artifacts.intent` — no intended-but-missing or delivered-but-unintended (scope-creep) work (when `intentGrounding` is supplied)
 
 **Does NOT cover (that's Quality Review):**
 - Code style
 - SOLID principles
 - Performance optimization
 - Error handling elegance
+
+### Intended-vs-Delivered Grounding
+
+The orchestrator captures the **intended** change as `artifacts.intent` (surfaces, a summary, and — when available — a one-line transcript summary) and threads it into your dispatch as an `intentGrounding` directive on the back-of-pipeline code-review path. When present, you MUST verify the delivered diff against the intended change:
+
+- **Intended-but-missing** — a surface or outcome the intent calls for that the diff does not deliver. Flag as a `spec` issue.
+- **Delivered-but-unintended (scope creep)** — changes outside the intended surfaces/summary with no spec justification. Flag as a `spec` issue.
+
+When no `intentGrounding` is supplied (an empty or un-resolvable diff), proceed against the diff alone — do NOT fabricate an intent. This grounding is additive to the spec-alignment checks below, not a replacement for them.
 
 ## Review Checklist
 
