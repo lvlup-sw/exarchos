@@ -43,6 +43,7 @@ import {
   StorageBusyError,
 } from '../../event-store/index.js';
 import { readIntent, groundBodyInIntent } from '../extract-intent.js';
+import { resolveWorkflowState } from '../resolve-state.js';
 
 export interface HandleCreatePrArgs {
   readonly title: string;
@@ -61,10 +62,70 @@ export interface HandleCreatePrArgs {
   readonly featureId?: string;
 }
 
+/**
+ * A workflow "owns a PR" when its projected state records a non-empty PR
+ * reference — either `artifacts.pr` or `synthesis.prUrl`. The projection types
+ * both as `string | string[] | null`, so a recorded PR is a non-empty string OR
+ * a non-empty array. `null`, `undefined`, `''`, and `[]` all mean "no PR yet".
+ */
+function recordsPr(value: unknown): boolean {
+  if (typeof value === 'string') return value.length > 0;
+  if (Array.isArray(value)) return value.length > 0;
+  return false;
+}
+
 export async function handleCreatePr(
   args: HandleCreatePrArgs,
   ctx: DispatchContext,
 ): Promise<ToolResult> {
+  // ─── DR-4 (#1596) task 007 — structural single-PR-owner guard ─────────────
+  //
+  // FIRST step, before ANY side effect (body grounding, Phase A, provider
+  // calls). Synthesize is the sole PR creator: the initial /synthesize runs
+  // create_pr exactly once, and the shepherd loop that follows can only
+  // push/assess — it has no create_pr path. Shepherd runs WITHIN the SYNTHESIZE
+  // phase, so phase-gating cannot separate the initial create from a shepherd
+  // resubmit. The only by-construction differentiator is workflow STATE: once
+  // the initial create succeeds, the workflow already OWNS a PR. That is exactly
+  // shepherd's documented precondition ("create_pr already ran"). So we refuse
+  // any create_pr whose feature already records a PR.
+  //
+  // The refusal is derived from authoritative event-sourced state (the
+  // projection), NOT a caller-passed boolean — there is no `shepherdContext`
+  // flag and no `workflowType` branch (INV-6). Fail-soft: a missing featureId,
+  // an unreadable state, or no recorded PR all DEGRADE to the unchanged legacy
+  // create path (the listPrs remote-recovery guard below still backstops the
+  // crash-recovery window before state records the PR). The state read NEVER
+  // throws out of this guard.
+  if (args.featureId !== undefined) {
+    const resolved = await resolveWorkflowState({
+      featureId: args.featureId,
+      eventStore: ctx.eventStore,
+    });
+    if ('state' in resolved) {
+      const artifacts = resolved.state.artifacts as
+        | { pr?: unknown }
+        | undefined;
+      const synthesis = resolved.state.synthesis as
+        | { prUrl?: unknown }
+        | undefined;
+      if (recordsPr(artifacts?.pr) || recordsPr(synthesis?.prUrl)) {
+        return {
+          success: false,
+          error: {
+            code: 'PR_ALREADY_OWNED',
+            message:
+              `create_pr refused: feature '${args.featureId}' already owns a PR. ` +
+              `Only the initial synthesize creates a PR for a feature; the ` +
+              `shepherd loop can only push/assess, never create_pr (single PR ` +
+              `owner — DR-4). No PR was created.`,
+          },
+        };
+      }
+    }
+    // `{ error }` (state unreadable) → degrade to the legacy create path.
+  }
+
   // ─── Generate stable operationId for this invocation ──────────────────────
   // The operationId is the idempotency anchor for both Phase A and Phase B.
   // Using randomUUID() at handler entry means each top-level invocation gets a
