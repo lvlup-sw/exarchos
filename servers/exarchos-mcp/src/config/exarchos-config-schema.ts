@@ -263,6 +263,30 @@ export const StorageConfigSchema = z
 
 export type StorageConfig = z.infer<typeof StorageConfigSchema>;
 
+/**
+ * `synthesis.documentLeg` (DR-2, #1594) — tunes the SYNTHESIZE-kind `document`
+ * readiness leg. `severity` selects whether an uncovered doc-bearing change
+ * blocks synthesis (`'blocking'`) or merely warns (`'advisory'`, the default —
+ * a safe rollout). `surfaceGlobs` declares which changed paths count as a
+ * doc-bearing surface (default empty ⇒ the leg auto-waives, so it is opt-in and
+ * never overfit to one repo's layout); `docGlobs` declares what counts as a
+ * documentation change (default `docs/**` + any `*.md`).
+ */
+export const SynthesisConfigSchema = z
+  .object({
+    documentLeg: z
+      .object({
+        severity: z.enum(['advisory', 'blocking']).optional(),
+        surfaceGlobs: z.array(z.string()).optional(),
+        docGlobs: z.array(z.string()).optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+export type SynthesisConfig = z.infer<typeof SynthesisConfigSchema>;
+
 export const ExarchosConfigSchema = z
   .object({
     test: safeCommand.optional(),
@@ -281,6 +305,7 @@ export const ExarchosConfigSchema = z
     cli: CliConfigSchema.optional(),
     invariants: InvariantsConfigSchema.optional(),
     storage: StorageConfigSchema.optional(),
+    synthesis: SynthesisConfigSchema.optional(),
   })
   .strict();
 

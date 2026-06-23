@@ -117,5 +117,25 @@ export function buildConfigDescription(config: ResolvedProjectConfig) {
       // `'normal'`; `'full'` fsyncs on every commit (power-loss durable).
       synchronous: annotate(config.storage.synchronous, DEFAULTS.storage.synchronous),
     },
+    synthesis: {
+      // DR-2 (#1594) — SYNTHESIZE-kind `document` readiness leg. `severity`
+      // gates whether an uncovered doc-bearing change blocks synthesis;
+      // `surfaceGlobs` declares doc-bearing paths (empty default ⇒ auto-waive);
+      // `docGlobs` declares what counts as a documentation change.
+      documentLeg: {
+        severity: annotate(
+          config.synthesis.documentLeg.severity,
+          DEFAULTS.synthesis.documentLeg.severity,
+        ),
+        surfaceGlobs: annotate(
+          config.synthesis.documentLeg.surfaceGlobs,
+          DEFAULTS.synthesis.documentLeg.surfaceGlobs,
+        ),
+        docGlobs: annotate(
+          config.synthesis.documentLeg.docGlobs,
+          DEFAULTS.synthesis.documentLeg.docGlobs,
+        ),
+      },
+    },
   };
 }

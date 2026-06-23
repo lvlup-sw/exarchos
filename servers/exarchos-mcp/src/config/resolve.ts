@@ -83,6 +83,19 @@ export interface ResolvedProjectConfig {
   readonly storage: {
     readonly synchronous: 'normal' | 'full';
   };
+  /**
+   * SYNTHESIZE-kind `document` readiness leg config (DR-2, #1594). `severity`
+   * gates whether an uncovered doc-bearing change blocks synthesis; `surfaceGlobs`
+   * declares the doc-bearing paths (empty ⇒ auto-waive); `docGlobs` declares what
+   * counts as a doc change. Always fully resolved (defaults applied).
+   */
+  readonly synthesis: {
+    readonly documentLeg: {
+      readonly severity: 'advisory' | 'blocking';
+      readonly surfaceGlobs: readonly string[];
+      readonly docGlobs: readonly string[];
+    };
+  };
 }
 
 // ─── Default Values ─────────────────────────────────────────────────────────
@@ -187,6 +200,13 @@ export const DEFAULTS: ResolvedProjectConfig = deepFreeze({
   },
   storage: {
     synchronous: 'normal',
+  },
+  synthesis: {
+    documentLeg: {
+      severity: 'advisory',
+      surfaceGlobs: [],
+      docGlobs: ['docs/**', '**/*.md'],
+    },
   },
 });
 
@@ -377,6 +397,15 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
     verification: { policy: verificationPolicy },
     storage: {
       synchronous: project.storage?.synchronous ?? DEFAULTS.storage.synchronous,
+    },
+    synthesis: {
+      documentLeg: {
+        severity:
+          project.synthesis?.documentLeg?.severity ?? DEFAULTS.synthesis.documentLeg.severity,
+        surfaceGlobs:
+          project.synthesis?.documentLeg?.surfaceGlobs ?? DEFAULTS.synthesis.documentLeg.surfaceGlobs,
+        docGlobs: project.synthesis?.documentLeg?.docGlobs ?? DEFAULTS.synthesis.documentLeg.docGlobs,
+      },
     },
   };
 

@@ -154,6 +154,32 @@ function adaptWithEventStore<T>(
   };
 }
 
+/**
+ * Like {@link adaptWithEventStore}, but ALSO threads the dispatch-time
+ * `ctx.projectConfig` into the handler's args (when the args do not already
+ * carry one — an explicit arg-level `projectConfig`, e.g. from a test, still
+ * wins). Use for handlers that need both the event store AND resolved config —
+ * e.g. `prepare_synthesis`'s DR-2 `document`-leg severity. The injection mirrors
+ * {@link adaptLadderGate}; the handler reads `args.projectConfig`.
+ */
+function adaptWithEventStoreAndConfig<T>(
+  handler: (args: T, stateDir: string, eventStore: EventStore) => Promise<ToolResult>,
+): ActionHandler {
+  return async (args, stateDir, ctx) => {
+    if (!ctx?.eventStore) {
+      throw new Error(
+        `${handler.name}: ctx.eventStore required (handler dispatched without DispatchContext)`,
+      );
+    }
+    const enrichedArgs =
+      ctx.projectConfig !== undefined &&
+      (args as { projectConfig?: unknown }).projectConfig === undefined
+        ? { ...(args as Record<string, unknown>), projectConfig: ctx.projectConfig }
+        : args;
+    return handler(enrichedArgs as unknown as T, stateDir, ctx.eventStore);
+  };
+}
+
 // ─── Verification-ladder severity dispatch (task 005) ────────────────────────
 //
 // The five verification-ladder gates are INV-5b advisory carriers
@@ -356,7 +382,7 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   task_fail: adaptWithEventStore(handleTaskFail),
   review_triage: adaptWithEventStore(handleReviewTriage),
   prepare_delegation: adaptWithCtx(handlePrepareDelegation),
-  prepare_synthesis: adaptWithEventStore(handlePrepareSynthesis),
+  prepare_synthesis: adaptWithEventStoreAndConfig(handlePrepareSynthesis),
   assess_stack: adaptWithEventStore(handleAssessStack),
   check_design_completeness: adaptWithEventStore(handleDesignCompleteness),
   check_plan_coverage: adaptWithEventStore(handlePlanCoverage),
