@@ -261,6 +261,7 @@ export class GitHubProvider implements VcsProvider {
       author: entry.user.login,
       body: entry.body,
       createdAt: entry.created_at,
+      source: 'issue-comment' as const,
       path: entry.path,
       line: entry.line,
     }));

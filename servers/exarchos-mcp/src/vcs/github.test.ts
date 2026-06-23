@@ -452,6 +452,7 @@ describe('GitHubProvider', () => {
       author: 'reviewer1',
       body: 'Looks good!',
       createdAt: '2026-04-15T10:00:00Z',
+      source: 'issue-comment',
       path: 'src/main.ts',
       line: 42,
     });
@@ -460,6 +461,7 @@ describe('GitHubProvider', () => {
       author: 'reviewer2',
       body: 'Needs a fix here',
       createdAt: '2026-04-15T11:00:00Z',
+      source: 'issue-comment',
       path: undefined,
       line: undefined,
     });

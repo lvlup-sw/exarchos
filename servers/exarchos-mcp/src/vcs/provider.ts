@@ -59,13 +59,70 @@ export interface PrSummary {
   readonly state: string;
 }
 
+/**
+ * A single piece of PR feedback, normalized across providers.
+ *
+ * Three feedback surfaces collapse into one platform-neutral shape via
+ * `source`:
+ *  - `'issue-comment'`   — PR-level conversation (the shared discussion thread,
+ *                          not anchored to a diff line).
+ *  - `'review-inline'`   — a per-line review thread anchored to `path`/`line`.
+ *  - `'review-summary'`  — the body of a review submission (its top-level
+ *                          verdict); `state` carries the review state.
+ * The discriminant is named for the feedback *kind*, never for a provider's
+ * endpoint or field (e.g. not GitHub's `subject_type`), so consumers stay
+ * provider-agnostic.
+ *
+ * Threading is **one level only**: a reply sets `parentId` to the id of the
+ * top-level comment it answers; a reply's parent is always top-level. We do not
+ * model deeper nesting. An absent `parentId` means the comment is top-level.
+ *
+ * `resolved` is **tri-state** and the distinction is load-bearing:
+ *  - `true`              — the thread is resolved.
+ *  - `false`             — the thread is explicitly unresolved.
+ *  - absent / `undefined`— resolution status is *unknown* (e.g. the provider
+ *                          does not report it for this surface). Consumers MUST
+ *                          treat absent as "unknown" and MUST NOT coerce it to
+ *                          `false`. Use {@link isResolvedKnown} to gate on this.
+ */
 export interface PrComment {
   readonly id: number;
   readonly author: string;
   readonly body: string;
   readonly createdAt: string;
+  /**
+   * Which feedback surface this comment came from. Platform-neutral
+   * discriminant — see the interface doc for the three kinds.
+   */
+  readonly source: 'issue-comment' | 'review-inline' | 'review-summary';
   readonly path?: string;
   readonly line?: number;
+  /**
+   * Id of the top-level comment this one replies to (one-level threading).
+   * Absent ⇒ this comment is top-level.
+   */
+  readonly parentId?: number;
+  /**
+   * Tri-state resolution status: `true` (resolved), `false` (explicitly
+   * unresolved), absent (unknown — NOT false). Never coerce absent to `false`.
+   */
+  readonly resolved?: boolean;
+  /**
+   * For `source: 'review-summary'`, the review state (e.g. `'APPROVED'`,
+   * `'CHANGES_REQUESTED'`, `'COMMENTED'`). Absent on non-summary sources. A
+   * string, not a provider-specific enum, to keep the contract platform-neutral.
+   */
+  readonly state?: string;
+}
+
+/**
+ * Whether a comment's resolution status is *known* — i.e. `resolved` was set to
+ * an explicit boolean rather than left absent. Returns `false` for the absent
+ * (unknown) case so consumers can distinguish "unknown" from "unresolved"
+ * instead of silently coercing absent → `false`.
+ */
+export function isResolvedKnown(comment: PrComment): boolean {
+  return comment.resolved !== undefined;
 }
 
 export interface CreateIssueOpts {
