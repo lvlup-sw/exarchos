@@ -408,7 +408,7 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   check_context_economy: adaptWithEventStore(handleContextEconomy),
   check_operational_resilience: adaptWithEventStore(handleOperationalResilience),
   check_workflow_determinism: adaptWithEventStore(handleWorkflowDeterminism),
-  check_review_verdict: adaptWithEventStore(handleReviewVerdict),
+  check_review_verdict: adaptWithEventStoreAndConfig(handleReviewVerdict),
   check_convergence: adaptWithEventStore(handleCheckConvergence),
   check_provenance_chain: adaptWithEventStore(handleProvenanceChain),
   check_task_decomposition: adaptWithEventStore(handleTaskDecomposition),

@@ -138,15 +138,25 @@ exarchos_orchestrate({
 
 ## Fix Loop
 
-If review FAILS:
+If review FAILS, the fix-loop is **bounded by the shared escalation policy** (config-resolvable `escalation.maxIterations`, default **5**) — it does NOT loop unboundedly. `check_review_verdict` returns the escalate decision the loop MUST honor: on a `NEEDS_FIXES` verdict it carries `escalate: true` + `escalationReason` when the loop must stop (the auto-fix bound was hit OR a finding is intent-touching), and the report's routing instruction reflects this.
+
+**Two outcomes:**
+
+1. **Auto-fix (under the bound, MECHANICAL findings)** — `escalate` is absent/falsy. Re-dispatch to the implementer and re-review, as below. The verdict report surfaces the remaining budget (e.g. "fix cycle N/maxIterations").
+2. **Escalate to the user (ask-user)** — `escalate: true`. Do NOT re-dispatch `/delegate --fixes`. Surface the findings and `escalationReason` to the user and ask how to proceed (accept, redesign, or adjust scope). This happens when EITHER:
+   - the auto-fix bound (`escalation.maxIterations`, default 5) is reached — the loop has fixed-and-re-reviewed that many times without converging; OR
+   - a finding is **intent-touching** — a `spec`-category issue (intended-but-missing or scope-creep) that changes what was asked for, so a human decides rather than the loop silently "fixing" it. Intent-touching findings escalate immediately, regardless of how many cycles have run.
+
+The fix-cycle count is event-sourced (prior `review-verdict` NEEDS_FIXES gate events) — there is no separate counter to maintain, and `check_review_verdict` reads it for you.
+
+**Auto-fix path — re-dispatch to implementer:**
 
 1. Create fix task with specific issues
 2. Dispatch to implementer (same or new)
-3. Re-review after fixes
-4. Repeat until PASS
+3. Re-review after fixes — `check_review_verdict` re-evaluates the bound each pass
 
 ```typescript
-// Return to implementer
+// Return to implementer (auto-fix path only — when escalate is falsy)
 Task({
   model: "opus",
   description: "Fix spec review issues",

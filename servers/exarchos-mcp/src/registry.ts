@@ -1561,7 +1561,7 @@ const orchestrateActions: readonly ToolAction[] = [
   },
   {
     name: 'check_review_verdict',
-    description: 'Compute review verdict from finding counts. Emits per-dimension and summary gate.executed events.',
+    description: 'Compute review verdict from finding counts. Emits per-dimension and summary gate.executed events. On NEEDS_FIXES, bounds the fix-loop via the shared escalation policy (DR-3): returns escalate:true when the auto-fix bound is hit or a finding is intent-touching.',
     schema: z.object({
       featureId: z.string().min(1),
       high: coercedNonnegativeInt(),
@@ -1579,7 +1579,14 @@ const orchestrateActions: readonly ToolAction[] = [
         file: z.string().optional(),
         line: z.number().int().positive().optional(),
         message: z.string(),
+        // DR-3: intent-touching classification for the escalation policy. A
+        // spec-category (or explicitly-flagged) finding escalates immediately.
+        category: z.string().optional(),
+        intentTouching: z.boolean().optional(),
       })).optional(),
+      // DR-3: per-loop override of the auto-fix bound (highest precedence over
+      // config `escalation.maxIterations` and the built-in default of 5).
+      maxFixCycles: coercedPositiveInt().optional(),
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
