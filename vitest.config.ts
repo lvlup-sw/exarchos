@@ -18,6 +18,11 @@ export default defineConfig({
             'src/**/*.test.ts',
             'benchmarks/**/*.test.ts',
             'scripts/**/*.test.ts',
+            // Black-box tests for top-level git-hook samples (e.g. the opt-in
+            // pre-push ship-gate hook). They drive the `.sample` script via
+            // `sh` and assert exit codes — no MCP-package deps, so they run in
+            // the root `unit` project rather than `servers/exarchos-mcp`.
+            'hooks/**/*.test.ts',
             'test/fixtures/**/*.test.ts',
             'test/setup/**/*.test.ts',
             'test/migration/**/*.test.ts',

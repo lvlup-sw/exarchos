@@ -1,0 +1,99 @@
+#!/bin/sh
+# ─── Exarchos opt-in ship-gate pre-push hook (DR-5, #1597) ──────────────────
+#
+# WHAT THIS DOES
+#   A THIN TRIGGER that runs an Exarchos ship-path verb before `git push` and
+#   BLOCKS the push when the gate reports a blocking finding (a lint/typecheck
+#   failure). A clean gate lets the push through. The engine stays Exarchos —
+#   this script is just the git-domain trigger that calls it (no logic of its
+#   own beyond "ask the gate, honor the answer").
+#
+# WHY IT IS A `.sample` (NOT auto-installed) — POLA
+#   This file ships as `hooks/pre-push.ship-gate.sample` and does NOTHING until
+#   YOU explicitly install it. Installing a hook that can block every push is a
+#   user decision, never a repo-side side effect. To opt in:
+#
+#       cp hooks/pre-push.ship-gate.sample .git/hooks/pre-push
+#       chmod +x .git/hooks/pre-push
+#
+#   To opt out, delete `.git/hooks/pre-push` (or `git push --no-verify` for a
+#   one-off bypass).
+#
+# POSTURE (INV-15 / INV-4)
+#   - INV-15: NOT a `post-receive`/`pre-receive` server daemon, no bare gate
+#     repo, no second orchestrator. The hook is a thin client-side trigger; the
+#     verification engine is the existing Exarchos CLI.
+#   - INV-4: git-domain and harness/OS-neutral. POSIX `sh`, no bashisms, no
+#     `jq` dependency — it parses the verb's `--json` output with `grep`.
+#   - Degrades to a clear message (and DOES NOT block the push) whenever the
+#     ship-path engine is unavailable or cannot actually run — a missing or
+#     broken optional tool must never wedge every push (POLA). "Gate says
+#     block" and "gate couldn't run" are deliberately distinct outcomes.
+#
+# ENV-VAR KNOBS
+#   EXARCHOS_BIN        Path/name of the Exarchos binary. Default: `exarchos`
+#                       (resolved on PATH). Point this at a custom binary, or
+#                       leave it for the installed CLI.
+#   EXARCHOS_SHIP_VERB  The ship-path verb (tool + action) to run, as a
+#                       space-separated argument list. Default:
+#                       `orch check_static_analysis` (lint + typecheck). The
+#                       hook appends `--feature-id <id>` and `--json`.
+#   EXARCHOS_SHIP_FEATURE_ID
+#                       Synthetic feature id passed to the verb (it is required
+#                       by the schema but only labels the gate event here).
+#                       Default: `pre-push`.
+#
+# EXIT CONTRACT
+#   0  gate passed, OR engine unavailable / could not run (degrade-open).
+#   1  gate reported a BLOCKING finding (git aborts the push).
+# ─────────────────────────────────────────────────────────────────────────────
+
+set -u
+
+EXARCHOS_BIN="${EXARCHOS_BIN:-exarchos}"
+EXARCHOS_SHIP_VERB="${EXARCHOS_SHIP_VERB:-orch check_static_analysis}"
+EXARCHOS_SHIP_FEATURE_ID="${EXARCHOS_SHIP_FEATURE_ID:-pre-push}"
+
+# ── 1. Resolve the engine. Degrade-open if it isn't installed/executable. ────
+# A missing optional tool must NOT block pushes (POLA): the user opted into a
+# quality gate, not into "every push fails if Exarchos isn't on PATH".
+if ! command -v "$EXARCHOS_BIN" >/dev/null 2>&1; then
+  echo "ship-gate: '$EXARCHOS_BIN' not found on PATH — pre-push ship-gate skipped." >&2
+  echo "ship-gate: install Exarchos, set EXARCHOS_BIN, or remove .git/hooks/pre-push to silence this." >&2
+  exit 0
+fi
+
+# ── 2. Run the ship-path verb with JSON output. ──────────────────────────────
+# Advisory verbs return success (exit 0) with `data.passed:false` on a finding —
+# they DO NOT signal a block via the process exit code. So we capture stdout and
+# parse the JSON signal below; the exit code only tells us whether the CLI
+# itself ran. `# shellcheck disable` is not needed — word-splitting the verb is
+# intentional so EXARCHOS_SHIP_VERB can carry "tool action".
+# shellcheck disable=SC2086
+gate_output="$("$EXARCHOS_BIN" $EXARCHOS_SHIP_VERB --feature-id "$EXARCHOS_SHIP_FEATURE_ID" --json 2>/dev/null)"
+gate_status=$?
+
+# ── 3. Decide. Distinguish "couldn't run" from "gate says block". ────────────
+# If the CLI crashed (non-zero exit) AND its JSON does not carry an explicit
+# blocking signal, treat it as "couldn't run" → degrade-open. A genuine
+# blocking finding is signalled in the JSON payload, not by the exit code.
+case "$gate_output" in
+  *'"passed":false'* | *'"passed": false'* | *'"ready":false'* | *'"ready": false'*)
+    echo "ship-gate: BLOCKED — the ship-path gate reported a blocking finding." >&2
+    echo "ship-gate: run '$EXARCHOS_BIN $EXARCHOS_SHIP_VERB --feature-id $EXARCHOS_SHIP_FEATURE_ID' to see details, then re-push." >&2
+    echo "ship-gate: (bypass once with 'git push --no-verify' if you understand the risk.)" >&2
+    exit 1
+    ;;
+  *'"passed":true'* | *'"passed": true'* | *'"ready":true'* | *'"ready": true'*)
+    echo "ship-gate: passed." >&2
+    exit 0
+    ;;
+  *)
+    # No recognizable pass/block signal — the verb errored, was skipped (no
+    # toolchain), or emitted an unexpected shape. Degrade-open: don't block a
+    # push on an inconclusive gate.
+    echo "ship-gate: could not determine a verdict from the ship-path gate (exit $gate_status) — push allowed." >&2
+    echo "ship-gate: run '$EXARCHOS_BIN $EXARCHOS_SHIP_VERB --feature-id $EXARCHOS_SHIP_FEATURE_ID --json' to investigate." >&2
+    exit 0
+    ;;
+esac
