@@ -12,7 +12,17 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
-import { deriveIntent, persistIntent, type WorkflowIntent } from './extract-intent.js';
+import {
+  deriveIntent,
+  persistIntent,
+  readIntent,
+  groundBodyInIntent,
+  bodyHasIntentMarker,
+  isMeaningfulIntent,
+  buildIntentSection,
+  INTENT_GROUNDING_MARKER,
+  type WorkflowIntent,
+} from './extract-intent.js';
 import { handleInit } from '../workflow/tools.js';
 import { resolveWorkflowState } from './resolve-state.js';
 import { EventStore } from '../event-store/store.js';
@@ -123,5 +133,80 @@ describe('extract-intent (DR-1 #1593)', () => {
     const result = await persistIntent('no-such-workflow', intent, tmpDir, eventStore);
     expect(result.persisted).toBe(false);
     expect(result.warning).toBeTruthy();
+  });
+});
+
+// ─── readIntent (DR-1 task 006) ──────────────────────────────────────────────
+
+describe('readIntent (DR-1 task 006)', () => {
+  it('ReadIntent_PersistedMeaningfulIntent_RoundTrips', async () => {
+    // The READ counterpart of persistIntent: persist a meaningful intent, read it
+    // back through the canonical projection-backed reader.
+    const intent = deriveIntent(['servers/a.ts', 'docs/b.md']);
+    const featureId = 'read-intent-feat';
+    expect((await handleInit({ featureId, workflowType: 'feature' }, tmpDir, eventStore)).success).toBe(true);
+    expect((await persistIntent(featureId, intent, tmpDir, eventStore)).persisted).toBe(true);
+
+    const read = await readIntent(featureId, eventStore);
+    expect(read).toEqual(intent);
+  });
+
+  it('ReadIntent_NoFeatureId_ReturnsUndefined', async () => {
+    // Degrade: no featureId → undefined, never throws.
+    expect(await readIntent(undefined, eventStore)).toBeUndefined();
+  });
+
+  it('ReadIntent_NoEventStore_ReturnsUndefined', async () => {
+    // Degrade: no event store → undefined, never throws.
+    expect(await readIntent('some-feat', undefined)).toBeUndefined();
+  });
+
+  it('ReadIntent_NoPersistedIntent_ReturnsUndefined', async () => {
+    // A workflow with no `artifacts.intent` → undefined (absent is not an error).
+    const featureId = 'read-intent-absent';
+    expect((await handleInit({ featureId, workflowType: 'feature' }, tmpDir, eventStore)).success).toBe(true);
+    expect(await readIntent(featureId, eventStore)).toBeUndefined();
+  });
+
+  it('ReadIntent_UnknownWorkflow_FailsSoftToUndefined', async () => {
+    // Unreadable / unknown workflow state → undefined, never throws.
+    expect(await readIntent('no-such-workflow-at-all', eventStore)).toBeUndefined();
+  });
+});
+
+// ─── Body grounding helpers (DR-1 task 006) ──────────────────────────────────
+
+describe('intent body grounding (DR-1 task 006)', () => {
+  it('GroundBody_MeaningfulIntent_AppendsIntentSectionAndMarker', () => {
+    const intent = deriveIntent(['servers/a.ts', 'docs/b.md']);
+    const grounded = groundBodyInIntent('## Summary\n\nDoes a thing.', intent);
+    expect(grounded).toContain('## Intent');
+    expect(bodyHasIntentMarker(grounded)).toBe(true);
+    expect(grounded).toContain('docs, servers'); // surfaces
+    expect(grounded).toContain(intent.summary);
+    // Original body content is preserved ahead of the appended section.
+    expect(grounded.startsWith('## Summary')).toBe(true);
+  });
+
+  it('GroundBody_TranscriptSummary_IncludedWhenPresent', () => {
+    const intent = deriveIntent(['servers/a.ts'], { transcript: 'Thread the event store through.' });
+    const section = buildIntentSection(intent);
+    expect(section).toContain('**Context:** Thread the event store through.');
+  });
+
+  it('GroundBody_EmptyIntent_LeavesBodyUntouched', () => {
+    const empty = deriveIntent([]);
+    expect(isMeaningfulIntent(empty)).toBe(false);
+    const body = '## Summary\n\nNo files.';
+    expect(groundBodyInIntent(body, empty)).toBe(body);
+  });
+
+  it('GroundBody_AlreadyMarked_IsIdempotent', () => {
+    const intent = deriveIntent(['servers/a.ts']);
+    const once = groundBodyInIntent('## Summary\n\nBody.', intent);
+    const twice = groundBodyInIntent(once, intent);
+    // Second pass is a no-op — the marker appears exactly once.
+    expect(twice).toBe(once);
+    expect(twice.split(INTENT_GROUNDING_MARKER).length - 1).toBe(1);
   });
 });

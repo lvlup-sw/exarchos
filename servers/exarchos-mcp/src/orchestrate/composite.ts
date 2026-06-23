@@ -422,7 +422,7 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   check_coverage_thresholds: adaptArgs(handleCheckCoverageThresholds),
   assess_refactor_scope: adaptArgsWithEventStore(handleAssessRefactorScope),
   check_pr_comments: adaptArgs(handleCheckPrComments),
-  validate_pr_body: adaptArgs(handleValidatePrBody),
+  validate_pr_body: adaptWithOptionalEventStore(handleValidatePrBody),
   validate_pr_stack: adaptArgs(handleValidatePrStack),
   debug_review_gate: adaptArgs(handleDebugReviewGate),
   extract_fix_tasks: adaptArgsWithStateDirAndEventStore(handleExtractFixTasks),

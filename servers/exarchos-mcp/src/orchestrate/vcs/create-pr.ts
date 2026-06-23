@@ -42,6 +42,7 @@ import {
   ConcurrencyError,
   StorageBusyError,
 } from '../../event-store/index.js';
+import { readIntent, groundBodyInIntent } from '../extract-intent.js';
 
 export interface HandleCreatePrArgs {
   readonly title: string;
@@ -50,6 +51,14 @@ export interface HandleCreatePrArgs {
   readonly head: string;
   readonly draft?: boolean;
   readonly labels?: string[];
+  /**
+   * DR-1 (#1593) task 006: when present, the handler fail-soft reads
+   * `artifacts.intent` and grounds the PR body in it (a deterministic `##
+   * Intent` section) so BOTH the durable `pr.create.requested` event AND the
+   * created PR carry the grounded body. Absent / unreadable / empty intent →
+   * the body is left untouched (unchanged legacy behavior).
+   */
+  readonly featureId?: string;
 }
 
 export async function handleCreatePr(
@@ -65,6 +74,20 @@ export async function handleCreatePr(
   const operationId = randomUUID();
   const phaseAKey = `pr.create.requested:${operationId}`;
   const phaseBKey = `pr.create.executed:${operationId}`;
+
+  // ─── DR-1 task 006 — ground the PR body in artifacts.intent ───────────────
+  //
+  // BEFORE Phase A: fail-soft read the persisted intent and, when it is
+  // meaningful and the body is not already grounded, append a deterministic `##
+  // Intent` section + idempotency marker. The ENRICHED body is used for the
+  // rest of the handler so BOTH the durable `pr.create.requested` event AND the
+  // created PR carry the grounded body. `readIntent`/`groundBodyInIntent` never
+  // throw and degrade to the unchanged body when no featureId / no meaningful
+  // intent / state unreadable — never breaking PR creation on a state hiccup.
+  // INV-6: no `workflowType` branch.
+  const intent = await readIntent(args.featureId, ctx.eventStore);
+  const effectiveBody =
+    intent !== undefined ? groundBodyInIntent(args.body, intent) : args.body;
 
   const provider = await createVcsProvider({ config: ctx.projectConfig });
 
@@ -87,7 +110,7 @@ export async function handleCreatePr(
           data: {
             operationId,
             title: args.title,
-            body: args.body,
+            body: effectiveBody,
             base: args.base,
             head: args.head,
             ...(args.draft !== undefined ? { draft: args.draft } : {}),
@@ -194,7 +217,7 @@ export async function handleCreatePr(
   try {
     const result = await provider.createPr({
       title: args.title,
-      body: args.body,
+      body: effectiveBody,
       baseBranch: args.base,
       headBranch: args.head,
       draft: args.draft,

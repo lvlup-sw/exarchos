@@ -2062,6 +2062,9 @@ const orchestrateActions: readonly ToolAction[] = [
       bodyFile: z.string().optional(),
       body: z.string().optional(),
       template: z.string().optional(),
+      // DR-1 (#1593) task 006: optional — enables the advisory intent-grounding
+      // check (reads `artifacts.intent`). Absent → unchanged legacy validation.
+      featureId: featureIdSchema.optional(),
     }),
     phases: SYNTHESIS_REVIEW_PHASES,
     roles: ROLE_LEAD,
@@ -2511,6 +2514,10 @@ const orchestrateActions: readonly ToolAction[] = [
       head: z.string().min(1),
       draft: z.boolean().optional(),
       labels: z.array(z.string()).optional(),
+      // DR-1 (#1593) task 006: optional — grounds the PR body in
+      // `artifacts.intent` (a deterministic `## Intent` section). Absent /
+      // unreadable / empty intent → the body is left untouched.
+      featureId: featureIdSchema.optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,

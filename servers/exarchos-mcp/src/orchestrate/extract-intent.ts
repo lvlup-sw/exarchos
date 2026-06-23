@@ -23,7 +23,9 @@
 import { execSync } from 'node:child_process';
 import type { EventStore } from '../event-store/store.js';
 import { handleUpdate } from '../workflow/tools.js';
+import { WorkflowIntentSchema } from '../workflow/schemas.js';
 import type { WorkflowIntent } from '../workflow/schemas.js';
+import { resolveWorkflowState } from './resolve-state.js';
 
 export type { WorkflowIntent } from '../workflow/schemas.js';
 
@@ -170,4 +172,99 @@ export async function persistIntent(
     const message = err instanceof Error ? err.message : String(err);
     return { persisted: false, warning: `intent persistence failed: ${message}` };
   }
+}
+
+// ─── Fail-Soft Read (DR-1 task 006) ──────────────────────────────────────────
+
+/**
+ * Read the persisted `artifacts.intent` back from workflow state — the READ
+ * counterpart of {@link persistIntent}. Resolves state via the canonical
+ * {@link resolveWorkflowState} (SQLite event store is the source of truth) and
+ * safe-parses `artifacts.intent` through {@link WorkflowIntentSchema}.
+ *
+ * FAIL-SOFT by design (DR-1 acceptance): returns `undefined` — never throws and
+ * never surfaces an error envelope — when `featureId` is absent, no event store
+ * is supplied, state is unreadable, the intent is absent, or it fails schema
+ * validation. PR-body grounding (create_pr / validate_pr_body) consumes this and
+ * degrades to its unchanged legacy behavior when the result is `undefined`, so a
+ * state hiccup can never break PR creation or validation. No `workflowType`
+ * branch (INV-6): the same read holds for every workflow type.
+ */
+export async function readIntent(
+  featureId: string | undefined,
+  eventStore: EventStore | undefined,
+): Promise<WorkflowIntent | undefined> {
+  if (!featureId || !eventStore) return undefined;
+  try {
+    const resolved = await resolveWorkflowState({ featureId, eventStore });
+    if ('error' in resolved) return undefined;
+    const artifacts = resolved.state['artifacts'];
+    if (typeof artifacts !== 'object' || artifacts === null) return undefined;
+    const rawIntent = (artifacts as Record<string, unknown>)['intent'];
+    if (rawIntent === undefined) return undefined;
+    const parsed = WorkflowIntentSchema.safeParse(rawIntent);
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// ─── Intent Grounding Marker (DR-1 task 006) ─────────────────────────────────
+
+/**
+ * Idempotency marker for the `## Intent` grounding section injected into a PR
+ * body. An HTML comment so it renders invisibly on GitHub while remaining a
+ * deterministic presence check for both the create_pr enrichment (don't
+ * double-inject) and the validate_pr_body advisory (is the body grounded?).
+ */
+export const INTENT_GROUNDING_MARKER = '<!-- intent-grounded -->';
+
+/**
+ * Whether a body already carries the intent-grounding marker. Used by both the
+ * create_pr enrichment (idempotency guard) and the validate_pr_body advisory.
+ */
+export function bodyHasIntentMarker(body: string): boolean {
+  return body.includes(INTENT_GROUNDING_MARKER);
+}
+
+/**
+ * An intent is "meaningful" — worth grounding a PR body in — only when it
+ * references at least one changed file. The empty/un-resolvable-diff floor
+ * (`changedFiles.length === 0`) is NOT grounded; the body is left untouched.
+ * Mirrors the `buildIntentGrounding` meaningfulness gate in prepare-review.ts
+ * (task 005) so the grounded-PR and grounded-review paths agree on the floor.
+ */
+export function isMeaningfulIntent(intent: WorkflowIntent): boolean {
+  return intent.changedFiles.length > 0;
+}
+
+/**
+ * Build the deterministic `## Intent` grounding section appended to a PR body.
+ * Pure — no `workflowType` branch. Carries surfaces, the human-floor summary,
+ * the optional transcript line, and the idempotency marker so the section is
+ * both human-readable and machine-detectable on a later validate pass.
+ */
+export function buildIntentSection(intent: WorkflowIntent): string {
+  const lines: string[] = ['## Intent', '', INTENT_GROUNDING_MARKER, ''];
+  lines.push(`**Surfaces:** ${intent.surfaces.length > 0 ? intent.surfaces.join(', ') : '(none)'}`);
+  lines.push('');
+  lines.push(intent.summary);
+  if (intent.transcriptSummary) {
+    lines.push('');
+    lines.push(`**Context:** ${intent.transcriptSummary}`);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Append the `## Intent` grounding section to a PR body when the intent is
+ * meaningful AND the body is not already grounded (idempotent). Returns the body
+ * UNCHANGED when the intent is not meaningful or the marker is already present.
+ * Pure / total — never throws.
+ */
+export function groundBodyInIntent(body: string, intent: WorkflowIntent): string {
+  if (!isMeaningfulIntent(intent)) return body;
+  if (bodyHasIntentMarker(body)) return body;
+  const section = buildIntentSection(intent);
+  return body.trimEnd().length === 0 ? section : `${body.trimEnd()}\n\n${section}`;
 }

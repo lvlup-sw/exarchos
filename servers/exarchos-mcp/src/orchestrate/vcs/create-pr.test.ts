@@ -3,6 +3,7 @@ import type { VcsProvider } from '../../vcs/provider.js';
 import type { EventStore } from '../../event-store/store.js';
 import type { DispatchContext } from '../../core/dispatch.js';
 import { ConcurrencyError } from '../../event-store/index.js';
+import { deriveIntent, INTENT_GROUNDING_MARKER } from '../extract-intent.js';
 
 // Mock the factory before importing the handler
 vi.mock('../../vcs/factory.js', () => ({
@@ -430,5 +431,133 @@ describe('CreatePr_RecoveryAppendFailure_DoesNotFallThroughToCreatePr', () => {
 
     // Sanity: Phase A append + failed recovery append = 2 calls.
     expect(appendCallCount).toBe(2);
+  });
+});
+
+// ─── DR-1 task 006: create_pr grounds the body in artifacts.intent ───────────
+//
+// When `featureId` is supplied and a meaningful `artifacts.intent` is persisted,
+// the handler enriches the PR body with a deterministic `## Intent` section +
+// idempotency marker BEFORE Phase A — so BOTH the durable `pr.create.requested`
+// event AND the created PR carry the grounded body. Degrades cleanly (body
+// unchanged) when there is no featureId / no meaningful intent / the body is
+// already grounded.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('CreatePr_Body_ReferencesIntent (DR-1 task 006)', () => {
+  /**
+   * A `state.patched` event whose dot-path patch materializes `artifacts.intent`
+   * through the real projection — the same surface `readIntent` resolves through.
+   */
+  function intentPatchEvent(patch: Record<string, unknown>) {
+    return {
+      streamId: 'feat-x',
+      sequence: 1,
+      type: 'state.patched',
+      timestamp: new Date().toISOString(),
+      data: { patch },
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    const provider = makeMockProvider();
+    vi.mocked(createVcsProvider).mockResolvedValue(provider);
+  });
+
+  it('CreatePr_MeaningfulIntent_EnrichesRequestedEventAndCreatedPrBody', async () => {
+    const intent = deriveIntent(['servers/a.ts', 'docs/b.md']);
+    const ctx = makeTwoEventCtx({
+      queryResult: [intentPatchEvent({ 'artifacts.intent': intent })],
+    });
+    const provider = makeMockProvider();
+    vi.mocked(createVcsProvider).mockResolvedValue(provider);
+
+    const result = await handleCreatePr(
+      {
+        title: 'feat: thing',
+        body: '## Summary\n\nDoes a thing.',
+        base: 'main',
+        head: 'feature/thing',
+        featureId: 'feat-x',
+      },
+      ctx,
+    );
+
+    expect(result.success).toBe(true);
+
+    // The created PR body carries the grounded `## Intent` section + marker.
+    const createArg = vi.mocked(provider.createPr).mock.calls[0][0];
+    expect(createArg.body).toContain('## Intent');
+    expect(createArg.body).toContain(INTENT_GROUNDING_MARKER);
+    expect(createArg.body).toContain(intent.summary);
+    // Original body content is preserved.
+    expect(createArg.body).toContain('Does a thing.');
+
+    // The durable `pr.create.requested` event carries the SAME grounded body.
+    const requestedCall = vi
+      .mocked(ctx.eventStore.append)
+      .mock.calls.find((call) => (call[1] as { type: string }).type === 'pr.create.requested');
+    expect(requestedCall).toBeDefined();
+    const requestedBody = (requestedCall![1] as { data: { body: string } }).data.body;
+    expect(requestedBody).toContain(INTENT_GROUNDING_MARKER);
+    expect(requestedBody).toBe(createArg.body);
+  });
+
+  it('CreatePr_NoFeatureId_LeavesBodyUntouched', async () => {
+    const ctx = makeTwoEventCtx();
+    const provider = makeMockProvider();
+    vi.mocked(createVcsProvider).mockResolvedValue(provider);
+
+    const body = '## Summary\n\nNo grounding here.';
+    await handleCreatePr(
+      { title: 'feat: thing', body, base: 'main', head: 'feature/thing' },
+      ctx,
+    );
+
+    const createArg = vi.mocked(provider.createPr).mock.calls[0][0];
+    expect(createArg.body).toBe(body);
+    expect(createArg.body).not.toContain(INTENT_GROUNDING_MARKER);
+  });
+
+  it('CreatePr_EmptyIntent_LeavesBodyUntouched', async () => {
+    // A persisted but EMPTY intent (changedFiles: []) is not meaningful — degrade.
+    const empty = deriveIntent([]);
+    const ctx = makeTwoEventCtx({
+      queryResult: [intentPatchEvent({ 'artifacts.intent': empty })],
+    });
+    const provider = makeMockProvider();
+    vi.mocked(createVcsProvider).mockResolvedValue(provider);
+
+    const body = '## Summary\n\nNothing changed.';
+    await handleCreatePr(
+      { title: 'feat: thing', body, base: 'main', head: 'feature/thing', featureId: 'feat-x' },
+      ctx,
+    );
+
+    const createArg = vi.mocked(provider.createPr).mock.calls[0][0];
+    expect(createArg.body).toBe(body);
+    expect(createArg.body).not.toContain(INTENT_GROUNDING_MARKER);
+  });
+
+  it('CreatePr_BodyAlreadyGrounded_DoesNotDoubleInject', async () => {
+    const intent = deriveIntent(['servers/a.ts']);
+    const ctx = makeTwoEventCtx({
+      queryResult: [intentPatchEvent({ 'artifacts.intent': intent })],
+    });
+    const provider = makeMockProvider();
+    vi.mocked(createVcsProvider).mockResolvedValue(provider);
+
+    // Body ALREADY carries the marker — the handler must not append a second section.
+    const body = `## Summary\n\nBody.\n\n## Intent\n\n${INTENT_GROUNDING_MARKER}\n\n**Surfaces:** servers`;
+    await handleCreatePr(
+      { title: 'feat: thing', body, base: 'main', head: 'feature/thing', featureId: 'feat-x' },
+      ctx,
+    );
+
+    const createArg = vi.mocked(provider.createPr).mock.calls[0][0];
+    expect(createArg.body).toBe(body);
+    // Marker appears exactly once.
+    expect(createArg.body.split(INTENT_GROUNDING_MARKER).length - 1).toBe(1);
   });
 });
