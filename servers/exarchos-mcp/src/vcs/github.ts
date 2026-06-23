@@ -367,44 +367,70 @@ export class GitHubProvider implements VcsProvider {
       const [owner, repo] = nameWithOwner.split('/');
       if (!owner || !repo) return comments;
 
+      // Paginate `reviewThreads` with an `after` cursor so resolution is
+      // enriched for EVERY thread, not just the first 100 — on a large PR the
+      // overflow threads would otherwise keep `resolved` absent (unknown). Inner
+      // `comments(first:100)` stays single-page: >100 replies in ONE thread is
+      // not a realistic shape, and an overflow there still degrades safe (absent
+      // → surfaced, never wrongly resolved).
       const query =
-        'query($owner:String!,$repo:String!,$pr:Int!){' +
+        'query($owner:String!,$repo:String!,$pr:Int!,$after:String){' +
         'repository(owner:$owner,name:$repo){' +
         'pullRequest(number:$pr){' +
-        'reviewThreads(first:100){nodes{isResolved comments(first:100){nodes{databaseId}}}}' +
-        '}}}';
-
-      const graphqlOut = await exec('gh', [
-        'api',
-        'graphql',
-        '-F',
-        `owner=${owner}`,
-        '-F',
-        `repo=${repo}`,
-        '-F',
-        `pr=${prNumber}`,
-        '-f',
-        `query=${query}`,
-      ]);
-
-      const parsed = JSON.parse(graphqlOut) as {
-        data?: {
-          repository?: {
-            pullRequest?: { reviewThreads?: { nodes?: readonly GhReviewThreadNode[] } };
-          };
-        };
-      };
-
-      const nodes = parsed.data?.repository?.pullRequest?.reviewThreads?.nodes;
-      if (!Array.isArray(nodes)) return comments;
+        'reviewThreads(first:100,after:$after){' +
+        'pageInfo{hasNextPage endCursor}' +
+        'nodes{isResolved comments(first:100){nodes{databaseId}}}' +
+        '}}}}';
 
       const resolvedById = new Map<number, boolean>();
-      for (const thread of nodes) {
-        for (const c of thread.comments?.nodes ?? []) {
-          if (typeof c.databaseId === 'number') {
-            resolvedById.set(c.databaseId, thread.isResolved);
+      let after: string | null = null;
+      // Defensive page cap (50 × 100 = 5000 threads) so a misbehaving
+      // `pageInfo` can never spin this into an unbounded loop.
+      for (let page = 0; page < 50; page++) {
+        const graphqlArgs = [
+          'api',
+          'graphql',
+          '-F',
+          `owner=${owner}`,
+          '-F',
+          `repo=${repo}`,
+          '-F',
+          `pr=${prNumber}`,
+          '-f',
+          `query=${query}`,
+        ];
+        if (after) graphqlArgs.push('-F', `after=${after}`);
+
+        const graphqlOut = await exec('gh', graphqlArgs);
+
+        const parsed = JSON.parse(graphqlOut) as {
+          data?: {
+            repository?: {
+              pullRequest?: {
+                reviewThreads?: {
+                  pageInfo?: { hasNextPage?: boolean; endCursor?: string | null };
+                  nodes?: readonly GhReviewThreadNode[];
+                };
+              };
+            };
+          };
+        };
+
+        const threads = parsed.data?.repository?.pullRequest?.reviewThreads;
+        const nodes = threads?.nodes;
+        if (!Array.isArray(nodes)) break;
+
+        for (const thread of nodes) {
+          for (const c of thread.comments?.nodes ?? []) {
+            if (typeof c.databaseId === 'number') {
+              resolvedById.set(c.databaseId, thread.isResolved);
+            }
           }
         }
+
+        const pageInfo = threads?.pageInfo;
+        if (!pageInfo?.hasNextPage || !pageInfo.endCursor) break;
+        after = pageInfo.endCursor;
       }
 
       return comments.map((comment) => {

@@ -5,7 +5,7 @@
 // SynthesisReadinessView and CodeQualityView flywheel integration.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
 import { resolveWorkflowState } from './resolve-state.js';
@@ -220,11 +220,18 @@ export function documentLegBlocks(result: DocumentLegResult): boolean {
   return result.evaluated && !result.covered && result.severity === 'blocking';
 }
 
-/** Changed files between the default base branch and HEAD (name-only). */
-function changedFilesAgainstBase(): string[] {
+/**
+ * Changed files between the default base branch and HEAD (name-only). Returns
+ * `null` — NOT `[]` — when git detection fails, so the document-leg caller can
+ * tell "no surface changed" apart from "couldn't determine" and fail CLOSED on
+ * the latter rather than silently auto-waiving a blocking leg. argv-form
+ * `execFileSync` (not shell-form `execSync`) eliminates the shell surface even
+ * though `baseBranch` is already sanitized by `detectDefaultBranch`.
+ */
+function changedFilesAgainstBase(): string[] | null {
   try {
     const baseBranch = detectDefaultBranch();
-    const output = execSync(`git diff --name-only ${baseBranch}...HEAD`, {
+    const output = execFileSync('git', ['diff', '--name-only', `${baseBranch}...HEAD`], {
       encoding: 'buffer',
       timeout: 15_000,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -235,7 +242,7 @@ function changedFilesAgainstBase(): string[] {
       .map((line) => line.trim())
       .filter(Boolean);
   } catch {
-    return [];
+    return null;
   }
 }
 
@@ -354,8 +361,23 @@ export async function handlePrepareSynthesis(
     //    gate.executed by name), so the leg is evaluated after the stack check.
     //    `passed` reflects structural coverage; whether an uncovered leg BLOCKS
     //    readiness is the severity decision (documentLegBlocks).
-    const docCfg = args.projectConfig?.synthesis.documentLeg ?? DEFAULT_DOCUMENT_LEG;
-    const documentLeg = evaluateDocumentLeg(changedFilesAgainstBase(), docCfg);
+    const docCfg = args.projectConfig?.synthesis?.documentLeg ?? DEFAULT_DOCUMENT_LEG;
+    const changedFiles = changedFilesAgainstBase();
+    // Fail CLOSED when git detection is unavailable: report the leg as
+    // evaluated-but-uncovered so a `blocking` severity blocks readiness instead
+    // of being silently auto-waived (an empty-list waive would bypass the gate).
+    // An `advisory` leg still only records a visible `gate.executed{passed:false}`.
+    const documentLeg: DocumentLegResult = changedFiles === null
+      ? {
+          evaluated: true,
+          covered: false,
+          severity: docCfg.severity,
+          surfaceFiles: [],
+          message:
+            'Changed-file detection failed (git unavailable); document-readiness leg '
+            + 'could not be verified. Re-run synthesis, or waive via synthesis.documentLeg.',
+        }
+      : evaluateDocumentLeg(changedFiles, docCfg);
     await emitGateEvent(store, streamId, 'document-coverage', 'synthesize', documentLeg.covered, {
       dimension: 'D1',
       phase: 'synthesize',

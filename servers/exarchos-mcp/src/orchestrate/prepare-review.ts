@@ -232,24 +232,9 @@ export async function handlePrepareReview(
     return buildPlanReviewProvisioning(args);
   }
 
-  // 1b. DR-1 (#1593) — back-of-pipeline code-review path ONLY: derive the
-  // diff-floor intent (enriched when a transcript is supplied) and persist it to
-  // `artifacts.intent` via a single state-patch event. This is the intent
-  // FOUNDATION: REVIEW (task 005) and PR-body generation (task 006) read it
-  // back. Fail-soft — `persistIntent` never throws, so the quality-check catalog
-  // is still served even when the state-patch hiccups (an `intentWarning` rides
-  // along on the response). INV-6: the derivation takes no `workflowType`, so
-  // the same path runs for every workflow type.
-  const intent = deriveIntent(changedFilesAgainstBase(args.repoRoot), {
-    transcript: args.transcript,
-  });
-  const persisted = await persistIntent(args.featureId, intent, stateDir, eventStore);
-  // DR-1 task 005: the review-grounding directive the orchestrator passes into
-  // the spec-review subagent. Present only when the intent is meaningful;
-  // omitted on the `NoIntent` path so the review degrades to diff-only.
-  const intentGrounding = buildIntentGrounding(intent);
-
-  // 2. Filter catalog by dimensions if requested
+  // 1b. Validate `dimensions` BEFORE any state mutation. An unknown dimension is
+  // INVALID_INPUT and must fail without persisting intent — otherwise a bad
+  // request would still mutate `artifacts.intent` before erroring.
   let dimensions = QUALITY_CHECK_CATALOG.dimensions;
   if (args.dimensions?.length) {
     const validIds = new Set(QUALITY_CHECK_CATALOG.dimensions.map((d) => d.id));
@@ -266,6 +251,24 @@ export async function handlePrepareReview(
     const requested = new Set(args.dimensions);
     dimensions = QUALITY_CHECK_CATALOG.dimensions.filter((d) => requested.has(d.id));
   }
+
+  // 1c. DR-1 (#1593) — back-of-pipeline code-review path ONLY: derive the
+  // diff-floor intent (enriched when a transcript is supplied) and persist it to
+  // `artifacts.intent` via a single state-patch event. This is the intent
+  // FOUNDATION: REVIEW (task 005) and PR-body generation (task 006) read it
+  // back. Fail-soft — `persistIntent` never throws, so the quality-check catalog
+  // is still served even when the state-patch hiccups (an `intentWarning` rides
+  // along on the response). INV-6: the derivation takes no `workflowType`, so
+  // the same path runs for every workflow type. Runs AFTER dimension validation
+  // so an invalid request never reaches this state-mutating step.
+  const intent = deriveIntent(changedFilesAgainstBase(args.repoRoot), {
+    transcript: args.transcript,
+  });
+  const persisted = await persistIntent(args.featureId, intent, stateDir, eventStore);
+  // DR-1 task 005: the review-grounding directive the orchestrator passes into
+  // the spec-review subagent. Present only when the intent is meaningful;
+  // omitted on the `NoIntent` path so the review degrades to diff-only.
+  const intentGrounding = buildIntentGrounding(intent);
 
   // 3. Resolve plugin status from .exarchos.yml if repoRoot provided, else defaults
   const resolved = args.repoRoot

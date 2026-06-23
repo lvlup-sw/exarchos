@@ -290,13 +290,28 @@ export async function handleReviewVerdict(
     });
 
     let priorFixCount = 0;
+    let countUnavailable = false;
     try {
       const priorGateEvents = await eventStore.query(args.featureId, { type: 'gate.executed' });
       priorFixCount = countPriorFixCycles(priorGateEvents);
-    } catch { /* fail-soft: treat as the first cycle, still bounded */ }
+    } catch {
+      // Fail CLOSED: if the event-sourced cycle count can't be read we cannot
+      // prove the loop is within bounds. Silently resetting to 0 would, on a
+      // persistently failing store, let the loop auto-fix forever — disabling
+      // the DR-3 bound. Pin the count to the bound and force escalation instead.
+      countUnavailable = true;
+      priorFixCount = policy.maxIterations;
+    }
 
     const findingClass = classifyFindings(args.pluginFindings);
-    const decision = decideEscalation({ findingClass, iteration: priorFixCount, policy });
+    const decision = countUnavailable
+      ? {
+          action: 'escalate' as const,
+          reason:
+            'Fix-cycle count unavailable (event-store query failed); escalating to '
+            + 'preserve the bounded-loop guarantee.',
+        }
+      : decideEscalation({ findingClass, iteration: priorFixCount, policy });
     escalation = {
       action: decision.action,
       reason: decision.reason,

@@ -1172,9 +1172,15 @@ export const ShepherdApprovalRequestedData = z.object({
 // can surface the WHY (reason + counts), not just the derived 'escalate' status.
 export const ShepherdEscalatedData = z.object({
   featureId: z.string(),
-  prNumbers: z.array(z.number().int()).describe('PRs in the stack at the time the bound was hit'),
+  prNumbers: z
+    .array(z.number().int().positive())
+    .describe('PRs in the stack at the time the bound was hit'),
   iterationCount: z.number().int().nonnegative().describe('Iterations run when the bound was hit'),
-  maxIterations: z.number().int().nonnegative().describe('The resolved auto-fix bound that was reached'),
+  maxIterations: z
+    .number()
+    .int()
+    .positive()
+    .describe('The resolved auto-fix bound that was reached (a positive integer, per escalation-policy)'),
   reason: z.string().describe('Human-readable escalation reason'),
 });
 

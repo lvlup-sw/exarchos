@@ -415,9 +415,15 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
       documentLeg: {
         severity:
           project.synthesis?.documentLeg?.severity ?? DEFAULTS.synthesis.documentLeg.severity,
-        surfaceGlobs:
-          project.synthesis?.documentLeg?.surfaceGlobs ?? DEFAULTS.synthesis.documentLeg.surfaceGlobs,
-        docGlobs: project.synthesis?.documentLeg?.docGlobs ?? DEFAULTS.synthesis.documentLeg.docGlobs,
+        // Spread-clone the arrays so the subsequent deepFreeze() freezes a fresh
+        // copy, never the caller-owned `project.*` input nor the shared DEFAULTS
+        // arrays (both would be a no-freeze-caller-input violation).
+        surfaceGlobs: [
+          ...(project.synthesis?.documentLeg?.surfaceGlobs ?? DEFAULTS.synthesis.documentLeg.surfaceGlobs),
+        ],
+        docGlobs: [
+          ...(project.synthesis?.documentLeg?.docGlobs ?? DEFAULTS.synthesis.documentLeg.docGlobs),
+        ],
       },
     },
     escalation: {

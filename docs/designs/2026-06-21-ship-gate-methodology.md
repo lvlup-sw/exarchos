@@ -126,7 +126,7 @@ Synthesize stays the sole PR creator (already true). Close the two residual gaps
 
 **Acceptance criteria:**
 - The shepherd loop has no path to `create_pr` (it can only push/assess); a regression test asserts a shepherd-context `create_pr` is refused, and the existing `create-pr.ts:122-191` double-create guard is retained and unit-pinned.
-- All ship-path pushes use `git push --force-with-lease=<ref>:<expected-sha>` with the SHA the loop last observed at the remote (from `assess_stack`), not a bare lease; a unit test asserts the explicit-SHA form is emitted.
+- All ship-path pushes use `git push --force-with-lease=<ref>:<expected-sha>` with the SHA from a **fresh `git ls-remote` immediately before push** (the tightest TOCTOU window — see Decision Log #5), not the last `assess_stack` observation and not a bare lease; a unit test asserts the explicit-SHA form is emitted.
 - The skill-layer PR idempotency check and the handler-layer guard are reconciled to one authority (remove the redundant second layer noted in grounding) so a single rule governs "PR already exists."
 
 ### DR-5: (Optional) forcing-function trigger — inline pre-push hook, no daemon

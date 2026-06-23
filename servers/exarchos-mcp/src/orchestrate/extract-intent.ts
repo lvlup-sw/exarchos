@@ -17,10 +17,14 @@
 //
 // `changedFilesAgainstBase` mirrors the proven diff helper in
 // `prepare-synthesis.ts` (kept self-contained here — Bundle A's file is left
-// untouched to keep blast radius off it).
+// untouched to keep blast radius off it). The two now deliberately DIVERGE on
+// failure: intent is fail-SOFT (`[]` floor on git error — a degraded intent is
+// fine), whereas prepare-synthesis fails CLOSED (`null` → a blocking document
+// leg cannot be silently waived). Same shape, intentionally different failure
+// semantics — which is why the helper is not hoisted into one shared symbol.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import type { EventStore } from '../event-store/store.js';
 import { handleUpdate } from '../workflow/tools.js';
 import { WorkflowIntentSchema } from '../workflow/schemas.js';
@@ -34,7 +38,7 @@ export type { WorkflowIntent } from '../workflow/schemas.js';
 /** The default base branch, via origin/HEAD with a sanitizing fallback to `main`. */
 function detectDefaultBranch(cwd?: string): string {
   try {
-    const ref = execSync('git symbolic-ref refs/remotes/origin/HEAD', {
+    const ref = execFileSync('git', ['symbolic-ref', 'refs/remotes/origin/HEAD'], {
       encoding: 'utf-8',
       timeout: 5_000,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -52,7 +56,7 @@ function detectDefaultBranch(cwd?: string): string {
 export function changedFilesAgainstBase(cwd?: string): string[] {
   try {
     const baseBranch = detectDefaultBranch(cwd);
-    const output = execSync(`git diff --name-only ${baseBranch}...HEAD`, {
+    const output = execFileSync('git', ['diff', '--name-only', `${baseBranch}...HEAD`], {
       encoding: 'buffer',
       timeout: 15_000,
       stdio: ['pipe', 'pipe', 'pipe'],
