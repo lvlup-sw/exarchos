@@ -280,8 +280,10 @@ export async function handleReviewVerdict(
   // terminal here. For a NEEDS_FIXES verdict, resolve the auto-fix bound, read
   // the event-sourced prior fix-cycle count, classify the findings, and decide
   // whether the loop may auto-fix once more or must escalate to the user.
-  // Fail-soft: any read error falls back to iteration 0 (still bounded) so a
-  // flaky store never turns the bound off. No `workflowType` branch (INV-6).
+  // Fail-CLOSED: if the prior-cycle count can't be read we can't prove the loop
+  // is within bounds, so we pin to maxIterations and force escalation rather
+  // than reset to 0 (which would let a flaky store silently disable the bound).
+  // No `workflowType` branch (INV-6).
   let escalation: FixLoopEscalation | undefined;
   if (verdict === 'NEEDS_FIXES') {
     const policy = resolveEscalationPolicy({
