@@ -747,3 +747,88 @@ describe('CreatePr_SinglePrOwnerGuard (DR-4 task 007)', () => {
     expect(provider.createPr).toHaveBeenCalledTimes(1);
   });
 });
+
+// ─── DR-4 task 009: PR idempotency is single-authority, handler-side ─────────
+//
+// DR-4 collapses the dual PR-idempotency layers to ONE authority. The redundant
+// second layer was the skill/command create-time PR-exists pre-check (the
+// `commands/synthesize.md` "## Idempotency" guidance to check `synthesis.prUrl`
+// before deciding whether to create). That pre-check is removed; the handler is
+// now the SINGLE authority for "PR already exists."
+//
+// This test pins that the handler is SUFFICIENT WITHOUT any external pre-check:
+// in the realistic synthesis call shape (featureId always passed), a workflow
+// whose state does NOT yet record a PR but whose remote already has an open PR
+// for (head, base) — the requested-but-not-executed crash-recovery window —
+// gets idempotent dedup PURELY from the handler. The state-owned guard
+// (task 007) correctly degrades (no PR recorded), and the listPrs
+// remote-recovery guard returns the existing PR with NO duplicate
+// provider.createPr. No caller pre-check is relied upon.
+//
+// Complement to task 007's CreatePr_DoubleCreateGuard_RetainedAndPinned, which
+// exercises the listPrs path with NO featureId (state-owned guard skipped
+// entirely). This one keeps the featureId present — proving the two handler
+// guards coexist and the handler alone governs idempotency in the real call
+// shape, so no skill/command pre-check is needed.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('PrIdempotency_SingleAuthority_HandlerGuardOnly (DR-4 task 009)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('PrIdempotency_SingleAuthority_HandlerGuardOnly', async () => {
+    // Workflow state records NO PR (queryResult: []) → the task-007 state-owned
+    // guard degrades to the legacy create path. But the remote already has an
+    // open PR for this (head, base): the handler's listPrs remote-recovery guard
+    // must return it idempotently — WITHOUT any caller-side pre-check having run.
+    const existingPr = {
+      number: 55,
+      url: 'https://github.com/repo/pull/55',
+      title: 'feat: single-authority',
+      headRefName: 'feature/single-authority',
+      baseRefName: 'main',
+      state: 'open',
+    };
+    const provider = makeMockProvider({
+      listPrs: vi.fn().mockResolvedValue([existingPr]),
+    });
+    vi.mocked(createVcsProvider).mockResolvedValue(provider);
+    // featureId present (the real synthesis call shape) but NO recorded PR.
+    const ctx = makeTwoEventCtx({ queryResult: [] });
+
+    // A SINGLE handleCreatePr call — no caller pre-check, no skip-create logic.
+    const result = await handleCreatePr(
+      {
+        title: 'feat: single-authority',
+        body: 'Body',
+        base: 'main',
+        head: 'feature/single-authority',
+        featureId: 'feat-single-authority',
+      },
+      ctx,
+    );
+
+    // The handler ALONE governs "PR already exists": it returns the existing PR.
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual({ url: existingPr.url, number: existingPr.number });
+
+    // NO duplicate side effect — provider.createPr was never called.
+    expect(provider.createPr).not.toHaveBeenCalled();
+
+    // Idempotency resolved purely handler-side: it emits pr.create.executed
+    // referencing the existing PR (no second create) — pinning that no
+    // skill/command create-time pre-check is relied upon.
+    const executedAppend = vi
+      .mocked(ctx.eventStore.append)
+      .mock.calls.find(
+        (call) => (call[1] as { type: string }).type === 'pr.create.executed',
+      );
+    expect(executedAppend).toBeDefined();
+    const executedData = (
+      executedAppend![1] as { data: { prNumber: number; url: string } }
+    ).data;
+    expect(executedData.prNumber).toBe(55);
+    expect(executedData.url).toBe(existingPr.url);
+  });
+});
