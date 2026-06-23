@@ -6,15 +6,17 @@
 // ──────────────────────────────────────────────────────────────────────────────
 
 import type { ToolResult } from '../format.js';
+import type { EventStore } from '../event-store/store.js';
 import { QUALITY_CHECK_CATALOG } from '../review/check-catalog.js';
 import { loadProjectConfig } from '../config/yaml-loader.js';
 import { resolveConfig, DEFAULTS } from '../config/resolve.js';
 import { resolvePlanReviewDepth, type PlanReviewRung } from '../workflow/phase-kind.js';
 import type { DesignDepth } from '../workflow/plan-depth-policy.js';
+import { changedFilesAgainstBase, deriveIntent, persistIntent } from './extract-intent.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-interface PrepareReviewArgs {
+export interface PrepareReviewArgs {
   readonly featureId: string;
   /**
    * Review scope. `'plan'` / `'plan-review'` selects the DR-10 front-of-pipeline
@@ -43,6 +45,13 @@ interface PrepareReviewArgs {
    * consumer (DR-10). Absent ⇒ the `'standard'` rung.
    */
   readonly designDepth?: DesignDepth;
+  /**
+   * The authoring transcript (code-review scope, DR-1 #1593). When supplied, the
+   * extracted `WorkflowIntent` is enriched beyond the diff floor. Used ONLY on
+   * the back-of-pipeline code-review path; the plan-review path is deliberately
+   * transcript-free (adversarial, fresh-context — DR-10) and never reads this.
+   */
+  readonly transcript?: string;
 }
 
 // ─── Finding Format Schema ──────────────────────────────────────────────────
@@ -153,7 +162,8 @@ function buildPlanReviewProvisioning(args: PrepareReviewArgs): ToolResult {
 
 export async function handlePrepareReview(
   args: PrepareReviewArgs,
-  _stateDir: string,
+  stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   // 1. Validate required fields
   if (!args.featureId) {
@@ -165,10 +175,24 @@ export async function handlePrepareReview(
 
   // 1a. DR-10 — front-of-pipeline plan-review provisioning. A dispatched,
   // fresh-context, adversarial pass over the unified artifact; distinct from the
-  // back-of-pipeline code-review catalog served below.
+  // back-of-pipeline code-review catalog served below. The plan-review path is
+  // deliberately transcript-free — NO intent extraction happens here.
   if (args.scope && PLAN_REVIEW_SCOPES.has(args.scope)) {
     return buildPlanReviewProvisioning(args);
   }
+
+  // 1b. DR-1 (#1593) — back-of-pipeline code-review path ONLY: derive the
+  // diff-floor intent (enriched when a transcript is supplied) and persist it to
+  // `artifacts.intent` via a single state-patch event. This is the intent
+  // FOUNDATION: REVIEW (task 005) and PR-body generation (task 006) read it
+  // back. Fail-soft — `persistIntent` never throws, so the quality-check catalog
+  // is still served even when the state-patch hiccups (an `intentWarning` rides
+  // along on the response). INV-6: the derivation takes no `workflowType`, so
+  // the same path runs for every workflow type.
+  const intent = deriveIntent(changedFilesAgainstBase(args.repoRoot), {
+    transcript: args.transcript,
+  });
+  const persisted = await persistIntent(args.featureId, intent, stateDir, eventStore);
 
   // 2. Filter catalog by dimensions if requested
   let dimensions = QUALITY_CHECK_CATALOG.dimensions;
@@ -209,6 +233,11 @@ export async function handlePrepareReview(
       },
       findingFormat: FINDING_FORMAT,
       pluginStatus,
+      // DR-1 (#1593): the derived intent rides along for convenience; the
+      // load-bearing contract is its persistence to `artifacts.intent` above.
+      // The warning surfaces a fail-soft persist so callers aren't silent.
+      intent,
+      ...(persisted.warning ? { intentWarning: persisted.warning } : {}),
     },
   };
 }

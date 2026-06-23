@@ -274,12 +274,35 @@ export const SynthesisSchema = z.object({
   prFeedback: z.array(z.unknown()),
 }).passthrough();
 
+// ─── Workflow Intent Schema (DR-1 #1593) ─────────────────────────────────────
+//
+// A transcript/diff-derived intent captured once on the code-review path
+// (`extract-intent.ts`) and persisted to `artifacts.intent` via a single
+// `state.patched` event. REVIEW (task 005) and PR-body generation (task 006)
+// read it back. This is the single zod source of truth for the shape; the
+// `WorkflowIntent` TS type is `z.infer`-derived below and re-exported, so the
+// derivation and the persisted shape can never drift. `.passthrough()` keeps it
+// additive-tolerant for future enrichment fields.
+export const WorkflowIntentSchema = z.object({
+  source: z.enum(['diff', 'diff+transcript']),
+  changedFiles: z.array(z.string()),
+  surfaces: z.array(z.string()),
+  summary: z.string(),
+  transcriptSummary: z.string().optional(),
+}).passthrough();
+
+export type WorkflowIntent = z.infer<typeof WorkflowIntentSchema>;
+
 // ─── Artifacts Schema ───────────────────────────────────────────────────────
 
 export const ArtifactsSchema = z.object({
   design: z.string().nullable(),
   plan: z.string().nullable(),
   pr: z.union([z.string(), z.array(z.string())]).nullable(),
+  // DR-1 #1593: additive, optional — absent for workflows that never extracted
+  // an intent. `.passthrough()` (above and here) means an absent field is never
+  // a validation failure.
+  intent: WorkflowIntentSchema.optional(),
 }).passthrough();
 
 // ─── Feature ID Schema ──────────────────────────────────────────────────────
