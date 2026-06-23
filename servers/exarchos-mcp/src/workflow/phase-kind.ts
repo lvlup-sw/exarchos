@@ -72,8 +72,16 @@ export type GateResolverName =
  */
 export type PlanGateName = PlanDepthGateName;
 
-/** Synthesis-readiness legs (SYNTHESIZE kind). */
-export type SynthesisLeg = 'task-completion' | 'tests' | 'typecheck' | 'stack';
+/**
+ * Synthesis-readiness legs (SYNTHESIZE kind). The `'document'` leg (DR-2,
+ * #1594) is a structural docs-coverage obligation: when the changeset touches a
+ * doc-bearing surface, the relevant docs must have changed (or the leg
+ * auto-waives). It sits after `'typecheck'` and before `'stack'` so a docs gap
+ * surfaces alongside the build legs, not after them. Membership here is the
+ * *obligation order*; its evaluation (and config-resolved severity) is owned by
+ * `prepare-synthesis.ts`, exactly as the other legs are.
+ */
+export type SynthesisLeg = 'task-completion' | 'tests' | 'typecheck' | 'document' | 'stack';
 
 /**
  * One resolved gate, tagged by its family. `ReviewDimension` is re-exported
@@ -213,7 +221,7 @@ const GATE_RESOLVERS: Readonly<
   // stack). Readiness derivation (which source the task-completion leg folds) is
   // owned by `prepare-synthesis.ts`; this resolver names the obligation order.
   'synthesis-readiness': () =>
-    (['task-completion', 'tests', 'typecheck', 'stack'] as const).map(
+    (['task-completion', 'tests', 'typecheck', 'document', 'stack'] as const).map(
       (gate): ResolvedGate => ({ family: 'synthesis', gate }),
     ),
 });

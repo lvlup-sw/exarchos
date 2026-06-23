@@ -364,7 +364,28 @@ describe('synthesis-readiness resolver (DR-9)', () => {
   it('ResolveGateSet_SynthesizeKind_ReturnsReadinessLegs', () => {
     const resolved = resolveGateSet('SYNTHESIZE', { riskTier: 'low', boundaryTouching: false });
     expect(resolved.every((g) => g.family === 'synthesis')).toBe(true);
-    expect(resolved.map((g) => g.gate)).toEqual(['task-completion', 'tests', 'typecheck', 'stack']);
+    expect(resolved.map((g) => g.gate)).toEqual([
+      'task-completion',
+      'tests',
+      'typecheck',
+      'document',
+      'stack',
+    ]);
+  });
+
+  // DR-2 (#1594): the `document` leg is pinned to sit immediately after
+  // `typecheck` and before `stack` — a docs gap surfaces alongside the build
+  // legs, not after them. This is the resolver-roster SoT pin; the leg's
+  // evaluation lives in prepare-synthesis.ts.
+  it('SynthesisReadinessResolver_Roster_PinsDocumentAfterTypecheck', () => {
+    const legs = resolveGateSet('SYNTHESIZE', { riskTier: 'low', boundaryTouching: false }).map(
+      (g) => g.gate,
+    );
+    const typecheckIdx = legs.indexOf('typecheck');
+    const documentIdx = legs.indexOf('document');
+    const stackIdx = legs.indexOf('stack');
+    expect(documentIdx).toBe(typecheckIdx + 1);
+    expect(stackIdx).toBe(documentIdx + 1);
   });
 });
 
