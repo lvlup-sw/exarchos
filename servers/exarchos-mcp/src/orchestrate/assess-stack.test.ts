@@ -410,6 +410,87 @@ describe('handleAssessStack', () => {
       const data = result.data as { recommendation: string };
       expect(data.recommendation).toBe('escalate');
     });
+
+    // DR-3 (#1595): the loop's iteration count is the COUNT of
+    // `shepherd.iteration` events (the single event-sourced authority,
+    // `countShepherdIterations`), NOT any `iteration` value stamped in a payload.
+    // Five events with arbitrary / non-monotonic / duplicate payload `iteration`
+    // values still report count 5 and escalate at maxIterations — proving the
+    // loop never reads the payload value, so it can never disagree with the view.
+    it('IterationCounter_SingleEventSourcedAuthority', async () => {
+      const garbagePayloads = [99, 99, 1, 0, -3]; // duplicate, non-monotonic, garbage
+      const iterationEvents = garbagePayloads.map((iteration, i) => ({
+        type: 'shepherd.iteration',
+        streamId: 'test-feature',
+        sequence: i + 1,
+        timestamp: new Date().toISOString(),
+        data: { prUrl: 'https://github.com/test/42', iteration, action: 'fix', outcome: 'retry' },
+      }));
+      // Only the `shepherd.iteration` query returns the events; every other
+      // query (started/completed) is empty so the count is purely the event tally.
+      mockQuery.mockImplementation(async (_streamId: string, opts?: { type?: string }) =>
+        opts?.type === 'shepherd.iteration' ? iterationEvents : [],
+      );
+
+      const provider = createMockProvider({
+        checkCi: { status: 'fail', checks: [{ name: 'ci/build', status: 'fail' }] },
+      });
+
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        mockEventStore,
+        provider,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        recommendation: string;
+        status: { iterationCount: number };
+      };
+      // The count is exactly the number of events (5), independent of the
+      // garbage/duplicate/non-monotonic payload `iteration` values.
+      expect(data.status.iterationCount).toBe(garbagePayloads.length);
+      // …and the bound (5) is reached by that count, so the loop escalates.
+      expect(data.recommendation).toBe('escalate');
+    });
+
+    // DR-3 (#1595): the loop's escalation bound is config-resolvable via the
+    // shared escalation policy. With `escalation.maxIterations: 3` injected, the
+    // count reaches the bound at 3 events (where the default 5 would not yet
+    // escalate). Same single counter, smaller resolved bound.
+    it('IterationBound_ConfigResolvable_LowersEscalationThreshold', async () => {
+      const iterationEvents = Array.from({ length: 3 }, (_, i) => ({
+        type: 'shepherd.iteration',
+        streamId: 'test-feature',
+        sequence: i + 1,
+        timestamp: new Date().toISOString(),
+        data: { prUrl: 'https://github.com/test/42', iteration: i + 1, action: 'fix', outcome: 'retry' },
+      }));
+      mockQuery.mockImplementation(async (_streamId: string, opts?: { type?: string }) =>
+        opts?.type === 'shepherd.iteration' ? iterationEvents : [],
+      );
+
+      const provider = createMockProvider({
+        checkCi: { status: 'fail', checks: [{ name: 'ci/build', status: 'fail' }] },
+      });
+
+      const result = await handleAssessStack(
+        {
+          featureId: 'test-feature',
+          prNumbers: [42],
+          projectConfig: { escalation: { maxIterations: 3 } } as never,
+        },
+        STATE_DIR,
+        mockEventStore,
+        provider,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as { recommendation: string };
+      // 3 events hit the config bound of 3 (the default 5 would say fix-and-resubmit).
+      expect(data.recommendation).toBe('escalate');
+    });
   });
 
   // ─── Shepherd Lifecycle Events ──────────────────────────────────────────

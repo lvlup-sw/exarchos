@@ -180,10 +180,15 @@ function handleCommentResolved(state: ShepherdStatusState, event: WorkflowEvent)
 }
 
 function handleShepherdIteration(state: ShepherdStatusState, event: WorkflowEvent): ShepherdStatusState {
-  const data = event.data as { iteration?: number } | undefined;
-  if (!data || data.iteration === undefined) return state;
-
-  const next: ShepherdStatusState = { ...state, iteration: data.iteration };
+  // The COUNT of `shepherd.iteration` events is the single authority (DR-3,
+  // #1595) — increment by 1 per event rather than reading the `iteration` value
+  // in the payload. The payload may still carry an `iteration` field, but it is
+  // no longer the authority. This folds the SAME rule the loop's
+  // `countShepherdIterations` applies, so after N events `view.iteration === N`
+  // regardless of any payload value, and `shepherd_status`/`ps` can never
+  // disagree with the loop's count (INV-1: one event-sourced counter).
+  void event;
+  const next: ShepherdStatusState = { ...state, iteration: state.iteration + 1 };
   return { ...next, overallStatus: computeOverallStatus(next) };
 }
 

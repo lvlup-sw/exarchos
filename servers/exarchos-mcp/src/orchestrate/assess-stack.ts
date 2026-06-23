@@ -12,7 +12,13 @@ import { requiresGitHub } from '../vcs/require-github.js';
 import { createVcsProvider } from '../vcs/factory.js';
 import type { EventStore } from '../event-store/store.js';
 import type { ToolResult } from '../format.js';
+import type { ResolvedProjectConfig } from '../config/resolve.js';
 import { orchestrateLogger } from '../logger.js';
+import {
+  countShepherdIterations,
+  resolveEscalationPolicy,
+  DEFAULT_MAX_ITERATIONS,
+} from './escalation-policy.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -65,7 +71,10 @@ export interface AssessStackResult {
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const MAX_SHEPHERD_ITERATIONS = 5;
+// Module default auto-fix bound for the shepherd loop. It is the SAME value
+// `resolveEscalationPolicy` falls back to (`DEFAULT_MAX_ITERATIONS`); the live
+// bound is resolved per-dispatch from config (DR-3, #1595), not read from here.
+const MAX_SHEPHERD_ITERATIONS = DEFAULT_MAX_ITERATIONS;
 
 // ─── Comment Truncation ─────────────────────────────────────────────────────
 
@@ -285,8 +294,9 @@ export function computeRecommendation(
   actionItems: readonly ActionItem[],
   iterationCount: number,
   prStatuses?: readonly PrStatus[],
+  maxIterations: number = MAX_SHEPHERD_ITERATIONS,
 ): 'request-approval' | 'fix-and-resubmit' | 'wait' | 'escalate' {
-  if (iterationCount >= MAX_SHEPHERD_ITERATIONS) {
+  if (iterationCount >= maxIterations) {
     return 'escalate';
   }
 
@@ -366,12 +376,17 @@ async function emitGateExecutedEvents(
 
 // ─── Iteration Count from Event Store ───────────────────────────────────────
 
+// The loop's iteration count derives from the SINGLE event-sourced authority
+// (`countShepherdIterations`, DR-3 #1595) — the number of `shepherd.iteration`
+// events — NOT from any `iteration` value stamped in a payload. The shepherd-
+// status view folds the same rule, so the loop and `shepherd_status`/`ps` can
+// never disagree about how many iterations have run (INV-1: one counter).
 async function getIterationCount(
   eventStore: EventStore,
   featureId: string,
 ): Promise<number> {
   const events = await eventStore.query(featureId, { type: 'shepherd.iteration' });
-  return events.length;
+  return countShepherdIterations(events);
 }
 
 // ─── Shepherd Lifecycle Helpers ──────────────────────────────────────────────
@@ -443,7 +458,7 @@ async function emitShepherdCompleted(
 // ─── Handler ─────────────────────────────────────────────────────────────────
 
 export async function handleAssessStack(
-  args: { featureId: string; prNumbers: number[] },
+  args: { featureId: string; prNumbers: number[]; projectConfig?: ResolvedProjectConfig },
   _stateDir: string,
   injectedEventStore: EventStore,
   provider?: VcsProvider,
@@ -501,8 +516,21 @@ export async function handleAssessStack(
   // Classify action items
   const actionItems = classifyActionItems(prStatuses);
 
+  // Resolve the auto-fix bound from the shared escalation policy (DR-3, #1595):
+  // config-resolvable, falls back to the module default. The loop and the
+  // recommendation gate use the SAME resolved bound (INV-1; the bound is
+  // workload-agnostic — no per-workflow branch, INV-6).
+  const { maxIterations } = resolveEscalationPolicy({
+    configMaxIterations: args.projectConfig?.escalation?.maxIterations,
+  });
+
   // Compute recommendation
-  const recommendation = computeRecommendation(actionItems, iterationCount, prStatuses);
+  const recommendation = computeRecommendation(
+    actionItems,
+    iterationCount,
+    prStatuses,
+    maxIterations,
+  );
 
   // Emit shepherd.approval_requested when recommendation is request-approval
   // Guard: never emit approval_requested when a PR is already merged (shepherd.completed wins)

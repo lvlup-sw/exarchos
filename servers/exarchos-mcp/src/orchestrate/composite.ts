@@ -383,7 +383,7 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   review_triage: adaptWithEventStore(handleReviewTriage),
   prepare_delegation: adaptWithCtx(handlePrepareDelegation),
   prepare_synthesis: adaptWithEventStoreAndConfig(handlePrepareSynthesis),
-  assess_stack: adaptWithEventStore(handleAssessStack),
+  assess_stack: adaptWithEventStoreAndConfig(handleAssessStack),
   check_design_completeness: adaptWithEventStore(handleDesignCompleteness),
   check_plan_coverage: adaptWithEventStore(handlePlanCoverage),
   // Verification-ladder gates (task 005): wrapped in adaptLadderGate so a
