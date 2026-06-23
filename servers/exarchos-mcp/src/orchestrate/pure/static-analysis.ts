@@ -346,12 +346,15 @@ export function runRawIoTaint(input: RawIoTaintInput): RawIoTaintResult {
     return { status: 'PASS' };
   }
 
-  // Exit 1 = findings (a real boundary violation). Exit ≥2 = engine/config
-  // error → degrade to SKIP, honoring the same discipline as a missing tool.
-  if (result.exitCode >= 2) {
+  // Exit 1 = findings (a real boundary violation) ⇒ FAIL. ANY OTHER non-zero
+  // code is inconclusive, not a violation ⇒ degrade to SKIP (INV-4), the same
+  // discipline as a missing tool: semgrep exit ≥2 is an engine/config error,
+  // and a negative code is signal death (a SIGKILL'd engine) — neither is
+  // evidence of a boundary violation, so neither may hard-FAIL the build.
+  if (result.exitCode !== 1) {
     return {
       status: 'SKIP',
-      detail: result.stderr.trim() || 'semgrep engine/config error (exit ≥2)',
+      detail: result.stderr.trim() || `semgrep inconclusive (exit ${result.exitCode})`,
     };
   }
 

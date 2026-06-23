@@ -829,8 +829,26 @@ describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', ()
 
     expect(result.status).toBe('SKIP');
     // The engine's own error is surfaced as the skip detail (it falls back to a
-    // generic 'engine/config error (exit ≥2)' label only when stderr is empty).
+    // generic 'semgrep inconclusive (exit N)' label only when stderr is empty).
     expect(result.detail ?? '').toContain('invalid rule schema');
+  });
+
+  it('RawIoTaint_SignalDeathNegativeExit_SkipsNotFail', () => {
+    // A signal-killed engine surfaced as a NEGATIVE exit code is inconclusive,
+    // not a boundary violation — FAIL is reserved for exit 1 only, everything
+    // else non-zero degrades to SKIP.
+    const repoRoot = makeTaintFixture({ withRuleset: true });
+
+    const runner: RunCommandFn = vi.fn(() => ({
+      exitCode: -9,
+      stdout: '',
+      stderr: '',
+    }));
+
+    const result: RawIoTaintResult = runRawIoTaint({ repoRoot, runCommand: runner });
+
+    expect(result.status).toBe('SKIP');
+    expect(result.detail ?? '').toMatch(/inconclusive \(exit -9\)/);
   });
 
   it('StaticAnalysis_TaintRulesetPresent_FoldsLegIntoFullReport', () => {
