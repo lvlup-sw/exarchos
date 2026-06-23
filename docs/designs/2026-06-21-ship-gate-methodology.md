@@ -157,6 +157,13 @@ Each interim pattern is authored to map onto exactly one Workflow Builder SDK co
 
 **DR-7 SDK mapping.** No new combinator — DR-7 **widens the data contract** the existing shepherd `repeatUntil(s => s.ci.green, …)` loop and the `assess`/`watchCI` step consume. It is a feedback-model enrichment of `Step.handler('watchCI')`/the assess step, not a new step.
 
+**DR-7 implementation grounding (researched 2026-06-22, live GitHub docs).** The harvest aggregates **three REST surfaces**, all `gh api --paginate` (per_page max 100):
+1. `repos/{o}/{r}/issues/{n}/comments` — PR conversation timeline (today's sole source) → `source: 'issue-comment'`.
+2. `repos/{o}/{r}/pulls/{n}/comments` — inline per-line review comments → `source: 'review-inline'`; carry `in_reply_to_id` → `parentId` (threading is **one-level only** — GitHub disallows replies-to-replies, so a flat `parentId` is complete), plus `path`/`line`, `pull_request_review_id`.
+3. `repos/{o}/{r}/pulls/{n}/reviews` — review verdict bodies → `source: 'review-summary'`; carry `body` + `state` (APPROVED | CHANGES_REQUESTED | COMMENTED). (`getReviewStatus` already reads this for *state*; DR-7 also needs the *body*.)
+
+`author` = `user.login` for every surface (bots included — `user.type === 'Bot'`; the existing `review/registry.ts detectKind` already classifies CodeRabbit/Sentry). **Resolved status** is **GraphQL-only** (REST omits it — the `github.ts:126` comment is right about REST): a best-effort `reviewThreads(first:100){ nodes { isResolved isOutdated comments(first:1){ nodes { databaseId } } } }` pass maps `databaseId === REST id` → `resolved`. This enrichment is **fail-soft** (warn + proceed on GraphQL error; map miss ⇒ leave `resolved` absent — *absent ≠ false*, the contract's unknown-is-explicit rule, independently confirmed by the bun/thunderbird harvesters). The `addComment` verify path stays correct: its posted comment is an issue-comment, still present in surface (1) of the superset; matching stays id/marker-based.
+
 ---
 
 ## Roadmap & End-State Migration

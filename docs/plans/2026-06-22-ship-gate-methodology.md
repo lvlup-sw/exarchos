@@ -52,9 +52,16 @@ All five original open questions are resolved (design Decision Log); DR-7 added 
 ### Task 003: Config-resolvable docs-leg severity (advisory → blocking)
 **Implements:** DR-2
 **Risk Tier:** medium
-**Verification:** scoped tests + kill-probe.
-**Files:** `servers/exarchos-mcp/src/orchestrate/prepare-synthesis.ts`, `src/config/*` (severity resolution), `prepare-synthesis.test.ts`
-**Tests:** `DocumentLeg_SeverityConfig_ResolvesAdvisoryToBlocking`, `DocumentLeg_DefaultSeverity_IsAdvisory`
+**Boundary Touching:** true  *(config-resolution surface — re-tiered at /plan after a blast-radius discovery, not a re-plan)*
+**Verification:** scoped tests + kill-probe + full MCP suite (the `config:true` describe path is snapshot-sensitive).
+**Files (config plumbing mirrors the `storage` block precedent):**
+- `servers/exarchos-mcp/src/config/exarchos-config-schema.ts` — `SynthesisConfigSchema` (`.strict()` zod, `documentLeg: { severity, surfaceGlobs, docGlobs }`), wired into `ExarchosConfigSchema`.
+- `config/yaml-schema.ts` — `synthesis: SynthesisConfigSchema.optional()`.
+- `config/resolve.ts` — `ResolvedProjectConfig.synthesis` + DEFAULTS + one-line resolve map.
+- `orchestrate/composite.ts` — **new `adaptWithEventStoreAndConfig` adapter** (mirrors `adaptLadderGate`'s `ctx.projectConfig`→args injection); switch `prepare_synthesis` to it. *Required because `handlePrepareSynthesis` is dispatched via `adaptWithEventStore` and does NOT receive `projectConfig` today.*
+- `orchestrate/prepare-synthesis.ts` — read `args.projectConfig`; reuse `architecture/glob-to-regexp.ts` for surface/doc matching.
+- Defaults: `severity:'advisory'`, `docGlobs:['docs/**','**/*.md']`, **empty `surfaceGlobs` ⇒ auto-waive** (opt-in per consumer, non-overfit).
+**Tests:** `DocumentLeg_SeverityConfig_ResolvesAdvisoryToBlocking`, `DocumentLeg_DefaultSeverity_IsAdvisory`, `PrepareSynthesis_AdapterThreadsProjectConfig`
 **Dependencies:** 002
 **Parallelizable:** No
 
@@ -141,8 +148,9 @@ All five original open questions are resolved (design Decision Log); DR-7 added 
 **Risk Tier:** high
 **Boundary Touching:** true  *(VCS I/O adapter)*
 **Verification:** medium set + integration suite; kill-probe. The `addComment` verify path must still find its posted comment in the superset.
+**Researched endpoints (live GitHub docs, 2026-06-22 — see design §DR-7 grounding):** aggregate three `gh api --paginate` surfaces — `issues/{n}/comments` (`source:'issue-comment'`), `pulls/{n}/comments` (`source:'review-inline'`, `in_reply_to_id`→`parentId` [one-level only], `path`/`line`), `pulls/{n}/reviews` (`source:'review-summary'`, `body`+`state`). Then a **fail-soft GraphQL `reviewThreads` enrichment** for `resolved` (`databaseId === REST id`; on error/miss leave `resolved` absent — *absent ≠ false*).
 **Files:** `servers/exarchos-mcp/src/vcs/github.ts` (`getPrComments` :243, `GhPrCommentEntry` :41), `github.test.ts`
-**Tests:** `GetPrComments_AggregatesAllThreeSources`, `GetPrComments_LinksRepliesViaParentId`, `GetPrComments_AnyAuthor_IncludesBots`, `GetPrComments_AddCommentVerifyPath_StillFindsPostedComment`
+**Tests:** `GetPrComments_AggregatesAllThreeSources`, `GetPrComments_LinksRepliesViaParentId`, `GetPrComments_AnyAuthor_IncludesBots`, `GetPrComments_AddCommentVerifyPath_StillFindsPostedComment`, `GetPrComments_ResolvedStatus_GraphqlEnrichmentFailSoft`
 **Dependencies:** 010
 **Parallelizable:** No
 
