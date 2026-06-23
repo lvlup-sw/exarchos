@@ -109,4 +109,132 @@ describe('handlePrepareReview', () => {
       expect(data.pluginStatus.impeccable.enabled).toBe(true);
     });
   });
+
+  // ─── DR-10 (#1581 task 024): plan-review reframed as a fresh-context ────────
+  //     adversarial gate, designDepth-scaled.
+  describe('plan-review provisioning (DR-10, task 024)', () => {
+    interface PlanReviewData {
+      mode: string;
+      posture: string;
+      adversarial: boolean;
+      instruction: string;
+      rung: { name: string; voters: number };
+      provisionedContext: {
+        artifact: string;
+        spec: string;
+        authoringTranscriptIncluded: boolean;
+      };
+      verdictFormat: string;
+    }
+    const planData = (r: ToolResult): PlanReviewData => {
+      expect(r.success).toBe(true);
+      return r.data as PlanReviewData;
+    };
+
+    it('PlanReview_DispatchedReviewer_ReceivesNoAuthorTranscript', async () => {
+      // The reviewer is provisioned with ONLY {artifact, spec} — never the
+      // authoring transcript (INV-11 read-only, fresh context).
+      const data = planData(
+        await handlePrepareReview(
+          {
+            featureId: 'pr-feat',
+            scope: 'plan',
+            artifact: 'docs/specs/2026-06-22-feat.md',
+            spec: 'docs/specs/2026-06-22-feat.md#requirements',
+          },
+          stateDir,
+        ),
+      );
+      expect(data.mode).toBe('plan-review');
+      expect(data.posture).toBe('read-only');
+      expect(data.provisionedContext.artifact).toBe('docs/specs/2026-06-22-feat.md');
+      expect(data.provisionedContext.spec).toBe('docs/specs/2026-06-22-feat.md#requirements');
+      // The structural guarantee: no transcript is carried, and the provisioning
+      // has no key that could smuggle one in.
+      expect(data.provisionedContext.authoringTranscriptIncluded).toBe(false);
+      expect('transcript' in data.provisionedContext).toBe(false);
+      expect('authoringContext' in data.provisionedContext).toBe(false);
+      // The instruction reminds the reviewer it lacks the transcript.
+      expect(data.instruction.toLowerCase()).toContain('transcript');
+    });
+
+    it('PlanReview_RefutationPosture_EmitsEvidenceVerdict', async () => {
+      const data = planData(
+        await handlePrepareReview(
+          { featureId: 'pr-feat', scope: 'plan-review', artifact: 'docs/specs/x.md' },
+          stateDir,
+        ),
+      );
+      expect(data.adversarial).toBe(true);
+      // Prompted to refute / default-to-reject — not a rubric pass.
+      expect(data.instruction.toLowerCase()).toMatch(/refute|reject/);
+      // The verdict format is evidence-emitting: concrete gaps, not a score.
+      expect(data.verdictFormat).toContain('PlanReviewVerdict');
+      expect(data.verdictFormat).toContain('gaps');
+      expect(data.verdictFormat).toMatch(/refuted|survives/);
+    });
+
+    it('PlanReview_ThinDepth_UsesLightRung', async () => {
+      // thin → the light rung, single voter — cost stays risk-proportional and
+      // must NOT escalate to the multi-voter panel.
+      const data = planData(
+        await handlePrepareReview(
+          { featureId: 'pr-feat', scope: 'plan', artifact: 'docs/specs/x.md', designDepth: 'thin' },
+          stateDir,
+        ),
+      );
+      expect(data.rung.name).toBe('light');
+      expect(data.rung.voters).toBe(1);
+    });
+
+    it('PlanReview_DeepDepth_UsesMultiVoterPanel', async () => {
+      const data = planData(
+        await handlePrepareReview(
+          { featureId: 'pr-feat', scope: 'plan', artifact: 'docs/specs/x.md', designDepth: 'deep' },
+          stateDir,
+        ),
+      );
+      expect(data.rung.name).toBe('panel');
+      expect(data.rung.voters).toBeGreaterThan(1);
+    });
+
+    it('PlanReview_AbsentDesignDepth_DefaultsStandardRung', async () => {
+      const data = planData(
+        await handlePrepareReview(
+          { featureId: 'pr-feat', scope: 'plan', artifact: 'docs/specs/x.md' },
+          stateDir,
+        ),
+      );
+      expect(data.rung.name).toBe('standard');
+    });
+
+    it('PlanReview_NoSpec_DefaultsToUnifiedArtifact', async () => {
+      // In the collapsed world the artifact carries its own design-rationale §,
+      // so an omitted spec falls back to the artifact itself.
+      const data = planData(
+        await handlePrepareReview(
+          { featureId: 'pr-feat', scope: 'plan', artifact: 'docs/specs/x.md' },
+          stateDir,
+        ),
+      );
+      expect(data.provisionedContext.spec).toBe('docs/specs/x.md');
+    });
+
+    it('PlanReview_MissingArtifact_ReturnsError', async () => {
+      const err = expectError(
+        await handlePrepareReview({ featureId: 'pr-feat', scope: 'plan' }, stateDir),
+      );
+      expect(err.code).toBe('INVALID_INPUT');
+      expect(err.message).toContain('artifact');
+    });
+
+    it('PrepareReview_NonPlanScope_ServesCodeReviewCatalogUnchanged', async () => {
+      // A non-plan scope (or absent) still serves the back-of-pipeline catalog —
+      // the plan-review branch must not capture code-review traffic.
+      const data = expectSuccess(
+        await handlePrepareReview({ featureId: 'cr-feat', scope: 'code' }, stateDir),
+      );
+      expect((data as { catalog?: unknown }).catalog).toBeDefined();
+    });
+  });
 });

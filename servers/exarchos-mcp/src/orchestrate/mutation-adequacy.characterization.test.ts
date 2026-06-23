@@ -72,9 +72,9 @@ describe('mutation-adequacy roster characterization (PIN)', () => {
     const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
     const actionNames = (orchestrate?.actions ?? []).map((a) => a.name);
 
-    it('exposes exactly 71 actions (R5 mutation-adequacy added; #1587 retired check_tdd_compliance)', () => {
+    it('exposes exactly 72 actions (R5 mutation-adequacy; #1587 retired check_tdd_compliance; #1581 task 018 added discover_bridge)', () => {
       expect(orchestrate).toBeDefined();
-      expect(actionNames).toHaveLength(71);
+      expect(actionNames).toHaveLength(72);
     });
 
     it('carries the mutation-adequacy action (R5 / task 003)', () => {
@@ -115,6 +115,7 @@ describe('mutation-adequacy roster characterization (PIN)', () => {
         'create_pr',
         'debug_review_gate',
         'describe',
+        'discover_bridge',
         'doctor',
         'extract_fix_tasks',
         'extract_task',

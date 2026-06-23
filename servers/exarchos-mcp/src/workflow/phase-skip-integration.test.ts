@@ -57,9 +57,9 @@ describe('Phase Skip Integration', () => {
       expect(modified).toEqual(featureHsm);
     });
 
-    it('WorkflowInit_SkipIdeate_Rejected', () => {
-      // ideate is the initial phase (no incoming transitions)
-      expect(() => applyPhaseSkips(featureHsm, ['ideate'])).toThrow(/cannot skip initial/i);
+    it('WorkflowInit_SkipPlan_Rejected', () => {
+      // DR-4 (#1581): plan is the initial phase (no incoming transitions)
+      expect(() => applyPhaseSkips(featureHsm, ['plan'])).toThrow(/cannot skip initial/i);
     });
 
     it('WorkflowInit_SkipCompleted_Rejected', () => {

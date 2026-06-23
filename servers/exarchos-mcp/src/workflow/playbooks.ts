@@ -344,12 +344,12 @@ register({
     },
   ],
   events: [],
-  transitionCriteria: 'Design artifact created → plan',
-  guardPrerequisites: 'artifacts.design exists',
+  transitionCriteria: 'Design & Rationale section authored → continue to decomposition (same plan phase)',
+  guardPrerequisites: 'artifacts.spec exists',
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are brainstorming a feature design. Use exarchos_workflow update to record design decisions. Create design doc at docs/designs/. Transition to plan when design artifact is set in state. Key decision: problem-first exploration vs solution-first — exhaust constraints before converging on an approach. Anti-pattern: jumping to implementation details without understanding the problem space and constraints. Escalate: design scope remains unclear after 2 brainstorming iterations. Follow the design-refinement runbook for two-pass design (reasoning then formatting). Follow the phase-compression runbook to compress the design into a carry-forward context package on phase exit.',
+    'You are authoring the Design & Rationale section of the ONE unified docs/specs/ artifact (#1581 — no separate design doc). Use exarchos_workflow update to record artifacts.spec at docs/specs/. The 2-3 approach divergent loop is the `deep` rung, not a default — at thin/standard, converge in one pass. Number requirements DR-1..DR-N each with acceptance criteria (one covering error handling). Do NOT transition (plan is the initial phase); chain to /plan to add the Decomposition section to the same doc. Anti-pattern: writing a separate docs/designs/ doc. Escalate: design scope unclear after 2 iterations (deep rung may offer the opt-in discover bridge). Follow the design-refinement runbook for two-pass authoring (reasoning first, then formatting), and the phase-compression runbook to compress into a carry-forward context package on phase exit.',
 });
 
 register({
@@ -365,12 +365,12 @@ register({
     },
   ],
   events: [],
-  transitionCriteria: 'Plan artifact created → plan-review',
+  transitionCriteria: 'Unified spec decomposed → plan-review',
   guardPrerequisites: 'artifacts.plan exists',
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are creating an implementation plan from the design doc. Use exarchos_workflow update to record the plan artifact path. Break work into parallelizable TDD tasks. Transition to plan-review when plan is complete. Key decision: task granularity (target 2-5 min each) and parallel vs sequential grouping. Anti-pattern: monolith tasks that cannot be parallelized across agents. Escalate: design has ambiguous requirements that block decomposition into concrete tasks. Three-stage decomposition: (1) identify logical units, (2) define concrete tasks with inputs/outputs, (3) create a parallelization plan. Follow the phase-compression runbook to create self-contained context packages per task.',
+    'Unified `plan` phase (#1581, no separate design phase): author ONE docs/specs/ artifact via exarchos_workflow update, then → plan-review. FIRST the `## Design & Rationale` section (per @skills/brainstorming/SKILL.md): Problem Statement + DR-1..DR-N requirements + acceptance criteria (one for error handling), depth-scaled by frozen designDepth (2-3-approach divergent loop only at `deep` rung; else one pass, reasoning first then formatting); record artifacts.spec. THEN the Decomposition section (per @skills/implementation-planning/SKILL.md): tasks tracing to DR-N in the SAME doc; three-stage: (1) logical units, (2) concrete tasks, (3) parallelization plan; each 2-5 min, riskTier + Implements: DR-N. Record artifacts.plan (docs/specs/ path, planArtifactExists guard key) → plan-review. Use phase-compression runbook for self-contained per-task context packages. Anti-pattern: separate docs/designs/ or docs/plans/ file; monolith tasks. Escalate: ambiguous requirements block decomposition.',
 });
 
 register({
@@ -391,7 +391,7 @@ register({
   validationScripts: [],
   humanCheckpoint: true,
   compactGuidance:
-    'You are at a human checkpoint reviewing the implementation plan. Wait for user approval or revision feedback. Record approval with exarchos_workflow update using updates: { planReview: { approved: true } }. Transition to delegate on approval or back to plan if gaps found. Key decision: approve plan as-is vs request revision with specific feedback. Anti-pattern: rubber-stamping without checking that every DR-N requirement has a corresponding task. Escalate: 3+ revision cycles without convergence on a viable plan. Follow the plan-coverage-check runbook for self-consistency verification using 3 independent framings before presenting for approval.',
+    'You are at the plan-review checkpoint over the unified docs/specs/ artifact. plan-review is a DISPATCHED, fresh-context, adversarial pass (DR-10) — not an inline plan-vs-design delta (one artifact now): provision a read-only reviewer with only {artifact + spec} (never this authoring transcript) via prepare_review scope:"plan", prompted to refute the plan, depth scaled by the frozen designDepth (deep → a multi-voter panel applying varied framings / self-consistency; thin → a single light pass). On the refutation verdict: gaps → back to plan (--revise); survives → record approval with exarchos_workflow update updates: { planReview: { approved: true } } and transition to delegate. Anti-pattern: rubber-stamping without checking every DR-N requirement has a task. Escalate: 3+ revision cycles without convergence.',
 });
 
 register({

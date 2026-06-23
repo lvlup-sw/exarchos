@@ -139,6 +139,23 @@ Unit tests for all components.
 - None blocking.
 `;
 
+// #1581 task 013: check_design_completeness is now a deprecated alias that
+// delegates to check_plan_coverage on the UNIFIED docs/specs/ artifact (design
+// + decomposition in one file). The parity test below feeds this fixture so the
+// delegated plan-coverage run succeeds (every design section is covered by a
+// task) and CLI/MCP return equal payloads.
+const UNIFIED_SPEC = `${MINIMAL_DESIGN}
+## Decomposition
+
+### Task 001: Build the Widget Component
+**Implements:** DR-1
+Render the main UI.
+
+### Task 002: Build the API Client
+**Implements:** DR-2
+Handle data fetching.
+`;
+
 const MINIMAL_PLAN = `# Implementation Plan
 
 ## Technical Design
@@ -178,7 +195,7 @@ describe('exarchos_orchestrate CLI-vs-MCP parity', () => {
     const cliArm = await createArm('parity-design-cli-');
     arms.push(cliArm);
     const cliDesign = path.join(cliArm.stateDir, 'design.md');
-    await writeFile(cliDesign, MINIMAL_DESIGN, 'utf-8');
+    await writeFile(cliDesign, UNIFIED_SPEC, 'utf-8');
 
     // Act (CLI)
     resetMaterializerCache();
@@ -190,7 +207,7 @@ describe('exarchos_orchestrate CLI-vs-MCP parity', () => {
     const mcpArm = await createArm('parity-design-mcp-');
     arms.push(mcpArm);
     const mcpDesign = path.join(mcpArm.stateDir, 'design.md');
-    await writeFile(mcpDesign, MINIMAL_DESIGN, 'utf-8');
+    await writeFile(mcpDesign, UNIFIED_SPEC, 'utf-8');
 
     // Act (MCP)
     resetMaterializerCache();

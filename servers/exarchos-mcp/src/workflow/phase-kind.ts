@@ -12,6 +12,11 @@
 
 import { resolveVerificationPolicy } from './verification-policy-resolver.js';
 import { type GateName, type RiskTier } from './verification-policy.js';
+import {
+  type DesignDepth,
+  type PlanDepthGateName,
+  resolvePlanDepthPolicy,
+} from './plan-depth-policy.js';
 import { getRequiredReviews, type ReviewDimension } from './review-contract.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 
@@ -54,13 +59,18 @@ export type GateResolverName =
 // `GateName` namespace. The `family` tag makes downstream dispatch exhaustively
 // checkable (a missing arm is a compile error via the `assertNever` helper).
 
-/** Plan-structure gate action names (PLAN kind) — the registry `PLAN_PHASES` set. */
-export type PlanGateName =
-  | 'check_task_decomposition'
-  | 'check_plan_coverage'
-  | 'spec_coverage_check'
-  | 'check_provenance_chain'
-  | 'generate_traceability';
+/**
+ * Plan-structure gate names (PLAN kind). Sourced from `plan-depth-policy.ts`
+ * (`PlanDepthGateName`), the single source of truth for which gates a depth
+ * rung may emit — so this type never drifts from the policy table. At the
+ * `'standard'` default rung the set is exactly the registry `PLAN_PHASES`
+ * actions (decompose → coverage → spec-coverage → provenance → traceability);
+ * the `'deep'` rung adds the `check_exploration_depth` obligation (DR-7), which
+ * is therefore a member here so the `'plan'` family of {@link ResolvedGate} can
+ * carry it. (`check_exploration_depth` has no registry action yet — its gate
+ * wiring is DR-7/tasks 016+018; it is reachable only at opt-in `'deep'` depth.)
+ */
+export type PlanGateName = PlanDepthGateName;
 
 /** Synthesis-readiness legs (SYNTHESIZE kind). */
 export type SynthesisLeg = 'task-completion' | 'tests' | 'typecheck' | 'stack';
@@ -142,6 +152,17 @@ export interface ResolveGateSetCtx {
    * review roster falls back to the empty base, never throws.
    */
   readonly workflowType?: string;
+  /**
+   * The feature's frozen planning depth (thin ⊂ standard ⊂ deep). The
+   * `'plan-structure'` resolver keys its gate sequence off this (the depth-axis
+   * twin of how the IMPLEMENT ladder keys off `riskTier`), resolved once at PLAN
+   * `phase.entered` and frozen (task 005), never re-derived here. This field is
+   * the *carrier* on the resolution ctx (DR-1); task 003 graduates the resolver
+   * to read it. Absent ⇒ `'standard'` at the resolver — the behavior-neutral
+   * default that preserves today's static 5-gate plan-structure binding for
+   * every pre-existing call site, never throws.
+   */
+  readonly designDepth?: DesignDepth;
 }
 
 /**
@@ -161,24 +182,22 @@ const GATE_RESOLVERS: Readonly<
     resolveVerificationPolicy(ctx.riskTier, ctx.boundaryTouching, ctx.config).sequence.map(
       (gate): ResolvedGate => ({ family: 'ladder', gate }),
     ),
-  // The plan-structure gate-set (DR-9), in plan-validation order: decompose →
-  // coverage → provenance → traceability. These four action names are exactly
-  // the registry's `PLAN_PHASES`-bound gates (`registry.ts`); the binding is
-  // pinned by `ResolveGateSet_PlanKind_MatchesRegistryPlanPhasesBinding` so this
-  // explicit list (no heavy registry import into this foundational module) can
-  // never drift from the registry source of truth. Membership is the obligation;
-  // per-gate severity (`generate_traceability` is advisory) is the resolved
-  // *mode*, handled at the severity binding, not by excluding it from the set.
-  'plan-structure': () =>
-    (
-      [
-        'check_task_decomposition',
-        'check_plan_coverage',
-        'spec_coverage_check',
-        'check_provenance_chain',
-        'generate_traceability',
-      ] as const
-    ).map((gate): ResolvedGate => ({ family: 'plan', gate })),
+  // The plan-structure gate-set (DR-2), resolved off the feature's frozen
+  // `designDepth` — the depth-axis twin of how `'verification-ladder'` resolves
+  // off `riskTier`. The ordered sequence is owned by `plan-depth-policy.ts`
+  // (`resolvePlanDepthPolicy`, the single source of truth); this resolver names
+  // no gates of its own. `designDepth` absent ⇒ `'standard'`, whose sequence is
+  // exactly the registry's `PLAN_PHASES`-bound gates in plan-validation order
+  // (decompose → coverage → provenance → traceability) — the behavior-neutral
+  // default pinned by `PlanStructureResolver_StandardDepth_MatchesRegistryPlanPhasesBinding`,
+  // so graduating to ctx-reading changes nothing at the default depth. `deep`
+  // adds the `check_exploration_depth` obligation (DR-7). Membership is the
+  // obligation; per-gate severity (`generate_traceability` is advisory) is the
+  // resolved *mode*, handled at the severity binding, not by excluding it.
+  'plan-structure': (ctx) =>
+    resolvePlanDepthPolicy(ctx.designDepth ?? 'standard', ctx.config).sequence.map(
+      (gate): ResolvedGate => ({ family: 'plan', gate }),
+    ),
   // The review-contract gate-set (DR-9). Resolves verbatim from
   // `getRequiredReviews` so the dimension vocabulary stays owned by
   // `review-contract.ts` (the single source of truth, pinned by the
@@ -252,4 +271,48 @@ export function resolveGateSet(kind: PhaseKind, ctx: ResolveGateSetCtx): readonl
     throw new Error(`resolveGateSet: unknown resolver '${gates.resolver}'`);
   }
   return resolver(ctx);
+}
+
+// ─── DR-10: plan-review adversarial depth (the SECOND consumer of designDepth) ─
+//
+// `plan-review` is reframed (DR-10) into a dispatched, fresh-context, adversarial
+// read-only pass over the unified `docs/specs/` artifact. Its adversarial depth
+// scales with the SAME frozen `designDepth` the `'plan-structure'` design-section
+// resolver reads (DR-2/DR-3) — making plan-review the *second consumer* of one
+// resolved value. This resolver names the rung; the dispatch payload (provisioned
+// context, refutation prompt, voter count) is assembled in `prepare-review.ts`.
+
+/** The plan-review adversarial rungs, ordered light ⊂ standard ⊂ panel. */
+export type PlanReviewRungName = 'light' | 'standard' | 'panel';
+
+/**
+ * A resolved plan-review rung: the rung name plus the number of independent
+ * adversarial voters the dispatched reviewer fans out to. Monotonic in depth —
+ * `thin` stays at a single light pass (cost risk-proportional, DR-10 ac), `deep`
+ * escalates to a multi-voter adversarial panel.
+ */
+export interface PlanReviewRung {
+  readonly name: PlanReviewRungName;
+  readonly voters: number;
+}
+
+/**
+ * Map a feature's frozen `designDepth` to its plan-review adversarial rung
+ * (DR-10). Pure table lookup, the depth-axis analog of how `riskTier` selects a
+ * verification rung. Absent / unknown depth ⇒ the `'standard'` rung — the
+ * behavior-neutral default, never a throw (plan-review provisioning is advisory,
+ * not a transition gate, so it degrades rather than fails closed).
+ *
+ *   thin     → light  (1 voter)  — a single light refutation pass; never exceeds
+ *   standard → standard (2 voters)
+ *   deep     → panel  (3 voters) — multi-voter adversarial panel
+ */
+const PLAN_REVIEW_RUNG_BY_DEPTH: Readonly<Record<DesignDepth, PlanReviewRung>> = Object.freeze({
+  thin: Object.freeze({ name: 'light', voters: 1 }),
+  standard: Object.freeze({ name: 'standard', voters: 2 }),
+  deep: Object.freeze({ name: 'panel', voters: 3 }),
+});
+
+export function resolvePlanReviewDepth(designDepth: DesignDepth | undefined): PlanReviewRung {
+  return PLAN_REVIEW_RUNG_BY_DEPTH[designDepth ?? 'standard'] ?? PLAN_REVIEW_RUNG_BY_DEPTH.standard;
 }

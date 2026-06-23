@@ -46,8 +46,12 @@ describe('IdeateFlow_E2E (Wave 5 / Task 5.5, #1341)', () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
-  it('IdeateFlow_UpdatesArtifactsDesignViaUpdateAction', async () => {
-    // ─── 1. init: feature workflow lands in phase 'ideate' ────────────
+  it('IdeateFlow_UpdatesArtifactsPlanViaUpdateAction', async () => {
+    // DR-4 (#1581): GATHER collapsed into PLAN. The unified flow's guarded
+    // transition is now plan → plan-review (planArtifactExists); the deeper
+    // /ideate command + brainstorming rewrite is task 016. This smoke still
+    // locks that an `update` lands in the projection the guard reads.
+    // ─── 1. init: feature workflow lands in phase 'plan' ──────────────
     const initResult = await handleInit(
       { featureId, workflowType: 'feature' },
       tmpDir,
@@ -55,32 +59,31 @@ describe('IdeateFlow_E2E (Wave 5 / Task 5.5, #1341)', () => {
     );
     expect(initResult.success).toBe(true);
     const initData = initResult.data as Record<string, unknown>;
-    expect(initData.phase).toBe('ideate');
+    expect(initData.phase).toBe('plan');
 
-    // ─── 2. write design artifact to disk ─────────────────────────────
+    // ─── 2. write the unified spec artifact to disk ───────────────────
     //
-    // The documented agent flow (commands/ideate.md) saves the design
-    // markdown BEFORE calling exarchos_workflow.update. Use the
-    // workflow's tmpDir so the file lives within the test fixture's
-    // sandbox; the path is what we record in state.
-    const designPath = path.join(tmpDir, 'docs', 'designs', `${featureId}.md`);
-    await fs.mkdir(path.dirname(designPath), { recursive: true });
-    await fs.writeFile(designPath, '# Design\n\nSmoke test design content.\n');
+    // The documented agent flow saves the spec markdown BEFORE calling
+    // exarchos_workflow.update. Use the workflow's tmpDir so the file
+    // lives within the test fixture's sandbox; the path is what we record.
+    const specPath = path.join(tmpDir, 'docs', 'specs', `${featureId}.md`);
+    await fs.mkdir(path.dirname(specPath), { recursive: true });
+    await fs.writeFile(specPath, '# Spec\n\nSmoke test spec content.\n');
 
-    // ─── 3. update: record the design artifact via canonical action ───
+    // ─── 3. update: record the plan artifact via canonical action ─────
     //
     // The skill instructions tell agents to call:
     //   exarchos_workflow({
     //     action: "update",
     //     featureId: "<id>",
-    //     updates: { "artifacts": { "design": "<path>" } }
+    //     updates: { "artifacts": { "plan": "<path>" } }
     //   })
     // — this assertion locks that exact agent-facing shape.
     const updateResult = await handleWorkflow(
       {
         action: 'update',
         featureId,
-        updates: { artifacts: { design: designPath } },
+        updates: { artifacts: { plan: specPath } },
       },
       ctx,
     );
@@ -91,18 +94,18 @@ describe('IdeateFlow_E2E (Wave 5 / Task 5.5, #1341)', () => {
       )}`,
     ).toBe(true);
 
-    // ─── 4. transition: ideate → plan, gated by designArtifactExists ──
+    // ─── 4. transition: plan → plan-review, gated by planArtifactExists ──
     //
     // If the update from step 3 didn't land in the projection the guard
     // reads, this transition would return GUARD_FAILED with
-    // designArtifactExists named in the failure envelope.
+    // planArtifactExists named in the failure envelope.
     const transitionResult = await handleWorkflow(
-      { action: 'transition', featureId, target: 'plan' },
+      { action: 'transition', featureId, target: 'plan-review' },
       ctx,
     );
     expect(
       transitionResult.success,
-      `expected transition to plan to succeed; got error: ${JSON.stringify(
+      `expected transition to plan-review to succeed; got error: ${JSON.stringify(
         (transitionResult as { error?: unknown }).error,
       )}`,
     ).toBe(true);
@@ -115,8 +118,8 @@ describe('IdeateFlow_E2E (Wave 5 / Task 5.5, #1341)', () => {
     const getResult = await handleWorkflow({ action: 'get', featureId }, ctx);
     expect(getResult.success).toBe(true);
     const data = getResult.data as Record<string, unknown>;
-    expect(data.phase).toBe('plan');
+    expect(data.phase).toBe('plan-review');
     const artifacts = data.artifacts as Record<string, unknown> | undefined;
-    expect(artifacts?.design).toBe(designPath);
+    expect(artifacts?.plan).toBe(specPath);
   });
 });

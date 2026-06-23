@@ -171,3 +171,66 @@ Mirror the verification-ladder test suite: superset-ordering test for the depth 
 - `designDepth` proposal signals — exact weighting of uncertainty vs. blast-radius vs. task-count (tune during #1583; default conservative — propose `standard` unless strong `deep` signal).
 - Whether `thin` should also drop `spec_coverage_check` or only shorten the design section (resolve in DR-2 sequence pinning).
 - `docs/specs/` vs. repurposing `docs/plans/` carries a one-time tooling-update cost (DR-9); confirmed acceptable for the cleaner spec-driven mental model.
+
+## SDK-combinator lowering appendix (DR-8, roadmap #1599 rule 3)
+
+This appendix is the durable record of the behavior-preserving combinator mapping for each substrate edit in this epic, so #1253 (P7 migration) lowers the post-collapse `hsm-definitions.ts` → `ship-gate`-style `.workflow.ts` IR as a *consolidation*, not a redesign (mirrors how #1592 DR-6 / #1598 attach their mapping notes). Each implementing PR body links back here. Combinator vocabulary is from [`docs/designs/2026-05-06-workflow-builder-sdk.md`](2026-05-06-workflow-builder-sdk.md) (`Workflow.create` / `startWith` / `.then` / `Step.delegate` / `Step.gate` / `awaitApproval(...).onRejection(...)`).
+
+### A1 — The collapse: GATHER (`ideate`) folded into PLAN (DR-4, task 010)
+
+**Before** — the feature head was two sequential authoring steps gated by a single approval:
+
+```ts
+Workflow.create<FeatureState>('feature')
+  .startWith(Step.delegate('brainstorming'))         // ideate / GATHER → docs/designs/ artifact
+  .then(Step.delegate('implementation-planning'))    // plan           → docs/plans/ artifact
+  .awaitApproval('author', a => a                    // plan-review (single approval)
+    .onRejection(r => r.then(Step.delegate('implementation-planning'))))
+  .then(Step.delegate('implementer'))                // delegate …
+```
+
+**After** — the two authoring steps contract into one; the approval edge is unchanged:
+
+```ts
+Workflow.create<FeatureState>('feature')
+  .startWith(Step.delegate('implementation-planning')) // PLAN (read-only) → unified docs/specs/ artifact
+  .awaitApproval('author', a => a                       // plan-review (single approval; fresh-context adversarial — DR-10)
+    .onRejection(r => r.then(Step.delegate('implementation-planning'))))
+  .then(Step.delegate('implementer'))                  // delegate …
+```
+
+**Why the lowering is behavior-preserving:**
+
+- The removed `ideate` step is a `startWith(…).then(…)` **sequence contraction**: two adjacent `Step.delegate` authoring hops whose combined output (design + plan) is subsumed by the single unified `docs/specs/` artifact the surviving step now produces. No downstream combinator consumed the intermediate `docs/designs/` artifact as a *distinct* input — `plan-review` and `implementer` read the artifact set, not a specific file — so contracting the sequence changes no observable step output.
+- The lone `awaitApproval('author', …)` (plan-review) is the **only** approval edge in both forms; the collapse removes a redundant authoring hop, never an approval. Its `onRejection` back-edge (plan-review → plan) lowers verbatim.
+- The retired `ideate → plan` HSM edge carried the `designArtifactExists` guard; in IR terms it was an implicit `Step.gate` *between* the two authoring steps. Contracting the sequence removes that gate together with the second hop it guarded — it never gated a surviving edge, so no remaining edge loses a precondition.
+
+Net: `phase(ideate) ⊕ phase(plan) ↦ phase(plan)` is a behavior-preserving IR transform. The P7 lowering of the post-collapse `feature` HSM yields the same observable `(author → approve → delegate …)` step sequence, minus the redundant authoring hop. A divergence guard (per #1599 rule 3 / ship-gate DR-6) flags any future edit that re-introduces a second pre-approval authoring step or a second approval edge before the SDK consolidation lands.
+
+### A2 — The depth dial: `designDepth` resolve-then-freeze + the `'plan-structure'` ctx-resolver (DR-2/DR-3, task 022)
+
+§A1 contracts the *control flow* (two authoring hops → one). §A2 records how the **depth parameter** rides that surviving hop through lowering. `designDepth` is the planning-axis twin of `riskTier`: both are resolved-then-frozen on `phase.entered` and both feed a ctx-reading `GATE_RESOLVERS` entry — `riskTier → 'verification-ladder'`, `designDepth → 'plan-structure'`. The IR already lowers the `riskTier` story (`Step.delegate('implementer')` carries a `Step.gate` whose sequence is resolved from the frozen per-task tier); `designDepth` lowers by the *same* combinator shape on the PLAN step, so #1253 P7 consumes it unchanged — no new combinator, no new control-flow vocabulary.
+
+**Lowering shape** — the surviving PLAN step carries a depth-parameterized gate, resolved from a frozen value rather than re-derived each entry:
+
+```ts
+Workflow.create<FeatureState>('feature')
+  .startWith(
+    Step.delegate('implementation-planning')             // PLAN (read-only) → unified docs/specs/ artifact
+      .withGate(Step.gate('plan-structure', ctx))        // gate-set resolved from ctx.designDepth (thin ⊂ standard ⊂ deep)
+  )
+  .awaitApproval('author', a => a                         // plan-review — depth-scaled adversarial pass (DR-10, §A3 / #1592)
+    .onRejection(r => r.then(Step.delegate('implementation-planning'))))
+  .then(Step.delegate('implementer'))                     // delegate …
+```
+
+**Why the lowering is behavior-preserving:**
+
+- **Resolve-then-freeze is a deterministic parameter binding, not a branch.** `designDepth` is resolved once (auto-propose → author override) and frozen onto the PLAN `phase.entered` event (`state-machine.ts`, the #1546 resolve-then-freeze seam — the same author as `riskTier`'s wave stamp). In IR terms the freeze is a single state-write on step entry; a left-fold of the log recovers the identical frozen value, so the lowered `Step.gate` reads a constant, never a re-resolution. The depth dial adds *zero* edges to the workflow graph — `thin`/`standard`/`deep` select different gate **sequences inside one `Step.gate`**, not different paths through the HSM.
+- **The `'plan-structure'` resolver is a pure table lookup (`plan-depth-policy.ts`), config-blind at its base.** Each rung is a strict superset of the lower (`thin ⊂ standard ⊂ deep`), mirroring `BASE_SEQUENCE_BY_TIER`. Lowering preserves the superset ordering because the IR `Step.gate` enumerates the resolved sequence verbatim — the combinator does not re-order or dedup. `standard` (the absent-depth default) lowers to exactly today's static 5-gate `PLAN_PHASES` binding, so a feature that never sets `designDepth` lowers byte-identically to the pre-#1581 plan step.
+- **Fail-closed survives lowering as a gate precondition, not a fallthrough.** A malformed frozen depth fails the resolution CLOSED (`resolveGateSetFailClosed` → `phase.blocked`, task 021); the IR models this as the `Step.gate` rejecting entry, never a silent OPEN edge. P7 must lower the block as a refused transition, preserving the no-silent-OPEN invariant.
+- **`designDepth` is resolved once but consumed twice.** The frozen value feeds both the design-section depth (DR-2/DR-3, this note) and the plan-review adversarial depth (DR-10). Lowering must thread the *same* frozen ctx field to both consumers — a second resolution at plan-review time would break determinism. The `Step.gate('plan-structure', ctx)` above and the depth-scaled `awaitApproval` both read `ctx.designDepth`; P7 binds one frozen value to both.
+
+Net: `phase(plan @ static-5-gate) ↦ phase(plan @ Step.gate('plan-structure', frozen designDepth))` is a behavior-preserving IR transform — the depth dial is a parameter on the surviving step, not a structural change. The divergence guard (per #1599 rule 3 / ship-gate DR-6) flags any future edit that re-resolves `designDepth` after freeze, adds a depth-keyed HSM edge, or threads two independent depth values to the two consumers before the SDK consolidation lands.
+
+> §A3 — plan-review reframed as a depth-scaled fresh-context adversarial gate (DR-10, task 024) — composes the *second* consumer of the frozen `designDepth` onto the `awaitApproval('author', …)` edge above; its back-of-pipeline twin (code-review fresh-context/adversarial/cost-scaling + spec-review⊕quality-review collapse) is **#1592 (ship-gate)**, not this epic.

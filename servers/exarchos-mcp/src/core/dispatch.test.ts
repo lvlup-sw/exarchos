@@ -1329,7 +1329,6 @@ describe('dispatch', () => {
     const NEWLY_REGISTERED_VIEW_ACTIONS = [
       'session_provenance',
       'provenance',
-      'ideate_readiness',
     ] as const;
 
     for (const action of NEWLY_REGISTERED_VIEW_ACTIONS) {

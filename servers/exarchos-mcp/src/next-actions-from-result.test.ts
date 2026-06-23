@@ -44,10 +44,10 @@ describe('nextActionsFromResult — shape recognition', () => {
 
   it('extracts shape 1 (handler payload) — phase + workflowType at top level', () => {
     const actions = nextActionsFromResult(
-      ok({ phase: 'ideate', workflowType: 'feature' }),
+      ok({ phase: 'plan', workflowType: 'feature' }),
     );
-    // `ideate → plan` is the sole transition out of `ideate`.
-    expect(actions.map((a) => a.verb)).toEqual(['plan']);
+    // DR-4 (#1581): `plan → plan-review` is the sole explicit transition out of `plan`.
+    expect(actions.map((a) => a.verb)).toEqual(['plan-review']);
   });
 
   it('extracts shape 2 (rehydration document) — workflowState segment', () => {
@@ -55,12 +55,12 @@ describe('nextActionsFromResult — shape recognition', () => {
       ok({
         workflowState: {
           featureId: 'feat-x',
-          phase: 'ideate',
+          phase: 'plan',
           workflowType: 'feature',
         },
       }),
     );
-    expect(actions.map((a) => a.verb)).toEqual(['plan']);
+    expect(actions.map((a) => a.verb)).toEqual(['plan-review']);
   });
 
   it('surfaces merge_orchestrate from shape 2 when phase is merge-pending', () => {
@@ -103,7 +103,7 @@ describe('nextActionsFromResult — shape recognition', () => {
     // include a workflowState sibling for downstream consumers.
     const actions = nextActionsFromResult(
       ok({
-        phase: 'ideate',
+        phase: 'plan',
         workflowType: 'feature',
         workflowState: {
           featureId: 'x',
@@ -112,7 +112,7 @@ describe('nextActionsFromResult — shape recognition', () => {
         },
       }),
     );
-    expect(actions.map((a) => a.verb)).toEqual(['plan']);
+    expect(actions.map((a) => a.verb)).toEqual(['plan-review']);
   });
 
   it('backfills mergeOrchestrator from workflowState when shape 1 supplies phase', () => {

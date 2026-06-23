@@ -22,12 +22,14 @@ describe('serializeTopology', () => {
     const result: SerializedTopology = serializeTopology('feature');
 
     expect(result.workflowType).toBe('feature');
-    expect(result.initialPhase).toBe('ideate');
+    // DR-4 (#1581): plan is initial; ideate (GATHER) removed.
+    expect(result.initialPhase).toBe('plan');
 
     // States should have id and type
-    expect(result.states['ideate']).toBeDefined();
-    expect(result.states['ideate'].id).toBe('ideate');
-    expect(result.states['ideate'].type).toBe('atomic');
+    expect(result.states['ideate']).toBeUndefined();
+    expect(result.states['plan']).toBeDefined();
+    expect(result.states['plan'].id).toBe('plan');
+    expect(result.states['plan'].type).toBe('atomic');
 
     expect(result.states['completed']).toBeDefined();
     expect(result.states['completed'].type).toBe('final');
@@ -37,12 +39,12 @@ describe('serializeTopology', () => {
 
     // Transitions should have from and to
     expect(result.transitions.length).toBeGreaterThan(0);
-    const ideaToPlan = result.transitions.find(
-      (t) => t.from === 'ideate' && t.to === 'plan',
+    const planToReview = result.transitions.find(
+      (t) => t.from === 'plan' && t.to === 'plan-review',
     );
-    expect(ideaToPlan).toBeDefined();
-    expect(ideaToPlan!.from).toBe('ideate');
-    expect(ideaToPlan!.to).toBe('plan');
+    expect(planToReview).toBeDefined();
+    expect(planToReview!.from).toBe('plan');
+    expect(planToReview!.to).toBe('plan-review');
   });
 
   it('SerializeTopology_RefactorWorkflow_IncludesTracks', () => {
@@ -69,17 +71,17 @@ describe('serializeTopology', () => {
   it('SerializeTopology_TransitionGuards_IncludeIdAndDescription', () => {
     const result: SerializedTopology = serializeTopology('feature');
 
-    // Find a guarded transition (ideate -> plan has designArtifactExists guard)
-    const ideaToPlan = result.transitions.find(
-      (t) => t.from === 'ideate' && t.to === 'plan',
+    // Find a guarded transition (plan -> plan-review has planArtifactExists guard)
+    const planToReview = result.transitions.find(
+      (t) => t.from === 'plan' && t.to === 'plan-review',
     );
-    expect(ideaToPlan).toBeDefined();
-    expect(ideaToPlan!.guard).toBeDefined();
-    expect(ideaToPlan!.guard!.id).toBe('design-artifact-exists');
-    expect(ideaToPlan!.guard!.description).toBe('Design artifact must exist');
+    expect(planToReview).toBeDefined();
+    expect(planToReview!.guard).toBeDefined();
+    expect(planToReview!.guard!.id).toBe('plan-artifact-exists');
+    expect(planToReview!.guard!.description).toBe('Plan artifact must exist');
 
     // Guard should NOT have an evaluate function (JSON-serializable)
-    expect((ideaToPlan!.guard as Record<string, unknown>)['evaluate']).toBeUndefined();
+    expect((planToReview!.guard as Record<string, unknown>)['evaluate']).toBeUndefined();
   });
 
   it('SerializeTopology_CompoundStates_IncludeParentAndInitial', () => {
@@ -141,7 +143,7 @@ describe('listWorkflowTypes', () => {
     // Each entry should have initialPhase, phaseCount, trackCount
     const feature = result.workflowTypes.find((wt) => wt.name === 'feature');
     expect(feature).toBeDefined();
-    expect(feature!.initialPhase).toBe('ideate');
+    expect(feature!.initialPhase).toBe('plan');
     expect(feature!.phaseCount).toBeGreaterThan(0);
     expect(feature!.trackCount).toBeGreaterThanOrEqual(0);
 
@@ -286,6 +288,49 @@ describe('executeTransition resolve-then-freeze (DR-13)', () => {
     });
     expect(result.success).toBe(false);
     expect(result.events.some((e) => e.type === 'phase.entered')).toBe(false);
+  });
+
+  // ─── DR-3 (#1581 task 005): resolve-then-freeze `designDepth` at PLAN entry ──
+  it('PhaseEntered_PlanPhase_FreezesDesignDepth', () => {
+    const feature = getHSMDefinition('feature');
+    // DR-4 (#1581): plan is initial; plan-review is also PLAN-kind, so
+    // plan → plan-review is a valid entry into a PLAN phase that triggers the
+    // designDepth freeze (the freeze fires on every PLAN phase.entered).
+    const planArtifact = { artifacts: { plan: 'docs/specs/x.md' } };
+    const mdOf = (r: ReturnType<typeof executeTransition>) =>
+      r.events.find((e) => e.type === 'phase.entered')!.metadata as Record<string, unknown>;
+
+    // Author override patched onto state before PLAN entry ⇒ that depth is frozen.
+    const overridden = executeTransition(
+      feature,
+      { phase: 'plan', ...planArtifact, designDepth: 'deep', _events: [] },
+      'plan-review',
+    );
+    expect(overridden.success).toBe(true);
+    expect(overridden.events.filter((e) => e.type === 'phase.entered')).toHaveLength(1);
+    expect(mdOf(overridden).designDepth).toBe('deep');
+
+    // No override ⇒ the behavior-neutral 'standard' default is frozen.
+    const defaulted = executeTransition(
+      feature,
+      { phase: 'plan', ...planArtifact, _events: [] },
+      'plan-review',
+    );
+    expect(mdOf(defaulted).designDepth).toBe('standard');
+
+    // The frozen payload (now carrying designDepth) still validates against the
+    // durable phase.entered schema; and the enum is pinned — 'bogus' is rejected.
+    const schema = EVENT_DATA_SCHEMAS['phase.entered'];
+    expect(schema?.safeParse(mdOf(overridden)).success).toBe(true);
+    expect(schema?.safeParse({ ...mdOf(overridden), designDepth: 'bogus' }).success).toBe(false);
+
+    // Single freeze author: a non-PLAN phase.entered omits designDepth entirely.
+    const nonPlan = executeTransition(
+      getHSMDefinition('discovery'),
+      { phase: 'gathering', artifacts: { sources: ['a.md'] }, _events: [] },
+      'synthesizing',
+    );
+    expect(mdOf(nonPlan).designDepth).toBeUndefined();
   });
 
   it('freeze_PolicyTableMutatedAfterEntry_FrozenObligationUnchanged', () => {

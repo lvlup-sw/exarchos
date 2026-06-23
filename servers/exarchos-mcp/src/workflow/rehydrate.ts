@@ -52,6 +52,64 @@ import { readStateFile } from './state-store.js';
 import { buildValidatedEvent } from '../event-store/event-factory.js';
 import { PROJECTION_LAG_THRESHOLD_MS } from '../projections/index.js';
 
+/**
+ * Artifact layout of a resuming workflow (DR-9, #1581 task 020).
+ *
+ *   - `'unified'`      — the post-collapse flow: one `docs/specs/` artifact
+ *     (design § + decomposition in one doc). The forward default — a freshly
+ *     `init`'d feature with no artifacts yet is `'unified'`, so new work always
+ *     uses the collapsed path.
+ *   - `'two-artifact'` — an in-flight workflow authored under the pre-#1581
+ *     two-phase convention: a separate `docs/designs/` design doc plus a
+ *     `docs/plans/` plan. Such a workflow MUST resume and complete under the
+ *     OLD path — no forced mid-flight migration to `docs/specs/`.
+ */
+export type ArtifactLayout = 'unified' | 'two-artifact';
+
+/**
+ * The legacy design-doc directory. The collapsed flow never emits an artifact
+ * here (it writes `docs/specs/`), so a `design` artifact under this prefix is
+ * the unambiguous signal that the workflow predates the collapse and must
+ * complete two-artifact. Kept as a prefix match (not an exact dir) so nested
+ * or date-partitioned legacy layouts (`docs/designs/2026-…`) still classify.
+ */
+const LEGACY_DESIGN_DIR = 'docs/designs/';
+
+/** The unified-spec directory the post-collapse flow writes to. */
+const UNIFIED_SPEC_DIR = 'docs/specs/';
+
+/**
+ * Classify a workflow's artifact layout from its recorded artifact map
+ * (DR-9, task 020). Pure — reads only the projected `artifacts` record, never
+ * the filesystem (a resuming workflow's path of record is the event-folded
+ * artifact map, not what happens to exist on disk).
+ *
+ * Discrimination order (first match wins):
+ *   1. Any artifact under `docs/specs/`, or an explicit `spec` key ⇒ `'unified'`
+ *      (the workflow already adopted the collapsed artifact — keep it there).
+ *   2. A `design` artifact under `docs/designs/` ⇒ `'two-artifact'` (it started
+ *      under the old convention; the new flow never produces that path, so its
+ *      presence is the legacy signal — complete old-path, do not migrate).
+ *   3. Otherwise ⇒ `'unified'` (the forward default: fresh features with no
+ *      artifacts yet, and any future layout, use the collapsed path).
+ */
+export function classifyArtifactLayout(
+  artifacts: Readonly<Record<string, string>>,
+): ArtifactLayout {
+  const values = Object.values(artifacts);
+  const hasUnifiedSpec =
+    typeof artifacts.spec === 'string' ||
+    values.some((p) => p.includes(UNIFIED_SPEC_DIR));
+  if (hasUnifiedSpec) return 'unified';
+
+  const designPath = artifacts.design;
+  if (typeof designPath === 'string' && designPath.includes(LEGACY_DESIGN_DIR)) {
+    return 'two-artifact';
+  }
+
+  return 'unified';
+}
+
 /** Input shape for the rehydrate handler. */
 export interface RehydrateArgs {
   readonly featureId: string;
@@ -639,7 +697,17 @@ export async function handleRehydrate(
   // a cold probe of a never-started feature — so agents disambiguate "tracked
   // but empty" from "never existed" without inspecting filesystem
   // `.state.json` presence (see RCA 2026-05-30-state-source-integrity).
-  const meta: Record<string, unknown> = { workflowExists: !streamIsEmpty };
+  // #1581 task 020 — surface the artifact layout so a resuming agent (and the
+  // collapsed-flow playbook/tooling) completes an in-flight two-artifact
+  // workflow under the OLD path instead of forcing a mid-flight migration to
+  // `docs/specs/`. Classified from the event-folded artifact map (never disk);
+  // a fresh feature with no artifacts defaults to `'unified'`, so only work
+  // that genuinely started two-phase is flagged legacy. Kept on `_meta` (like
+  // `workflowExists`) — no event-schema bump, forwarded verbatim by envelopeWrap.
+  const meta: Record<string, unknown> = {
+    workflowExists: !streamIsEmpty,
+    artifactLayout: classifyArtifactLayout(document.artifacts),
+  };
   if (projectionAsOf !== undefined) {
     meta.projectionAsOf = projectionAsOf;
     const asOfMs = Date.parse(projectionAsOf);

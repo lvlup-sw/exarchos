@@ -60,6 +60,33 @@ interface TaskEntry {
 // ============================================================
 
 /**
+ * The decomposition boundary in a unified `docs/specs/` artifact (#1581 DR-6,
+ * task 012): the first `## Decomposition` / `## Tasks` section heading, or the
+ * first canonical `### Task <id>:` header. Everything before it is the design
+ * region (the DR-N *definition* zone); everything after is the task region
+ * (where `**Implements:** DR-N` *references* live).
+ */
+const DECOMPOSITION_BOUNDARY = /^(?:##\s+(?:Decomposition|Tasks)\b|###\s+Task\s+[A-Za-z0-9-]+:)/im;
+
+/**
+ * The design region of an artifact — content before the decomposition boundary.
+ *
+ * Load-bearing for the design+plan collapse: when design and plan are ONE
+ * document, a task's `**Implements:** DR-99` reference would otherwise be
+ * scooped up by the whole-document `DR-\d+` scan and mistaken for a DR-N
+ * *definition*, silently defeating forward-dangling/orphan detection. Scoping
+ * DR-N extraction to the design region keeps a task's reference to an
+ * undefined DR-N flagged as an orphan. For a legacy *separate* design file
+ * (no decomposition/task headers) the boundary is never hit, so the whole
+ * file is the region — behavior-preserving for in-flight two-artifact
+ * workflows (DR-9 / task 020).
+ */
+export function designRegion(content: string): string {
+  const m = DECOMPOSITION_BOUNDARY.exec(content);
+  return m ? content.slice(0, m.index) : content;
+}
+
+/**
  * Extract unique DR-N identifiers from a document, sorted numerically.
  */
 function extractDesignRequirements(content: string): string[] {
@@ -165,8 +192,12 @@ export function verifyProvenanceChain(input: ProvenanceInput): ProvenanceResult 
     return errorResult(`Failed to read plan file: ${message}`);
   }
 
-  // Extract design requirements
-  const designReqs = extractDesignRequirements(designContent);
+  // Extract design requirements from the design REGION only (#1581 DR-6 task
+  // 012): in a unified artifact the DR-N definitions live in the design
+  // section and DR-N *references* live in task `**Implements:**` lines — only
+  // the former count as requirements, so a task referencing an undefined DR-N
+  // stays an orphan. `extractPlanTasks` below reads the FULL plan content.
+  const designReqs = extractDesignRequirements(designRegion(designContent));
   if (designReqs.length === 0) {
     return errorResult('No DR-N identifiers found in design document');
   }

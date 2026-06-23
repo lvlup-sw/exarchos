@@ -253,18 +253,18 @@ describe('asOf CLI/MCP parity (T8, #1555, INV-2)', () => {
   let cliCtx: DispatchContext;
   let mcpCtx: DispatchContext;
 
-  // Seed a feature workflow advanced ideate → plan → delegate so a bound at
+  // Seed a feature workflow advanced plan → plan-review → delegate so a bound at
   // seq 1 yields a DIFFERENT phase than the live tip — the asOf must actually
-  // bite for the parity comparison to be meaningful.
+  // bite for the parity comparison to be meaningful. DR-4 (#1581): plan is initial.
   async function seed(ctx: DispatchContext): Promise<void> {
     await handleInit({ featureId: 'asof-parity', workflowType: 'feature' }, ctx.stateDir, ctx.eventStore);
     await ctx.eventStore.append('asof-parity', {
       type: 'workflow.transition',
-      data: { from: 'ideate', to: 'plan' },
+      data: { from: 'plan', to: 'plan-review' },
     });
     await ctx.eventStore.append('asof-parity', {
       type: 'workflow.transition',
-      data: { from: 'plan', to: 'delegate' },
+      data: { from: 'plan-review', to: 'delegate' },
     });
   }
 
@@ -308,8 +308,8 @@ describe('asOf CLI/MCP parity (T8, #1555, INV-2)', () => {
     );
 
     expect(exitCode).toBe(CLI_EXIT_CODES.SUCCESS);
-    // The bound bit: phase at seq 1 is 'ideate', NOT the live 'delegate'.
-    expect((mcpResult as { data?: unknown }).data).toBe('ideate');
+    // The bound bit: phase at seq 1 is 'plan' (initial), NOT the live 'delegate'.
+    expect((mcpResult as { data?: unknown }).data).toBe('plan');
     expect(normalize(cliResult)).toEqual(normalize(mcpResult));
   });
 

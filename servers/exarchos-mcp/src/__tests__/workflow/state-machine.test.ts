@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import {
   getHSMDefinition,
+  getInitialPhase,
   executeTransition,
   getValidTransitions,
   findTransition,
@@ -25,9 +26,8 @@ describe('HSM State Definitions', () => {
     it('FeatureHSM_AllStatesExist_CorrectTypes', () => {
       hsm = getHSMDefinition('feature');
 
-      // Atomic states
-      expect(hsm.states['ideate']).toBeDefined();
-      expect(hsm.states['ideate'].type).toBe('atomic');
+      // Atomic states. DR-4 (#1581): ideate (GATHER) removed — plan is initial.
+      expect(hsm.states['ideate']).toBeUndefined();
 
       expect(hsm.states['plan']).toBeDefined();
       expect(hsm.states['plan'].type).toBe('atomic');
@@ -66,19 +66,17 @@ describe('HSM State Definitions', () => {
       hsm = getHSMDefinition('feature');
       const transitions = hsm.transitions;
 
-      // ideate → plan
-      const ideateToPlan = transitions.find(
-        (t) => t.from === 'ideate' && t.to === 'plan'
-      );
-      expect(ideateToPlan).toBeDefined();
-      expect(ideateToPlan!.guard).toBeDefined();
-      expect(ideateToPlan!.guard!.id).toBe('design-artifact-exists');
+      // DR-4 (#1581): ideate removed — no transition originates from ideate;
+      // plan is initial and needs no inbound bootstrap transition.
+      expect(transitions.find((t) => t.from === 'ideate')).toBeUndefined();
 
-      // plan → plan-review
+      // plan → plan-review (now the first transition, guarded by planArtifactExists)
       const planToPlanReview = transitions.find(
         (t) => t.from === 'plan' && t.to === 'plan-review'
       );
       expect(planToPlanReview).toBeDefined();
+      expect(planToPlanReview!.guard).toBeDefined();
+      expect(planToPlanReview!.guard!.id).toBe('plan-artifact-exists');
       expect(planToPlanReview!.guard).toBeDefined();
       expect(planToPlanReview!.guard!.id).toBe('plan-artifact-exists');
 
@@ -129,6 +127,32 @@ describe('HSM State Definitions', () => {
       );
       expect(blockedToDelegate).toBeDefined();
       expect(blockedToDelegate!.guard!.id).toBe('human-unblocked');
+    });
+
+    // ─── DR-4 (#1581 task 007): GATHER collapsed into PLAN ──────────────────
+    it('FeatureHSM_NoIdeateState_PlanIsInitial', () => {
+      const hsm = getHSMDefinition('feature');
+      // The ideate (GATHER) state is gone, and no transition references it.
+      expect(hsm.states['ideate']).toBeUndefined();
+      expect(hsm.transitions.some((t) => t.from === 'ideate' || t.to === 'ideate')).toBe(false);
+      // plan (PLAN, read-only) is the registry-declared initial phase and needs
+      // no inbound bootstrap transition (the plan-review→plan gaps loop aside).
+      expect(getInitialPhase('feature')).toBe('plan');
+      expect(hsm.states['plan']).toBeDefined();
+      expect((hsm.states['plan'] as { kind?: string }).kind).toBe('PLAN');
+    });
+
+    it('FeatureHSM_SingleApprovalPoint_PlanReviewOnly', () => {
+      const hsm = getHSMDefinition('feature');
+      // plan-review is the SOLE human approval gate: it is the only phase whose
+      // outbound advance is gated by the plan-review-complete approval guard,
+      // and the only PLAN-kind phase that approval flows through.
+      const approvalEdges = hsm.transitions.filter(
+        (t) => t.guard?.id === 'plan-review-complete',
+      );
+      expect(approvalEdges).toHaveLength(1);
+      expect(approvalEdges[0].from).toBe('plan-review');
+      expect(approvalEdges[0].to).toBe('delegate');
     });
   });
 
@@ -474,17 +498,18 @@ describe('HSM Transition Algorithm', () => {
   describe('executeTransition', () => {
     it('ExecuteTransition_ValidTransition_ReturnsSuccess', () => {
       const hsm = getHSMDefinition('feature');
+      // DR-4 (#1581): plan is initial; first transition is plan → plan-review.
       const state: Record<string, unknown> = {
-        phase: 'ideate',
-        artifacts: { design: 'docs/design.md', plan: null, pr: null },
+        phase: 'plan',
+        artifacts: { design: null, plan: 'docs/specs/x.md', pr: null },
         _events: [],
         _history: {},
       };
 
-      const result = executeTransition(hsm, state, 'plan');
+      const result = executeTransition(hsm, state, 'plan-review');
 
       expect(result.success).toBe(true);
-      expect(result.newPhase).toBe('plan');
+      expect(result.newPhase).toBe('plan-review');
       expect(result.idempotent).toBe(false);
       expect(result.events.length).toBeGreaterThan(0);
       expect(result.events[0].type).toBe('transition');
@@ -493,12 +518,12 @@ describe('HSM Transition Algorithm', () => {
     it('ExecuteTransition_IdempotentSamePhase_ReturnsNoOp', () => {
       const hsm = getHSMDefinition('feature');
       const state: Record<string, unknown> = {
-        phase: 'ideate',
+        phase: 'plan',
         _events: [],
         _history: {},
       };
 
-      const result = executeTransition(hsm, state, 'ideate');
+      const result = executeTransition(hsm, state, 'plan');
 
       expect(result.success).toBe(true);
       expect(result.idempotent).toBe(true);
@@ -509,7 +534,7 @@ describe('HSM Transition Algorithm', () => {
     it('ExecuteTransition_InvalidTarget_ReturnsInvalidTransition', () => {
       const hsm = getHSMDefinition('feature');
       const state: Record<string, unknown> = {
-        phase: 'ideate',
+        phase: 'plan',
         _events: [],
         _history: {},
       };
@@ -521,24 +546,25 @@ describe('HSM Transition Algorithm', () => {
       expect(result.validTargets).toBeDefined();
       expect(result.validTargets!.length).toBeGreaterThan(0);
 
-      // Enriched validTargets include guard metadata
-      const planTarget = result.validTargets!.find((t) => t.phase === 'plan');
-      expect(planTarget).toBeDefined();
-      expect(planTarget!.guard).toBeDefined();
-      expect(planTarget!.guard!.id).toBe('design-artifact-exists');
-      expect(planTarget!.guard!.description).toBe('Design artifact must exist');
+      // Enriched validTargets include guard metadata — from plan the valid
+      // target is plan-review (guarded by planArtifactExists).
+      const planReviewTarget = result.validTargets!.find((t) => t.phase === 'plan-review');
+      expect(planReviewTarget).toBeDefined();
+      expect(planReviewTarget!.guard).toBeDefined();
+      expect(planReviewTarget!.guard!.id).toBe('plan-artifact-exists');
+      expect(planReviewTarget!.guard!.description).toBe('Plan artifact must exist');
     });
 
     it('ExecuteTransition_GuardFails_ReturnsGuardFailed', () => {
       const hsm = getHSMDefinition('feature');
       const state: Record<string, unknown> = {
-        phase: 'ideate',
+        phase: 'plan',
         artifacts: { design: null, plan: null, pr: null },
         _events: [],
         _history: {},
       };
 
-      const result = executeTransition(hsm, state, 'plan');
+      const result = executeTransition(hsm, state, 'plan-review');
 
       expect(result.success).toBe(false);
       expect(result.errorCode).toBe('GUARD_FAILED');
@@ -597,7 +623,6 @@ describe('HSM Transition Algorithm', () => {
       const hsm = getHSMDefinition('feature');
 
       const nonFinalPhases = [
-        'ideate',
         'plan',
         'delegate',
         'review',
@@ -713,9 +738,9 @@ describe('HSM Transition Algorithm', () => {
 
     it('returns valid target phases from a given phase', () => {
       const hsm = getHSMDefinition('feature');
-      const targets = getValidTransitions(hsm, 'ideate');
+      const targets = getValidTransitions(hsm, 'plan');
 
-      expect(phases(targets)).toContain('plan');
+      expect(phases(targets)).toContain('plan-review');
       expect(phases(targets)).toContain('cancelled');
     });
 
@@ -1659,7 +1684,7 @@ describe('Final state transitions', () => {
       _history: {},
     };
 
-    const result = executeTransition(hsm, state, 'ideate');
+    const result = executeTransition(hsm, state, 'plan');
 
     expect(result.success).toBe(false);
     expect(result.errorCode).toBe('INVALID_TRANSITION');
@@ -1675,7 +1700,7 @@ describe('Final state transitions', () => {
       _history: {},
     };
 
-    const result = executeTransition(hsm, state, 'ideate');
+    const result = executeTransition(hsm, state, 'plan');
 
     expect(result.success).toBe(false);
     expect(result.errorCode).toBe('INVALID_TRANSITION');
@@ -1716,19 +1741,19 @@ describe('Final state transitions', () => {
 describe('getValidTransitions guard metadata', () => {
   it('returns guard id and description for guarded transitions', () => {
     const hsm = getHSMDefinition('feature');
-    const targets = getValidTransitions(hsm, 'ideate');
+    const targets = getValidTransitions(hsm, 'plan');
 
-    const planTarget = targets.find((t) => t.phase === 'plan');
-    expect(planTarget).toBeDefined();
-    expect(planTarget!.guard).toEqual({
-      id: 'design-artifact-exists',
-      description: 'Design artifact must exist',
+    const planReviewTarget = targets.find((t) => t.phase === 'plan-review');
+    expect(planReviewTarget).toBeDefined();
+    expect(planReviewTarget!.guard).toEqual({
+      id: 'plan-artifact-exists',
+      description: 'Plan artifact must exist',
     });
   });
 
   it('omits guard for unguarded transitions (cancelled)', () => {
     const hsm = getHSMDefinition('feature');
-    const targets = getValidTransitions(hsm, 'ideate');
+    const targets = getValidTransitions(hsm, 'plan');
 
     const cancelTarget = targets.find((t) => t.phase === 'cancelled');
     expect(cancelTarget).toBeDefined();
@@ -1737,7 +1762,7 @@ describe('getValidTransitions guard metadata', () => {
 
   it('includes merge-verified guard for universal completed transition', () => {
     const hsm = getHSMDefinition('feature');
-    const targets = getValidTransitions(hsm, 'ideate');
+    const targets = getValidTransitions(hsm, 'plan');
 
     const completedTarget = targets.find((t) => t.phase === 'completed');
     expect(completedTarget).toBeDefined();
@@ -2089,22 +2114,22 @@ describe('Diagnostic Event Emission', () => {
     it('should return guard-failed event when guard returns false', () => {
       const hsm = getHSMDefinition('feature');
       const state: Record<string, unknown> = {
-        phase: 'ideate',
+        phase: 'plan',
         artifacts: { design: null, plan: null, pr: null },
         _events: [],
         _history: {},
       };
 
-      const result = executeTransition(hsm, state, 'plan');
+      const result = executeTransition(hsm, state, 'plan-review');
 
       expect(result.success).toBe(false);
       expect(result.errorCode).toBe('GUARD_FAILED');
       expect(result.events.length).toBe(1);
       expect(result.events[0].type).toBe('guard-failed');
-      expect(result.events[0].from).toBe('ideate');
-      expect(result.events[0].to).toBe('plan');
+      expect(result.events[0].from).toBe('plan');
+      expect(result.events[0].to).toBe('plan-review');
       expect(result.events[0].metadata).toBeDefined();
-      expect(result.events[0].metadata!.guard).toBe('design-artifact-exists');
+      expect(result.events[0].metadata!.guard).toBe('plan-artifact-exists');
     });
 
     it('should return guard-failed event when guard throws exception', () => {
@@ -2383,15 +2408,15 @@ describe('Missing _events and _history defaults', () => {
   it('handles missing _history gracefully (defaults to empty object)', () => {
     const hsm = getHSMDefinition('feature');
     const state: Record<string, unknown> = {
-      phase: 'ideate',
-      artifacts: { design: 'docs/design.md' },
+      phase: 'plan',
+      artifacts: { plan: 'docs/specs/x.md' },
       // No _history
     };
 
-    const result = executeTransition(hsm, state, 'plan');
+    const result = executeTransition(hsm, state, 'plan-review');
 
     expect(result.success).toBe(true);
-    expect(result.newPhase).toBe('plan');
+    expect(result.newPhase).toBe('plan-review');
   });
 });
 
@@ -2797,7 +2822,7 @@ describe('Debug HSM Hotfix-Validate to Synthesize', () => {
 describe('getValidTransitions universal tagging', () => {
   it('tags universal completed target with universal: true', () => {
     const hsm = getHSMDefinition('feature');
-    const targets = getValidTransitions(hsm, 'ideate');
+    const targets = getValidTransitions(hsm, 'plan');
 
     const completedTarget = targets.find((t) => t.phase === 'completed');
     expect(completedTarget).toBeDefined();
@@ -2806,7 +2831,7 @@ describe('getValidTransitions universal tagging', () => {
 
   it('tags universal cancelled target with universal: true', () => {
     const hsm = getHSMDefinition('feature');
-    const targets = getValidTransitions(hsm, 'ideate');
+    const targets = getValidTransitions(hsm, 'plan');
 
     const cancelTarget = targets.find((t) => t.phase === 'cancelled');
     expect(cancelTarget).toBeDefined();
@@ -2815,11 +2840,11 @@ describe('getValidTransitions universal tagging', () => {
 
   it('does not tag explicit transitions as universal', () => {
     const hsm = getHSMDefinition('feature');
-    const targets = getValidTransitions(hsm, 'ideate');
+    const targets = getValidTransitions(hsm, 'plan');
 
-    const planTarget = targets.find((t) => t.phase === 'plan');
-    expect(planTarget).toBeDefined();
-    expect(planTarget!.universal).toBeUndefined();
+    const planReviewTarget = targets.find((t) => t.phase === 'plan-review');
+    expect(planReviewTarget).toBeDefined();
+    expect(planReviewTarget!.universal).toBeUndefined();
   });
 
   it('does not tag explicit completed transition as universal (hotfix-validate)', () => {
@@ -2939,7 +2964,7 @@ describe('HSM Registry Extension', () => {
     const definition: WorkflowDefinition = {
       extends: 'feature',
       phases: ['extra-review'],
-      initialPhase: 'ideate',
+      initialPhase: 'plan',
       transitions: [
         { from: 'synthesize', to: 'extra-review', event: 'needs-extra-review' },
         { from: 'extra-review', to: 'completed', event: 'extra-review-done' },
@@ -2951,9 +2976,9 @@ describe('HSM Registry Extension', () => {
     const hsm = getHSMDefinition(CUSTOM_NAME);
     expect(hsm.id).toBe(CUSTOM_NAME);
 
-    // Should have inherited states from feature
-    expect(hsm.states['ideate']).toBeDefined();
+    // Should have inherited states from feature (DR-4 #1581: plan is initial)
     expect(hsm.states['plan']).toBeDefined();
+    expect(hsm.states['plan-review']).toBeDefined();
     expect(hsm.states['delegate']).toBeDefined();
 
     // Should have the new state
@@ -3016,15 +3041,15 @@ describe('HSM Registry Extension', () => {
 describe('findTransition', () => {
   it('FindTransition_ExistingTransition_ReturnsTransition', () => {
     const hsm = getHSMDefinition('feature');
-    const transition = findTransition(hsm, 'ideate', 'plan');
+    const transition = findTransition(hsm, 'plan', 'plan-review');
     expect(transition).toBeDefined();
-    expect(transition!.from).toBe('ideate');
-    expect(transition!.to).toBe('plan');
+    expect(transition!.from).toBe('plan');
+    expect(transition!.to).toBe('plan-review');
   });
 
   it('FindTransition_NoMatch_ReturnsUndefined', () => {
     const hsm = getHSMDefinition('feature');
-    const transition = findTransition(hsm, 'ideate', 'completed');
+    const transition = findTransition(hsm, 'plan', 'review');
     expect(transition).toBeUndefined();
   });
 

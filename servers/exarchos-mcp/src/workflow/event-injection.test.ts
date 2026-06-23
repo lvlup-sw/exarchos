@@ -253,7 +253,7 @@ describe('handleSet_CustomGuardExecution', () => {
         [EXT_TYPE]: {
           extends: 'feature',
           phases: [],
-          initialPhase: 'ideate',
+          initialPhase: 'plan',
           transitions: [],
         },
       },
@@ -261,23 +261,23 @@ describe('handleSet_CustomGuardExecution', () => {
 
     await handleInit({ featureId: 'ext-guard', workflowType: EXT_TYPE }, tmpDir, null);
 
-    // Set design artifact so the built-in guard passes
+    // Set plan artifact so the built-in guard passes (DR-4 #1581: plan is initial)
     await handleSet(
-      { featureId: 'ext-guard', updates: { artifacts: { design: 'docs/d.md' } } },
+      { featureId: 'ext-guard', updates: { artifacts: { plan: 'docs/specs/x.md' } } },
       tmpDir,
       null,
     );
 
     const result = await handleSet(
-      { featureId: 'ext-guard', phase: 'plan' },
+      { featureId: 'ext-guard', phase: 'plan-review' },
       tmpDir,
       null,
     );
 
-    // Should succeed — built-in design-artifact-exists guard runs inline
+    // Should succeed — built-in plan-artifact-exists guard runs inline
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
-    expect(data.phase).toBe('plan');
+    expect(data.phase).toBe('plan-review');
 
     // Cleanup
     clearRegisteredGuards();

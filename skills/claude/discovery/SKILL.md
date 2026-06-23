@@ -25,7 +25,11 @@ no verification gates (nothing to test), so the verification ladder does not app
 
 - If the deliverable includes code changes → use `/exarchos:oneshot` or `/exarchos:ideate`
 - If you need TDD enforcement → use any other workflow type
-- If the research feeds directly into implementation → use `/exarchos:ideate` (which includes a design phase)
+- If the research feeds directly into implementation → use `/exarchos:ideate` (which authors the Design & Rationale section of the unified `docs/specs/` artifact)
+
+## Discover bridge (the deep-rung escalation, #1581 DR-7)
+
+At the `deep` planning rung, `/exarchos:ideate` can escalate to this workflow as a **first-class, event-linked research pre-pass** instead of a manual "go start a new workflow" handoff. The bridge is **opt-in** (author-confirmed, never auto-run): the affordance is surfaced on `next_actions`, and the `discover_bridge` orchestrate action — invoked with `confirm: true` — stitches this discovery run to the originating spec by a deterministic `correlationId` (recorded as a `state.patched` link event on the feature stream). When you run a discovery escalated this way, cite the report path in the spec's `## Design & Rationale` → Exploration section, and `init` this workflow with the bridge's `correlationId` so provenance spans both documents.
 
 ## Phases
 

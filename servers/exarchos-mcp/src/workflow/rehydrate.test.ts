@@ -21,7 +21,7 @@ import '../projections/rehydration/index.js';
 import { rehydrationReducer } from '../projections/rehydration/reducer.js';
 import { initStateFile } from './state-store.js';
 
-import { handleRehydrate } from './rehydrate.js';
+import { handleRehydrate, classifyArtifactLayout } from './rehydrate.js';
 
 /**
  * T031 — `handleRehydrate` happy path
@@ -1077,5 +1077,122 @@ describe('handleRehydrate — projectionAsOf + projectionLag (#1359 / PR4)', () 
     if (meta) {
       expect(meta.projectionLag).toBeUndefined();
     }
+  });
+});
+
+// ─── DR-9 (#1581 task 020): in-flight backward-compat — no forced migration ──
+//
+// A workflow already holding a two-artifact (`docs/designs/` + plan) state must
+// resume and complete under the OLD path; only newly-`init`'d features adopt the
+// unified `docs/specs/` artifact. The rehydrate handler surfaces the layout on
+// `_meta.artifactLayout` so the collapsed-flow playbook/agent completes the
+// legacy workflow in place instead of migrating it mid-flight.
+describe('classifyArtifactLayout (DR-9, task 020)', () => {
+  it('ClassifyArtifactLayout_LegacyDesignPlusPlan_IsTwoArtifact', () => {
+    expect(
+      classifyArtifactLayout({
+        design: 'docs/designs/2026-06-01-feat.md',
+        plan: 'docs/plans/2026-06-01-feat.md',
+      }),
+    ).toBe('two-artifact');
+  });
+
+  it('ClassifyArtifactLayout_UnifiedSpec_IsUnified', () => {
+    expect(classifyArtifactLayout({ spec: 'docs/specs/2026-06-22-feat.md' })).toBe('unified');
+    // A spec artifact recorded under a non-`spec` key still classifies by path.
+    expect(classifyArtifactLayout({ design: 'docs/specs/2026-06-22-feat.md' })).toBe('unified');
+  });
+
+  it('ClassifyArtifactLayout_NoArtifacts_DefaultsUnified', () => {
+    // The forward default: a fresh feature with no artifacts yet uses the
+    // collapsed path — only an explicit legacy `docs/designs/` design flips it.
+    expect(classifyArtifactLayout({})).toBe('unified');
+  });
+
+  it('ClassifyArtifactLayout_SpecWinsOverLegacyDesign_IsUnified', () => {
+    // Mixed/ambiguous: a workflow that adopted the unified spec but still
+    // carries a stale legacy design path stays `'unified'` — spec presence is
+    // the stronger signal (it already migrated).
+    expect(
+      classifyArtifactLayout({
+        design: 'docs/designs/2026-06-01-feat.md',
+        spec: 'docs/specs/2026-06-22-feat.md',
+      }),
+    ).toBe('unified');
+  });
+});
+
+describe('handleRehydrate — in-flight backward-compat (DR-9, task 020)', () => {
+  it('Resume_TwoArtifactInflightWorkflow_CompletesOldPath', async () => {
+    // GIVEN: an in-flight feature authored under the pre-#1581 two-phase
+    //   convention — a `docs/designs/` design doc AND a `docs/plans/` plan,
+    //   recorded via state.patched, now resuming mid-flight in `delegate`.
+    const featureId = 'legacy-two-artifact-feature';
+    await store.append(featureId, {
+      type: 'workflow.started',
+      data: { featureId, workflowType: 'feature' },
+    });
+    await store.append(featureId, {
+      type: 'state.patched',
+      data: {
+        patch: {
+          artifacts: {
+            design: 'docs/designs/2026-05-30-legacy-feat.md',
+            plan: 'docs/plans/2026-05-30-legacy-feat.md',
+          },
+        },
+      },
+    });
+
+    // WHEN: it resumes.
+    const result = await handleRehydrate({ featureId }, { eventStore: store, stateDir });
+
+    // THEN: the handler flags the two-artifact layout so the resuming agent
+    //   completes OLD-path, and it does NOT rewrite/migrate the artifacts to
+    //   `docs/specs/` — the recorded legacy paths survive verbatim.
+    expect(result.success).toBe(true);
+    const meta = result._meta as Record<string, unknown>;
+    expect(meta.artifactLayout).toBe('two-artifact');
+
+    const doc = result.data as RehydrationDocument;
+    expect(doc.artifacts.design).toBe('docs/designs/2026-05-30-legacy-feat.md');
+    expect(doc.artifacts.plan).toBe('docs/plans/2026-05-30-legacy-feat.md');
+    // No silent migration: nothing under `docs/specs/` was synthesized.
+    expect(Object.values(doc.artifacts).some((p) => p.includes('docs/specs/'))).toBe(false);
+  });
+
+  it('Resume_NewlyInitFeature_UsesUnifiedPath', async () => {
+    // GIVEN: a freshly `init`'d feature with no artifacts yet (the post-collapse
+    //   default). It must NOT be flagged legacy — new work uses `docs/specs/`.
+    const featureId = 'fresh-unified-feature';
+    await store.append(featureId, {
+      type: 'workflow.started',
+      data: { featureId, workflowType: 'feature' },
+    });
+
+    const result = await handleRehydrate({ featureId }, { eventStore: store, stateDir });
+
+    expect(result.success).toBe(true);
+    const meta = result._meta as Record<string, unknown>;
+    expect(meta.artifactLayout).toBe('unified');
+  });
+
+  it('Resume_UnifiedSpecWorkflow_StaysUnified', async () => {
+    // GIVEN: a feature that already adopted the unified `docs/specs/` artifact.
+    const featureId = 'unified-spec-feature';
+    await store.append(featureId, {
+      type: 'workflow.started',
+      data: { featureId, workflowType: 'feature' },
+    });
+    await store.append(featureId, {
+      type: 'state.patched',
+      data: { patch: { artifacts: { spec: 'docs/specs/2026-06-22-feat.md' } } },
+    });
+
+    const result = await handleRehydrate({ featureId }, { eventStore: store, stateDir });
+
+    expect(result.success).toBe(true);
+    const meta = result._meta as Record<string, unknown>;
+    expect(meta.artifactLayout).toBe('unified');
   });
 });

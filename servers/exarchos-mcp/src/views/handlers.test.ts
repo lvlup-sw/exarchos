@@ -15,7 +15,6 @@ import {
   handleViewQualityCorrelation,
   handleViewQualityAttribution,
   handleViewProvenance,
-  handleViewIdeateReadiness,
   handleViewSynthesisReadiness,
   handleViewConvergence,
 } from './tools.js';
@@ -1176,33 +1175,6 @@ describe('View Handlers', () => {
       expect(data).toHaveProperty('requirements');
       expect(data).toHaveProperty('coverage');
       expect(data).toHaveProperty('orphanTasks');
-    });
-  });
-
-  // ─── T13: handleViewIdeateReadiness ──────────────────────────────────────────
-
-  describe('handleViewIdeateReadiness', () => {
-    it('handleViewIdeateReadiness_ReturnsReadinessState', async () => {
-      // Arrange: seed event store with ideate-readiness-relevant events
-      const store = new EventStore(tmpDir);
-      await store.append('test-id', {
-        streamId: 'test-id',
-        sequence: 1,
-        timestamp: new Date().toISOString(),
-        type: 'workflow.started',
-        data: { featureId: 'test-id', workflowType: 'feature' },
-        schemaVersion: '1.0',
-      });
-
-      // Act
-      const result = await handleViewIdeateReadiness({ workflowId: 'test-id' }, tmpDir, store);
-
-      // Assert
-      expect(result.success).toBe(true);
-      const data = result.data as Record<string, unknown>;
-      expect(data).toHaveProperty('ready');
-      expect(data).toHaveProperty('designArtifactExists');
-      expect(data).toHaveProperty('gateResult');
     });
   });
 

@@ -44,7 +44,7 @@ describe('WorkflowStateProjection init', () => {
       expect(state.version).toBe('1.1');
       expect(state.featureId).toBe('');
       expect(state.workflowType).toBe('feature');
-      expect(state.phase).toBe('ideate');
+      expect(state.phase).toBe('plan');
       expect(state.createdAt).toBe('');
       expect(state.updatedAt).toBe('');
       expect(state.artifacts).toEqual({ design: null, plan: null, pr: null });
@@ -92,7 +92,8 @@ describe('WorkflowStateProjection workflow lifecycle', () => {
 
       expect(next.featureId).toBe('my-feature');
       expect(next.workflowType).toBe('feature');
-      expect(next.phase).toBe('ideate');
+      // DR-4 (#1581): workflow.started folds to the initial phase, now 'plan'.
+      expect(next.phase).toBe('plan');
       expect(next.createdAt).toBe(ts);
       expect(next.updatedAt).toBe(ts);
     });
@@ -795,7 +796,7 @@ describe('WorkflowStateProjection round-trip', () => {
         ),
       );
       expect(state.featureId).toBe('round-trip');
-      expect(state.phase).toBe('ideate');
+      expect(state.phase).toBe('plan');
 
       // 2. state.patched (add artifacts)
       state = workflowStateProjection.apply(
@@ -1026,6 +1027,50 @@ describe('WorkflowStateProjection phase.entered / phase.exited', () => {
     expect(afterEntered.phaseObligation?.resolver).toBeNull();
     expect(afterEntered.phaseObligation?.resolvedGates).toEqual([]);
     expect(afterEntered.phaseObligation?.posture).toBe('read-only');
+  });
+
+  // ─── DR-3 (#1581 task 005): per-feature designDepth freeze round-trips ──────
+  it('DesignDepth_ProjectionRoundTrip_RecoversFrozenValue', () => {
+    const planEntered = {
+      phase: 'plan',
+      kind: 'PLAN',
+      resolver: 'plan-structure',
+      resolvedGates: [{ family: 'plan', gate: 'check_task_decomposition' }],
+      policySource: 'builtin',
+      mode: 'enforce',
+      posture: 'read-only',
+      designDepth: 'deep',
+    } as const;
+    const events: WorkflowEvent[] = [
+      makeEvent('workflow.started', { featureId: 'f1', workflowType: 'feature' }),
+      makeEvent('phase.entered', { ...planEntered }),
+    ];
+
+    // The frozen depth is folded onto the view and survives a clean replay.
+    expect(fold(events).designDepth).toBe('deep');
+    expect(fold(events).designDepth).toBe('deep');
+
+    // Sticky: a later non-PLAN phase.entered (no designDepth) must NOT clear it.
+    const afterNonPlan = workflowStateProjection.apply(
+      fold(events),
+      makeEvent('phase.entered', {
+        phase: 'implement',
+        kind: 'IMPLEMENT',
+        resolver: 'verification-ladder',
+        resolvedGates: [],
+        policySource: 'builtin',
+        mode: 'enforce',
+        posture: 'task-isolated',
+      }),
+    );
+    expect(afterNonPlan.designDepth).toBe('deep');
+
+    // A workflow that never enters PLAN with a depth leaves it undefined (the
+    // resolver then defaults to 'standard') — no phantom freeze.
+    const noPlan = fold([
+      makeEvent('workflow.started', { featureId: 'f2', workflowType: 'feature' }),
+    ]);
+    expect(noPlan.designDepth).toBeUndefined();
   });
 });
 

@@ -27,7 +27,6 @@ export const BUILTIN_VIEW_NAMES: ReadonlySet<string> = new Set([
   'synthesis_readiness',
   'shepherd_status',
   'provenance',
-  'ideate_readiness',
   'convergence',
   'invariants_effective',
   // Internal projection names registered in tools.ts createMaterializer()
@@ -42,7 +41,6 @@ export const BUILTIN_VIEW_NAMES: ReadonlySet<string> = new Set([
   'eval-results',
   'workflow-state',
   'delegation-readiness',
-  'ideate-readiness',
   'synthesis-readiness',
   'shepherd-status',
   'provenance',

@@ -755,6 +755,16 @@ const PLAN_PHASES: ReadonlySet<string> = new Set([
   'plan-review',
   'overhaul-plan',
 ]);
+// `prepare_review` serves BOTH the back-of-pipeline code-review catalog (REVIEW
+// phases) and the DR-10 front-of-pipeline plan-review provisioning (the
+// `plan-review` PLAN-kind phase). Deliberately NOT equal to the PLAN_PHASES set
+// — an action whose phase set exactly equals the plan-structure binding counts
+// as a canonical plan gate (the #1581 task-013 binding trap), which prepare_review
+// is not (it is a non-blocking provisioning surface, scope-discriminated).
+const PREPARE_REVIEW_PHASES: ReadonlySet<string> = new Set([
+  ...REVIEW_PHASES,
+  'plan-review',
+]);
 
 // ─── Shared Schema Fragments ────────────────────────────────────────────────
 
@@ -1105,7 +1115,7 @@ const workflowActions: readonly ToolAction[] = [
     roles: ROLE_LEAD,
     cli: {
       flags: { featureId: { alias: 'f' } },
-      examples: ['exarchos wf update -f my-feature --updates \'{"artifacts":{"design":"docs/designs/foo.md"}}\''],
+      examples: ['exarchos wf update -f my-feature --updates \'{"artifacts":{"spec":"docs/specs/foo.md"}}\''],
     },
     autoEmits: [
       { event: 'state.patched', condition: 'always' },
@@ -1621,13 +1631,23 @@ const orchestrateActions: readonly ToolAction[] = [
   },
   {
     name: 'check_design_completeness',
-    description: 'Verify design document completeness at ideate→plan boundary. Advisory gate — failures inform but do not block.',
+    description: 'DEPRECATED (#1581): delegates to check_plan_coverage on the unified docs/specs/ artifact; its acceptance-criteria check folded into plan-coverage. Use check_plan_coverage. Removed in a future minor version.',
+    deprecated: true,
     schema: z.object({
       featureId: z.string().min(1),
       stateFile: z.string().optional(),
       designPath: z.string().optional(),
+      // Unified-artifact delegation: when design and plan are one docs/specs/
+      // file, planPath == designPath. Optional — the handler also resolves the
+      // path from workflow-state artifacts.
+      planPath: z.string().optional(),
     }),
-    phases: new Set<string>(['ideate', 'plan']),
+    // Deprecated alias: callable in the (post-collapse) plan phase. Deliberately
+    // NOT the full PLAN_PHASES set — that set marks an action as a canonical
+    // plan-structure gate (see the `setEqualsNames(a.phases, PLAN_PHASE_NAMES)`
+    // binding pin in phase-kind.test.ts); this alias is being excised from the
+    // chains (task 014), so it must not register as a bound plan gate.
+    phases: new Set<string>(['plan']),
     roles: ROLE_LEAD,
     gate: { blocking: false, dimension: 'D1' },
     autoEmits: [
@@ -2335,16 +2355,45 @@ const orchestrateActions: readonly ToolAction[] = [
   },
   {
     name: 'prepare_review',
-    description: 'Prepare quality review by serving the check catalog as structured data. Returns deterministic check patterns, structural analysis instructions, and plugin status for any MCP client to execute.',
+    description: 'Prepare a review pass as structured data. Default scope serves the back-of-pipeline code-review check catalog. scope:"plan" serves the DR-10 front-of-pipeline plan-review provisioning — a dispatched, fresh-context, adversarial (refute-the-plan) read-only pass over the unified docs/specs/ artifact, provisioned with only {artifact, spec} (never the authoring transcript) and depth-scaled by the frozen designDepth.',
     schema: z.object({
       featureId: z.string().min(1),
       scope: z.string().optional(),
       dimensions: z.array(z.string()).optional(),
       repoRoot: z.string().optional(),
+      // DR-10 (plan-review scope) — the unified artifact under review, the
+      // spec it must satisfy, and the frozen planning depth (scales the
+      // adversarial rung; the second consumer of designDepth).
+      artifact: z.string().optional(),
+      spec: z.string().optional(),
+      designDepth: z.enum(['thin', 'standard', 'deep']).optional(),
     }),
-    phases: REVIEW_PHASES,
+    phases: PREPARE_REVIEW_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: false },
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
+  },
+  {
+    name: 'discover_bridge',
+    description: 'Opt-in deep-rung escalation (DR-7): bridge the unified spec to a /exarchos:discover research pre-pass, stitched by a deterministic correlationId. Requires author confirmation (confirm:true) — never auto-spawns. On confirmation it records the link as a state.patched event on the feature stream (report path + discover stream id + correlationId) so provenance spans both documents.',
+    schema: z.object({
+      featureId: featureIdSchema,
+      artifact: z.string().min(1),
+      confirm: z.boolean().optional(),
+      reportPath: z.string().optional(),
+      discoverFeatureId: z.string().optional(),
+      correlationId: z.string().optional(),
+    }),
+    // The deep-rung authoring affordance fires during PLAN authoring. A single
+    // 'plan' phase — deliberately NOT the full PLAN_PHASES set (the task-013
+    // canonical-plan-gate binding trap).
+    phases: new Set<string>(['plan']),
+    roles: ROLE_LEAD,
+    gate: { blocking: false },
+    autoEmits: [
+      { event: 'state.patched', condition: 'conditional', description: 'On confirm:true — records the discover-bridge link, stitched by correlationId' },
+    ],
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: LOCAL_MUTATION,
   },
@@ -2941,21 +2990,6 @@ const viewActions: readonly ToolAction[] = [
     annotations: READ_ONLY_LOCAL,
   },
   {
-    name: 'ideate_readiness',
-    description: 'Check ideate-phase readiness: design artifact presence and the gates that gate transition to plan',
-    schema: z.object({
-      workflowId: z.string().optional(),
-      // Underlying handler (`handleViewIdeateReadiness`) queries the event
-      // store via `queryDeltaEvents`; correlation-tuple filter surface
-      // mirrors the Wave 5 (#1437) contract.
-      ...CORRELATION_TUPLE_FILTER_SHAPE,
-    }),
-    phases: ALL_PHASES,
-    roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
-    annotations: READ_ONLY_LOCAL,
-  },
-  {
     name: 'synthesis_readiness',
     description: 'Check synthesis readiness: task completion, reviews, tests, and typecheck status',
     schema: z.object({
@@ -3075,7 +3109,7 @@ export const TOOL_REGISTRY: readonly CompositeTool[] = [
     description: 'CQRS materialized views — pipeline, tasks, workflow status, stack, and telemetry',
     actions: viewActions,
     cli: { alias: 'vw' },
-    slimDescription: 'CQRS materialized views for pipeline, tasks, and telemetry. Use describe(actions) for schemas.\n\nActions: pipeline, tasks, workflow_status, stack_status, stack_place, telemetry, team_performance, delegation_timeline, code_quality, eval_results, quality_correlation, quality_attribution, quality_hints, delegation_readiness, synthesis_readiness, shepherd_status, convergence, session_provenance, provenance, ideate_readiness, invariants_effective',
+    slimDescription: 'CQRS materialized views for pipeline, tasks, and telemetry. Use describe(actions) for schemas.\n\nActions: pipeline, tasks, workflow_status, stack_status, stack_place, telemetry, team_performance, delegation_timeline, code_quality, eval_results, quality_correlation, quality_attribution, quality_hints, delegation_readiness, synthesis_readiness, shepherd_status, convergence, session_provenance, provenance, invariants_effective',
   },
   {
     name: 'exarchos_sync',

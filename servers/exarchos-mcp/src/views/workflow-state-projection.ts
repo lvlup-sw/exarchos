@@ -4,6 +4,7 @@ import { isBuiltInEventType } from '../event-store/schemas.js';
 import { getInitialPhase, isBuiltInWorkflowType } from '../workflow/state-machine.js';
 import { isPlainObject, applyDotPath, StateStoreError } from '../workflow/state-store.js';
 import { ErrorCode } from '../workflow/schemas.js';
+import type { DesignDepth } from '../workflow/plan-depth-policy.js';
 
 // ─── View Name Constant ────────────────────────────────────────────────────
 
@@ -53,6 +54,17 @@ export interface WorkflowStateView {
    * `phase.entered` is folded.
    */
   phaseObligation: PhaseObligationEntry | null;
+  /**
+   * The feature's frozen planning depth (DR-3, epic #1581) — the per-feature
+   * analog of per-task `riskTier`. Resolve-then-frozen by the PLAN
+   * `phase.entered` event and folded here; the plan-structure gate resolver
+   * reads it on every subsequent resolution. Sticky: a non-PLAN `phase.entered`
+   * never clears it, and re-entering PLAN re-freezes the same value.
+   * `undefined` until the first PLAN `phase.entered` is folded (pre-#1581 logs
+   * and non-feature workflows never carry it — the resolver then defaults to
+   * `'standard'`).
+   */
+  designDepth?: DesignDepth;
   /**
    * Terminal merge-orchestrator state (#1504/#1554). Folded from the
    * `merge.preflight` / `merge.executed` / `merge.rollback` events, mirroring
@@ -139,7 +151,7 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
     version: '1.1',
     featureId: '',
     workflowType: 'feature',
-    phase: 'ideate',
+    phase: 'plan',
     createdAt: '',
     updatedAt: '',
     artifacts: { design: null, plan: null, pr: null },
@@ -269,12 +281,17 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
           policySource?: string;
           mode?: string;
           posture?: string;
+          designDepth?: DesignDepth;
         } | undefined;
         if (!data?.phase || !data.kind) return view;
 
         return {
           ...view,
           updatedAt: event.timestamp,
+          // Freeze the per-feature `designDepth` carried by the PLAN
+          // `phase.entered` (DR-3). Sticky: a non-PLAN `phase.entered` omits the
+          // field and must NOT clear the frozen value — spread only when present.
+          ...(data.designDepth ? { designDepth: data.designDepth } : {}),
           phaseObligation: {
             phase: data.phase,
             kind: data.kind,

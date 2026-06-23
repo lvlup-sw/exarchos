@@ -270,6 +270,61 @@ describe('buildRegistrationSchema', () => {
     expect(() => buildRegistrationSchema(orchestrate.actions)).not.toThrow();
   });
 
+  // ─── Joint-schema collision guard (DR-1, #1581 task 004, rule 1) ───────────
+  // `riskTier` (#1515) and `designDepth` (#1581) are siblings on the SHARED
+  // ResolveGateSetCtx, surfaced as action input fields alongside the #1592
+  // obligation fields. The JOINT-REVIEW constraint requires they compose into
+  // ONE coordinated registration schema with NO field shadowing — adding
+  // `designDepth` next to `riskTier` (and any concurrent obligation field) must
+  // not make `buildRegistrationSchema` throw at startup. These canonical base
+  // types mirror the registry declarations (`riskTier: z.enum(['low','medium',
+  // 'high']).optional()`, `designDepth: z.enum(['thin','standard','deep'])`).
+  it('RegistrationSchema_RiskTierPlusDesignDepth_NoFieldCollision', () => {
+    const riskTier = z.enum(['low', 'medium', 'high']).optional();
+    const designDepth = z.enum(['thin', 'standard', 'deep']).optional();
+    const boundaryTouching = z.boolean().optional(); // representative #1592 obligation field
+
+    const combined: readonly ToolAction[] = [
+      {
+        name: 'prepare_delegation',
+        description: 'Carries riskTier + designDepth',
+        schema: z.object({ riskTier, designDepth, boundaryTouching }),
+        phases: new Set(['plan']),
+        roles: new Set(['any']),
+      },
+      {
+        name: 'transition',
+        description: 'Re-declares the same fields with identical base types',
+        schema: z.object({ riskTier, designDepth, boundaryTouching }),
+        phases: new Set(['plan']),
+        roles: new Set(['any']),
+      },
+    ];
+
+    expect(() => buildRegistrationSchema(combined)).not.toThrow();
+
+    // Guard liveness: a divergent `designDepth` value set across actions MUST
+    // still be caught — so a future #1515/#1592 ctx mutation that shadows
+    // `designDepth` with a different enum fails loud at startup, not silently.
+    const shadowed: readonly ToolAction[] = [
+      {
+        name: 'first',
+        description: 'Declares the canonical designDepth',
+        schema: z.object({ designDepth }),
+        phases: new Set(['plan']),
+        roles: new Set(['any']),
+      },
+      {
+        name: 'second',
+        description: 'Shadows designDepth with a divergent enum',
+        schema: z.object({ designDepth: z.enum(['shallow', 'full']).optional() }),
+        phases: new Set(['plan']),
+        roles: new Set(['any']),
+      },
+    ];
+    expect(() => buildRegistrationSchema(shadowed)).toThrow(/collides/);
+  });
+
   it('should accept doctor format values against the real orchestrate registration schema', () => {
     const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate')!;
     const schema = buildRegistrationSchema(orchestrate.actions);
@@ -645,7 +700,8 @@ describe('TOOL_REGISTRY', () => {
       // slice 3 R5 — the diff-scoped mutation backstop review-dimension action).
       // #1587 retired `check_tdd_compliance` (the test-FIRST ordering gate): 72 → 71.
       // The keeper is `check_test_adequacy` (outcome-based adequacy, test-after).
-      expect(composite!.actions).toHaveLength(71);
+      // #1581 task 018 added `discover_bridge` (the deep-rung discover escalation): 71 → 72.
+      expect(composite!.actions).toHaveLength(72);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -1049,12 +1105,12 @@ describe('TOOL_REGISTRY', () => {
       expect(result.success).toBe(true);
     });
 
-    // T1 (#1446 residue) — register the three view actions that are
+    // T1 (#1446 residue) — register the view actions that are
     // dispatched through `views/composite.ts` today but were never added to
     // `TOOL_REGISTRY.viewActions`. Without the registry entry, per-action
     // Zod validation at `core/dispatch.ts:801` is silently skipped and
     // `exarchos_view describe` under-lists the dispatched surface.
-    it('TOOL_REGISTRY_viewActions_IncludesSessionProvenanceProvenanceAndIdeateReadiness', () => {
+    it('TOOL_REGISTRY_viewActions_IncludesSessionProvenanceAndProvenance', () => {
       const viewComposite = findComposite('exarchos_view');
       expect(viewComposite).toBeDefined();
 
@@ -1106,30 +1162,6 @@ describe('TOOL_REGISTRY', () => {
       expect(provenanceShape).toHaveProperty('causationId');
       expect(
         provenance!.schema.safeParse({ workflowId: 'wf-1' }).success,
-      ).toBe(true);
-
-      // ── ideate_readiness ──────────────────────────────────────────────
-      // Handler: `handleViewIdeateReadiness(args, stateDir, eventStore)` —
-      // queries the event store; same DR-5 correlation-tuple contract.
-      const ideateReadiness = viewComposite!.actions.find(
-        (a) => a.name === 'ideate_readiness',
-      );
-      expect(
-        ideateReadiness,
-        'ideate_readiness must be registered',
-      ).toBeDefined();
-      expect(
-        ideateReadiness!.schema instanceof z.ZodObject,
-        'ideate_readiness.schema must be a ZodObject',
-      ).toBe(true);
-      const ideateReadinessShape = (
-        ideateReadiness!.schema as z.ZodObject
-      ).shape;
-      expect(ideateReadinessShape).toHaveProperty('operationId');
-      expect(ideateReadinessShape).toHaveProperty('correlationId');
-      expect(ideateReadinessShape).toHaveProperty('causationId');
-      expect(
-        ideateReadiness!.schema.safeParse({ workflowId: 'wf-1' }).success,
       ).toBe(true);
     });
   });

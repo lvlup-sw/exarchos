@@ -1,6 +1,7 @@
 import { NextAction } from './next-action.js';
 import type { HSMDefinition } from './workflow/state-machine.js';
 import { EXCLUDED_MERGE_PHASES } from './workflow/hsm-definitions.js';
+import type { DesignDepth } from './workflow/plan-depth-policy.js';
 
 // Wave 0 / Task D.8 — safety-semantics consumer contract.
 //
@@ -34,6 +35,14 @@ export interface NextActionsState {
   workflowType?: string;
   /** Stream identifier — used as the `streamId` segment of merge idempotency keys. */
   featureId?: string;
+  /**
+   * The feature's frozen planning depth (DR-7, #1581 task 018). When `'deep'`
+   * and the current phase is a PLAN-kind authoring phase, the deep-rung
+   * divergent-loop and discover-bridge affordances are surfaced on
+   * `next_actions` (INV-12) — opt-in escalations the author may invoke; they
+   * are never auto-run. Absent / `'thin'` / `'standard'` ⇒ not surfaced.
+   */
+  designDepth?: DesignDepth;
   mergeOrchestrator?: {
     /**
      * Sub-state of the merge orchestrator. `pending` means the merge has
@@ -136,6 +145,39 @@ export function computeNextActions(
       if (!parsed.success) {
         throw new Error(
           `computeNextActions produced invalid merge_orchestrate NextAction: ${parsed.error.message}`,
+        );
+      }
+      actions.push(parsed.data);
+    }
+  }
+
+  // DR-7 (#1581 task 018): at the `deep` planning rung, surface the opt-in
+  // divergent-loop + discover-bridge affordances during PLAN authoring. Gated
+  // on the phase's KIND (PLAN), not its name (INV-6), and excludes the *-review
+  // gate phases (the bridge is an authoring escalation, not a review action).
+  // These are affordances the author MAY invoke — INV-12 publishes them via
+  // next_actions; they never auto-run (the discover_bridge handler is
+  // confirm-gated). Other workflow types never freeze `designDepth`, so the
+  // block is inert outside the feature PLAN-authoring path.
+  const currentKind = (currentState as { kind?: string }).kind;
+  if (state.designDepth === 'deep' && currentKind === 'PLAN' && !phase.endsWith('-review')) {
+    const deepAffordances: ReadonlyArray<{ verb: string; reason: string }> = [
+      {
+        verb: 'divergent_loop',
+        reason: 'Deep rung: explore 2-3 distinct approaches with trade-offs before converging',
+      },
+      {
+        verb: 'discover_bridge',
+        reason:
+          'Opt-in: escalate to a /exarchos:discover research pre-pass, stitched to the spec by correlationId (author-confirmed, never auto-run)',
+      },
+    ];
+    for (const a of deepAffordances) {
+      const candidate: NextAction = { verb: a.verb, reason: a.reason, validTargets: [a.verb] };
+      const parsed = NextAction.safeParse(candidate);
+      if (!parsed.success) {
+        throw new Error(
+          `computeNextActions produced invalid deep-rung NextAction '${a.verb}': ${parsed.error.message}`,
         );
       }
       actions.push(parsed.data);

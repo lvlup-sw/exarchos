@@ -71,6 +71,7 @@ import { handleNeedsSchemaSync } from './needs-schema-sync.js';
 import { handleVerifyDocLinks } from './verify-doc-links.js';
 import { handleVerifyReviewTriage } from './verify-review-triage.js';
 import { handlePrepareReview } from './prepare-review.js';
+import { handleDiscoverBridge } from './discover-bridge.js';
 import { handleCheckInvariantConformance } from './check-invariant-conformance.js';
 import { handlePruneStaleWorkflows } from './prune-stale-workflows.js';
 import { handleRequestSynthesize } from './request-synthesize.js';
@@ -414,6 +415,7 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   verify_doc_links: adaptArgs(handleVerifyDocLinks),
   verify_review_triage: adaptArgsWithStateDirAndEventStore(handleVerifyReviewTriage),
   prepare_review: adapt(handlePrepareReview),
+  discover_bridge: adaptWithOptionalEventStore(handleDiscoverBridge),
   check_invariant_conformance: adaptWithEventStore(handleCheckInvariantConformance),
   // Oneshot + pruning (T4): handlePruneStaleWorkflows already matches the
   // ActionHandler `(args, stateDir, ctx?)` shape, so it is registered directly

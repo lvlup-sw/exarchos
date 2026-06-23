@@ -1,9 +1,9 @@
 ---
 name: implementation-planning
-description: "Transform design documents into implementation plans with parallelizable tasks. Triggers: 'plan implementation', 'create tasks from design', or /plan. Applies the verification ladder: verification depth matches each task's blast radius — static analysis for low-risk tasks, scoped tests plus a kill-probe for medium, the integration suite on top for high-risk surfaces (judged test-after, not test-first ordering). Requires an existing design document — use /ideate first if none exists. Do NOT use for brainstorming, debugging, or code review."
+description: "Decompose the unified docs/specs/ artifact into parallelizable tasks — the ## Decomposition section of the same document whose ## Design & Rationale section holds the DR-N source. Triggers: 'plan implementation', 'create tasks from spec', or /plan. Applies the verification ladder: verification depth matches each task's blast radius — static analysis for low-risk tasks, scoped tests plus a kill-probe for medium, the integration suite on top for high-risk surfaces (judged test-after, not test-first ordering). Auto-chained from /ideate, or run directly to author the whole unified spec at thin/standard depth. Do NOT use for brainstorming, debugging, or code review."
 metadata:
   author: exarchos
-  version: 1.0.0
+  version: 2.0.0
   mcp-server: exarchos
   category: workflow
   phase-affinity: plan
@@ -13,7 +13,7 @@ metadata:
 
 ## Overview
 
-Transform design documents into TDD-based implementation plans with granular, parallelizable tasks. Ensures complete spec coverage through explicit traceability.
+Author the `## Decomposition` section of the **one unified `docs/specs/` artifact** — granular, parallelizable tasks tracing to the `DR-N` requirements in the **same** document's `## Design & Rationale` section. There is no second file: traceability resolves within one doc (#1581). Ensures complete coverage through explicit, internal traceability. The artifact shape is owned by `references/spec-template.md` — author against it.
 
 For a complete worked example, see `references/worked-example.md`.
 
@@ -21,10 +21,11 @@ For a complete worked example, see `references/worked-example.md`.
 
 Activate this skill when:
 - User runs `{{COMMAND_PREFIX}}plan` command
-- User wants to break down a design into tasks
-- A design document exists and needs implementation steps
+- User wants to break a spec into tasks
+- A unified `docs/specs/` artifact's Design & Rationale section needs decomposition
 - User says "plan the implementation" or similar
-- Auto-chained from `{{COMMAND_PREFIX}}ideate` after design completion
+- Auto-chained from `{{COMMAND_PREFIX}}ideate` after the Design & Rationale section is written
+- Run directly (no prior `{{COMMAND_PREFIX}}ideate`): at thin/standard depth, author the whole unified spec — light/standard Design & Rationale section **plus** Decomposition — in one pass
 - Auto-chained from plan-review with `--revise` flag (gaps found)
 
 ## Revision Mode (--revise flag)
@@ -76,34 +77,34 @@ exarchos_orchestrate({
 
 ## Planning Process
 
-### Step 1: Analyze Design Document
+### Step 1: Analyze the Design & Rationale section
 
-Read the design document thoroughly. For each major section, extract:
+Read the unified spec's `## Design & Rationale` section thoroughly (if `{{COMMAND_PREFIX}}ideate` ran, it is already written; otherwise author it at thin/standard depth now, per `references/spec-template.md`). From it, extract:
 - **Problem Statement** — Context (no tasks, but informs scope)
 - **Chosen Approach** — Architectural decisions to implement
+- **Requirements (DR-N)** — the provenance anchors every task must trace to
 - **Technical Design** — Core implementation requirements
 - **Integration Points** — Integration and glue code tasks
-- **Testing Strategy** — Test coverage requirements
 - **Open Questions** — Decisions to resolve or explicitly defer
 
 ### Step 1.5: Spec Tracing (Required)
 
-Create a traceability matrix mapping design sections to planned tasks.
+Create a traceability matrix mapping `DR-N` requirements to planned tasks **within the unified document**.
 Consult `references/spec-tracing-guide.md` for the methodology and template.
 
-**Pre-populate the matrix** using the traceability generator script:
+**Pre-populate the matrix** using the traceability generator — pass the unified `docs/specs/` artifact as **both** `designFile` and `planFile` (DR-N is parsed from its `## Design & Rationale` region, tasks from its `## Decomposition` region — one file, #1581 task 012):
 
 ```typescript
 exarchos_orchestrate({
   action: "generate_traceability",
-  designFile: "docs/designs/<feature>.md",
-  planFile: "docs/plans/<date>-<feature>.md",
-  output: "docs/plans/<date>-<feature>-traceability.md"
+  designFile: "docs/specs/<date>-<feature>.md",
+  planFile: "docs/specs/<date>-<feature>.md",
+  output: "docs/specs/<date>-<feature>-traceability.md"
 })
 ```
 
 - **`passed: true`** — Matrix generated; review and fill in "Key Requirements" column
-- **`passed: false`** — Parse error; design document may lack expected `##`/`###` headers
+- **`passed: false`** — Parse error; the spec may lack expected `##`/`###` headers
 
 ### Step 2: Decompose into Tasks
 
@@ -126,29 +127,30 @@ Assign a `testingStrategy` to each task using `references/testing-strategy-guide
 
 Analyze dependencies to find sequential chains and parallel-safe groups that can run simultaneously in worktrees.
 
-### Step 4: Generate Plan Document
+### Step 4: Author the Decomposition section
 
-Save to: `docs/plans/YYYY-MM-DD-<feature>.md`
-Use the template from `references/plan-document-template.md`.
+Write the `## Decomposition` section into the unified spec at `docs/specs/YYYY-MM-DD-<feature>.md`, using `references/spec-template.md`. Its `## Decomposition` carries the task breakdown, with traceability resolved **within this single document** against the `## Design & Rationale` DR-N source above it.
+
+> The legacy two-file split (`references/plan-document-template.md` → `docs/plans/`) is retained only for in-flight workflows already on the old path (#1581 DR-9); new features author the one `docs/specs/` artifact.
 
 ### Step 5: Plan Verification
 
-Run deterministic verification scripts instead of manual checklist review.
+Run deterministic verification scripts instead of manual checklist review. Each takes the **unified `docs/specs/` artifact** as both `designPath` and `planPath` — the handlers parse DR-N from its design region and tasks from its decomposition region (#1581 task 012).
 
-**5a. Design-to-plan coverage** — verify every Technical Design subsection maps to a task:
+**5a. Coverage** — verify every Design & Rationale requirement maps to a task (the folded design-completeness acceptance-criteria check rides here now — DR-6, task 011):
 
 ```typescript
 exarchos_orchestrate({
   action: "check_plan_coverage",
   featureId: "<id>",
-  designPath: "docs/designs/<feature>.md",
-  planPath: "docs/plans/<date>-<feature>.md"
+  designPath: "docs/specs/<date>-<feature>.md",
+  planPath: "docs/specs/<date>-<feature>.md"
 })
 ```
 
-- **passed: true** — All design sections covered; proceed to 5a-ii
-- **passed: false** — Gaps found; add tasks for uncovered sections or defer with rationale
-- **error** — Usage error or empty design; check arguments
+- **passed: true** — All requirements covered; proceed to 5a-ii
+- **passed: false** — Gaps found; add tasks for uncovered requirements or defer with rationale
+- **error** — Usage error or empty spec; check arguments
 
 **5a-ii. Provenance chain verification** — verify every DR-N requirement maps to a task via `Implements:` field:
 
@@ -156,8 +158,8 @@ exarchos_orchestrate({
 exarchos_orchestrate({
   action: "check_provenance_chain",
   featureId: "<id>",
-  designPath: "docs/designs/<feature>.md",
-  planPath: "docs/plans/<date>-<feature>.md"
+  designPath: "docs/specs/<date>-<feature>.md",
+  planPath: "docs/specs/<date>-<feature>.md"
 })
 ```
 
@@ -171,7 +173,7 @@ exarchos_orchestrate({
 exarchos_orchestrate({
   action: "check_task_decomposition",
   featureId: "<id>",
-  planPath: "docs/plans/<date>-<feature>.md"
+  planPath: "docs/specs/<date>-<feature>.md"
 })
 ```
 
@@ -186,7 +188,7 @@ exarchos_orchestrate({
 ```typescript
 exarchos_orchestrate({
   action: "spec_coverage_check",
-  planFile: "docs/plans/<date>-<feature>.md",
+  planFile: "docs/specs/<date>-<feature>.md",
   repoRoot: ".",
   threshold: 80
 })
@@ -222,19 +224,21 @@ The ladder already prices in genuinely low-risk work — so these excuses apply 
 
 ## State Management
 
-On plan save, transition phase based on `workflowType`: feature → `plan-review`, refactor → `overhaul-plan-review`.
-```
-action: "update", featureId: "<id>", phase: "<plan-review-phase>", updates: {
-  "artifacts": { "plan": "<plan-file-path>" },
+On spec save, record the artifact and transition phase based on `workflowType`: feature → `plan-review`, refactor → `overhaul-plan-review`. Set `artifacts.plan` to the **unified `docs/specs/` path** — this is the key the `planArtifactExists` guard reads, and it points at the one unified doc (the same path `{{COMMAND_PREFIX}}ideate` recorded as `artifacts.spec`). Artifacts and phase are two separate calls — `update` is non-phase mutation only; phase changes go through the HSM-guarded `transition` action:
+
+```text
+action: "update", featureId: "<id>", updates: {
+  "artifacts": { "plan": "docs/specs/<date>-<feature>.md" },
   "tasks": [{ "id": "001", "title": "...", "status": "pending", "branch": "...", "blockedBy": [] }, ...]
 }
+action: "transition", featureId: "<id>", target: "<plan-review-phase>"
 ```
 
 ### Phase Transitions and Guards
 
 For the full transition table, consult `@skills/workflow-state/references/phase-transitions.md`.
 
-**Quick reference:** The `plan` → `plan-review` transition requires guard `plan-artifact-exists` — set `artifacts.plan` in the same `set` call as `phase`.
+**Quick reference:** The `plan` → `plan-review` transition requires guard `plan-artifact-exists` — set `artifacts.plan` to the unified `docs/specs/` path before the `transition` call.
 
 ### Schema Discovery
 
@@ -269,17 +273,17 @@ exarchos_orchestrate({
 })
 ```
 
-- [ ] Plan saved to `docs/plans/`
-- [ ] State file updated with plan path and tasks
+- [ ] Unified spec saved to `docs/specs/` (Design & Rationale + Decomposition in one doc)
+- [ ] State file updated with `artifacts.plan` = unified spec path and tasks
 
 ## Transition
 
-After planning completes, **auto-continue to plan-review** (delta analysis). Set `.phase` to the appropriate review phase (feature: `plan-review`, refactor: `overhaul-plan-review`). Plan-review compares design sections against planned tasks:
-- Gaps found: set `.planReview.gaps`, auto-loop back to `{{COMMAND_PREFIX}}plan --revise`
-- No gaps: present to user for approval (human checkpoint)
+After decomposition completes, **auto-continue to plan-review**. Transition to the appropriate review phase (feature: `plan-review`, refactor: `overhaul-plan-review`). Plan-review is no longer an inline plan-vs-design delta (one artifact now) — it is a **dispatched, fresh-context, adversarial** read-only pass over the unified artifact (DR-10): a clean reviewer provisioned with only {artifact + spec} (never this authoring transcript), prompted to refute the plan, its adversarial depth scaled by the frozen `designDepth`. Provision it via `exarchos_orchestrate({ action: "prepare_review", scope: "plan", artifact: "docs/specs/<...>", designDepth: "<frozen>" })`.
+- Refuted (gaps): set `.planReview.gaps`, auto-loop back to `{{COMMAND_PREFIX}}plan --revise`
+- Survives: present to user for approval (the single human checkpoint)
 - On approval: set `.planReview.approved = true`, invoke `{{COMMAND_PREFIX}}delegate`
 
-**REQUIRED:** Run `exarchos_orchestrate({ action: "check_plan_coverage" })`. If passed: false → auto-invoke `{{COMMAND_PREFIX}}plan --revise`. If passed: true → continue to the plan-review phase (feature: `plan-review`, refactor: `overhaul-plan-review`) and only invoke `{{COMMAND_PREFIX}}delegate` after plan-review approval.
+**REQUIRED:** Run `exarchos_orchestrate({ action: "check_plan_coverage" })` over the unified artifact. If passed: false → auto-invoke `{{COMMAND_PREFIX}}plan --revise`. If passed: true → transition to the plan-review phase and only invoke `{{COMMAND_PREFIX}}delegate` after plan-review approval.
 
 ## Exarchos Integration
 

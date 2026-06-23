@@ -160,16 +160,7 @@ describe('Integration', () => {
       );
       expect(initResult.success).toBe(true);
 
-      // ideate -> plan: requires artifacts.design (schema field -- use handleSet)
-      await handleSet(
-        { featureId: 'full-saga', updates: { 'artifacts.design': 'docs/design.md' } },
-        stateDir,
-        eventStore,
-      );
-      const toPlan = await transitionFeature('full-saga', 'plan', eventStore);
-      expect(toPlan.success).toBe(true);
-      expect((toPlan.data as Record<string, unknown>).phase).toBe('plan');
-
+      // DR-4 (#1581): plan is the initial phase — no ideate→plan bootstrap.
       // plan -> plan-review: requires artifacts.plan (schema field -- use handleSet)
       await handleSet(
         { featureId: 'full-saga', updates: { 'artifacts.plan': 'docs/plan.md' } },
@@ -240,15 +231,14 @@ describe('Integration', () => {
       const allEvents = await eventStore.query('full-saga');
       const transitionEvents = allEvents.filter((e) => e.type === 'workflow.transition');
 
-      // Should have transitions: ideate->plan, plan->plan-review, plan-review->delegate,
-      // delegate->review, review->synthesize, synthesize->completed
-      expect(transitionEvents.length).toBe(6);
+      // Should have transitions (DR-4 #1581: no ideate→plan): plan->plan-review,
+      // plan-review->delegate, delegate->review, review->synthesize, synthesize->completed
+      expect(transitionEvents.length).toBe(5);
 
       const transitionPairs = transitionEvents.map((e) => {
         const data = e.data as Record<string, unknown>;
         return `${data.from}->${data.to}`;
       });
-      expect(transitionPairs).toContain('ideate->plan');
       expect(transitionPairs).toContain('plan->plan-review');
       expect(transitionPairs).toContain('plan-review->delegate');
       expect(transitionPairs).toContain('delegate->review');
@@ -741,7 +731,7 @@ describe('Integration', () => {
       // Verify it contains all core fields that the bash script expects
       expect(rawJson.featureId).toBe('mcp-created');
       expect(rawJson.workflowType).toBe('feature');
-      expect(rawJson.phase).toBe('ideate');
+      expect(rawJson.phase).toBe('plan');
       expect(typeof rawJson.createdAt).toBe('string');
       expect(typeof rawJson.updatedAt).toBe('string');
 
@@ -893,15 +883,15 @@ describe('Integration', () => {
       let raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
       expect(raw._eventSequence).toBe(1);
 
-      // Set guard and transition to plan
+      // DR-4 (#1581): plan is initial; first transition is plan → plan-review.
       await handleSet(
-        { featureId: 'consistency-test', updates: { 'artifacts.design': 'docs/design.md' } },
+        { featureId: 'consistency-test', updates: { 'artifacts.plan': 'docs/specs/x.md' } },
         stateDir,
         eventStore,
       );
-      await handleSet({ featureId: 'consistency-test', phase: 'plan' }, stateDir, eventStore);
+      await handleSet({ featureId: 'consistency-test', phase: 'plan-review' }, stateDir, eventStore);
       events = await eventStore.query('consistency-test');
-      // DR-13 (#1546): a phase advance into the PLAN-kind 'plan' phase emits the
+      // DR-13 (#1546): advancing into the PLAN-kind 'plan-review' phase emits the
       // resolve-then-freeze pair (phase.exited for the left phase + phase.entered
       // for the new one), so the transition contributes THREE events.
       expect(events.length).toBe(5); // started + state.patched + transition + phase.exited + phase.entered
@@ -916,19 +906,20 @@ describe('Integration', () => {
       events = await eventStore.query('consistency-test');
       expect(events.length).toBe(7); // + workflow.checkpoint + workflow.checkpoint_written
 
-      // Another phase transition (plan -> plan-review)
+      // Another phase transition (plan-review -> delegate)
       await handleSet(
-        { featureId: 'consistency-test', updates: { 'artifacts.plan': 'docs/plan.md' } },
+        { featureId: 'consistency-test', updates: { planReview: { approved: true } } },
         stateDir,
         eventStore,
       );
-      await handleSet({ featureId: 'consistency-test', phase: 'plan-review' }, stateDir, eventStore);
+      await handleSet({ featureId: 'consistency-test', phase: 'delegate' }, stateDir, eventStore);
       events = await eventStore.query('consistency-test');
-      // plan-review is also PLAN-kind: another exit+enter freeze pair.
-      expect(events.length).toBe(11); // + state.patched + transition + phase.exited + phase.entered
+      // delegate lives inside the 'implementation' compound, so entering it also
+      // emits a compound-entry event — five new events, not four.
+      expect(events.length).toBe(12); // + state.patched + transition + phase.exited + phase.entered + compound-entry
 
       raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
-      expect(raw._eventSequence).toBe(11);
+      expect(raw._eventSequence).toBe(12);
 
       // Reconcile should be idempotent (no changes)
       const result = await reconcileFromEvents(stateDir, 'consistency-test', eventStore);
@@ -940,13 +931,13 @@ describe('Integration', () => {
       const eventStore = new EventStore(stateDir);
 
       await handleInit({ featureId: 'idem-verify', workflowType: 'feature' }, stateDir, eventStore);
-      // Set guard and transition to plan
+      // DR-4 (#1581): plan is initial; first transition is plan → plan-review.
       await handleSet(
-        { featureId: 'idem-verify', updates: { 'artifacts.design': 'docs/design.md' } },
+        { featureId: 'idem-verify', updates: { 'artifacts.plan': 'docs/specs/x.md' } },
         stateDir,
         eventStore,
       );
-      await handleSet({ featureId: 'idem-verify', phase: 'plan' }, stateDir, eventStore);
+      await handleSet({ featureId: 'idem-verify', phase: 'plan-review' }, stateDir, eventStore);
 
       const events = await eventStore.query('idem-verify');
       const transitions = events.filter((e) => e.type === 'workflow.transition');

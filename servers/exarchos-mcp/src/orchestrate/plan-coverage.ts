@@ -9,6 +9,7 @@ import { readFile } from 'node:fs/promises';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
 import { emitGateEvent } from './gate-utils.js';
+import { acceptanceCriteriaFinding } from './pure/design-completeness.js';
 
 // ─── Result Types ──────────────────────────────────────────────────────────
 
@@ -745,6 +746,24 @@ export async function handlePlanCoverage(
   // Compute coverage (pass designContent for acceptance test advisory checks)
   const result = computeCoverage(designSections, tasks, planContent, deferredSections, designContent);
 
+  // DR-6 gate fold (#1581 task 011): the design+plan collapse retires the
+  // standalone `check_design_completeness` gate (tasks 013/014). Reproduce its
+  // acceptance-criteria ("error-coverage") finding here, on the unified
+  // `docs/specs/` artifact, so no coverage is lost when it leaves the chain.
+  // The fold is ADVISORY — it rides in `advisories` and never flips
+  // plan-coverage's `passed` (design-completeness was advisory-only too). One
+  // shared finding-string source (`acceptanceCriteriaFinding`) keeps the two
+  // gates from drifting. Only the acceptance-criteria check folds (DR-6 scope):
+  // required-sections / multiple-options are authoring-template concerns owned
+  // by the depth-scaled spec template (DR-5), not the runtime coverage gate.
+  const designAcceptanceFinding = acceptanceCriteriaFinding(designContent);
+  const foldedAdvisories = [
+    ...(result.advisories ?? []),
+    ...(designAcceptanceFinding ? [designAcceptanceFinding] : []),
+  ];
+  const foldedResult =
+    foldedAdvisories.length > 0 ? { ...result, advisories: foldedAdvisories } : result;
+
   // Emit gate.executed event (fire-and-forget)
   try {
     const store = eventStore;
@@ -758,5 +777,5 @@ export async function handlePlanCoverage(
     });
   } catch { /* fire-and-forget */ }
 
-  return { success: true, data: { ...result } };
+  return { success: true, data: { ...foldedResult } };
 }

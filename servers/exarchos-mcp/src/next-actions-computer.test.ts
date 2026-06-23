@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { computeNextActions } from './next-actions-computer.js';
 import { NextAction } from './next-action.js';
-import { getHSMDefinition, executeTransition } from './workflow/state-machine.js';
+import { getHSMDefinition, executeTransition, getInitialPhase } from './workflow/state-machine.js';
 import { findActionInRegistry } from './registry.js';
 
 describe('computeNextActions (T040, DR-8)', () => {
@@ -195,6 +195,66 @@ describe('computeNextActions (T040, DR-8)', () => {
   });
 });
 
+// ─── Task 008 (#1581 DR-4): post-collapse affordance integrity (INV-12) ──────
+//
+// DR-4 (commit 3ff69818) removed the `ideate` (GATHER) state and made `plan`
+// the feature workflow's INITIAL phase. `computeNextActions` is purely
+// HSM-topology driven, so no surgery was needed in the computer itself — but
+// that is exactly why a regression here would be silent. These tests PIN the
+// post-collapse affordance contract end-to-end:
+//   1. post-init the workflow sits in `plan` (not the removed `ideate`),
+//   2. the surfaced affordance advances the plan flow to `plan-review`,
+//   3. NO affordance verb/target is `ideate`, and
+//   4. the feature HSM carries no dangling `ideate` state or `ideate→plan`
+//      edge (the transition that referenced the now-retired
+//      `designArtifactExists` guard).
+// Together these close INV-12 (affordance integrity): a caller can never be
+// handed a next-action pointing at a phase that no longer exists.
+describe('NextActions post-collapse affordance integrity (Task 008, #1581 DR-4, INV-12)', () => {
+  it('NextActions_PostInit_AdvertisesPlanNotIdeate', () => {
+    const hsm = getHSMDefinition('feature');
+
+    // Post-init phase is the feature workflow's initial state: `plan`, not the
+    // removed `ideate`/GATHER state.
+    const postInitPhase = getInitialPhase('feature');
+    expect(postInitPhase).toBe('plan');
+
+    const actions = computeNextActions(
+      { phase: postInitPhase, workflowType: 'feature' },
+      hsm,
+    );
+
+    // Every affordance validates against the schema and the forward step is
+    // surfaced: PLAN advances to the single approval point, `plan-review`.
+    expect(actions.length).toBeGreaterThan(0);
+    for (const a of actions) {
+      expect(NextAction.safeParse(a).success).toBe(true);
+    }
+    const advancesToPlanReview = actions.some(
+      (a) => a.verb === 'plan-review' || a.validTargets?.includes('plan-review') === true,
+    );
+    expect(advancesToPlanReview).toBe(true);
+
+    // No dangling `ideate` affordance — neither as a verb nor a valid target.
+    for (const a of actions) {
+      expect(a.verb).not.toBe('ideate');
+      expect(a.validTargets ?? []).not.toContain('ideate');
+    }
+  });
+
+  it('FeatureHSM_NoDanglingIdeateTopology_PostCollapse', () => {
+    const hsm = getHSMDefinition('feature');
+    // The removed GATHER state is gone…
+    expect(hsm.states['ideate']).toBeUndefined();
+    // …and no transition still references it (the `ideate→plan` edge that
+    // carried the retired `designArtifactExists` guard).
+    for (const t of hsm.transitions) {
+      expect(t.from).not.toBe('ideate');
+      expect(t.to).not.toBe('ideate');
+    }
+  });
+});
+
 // ─── Wave 0 / Task D.8 — safety-semantics consumer contract ──────────────
 //
 // Design §2.4 commits that `annotations.safety` "is consumed by HSM guards
@@ -320,5 +380,50 @@ describe('D.8 — annotations.safety is queryable from registry (DIM-1 SoT)', ()
         `safety='${safety}' has no representative action reachable through findActionInRegistry — registry-as-SoT contract broken`,
       ).toBe(true);
     }
+  });
+});
+
+// ─── DR-7 (#1581 task 018): deep-rung discover-bridge affordances ────────────
+describe('computeNextActions — deep-rung affordances (DR-7, task 018)', () => {
+  it('NextActions_DeepDepth_PublishesDiscoverBridge', () => {
+    // At the `deep` planning rung, PLAN authoring surfaces the opt-in
+    // divergent-loop + discover-bridge affordances on next_actions (INV-12).
+    const hsm = getHSMDefinition('feature');
+    const actions = computeNextActions(
+      { phase: 'plan', workflowType: 'feature', designDepth: 'deep' },
+      hsm,
+    );
+    const verbs = actions.map((a) => a.verb);
+    expect(verbs).toContain('discover_bridge');
+    expect(verbs).toContain('divergent_loop');
+    for (const a of actions) {
+      expect(NextAction.safeParse(a).success).toBe(true);
+    }
+  });
+
+  it('NextActions_StandardDepth_NoDiscoverBridge', () => {
+    // standard/thin/absent depth must NOT surface the deep-rung escalation —
+    // cost stays risk-proportional.
+    const hsm = getHSMDefinition('feature');
+    for (const designDepth of ['standard', 'thin', undefined]) {
+      const verbs = computeNextActions(
+        { phase: 'plan', workflowType: 'feature', designDepth },
+        hsm,
+      ).map((a) => a.verb);
+      expect(verbs).not.toContain('discover_bridge');
+      expect(verbs).not.toContain('divergent_loop');
+    }
+  });
+
+  it('NextActions_DeepDepth_ReviewPhase_NoDiscoverBridge', () => {
+    // plan-review is a PLAN-kind gate, not an authoring phase — the bridge is an
+    // authoring escalation, so it is NOT surfaced there even at deep depth.
+    const hsm = getHSMDefinition('feature');
+    const verbs = computeNextActions(
+      { phase: 'plan-review', workflowType: 'feature', designDepth: 'deep' },
+      hsm,
+    ).map((a) => a.verb);
+    expect(verbs).not.toContain('discover_bridge');
+    expect(verbs).not.toContain('divergent_loop');
   });
 });

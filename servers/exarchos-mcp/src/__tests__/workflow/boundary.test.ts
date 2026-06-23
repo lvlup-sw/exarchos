@@ -240,7 +240,7 @@ describe('Cross-Module Boundary Tests', () => {
     const state = result.data as Record<string, unknown>;
     expect(state.featureId).toBe('full-state');
     expect(state.workflowType).toBe('feature');
-    expect(state.phase).toBe('ideate');
+    expect(state.phase).toBe('plan');
     expect(state.tasks).toEqual([]);
     expect(state.worktrees).toEqual({});
     expect(state.reviews).toEqual({});

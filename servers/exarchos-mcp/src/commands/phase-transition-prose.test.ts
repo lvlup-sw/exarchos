@@ -26,7 +26,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 
 const COMMANDS_WITH_PHASE_TRANSITIONS = [
-  { name: 'ideate', file: 'commands/ideate.md', expectedTargets: ['plan'] },
+  // #1581 (design+plan collapse): `/ideate` is NO LONGER a phase-transitioning
+  // command. The `ideate`/GATHER phase was removed (task 007 — `plan` is the
+  // feature workflow's initial phase), so `/ideate` authors the Design &
+  // Rationale section of the unified docs/specs/ artifact WITHIN the `plan`
+  // phase, records `artifacts.spec`, and chains to `/plan` without a transition.
+  // `/plan` owns the `plan → plan-review` transition. (Was: ideate → plan.)
   { name: 'plan', file: 'commands/plan.md', expectedTargets: ['plan-review', 'delegate'] },
   { name: 'oneshot', file: 'commands/oneshot.md', expectedTargets: ['implementing'] },
   { name: 'review', file: 'commands/review.md', expectedTargets: ['synthesize', 'delegate', 'blocked'] },

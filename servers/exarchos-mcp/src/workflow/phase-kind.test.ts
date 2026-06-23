@@ -5,7 +5,7 @@ import {
   ladderGateNames,
   resolveGateSetFailClosed,
 } from './phase-kind.js';
-import type { ResolvedGate } from './phase-kind.js';
+import type { ResolvedGate, ResolveGateSetCtx } from './phase-kind.js';
 import { resolveVerificationPolicy } from './verification-policy-resolver.js';
 import type { RiskTier } from './verification-policy.js';
 import { TOOL_REGISTRY } from '../registry.js';
@@ -153,6 +153,112 @@ describe('plan-structure resolver (DR-9)', () => {
     const resolverPlanGates = new Set(resolveGateSet('PLAN', ctx).map((g) => g.gate));
     expect(resolverPlanGates).toEqual(registryPlanGates);
   });
+
+  it('ResolveGateSetCtx_DesignDepthAbsent_DefaultsStandardNoThrow', () => {
+    // DR-1 (task 002): `designDepth` is an OPTIONAL carrier on the resolution
+    // ctx. Adding it must be behavior-neutral for every pre-existing call site:
+    // a ctx that omits `designDepth` resolves without throwing and yields
+    // exactly today's static `'standard'` 5-gate binding (the resolver is not
+    // graduated to read it until task 003). Supplying `designDepth: 'standard'`
+    // explicitly must be indistinguishable from omitting it — pinning that the
+    // default IS standard.
+    const standardGates = [
+      'check_task_decomposition',
+      'check_plan_coverage',
+      'spec_coverage_check',
+      'check_provenance_chain',
+      'generate_traceability',
+    ];
+
+    const absent: ResolveGateSetCtx = { riskTier: 'low', boundaryTouching: false };
+    expect(() => resolveGateSet('PLAN', absent)).not.toThrow();
+    expect(resolveGateSet('PLAN', absent).map((g) => g.gate)).toEqual(standardGates);
+
+    const explicitStandard: ResolveGateSetCtx = {
+      riskTier: 'low',
+      boundaryTouching: false,
+      designDepth: 'standard',
+    };
+    expect(resolveGateSet('PLAN', explicitStandard).map((g) => g.gate)).toEqual(standardGates);
+  });
+
+  it('PlanStructureResolver_StandardDepth_MatchesRegistryPlanPhasesBinding', () => {
+    // DR-2 (task 003): graduating the resolver to read `ctx.designDepth` must
+    // leave the `'standard'` rung == the registry `PLAN_PHASES`-bound action set
+    // (the behavior-neutral pin). Same SoT cross-check as the default-ctx
+    // binding test, but with `designDepth: 'standard'` supplied explicitly so
+    // the ctx-reading path — not the absent-default — is what's pinned.
+    const registryPlanGates = new Set(
+      TOOL_REGISTRY.flatMap((t) => t.actions)
+        .filter((a) => setEqualsNames(a.phases, PLAN_PHASE_NAMES))
+        .map((a) => a.name),
+    );
+    const resolved = resolveGateSet('PLAN', {
+      riskTier: 'low',
+      boundaryTouching: false,
+      designDepth: 'standard',
+    });
+    expect(resolved.every((g) => g.family === 'plan')).toBe(true);
+    expect(new Set(resolved.map((g) => g.gate))).toEqual(registryPlanGates);
+  });
+
+  it('GateChains_DesignCompletenessExcised_AbsentFromSpecReviewChain', () => {
+    // DR-6 (#1581 task 014): the design+plan collapse excises the standalone
+    // check_design_completeness gate from the live gate chains — its
+    // acceptance-criteria finding now rides in check_plan_coverage (task 011).
+    // It survives ONLY as a deprecated callable alias (task 013), never as a
+    // member of a resolved phase gate set.
+    const isDesignCompleteness = (gate: string): boolean =>
+      gate === 'check_design_completeness' || gate.includes('design-completeness');
+
+    // (1) The spec-review chain (REVIEW kind resolves verbatim from the
+    // review-contract dimensions) never lists the design-completeness gate.
+    const reviewChain = resolveGateSet('REVIEW', {
+      riskTier: 'low',
+      boundaryTouching: false,
+      designDepth: 'standard',
+    }).map((g) => g.gate);
+    expect(reviewChain.some(isDesignCompleteness)).toBe(false);
+
+    // (2) Nor does the PLAN plan-structure chain.
+    const planChain = resolveGateSet('PLAN', {
+      riskTier: 'low',
+      boundaryTouching: false,
+      designDepth: 'standard',
+    }).map((g) => g.gate);
+    expect(planChain.some(isDesignCompleteness)).toBe(false);
+
+    const entry = TOOL_REGISTRY.flatMap((t) => t.actions).find(
+      (a) => a.name === 'check_design_completeness',
+    );
+    expect(entry).toBeDefined();
+    // (3) It is NOT a PLAN_PHASE_NAMES-bound plan gate, so it cannot slip back
+    // into the plan-structure binding (the binding pin above).
+    expect(setEqualsNames(entry!.phases, PLAN_PHASE_NAMES)).toBe(false);
+    // (4) And it survives only as a deprecated alias.
+    expect(entry!.deprecated).toBe(true);
+  });
+
+  it('PlanStructureResolver_DeepDepth_AddsExplorationObligation', () => {
+    // DR-2/DR-7: the `'deep'` rung is a strict superset of `'standard'` — the
+    // same five plan-structure gates plus the `check_exploration_depth`
+    // divergent-loop obligation, appended last in resolution order.
+    const standardCtx: ResolveGateSetCtx = {
+      riskTier: 'low',
+      boundaryTouching: false,
+      designDepth: 'standard',
+    };
+    const deepCtx: ResolveGateSetCtx = {
+      riskTier: 'low',
+      boundaryTouching: false,
+      designDepth: 'deep',
+    };
+    const standardSeq = resolveGateSet('PLAN', standardCtx).map((g) => g.gate);
+    const deepSeq = resolveGateSet('PLAN', deepCtx).map((g) => g.gate);
+
+    expect(deepSeq).toEqual([...standardSeq, 'check_exploration_depth']);
+    expect(resolveGateSet('PLAN', deepCtx).every((g) => g.family === 'plan')).toBe(true);
+  });
 });
 
 // ─── DR-9: review-contract resolver ─────────────────────────────────────────
@@ -212,6 +318,44 @@ describe('resolveGateSetFailClosed (DR-10)', () => {
     );
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) expect(outcome.reason).toMatch(/boom/);
+  });
+
+  it('ResolveGateSet_MalformedDesignDepth_FailsClosedBlocked', () => {
+    // DR-9 (task 021): a malformed `designDepth` (a value outside the frozen
+    // thin/standard/deep ladder — e.g. a corrupt frozen state or a typo'd
+    // config override that survives to resolution) MUST fail the PLAN gate-set
+    // resolution CLOSED through the REAL resolver path (no injected thrower):
+    // `resolveGateSetFailClosed` returns `{ ok: false }` so the caller appends
+    // `phase.blocked`, never a silent OPEN transition. The reason names the bad
+    // depth so the block is diagnosable.
+    const malformed = { riskTier: 'low', boundaryTouching: false, designDepth: 'shallow' } as unknown as ResolveGateSetCtx;
+    const outcome = resolveGateSetFailClosed('PLAN', malformed);
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.reason).toMatch(/designDepth/);
+      expect(outcome.reason).toMatch(/shallow/);
+    }
+    // The raw resolver throws on the same input — the fault is real, not an
+    // artifact of the fail-closed wrapper masking a valid resolution.
+    expect(() => resolveGateSet('PLAN', malformed)).toThrow(/shallow/);
+  });
+
+  it('ResolveGateSet_AbsentDesignDepth_ResolvesOpenNotBlocked', () => {
+    // DR-9 (task 021) — the OTHER half of fail-closed: an ABSENT `designDepth`
+    // is NOT a fault. It normalises to `'standard'` and resolves OPEN (ok),
+    // pinning that fail-closed fires only on a genuinely malformed depth, never
+    // on the ordinary predates-planning-depth call site.
+    const outcome = resolveGateSetFailClosed('PLAN', { riskTier: 'low', boundaryTouching: false });
+    expect(outcome.ok).toBe(true);
+    if (outcome.ok) {
+      expect(outcome.gates.map((g) => g.gate)).toEqual([
+        'check_task_decomposition',
+        'check_plan_coverage',
+        'spec_coverage_check',
+        'check_provenance_chain',
+        'generate_traceability',
+      ]);
+    }
   });
 });
 

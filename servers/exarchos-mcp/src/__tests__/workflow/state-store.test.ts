@@ -55,7 +55,7 @@ describe('State Store', () => {
       expect(state.version).toBe('1.1');
       expect(state.featureId).toBe('my-feature');
       expect(state.workflowType).toBe('feature');
-      expect(state.phase).toBe('ideate');
+      expect(state.phase).toBe('plan');
       expect(state.artifacts).toEqual({ design: null, plan: null, pr: null });
       expect(state.tasks).toEqual([]);
       expect(state.worktrees).toEqual({});
@@ -70,7 +70,7 @@ describe('State Store', () => {
       expect(state._history).toEqual({});
       // _events and _eventSequence removed — events now in external JSONL store
       expect(state._checkpoint).toBeDefined();
-      expect(state._checkpoint.phase).toBe('ideate');
+      expect(state._checkpoint.phase).toBe('plan');
       expect(state._checkpoint.summary).toBe('Workflow initialized');
 
       // Verify file was written to disk

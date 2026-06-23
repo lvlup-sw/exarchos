@@ -45,8 +45,8 @@ afterEach(async () => {
 });
 
 describe('exarchos_workflow.update + transition — HSM guard loop (Wave 0, Task 0.6)', () => {
-  it('WorkflowUpdate_ThenTransition_SatisfiesDesignArtifactExistsGuard', async () => {
-    // Step 1: init feature workflow at phase: 'ideate'.
+  it('WorkflowUpdate_ThenTransition_SatisfiesPlanArtifactExistsGuard', async () => {
+    // Step 1: init feature workflow at phase: 'plan' (DR-4 #1581: plan is initial).
     const init = await handleInit(
       { featureId, workflowType: 'feature' },
       tmpDir,
@@ -54,22 +54,22 @@ describe('exarchos_workflow.update + transition — HSM guard loop (Wave 0, Task
     );
     expect(init.success).toBe(true);
     const initData = init.data as Record<string, unknown>;
-    expect(initData.phase).toBe('ideate');
+    expect(initData.phase).toBe('plan');
 
-    // Step 2: populate the design artifact via the canonical update
-    // surface. Without this, transition('plan') below would return
-    // GUARD_FAILED with designArtifactExists.
+    // Step 2: populate the plan artifact via the canonical update
+    // surface. Without this, transition('plan-review') below would return
+    // GUARD_FAILED with planArtifactExists.
     const updateResult = await handleWorkflow(
       {
         action: 'update',
         featureId,
-        updates: { artifacts: { design: 'p.md' } },
+        updates: { artifacts: { plan: 'p.md' } },
       },
       ctx,
     );
     expect(updateResult.success).toBe(true);
 
-    // Step 3: transition ideate → plan. The HSM guard reads the
+    // Step 3: transition plan → plan-review. The HSM guard reads the
     // state-file projection (loaded by handleSet/applyTransition for
     // its CAS attempt); the update from step 2 must already be
     // visible there.
@@ -77,7 +77,7 @@ describe('exarchos_workflow.update + transition — HSM guard loop (Wave 0, Task
       {
         action: 'transition',
         featureId,
-        target: 'plan',
+        target: 'plan-review',
       },
       ctx,
     );
@@ -90,8 +90,8 @@ describe('exarchos_workflow.update + transition — HSM guard loop (Wave 0, Task
     const get = await handleWorkflow({ action: 'get', featureId }, ctx);
     expect(get.success).toBe(true);
     const data = get.data as Record<string, unknown>;
-    expect(data.phase).toBe('plan');
+    expect(data.phase).toBe('plan-review');
     const artifacts = data.artifacts as Record<string, unknown> | undefined;
-    expect(artifacts?.design).toBe('p.md');
+    expect(artifacts?.plan).toBe('p.md');
   });
 });

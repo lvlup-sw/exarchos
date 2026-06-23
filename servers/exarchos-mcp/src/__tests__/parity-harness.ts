@@ -481,7 +481,7 @@ export const MERGE_ORCHESTRATE_PARITY_FIXTURE: ParityFixture = {
 export const TRANSITION_GUARD_FAILURE_FIXTURE: ParityFixture = {
   name: 'transition_guard_failure',
   description:
-    'transition({target:"plan"}) without required artifacts → GUARD_FAILED with structured envelope',
+    'transition({target:"plan-review"}) without required artifacts → GUARD_FAILED with structured envelope',
   async setup(ctx: DispatchContext) {
     // Lazy-import the workflow handler so this module's import cost is
     // bounded — parity-harness is loaded on every parity-test cold start.
@@ -491,15 +491,16 @@ export const TRANSITION_GUARD_FAILURE_FIXTURE: ParityFixture = {
       ctx.stateDir,
       ctx.eventStore,
     );
-    // NOTE: deliberately NOT priming `artifacts.design` so the guard fails.
+    // DR-4 (#1581): plan is initial. Deliberately NOT priming `artifacts.plan`
+    // so the plan→plan-review guard (planArtifactExists) fails.
   },
   cliCall: {
     toolAlias: 'wf',
     action: 'transition',
-    flags: { featureId: 'parity-guard-fail', target: 'plan' },
+    flags: { featureId: 'parity-guard-fail', target: 'plan-review' },
   },
   mcpCall: {
     tool: 'exarchos_workflow',
-    args: { action: 'transition', featureId: 'parity-guard-fail', target: 'plan' },
+    args: { action: 'transition', featureId: 'parity-guard-fail', target: 'plan-review' },
   },
 };

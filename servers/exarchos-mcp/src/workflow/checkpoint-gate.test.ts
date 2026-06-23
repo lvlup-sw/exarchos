@@ -263,10 +263,10 @@ describe('handleSet checkpoint gate', () => {
     const eventStore = new EventStore(tmpDir);
     await eventStore.initialize();
 
-    // Step 1: Init workflow and set design artifact for ideate->plan guard
+    // Step 1: Init workflow and set plan artifact for plan->plan-review guard
     await handleInit({ featureId, workflowType: 'feature' }, tmpDir, eventStore);
     await handleSet(
-      { featureId, updates: { 'artifacts.design': 'design.md' } },
+      { featureId, updates: { 'artifacts.plan': 'docs/specs/x.md' } },
       tmpDir,
       eventStore,
     );
@@ -276,7 +276,7 @@ describe('handleSet checkpoint gate', () => {
 
     // Step 3: Attempt phase transition — should be gated
     const gatedResult = await handleSet(
-      { featureId, phase: 'plan' },
+      { featureId, phase: 'plan-review' },
       tmpDir,
       eventStore,
       makeOptions(),
@@ -310,7 +310,7 @@ describe('handleSet checkpoint gate', () => {
 
     // Step 6: Retry the same phase transition — should succeed now
     const retryResult = await handleSet(
-      { featureId, phase: 'plan' },
+      { featureId, phase: 'plan-review' },
       tmpDir,
       eventStore,
       makeOptions(),
@@ -318,7 +318,7 @@ describe('handleSet checkpoint gate', () => {
 
     expect(retryResult.success).toBe(true);
     const retryData = retryResult.data as Record<string, unknown>;
-    expect(retryData.phase).toBe('plan');
+    expect(retryData.phase).toBe('plan-review');
 
     // Verify checkpoint.enforced and workflow.checkpoint events were emitted
     const enforcedEvents = await eventStore.query(featureId, { type: 'checkpoint.enforced' as never });
@@ -326,6 +326,7 @@ describe('handleSet checkpoint gate', () => {
 
     const checkpointEvents = await eventStore.query(featureId, { type: 'workflow.checkpoint' as never });
     expect(checkpointEvents.length).toBe(1);
-    expect((checkpointEvents[0].data as Record<string, unknown>).phase).toBe('ideate');
+    // Checkpoint happened at the initial phase (plan) before the gated transition.
+    expect((checkpointEvents[0].data as Record<string, unknown>).phase).toBe('plan');
   });
 });

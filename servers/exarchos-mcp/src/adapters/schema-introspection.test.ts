@@ -113,7 +113,7 @@ describe('resolveTopologyRef', () => {
     expect(result).toHaveProperty('states');
     expect(result).toHaveProperty('transitions');
     expect(result).toHaveProperty('tracks');
-    expect(result.initialPhase).toBe('ideate');
+    expect(result.initialPhase).toBe('plan');
   });
 
   it('ResolveTopologyRef_NoType_ReturnsAllTypes', () => {

@@ -1,4 +1,5 @@
 import type { HSMDefinition, Transition } from './state-machine.js';
+import { getInitialPhase } from './state-machine.js';
 
 /**
  * Apply phase skipping to an HSM definition by rerouting transitions
@@ -20,6 +21,18 @@ export function applyPhaseSkips(
 ): HSMDefinition {
   if (skipPhases.length === 0) return hsm;
 
+  // The initial phase comes from the registry (the single source of truth),
+  // NOT a "no incoming transitions" heuristic: post-#1581 the feature HSM's
+  // initial `plan` phase HAS an incoming edge (the plan-review→plan gaps-found
+  // loop), so the heuristic would no longer identify it. Fall back to the
+  // heuristic only for HSMs whose id the registry doesn't know (custom types).
+  let initialPhase: string | undefined;
+  try {
+    initialPhase = getInitialPhase(hsm.id);
+  } catch {
+    initialPhase = undefined;
+  }
+
   // Validate: cannot skip initial or final phases
   for (const skip of skipPhases) {
     const state = hsm.states[skip];
@@ -29,9 +42,12 @@ export function applyPhaseSkips(
       throw new Error(`Cannot skip final phase '${skip}'`);
     }
 
-    // A phase with no incoming transitions is the initial phase
-    const hasIncoming = hsm.transitions.some(t => t.to === skip);
-    if (!hasIncoming) {
+    // Reject the registry-declared initial phase, AND any phase with no
+    // incoming transitions (e.g. a compound state whose edges target its
+    // children) — both are unreachable-as-a-skip-target and rejected here.
+    const isRegistryInitial = initialPhase !== undefined && skip === initialPhase;
+    const hasNoIncoming = !hsm.transitions.some(t => t.to === skip);
+    if (isRegistryInitial || hasNoIncoming) {
       throw new Error(`Cannot skip initial phase '${skip}'`);
     }
   }

@@ -75,6 +75,98 @@ describe('verifyProvenanceChain', () => {
   });
 
   // ============================================================
+  // UNIFIED ARTIFACT — design+plan collapse (#1581 DR-6, task 012)
+  // ============================================================
+  //
+  // In the collapsed world design and plan are ONE `docs/specs/` artifact, so
+  // verifyProvenanceChain is called with the SAME path for designFile and
+  // planFile. DR-N definitions live in `## Design & Rationale`; task→DR-N
+  // references live in `## Decomposition`. DR-N extraction is scoped to the
+  // design region so a reference can never masquerade as a definition.
+  describe('unified single-artifact traceability (#1581 DR-6, task 012)', () => {
+    function writeUnified(content: string): string {
+      const filePath = path.join(tmpDir, 'spec.md');
+      fs.writeFileSync(filePath, content, 'utf-8');
+      return filePath;
+    }
+
+    it('ProvenanceChain_SingleArtifact_ResolvesTaskToDrN', () => {
+      const spec = writeUnified(
+        [
+          '# Spec: Widget',
+          '',
+          '## Design & Rationale',
+          '',
+          '### DR-1: Render the widget',
+          'The widget renders the main UI.',
+          '',
+          '### DR-2: Fetch data',
+          'The client fetches from the backend.',
+          '',
+          '## Decomposition',
+          '',
+          '### Task 001: Build the widget',
+          '**Implements:** DR-1',
+          '',
+          '### Task 002: Build the API client',
+          '**Implements:** DR-2',
+        ].join('\n')
+      );
+
+      // designFile === planFile — one unified artifact.
+      const result = verifyProvenanceChain({ designFile: spec, planFile: spec });
+
+      expect(result.status).toBe('pass');
+      expect(result.requirements).toBe(2);
+      expect(result.covered).toBe(2);
+      expect(result.gaps).toBe(0);
+      expect(result.orphanRefs).toBe(0);
+    });
+
+    it('Traceability_MissingDrN_StillFlagged', () => {
+      // DR-1 and DR-2 are defined in the design section; DR-2 has no task (a
+      // gap), and Task 002 implements DR-9 which is NOT defined anywhere in
+      // the design region (a forward-dangling orphan). Without design-region
+      // scoping the DR-9 reference would be miscounted as a definition and the
+      // orphan would silently vanish in a single-document artifact.
+      const spec = writeUnified(
+        [
+          '# Spec: Widget',
+          '',
+          '## Design & Rationale',
+          '',
+          '### DR-1: Render the widget',
+          'The widget renders the main UI.',
+          '',
+          '### DR-2: Fetch data',
+          'The client fetches from the backend.',
+          '',
+          '## Decomposition',
+          '',
+          '### Task 001: Build the widget',
+          '**Implements:** DR-1',
+          '',
+          '### Task 002: Build something undefined',
+          '**Implements:** DR-9',
+        ].join('\n')
+      );
+
+      const result = verifyProvenanceChain({ designFile: spec, planFile: spec });
+
+      expect(result.status).toBe('fail');
+      // DR-2 is defined but unimplemented — a gap.
+      expect(result.gapDetails).toContain('DR-2');
+      // DR-9 is referenced by a task but undefined in the design region — a
+      // forward-dangling orphan, still flagged within one document.
+      expect(result.orphanRefs).toBe(1);
+      expect(result.orphanDetails.some((o) => o.includes('DR-9'))).toBe(true);
+      // The converse must also hold: the DR-9 reference is NOT counted as a
+      // requirement (design-region scoping working).
+      expect(result.requirements).toBe(2);
+    });
+  });
+
+  // ============================================================
   // FULL COVERAGE (all DRs mapped)
   // ============================================================
 

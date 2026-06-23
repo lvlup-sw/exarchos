@@ -3,6 +3,7 @@ import { guards } from './guards.js';
 import { resolveGateSetFailClosed, KIND_OBLIGATIONS } from './phase-kind.js';
 import type { PhaseKind, ResolvedGate, ResolveGateSetCtx } from './phase-kind.js';
 import type { RiskTier } from './verification-policy.js';
+import type { DesignDepth } from './plan-depth-policy.js';
 import {
   createFeatureHSM,
   createDebugHSM,
@@ -139,7 +140,9 @@ const hsmRegistry: Record<string, HSMDefinition> = {
 };
 
 const initialPhaseRegistry: Record<string, string> = {
-  feature: 'ideate',
+  // DR-4 (#1581): GATHER (`ideate`) collapsed into PLAN — feature workflows now
+  // start in `plan` (the unified design+plan phase). See createFeatureHSM.
+  feature: 'plan',
   debug: 'triage',
   refactor: 'explore',
   oneshot: 'plan',
@@ -851,12 +854,22 @@ export function executeTransition(
   // The `&& targetState.kind` guard only short-circuits degenerate fixtures /
   // loosely-typed custom states with no kind, which have no obligation to resolve.
   if (targetState?.type === 'atomic' && targetState.kind) {
+    // ─── Resolve half of resolve-then-freeze for `designDepth` (DR-3) ───
+    // The per-FEATURE planning depth, the depth-axis analog of per-task
+    // `riskTier`. Read loosely from the workflow state (an author override is
+    // patched there before PLAN entry; absent ⇒ the behavior-neutral
+    // `'standard'`). Once the first PLAN `phase.entered` freezes it onto the
+    // projected state, this read is sticky — re-entering PLAN re-resolves the
+    // SAME frozen value, so it is never re-resolved to a different depth.
+    const resolvedDesignDepth: DesignDepth =
+      (state.designDepth as DesignDepth | undefined) ?? 'standard';
     const obligation = resolveGateSetFailClosed(
       targetState.kind,
       {
         riskTier: (state.riskTier as RiskTier | undefined) ?? 'low',
         boundaryTouching: Boolean(state.boundaryTouching),
         workflowType: hsm.id,
+        designDepth: resolvedDesignDepth,
       },
       resolveGatesFn,
     );
@@ -921,6 +934,13 @@ export function executeTransition(
         // state machine to preserve the workflow→orchestrate dependency direction.
         policySource: 'builtin',
         mode: 'enforce',
+        // ─── Freeze half: per-feature `designDepth` (DR-3) ──────────────
+        // Carried ONLY on the PLAN phase's `phase.entered` (the single
+        // per-feature freeze point — the analog of per-task `riskTier`'s wave
+        // stamp). The projection folds this onto the view; the plan-structure
+        // resolver reads the frozen value on every subsequent resolution. Other
+        // kinds omit the field so the freeze has exactly one author.
+        ...(targetState.kind === 'PLAN' ? { designDepth: resolvedDesignDepth } : {}),
       },
     });
   }

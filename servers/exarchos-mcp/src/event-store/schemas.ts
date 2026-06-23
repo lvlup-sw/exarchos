@@ -1998,6 +1998,16 @@ export const PhaseEnteredData = z.object({
   posture: PhaseEnteredPostureSchema.describe(
     'The kind POLA posture (trust tier) frozen at entry — the bundle minted by capabilities/resolver.ts is derived from this (DR-14)',
   ),
+  // DR-3 (#1581): the feature-level planning depth, resolve-then-frozen at PLAN
+  // entry — the per-feature analog of per-task riskTier. Optional and present
+  // ONLY on the PLAN phase.entered (the single per-feature freeze point); absent
+  // on every other kind and on pre-#1581 logs, where the resolver defaults to
+  // 'standard'. Enum inlined to keep the event-store layer free of a workflow
+  // import (mirrors PhaseEnteredPostureSchema); pinned to DesignDepth by a test.
+  designDepth: z
+    .enum(['thin', 'standard', 'deep'])
+    .optional()
+    .describe('Feature planning depth frozen at PLAN entry (DR-3); absent ⇒ standard'),
 });
 
 export const PhaseExitedData = z.object({

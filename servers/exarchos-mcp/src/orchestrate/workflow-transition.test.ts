@@ -22,7 +22,7 @@ import { handleInit, handleSet } from '../workflow/tools.js';
 import { handleWorkflow } from '../workflow/composite.js';
 import { EventStore } from '../event-store/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
-import { getHSMDefinition } from '../workflow/state-machine.js';
+import { getHSMDefinition, getInitialPhase } from '../workflow/state-machine.js';
 import {
   callCli,
   callMcp,
@@ -54,11 +54,11 @@ describe('WorkflowTransition_ValidTarget (T36, DR-4)', () => {
   it('WorkflowTransition_ValidTarget_EmitsTransitionEventOnce', async () => {
     const featureId = 't36-canonical';
 
-    // Arrange — feature workflow primed for `ideate → plan` (requires
-    // `artifacts.design`).
+    // Arrange — feature workflow primed for `plan → plan-review` (requires
+    // `artifacts.plan`). DR-4 (#1581): plan is the initial phase.
     await handleInit({ featureId, workflowType: 'feature' }, tmpDir, ctx.eventStore);
     await handleSet(
-      { featureId, updates: { 'artifacts.design': 'docs/design.md' } },
+      { featureId, updates: { 'artifacts.plan': 'docs/specs/x.md' } },
       tmpDir,
       ctx.eventStore,
     );
@@ -71,7 +71,7 @@ describe('WorkflowTransition_ValidTarget (T36, DR-4)', () => {
 
     // Act — single transition call.
     const result = await handleWorkflow(
-      { action: 'transition', featureId, target: 'plan' },
+      { action: 'transition', featureId, target: 'plan-review' },
       ctx,
     );
     expect(result.success).toBe(true);
@@ -81,8 +81,8 @@ describe('WorkflowTransition_ValidTarget (T36, DR-4)', () => {
     const transitions = after.filter((e) => e.type === 'workflow.transition');
     expect(transitions.length).toBe(1);
     expect(transitions[0].data).toMatchObject({
-      from: 'ideate',
-      to: 'plan',
+      from: 'plan',
+      to: 'plan-review',
       featureId,
     });
   });
@@ -95,9 +95,12 @@ describe('WorkflowTransition_ValidTarget (T36, DR-4)', () => {
     await handleInit({ featureId, workflowType: 'feature' }, tmpDir, ctx.eventStore);
 
     const hsm = getHSMDefinition('feature');
-    // The feature topology declares `ideate → plan` but does NOT declare
-    // `ideate → completed`. Probe the absent edge to assert rejection.
-    const fromPhase = 'ideate';
+    // The collapse made `plan` the initial feature phase (DR-4); it declares
+    // `plan → plan-review` but NOT `plan → completed`. Probe from the ACTUAL
+    // initial phase (not a hardcoded, now-removed `ideate`) so the topology
+    // check stays anchored to the real transition source under test.
+    const fromPhase = getInitialPhase('feature');
+    expect(fromPhase).toBe('plan');
     const undeclaredTarget = 'completed';
 
     // Sanity — the HSM agrees the edge is undeclared.
@@ -122,14 +125,14 @@ describe('WorkflowTransition_GuardFailure (T42, DR-5)', () => {
   it('WorkflowTransition_GuardFailure_PopulatesValidTargetsAndSuggestedFix', async () => {
     const featureId = 't42-guard-fail';
 
-    // Arrange — fresh feature workflow without `artifacts.design`. The
-    // `ideate → plan` edge has a guard requiring the design artifact, so
-    // the transition will fail with a guard error (not "no transition").
+    // Arrange — fresh feature workflow without `artifacts.plan`. DR-4 (#1581):
+    // plan is initial; the `plan → plan-review` edge has a guard requiring the
+    // plan artifact, so the transition fails with a guard error (not "no transition").
     await handleInit({ featureId, workflowType: 'feature' }, tmpDir, ctx.eventStore);
 
     // Act — transition without the required artifact.
     const result = await handleWorkflow(
-      { action: 'transition', featureId, target: 'plan' },
+      { action: 'transition', featureId, target: 'plan-review' },
       ctx,
     );
 

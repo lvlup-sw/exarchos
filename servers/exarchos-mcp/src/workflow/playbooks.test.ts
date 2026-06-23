@@ -77,6 +77,22 @@ describe('Feature workflow playbooks', () => {
     expect(playbook.skill).toBe('implementation-planning');
   });
 
+  it('getPlaybook_FeaturePlan_FoldsDesignAuthoringGuidance', () => {
+    // #1581: the collapsed `plan` phase authors BOTH the Design & Rationale
+    // section and the Decomposition section of the one docs/specs/ artifact.
+    // Because the feature HSM no longer transitions through an `ideate` phase
+    // (DR-4: `plan` is initial), the live `feature:plan` playbook — what
+    // rehydrate/compaction serves a feature sitting in `plan` — must surface the
+    // design-authoring half (brainstorming), not just decomposition, or the
+    // design-authoring guidance is stranded under the unreachable `feature:ideate`
+    // key. Regression lock for the review MED finding on the design-plan-collapse.
+    const playbook = getPlaybook('feature', 'plan')!;
+    expect(playbook.compactGuidance).toContain('@skills/brainstorming/SKILL.md');
+    expect(playbook.compactGuidance).toContain('Design & Rationale');
+    // and it still carries the decomposition half
+    expect(playbook.compactGuidance.toLowerCase()).toContain('parallelization');
+  });
+
   it('getPlaybook_FeaturePlanReview_IsHumanCheckpoint', () => {
     const playbook = getPlaybook('feature', 'plan-review')!;
     expect(playbook.humanCheckpoint).toBe(true);

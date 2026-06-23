@@ -10,6 +10,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import type { ToolResult } from '../format.js';
+import { designRegion } from './pure/provenance-chain.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -184,8 +185,12 @@ export function handleGenerateTraceability(args: GenerateTraceabilityArgs): Tool
   const designContent = readFileSync(args.designFile, 'utf-8') as string;
   const planContent = readFileSync(args.planFile, 'utf-8') as string;
 
-  // 3. Extract design sections
-  const sections = extractDesignSections(designContent);
+  // 3. Extract design sections from the design REGION only (#1581 DR-6 task
+  // 012): when design and plan are one unified artifact, scoping to the region
+  // before the decomposition keeps `### Task` / `## Decomposition` headers out
+  // of the design-section column. Plan tasks are still read from the FULL plan
+  // content below.
+  const sections = extractDesignSections(designRegion(designContent));
   if (sections.length === 0) {
     return {
       success: false,

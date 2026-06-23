@@ -65,11 +65,6 @@ import {
 } from './delegation-readiness-view.js';
 import type { DelegationReadinessState } from './delegation-readiness-view.js';
 import {
-  ideateReadinessProjection,
-  IDEATE_READINESS_VIEW,
-} from './ideate-readiness-view.js';
-import type { IdeateReadinessState } from './ideate-readiness-view.js';
-import {
   synthesisReadinessProjection,
   SYNTHESIS_READINESS_VIEW,
 } from './synthesis-readiness-view.js';
@@ -111,7 +106,6 @@ function createMaterializer(stateDir: string): ViewMaterializer {
   materializer.register(EVAL_RESULTS_VIEW, evalResultsProjection);
   materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
   materializer.register(DELEGATION_READINESS_VIEW, delegationReadinessProjection);
-  materializer.register(IDEATE_READINESS_VIEW, ideateReadinessProjection);
   materializer.register(SYNTHESIS_READINESS_VIEW, synthesisReadinessProjection);
   materializer.register(SHEPHERD_STATUS_VIEW, shepherdStatusProjection);
   materializer.register(PROVENANCE_VIEW, provenanceProjection);
@@ -1368,37 +1362,6 @@ export async function handleViewConvergence(
         };
       }
     }
-
-    return { success: true, data: view };
-  } catch (err) {
-    return {
-      success: false,
-      error: {
-        code: 'VIEW_ERROR',
-        message: err instanceof Error ? err.message : String(err),
-      },
-    };
-  }
-}
-
-// ─── View Ideate Readiness Handler ────────────────────────────────────────
-
-export async function handleViewIdeateReadiness(
-  args: { workflowId?: string },
-  stateDir: string,
-  eventStore: EventStore,
-): Promise<ToolResult> {
-  try {
-    const store = eventStore;
-    const materializer = getOrCreateMaterializer(stateDir);
-    const streamId = args.workflowId ?? 'default';
-
-    const events = await queryDeltaEvents(store, materializer, streamId, IDEATE_READINESS_VIEW);
-    const view = materializer.materialize<IdeateReadinessState>(
-      streamId,
-      IDEATE_READINESS_VIEW,
-      events,
-    );
 
     return { success: true, data: view };
   } catch (err) {
