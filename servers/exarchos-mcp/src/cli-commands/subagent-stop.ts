@@ -22,6 +22,25 @@
 // silently to `{ continue: true }`. INV-4: token capture is a Claude-Code-specific
 // seam; runtimes without this hook simply produce no atoms and the views fold
 // what exists (empty per-teammate metrics, never an error).
+//
+// ─── KNOWN COVERAGE GAP — Agent-tool native isolation (#1572 Gap 2) ──────────
+// Attribution resolves the teammate by matching the subagent `cwd` to a
+// `worktreePath` the orchestrator emitted on `team.teammate.dispatched` /
+// `team.task.assigned` BEFORE the agent ran. That only works when the
+// orchestrator OWNS the worktree path — i.e. Exarchos's own agent-team worktree
+// dispatch. It does NOT work for Claude-Code Agent-tool (`Task`) native
+// isolation: the harness assigns each agent an opaque, post-hoc
+// `.claude/worktrees/agent-<id>` cwd the orchestrator cannot pre-declare, and
+// commonly emits a plain `task.assigned` (not the `team.*` variant this hook
+// scans). The hook then fires and fail-opens to no-atom (empirically: 9
+// Agent-tool dispatches on `v2-11-preview2-bundle` produced 0 atoms while the
+// harness metered ~1.04M subagent output tokens). This is a HARNESS limitation,
+// not a defect here — the orchestrator has neither the cwd nor the agent_id
+// ahead of time, so a non-cwd (`agent_id`) attribution path cannot serve that
+// dispatch mode either. **Live token capture therefore requires Exarchos
+// agent-team worktree dispatch.** A future option (not built) is a post-hoc
+// `subagent.tokens_unattributed` record reconciled to a feature stream by a
+// later step. See #1561 (live proof) / #1572 (gaps).
 
 import { z } from 'zod';
 import type { CommandResult } from './types.js';
