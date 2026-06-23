@@ -1016,4 +1016,210 @@ describe('handleAssessStack', () => {
       expect(bodies).toContain('explodes');
     });
   });
+
+  // ─── Unified PR-Feedback Feed (DR-7, #1592 task 012) ──────────────────────
+  // assess_stack consumes the widened, aggregated PrComment[] generically:
+  // every source (issue-comment | review-inline | review-summary) and threaded
+  // replies flow through the same harvest path with no source/workflowType
+  // branch (INV-6). Tri-state `resolved` is honored: only resolved === true is
+  // filtered out; absent (unknown) stays surfaced (absent ≠ false).
+
+  describe('unified PR-feedback feed consumption', () => {
+    it('AssessStack_InlineReviewComment_BecomesActionItem', async () => {
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: [
+          {
+            id: 1,
+            author: 'alice',
+            body: 'This branch is unreachable',
+            createdAt: '2026-01-01T00:00:00Z',
+            source: 'review-inline',
+            path: 'src/handler.ts',
+            line: 88,
+            // resolved absent → unknown → surfaced
+          },
+        ],
+      });
+
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        mockEventStore,
+        provider,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        actionItems: Array<{ type: string; pr: number; file?: string; line?: number }>;
+      };
+      const commentReply = data.actionItems.find((i) => i.type === 'comment-reply');
+      expect(commentReply).toBeDefined();
+      expect(commentReply?.pr).toBe(42);
+      expect(commentReply?.file).toBe('src/handler.ts');
+      expect(commentReply?.line).toBe(88);
+    });
+
+    it('AssessStack_ThreadedReply_Surfaced', async () => {
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: [
+          {
+            id: 2,
+            author: 'bob',
+            body: 'Replying to the earlier thread — still not addressed',
+            createdAt: '2026-01-01T00:00:00Z',
+            source: 'review-inline',
+            path: 'src/handler.ts',
+            line: 88,
+            parentId: 1, // a reply — must NOT be dropped
+            // resolved absent → unknown → surfaced
+          },
+        ],
+      });
+
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        mockEventStore,
+        provider,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        actionItems: Array<{ type: string; pr: number }>;
+        status: { prs: Array<{ unresolvedComments: Array<{ parentId?: number }> }> };
+      };
+      const commentReply = data.actionItems.find((i) => i.type === 'comment-reply');
+      expect(commentReply).toBeDefined();
+      // Threading is carried through for observability without branching.
+      expect(data.status.prs[0].unresolvedComments[0].parentId).toBe(1);
+    });
+
+    it('AssessStack_ReviewSummaryBody_Surfaced', async () => {
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: [
+          {
+            id: 3,
+            author: 'carol',
+            body: 'Overall this needs another pass on error handling.',
+            createdAt: '2026-01-01T00:00:00Z',
+            source: 'review-summary',
+            state: 'COMMENTED',
+            // resolved absent → unknown → surfaced
+          },
+        ],
+      });
+
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        mockEventStore,
+        provider,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        actionItems: Array<{ type: string }>;
+        status: { prs: Array<{ unresolvedComments: Array<{ source?: string }> }> };
+      };
+      const commentReply = data.actionItems.find((i) => i.type === 'comment-reply');
+      expect(commentReply).toBeDefined();
+      expect(data.status.prs[0].unresolvedComments[0].source).toBe('review-summary');
+    });
+
+    it('AssessStack_ResolvedComment_NotSurfaced', async () => {
+      // Pins absent ≠ resolved: an explicitly-resolved comment is excluded from
+      // comment-reply action items, while an absent-`resolved` comment is kept.
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: [
+          {
+            id: 10,
+            author: 'alice',
+            body: 'Resolved thread — already handled',
+            createdAt: '2026-01-01T00:00:00Z',
+            source: 'review-inline',
+            path: 'src/a.ts',
+            line: 1,
+            resolved: true, // explicitly resolved → filtered out
+          },
+          {
+            id: 11,
+            author: 'bob',
+            body: 'Unknown-resolution thread — still needs attention',
+            createdAt: '2026-01-01T00:00:00Z',
+            source: 'review-inline',
+            path: 'src/b.ts',
+            line: 2,
+            // resolved absent → unknown → surfaced
+          },
+        ],
+      });
+
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        mockEventStore,
+        provider,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        actionItems: Array<{ type: string; file?: string }>;
+        status: { prs: Array<{ unresolvedComments: Array<{ body: string }> }> };
+      };
+      const commentReplies = data.actionItems.filter((i) => i.type === 'comment-reply');
+      // Only the absent-resolved comment is surfaced as an action item.
+      expect(commentReplies).toHaveLength(1);
+      expect(commentReplies[0].file).toBe('src/b.ts');
+
+      const surfacedBodies = data.status.prs[0].unresolvedComments.map((c) => c.body);
+      expect(surfacedBodies).toContain('Unknown-resolution thread — still needs attention');
+      expect(surfacedBodies).not.toContain('Resolved thread — already handled');
+    });
+
+    it('AssessStack_HarvestLoop_NoWorkflowTypeBranch', async () => {
+      // INV-6: the harvest path must consume comments generically — no
+      // source-specific or workflowType-specific branch. Two assertions:
+      //  (1) the assess-stack source carries no `workflowType` token at all;
+      //  (2) behavior is identical regardless of comment `source` — every
+      //      surface yields a comment-reply action item via the same path.
+      const fs = await import('node:fs');
+      const path = await import('node:url');
+      const srcPath = path.fileURLToPath(new URL('./assess-stack.ts', import.meta.url));
+      const src = fs.readFileSync(srcPath, 'utf8');
+      expect(src).not.toMatch(/workflowType/);
+
+      const mkProvider = (source: PrComment['source']): VcsProvider =>
+        createMockProvider({
+          checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+          prComments: [
+            {
+              id: 1,
+              author: 'alice',
+              body: 'needs attention',
+              createdAt: '2026-01-01T00:00:00Z',
+              source,
+              ...(source === 'review-inline' ? { path: 'src/x.ts', line: 3 } : {}),
+            },
+          ],
+        });
+
+      const sources: PrComment['source'][] = ['issue-comment', 'review-inline', 'review-summary'];
+      for (const source of sources) {
+        const result = await handleAssessStack(
+          { featureId: 'test-feature', prNumbers: [42] },
+          STATE_DIR,
+          mockEventStore,
+          mkProvider(source),
+        );
+        expect(result.success).toBe(true);
+        const data = result.data as { actionItems: Array<{ type: string }> };
+        const commentReplies = data.actionItems.filter((i) => i.type === 'comment-reply');
+        expect(commentReplies).toHaveLength(1);
+      }
+    });
+  });
 });

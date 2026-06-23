@@ -40,6 +40,12 @@ interface PrComment {
   readonly fullBody: string;   // untruncated; consumed by review provider adapters (#1159)
   readonly isResolved: boolean;
   readonly actionItem?: ActionItem;  // populated by provider adapter dispatch (#1159)
+  // Observability only — carried through from the unified PR-feedback feed so
+  // callers can see which surface a comment came from and whether it threads a
+  // reply. NOT a dispatch branch: the harvest loop treats every source the same
+  // (INV-6). `source`/`parentId` are absent only when the provider omits them.
+  readonly source?: VcsPrComment['source'];
+  readonly parentId?: number;
 }
 
 import type { Severity, ReviewerKind, ActionItem, ReviewAdapterRegistry } from '../review/types.js';
@@ -122,8 +128,13 @@ async function queryPrComments(
 ): Promise<PrComment[]> {
   try {
     const comments: VcsPrComment[] = await provider.getPrComments(String(prNumber));
-    // All comments from VcsProvider are treated as unresolved
-    // (GitHub API doesn't provide isResolved for review comments)
+    // `getPrComments` now returns the unified, aggregated PR-feedback feed
+    // (issue-comment | review-inline | review-summary, with one-level threading)
+    // and a tri-state `resolved`. The github provider enriches review threads via
+    // GraphQL; other surfaces leave `resolved` absent. We honor that tri-state
+    // below: ONLY `resolved === true` is treated as resolved. Absent = unknown,
+    // and an unknown-resolution comment still needs attention, so it stays
+    // surfaced (absent ≠ false).
     const results: PrComment[] = [];
     for (const c of comments) {
       const kind = detectKind(c.author);
@@ -168,8 +179,12 @@ async function queryPrComments(
       results.push({
         body: truncateBody(c.body),
         fullBody: c.body,
-        isResolved: false,
+        // Tri-state gate: resolved ONLY when the provider explicitly says so.
+        // `resolved === false` and absent/unknown both stay unresolved.
+        isResolved: c.resolved === true,
         actionItem,
+        source: c.source,
+        ...(c.parentId !== undefined ? { parentId: c.parentId } : {}),
       });
     }
     return results;
