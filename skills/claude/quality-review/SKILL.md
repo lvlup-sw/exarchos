@@ -199,7 +199,10 @@ If HIGH-priority issues found:
 3. Re-review quality after fixes
 4. Only mark APPROVED when all HIGH items resolved and tests pass
 
-**Fix loop iteration limit: max 3.** If HIGH-priority issues persist after 3 fix-review cycles, pause and escalate to the user with a summary of unresolved issues. The user can override: `/exarchos:review --max-fix-iterations 5`
+The fix loop is **bounded by the shared escalation policy (DR-3)** — the same bound the spec-review and shepherd loops use, not an ad-hoc quality-review limit. The default is **5**, config-resolvable via `escalation.maxIterations` in `.exarchos.yml`, with a per-loop override still available: `/exarchos:review --max-fix-iterations <n>`. `check_review_verdict` reads the event-sourced fix-cycle count and returns the escalate decision the loop MUST honor (`escalate: true` + `escalationReason`).
+
+- **Auto-fix (under the bound, MECHANICAL findings)** — `escalate` is absent/falsy. Mechanical style/quality findings (SOLID, DRY, naming, complexity) re-dispatch to the implementer and re-review, as above.
+- **Escalate to the user (ask-user)** — `escalate: true`. Pause and ask the user how to proceed, with a summary of unresolved issues, when EITHER the auto-fix bound (`escalation.maxIterations`, default 5) is reached without converging, OR a finding is **intent-touching** — one that changes what was asked for (e.g. API-contract break, spec regression) so a human decides rather than the loop silently "fixing" it. Intent-touching findings escalate immediately, regardless of how many cycles have run.
 
 ### Post-Fix Spec Compliance Check (MANDATORY after fix cycle)
 
