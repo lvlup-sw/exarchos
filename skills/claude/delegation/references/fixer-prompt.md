@@ -55,8 +55,8 @@ After implementing the fix:
    tests pass.
 
 2. **If this fix requires a new test:**
-   - Write test FIRST (TDD)
-   - Verify it fails for the expected reason
+   - Add a focused test covering the fix (test-after is fine)
+   - Verify it can fail for the expected reason
    - Implement fix
    - Verify test passes
 

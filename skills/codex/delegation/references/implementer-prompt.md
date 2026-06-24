@@ -54,7 +54,7 @@ This check prevents accidental modifications to the main project root, which wou
 
 ## CRITICAL: Base Verification (MANDATORY)
 
-Before making ANY file changes, verify your worktree is based on the **integration tip**, not a stale `main`. On native-isolation runtimes the worktree base depends on `worktree.baseRef` (see the delegation skill); this assert is the version-independent safety net that halts loud if the base is wrong — so you never build on a base missing prerequisite in-branch commits (issues #1509 / #1501).
+Before making ANY file changes, verify your worktree is based on the **integration tip**, not a stale `main`. On native-isolation runtimes the worktree base depends on `worktree.baseRef` (see the delegation skill); this assert is the version-independent safety net that halts loud if the base is wrong — so you never build on a base missing prerequisite in-branch commits.
 
 ```bash
 git merge-base --is-ancestor "[integration-tip]" HEAD \
@@ -69,7 +69,7 @@ git merge-base --is-ancestor "[integration-tip]" HEAD \
 
 ## Files to Modify
 
-> Paths are **relative to your worktree** (the Working Directory above). Never an absolute parent-repo path — see Key Principle #3 (#1301).
+> Paths are **relative to your worktree** (the Working Directory above). Never an absolute parent-repo path — see Key Principle #3.
 
 ### Create/Modify:
 - `[path/to/file.ts]` - [Brief description of changes]
@@ -98,7 +98,7 @@ Low blast-radius task: lean on static analysis (typecheck + lint). No test-first
 
 ### [TIER: medium | high] — verification ladder (full block)
 
-Cover the new/changed behavior with focused tests, judged by OUTCOME not by commit order — test-after is fine; the failing-test-first ordering ceremony is not required (#1587):
+Cover the new/changed behavior with focused tests, judged by OUTCOME not by commit order — test-after is fine; the failing-test-first ordering ceremony is not required:
 
 1. Implement the behavior for this task.
 2. Add scoped tests named `[MethodName]_[Scenario]_[ExpectedOutcome]` that exercise it; run the project test command (from `.exarchos.yml`, e.g. `cargo test` / `pytest` / `dotnet test` / `npm run test:run`) and confirm they pass.
@@ -168,8 +168,8 @@ describe('[ComponentName]', () => {
 
 ## Success Criteria
 
-- [ ] Test written BEFORE implementation
-- [ ] Test fails for the right reason
+- [ ] Behavior covered by adequate tests (test-after is fine — no failing-test-first ceremony required)
+- [ ] Tests can actually fail for the right reason (the test-adequacy kill-probe verifies this)
 - [ ] Implementation passes test
 - [ ] No extra code beyond requirements
 - [ ] All tests in worktree pass
@@ -347,7 +347,7 @@ This check prevents accidental modifications to the main project root, which wou
 
 ## CRITICAL: Base Verification (MANDATORY) (Example)
 
-Before making ANY file changes, verify your worktree is based on the **integration tip**, not a stale `main` (issues #1509 / #1501):
+Before making ANY file changes, verify your worktree is based on the **integration tip**, not a stale `main`:
 
 ```bash
 git merge-base --is-ancestor "feat/registration" HEAD \
@@ -429,7 +429,7 @@ describe('validateEmail', () => {
 
 1. **Full Context** - Include everything the implementer needs
 2. **No File References** - Don't say "see plan.md" - paste content
-3. **Worktree-relative file paths** - Give an **absolute** path for the *working directory* (the `cd` target) only. Every file to read/edit/write must be a **path relative to that worktree** (e.g. `src/foo.ts`), **never** an absolute path into the parent/main repo. An `Edit`/`Write` resolves an absolute path literally and **ignores the agent's worktree cwd**, so an absolute parent-repo path silently writes into the orchestrator's main worktree (#1301). On Claude this is now enforced by a PreToolUse boundary hook that denies out-of-worktree writes; emitting relative paths keeps every runtime on the safe path.
+3. **Worktree-relative file paths** - Give an **absolute** path for the *working directory* (the `cd` target) only. Every file to read/edit/write must be a **path relative to that worktree** (e.g. `src/foo.ts`), **never** an absolute path into the parent/main repo. An `Edit`/`Write` resolves an absolute path literally and **ignores the agent's worktree cwd**, so an absolute parent-repo path silently writes into the orchestrator's main worktree. On Claude this is now enforced by a PreToolUse boundary hook that denies out-of-worktree writes; emitting relative paths keeps every runtime on the safe path.
 4. **Verification scaled to risk** - Include the tier-appropriate verification block (the ladder), not blanket TDD
 5. **Git-First** - Standard git commit + push. PR creation handled by synthesis phase.
 6. **Clear Success Criteria** - Checkboxes for completion

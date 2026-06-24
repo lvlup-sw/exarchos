@@ -61,7 +61,7 @@ Call `exarchos_workflow({ action: "describe", playbook: "refactor" })` for the `
 **Orchestrator may write code directly** (polish track exception).
 
 Constraints:
-- Follow TDD (write/update test first if behavior changes)
+- Add/update adequate tests if behavior changes (test-after is fine)
 - Commit after each logical change
 - Stop if scope expands beyond brief
 

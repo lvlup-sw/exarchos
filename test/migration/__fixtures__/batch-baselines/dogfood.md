@@ -92,7 +92,7 @@ Use `exarchos_view telemetry` for per-tool performance. Flag: high error rates (
 
 #### 1h. Friction Back-Channel (`feedback.recorded`)
 
-Use `exarchos_event query(stream: "meta/feedback")` to read recent friction reports filed via `exarchos_workflow feedback` (#1319). These are **agent-surfaced findings captured in real time** — an agent hit a painful affordance and flagged it during the failing call instead of retrying silently. Treat each report as a pre-seeded finding:
+Use `exarchos_event query(stream: "meta/feedback")` to read recent friction reports filed via `exarchos_workflow feedback`. These are **agent-surfaced findings captured in real time** — an agent hit a painful affordance and flagged it during the failing call instead of retrying silently. Treat each report as a pre-seeded finding:
 
 - **`message`** — the agent's own account of the friction. Carry it into Step 3 as the "what went wrong" rather than reconstructing it from the transcript.
 - **`sessionContext`** (`workflow` / `action` / `errorCode`) — correlate the report to the workflow + action it occurred in. Cross-reference with the event log (1d) and telemetry (1g) for corroborating server-side evidence.

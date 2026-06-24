@@ -13,7 +13,7 @@ metadata:
 
 ## Overview
 
-Author the `## Decomposition` section of the **one unified `docs/specs/` artifact** — granular, parallelizable tasks tracing to the `DR-N` requirements in the **same** document's `## Design & Rationale` section. There is no second file: traceability resolves within one doc (#1581). Ensures complete coverage through explicit, internal traceability. The artifact shape is owned by `references/spec-template.md` — author against it.
+Author the `## Decomposition` section of the **one unified `docs/specs/` artifact** — granular, parallelizable tasks tracing to the `DR-N` requirements in the **same** document's `## Design & Rationale` section. There is no second file: traceability resolves within one doc. Ensures complete coverage through explicit, internal traceability. The artifact shape is owned by `references/spec-template.md` — author against it.
 
 For a complete worked example, see `references/worked-example.md`.
 
@@ -45,7 +45,7 @@ After 3 failed revisions:
 
 ## The Verification Ladder
 
-Verification depth matches blast radius. The deeper rungs add tests, an adequacy kill-probe, and integration coverage — judged by **outcome, test-after**, not by a universal failing-test-first law (#1587). Each task gets the cheapest verification that still captures its risk:
+Verification depth matches blast radius. The deeper rungs add tests, an adequacy kill-probe, and integration coverage — judged by **outcome, test-after**, not by a universal failing-test-first law. Each task gets the cheapest verification that still captures its risk:
 
 | Risk tier | What it adds | Why |
 |-----------|--------------|-----|
@@ -60,7 +60,7 @@ For a **high-tier** task, the discipline is **outcome-based** (write the behavio
 2. Let the `check_test_adequacy` kill-probe prove the tests can actually fail (it reverts your source and asserts at least one test goes red)
 3. Add real-collaborator integration coverage across the seam
 
-**Verify high-tier test adequacy** after implementation — the keeper gate (the test-FIRST ordering gate `check_tdd_compliance` was retired in #1587):
+**Verify high-tier test adequacy** after implementation — the keeper gate (the test-FIRST ordering gate `check_tdd_compliance` was retired):
 
 ```typescript
 exarchos_orchestrate({
@@ -92,7 +92,7 @@ Read the unified spec's `## Design & Rationale` section thoroughly (if `/ideate`
 Create a traceability matrix mapping `DR-N` requirements to planned tasks **within the unified document**.
 Consult `references/spec-tracing-guide.md` for the methodology and template.
 
-**Pre-populate the matrix** using the traceability generator — pass the unified `docs/specs/` artifact as **both** `designFile` and `planFile` (DR-N is parsed from its `## Design & Rationale` region, tasks from its `## Decomposition` region — one file, #1581 task 012):
+**Pre-populate the matrix** using the traceability generator — pass the unified `docs/specs/` artifact as **both** `designFile` and `planFile` (DR-N is parsed from its `## Design & Rationale` region, tasks from its `## Decomposition` region — one file):
 
 ```typescript
 exarchos_orchestrate({
@@ -131,13 +131,13 @@ Analyze dependencies to find sequential chains and parallel-safe groups that can
 
 Write the `## Decomposition` section into the unified spec at `docs/specs/YYYY-MM-DD-<feature>.md`, using `references/spec-template.md`. Its `## Decomposition` carries the task breakdown, with traceability resolved **within this single document** against the `## Design & Rationale` DR-N source above it.
 
-> The legacy two-file split (`references/plan-document-template.md` → `docs/plans/`) is retained only for in-flight workflows already on the old path (#1581 DR-9); new features author the one `docs/specs/` artifact.
+> The legacy two-file split (`references/plan-document-template.md` → `docs/plans/`) is retained only for in-flight workflows already on the old path; new features author the one `docs/specs/` artifact.
 
 ### Step 5: Plan Verification
 
-Run deterministic verification scripts instead of manual checklist review. Each takes the **unified `docs/specs/` artifact** as both `designPath` and `planPath` — the handlers parse DR-N from its design region and tasks from its decomposition region (#1581 task 012).
+Run deterministic verification scripts instead of manual checklist review. Each takes the **unified `docs/specs/` artifact** as both `designPath` and `planPath` — the handlers parse DR-N from its design region and tasks from its decomposition region.
 
-**5a. Coverage** — verify every Design & Rationale requirement maps to a task (the folded design-completeness acceptance-criteria check rides here now — DR-6, task 011):
+**5a. Coverage** — verify every Design & Rationale requirement maps to a task (the folded design-completeness acceptance-criteria check rides here now):
 
 ```typescript
 exarchos_orchestrate({

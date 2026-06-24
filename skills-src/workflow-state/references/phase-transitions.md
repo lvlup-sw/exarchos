@@ -31,25 +31,30 @@ Available from **any non-final** phase in all workflow types:
 
 ## Feature Workflow
 
+`plan` is the initial phase — the Design & Rationale and the Decomposition are both authored in the one `plan` phase (there is no separate design phase).
+
 ```
-ideate → plan → plan-review → delegate ⇄ review → synthesize → completed
-                     ↓
-                    plan (gaps found)
+plan → plan-review → delegate ⇄ review → synthesize → completed
+ ▲          │  ↘          ⇅                  │
+ └─ gaps ───┘   blocked   merge-pending      └─ retryable ─→ delegate
 ```
 
 | From | To | Guard | Prerequisite |
 |------|----|-------|-------------|
-| `ideate` | `plan` | `design-artifact-exists` | Set `artifacts.design` |
-| `plan` | `plan-review` | `plan-artifact-exists` | Set `artifacts.plan` |
+| `plan` (initial) | `plan-review` | `plan-artifact-exists` | Set `artifacts.plan` |
 | `plan-review` | `delegate` | `plan-review-complete` | Set `planReview.approved = true` |
 | `plan-review` | `plan` | `plan-review-gaps-found` | Set `planReview.gapsFound = true` |
-| `delegate` | `review` | `all-tasks-complete` | All `tasks[].status = "complete"` |
+| `plan-review` | `blocked` | `revisions-exhausted` | Plan-review revision budget exhausted |
+| `delegate` | `review` | `all-tasks-complete` + `team-disbanded` | All `tasks[].status = "complete"` and the team disbanded |
+| `delegate` | `merge-pending` | `merge-pending-entry` | A worktree task completed and an autonomous merge is required |
+| `merge-pending` | `delegate` | `merge-pending-exit` | `merge.executed` / `merge.rollback` / `merge.aborted` observed |
 | `review` | `synthesize` | `all-reviews-passed` | All `reviews.{name}.status` in `["pass", "passed", "approved"]` |
 | `review` | `delegate` | `any-review-failed` | Any `reviews.{name}.status` in `["fail", "failed", "needs_fixes"]` (fix cycle) |
+| `synthesize` | `delegate` | `synthesize-retryable` | Synthesis is retryable (e.g. a transient failure) |
 | `synthesize` | `completed` | `pr-url-exists` | Set `synthesis.prUrl` or `artifacts.pr` |
 | `blocked` | `delegate` | `human-unblocked` | Set `unblocked = true` |
 
-**Compound state:** `implementation` contains `delegate` and `review`. Max 3 fix cycles before circuit breaker opens.
+**Compound state:** `implementation` contains `delegate`, `review`, and `merge-pending`. Max 3 fix cycles on the delegate↔review loop before the circuit breaker opens.
 
 ## Debug Workflow
 

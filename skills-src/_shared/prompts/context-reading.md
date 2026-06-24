@@ -46,13 +46,13 @@ exarchos_orchestrate({
 
 If you need design context:
 
-**Get design path from state:**
+**Get the spec path from state:**
 
 ```
-action: "get", featureId: "<feature-id>", query: ".artifacts.design"
+action: "get", featureId: "<feature-id>", query: ".artifacts.spec"
 ```
 
-Then read the design file:
+Then read the unified spec file:
 
 ```bash
 Read({ file_path: "<design-path>" })

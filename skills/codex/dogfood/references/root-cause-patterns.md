@@ -19,7 +19,7 @@ Each pattern includes a **Debug trace check** showing which MCP self-service que
 
 **Debug trace check:** Use `exarchos_workflow describe(actions: ['update'])` or `exarchos_event describe(eventTypes: ['...'])` to get the authoritative JSON Schema. Compare the rejected field's type/constraints against the schema output. If the schema is stricter than the domain allows, it's a code bug.
 
-**Historical:** #876 (null branch), #941 (completed vs complete)
+**Examples:** null branch; completed-vs-complete
 
 ### Stale Cache / Sequence Divergence
 **Symptom:** CAS retry loop exhaustion, `CLAIM_FAILED`, `SEQUENCE_CONFLICT` with no concurrent writers.
@@ -31,7 +31,7 @@ Each pattern includes a **Debug trace check** showing which MCP self-service que
 
 **Debug trace check:** Use `exarchos_event query(stream)` to count events and compare against the sequence number in the error. Use `exarchos_view telemetry` to check if there are concurrent tool invocations. A mismatch with no interleaved writers confirms stale cache.
 
-**Historical:** #939 (stale .seq cache)
+**Examples:** stale .seq cache
 
 ### Gate Over-Enforcement
 **Symptom:** Workflow blocked by a gate that doesn't apply to the current task type.
@@ -43,7 +43,7 @@ Each pattern includes a **Debug trace check** showing which MCP self-service que
 
 **Debug trace check:** Use `exarchos_orchestrate describe(actions: ['check_test_adequacy'])` to inspect gate metadata (blocking, dimension). Use `exarchos_view convergence` to see if this gate is systematically failing. Use `exarchos_workflow get` to check task metadata that should trigger exemptions.
 
-**Historical:** #940 (TDD gate on docs-only tasks)
+**Examples:** TDD gate on docs-only tasks
 
 ### Silent State Corruption
 **Symptom:** Debug trace reveals workflow state that doesn't match the event log. Only visible via server-side inspection — the conversation shows no errors.
@@ -92,7 +92,7 @@ Each pattern includes a **Debug trace check** showing which MCP self-service que
 
 **Debug trace check:** Use `exarchos_orchestrate describe(actions: ['<action>'])` or `exarchos_event describe(eventTypes: ['<type>'])` to get the authoritative schema. Diff field names, types, and required status against what skill docs prescribe. Any mismatch is schema-doc drift.
 
-**Historical:** #964 (shepherd event payloads)
+**Examples:** shepherd event payloads
 
 ### Unknown Valid Values
 **Symptom:** Agent guesses enum values and fails with `invalid_enum_value`.
@@ -104,7 +104,7 @@ Each pattern includes a **Debug trace check** showing which MCP self-service que
 
 **Debug trace check:** Use `exarchos_event describe(emissionGuide: true)` to get the full event type catalog organized by emission source (auto/model/hook/planned). Cross-reference against what skill docs list. Missing types in the skill docs = documentation gap.
 
-**Historical:** #741 (unknown event types)
+**Examples:** unknown event types
 
 ### Path Resolution
 **Symptom:** `ENOENT` errors when scripts are invoked via documented paths.
@@ -116,7 +116,7 @@ Each pattern includes a **Debug trace check** showing which MCP self-service que
 
 **Debug trace check:** Use `exarchos_orchestrate describe(actions: ['<action>'])` to verify what the server expects for script paths. If the describe output shows a different path convention than skill docs, the docs need updating.
 
-**Historical:** #942 (scripts/ relative to CWD)
+**Examples:** scripts/ relative to CWD
 
 ### Playbook-Skill Divergence
 **Symptom:** Playbook prescribes tools, events, or transition criteria that differ from what the skill docs instruct. Agent follows skill docs and fails; playbook had the correct answer.
@@ -152,7 +152,7 @@ Each pattern includes a **Debug trace check** showing which MCP self-service que
 
 **Debug trace check:** Use `exarchos_event query(stream)` and filter by phase. An empty or sparse event log for a phase that should have activity indicates the agent was never told to emit events. Cross-reference with `describe(playbook)` to see what the playbook prescribes.
 
-**Historical:** #739 (no exarchos tools during delegation), #740 (no events), #907 (PR template)
+**Examples:** no exarchos tools during delegation; no events; PR template
 
 ### Describe-Doc Divergence
 **Symptom:** Debug trace reveals that MCP `describe` responses contain information that contradicts or supersedes what skill docs say.
@@ -214,7 +214,7 @@ Each pattern includes a **Debug trace check** showing which MCP self-service que
 
 **Debug trace check:** Use `exarchos_workflow get` to see actual state. If the agent's assumptions diverge from server state after compaction, and the skill instructs re-orientation via `exarchos_workflow get` or `exarchos_view pipeline`, the agent should have re-checked.
 
-**Historical:** #738 (lost teammates after compaction)
+**Examples:** lost teammates after compaction
 
 ---
 

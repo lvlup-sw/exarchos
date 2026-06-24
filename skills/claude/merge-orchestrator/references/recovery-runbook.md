@@ -37,7 +37,7 @@ After resolving the underlying condition, re-invoke `merge_orchestrate` with the
 
 ## `phase: 'rolled-back'` — merge attempted, recovered
 
-> The phase value is still `rolled-back` — a load-bearing state token intentionally unchanged by the #1306 recovery reframe. The *behavior* it describes is recovery to the recorded recovery point.
+> The phase value is still `rolled-back` — a load-bearing state token intentionally unchanged by the recovery reframe. The *behavior* it describes is recovery to the recorded recovery point.
 
 The executor recorded the recovery point, attempted the merge, the merge or post-merge verification failed, and the INV-14 recovery ladder (`git merge --abort` → `git reset --keep <recoveryPointSha>`, never `--hard`) ran. The integration branch is rewound to its pre-merge state.
 
@@ -67,7 +67,7 @@ git checkout <integration-branch>
 git reset --keep <recoveryPointSha-from-the-event-log>
 
 # Where <recoveryPointSha-from-the-event-log> can be retrieved from the most
-# recent recovery event. Prefer the canonical merge.recovered (#1306), which
+# recent recovery event. Prefer the canonical merge.recovered, which
 # carries recoveryPointSha; fall back to the legacy merge.rollback, whose
 # rollbackSha wire field holds the same value during the deprecation window:
 exarchos_event query stream=<featureId> filter='{"type":"merge.recovered"}'
@@ -87,7 +87,7 @@ For merge conflicts (most common cause of `merge-failed`):
 3. Resolve conflicts manually
 4. `git add` the resolved files
 5. `git commit` to complete the merge
-6. **Do not** re-dispatch `merge_orchestrate` — the merge is now done manually. Follow the repository's event-first commit-point invariant (#1109 §1): emit the `merge.executed` event FIRST, then update `mergeOrchestrator.phase` to `completed` via `mcp__plugin_exarchos_exarchos__exarchos_workflow update`. Reversing the order risks a state-file/event-stream divergence if the event append fails after the state write.
+6. **Do not** re-dispatch `merge_orchestrate` — the merge is now done manually. Follow the repository's event-first commit-point invariant: emit the `merge.executed` event FIRST, then update `mergeOrchestrator.phase` to `completed` via `mcp__plugin_exarchos_exarchos__exarchos_workflow update`. Reversing the order risks a state-file/event-stream divergence if the event append fails after the state write.
 
 ```typescript
 // Event first — the repository treats event append as the commit point.
@@ -109,7 +109,7 @@ mcp__plugin_exarchos_exarchos__exarchos_event({ action: "append", stream: "<feat
 
 // Then update workflow state to reflect the terminal phase.
 // The mergeOrchestrator STATE field is `recoveryPointSha` (renamed from
-// `rollbackSha` in #1306 — the state file follows the canonical recovery frame
+// `rollbackSha` — the state file follows the canonical recovery frame
 // even while the legacy event wire field above does not yet).
 mcp__plugin_exarchos_exarchos__exarchos_workflow({ action: "update", featureId: "<featureId>",
   updates: { mergeOrchestrator: {

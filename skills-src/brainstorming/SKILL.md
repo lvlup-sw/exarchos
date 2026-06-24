@@ -13,7 +13,7 @@ metadata:
 
 ## Overview
 
-Collaborative design exploration for new features, architecture decisions, and complex problem-solving. In the collapsed flow (#1581), there is **no separate design phase** — `{{COMMAND_PREFIX}}ideate` authors the `## Design & Rationale` section of **one unified `docs/specs/` artifact**, then auto-chains to `{{COMMAND_PREFIX}}plan`, which adds the `## Decomposition` section to the **same** document. The single approval point is `plan-review` (a dispatched, fresh-context adversarial pass over the unified doc).
+Collaborative design exploration for new features, architecture decisions, and complex problem-solving. In the collapsed flow, there is **no separate design phase** — `{{COMMAND_PREFIX}}ideate` authors the `## Design & Rationale` section of **one unified `docs/specs/` artifact**, then auto-chains to `{{COMMAND_PREFIX}}plan`, which adds the `## Decomposition` section to the **same** document. The single approval point is `plan-review` (a dispatched, fresh-context adversarial pass over the unified doc).
 
 The artifact shape is owned by the unified spec template — author against it, do not restate it: see `@skills/implementation-planning/references/spec-template.md`.
 
@@ -110,7 +110,7 @@ This skill manages workflow state for context persistence.
 
 ### On Start (before Phase 1)
 
-Initialize workflow state using `{{MCP_PREFIX}}exarchos_workflow` with `action: "init"`, `workflowType: "feature"`, and the featureId. The feature workflow's **initial phase is `plan`** (#1581 collapsed the former `ideate`/GATHER phase into PLAN) — there is no phase to transition into here.
+Initialize workflow state using `{{MCP_PREFIX}}exarchos_workflow` with `action: "init"`, `workflowType: "feature"`, and the featureId. The feature workflow's **initial phase is `plan`** (the former ideate/GATHER phase was collapsed into PLAN) — there is no phase to transition into here.
 
 ### On Design-Section Save (after Phase 3)
 
@@ -140,7 +140,7 @@ for phase transitions, guards, and playbook guidance.
 
 ## Completion & Coverage
 
-There is **no separate design-completeness gate** in the collapsed flow — `check_design_completeness` is a deprecated alias (#1581 DR-6). The design section's acceptance-criteria coverage is validated as part of `check_plan_coverage` over the unified artifact, run by `{{COMMAND_PREFIX}}plan` once the `## Decomposition` section exists. Before chaining, confirm each `DR-N` carries acceptance criteria and at least one DR-N covers error handling / edge cases.
+There is **no separate design-completeness gate** in the collapsed flow — `check_design_completeness` is a deprecated alias. The design section's acceptance-criteria coverage is validated as part of `check_plan_coverage` over the unified artifact, run by `{{COMMAND_PREFIX}}plan` once the `## Decomposition` section exists. Before chaining, confirm each `DR-N` carries acceptance criteria and at least one DR-N covers error handling / edge cases.
 
 ## Transition
 

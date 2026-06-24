@@ -132,7 +132,8 @@ exarchos_orchestrate({
   featureId: "<featureId>",
   taskId: "<taskId>",
   branch: "<branch>",
-  riskTier: "<low|medium|high>"
+  riskTier: "<low|medium|high>",
+  phase: "review"
 })
 ```
 

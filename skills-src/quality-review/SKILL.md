@@ -126,9 +126,9 @@ If ANY task has `specReview.status !== "pass"`, STOP and return:
 { "verdict": "blocked", "summary": "Spec review not passed — run spec-review first" }
 ```
 
-### Step 0.5: Verify Review Triage (Conditional — run when delegation phase preceded this review)
+### Step 0.5: Verify Review Triage (Conditional — only when a delegation phase preceded this review)
 
-If this review follows a delegation phase, verify triage routing:
+Skip this step entirely for a standalone `/review` with no preceding delegation triage. When this review follows a delegation phase, verify triage routing:
 
 ```typescript
 exarchos_orchestrate({
@@ -168,7 +168,7 @@ Evaluate agent-generated tests against Kent Beck's Test Desiderata. Four propert
 
 Include Test Desiderata findings in the quality review report under a "Test Quality" section. **Output format:** Report Test Desiderata violations as entries in the `issues` array with `category: "test-quality"`.
 
-> **See also — mutation-adequacy (R5, #1520):** The dedicated `mutation-adequacy` review dimension scores whether the test suite actually kills injected mutants (the strongest signal that tests can fail for the right reason). It is a **separate required dimension** that gates the **HIGH risk tier only** at the `/review` boundary — see `@skills/mutation-adequacy/SKILL.md`. Do **not** run or score mutation testing in *this* skill; surviving-mutant analysis belongs to the `mutation-adequacy` dimension, whose action emits "write a test that kills `<file>:<line>`" follow-ups. Here, the closest in-scope proxy is the **Specific** Test Desiderata property above; medium/low-tier reviews (which do not require `mutation-adequacy`) rely on it plus the delegation-time `check_test_adequacy` gate.
+> **See also — mutation-adequacy:** The dedicated `mutation-adequacy` review dimension scores whether the test suite actually kills injected mutants (the strongest signal that tests can fail for the right reason). It is a **separate required dimension** that gates the **HIGH risk tier only** at the `/review` boundary — see `@skills/mutation-adequacy/SKILL.md`. Do **not** run or score mutation testing in *this* skill; surviving-mutant analysis belongs to the `mutation-adequacy` dimension, whose action emits "write a test that kills `<file>:<line>`" follow-ups. Here, the closest in-scope proxy is the **Specific** Test Desiderata property above; medium/low-tier reviews (which do not require `mutation-adequacy`) rely on it plus the delegation-time `check_test_adequacy` gate.
 
 ### Step 3: Generate Report
 

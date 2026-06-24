@@ -26,7 +26,7 @@ exarchos_orchestrate({
 })
 ```
 
-**Base-branch resolution (#1509 / #1501):** the feature branch is created from
+**Base-branch resolution:** the feature branch is created from
 the first available of `baseBranch` arg → `synthesis.integrationBranch` (from
 state) → current `HEAD` → `main`. On a stacked / non-`main` integration
 branch, omitting `featureId` AND running from outside the integration checkout

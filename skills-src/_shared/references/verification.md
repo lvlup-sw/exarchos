@@ -1,6 +1,6 @@
 # Verification Ladder
 
-Verification depth matches a task's **blast radius**. Pick the cheapest rung that still captures the risk — the deeper rungs add tests, an adequacy kill-probe, and integration coverage, all judged by **outcome (test-after)**, not by a failing-test-first ordering ceremony on every change (#1587).
+Verification depth matches a task's **blast radius**. Pick the cheapest rung that still captures the risk — the deeper rungs add tests, an adequacy kill-probe, and integration coverage, all judged by **outcome (test-after)**, not by a failing-test-first ordering ceremony on every change.
 
 ## The Ladder
 
@@ -16,7 +16,7 @@ The task's `riskTier` / `boundaryTouching` stamp comes from the planner (or the 
 
 ## High-Tier Discipline: Outcome-Based Adequacy (test-after)
 
-When a task is high-tier (or you have chosen to write a test for a medium-tier behavior), the discipline is **outcome-based**, not ordering-based. Write the behavior and its tests in whatever order is natural — test-after is fine — then let the gates judge whether the tests are adequate. The cost-effective guarantee is that your tests *can actually fail*, captured by the `check_test_adequacy` kill-probe rather than by mandating a failing test first (#1587).
+When a task is high-tier (or you have chosen to write a test for a medium-tier behavior), the discipline is **outcome-based**, not ordering-based. Write the behavior and its tests in whatever order is natural — test-after is fine — then let the gates judge whether the tests are adequate. The cost-effective guarantee is that your tests *can actually fail*, captured by the `check_test_adequacy` kill-probe rather than by mandating a failing test first.
 
 ### Cover the behavior
 1. Write scoped tests that exercise the new/changed behavior and pin its contract

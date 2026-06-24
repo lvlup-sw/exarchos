@@ -5,7 +5,7 @@ When invoked with `--fixes`, delegation handles review failures instead of initi
 ## Trigger
 
 ```bash
-/exarchos:delegate --fixes docs/plans/YYYY-MM-DD-feature.md
+/exarchos:delegate --fixes docs/specs/YYYY-MM-DD-feature.md
 ```
 
 Or auto-invoked after review failures.

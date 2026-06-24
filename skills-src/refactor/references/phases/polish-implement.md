@@ -94,7 +94,7 @@ action: "update", featureId: "refactor-<slug>", updates: {
 For each logical change:
 
 1. **Understand the change** - Read affected code
-2. **Update tests first** (if behavior changes) - TDD: red then green
+2. **Update tests** (if behavior changes) - test-after is fine; ensure they can fail
 3. **Make the change** - Minimal modification
 4. **Run tests** - Verify no regression
 5. **Commit** - Atomic commit for the change

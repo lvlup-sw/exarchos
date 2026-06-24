@@ -70,6 +70,7 @@ This action performs:
 - **Test verification** -- Runs `npm run test:run && npm run typecheck` from the stack top
 - **Benchmark regression** -- If `state.verification.hasBenchmarks` is true, checks for performance regressions
 - **Quality signals** -- Queries `code_quality` view for regressions and actionable hints
+- **Document readiness** -- Touched doc-surfaces must carry corresponding doc updates (auto-waives when no doc surface is touched)
 - **Gate events** -- Auto-emits `gate.executed` events for each check (tests, benchmarks, CodeRabbit)
 
 For the full breakdown of individual checks the composite action performs, see `references/synthesis-steps.md`.

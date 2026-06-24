@@ -53,7 +53,7 @@ Do **not** activate this skill:
 | `squash` | `git merge --squash <source>` then `git commit` — single squash commit on target | Subagent commit history is noise; one logical change should land as one commit. |
 | `rebase` | rebases an ephemeral copy of source onto target then ff-merges target — linear history | No merge commit; integration branch stays linear. The original source ref is preserved (the rebase runs on a temporary branch that is deleted afterward), so an executor recovery only needs to rewind target to the recovery point. |
 
-Strategy is required at the schema layer (#1127 collision check, #1109 §2 user-visible parity). There is no implicit default — operator intent is always explicit in the event log.
+Strategy is required at the schema layer (collision check + user-visible parity). There is no implicit default — operator intent is always explicit in the event log.
 
 ### Step 2: Invoke
 
@@ -94,7 +94,7 @@ The handler returns a `ToolResult` whose `data.phase` discriminates the outcome:
 |---------|---------|-----------------|
 | `completed` | Local merge landed; `mergeSha` is the new HEAD of target. | None — workflow continues per the orchestrator's playbook. |
 | `aborted` | Preflight failed; no merge attempted. `data.preflight` carries the structured guard sub-results (when produced by the body preflight) OR `data.reason` discriminates the early-abort cause. | See the abort-reason table below. Resolve the underlying condition and re-dispatch. |
-| `rolled-back` | Merge was attempted, failed (`reason: 'merge-failed' / 'verification-failed' / 'timeout'`), and the INV-14 recovery ladder (`git merge --abort` → `git reset --keep <recoveryPointSha>`) ran. The target branch is rewound to the recovery point. (The phase value stays `rolled-back` — a load-bearing state token unchanged by the #1306 recovery reframe.) | Inspect `data.reason`. If `data.recoveryError` / `data.recoveryErrorDetail` is also present, the reset itself failed — the working tree is stranded and requires operator intervention. |
+| `rolled-back` | Merge was attempted, failed (`reason: 'merge-failed' / 'verification-failed' / 'timeout'`), and the INV-14 recovery ladder (`git merge --abort` → `git reset --keep <recoveryPointSha>`) ran. The target branch is rewound to the recovery point. (The phase value stays `rolled-back` — a load-bearing state token unchanged by the recovery reframe.) | Inspect `data.reason`. If `data.recoveryError` / `data.recoveryErrorDetail` is also present, the reset itself failed — the working tree is stranded and requires operator intervention. |
 
 #### Abort-reason payload shapes
 
@@ -102,7 +102,7 @@ When `phase === 'aborted'`, the data payload discriminates the cause:
 
 | `data.reason` | Payload fields | Cause | Operator remediation |
 |---------------|----------------|-------|----------------------|
-| `target-checked-out-elsewhere` | `siblingWorktreePath: string` (absolute path) | Target branch is already checked out in a sibling worktree of the same repository. Detected by the worktree-availability preflight (issue #1356) *before* any event emission, executor invocation, or state persistence. | Resolve the sibling worktree: either remove it (`git worktree remove <path>`), switch its checkout to another branch, or invoke `merge_orchestrate` against a different target. Then re-dispatch. |
+| `target-checked-out-elsewhere` | `siblingWorktreePath: string` (absolute path) | Target branch is already checked out in a sibling worktree of the same repository. Detected by the worktree-availability preflight *before* any event emission, executor invocation, or state persistence. | Resolve the sibling worktree: either remove it (`git worktree remove <path>`), switch its checkout to another branch, or invoke `merge_orchestrate` against a different target. Then re-dispatch. |
 | *(body preflight failures)* | `data.preflight: { ancestry, worktree, currentBranchProtection, drift }` | Body-preflight guard failed (ancestry mismatch, worktree drift, protected current branch, etc.). | Inspect `preflight.*` sub-results to identify which guard failed. Resolve the underlying condition (e.g., commit/stash drift, switch off a protected branch) and re-dispatch. |
 
 The `target-checked-out-elsewhere` abort path is special: it suppresses both the `merge.requested` and `merge.preflight` events and skips state persistence entirely. This guarantees the event log is never contaminated with an attempt that could not have captured a correct recovery point (the executor would have read HEAD from the wrong worktree).
@@ -119,9 +119,9 @@ Events are emitted directly to the orchestrator's event stream (stream id is the
 | `merge.requested` | After preflight passes, before the executor runs (Phase A intent record from the two-event split) — suppressed on the early-abort `target-checked-out-elsewhere` path | `sourceBranch`, `targetBranch`, `strategy`, `taskId` |
 | `merge.executed`  | On successful local merge | `mergeSha`, `rollbackSha`, `taskId`, source/target branches |
 | `merge.rollback`  | On post-merge failure followed by recovery — **legacy** wire shape, kept during the v2.11.x deprecation window | `rollbackSha`, `reason`, `taskId`, source/target branches |
-| `merge.recovered` | On post-merge failure followed by recovery — the canonical **successor** to `merge.rollback` (#1306); dual-emitted alongside it during the deprecation window | `recoveryPointSha`, `reason`, `recoveryError?`, `recoveryErrorDetail?`, `taskId`, source/target branches |
+| `merge.recovered` | On post-merge failure followed by recovery — the canonical **successor** to `merge.rollback`; dual-emitted alongside it during the deprecation window | `recoveryPointSha`, `reason`, `recoveryError?`, `recoveryErrorDetail?`, `taskId`, source/target branches |
 
-> **Recovery vocabulary (#1306).** The canonical frame is database-transaction, not saga: a **recovery point** (the recorded HEAD SHA, persisted before the merge as a write-ahead-log marker) and a **recovery event** (`merge.recovered`). `merge.recovered` is the additive successor to `merge.rollback`; during the v2.11.x deprecation window the executor **dual-emits** both for the same logical recovery. The legacy `merge.rollback` / `merge.executed` events keep their `rollbackSha` / `rollbackError` wire fields until v2.12 removes the legacy emission; `merge.recovered` carries the resolved `recoveryPointSha` / `recoveryErrorDetail` names alongside the unchanged INV-14 `recoveryError` discriminator. The phase value `'rolled-back'` is intentionally retained.
+> **Recovery vocabulary.** The canonical frame is database-transaction, not saga: a **recovery point** (the recorded HEAD SHA, persisted before the merge as a write-ahead-log marker) and a **recovery event** (`merge.recovered`). `merge.recovered` is the additive successor to `merge.rollback`; during the v2.11.x deprecation window the executor **dual-emits** both for the same logical recovery. The legacy `merge.rollback` / `merge.executed` events keep their `rollbackSha` / `rollbackError` wire fields until v2.12 removes the legacy emission; `merge.recovered` carries the resolved `recoveryPointSha` / `recoveryErrorDetail` names alongside the unchanged INV-14 `recoveryError` discriminator. The phase value `'rolled-back'` is intentionally retained.
 
 These events are auto-emitted by the handler — do **not** manually append them via `mcp__exarchos__exarchos_event` during normal operation. Manual emission is only sanctioned during the documented manual-recovery flow in [`recovery-runbook.md`](references/recovery-runbook.md) when a merge has been completed out-of-band (e.g., conflict resolution) and the event log must be brought back in sync — follow that runbook's event-first sequencing.
 

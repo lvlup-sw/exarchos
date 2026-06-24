@@ -2,11 +2,11 @@
 
 ## Context
 
-Feature: event stream compaction for the Exarchos MCP server. Design document exists at `docs/designs/2026-02-20-stream-compaction.md`. The user runs `/exarchos:plan` (or auto-chained from `/exarchos:ideate`).
+Feature: event stream compaction for the Exarchos MCP server. The `## Design & Rationale` section of the unified `docs/specs/2026-02-20-stream-compaction.md` artifact already exists (authored by `/exarchos:ideate`). The user runs `/exarchos:plan` (or auto-chained from `/exarchos:ideate`) to add the `## Decomposition` section to the **same** document.
 
-## Step 1: Analyze Design Document
+## Step 1: Analyze the Design & Rationale Section
 
-Agent reads design and extracts key sections:
+Agent reads the `## Design & Rationale` section of the unified artifact and extracts:
 
 - **Problem Statement:** Event streams grow unbounded; view queries slow down after 1000+ events.
 - **Chosen Approach:** Snapshot-based compaction. Periodically write a snapshot event summarizing state, then readers start from latest snapshot.
@@ -41,8 +41,9 @@ Agent runs `exarchos_orchestrate({ action: "check_plan_coverage" })`:
 exarchos_orchestrate({
   action: "check_plan_coverage",
   featureId: "<id>",
-  designPath: "docs/designs/2026-02-20-stream-compaction.md",
-  planPath: "docs/plans/2026-02-20-stream-compaction.md"
+  // one unified artifact — the design region and the decomposition region live in the same file
+  designPath: "docs/specs/2026-02-20-stream-compaction.md",
+  planPath: "docs/specs/2026-02-20-stream-compaction.md"
 })
 → passed: false — Uncovered section: "Snapshot trigger threshold configuration"
 ```
@@ -64,10 +65,10 @@ exarchos_orchestrate({ action: "check_plan_coverage", ... })
 → passed: true — All design sections covered
 ```
 
-Agent runs `exarchos_orchestrate({ action: "spec_coverage_check", planFile: "docs/plans/2026-02-20-stream-compaction.md", repoRoot: "." })` -- passed: true (no pre-existing tests expected at planning time).
+Agent runs `exarchos_orchestrate({ action: "spec_coverage_check", planFile: "docs/specs/2026-02-20-stream-compaction.md", repoRoot: "." })` -- passed: true (no pre-existing tests expected at planning time).
 
 ## Output
 
-Plan saved to `docs/plans/2026-02-20-stream-compaction.md`. State updated: `artifacts.plan` set, `tasks` array populated with 7 tasks, phase transitions to `plan-review`.
+Decomposition section added to the unified `docs/specs/2026-02-20-stream-compaction.md`. State updated: `artifacts.plan` set (the `docs/specs/` path), `tasks` array populated with 7 tasks, phase transitions to `plan-review`.
 
 **Agent:** "Plan complete. Auto-continuing to plan-review for gap analysis..."

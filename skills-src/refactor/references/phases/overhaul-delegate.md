@@ -36,7 +36,7 @@ Each delegated task should emphasize:
 
 1. **Working State**: Code must compile and tests pass after task
 2. **Atomic Changes**: One logical change per commit
-3. **Test-First**: New code should have tests
+3. **Tested**: New code should have adequate tests (test-after is fine)
 
 Example task prompt addition:
 ```

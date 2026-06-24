@@ -17,7 +17,7 @@ Feature: event store deduplication for the Exarchos MCP server. The user runs `/
 
 ## Phase 2: Exploration
 
-**Agent presents three approaches:**
+**Agent presents three approaches** (multi-approach exploration is the `deep` rung; at thin/standard, converge in one pass):
 
 ### Option 1: Idempotency Keys
 Add a unique `eventId` field. Writers generate UUIDs; readers skip duplicates.
@@ -44,10 +44,10 @@ Buffer events in a WAL, flush deduplicated batches.
 
 **User:** "That works. Proceed with optional idempotency keys."
 
-## Phase 3: Design Presentation
+## Phase 3: Design & Rationale Section
 
-Agent writes design document to `docs/designs/2026-02-28-event-deduplication.md` covering: problem statement, chosen approach (optional idempotency keys), technical design (UUID generation, reader-side dedup), integration points (event append tool, view tool), testing strategy (duplicate detection tests, backward compatibility).
+Agent writes the `## Design & Rationale` section of the one unified `docs/specs/2026-02-28-event-deduplication.md` artifact covering: problem statement, chosen approach (optional idempotency keys), numbered requirements (`DR-N`) each with acceptance criteria, integration points (event append tool, view tool), testing strategy (duplicate detection tests, backward compatibility).
 
-**State update:** `artifacts.design` set to design path, phase transitions to `plan`.
+**State update:** `artifacts.spec` set to the `docs/specs/` path. No phase transition — `plan` is the initial phase; the decomposition is authored next in the same phase.
 
-**Agent:** "Design saved. Auto-continuing to implementation planning..."
+**Agent:** "Design & Rationale section saved. Auto-continuing to decomposition..."

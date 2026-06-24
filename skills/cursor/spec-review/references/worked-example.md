@@ -12,7 +12,7 @@ Feature: HSM phase transition guards for the Exarchos MCP server. The orchestrat
 
 ## Step 1: Read Spec Artifacts
 
-Subagent reads design (`docs/designs/2026-02-15-hsm-guards.md`) and plan (`docs/plans/2026-02-16-hsm-guards.md`) from state. Design specifies 5 guard conditions; plan decomposes into 4 tasks with 12 TDD test cases.
+Subagent reads the unified spec (`docs/specs/2026-02-15-hsm-guards.md`) from state. Its Design & Rationale section specifies 5 guard conditions; the decomposition section breaks them into 4 tasks with 12 test cases.
 
 ## Step 2: Run Verification Commands
 
