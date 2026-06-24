@@ -295,7 +295,7 @@
 **Verification:** scoped tests + kill-probe + integration suite across the dispatch + phase-obligation seam.
 **Implements:** DR-10
 **Files:** `servers/exarchos-mcp/src/workflow/phase-kind.ts`, `servers/exarchos-mcp/src/orchestrate/prepare-review.ts`, `servers/exarchos-mcp/src/orchestrate/prepare-review.test.ts`
-**Detail:** Replace the inline plan-vs-design delta with a dispatched **read-only** (INV-11) reviewer over the unified artifact, provisioned with only {artifact + spec} (no authoring transcript), prompted to **refute**; adversarial depth scales with the frozen `designDepth` (second consumer of the resolved value). Code-review hardening + spec/quality collapse are #1592, not here.
+**Detail:** Replace the inline plan-vs-design delta with a dispatched **read-only** (INV-11) reviewer over the unified artifact, provisioned with only {artifact + spec} (no authoring transcript), prompted to **refute**; adversarial depth scales with the frozen `designDepth` (second consumer of the resolved value). Code-review hardening + spec/quality collapse are #1592, not here. **(Correction 2026-06-24, see #1617: the spec/quality collapse was NOT delivered by #1592 — only additive REVIEW deltas shipped. REVIEW remains two-stage, which is cosmetic since both stages are already adversarial.)**
 **Expected tests:** `PlanReview_DispatchedReviewer_ReceivesNoAuthorTranscript`, `PlanReview_RefutationPosture_EmitsEvidenceVerdict`, `PlanReview_ThinDepth_UsesLightRung`
 **Dependencies:** 005, 007, 011
 **Parallelizable:** Yes (after 011; shares no files with 012–023)
@@ -317,7 +317,7 @@ Late seam:             018  (needs 006 + 008);   021 ∥ 022
 Tail:                  023  (needs 016 + 017);   024 (needs 005 + 007 + 011)
 ```
 
-**Review-realities (lavish session, DR-10):** plan-review is *reframed* (fresh-context adversarial, designDepth-scaled), not cut — Task 024. The back-of-pipeline code-review fresh-context/adversarial/cost-scaling and the spec-review+quality-review → one evidence-emitting pass are **#1592 (ship-gate)** inputs, captured under DR-10's composition note — not implemented here.
+**Review-realities (lavish session, DR-10):** plan-review is *reframed* (fresh-context adversarial, designDepth-scaled), not cut — Task 024. The back-of-pipeline code-review fresh-context/adversarial/cost-scaling and the spec-review+quality-review → one evidence-emitting pass are **#1592 (ship-gate)** inputs, captured under DR-10's composition note — not implemented here. **(Correction 2026-06-24: #1592 shipped only additive REVIEW deltas and did NOT collapse spec-review+quality-review into one pass — REVIEW is still two-stage. This is cosmetic: both stages are already adversarial (mandatory rationalization-refutation + the `check_test_adequacy` kill-probe + HIGH-tier `mutation-adequacy`). Tracked: #1617.)**
 
 **JOINT-REVIEW constraint (rule 1):** Tasks 002 + 004 must be reviewed together with any concurrent #1515 `riskTier` / #1592 obligation mutations of `ResolveGateSetCtx` — single coordinated schema, no field shadowing.
 
