@@ -55,31 +55,6 @@ reviews:
         Do NOT require YAML frontmatter on these files.
         See CLAUDE.md "Reference-file frontmatter" rule.
 
-  coding_guidelines:
-    - title: TypeScript SOLID Principles
-      description: |
-        Enforce SOLID constraints per rules/coding-standards.md:
-        SRP (one export per file), OCP (discriminated unions), LSP (full implementations),
-        ISP (small interfaces), DIP (inject dependencies)
-      file_patterns:
-        - "**/*.ts"
-        - "**/*.tsx"
-    - title: Type Safety
-      description: |
-        No `any` types. Use `unknown` with type guards or proper generics.
-        Prefer interfaces over type aliases for extendable shapes.
-        Use `as const` for literal types, `satisfies` for type checking without widening.
-      file_patterns:
-        - "**/*.ts"
-        - "**/*.tsx"
-    - title: TDD Compliance
-      description: |
-        Tests must follow Red-Green-Refactor. Use Vitest patterns.
-        Test names describe behavior: "should [expected behavior] when [condition]"
-      file_patterns:
-        - "**/*.test.ts"
-        - "**/*.spec.ts"
-
   auto_review:
     drafts: true
     base_branches:
