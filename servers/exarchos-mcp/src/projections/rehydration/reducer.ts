@@ -636,6 +636,10 @@ function applyWorkflowCheckpoint(
       sequence: event.sequence,
       timestamp: event.timestamp,
     },
+    // #1242 — operator-authored provenance. An operator checkpoint ALWAYS
+    // overwrites the slot (it is the higher-precedence source), and tagging it
+    // lets a later `workflow.handoff_summarized` defer to it.
+    source: 'operator',
   };
   return {
     ...state,
@@ -644,6 +648,58 @@ function applyWorkflowCheckpoint(
     // Bounded sliding window — most-recent first; cap at 3 to bound the
     // rehydration envelope's token cost. Older entries naturally fall off as
     // new checkpoints land.
+    recentHandoffs: [entry, ...state.recentHandoffs].slice(0, 3),
+  };
+}
+
+/**
+ * Handler for `workflow.handoff_summarized` (#1242) — folds the auto-summarized
+ * handoff fallback, but ONLY when no operator-authored handoff currently holds
+ * the `latestHandoff` slot. Operator-authored content (a `workflow.checkpoint`
+ * handoff, tagged `source: 'operator'`) always takes precedence.
+ *
+ * Precedence rule (pure, replay-deterministic): the summary applies iff the
+ * current `latestHandoff` is absent OR already `'auto'`. A legacy entry with no
+ * `source` (only the checkpoint handler wrote handoffs pre-#1242) counts as
+ * operator-authored and is therefore preserved. When the summary is suppressed,
+ * this returns identity (no `projectionSequence` bump, no `recentHandoffs`
+ * pollution) — matching the unactionable-event convention used throughout.
+ *
+ * The folded summary string comes verbatim from the stored event payload, so
+ * replay reproduces the projection without re-invoking the (non-deterministic)
+ * summarizer (INV-1 / Constraint 1 of #1242).
+ */
+function applyWorkflowHandoffSummarized(
+  state: RehydrationDocument,
+  event: WorkflowEvent,
+): RehydrationDocument {
+  const handoff = extractHandoff(event.data);
+  if (!handoff) {
+    // No actionable summary content — identity fold (no projectionSequence bump).
+    return state;
+  }
+  // Operator precedence: defer to an operator-authored handoff already in the
+  // slot. `source` absent (legacy) is treated as operator-authored.
+  const current = state.latestHandoff;
+  if (current !== undefined && current.source !== 'auto') {
+    return state;
+  }
+  const entry: RehydrationDocument['recentHandoffs'][number] = {
+    ...(handoff.context !== undefined ? { context: handoff.context } : {}),
+    ...(handoff.nextSteps !== undefined ? { nextSteps: handoff.nextSteps } : {}),
+    ...(handoff.suggestions !== undefined
+      ? { suggestions: handoff.suggestions }
+      : {}),
+    eventRef: {
+      sequence: event.sequence,
+      timestamp: event.timestamp,
+    },
+    source: 'auto',
+  };
+  return {
+    ...state,
+    projectionSequence: state.projectionSequence + 1,
+    latestHandoff: entry,
     recentHandoffs: [entry, ...state.recentHandoffs].slice(0, 3),
   };
 }
@@ -870,6 +926,10 @@ export const rehydrationReducer: ProjectionReducer<RehydrationDocument, Workflow
       // workflow.checkpoint — handoff fold (T2 / #1240 / #1246, v:2 envelope)
       case 'workflow.checkpoint':
         return applyWorkflowCheckpoint(state, event);
+      // workflow.handoff_summarized — auto-summary fallback (#1242). Operator
+      // checkpoints take precedence; see applyWorkflowHandoffSummarized.
+      case 'workflow.handoff_summarized':
+        return applyWorkflowHandoffSummarized(state, event);
 
       // ── state.* — artifacts fold (T025) ──────────────────────────────────
       case 'state.patched':

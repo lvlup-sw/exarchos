@@ -571,7 +571,10 @@ describe('EventTypes', () => {
     // Bumped 130 → 131: feedback.recorded (#1319 — agent→runtime friction
     //   back-channel; emitted by exarchos_workflow.feedback onto the shared
     //   meta/feedback stream, read back by /exarchos:dogfood).
-    expect(EventTypes).toHaveLength(131);
+    // Bumped 131 → 132: workflow.handoff_summarized (#1242 — auto-summarized
+    //   handoff fallback; folded into latestHandoff only when no operator
+    //   handoff holds the slot, operator-authored takes precedence).
+    expect(EventTypes).toHaveLength(132);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');
@@ -581,6 +584,7 @@ describe('EventTypes', () => {
     expect(EventTypes).toContain('mutation.executing_started');
     expect(EventTypes).toContain('mutation.executed');
     expect(EventTypes).toContain('feedback.recorded');
+    expect(EventTypes).toContain('workflow.handoff_summarized');
     expect(EventTypes).toContain('phase.blocked');
     // Retirement guard: init.executed removed in DR-5 (task 018).
     expect(EventTypes as readonly string[]).not.toContain('init.executed');

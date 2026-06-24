@@ -705,6 +705,9 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       // #1319 — lands on the shared `meta/feedback` stream, never a feature
       // stream, so it has no effect on any workflow's projected state.
       case 'feedback.recorded':
+      // #1242 — folds into the rehydration projection's handoff slot only; it
+      // carries no workflow_state-affecting fields.
+      case 'workflow.handoff_summarized':
         return view;
 
       // ── Exhaustiveness guard (#1554 guard (a)) ─────────────────────────

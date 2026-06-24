@@ -22,6 +22,14 @@ export const EventTypes = [
   'workflow.fix-cycle',
   'workflow.guard-failed',
   'workflow.checkpoint',
+  // #1242 (F1 of #1239 spike) — auto-summarized handoff fallback. Emitted by a
+  // downstream summarizer subagent when a checkpoint fires with no operator-
+  // authored handoff (phase transitions / wave dispatches). The rehydration
+  // reducer folds it into `latestHandoff` ONLY when no operator handoff holds
+  // the slot — operator-authored content always takes precedence. The summary
+  // string is stored on the event (source of truth), so replay is deterministic
+  // over the stored payload even though the summarizer itself is not (INV-1).
+  'workflow.handoff_summarized',
   'workflow.compound-entry',
   'workflow.compound-exit',
   'workflow.cancel',
@@ -362,6 +370,9 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'workflow.fix-cycle': 'auto',
   'workflow.guard-failed': 'auto',
   'workflow.checkpoint': 'auto',
+  // #1242 — emitted by a summarizer subagent via event.append (agent-driven,
+  // not a deterministic server handler), hence 'model'.
+  'workflow.handoff_summarized': 'model',
   'workflow.compound-entry': 'auto',
   'workflow.compound-exit': 'auto',
   'workflow.cancel': 'auto',
@@ -824,6 +835,37 @@ export const WorkflowCheckpointData = z.object({
   // parse cleanly under .optional(). The event payload itself stays
   // unversioned — only the rehydration projection envelope is versioned.
   handoff: HandoffEntryData.optional(),
+});
+
+/**
+ * `workflow.handoff_summarized` (#1242) — auto-summarized handoff fallback.
+ *
+ * Emitted by a summarizer subagent (out of scope for #1242 — separate dispatch
+ * path) when a checkpoint fires with no operator-authored handoff. Carries the
+ * same `handoff` sub-object shape as `workflow.checkpoint` so the rehydration
+ * reducer's `extractHandoff` folds both uniformly; `handoff` is REQUIRED here
+ * (a summary event with no content is meaningless, though the reducer still
+ * no-ops defensively on empty content).
+ *
+ * Replay determinism (INV-1 / Constraint 1): the summary string lives ON the
+ * event — replay folds the stored payload, never re-invokes the (non-
+ * deterministic) summarizer — so the projection is reproducible.
+ */
+export const WorkflowHandoffSummarizedData = z.object({
+  featureId: z
+    .string()
+    .describe('The workflow/feature the summarized handoff belongs to.'),
+  phase: z
+    .string()
+    .optional()
+    .describe('The phase the summary pertains to (the checkpoint\'s phase), for audit.'),
+  handoff: HandoffEntryData.describe(
+    'Summarized handoff content (context/nextSteps/suggestions), stored verbatim.',
+  ),
+  summarizedBy: z
+    .string()
+    .optional()
+    .describe('Optional identifier of the summarizer subagent that produced this fallback.'),
 });
 
 export const WorkflowCompoundEntryData = z.object({
@@ -2435,6 +2477,7 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'workflow.fix-cycle': WorkflowFixCycleData,
   'workflow.guard-failed': WorkflowGuardFailedData,
   'workflow.checkpoint': WorkflowCheckpointData,
+  'workflow.handoff_summarized': WorkflowHandoffSummarizedData,
   'workflow.compound-entry': WorkflowCompoundEntryData,
   'workflow.compound-exit': WorkflowCompoundExitData,
   'workflow.cancel': WorkflowCancelData,
@@ -2652,6 +2695,7 @@ export type WorkflowTransition = z.infer<typeof WorkflowTransitionData>;
 export type WorkflowFixCycle = z.infer<typeof WorkflowFixCycleData>;
 export type WorkflowGuardFailed = z.infer<typeof WorkflowGuardFailedData>;
 export type WorkflowCheckpoint = z.infer<typeof WorkflowCheckpointData>;
+export type WorkflowHandoffSummarized = z.infer<typeof WorkflowHandoffSummarizedData>;
 export type WorkflowCompoundEntry = z.infer<typeof WorkflowCompoundEntryData>;
 export type WorkflowCompoundExit = z.infer<typeof WorkflowCompoundExitData>;
 export type WorkflowCleanup = z.infer<typeof WorkflowCleanupData>;
@@ -2782,6 +2826,7 @@ export type EventDataMap = {
   'workflow.fix-cycle': WorkflowFixCycle;
   'workflow.guard-failed': WorkflowGuardFailed;
   'workflow.checkpoint': WorkflowCheckpoint;
+  'workflow.handoff_summarized': WorkflowHandoffSummarized;
   'workflow.compound-entry': WorkflowCompoundEntry;
   'workflow.compound-exit': WorkflowCompoundExit;
   'workflow.cancel': WorkflowCancel;

@@ -496,7 +496,10 @@ describe('EventTypes', () => {
     // #1319: bumped 130 → 131 to include `feedback.recorded`, the agent→runtime
     // friction back-channel emitted by `exarchos_workflow.feedback` onto the
     // shared `meta/feedback` stream (read back by `/exarchos:dogfood`).
-    expect(EventTypes).toHaveLength(131);
+    // #1242: bumped 131 → 132 to include `workflow.handoff_summarized`, the
+    // auto-summarized handoff fallback folded by the rehydration reducer with
+    // operator-precedence (operator checkpoint handoff always wins the slot).
+    expect(EventTypes).toHaveLength(132);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');

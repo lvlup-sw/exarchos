@@ -1332,3 +1332,137 @@ describe('rehydration reducer — workflow.checkpoint handoff fold (T2 / #1240 /
     expect(RehydrationDocumentSchema.safeParse(replayed).success).toBe(true);
   });
 });
+
+// ─── #1242 — workflow.handoff_summarized fold (operator-precedence) ──────────
+describe('rehydration reducer — workflow.handoff_summarized fold (#1242)', () => {
+  function makeSummarized(
+    sequence: number,
+    handoff: { context?: string; nextSteps?: string[]; suggestions?: string[] } | undefined,
+    overrides: { phase?: string; timestamp?: string } = {},
+  ): WorkflowEvent {
+    const data: Record<string, unknown> = {
+      featureId: 'wf-test',
+      ...(overrides.phase !== undefined ? { phase: overrides.phase } : {}),
+    };
+    if (handoff !== undefined) data['handoff'] = handoff;
+    return {
+      streamId: 'wf-test',
+      sequence,
+      timestamp: overrides.timestamp ?? `2026-05-08T01:00:0${sequence % 10}.000Z`,
+      type: 'workflow.handoff_summarized',
+      schemaVersion: '1.0',
+      data,
+    } as WorkflowEvent;
+  }
+
+  function makeCheckpoint(
+    sequence: number,
+    handoff: { context?: string; nextSteps?: string[]; suggestions?: string[] },
+    timestamp = `2026-05-08T00:00:0${sequence % 10}.000Z`,
+  ): WorkflowEvent {
+    return {
+      streamId: 'wf-test',
+      sequence,
+      timestamp,
+      type: 'workflow.checkpoint',
+      schemaVersion: '1.0',
+      data: { counter: sequence, phase: 'design', featureId: 'wf-test', handoff },
+    } as WorkflowEvent;
+  }
+
+  it('Summarized_NoOperatorHandoff_FillsLatestHandoffWithAutoSource', () => {
+    const next = rehydrationReducer.apply(
+      rehydrationReducer.initial,
+      makeSummarized(5, { context: 'auto: wrapping up plan phase', nextSteps: ['dispatch wave 1'] }, { timestamp: '2026-05-08T09:00:00.000Z' }),
+    );
+
+    expect(next.latestHandoff?.context).toBe('auto: wrapping up plan phase');
+    expect(next.latestHandoff?.nextSteps).toEqual(['dispatch wave 1']);
+    expect(next.latestHandoff?.source).toBe('auto');
+    expect(next.latestHandoff?.eventRef).toEqual({ sequence: 5, timestamp: '2026-05-08T09:00:00.000Z' });
+    expect(next.recentHandoffs).toHaveLength(1);
+    expect(next.projectionSequence).toBe(1);
+    expect(RehydrationDocumentSchema.safeParse(next).success).toBe(true);
+  });
+
+  it('Summarized_DoesNotOverwriteOperatorHandoff_OperatorPrecedence', () => {
+    // GIVEN: an operator checkpoint holds the slot.
+    const afterOperator = rehydrationReducer.apply(
+      rehydrationReducer.initial,
+      makeCheckpoint(3, { context: 'operator: hand-written handoff' }),
+    );
+    expect(afterOperator.latestHandoff?.source).toBe('operator');
+
+    // WHEN: a summarized fallback fires afterward.
+    const afterSummary = rehydrationReducer.apply(afterOperator, makeSummarized(4, { context: 'auto: should be suppressed' }));
+
+    // THEN: operator content is preserved; the summary is a no-op (identity).
+    expect(afterSummary).toBe(afterOperator);
+    expect(afterSummary.latestHandoff?.context).toBe('operator: hand-written handoff');
+    expect(afterSummary.latestHandoff?.source).toBe('operator');
+    expect(afterSummary.recentHandoffs).toHaveLength(1);
+    expect(afterSummary.projectionSequence).toBe(afterOperator.projectionSequence);
+  });
+
+  it('OperatorCheckpoint_OverwritesPriorSummary_OperatorAlwaysWins', () => {
+    // GIVEN: a summary holds the slot.
+    const afterSummary = rehydrationReducer.apply(rehydrationReducer.initial, makeSummarized(1, { context: 'auto: placeholder' }));
+    expect(afterSummary.latestHandoff?.source).toBe('auto');
+
+    // WHEN: an operator checkpoint fires.
+    const afterOperator = rehydrationReducer.apply(afterSummary, makeCheckpoint(2, { context: 'operator: real handoff' }));
+
+    // THEN: the operator handoff replaces the summary.
+    expect(afterOperator.latestHandoff?.context).toBe('operator: real handoff');
+    expect(afterOperator.latestHandoff?.source).toBe('operator');
+    expect(afterOperator.recentHandoffs[0]?.source).toBe('operator');
+  });
+
+  it('Summarized_OverwritesPriorSummary_MostRecentAutoWins', () => {
+    const s1 = rehydrationReducer.apply(rehydrationReducer.initial, makeSummarized(1, { context: 'auto v1' }));
+    const s2 = rehydrationReducer.apply(s1, makeSummarized(2, { context: 'auto v2' }));
+    expect(s2.latestHandoff?.context).toBe('auto v2');
+    expect(s2.latestHandoff?.source).toBe('auto');
+    expect(s2.recentHandoffs).toHaveLength(2);
+  });
+
+  it('Summarized_EmptyHandoff_NoStateChange', () => {
+    const initial = rehydrationReducer.initial;
+    expect(rehydrationReducer.apply(initial, makeSummarized(1, undefined))).toBe(initial);
+    expect(rehydrationReducer.apply(initial, makeSummarized(2, {}))).toBe(initial);
+    expect(rehydrationReducer.apply(initial, makeSummarized(3, { nextSteps: [], suggestions: [] }))).toBe(initial);
+  });
+
+  it('Summarized_ReplayDeterminism_FoldingTwiceYieldsEqualProjection', () => {
+    // INV-1: the stored summary string is the source of truth — replaying the
+    // same event sequence reproduces an identical projection (the summarizer is
+    // never re-invoked on replay).
+    const events = [
+      makeSummarized(1, { context: 'auto: phase A summary' }),
+      makeCheckpoint(2, { context: 'operator: phase B handoff' }),
+      makeSummarized(3, { context: 'auto: suppressed by operator' }),
+    ];
+    const foldOnce = events.reduce((s, e) => rehydrationReducer.apply(s, e), rehydrationReducer.initial);
+    const foldTwice = events.reduce((s, e) => rehydrationReducer.apply(s, e), rehydrationReducer.initial);
+    expect(foldOnce).toEqual(foldTwice);
+    // Operator (seq 2) wins the slot; the later summary (seq 3) is suppressed.
+    expect(foldOnce.latestHandoff?.context).toBe('operator: phase B handoff');
+    expect(foldOnce.latestHandoff?.source).toBe('operator');
+  });
+
+  it('Summarized_LegacyEntryWithoutSource_TreatedAsOperator', () => {
+    // A pre-#1242 latestHandoff carries no `source`. The summary must NOT
+    // overwrite it (the only pre-#1242 writer was the operator checkpoint path).
+    const legacyState = {
+      ...rehydrationReducer.initial,
+      latestHandoff: {
+        context: 'legacy operator handoff',
+        eventRef: { sequence: 9, timestamp: '2026-05-01T00:00:00.000Z' },
+      },
+    } as typeof rehydrationReducer.initial;
+
+    const next = rehydrationReducer.apply(legacyState, makeSummarized(10, { context: 'auto: should defer to legacy' }));
+    expect(next).toBe(legacyState);
+    expect(next.latestHandoff?.context).toBe('legacy operator handoff');
+  });
+});
