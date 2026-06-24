@@ -143,6 +143,15 @@ jobs:
       - run: npx tsc --noEmit
       - run: npm run test:run
 
+      # cli:vocab-guard (#1317) — mechanical gate against CLI vocabulary drift
+      # (R-A / Principle 6). Walks the rendered Commander surface via `buildCli`
+      # and fails on a banned verb (`info`, `ls`, `rm`) or banned flag alias
+      # (`--format` as a JSON carrier, `--skip-confirmation*`). Runs here rather
+      # than in grep-gates because resolving `buildCli` pulls in `bun:sqlite`,
+      # which needs Bun (already set up above) + the MCP deps installed in this
+      # job. Flows into the required `ci-gate` check via test-mcp.
+      - run: npm run cli:vocab-guard
+
   # ─────────────────────────────────────────────────────────────────────
   # test-windows (#1170)
   # ─────────────────────────────────────────────────────────────────────
