@@ -144,7 +144,7 @@ export type Enforcement = z.infer<typeof EnforcementSchema>;
 
 // ─── InvariantEntryV3 (catalog entry) ───────────────────────────────────────
 
-const PHASE_VALUES = ['ideate', 'plan', 'delegate', 'review', 'synthesize'] as const;
+const PHASE_VALUES = ['plan', 'delegate', 'review', 'synthesize'] as const;
 const WORKFLOW_VALUES = ['feature', 'debug', 'refactor', 'discover', 'oneshot'] as const;
 const SEVERITY_VALUES = ['blocking', 'advisory'] as const;
 const INTEGRITY_CLASS_VALUES = ['substrate', 'sdlc', 'authoring', 'user'] as const;

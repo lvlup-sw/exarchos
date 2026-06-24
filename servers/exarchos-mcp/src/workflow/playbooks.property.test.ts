@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { FeaturePhaseSchema, DebugPhaseSchema, RefactorPhaseSchema } from './schemas.js';
+import { FEATURE_PHASES, DebugPhaseSchema, RefactorPhaseSchema } from './schemas.js';
 import { getPlaybook, renderPlaybook, oneshotPlaybook } from './playbooks.js';
 
 describe('HSM-Playbook Coverage', () => {
   const workflowPhases: Record<string, readonly string[]> = {
-    feature: FeaturePhaseSchema.options,
+    feature: FEATURE_PHASES,
     debug: DebugPhaseSchema.options,
     refactor: RefactorPhaseSchema.options,
   };
@@ -76,18 +76,18 @@ describe('HSM-Playbook Coverage', () => {
 });
 
 describe('Neuroanatomy pattern enrichment', () => {
-  // DR-13/DR-14: Compression + carry-forward in ideate
-  it('compactGuidance_FeatureIdeate_ContainsCompressionGuidance', () => {
-    const playbook = getPlaybook('feature', 'ideate');
+  // DR-13/DR-14: Compression + carry-forward — folded into `plan` (#1581, ex-ideate)
+  it('compactGuidance_FeaturePlan_ContainsCompressionGuidance', () => {
+    const playbook = getPlaybook('feature', 'plan');
     expect(playbook).not.toBeNull();
     const guidance = playbook!.compactGuidance.toLowerCase();
     const hasCompression = guidance.includes('compress') || guidance.includes('summary');
     expect(hasCompression).toBe(true);
   });
 
-  // DR-7: Two-step design in ideate
-  it('compactGuidance_FeatureIdeate_ContainsTwoStepDesign', () => {
-    const playbook = getPlaybook('feature', 'ideate');
+  // DR-7: Two-step design (reasoning then formatting) — folded into `plan` (#1581, ex-ideate)
+  it('compactGuidance_FeaturePlan_ContainsTwoStepDesign', () => {
+    const playbook = getPlaybook('feature', 'plan');
     expect(playbook).not.toBeNull();
     const guidance = playbook!.compactGuidance.toLowerCase();
     expect(guidance.includes('reasoning')).toBe(true);

@@ -89,8 +89,11 @@ export const CheckpointMetaSchema = z.union([
 
 // ─── Phase Schemas ──────────────────────────────────────────────────────────
 
-export const FeaturePhaseSchema = z.enum([
-  'ideate',
+// `ideate` (the former GATHER phase) was collapsed into `plan` in #1581 (DR-4):
+// feature workflows now start at `plan`, so `ideate` is never produced. Pre-#1581
+// projections persisted `phase: 'ideate'`; coerce them to `plan` on read so historical
+// feature workflow_state still parses (mirrors TaskStatusSchema's legacy coercion below).
+export const FEATURE_PHASES = [
   'plan',
   'plan-review',
   'delegate',
@@ -100,7 +103,12 @@ export const FeaturePhaseSchema = z.enum([
   'completed',
   'cancelled',
   'blocked',
-]);
+] as const;
+
+export const FeaturePhaseSchema = z.preprocess(
+  (val) => (val === 'ideate' ? 'plan' : val),
+  z.enum(FEATURE_PHASES),
+);
 
 export const DebugPhaseSchema = z.enum([
   'triage',

@@ -983,7 +983,7 @@ invariants:
     references:
       - docs/architecture/invariants.md
     phase-affinity:
-      - ideate
+      - review
       - plan
     workflow-affinity:
       - feature
@@ -1016,7 +1016,7 @@ invariants:
       expect(entry.axis).toBe('substrate');
       expect(entry.costOfLoad).toBe('always-load');
       // v3 fields surfaced through the typed accessors.
-      expect(entry.phaseAffinity).toEqual(['ideate', 'plan']);
+      expect(entry.phaseAffinity).toEqual(['review', 'plan']);
       expect(entry.workflowAffinity).toEqual(['feature']);
       expect(entry.stateAffinity).toEqual(['drafting']);
       expect(entry.integrityClass).toBe('substrate');

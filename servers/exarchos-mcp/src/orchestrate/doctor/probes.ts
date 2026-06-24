@@ -414,7 +414,7 @@ export async function resolveInvariantsCatalog(
     const { warnings } = resolve({
       repoRoot: root,
       config,
-      phase: 'ideate',
+      phase: 'plan',
       workflowType: 'feature',
     });
     return { configured, warnings };

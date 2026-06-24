@@ -562,7 +562,7 @@ describe('buildRegistrationSchema JSON Schema', () => {
 // ─── A2: TOOL_REGISTRY Tests ─────────────────────────────────────────────────
 
 const ALL_FEATURE_PHASES = new Set([
-  'ideate',
+  // #1581 (DR-4): `ideate` removed — feature workflows start at `plan`.
   'plan',
   'plan-review',
   'delegate',

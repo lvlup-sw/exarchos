@@ -65,7 +65,7 @@ describe('doc scanners include docs/specs/ (DR-9, task 019)', () => {
 
     // The feature playbook guidance served to agents at runtime drives the
     // unified artifact — each feature authoring/review playbook cites docs/specs/.
-    for (const phase of ['ideate', 'plan', 'plan-review']) {
+    for (const phase of ['plan', 'plan-review']) {
       const playbook = getPlaybook('feature', phase);
       expect(playbook, `feature/${phase} playbook missing`).toBeTruthy();
       expect(

@@ -198,8 +198,9 @@ describe('Runbook definitions', () => {
     expect(REVIEW_STRATEGY.steps[2].decide?.question).toMatch(/spec.review|quality.review|stage/i);
   });
 
-  it('DesignRefinement_HasCorrectPhase_Ideate', () => {
-    expect(DESIGN_REFINEMENT.phase).toBe('ideate');
+  it('DesignRefinement_HasCorrectPhase_Plan', () => {
+    // #1581 (DR-4): design authoring folded into the `plan` phase (ex-ideate)
+    expect(DESIGN_REFINEMENT.phase).toBe('plan');
   });
 
   it('DesignRefinement_HasTwoSteps_ComplexityThenCompression', () => {

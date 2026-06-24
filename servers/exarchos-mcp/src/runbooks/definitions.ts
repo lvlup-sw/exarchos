@@ -558,7 +558,7 @@ export const REVIEW_STRATEGY: RunbookDefinition = {
 
 export const DESIGN_REFINEMENT: RunbookDefinition = {
   id: 'design-refinement',
-  phase: 'ideate',
+  phase: 'plan',
   description: 'Multi-pass design process: separate reasoning from formatting to improve design quality through circuit iteration.',
   steps: [
     {

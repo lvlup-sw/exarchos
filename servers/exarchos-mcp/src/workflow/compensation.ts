@@ -292,7 +292,6 @@ export interface CompensationResult {
 // ─── Phase Order (reverse compensation order) ───────────────────────────────
 
 const PHASE_ORDER: readonly string[] = [
-  'ideate',
   'plan',
   'delegate',
   'review',

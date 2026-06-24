@@ -683,7 +683,6 @@ export function buildToolDescription(tool: CompositeTool, slim = false): string 
 
 export const ALL_PHASES: ReadonlySet<string> = new Set([
   // Feature workflow
-  'ideate',
   'plan',
   'plan-review',
   'delegate',
