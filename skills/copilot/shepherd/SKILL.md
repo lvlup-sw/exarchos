@@ -190,6 +190,17 @@ When `assess_stack` returns `recommendation: 'request-approval'` (all checks gre
 
 > **Guard:** Confirm there are no remaining `comment-reply` action items before requesting approval. Per the [Default Objective](#default-objective), every inline comment — including minor/nit-level — must be addressed first. If any remain, return to Step 2 instead of requesting approval.
 
+> **Invariant-conformance pointer (devCatalog-gated, before merge):** When `.exarchos.yml: invariants.devCatalog: enabled`, run the review-phase-scoped `check_invariant_conformance` action over the PR diff before requesting approval / merge, so the merge-gate read of the architectural invariants matches the diff that is about to land. This is a **pointer/affordance, not a hard gate** — the action is non-blocking (`gate: { blocking: false }`); it surfaces conformance findings to fold into the review verdict, it does not stop the merge. It is **not** a design-time **Constraints** section (shepherd runs at synthesize/merge, not design-time) — Step 2's Constraints anchoring covers fix composition; this pointer covers the diff-vs-invariants read at the review/merge gate. When the flag is unset or `disabled`, skip this step.
+>
+> ```typescript
+> mcp__exarchos__exarchos_orchestrate({
+>   action: "check_invariant_conformance",
+>   featureId: "<id>",
+>   phase: "review",
+>   diff: "<PR diff>"
+> })
+> ```
+
 1. Request review via GitHub MCP:
    ```
    mcp__plugin_github_github__update_pull_request({
@@ -288,6 +299,7 @@ This runbook provides structured criteria for deciding whether to keep iterating
 | Ignore inline comments | Address every thread with a reply |
 | Skip minor/nit comments because `assess_stack` said `request-approval` | Address every `comment-reply` item first — the recommendation is advisory (see Default Objective) |
 | Compose fixes without checking invariants | Anchor each change to `.exarchos/invariants.md` (Step 2, devCatalog-gated) |
+| Merge without a diff-vs-invariants read when devCatalog is on | Run `check_invariant_conformance` over the PR diff before approval/merge (Step 4 pointer, devCatalog-gated, non-blocking) |
 | Loop indefinitely | Respect iteration limits, escalate |
 | Skip remediation events | Emit `remediation.attempted` / `remediation.succeeded` for every fix |
 | Push directly to main | All fixes go through stack branches |
