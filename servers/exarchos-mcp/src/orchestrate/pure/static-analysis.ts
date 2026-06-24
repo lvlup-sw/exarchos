@@ -342,6 +342,18 @@ export function runRawIoTaint(input: RawIoTaintInput): RawIoTaintResult {
     return { status: 'SKIP', detail: 'semgrep not available' };
   }
 
+  if (result.spawnError) {
+    // The runner reports an unspawnable engine (ENOENT/EACCES) via `spawnError`
+    // rather than throwing — when it does, `exitCode` is NOT authoritative, so a
+    // coincidental `1` must not read as a boundary finding. Degrade to SKIP,
+    // the same INV-4 discipline as the throw path above (and the contract the
+    // integration-suite gate already honors, #1537).
+    return {
+      status: 'SKIP',
+      detail: result.spawnError.trim() || 'semgrep not available',
+    };
+  }
+
   if (result.exitCode === 0) {
     return { status: 'PASS' };
   }

@@ -277,10 +277,24 @@ describe('hermetic-double resolution (SIV-5 #1531)', () => {
   it('Hermetic_ThirdPartyHttp_ResolvesPactStubInnerLoop', () => {
     expect(classifyHermeticDependency('axios')).toBe('third-party-http');
     expect(classifyHermeticDependency('got')).toBe('third-party-http');
+    // Subpath specifiers (e.g. `axios/dist`, `undici/lib`) must classify too,
+    // not just bare package names, or deep imports lose SIV-5 steering.
+    expect(classifyHermeticDependency('axios/dist/node/axios.cjs')).toBe('third-party-http');
+    expect(classifyHermeticDependency('undici/lib/api')).toBe('third-party-http');
     const d = resolveHermeticDouble('third-party-http');
     expect(d.double).toMatch(/Pact-verified contract stub/i);
     expect(d.fidelity).toBe('stub');
     expect(d.cadence).toBe('inner-loop');
+  });
+
+  it('Hermetic_MessageBrokerDependency_ClassifiesAsMessageBroker', () => {
+    // Prove the classifier — not just resolveHermeticDouble — reaches the
+    // message-broker class from real package specifiers; a regex regression
+    // here would otherwise go undetected.
+    expect(classifyHermeticDependency('kafkajs')).toBe('message-broker');
+    expect(classifyHermeticDependency('amqplib')).toBe('message-broker');
+    const d = resolveHermeticDouble('message-broker');
+    expect(d.depClass).toBe('message-broker');
   });
 
   it('Hermetic_UnknownDependency_StaysUnclassified', () => {

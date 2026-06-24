@@ -87,7 +87,7 @@ When a task modifies existing code behavior, the planner should set `characteriz
 
 ## Model-Based Conformance Provenance (SIV-6)
 
-When a task drives an **external stateful integration** and the plan calls for a model-based conformance test (see *Model-Based Conformance at Stateful Boundaries* in the testing-strategy guide), the task MUST carry a provenance checklist the reviewer can verify — the LLM-authored model is otherwise prone to mirroring the code instead of the spec:
+When a task drives an **external stateful integration**, the task MUST carry a provenance checklist the reviewer can verify — the companion *Model-Based Conformance at Stateful Boundaries* section in the testing-strategy guide already routes every such boundary to model-based conformance, so this checklist is unconditional there, not gated on the plan asking for it. The LLM-authored model is otherwise prone to mirroring the code instead of the spec:
 
 ```text
 **Model-Based Conformance (SIV-6):**
@@ -97,7 +97,7 @@ When a task drives an **external stateful integration** and the plan calls for a
 - Known-bad-trace rejection test included (model rejects a seeded-wrong transition)
 ```
 
-A model that cites no acceptance criterion, or whose known-bad-trace test does not actually reject the seeded transition, is vacuous — the gate fails it.
+A model that cites no acceptance criterion, is not strictly simpler than the implementation, was not authored before/with the code, or whose known-bad-trace test does not actually reject the seeded transition, is vacuous — the gate fails it. Failure on **any** of these four checks is grounds for rejection.
 
 ## Test Naming Convention
 

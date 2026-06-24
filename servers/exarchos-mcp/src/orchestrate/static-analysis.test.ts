@@ -851,6 +851,27 @@ describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', ()
     expect(result.detail ?? '').toMatch(/inconclusive \(exit -9\)/);
   });
 
+  it('RawIoTaint_RunnerReportsSpawnError_SkipsNotFail', () => {
+    // The runner can report an unspawnable engine via `spawnError` instead of
+    // throwing — and a coincidental `exitCode: 1` must NOT then read as a
+    // boundary finding. The spawn-error guard takes precedence over the exit
+    // code, degrading to SKIP (the same contract the integration-suite gate
+    // honors, #1537).
+    const repoRoot = makeTaintFixture({ withRuleset: true });
+
+    const runner: RunCommandFn = vi.fn(() => ({
+      exitCode: 1,
+      stdout: '',
+      stderr: '',
+      spawnError: 'ENOENT: semgrep not found on PATH',
+    }));
+
+    const result: RawIoTaintResult = runRawIoTaint({ repoRoot, runCommand: runner });
+
+    expect(result.status).toBe('SKIP');
+    expect(result.detail ?? '').toContain('ENOENT');
+  });
+
   it('StaticAnalysis_TaintRulesetPresent_FoldsLegIntoFullReport', () => {
     // Integration: a committed ruleset makes the full runStaticAnalysis report
     // fold the taint leg into its output and counts. Drives the REAL

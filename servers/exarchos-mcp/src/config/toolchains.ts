@@ -572,7 +572,7 @@ const HERMETIC_CLASS_SIGNATURES: ReadonlyArray<{
   },
   {
     depClass: 'third-party-http',
-    test: /^(axios|node-fetch|got|undici|superagent|ky|request|phin)$/i,
+    test: /^(axios|node-fetch|got|undici|superagent|ky|request|phin)(\/|$)/i,
   },
 ];
 
