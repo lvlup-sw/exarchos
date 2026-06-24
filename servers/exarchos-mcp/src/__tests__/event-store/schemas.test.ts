@@ -493,7 +493,10 @@ describe('EventTypes', () => {
     // DR-3 #1595: bumped 129 → 130 to include `shepherd.escalated` (structured
     // bound-hit escalation emitted by assess-stack — a structured terminal, NOT a
     // hang, surfaced via shepherd_status/ps, INV-10).
-    expect(EventTypes).toHaveLength(130);
+    // #1319: bumped 130 → 131 to include `feedback.recorded`, the agent→runtime
+    // friction back-channel emitted by `exarchos_workflow.feedback` onto the
+    // shared `meta/feedback` stream (read back by `/exarchos:dogfood`).
+    expect(EventTypes).toHaveLength(131);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');

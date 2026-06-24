@@ -304,6 +304,27 @@ export const EscalationConfigSchema = z
 
 export type EscalationConfig = z.infer<typeof EscalationConfigSchema>;
 
+/**
+ * `feedback` (#1319) — the agent→runtime friction back-channel.
+ *
+ * `upstream` is an optional HTTPS endpoint the `exarchos_workflow.feedback`
+ * handler POSTs each `feedback.recorded` payload to, best-effort, AFTER the
+ * local event write. Omitting it (the default) keeps feedback fully local —
+ * the local write always succeeds without network access (INV-15 / offline-
+ * first); the POST is a pure additive federation hop. Per INV-3 the endpoint
+ * lives here in `.exarchos.yml`, not in a sibling config file.
+ *
+ * Validated as a URL so a typo'd endpoint fails at config-load rather than
+ * silently swallowing every report at POST time.
+ */
+export const FeedbackConfigSchema = z
+  .object({
+    upstream: z.string().url().optional(),
+  })
+  .strict();
+
+export type FeedbackConfig = z.infer<typeof FeedbackConfigSchema>;
+
 export const ExarchosConfigSchema = z
   .object({
     test: safeCommand.optional(),
@@ -324,6 +345,7 @@ export const ExarchosConfigSchema = z
     storage: StorageConfigSchema.optional(),
     synthesis: SynthesisConfigSchema.optional(),
     escalation: EscalationConfigSchema.optional(),
+    feedback: FeedbackConfigSchema.optional(),
   })
   .strict();
 

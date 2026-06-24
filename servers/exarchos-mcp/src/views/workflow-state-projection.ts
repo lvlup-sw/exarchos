@@ -702,6 +702,9 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       case 'catalog.registered':
       case 'mutation.executing_started':
       case 'mutation.executed':
+      // #1319 — lands on the shared `meta/feedback` stream, never a feature
+      // stream, so it has no effect on any workflow's projected state.
+      case 'feedback.recorded':
         return view;
 
       // ── Exhaustiveness guard (#1554 guard (a)) ─────────────────────────

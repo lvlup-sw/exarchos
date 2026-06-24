@@ -1245,6 +1245,46 @@ const workflowActions: readonly ToolAction[] = [
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: LOCAL_MUTATION_IDEMPOTENT,
   },
+  {
+    // #1319 — agent→runtime friction back-channel (Trevin Principle 10b).
+    // Deliberately on `exarchos_workflow` (INV-5d collapses to 4 visible
+    // tools) yet NOT feature-scoped: it takes no featureId and lands on the
+    // shared `meta/feedback` stream so reports are queryable across every
+    // workflow. The handler owns the local write (offline-first, INV-15) and
+    // the optional best-effort upstream POST; `/exarchos:dogfood` reads the
+    // stream back as triage input.
+    name: 'feedback',
+    description:
+      'File an agent→runtime friction report onto the shared meta/feedback stream (cross-workflow, queryable). Emits feedback.recorded; optionally POSTs upstream when .exarchos.yml sets feedback.upstream. No featureId — feedback is not feature-scoped.',
+    schema: z.object({
+      message: z.string().min(1).describe('The friction report (required, non-empty).'),
+      // ZodObject (not a union) so the CLI flag classifies as `object` and
+      // `coerceFlags` JSON-parses `--sessionContext '{...}'` into the same
+      // shape the MCP arm receives (INV-2 parity; #1127 object-classification).
+      sessionContext: z
+        .object({
+          workflow: z.string().optional(),
+          action: z.string().optional(),
+          errorCode: z.string().optional(),
+        })
+        .optional()
+        .describe('Optional provenance: the workflow / action / errorCode the agent hit friction in.'),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+    cli: {
+      flags: { message: { alias: 'm' } },
+      examples: [
+        'exarchos feedback "rehydrate envelope omitted taskProgress when projection lagged"',
+        'exarchos wf feedback -m "check_static_analysis ran in the wrong worktree" --sessionContext \'{"action":"check_static_analysis","errorCode":"GATE_FAILED"}\'',
+      ],
+    },
+    autoEmits: [
+      { event: 'feedback.recorded', condition: 'always' },
+    ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
+  },
   makeWorkflowDescribeAction(),
 ];
 

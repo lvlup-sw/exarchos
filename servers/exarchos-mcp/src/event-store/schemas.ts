@@ -262,6 +262,13 @@ export const EventTypes = [
   // skips emission and never crashes.
   'mutation.executing_started',
   'mutation.executed',
+  // #1319 — agent→runtime friction back-channel (Trevin Principle 10b). Emitted
+  // by the `exarchos_workflow.feedback` action when an agent (or operator) files
+  // a friction report mid-run. Lands on the shared `meta/feedback` stream (NOT a
+  // feature stream) so reports are queryable across every workflow — the
+  // in-runtime, event-sourced counterpart to the manual `/exarchos:dogfood`
+  // transcript triage, which now reads this stream as input.
+  'feedback.recorded',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -615,6 +622,10 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   // to hand-emit the liveness pair.
   'mutation.executing_started': 'auto',
   'mutation.executed': 'auto',
+  // #1319 — the `exarchos_workflow.feedback` handler owns the write
+  // deterministically when the action is invoked, so the model is never
+  // separately nagged to hand-emit it. ('auto', not 'model'.)
+  'feedback.recorded': 'auto',
 };
 
 // ─── Base Event Schema ──────────────────────────────────────────────────────
@@ -2386,6 +2397,35 @@ export const MutationExecutedData = z.object({
   exitCode: z.number().int(),
 });
 
+/**
+ * `feedback.recorded` (#1319) — agent→runtime friction back-channel.
+ *
+ * `message` is the friction report itself (required, non-empty). `sessionContext`
+ * is optional structured provenance: which workflow / action / errorCode the
+ * agent was in when it hit the friction. `configuredEndpoint` records the
+ * `.exarchos.yml` `feedback.upstream` URL captured at emit time (or `null` when
+ * unset) so a later query can tell whether the report was eligible for upstream
+ * federation; `upstreamDelivered` records whether the best-effort POST actually
+ * succeeded (`false` when there was no endpoint, the POST failed, or it was
+ * skipped — the local event write always succeeds regardless, INV-15 /
+ * offline-first).
+ *
+ * Intentionally NOT `.strict()`: this is an append-only event payload, so a
+ * future additive field must not retroactively invalidate replay of older rows.
+ */
+export const FeedbackRecordedData = z.object({
+  message: z.string().min(1),
+  sessionContext: z
+    .object({
+      workflow: z.string().optional(),
+      action: z.string().optional(),
+      errorCode: z.string().optional(),
+    })
+    .optional(),
+  configuredEndpoint: z.string().nullable().optional(),
+  upstreamDelivered: z.boolean().optional(),
+});
+
 // ─── Event Data Schemas Map ─────────────────────────────────────────────────
 
 export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
@@ -2504,6 +2544,9 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   // Mutation-run liveness (verification-ladder slice 1, task 020 / INV-10)
   'mutation.executing_started': MutationExecutingStartedData,
   'mutation.executed': MutationExecutedData,
+
+  // Agent→runtime friction back-channel (#1319)
+  'feedback.recorded': FeedbackRecordedData,
 
   // Review provider adapter unknown-tier (#1159)
   'provider.unknown-tier': z.object({
@@ -2719,6 +2762,7 @@ export type TaskCancelled = z.infer<typeof TaskCancelledData>;
 // #1261 — dispatch-guard preflight observability
 export type DispatchPreflight = z.infer<typeof DispatchPreflightData>;
 export type StashDetected = z.infer<typeof StashDetectedData>;
+export type FeedbackRecorded = z.infer<typeof FeedbackRecordedData>;
 
 // ─── Event Data Map ─────────────────────────────────────────────────────────
 
@@ -2843,6 +2887,7 @@ export type EventDataMap = {
   // #1261 — dispatch-guard preflight observability
   'dispatch.preflight': DispatchPreflight;
   'stash.detected': StashDetected;
+  'feedback.recorded': FeedbackRecorded;
 };
 
 // ─── Event Catalog Serialization ────────────────────────────────────────────
