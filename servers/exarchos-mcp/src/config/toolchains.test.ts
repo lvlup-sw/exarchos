@@ -6,7 +6,10 @@ import {
   detectToolchain,
   toolchainFromConfig,
   BUILTIN_TOOLCHAINS,
+  classifyHermeticDependency,
+  resolveHermeticDouble,
   type Toolchain,
+  type HermeticDependencyClass,
 } from './toolchains.js';
 
 let dir: string;
@@ -245,6 +248,78 @@ describe('BUILTIN_TOOLCHAINS — verification command seeds (task 016)', () => {
       expect('mutation' in tc.commands).toBe(true);
       expect('lint' in tc.commands).toBe(true);
       expect('contract' in tc.commands).toBe(true);
+    }
+  });
+});
+
+// ─── SIV-5: hermetic-double resolution (#1531) ──────────────────────────────
+describe('hermetic-double resolution (SIV-5 #1531)', () => {
+  it('Hermetic_DatabaseDependency_ResolvesTestcontainersReal', () => {
+    expect(classifyHermeticDependency('pg')).toBe('database');
+    expect(classifyHermeticDependency('mongoose')).toBe('database');
+    const d = resolveHermeticDouble('database');
+    expect(d.double).toMatch(/Testcontainers/i);
+    expect(d.fidelity).toBe('real');
+    // Container-backed ⇒ never the inner loop.
+    expect(d.cadence).toBe('boundary-offline');
+  });
+
+  it('Hermetic_CloudApiDependency_ResolvesLocalStackWithFakeCaveat', () => {
+    expect(classifyHermeticDependency('@aws-sdk/client-s3')).toBe('cloud-api');
+    expect(classifyHermeticDependency('aws-sdk')).toBe('cloud-api');
+    const d = resolveHermeticDouble('cloud-api');
+    expect(d.double).toMatch(/LocalStack/i);
+    // Emulator honesty: it is itself a fake of the cloud.
+    expect(d.fidelity).toBe('fake');
+    expect(d.caveat ?? '').toMatch(/fake of the cloud/i);
+  });
+
+  it('Hermetic_ThirdPartyHttp_ResolvesPactStubInnerLoop', () => {
+    expect(classifyHermeticDependency('axios')).toBe('third-party-http');
+    expect(classifyHermeticDependency('got')).toBe('third-party-http');
+    // Subpath specifiers (e.g. `axios/dist`, `undici/lib`) must classify too,
+    // not just bare package names, or deep imports lose SIV-5 steering.
+    expect(classifyHermeticDependency('axios/dist/node/axios.cjs')).toBe('third-party-http');
+    expect(classifyHermeticDependency('undici/lib/api')).toBe('third-party-http');
+    const d = resolveHermeticDouble('third-party-http');
+    expect(d.double).toMatch(/Pact-verified contract stub/i);
+    expect(d.fidelity).toBe('stub');
+    expect(d.cadence).toBe('inner-loop');
+  });
+
+  it('Hermetic_MessageBrokerDependency_ClassifiesAsMessageBroker', () => {
+    // Prove the classifier — not just resolveHermeticDouble — reaches the
+    // message-broker class from real package specifiers; a regex regression
+    // here would otherwise go undetected.
+    expect(classifyHermeticDependency('kafkajs')).toBe('message-broker');
+    expect(classifyHermeticDependency('amqplib')).toBe('message-broker');
+    const d = resolveHermeticDouble('message-broker');
+    expect(d.depClass).toBe('message-broker');
+  });
+
+  it('Hermetic_UnknownDependency_StaysUnclassified', () => {
+    // Resolve, don't guess: an unrecognized specifier is null, not a wrong class.
+    expect(classifyHermeticDependency('some-obscure-pkg')).toBeNull();
+    expect(classifyHermeticDependency('@scope/internal-thing')).toBeNull();
+  });
+
+  it('Hermetic_Resolution_IsInspectableDescriptorNotBakedLiteral', () => {
+    // Every class resolves to a full descriptor (the --dry-run-inspectable shape),
+    // never a bare command string. fidelity respects real > fake > stub.
+    const classes: readonly HermeticDependencyClass[] = [
+      'database',
+      'cloud-api',
+      'message-broker',
+      'third-party-http',
+      'owned-interface',
+    ];
+    for (const c of classes) {
+      const d = resolveHermeticDouble(c);
+      expect(d.depClass).toBe(c);
+      expect(typeof d.double).toBe('string');
+      expect(d.double.length).toBeGreaterThan(0);
+      expect(['real', 'fake', 'stub']).toContain(d.fidelity);
+      expect(['inner-loop', 'boundary-offline']).toContain(d.cadence);
     }
   });
 });

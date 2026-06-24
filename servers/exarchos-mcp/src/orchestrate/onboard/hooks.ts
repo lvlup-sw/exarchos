@@ -56,6 +56,64 @@ const BINDING_COMMAND = `exarchos session-start --directive '${ORIENTATION_DIREC
 /** The SessionStart matcher: fire on both fresh starts and resumes. */
 const BINDING_MATCHER = 'startup|resume';
 
+// ─── Binding specs — symmetric with the plugin's hooks/hooks.json (#1572 Gap-1)─
+//
+// The plugin ships SessionStart + SessionEnd + SubagentStop in hooks/hooks.json,
+// so PLUGIN consumers get all three. STANDALONE-CLI consumers go through this
+// installer, which historically wrote only SessionStart (#1485) — so they got
+// no SessionEnd / SubagentStop bindings, and therefore no per-subagent token
+// attribution (the SubagentStop binding is the seam that feeds
+// `subagent.tokens_used`, #1561/#1525). #1572 Gap-1 closes that asymmetry: the
+// installer now writes all three, each idempotent on its own command marker.
+//
+// INV-4 posture: all three are Claude-Code agent-host hook events written into
+// the Claude-Code settings path; the binding is host-specific by construction
+// exactly as the original SessionStart binding always was — no per-binding
+// runtime-capability probe is introduced (and none exists), so the symmetry is
+// "write the same three the plugin declares for this host", nothing more.
+
+/** The Claude Code hook events this installer binds. */
+type HookEventName = 'SessionStart' | 'SessionEnd' | 'SubagentStop';
+
+/** Per-event idempotence/detection markers (substring of the bound command). */
+const SESSION_START_MARKER = 'exarchos session-start';
+const SESSION_END_MARKER = 'exarchos session-end';
+const SUBAGENT_STOP_MARKER = 'exarchos subagent-stop';
+
+interface BindingSpec {
+  readonly event: HookEventName;
+  readonly matcher: string;
+  readonly command: string;
+  /** Idempotence + detection marker (must be a substring of `command`). */
+  readonly marker: string;
+  readonly timeout: number;
+}
+
+/** The bindings the installer writes, in hooks.json order. */
+const BINDINGS: readonly BindingSpec[] = [
+  {
+    event: 'SessionStart',
+    matcher: BINDING_MATCHER,
+    command: BINDING_COMMAND,
+    marker: SESSION_START_MARKER,
+    timeout: 10,
+  },
+  {
+    event: 'SessionEnd',
+    matcher: 'auto',
+    command: 'exarchos session-end',
+    marker: SESSION_END_MARKER,
+    timeout: 30,
+  },
+  {
+    event: 'SubagentStop',
+    matcher: '*',
+    command: 'exarchos subagent-stop',
+    marker: SUBAGENT_STOP_MARKER,
+    timeout: 30,
+  },
+];
+
 // ─── settings.json shapes (narrow — other keys are preserved opaque) ──────────
 
 interface CommandHook {
@@ -70,7 +128,12 @@ interface HookGroup {
 }
 
 interface HostSettings {
-  hooks?: { SessionStart?: HookGroup[]; [event: string]: unknown };
+  hooks?: {
+    SessionStart?: HookGroup[];
+    SessionEnd?: HookGroup[];
+    SubagentStop?: HookGroup[];
+    [event: string]: unknown;
+  };
   [key: string]: unknown;
 }
 
@@ -124,15 +187,15 @@ async function readSettings(deps: WriterDeps, settingsPath: string): Promise<Hos
   );
 }
 
-/** Does any SessionStart command hook already reference the exarchos binding? */
-export function hasExarchosBinding(settings: HostSettings): boolean {
-  const groups = settings.hooks?.SessionStart;
+/** Does `event` already carry a command hook whose command includes `marker`? */
+function hasBinding(settings: HostSettings, event: HookEventName, marker: string): boolean {
+  const groups = settings.hooks?.[event];
   if (!Array.isArray(groups)) return false;
-  for (const group of groups) {
+  for (const group of groups as HookGroup[]) {
     const inner = group?.hooks;
     if (!Array.isArray(inner)) continue;
     for (const h of inner) {
-      if (typeof h?.command === 'string' && h.command.includes('exarchos session-start')) {
+      if (typeof h?.command === 'string' && h.command.includes(marker)) {
         return true;
       }
     }
@@ -140,30 +203,29 @@ export function hasExarchosBinding(settings: HostSettings): boolean {
   return false;
 }
 
-/** Build the canonical SessionStart binding group. */
-function buildBindingGroup(): HookGroup {
-  return {
-    matcher: BINDING_MATCHER,
-    hooks: [{ type: 'command', command: BINDING_COMMAND, timeout: 10 }],
-  };
+/** Does any SessionStart command hook already reference the exarchos binding?
+ * Retained as the SessionStart-specific predicate the doctor check mirrors. */
+export function hasExarchosBinding(settings: HostSettings): boolean {
+  return hasBinding(settings, 'SessionStart', SESSION_START_MARKER);
 }
 
 /**
- * Insert the binding into a settings object WITHOUT mutating the input. Other
- * `hooks.*` events and all top-level keys are preserved; only a fresh
- * SessionStart group is appended.
+ * Insert one binding into a settings object WITHOUT mutating the input. Other
+ * `hooks.*` events, existing groups for the SAME event, and all top-level keys
+ * are preserved; only a fresh group for `spec.event` is appended.
  */
-function withBinding(settings: HostSettings): HostSettings {
+function withBindingFor(settings: HostSettings, spec: BindingSpec): HostSettings {
   const existingHooks = settings.hooks ?? {};
-  const existingSessionStart = Array.isArray(existingHooks.SessionStart)
-    ? existingHooks.SessionStart
+  const existingGroups = Array.isArray(existingHooks[spec.event])
+    ? (existingHooks[spec.event] as HookGroup[])
     : [];
+  const group: HookGroup = {
+    matcher: spec.matcher,
+    hooks: [{ type: 'command', command: spec.command, timeout: spec.timeout }],
+  };
   return {
     ...settings,
-    hooks: {
-      ...existingHooks,
-      SessionStart: [...existingSessionStart, buildBindingGroup()],
-    },
+    hooks: { ...existingHooks, [spec.event]: [...existingGroups, group] },
   };
 }
 
@@ -181,15 +243,20 @@ async function atomicWriteJson(
 // ─── Installer ──────────────────────────────────────────────────────────────
 
 /**
- * Install the #1485 SessionStart binding into the agent-host settings.
+ * Install the cross-harness Exarchos bindings into the agent-host settings:
+ * SessionStart (#1485), plus SessionEnd and SubagentStop (#1572 Gap-1) so a
+ * standalone-CLI host is symmetric with the plugin's hooks.json — the
+ * SubagentStop binding is what enables per-subagent token attribution
+ * (`subagent.tokens_used`, #1561/#1525).
  *
- * Idempotent: if a binding referencing `exarchos session-start` is already
- * present, returns without writing (no duplicate registration). Otherwise
- * appends the canonical binding group and writes atomically.
+ * Idempotent per-binding: each event whose command marker is already present is
+ * skipped, so re-running leaves exactly one registration per binding and a host
+ * that already has a subset gets only the missing ones. The file is written once
+ * (atomically) iff at least one binding was added.
  *
  * Conforms to the {@link ApplyCtx.installHook} seam signature `(step, ctx)`. The
- * `step` is unused today (a single SessionStart binding is the only hook kind);
- * it is accepted so the seam stays stable as future hook kinds fold in.
+ * `step` is unused — the installer writes the full binding set regardless of
+ * which hook step drove it.
  */
 export async function installHook(_step: PlanStep, ctx: ApplyCtx): Promise<void> {
   const deps = ctx.writerDeps;
@@ -197,12 +264,21 @@ export async function installHook(_step: PlanStep, ctx: ApplyCtx): Promise<void>
   const settingsPath = join(home, SESSION_START_SETTINGS_PATH);
 
   const settings = await readSettings(deps, settingsPath);
-  if (hasExarchosBinding(settings)) {
-    // Already registered — idempotent no-op (DR-8: exactly one entry).
-    return;
+
+  let next = settings;
+  let changed = false;
+  for (const spec of BINDINGS) {
+    if (hasBinding(next, spec.event, spec.marker)) {
+      continue; // already registered — idempotent per-binding no-op
+    }
+    next = withBindingFor(next, spec);
+    changed = true;
   }
 
-  const next = withBinding(settings);
+  if (!changed) {
+    return; // every binding already present — nothing to write
+  }
+
   await deps.fs.mkdir(dirname(settingsPath), { recursive: true });
   await atomicWriteJson(deps, settingsPath, next);
 }

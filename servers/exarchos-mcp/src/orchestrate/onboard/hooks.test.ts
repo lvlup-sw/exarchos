@@ -96,17 +96,26 @@ async function readSettings(fx: Fixture): Promise<Record<string, unknown> | unde
 
 /** Count SessionStart command hooks whose command references the exarchos binding. */
 function exarchosBindingCount(settings: Record<string, unknown> | undefined): number {
+  return bindingCount(settings, 'SessionStart', 'exarchos session-start');
+}
+
+/** Count command hooks under `event` whose command includes `marker` (#1572 Gap-1). */
+function bindingCount(
+  settings: Record<string, unknown> | undefined,
+  event: string,
+  marker: string,
+): number {
   if (!settings) return 0;
-  const hooks = settings.hooks as { SessionStart?: unknown } | undefined;
-  const sessionStart = hooks?.SessionStart;
-  if (!Array.isArray(sessionStart)) return 0;
+  const hooks = settings.hooks as Record<string, unknown> | undefined;
+  const groups = hooks?.[event];
+  if (!Array.isArray(groups)) return 0;
   let count = 0;
-  for (const group of sessionStart) {
+  for (const group of groups) {
     const inner = (group as { hooks?: unknown })?.hooks;
     if (!Array.isArray(inner)) continue;
     for (const h of inner) {
       const cmd = (h as { command?: unknown })?.command;
-      if (typeof cmd === 'string' && cmd.includes('exarchos session-start')) count += 1;
+      if (typeof cmd === 'string' && cmd.includes(marker)) count += 1;
     }
   }
   return count;
@@ -307,6 +316,121 @@ describe('DR-8 SessionStart hook install (#1485, task 012)', () => {
       const ok = await sessionStartHook(okProbes, new AbortController().signal);
       expect(ok.status).toBe('Pass');
       expect(ok.fix).toBeUndefined();
+    } finally {
+      await cleanup(fx);
+    }
+  });
+});
+
+// ─── #1572 Gap-1: SubagentStop + SessionEnd binding symmetry ────────────────
+describe('onboard hook symmetry — SessionEnd + SubagentStop (#1572 Gap-1)', () => {
+  const step = {
+    kind: 'hook' as const,
+    surface: 'any' as const,
+    key: 'session-start-hook',
+    description: 'install the cross-harness Exarchos bindings',
+  };
+
+  it('InstallHook_WritesSubagentStopBinding', async () => {
+    const fx = await createFixture();
+    try {
+      await installHook(step, {
+        repoRoot: fx.repoRoot,
+        surface: 'cli',
+        writerDeps: fixtureWriterDeps(fx),
+      });
+      const settings = await readSettings(fx);
+      // The SubagentStop binding — the seam that feeds subagent.tokens_used — is
+      // now written for standalone-CLI hosts, symmetric with the plugin hooks.json.
+      expect(bindingCount(settings, 'SubagentStop', 'exarchos subagent-stop')).toBe(1);
+    } finally {
+      await cleanup(fx);
+    }
+  });
+
+  it('InstallHook_WritesSessionEndBinding', async () => {
+    const fx = await createFixture();
+    try {
+      await installHook(step, {
+        repoRoot: fx.repoRoot,
+        surface: 'cli',
+        writerDeps: fixtureWriterDeps(fx),
+      });
+      const settings = await readSettings(fx);
+      expect(bindingCount(settings, 'SessionEnd', 'exarchos session-end')).toBe(1);
+    } finally {
+      await cleanup(fx);
+    }
+  });
+
+  it('InstallHook_WritesAllThreeBindings_Once', async () => {
+    const fx = await createFixture();
+    try {
+      const ctx = {
+        repoRoot: fx.repoRoot,
+        surface: 'cli' as const,
+        writerDeps: fixtureWriterDeps(fx),
+      };
+      await installHook(step, ctx);
+      const settings = await readSettings(fx);
+      expect(bindingCount(settings, 'SessionStart', 'exarchos session-start')).toBe(1);
+      expect(bindingCount(settings, 'SessionEnd', 'exarchos session-end')).toBe(1);
+      expect(bindingCount(settings, 'SubagentStop', 'exarchos subagent-stop')).toBe(1);
+    } finally {
+      await cleanup(fx);
+    }
+  });
+
+  it('InstallHook_Reonboard_NoDuplicateBindings', async () => {
+    const fx = await createFixture();
+    try {
+      const ctx = {
+        repoRoot: fx.repoRoot,
+        surface: 'cli' as const,
+        writerDeps: fixtureWriterDeps(fx),
+      };
+      // Two installs against the same file: every binding stays at exactly one.
+      await installHook(step, ctx);
+      await installHook(step, ctx);
+      const settings = await readSettings(fx);
+      expect(bindingCount(settings, 'SessionStart', 'exarchos session-start')).toBe(1);
+      expect(bindingCount(settings, 'SessionEnd', 'exarchos session-end')).toBe(1);
+      expect(bindingCount(settings, 'SubagentStop', 'exarchos subagent-stop')).toBe(1);
+    } finally {
+      await cleanup(fx);
+    }
+  });
+
+  it('InstallHook_PartialPriorState_AddsOnlyMissingBindings', async () => {
+    const fx = await createFixture();
+    try {
+      const ctx = {
+        repoRoot: fx.repoRoot,
+        surface: 'cli' as const,
+        writerDeps: fixtureWriterDeps(fx),
+      };
+      // Seed a settings.json carrying ONLY the legacy SessionStart binding (the
+      // pre-#1572 state). The installer must add the two missing bindings and
+      // leave SessionStart untouched (still one).
+      const sp = settingsPath(fx);
+      await mkdir(path.dirname(sp), { recursive: true });
+      await writeFile(
+        sp,
+        JSON.stringify({
+          hooks: {
+            SessionStart: [
+              { matcher: 'startup|resume', hooks: [{ type: 'command', command: 'exarchos session-start --directive x' }] },
+            ],
+          },
+        }),
+        'utf8',
+      );
+
+      await installHook(step, ctx);
+      const settings = await readSettings(fx);
+      expect(bindingCount(settings, 'SessionStart', 'exarchos session-start')).toBe(1);
+      expect(bindingCount(settings, 'SessionEnd', 'exarchos session-end')).toBe(1);
+      expect(bindingCount(settings, 'SubagentStop', 'exarchos subagent-stop')).toBe(1);
     } finally {
       await cleanup(fx);
     }

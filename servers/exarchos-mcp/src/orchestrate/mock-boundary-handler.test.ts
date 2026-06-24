@@ -88,7 +88,10 @@ describe('check_mock_boundary registration + dispatch + steer', () => {
     expect(data.findings).toHaveLength(0);
   });
 
-  it('SteerForFinding_NamesTheMockedTarget_AndPrescribesHermeticReplacement', () => {
+  it('SteerForFinding_KnownDependency_ResolvesConcreteHermeticDouble', () => {
+    // SIV-5 (#1531): axios classifies as third-party-http → a Pact-verified
+    // contract stub. The steer names the dependency, its class, the CONCRETE
+    // double, and the honesty caveat — not a generic menu.
     const steer = steerForFinding({
       file: 'src/foo.test.ts',
       line: 3,
@@ -96,11 +99,57 @@ describe('check_mock_boundary registration + dispatch + steer', () => {
       mockedTarget: 'axios',
       unowned: true,
     });
-    // INV-12: the steer must name the dependency AND prescribe the replacement.
     expect(steer).toContain('axios');
     expect(steer).toMatch(/replace the mock/i);
+    expect(steer).toMatch(/third-party-http/i);
+    expect(steer).toMatch(/Pact-verified contract stub/i);
+    // The honesty caveat (shape-not-semantics) rides the resolved descriptor.
+    expect(steer).toMatch(/shape, not provider semantics/i);
+  });
+
+  it('SteerForFinding_DatabaseDependency_ResolvesTestcontainers', () => {
+    // pg classifies as database → Testcontainers (real, boundary-offline).
+    const steer = steerForFinding({
+      file: 'src/db.test.ts',
+      line: 5,
+      identifier: 'mock',
+      mockedTarget: 'pg',
+      unowned: true,
+    });
+    expect(steer).toContain('pg');
+    expect(steer).toMatch(/database/i);
+    expect(steer).toMatch(/Testcontainers/i);
+    // Container-backed ⇒ boundary/offline cadence, never the inner loop.
+    expect(steer).toMatch(/boundary-offline/i);
+  });
+
+  it('SteerForFinding_CloudApiDependency_ResolvesLocalStackWithFakeCaveat', () => {
+    // @aws-sdk/* classifies as cloud-api → LocalStack, flagged as a FAKE.
+    const steer = steerForFinding({
+      file: 'src/s3.test.ts',
+      line: 9,
+      identifier: 'mock',
+      mockedTarget: '@aws-sdk/client-s3',
+      unowned: true,
+    });
+    expect(steer).toMatch(/cloud-api/i);
+    expect(steer).toMatch(/LocalStack/i);
+    expect(steer).toMatch(/FAKE of the cloud/i);
+  });
+
+  it('SteerForFinding_UnclassifiedDependency_FallsBackToGenericMenu', () => {
+    // An unrecognized dependency keeps the generic hermetic menu — the resolver
+    // never guesses a concrete double (resolve, don't bake).
+    const steer = steerForFinding({
+      file: 'src/foo.test.ts',
+      line: 3,
+      identifier: 'mock',
+      mockedTarget: 'some-obscure-pkg',
+      unowned: true,
+    });
+    expect(steer).toContain('some-obscure-pkg');
     expect(steer).toMatch(/hermetic fixture/i);
     expect(steer).toMatch(/contract-verified stub/i);
-    expect(steer).toMatch(/fake/i);
+    expect(steer).toMatch(/a fake/i);
   });
 });

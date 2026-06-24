@@ -9,7 +9,7 @@ Verification depth is **risk-proportional**, not uniform. Each task's `riskTier`
 - **low** — static analysis only; a 3-line verification note suffices in the dispatch prompt.
 - **medium** — adds scoped tests + the `check_test_adequacy` kill-probe (revert source → assert the new test goes red → restore).
 - **high** — the medium set plus the full integration suite at the merge boundary (and mutation-adequacy), judged test-after per `_shared/references/verification.md`. Granular per-behavior red-green is an explicit opt-in, not the default.
-- **boundaryTouching** — adds `check_contract_drift` (every tier) and `check_mock_boundary` (medium/high): structure is compiler-verifiable; keep exactly ONE semantic test per boundary and mock only what you own.
+- **boundaryTouching** — adds `check_contract_drift` (every tier) and `check_mock_boundary` (medium/high): structure is compiler-verifiable; keep exactly ONE semantic test per boundary and mock only what you own. **Parse, don't validate at the edge** (methodology E): untrusted IO crosses a single registered parser before entering the core, so the type-checker becomes the first-line integration test; the `check_static_analysis` boundary-parse leg (SIV-3 Layer B) enforces this when a repo commits the ruleset. For a flagged unowned mock, the gate's steer resolves the **concrete hermetic double** (SIV-5) — see *Hermetic doubles* below.
 
 Planners set `riskTier`/`boundaryTouching` explicitly only when the mechanical derivation would misclassify (see the derivation table in `task-template.md`); the gate *sequence* itself is never encoded in plan prose.
 
@@ -66,7 +66,7 @@ Assign `propertyTests: true` when the task involves any of these categories:
 | Category | Example Code | Properties to Test |
 |---|---|---|
 | **Data transformations** | Parse/serialize, encode/decode, format/unformat | Roundtrip: `decode(encode(x)) === x` |
-| **State machines** | Workflow HSM, circuit breaker, connection lifecycle | Transition validity: no invalid state reachable from any valid state |
+| **State machines** | Workflow HSM, circuit breaker, connection lifecycle, **external stateful integrations** (a DB/queue/cache/cloud-API the task drives across calls) | Transition validity: no invalid state reachable from any valid state. For an *external* stateful boundary, use **model-based conformance** — see below |
 | **Collections/ordering** | Sort, filter, deduplicate, paginate, merge | Idempotence: `sort(sort(x)) === sort(x)` |
 | **Concurrency** | Optimistic locking, CAS, event ordering | Linearizability: concurrent operations produce valid state |
 | **Serialization** | Event schemas, API contracts, JSON/YAML/TOML | Schema compliance: output matches declared schema for all inputs |
@@ -77,6 +77,33 @@ Assign `propertyTests: false` when the task is:
 - UI layout or styling
 - Simple CRUD without business logic
 - Documentation or content-only changes
+
+## Model-Based Conformance at Stateful Boundaries (SIV-6)
+
+When a task drives an **external stateful integration** (a database, queue, cache, or stateful cloud API — not just an in-process HSM), extend the State-machines property into **model-based conformance**: author a small reference model + a command set and let the runner fuzz real-vs-model (`fc.commands` + `modelRun` in fast-check; Hypothesis `RuleBasedStateMachine`). This gives implementation-independent refactor/regression protection at the boundary — the model runner itself executes in-process, but the stateful boundary it exercises still needs its infra double (a Testcontainers/LocalStack-style fixture per the SIV-5 resolution table), so the win is *reduced* reliance on heavy production infra, not elimination of the test fixture — and is the highest-leverage workload-agnostic boundary signal.
+
+**The provenance guardrail is non-negotiable.** The reference model is an LLM-authored oracle and carries the *same confirmation-bias defect as an LLM-authored mock*: a model reverse-engineered from the implementation just re-asserts the code's behavior, never the intended spec (fast-check's own docs warn the model "should NOT be a carbon copy"; MongoDB's *retrofit* conformance model failed and was abandoned, while the *spec-derived* sibling succeeded). A model-based gate is therefore **theater unless** the model is:
+
+1. **Spec-grounded** — it cites the acceptance-criterion ID(s) it encodes (no citation ⇒ reject the model).
+2. **Strictly simpler** than the implementation — a deliberately reduced abstraction, never a line-by-line mirror.
+3. **Authored before/with the code** — never reverse-engineered from the running implementation.
+4. **Validated by a known-bad-trace rejection** — the model must *reject* a seeded-wrong transition; a model that accepts the bad trace is vacuous and the gate fails.
+
+Encode these as the model's own checklist (carried on the task via `task-template.md`). The assurance lives in the runner + the provenance checklist, never in an LLM asked to be the contract-checker.
+
+## Hermetic Doubles (SIV-5)
+
+When a test needs a double for an **unowned** dependency, do not hand-author a mock of it — that asserts against a fiction (the `check_mock_boundary` gate flags it). Use the **resolved hermetic double** for the dependency's class, in Google's canonical fidelity order **real > fake > stub/mock**:
+
+| Dependency class | Preferred double | Fidelity | Cadence |
+|---|---|---|---|
+| Database | Testcontainers (the real engine in a container) | real | boundary/offline |
+| Cloud API | LocalStack (an emulated cloud) | fake | boundary/offline |
+| Message broker | Testcontainers (the real broker) | real | boundary/offline |
+| Third-party HTTP | a Pact-verified contract stub | stub | inner-loop |
+| Owned interface | a hand-written fake | fake | inner-loop |
+
+Two honesty caveats the resolver carries as first-class fields: an emulator (LocalStack) is itself a **fake of the cloud** — a higher-fidelity failure mode, not a guarantee — and a container-backed real double costs real wall-clock, so it runs at **boundary/offline cadence, never the inner loop**. The `check_mock_boundary` steer resolves the concrete double automatically for a known dependency; an unrecognized dependency keeps the generic menu (resolve, don't guess).
 
 ## Populating the `properties` Array
 
@@ -137,7 +164,7 @@ The planner MUST assign `testLayer` to each task. Follow the Testing Trophy dist
 
 > **Note:** `propertyTests: true` can coexist with any `testLayer` value — it's an independent overlay, not a mutually exclusive layer.
 
-**Sociable test preference:** Default to using real collaborators (sociable tests). Mock only at infrastructure boundaries — external HTTP services, databases, filesystem. If a test requires >3 mocked dependencies, the task may be at the wrong test layer.
+**Sociable test preference:** Default to using real collaborators (sociable tests). Mock only at infrastructure boundaries — external HTTP services, databases, filesystem — and for an **unowned** boundary prefer the resolved *hermetic double* over a hand-authored mock (see *Hermetic Doubles* above). If a test requires >3 mocked dependencies, the task may be at the wrong test layer.
 
 ## Characterization Testing
 
