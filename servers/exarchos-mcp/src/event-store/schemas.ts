@@ -2004,6 +2004,7 @@ export const PhaseBlockedKindSchema = z.enum([
   'PLAN',
   'REVIEW',
   'SYNTHESIZE',
+  'MERGE',
   'GATHER',
 ]);
 

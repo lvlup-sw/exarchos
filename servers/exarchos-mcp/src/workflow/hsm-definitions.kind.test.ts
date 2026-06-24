@@ -16,7 +16,7 @@ import type { PhaseKind } from './phase-kind.js';
 // state names/transitions remain bespoke (INV-6 variation layer). Compound and
 // final states are exempt — only `type === 'atomic'` states carry a `kind`.
 
-const ALL_KINDS: readonly PhaseKind[] = ['IMPLEMENT', 'PLAN', 'REVIEW', 'SYNTHESIZE', 'GATHER'];
+const ALL_KINDS: readonly PhaseKind[] = ['IMPLEMENT', 'PLAN', 'REVIEW', 'SYNTHESIZE', 'MERGE', 'GATHER'];
 
 const ALL_HSMS: Record<string, HSMDefinition> = {
   feature: createFeatureHSM(),
@@ -40,7 +40,7 @@ const LOCKED_CLASSIFICATION: Record<string, Record<string, PhaseKind>> = {
     'plan-review': 'PLAN',
     delegate: 'IMPLEMENT',
     review: 'REVIEW',
-    'merge-pending': 'SYNTHESIZE',
+    'merge-pending': 'MERGE',
     synthesize: 'SYNTHESIZE',
     blocked: 'GATHER',
   },

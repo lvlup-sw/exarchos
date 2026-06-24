@@ -25,7 +25,7 @@ import type { ResolvedProjectConfig } from '../config/resolve.js';
  * change that must be reflected in `KIND_OBLIGATIONS` (enforced by the
  * `satisfies Record<PhaseKind, …>` constraint below).
  */
-export type PhaseKind = 'IMPLEMENT' | 'PLAN' | 'REVIEW' | 'SYNTHESIZE' | 'GATHER';
+export type PhaseKind = 'IMPLEMENT' | 'PLAN' | 'REVIEW' | 'SYNTHESIZE' | 'MERGE' | 'GATHER';
 
 /**
  * The obligations granted to a phase by virtue of its kind.
@@ -134,6 +134,14 @@ export const KIND_OBLIGATIONS = {
   PLAN: { gates: { resolver: 'plan-structure' }, posture: 'read-only' },
   REVIEW: { gates: { resolver: 'review-contract' }, posture: 'read-only' },
   SYNTHESIZE: { gates: { resolver: 'synthesis-readiness' }, posture: 'shared-mutating' },
+  // The autonomous-merge substate (`merge-pending`). Its work is event-driven
+  // merge orchestration (preflight → merge → recovery), not a phase-boundary
+  // gate-set — so it carries NO resolved obligations (`gates: null`). Kept
+  // distinct from SYNTHESIZE precisely so the boundary does not freeze the
+  // synthesis-readiness legs (task-completion/tests/typecheck/document/stack)
+  // onto a phase whose playbook never runs them. Shares SYNTHESIZE's mutating
+  // posture (it writes the shared integration branch).
+  MERGE: { gates: null, posture: 'shared-mutating' },
   GATHER: { gates: null, posture: 'read-only' },
 } as const satisfies Record<PhaseKind, PhaseObligations>;
 
