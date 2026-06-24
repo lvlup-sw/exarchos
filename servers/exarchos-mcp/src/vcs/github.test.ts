@@ -243,6 +243,34 @@ describe('GitHubProvider', () => {
     );
   });
 
+  it('GitHubProvider_AddReply_PostsToRepliesEndpointWithBody', async () => {
+    // gh api POST to the review-comment replies endpoint, returning the new
+    // reply's id. The thread reply must go through `gh api` (gh pr comment can
+    // only post PR-level issue comments, never a thread reply).
+    mockExec.mockResolvedValue(JSON.stringify({ id: 778899 }));
+
+    const result = await provider.addReply('42', '201', 'On it — fixed in latest push.');
+
+    expect(mockExec).toHaveBeenCalledWith('gh', [
+      'api',
+      '--method',
+      'POST',
+      'repos/{owner}/{repo}/pulls/42/comments/201/replies',
+      '-f',
+      'body=On it — fixed in latest push.',
+    ]);
+    expect(result.id).toBe(778899);
+  });
+
+  it('GitHubProvider_AddReply_ReturnsIdFromResponse', async () => {
+    // The returned id is the new reply's databaseId — same id space as the
+    // inline-comment ids getPrComments surfaces, so the handler can correlate.
+    mockExec.mockResolvedValue(JSON.stringify({ id: 12345, body: 'x' }));
+
+    const result = await provider.addReply('7', '99', 'reply body');
+    expect(result).toEqual({ id: 12345 });
+  });
+
   it('GitHubProvider_GetReviewStatus_ParsesApproved', async () => {
     mockExec.mockResolvedValue(
       JSON.stringify({

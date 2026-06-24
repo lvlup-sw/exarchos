@@ -2586,10 +2586,11 @@ const orchestrateActions: readonly ToolAction[] = [
   },
   {
     name: 'add_pr_comment',
-    description: 'Add a comment to a pull/merge request via the VCS provider abstraction. Auto-emits pr.commented event.',
+    description: 'Add a comment to a pull/merge request via the VCS provider abstraction. Pass threadId to reply into an existing review-comment thread (provider-agnostic addReply) instead of posting a PR-level comment. Auto-emits pr.commented event.',
     schema: z.object({
       prId: z.string().min(1),
       body: z.string().min(1),
+      threadId: z.string().min(1).optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,

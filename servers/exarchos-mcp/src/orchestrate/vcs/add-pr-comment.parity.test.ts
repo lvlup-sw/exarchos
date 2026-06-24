@@ -70,6 +70,10 @@ function buildStubProvider(): VcsProvider {
     addComment: vi.fn().mockImplementation(async (_prId: string, body: string) => {
       lastPostedBody = body;
     }),
+    addReply: vi.fn().mockImplementation(async (_prId: string, _threadId: string, body: string) => {
+      lastPostedBody = body;
+      return { id: STUB_COMMENT_ID };
+    }),
     getReviewStatus: vi.fn(),
     listPrs: vi.fn(),
     getPrComments: vi.fn().mockImplementation(async (): Promise<PrComment[]> => {
@@ -133,7 +137,7 @@ function buildAddPrCommentCompositeStub(): CompositeHandler {
     const stubProvider = buildStubProvider();
     vi.mocked(createVcsProvider).mockResolvedValue(stubProvider);
 
-    return handleAddPrComment(rest as { prId: string; body: string }, ctx);
+    return handleAddPrComment(rest as { prId: string; body: string; threadId?: string }, ctx);
   };
 }
 
@@ -268,6 +272,59 @@ describe('exarchos add_pr_comment CLI↔MCP parity (Wave B / B2.5)', () => {
     //
     // After stripping UUIDs and timestamps, the ToolResult shape must be
     // byte-equal across CLI and MCP carriers.
+    expect(normalize(cliResult)).toEqual(normalize(mcpResult));
+  });
+
+  // T9 / #1165 — the new thread-reply surface (threadId routes through
+  // addReply) MUST also be reachable identically from BOTH carriers (INV-2).
+  it('AddPrReply_Parity_BothCarriersRouteThreadReplyThroughAddReply', async () => {
+    restoreStub = stubCompositeHandler(
+      'exarchos_orchestrate',
+      buildAddPrCommentCompositeStub(),
+    );
+
+    const cliArm = await createArm('add-pr-reply-parity-cli-');
+    arms.push(cliArm);
+    const mcpArm = await createArm('add-pr-reply-parity-mcp-');
+    arms.push(mcpArm);
+
+    const REPLY_ARGS = { ...PARITY_ARGS, threadId: '201' };
+
+    const { result: cliResult, exitCode: cliExitCode } = await harnessCallCli(
+      cliArm.ctx,
+      'orch',
+      'add_pr_comment',
+      REPLY_ARGS,
+    );
+    const mcpResult = await harnessCallMcp(mcpArm.ctx, 'exarchos_orchestrate', {
+      action: 'add_pr_comment',
+      ...REPLY_ARGS,
+    });
+
+    expect(cliResult.success).toBe(true);
+    expect(mcpResult.success).toBe(true);
+    expect(cliExitCode).toBe(0);
+
+    // Both carriers must observe the same two-event sequence with the reply id.
+    const collect = async (arm: ArmContext) => {
+      const events = await arm.ctx.eventStore.query('vcs');
+      return events
+        .filter((e) => e.type === 'pr.comment.requested' || e.type === 'pr.comment.executed')
+        .map((e) => ({ type: e.type, data: normalize(e.data) }));
+    };
+    const cliNorm = await collect(cliArm);
+    const mcpNorm = await collect(mcpArm);
+
+    expect(cliNorm).toHaveLength(2);
+    expect(mcpNorm).toHaveLength(2);
+    // requested intent records the reply target on both carriers.
+    expect((cliNorm[0].data as Record<string, unknown>).threadId).toBe(201);
+    expect((mcpNorm[0].data as Record<string, unknown>).threadId).toBe(201);
+    // executed carries the addReply-returned commentId on both carriers.
+    expect((cliNorm[1].data as Record<string, unknown>).commentId).toBe(STUB_COMMENT_ID);
+    expect((mcpNorm[1].data as Record<string, unknown>).commentId).toBe(STUB_COMMENT_ID);
+
+    // ToolResult parity across carriers.
     expect(normalize(cliResult)).toEqual(normalize(mcpResult));
   });
 });

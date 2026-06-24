@@ -1751,6 +1751,14 @@ export const PrCommentRequestedData = z.object({
   operationId: z.string().uuid().describe('Idempotency key — embedded as marker in posted comment'),
   prNumber: z.number().int().positive().describe('PR number being commented on'),
   body: z.string().min(1).describe('Comment body (handler embeds operationId marker before posting)'),
+  threadId: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe(
+      'Id of the review-comment thread being replied to (provider addReply path). Absent ⇒ PR-level comment via addComment.',
+    ),
 });
 
 /**

@@ -19,6 +19,7 @@ import type {
   IssueResult,
   IssueSearchSummary,
   RepoInfo,
+  ReplyResult,
 } from './provider.js';
 import { exec } from './shell.js';
 
@@ -82,6 +83,13 @@ interface GhReviewThreadNode {
 interface GhRepoViewResponse {
   readonly nameWithOwner: string;
   readonly defaultBranchRef: { readonly name: string };
+}
+
+// Response from `POST pulls/{pr}/comments/{comment_id}/replies` — the newly
+// created reply review-comment. `id` is the same databaseId space as the
+// inline-comment ids returned by getPrComments.
+interface GhReplyResponse {
+  readonly id: number;
 }
 
 function mapConclusion(conclusion: string | null): CiCheck['status'] {
@@ -222,6 +230,30 @@ export class GitHubProvider implements VcsProvider {
 
   async addComment(prId: string, body: string): Promise<void> {
     await exec('gh', ['pr', 'comment', prId, '--body', body]);
+  }
+
+  async addReply(prId: string, threadId: string, body: string): Promise<ReplyResult> {
+    // Reply into an existing review-comment thread. GitHub's dedicated reply
+    // endpoint is REST-only — `gh pr comment` can ONLY post a PR-level issue
+    // comment, so a thread reply must go through `gh api`:
+    //
+    //   POST repos/{owner}/{repo}/pulls/{pr}/comments/{comment_id}/replies
+    //
+    // `{owner}/{repo}` are placeholders gh resolves from the current repo (same
+    // pattern as getPrComments). The body is passed via `-f body=...`; `id` in
+    // the response is the new reply's databaseId, in the same id space as the
+    // inline-comment ids getPrComments returns (so the comment-marker
+    // verification path can correlate it back).
+    const output = await exec('gh', [
+      'api',
+      '--method',
+      'POST',
+      `repos/{owner}/{repo}/pulls/${prId}/comments/${threadId}/replies`,
+      '-f',
+      `body=${body}`,
+    ]);
+    const parsed = JSON.parse(output) as GhReplyResponse;
+    return { id: parsed.id };
   }
 
   async getReviewStatus(prId: string): Promise<ReviewStatus> {

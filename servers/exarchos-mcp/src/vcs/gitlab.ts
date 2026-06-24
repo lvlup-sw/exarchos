@@ -20,6 +20,7 @@ import type {
   IssueResult,
   IssueSearchSummary,
   RepoInfo,
+  ReplyResult,
 } from './provider.js';
 import { UnsupportedOperationError } from './provider.js';
 import { exec } from './shell.js';
@@ -173,6 +174,15 @@ export class GitLabProvider implements VcsProvider {
 
   async addComment(prId: string, body: string): Promise<void> {
     await exec('glab', ['mr', 'comment', prId, '--message', body]);
+  }
+
+  // Per-thread review-comment replies map to GitLab discussion notes
+  // (`POST /projects/:id/merge_requests/:iid/discussions/:discussion_id/notes`),
+  // which `glab` does not expose as a first-class verb. Tracked as a DR-7
+  // follow-up (#1612); throws rather than silently no-op'ing so callers get a
+  // clear capability signal.
+  async addReply(_prId: string, _threadId: string, _body: string): Promise<ReplyResult> {
+    throw new UnsupportedOperationError('gitlab', 'addReply');
   }
 
   async getReviewStatus(prId: string): Promise<ReviewStatus> {

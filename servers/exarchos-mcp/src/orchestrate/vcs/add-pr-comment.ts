@@ -41,6 +41,16 @@ export interface HandleAddPrCommentArgs {
   readonly prId: string;
   readonly body: string;
   /**
+   * When present, post the body as a **reply into the existing review-comment
+   * thread** identified by this id (provider-agnostic `addReply`), instead of a
+   * PR-level conversation comment (`addComment`). This is the id of the
+   * top-level review comment being answered — the same id space as
+   * `PrComment.id` / `PrComment.parentId`. Absent ⇒ PR-level comment (the
+   * original behavior). Keeps the thread-reply step provider-agnostic so
+   * shepherd no longer falls back to platform-specific GitHub calls (INV-2).
+   */
+  readonly threadId?: string;
+  /**
    * Idempotency key for the operation. When omitted a fresh UUID is generated.
    * Inject a stable UUID in tests or crash-recovery scenarios where Phase A
    * (`pr.comment.requested`) was already committed with a known operationId.
@@ -117,6 +127,20 @@ export async function handleAddPrComment(
     }
     const prNumber = parseInt(args.prId, 10);
 
+    // threadId, when supplied, routes the body through the provider-agnostic
+    // addReply path. It is the id of an existing review comment, so the same
+    // strict positive-integer guard applies — a malformed value would corrupt
+    // the reply endpoint path and silently 404 or hit the wrong thread.
+    if (args.threadId !== undefined && !/^[1-9]\d*$/.test(args.threadId)) {
+      return {
+        success: false,
+        error: {
+          code: 'INVALID_INPUT',
+          message: `add_pr_comment: threadId must be a positive integer, got "${args.threadId}"`,
+        },
+      };
+    }
+
     const provider = await createVcsProvider({ config: ctx.projectConfig });
     const appender = ctx.eventStore.getAppender();
     const phaseAKey = `pr-comment-requested:${operationId}`;
@@ -139,6 +163,11 @@ export async function handleAddPrComment(
                 operationId,
                 prNumber,
                 body: args.body,
+                // Record the reply target in the durable intent so the audit
+                // trail distinguishes a thread reply from a PR-level comment.
+                ...(args.threadId !== undefined
+                  ? { threadId: parseInt(args.threadId, 10) }
+                  : {}),
               },
             },
           ],
@@ -202,8 +231,35 @@ export async function handleAddPrComment(
     // ─── Phase B — side effect ─────────────────────────────────────────────
     //
     // Embed the marker into the body (appended after a blank line so it stays
-    // out of the way of human readers), then call addComment.
+    // out of the way of human readers), then post it.
     const markedBody = `${args.body}\n\n${marker}`;
+
+    // Reply path: route through the provider-agnostic addReply, which posts
+    // into the review-comment thread and returns the new reply's id directly —
+    // no Phase-C re-query needed, because addReply hands back the commentId.
+    // This keeps shepherd's per-thread reply step on the agnostic surface
+    // (INV-2) instead of falling back to platform-specific GitHub calls.
+    if (args.threadId !== undefined) {
+      const reply = await provider.addReply(args.prId, args.threadId, markedBody);
+      const repo = await provider.getRepository();
+      const replyUrl = `https://github.com/${repo.nameWithOwner}/pull/${args.prId}#discussion_r${reply.id}`;
+
+      await ctx.eventStore.append(
+        'vcs',
+        {
+          type: 'pr.comment.executed',
+          data: {
+            operationId,
+            commentId: reply.id,
+            url: replyUrl,
+          },
+        },
+        { idempotencyKey: `pr-comment-executed:${operationId}` },
+      );
+
+      return { success: true };
+    }
+
     await provider.addComment(args.prId, markedBody);
 
     // ─── Phase C — find posted comment + emit pr.comment.executed ──────────

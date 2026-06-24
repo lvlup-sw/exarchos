@@ -153,12 +153,49 @@ export interface RepoInfo {
   readonly defaultBranch: string;
 }
 
+/**
+ * Result of posting a reply to an existing comment thread via
+ * {@link VcsProvider.addReply}.
+ *
+ * `id` is the provider's identifier for the newly created reply comment — on
+ * GitHub this is the `pulls/comments` databaseId, the same id space that
+ * {@link PrComment.id} carries for `review-inline` comments. Consumers use it to
+ * correlate the posted reply back to a later `getPrComments` read (e.g. the
+ * marker-scan verification in the add-comment handler).
+ */
+export interface ReplyResult {
+  readonly id: number;
+}
+
 export interface VcsProvider {
   readonly name: 'github' | 'gitlab' | 'azure-devops';
   createPr(opts: CreatePrOpts): Promise<PrResult>;
   checkCi(prId: string): Promise<CiStatus>;
   mergePr(prId: string, strategy: string): Promise<MergeResult>;
   addComment(prId: string, body: string): Promise<void>;
+  /**
+   * Post a reply into an existing per-thread review-comment conversation.
+   *
+   * This is the thread-aware sibling of {@link addComment}: `addComment` posts
+   * a PR-level conversation comment (not anchored to any thread), whereas
+   * `addReply` answers a specific review-comment thread so the response nests
+   * under the comment it addresses.
+   *
+   * - `prId`     — the pull/merge request id.
+   * - `threadId` — the id of the top-level review comment to reply to. This is
+   *                the same id space as {@link PrComment.id} for a
+   *                `review-inline` comment (and the value carried by
+   *                {@link PrComment.parentId} on its replies). Threading is one
+   *                level only: replies attach to the top-level comment, not to
+   *                other replies.
+   * - `body`     — the reply text.
+   *
+   * Returns the {@link ReplyResult} for the newly created reply. Implementations
+   * that do not yet support thread replies MUST throw
+   * {@link UnsupportedOperationError} (never silently no-op), matching the
+   * convention used by other not-yet-implemented provider methods.
+   */
+  addReply(prId: string, threadId: string, body: string): Promise<ReplyResult>;
   getReviewStatus(prId: string): Promise<ReviewStatus>;
   listPrs(filter?: PrFilter): Promise<PrSummary[]>;
   getPrComments(prId: string): Promise<PrComment[]>;

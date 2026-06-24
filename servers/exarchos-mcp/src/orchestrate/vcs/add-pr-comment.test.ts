@@ -23,6 +23,7 @@ function makeMockProvider(overrides: Partial<VcsProvider> = {}): VcsProvider {
     checkCi: vi.fn(),
     mergePr: vi.fn(),
     addComment: vi.fn().mockResolvedValue(undefined),
+    addReply: vi.fn().mockResolvedValue({ id: 778899 }),
     getReviewStatus: vi.fn(),
     listPrs: vi.fn(),
     getPrComments: vi.fn().mockResolvedValue([]),
@@ -102,6 +103,87 @@ describe('handleAddPrComment', () => {
     const result = await handleAddPrComment(args, ctx);
 
     expect(result.success).toBe(true);
+  });
+
+  // ─── threadId routes through the provider-agnostic addReply (T9 / #1165) ───
+
+  it('handleAddPrComment_ThreadId_RoutesThroughAddReplyNotAddComment', async () => {
+    // With threadId present the body must go through addReply (the thread-aware
+    // sibling), NOT addComment — that's the whole point of keeping shepherd's
+    // per-thread reply step on the provider-agnostic surface (INV-2).
+    const replyProvider = makeMockProvider({
+      addReply: vi.fn().mockResolvedValue({ id: 778899 }),
+    });
+    vi.mocked(createVcsProvider).mockResolvedValue(replyProvider);
+    const replyCtx = makeMockCtx();
+
+    const result = await handleAddPrComment(
+      { prId: '42', body: 'Addressed in latest push.', threadId: '201' },
+      replyCtx,
+    );
+
+    expect(result.success).toBe(true);
+    // addReply called with the PR id, thread id, and marker-embedded body.
+    expect(replyProvider.addReply).toHaveBeenCalledTimes(1);
+    const [calledPrId, calledThreadId, calledBody] = vi.mocked(replyProvider.addReply).mock.calls[0];
+    expect(calledPrId).toBe('42');
+    expect(calledThreadId).toBe('201');
+    expect(calledBody).toContain('Addressed in latest push.');
+    // addComment must NOT be called on the reply path.
+    expect(replyProvider.addComment).not.toHaveBeenCalled();
+  });
+
+  it('handleAddPrComment_ThreadId_EmitsExecutedWithReplyId', async () => {
+    // The executed event carries the id addReply returned directly — no Phase-C
+    // re-query, because addReply hands back the new reply's commentId.
+    const replyProvider = makeMockProvider({
+      addReply: vi.fn().mockResolvedValue({ id: 778899 }),
+    });
+    vi.mocked(createVcsProvider).mockResolvedValue(replyProvider);
+    const replyCtx = makeMockCtx();
+
+    await handleAddPrComment(
+      { prId: '42', body: 'reply body', threadId: '201' },
+      replyCtx,
+    );
+
+    expect(replyCtx.eventStore.append).toHaveBeenCalledWith(
+      'vcs',
+      expect.objectContaining({
+        type: 'pr.comment.executed',
+        data: expect.objectContaining({ commentId: 778899 }),
+      }),
+      expect.anything(),
+    );
+  });
+
+  it('handleAddPrComment_ThreadId_RecordsThreadIdInRequestedIntent', async () => {
+    const replyProvider = makeMockProvider({
+      addReply: vi.fn().mockResolvedValue({ id: 778899 }),
+    });
+    vi.mocked(createVcsProvider).mockResolvedValue(replyProvider);
+    const replyCtx = makeMockCtx();
+
+    await handleAddPrComment(
+      { prId: '42', body: 'reply body', threadId: '201' },
+      replyCtx,
+    );
+
+    const appender = replyCtx.eventStore.getAppender();
+    const [, , computeFn] = vi.mocked(appender.appendComputed).mock.calls[0];
+    const events = await computeFn();
+    expect(events[0].type).toBe('pr.comment.requested');
+    expect((events[0].data as Record<string, unknown>).threadId).toBe(201);
+  });
+
+  it('handleAddPrComment_InvalidThreadId_ReturnsInvalidInput', async () => {
+    const result = await handleAddPrComment(
+      { prId: '42', body: 'reply', threadId: '0' },
+      ctx,
+    );
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(mockProvider.addReply).not.toHaveBeenCalled();
   });
 
   it('handleAddPrComment_Success_EmitsTwoEventSequence', async () => {

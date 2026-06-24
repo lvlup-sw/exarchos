@@ -13,6 +13,7 @@ describe('VcsProvider', () => {
       checkCi: async () => ({ status: 'pending', checks: [] }),
       mergePr: async () => ({ merged: false }),
       addComment: async () => {},
+      addReply: async () => ({ id: 0 }),
       getReviewStatus: async () => ({ state: 'pending', reviewers: [] }),
       listPrs: async () => [],
       getPrComments: async () => [],
@@ -41,6 +42,7 @@ describe('VcsProvider', () => {
     expect(typeof provider.checkCi).toBe('function');
     expect(typeof provider.mergePr).toBe('function');
     expect(typeof provider.addComment).toBe('function');
+    expect(typeof provider.addReply).toBe('function');
     expect(typeof provider.getReviewStatus).toBe('function');
     expect(typeof provider.listPrs).toBe('function');
     expect(typeof provider.getPrComments).toBe('function');
@@ -55,6 +57,9 @@ describe('VcsProvider', () => {
     await expect(provider.createIssue({ title: 't', body: 'b' })).rejects.toThrow(/not yet supported/i);
     await expect(provider.searchIssuesByMarker('op-1')).rejects.toThrow(/not yet supported/i);
     await expect(provider.getRepository()).rejects.toThrow(/not yet supported/i);
+    // addReply is a thread-aware sibling of addComment; GitLab support is a
+    // DR-7 follow-up (#1612), so it must throw a clear capability signal.
+    await expect(provider.addReply('1', '2', 'reply')).rejects.toThrow(/not yet supported/i);
   });
 
   it('AzureDevOpsProvider_ImplementsVcsProvider', async () => {
@@ -64,6 +69,7 @@ describe('VcsProvider', () => {
     expect(typeof provider.checkCi).toBe('function');
     expect(typeof provider.mergePr).toBe('function');
     expect(typeof provider.addComment).toBe('function');
+    expect(typeof provider.addReply).toBe('function');
     expect(typeof provider.getReviewStatus).toBe('function');
     expect(typeof provider.listPrs).toBe('function');
     expect(typeof provider.getPrComments).toBe('function');
@@ -78,6 +84,9 @@ describe('VcsProvider', () => {
     await expect(provider.createIssue({ title: 't', body: 'b' })).rejects.toThrow(/not yet supported/i);
     await expect(provider.searchIssuesByMarker('op-1')).rejects.toThrow(/not yet supported/i);
     await expect(provider.getRepository()).rejects.toThrow(/not yet supported/i);
+    // addReply is a thread-aware sibling of addComment; Azure DevOps support is
+    // a DR-7 follow-up (#1613), so it must throw a clear capability signal.
+    await expect(provider.addReply('1', '2', 'reply')).rejects.toThrow(/not yet supported/i);
   });
 
   it('PrComment_Shape_CarriesSourceAuthorThreadResolved', () => {
