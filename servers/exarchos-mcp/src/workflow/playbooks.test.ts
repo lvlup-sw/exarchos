@@ -257,7 +257,8 @@ describe('Refactor workflow playbooks', () => {
 
   it('getPlaybook_OverhaulReview_HasReviewSkill', () => {
     const playbook = getPlaybook('refactor', 'overhaul-review')!;
-    expect(playbook.skill).toBe('quality-review');
+    expect(playbook.skill).toBe('review');
+    expect(playbook.skillRef).toBe('@skills/review/SKILL.md');
   });
 
   it('getPlaybook_OverhaulUpdateDocs_HasRefactorSkill', () => {
@@ -476,7 +477,7 @@ describe('Review contract consistency across playbooks and tools.ts', () => {
     // The dimension names MUST match skill folder names under skills-src/
     // so the skill an agent runs and the state key it writes are identical.
     // Changing this assertion requires renaming skill folders too.
-    expect(getRequiredReviews('feature')).toEqual(['spec-review', 'quality-review']);
+    expect(getRequiredReviews('feature')).toEqual(['review']);
   });
 });
 

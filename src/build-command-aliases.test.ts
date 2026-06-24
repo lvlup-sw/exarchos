@@ -224,11 +224,12 @@ describe('buildCommandAliases — alias file shape', () => {
   it('multi-skill commands name every mapped skill in order (review)', () => {
     const aliasDir = emitOpencode();
     const review = readFileSync(join(aliasDir, 'review.md'), 'utf8');
-    // review → [quality-review, spec-review] (map order)
-    expect(review).toContain('quality-review');
-    expect(review).toContain('spec-review');
-    expect(review.indexOf('quality-review')).toBeLessThan(
-      review.indexOf('spec-review'),
+    // review → [mutation-adequacy, review] (map order). Match the backtick-quoted
+    // skill tokens so `review` does not collide with the command title/description.
+    expect(review).toContain('`mutation-adequacy`');
+    expect(review).toContain('`review`');
+    expect(review.indexOf('`mutation-adequacy`')).toBeLessThan(
+      review.indexOf('`review`'),
     );
     expect(review).toContain('$ARGUMENTS');
   });

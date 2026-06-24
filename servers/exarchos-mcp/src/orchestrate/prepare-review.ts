@@ -70,7 +70,7 @@ const FINDING_FORMAT = `interface PluginFinding {
 
 /**
  * The structured review-grounding directive the orchestrator threads into the
- * spec-review subagent on the code-review path (DR-1 task 005). It pins the
+ * review subagent on the code-review path (DR-1 task 005). It pins the
  * INTENDED change (the captured `artifacts.intent` — surfaces + summary +
  * optional transcript line) against the DELIVERED diff so the reviewer can flag
  * intended-but-missing and delivered-but-unintended (scope-creep) work.
@@ -266,7 +266,7 @@ export async function handlePrepareReview(
   });
   const persisted = await persistIntent(args.featureId, intent, stateDir, eventStore);
   // DR-1 task 005: the review-grounding directive the orchestrator passes into
-  // the spec-review subagent. Present only when the intent is meaningful;
+  // the review subagent. Present only when the intent is meaningful;
   // omitted on the `NoIntent` path so the review degrades to diff-only.
   const intentGrounding = buildIntentGrounding(intent);
 

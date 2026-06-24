@@ -13,7 +13,7 @@
  * more than one skill:
  *   - `delegate`  → `delegation` + `git-worktrees`
  *   - `oneshot`   → `oneshot-workflow` + `synthesis`
- *   - `review`    → `quality-review` + `spec-review`
+ *   - `review`    → `review` + `mutation-adequacy`
  *
  * `@skills/<dir>/references/*.md` include paths are NOT skill entry points and
  * are deliberately excluded.
@@ -41,7 +41,7 @@ export const COMMAND_TO_SKILL: Readonly<Record<string, readonly string[]>> = {
   plan: ['implementation-planning'],
   prune: ['prune-workflows'],
   refactor: ['refactor'],
-  review: ['quality-review', 'spec-review'],
+  review: ['mutation-adequacy', 'review'],
   shepherd: ['shepherd'],
   synthesize: ['synthesis'],
 } as const;

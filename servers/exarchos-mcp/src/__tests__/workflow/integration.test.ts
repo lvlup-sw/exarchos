@@ -193,12 +193,12 @@ describe('Integration', () => {
       expect((toReview.data as Record<string, unknown>).phase).toBe('review');
 
       // review -> synthesize: requires all reviews passed with required dimensions
+      // (the two review dimensions collapsed into one: `review`).
       await handleSet(
         {
           featureId: 'full-saga',
           updates: {
-            'reviews.spec-review': { status: 'pass', reviewer: 'bot' },
-            'reviews.quality-review': { status: 'pass', reviewer: 'bot' },
+            'reviews.review': { status: 'pass', reviewer: 'bot' },
           },
         },
         stateDir,

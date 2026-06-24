@@ -38,8 +38,8 @@ describe('Skill coverage — runbook references', () => {
     assertRunbookReference(content, 'agent-teams-saga');
   });
 
-  it('SkillCoverage_QualityReviewSkill_ReferencesQualityEvaluationRunbook', () => {
-    const content = readSkillFile('quality-review/SKILL.md');
+  it('SkillCoverage_ReviewSkill_ReferencesQualityEvaluationRunbook', () => {
+    const content = readSkillFile('review/SKILL.md');
     assertRunbookReference(content, 'quality-evaluation');
   });
 
@@ -75,8 +75,8 @@ describe('Skill coverage — runbook references', () => {
     assertRunbookReference(content, 'dispatch-decision');
   });
 
-  it('SkillCoverage_QualityReviewSkill_ReferencesReviewEscalationRunbook', () => {
-    const content = readSkillFile('quality-review/SKILL.md');
+  it('SkillCoverage_ReviewSkill_ReferencesReviewEscalationRunbook', () => {
+    const content = readSkillFile('review/SKILL.md');
     assertRunbookReference(content, 'review-escalation');
   });
 
@@ -92,13 +92,8 @@ describe('Skill coverage — runbook references', () => {
     assertRunbookReference(content, 'task-classification');
   });
 
-  it('SkillCoverage_SpecReviewSkill_ReferencesReviewStrategyRunbook', () => {
-    const content = readSkillFile('spec-review/SKILL.md');
-    assertRunbookReference(content, 'review-strategy');
-  });
-
-  it('SkillCoverage_QualityReviewSkill_ReferencesReviewStrategyRunbook', () => {
-    const content = readSkillFile('quality-review/SKILL.md');
+  it('SkillCoverage_ReviewSkill_ReferencesReviewStrategyRunbook', () => {
+    const content = readSkillFile('review/SKILL.md');
     assertRunbookReference(content, 'review-strategy');
   });
 });

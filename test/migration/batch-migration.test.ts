@@ -1,5 +1,5 @@
 /**
- * Task 016 — Batch migration tests for the 11 simple skills.
+ * Task 016 — Batch migration tests for the 10 simple skills.
  *
  * After the canary proof on brainstorming (task 015), this wave migrates
  * the remaining simple skills from the legacy top-level `skills/<name>/`
@@ -9,14 +9,14 @@
  *
  * Three assertions cover the batch wave:
  *
- *   1. `BatchMigration_AllElevenSkills_ClaudeVariantByteIdenticalToBaseline` —
+ *   1. `BatchMigration_AllTenSkills_ClaudeVariantByteIdenticalToBaseline` —
  *      for every migrated skill, the rendered
  *      `skills/claude/<name>/SKILL.md` MUST be byte-identical to the
  *      captured baseline in `__fixtures__/batch-baselines/<name>.md`.
  *      If this assertion fails for any skill, the placeholder insertion
  *      for that source is wrong — fix the source, not the renderer.
  *
- *   2. `BatchMigration_AllElevenSkills_GenericVariantNoClaudePrefixes` —
+ *   2. `BatchMigration_AllTenSkills_GenericVariantNoClaudePrefixes` —
  *      the generic fallback variant must NOT contain any Claude-native
  *      substitution artifacts: `mcp__plugin_exarchos_exarchos__`,
  *      `/exarchos:`, or `Skill({`.
@@ -55,7 +55,7 @@ const BASELINE_DIR = join(
   'batch-baselines',
 );
 
-// The 11 simple skills migrated by task 016. Brainstorming (the canary,
+// The 10 simple skills migrated by task 016. Brainstorming (the canary,
 // task 015) is intentionally NOT in this list — it has its own test file.
 // `rehydrate` and `tdd` from the original plan are commands, not skills.
 const BATCH_SKILLS = [
@@ -64,10 +64,9 @@ const BATCH_SKILLS = [
   'dogfood',
   'git-worktrees',
   'implementation-planning',
-  'quality-review',
   'refactor',
+  'review',
   'shepherd',
-  'spec-review',
   'synthesis',
   'workflow-state',
 ];
@@ -140,8 +139,8 @@ afterEach(() => {
   }
 });
 
-describe('task 016 — batch migration of 11 simple skills', () => {
-  it('BatchMigration_AllElevenSkills_ClaudeVariantByteIdenticalToBaseline', () => {
+describe('task 016 — batch migration of 10 simple skills', () => {
+  it('BatchMigration_AllTenSkills_ClaudeVariantByteIdenticalToBaseline', () => {
     const outDir = buildIntoTemp();
 
     // Collect all mismatches before failing so a single run surfaces
@@ -176,7 +175,7 @@ describe('task 016 — batch migration of 11 simple skills', () => {
     }
   });
 
-  it('BatchMigration_AllElevenSkills_GenericVariantNoClaudePrefixes', () => {
+  it('BatchMigration_AllTenSkills_GenericVariantNoClaudePrefixes', () => {
     const outDir = buildIntoTemp();
 
     for (const skill of BATCH_SKILLS) {

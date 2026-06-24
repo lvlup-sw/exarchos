@@ -289,7 +289,7 @@ export type SynthesisConfig = z.infer<typeof SynthesisConfigSchema>;
 
 /**
  * `escalation` (DR-3, #1595) — tunes the shared escalation policy consumed by
- * the spec-review, quality-review, and shepherd fix-loops. `maxIterations` is
+ * the review and shepherd fix-loops. `maxIterations` is
  * the per-loop auto-fix bound: how many times a loop may auto-fix a mechanical
  * finding before escalating to the user. Resolves to a uniform default of `5`
  * (see `DEFAULT_MAX_ITERATIONS` in `orchestrate/escalation-policy.ts`); a

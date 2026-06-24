@@ -201,9 +201,9 @@ describe('task 025 — per-runtime snapshot baselines', () => {
     // oneshot-workflow (15 × 6 = 90), v2.8.0 added discovery (16 × 6 = 96),
     // v2.9.0 added merge-orchestrator per #1193 / #1194 (17 × 6 = 102),
     // v2.10.0 added authoring-invariants per #1487 (18 × 6 = 108), and
-    // v2.11.0 added mutation-adequacy per #1520 (verification ladder R5)
-    // (19 × 6 = 114).
-    expect(allFiles.length).toBe(114);
+    // v2.11.0 added mutation-adequacy per #1520 (19 × 6 = 114), then collapsed
+    // spec-review + quality-review into one `review` skill (18 × 6 = 108).
+    expect(allFiles.length).toBe(108);
   });
 
   for (const runtime of RUNTIME_NAMES) {

@@ -26,9 +26,8 @@ describe('review contract — tier-aware mutation-adequacy dimension (R5)', () =
     it('feature workflow at the HIGH tier includes mutation-adequacy', () => {
       const dims = getRequiredReviews('feature', 'high');
       expect(dims).toContain('mutation-adequacy');
-      // the base dimensions are preserved alongside the high-tier addition
-      expect(dims).toContain('spec-review');
-      expect(dims).toContain('quality-review');
+      // the base dimension is preserved alongside the high-tier addition
+      expect(dims).toContain('review');
     });
   });
 
@@ -44,7 +43,7 @@ describe('review contract — tier-aware mutation-adequacy dimension (R5)', () =
     it('the no-tier legacy call does NOT include mutation-adequacy (backward-compat)', () => {
       expect(getRequiredReviews('feature')).not.toContain('mutation-adequacy');
       // backward-compat: the legacy call reproduces today's roster exactly
-      expect(getRequiredReviews('feature')).toEqual(['spec-review', 'quality-review']);
+      expect(getRequiredReviews('feature')).toEqual(['review']);
     });
 
     it('medium and low tiers reproduce the no-tier roster exactly', () => {

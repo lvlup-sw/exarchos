@@ -488,8 +488,8 @@ register({
 register({
   phase: 'review',
   workflowType: 'feature',
-  skill: 'quality-review',
-  skillRef: '@skills/quality-review/SKILL.md',
+  skill: 'review',
+  skillRef: '@skills/review/SKILL.md',
   tools: [
     {
       tool: 'exarchos_workflow',
@@ -1065,8 +1065,8 @@ register({
 register({
   phase: 'overhaul-review',
   workflowType: 'refactor',
-  skill: 'quality-review',
-  skillRef: '@skills/quality-review/SKILL.md',
+  skill: 'review',
+  skillRef: '@skills/review/SKILL.md',
   tools: [
     {
       tool: 'exarchos_workflow',

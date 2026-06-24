@@ -28,7 +28,7 @@ interface ReviewVerdictArgs {
   readonly dimensionResults?: Record<string, { passed: boolean; findingCount: number }>;
   /**
    * Findings from a plugin review pass. Optional `category`/`intentTouching`
-   * fields (when supplied by the caller — e.g. spec-review issues carry a
+   * fields (when supplied by the caller — e.g. review issues carry a
    * `category: 'spec' | 'tdd' | 'coverage'`) drive the escalation
    * classification: a `category === 'spec'` (or `intentTouching === true`)
    * finding is intent-touching and escalates immediately (DR-3, #1595).
@@ -39,7 +39,7 @@ interface ReviewVerdictArgs {
   })[];
   /**
    * Resolved project config — supplies the config-resolvable auto-fix bound
-   * (`escalation.maxIterations`) for the spec-review fix-loop. Injected by the
+   * (`escalation.maxIterations`) for the review fix-loop. Injected by the
    * `adaptWithEventStoreAndConfig` dispatch adapter; an explicit arg-level value
    * (e.g. from a test) wins. Absent ⇒ the policy falls through to its default.
    */
@@ -63,7 +63,7 @@ interface ReviewVerdictResult {
   /**
    * Set on a `NEEDS_FIXES` verdict when the shared escalation policy says the
    * fix-loop must stop auto-fixing and ask the user — either the auto-fix bound
-   * was hit OR a finding is intent-touching (DR-3). The spec-review fix-loop
+   * was hit OR a finding is intent-touching (DR-3). The review fix-loop
    * MUST honor this instead of re-dispatching to `/delegate --fixes`. Absent on
    * APPROVED/BLOCKED and on a still-auto-fixable NEEDS_FIXES.
    */

@@ -1024,7 +1024,8 @@ export const ReviewEscalatedData = z.object({
 });
 
 export const ReviewCompletedData = z.object({
-  stage: z.enum(['spec-review', 'quality-review', 'security-review']).describe('Review stage that completed'),
+  // 'review' is the single dimension; 'spec-review'/'quality-review' retained for historical events.
+  stage: z.enum(['review', 'spec-review', 'quality-review', 'security-review']).describe('Review stage that completed'),
   verdict: z.enum(['pass', 'fail', 'blocked']).describe('Review verdict: pass, fail, or blocked'),
   findingsCount: z.number().int().nonnegative().describe('Number of findings from the review'),
   summary: z.string().describe('Human-readable summary of review results'),

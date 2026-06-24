@@ -1743,7 +1743,7 @@ const orchestrateActions: readonly ToolAction[] = [
       worktreePath: z.string().optional(),
       operationId: z.string().optional(),
       // Phase to attribute the gate.executed event to (default 'delegate');
-      // back-of-pipeline spec-review passes 'review' for correct convergence
+      // back-of-pipeline review passes 'review' for correct convergence
       // attribution of the combined-diff kill-probe (#1618 C2).
       phase: z.string().optional(),
       riskTier: z.enum(['low', 'medium', 'high']).optional(),

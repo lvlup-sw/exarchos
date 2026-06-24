@@ -513,7 +513,7 @@ export const TASK_CLASSIFICATION: RunbookDefinition = {
 export const REVIEW_STRATEGY: RunbookDefinition = {
   id: 'review-strategy',
   phase: 'review',
-  description: 'Select review strategy based on change characteristics: single-pass vs two-pass, and stage-specific guidance.',
+  description: 'Select review strategy based on change characteristics: single-pass vs two-pass.',
   steps: [
     {
       tool: 'none', action: 'decide', onFail: 'stop',
@@ -536,18 +536,6 @@ export const REVIEW_STRATEGY: RunbookDefinition = {
         branches: {
           'yes': { label: 'Fix cycle', guidance: 'Force two-pass review regardless of change size. Prior failure means the single-pass missed something — use high-recall first pass to catch regression, then high-precision second pass to verify the fix.', escalate: false },
           'no': { label: 'First review', guidance: 'Use the strategy selected in the previous step. No prior failures to account for.' },
-        },
-      },
-    },
-    {
-      tool: 'none', action: 'decide', onFail: 'stop',
-      decide: {
-        question: 'Is this a spec-review stage or a quality-review stage?',
-        source: 'state-field',
-        field: 'review.stage',
-        branches: {
-          'spec-review': { label: 'Spec review', guidance: 'Focus on design alignment: does the implementation match the specification? Check interfaces, data flow, and architectural constraints. Ignore style and optimization.' },
-          'quality-review': { label: 'Quality review', guidance: 'Focus on implementation quality: correctness, test coverage, error handling, performance, and maintainability. Assume design alignment is already verified.' },
         },
       },
     },

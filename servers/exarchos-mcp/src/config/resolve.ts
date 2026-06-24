@@ -99,7 +99,7 @@ export interface ResolvedProjectConfig {
   };
   /**
    * Shared escalation policy (DR-3, #1595). `maxIterations` is the per-loop
-   * auto-fix bound threaded to the spec-review, quality-review, and shepherd
+   * auto-fix bound threaded to the review and shepherd
    * fix-loops; consumers pass it as `configMaxIterations` to
    * `resolveEscalationPolicy`. Always fully resolved (default applied).
    */

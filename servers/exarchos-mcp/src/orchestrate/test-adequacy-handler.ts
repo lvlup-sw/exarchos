@@ -58,7 +58,7 @@ export interface TestAdequacyArgs {
   /**
    * SDLC phase to attribute the emitted `gate.executed` event to. Defaults to
    * 'delegate' (the per-task verification-ladder rung). Back-of-pipeline callers
-   * (spec-review, on the combined diff) pass 'review' so convergence/projection
+   * (review, on the combined diff) pass 'review' so convergence/projection
    * attributes the kill-probe to the review phase, not delegate (#1618 C2).
    */
   readonly phase?: string;
