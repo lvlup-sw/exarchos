@@ -71,7 +71,11 @@ describe('SyncStateManager', () => {
       await expect(manager.load('corrupt')).rejects.toThrow();
     });
 
-    it('should rethrow on permission errors', async () => {
+    // chmod(0o000) does not remove read access on Windows (POSIX mode bits are
+    // not enforced for the owner), so the read never fails there. The
+    // production rethrow-on-non-ENOENT behavior is platform-agnostic; only this
+    // way of inducing the error is POSIX-specific. (#1620)
+    it.skipIf(process.platform === 'win32')('should rethrow on permission errors', async () => {
       const filePath = path.join(tempDir, 'noperm.sync.json');
       await writeFile(filePath, '{}', 'utf-8');
       await chmod(filePath, 0o000);

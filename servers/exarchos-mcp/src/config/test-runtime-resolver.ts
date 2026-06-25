@@ -15,6 +15,11 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import * as path from 'node:path';
+import { toPosix } from '../utils/paths.js';
+
+/** POSIX-normalized path.join — marker paths are compared against config
+ *  keys, so they must be separator-agnostic on Windows (#1620). */
+const pjoin = (...segments: string[]): string => toPosix(path.join(...segments));
 import { logger } from '../logger.js';
 import { loadExarchosConfig, type LoadResult } from './load-exarchos-config.js';
 import { detectToolchain, toolchainFromConfig, type ContractCommands, type Toolchain } from './toolchains.js';
@@ -153,7 +158,7 @@ interface PackageJsonReadResult {
 }
 
 function readPackageJson(repoRoot: string): PackageJsonReadResult {
-  const pjPath = path.join(repoRoot, 'package.json');
+  const pjPath = pjoin(repoRoot, 'package.json');
   let raw: string;
   try {
     raw = readFileSync(pjPath, 'utf8');
@@ -196,18 +201,18 @@ const NODE_PACKAGE_MANAGERS = new Set(['bun', 'pnpm', 'yarn', 'npm']);
 function detectNodePackageManager(
   repoRoot: string,
 ): 'bun' | 'pnpm' | 'yarn' | 'npm' | null {
-  if (!existsSync(path.join(repoRoot, 'package.json'))) {
+  if (!existsSync(pjoin(repoRoot, 'package.json'))) {
     return null;
   }
   for (const [lockfile, agent] of Object.entries(LOCKS)) {
-    if (NODE_PACKAGE_MANAGERS.has(agent) && existsSync(path.join(repoRoot, lockfile))) {
+    if (NODE_PACKAGE_MANAGERS.has(agent) && existsSync(pjoin(repoRoot, lockfile))) {
       return agent as 'bun' | 'pnpm' | 'yarn' | 'npm';
     }
   }
   // No lockfile — fall back to installed-state markers (deps installed but the
   // lockfile is absent), matching upstream's two-stage detect.
   for (const [marker, agent] of Object.entries(INSTALL_METADATA)) {
-    if (NODE_PACKAGE_MANAGERS.has(agent) && existsSync(path.join(repoRoot, marker))) {
+    if (NODE_PACKAGE_MANAGERS.has(agent) && existsSync(pjoin(repoRoot, marker))) {
       return agent as 'bun' | 'pnpm' | 'yarn' | 'npm';
     }
   }
@@ -223,8 +228,8 @@ function detectNodePackageManager(
  * Detect any of these signals; absence implies Yarn Classic.
  */
 function isYarnBerry(repoRoot: string, pkg: PackageJsonShape | null): boolean {
-  if (existsSync(path.join(repoRoot, '.yarnrc.yml'))) return true;
-  if (existsSync(path.join(repoRoot, '.yarn', 'releases'))) return true;
+  if (existsSync(pjoin(repoRoot, '.yarnrc.yml'))) return true;
+  if (existsSync(pjoin(repoRoot, '.yarn', 'releases'))) return true;
   const declared = pkg?.['packageManager'];
   if (typeof declared === 'string' && /^yarn@(?:[2-9]|\d{2,})\b/.test(declared)) {
     return true;

@@ -118,7 +118,7 @@ async function probeRuntime(
       configPresent: probed.configPresent,
       configValid: probed.configValid,
       mcpRegistered,
-      skillsDir: path.join(home, '.claude', 'skills'),
+      skillsDir: toPosix(path.join(home, '.claude', 'skills')),
     };
   }
   if (name === 'cursor' || name === 'opencode') {

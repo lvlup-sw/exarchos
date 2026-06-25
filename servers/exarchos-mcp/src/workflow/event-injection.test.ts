@@ -196,7 +196,11 @@ describe('handleSet_CustomGuardExecution', () => {
             { from: 'build', to: 'deploy', event: 'build-done', guard: 'check-build' },
           ],
           guards: {
-            'check-build': { command: 'echo "tests failed" >&2; exit 1' },
+            // `exit 1` alone (no `;`-chained echo) so the non-zero exit is
+            // honored under cmd.exe too — the POSIX `a; b` separator doesn't
+            // chain on Windows, leaving the guard's exit code 0 (#1620). The
+            // passing case already relies on cross-platform `exit 0`.
+            'check-build': { command: 'exit 1' },
           },
         },
       },
