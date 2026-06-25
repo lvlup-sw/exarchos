@@ -558,9 +558,9 @@ jobs:
             exit 1
           fi
           # test-windows is ADVISORY: the windows-latest job surfaces the
-          # pre-existing Linux-only Windows-portability gap; the fix is a v2.12
-          # effort tracked in #1620. It must NOT block the rc cut — warn, do not
-          # fail. Re-arm to `exit 1` once the Windows suite is green.
+          # pre-existing Linux-only Windows-portability gap, tracked in #1620
+          # (v2.11.0). It must NOT block the rc cut — warn, do not fail. Re-arm
+          # to `exit 1` once the Windows suite is green.
           if [[ "${{ needs.test-windows.result }}" =~ ^(failure|cancelled)$ ]]; then
             echo "::warning::Windows unit tests advisory (${{ needs.test-windows.result }}) — tracked in #1620"
           fi
