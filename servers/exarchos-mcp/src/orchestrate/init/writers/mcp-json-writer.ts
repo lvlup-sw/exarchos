@@ -9,6 +9,7 @@
 
 import { join } from 'node:path';
 import { promises as nodeFs } from 'node:fs';
+import { toPosix } from '../../../utils/paths.js';
 import type { ConfigWriteResult } from '../schema.js';
 import type { AgentRuntimeName } from '../../../runtime/agent-environment-detector.js';
 import type { RuntimeConfigWriter, WriteOptions } from './writer.js';
@@ -62,9 +63,9 @@ export abstract class McpJsonWriter implements RuntimeConfigWriter {
   }
 
   async write(_deps: WriterDeps, options: WriteOptions): Promise<ConfigWriteResult> {
-    const dirPath = join(options.projectRoot, this.configDir);
-    const configPath = join(dirPath, 'mcp.json');
-    const tmpPath = join(dirPath, 'mcp.json.tmp');
+    const dirPath = toPosix(join(options.projectRoot, this.configDir));
+    const configPath = toPosix(join(dirPath, 'mcp.json'));
+    const tmpPath = toPosix(join(dirPath, 'mcp.json.tmp'));
 
     // Ensure target directory exists
     await this.fs.mkdir(dirPath, { recursive: true });

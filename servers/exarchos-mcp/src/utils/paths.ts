@@ -2,13 +2,30 @@ import os from 'node:os';
 import path from 'node:path';
 
 /**
+ * Normalize a path's separators to POSIX forward-slashes (#1620).
+ *
+ * These resolvers produce paths that are **stored and compared** (the state /
+ * teams / tasks directories used as keys and surfaced to consumers), so they
+ * must be byte-identical across platforms. `path.join` emits OS-native
+ * separators (backslashes on Windows), which breaks string equality against
+ * the posix form used everywhere else. Node's `fs` accepts `/` on Windows, so
+ * normalizing the *stored* representation is safe — the filesystem layer is
+ * happy either way.
+ */
+export function toPosix(p: string): string {
+  return p.replace(/\\/g, '/');
+}
+
+/**
  * Expand a leading `~` to the user's home directory.
  * Node.js `fs` does not perform shell-style tilde expansion,
  * so paths like `~/.claude/workflow-state` must be expanded manually.
+ *
+ * The expanded result is POSIX-normalized (see {@link toPosix}).
  */
 export function expandTilde(p: string): string {
-  if (p === '~') return os.homedir();
-  if (p.startsWith('~/')) return path.join(os.homedir(), p.slice(2));
+  if (p === '~') return toPosix(os.homedir());
+  if (p.startsWith('~/')) return toPosix(path.join(os.homedir(), p.slice(2)));
   return p;
 }
 
@@ -32,19 +49,19 @@ export function isClaudeCodePlugin(): boolean {
 function resolveDir(envKey: string, claudeSubdir: string, exarchosSubdir: string): string {
   const envValue = process.env[envKey];
   if (envValue) {
-    return expandTilde(envValue);
+    return toPosix(expandTilde(envValue));
   }
 
   if (isClaudeCodePlugin()) {
-    return path.join(os.homedir(), '.claude', claudeSubdir);
+    return toPosix(path.join(os.homedir(), '.claude', claudeSubdir));
   }
 
   const xdgStateHome = process.env['XDG_STATE_HOME'];
   if (xdgStateHome) {
-    return path.join(xdgStateHome, 'exarchos', exarchosSubdir);
+    return toPosix(path.join(xdgStateHome, 'exarchos', exarchosSubdir));
   }
 
-  return path.join(os.homedir(), '.exarchos', exarchosSubdir);
+  return toPosix(path.join(os.homedir(), '.exarchos', exarchosSubdir));
 }
 
 /**

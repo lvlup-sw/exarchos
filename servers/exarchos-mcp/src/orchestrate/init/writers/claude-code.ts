@@ -12,6 +12,7 @@
  */
 
 import { join, dirname } from 'node:path';
+import { toPosix } from '../../../utils/paths.js';
 import type { WriterDeps, WriterFs } from '../probes.js';
 import type { ConfigWriteResult } from '../schema.js';
 import type { RuntimeConfigWriter, WriteOptions } from './writer.js';
@@ -86,9 +87,9 @@ function buildExarchosEntry(home: string): McpServerEntry {
   return {
     type: 'stdio',
     command: 'node',
-    args: [join(home, '.claude', 'mcp-servers', 'exarchos-mcp.js')],
+    args: [toPosix(join(home, '.claude', 'mcp-servers', 'exarchos-mcp.js'))],
     env: {
-      WORKFLOW_STATE_DIR: join(home, '.claude', 'workflow-state'),
+      WORKFLOW_STATE_DIR: toPosix(join(home, '.claude', 'workflow-state')),
     },
   };
 }
@@ -150,7 +151,7 @@ async function deployMcpConfig(
   options: WriteOptions,
 ): Promise<{ wrote: boolean; error?: string }> {
   const home = deps.home();
-  const configPath = join(home, '.claude.json');
+  const configPath = toPosix(join(home, '.claude.json'));
 
   const { config, error } = await readExistingConfig(deps, configPath);
   if (config === null) {
@@ -217,7 +218,7 @@ async function writeClaudeCode(
   options: WriteOptions,
 ): Promise<ConfigWriteResult> {
   const home = deps.home();
-  const configPath = join(home, '.claude.json');
+  const configPath = toPosix(join(home, '.claude.json'));
   const componentsWritten: string[] = [];
   const warnings: string[] = [];
 

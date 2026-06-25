@@ -17,6 +17,7 @@
  * (`U-1` for user, `INV-1` for dev).
  */
 import * as path from 'node:path';
+import { toPosix } from '../../utils/paths.js';
 
 import type { ToolResult } from '../../format.js';
 import { wireCatalogRegistration } from './exarchos-yml-writer.js';
@@ -165,12 +166,12 @@ export async function handleScaffold(
   );
   if (reserved) return reserved;
 
-  const catalogAbs = path.join(args.repoRoot, relPath);
+  const catalogAbs = toPosix(path.join(args.repoRoot, relPath));
 
   const catalog = writeStarterCatalog(catalogAbs, tier, deps);
 
   // Reuse the shared comment-preserving `.exarchos.yml` writer.
-  const ymlPath = path.join(args.repoRoot, CONFIG_FILENAME);
+  const ymlPath = toPosix(path.join(args.repoRoot, CONFIG_FILENAME));
   const ymlDeps: YmlWriterDeps = {
     exists: deps.exists,
     read: deps.read,

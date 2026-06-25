@@ -19,6 +19,7 @@
  * Pure-by-default: fs side effects flow through injected `ScaffoldDeps`.
  */
 import * as path from 'node:path';
+import { toPosix } from '../../utils/paths.js';
 import { z } from 'zod';
 import { parseDocument, stringify as stringifyYaml, isSeq } from 'yaml';
 import type { YAMLSeq } from 'yaml';
@@ -296,7 +297,7 @@ export async function handleAdd(
   if (reserved) return reserved;
 
   const relCatalog = args.catalog ?? DEFAULT_PATH[tier];
-  const catalogAbs = path.join(args.repoRoot, relCatalog);
+  const catalogAbs = toPosix(path.join(args.repoRoot, relCatalog));
   const dryRun = args.dryRun === undefined ? true : args.dryRun;
 
   // Read the target catalog (must exist — scaffold first if not).
@@ -356,7 +357,7 @@ export async function handleAdd(
 
   // Wire the catalog into `.exarchos.yml` if unregistered (INV-1 first-time
   // registration emits catalog.registered).
-  const ymlPath = path.join(args.repoRoot, CONFIG_FILENAME);
+  const ymlPath = toPosix(path.join(args.repoRoot, CONFIG_FILENAME));
   const registration = wireCatalogRegistration(
     ymlPath,
     { path: relCatalog, tier },
