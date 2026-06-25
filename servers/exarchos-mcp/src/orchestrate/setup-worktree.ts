@@ -7,6 +7,7 @@
 import { existsSync, appendFileSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
+import { toPosix } from '../utils/paths.js';
 import type { ToolResult } from '../format.js';
 import { resolveTestRuntime } from '../config/test-runtime-resolver.js';
 import { splitCommand } from '../config/tokenize-command.js';
@@ -499,7 +500,7 @@ export function handleSetupWorktree(
   const resolvedBranch = resolveBranchName(args, workflowState);
   const branchName = resolvedBranch.name;
   const worktreeName = `${args.taskId}-${args.taskName}`;
-  const worktreePath = join(args.repoRoot, '.worktrees', worktreeName);
+  const worktreePath = toPosix(join(args.repoRoot, '.worktrees', worktreeName));
 
   const checks: CheckResult[] = [];
 

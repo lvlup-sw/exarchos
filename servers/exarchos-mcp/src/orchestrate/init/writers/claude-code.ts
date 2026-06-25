@@ -124,8 +124,8 @@ async function copyDirRecursive(
     throw err;
   }
   for (const entry of entries) {
-    const srcPath = join(srcDir, entry);
-    const destPath = join(destDir, entry);
+    const srcPath = toPosix(join(srcDir, entry));
+    const destPath = toPosix(join(destDir, entry));
     let isDir = false;
     try {
       const s = await fs.stat(srcPath);
@@ -188,10 +188,10 @@ async function deployCommands(
   deps: WriterDeps,
   options: WriteOptions,
 ): Promise<boolean> {
-  const srcDir = join(options.projectRoot, 'commands');
+  const srcDir = toPosix(join(options.projectRoot, 'commands'));
   if (!(await dirExists(deps.fs, srcDir))) return false;
 
-  const destDir = join(deps.home(), '.claude', 'commands');
+  const destDir = toPosix(join(deps.home(), '.claude', 'commands'));
   await copyDirRecursive(deps.fs, srcDir, destDir);
   return true;
 }
@@ -203,10 +203,10 @@ async function deploySkills(
   options: WriteOptions,
 ): Promise<boolean> {
   // Claude Code skills live under skills/claude-code/ in the project
-  const srcDir = join(options.projectRoot, 'skills', 'claude-code');
+  const srcDir = toPosix(join(options.projectRoot, 'skills', 'claude-code'));
   if (!(await dirExists(deps.fs, srcDir))) return false;
 
-  const destDir = join(deps.home(), '.claude', 'skills');
+  const destDir = toPosix(join(deps.home(), '.claude', 'skills'));
   await copyDirRecursive(deps.fs, srcDir, destDir);
   return true;
 }

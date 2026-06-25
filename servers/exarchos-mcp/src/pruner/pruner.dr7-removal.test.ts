@@ -28,6 +28,7 @@
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { scoreStaleness } from './score.js';
 import { scoreEntryThroughTopology } from './coordinator.js';
 import * as scoreModule from './score.js';
@@ -44,7 +45,10 @@ describe('Pruner_PostDR7_NoSingleSignalHeuristic_TypedContractOnly', () => {
     const scorePath = path.resolve(
       // Test file lives at servers/exarchos-mcp/src/pruner/.
       // score.ts is in the same directory.
-      path.dirname(new URL(import.meta.url).pathname),
+      // fileURLToPath (not URL.pathname) so the Windows drive letter resolves
+      // correctly — `.pathname` yields `/D:/…`, which path.resolve doubles to
+      // `D:\D:\…` (#1620).
+      path.dirname(fileURLToPath(import.meta.url)),
       'score.ts',
     );
     const src = fs.readFileSync(scorePath, 'utf-8');
