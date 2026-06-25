@@ -33,6 +33,31 @@ Do not wipe the directory if you want to keep old workflows. Use the bridge path
 
 Do not use v2.10.0 or later as the bridge runtime. Those versions expect SQLite state to already exist.
 
+## Agent prompt
+
+If you want a local coding agent to perform the migration for you, copy this prompt into that agent. Replace the paths or target version first if your setup differs.
+
+```text
+Migrate my legacy Exarchos workflow state safely.
+
+Context:
+- Exarchos v2.10.0 and later require SQLite-backed workflow state.
+- My current/old state directory may be JSONL-only: it may contain *.events.jsonl files but no exarchos.db or events.db.
+- Use v2.9.x as the bridge runtime. Do not use v2.10.0 or later as the bridge.
+- Preserve the original state directory unchanged.
+
+Please do this:
+1. Confirm there are no running Claude Code, Codex, opencode, Cursor, or other Exarchos MCP sessions using the state directory. If you cannot confirm that, stop and tell me what to close.
+2. Identify the current Exarchos state directory. Prefer WORKFLOW_STATE_DIR if it is set; otherwise check the common path ~/.claude/workflow-state. If the directory does not contain *.events.jsonl files, tell me what you found before continuing.
+3. Create a migrated copy at ~/.claude/workflow-state-v211, or choose a timestamped sibling if that path already exists. Do not modify or delete the original directory.
+4. Install a temporary v2.9.x Exarchos binary into ~/.local/exarchos-2.9.0 without replacing my current exarchos on PATH.
+5. Run the temporary v2.9.x binary with WORKFLOW_STATE_DIR pointing at the copied state directory, using `doctor` to hydrate legacy JSONL workflow events into exarchos.db.
+6. Verify the copied state directory now contains exarchos.db.
+7. Install or use my target Exarchos v2.10.0+ runtime, then run `exarchos doctor` with WORKFLOW_STATE_DIR pointing at the migrated copy.
+8. Verify at least one known workflow with `exarchos workflow get --feature-id <feature-id>` if a feature id is available; otherwise report how I should run /exarchos:rehydrate after restart.
+9. Tell me the original state path, migrated state path, bridge binary path, target Exarchos version, and every command you ran. Do not switch my agent config to the migrated state path unless I explicitly approve that final step.
+```
+
 ## Before you start
 
 1. Close Claude Code, Codex, opencode, and any other agent session using Exarchos.
