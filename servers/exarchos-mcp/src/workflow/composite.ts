@@ -2,6 +2,7 @@ import { handleInit, handleGet, handleTransition, handleReconcileState, handleCh
 import { handleCancel } from './cancel.js';
 import { handleCleanup } from './cleanup.js';
 import { handleRehydrate } from './rehydrate.js';
+import { handleFeedback } from './feedback.js';
 import { handleDescribe } from '../describe/handler.js';
 import { TOOL_REGISTRY } from '../registry.js';
 import { applyCacheHints, wrap, wrapWithPassthrough, type Envelope, type ToolResult } from '../format.js';
@@ -143,6 +144,12 @@ export async function handleWorkflow(
       return envelopeWrap(await handleCleanup(rest as Parameters<typeof handleCleanup>[0], stateDir, eventStore), startedAt);
     case 'reconcile':
       return envelopeWrap(await handleReconcileState(rest as Parameters<typeof handleReconcileState>[0], stateDir, eventStore), startedAt);
+    case 'feedback':
+      // #1319 — agent→runtime friction back-channel. Not feature-scoped: the
+      // handler appends to the shared `meta/feedback` stream and (best-effort)
+      // POSTs upstream when `.exarchos.yml` declares `feedback.upstream`. The
+      // local write succeeds without network access (offline-first / INV-15).
+      return envelopeWrap(await handleFeedback(rest as Parameters<typeof handleFeedback>[0], stateDir, eventStore), startedAt);
     case 'checkpoint': {
       // #1244 Sentry MEDIUM — load handoffLint.hardFail from .exarchos.yml and
       // thread it to handleCheckpoint. Without this wiring the hard-fail switch

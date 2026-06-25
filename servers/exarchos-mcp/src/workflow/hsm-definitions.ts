@@ -193,7 +193,11 @@ export function createFeatureHSM(): HSMDefinition {
     'merge-pending': {
       id: 'merge-pending',
       type: 'atomic',
-      kind: 'SYNTHESIZE',
+      // MERGE (not SYNTHESIZE): this substate's obligation is event-driven merge
+      // orchestration, not the synthesis-readiness gate-set. Tagging it MERGE
+      // (gates: null) stops the boundary from freezing synthesis legs the
+      // merge-orchestrator playbook never runs.
+      kind: 'MERGE',
       parent: 'implementation',
     },
     synthesize: { id: 'synthesize', type: 'atomic', kind: 'SYNTHESIZE' },

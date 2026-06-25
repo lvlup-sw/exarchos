@@ -28,6 +28,7 @@ describe('KIND_OBLIGATIONS', () => {
     expect(Object.keys(KIND_OBLIGATIONS).sort()).toEqual([
       'GATHER',
       'IMPLEMENT',
+      'MERGE',
       'PLAN',
       'REVIEW',
       'SYNTHESIZE',
@@ -270,7 +271,7 @@ describe('review-contract resolver (DR-9)', () => {
       workflowType: 'feature',
     });
     expect(resolved.every((g) => g.family === 'review')).toBe(true);
-    expect(resolved.map((g) => g.gate)).toEqual(['spec-review', 'quality-review']);
+    expect(resolved.map((g) => g.gate)).toEqual(['review']);
   });
 
   it('ResolveGateSet_ReviewKindFeatureHighTier_AppendsMutationAdequacy', () => {
@@ -280,8 +281,7 @@ describe('review-contract resolver (DR-9)', () => {
       workflowType: 'feature',
     });
     expect(resolved.map((g) => g.gate)).toEqual([
-      'spec-review',
-      'quality-review',
+      'review',
       'mutation-adequacy',
     ]);
   });

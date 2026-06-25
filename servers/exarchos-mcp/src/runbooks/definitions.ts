@@ -513,7 +513,7 @@ export const TASK_CLASSIFICATION: RunbookDefinition = {
 export const REVIEW_STRATEGY: RunbookDefinition = {
   id: 'review-strategy',
   phase: 'review',
-  description: 'Select review strategy based on change characteristics: single-pass vs two-pass, and stage-specific guidance.',
+  description: 'Select review strategy based on change characteristics: single-pass vs two-pass.',
   steps: [
     {
       tool: 'none', action: 'decide', onFail: 'stop',
@@ -539,18 +539,6 @@ export const REVIEW_STRATEGY: RunbookDefinition = {
         },
       },
     },
-    {
-      tool: 'none', action: 'decide', onFail: 'stop',
-      decide: {
-        question: 'Is this a spec-review stage or a quality-review stage?',
-        source: 'state-field',
-        field: 'review.stage',
-        branches: {
-          'spec-review': { label: 'Spec review', guidance: 'Focus on design alignment: does the implementation match the specification? Check interfaces, data flow, and architectural constraints. Ignore style and optimization.' },
-          'quality-review': { label: 'Quality review', guidance: 'Focus on implementation quality: correctness, test coverage, error handling, performance, and maintainability. Assume design alignment is already verified.' },
-        },
-      },
-    },
   ],
   templateVars: ['featureId'],
   autoEmits: [],
@@ -558,7 +546,7 @@ export const REVIEW_STRATEGY: RunbookDefinition = {
 
 export const DESIGN_REFINEMENT: RunbookDefinition = {
   id: 'design-refinement',
-  phase: 'ideate',
+  phase: 'plan',
   description: 'Multi-pass design process: separate reasoning from formatting to improve design quality through circuit iteration.',
   steps: [
     {

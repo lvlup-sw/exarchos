@@ -4,7 +4,7 @@ How to address common issues found during shepherd assessment.
 
 ## Decision: Fix Directly vs. Delegate
 
-The `classify_review_items` orchestrate action owns this decision (#1159).
+The `classify_review_items` orchestrate action owns this decision.
 Pass it the `actionItems` from `assess_stack` and consume the
 `recommendation` field on each returned group:
 
@@ -159,7 +159,7 @@ For each comment, determine the appropriate response:
 ### Per-reviewer parsing (Sentry, CodeRabbit, Human, GitHub-Copilot)
 
 Severity normalization and per-reviewer comment parsing live in the
-provider adapters under `servers/exarchos-mcp/src/review/providers/` (#1159).
+provider adapters under `servers/exarchos-mcp/src/review/providers/`.
 `assess_stack` dispatches each PR comment through the adapter registry
 and attaches a normalized `ActionItem` (with `normalizedSeverity` and
 `reviewer` fields) to each unresolved comment. Use that signal when

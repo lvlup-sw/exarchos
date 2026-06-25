@@ -1185,10 +1185,8 @@ export async function handleViewSynthesisReadiness(
         passed: (r as Record<string, unknown>)['status'] === 'passed',
       };
     };
-    const spec = reviewStatus('spec-review');
-    const quality = reviewStatus('quality-review');
-    const specPassed = spec.present ? spec.passed : view.review.specPassed;
-    const qualityPassed = quality.present ? quality.passed : view.review.qualityPassed;
+    const review = reviewStatus('review');
+    const reviewPassed = review.present ? review.passed : view.review.reviewPassed;
 
     // Fix 2 (#1184) — task counts: the projection counts events; state.json
     // is the planner's stamp. Both `total` AND `completed` need the
@@ -1218,8 +1216,7 @@ export async function handleViewSynthesisReadiness(
         `tasks incomplete: ${tasksCompleted}/${tasksTotal} completed`,
       );
     }
-    if (!specPassed) blockers.push('spec review not passed');
-    if (!qualityPassed) blockers.push('quality review not passed');
+    if (!reviewPassed) blockers.push('review not passed');
     if (view.tests.lastRunPassed === null) {
       blockers.push('tests not measured');
     } else if (view.tests.lastRunPassed !== true) {
@@ -1238,7 +1235,7 @@ export async function handleViewSynthesisReadiness(
       ready,
       blockers,
       tasks: { ...view.tasks, total: tasksTotal, completed: tasksCompleted },
-      review: { ...view.review, specPassed, qualityPassed },
+      review: { ...view.review, reviewPassed },
     };
 
     return { success: true, data };

@@ -331,26 +331,9 @@ function delegateAutoEmittedEvents(
 // Feature Workflow Playbooks
 // ═══════════════════════════════════════════════════════════════════════════
 
-register({
-  phase: 'ideate',
-  workflowType: 'feature',
-  skill: 'brainstorming',
-  skillRef: '@skills/brainstorming/SKILL.md',
-  tools: [
-    {
-      tool: 'exarchos_workflow',
-      action: 'update',
-      purpose: 'Record design decisions and artifacts',
-    },
-  ],
-  events: [],
-  transitionCriteria: 'Design & Rationale section authored → continue to decomposition (same plan phase)',
-  guardPrerequisites: 'artifacts.spec exists',
-  validationScripts: [],
-  humanCheckpoint: false,
-  compactGuidance:
-    'You are authoring the Design & Rationale section of the ONE unified docs/specs/ artifact (#1581 — no separate design doc). Use exarchos_workflow update to record artifacts.spec at docs/specs/. The 2-3 approach divergent loop is the `deep` rung, not a default — at thin/standard, converge in one pass. Number requirements DR-1..DR-N each with acceptance criteria (one covering error handling). Do NOT transition (plan is the initial phase); chain to /plan to add the Decomposition section to the same doc. Anti-pattern: writing a separate docs/designs/ doc. Escalate: design scope unclear after 2 iterations (deep rung may offer the opt-in discover bridge). Follow the design-refinement runbook for two-pass authoring (reasoning first, then formatting), and the phase-compression runbook to compress into a carry-forward context package on phase exit.',
-});
+// #1581 (DR-4): the former `ideate` (GATHER) playbook is retired — feature
+// workflows start at `plan`, and the Design & Rationale authoring guidance it
+// carried now lives in the `feature:plan` playbook below.
 
 register({
   phase: 'plan',
@@ -505,8 +488,8 @@ register({
 register({
   phase: 'review',
   workflowType: 'feature',
-  skill: 'quality-review',
-  skillRef: '@skills/quality-review/SKILL.md',
+  skill: 'review',
+  skillRef: '@skills/review/SKILL.md',
   tools: [
     {
       tool: 'exarchos_workflow',
@@ -1082,8 +1065,8 @@ register({
 register({
   phase: 'overhaul-review',
   workflowType: 'refactor',
-  skill: 'quality-review',
-  skillRef: '@skills/quality-review/SKILL.md',
+  skill: 'review',
+  skillRef: '@skills/review/SKILL.md',
   tools: [
     {
       tool: 'exarchos_workflow',

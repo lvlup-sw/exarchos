@@ -85,7 +85,8 @@ describe('Workflow State Schemas', () => {
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.data.featureId).toBe('my-feature-123');
-        expect(result.data.phase).toBe('ideate');
+        // legacy 'ideate' (pre-#1581) coerces to 'plan' on read (back-compat)
+        expect(result.data.phase).toBe('plan');
         expect(result.data.workflowType).toBe('feature');
       }
     });

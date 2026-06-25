@@ -182,9 +182,9 @@ const MOCK_BOUNDARY_STEER =
 /**
  * Build the tier-appropriate verification note (a `## Verification ...` section).
  *
- * - low      → ≤3-line static-analysis steer. No RED-GREEN ceremony, no probe.
- * - medium   → full RED-GREEN-REFACTOR block + the `check_test_adequacy`
- *              kill-probe that recaptures test-first's unique guarantee.
+ * - low      → ≤3-line static-analysis steer. No kill-probe.
+ * - medium   → scoped tests + the `check_test_adequacy` kill-probe, judged
+ *              OUTCOME-based / test-after (no failing-test-first ceremony — #1587).
  * - high     → the medium block plus the integration-suite rung (deepest ladder).
  *
  * Pure: depends only on its inputs. The boundary steer is appended last.

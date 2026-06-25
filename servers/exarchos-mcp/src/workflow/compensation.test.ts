@@ -586,6 +586,293 @@ describe('B5.5: cleanup-worktrees parity harness (two-event sequence)', () => {
   });
 });
 
+// ─── #1352: recovery reuses orphaned `*.requested` operationId ──────────────
+//
+// When compensation crashes after emitting `*.requested` but before
+// `*.executed`, the retry must REUSE the orphaned requested event's
+// operationId rather than minting a fresh UUID — otherwise the second
+// `*.requested` orphans the first and breaks the 1:1 pairing contract of the
+// audit trail (Sentry #14059864/1). The recovery functions
+// (recoverWorktreeRemoveOperationId / recoverBranchDeleteOperationId) scan the
+// stream via eventStore.query() for the most recent unmatched `*.requested`.
+//
+// The earlier B4/B5 suites set query() → [] so the reuse path was never
+// exercised; these tests seed a matching prior `*.requested` (via a
+// type-aware query mock) and assert the emitted requested operationId equals
+// the seeded one. The no-prior arm asserts a fresh UUID is minted instead.
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Mock store whose query() is filter-type-aware: it returns the supplied
+ * seeded events whose `type` matches the query's `type` filter (mirroring the
+ * real backend's per-type filtering), and [] for any unseeded type. The
+ * recovery scanners issue one query for `*.requested` and one for
+ * `*.executed`; seeding only the requested type (with no matching executed)
+ * yields an unmatched requested event whose operationId must be reused.
+ */
+function makeTypeAwareMockEventStore(
+  seeded: ReadonlyArray<{ type: string; data: Record<string, unknown> }>,
+  appendImpl?: AppendFn,
+) {
+  return {
+    append: vi.fn().mockImplementation(
+      appendImpl ??
+        ((_streamId: string, _event: unknown) => Promise.resolve({ sequence: 1, type: 'ok' })),
+    ),
+    query: vi
+      .fn()
+      .mockImplementation((_streamId: string, filters?: { type?: string }) => {
+        const wanted = filters?.type;
+        const matched = wanted == null ? seeded : seeded.filter((e) => e.type === wanted);
+        // Shape each as a minimal WorkflowEvent the recovery scanner reads.
+        return Promise.resolve(
+          matched.map((e, i) => ({
+            sequence: i + 1,
+            type: e.type,
+            data: e.data,
+          })),
+        );
+      }),
+    initialize: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
+describe('#1352: compensation operationId recovery (reuse vs mint)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // All git side effects succeed; presence checks report the resource as
+    // present so the executed event records a real removal/deletion.
+    mockedExecFile.mockImplementation((cmd: unknown, args: unknown, opts: unknown, cb?: unknown) => {
+      const callback = typeof opts === 'function' ? opts : cb;
+      const argList = args as string[];
+
+      if (argList?.includes('worktree') && argList?.includes('list')) {
+        (callback as (err: null, stdout: string, stderr: string) => void)(
+          null,
+          '/tmp/wt-recover  abc1234 [feature/recover-wt]\n',
+          '',
+        );
+        return undefined as never;
+      }
+      if (argList?.includes('rev-parse') && argList?.includes('--verify')) {
+        // Branch exists locally.
+        (callback as (err: null, stdout: string, stderr: string) => void)(null, 'abc1234', '');
+        return undefined as never;
+      }
+      if (argList?.includes('ls-remote') && argList?.includes('--heads')) {
+        // Branch exists remotely.
+        (callback as (err: null, stdout: string, stderr: string) => void)(
+          null,
+          'abc1234\trefs/heads/feature/recover-branch\n',
+          '',
+        );
+        return undefined as never;
+      }
+      (callback as (err: null, stdout: string, stderr: string) => void)(null, '', '');
+      return undefined as never;
+    });
+  });
+
+  // ── cleanup-worktrees arm ──────────────────────────────────────────────────
+
+  it('Compensation_RecoveryWithUnmatchedRequested_ReusesOperationId (cleanup-worktrees)', async () => {
+    const worktreePath = '/tmp/wt-recover';
+    const priorOperationId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+
+    const appendedEvents: Array<{ type: string; data: { operationId: string } }> = [];
+    const eventStore = makeTypeAwareMockEventStore(
+      // Orphaned prior requested (no matching executed) for THIS worktree.
+      [{ type: 'worktree.remove.requested', data: { operationId: priorOperationId, worktreePath } }],
+      (_streamId, event) => {
+        const ev = event as { type: string; data: { operationId: string } };
+        appendedEvents.push({ type: ev.type, data: ev.data });
+        return Promise.resolve({ sequence: appendedEvents.length, type: ev.type });
+      },
+    );
+
+    const state = makeState({
+      phase: 'delegate',
+      synthesis: { integrationBranch: null, mergeOrder: [], mergedBranches: [], prUrl: null, prFeedback: [] },
+      worktrees: {
+        t1: { branch: 'feature/recover-wt', taskId: 't1', status: 'active', path: worktreePath },
+      },
+      tasks: [],
+    });
+
+    const result = await executeCompensation(state, 'delegate', makeEvents(1), 1, {
+      dryRun: false,
+      eventStore: eventStore as unknown as Parameters<typeof executeCompensation>[4]['eventStore'],
+      featureId: 'test-feature',
+    });
+
+    const requested = appendedEvents.find((e) => e.type === 'worktree.remove.requested');
+    const executed = appendedEvents.find((e) => e.type === 'worktree.remove.executed');
+    expect(requested).toBeDefined();
+    expect(executed).toBeDefined();
+
+    // The freshly-emitted requested REUSES the orphaned operationId — it does
+    // NOT mint a new UUID. This is the contract the empty-query mock never
+    // exercised.
+    expect(requested!.data.operationId).toBe(priorOperationId);
+    // And the paired executed carries the same id (1:1 pairing preserved).
+    expect(executed!.data.operationId).toBe(priorOperationId);
+
+    const cleanup = result.actions.find((a) => a.actionId === 'delegate:cleanup-worktrees');
+    expect(cleanup!.status).toBe('executed');
+  });
+
+  it('Compensation_NoPriorRequested_MintsFreshId (cleanup-worktrees)', async () => {
+    const worktreePath = '/tmp/wt-recover';
+
+    const appendedEvents: Array<{ type: string; data: { operationId: string } }> = [];
+    const eventStore = makeTypeAwareMockEventStore(
+      [], // no prior requested — recovery returns undefined, handler mints fresh
+      (_streamId, event) => {
+        const ev = event as { type: string; data: { operationId: string } };
+        appendedEvents.push({ type: ev.type, data: ev.data });
+        return Promise.resolve({ sequence: appendedEvents.length, type: ev.type });
+      },
+    );
+
+    const state = makeState({
+      phase: 'delegate',
+      synthesis: { integrationBranch: null, mergeOrder: [], mergedBranches: [], prUrl: null, prFeedback: [] },
+      worktrees: {
+        t1: { branch: 'feature/recover-wt', taskId: 't1', status: 'active', path: worktreePath },
+      },
+      tasks: [],
+    });
+
+    await executeCompensation(state, 'delegate', makeEvents(1), 1, {
+      dryRun: false,
+      eventStore: eventStore as unknown as Parameters<typeof executeCompensation>[4]['eventStore'],
+      featureId: 'test-feature',
+    });
+
+    const requested = appendedEvents.find((e) => e.type === 'worktree.remove.requested');
+    expect(requested).toBeDefined();
+    // A fresh, well-formed UUID was minted (not the recovery sentinel).
+    expect(requested!.data.operationId).toMatch(UUID_RE);
+  });
+
+  // ── delete-feature-branches arm ────────────────────────────────────────────
+
+  it('Compensation_RecoveryWithUnmatchedRequested_ReusesOperationId (delete-feature-branches)', async () => {
+    const branch = 'feature/recover-branch';
+    const priorOperationId = '11111111-2222-3333-4444-555555555555';
+
+    const appendedEvents: Array<{ type: string; data: { operationId: string } }> = [];
+    const eventStore = makeTypeAwareMockEventStore(
+      [{ type: 'branch.delete.requested', data: { operationId: priorOperationId, branch } }],
+      (_streamId, event) => {
+        const ev = event as { type: string; data: { operationId: string } };
+        appendedEvents.push({ type: ev.type, data: ev.data });
+        return Promise.resolve({ sequence: appendedEvents.length, type: ev.type });
+      },
+    );
+
+    const state = makeState({
+      phase: 'delegate',
+      synthesis: { integrationBranch: null, mergeOrder: [], mergedBranches: [], prUrl: null, prFeedback: [] },
+      worktrees: {},
+      tasks: [{ id: 't1', title: 'T1', status: 'complete', branch }],
+    });
+
+    const result = await executeCompensation(state, 'delegate', makeEvents(1), 1, {
+      dryRun: false,
+      eventStore: eventStore as unknown as Parameters<typeof executeCompensation>[4]['eventStore'],
+      featureId: 'test-feature',
+    });
+
+    const requested = appendedEvents.find((e) => e.type === 'branch.delete.requested');
+    const executed = appendedEvents.find((e) => e.type === 'branch.delete.executed');
+    expect(requested).toBeDefined();
+    expect(executed).toBeDefined();
+
+    expect(requested!.data.operationId).toBe(priorOperationId);
+    expect(executed!.data.operationId).toBe(priorOperationId);
+
+    const del = result.actions.find((a) => a.actionId === 'delegate:delete-feature-branches');
+    expect(del!.status).toBe('executed');
+  });
+
+  it('Compensation_NoPriorRequested_MintsFreshId (delete-feature-branches)', async () => {
+    const branch = 'feature/recover-branch';
+
+    const appendedEvents: Array<{ type: string; data: { operationId: string } }> = [];
+    const eventStore = makeTypeAwareMockEventStore(
+      [],
+      (_streamId, event) => {
+        const ev = event as { type: string; data: { operationId: string } };
+        appendedEvents.push({ type: ev.type, data: ev.data });
+        return Promise.resolve({ sequence: appendedEvents.length, type: ev.type });
+      },
+    );
+
+    const state = makeState({
+      phase: 'delegate',
+      synthesis: { integrationBranch: null, mergeOrder: [], mergedBranches: [], prUrl: null, prFeedback: [] },
+      worktrees: {},
+      tasks: [{ id: 't1', title: 'T1', status: 'complete', branch }],
+    });
+
+    await executeCompensation(state, 'delegate', makeEvents(1), 1, {
+      dryRun: false,
+      eventStore: eventStore as unknown as Parameters<typeof executeCompensation>[4]['eventStore'],
+      featureId: 'test-feature',
+    });
+
+    const requested = appendedEvents.find((e) => e.type === 'branch.delete.requested');
+    expect(requested).toBeDefined();
+    expect(requested!.data.operationId).toMatch(UUID_RE);
+  });
+
+  // ── regression: an EXECUTED match disqualifies reuse (mints fresh) ──────────
+  //
+  // If the prior `*.requested` already has a paired `*.executed` with the same
+  // operationId, the recovery scanner must NOT reuse it (the operation already
+  // completed) — it must mint a fresh id. This guards the `executedOps.has`
+  // skip branch in the recovery loop.
+
+  it('Compensation_PriorRequestedAlreadyExecuted_MintsFreshId (delete-feature-branches)', async () => {
+    const branch = 'feature/recover-branch';
+    const completedOperationId = '99999999-8888-7777-6666-555555555555';
+
+    const appendedEvents: Array<{ type: string; data: { operationId: string } }> = [];
+    const eventStore = makeTypeAwareMockEventStore(
+      [
+        { type: 'branch.delete.requested', data: { operationId: completedOperationId, branch } },
+        { type: 'branch.delete.executed', data: { operationId: completedOperationId } },
+      ],
+      (_streamId, event) => {
+        const ev = event as { type: string; data: { operationId: string } };
+        appendedEvents.push({ type: ev.type, data: ev.data });
+        return Promise.resolve({ sequence: appendedEvents.length, type: ev.type });
+      },
+    );
+
+    const state = makeState({
+      phase: 'delegate',
+      synthesis: { integrationBranch: null, mergeOrder: [], mergedBranches: [], prUrl: null, prFeedback: [] },
+      worktrees: {},
+      tasks: [{ id: 't1', title: 'T1', status: 'complete', branch }],
+    });
+
+    await executeCompensation(state, 'delegate', makeEvents(1), 1, {
+      dryRun: false,
+      eventStore: eventStore as unknown as Parameters<typeof executeCompensation>[4]['eventStore'],
+      featureId: 'test-feature',
+    });
+
+    const requested = appendedEvents.find((e) => e.type === 'branch.delete.requested');
+    expect(requested).toBeDefined();
+    // The matched requested already had a paired executed → NOT reused.
+    expect(requested!.data.operationId).not.toBe(completedOperationId);
+    expect(requested!.data.operationId).toMatch(UUID_RE);
+  });
+});
+
 // ─── T-16: Compensation action error handling ───────────────────────────────
 
 describe('Compensation action error handling (close-pr)', () => {

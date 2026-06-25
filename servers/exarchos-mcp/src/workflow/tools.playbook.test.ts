@@ -182,8 +182,7 @@ describe('review-contract wiring through handleSet', () => {
   it('HandleSet_FeatureReviewToSynthesize_CanonicalDimensions_AdvancesPastGuard', async () => {
     // Arrange: seed review phase with canonical contract dimension names.
     await seedFeatureAtReview('contract-wiring-canonical', {
-      'spec-review': { status: 'pass' },
-      'quality-review': { status: 'pass' },
+      review: { status: 'pass' },
     });
 
     // Act: attempt review → synthesize. tools.ts MUST inject
@@ -198,7 +197,7 @@ describe('review-contract wiring through handleSet', () => {
     expect(result.success).toBe(true);
     // Sanity check that the contract still returns the names this test
     // wrote — any rename forces a rename here too.
-    expect(getRequiredReviews('feature')).toEqual(['spec-review', 'quality-review']);
+    expect(getRequiredReviews('feature')).toEqual(['review']);
   });
 
   it('HandleSet_FeatureReviewToSynthesize_ExplicitEmptyRequiredReviews_OverridesDefaults', async () => {
@@ -229,10 +228,9 @@ describe('review-contract wiring through handleSet', () => {
   // "field updates applied first so phase guards see new state" contract.
 
   it('HandleSet_HighTierStampedInSameTransition_RequiresMutationAdequacy', async () => {
-    // Seed review with the base dimensions passing but WITHOUT mutation-adequacy.
+    // Seed review with the base dimension passing but WITHOUT mutation-adequacy.
     await seedFeatureAtReview('contract-wiring-hightier-samecall', {
-      'spec-review': { status: 'pass' },
-      'quality-review': { status: 'pass' },
+      review: { status: 'pass' },
     });
 
     // Stamp riskTier:'high' in the SAME review→synthesize call. With the fix,
@@ -257,8 +255,7 @@ describe('review-contract wiring through handleSet', () => {
     // Complement: the high-tier dimension present + passing lets the same-call
     // stamp advance past the guard.
     await seedFeatureAtReview('contract-wiring-hightier-pass', {
-      'spec-review': { status: 'pass' },
-      'quality-review': { status: 'pass' },
+      review: { status: 'pass' },
       'mutation-adequacy': { status: 'pass' },
     });
 

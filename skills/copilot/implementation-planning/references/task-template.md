@@ -2,7 +2,7 @@
 
 ## Task Format
 
-Each task follows this structure. The verification fields lead: `riskTier` selects how deeply the task is verified (see the ladder in `@skills/_shared/references/verification.md`). Tests are judged by **outcome, test-after** — the failing-test-first ordering ceremony is not required (#1587).
+Each task follows this structure. The verification fields lead: `riskTier` selects how deeply the task is verified (see the ladder in `@skills/_shared/references/verification.md`). Tests are judged by **outcome, test-after** — the failing-test-first ordering ceremony is not required.
 
 ```markdown
 ### Task [N]: [Brief Description]

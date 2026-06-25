@@ -18,7 +18,7 @@ These actions automatically detect and route to the correct VCS provider (GitHub
 No `gh`/`glab`/`az` commands needed — the MCP server handles provider dispatch.
 
 A lean, four-phase workflow type for changes that are too small to justify the
-full `feature` flow (`ideate → plan → plan-review → delegate → review → synthesize → completed`)
+full `feature` flow (`plan → plan-review → delegate → review → synthesize → completed`)
 but still deserve event-sourced auditability and a planning step. The workflow is
 **direct-commit by default** with an opt-in PR path; the choice between the
 two is resolved at the end of `implementing` via a pure event-sourced guard,

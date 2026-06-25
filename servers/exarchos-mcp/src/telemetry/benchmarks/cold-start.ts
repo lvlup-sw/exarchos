@@ -7,7 +7,7 @@ type WorkflowEventType =
   | 'task.completed'
   | 'task.failed';
 
-const PHASES = ['ideate', 'plan', 'plan-review', 'delegate', 'review', 'synthesize'];
+const PHASES = ['plan', 'plan-review', 'delegate', 'review', 'synthesize'];
 
 /**
  * Generate N realistic workflow events with a mix of types

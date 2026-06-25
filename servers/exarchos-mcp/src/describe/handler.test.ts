@@ -301,7 +301,6 @@ describe('handleDescribe playbook', () => {
     expect(playbook.workflowType).toBe('feature');
     expect(playbook).toHaveProperty('phases');
     const phases = playbook.phases as Record<string, unknown>;
-    expect(phases).toHaveProperty('ideate');
     expect(phases).toHaveProperty('plan');
     expect(phases).toHaveProperty('delegate');
   });

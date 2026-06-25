@@ -2,7 +2,7 @@
  * Static Analysis Gate
  *
  * Runs static analysis tools (lint, typecheck, quality-check) with structured
- * pass/fail output for the quality-review workflow.
+ * pass/fail output for the review workflow.
  *
  * Port of scripts/static-analysis-gate.sh. Retains external tool invocation
  * via a configurable RunCommandFn but moves orchestration, output parsing,

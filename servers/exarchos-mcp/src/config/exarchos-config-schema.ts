@@ -289,7 +289,7 @@ export type SynthesisConfig = z.infer<typeof SynthesisConfigSchema>;
 
 /**
  * `escalation` (DR-3, #1595) — tunes the shared escalation policy consumed by
- * the spec-review, quality-review, and shepherd fix-loops. `maxIterations` is
+ * the review and shepherd fix-loops. `maxIterations` is
  * the per-loop auto-fix bound: how many times a loop may auto-fix a mechanical
  * finding before escalating to the user. Resolves to a uniform default of `5`
  * (see `DEFAULT_MAX_ITERATIONS` in `orchestrate/escalation-policy.ts`); a
@@ -303,6 +303,27 @@ export const EscalationConfigSchema = z
   .strict();
 
 export type EscalationConfig = z.infer<typeof EscalationConfigSchema>;
+
+/**
+ * `feedback` (#1319) — the agent→runtime friction back-channel.
+ *
+ * `upstream` is an optional HTTPS endpoint the `exarchos_workflow.feedback`
+ * handler POSTs each `feedback.recorded` payload to, best-effort, AFTER the
+ * local event write. Omitting it (the default) keeps feedback fully local —
+ * the local write always succeeds without network access (INV-15 / offline-
+ * first); the POST is a pure additive federation hop. Per INV-3 the endpoint
+ * lives here in `.exarchos.yml`, not in a sibling config file.
+ *
+ * Validated as a URL so a typo'd endpoint fails at config-load rather than
+ * silently swallowing every report at POST time.
+ */
+export const FeedbackConfigSchema = z
+  .object({
+    upstream: z.string().url().optional(),
+  })
+  .strict();
+
+export type FeedbackConfig = z.infer<typeof FeedbackConfigSchema>;
 
 export const ExarchosConfigSchema = z
   .object({
@@ -324,6 +345,7 @@ export const ExarchosConfigSchema = z
     storage: StorageConfigSchema.optional(),
     synthesis: SynthesisConfigSchema.optional(),
     escalation: EscalationConfigSchema.optional(),
+    feedback: FeedbackConfigSchema.optional(),
   })
   .strict();
 

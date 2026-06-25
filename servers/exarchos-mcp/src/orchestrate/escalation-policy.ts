@@ -1,7 +1,7 @@
 // ─── Shared Escalation Policy (DR-3, #1595) ─────────────────────────────────
 //
 // One escalation policy, consumed by the three fix-loops of the ship-gate
-// methodology: spec-review, quality-review, and the shepherd loop (tasks
+// methodology: review and the shepherd loop (tasks
 // 016–019 are the consumers). The policy is two primitives:
 //
 //   1. A bounded `maxIterations` per loop — how many times a loop may auto-fix

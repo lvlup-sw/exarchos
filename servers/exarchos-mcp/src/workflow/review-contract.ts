@@ -23,7 +23,7 @@
  * Do not introduce new dimension naming conventions.
  */
 export const REQUIRED_REVIEWS_BY_WORKFLOW_TYPE: Readonly<Record<string, readonly string[]>> = {
-  feature: ['spec-review', 'quality-review'],
+  feature: ['review'],
 };
 
 /**
@@ -98,7 +98,7 @@ export function getRequiredReviews(
  * so any change to the required dimensions is reflected everywhere.
  *
  * Example: `getRequiredReviewsPrerequisite('feature')` →
- *   `reviews.spec-review.status AND reviews.quality-review.status pass`
+ *   `reviews.review.status pass`
  *
  * `riskTier` threads through to {@link getRequiredReviews} so the high-tier
  * `mutation-adequacy` dimension appears in the rendered prerequisite at the

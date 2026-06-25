@@ -232,6 +232,18 @@ export const HandoffEntrySchemaV2 = z
         timestamp: z.string(),
       })
       .strict(),
+    /**
+     * Provenance (#1242) — `'operator'` for an entry folded from a
+     * `workflow.checkpoint` handoff (operator-authored), `'auto'` for one
+     * folded from a `workflow.handoff_summarized` fallback. Drives the
+     * operator-precedence rule in the reducer: a summarized handoff fills the
+     * `latestHandoff` slot only when it is empty or already `'auto'`.
+     *
+     * Optional + additive: legacy v:2 snapshots written before #1242 carry no
+     * `source` and are treated as operator-authored (the only writer pre-#1242
+     * was the checkpoint handler), so the summary never overwrites them.
+     */
+    source: z.enum(['operator', 'auto']).optional(),
   })
   .strict();
 

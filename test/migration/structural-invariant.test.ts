@@ -54,10 +54,9 @@ const MIGRATED_SKILLS = [
   'dogfood',
   'git-worktrees',
   'implementation-planning',
-  'quality-review',
   'refactor',
+  'review',
   'shepherd',
-  'spec-review',
   'synthesis',
   'workflow-state',
 ];
@@ -102,16 +101,15 @@ function findAllSkillMdFiles(root: string, excludeFragments: string[] = []): str
 
 describe('task 018 — post-migration structural invariants', () => {
   it('PostMigration_SkillsTree_ContainsExpectedSkillMdFiles', () => {
-    // 19 skills × 6 runtimes = 114 SKILL.md files under `skills/`.
-    // v2.8.0 added discovery workflow skill per #1080.
-    // v2.9.0 added merge-orchestrator skill per #1193 / #1194.
-    // v2.10.0 added authoring-invariants skill per #1487.
-    // v2.11.0 added mutation-adequacy skill per #1520 (verification ladder R5).
+    // 18 skills × 6 runtimes = 108 SKILL.md files under `skills/`.
+    // v2.9.0 added merge-orchestrator; v2.10.0 added authoring-invariants;
+    // v2.11.0 added mutation-adequacy, then collapsed spec-review + quality-review
+    // into one `review` skill (19 → 18 skills).
     const files = findAllSkillMdFiles(SKILLS_DIR, ['/test-fixtures/']);
     expect(
       files.length,
-      `expected 114 SKILL.md files under skills/ (19 skills × 6 runtimes), found ${files.length}`,
-    ).toBe(114);
+      `expected 108 SKILL.md files under skills/ (18 skills × 6 runtimes), found ${files.length}`,
+    ).toBe(108);
   });
 
   it('PostMigration_SkillsSrcTree_ContainsNoCommittedGeneratedFiles', () => {

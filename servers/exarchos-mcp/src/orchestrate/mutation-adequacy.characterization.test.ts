@@ -30,8 +30,8 @@ describe('mutation-adequacy roster characterization (PIN)', () => {
   // only the `feature` workflow declares required reviews; every other
   // workflow type (and any unknown type) yields the empty contract.
   describe('ReviewDimensionRoster_CurrentBuild_StablePerWorkflowType', () => {
-    it('feature workflow requires exactly spec-review + quality-review', () => {
-      expect(getRequiredReviews('feature')).toEqual(['spec-review', 'quality-review']);
+    it('feature workflow requires exactly review', () => {
+      expect(getRequiredReviews('feature')).toEqual(['review']);
     });
 
     it('non-feature and unknown workflow types declare no required reviews', () => {
@@ -48,15 +48,14 @@ describe('mutation-adequacy roster characterization (PIN)', () => {
     // addition is a real regression, caught here.
     it('feature workflow at the HIGH tier adds exactly mutation-adequacy', () => {
       expect(getRequiredReviews('feature', 'high')).toEqual([
-        'spec-review',
-        'quality-review',
+        'review',
         'mutation-adequacy',
       ]);
     });
 
     it('medium / low tiers reproduce the no-tier roster (high-tier-only)', () => {
-      expect(getRequiredReviews('feature', 'medium')).toEqual(['spec-review', 'quality-review']);
-      expect(getRequiredReviews('feature', 'low')).toEqual(['spec-review', 'quality-review']);
+      expect(getRequiredReviews('feature', 'medium')).toEqual(['review']);
+      expect(getRequiredReviews('feature', 'low')).toEqual(['review']);
     });
   });
 

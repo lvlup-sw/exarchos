@@ -18,7 +18,7 @@ import {
 
 describe('getPlaybook', () => {
   it('getPlaybook_ValidPhase_ReturnsPlaybook', () => {
-    const playbook = getPlaybook('feature', 'ideate');
+    const playbook = getPlaybook('feature', 'plan');
     expect(playbook).not.toBeNull();
   });
 
@@ -67,10 +67,9 @@ describe('renderPlaybook', () => {
 // ─── Task 2: Feature Workflow Playbook Entries ──────────────────────────────
 
 describe('Feature workflow playbooks', () => {
-  it('getPlaybook_FeatureIdeate_HasBrainstormingSkill', () => {
-    const playbook = getPlaybook('feature', 'ideate')!;
-    expect(playbook.skill).toBe('brainstorming');
-  });
+  // #1581 (DR-4): `feature:ideate` retired — the design-authoring guidance it
+  // carried is folded into `feature:plan` (asserted by
+  // getPlaybook_FeaturePlan_FoldsDesignAuthoringGuidance below).
 
   it('getPlaybook_FeaturePlan_HasPlanningSkill', () => {
     const playbook = getPlaybook('feature', 'plan')!;
@@ -258,7 +257,8 @@ describe('Refactor workflow playbooks', () => {
 
   it('getPlaybook_OverhaulReview_HasReviewSkill', () => {
     const playbook = getPlaybook('refactor', 'overhaul-review')!;
-    expect(playbook.skill).toBe('quality-review');
+    expect(playbook.skill).toBe('review');
+    expect(playbook.skillRef).toBe('@skills/review/SKILL.md');
   });
 
   it('getPlaybook_OverhaulUpdateDocs_HasRefactorSkill', () => {
@@ -308,7 +308,7 @@ describe('serializePlaybooks', () => {
     expect(result.workflowType).toBe('feature');
 
     const expectedPhases = [
-      'ideate', 'plan', 'plan-review', 'delegate',
+      'plan', 'plan-review', 'delegate',
       'merge-pending',
       'review', 'synthesize', 'completed', 'cancelled', 'blocked',
     ];
@@ -317,14 +317,14 @@ describe('serializePlaybooks', () => {
     }
     expect(result.phaseCount).toBe(expectedPhases.length);
 
-    // Verify structure of a representative phase
-    const ideate: SerializedPhasePlaybook = result.phases['ideate'];
-    expect(ideate.skill).toBe('brainstorming');
-    expect(ideate.skillRef).toBe('@skills/brainstorming/SKILL.md');
-    expect(ideate.tools.length).toBeGreaterThanOrEqual(1);
-    expect(ideate.transitionCriteria).toBeTruthy();
-    expect(ideate.humanCheckpoint).toBe(false);
-    expect(typeof ideate.compactGuidance).toBe('string');
+    // Verify structure of a representative phase (#1581: `plan` is the initial phase)
+    const plan: SerializedPhasePlaybook = result.phases['plan'];
+    expect(plan.skill).toBe('implementation-planning');
+    expect(plan.skillRef).toBe('@skills/implementation-planning/SKILL.md');
+    expect(plan.tools.length).toBeGreaterThanOrEqual(1);
+    expect(plan.transitionCriteria).toBeTruthy();
+    expect(plan.humanCheckpoint).toBe(false);
+    expect(typeof plan.compactGuidance).toBe('string');
   });
 
   it('SerializePlaybooks_Unknown_Throws', () => {
@@ -365,10 +365,10 @@ describe('serializePlaybooks', () => {
     // on the in-memory PhasePlaybook; the serialized shape must mirror
     // that — explicit absence (not `[]`) keeps the contract minimal.
     const result = serializePlaybooks('feature');
-    const ideate = result.phases['ideate'] as {
+    const plan = result.phases['plan'] as {
       autoEmittedEvents?: readonly unknown[];
     };
-    expect(ideate.autoEmittedEvents).toBeUndefined();
+    expect(plan.autoEmittedEvents).toBeUndefined();
   });
 });
 
@@ -477,7 +477,7 @@ describe('Review contract consistency across playbooks and tools.ts', () => {
     // The dimension names MUST match skill folder names under skills-src/
     // so the skill an agent runs and the state key it writes are identical.
     // Changing this assertion requires renaming skill folders too.
-    expect(getRequiredReviews('feature')).toEqual(['spec-review', 'quality-review']);
+    expect(getRequiredReviews('feature')).toEqual(['review']);
   });
 });
 

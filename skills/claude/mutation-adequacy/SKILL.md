@@ -27,8 +27,10 @@ never decide tier membership in this skill.
 
 **Verdict is advisory by default.** A sub-threshold mutation score surfaces survivor follow-ups and
 warns, but never blocks the merge — unless an explicit `review.gates['mutation-adequacy']` config
-override raises its severity (the slice-2 severity mechanism). A 100% score is neither expected nor
-required (equivalent mutants exist).
+override raises its severity. A 100% score is neither expected nor required (equivalent mutants exist).
+Note: *advisory* refers to the **score** — the dimension **entry** is still required on the high tier
+(the `all-reviews-passed` guard fails if the `mutation-adequacy` review is absent), so run and record it
+even when the score itself won't block.
 
 ## Triggers
 

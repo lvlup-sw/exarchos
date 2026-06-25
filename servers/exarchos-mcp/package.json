@@ -12,6 +12,7 @@
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
     "bench": "vitest bench",
+    "cli:vocab-guard": "bun run scripts/cli-vocab-guard.ts",
     "generate:docs": "tsx scripts/generate-docs.ts",
     "generate:agents": "tsx src/agents/generate-agents.ts",
     "vendor:sync:pm-detector": "tsx scripts/sync-vendor-pm-detector.ts",

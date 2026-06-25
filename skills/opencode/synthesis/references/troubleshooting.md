@@ -63,8 +63,7 @@ If the user receives PR review comments:
 4. Worktrees will be cleaned up after merge
 
 ### Documentation
-- Design: docs/designs/YYYY-MM-DD-feature.md
-- Plan: docs/plans/YYYY-MM-DD-feature.md
+- Spec: docs/specs/YYYY-MM-DD-feature.md
 ```
 
 ## MCP Tool Call Failed

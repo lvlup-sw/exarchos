@@ -562,7 +562,7 @@ describe('buildRegistrationSchema JSON Schema', () => {
 // ─── A2: TOOL_REGISTRY Tests ─────────────────────────────────────────────────
 
 const ALL_FEATURE_PHASES = new Set([
-  'ideate',
+  // #1581 (DR-4): `ideate` removed — feature workflows start at `plan`.
   'plan',
   'plan-review',
   'delegate',
@@ -657,7 +657,7 @@ describe('TOOL_REGISTRY', () => {
   });
 
   describe('exarchos_workflow', () => {
-    it('should have 10 actions: init, get, transition, update, cancel, cleanup, reconcile, rehydrate, checkpoint, describe', () => {
+    it('should have 11 actions: init, get, transition, update, cancel, cleanup, reconcile, rehydrate, checkpoint, feedback, describe', () => {
       // T5a.1/DR-4 (#1259, v2.11): `set` action removed (hard-cut from the
       // v2.10 one-release deprecation rerouting surface). Callers receive a
       // structured `UNKNOWN_ACTION` error with `validActions: ['transition',
@@ -674,7 +674,7 @@ describe('TOOL_REGISTRY', () => {
       const composite = findComposite('exarchos_workflow');
       expect(composite).toBeDefined();
       const actionNames = composite!.actions.map((a) => a.name);
-      expect(actionNames).toEqual(['init', 'get', 'transition', 'update', 'cancel', 'cleanup', 'reconcile', 'rehydrate', 'checkpoint', 'describe']);
+      expect(actionNames).toEqual(['init', 'get', 'transition', 'update', 'cancel', 'cleanup', 'reconcile', 'rehydrate', 'checkpoint', 'feedback', 'describe']);
     });
   });
 

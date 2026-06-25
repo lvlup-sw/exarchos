@@ -3,7 +3,7 @@ name: dogfood
 description: "Review failed Exarchos MCP tool calls from the current session, diagnose root causes, and categorize into code bug, documentation issue, or user error. Use when the user says 'dogfood', 'review failures', 'what went wrong', 'triage errors', or runs /dogfood. Scopes exclusively to Exarchos tools (exarchos_workflow, exarchos_event, exarchos_orchestrate, exarchos_view, exarchos_sync). Do NOT use for debugging application code or non-Exarchos tool failures."
 metadata:
   author: exarchos
-  version: 2.0.0
+  version: 2.1.0
   mcp-server: exarchos
   category: utility
 ---
@@ -19,6 +19,8 @@ No `gh`/`glab`/`az` commands needed — the MCP server handles provider dispatch
 ## Overview
 
 Retrospective analysis of Exarchos MCP tool usage. Uses the MCP server's own self-service capabilities as the primary diagnostic instrument — describe APIs, views, playbooks, and runbooks turned inward to diagnose failures.
+
+This is the in-runtime, event-sourced counterpart to the older transcript-only triage: agents file friction reports in real time via `exarchos_workflow feedback`, which land on the shared `meta/feedback` stream. Dogfood reads that stream as a first-class input (Step 1h) — each `feedback.recorded` event is an agent-surfaced friction signal already captured at the moment it hurt, not reconstructed after the fact.
 
 Three distinct failure modes require different fixes — code changes, documentation updates, or skill instruction improvements. Mixing them wastes effort.
 
@@ -87,6 +89,16 @@ Use `exarchos_orchestrate runbook(phase)` to retrieve relevant runbooks. Check: 
 #### 1g. Telemetry Review
 
 Use `exarchos_view telemetry` for per-tool performance. Flag: high error rates (systemic issues), high invocation counts (retry loops), and tools never invoked that the playbook prescribes.
+
+#### 1h. Friction Back-Channel (`feedback.recorded`)
+
+Use `exarchos_event query(stream: "meta/feedback")` to read recent friction reports filed via `exarchos_workflow feedback`. These are **agent-surfaced findings captured in real time** — an agent hit a painful affordance and flagged it during the failing call instead of retrying silently. Treat each report as a pre-seeded finding:
+
+- **`message`** — the agent's own account of the friction. Carry it into Step 3 as the "what went wrong" rather than reconstructing it from the transcript.
+- **`sessionContext`** (`workflow` / `action` / `errorCode`) — correlate the report to the workflow + action it occurred in. Cross-reference with the event log (1d) and telemetry (1g) for corroborating server-side evidence.
+- **`upstreamDelivered`** — `false` despite a configured `configuredEndpoint` is itself a finding (federation hop failing).
+
+Each report still passes through Step 4 categorization (code / docs / user). A `feedback.recorded` event with no matching server-side defect is not automatically dismissed — the agent's friction is signal even when the call eventually succeeded (see the successful-after-retry anti-pattern). De-duplicate reports against findings already surfaced by the debug trace so a back-channel report and its trace evidence merge into one finding, not two.
 
 ### Step 2: Scan Session for Failed Tool Calls
 
@@ -169,6 +181,7 @@ Only file issues with user confirmation — present the draft first.
       "events_reviewed": 0,
       "describe_queries": 0,
       "views_consulted": [],
+      "feedback_reports_reviewed": 0,
       "trace_only_findings": 0
     }
   },

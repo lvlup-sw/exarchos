@@ -8,7 +8,7 @@ This is deliberate, for three reasons:
 
 1. **A 100% score is neither expected nor required.** Some mutants are *equivalent* — they change the
    code without changing observable behavior, so no test can kill them. There is no general, cheap way
-   to filter equivalent mutants (an LLM filter is a recorded non-goal for this slice), so a perfect
+   to filter equivalent mutants (an LLM filter is an explicit non-goal), so a perfect
    score is unattainable and a hard gate at 100% would block every real PR.
 
 2. **The backstop is a steer, not a wall.** R5 exists to guard the *relaxed* verification mix (R6) —
@@ -34,14 +34,14 @@ The effective threshold is resolved per call, override beating config beating de
 ## Raising severity to blocking
 
 Severity is separate from the threshold. The dimension is advisory (warning) by default, applied via
-the slice-2 ladder-gate severity mechanism (`resolveGateSeverity` / `applyLadderGateSeverity`). An
+the ladder-gate severity mechanism (`resolveGateSeverity` / `applyLadderGateSeverity`). An
 explicit `review.gates['mutation-adequacy']` override in `.exarchos.yml` can raise it to blocking for
-a project that wants mutation adequacy enforced — the same mechanism slice 2 uses for the other ladder
+a project that wants mutation adequacy enforced — the same mechanism that governs the other ladder
 gates. Honor the resolved severity; never hardcode "advisory" or "blocking" in the skill.
 
 ## Calibrating from the score trend (forward-looking)
 
 Every run emits a foldable `gate.executed` carrying `mutationScore` (INV-1). R10 left-folds that event
 stream into a score *trend* — the data a project uses to move its configured threshold deliberately,
-rather than guessing. This slice only **emits** the foldable event; it builds no trend view. Until R10
+rather than guessing. The dimension only **emits** the foldable event; it builds no trend view. Until R10
 lands, treat the soft default as the floor and lean on the survivor follow-ups, not the absolute score.

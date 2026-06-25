@@ -2,7 +2,7 @@
 
 This reference explains why `merge_orchestrate` performs a local `git merge` rather than calling the VCS provider — and why that distinction matters for the recovery contract.
 
-> **Recovery vocabulary (#1306).** The orchestrator's failure handling is modeled as a database transaction, not a saga: it records a **recovery point** (the integration branch's pre-merge HEAD) and, on failure, runs the INV-14 **recovery ladder** (`git merge --abort` → `git reset --keep <recoveryPointSha>`, never `--hard`) to rewind to that point. "Recovery point" and "recovery" replace the older "rollback anchor" / "rollback" / "compensation" framing throughout. The legacy `merge.rollback` event name and its `rollbackSha` wire field are retained during the v2.11.x deprecation window; the canonical successor event is `merge.recovered`.
+> **Recovery vocabulary.** The orchestrator's failure handling is modeled as a database transaction, not a saga: it records a **recovery point** (the integration branch's pre-merge HEAD) and, on failure, runs the INV-14 **recovery ladder** (`git merge --abort` → `git reset --keep <recoveryPointSha>`, never `--hard`) to rewind to that point. "Recovery point" and "recovery" replace the older "rollback anchor" / "rollback" / "compensation" framing throughout. The legacy `merge.rollback` event name and its `rollbackSha` wire field are retained during the v2.11.x deprecation window; the canonical successor event is `merge.recovered`.
 
 ## The model
 
@@ -17,7 +17,7 @@ The integration branch may eventually be pushed to a remote and merged into `mai
 
 ## Why not call the VCS provider here?
 
-An earlier implementation of this orchestrator routed the merge through `provider.mergePr(prId, strategy)` — a remote API call (GitHub / GitLab / Azure DevOps). That created an architectural mismatch (#1194):
+An earlier implementation of this orchestrator routed the merge through `provider.mergePr(prId, strategy)` — a remote API call (GitHub / GitLab / Azure DevOps). That created an architectural mismatch:
 
 | What runs locally | What runs remotely |
 |-------------------|--------------------|

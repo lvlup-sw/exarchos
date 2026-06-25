@@ -23,7 +23,7 @@ Unified MCP server for workflow orchestration, event sourcing, CQRS views, and t
 | `init` | Starting any `/exarchos:ideate`, `/exarchos:debug`, or `/exarchos:refactor` workflow |
 | `get` | Restoring context, checking phase, reading task details. Use `query` for dot-path lookup (e.g., `query: "phase"`), or `fields` array for projection (e.g., `fields: ["phase", "tasks"]`) to reduce token cost |
 | `transition` | Advance to a target phase (`target: "delegate"`). Canonical phase-mutation surface — emits `workflow.transition`, runs HSM guards, returns `validTargets` + `expectedShape` on guard failure |
-| `update` | Mutate non-phase state fields (`updates: { "artifacts.design": "..." }`). Rejects `phase` in `updates` with a structured `INVALID_INPUT` pointing at `transition`. Emits `state.patched` |
+| `update` | Mutate non-phase state fields (`updates: { "artifacts.spec": "..." }`). Rejects `phase` in `updates` with a structured `INVALID_INPUT` pointing at `transition`. Emits `state.patched` |
 | `cancel` | Cleaning up abandoned workflows. Supports `dryRun: true` to preview cleanup actions |
 | `cleanup` | Resolve a merged workflow to completed. Verifies merge, backfills synthesis metadata, force-resolves reviews, transitions to completed. Requires `mergeVerified: true` — pass after verifying PRs are merged via GitHub API |
 

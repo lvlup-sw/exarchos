@@ -1,9 +1,9 @@
 ---
-description: Run two-stage review (spec compliance + code quality)
+description: Run one adversarial review pass (spec-compliance + code quality + test adequacy)
 ---
 
 # /review
 
 Canonical alias for the Exarchos `/review` workflow command.
 
-Invoke `quality-review`, then `spec-review` skills to handle: $ARGUMENTS
+Invoke `mutation-adequacy`, then `review` skills to handle: $ARGUMENTS

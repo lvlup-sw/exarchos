@@ -1307,15 +1307,14 @@ describe('View Handlers', () => {
   }
 
   describe('Fix 2 — synthesis_readiness sources review status from state.json', () => {
-    it('SynthesisReadiness_StateReviewsPassed_NoGateExecutedEvents_ReportsSpecAndQualityPassed', async () => {
-      // GIVEN: state.json declares both spec-review and quality-review passed
-      // — but NO `gate.executed` events exist. Pre-fix the view sees both as
-      // false because the projection only watches events.
+    it('SynthesisReadiness_StateReviewPassed_NoGateExecutedEvents_ReportsReviewPassed', async () => {
+      // GIVEN: state.json declares the single `review` dimension passed — but
+      // NO `gate.executed` events exist. Pre-fix the view sees it as false
+      // because the projection only watches events.
       const featureId = 'wf-fix2-reviews';
       await writeStateJson(tmpDir, featureId, {
         reviews: {
-          'spec-review': { status: 'passed' },
-          'quality-review': { status: 'passed' },
+          review: { status: 'passed' },
         },
       });
 
@@ -1329,10 +1328,9 @@ describe('View Handlers', () => {
       // Assert
       expect(result.success).toBe(true);
       const data = result.data as {
-        review: { specPassed: boolean; qualityPassed: boolean };
+        review: { reviewPassed: boolean };
       };
-      expect(data.review.specPassed).toBe(true);
-      expect(data.review.qualityPassed).toBe(true);
+      expect(data.review.reviewPassed).toBe(true);
     });
   });
 

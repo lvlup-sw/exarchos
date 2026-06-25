@@ -101,6 +101,16 @@ jobs:
       # generated module before it leaks into a release.
       - run: npm run runtimes:guard
 
+      # desc:budget-guard — MCP description token-budget gate (#1321, R-E).
+      # Tool/action descriptions cost every agent on every `tools/list` call;
+      # this asserts each composite-tool / slim / per-action description stays
+      # under a documented token budget (chars/4 estimate) and fails CI on
+      # overrun with a per-offender breakdown. Runs here (not grep-gates)
+      # because it imports TOOL_REGISTRY via tsx, which needs both the root
+      # and MCP-server deps this job already installs. Sibling to skills:guard
+      # / lint:invariants. Blocking via the ci-gate aggregator (test-root).
+      - run: npm run desc:budget-guard
+
   test-mcp:
     name: Exarchos MCP Server
     needs: changes
@@ -140,6 +150,68 @@ jobs:
         run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
 
       - run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
+      - run: npx tsc --noEmit
+      - run: npm run test:run
+
+      # cli:vocab-guard (#1317) — mechanical gate against CLI vocabulary drift
+      # (R-A / Principle 6). Walks the rendered Commander surface via `buildCli`
+      # and fails on a banned verb (`info`, `ls`, `rm`) or banned flag alias
+      # (`--format` as a JSON carrier, `--skip-confirmation*`). Runs here rather
+      # than in grep-gates because resolving `buildCli` pulls in `bun:sqlite`,
+      # which needs Bun (already set up above) + the MCP deps installed in this
+      # job. Flows into the required `ci-gate` check via test-mcp.
+      - run: npm run cli:vocab-guard
+
+  # ─────────────────────────────────────────────────────────────────────
+  # test-windows (#1170)
+  # ─────────────────────────────────────────────────────────────────────
+  # Runs the MCP server unit project on a real windows-latest host — the
+  # first Windows CI for Exarchos. Two jobs in one:
+  #   1. Closes the long-standing Windows-CI gap (#1085 class): Linux-only
+  #      tests have shipped Windows bugs (path-separator, ancestry preflight).
+  #   2. Captures the `merge.preflight` debug payload that #1402 phase-2 RCA
+  #      needs — `EXARCHOS_PREFLIGHT_DEBUG=1` makes the ancestry preflight
+  #      emit its 9-field structured payload on a genuine Windows host (DR-2).
+  #      Harmless on green runs; the RCA reads it from the event store.
+  #
+  # `shell: bash` is set per-step for the *.sh helpers (Git Bash ships on
+  # windows-latest); npm/npx steps use the default shell. The bun setup
+  # mirrors test-mcp so the compiled-binary tests can resolve their bundler.
+  # PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD avoids the npm-ci chromium wedge (#1502).
+  # ─────────────────────────────────────────────────────────────────────
+  test-windows:
+    name: Windows Unit (MCP)
+    needs: changes
+    if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && needs.changes.outputs.mcp == 'true'
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: servers/exarchos-mcp
+    env:
+      EXARCHOS_PREFLIGHT_DEBUG: '1'
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            servers/exarchos-mcp/package-lock.json
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      - name: Install root dependencies
+        working-directory: .
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
+
+      - shell: bash
+        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
       - run: npx tsc --noEmit
       - run: npm run test:run
 
@@ -460,7 +532,7 @@ jobs:
   ci-gate:
     name: CI Gate
     runs-on: ubuntu-latest
-    needs: [changes, test-root, test-mcp, validate-no-legacy, grep-gates, outcome-tests]
+    needs: [changes, test-root, test-mcp, test-windows, validate-no-legacy, grep-gates, outcome-tests]
     if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && always()
     steps:
       - name: Evaluate results
@@ -468,6 +540,7 @@ jobs:
           echo "changes=${{ needs.changes.result }}"
           echo "test-root=${{ needs.test-root.result }}"
           echo "test-mcp=${{ needs.test-mcp.result }}"
+          echo "test-windows=${{ needs.test-windows.result }}"
           echo "validate-no-legacy=${{ needs.validate-no-legacy.result }}"
           echo "grep-gates=${{ needs.grep-gates.result }}"
           echo "outcome-tests=${{ needs.outcome-tests.result }}"
@@ -483,6 +556,13 @@ jobs:
           if [[ "${{ needs.test-mcp.result }}" =~ ^(failure|cancelled)$ ]]; then
             echo "::error::MCP server tests: ${{ needs.test-mcp.result }}"
             exit 1
+          fi
+          # test-windows is ADVISORY: the windows-latest job surfaces the
+          # pre-existing Linux-only Windows-portability gap, tracked in #1620
+          # (v2.11.0). It must NOT block the rc cut — warn, do not fail. Re-arm
+          # to `exit 1` once the Windows suite is green.
+          if [[ "${{ needs.test-windows.result }}" =~ ^(failure|cancelled)$ ]]; then
+            echo "::warning::Windows unit tests advisory (${{ needs.test-windows.result }}) — tracked in #1620"
           fi
           if [[ "${{ needs.validate-no-legacy.result }}" =~ ^(failure|cancelled)$ ]]; then
             echo "::error::Validate no legacy: ${{ needs.validate-no-legacy.result }}"

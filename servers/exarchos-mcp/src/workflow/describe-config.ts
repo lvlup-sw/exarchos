@@ -139,7 +139,7 @@ export function buildConfigDescription(config: ResolvedProjectConfig) {
     },
     escalation: {
       // DR-3 (#1595) — shared escalation policy. `maxIterations` is the per-loop
-      // auto-fix bound for the spec-review, quality-review, and shepherd
+      // auto-fix bound for the review and shepherd
       // fix-loops; default `5` (DEFAULT_MAX_ITERATIONS).
       maxIterations: annotate(config.escalation.maxIterations, DEFAULTS.escalation.maxIterations),
     },

@@ -359,9 +359,10 @@ describe('Compensation', () => {
       });
       const events = makeEvents(1);
 
-      const result = await executeCompensation(state, 'ideate', events, 1, { dryRun: false });
+      const result = await executeCompensation(state, 'plan', events, 1, { dryRun: false });
 
-      // ideate has no registered compensation actions, so result should be empty
+      // plan is the first feature phase (#1581: ideate removed), so no prior
+      // phase has registered compensation actions — result should be empty
       expect(result.actions.length).toBe(0);
       expect(result.events.length).toBe(0);
       expect(result.success).toBe(true);

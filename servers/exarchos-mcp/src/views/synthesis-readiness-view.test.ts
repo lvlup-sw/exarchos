@@ -42,8 +42,7 @@ describe('SynthesisReadinessView', () => {
     expect(view.blockers).toContain('no tasks tracked');
     expect(view.tasks).toEqual({ total: 0, completed: 0, failed: 0 });
     expect(view.review).toEqual({
-      specPassed: false,
-      qualityPassed: false,
+      reviewPassed: false,
       findingsBySeverity: {},
     });
     expect(view.tests).toEqual({
@@ -88,7 +87,28 @@ describe('SynthesisReadinessView', () => {
     expect(view.tasks.failed).toBe(1);
   });
 
-  it('Apply_GateExecuted_SpecReview_Passed_SetsSpecPassed', () => {
+  it('Apply_GateExecuted_Review_Passed_SetsReviewPassed', () => {
+    const events = [
+      makeEvent(1, 'gate.executed', {
+        gateName: 'review',
+        layer: 'review',
+        passed: true,
+      }),
+    ];
+
+    const view = materializer.materialize<SynthesisReadinessState>(
+      'wf-001',
+      SYNTHESIS_READINESS_VIEW,
+      events,
+    );
+
+    expect(view.review.reviewPassed).toBe(true);
+  });
+
+  it('Apply_GateExecuted_LegacySpecReview_Passed_FoldsToReviewPassed', () => {
+    // The two review dimensions collapsed into one (`review`); legacy
+    // 'spec-review' / 'quality-review' gate names are still folded so
+    // historical events project onto the single `reviewPassed` boolean.
     const events = [
       makeEvent(1, 'gate.executed', {
         gateName: 'spec-review',
@@ -103,27 +123,7 @@ describe('SynthesisReadinessView', () => {
       events,
     );
 
-    expect(view.review.specPassed).toBe(true);
-    expect(view.review.qualityPassed).toBe(false);
-  });
-
-  it('Apply_GateExecuted_QualityReview_Passed_SetsQualityPassed', () => {
-    const events = [
-      makeEvent(1, 'gate.executed', {
-        gateName: 'quality-review',
-        layer: 'review',
-        passed: true,
-      }),
-    ];
-
-    const view = materializer.materialize<SynthesisReadinessState>(
-      'wf-001',
-      SYNTHESIS_READINESS_VIEW,
-      events,
-    );
-
-    expect(view.review.specPassed).toBe(false);
-    expect(view.review.qualityPassed).toBe(true);
+    expect(view.review.reviewPassed).toBe(true);
   });
 
   it('Apply_ReviewFinding_UpdatesFindingCounts', () => {
@@ -293,22 +293,17 @@ describe('SynthesisReadinessView', () => {
     expect(view.blockers).toContain('tasks incomplete: 1/2 completed');
   });
 
-  it('Apply_SpecReviewFailed_ReportsBlocker', () => {
+  it('Apply_ReviewFailed_ReportsBlocker', () => {
     const events = [
       makeEvent(1, 'task.assigned', { taskId: 't1', title: 'Task 1' }),
       makeEvent(2, 'task.completed', { taskId: 't1' }),
       makeEvent(3, 'gate.executed', {
-        gateName: 'spec-review',
+        gateName: 'review',
         layer: 'review',
         passed: false,
       }),
-      makeEvent(4, 'gate.executed', {
-        gateName: 'quality-review',
-        layer: 'review',
-        passed: true,
-      }),
-      makeEvent(5, 'test.result', { passed: true, coveragePercent: 90 }),
-      makeEvent(6, 'typecheck.result', { passed: true }),
+      makeEvent(4, 'test.result', { passed: true, coveragePercent: 90 }),
+      makeEvent(5, 'typecheck.result', { passed: true }),
     ];
 
     const view = materializer.materialize<SynthesisReadinessState>(
@@ -317,7 +312,8 @@ describe('SynthesisReadinessView', () => {
       events,
     );
 
+    expect(view.review.reviewPassed).toBe(false);
     expect(view.ready).toBe(false);
-    expect(view.blockers).toContain('spec review not passed');
+    expect(view.blockers).toContain('review not passed');
   });
 });

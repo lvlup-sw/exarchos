@@ -44,7 +44,7 @@ interface WorkflowState {
 // ─── Valid Phases ───────────────────────────────────────────────────────────
 
 const VALID_PHASES: Readonly<Record<string, readonly string[]>> = {
-  feature: ['ideate', 'plan', 'plan-review', 'delegate', 'review', 'synthesize', 'completed', 'cancelled', 'blocked'],
+  feature: ['plan', 'plan-review', 'delegate', 'review', 'synthesize', 'completed', 'cancelled', 'blocked'],
   debug: ['triage', 'investigate', 'rca', 'design', 'debug-implement', 'debug-validate', 'debug-review', 'hotfix-implement', 'hotfix-validate', 'synthesize', 'completed', 'cancelled', 'blocked'],
   refactor: ['explore', 'brief', 'polish-implement', 'polish-validate', 'polish-update-docs', 'overhaul-plan', 'overhaul-delegate', 'overhaul-review', 'overhaul-update-docs', 'synthesize', 'completed', 'cancelled', 'blocked'],
 };

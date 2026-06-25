@@ -18,6 +18,7 @@ Follow the dogfood skill: `@skills/dogfood/SKILL.md`
    - `exarchos_event query` + `describe(emissionGuide)` → compare actual vs expected events
    - `exarchos_orchestrate describe(actions)` + `runbook(phase)` → verify schemas, gates, step ordering
    - `exarchos_view convergence, telemetry` → per-dimension pass rates, per-tool error rates
+   - `exarchos_event query(stream: "meta/feedback")` → agent-filed friction reports (`feedback.recorded`, #1319) as pre-seeded findings
 2. Scan this conversation for failed calls to the 5 Exarchos MCP tools (supplementary)
 3. Cross-reference conversation errors with self-service evidence
 4. Check playbook adherence and runbook conformance

@@ -19,6 +19,7 @@ import type {
   IssueResult,
   IssueSearchSummary,
   RepoInfo,
+  ReplyResult,
 } from './provider.js';
 import { UnsupportedOperationError } from './provider.js';
 import { exec } from './shell.js';
@@ -227,6 +228,15 @@ export class AzureDevOpsProvider implements VcsProvider {
       '--output',
       'json',
     ]);
+  }
+
+  // Per-thread replies map to Azure DevOps PR comment-thread replies
+  // (`az repos pr comment` posts a new thread, not a reply into an existing
+  // one; the reply path requires the thread-id REST surface the CLI does not
+  // expose cleanly). Tracked as a DR-7 follow-up (#1613); throws rather than
+  // silently no-op'ing so callers get a clear capability signal.
+  async addReply(_prId: string, _threadId: string, _body: string): Promise<ReplyResult> {
+    throw new UnsupportedOperationError('azure-devops', 'addReply');
   }
 
   async getReviewStatus(prId: string): Promise<ReviewStatus> {

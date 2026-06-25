@@ -103,13 +103,13 @@ The composite action performs:
 
 **If `ready: true`:** Extract the `worktrees` paths and `qualityHints` for prompt construction.
 
-**Native isolation — verify worktrees before agents edit (#1542).** Under native isolation (`nativeIsolation: true`), `prepare_delegation` returns `ready: true` even when the host has not yet materialized worktrees (`worktrees.ready: 0`), because isolation is the host's responsibility — readiness cannot be confirmed at prepare-time. When `worktrees.expected > 0` and none are confirmed ready, the response carries a **warning**: *"native isolation requested; N worktree(s) expected but 0 confirmed ready — verify the host materializes worktrees or dispatch may land in the shared checkout."* Do not ignore it. After dispatching, and **before any agent edits files**, confirm each agent's working directory is under `.worktrees/` (e.g. the agent's first reported `pwd`). If an agent is NOT in a worktree it has landed in the shared checkout — stop it, create the worktree manually with `git worktree add -b <task-branch> .worktrees/task-<id> <integration-tip>`, redirect the agent to that path, and only then allow edits. Skipping this check risks silent shared-tree corruption across parallel agents.
+**Native isolation — verify worktrees before agents edit.** Under native isolation (`nativeIsolation: true`), `prepare_delegation` returns `ready: true` even when the host has not yet materialized worktrees (`worktrees.ready: 0`), because isolation is the host's responsibility — readiness cannot be confirmed at prepare-time. When `worktrees.expected > 0` and none are confirmed ready, the response carries a **warning**: *"native isolation requested; N worktree(s) expected but 0 confirmed ready — verify the host materializes worktrees or dispatch may land in the shared checkout."* Do not ignore it. After dispatching, and **before any agent edits files**, confirm each agent's working directory is under `.worktrees/` (e.g. the agent's first reported `pwd`). If an agent is NOT in a worktree it has landed in the shared checkout — stop it, create the worktree manually with `git worktree add -b <task-branch> .worktrees/task-<id> <integration-tip>`, redirect the agent to that path, and only then allow edits. Skipping this check risks silent shared-tree corruption across parallel agents.
 
 ### Task Extraction
 
 From the implementation plan, extract for each task:
 - Full task description (paste inline; never reference external files)
-- Files to create/modify as **worktree-relative paths rooted inside the worktree** (e.g. `src/foo.ts`) — never an absolute parent-repo path, and never a `..` sequence that escapes the worktree root. Either form resolves outside the agent's worktree cwd and silently writes into the main worktree (#1301). This is the platform-agnostic line of defense — it must hold on every runtime.
+- Files to create/modify as **worktree-relative paths rooted inside the worktree** (e.g. `src/foo.ts`) — never an absolute parent-repo path, and never a `..` sequence that escapes the worktree root. Either form resolves outside the agent's worktree cwd and silently writes into the main worktree. This is the platform-agnostic line of defense — it must hold on every runtime.
 - Test file paths (worktree-relative) and expected test names
 - Dependencies on other tasks (for sequencing)
 - Property-based testing flag (`testingStrategy.propertyTests`)
@@ -143,7 +143,7 @@ For each task:
 4. Include PBT section from `references/pbt-patterns.md` when `propertyTests: true`
 5. Include testing patterns from `references/testing-patterns.md`
 
-### Tier-selected verification note — dispatch the rendered prompt (#1586)
+### Tier-selected verification note — dispatch the rendered prompt
 
 `prepare_delegation` resolves each task's risk tier and returns a **per-task rendered prompt** on its classification: `taskClassifications[i].implementerPrompt`. This is the implementer system prompt with the verification note already selected for that task's `riskTier`/`boundaryTouching` — a low-tier task carries a terse static-analysis steer, a high-tier task carries the test-after + integration-suite rung.
 
@@ -383,7 +383,7 @@ for orchestrate action schemas.
 Runbook for recovering when a subagent worktree's branch has diverged from the
 integration branch. Triggered by `merge_orchestrate` ancestry preflight: the
 failure message links here verbatim and includes the manual `git rebase`
-command. Auto-rebase is **not** wired today (tracked in #1119) — operators
+command. Auto-rebase is **not** wired today — operators
 must drive recovery by hand.
 
 ### Symptom
@@ -418,7 +418,7 @@ preflight is fail-only on purpose so the operator stays in control.
 > (`origin/HEAD` → `main`), **not** the integration tip, unless
 > `worktree.baseRef: "head"` is set in `.claude/settings.json`. Without the pin,
 > a subagent dispatched onto any stacked / non-`main` integration branch gets a
-> base missing every in-branch prerequisite commit (issues #1509 / #1501).
+> base missing every in-branch prerequisite commit.
 > `prepare_delegation` fails loud with this exact remediation when
 > `nativeIsolation` is requested and the pin is absent:
 >
@@ -498,7 +498,7 @@ still fails after rebase:
 
 ### Why no auto-rebase yet
 
-Auto-rebase is deferred to issue #1119. Today the orchestrator stops at
+Auto-rebase is not yet wired. Today the orchestrator stops at
 the ancestry preflight on purpose: a botched auto-rebase across diverged
 worktrees risks silently dropping subagent work, and the recovery path
 above is short enough that operator-driven rebase is preferable to

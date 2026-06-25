@@ -1,8 +1,8 @@
-# Design Document Template
+# Design & Rationale — Approach Format
 
-Save to: `docs/designs/YYYY-MM-DD-<feature>.md`
+The multi-approach (`deep`-rung) format for the `## Design & Rationale` section of the one unified `docs/specs/YYYY-MM-DD-<feature>.md` artifact. The full artifact shape is owned by `references/spec-template.md`; use this for the approach-exploration block only.
 
-## Approach Format (Phase 2)
+## Approach Format
 
 Present 2-3 approaches using this format:
 

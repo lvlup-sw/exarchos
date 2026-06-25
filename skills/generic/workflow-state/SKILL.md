@@ -7,7 +7,6 @@ metadata:
   mcp-server: exarchos
   category: utility
   phase-affinity:
-    - ideate
     - plan
     - delegate
     - review
@@ -63,14 +62,14 @@ At the start of `ideate`, use `mcp__exarchos__exarchos_workflow` with `action: "
 This creates a new workflow state entry. The initial phase depends on
 `workflowType`:
 
-- `feature` → starts in `ideate`
+- `feature` → starts in `plan`
 - `debug` → starts in `triage`
 - `refactor` → starts in `explore`
-- `oneshot` → starts in `plan` (skips ideate entirely)
+- `oneshot` → starts in `plan`
 
 ### Workflow Types at a Glance
 
-- `feature` — full `ideate → plan → delegate → review → synthesize` for real features with subagent dispatch and two-stage review
+- `feature` — full `plan → plan-review → delegate → review → synthesize` for real features with subagent dispatch and review
 - `debug` — `triage → investigate → (thorough | hotfix)` for bug workflows with track selection
 - `refactor` — `explore → brief → (polish | overhaul)` for code improvements, polish for small and overhaul for multi-task
 - `oneshot` — `plan → implementing → (completed | synthesize)` for trivial changes; direct-commit by default with an opt-in PR path resolved via a choice-state guard driven by `synthesisPolicy` and the `synthesize.requested` event
@@ -91,7 +90,7 @@ Field projection via `fields` returns only the requested top-level keys, reducin
 
 Use `mcp__exarchos__exarchos_workflow` with `action: "update"` with `featureId` and `updates`. This action mutates non-phase fields only — `phase`, `workflowType`, `featureId`, `createdAt`, and `version` are reserved (see "Reserved fields" below).
 
-- **Set artifact path**: `updates: { "artifacts.design": "docs/designs/2026-01-05-feature.md" }`
+- **Set artifact path**: `updates: { "artifacts.spec": "docs/specs/2026-01-05-feature.md" }`
 - **Mark task complete (by index)**: `updates: { "tasks[0].status": "complete", "tasks[0].completedAt": "<timestamp>" }`
 - **Add worktree**: `updates: { "worktrees.wt-001": { "branch": "feature/001-types", "taskId": "001", "status": "active" } }`
 
@@ -109,7 +108,7 @@ Transitions are HSM-validated and emit a `workflow.transition` event. Guarded tr
 
 The dot-path parser used by `set updates` recognizes only **numeric** array brackets (`tasks[0]`, `tasks[1]`, …). Keyed forms like `tasks[id=T-001]` are NOT supported and now throw an `INVALID_INPUT` error with a clear message — earlier versions silently wrote to a bogus top-level key, returning `success: true` while the actual task was untouched. Three patterns are supported:
 
-1. **Replace the whole array** (use this when the plan is being revised wholesale; matches the issue #1003 contract):
+1. **Replace the whole array** (use this when the plan is being revised wholesale):
    ```typescript
    exarchos_workflow({
      action: "update",
@@ -167,9 +166,9 @@ exarchos_orchestrate({
 
 | Event | State Update |
 |-------|--------------|
-| `ideate` starts | Create state file |
-| Design saved | `update: { "artifacts.design": "<path>" }`, then `transition target: "plan"` |
-| Plan saved | `update: { "artifacts.plan": "<path>", "tasks": [...] }`, then `transition target: "plan-review"` |
+| `ideate` starts | `init` the workflow (initial phase `plan`) |
+| Design & Rationale authored | `update: { "artifacts.spec": "<path>" }` (no transition — `plan` is the initial phase) |
+| Decomposition added | `update: { "artifacts.plan": "<path>", "tasks": [...] }`, then `transition target: "plan-review"` |
 | Plan-review gaps found | `update: { "planReview.gaps": [...] }`, auto-loop to plan |
 | Plan-review approved | `update: { "planReview.approved": true }`, then `transition target: "delegate"` |
 | Task dispatched | Set task `status = "in_progress"`, `startedAt` |
@@ -202,9 +201,9 @@ Skills should update state at key moments:
 
 **brainstorming/SKILL.md:**
 ```markdown
-After saving design:
-1. `action: "update"` — `updates: { "artifacts.design": "<path>" }`
-2. `action: "transition"` — `target: "plan"`
+After authoring the Design & Rationale section of the unified docs/specs/ artifact:
+- `action: "update"` — `updates: { "artifacts.spec": "<path>" }`
+  (no transition — `plan` is the initial phase; continue to decomposition in the same phase)
 ```
 
 **implementation-planning/SKILL.md:**
@@ -318,9 +317,8 @@ If multiple workflow state files exist:
 
 1. **Start new workflow**: Use `mcp__exarchos__exarchos_workflow` with `action: "init"` with `featureId: "user-authentication"`, `workflowType: "feature"`
 
-2. **After design phase**: First persist the artifact, then advance the phase.
-   - `action: "update"`, `featureId: "user-authentication"`, `updates: { "artifacts.design": "docs/designs/2026-01-05-user-auth.md" }`
-   - `action: "transition"`, `featureId: "user-authentication"`, `target: "plan"`
+2. **After authoring the Design & Rationale section** (`plan` is already the initial phase — no transition):
+   - `action: "update"`, `featureId: "user-authentication"`, `updates: { "artifacts.spec": "docs/specs/2026-01-05-user-auth.md" }`
 
 3. **Check state**: Use `mcp__exarchos__exarchos_workflow` with `action: "get"` with `featureId: "user-authentication"`
 

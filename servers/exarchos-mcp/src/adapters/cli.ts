@@ -754,6 +754,63 @@ export function buildCli(ctx: DispatchContext): Command {
       process.exitCode = exitCode;
     });
 
+  // ─── Top-level `exarchos feedback "<message>"` command ───────────────────
+  //
+  // #1319 — the friction back-channel is promoted to a top-level verb with a
+  // POSITIONAL message so an agent (or operator) types the documented
+  // `exarchos feedback "<message>"` instead of `exarchos wf feedback
+  // --message "..."`. Under the hood it dispatches the SAME
+  // `exarchos_workflow.feedback` action through the shared dispatch core, so
+  // the CLI and MCP paths share one handler + one validation gate (INV-2).
+  // The auto-generated `exarchos wf feedback --message ...` form remains
+  // available for scripting / power-user parity.
+  const workflowTool = getFullRegistry().find((t) => t.name === 'exarchos_workflow');
+  const feedbackAction = workflowTool?.actions.find((a) => a.name === 'feedback');
+  if (feedbackAction) {
+    program
+      .command('feedback <message>')
+      .description('File an agent→runtime friction report (records feedback.recorded; optional upstream POST).')
+      .option('--session-context <json>', 'Optional provenance JSON: { workflow?, action?, errorCode? }')
+      .option('--json', 'Output raw JSON')
+      .action(async (message: string, opts: Record<string, unknown>) => {
+        const isJson = Boolean(opts.json);
+
+        // Coerce through the canonical action schema (same path the auto
+        // `wf feedback` subcommand uses) so `--session-context '{...}'` is
+        // JSON-parsed identically to the MCP arm (INV-2 parity).
+        const flagOpts: Record<string, unknown> = { message };
+        if (opts.sessionContext !== undefined) flagOpts.sessionContext = opts.sessionContext;
+        const coerced = coerceFlags(flagOpts, feedbackAction.schema);
+        const parsed = feedbackAction.schema.safeParse(coerced);
+        if (!parsed.success) {
+          const err = formatValidationError(parsed.error, 'exarchos_workflow/feedback');
+          emitResult({ success: false, error: err }, isJson);
+          process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
+          return;
+        }
+
+        let result: ToolResult;
+        try {
+          result = await dispatch('exarchos_workflow', { action: 'feedback', ...parsed.data }, ctx);
+        } catch (err) {
+          const messageStr = err instanceof Error ? err.message : String(err);
+          emitResult(
+            { success: false, error: { code: 'UNCAUGHT_EXCEPTION', message: messageStr } },
+            isJson,
+          );
+          process.exitCode = CLI_EXIT_CODES.UNCAUGHT_EXCEPTION;
+          return;
+        }
+
+        emitResult(result, isJson);
+        process.exitCode = result.success
+          ? CLI_EXIT_CODES.SUCCESS
+          : result.error?.code === VALIDATION_ERROR_CODE
+            ? CLI_EXIT_CODES.INVALID_INPUT
+            : CLI_EXIT_CODES.HANDLER_ERROR;
+      });
+  }
+
   // ─── Schema introspection command ──────────────────────────────────────────
 
   program

@@ -190,7 +190,7 @@ Save to: `docs/plans/YYYY-MM-DD-<refactor-name>.md`
 **Risk Tier:** [low | medium | high]   ← REQUIRED — drives the verification depth (see the ladder in `@skills/_shared/references/verification.md`)
 **Boundary Touching:** [true | false — optional; omit to let `classifyTask` derive it]
 
-**Verification (scales with Risk Tier — tests are judged by outcome, test-after; the failing-test-first ordering ceremony is not required, #1587):**
+**Verification (scales with Risk Tier — tests are judged by outcome, test-after; the failing-test-first ordering ceremony is not required):**
 - **low** — static analysis (typecheck + lint). Pure renames/moves with no behavior change.
 - **medium** — characterization tests capturing current behavior + scoped tests for the change, under the `check_test_adequacy` kill-probe. Test-after is fine.
 - **high** — the medium set + the integration suite across the seam. Granular per-behavior red-green is available as an explicit opt-in, never a requirement.

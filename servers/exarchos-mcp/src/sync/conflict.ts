@@ -5,7 +5,6 @@ import type { ConflictInfo } from './types.js';
 // ─── Phase Ordering (feature workflow) ───────────────────────────────────────
 
 const PHASE_ORDER = [
-  'ideate',
   'plan',
   'plan-review',
   'delegate',

@@ -16,8 +16,7 @@ export interface SynthesisReadinessState {
     failed: number;
   };
   review: {
-    specPassed: boolean;
-    qualityPassed: boolean;
+    reviewPassed: boolean;
     findingsBySeverity: Record<string, number>;
   };
   tests: {
@@ -48,12 +47,8 @@ function computeReadiness(state: SynthesisReadinessState): {
     );
   }
 
-  if (!state.review.specPassed) {
-    blockers.push('spec review not passed');
-  }
-
-  if (!state.review.qualityPassed) {
-    blockers.push('quality review not passed');
+  if (!state.review.reviewPassed) {
+    blockers.push('review not passed');
   }
 
   if (state.tests.lastRunPassed !== true) {
@@ -79,7 +74,7 @@ export const synthesisReadinessProjection: ViewProjection<SynthesisReadinessStat
     ready: false,
     blockers: ['no tasks tracked'],
     tasks: { total: 0, completed: 0, failed: 0 },
-    review: { specPassed: false, qualityPassed: false, findingsBySeverity: {} },
+    review: { reviewPassed: false, findingsBySeverity: {} },
     tests: { lastRunPassed: null, typecheckPassed: null, coveragePercent: null },
     stack: { restacked: false, conflicts: false },
   }),
@@ -121,15 +116,16 @@ export const synthesisReadinessProjection: ViewProjection<SynthesisReadinessStat
           | undefined;
         if (!data?.gateName) return view;
 
-        if (data.gateName === 'spec-review') {
+        // 'review' is the single review dimension; the legacy 'spec-review' /
+        // 'quality-review' gate names are still folded so historical events project.
+        if (
+          data.gateName === 'review' ||
+          data.gateName === 'spec-review' ||
+          data.gateName === 'quality-review'
+        ) {
           updated = {
             ...view,
-            review: { ...view.review, specPassed: data.passed === true },
-          };
-        } else if (data.gateName === 'quality-review') {
-          updated = {
-            ...view,
-            review: { ...view.review, qualityPassed: data.passed === true },
+            review: { ...view.review, reviewPassed: data.passed === true },
           };
         } else {
           return view;

@@ -188,18 +188,17 @@ describe('Runbook definitions', () => {
     expect(REVIEW_STRATEGY.phase).toBe('review');
   });
 
-  it('ReviewStrategy_HasThreeSteps_SizeThenFailuresThenStage', () => {
-    expect(REVIEW_STRATEGY.steps).toHaveLength(3);
+  it('ReviewStrategy_HasTwoSteps_SizeThenFailures', () => {
+    expect(REVIEW_STRATEGY.steps).toHaveLength(2);
     // Step 1: change size / file count
     expect(REVIEW_STRATEGY.steps[0].decide?.question).toMatch(/file|module|diff|size/i);
-    // Step 2: prior failures
+    // Step 2: prior failures (single adversarial review — no spec/quality stage split)
     expect(REVIEW_STRATEGY.steps[1].decide?.question).toMatch(/fail|fix cycle|prior/i);
-    // Step 3: stage type
-    expect(REVIEW_STRATEGY.steps[2].decide?.question).toMatch(/spec.review|quality.review|stage/i);
   });
 
-  it('DesignRefinement_HasCorrectPhase_Ideate', () => {
-    expect(DESIGN_REFINEMENT.phase).toBe('ideate');
+  it('DesignRefinement_HasCorrectPhase_Plan', () => {
+    // #1581 (DR-4): design authoring folded into the `plan` phase (ex-ideate)
+    expect(DESIGN_REFINEMENT.phase).toBe('plan');
   });
 
   it('DesignRefinement_HasTwoSteps_ComplexityThenCompression', () => {

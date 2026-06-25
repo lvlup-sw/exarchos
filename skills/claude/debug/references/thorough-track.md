@@ -74,7 +74,7 @@ git branch feature/debug-<issue-slug> main
 git worktree add .worktrees/debug-<issue-slug> feature/debug-<issue-slug>
 cd .worktrees/debug-<issue-slug> && npm install
 
-# TDD: Write failing test first, then implement
+# Add a focused regression test covering the fix (test-after is fine; confirm it can fail)
 ```
 
 Update state:
