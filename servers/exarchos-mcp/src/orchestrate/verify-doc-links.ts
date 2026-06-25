@@ -41,7 +41,7 @@ function collectMarkdownFiles(dir: string): readonly string[] {
   const results: string[] = [];
   const entries = readdirSync(dir);
   for (const entry of entries) {
-    const fullPath = join(dir, entry);
+    const fullPath = toPosix(join(dir, entry));
     const stat = statSync(fullPath);
     if (stat.isDirectory()) {
       results.push(...collectMarkdownFiles(fullPath));

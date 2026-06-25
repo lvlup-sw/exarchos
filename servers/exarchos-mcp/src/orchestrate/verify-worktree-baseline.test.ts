@@ -229,7 +229,10 @@ describe('handleVerifyWorktreeBaseline', () => {
   // Basileus-forward configuration path the resolver was added to enable.
   it('ConfigSourcedTestCommand_KnownRunner_HonoredByHandler', async () => {
     vi.mocked(existsSync).mockImplementation((p) => {
-      const s = String(p);
+      // loadExarchosConfig resolves the .exarchos.yml path (resolve() prefixes
+      // the drive + emits backslashes on Windows); strip both so these posix
+      // mock keys still match. (#1620)
+      const s = String(p).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
       if (s === '/worktree') return true;
       // No detection markers; the only signal comes from .exarchos.yml.
       if (s === '/worktree/.exarchos.yml') return true;

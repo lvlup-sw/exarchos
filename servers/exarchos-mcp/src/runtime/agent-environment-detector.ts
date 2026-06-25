@@ -132,8 +132,8 @@ async function probeRuntime(
   }
   if (name === 'copilot') {
     // Two documented instruction paths; either signals project targets copilot.
-    const vscode = path.join(cwd, '.vscode', 'copilot-instructions.md');
-    const github = path.join(cwd, '.github', 'copilot-instructions.md');
+    const vscode = toPosix(path.join(cwd, '.vscode', 'copilot-instructions.md'));
+    const github = toPosix(path.join(cwd, '.github', 'copilot-instructions.md'));
     const hit = (await fileExists(fs, vscode)) ? vscode
       : (await fileExists(fs, github)) ? github
       : null;
