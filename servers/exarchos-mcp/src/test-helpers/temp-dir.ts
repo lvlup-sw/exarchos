@@ -31,6 +31,16 @@ export function rmrf(dir: string): void {
 }
 
 /**
+ * Async counterpart to {@link rmrf} — the 1:1 swap for teardown that does
+ * `await fs.rm(dir, { recursive: true, force: true })`. Closes any SQLite
+ * handle under `dir` first, then removes with the same retry budget.
+ */
+export async function rmrfAsync(dir: string): Promise<void> {
+  SqliteBackend.closeOpenUnder(dir);
+  await fs.promises.rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+}
+
+/**
  * Create a unique temp directory under the OS temp root and return its path.
  * Thin wrapper over `fs.mkdtempSync` for symmetry with {@link rmrf}.
  */

@@ -5,6 +5,7 @@ import type { ToolResult } from '../format.js';
 import { EVENT_EMISSION_REGISTRY } from '../event-store/schemas.js';
 import type { EventType } from '../event-store/schemas.js';
 import type { EventStore } from '../event-store/store.js';
+import { rmrf } from '../test-helpers/temp-dir.js';
 
 // ─── Mock event store + materializer ────────────────────────────────────────
 
@@ -359,7 +360,7 @@ describe('handleCheckEventEmissions', () => {
 describe('handleOrchestrate integration', () => {
   it('HandleOrchestrate_CheckEventEmissions_HandlerExists', async () => {
     const { handleOrchestrate } = await import('./composite.js');
-    const { mkdtempSync, rmSync } = await import('node:fs');
+    const { mkdtempSync } = await import('node:fs');
     const { join } = await import('node:path');
     const { tmpdir } = await import('node:os');
 
@@ -376,7 +377,7 @@ describe('handleOrchestrate integration', () => {
       // Should NOT return UNKNOWN_ACTION — meaning the handler is registered
       expect(result.error?.code).not.toBe('UNKNOWN_ACTION');
     } finally {
-      rmSync(isolatedDir, { recursive: true, force: true });
+      rmrf(isolatedDir);
     }
   });
 });

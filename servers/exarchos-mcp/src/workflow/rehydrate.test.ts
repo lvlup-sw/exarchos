@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
 import { EventStore } from '../event-store/store.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 import { appendSnapshot } from '../projections/store.js';
 import { rebuildProjection } from '../projections/rebuild.js';
 import {
@@ -46,7 +47,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await rm(tempDir, { recursive: true, force: true });
+  await rmrfAsync(tempDir);
 });
 
 describe('handleRehydrate — happy path (T031, DR-5)', () => {
