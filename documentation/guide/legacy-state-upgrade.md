@@ -1,6 +1,6 @@
 # Upgrade legacy workflow state
 
-Exarchos v2.11 requires the SQLite event store. If your state directory was created by a JSONL-only release and was never opened by a SQLite-capable v2.9.x runtime, v2.11 refuses to start instead of guessing how to import old events.
+Exarchos v2.10.0 and later require SQLite-backed workflow state. If your state directory was created by a pre-v2.9.0 JSONL-only release and was never opened by a v2.9.x runtime, v2.10.0+ cannot safely import it on startup.
 
 This affects older installs with workflow state files such as:
 
@@ -23,6 +23,16 @@ or an error that says the directory contains `*.events.jsonl` files without an e
 
 Do not wipe the directory if you want to keep old workflows. Use the bridge path below.
 
+## Version boundaries
+
+| Purpose | Version range |
+|---------|---------------|
+| Legacy JSONL-only state that needs this guide | Created before v2.9.0, or any state directory with `*.events.jsonl` files and no `exarchos.db` or `events.db` |
+| Bridge runtime | v2.9.x only; the examples use v2.9.0 |
+| Target runtime after the bridge | v2.10.0 or later |
+
+Do not use v2.10.0 or later as the bridge runtime. Those versions expect SQLite state to already exist.
+
 ## Before you start
 
 1. Close Claude Code, Codex, opencode, and any other agent session using Exarchos.
@@ -30,6 +40,8 @@ Do not wipe the directory if you want to keep old workflows. Use the bridge path
 3. Work on a copy. Keep the original JSONL directory unchanged until you have verified the migrated copy.
 
 ## Bridge through v2.9.0
+
+Use a v2.9.x binary as the bridge. v2.9.x is the last line that can hydrate legacy JSONL workflow events into `exarchos.db`; v2.10.0 and later expect the SQLite database to already exist.
 
 The commands below use the common Claude Code state path, `~/.claude/workflow-state`. If your install uses a different `WORKFLOW_STATE_DIR`, replace that path in each command.
 
@@ -54,7 +66,7 @@ WORKFLOW_STATE_DIR="$HOME/.claude/workflow-state-v211" \
   "$HOME/.local/exarchos-2.9.0/exarchos" doctor
 ```
 
-The v2.9.0 doctor run opens the copied state directory with the last runtime that still knows how to hydrate JSONL workflow events into SQLite. After it finishes, the copied directory should contain `exarchos.db`.
+The v2.9.0 doctor run opens the copied state directory with a runtime that still knows how to hydrate JSONL workflow events into SQLite. After it finishes, the copied directory should contain `exarchos.db`.
 
 ```bash
 ls "$HOME/.claude/workflow-state-v211/exarchos.db"
@@ -62,9 +74,9 @@ ls "$HOME/.claude/workflow-state-v211/exarchos.db"
 
 If the temporary install fails because the `v2.9.0` tag is unavailable in your environment, use the newest available v2.9.x tag and run the same `doctor` command against the copied state directory.
 
-## Verify with v2.11
+## Verify with v2.10 or later
 
-Install or update to v2.11, then run `doctor` against the migrated copy:
+Install or update to your target v2.10.0+ release, then run `doctor` against the migrated copy. This example uses v2.11.0-preview.4:
 
 ```bash
 curl -fsSL https://lvlup-sw.github.io/exarchos/get-exarchos.sh | bash -s -- --version v2.11.0-preview.4
@@ -96,11 +108,11 @@ export WORKFLOW_STATE_DIR="$HOME/.claude/workflow-state-v211"
 
 For Claude Code plugin users, restart Claude Code after updating the plugin or environment. For Codex, Cursor, opencode, or another MCP client, update the client config that launches `exarchos mcp` and restart the client.
 
-Keep the original JSONL directory until you have completed at least one successful rehydrate and one normal workflow operation on v2.11.
+Keep the original JSONL directory until you have completed at least one successful rehydrate and one normal workflow operation on your target v2.10.0+ release.
 
 ## Troubleshooting
 
-If v2.11 still reports a legacy JSONL directory, the bridge ran against the wrong path or did not create `exarchos.db`. Re-check `WORKFLOW_STATE_DIR` and rerun the v2.9.0 `doctor` command against the copied directory.
+If v2.10.0 or later still reports a legacy JSONL directory, the bridge ran against the wrong path or did not create `exarchos.db`. Re-check `WORKFLOW_STATE_DIR` and rerun the v2.9.0 `doctor` command against the copied directory.
 
 If `doctor` reports SQLite lock or busy errors, another agent process still has the state directory open. Close all agents and rerun the command.
 

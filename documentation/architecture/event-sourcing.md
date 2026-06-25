@@ -38,7 +38,7 @@ Events have:
 
 State is a projection computed by reading events from sequence 0. In practice, projected state and CQRS views are cached so reads are fast while remaining rebuildable from events.
 
-The event store keeps stream metadata, high-water marks, idempotency claims, projected state, and materialized-view snapshots in SQLite. Older JSONL-only state directories need the [legacy state upgrade](/guide/legacy-state-upgrade) bridge before v2.11 can open them.
+The event store keeps stream metadata, high-water marks, idempotency claims, projected state, and materialized-view snapshots in SQLite. Pre-v2.9.0 JSONL-only state directories need the [legacy state upgrade](/guide/legacy-state-upgrade) bridge before v2.10.0 or later can open them.
 
 ## Reconciliation
 

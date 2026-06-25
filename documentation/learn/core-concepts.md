@@ -35,7 +35,7 @@ This gives you two things:
 1. Crash recovery. If state gets corrupted, the `reconcile` action rebuilds it from scratch by replaying the event history. No data is lost because events are never modified.
 2. Audit trail. You can trace every decision, transition, and gate result back to the event that recorded it. When a reviewer agent flags an issue, you can see exactly which gate produced the finding and what data it checked.
 
-The event store is local to your machine. Current releases use SQLite for workflow events and projections, with no network dependency. Older JSONL-only state directories need the [legacy state upgrade](/guide/legacy-state-upgrade) bridge before v2.11 can open them.
+The event store is local to your machine. Current releases use SQLite for workflow events and projections, with no network dependency. Pre-v2.9.0 JSONL-only state directories need the [legacy state upgrade](/guide/legacy-state-upgrade) bridge before v2.10.0 or later can open them.
 
 ## Convergence gates
 

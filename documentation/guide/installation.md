@@ -224,7 +224,7 @@ Workflow state at `~/.exarchos/state/` is forward-compatible — the v2.9 binary
 
 If the plugin update lands before the binary install, MCP server registration and the eight lifecycle hooks fail with `exarchos: command not found` until you complete step 2 and restart. Order matters here.
 
-Upgrading old JSONL-only state directly to v2.11 requires an extra bridge step through v2.9.0. See [Legacy State Upgrade](/guide/legacy-state-upgrade) before pointing v2.11 at a state directory that contains `*.events.jsonl` files and no `exarchos.db`.
+Upgrading pre-v2.9.0 JSONL-only state directly to v2.10.0 or later requires an extra bridge step through v2.9.x. See [Legacy State Upgrade](/guide/legacy-state-upgrade) before pointing v2.10.0+ at a state directory that contains `*.events.jsonl` files and no `exarchos.db`.
 
 ## Update
 

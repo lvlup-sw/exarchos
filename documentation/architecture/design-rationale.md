@@ -26,7 +26,7 @@ Early Exarchos releases used JSONL files because they were simple: one event per
 
 Events are the audit trail. With a traditional database, you'd need a separate record-keeping system to answer "what happened during this workflow?" With event sourcing, the events *are* the history. Every transition, guard failure, task assignment, and review result is recorded with timestamps and context.
 
-Because SQLite is local, the operational model is still file-based: back up or move the workflow store by copying the state directory while agents are stopped. If you have an old JSONL-only directory, bridge it through v2.9.0 before starting v2.11; see [Legacy State Upgrade](/guide/legacy-state-upgrade).
+Because SQLite is local, the operational model is still file-based: back up or move the workflow store by copying the state directory while agents are stopped. If you have a pre-v2.9.0 JSONL-only directory, bridge it through v2.9.x before starting v2.10.0 or later; see [Legacy State Upgrade](/guide/legacy-state-upgrade).
 
 Trade-off: Query flexibility is intentionally mediated. Even though events live in SQLite, callers should use CQRS (Command Query Responsibility Segregation) materialized views rather than coupling directly to tables. The `exarchos_view` tool provides pre-built projections like pipeline status, task details, and convergence metrics. This adds code complexity, but it cleanly separates the write path (append events) from the read path (query views).
 

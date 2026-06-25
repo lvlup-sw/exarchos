@@ -23,7 +23,7 @@ The MCP server (`servers/exarchos-mcp/`) handles all workflow logic. It exposes 
 
 A fifth tool (`exarchos_sync`) exists for future remote synchronization but is hidden from agents.
 
-The event store persists workflow events to a local SQLite database with projected workflow state derived from those events. Older JSONL-only state directories must be bridged through v2.9.0 before v2.11 can open them; see [Legacy State Upgrade](/guide/legacy-state-upgrade).
+The event store persists workflow events to a local SQLite database with projected workflow state derived from those events. Pre-v2.9.0 JSONL-only state directories must be bridged through v2.9.x before v2.10.0 or later can open them; see [Legacy State Upgrade](/guide/legacy-state-upgrade).
 
 Lifecycle hooks intercept Claude Code events (session start, pre-compact, task completion, teammate idle) and trigger MCP operations. Hooks run as lightweight CLI subcommands with tight timeouts (5-30 seconds), skipping heavy initialization to stay fast.
 
