@@ -12,6 +12,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import * as path from 'node:path';
+import { toPosix } from '../utils/paths.js';
 import * as os from 'node:os';
 import { handlePrepareDelegation } from './prepare-delegation.js';
 import { handleSetupWorktree } from './setup-worktree.js';
@@ -254,7 +255,9 @@ describe('ImplementerDispatch_WorktreeEdit_DoesNotAppearInMainWorktree (characte
     expect(result.success).toBe(true);
     const data = result.data as { worktreePath: string; passed: boolean };
 
-    const worktreesRoot = path.join(repoRoot, '.worktrees') + path.sep;
+    // handleSetupWorktree returns a POSIX-normalized worktreePath (#1620), so
+    // build the containment prefix the same way rather than with native sep.
+    const worktreesRoot = toPosix(path.join(repoRoot, '.worktrees')) + '/';
     // The write root must be UNDER .worktrees/ — not the repoRoot itself and
     // not a sibling escaping the isolation boundary.
     expect(data.worktreePath.startsWith(worktreesRoot)).toBe(true);

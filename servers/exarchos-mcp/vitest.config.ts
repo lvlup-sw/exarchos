@@ -24,8 +24,8 @@ export default defineConfig({
     // healthy tests time out there (#1620). 20 s gives that headroom without
     // masking a genuine hang (which still fails, just later). No effect on the
     // Linux suite: fast tests finish in milliseconds and never reach the cap.
-    testTimeout: 20000,
-    hookTimeout: 20000,
+    testTimeout: 60000,
+    hookTimeout: 60000,
     include: [
       'src/**/*.test.ts',
       'scripts/**/*.test.ts',

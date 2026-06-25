@@ -212,7 +212,12 @@ describe('isMcpServerInvocation (F-022-2)', () => {
 // so the original `endsWith` guard never matched and main() never ran. Tests
 // pin the behavior on both POSIX and Windows path shapes.
 
-describe('isDirectExecution (#1085)', () => {
+// These cases feed synthetic POSIX file URLs (`file:///home/...`) to
+// isDirectExecution; on Windows `fileURLToPath` rejects a drive-less URL as
+// "not absolute". In production metaUrl is always a real platform URL
+// (file:///C:/...), so the function works there — only this POSIX-URL fixture
+// is platform-specific. (#1620)
+describe.skipIf(process.platform === 'win32')('isDirectExecution (#1085)', () => {
   it('matches a POSIX direct invocation', () => {
     expect(
       isDirectExecution(

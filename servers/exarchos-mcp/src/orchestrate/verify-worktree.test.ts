@@ -4,12 +4,18 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { ToolResult } from '../format.js';
+import { toPosix } from '../utils/paths.js';
 
 vi.mock('node:fs');
 
 import { handleVerifyWorktree } from './verify-worktree.js';
 
 const STATE_DIR = '/tmp/test-verify-worktree';
+
+// Mirror the handler's `toPosix(path.resolve(cwd))`: on Windows path.resolve
+// prefixes the drive, so the raw `/foo/...` input the test passes is NOT what
+// the handler ends up checking against the fs mock or returning (#1620).
+const resolvedOf = (p: string): string => toPosix(path.resolve(p));
 
 beforeEach(() => {
   vi.restoreAllMocks();
@@ -18,9 +24,10 @@ beforeEach(() => {
 // ─── Helper ──────────────────────────────────────────────────────────────────
 
 function mockDirExists(dirPath: string): void {
-  vi.mocked(fs.existsSync).mockImplementation((p) => p === dirPath);
+  const resolved = resolvedOf(dirPath);
+  vi.mocked(fs.existsSync).mockImplementation((p) => p === resolved);
   vi.mocked(fs.statSync).mockImplementation((p) => {
-    if (p === dirPath) {
+    if (p === resolved) {
       return { isDirectory: () => true } as fs.Stats;
     }
     throw new Error(`ENOENT: no such file or directory, stat '${String(p)}'`);
@@ -39,7 +46,7 @@ describe('handleVerifyWorktree', () => {
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; path: string; message: string };
     expect(data.passed).toBe(true);
-    expect(data.path).toBe(worktreePath);
+    expect(data.path).toBe(resolvedOf(worktreePath));
     expect(data.message).toContain('worktree');
   });
 
@@ -52,7 +59,7 @@ describe('handleVerifyWorktree', () => {
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; path: string; message: string };
     expect(data.passed).toBe(false);
-    expect(data.path).toBe(regularPath);
+    expect(data.path).toBe(resolvedOf(regularPath));
     expect(data.message).toContain('Not in a worktree');
   });
 
