@@ -1,6 +1,6 @@
 # exarchos_event
 
-Event sourcing -- append and query events in streams. Each workflow has its own JSONL event stream identified by a stream ID (typically the feature ID). CLI alias: `ev`.
+Event sourcing -- append and query events in streams. Each workflow has its own event stream identified by a stream ID (typically the feature ID). CLI alias: `ev`.
 
 ## Actions
 

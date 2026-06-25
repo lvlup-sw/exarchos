@@ -1,6 +1,6 @@
 # Events
 
-The event store is an append-only JSONL log per feature. Every state change in a workflow is captured as an event, forming an audit trail that can be queried, replayed, and used for state reconciliation.
+The event store is an append-only local SQLite store. Every state change in a workflow is captured as an event, forming an audit trail that can be queried, replayed, and used for state reconciliation.
 
 ## Event structure
 

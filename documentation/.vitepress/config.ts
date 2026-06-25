@@ -44,6 +44,7 @@ export default defineConfig({
           items: [
             { text: 'Overview', link: '/guide/' },
             { text: 'Installation', link: '/guide/installation' },
+            { text: 'Legacy State Upgrade', link: '/guide/legacy-state-upgrade' },
             { text: 'First Workflow', link: '/guide/first-workflow' },
           ],
         },

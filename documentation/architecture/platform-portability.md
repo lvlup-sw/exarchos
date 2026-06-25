@@ -74,8 +74,8 @@ This split is the reason portability works:
 
 **Platform-agnostic (runtime):**
 - MCP server -- stdio JSON-RPC, works with any client
-- Event store -- JSONL append-only log on the filesystem
-- State store -- JSON files derived from events
+- Event store -- local SQLite append-only streams on the filesystem
+- State store -- projections derived from events
 - Dispatch engine -- TypeScript handlers, zero Claude Code dependency
 - CLI -- Commander-based, zero Claude Code dependency
 
