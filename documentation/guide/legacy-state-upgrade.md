@@ -37,7 +37,7 @@ Do not use v2.10.0 or later as the bridge runtime. Those versions expect SQLite 
 
 Most users should let their local coding agent do the migration. The agent can inspect your actual state path, avoid overwriting an existing migrated copy, and report exactly what it changed.
 
-If you would rather do it yourself, use the shorter terminal flow below the prompt. Both paths do the same thing: preserve the original JSONL state directory, bridge a copy through v2.9.x, then verify that the copy works with v2.10.0 or later.
+If you would rather do it yourself, use the shorter terminal flow below the prompt. Both paths do the same thing: preserve the original JSONL state directory as a backup, bridge a copy through v2.9.x, put the migrated copy back at the original state path, then verify that the default path works with v2.10.0 or later.
 
 ## Option 1: Ask an agent
 
@@ -50,19 +50,20 @@ Context:
 - Exarchos v2.10.0 and later require SQLite-backed workflow state.
 - A legacy state directory may contain `*.events.jsonl` files but no `exarchos.db` or `events.db`.
 - Use v2.9.x as the bridge runtime. Do not use v2.10.0 or later as the bridge.
-- Preserve the original state directory unchanged. Work only on a copied state directory.
+- Preserve the original state directory as a backup. Run the bridge only on a copied state directory, then put the migrated copy back at the original state path so no new WORKFLOW_STATE_DIR override is needed.
 
 Steps:
 1. Make sure Claude Code, Codex, opencode, Cursor, and any other Exarchos MCP clients are closed. If you cannot confirm that, stop and tell me what to close.
 2. Find the current Exarchos state directory. Prefer `WORKFLOW_STATE_DIR` if it is set; otherwise check `~/.claude/workflow-state`.
 3. Inspect the state directory. If it does not contain `*.events.jsonl`, or if it already contains `exarchos.db` or `events.db`, pause and tell me what you found before migrating anything.
-4. Copy the state directory to `~/.claude/workflow-state-v211`. If that path already exists, create a timestamped sibling instead. Do not modify, delete, or move the original.
+4. Copy the state directory to `~/.claude/workflow-state-v211`. If that path already exists, create a timestamped sibling instead. Do not run the bridge against the original directory.
 5. Install a temporary v2.9.x Exarchos binary into `~/.local/exarchos-2.9.0` without replacing the `exarchos` currently on PATH.
 6. Run the temporary v2.9.x binary with `WORKFLOW_STATE_DIR` pointed at the copied state directory, using `doctor` to hydrate the legacy JSONL events into `exarchos.db`.
 7. Verify the copied state directory now contains `exarchos.db`.
-8. Use the target Exarchos v2.10.0+ runtime, then run `exarchos doctor` with `WORKFLOW_STATE_DIR` pointed at the migrated copy.
-9. If a workflow id is available, verify it with `exarchos workflow get --feature-id <feature-id>`. If no workflow id is available, tell me to restart my agent and run `/exarchos:rehydrate`.
-10. Report the original state path, migrated state path, bridge binary path, target Exarchos version, and every command you ran. Do not switch my agent config to the migrated state path unless I explicitly approve that final step.
+8. Move the original state directory to a timestamped backup path, then move the migrated copy back to the original state path. Do not leave my agent configured to a new migrated-only path.
+9. Use the target Exarchos v2.10.0+ runtime, then run `exarchos doctor` normally, without a special `WORKFLOW_STATE_DIR` override.
+10. If a workflow id is available, verify it with `exarchos workflow get --feature-id <feature-id>`. If no workflow id is available, tell me to restart my agent and run `/exarchos:rehydrate`.
+11. Report the original state path, backup path, temporary migrated path, bridge binary path, target Exarchos version, and every command you ran.
 ```
 
 ## Option 2: Run it yourself
@@ -74,10 +75,11 @@ The commands below use the common Claude Code state path. Run them in the same t
 ```bash
 STATE=~/.claude/workflow-state
 MIGRATED=~/.claude/workflow-state-v211
+BACKUP=~/.claude/workflow-state-jsonl-backup-$(date +%Y%m%d-%H%M%S)
 BRIDGE=~/.local/exarchos-2.9.0
 ```
 
-Copy the old state directory. Do not run the bridge against your only copy.
+Copy the old state directory. Do not run the bridge against the original.
 
 ```bash
 cp -a "$STATE" "$MIGRATED"
@@ -96,18 +98,25 @@ ls "$MIGRATED/exarchos.db"
 
 If the temporary install fails because the `v2.9.0` tag is unavailable in your environment, use the newest available v2.9.x tag and run the same `doctor` command against the copied state directory.
 
-Install or use your target v2.10.0+ runtime, then verify the migrated copy. This example installs v2.11.0-preview.4:
+Put the migrated state back at the original path and keep the JSONL directory as a timestamped backup:
+
+```bash
+mv "$STATE" "$BACKUP"
+mv "$MIGRATED" "$STATE"
+```
+
+Install or use your target v2.10.0+ runtime, then verify the default state path. This example installs v2.11.0-preview.4:
 
 ```bash
 curl -fsSL https://lvlup-sw.github.io/exarchos/get-exarchos.sh | bash -s -- --version v2.11.0-preview.4
 
-WORKFLOW_STATE_DIR="$MIGRATED" exarchos doctor
+exarchos doctor
 ```
 
 If you know a workflow id, verify it directly:
 
 ```bash
-WORKFLOW_STATE_DIR="$MIGRATED" exarchos workflow get --feature-id <feature-id>
+exarchos workflow get --feature-id <feature-id>
 ```
 
 Inside Claude Code, restart the session and run:
@@ -116,23 +125,17 @@ Inside Claude Code, restart the session and run:
 /exarchos:rehydrate
 ```
 
-If the workflow appears in the pipeline view and `rehydrate` can load it, the migration copy is ready.
+If the workflow appears in the pipeline view and `rehydrate` can load it, the default state path is ready.
 
-## Switch agents to the migrated copy
+## Restart agents
 
-After either path succeeds, update the MCP server configuration or plugin environment so `WORKFLOW_STATE_DIR` points at the migrated copy:
+After either path succeeds, restart Claude Code, Codex, opencode, Cursor, or whichever MCP client launches `exarchos mcp`. Because the migrated state was moved back to the original state path, you should not need a new `WORKFLOW_STATE_DIR` override.
 
-```bash
-export WORKFLOW_STATE_DIR="$MIGRATED"
-```
-
-For Claude Code plugin users, restart Claude Code after updating the plugin or environment. For Codex, Cursor, opencode, or another MCP client, update the client config that launches `exarchos mcp` and restart the client.
-
-Keep the original JSONL directory until you have completed at least one successful rehydrate and one normal workflow operation on your target v2.10.0+ release.
+Keep the timestamped JSONL backup until you have completed at least one successful rehydrate and one normal workflow operation on your target v2.10.0+ release.
 
 ## Troubleshooting
 
-If v2.10.0 or later still reports a legacy JSONL directory, the bridge ran against the wrong path or did not create `exarchos.db`. Re-check `WORKFLOW_STATE_DIR` and rerun the v2.9.0 `doctor` command against the copied directory.
+If v2.10.0 or later still reports a legacy JSONL directory, the bridge ran against the wrong path or did not create `exarchos.db`. Re-check the migrated copy, rerun the v2.9.0 `doctor` command against it if needed, then move it back to the original state path again.
 
 If `doctor` reports SQLite lock or busy errors, another agent process still has the state directory open. Close all agents and rerun the command.
 
