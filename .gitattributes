@@ -1,0 +1,9 @@
+# Normalize line endings to LF on checkout for every text file.
+#
+# The MCP server's frontmatter / text parsers split on '\n'. On the
+# windows-latest CI runner git defaults to core.autocrlf=true, so a checkout
+# without this rule rewrites text files with CRLF — and a `---\r\n` delimiter
+# fails the YAML-frontmatter split (#1620). Forcing eol=lf makes every
+# platform check out byte-identical LF content, matching the Linux-developed
+# source of truth. `text=auto` keeps binary files untouched.
+* text=auto eol=lf

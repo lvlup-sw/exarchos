@@ -44,7 +44,7 @@ import { EventStore } from '../event-store/store.js';
 import * as dispatchModule from '../core/dispatch.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { DoctorOutputSchema } from '../orchestrate/doctor/schema.js';
-import { rmrf } from '../test-helpers/temp-dir.js';
+import { rmrf, rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // ─── Harness ─────────────────────────────────────────────────────────────────
 
@@ -132,7 +132,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   vi.restoreAllMocks();
-  await fsp.rm(tmpDir, { recursive: true, force: true });
+  await rmrfAsync(tmpDir);
 });
 
 // ─── Commander routing ──────────────────────────────────────────────────────

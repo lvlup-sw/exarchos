@@ -21,6 +21,7 @@ import { handleAdd, appendEntryToCatalog } from './add.js';
 import type { ScaffoldDeps } from './scaffold.js';
 import { allocateNextId } from './add.js';
 import { loadInvariants } from '../../architecture/invariants-loader.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 // ─── Harness ─────────────────────────────────────────────────────────────────
 
@@ -503,7 +504,7 @@ describe('handleAdd — T9 commit', () => {
       { invariants: { devCatalog: 'enabled' } },
     );
     expect(entries.map((e) => e.id)).toEqual(['U-1', 'U-2']);
-    await fsp.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   it('handleAdd_Commit_BareYamlCatalog_StillWorks', async () => {

@@ -297,6 +297,7 @@ describe('handleVerifyReviewTriage', () => {
 
     const result = await handleVerifyReviewTriage({ featureId, eventStore });
 
+    eventStore.close();
     await fsPromises.rm(eventStoreDir, { recursive: true, force: true });
 
     // Must NOT fail with INVALID_INPUT / FILE_NOT_FOUND.

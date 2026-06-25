@@ -100,6 +100,10 @@ describe('buildProbes invariants.resolve — cwd-relative root resolution (#1482
       expect(result.configured).toBe(false);
       expect(result.warnings).toEqual([]);
     } finally {
+      // Leave `tmp` before removing it: on Windows the process CWD is locked,
+      // so `rmrf(tmp)` while still chdir'd into it throws EPERM (the afterEach
+      // chdir-back runs too late — after this finally).
+      process.chdir(originalCwd);
       rmrf(tmp);
     }
   });
@@ -126,6 +130,10 @@ describe('buildProbes invariants.resolve — cwd-relative root resolution (#1482
       expect(result.configured).toBe(true);
       expect(result.warnings).toEqual([]);
     } finally {
+      // Leave `tmp` before removing it: on Windows the process CWD is locked,
+      // so `rmrf(tmp)` while still chdir'd into it throws EPERM (the afterEach
+      // chdir-back runs too late — after this finally).
+      process.chdir(originalCwd);
       rmrf(tmp);
     }
   });
@@ -173,6 +181,10 @@ describe('buildProbes invariants.resolve — cwd-relative root resolution (#1482
       );
       expect(advisory).toBeDefined();
     } finally {
+      // Leave `tmp` before removing it: on Windows the process CWD is locked,
+      // so `rmrf(tmp)` while still chdir'd into it throws EPERM (the afterEach
+      // chdir-back runs too late — after this finally).
+      process.chdir(originalCwd);
       rmrf(tmp);
     }
   });
@@ -199,6 +211,10 @@ describe('buildProbes invariants.resolve — cwd-relative root resolution (#1482
       const advisory = result.warnings.find((w) => w.includes('SDLC-77'));
       expect(advisory).toBeDefined();
     } finally {
+      // Leave `tmp` before removing it: on Windows the process CWD is locked,
+      // so `rmrf(tmp)` while still chdir'd into it throws EPERM (the afterEach
+      // chdir-back runs too late — after this finally).
+      process.chdir(originalCwd);
       rmrf(tmp);
     }
   });

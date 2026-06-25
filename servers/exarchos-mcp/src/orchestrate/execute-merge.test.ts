@@ -1090,6 +1090,7 @@ import * as fsp from 'node:fs/promises';
 import * as osMod from 'node:os';
 import * as pathMod from 'node:path';
 import '../projections/merge-orchestrator/index.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 const realScratchRoots: string[] = [];
 
@@ -1123,7 +1124,7 @@ describe('handleExecuteMerge #1306 T4 — dual-emit recovery + deprecation envel
   afterAll(async () => {
     await Promise.all(
       realScratchRoots.map((p) =>
-        fsp.rm(p, { recursive: true, force: true }),
+        rmrfAsync(p),
       ),
     );
   });
