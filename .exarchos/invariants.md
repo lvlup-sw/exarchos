@@ -574,6 +574,57 @@ invariants:
       - scripts/lint-inv6.mjs
       - docs/architecture/runtime.md#§1
 
+  - id: INV-16
+    dimension: os-portability
+    integrity-class: substrate
+    phase-affinity: [review]
+    workflow-affinity: [feature, debug, refactor, oneshot]
+    severity:
+      default: blocking
+      by-workflow:
+        oneshot: advisory
+    enforcement:
+      # mode:audit — OS portability is a cross-cutting runtime property no
+      # single diff-grep can capture. The mechanical backstops are the blocking
+      # windows-latest CI job and the check-windows-portability.mjs grep-gate;
+      # this entry carries the design-time judgment.
+      mode: audit
+      audit-prompt: >
+        Does the change stay correct on Windows as well as POSIX? Paths that are
+        stored / compared / returned are POSIX-normalized (toPosix); paths are
+        built with path.join, never separator string-concatenation; tests
+        release SQLite handles before removing a temp dir (rmrf / rmrfAsync or
+        close()); package-manager spawns go through resolveExecutable
+        (npm/npx .cmd shims); module-relative paths use fileURLToPath, not
+        URL.pathname; nothing relies on POSIX-only file modes (chmod).
+    axis: substrate
+    cost-of-load: reference-only
+    applies-to:
+      - event-store
+      - test-harness
+      - path-resolution
+      - process-spawn
+    summary: >
+      The MCP server runs on Windows as well as POSIX. Paths that are stored or
+      compared are POSIX-normalized (Node fs accepts '/' on Windows); paths are
+      built with path.join, never separator string-concat; SQLite handles are
+      released (close() / rmrf) before a temp dir is removed (NTFS forbids
+      unlinking an open file, unlike POSIX); package-manager spawns resolve
+      their .cmd shim via resolveExecutable; module-relative paths use
+      fileURLToPath. INV-16 owns the *OS* axis; INV-4 owns the orthogonal
+      *harness* axis (6 AI runtimes) — both are platform-agnosticity substrate
+      properties.
+    citations:
+      - "Node.js, *Path* (OS-specific separators; fs accepts '/' on Windows): https://nodejs.org/api/path.html"
+      - "Node.js, *child_process.execFile* (spawns without a shell; .cmd shims on Windows): https://nodejs.org/api/child_process.html#child_processexecfilefile-args-options-callback"
+      - "Node.js, *fs.rm* (maxRetries/retryDelay for EBUSY/EPERM on Windows): https://nodejs.org/api/fs.html#fspromisesrmpath-options"
+    references:
+      - servers/exarchos-mcp/src/utils/paths.ts
+      - servers/exarchos-mcp/src/utils/process.ts
+      - servers/exarchos-mcp/src/test-helpers/temp-dir.ts
+      - scripts/check-windows-portability.mjs
+      - .github/workflows/ci.yml
+
   - id: basileus-boundary
     dimension: cross-product-coordination
     axis: substrate
