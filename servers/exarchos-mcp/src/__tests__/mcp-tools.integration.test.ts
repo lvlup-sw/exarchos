@@ -18,6 +18,7 @@ import { configureWorkflowMaterializer, handleSet } from '../workflow/tools.js';
 import { EventStore } from '../event-store/store.js';
 import { resetMaterializerCache } from '../views/tools.js';
 import type { DispatchContext } from '../core/dispatch.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 function makeCtx(stateDir: string): DispatchContext {
   return { stateDir, eventStore: new EventStore(stateDir), enableTelemetry: false };
@@ -42,7 +43,7 @@ beforeEach(async () => {
 afterEach(async () => {
   configureWorkflowMaterializer(null);
   resetMaterializerCache();
-  await fs.rm(tmpDir, { recursive: true, force: true });
+  await rmrfAsync(tmpDir);
 });
 
 // ─── Task 7: Workflow + Event Round-Trip Tests ──────────────────────────────

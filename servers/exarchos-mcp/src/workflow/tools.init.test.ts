@@ -23,6 +23,7 @@ import * as os from 'node:os';
 
 import { handleInit } from './tools.js';
 import { EventStore } from '../event-store/store.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 let tmpDir: string;
 let eventStore: EventStore;
@@ -34,7 +35,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmpDir, { recursive: true, force: true });
+  await rmrfAsync(tmpDir);
 });
 
 /**

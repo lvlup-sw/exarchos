@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { EventStore } from '../event-store/store.js';
 import { handleSubagentStop, resolveTeammateByWorktree } from './subagent-stop.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // #1525 W2 Half 1 (H1-A) — the restored SubagentStop hook reads the subagent's
 // own transcript, sums output tokens, resolves teammate identity by matching the
@@ -21,7 +22,7 @@ describe('handleSubagentStop (#1525 W2 H1-A)', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   it('SubagentStop_ResolvesTeammate_ByWorktreeMatch_EmitsAtom', async () => {

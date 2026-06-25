@@ -26,6 +26,7 @@ import {
 import { handleInit } from '../workflow/tools.js';
 import { resolveWorkflowState } from './resolve-state.js';
 import { EventStore } from '../event-store/store.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // ─── Harness ────────────────────────────────────────────────────────────────
 
@@ -39,7 +40,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmpDir, { recursive: true, force: true });
+  await rmrfAsync(tmpDir);
 });
 
 /** Read `artifacts.intent` back through the canonical event-store projection. */

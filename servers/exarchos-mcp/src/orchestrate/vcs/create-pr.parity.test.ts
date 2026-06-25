@@ -23,7 +23,7 @@
  */
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -45,6 +45,7 @@ vi.mock('../../vcs/factory.js', () => ({
 
 import { createVcsProvider } from '../../vcs/factory.js';
 import { handleCreatePr } from './create-pr.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 // ─── Deterministic VCS provider stub ──────────────────────────────────────
 
@@ -157,7 +158,7 @@ describe('CreatePr_Parity_BothCarriersObserveTwoEventSequence (B1.5)', () => {
     restoreStub = null;
     vi.clearAllMocks();
     for (const arm of arms) {
-      await rm(arm.stateDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+      await rmrfAsync(arm.stateDir);
     }
     arms = [];
   });

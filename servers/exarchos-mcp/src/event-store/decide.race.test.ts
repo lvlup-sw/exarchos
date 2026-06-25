@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -15,6 +15,7 @@ import {
   seedStream,
   type FixtureState,
 } from './decide-fixtures.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 /**
  * Wave 3 Task 3.5 — `decide` translates the substrate's `sequence-conflict`
@@ -48,7 +49,7 @@ describe('decide<TState> — race / OCC (Task 3.5)', () => {
   });
 
   afterEach(async () => {
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('Decide_ThrowsConcurrencyError_WhenStreamTailAdvancedDuringDecide', async () => {

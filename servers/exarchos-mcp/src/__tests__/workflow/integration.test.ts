@@ -15,6 +15,7 @@ import { appendEvent, mapInternalToExternalType } from '../../workflow/events.js
 import { EventStore } from '../../event-store/store.js';
 import { readStateFile, reconcileFromEvents } from '../../workflow/state-store.js';
 import type { EventType as ExternalEventType } from '../../event-store/schemas.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 describe('Integration', () => {
   let stateDir: string;
@@ -24,7 +25,7 @@ describe('Integration', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   // ─── Helper: advance feature workflow through a phase transition ──────────

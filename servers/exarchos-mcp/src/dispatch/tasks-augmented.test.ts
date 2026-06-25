@@ -29,7 +29,7 @@
  * EventSourcedTaskStore.createTask contract.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -40,6 +40,7 @@ import {
   runTasksAugmented,
   extractTaskOptions,
 } from './tasks-augmented.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 describe('tasks-augmented dispatch branch (#1273 / T28)', () => {
   let stateDir: string;
@@ -54,7 +55,7 @@ describe('tasks-augmented dispatch branch (#1273 / T28)', () => {
   });
 
   afterEach(async () => {
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   // ─── Branch detection ────────────────────────────────────────────────────

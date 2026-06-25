@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -37,6 +37,7 @@ import {
 } from '../__tests__/parity-harness.js';
 
 import { handleContractDrift } from './contract-drift-handler.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 const PARITY_REPO_ROOT = '/fake/agent/worktree';
 
@@ -111,7 +112,7 @@ describe('exarchos check_contract_drift CLI↔MCP parity (INV-2)', () => {
     restoreStub?.();
     restoreStub = null;
     for (const arm of arms) {
-      await rm(arm.stateDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+      await rmrfAsync(arm.stateDir);
     }
     arms = [];
     vi.restoreAllMocks();

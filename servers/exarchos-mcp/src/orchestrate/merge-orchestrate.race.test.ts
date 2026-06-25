@@ -48,6 +48,7 @@ import { handleMergeOrchestrate } from './merge-orchestrate.js';
 import { handleExecuteMerge } from './execute-merge.js';
 import type { MergePreflightResult } from './pure/merge-preflight.js';
 import '../projections/merge-orchestrator/index.js';
+import { rmrf } from '../test-helpers/temp-dir.js';
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -89,7 +90,7 @@ function makeCtx(eventStore: EventStore, stateDir: string): DispatchContext {
 
 afterAll(async () => {
   await Promise.all(
-    scratchRoots.map((p) => fs.rm(p, { recursive: true, force: true })),
+    scratchRoots.map((p) => rmrf(p)),
   );
 });
 

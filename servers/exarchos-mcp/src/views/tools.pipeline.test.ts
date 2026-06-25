@@ -8,12 +8,13 @@
  *     the projection is stale beyond PROJECTION_LAG_THRESHOLD_MS.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
 import { EventStore } from '../event-store/store.js';
 import { handleViewPipeline, resetMaterializerCache } from './tools.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 let tempDir: string;
 let stateDir: string;
@@ -28,7 +29,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   resetMaterializerCache();
-  await rm(tempDir, { recursive: true, force: true });
+  await rmrfAsync(tempDir);
 });
 
 describe('handleViewPipeline — projectionAsOf + projectionLag (#1359 / PR4)', () => {

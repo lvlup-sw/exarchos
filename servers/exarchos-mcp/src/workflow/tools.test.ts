@@ -11,7 +11,7 @@
 // until T040/T041 populate it from HSM transitions.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import type { DispatchContext } from '../core/dispatch.js';
@@ -48,6 +48,7 @@ vi.mock('../describe/handler.js', () => ({
 }));
 
 import { handleWorkflow } from './composite.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 function makeCtx(stateDir: string): DispatchContext {
   return { stateDir, eventStore: new EventStore(stateDir), enableTelemetry: false };
@@ -196,7 +197,7 @@ describe('WorkflowTool_RegistersRehydrateAction (T033, DR-5)', () => {
   });
 
   afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
+    await rmrfAsync(tempDir);
   });
 
   it('WorkflowTool_DescribeIncludesRehydrate', async () => {
@@ -298,7 +299,7 @@ describe('HandleCheckpoint_PayloadDigestIdempotencyKey (C3, closes #1241)', () =
   });
 
   afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
+    await rmrfAsync(tempDir);
   });
 
   it('handleCheckpoint_refinementInSamePhase_landsTwoEvents', async () => {
@@ -438,7 +439,7 @@ describe('HandleCheckpoint_PhasePlaybook (T-23, rehydration-machinery-refactor)'
   });
 
   afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
+    await rmrfAsync(tempDir);
   });
 
   it('handleCheckpoint_delegatePhase_attachesPhasePlaybookSkillDelegation', async () => {
@@ -580,7 +581,7 @@ describe('HandleCheckpoint_HandoffLint (#1244)', () => {
   });
 
   afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
+    await rmrfAsync(tempDir);
   });
 
   it('HandleCheckpoint_AiPaddedContext_EmitsWarning', async () => {

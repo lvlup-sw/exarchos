@@ -10,6 +10,7 @@ import { dispatch, READ_ONLY_ACTIONS } from '../core/dispatch.js';
 import { createInMemoryResolver } from '../capabilities/resolver.js';
 import { toEnvelope } from '../format.js';
 import { EnvelopeSchema } from '../schemas/envelope.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // Mock the state-store module
 vi.mock('../workflow/state-store.js', async (importOriginal) => {
@@ -32,7 +33,7 @@ describe('createMcpServer', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   it('CreateMcpServer_RegistersAllTools_FromRegistry', async () => {

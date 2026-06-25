@@ -25,7 +25,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -44,6 +44,7 @@ import type { HandleDoctorArgs } from './doctor/index.js';
 import { makeStubProbes } from './doctor/checks/__shared__/make-stub-probes.js';
 import type { CheckFn } from './doctor/checks/__shared__/make-stub-probes.js';
 import type { CheckResult } from './doctor/schema.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // ─── Deterministic check list ──────────────────────────────────────────────
 //
@@ -165,7 +166,7 @@ describe('exarchos doctor CLI↔MCP parity', () => {
     restoreStub?.();
     restoreStub = null;
     for (const arm of arms) {
-      await rm(arm.stateDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+      await rmrfAsync(arm.stateDir);
     }
     arms = [];
     vi.restoreAllMocks();

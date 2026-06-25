@@ -56,6 +56,7 @@ import { DoctorOutputSchema, type DoctorOutput } from '../../orchestrate/doctor/
 import { handleDoctor } from '../../orchestrate/doctor/index.js';
 import { initializeContext } from '../../core/context.js';
 import type { ToolResult } from '../../format.js';
+import { rmrf } from '../../test-helpers/temp-dir.js';
 
 // ─── Harness ────────────────────────────────────────────────────────────────
 
@@ -106,8 +107,8 @@ afterEach(async () => {
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
   await Promise.all([
-    fs.rm(projectDir, { recursive: true, force: true }),
-    fs.rm(homeDir, { recursive: true, force: true }),
+    rmrf(projectDir),
+    rmrf(homeDir),
   ]);
 });
 

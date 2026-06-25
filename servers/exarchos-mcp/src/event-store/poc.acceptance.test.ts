@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, readFile, readdir, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { AtomicAppender } from './atomic-appender.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 /**
  * T49 — POC acceptance test for the SQLite-backed event-store substrate
@@ -124,7 +125,7 @@ describe('Poc_SqliteBackend_AllConsumersUnchangedAndBenchHits1000OpsPerSec', () 
   });
 
   afterEach(async () => {
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('AC3 — exactly the expected src consumers reference AtomicAppender', async () => {

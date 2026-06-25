@@ -12,7 +12,7 @@
 // ───────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { EventStore } from '../event-store/store.js';
@@ -74,6 +74,7 @@ async function callMcp(
 // ─── Normalization ─────────────────────────────────────────────────────────
 
 import { UUID_ANY_RE } from '../__tests__/parity-harness.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 /**
  * Orchestrate suite normalizer. Historical placeholders:
@@ -184,7 +185,7 @@ describe('exarchos_orchestrate CLI-vs-MCP parity', () => {
   afterEach(async () => {
     resetMaterializerCache();
     for (const arm of arms) {
-      await rm(arm.stateDir, { recursive: true, force: true });
+      await rmrfAsync(arm.stateDir);
     }
     arms = [];
     vi.restoreAllMocks();

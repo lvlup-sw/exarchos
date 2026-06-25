@@ -33,6 +33,7 @@ import {
 } from '../views/workflow-status-view.js';
 import type { WorkflowEvent } from './schemas.js';
 import { AtomicAppender } from './atomic-appender.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -86,7 +87,7 @@ describe('replay determinism (C9, #1109 verification)', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   describe('replay_v29BugClusterScenarios_reconstructsIdenticalState', () => {

@@ -1,10 +1,11 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { Database } from 'bun:sqlite';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { WorkflowEvent } from '../../event-store/schemas.js';
 import { SqliteBackend } from '../sqlite-backend.js';
+import { rmrf } from '../../test-helpers/temp-dir.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -131,7 +132,7 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     backends.length = 0;
 
     if (tempDir) {
-      rmSync(tempDir, { recursive: true });
+      rmrf(tempDir);
     }
   });
 

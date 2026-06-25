@@ -57,6 +57,7 @@ import { CursorAdapter } from './adapters/cursor.js';
 import { CopilotAdapter } from './adapters/copilot.js';
 import { RUNTIMES } from './adapters/types.js';
 import type { RuntimeAdapter, Runtime } from './adapters/types.js';
+import { rmrf } from '../test-helpers/temp-dir.js';
 
 // ─── Test utilities ────────────────────────────────────────────────────────
 
@@ -99,12 +100,6 @@ function makeTempPluginJson(dir: string): string {
     'utf-8',
   );
   return pluginJsonPath;
-}
-
-function rmrf(dir: string): void {
-  if (fs.existsSync(dir)) {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
 }
 
 // ─── Tests ─────────────────────────────────────────────────────────────────

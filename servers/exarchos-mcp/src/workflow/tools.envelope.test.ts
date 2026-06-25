@@ -23,7 +23,7 @@
 // (and either migrates 812 or aborts it with a follow-up issue).
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -34,6 +34,7 @@ import {
   handleCheckpoint,
 } from './tools.js';
 import { assertCanonicalEnvelope } from './test-helpers/canonical-envelope.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 let tempDir: string;
 let store: EventStore;
@@ -45,7 +46,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await rm(tempDir, { recursive: true, force: true });
+  await rmrfAsync(tempDir);
 });
 
 describe('WorkflowTools_AllEmittedEvents_HaveCanonicalEnvelope', () => {

@@ -30,7 +30,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import * as fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as os from 'node:os';
@@ -59,6 +59,7 @@ import {
 } from '../workflow/state-machine.js';
 import { createFeatureHSM } from '../workflow/hsm-definitions.js';
 import { handleWorkflow } from '../workflow/composite.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -107,12 +108,7 @@ describe('Merge orchestrator happy timeline (T23, DR-MO-1, DR-MO-2)', () => {
 
   afterEach(async () => {
     vi.restoreAllMocks();
-    await rm(stateDir, {
-      recursive: true,
-      force: true,
-      maxRetries: 3,
-      retryDelay: 100,
-    });
+    await rmrfAsync(stateDir);
   });
 
   it('eventTimeline_TaskCompletedThroughMergeExecuted_FullyReconstructs', async () => {
@@ -444,7 +440,7 @@ describe('handleMergeOrchestrate integration — rollback timeline (T24)', () =>
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   it('eventTimeline_RollbackPath_ContainsMergeRollbackWithCategorizedReason', async () => {
@@ -598,12 +594,7 @@ describe('handleMergeOrchestrate integration — idempotency & concurrency (#130
 
   afterEach(async () => {
     vi.restoreAllMocks();
-    await rm(stateDir, {
-      recursive: true,
-      force: true,
-      maxRetries: 3,
-      retryDelay: 100,
-    });
+    await rmrfAsync(stateDir);
   });
 
   it('MergeOrchestrate_CrashAfterMergeExecutedAppendThenResume_AppendsExactlyOneMergeExecutedEvent', async () => {
@@ -830,12 +821,7 @@ describe('MergePendingTransitions_EmitWorkflowTransition_NotSet (#1305 T15)', ()
 
   afterEach(async () => {
     vi.restoreAllMocks();
-    await rm(stateDir, {
-      recursive: true,
-      force: true,
-      maxRetries: 3,
-      retryDelay: 100,
-    });
+    await rmrfAsync(stateDir);
   });
 
   it('MergePendingExit_DrivenThroughCanonicalPrimitive_EmitsWorkflowTransitionNotBarePhaseSet', async () => {

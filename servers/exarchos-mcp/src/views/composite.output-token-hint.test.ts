@@ -23,6 +23,7 @@ import * as path from 'node:path';
 import type { DispatchContext } from '../core/dispatch.js';
 import { EventStore } from '../event-store/store.js';
 import { handleView } from './composite.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 interface MaybeEnvelope {
   success?: boolean;
@@ -58,7 +59,7 @@ describe('CompositeViewTelemetry_OutputTokenHint_EndToEnd (#1262)', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('CompositeViewTelemetry_AboveThreshold_HintInNextActions', async () => {

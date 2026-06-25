@@ -22,7 +22,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir, readFile } from 'node:fs/promises';
+import { mkdtemp, writeFile, mkdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -36,6 +36,7 @@ import { makeStubProbes } from '../doctor/checks/__shared__/make-stub-probes.js'
 import { handleOnboard, type HandleOnboardArgs, type OnboardDeps } from './index.js';
 import { installHook, SESSION_START_SETTINGS_PATH } from './hooks.js';
 import { sessionStartHook } from '../doctor/checks/session-start-hook.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -68,7 +69,7 @@ async function createFixture(): Promise<Fixture> {
 }
 
 async function cleanup(fx: Fixture): Promise<void> {
-  await rm(fx.base, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }).catch(
+  await rmrfAsync(fx.base).catch(
     () => {},
   );
 }

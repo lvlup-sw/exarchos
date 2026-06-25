@@ -7,6 +7,7 @@ import { handleCancel } from '../../workflow/cancel.js';
 import { handleInit } from '../../workflow/tools.js';
 import { EventStore } from '../../event-store/store.js';
 import type { CompensationResult } from '../../workflow/compensation.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 let tmpDir: string;
 
@@ -16,7 +17,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   vi.restoreAllMocks();
-  await fs.rm(tmpDir, { recursive: true, force: true });
+  await rmrfAsync(tmpDir);
 });
 
 /**
@@ -442,7 +443,7 @@ describe('handleCancel', () => {
               expect(eventKeys).toEqual(uniqueKeys);
             } finally {
               vi.restoreAllMocks();
-              await fs.rm(propDir, { recursive: true, force: true });
+              await rmrfAsync(propDir);
             }
           },
         ),

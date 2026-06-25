@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { EventStore } from '../event-store/store.js';
@@ -10,6 +10,7 @@ import { rehydrationReducer } from './rehydration/reducer.js';
 import type { RehydrationDocument } from './rehydration/schema.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import { rebuildProjection } from './rebuild.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 /**
  * T029 — `rebuildProjection` helper
@@ -36,7 +37,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await rm(tempDir, { recursive: true, force: true });
+  await rmrfAsync(tempDir);
 });
 
 /**

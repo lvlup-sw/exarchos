@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -16,6 +16,7 @@ import type {
   MergePreflightResult,
   GitExecResult,
 } from '../orchestrate/pure/merge-preflight.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 /**
  * Cross-path race regression suite (#1293, post-#1265).
@@ -63,7 +64,7 @@ describe('EventStore cross-path race (#1293)', () => {
   });
 
   afterEach(async () => {
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   /**
@@ -305,7 +306,7 @@ describe('EventStore multi-stream linearizability [sqlite]', () => {
   });
 
   afterEach(async () => {
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('Multistream_NConcurrentStreamsXM_AllPerStreamSequencesDenseAndIsolated', async () => {
@@ -498,7 +499,7 @@ describe('handleMergeOrchestrate race (#1303 α-03)', () => {
   });
 
   afterEach(async () => {
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('MergeOrchestrate_TwoConcurrentInvocationsSameStream_NoDuplicateSequences', async () => {

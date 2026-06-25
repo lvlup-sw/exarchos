@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { handleInit, handleSet } from './tools.js';
 import { EventStore } from '../event-store/store.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 describe('handleSet — phase skip wiring (R5)', () => {
   let tmpDir: string;
@@ -16,7 +17,7 @@ describe('handleSet — phase skip wiring (R5)', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   /**

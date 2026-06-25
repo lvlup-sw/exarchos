@@ -19,6 +19,7 @@ import { handleOrchestrate } from './composite.js';
 import { resetMaterializerCache } from '../views/tools.js';
 import { EventStore } from '../event-store/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 vi.mock('./dispatch-guard.js', () => ({
   validateBranchAncestry: vi.fn().mockResolvedValue({ passed: true, checks: ['ancestry'] }),
@@ -58,7 +59,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   resetMaterializerCache();
-  await fs.rm(tmpDir, { recursive: true, force: true });
+  await rmrfAsync(tmpDir);
 });
 
 async function flushAsyncQueue(ms = 50): Promise<void> {
@@ -239,7 +240,7 @@ describe('ImplementerDispatch_WorktreeEdit_DoesNotAppearInMainWorktree (characte
   });
 
   afterEach(async () => {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await rmrfAsync(repoRoot);
   });
 
   it('resolves the agent write-root strictly inside <repoRoot>/.worktrees/, never the main worktree', () => {

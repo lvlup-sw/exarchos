@@ -24,6 +24,7 @@ import { handleCancel } from '../../workflow/cancel.js';
 import { EventStore } from '../../event-store/store.js';
 import { handleFinalizeOneshot } from '../../orchestrate/finalize-oneshot.js';
 import { handleRequestSynthesize } from '../../orchestrate/request-synthesize.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 // ─── Shared fixtures ────────────────────────────────────────────────────────
 
@@ -37,7 +38,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmpDir, { recursive: true, force: true });
+  await rmrfAsync(tmpDir);
 });
 
 // ─── Helpers ────────────────────────────────────────────────────────────────

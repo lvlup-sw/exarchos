@@ -5,6 +5,7 @@ import * as os from 'node:os';
 import { EventStore } from '../../event-store/store.js';
 import { resetMaterializerCache } from '../../views/tools.js';
 import { TELEMETRY_STREAM } from '../constants.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 describe('Telemetry Integration', () => {
   let stateDir: string;
@@ -15,7 +16,7 @@ describe('Telemetry Integration', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('should include telemetry metrics in view response when events exist', async () => {

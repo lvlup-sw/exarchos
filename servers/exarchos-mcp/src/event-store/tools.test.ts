@@ -1,12 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'node:path';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { EventStore } from './store.js';
 import { AtomicAppender } from './atomic-appender.js';
 import { handleEventAppend, handleEventQuery, handleBatchAppend } from './tools.js';
 import type { EventAck } from '../format.js';
 import { runWithDispatchContext } from '../dispatch/dispatch-context.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 let tempDir: string;
 let eventStore: EventStore;
@@ -17,7 +18,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await rm(tempDir, { recursive: true, force: true });
+  await rmrfAsync(tempDir);
 });
 
 // ─── T4: VALIDATION_ERROR for malformed model-emitted event data ────────────

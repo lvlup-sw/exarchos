@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, readFile, writeFile, chmod } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { SyncStateManager } from './sync-state.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 describe('SyncStateManager', () => {
   let tempDir: string;
@@ -14,7 +15,7 @@ describe('SyncStateManager', () => {
   });
 
   afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
+    await rmrfAsync(tempDir);
   });
 
   // ─── streamId validation ─────────────────────────────────────────────────

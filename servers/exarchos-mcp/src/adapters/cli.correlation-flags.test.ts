@@ -61,6 +61,7 @@ vi.mock('./cli-format.js', () => ({
 
 import { buildCli } from './cli.js';
 import { dispatch } from '../core/dispatch.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 function createTestContext(): DispatchContext {
   return {
@@ -215,7 +216,7 @@ describe('CLI correlation filter — end-to-end smoke', () => {
 
   afterEach(async () => {
     stdoutSpy.mockRestore();
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
     // Restore the per-file mock for the next describe block. Vitest
     // executes describe blocks in source order within a file, but a
     // beforeEach reset keeps things deterministic regardless.

@@ -21,7 +21,7 @@
  * is covered separately by `__tests__/integration/tools-call.test.ts`.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -30,6 +30,7 @@ import { EventSourcedTaskStore } from '../task-store/event-sourced-task-store.js
 import { createInMemoryResolver } from '../capabilities/resolver.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { handleToolsCall } from './tools-call-handler.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 describe('MCP tools/call handler — task augmentation (#1273 / T30)', () => {
   let stateDir: string;
@@ -44,7 +45,7 @@ describe('MCP tools/call handler — task augmentation (#1273 / T30)', () => {
   });
 
   afterEach(async () => {
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('McpToolsCall_WithTaskTtl_ReturnsCreateTaskResult', async () => {

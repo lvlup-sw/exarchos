@@ -20,6 +20,7 @@ import * as path from 'node:path';
 import { EventStore } from '../event-store/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { handleCheckpointCli } from './checkpoint.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -45,7 +46,7 @@ describe('checkpoint CLI adapter (T035, DR-6)', () => {
   afterEach(async () => {
     stdoutSpy.mockRestore();
     stderrSpy.mockRestore();
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   function capturedStdout(): string {

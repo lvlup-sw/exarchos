@@ -25,7 +25,7 @@
  * background task exists for a client that will never poll for it."
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -34,6 +34,7 @@ import { EventSourcedTaskStore } from '../task-store/event-sourced-task-store.js
 import { createInMemoryResolver } from './resolver.js';
 import { dispatch } from '../core/dispatch.js';
 import type { DispatchContext } from '../core/dispatch.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 describe('Task-support capability gating (#1273 / T32)', () => {
   let stateDir: string;
@@ -48,7 +49,7 @@ describe('Task-support capability gating (#1273 / T32)', () => {
   });
 
   afterEach(async () => {
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('CapabilityResolver_TaskSupportOptional_Declared', () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import type { CheckpointState } from './types.js';
@@ -22,6 +22,7 @@ import {
 // value, so registration isn't strictly required — but the other handler tests
 // do the same import for parity with production boot.
 import '../projections/rehydration/index.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // ─── shouldEnforceCheckpoint ─────────────────────────────────────────────────
 
@@ -167,7 +168,7 @@ describe('handleCheckpoint — materializes rehydration projection (T034, DR-6)'
   });
 
   afterEach(async () => {
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('CheckpointHandler_MaterializesProjection_WritesSnapshot', async () => {
@@ -643,7 +644,7 @@ describe('handleCheckpoint — handoff dispatch wiring (T4, #1240)', () => {
   });
 
   afterEach(async () => {
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('handleCheckpoint_HandoffPayload_AppendsEventWithData', async () => {

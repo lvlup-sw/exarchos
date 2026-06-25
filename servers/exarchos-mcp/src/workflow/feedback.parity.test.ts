@@ -12,6 +12,7 @@ import {
   normalize as harnessNormalize,
 } from '../__tests__/parity-harness.js';
 import { FEEDBACK_STREAM_ID } from './feedback.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // ─── #1319 — feedback action CLI/MCP parity (INV-2 facade equivalence) ────────
 //
@@ -45,8 +46,8 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(cliDir, { recursive: true, force: true });
-  await fs.rm(mcpDir, { recursive: true, force: true });
+  await rmrfAsync(cliDir);
+  await rmrfAsync(mcpDir);
 });
 
 describe('exarchos_workflow.feedback CLI/MCP parity (INV-2, #1319)', () => {

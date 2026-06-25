@@ -29,6 +29,7 @@ import {
   normalize,
   TRANSITION_GUARD_FAILURE_FIXTURE,
 } from '../__tests__/parity-harness.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // ─── Fixture ────────────────────────────────────────────────────────────────
 
@@ -45,7 +46,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmpDir, { recursive: true, force: true });
+  await rmrfAsync(tmpDir);
 });
 
 // ─── T36: canonical handler emits exactly one transition event ──────────────
@@ -209,8 +210,8 @@ describe('WorkflowTransition_GuardFailure (T42, DR-5)', () => {
       expect(cliResult.error?.suggestedFix).toEqual(mcpResult.error?.suggestedFix);
       expect(cliResult.error?.expectedShape).toEqual(mcpResult.error?.expectedShape);
     } finally {
-      await fs.rm(cliDir, { recursive: true, force: true });
-      await fs.rm(mcpDir, { recursive: true, force: true });
+      await rmrfAsync(cliDir);
+      await rmrfAsync(mcpDir);
     }
   });
 

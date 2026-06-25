@@ -23,6 +23,7 @@ import { handleInit, handleTransition } from './tools.js';
 import { EventStore } from '../event-store/store.js';
 import { readStateFile } from './state-store.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 let tmpDir: string;
 const featureId = 'wf-idempotent-transition';
@@ -32,7 +33,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmpDir, { recursive: true, force: true });
+  await rmrfAsync(tmpDir);
 });
 
 async function countEvents(

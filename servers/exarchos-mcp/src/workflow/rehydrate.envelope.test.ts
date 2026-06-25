@@ -22,7 +22,7 @@
 // and α-12 closes the gap.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -34,6 +34,7 @@ import { initStateFile } from './state-store.js';
 import '../projections/rehydration/index.js';
 import { rehydrationReducer } from '../projections/rehydration/reducer.js';
 import { assertCanonicalEnvelope } from './test-helpers/canonical-envelope.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 let tempDir: string;
 let stateDir: string;
@@ -47,7 +48,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await rm(tempDir, { recursive: true, force: true });
+  await rmrfAsync(tempDir);
 });
 
 describe('WorkflowRehydrate_AllEmittedEvents_HaveCanonicalEnvelope', () => {

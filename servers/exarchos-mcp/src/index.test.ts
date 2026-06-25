@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { InMemoryBackend } from './storage/memory-backend.js';
 import type { StorageBackend } from './storage/backend.js';
 import { isMcpServerInvocation, isDirectExecution } from './index.js';
+import { rmrf } from './test-helpers/temp-dir.js';
 
 // ─── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -17,7 +18,6 @@ vi.mock('./workflow/state-store.js', async (importOriginal) => {
     configureStateStoreBackend: vi.fn(),
   };
 });
-
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
@@ -300,7 +300,7 @@ describe('isDirectExecution (#1085)', () => {
     });
 
     afterEach(() => {
-      rmSync(scratch, { recursive: true, force: true });
+      rmrf(scratch);
     });
 
     it('matches when argv[1] is a symlink to the real module', () => {

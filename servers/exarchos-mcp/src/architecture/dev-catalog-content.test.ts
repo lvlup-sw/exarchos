@@ -21,7 +21,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import matter from 'gray-matter';
 
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import { loadInvariants, type InvariantEntry } from './invariants-loader.js';
@@ -30,6 +30,7 @@ import { projectCatalog } from './project-catalog.js';
 import { renderAuditPrompt } from './audit-prompt.js';
 import { EventStore } from '../event-store/store.js';
 import { handleCheckInvariantConformance } from '../orchestrate/check-invariant-conformance.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
@@ -253,7 +254,7 @@ describe('dev-catalog v3 content — CR-5 end-to-end gate bite', () => {
       });
       expect(gates.length).toBeGreaterThanOrEqual(1);
     } finally {
-      await rm(stateDir, { recursive: true, force: true });
+      await rmrfAsync(stateDir);
     }
   });
 
@@ -286,7 +287,7 @@ describe('dev-catalog v3 content — CR-5 end-to-end gate bite', () => {
       });
       expect(gates.length).toBeGreaterThanOrEqual(1);
     } finally {
-      await rm(stateDir, { recursive: true, force: true });
+      await rmrfAsync(stateDir);
     }
   });
 });

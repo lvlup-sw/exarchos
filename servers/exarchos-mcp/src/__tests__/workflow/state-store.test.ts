@@ -35,6 +35,7 @@ import {
 } from '../../workflow/state-store.js';
 import { ErrorCode } from '../../workflow/schemas.js';
 import { EventStore } from '../../event-store/store.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 let tmpDir: string;
 
@@ -43,7 +44,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmpDir, { recursive: true, force: true });
+  await rmrfAsync(tmpDir);
 });
 
 describe('State Store', () => {

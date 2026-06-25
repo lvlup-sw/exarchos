@@ -20,6 +20,7 @@ import {
 } from './tools.js';
 import { EventStore } from '../event-store/store.js';
 import { TOOL_REGISTRY } from '../registry.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // The "Singleton Cache" describe block that previously tested
 // `getOrCreateEventStore` was deleted alongside that function. The
@@ -60,7 +61,7 @@ describe('View Handlers', () => {
 
   afterEach(async () => {
     resetMaterializerCache();
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   describe('handleViewTeamPerformance', () => {
@@ -1530,7 +1531,7 @@ describe('Delta Query (sinceSequence)', () => {
 
   afterEach(async () => {
     resetMaterializerCache();
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   it('handleViewWorkflowStatus_WarmCall_QueriesOnlyDeltaEvents', async () => {
@@ -1698,7 +1699,7 @@ describe('Skip loadFromSnapshot on warm calls', () => {
 
   afterEach(async () => {
     resetMaterializerCache();
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   it('handleViewWorkflowStatus_WarmCall_SkipsSnapshotLoad', async () => {
@@ -1765,7 +1766,7 @@ describe('Backend Integration (Task 12)', () => {
 
   afterEach(async () => {
     resetMaterializerCache();
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   it('handleViewWorkflowStatus_WithBackend_QueriesSQLite', async () => {

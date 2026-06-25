@@ -12,6 +12,7 @@ import { EventStore } from '../event-store/store.js';
 import { registerWorkflowType, unregisterWorkflowType } from './state-machine.js';
 import { extendWorkflowTypeEnum, unextendWorkflowTypeEnum } from './schemas.js';
 import { registerCustomWorkflows, clearRegisteredGuards } from '../config/register.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 let tmpDir: string;
 
@@ -21,7 +22,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   configureWorkflowMaterializer(null);
-  await fs.rm(tmpDir, { recursive: true, force: true });
+  await rmrfAsync(tmpDir);
 });
 
 // ─── #787: Event injection in handleSet for guard evaluation ────────────────

@@ -9,6 +9,7 @@ import {
   parseInvariantEntries,
   type InvariantEntry,
 } from './invariants-loader.js';
+import { rmrf } from '../test-helpers/temp-dir.js';
 
 /**
  * Repo root resolution: invariants-loader.test.ts lives at
@@ -446,7 +447,7 @@ invariants:
       );
       expect(() => loadInvariants(tmpFile, undefined, ENABLED_CONFIG)).toThrow(/axis/);
     } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      rmrf(tmpDir);
     }
   });
 
@@ -517,7 +518,7 @@ invariants:
       expect(entry.citations).toHaveLength(3);
       expect(entry.citations![0]).toMatch(/Author/);
     } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      rmrf(tmpDir);
     }
   });
 
@@ -576,7 +577,7 @@ invariants:
       const entry = entries[0]!;
       expect((entry as Record<string, unknown>).axiomOverlap).toBeUndefined();
     } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      rmrf(tmpDir);
     }
   });
 
@@ -952,7 +953,7 @@ invariants:
         /substrate.*authoring|authoring.*substrate/,
       );
     } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      rmrf(tmpDir);
     }
   });
 
@@ -1026,7 +1027,7 @@ invariants:
       expect(entry.enforcement).toBeDefined();
       expect(entry.enforcement!.mode).toBe('check');
     } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      rmrf(tmpDir);
     }
   });
 
@@ -1065,7 +1066,7 @@ invariants:
       expect(entry.severity).toBeUndefined();
       expect(entry.enforcement).toBeUndefined();
     } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      rmrf(tmpDir);
     }
   });
 
@@ -1098,7 +1099,7 @@ invariants:
       );
       expect(() => loadInvariants(tmpFile, undefined, ENABLED_CONFIG)).toThrow(/99/);
     } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      rmrf(tmpDir);
     }
   });
 
@@ -1159,7 +1160,7 @@ invariants:
         expect(entry.enforcement).toBeUndefined();
       }
     } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      rmrf(tmpDir);
     }
   });
 
@@ -1206,7 +1207,7 @@ invariants:
         /Duplicate invariant ID/,
       );
     } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      rmrf(tmpDir);
     }
   });
 });

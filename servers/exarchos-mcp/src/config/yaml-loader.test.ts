@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { rmrf } from '../test-helpers/temp-dir.js';
 
 describe('loadProjectConfig', () => {
   let tmpDir: string;
@@ -11,7 +12,7 @@ describe('loadProjectConfig', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    rmrf(tmpDir);
   });
 
   it('loadProjectConfig_NoFile_ReturnsEmptyConfig', async () => {
@@ -125,7 +126,7 @@ describe('discoverProjectRoot', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    rmrf(tmpDir);
     if (originalEnv !== undefined) {
       process.env.EXARCHOS_PROJECT_ROOT = originalEnv;
     } else {
@@ -162,7 +163,7 @@ describe('discoverProjectRoot', () => {
       const result = discoverProjectRoot(childDir);
       expect(result).toBe(gitDir);
     } finally {
-      fs.rmSync(gitDir, { recursive: true, force: true });
+      rmrf(gitDir);
     }
   });
 
@@ -175,7 +176,7 @@ describe('discoverProjectRoot', () => {
       const result = discoverProjectRoot(isolatedDir);
       expect(result).toBe(isolatedDir);
     } finally {
-      fs.rmSync(isolatedDir, { recursive: true, force: true });
+      rmrf(isolatedDir);
     }
   });
 });

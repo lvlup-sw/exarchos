@@ -5,7 +5,7 @@
 // handleOrchestrate routes to the real handler (NOT an UNKNOWN_ACTION envelope).
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -15,6 +15,7 @@ import { handleOrchestrate } from './composite.js';
 import { TOOL_REGISTRY } from '../registry.js';
 import { steerForFinding } from './mock-boundary-handler.js';
 import type { GitExec } from './pure/execute-merge.js';
+import { rmrf } from '../test-helpers/temp-dir.js';
 
 // ─── seams ──────────────────────────────────────────────────────────────────
 
@@ -43,7 +44,7 @@ async function makeArm(prefix: string): Promise<Arm> {
 describe('check_mock_boundary registration + dispatch + steer', () => {
   const arms: Arm[] = [];
   afterEach(() => {
-    for (const a of arms.splice(0)) rmSync(a.stateDir, { recursive: true, force: true });
+    for (const a of arms.splice(0)) rmrf(a.stateDir);
   });
 
   it('CheckMockBoundary_Registration_DoesNotThrow', () => {

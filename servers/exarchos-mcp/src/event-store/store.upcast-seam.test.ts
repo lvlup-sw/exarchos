@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -20,6 +20,7 @@ vi.mock('./event-migration.js', async (importOriginal) => {
 });
 
 import { EventStore } from './store.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 describe('EventStore read-time upcasting seam (#1556)', () => {
   let tempDir: string;
@@ -32,7 +33,7 @@ describe('EventStore read-time upcasting seam (#1556)', () => {
   });
 
   afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
+    await rmrfAsync(tempDir);
   });
 
   it('Query_BackendRows_RoutedThroughMigrateEventsSeam', async () => {

@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
 import { EventStore } from './store.js';
 import { handleEventAppend } from './tools.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 /**
  * T26 — `team.disbanded` emission queries the events table (not derived state).
@@ -29,7 +30,7 @@ describe('TeamCoordinator — disbanded emission queries events table (T26)', ()
   });
 
   afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
+    await rmrfAsync(tempDir);
   });
 
   it('TeamCoordinator_DisbandedEmission_QueriesEventsNotDerivedState', async () => {

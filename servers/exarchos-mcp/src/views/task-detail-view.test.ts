@@ -12,7 +12,7 @@
  * and is preserved unchanged for the view's existing single-fold behaviour.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -27,6 +27,7 @@ import { readProjection } from '../projections/store.js';
 // Side-effect import: registers task-store@v1 with defaultRegistry.
 import '../projections/taskstore/index.js';
 import type { TaskStoreState } from '../projections/taskstore/types.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 describe('TaskDetailView_ReflectsTaskStoreProjection (Wave 2A.7, #1284)', () => {
   let stateDir: string;
@@ -39,7 +40,7 @@ describe('TaskDetailView_ReflectsTaskStoreProjection (Wave 2A.7, #1284)', () => 
   });
 
   afterEach(async () => {
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('TaskDetailView_ReflectsTaskStoreProjection_AfterAssignedAndCompleted', async () => {

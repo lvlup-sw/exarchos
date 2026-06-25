@@ -14,6 +14,7 @@ import { appendEvent } from '../../workflow/events.js';
 import type { Event, EventType } from '../../workflow/types.js';
 import { EventStore } from '../../event-store/store.js';
 import type { EventType as ExternalEventType } from '../../event-store/schemas.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 /**
  * Cross-module boundary integration tests (Gap 2 from audit).
@@ -30,7 +31,7 @@ describe('Cross-Module Boundary Tests', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   // ─── Helpers ──────────────────────────────────────────────────────────────

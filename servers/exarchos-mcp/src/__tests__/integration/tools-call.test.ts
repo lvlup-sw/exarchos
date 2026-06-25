@@ -26,6 +26,7 @@ import { createMcpServer } from '../../adapters/mcp.js';
 import { EventStore } from '../../event-store/store.js';
 import { EnvelopeSchema } from '../../schemas/envelope.js';
 import type { DispatchContext } from '../../core/dispatch.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 interface CallToolEnvelopeResult {
   content?: Array<{ type: string; text: string }>;
@@ -89,7 +90,7 @@ describe('F.2 — tools/call carrier round-trip (Wave 0 §7)', () => {
     } catch {
       /* ignore */
     }
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   for (const probe of READ_ONLY_PROBES) {

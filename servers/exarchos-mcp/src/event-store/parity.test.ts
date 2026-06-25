@@ -25,6 +25,7 @@ import {
 // ─── Normalization Helpers ──────────────────────────────────────────────────
 
 import { UUID_ANY_RE } from '../__tests__/parity-harness.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 /**
  * Event-store suite normalizer. Historical behaviour dropped ISO
@@ -60,7 +61,7 @@ async function makeHarness(label: string): Promise<ParityHarness> {
 }
 
 async function teardownHarness(harness: ParityHarness): Promise<void> {
-  await fs.rm(harness.stateDir, { recursive: true, force: true });
+  await rmrfAsync(harness.stateDir);
 }
 
 /** Invoke a tool action via the MCP-shaped `dispatch()` entry point. */

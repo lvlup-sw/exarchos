@@ -20,7 +20,7 @@
  */
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -43,6 +43,7 @@ vi.mock('../../vcs/factory.js', () => ({
 import { createVcsProvider } from '../../vcs/factory.js';
 import type { VcsProvider } from '../../vcs/provider.js';
 import { handleCreateIssue } from './create-issue.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 const ISSUE_NUMBER = 789;
 const ISSUE_URL = 'https://github.com/test-owner/test-repo/issues/789';
@@ -150,7 +151,7 @@ describe('create_issue CLI↔MCP parity (B3.5)', () => {
     restoreStub?.();
     restoreStub = null;
     for (const arm of arms) {
-      await rm(arm.stateDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+      await rmrfAsync(arm.stateDir);
     }
     arms = [];
     vi.restoreAllMocks();

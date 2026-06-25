@@ -44,6 +44,7 @@ import { EventStore } from '../event-store/store.js';
 import * as dispatchModule from '../core/dispatch.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { DoctorOutputSchema } from '../orchestrate/doctor/schema.js';
+import { rmrf } from '../test-helpers/temp-dir.js';
 
 // ─── Harness ─────────────────────────────────────────────────────────────────
 
@@ -347,8 +348,8 @@ describe('doctor CLI-adapter — shebang invocation (#1337)', () => {
         expect(typeof env.success).toBe('boolean');
         expect(Array.isArray(env.data?.checks)).toBe(true);
       } finally {
-        fs.rmSync(homeTmp, { recursive: true, force: true });
-        fs.rmSync(stateTmp, { recursive: true, force: true });
+        rmrf(homeTmp);
+        rmrf(stateTmp);
       }
     },
     30_000,

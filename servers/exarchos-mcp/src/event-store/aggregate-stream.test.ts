@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -11,6 +11,7 @@ import {
   type ProjectionRegistry,
 } from '../projections/registry.js';
 import { makeFixtureReducer, seedStream, type FixtureState } from './decide-fixtures.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 /**
  * Wave 3 Tasks 3.11 + 3.12 — `aggregateStream<T>(streamId, reducerId)`
@@ -39,7 +40,7 @@ describe('aggregateStream<T> — read-only fold (Tasks 3.11 + 3.12)', () => {
   });
 
   afterEach(async () => {
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('AggregateStream_ReturnsFoldedStateAndTailVersion', async () => {

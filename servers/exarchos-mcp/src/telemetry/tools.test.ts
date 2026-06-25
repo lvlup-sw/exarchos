@@ -6,6 +6,7 @@ import { EventStore } from '../event-store/store.js';
 import { handleViewTelemetry } from './tools.js';
 import { getOrCreateMaterializer, resetMaterializerCache } from '../views/tools.js';
 import { TELEMETRY_VIEW } from './telemetry-projection.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // ─── Test Helpers ────────────────────────────────────────────────────────────
 
@@ -40,7 +41,7 @@ describe('handleViewTelemetry', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   describe('compact mode (default)', () => {
@@ -294,7 +295,7 @@ describe('handleViewTelemetry', () => {
         queryStub.mockRestore();
       } finally {
         // Don't leak temp dirs across runs — see CR review 4178011813.
-        await fs.rm(badDir, { recursive: true, force: true });
+        await rmrfAsync(badDir);
       }
     });
   });
@@ -316,7 +317,7 @@ describe('toToolEntry — action-error fields (Sentry follow-up #1364)', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('handleViewTelemetry_CompactEntry_IncludesActionErrorFields', async () => {
@@ -383,7 +384,7 @@ describe('Wave 5 — handleViewTelemetry honors correlation filters (#1437)', ()
   });
 
   afterEach(async () => {
-    await fs.rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('handleViewTelemetry_WithCorrelationIdFilter_RolsUpOnlyMatchingEvents', async () => {

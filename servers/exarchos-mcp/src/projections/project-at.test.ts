@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { fc } from '@fast-check/vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { EventStore } from '../event-store/store.js';
@@ -10,6 +10,7 @@ import { boundEvents, type AsOfBound } from './cursor.js';
 import { projectAt } from './rebuild.js';
 import { appendSnapshot } from './store.js';
 import type { SnapshotRecord } from './snapshot-schema.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 /**
  * T2 — `projectAt` cold-fold + purity.
@@ -34,7 +35,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await rm(tempDir, { recursive: true, force: true });
+  await rmrfAsync(tempDir);
 });
 
 /**

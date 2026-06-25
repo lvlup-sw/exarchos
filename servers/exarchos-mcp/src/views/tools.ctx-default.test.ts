@@ -24,6 +24,7 @@ import {
   mintDispatchContext,
   runWithDispatchContext,
 } from '../dispatch/dispatch-context.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 describe('Wave 2 — handlers honor AsyncLocalStorage ctx-default (#1448)', () => {
   let tmpDir: string;
@@ -37,7 +38,7 @@ describe('Wave 2 — handlers honor AsyncLocalStorage ctx-default (#1448)', () =
 
   afterEach(async () => {
     resetMaterializerCache();
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   it('HandleViewCodeQuality_NoArgsInsideDispatch_DefaultsToCtxCorrelationId', async () => {

@@ -14,7 +14,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect } from 'vitest';
-import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -22,6 +22,7 @@ import { EventStore } from '../event-store/store.js';
 import type { InvariantEntry } from '../architecture/invariants-loader.js';
 import type { ExarchosConfig } from '../config/exarchos-config-schema.js';
 import { handleCheckInvariantConformance } from './check-invariant-conformance.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -172,7 +173,7 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
       const gates = await gateEvents(arm.eventStore, 'feat-empty');
       expect(gates.length).toBeGreaterThanOrEqual(1);
     } finally {
-      await rm(arm.stateDir, { recursive: true, force: true });
+      await rmrfAsync(arm.stateDir);
     }
   });
 
@@ -214,7 +215,7 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
       expect(data.high).toBeGreaterThanOrEqual(1);
       expect(data.verdict).toBe('NEEDS_FIXES');
     } finally {
-      await rm(arm.stateDir, { recursive: true, force: true });
+      await rmrfAsync(arm.stateDir);
     }
   });
 
@@ -283,7 +284,7 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
       const gates = await gateEvents(arm.eventStore, 'feat-malformed');
       expect(gates.length).toBeGreaterThanOrEqual(1);
     } finally {
-      await rm(arm.stateDir, { recursive: true, force: true });
+      await rmrfAsync(arm.stateDir);
     }
   });
 
@@ -326,7 +327,7 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
       expect(lowFinding?.message).toContain('USER-THROW');
       expect(data.low).toBeGreaterThanOrEqual(1);
     } finally {
-      await rm(arm.stateDir, { recursive: true, force: true });
+      await rmrfAsync(arm.stateDir);
     }
   });
 
@@ -358,7 +359,7 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
       expect(data.auditPrompt).toContain('USER-AUDIT');
       expect(data.auditPrompt).toContain('Assess whether the public API reads ergonomically.');
     } finally {
-      await rm(arm.stateDir, { recursive: true, force: true });
+      await rmrfAsync(arm.stateDir);
     }
   });
 
@@ -422,8 +423,8 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
       expect(overData.medium).toBeGreaterThanOrEqual(1);
       expect(overData.verdict).toBe('APPROVED');
     } finally {
-      await rm(arm.stateDir, { recursive: true, force: true });
-      await rm(fixture.repoRoot, { recursive: true, force: true });
+      await rmrfAsync(arm.stateDir);
+      await rmrfAsync(fixture.repoRoot);
     }
   });
 
@@ -504,8 +505,8 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
       const gates = await gateEvents(arm.eventStore, 'feat-malformed-cfg');
       expect(gates.length).toBeGreaterThanOrEqual(1);
     } finally {
-      await rm(arm.stateDir, { recursive: true, force: true });
-      await rm(fixture.repoRoot, { recursive: true, force: true });
+      await rmrfAsync(arm.stateDir);
+      await rmrfAsync(fixture.repoRoot);
     }
   });
 
@@ -568,8 +569,8 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
       expect(overData.high).toBe(0);
       expect(overData.verdict).toBe('APPROVED');
     } finally {
-      await rm(arm.stateDir, { recursive: true, force: true });
-      await rm(fixture.repoRoot, { recursive: true, force: true });
+      await rmrfAsync(arm.stateDir);
+      await rmrfAsync(fixture.repoRoot);
     }
   });
 
@@ -607,8 +608,8 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
       // … but advisory enforcement must NOT gate the verdict.
       expect(data.verdict).toBe('APPROVED');
     } finally {
-      await rm(arm.stateDir, { recursive: true, force: true });
-      await rm(fixture.repoRoot, { recursive: true, force: true });
+      await rmrfAsync(arm.stateDir);
+      await rmrfAsync(fixture.repoRoot);
     }
   });
 });

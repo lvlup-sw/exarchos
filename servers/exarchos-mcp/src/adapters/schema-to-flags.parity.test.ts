@@ -7,6 +7,7 @@ import { type DispatchContext } from '../core/dispatch.js';
 import { EventStore } from '../event-store/store.js';
 import type { ToolResult } from '../format.js';
 import { callCli, callMcp } from '../__tests__/parity-harness.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // ─── Task 024: CLI-vs-MCP Argument Coercion Failure Parity (DR-5) ────────────
 // These tests prove that when users provide malformed arguments — missing a
@@ -63,8 +64,8 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(fixture.cliDir, { recursive: true, force: true });
-  await fs.rm(fixture.mcpDir, { recursive: true, force: true });
+  await rmrfAsync(fixture.cliDir);
+  await rmrfAsync(fixture.mcpDir);
 });
 
 // ─── Parity Tests ────────────────────────────────────────────────────────────
