@@ -6,6 +6,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { toPosix } from '../utils/paths.js';
 import type { ToolResult } from '../format.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -21,7 +22,9 @@ export async function handleVerifyWorktree(
   _stateDir: string,
 ): Promise<ToolResult> {
   const rawPath = args.cwd ?? process.cwd();
-  const resolvedPath = path.resolve(rawPath);
+  // Normalize to POSIX so the `.worktrees/` substring check and the returned
+  // path are separator-agnostic (path.resolve emits backslashes on Windows).
+  const resolvedPath = toPosix(path.resolve(rawPath));
 
   if (!fs.existsSync(resolvedPath)) {
     return {

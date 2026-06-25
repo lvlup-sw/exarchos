@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { EventStore } from '../event-store/store.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import type { ProjectionReducer } from './types.js';
 import { bisect } from './bisect.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 /**
  * T5 — `bisect` binary search over `projectAt`.
@@ -30,7 +31,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await rm(tempDir, { recursive: true, force: true });
+  await rmrfAsync(tempDir);
 });
 
 /**

@@ -27,6 +27,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 
 import { EventStore } from './store.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 describe('EventStore cross-process attach (#1343, Wave A5)', () => {
   let stateDir: string;
@@ -36,7 +37,7 @@ describe('EventStore cross-process attach (#1343, Wave A5)', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('EventStore_TwoProcesses_InterleavedAppendsAreObservedByBoth', async () => {

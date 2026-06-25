@@ -20,6 +20,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
+import { toPosix } from '../../utils/paths.js';
 
 import { EventStore } from '../../event-store/store.js';
 import type { DispatchContext, CompositeHandler } from '../../core/dispatch.js';
@@ -57,19 +58,21 @@ const VALID_ENTRY = {
 
 /** Fresh in-memory fs per call, seeded with an empty catalog + minimal config. */
 function freshDeps(): ScaffoldDeps {
+  // Keys are POSIX-normalized so the fake fs matches the handlers' paths on
+  // Windows too (they build paths via toPosix(path.join(...))). (#1620)
   const files = new Map<string, string>([
-    [path.join(REPO_ROOT, CATALOG_REL), 'invariants: []\n'],
-    [path.join(REPO_ROOT, '.exarchos.yml'), 'test: npm test\n'],
+    [toPosix(path.join(REPO_ROOT, CATALOG_REL)), 'invariants: []\n'],
+    [toPosix(path.join(REPO_ROOT, '.exarchos.yml')), 'test: npm test\n'],
   ]);
   return {
-    exists: (p) => files.has(p),
+    exists: (p) => files.has(toPosix(p)),
     read: (p) => {
-      const c = files.get(p);
+      const c = files.get(toPosix(p));
       if (c === undefined) throw new Error(`ENOENT: ${p}`);
       return c;
     },
     write: (p, contents) => {
-      files.set(p, contents);
+      files.set(toPosix(p), contents);
     },
   };
 }
@@ -100,17 +103,17 @@ function buildAuthoringStub(): CompositeHandler {
       // Use a fresh in-memory fs that does NOT pre-seed the catalog file, so
       // the scaffold genuinely "creates" it (deterministic across arms).
       const files = new Map<string, string>([
-        [path.join(REPO_ROOT, '.exarchos.yml'), 'test: npm test\n'],
+        [toPosix(path.join(REPO_ROOT, '.exarchos.yml')), 'test: npm test\n'],
       ]);
       const deps: ScaffoldDeps = {
-        exists: (p) => files.has(p),
+        exists: (p) => files.has(toPosix(p)),
         read: (p) => {
-          const c = files.get(p);
+          const c = files.get(toPosix(p));
           if (c === undefined) throw new Error(`ENOENT: ${p}`);
           return c;
         },
         write: (p, contents) => {
-          files.set(p, contents);
+          files.set(toPosix(p), contents);
         },
       };
       return handleScaffold(

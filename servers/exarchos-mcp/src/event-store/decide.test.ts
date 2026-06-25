@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -18,6 +18,7 @@ import {
   seedStream,
   type FixtureState,
 } from './decide-fixtures.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 /**
  * Wave 3 Tasks 3.3 – 3.7 — `decide<TState>` primitive (R-2).
@@ -47,7 +48,7 @@ describe('decide<TState> — happy-path round-trip (Task 3.3)', () => {
   });
 
   afterEach(async () => {
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('Decide_CommitsEventsReturnedByDecideFunction', async () => {
@@ -126,7 +127,7 @@ describe('decide<TState> — scope discipline (Task 3.4)', () => {
   });
 
   afterEach(async () => {
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('Decide_RejectsGlobalScopedReducer_WithInvalidReducerScope', async () => {
@@ -195,7 +196,7 @@ describe('decide<TState> — storage_busy translation (Task 3.5a)', () => {
   });
 
   afterEach(async () => {
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('Decide_ThrowsStorageBusyError_WhenSubstrateRetryBudgetExhausts', async () => {
@@ -257,7 +258,7 @@ describe('decide<TState> — empty events + alwaysEnforceConsistency (Task 3.6)'
   });
 
   afterEach(async () => {
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('Decide_TriggersOccCheck_WhenDecideReturnsEmptyEventsByDefault', async () => {
@@ -385,7 +386,7 @@ describe('decide<TState> — single-key-per-call idempotency (Task 3.7)', () => 
   });
 
   afterEach(async () => {
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('Decide_DeducesEventsAcrossRetries_WhenOperationIdSupplied', async () => {

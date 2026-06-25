@@ -49,6 +49,7 @@ import {
   normalize as harnessNormalize,
   UUID_ANY_RE,
 } from '../__tests__/parity-harness.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // ─── Fixture ──────────────────────────────────────────────────────────────
 
@@ -73,7 +74,7 @@ async function setupFixture(): Promise<ReadonlyFixture> {
 }
 
 async function teardownFixture(f: ReadonlyFixture): Promise<void> {
-  await fs.rm(f.tmpDir, { recursive: true, force: true });
+  await rmrfAsync(f.tmpDir);
 }
 
 // ─── Normalization ────────────────────────────────────────────────────────

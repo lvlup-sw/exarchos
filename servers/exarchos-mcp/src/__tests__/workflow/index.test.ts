@@ -330,7 +330,10 @@ describe('MCP Server Entry Point', () => {
         delete process.env.XDG_STATE_HOME;
         const result = await resolveStateDir();
         const { join } = await import('node:path');
-        expect(result).toBe(join(homedir(), '.exarchos', 'state'));
+        const { toPosix } = await import('../../utils/paths.js');
+        // resolveStateDir POSIX-normalizes its output (#1620), so the expected
+        // must too — otherwise this asserts native separators on Windows.
+        expect(result).toBe(toPosix(join(homedir(), '.exarchos', 'state')));
       } finally {
         if (originalEnv === undefined) { delete process.env.WORKFLOW_STATE_DIR; }
         else { process.env.WORKFLOW_STATE_DIR = originalEnv; }

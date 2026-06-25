@@ -28,7 +28,7 @@
 // events via the shared helper.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -41,6 +41,7 @@ import {
 } from '../config/register.js';
 import { unregisterWorkflowType } from './state-machine.js';
 import { unextendWorkflowTypeEnum } from './schemas.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 let tempDir: string;
 let store: EventStore;
@@ -54,7 +55,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await rm(tempDir, { recursive: true, force: true });
+  await rmrfAsync(tempDir);
   clearRegisteredGuards();
   // Tolerate already-unregistered (test only registers conditionally)
   try { unregisterWorkflowType(CUSTOM_WORKFLOW); } catch { /* noop */ }

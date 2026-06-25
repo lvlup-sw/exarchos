@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, assertType } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { EventStore, SequenceConflictError, type QueryFilters } from './store.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 let tempDir: string;
 
@@ -12,7 +13,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await rm(tempDir, { recursive: true, force: true });
+  await rmrfAsync(tempDir);
 });
 
 // ─── A04: Append with Sequence Numbering ────────────────────────────────────

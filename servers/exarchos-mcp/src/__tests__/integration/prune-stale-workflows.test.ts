@@ -35,6 +35,7 @@ import {
   loadTopology,
   __resetTopologyCacheForTesting,
 } from '../../topology/loader.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -197,7 +198,7 @@ phases:
 });
 
 afterEach(async () => {
-  await fs.rm(tmpDir, { recursive: true, force: true });
+  await rmrfAsync(tmpDir);
   __resetTopologyCacheForTesting();
 });
 

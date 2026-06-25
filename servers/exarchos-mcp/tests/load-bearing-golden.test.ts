@@ -26,7 +26,8 @@
  * check; this test is the substrate it protects.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile } from 'node:fs/promises';
+import { rmrfAsync } from '../src/test-helpers/temp-dir.js';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -147,7 +148,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await rm(tempDir, { recursive: true, force: true });
+  await rmrfAsync(tempDir);
 });
 
 describe('LoadBearing_GoldenDocument (T052, DR-15)', () => {

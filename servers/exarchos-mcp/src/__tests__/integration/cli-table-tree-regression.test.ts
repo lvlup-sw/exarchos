@@ -31,6 +31,7 @@ import * as os from 'node:os';
 import { buildCli } from '../../adapters/cli.js';
 import { EventStore } from '../../event-store/store.js';
 import type { DispatchContext } from '../../core/dispatch.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 interface CapturedStreams {
   stdout: string;
@@ -89,7 +90,7 @@ describe('F.7 — CLI table/tree pretty-print regression (Wave 0 §7)', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   it('CliRender_VwLs_TreeOrJsonPath_StableSnapshot', async () => {

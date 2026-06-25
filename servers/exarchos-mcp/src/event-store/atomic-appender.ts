@@ -1160,6 +1160,30 @@ export class AtomicAppender {
     this.sqliteBackendPromise = Promise.resolve(backend);
     return backend;
   }
+
+  /**
+   * Release the owned SQLite backend handle.
+   *
+   * Idempotent and synchronous. Closes the lazily-constructed
+   * {@link SqliteBackend} (releasing the `exarchos.db` / `-wal` / `-shm` OS
+   * file handles) and clears the cached references so any subsequent
+   * operation re-opens a fresh handle.
+   *
+   * Primarily a test-lifecycle affordance: on Windows an open SQLite handle
+   * blocks `fs.rm` of the containing temp dir with EPERM/EBUSY, because NTFS —
+   * unlike POSIX — forbids unlinking a file that still has an open handle.
+   * Closing the appender before teardown is the portable cleanup contract.
+   */
+  close(): void {
+    // Injected backends are caller-owned (see `sqliteBackendInjected`) — only
+    // close a handle this appender constructed itself, so closing the
+    // EventStore doesn't tear down a shared/injected backend.
+    if (!this.sqliteBackendInjected) {
+      this.sqliteBackend?.close();
+    }
+    this.sqliteBackend = undefined;
+    this.sqliteBackendPromise = undefined;
+  }
 }
 
 function toError(err: unknown): Error {

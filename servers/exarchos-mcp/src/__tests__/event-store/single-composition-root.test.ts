@@ -24,6 +24,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 describe('EventStore single composition root (#1182, Fix 1)', () => {
   let tmpDir: string;
@@ -33,7 +34,7 @@ describe('EventStore single composition root (#1182, Fix 1)', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   it('InitializeContext_ReturnsSingleEventStore_PerStateDir', async () => {

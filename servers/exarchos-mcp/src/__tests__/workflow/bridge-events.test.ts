@@ -6,6 +6,7 @@ import { getRecentEventsFromStore, mapInternalToExternalType } from '../../workf
 import { getRecentEvents } from '../../workflow/events.js';
 import { EventStore } from '../../event-store/store.js';
 import type { EventType as ExternalEventType } from '../../event-store/schemas.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 describe('Bridge Events Fixes', () => {
   // ─── Fix 6: getRecentEventsFromStore guards non-positive count ───────────
@@ -20,7 +21,7 @@ describe('Bridge Events Fixes', () => {
     });
 
     afterEach(async () => {
-      await fs.rm(tmpDir, { recursive: true, force: true });
+      await rmrfAsync(tmpDir);
     });
 
     it('should return empty array when count is 0', async () => {

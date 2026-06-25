@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { fc } from '@fast-check/vitest';
 import * as path from 'node:path';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { EventStore } from './store.js';
 import { EventTypes } from './schemas.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // ─── Shared Setup ─────────────────────────────────────────────────────────
 
@@ -15,7 +16,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await rm(tempDir, { recursive: true, force: true });
+  await rmrfAsync(tempDir);
 });
 
 // ─── Event Generators ─────────────────────────────────────────────────────

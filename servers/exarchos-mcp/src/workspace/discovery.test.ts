@@ -17,6 +17,7 @@ import { createInMemoryResolver } from '../capabilities/resolver.js';
 import type { RootsClient } from './discovery.js';
 import { resolveWorkspace, isExarchosWorkspace } from './discovery.js';
 import type { WorkflowState } from '../workflow/types.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 async function mktemp(prefix: string): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), `discovery-${prefix}-`));
@@ -48,7 +49,7 @@ describe('isExarchosWorkspace detector (#1290)', () => {
       await fs.writeFile(path.join(dir, '.exarchos.yml'), '', 'utf8');
       expect(isExarchosWorkspace(dir)).toBe(true);
     } finally {
-      await fs.rm(dir, { recursive: true, force: true });
+      await rmrfAsync(dir);
     }
   });
 
@@ -63,7 +64,7 @@ describe('isExarchosWorkspace detector (#1290)', () => {
       );
       expect(isExarchosWorkspace(dir)).toBe(true);
     } finally {
-      await fs.rm(dir, { recursive: true, force: true });
+      await rmrfAsync(dir);
     }
   });
 
@@ -72,7 +73,7 @@ describe('isExarchosWorkspace detector (#1290)', () => {
     try {
       expect(isExarchosWorkspace(dir)).toBe(false);
     } finally {
-      await fs.rm(dir, { recursive: true, force: true });
+      await rmrfAsync(dir);
     }
   });
 
@@ -90,7 +91,7 @@ describe('isExarchosWorkspace detector (#1290)', () => {
       );
       expect(isExarchosWorkspace(dir)).toBe(true);
     } finally {
-      await fs.rm(dir, { recursive: true, force: true });
+      await rmrfAsync(dir);
     }
   });
 });
@@ -134,7 +135,7 @@ describe('resolveWorkspace backend-first featureId derivation (#1504)', () => {
       expect(result!.source).toBe('cwd');
       expect(result!.featureId).toBe('feat-from-backend');
     } finally {
-      await fs.rm(tmp, { recursive: true, force: true });
+      await rmrfAsync(tmp);
     }
   });
 });
@@ -182,9 +183,9 @@ describe('resolveWorkspace roots branch (#1290)', () => {
       expect(data.featureId).toBe('feat-alpha');
       expect(data.path).toBe(root);
 
-      await fs.rm(stateDir, { recursive: true, force: true });
+      await rmrfAsync(stateDir);
     } finally {
-      await fs.rm(tmp, { recursive: true, force: true });
+      await rmrfAsync(tmp);
     }
   });
 
@@ -231,9 +232,9 @@ describe('resolveWorkspace roots branch (#1290)', () => {
       expect(evt).toBeDefined();
       expect((evt!.data as { source?: string }).source).toBe('cwd');
 
-      await fs.rm(stateDir, { recursive: true, force: true });
+      await rmrfAsync(stateDir);
     } finally {
-      await fs.rm(tmp, { recursive: true, force: true });
+      await rmrfAsync(tmp);
     }
   });
 
@@ -264,9 +265,9 @@ describe('resolveWorkspace roots branch (#1290)', () => {
       });
 
       expect(result).toBeUndefined();
-      await fs.rm(stateDir, { recursive: true, force: true });
+      await rmrfAsync(stateDir);
     } finally {
-      await fs.rm(tmp, { recursive: true, force: true });
+      await rmrfAsync(tmp);
     }
   });
 
@@ -318,9 +319,9 @@ describe('resolveWorkspace roots branch (#1290)', () => {
       );
       expect(resolved.length).toBe(0);
 
-      await fs.rm(stateDir, { recursive: true, force: true });
+      await rmrfAsync(stateDir);
     } finally {
-      await fs.rm(tmp, { recursive: true, force: true });
+      await rmrfAsync(tmp);
     }
   });
 
@@ -373,9 +374,9 @@ describe('resolveWorkspace roots branch (#1290)', () => {
       expect(r3?.featureId).toBe('feat-next');
       expect(fetchCount).toBe(2);
 
-      await fs.rm(stateDir, { recursive: true, force: true });
+      await rmrfAsync(stateDir);
     } finally {
-      await fs.rm(tmp, { recursive: true, force: true });
+      await rmrfAsync(tmp);
     }
   });
 
@@ -415,9 +416,9 @@ describe('resolveWorkspace roots branch (#1290)', () => {
       expect(result!.featureId).toBe('feat-cwdonly');
       expect(fetchCount).toBe(0);
 
-      await fs.rm(stateDir, { recursive: true, force: true });
+      await rmrfAsync(stateDir);
     } finally {
-      await fs.rm(tmp, { recursive: true, force: true });
+      await rmrfAsync(tmp);
     }
   });
 });

@@ -13,11 +13,12 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { EventStore } from './store.js';
 import { SqliteBackend } from '../storage/sqlite-backend.js';
 import type { StorageBackend } from '../storage/backend.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 let tempDir: string;
 
@@ -26,7 +27,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await rm(tempDir, { recursive: true, force: true });
+  await rmrfAsync(tempDir);
 });
 
 describe('EventStore.runIntegrityCheck', () => {

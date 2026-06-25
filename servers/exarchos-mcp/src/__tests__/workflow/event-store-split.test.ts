@@ -24,6 +24,7 @@ import { handleEventAppend } from '../../event-store/tools.js';
 import { EventStore } from '../../event-store/store.js';
 import { InMemoryBackend } from '../../storage/memory-backend.js';
 import { configureStateStoreBackend } from '../../workflow/state-store.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 // ─── Valid event data matching type-specific schemas ─────────────────────────
 
@@ -64,7 +65,7 @@ describe('EventStoreSplit_Regression_GH1009', () => {
   afterEach(async () => {
     configureWorkflowMaterializer(null);
     configureStateStoreBackend(undefined);
-    await fs.rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   /**

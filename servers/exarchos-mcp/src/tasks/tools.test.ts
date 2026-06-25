@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'node:path';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { EventStore, SequenceConflictError } from '../event-store/store.js';
 import { TaskCompletedData } from '../event-store/schemas.js';
@@ -8,6 +8,7 @@ import { handleTaskClaim, handleTaskComplete, handleTaskFail, resetModuleEventSt
 import { resetMaterializerCache } from '../views/tools.js';
 import { initStateFile, readStateFile } from '../workflow/state-store.js';
 import { guards } from '../workflow/guards.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 let tempDir: string;
 
@@ -20,7 +21,7 @@ beforeEach(async () => {
 afterEach(async () => {
   resetModuleEventStore();
   resetMaterializerCache();
-  await rm(tempDir, { recursive: true, force: true });
+  await rmrfAsync(tempDir);
   vi.useRealTimers();
   vi.restoreAllMocks();
 });

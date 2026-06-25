@@ -23,7 +23,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir, readdir, readFile, stat } from 'node:fs/promises';
+import { mkdtemp, writeFile, mkdir, readdir, readFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -37,6 +37,7 @@ import { normalize as harnessNormalize } from '../../__tests__/parity-harness.js
 
 import { handleOnboard, type HandleOnboardArgs, type OnboardDeps } from './index.js';
 import { scaffoldNewRepo, type ScaffoldNewDeps } from './new.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -62,7 +63,7 @@ async function createFixture(prefix = 'onboard-new-'): Promise<Fixture> {
 }
 
 async function cleanup(fx: Fixture): Promise<void> {
-  await rm(fx.base, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }).catch(
+  await rmrfAsync(fx.base).catch(
     () => {},
   );
 }

@@ -28,6 +28,7 @@ import { handleWorkflow } from '../../workflow/composite.js';
 import { handleInit } from '../../workflow/tools.js';
 import { EventStore } from '../../event-store/store.js';
 import type { DispatchContext } from '../../core/dispatch.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 describe('IdeateFlow_E2E (Wave 5 / Task 5.5, #1341)', () => {
   let tmpDir: string;
@@ -43,7 +44,7 @@ describe('IdeateFlow_E2E (Wave 5 / Task 5.5, #1341)', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   it('IdeateFlow_UpdatesArtifactsPlanViaUpdateAction', async () => {

@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, readdir } from 'node:fs/promises';
+import { mkdtemp, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
 import { AtomicAppender } from './atomic-appender.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 /**
  * AtomicAppender — SQLite-backed body acceptance test (T05).
@@ -30,7 +31,7 @@ describe('AtomicAppender_SqliteBackend_DropsInBehindExistingInterface', () => {
   });
 
   afterEach(async () => {
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   // ─── AppendResult shape — success path ───────────────────────────────────

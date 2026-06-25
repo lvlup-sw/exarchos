@@ -9,6 +9,7 @@ import type { ToolResult } from '../format.js';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 describe('withTelemetry', () => {
   let tmpDir: string;
@@ -20,7 +21,7 @@ describe('withTelemetry', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   describe('successful handler', () => {
@@ -251,7 +252,7 @@ describe('createInstrumentedRegistrar', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   it('should return a function', () => {
@@ -302,7 +303,7 @@ describe('auto-correction integration', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   /** Helper: creates ToolMetrics with specified overrides. */
@@ -408,7 +409,7 @@ describe('D3 token-budget gate emission', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   it('withTelemetry_TokenThresholdExceeded_EmitsGateExecutedForD3', async () => {

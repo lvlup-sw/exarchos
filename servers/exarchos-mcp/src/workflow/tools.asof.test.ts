@@ -10,6 +10,7 @@ import {
   workflowStateProjection,
   WORKFLOW_STATE_VIEW,
 } from '../views/workflow-state-projection.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // ─── T7 (#1555) — `asOf` dispatch-core wiring for `handleGet` ────────────────
 //
@@ -72,7 +73,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   configureWorkflowMaterializer(null);
-  await fs.rm(tmpDir, { recursive: true, force: true });
+  await rmrfAsync(tmpDir);
 });
 
 describe('handleGet asOf (T7, #1555)', () => {

@@ -8,6 +8,7 @@ import {
   type DrainResult,
   type PeriodicMergeHandle,
 } from './sidecar-scheduler.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -48,7 +49,7 @@ describe('startPeriodicMerge', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await rmrfAsync(tempDir);
   });
 
   // ─── Test 1: Returns cleanup handle ──────────────────────────────────────

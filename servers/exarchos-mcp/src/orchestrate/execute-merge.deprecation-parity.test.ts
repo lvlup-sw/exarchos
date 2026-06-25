@@ -28,7 +28,7 @@
  */
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { mkdtemp, rm, mkdir } from 'node:fs/promises';
+import { mkdtemp, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -46,6 +46,7 @@ import { handleExecuteMerge, type HandleExecuteMergeInput } from './execute-merg
 import type { MergePreflightResult } from './pure/merge-preflight.js';
 import type { GitExec } from './pure/execute-merge.js';
 import '../projections/merge-orchestrator/index.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -200,7 +201,7 @@ describe('merge.recovered deprecation envelope CLI↔MCP parity (#1306 T4)', () 
     restoreStub?.();
     restoreStub = null;
     for (const arm of arms) {
-      await rm(arm.stateDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+      await rmrfAsync(arm.stateDir);
     }
     arms = [];
     vi.restoreAllMocks();

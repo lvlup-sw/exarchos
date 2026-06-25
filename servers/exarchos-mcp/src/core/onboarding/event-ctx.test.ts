@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -17,6 +17,7 @@ import type { DispatchContext } from '../dispatch.js';
 import { ONBOARD_STREAM_ID } from '../infra-streams.js';
 import { buildOnboardEventCtx } from './event-ctx.js';
 import type { OnboardExecuted, OnboardRequested } from '../../event-store/schemas.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 interface Fixture {
   readonly base: string;
@@ -54,7 +55,7 @@ describe('buildOnboardEventCtx (shared seam, RF-3 #1510)', () => {
   });
 
   afterEach(async () => {
-    await rm(fx.base, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }).catch(
+    await rmrfAsync(fx.base).catch(
       () => {},
     );
   });

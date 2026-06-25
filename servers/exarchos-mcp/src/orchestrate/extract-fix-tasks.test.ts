@@ -308,6 +308,7 @@ describe('handleExtractFixTasks', () => {
 
     const result = await handleExtractFixTasks({ featureId, eventStore });
 
+    eventStore.close();
     await fsPromises.rm(eventStoreDir, { recursive: true, force: true });
 
     // Must NOT fail with FILE_NOT_FOUND / PARSE_ERROR.
@@ -346,6 +347,7 @@ describe('handleExtractFixTasks', () => {
       eventStore,
     });
 
+    eventStore.close();
     await fsPromises.rm(eventStoreDir, { recursive: true, force: true });
 
     expect(result.success).toBe(false);
@@ -390,6 +392,7 @@ describe('handleExtractFixTasks', () => {
       eventStore,
     });
 
+    eventStore.close();
     await fsPromises.rm(eventStoreDir, { recursive: true, force: true });
 
     expect(result.success).toBe(true);

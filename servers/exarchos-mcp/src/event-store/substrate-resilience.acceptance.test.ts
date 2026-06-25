@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
 import { AtomicAppender } from './atomic-appender.js';
 import { SqliteBackend } from '../storage/sqlite-backend.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 /**
  * Substrate failure-mode acceptance (T08, DR-12).
@@ -38,7 +39,7 @@ describe('Substrate_FailureModeCoverage_AllPathsExplicitAndObservable', () => {
   });
 
   afterEach(async () => {
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   /**

@@ -35,6 +35,7 @@ import {
 } from '../../workflow/state-store.js';
 import { ErrorCode } from '../../workflow/schemas.js';
 import { EventStore } from '../../event-store/store.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 let tmpDir: string;
 
@@ -43,7 +44,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmpDir, { recursive: true, force: true });
+  await rmrfAsync(tmpDir);
 });
 
 describe('State Store', () => {
@@ -654,7 +655,11 @@ describe('State Store', () => {
       }
     });
 
-    it('should not leave temp files behind after write failure', async () => {
+    // chmod(0o444) on a directory does not block file creation for the owner on
+    // Windows, so the write succeeds and never throws there. The production
+    // temp-file-cleanup-on-failure behavior is platform-agnostic; only this
+    // read-only-dir way of forcing the failure is POSIX-specific. (#1620)
+    it.skipIf(process.platform === 'win32')('should not leave temp files behind after write failure', async () => {
       const { state } = await initStateFile(tmpDir, 'cleanup-test', 'feature');
 
       // Write to a read-only directory to cause rename failure
@@ -681,7 +686,9 @@ describe('State Store', () => {
   });
 
   describe('initStateFile_WriteFailsNonEEXIST_ThrowsFileIOError', () => {
-    it('should throw StateStoreError with FILE_IO_ERROR when writeFile fails with non-EEXIST error', async () => {
+    // POSIX-only: a read-only dir (chmod 0o444) does not block writes for the
+    // owner on Windows, so writeFile never fails there. (#1620)
+    it.skipIf(process.platform === 'win32')('should throw StateStoreError with FILE_IO_ERROR when writeFile fails with non-EEXIST error', async () => {
       // Create a read-only directory so writeFile fails with EACCES, not EEXIST
       const readOnlyDir = path.join(tmpDir, 'readonly-dir');
       await fs.mkdir(readOnlyDir);

@@ -1,7 +1,7 @@
 // ─── check_contract_drift registration + dispatch + steer (task 023) ──────────
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -51,7 +51,7 @@ async function makeArm(prefix: string): Promise<Arm> {
 describe('check_contract_drift registration + dispatch + steer', () => {
   const arms: Arm[] = [];
   afterEach(() => {
-    for (const a of arms.splice(0)) rmSync(a.stateDir, { recursive: true, force: true });
+    for (const a of arms.splice(0)) rmrf(a.stateDir);
   });
 
   it('CheckContractDrift_Registration_DoesNotThrow', () => {
@@ -130,6 +130,7 @@ describe('check_contract_drift registration + dispatch + steer', () => {
 // ─── helper: a temp repo wiring a resolvable contract via .exarchos.yml ───────
 
 import { writeFileSync, mkdirSync } from 'node:fs';
+import { rmrf } from '../test-helpers/temp-dir.js';
 
 const _repos: string[] = [];
 function contractRepo(): string {
@@ -146,5 +147,5 @@ function contractRepo(): string {
 }
 
 afterEach(() => {
-  for (const d of _repos.splice(0)) rmSync(d, { recursive: true, force: true });
+  for (const d of _repos.splice(0)) rmrf(d);
 });

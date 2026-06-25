@@ -11,6 +11,7 @@ import type { ProjectionReducer } from './types.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import { EventStore } from '../event-store/store.js';
 import { InMemoryBackend } from '../storage/memory-backend.js';
+import { rmrf } from '../test-helpers/temp-dir.js';
 
 /**
  * Pre-#1343 these read/write/prune describe blocks tested the JSONL-sidecar
@@ -155,7 +156,7 @@ describe('projection snapshot store — appendSnapshot backend delegation (A3.2)
   });
 
   afterEach(() => {
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    rmrf(stateDir);
   });
 
   it('ProjectionsStore_AppendSnapshot_AppendsRecordAndEnforcesSizeCap', () => {
@@ -260,7 +261,7 @@ describe('readProjection<T>(reducerId) — global fold (Wave 2A.6, #1284)', () =
   });
 
   afterEach(() => {
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    rmrf(stateDir);
   });
 
   it('ReadProjection_FoldsGlobalProjectionFromColdFold_WhenNoSnapshot', async () => {

@@ -33,6 +33,7 @@ import {
 import { handleMergeOrchestrate } from './merge-orchestrate.js';
 import type { MergePreflightResult } from './pure/merge-preflight.js';
 import type { HandleExecuteMergeInput } from './execute-merge.js';
+import { rmrf } from '../test-helpers/temp-dir.js';
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -132,7 +133,7 @@ describe('Wave 4 / Task 4.4 — parity-harness fixture for merge-orchestrate', (
     vi.restoreAllMocks();
     await Promise.all(
       armRoots.splice(0).map((p) =>
-        fs.rm(p, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }),
+        rmrf(p),
       ),
     );
   });

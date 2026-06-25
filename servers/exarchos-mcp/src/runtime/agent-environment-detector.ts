@@ -21,6 +21,7 @@
 
 import { promises as nodeFs } from 'node:fs';
 import * as path from 'node:path';
+import { toPosix } from '../utils/paths.js';
 
 export type AgentRuntimeName =
   | 'claude-code'
@@ -117,7 +118,7 @@ async function probeRuntime(
       configPresent: probed.configPresent,
       configValid: probed.configValid,
       mcpRegistered,
-      skillsDir: path.join(home, '.claude', 'skills'),
+      skillsDir: toPosix(path.join(home, '.claude', 'skills')),
     };
   }
   if (name === 'cursor' || name === 'opencode') {
@@ -131,8 +132,8 @@ async function probeRuntime(
   }
   if (name === 'copilot') {
     // Two documented instruction paths; either signals project targets copilot.
-    const vscode = path.join(cwd, '.vscode', 'copilot-instructions.md');
-    const github = path.join(cwd, '.github', 'copilot-instructions.md');
+    const vscode = toPosix(path.join(cwd, '.vscode', 'copilot-instructions.md'));
+    const github = toPosix(path.join(cwd, '.github', 'copilot-instructions.md'));
     const hit = (await fileExists(fs, vscode)) ? vscode
       : (await fileExists(fs, github)) ? github
       : null;
@@ -189,7 +190,7 @@ async function probeJsonMcpConfig(
  * runtime error.
  */
 async function probeExarchosPluginInstall(fs: DetectorFs, home: string): Promise<boolean> {
-  const installedPluginsPath = path.join(home, '.claude', 'plugins', 'installed_plugins.json');
+  const installedPluginsPath = toPosix(path.join(home, '.claude', 'plugins', 'installed_plugins.json'));
   let raw: string | null;
   try {
     raw = await readOrNull(fs, installedPluginsPath);
@@ -216,7 +217,7 @@ async function probeExarchosPluginInstall(fs: DetectorFs, home: string): Promise
       if (typeof entry !== 'object' || entry === null) continue;
       const installPath = (entry as { installPath?: unknown }).installPath;
       if (typeof installPath !== 'string') continue;
-      const manifestPath = path.join(installPath, '.claude-plugin', 'plugin.json');
+      const manifestPath = toPosix(path.join(installPath, '.claude-plugin', 'plugin.json'));
       if (await manifestWiresExarchosMcp(fs, manifestPath)) return true;
     }
   }
@@ -281,11 +282,13 @@ async function dirExists(fs: DetectorFs, p: string): Promise<boolean> {
 }
 
 function configPathFor(name: AgentRuntimeName, home: string, cwd: string): string {
+  // POSIX-normalize: these paths are compared against config keys / surfaced
+  // in detection results, so they must be separator-agnostic across platforms.
   switch (name) {
-    case 'claude-code': return path.join(home, '.claude.json');
-    case 'cursor':      return path.join(cwd, '.cursor', 'mcp.json');
-    case 'codex':       return path.join(cwd, '.codex');
-    case 'copilot':     return path.join(cwd, '.github', 'copilot-instructions.md');
-    case 'opencode':    return path.join(cwd, '.opencode', 'mcp.json');
+    case 'claude-code': return toPosix(path.join(home, '.claude.json'));
+    case 'cursor':      return toPosix(path.join(cwd, '.cursor', 'mcp.json'));
+    case 'codex':       return toPosix(path.join(cwd, '.codex'));
+    case 'copilot':     return toPosix(path.join(cwd, '.github', 'copilot-instructions.md'));
+    case 'opencode':    return toPosix(path.join(cwd, '.opencode', 'mcp.json'));
   }
 }

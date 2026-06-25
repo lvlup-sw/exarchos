@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, readdir } from 'node:fs/promises';
+import { mkdtemp, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -7,6 +7,7 @@ import { AtomicAppender } from './atomic-appender.js';
 import { EventStore } from './store.js';
 import { runWithDispatchContext } from '../dispatch/dispatch-context.js';
 import { SqliteBackend } from '../storage/sqlite-backend.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 /**
  * AtomicAppender — substrate primitive for v2.9 bug cluster (#1230, #1228, #1241).
@@ -36,7 +37,7 @@ describe('AtomicAppender', () => {
   });
 
   afterEach(async () => {
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('AtomicAppender_concurrentAppends_uniqueMonotonicSequences', async () => {
@@ -260,7 +261,7 @@ describe('AtomicAppender correlation column persistence (#1437 Wave 3)', () => {
   });
 
   afterEach(async () => {
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('AtomicAppender_AppendEvent_PopulatesCorrelationColumnsFromPayload', async () => {

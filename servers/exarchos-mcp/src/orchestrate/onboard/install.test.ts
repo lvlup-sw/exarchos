@@ -24,7 +24,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir, readdir, readFile } from 'node:fs/promises';
+import { mkdtemp, writeFile, mkdir, readdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -43,6 +43,7 @@ import {
   defaultOnboardDeps,
 } from './index.js';
 import { makeInstallStep, type InstallStepDeps } from './install.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -83,7 +84,7 @@ async function createFixture(): Promise<Fixture> {
 }
 
 async function cleanup(fx: Fixture): Promise<void> {
-  await rm(fx.base, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }).catch(
+  await rmrfAsync(fx.base).catch(
     () => {},
   );
 }

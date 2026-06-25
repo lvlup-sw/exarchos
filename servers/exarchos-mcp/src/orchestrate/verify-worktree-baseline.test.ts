@@ -27,7 +27,7 @@ describe('handleVerifyWorktreeBaseline', () => {
 
   it('NodeProject_TestsPass_ReturnsPassedTrue', async () => {
     vi.mocked(existsSync).mockImplementation((p) => {
-      const s = String(p);
+      const s = String(p).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
       if (s === '/worktree') return true;
       if (s === '/worktree/package.json') return true;
       return false;
@@ -51,7 +51,7 @@ describe('handleVerifyWorktreeBaseline', () => {
 
   it('DotNetProject_TestsPass_ReturnsPassedTrue', async () => {
     vi.mocked(existsSync).mockImplementation((p) => {
-      const s = String(p);
+      const s = String(p).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
       if (s === '/worktree') return true;
       return false;
     });
@@ -69,7 +69,7 @@ describe('handleVerifyWorktreeBaseline', () => {
 
   it('RustProject_TestsPass_ReturnsPassedTrue', async () => {
     vi.mocked(existsSync).mockImplementation((p) => {
-      const s = String(p);
+      const s = String(p).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
       if (s === '/worktree') return true;
       if (s === '/worktree/Cargo.toml') return true;
       return false;
@@ -88,7 +88,7 @@ describe('handleVerifyWorktreeBaseline', () => {
 
   it('UnknownProjectType_ReturnsError', async () => {
     vi.mocked(existsSync).mockImplementation((p) => {
-      const s = String(p);
+      const s = String(p).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
       if (s === '/worktree') return true;
       return false;
     });
@@ -103,7 +103,7 @@ describe('handleVerifyWorktreeBaseline', () => {
 
   it('TestsFail_ReturnsPassedFalse', async () => {
     vi.mocked(existsSync).mockImplementation((p) => {
-      const s = String(p);
+      const s = String(p).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
       if (s === '/worktree') return true;
       if (s === '/worktree/package.json') return true;
       return false;
@@ -173,7 +173,7 @@ describe('handleVerifyWorktreeBaseline', () => {
     // only) returned UNKNOWN_PROJECT_TYPE. The unified resolver now detects
     // it and selects pytest.
     vi.mocked(existsSync).mockImplementation((p) => {
-      const s = String(p);
+      const s = String(p).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
       if (s === '/worktree') return true;
       if (s === '/worktree/pyproject.toml') return true;
       return false;
@@ -197,7 +197,7 @@ describe('handleVerifyWorktreeBaseline', () => {
 
   it('detectProjectType_BunProject_ReturnsBunTest', async () => {
     vi.mocked(existsSync).mockImplementation((p) => {
-      const s = String(p);
+      const s = String(p).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
       if (s === '/worktree') return true;
       if (s === '/worktree/package.json') return true;
       if (s === '/worktree/bun.lockb') return true;
@@ -229,7 +229,10 @@ describe('handleVerifyWorktreeBaseline', () => {
   // Basileus-forward configuration path the resolver was added to enable.
   it('ConfigSourcedTestCommand_KnownRunner_HonoredByHandler', async () => {
     vi.mocked(existsSync).mockImplementation((p) => {
-      const s = String(p);
+      // loadExarchosConfig resolves the .exarchos.yml path (resolve() prefixes
+      // the drive + emits backslashes on Windows); strip both so these posix
+      // mock keys still match. (#1620)
+      const s = String(p).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
       if (s === '/worktree') return true;
       // No detection markers; the only signal comes from .exarchos.yml.
       if (s === '/worktree/.exarchos.yml') return true;
@@ -259,7 +262,7 @@ describe('handleVerifyWorktreeBaseline', () => {
 
   it('ConfigSourcedTestCommand_UnknownRunner_GetsConfiguredLabel', async () => {
     vi.mocked(existsSync).mockImplementation((p) => {
-      const s = String(p);
+      const s = String(p).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
       if (s === '/worktree') return true;
       if (s === '/worktree/.exarchos.yml') return true;
       return false;
@@ -300,7 +303,7 @@ describe('handleVerifyWorktreeBaseline', () => {
     const SHARED_BLOB = 'export const leaked = true;\n';
 
     vi.mocked(existsSync).mockImplementation((p) => {
-      const s = String(p);
+      const s = String(p).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
       if (s === '/worktree') return true;
       if (s === '/worktree/package.json') return true;
       return false;
@@ -369,7 +372,7 @@ describe('handleVerifyWorktreeBaseline', () => {
     const NEW_PATH = 'src/renamed-leak.ts';
 
     vi.mocked(existsSync).mockImplementation((p) => {
-      const s = String(p);
+      const s = String(p).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
       if (s === '/worktree') return true;
       if (s === '/worktree/package.json') return true;
       return false;
@@ -423,7 +426,7 @@ describe('handleVerifyWorktreeBaseline', () => {
     const DIRTY_PATH = 'src/local-wip.ts';
 
     vi.mocked(existsSync).mockImplementation((p) => {
-      const s = String(p);
+      const s = String(p).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
       if (s === '/worktree') return true;
       if (s === '/worktree/package.json') return true;
       return false;
@@ -472,7 +475,7 @@ describe('handleVerifyWorktreeBaseline', () => {
 
   it('detectProjectType_PnpmProject_ReturnsPnpmTest', async () => {
     vi.mocked(existsSync).mockImplementation((p) => {
-      const s = String(p);
+      const s = String(p).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
       if (s === '/worktree') return true;
       if (s === '/worktree/package.json') return true;
       if (s === '/worktree/pnpm-lock.yaml') return true;

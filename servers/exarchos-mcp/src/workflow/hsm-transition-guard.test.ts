@@ -21,6 +21,7 @@ import { DefaultHSMTransitionGuard, buildHsmEventData } from './hsm-transition-g
 import { EventStore } from '../event-store/store.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import { EVENT_DATA_SCHEMAS } from '../event-store/schemas.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 let tmpDir: string;
 const featureId = 'hsm-guard-test';
@@ -30,7 +31,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmpDir, { recursive: true, force: true });
+  await rmrfAsync(tmpDir);
 });
 
 /**

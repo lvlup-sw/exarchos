@@ -32,6 +32,7 @@ import * as os from 'node:os';
 import { EventStore } from './store.js';
 import { buildValidatedEvent } from './event-factory.js';
 import type { WorkflowEvent } from './schemas.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // ─── Test Harness ───────────────────────────────────────────────────────────
 
@@ -48,7 +49,7 @@ describe('DR-5: concurrent CLI append safety', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('ConcurrentCliEventAppend_SameFeatureId_ProducesConsistentStore', async () => {

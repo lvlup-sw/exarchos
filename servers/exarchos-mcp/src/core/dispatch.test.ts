@@ -19,6 +19,7 @@ import type { DispatchContext } from './dispatch.js';
 import { extractSingleMissingRequiredField } from './dispatch.js';
 import { InMemoryBackend } from '../storage/memory-backend.js';
 import type { StorageBackend } from '../storage/backend.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 describe('dispatch', () => {
   let tmpDir: string;
@@ -31,7 +32,7 @@ describe('dispatch', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    await rmrfAsync(tmpDir);
   });
 
   // ─── T15 (DR-2) — DispatchContext.storage field ─────────────────────────

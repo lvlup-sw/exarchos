@@ -39,6 +39,7 @@ import {
   normalize as harnessNormalize,
   UUID_ANY_RE,
 } from '../__tests__/parity-harness.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -62,7 +63,7 @@ async function setupCtx(): Promise<RunArtifacts> {
 }
 
 async function cleanupCtx(artifacts: RunArtifacts): Promise<void> {
-  await fs.rm(artifacts.tmpDir, { recursive: true, force: true });
+  await rmrfAsync(artifacts.tmpDir);
 }
 
 // ─── Adapter call helpers ──────────────────────────────────────────────────

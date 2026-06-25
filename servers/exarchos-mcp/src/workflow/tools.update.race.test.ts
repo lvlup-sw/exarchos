@@ -27,6 +27,7 @@ import { EventStore } from '../event-store/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { SqliteBackend } from '../storage/sqlite-backend.js';
 import { configureStateStoreBackend } from './state-store.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 let tmpDir: string;
 let backend: SqliteBackend;
@@ -62,7 +63,7 @@ afterEach(async () => {
   // test that re-imports state-store doesn't observe a half-closed
   // handle. The cast matches the existing pattern in state-store tests.
   configureStateStoreBackend(undefined as unknown as SqliteBackend);
-  await fs.rm(tmpDir, { recursive: true, force: true });
+  await rmrfAsync(tmpDir);
 });
 
 describe('exarchos_workflow.update — concurrency (Wave 0, Task 0.5)', () => {

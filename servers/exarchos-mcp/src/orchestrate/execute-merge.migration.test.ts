@@ -29,6 +29,7 @@ import type { DispatchContext } from '../core/dispatch.js';
 
 import { handleExecuteMerge } from './execute-merge.js';
 import '../projections/merge-orchestrator/index.js';
+import { rmrf } from '../test-helpers/temp-dir.js';
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -70,7 +71,7 @@ function makeGitExec() {
 
 afterAll(async () => {
   await Promise.all(
-    scratchRoots.map((p) => fs.rm(p, { recursive: true, force: true })),
+    scratchRoots.map((p) => rmrf(p)),
   );
 });
 

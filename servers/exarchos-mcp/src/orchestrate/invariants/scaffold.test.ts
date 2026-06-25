@@ -15,6 +15,7 @@ import path from 'node:path';
 import { handleScaffold, renderStarterCatalog } from './scaffold.js';
 import type { ScaffoldDeps } from './scaffold.js';
 import { loadInvariants } from '../../architecture/invariants-loader.js';
+import { rmrf } from '../../test-helpers/temp-dir.js';
 
 // ─── In-memory fs harness ────────────────────────────────────────────────────
 
@@ -176,7 +177,7 @@ describe('renderStarterCatalog → loadInvariants round-trip (#1487)', () => {
         // A pristine scaffold has only the COMMENTED worked example → empty.
         expect(entries).toEqual([]);
       } finally {
-        fs.rmSync(dir, { recursive: true, force: true });
+        rmrf(dir);
       }
     },
   );

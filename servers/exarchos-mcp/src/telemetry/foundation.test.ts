@@ -4,6 +4,7 @@ import { TELEMETRY_STREAM } from './constants.js';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 describe('Telemetry Event Types', () => {
   let tmpDir: string;
@@ -15,7 +16,7 @@ describe('Telemetry Event Types', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   it('should accept tool.invoked event to telemetry stream', async () => {

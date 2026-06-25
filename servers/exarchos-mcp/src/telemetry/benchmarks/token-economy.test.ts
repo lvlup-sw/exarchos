@@ -7,6 +7,7 @@ import { handleViewTelemetry } from '../tools.js';
 import { withTelemetry } from '../middleware.js';
 import { resetMaterializerCache } from '../../views/tools.js';
 import { TELEMETRY_STREAM } from '../constants.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 describe('Token Economy Benchmarks', () => {
   let stateDir: string;
@@ -19,7 +20,7 @@ describe('Token Economy Benchmarks', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('telemetry view compact response should be under 400 tokens for 5 tools', async () => {

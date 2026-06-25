@@ -1,6 +1,6 @@
 import { Database, type Statement } from 'bun:sqlite';
 import { readdirSync, readFileSync } from 'node:fs';
-import { dirname, join, basename } from 'node:path';
+import { dirname, join, basename, resolve, relative, isAbsolute } from 'node:path';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import type { WorkflowState } from '../workflow/types.js';
 import type { QueryFilters } from '../event-store/store.js';
@@ -371,6 +371,46 @@ export class SqliteBackend implements StorageBackend {
   private stmts!: Statements;
   private outboxIdCounter = 0;
 
+  /**
+   * Whether {@link close} has run. Guards against a double `db.close()`,
+   * which throws ("database is not open") on the underlying driver — so
+   * `close()` is safely idempotent for repeated test-teardown calls.
+   */
+  private closed = false;
+
+  /**
+   * Process-wide registry of currently-open backends, keyed by identity.
+   * A backend adds itself once its handle is open (see {@link initialize})
+   * and removes itself in {@link close}. Two uses:
+   *   1. Graceful shutdown — release every live SQLite handle in one call.
+   *   2. Windows-safe test teardown — {@link closeOpenUnder} lets `rmrf()`
+   *      release a handle that was opened deep inside a production call the
+   *      test never named, so the temp dir can be removed (NTFS forbids
+   *      unlinking a file with an open handle).
+   * Bounded: entries are removed on close, so size tracks live handles only.
+   */
+  private static readonly openInstances = new Set<SqliteBackend>();
+
+  /**
+   * Close every currently-open backend whose database file lives under `dir`
+   * (path-prefix match, resolved cross-platform). Idempotent and
+   * best-effort. Used by the `rmrf()` test helper before removing a temp dir.
+   */
+  static closeOpenUnder(dir: string): void {
+    const root = resolve(dir);
+    for (const backend of [...SqliteBackend.openInstances]) {
+      const rel = relative(root, resolve(backend.dbPath));
+      if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))) {
+        backend.close();
+      }
+    }
+  }
+
+  /** Count of currently-open backends — leak diagnostics / shutdown checks. */
+  static openHandleCount(): number {
+    return SqliteBackend.openInstances.size;
+  }
+
   /** Cache for dynamically built prepared statements (queryEvents). Key = SQL string. */
   private queryStmtCache: Map<string, Statement> = new Map();
 
@@ -429,6 +469,10 @@ export class SqliteBackend implements StorageBackend {
   initialize(): void {
     try {
       this.db = new Database(this.dbPath);
+      // Track the live handle from the moment it opens, so a partial-init
+      // failure below still leaves a closeable, registered handle (rather
+      // than a leak that locks the file on Windows).
+      SqliteBackend.openInstances.add(this);
 
       // Tune the connection for concurrent read/write (WAL, NORMAL sync) and
       // read-heavy access patterns (256 MB memory-mapped I/O).
@@ -484,11 +528,9 @@ export class SqliteBackend implements StorageBackend {
       // Best-effort close of any partially-opened handle so the malformed
       // file isn't left locked against an operator's recovery tooling.
       if (isSqliteCorrupt(err)) {
-        try {
-          this.db?.close();
-        } catch {
-          // ignore — we're already throwing the structured error
-        }
+        // close() deregisters + closes idempotently (swallows driver errors),
+        // so the malformed file isn't left locked against recovery tooling.
+        this.close();
         throw new SqliteCorruptError(
           this.dbPath,
           err instanceof Error ? err : new Error(String(err)),
@@ -499,9 +541,19 @@ export class SqliteBackend implements StorageBackend {
   }
 
   close(): void {
-    if (this.db) {
-      this.db.close();
+    if (this.closed) return;
+    this.closed = true;
+    SqliteBackend.openInstances.delete(this);
+    // `db` is definite-assignment (`db!`); the try/catch also makes a double
+    // close (or a never-opened handle) a no-op rather than a driver throw.
+    try {
+      this.db?.close();
+    } catch {
+      // already closed / never opened — close is best-effort and idempotent
     }
+    // Prepared statements are invalid once the connection is closed; drop the
+    // cache so a stale handle can't be reused after close.
+    this.queryStmtCache.clear();
   }
 
   /**

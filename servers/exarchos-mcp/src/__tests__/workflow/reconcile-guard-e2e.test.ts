@@ -10,6 +10,7 @@ import {
 import { reconcileFromEvents } from '../../workflow/state-store.js';
 import { EventStore } from '../../event-store/store.js';
 import type { EventType } from '../../event-store/schemas.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 describe('ReconcileGuardE2E', () => {
   let stateDir: string;
@@ -22,7 +23,7 @@ describe('ReconcileGuardE2E', () => {
 
   afterEach(async () => {
     configureWorkflowMaterializer(null);
-    await fs.rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   /**

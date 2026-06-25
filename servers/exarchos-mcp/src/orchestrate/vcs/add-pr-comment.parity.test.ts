@@ -21,7 +21,7 @@
  */
 
 import { describe, it, expect, afterEach, vi, beforeAll } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -44,6 +44,7 @@ vi.mock('../../vcs/factory.js', () => ({
 
 import { createVcsProvider } from '../../vcs/factory.js';
 import { handleAddPrComment } from './add-pr-comment.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 // ─── Deterministic VCS provider stub ─────────────────────────────────────────
 
@@ -177,7 +178,7 @@ describe('exarchos add_pr_comment CLI↔MCP parity (Wave B / B2.5)', () => {
     restoreStub?.();
     restoreStub = null;
     for (const arm of arms) {
-      await rm(arm.stateDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+      await rmrfAsync(arm.stateDir);
     }
     arms = [];
     vi.clearAllMocks();

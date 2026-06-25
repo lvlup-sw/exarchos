@@ -277,6 +277,28 @@ export class EventStore {
     this.initialized = true;
   }
 
+  /**
+   * Release the storage handles held by this store.
+   *
+   * Idempotent and synchronous. Closes the lazily-created AtomicAppender's
+   * SQLite backend (and any injected read backend), releasing the
+   * `exarchos.db` / `-wal` / `-shm` OS file handles.
+   *
+   * This is the portable test-teardown contract: on Windows (NTFS) an open
+   * SQLite handle blocks `fs.rm` of the temp `stateDir` with EPERM/EBUSY,
+   * whereas POSIX permits unlinking an open file. A test that constructs an
+   * EventStore against a temp directory MUST `close()` it before removing
+   * that directory. Closing does not affect durability — every append is
+   * already committed to the WAL substrate before its promise resolves
+   * (INV-1); `close()` only releases the live connection.
+   */
+  close(): void {
+    this.atomicAppender?.close();
+    this.atomicAppender = undefined;
+    this.backend?.close();
+    this.initialized = false;
+  }
+
   async append(
     streamId: string,
     event: Partial<Omit<WorkflowEvent, 'sequence' | 'streamId'>> & { type: string },

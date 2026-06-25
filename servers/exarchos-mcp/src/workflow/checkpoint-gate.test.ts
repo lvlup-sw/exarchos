@@ -8,6 +8,7 @@ import type { WorkflowState } from './types.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 import { DEFAULTS } from '../config/resolve.js';
 import { EventStore } from '../event-store/store.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // ─── Checkpoint Gate Integration (Task 017) ──────────────────────────────────
 //
@@ -21,7 +22,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmpDir, { recursive: true, force: true });
+  await rmrfAsync(tmpDir);
 });
 
 /** Build a minimal options object that includes checkpoint config. */

@@ -12,6 +12,7 @@ import {
   type ElicitationClient,
 } from './elicitation-dispatch.js';
 import { dispatch, stubCompositeHandler } from '../core/dispatch.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 describe('elicitation-dispatch (#1274)', () => {
   let tmpDir: string;
@@ -24,7 +25,7 @@ describe('elicitation-dispatch (#1274)', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    await rmrfAsync(tmpDir);
   });
 
   it('Dispatch_MissingRequiredParamWithElicitation_SendsElicitationCreate', async () => {

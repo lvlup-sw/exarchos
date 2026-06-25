@@ -24,6 +24,7 @@ import type { ToolAction, CompositeTool, ActionAnnotations } from './registry.js
 import { wrap, wrapError } from './format.js';
 import { zodToJsonSchema } from './adapters/json-schema.js';
 import { ConcurrencyError } from './event-store/concurrency-error.js';
+import { rmrfAsync } from './test-helpers/temp-dir.js';
 
 describe('buildCompositeSchema', () => {
   it('should create a discriminated union from two actions', () => {
@@ -908,7 +909,7 @@ describe('TOOL_REGISTRY', () => {
         ).not.toBe('UNKNOWN_ACTION');
       }
     } finally {
-      await rm(base, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }).catch(
+      await rmrfAsync(base).catch(
         () => {},
       );
     }

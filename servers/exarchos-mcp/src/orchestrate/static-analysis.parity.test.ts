@@ -26,7 +26,7 @@
  */
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -49,6 +49,7 @@ import {
 } from '../__tests__/parity-harness.js';
 
 import { handleStaticAnalysis } from './static-analysis.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -167,7 +168,7 @@ describe('exarchos check_static_analysis CLI↔MCP parity (#1330, INV-2)', () =>
     restoreStub?.();
     restoreStub = null;
     for (const arm of arms) {
-      await rm(arm.stateDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+      await rmrfAsync(arm.stateDir);
     }
     arms = [];
     vi.restoreAllMocks();

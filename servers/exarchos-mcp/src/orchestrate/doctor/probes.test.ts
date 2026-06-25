@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import type { DispatchContext } from '../../core/dispatch.js';
 import { buildProbes, resolveInvariantsCatalog } from './probes.js';
 import { ReservedNamespaceError } from '../../architecture/catalog-merge.js';
+import { rmrf } from '../../test-helpers/temp-dir.js';
 
 /** Minimal DispatchContext fake. Only fields buildProbes reads are set. */
 function fakeContext(overrides: Partial<DispatchContext> = {}): DispatchContext {
@@ -99,7 +100,11 @@ describe('buildProbes invariants.resolve — cwd-relative root resolution (#1482
       expect(result.configured).toBe(false);
       expect(result.warnings).toEqual([]);
     } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
+      // Leave `tmp` before removing it: on Windows the process CWD is locked,
+      // so `rmrf(tmp)` while still chdir'd into it throws EPERM (the afterEach
+      // chdir-back runs too late — after this finally).
+      process.chdir(originalCwd);
+      rmrf(tmp);
     }
   });
 
@@ -125,7 +130,11 @@ describe('buildProbes invariants.resolve — cwd-relative root resolution (#1482
       expect(result.configured).toBe(true);
       expect(result.warnings).toEqual([]);
     } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
+      // Leave `tmp` before removing it: on Windows the process CWD is locked,
+      // so `rmrf(tmp)` while still chdir'd into it throws EPERM (the afterEach
+      // chdir-back runs too late — after this finally).
+      process.chdir(originalCwd);
+      rmrf(tmp);
     }
   });
 
@@ -172,7 +181,11 @@ describe('buildProbes invariants.resolve — cwd-relative root resolution (#1482
       );
       expect(advisory).toBeDefined();
     } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
+      // Leave `tmp` before removing it: on Windows the process CWD is locked,
+      // so `rmrf(tmp)` while still chdir'd into it throws EPERM (the afterEach
+      // chdir-back runs too late — after this finally).
+      process.chdir(originalCwd);
+      rmrf(tmp);
     }
   });
 
@@ -198,7 +211,11 @@ describe('buildProbes invariants.resolve — cwd-relative root resolution (#1482
       const advisory = result.warnings.find((w) => w.includes('SDLC-77'));
       expect(advisory).toBeDefined();
     } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
+      // Leave `tmp` before removing it: on Windows the process CWD is locked,
+      // so `rmrf(tmp)` while still chdir'd into it throws EPERM (the afterEach
+      // chdir-back runs too late — after this finally).
+      process.chdir(originalCwd);
+      rmrf(tmp);
     }
   });
 });

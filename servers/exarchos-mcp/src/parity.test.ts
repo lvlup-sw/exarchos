@@ -39,6 +39,7 @@ import {
   normalize as harnessNormalize,
   UUID_ANY_RE,
 } from './__tests__/parity-harness.js';
+import { rmrfAsync } from './test-helpers/temp-dir.js';
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -56,7 +57,7 @@ async function makeArm(label: string): Promise<ParityArm> {
 }
 
 async function teardownArm(arm: ParityArm): Promise<void> {
-  await fs.rm(arm.stateDir, { recursive: true, force: true });
+  await rmrfAsync(arm.stateDir);
 }
 
 // ─── Normalization ─────────────────────────────────────────────────────────

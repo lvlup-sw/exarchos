@@ -12,6 +12,7 @@
  */
 
 import { join } from 'node:path';
+import { toPosix } from '../utils/paths.js';
 import { promises as nodeFs } from 'node:fs';
 import type { AgentRuntimeName } from './agent-environment-detector.js';
 
@@ -115,8 +116,8 @@ async function emitCopilotShim(
   projectRoot: string,
   fs: ShimEmitterFs,
 ): Promise<CommandShimResult> {
-  const dir = join(projectRoot, '.github');
-  const filePath = join(dir, 'copilot-instructions.md');
+  const dir = toPosix(join(projectRoot, '.github'));
+  const filePath = toPosix(join(dir, 'copilot-instructions.md'));
 
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(filePath, renderCommandTable());
@@ -133,8 +134,8 @@ async function emitCursorShim(
   projectRoot: string,
   fs: ShimEmitterFs,
 ): Promise<CommandShimResult> {
-  const dir = join(projectRoot, '.cursor', 'rules');
-  const filePath = join(dir, 'exarchos-commands.md');
+  const dir = toPosix(join(projectRoot, '.cursor', 'rules'));
+  const filePath = toPosix(join(dir, 'exarchos-commands.md'));
 
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(filePath, renderCommandTable());

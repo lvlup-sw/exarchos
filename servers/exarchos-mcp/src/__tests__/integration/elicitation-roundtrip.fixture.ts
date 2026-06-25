@@ -242,6 +242,11 @@ export async function createElicitationTestPair(
         throw err;
       }
     }
+    // Release the SQLite handle before removing the dir: on Windows (NTFS) an
+    // open handle blocks unlink of exarchos.db (EBUSY). EventStore.close() is
+    // idempotent; the `:memory:`-mode gap the header notes is moot once the
+    // handle is closed.
+    eventStore.close();
     await fs.rm(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   };
 

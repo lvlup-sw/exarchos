@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { EventStore } from '../../event-store/store.js';
 import {
@@ -11,6 +11,7 @@ import {
   resetMaterializerCache,
   getOrCreateMaterializer,
 } from '../../views/tools.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 let tempDir: string;
 let store: EventStore;
@@ -23,7 +24,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   resetMaterializerCache();
-  await rm(tempDir, { recursive: true, force: true });
+  await rmrfAsync(tempDir);
 });
 
 // ─── Helper: populate a workflow stream ────────────────────────────────────

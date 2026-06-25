@@ -14,6 +14,7 @@ import {
 } from './feedback.js';
 import { handleWorkflow } from './composite.js';
 import type { DispatchContext } from '../core/dispatch.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // ─── #1319 — feedback action: agent→runtime friction back-channel ────────────
 //
@@ -32,7 +33,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(stateDir, { recursive: true, force: true });
+  await rmrfAsync(stateDir);
 });
 
 /** Options that never touch the real config file or network — the default for

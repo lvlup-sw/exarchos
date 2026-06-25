@@ -12,6 +12,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import * as path from 'node:path';
+import { toPosix } from '../utils/paths.js';
 import * as os from 'node:os';
 import { handlePrepareDelegation } from './prepare-delegation.js';
 import { handleSetupWorktree } from './setup-worktree.js';
@@ -19,6 +20,7 @@ import { handleOrchestrate } from './composite.js';
 import { resetMaterializerCache } from '../views/tools.js';
 import { EventStore } from '../event-store/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 vi.mock('./dispatch-guard.js', () => ({
   validateBranchAncestry: vi.fn().mockResolvedValue({ passed: true, checks: ['ancestry'] }),
@@ -58,7 +60,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   resetMaterializerCache();
-  await fs.rm(tmpDir, { recursive: true, force: true });
+  await rmrfAsync(tmpDir);
 });
 
 async function flushAsyncQueue(ms = 50): Promise<void> {
@@ -239,7 +241,7 @@ describe('ImplementerDispatch_WorktreeEdit_DoesNotAppearInMainWorktree (characte
   });
 
   afterEach(async () => {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await rmrfAsync(repoRoot);
   });
 
   it('resolves the agent write-root strictly inside <repoRoot>/.worktrees/, never the main worktree', () => {
@@ -253,7 +255,9 @@ describe('ImplementerDispatch_WorktreeEdit_DoesNotAppearInMainWorktree (characte
     expect(result.success).toBe(true);
     const data = result.data as { worktreePath: string; passed: boolean };
 
-    const worktreesRoot = path.join(repoRoot, '.worktrees') + path.sep;
+    // handleSetupWorktree returns a POSIX-normalized worktreePath (#1620), so
+    // build the containment prefix the same way rather than with native sep.
+    const worktreesRoot = toPosix(path.join(repoRoot, '.worktrees')) + '/';
     // The write root must be UNDER .worktrees/ — not the repoRoot itself and
     // not a sibling escaping the isolation boundary.
     expect(data.worktreePath.startsWith(worktreesRoot)).toBe(true);

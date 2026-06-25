@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -14,6 +14,7 @@ import {
   type ProjectionRegistry,
 } from '../projections/registry.js';
 import { makeFixtureReducer, seedStream, type FixtureState } from './decide-fixtures.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 /**
  * Wave 3 Tasks 3.8 – 3.10 — `withSession<TState>` imperative-escape-hatch
@@ -49,7 +50,7 @@ describe('withSession<TState> — happy path (Task 3.8)', () => {
   });
 
   afterEach(async () => {
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('WithSession_CommitsAppendedEventsOnResolve', async () => {
@@ -114,7 +115,7 @@ describe('withSession — idempotency-contract gate (Task 3.8a, audit §F1.1)', 
   });
 
   afterEach(async () => {
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('WithSession_RejectsCall_WhenOperationIdAndAllowNonIdempotentBothOmitted', async () => {
@@ -184,7 +185,7 @@ describe('withSession — rolls back on thrown error (Task 3.9)', () => {
   });
 
   afterEach(async () => {
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('WithSession_DoesNotCommit_WhenInnerFunctionThrows', async () => {
@@ -230,7 +231,7 @@ describe('withSession — closes after resolve (Task 3.10)', () => {
   });
 
   afterEach(async () => {
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('Session_ThrowsSessionClosed_WhenAppendedAfterResolve', async () => {

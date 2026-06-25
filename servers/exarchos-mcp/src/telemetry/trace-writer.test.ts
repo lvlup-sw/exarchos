@@ -5,6 +5,7 @@ import * as os from 'node:os';
 import { TraceWriter } from './trace-writer.js';
 import { withTelemetry } from './middleware.js';
 import { EventStore } from '../event-store/store.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -26,7 +27,7 @@ describe('TraceWriter', () => {
 
   afterEach(async () => {
     vi.unstubAllEnvs();
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   it('TraceWriter_SessionScoped_WritesToCorrectFile', async () => {
@@ -123,8 +124,8 @@ describe('withTelemetry trace capture', () => {
 
   afterEach(async () => {
     vi.unstubAllEnvs();
-    await fs.rm(tmpDir, { recursive: true, force: true });
-    await fs.rm(eventStoreDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
+    await rmrfAsync(eventStoreDir);
   });
 
   it('WithTelemetry_CaptureEnabled_WritesTraceEntry', async () => {

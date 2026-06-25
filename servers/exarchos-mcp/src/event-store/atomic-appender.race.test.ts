@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
 import { AtomicAppender } from './atomic-appender.js';
 import { SqliteBackend } from '../storage/sqlite-backend.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 /**
  * AtomicAppender race-condition fixtures (T63, T64).
@@ -32,7 +33,7 @@ describe('AtomicAppender race fixtures', () => {
   });
 
   afterEach(async () => {
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   // ─── T63: lazy SQLite backend init singleton ─────────────────────────────

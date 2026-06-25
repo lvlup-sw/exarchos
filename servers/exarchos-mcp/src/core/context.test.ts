@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // Mock the state-store module to spy on configureStateStoreBackend
 vi.mock('../workflow/state-store.js', async (importOriginal) => {
@@ -30,7 +31,7 @@ describe('initializeContext', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   it('InitializeContext_CreatesEventStore_ConfiguresModules', async () => {
@@ -197,7 +198,7 @@ describe('initializeContext', () => {
     expect(ctx.config?.workflows?.deploy.phases).toEqual(['build', 'ship']);
 
     // Cleanup
-    await fs.rm(projectRoot, { recursive: true, force: true });
+    await rmrfAsync(projectRoot);
   });
 
   it('InitializeContext_WithProjectRootNoConfig_ConfigEmpty', async () => {
@@ -212,7 +213,7 @@ describe('initializeContext', () => {
     expect(ctx.config).toEqual({});
 
     // Cleanup
-    await fs.rm(projectRoot, { recursive: true, force: true });
+    await rmrfAsync(projectRoot);
   });
 
   it('InitializeContext_WithConfigWorkflows_CallsRegisterCustomWorkflows', async () => {
@@ -249,7 +250,7 @@ describe('initializeContext', () => {
     );
 
     // Cleanup
-    await fs.rm(projectRoot, { recursive: true, force: true });
+    await rmrfAsync(projectRoot);
   });
 });
 
@@ -262,7 +263,7 @@ describe('initializeContext — projectConfig (YAML)', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   it('initializeContext_WithProjectRoot_LoadsProjectConfig', async () => {
@@ -286,7 +287,7 @@ describe('initializeContext — projectConfig (YAML)', () => {
       // VCS overridden
       expect(ctx.projectConfig!.vcs.provider).toBe('gitlab');
     } finally {
-      await fs.rm(projectRoot, { recursive: true, force: true });
+      await rmrfAsync(projectRoot);
     }
   });
 
@@ -306,7 +307,7 @@ describe('initializeContext — projectConfig (YAML)', () => {
       expect(ctx.projectConfig!.workflow.maxFixCycles).toBe(3);
       expect(ctx.projectConfig!.tools.commitStyle).toBe('conventional');
     } finally {
-      await fs.rm(projectRoot, { recursive: true, force: true });
+      await rmrfAsync(projectRoot);
     }
   });
 
@@ -333,7 +334,7 @@ describe('initializeContext — projectConfig (YAML)', () => {
       // JS config also loaded
       expect(ctx.config).toBeDefined();
     } finally {
-      await fs.rm(projectRoot, { recursive: true, force: true });
+      await rmrfAsync(projectRoot);
     }
   });
 
@@ -377,7 +378,7 @@ describe('initializeContext — projectConfig (YAML)', () => {
         (COMPOSITE_HANDLERS as Record<string, unknown>)['exarchos_workflow'] = original;
       }
     } finally {
-      await fs.rm(projectRoot, { recursive: true, force: true });
+      await rmrfAsync(projectRoot);
     }
   });
 
@@ -396,7 +397,7 @@ describe('initializeContext — projectConfig (YAML)', () => {
       expect(ctx.vcsProvider).toBeDefined();
       expect(ctx.vcsProvider!.name).toBe('github');
     } finally {
-      await fs.rm(projectRoot, { recursive: true, force: true });
+      await rmrfAsync(projectRoot);
     }
   });
 
@@ -415,7 +416,7 @@ describe('initializeContext — projectConfig (YAML)', () => {
       expect(ctx.vcsProvider).toBeDefined();
       expect(ctx.vcsProvider!.name).toBe('gitlab');
     } finally {
-      await fs.rm(projectRoot, { recursive: true, force: true });
+      await rmrfAsync(projectRoot);
     }
   });
 
@@ -442,7 +443,7 @@ describe('initializeContext — projectConfig (YAML)', () => {
       expect(ctx.hookRunner).toBeDefined();
       expect(typeof ctx.hookRunner).toBe('function');
     } finally {
-      await fs.rm(projectRoot, { recursive: true, force: true });
+      await rmrfAsync(projectRoot);
     }
   });
 
@@ -454,7 +455,6 @@ describe('initializeContext — projectConfig (YAML)', () => {
     expect(ctx.hookRunner).toBeUndefined();
   });
 });
-
 
 // ─── T58 — Topology loader wired at lifecycle start (DR-7) ────────────────────
 //
@@ -486,7 +486,7 @@ describe('initializeContext — topology loader wired at startup (T58, DR-7)', (
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
     const { __resetTopologyCacheForTesting } = await import('../topology/loader.js');
     __resetTopologyCacheForTesting();
   });
@@ -555,7 +555,7 @@ phases:
       // The loader threw → no Topology was cached → accessor still rejects.
       expect(() => getTopology()).toThrow(/load.*before/i);
     } finally {
-      await fs.rm(projectRoot, { recursive: true, force: true });
+      await rmrfAsync(projectRoot);
     }
   });
 
@@ -590,7 +590,7 @@ phases:
       // No topology was loaded — accessor still throws.
       expect(() => getTopology()).toThrow(/load.*before/i);
     } finally {
-      await fs.rm(projectRoot, { recursive: true, force: true });
+      await rmrfAsync(projectRoot);
     }
   });
 });

@@ -19,13 +19,14 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
 import { EventStore } from '../event-store/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { handleOrchestrate } from './composite.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 interface Fixture {
   readonly repoRoot: string;
@@ -69,7 +70,7 @@ describe('handleOrchestrate — onboard dispatch (RF-1 #1510)', () => {
   });
 
   afterEach(async () => {
-    await rm(fx.base, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }).catch(
+    await rmrfAsync(fx.base).catch(
       () => {},
     );
   });

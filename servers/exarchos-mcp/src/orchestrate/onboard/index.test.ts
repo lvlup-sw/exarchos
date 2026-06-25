@@ -23,7 +23,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir, readdir } from 'node:fs/promises';
+import { mkdtemp, writeFile, mkdir, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -35,6 +35,7 @@ import { buildWriterDeps } from '../init/probes.js';
 import type { WriterDeps } from '../init/probes.js';
 
 import { handleOnboard, type HandleOnboardArgs, type OnboardDeps } from './index.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -85,7 +86,7 @@ async function createFixture(declareConfig = true): Promise<Fixture> {
 }
 
 async function cleanup(fx: Fixture): Promise<void> {
-  await rm(fx.base, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }).catch(
+  await rmrfAsync(fx.base).catch(
     () => {},
   );
 }

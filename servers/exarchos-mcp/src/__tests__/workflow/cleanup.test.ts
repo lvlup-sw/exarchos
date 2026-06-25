@@ -8,6 +8,7 @@ import { handleWorkflow } from '../../workflow/composite.js';
 import { EventStore } from '../../event-store/store.js';
 import type { EventStore as EventStoreType } from '../../event-store/store.js';
 import type { DispatchContext } from '../../core/dispatch.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 function makeCtx(stateDir: string): DispatchContext {
   return { stateDir, eventStore: new EventStore(stateDir), enableTelemetry: false };
@@ -21,7 +22,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   vi.restoreAllMocks();
-  await fs.rm(tmpDir, { recursive: true, force: true });
+  await rmrfAsync(tmpDir);
 });
 
 async function readRawState(featureId: string): Promise<Record<string, unknown>> {
@@ -215,7 +216,6 @@ describe('handleCleanup', () => {
         query: vi.fn().mockResolvedValue([]),
       } as unknown as EventStoreType;
 
-
       await handleInit({ featureId: 'cleanup-event-test', workflowType: 'feature' }, tmpDir, null);
       const raw = await readRawState('cleanup-event-test');
       raw.phase = 'review';
@@ -248,7 +248,6 @@ describe('handleCleanup', () => {
         append: vi.fn().mockRejectedValue(new Error('store error')),
         query: vi.fn().mockResolvedValue([]),
       } as unknown as EventStoreType;
-
 
       await handleInit({ featureId: 'cleanup-store-fail', workflowType: 'feature' }, tmpDir, null);
       const raw = await readRawState('cleanup-store-fail');

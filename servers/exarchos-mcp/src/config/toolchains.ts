@@ -22,6 +22,7 @@
 
 import { existsSync, readdirSync } from 'node:fs';
 import * as path from 'node:path';
+import { toPosix } from '../utils/paths.js';
 
 /**
  * Structured contract-verification commands for a schema boundary.
@@ -297,7 +298,7 @@ function markerMatches(
     const ext = marker.slice(1); // '*.csproj' → '.csproj'
     return entries.some((e) => e.endsWith(ext));
   }
-  return existsSync(path.join(repoRoot, marker));
+  return existsSync(toPosix(path.join(repoRoot, marker)));
 }
 
 /**

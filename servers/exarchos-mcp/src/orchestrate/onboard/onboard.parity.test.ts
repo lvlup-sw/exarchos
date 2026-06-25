@@ -34,7 +34,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -52,6 +52,7 @@ import {
   stampOnboardSurface,
   surfaceOnboardCliAdvisory,
 } from '../../adapters/mcp.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -84,7 +85,7 @@ async function createFixture(prefix: string): Promise<Fixture> {
 }
 
 async function cleanup(fx: Fixture): Promise<void> {
-  await rm(fx.base, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }).catch(
+  await rmrfAsync(fx.base).catch(
     () => {},
   );
 }

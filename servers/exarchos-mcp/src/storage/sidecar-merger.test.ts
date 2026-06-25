@@ -7,6 +7,7 @@ import * as path from 'node:path';
 import { EventStore } from '../event-store/store.js';
 import { writeHookEvent } from '../event-store/hook-event-writer.js';
 import { mergeSidecarEvents, type MergeResult } from './sidecar-merger.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 describe('mergeSidecarEvents', () => {
   let tempDir: string;
@@ -19,7 +20,7 @@ describe('mergeSidecarEvents', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await rmrfAsync(tempDir);
   });
 
   it('mergeSidecarEvents_SingleEvent_AppendsToMainStream', async () => {
@@ -192,7 +193,7 @@ describe('mergeSidecarEvents', () => {
         // Assert — count should be unchanged (idempotent)
         expect(countAfterSecond).toBe(countAfterFirst);
       } finally {
-        await fs.rm(propDir, { recursive: true, force: true });
+        await rmrfAsync(propDir);
       }
     },
   );

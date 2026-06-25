@@ -21,6 +21,7 @@ import {
   workflowStateProjection,
   WORKFLOW_STATE_VIEW,
 } from '../views/workflow-state-projection.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // ─── Task 014: CLI-vs-MCP Parity for exarchos_workflow (DR-3) ─────────────────
 // These tests prove that the CLI adapter (task 013 work) and the MCP adapter
@@ -110,8 +111,8 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(fixture.cliDir, { recursive: true, force: true });
-  await fs.rm(fixture.mcpDir, { recursive: true, force: true });
+  await rmrfAsync(fixture.cliDir);
+  await rmrfAsync(fixture.mcpDir);
 });
 
 // ─── Parity Tests ────────────────────────────────────────────────────────────
@@ -287,8 +288,8 @@ describe('asOf CLI/MCP parity (T8, #1555, INV-2)', () => {
   afterEach(async () => {
     configureWorkflowMaterializer(null);
     resetMaterializerCache();
-    await fs.rm(cliDir, { recursive: true, force: true });
-    await fs.rm(mcpDir, { recursive: true, force: true });
+    await rmrfAsync(cliDir);
+    await rmrfAsync(mcpDir);
   });
 
   it('parity_getAsOfUntilSequence_cliEqualsMcp', async () => {

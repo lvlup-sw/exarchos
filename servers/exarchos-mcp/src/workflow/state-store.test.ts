@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import * as os from 'node:os';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
@@ -21,6 +21,7 @@ import {
 import { EventStore } from '../event-store/store.js';
 import { InMemoryBackend, VersionConflictError as BackendVersionConflictError } from '../storage/memory-backend.js';
 import type { WorkflowState } from './types.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 describe('deepMerge', () => {
   it('DeepMerge_NestedObjects_MergesRecursively', () => {
@@ -137,7 +138,7 @@ describe('#1504 — backend-mode writers do not write .state.json', () => {
 
   afterEach(async () => {
     configureStateStoreBackend(undefined as unknown as InMemoryBackend);
-    await rm(nwTmpDir, { recursive: true, force: true });
+    await rmrfAsync(nwTmpDir);
   });
 
   it('initStateFile_BackendMode_DoesNotWriteStateJson', async () => {
@@ -309,7 +310,7 @@ describe('reconcileFromEvents query efficiency', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   it('reconcileFromEvents_WithDeltaEvents_QueriesStreamOnce', async () => {
@@ -445,7 +446,7 @@ describe('State Store StorageBackend Integration', () => {
   afterEach(async () => {
     // Reset module-level backend to null after each test
     configureStateStoreBackend(undefined as unknown as InMemoryBackend);
-    await rm(tempDir, { recursive: true, force: true });
+    await rmrfAsync(tempDir);
   });
 
   // Helper to create a minimal valid WorkflowState for testing
@@ -588,7 +589,7 @@ describe('State Store CAS Property Test', () => {
 
   afterEach(async () => {
     configureStateStoreBackend(undefined as unknown as InMemoryBackend);
-    await rm(tempDir, { recursive: true, force: true });
+    await rmrfAsync(tempDir);
   });
 
   function makeState(overrides?: Record<string, unknown>): WorkflowState {

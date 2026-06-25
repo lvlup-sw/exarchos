@@ -19,6 +19,7 @@
  * `ScaffoldDeps` hooks, so the guard is exercisable without touching disk.
  */
 import * as path from 'node:path';
+import { toPosix } from '../../utils/paths.js';
 
 import type { ToolResult } from '../../format.js';
 import type { ScaffoldDeps } from './scaffold.js';
@@ -34,7 +35,7 @@ export const EXARCHOS_PACKAGE_NAME = '@lvlup-sw/exarchos';
  * `dev` tier there is almost always a mistake.
  */
 export function isExarchosRepo(repoRoot: string, deps: ScaffoldDeps): boolean {
-  const pkgPath = path.join(repoRoot, 'package.json');
+  const pkgPath = toPosix(path.join(repoRoot, 'package.json'));
   if (!deps.exists(pkgPath)) return false;
   try {
     const parsed = JSON.parse(deps.read(pkgPath)) as { name?: unknown };

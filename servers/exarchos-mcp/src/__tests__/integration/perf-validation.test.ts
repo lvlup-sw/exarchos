@@ -27,6 +27,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createMcpServer } from '../../adapters/mcp.js';
 import { EventStore } from '../../event-store/store.js';
 import type { DispatchContext } from '../../core/dispatch.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 const ITERATIONS = 100;
 const WARMUP = 5;
@@ -73,7 +74,7 @@ describe('F.6 — output validation overhead', () => {
         throw err;
       }
     }
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   it('PerfValidation_RepeatedDispatch_MedianBelowBudget', async () => {

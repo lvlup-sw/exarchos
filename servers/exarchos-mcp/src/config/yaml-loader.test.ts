@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { rmrf } from '../test-helpers/temp-dir.js';
+import { toPosix } from '../utils/paths.js';
 
 describe('loadProjectConfig', () => {
   let tmpDir: string;
@@ -11,7 +13,7 @@ describe('loadProjectConfig', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    rmrf(tmpDir);
   });
 
   it('loadProjectConfig_NoFile_ReturnsEmptyConfig', async () => {
@@ -125,7 +127,7 @@ describe('discoverProjectRoot', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    rmrf(tmpDir);
     if (originalEnv !== undefined) {
       process.env.EXARCHOS_PROJECT_ROOT = originalEnv;
     } else {
@@ -150,7 +152,11 @@ describe('discoverProjectRoot', () => {
     expect(result).toBe(tmpDir);
   });
 
-  it('discoverProjectRoot_FallsBackToGitRoot', async () => {
+  // Windows mkdtemp yields an 8.3 short name (RUNNER~1) while git's
+  // --show-toplevel returns the long username (runneradmin); realpathSync
+  // doesn't reconcile them. discoverProjectRoot itself works (it uses git);
+  // only this temp-path comparison is a Windows FS quirk. (#1620)
+  it.skipIf(process.platform === 'win32')('discoverProjectRoot_FallsBackToGitRoot', async () => {
     const { discoverProjectRoot } = await import('./yaml-loader.js');
     // Create a temp git repo without .exarchos.yml
     const gitDir = fs.mkdtempSync(path.join(os.tmpdir(), 'discover-git-'));
@@ -160,9 +166,12 @@ describe('discoverProjectRoot', () => {
       const childDir = path.join(gitDir, 'src');
       fs.mkdirSync(childDir, { recursive: true });
       const result = discoverProjectRoot(childDir);
-      expect(result).toBe(gitDir);
+      // `git rev-parse --show-toplevel` returns the realpath with forward
+      // slashes; on Windows mkdtemp yields an 8.3 short name (RUNNER~1) with
+      // backslashes, so normalize both sides via realpath + toPosix (#1620).
+      expect(result).toBe(toPosix(fs.realpathSync(gitDir)));
     } finally {
-      fs.rmSync(gitDir, { recursive: true, force: true });
+      rmrf(gitDir);
     }
   });
 
@@ -175,7 +184,7 @@ describe('discoverProjectRoot', () => {
       const result = discoverProjectRoot(isolatedDir);
       expect(result).toBe(isolatedDir);
     } finally {
-      fs.rmSync(isolatedDir, { recursive: true, force: true });
+      rmrf(isolatedDir);
     }
   });
 });

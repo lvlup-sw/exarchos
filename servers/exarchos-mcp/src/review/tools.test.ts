@@ -4,6 +4,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import { EventStore } from '../event-store/store.js';
 import type { PRDiffMetadata } from './types.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 let mockEventStore: EventStore;
 
@@ -51,7 +52,7 @@ describe('handleReviewTriage', () => {
   });
 
   afterEach(async () => {
-    if (tmpDir) await fs.rm(tmpDir, { recursive: true, force: true });
+    if (tmpDir) await rmrfAsync(tmpDir);
   });
 
   async function importHandler() {
@@ -224,7 +225,7 @@ describe('orchestrate review_triage action', () => {
   });
 
   afterEach(async () => {
-    if (tmpDir) await fs.rm(tmpDir, { recursive: true, force: true });
+    if (tmpDir) await rmrfAsync(tmpDir);
   });
 
   it('should route review_triage action to handleReviewTriage', async () => {

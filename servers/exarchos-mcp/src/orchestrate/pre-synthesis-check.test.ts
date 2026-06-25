@@ -556,6 +556,7 @@ describe('handlePreSynthesisCheck', () => {
       provider,
     );
 
+    eventStore.close();
     await fsPromises.rm(eventStoreDir, { recursive: true, force: true });
 
     // Must NOT fail with INVALID_INPUT / FILE_NOT_FOUND / NO_STATE_SOURCE.
@@ -616,6 +617,7 @@ describe('handlePreSynthesisCheck', () => {
       provider,
     );
 
+    eventStore.close();
     await fsPromises.rm(eventStoreDir, { recursive: true, force: true });
 
     expect(result.success).toBe(true);

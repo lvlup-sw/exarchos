@@ -29,6 +29,7 @@ import {
   normalize as harnessNormalize,
   UUID_ANY_RE,
 } from '../parity-harness.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 /**
  * Strip fields that vary across invocations (`_perf`, `updatedAt`,
@@ -81,7 +82,7 @@ describe('F.3 — CLI ↔ MCP parity (Wave 0 §7)', () => {
     } catch {
       /* ignore */
     }
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   it('CliParity_VwLs_DataLevelMatch_AcrossCarriers', async () => {

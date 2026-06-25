@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { EventStore, SequenceConflictError } from '../../event-store/store.js';
 import {
@@ -12,6 +12,7 @@ import {
 import {
   resetMaterializerCache,
 } from '../../views/tools.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 let tempDir: string;
 let store: EventStore;
@@ -25,7 +26,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   resetMaterializerCache();
-  await rm(tempDir, { recursive: true, force: true });
+  await rmrfAsync(tempDir);
 });
 
 // ─── A17: Task MCP Tools ────────────────────────────────────────────────────

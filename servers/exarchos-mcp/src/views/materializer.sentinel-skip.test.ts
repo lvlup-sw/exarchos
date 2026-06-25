@@ -23,7 +23,7 @@
  * normal user-facing stream.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -31,6 +31,7 @@ import { ViewMaterializer, type ViewProjection } from './materializer.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import { EventStore } from '../event-store/store.js';
 import { handleViewPipeline, resetMaterializerCache } from './tools.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -141,7 +142,7 @@ describe('ExarchosView_Pipeline_DoesNotCrashOnMigrationStream', () => {
 
   afterEach(async () => {
     resetMaterializerCache();
-    await rm(tempDir, { recursive: true, force: true });
+    await rmrfAsync(tempDir);
   });
 
   it('returns a success envelope when __migration__ exists alongside a normal stream', async () => {

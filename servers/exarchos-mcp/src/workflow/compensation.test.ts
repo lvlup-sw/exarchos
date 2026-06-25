@@ -13,6 +13,7 @@ vi.mock('child_process', () => ({
 }));
 
 import { execFile } from 'child_process';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 const mockedExecFile = vi.mocked(execFile);
 
@@ -443,7 +444,7 @@ describe('B4.5: delete-feature-branches parity harness (two-event sequence)', ()
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   it('DeleteFeatureBranches_Parity_BothCarriersObserveTwoEventSequence', async () => {
@@ -531,7 +532,7 @@ describe('B5.5: cleanup-worktrees parity harness (two-event sequence)', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   it('CleanupWorktrees_Parity_BothCarriersObserveTwoEventSequence', async () => {

@@ -22,13 +22,14 @@
  * cleanly without entangling task lifecycle with workflow lifecycle.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
 import { EventStore } from '../event-store/store.js';
 import { taskStoreLogger } from '../logger.js';
 import { EventSourcedTaskStore } from './event-sourced-task-store.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 describe('EventSourcedTaskStore (#1272)', () => {
   let stateDir: string;
@@ -48,7 +49,7 @@ describe('EventSourcedTaskStore (#1272)', () => {
   });
 
   afterEach(async () => {
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('EventSourcedTaskStore_CreateTask_EmitsTaskCreatedAndReturnsId', async () => {

@@ -6,6 +6,7 @@ import { handleEvent } from './composite.js';
 import { EventStore } from './store.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import type { ConfigHookRunner } from '../hooks/config-hooks.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 describe('handleEvent — hook runner wiring (R7)', () => {
   let tmpDir: string;
@@ -19,7 +20,7 @@ describe('handleEvent — hook runner wiring (R7)', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   it('handleEvent_AppendWithHookRunner_FiresHookAfterAppend', async () => {

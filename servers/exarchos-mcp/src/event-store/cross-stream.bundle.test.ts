@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
 import { EventStore } from './store.js';
 import { handleEventAppend } from './tools.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 /**
  * T28 — Bundle test for DR-3 cross-stream propagation.
@@ -36,7 +37,7 @@ describe('CrossStream bundle (DR-3, T28)', () => {
   });
 
   afterEach(async () => {
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('CrossStream_TwoSubagentsAppend_ParentDisbandedReflectsBoth_Bundle', async () => {

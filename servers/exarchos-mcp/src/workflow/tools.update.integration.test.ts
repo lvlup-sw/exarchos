@@ -27,6 +27,7 @@ import { handleWorkflow } from './composite.js';
 import { handleInit } from './tools.js';
 import { EventStore } from '../event-store/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 let tmpDir: string;
 let eventStore: EventStore;
@@ -41,7 +42,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmpDir, { recursive: true, force: true });
+  await rmrfAsync(tmpDir);
 });
 
 describe('exarchos_workflow.update + transition — HSM guard loop (Wave 0, Task 0.6)', () => {

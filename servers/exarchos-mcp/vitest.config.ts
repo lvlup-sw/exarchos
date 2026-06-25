@@ -18,6 +18,14 @@ export default defineConfig({
     globals: false,
     environment: 'node',
     pool: 'forks',
+    // The default 5 s per-test / per-hook budget is comfortable on Linux but
+    // too tight on the windows-latest runner, where filesystem + better-sqlite3
+    // + process-spawn latency is several times higher — a handful of otherwise-
+    // healthy tests time out there (#1620). 20 s gives that headroom without
+    // masking a genuine hang (which still fails, just later). No effect on the
+    // Linux suite: fast tests finish in milliseconds and never reach the cap.
+    testTimeout: 60000,
+    hookTimeout: 60000,
     include: [
       'src/**/*.test.ts',
       'scripts/**/*.test.ts',

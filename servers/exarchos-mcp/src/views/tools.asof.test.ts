@@ -17,6 +17,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { handleViewWorkflowStatus, resetMaterializerCache } from './tools.js';
 import { EventStore } from '../event-store/store.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 const STREAM_ID = 'asof-status-wf';
 const TS_PLAN = '2026-06-20T00:00:02.000Z';
@@ -55,7 +56,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   resetMaterializerCache();
-  await fs.rm(tmpDir, { recursive: true, force: true });
+  await rmrfAsync(tmpDir);
 });
 
 describe('handleViewWorkflowStatus asOf (T7, #1555)', () => {
