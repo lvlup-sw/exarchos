@@ -31,32 +31,34 @@ Do not wipe the directory if you want to keep old workflows. Use the bridge path
 
 ## Bridge through v2.9.0
 
-Install a temporary v2.9.0 binary into a scratch directory. This does not replace your current `exarchos` on PATH.
+The commands below use the common Claude Code state path, `~/.claude/workflow-state`. If your install uses a different `WORKFLOW_STATE_DIR`, replace that path in each command.
+
+First, copy the old state directory. Do not run the bridge against your only copy.
 
 ```bash
-set -euo pipefail
+cp -a "$HOME/.claude/workflow-state" "$HOME/.claude/workflow-state-v211"
+```
 
-OLD_STATE="${WORKFLOW_STATE_DIR:-$HOME/.claude/workflow-state}"
-NEW_STATE="${OLD_STATE}-v211"
-BRIDGE_BIN_DIR="$(mktemp -d)"
+Install a temporary v2.9.0 binary into its own directory. This does not replace your current `exarchos` on PATH.
 
-test ! -e "$NEW_STATE" || {
-  echo "$NEW_STATE already exists; choose a new NEW_STATE path" >&2
-  exit 1
-}
+```bash
+mkdir -p "$HOME/.local/exarchos-2.9.0"
+curl -fsSL https://lvlup-sw.github.io/exarchos/get-exarchos.sh -o /tmp/get-exarchos.sh
+EXARCHOS_INSTALL_DIR="$HOME/.local/exarchos-2.9.0" bash /tmp/get-exarchos.sh --version v2.9.0
+```
 
-cp -a "$OLD_STATE" "$NEW_STATE"
+Run the v2.9.0 binary once against the copied state directory:
 
-curl -fsSL https://lvlup-sw.github.io/exarchos/get-exarchos.sh \
-  -o "$BRIDGE_BIN_DIR/get-exarchos.sh"
-
-EXARCHOS_INSTALL_DIR="$BRIDGE_BIN_DIR" \
-  bash "$BRIDGE_BIN_DIR/get-exarchos.sh" --version v2.9.0
-
-WORKFLOW_STATE_DIR="$NEW_STATE" "$BRIDGE_BIN_DIR/exarchos" doctor
+```bash
+WORKFLOW_STATE_DIR="$HOME/.claude/workflow-state-v211" \
+  "$HOME/.local/exarchos-2.9.0/exarchos" doctor
 ```
 
 The v2.9.0 doctor run opens the copied state directory with the last runtime that still knows how to hydrate JSONL workflow events into SQLite. After it finishes, the copied directory should contain `exarchos.db`.
+
+```bash
+ls "$HOME/.claude/workflow-state-v211/exarchos.db"
+```
 
 If the temporary install fails because the `v2.9.0` tag is unavailable in your environment, use the newest available v2.9.x tag and run the same `doctor` command against the copied state directory.
 
@@ -67,13 +69,13 @@ Install or update to v2.11, then run `doctor` against the migrated copy:
 ```bash
 curl -fsSL https://lvlup-sw.github.io/exarchos/get-exarchos.sh | bash -s -- --version v2.11.0-preview.4
 
-WORKFLOW_STATE_DIR="$NEW_STATE" exarchos doctor
+WORKFLOW_STATE_DIR="$HOME/.claude/workflow-state-v211" exarchos doctor
 ```
 
 Then verify one known workflow:
 
 ```bash
-WORKFLOW_STATE_DIR="$NEW_STATE" exarchos workflow get --feature-id <feature-id>
+WORKFLOW_STATE_DIR="$HOME/.claude/workflow-state-v211" exarchos workflow get --feature-id <feature-id>
 ```
 
 Inside Claude Code, restart the session and run:
