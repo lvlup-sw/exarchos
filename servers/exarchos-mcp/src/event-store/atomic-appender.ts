@@ -1175,7 +1175,12 @@ export class AtomicAppender {
    * Closing the appender before teardown is the portable cleanup contract.
    */
   close(): void {
-    this.sqliteBackend?.close();
+    // Injected backends are caller-owned (see `sqliteBackendInjected`) — only
+    // close a handle this appender constructed itself, so closing the
+    // EventStore doesn't tear down a shared/injected backend.
+    if (!this.sqliteBackendInjected) {
+      this.sqliteBackend?.close();
+    }
     this.sqliteBackend = undefined;
     this.sqliteBackendPromise = undefined;
   }
