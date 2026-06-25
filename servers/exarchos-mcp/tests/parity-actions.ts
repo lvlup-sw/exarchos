@@ -10,7 +10,8 @@
  */
 
 import { expect } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
+import { rmrfAsync } from '../src/test-helpers/temp-dir.js';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -117,8 +118,8 @@ export async function setupFixture(): Promise<ParityFixture> {
  * during a later test doesn't chain-fail subsequent cleanup.
  */
 export async function teardownFixture(fixture: ParityFixture): Promise<void> {
-  await rm(fixture.cliDir, { recursive: true, force: true });
-  await rm(fixture.mcpDir, { recursive: true, force: true });
+  await rmrfAsync(fixture.cliDir);
+  await rmrfAsync(fixture.mcpDir);
 }
 
 // ─── Normalization ──────────────────────────────────────────────────────────
