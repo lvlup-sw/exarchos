@@ -387,6 +387,12 @@ jobs:
       - name: Event-store access via composition root (#1342)
         run: node scripts/check-event-store-composition-root.mjs
 
+      - name: Windows-portability anti-patterns (#1623)
+        run: node scripts/check-windows-portability.mjs
+
+      - name: Windows-portability gate self-test (#1623)
+        run: bash scripts/check-windows-portability.test.sh
+
       - name: npm-ci-retry helper tests
         run: bash scripts/npm-ci-retry.test.sh
 
