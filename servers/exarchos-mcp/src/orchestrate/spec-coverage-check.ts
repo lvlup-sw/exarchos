@@ -6,8 +6,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { existsSync, readFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
-import { resolveExecutable } from '../utils/process.js';
+import { runCommandSync } from '../utils/process.js';
 import { join } from 'node:path';
 import { toPosix } from '../utils/paths.js';
 import type { ToolResult } from '../format.js';
@@ -172,7 +171,7 @@ export function handleSpecCoverageCheck(args: SpecCoverageCheckArgs): ToolResult
   } else if (testFiles.length > 0 && missingList.length === 0) {
     for (const testFile of testFiles) {
       try {
-        execFileSync(resolveExecutable('npx'), ['vitest', 'run', '--root', repoRoot, testFile], {
+        runCommandSync('npx', ['vitest', 'run', '--root', repoRoot, testFile], {
           stdio: 'pipe',
         });
         checks.push({ status: 'PASS', name: `Test passes: ${testFile}` });

@@ -9,7 +9,7 @@
 
 import { existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { resolveExecutable } from '../utils/process.js';
+import { runCommandSync } from '../utils/process.js';
 import type { ToolResult } from '../format.js';
 import { resolveTestRuntime, type ResolvedRuntime } from '../config/test-runtime-resolver.js';
 import { splitCommand } from '../config/tokenize-command.js';
@@ -329,7 +329,7 @@ export async function handleVerifyWorktreeBaseline(
   let exitCode = 0;
 
   try {
-    output = execFileSync(resolveExecutable(cmd), cmdArgs as string[], {
+    output = runCommandSync(cmd, cmdArgs as string[], {
       encoding: 'utf-8',
       cwd: worktreePath,
       stdio: ['pipe', 'pipe', 'pipe'],

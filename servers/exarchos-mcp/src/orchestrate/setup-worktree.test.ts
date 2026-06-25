@@ -18,7 +18,6 @@ vi.mock('node:child_process', () => ({
 import { existsSync, readFileSync, readdirSync, appendFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 
-import { resolveExecutable } from '../utils/process.js';
 // Default valid package.json with test:run script (so the resolver picks the
 // npm path with test:run available — keeps the install step at 'pass').
 const VALID_PACKAGE_JSON = JSON.stringify({
@@ -478,7 +477,7 @@ describe('handleSetupWorktree', () => {
     const data = result.data as { passed: boolean };
     expect(data.passed).toBe(true);
     expect(execFileSync).toHaveBeenCalledWith(
-      resolveExecutable('npm'),
+      'npm',
       ['install'],
       expect.objectContaining({ cwd: '/repo/.worktrees/task-101-npm' }),
     );
@@ -521,7 +520,7 @@ describe('handleSetupWorktree', () => {
 
     expect(result.success).toBe(true);
     expect(execFileSync).toHaveBeenCalledWith(
-      resolveExecutable('pnpm'),
+      'pnpm',
       ['install', '--frozen-lockfile'],
       expect.objectContaining({ cwd: '/repo/.worktrees/task-102-pnpm' }),
     );
@@ -570,7 +569,7 @@ describe('handleSetupWorktree', () => {
 
     expect(result.success).toBe(true);
     expect(execFileSync).toHaveBeenCalledWith(
-      resolveExecutable('yarn'),
+      'yarn',
       ['install', '--frozen-lockfile'],
       expect.objectContaining({ cwd: '/repo/.worktrees/task-103-yarn' }),
     );
@@ -613,7 +612,7 @@ describe('handleSetupWorktree', () => {
 
     expect(result.success).toBe(true);
     expect(execFileSync).toHaveBeenCalledWith(
-      resolveExecutable('yarn'),
+      'yarn',
       ['install', '--immutable'],
       expect.objectContaining({ cwd: '/repo/.worktrees/task-103-berry' }),
     );
@@ -688,7 +687,7 @@ describe('handleSetupWorktree', () => {
 
     expect(result.success).toBe(true);
     expect(execFileSync).toHaveBeenCalledWith(
-      resolveExecutable('pnpm'),
+      'pnpm',
       ['test'],
       expect.objectContaining({ cwd: '/repo/.worktrees/task-200-pnpm-test' }),
     );

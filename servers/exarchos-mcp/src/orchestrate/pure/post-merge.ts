@@ -12,7 +12,7 @@
 
 import type { VcsProvider, CiStatus, CiCheck as VcsCiCheck } from '../../vcs/provider.js';
 import { createVcsProvider } from '../../vcs/factory.js';
-import { resolveExecutable } from '../../utils/process.js';
+import { runCommandSync } from '../../utils/process.js';
 
 // ============================================================
 // Types
@@ -55,9 +55,8 @@ function defaultCommandRunner(
   cmd: string,
   args: readonly string[]
 ): CommandResult {
-  const { execFileSync } = require('node:child_process') as typeof import('node:child_process');
   try {
-    const stdout = execFileSync(resolveExecutable(cmd), args as string[], {
+    const stdout = runCommandSync(cmd, args as string[], {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     }) as string;

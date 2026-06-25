@@ -18,8 +18,7 @@
  * the original run-tests handler WITHOUT changing its behavior.
  */
 
-import { execFileSync } from 'node:child_process';
-import { resolveExecutable } from '../utils/process.js';
+import { runCommandSync } from '../utils/process.js';
 import { splitCommand } from '../config/tokenize-command.js';
 
 /** Injectable seams so unit tests never spawn a real process (DIM-4). */
@@ -52,7 +51,7 @@ export interface RunResolvedCommandArgs {
 /** Default runner: stream the child's stdio through and propagate its exit code. */
 export function defaultRun(cmd: string, args: readonly string[], cwd: string): number {
   try {
-    execFileSync(resolveExecutable(cmd), args as string[], { cwd, stdio: 'inherit' });
+    runCommandSync(cmd, args as string[], { cwd, stdio: 'inherit' });
     return 0;
   } catch (err) {
     // execFileSync throws on non-zero exit; `status` carries the child's code.

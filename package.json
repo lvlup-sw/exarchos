@@ -49,7 +49,7 @@
     "docs:dev": "cd documentation && npm run docs:dev",
     "docs:build": "cd documentation && npm run docs:build",
     "docs:preview": "cd documentation && npm run docs:preview",
-    "lint:windows": "eslint 'servers/exarchos-mcp/src/**/*.ts'"
+    "lint:windows": "eslint \"servers/exarchos-mcp/src/**/*.ts\""
   },
   "keywords": [
     "claude-code-plugin",

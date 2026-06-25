@@ -1,3 +1,5 @@
+import { execFileSync, type ExecFileSyncOptions } from 'node:child_process';
+
 /**
  * Check if a process with the given PID is alive.
  *
@@ -41,31 +43,53 @@ export function isPidAlive(pid: number): boolean {
 
 /**
  * Package managers / task runners that ship as `.cmd` batch shims on Windows.
- * `child_process.execFile`/`execFileSync` (no shell) cannot launch a `.cmd` —
- * it looks for `<name>.exe`, which doesn't exist — so a bare `npm`/`npx`/… name
- * must be resolved to its `.cmd` form on win32. Native binaries (`git`,
- * `cargo`, …) are real `.exe`s and need no remapping.
+ * Since the CVE-2024-27980 fix (Node >= 20.12.2), `child_process.execFile*`
+ * refuses to launch a `.cmd`/`.bat` directly — it throws `EINVAL` unless
+ * `shell: true` is set. Native binaries (`git`, `cargo`, …) are real `.exe`s and
+ * spawn fine without a shell.
  */
 const WINDOWS_CMD_SHIMS = new Set(['npm', 'npx', 'pnpm', 'yarn', 'corepack']);
 
 /**
- * Resolve a command name to the platform-appropriate executable for
- * `execFile`/`execFileSync` (which spawn without a shell). On Windows, a bare
- * package-manager / task-runner name in {@link WINDOWS_CMD_SHIMS} is mapped to
- * its `.cmd` shim; everything else — native binaries, explicit paths, names
- * that already carry an extension — is returned unchanged. No-op off Windows.
- *
- * `platform` is injectable so the win32 branch is exercisable on the Linux CI
- * host. (#1623 — follow-up to the #1620 Windows-portability work.)
+ * Whether `command` is a package-manager shim that needs a shell to launch on
+ * the given platform — true only for a bare shim name (no path / extension) on
+ * win32. Pure and platform-injectable so the win32 branch is unit-testable on
+ * the Linux CI host. (#1623)
  */
-export function resolveExecutable(
+export function needsWindowsShell(
   command: string,
   platform: NodeJS.Platform = process.platform,
-): string {
-  if (platform !== 'win32') return command;
-  // A path or an already-extensioned/explicit binary is taken as-is.
+): boolean {
+  if (platform !== 'win32') return false;
+  // A path or an already-extensioned/explicit binary is launched as given.
   if (command.includes('/') || command.includes('\\') || command.includes('.')) {
-    return command;
+    return false;
   }
-  return WINDOWS_CMD_SHIMS.has(command) ? `${command}.cmd` : command;
+  return WINDOWS_CMD_SHIMS.has(command);
+}
+
+/**
+ * `execFileSync` that launches Windows package-manager shims correctly.
+ *
+ * On win32 a bare `npm`/`npx`/… resolves to a `.cmd` shim that `execFile` can't
+ * start without a shell (CVE-2024-27980 / Node >= 20.12.2 -> `EINVAL`). For
+ * those commands this runs through `cmd.exe` (`shell: true`, which resolves the
+ * `.cmd` via `PATHEXT`) and double-quotes whitespace-bearing args so paths
+ * survive the shell's tokenization. Everywhere else (and off Windows) it is a
+ * thin pass-through, preserving `execFileSync` semantics — returns stdout,
+ * throws on a non-zero exit.
+ *
+ * Args MUST be trusted (fixed subcommands / resolved file paths): with
+ * `shell: true`, an arg containing shell metacharacters could inject. (#1623)
+ */
+export function runCommandSync(
+  command: string,
+  args: readonly string[],
+  options: ExecFileSyncOptions = {},
+): string | Buffer {
+  if (needsWindowsShell(command)) {
+    const quoted = args.map((a) => (/\s/.test(a) ? `"${a}"` : a));
+    return execFileSync(command, quoted, { ...options, shell: true });
+  }
+  return execFileSync(command, args as string[], options);
 }

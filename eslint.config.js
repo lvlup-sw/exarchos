@@ -40,7 +40,7 @@ export default [
           selector:
             "CallExpression[callee.name=/^execFile(Sync)?$/][arguments.0.value=/^(npm|npx|pnpm|yarn|corepack)$/]",
           message:
-            'Spawn package managers via resolveExecutable() (src/utils/process.ts): execFile cannot launch a .cmd shim on Windows (#1623).',
+            'Spawn package managers via runCommandSync() (src/utils/process.ts): execFile cannot launch a .cmd shim on Windows (#1623).',
         },
         {
           // new URL(import.meta.url).pathname — yields `/D:/…` on Windows,

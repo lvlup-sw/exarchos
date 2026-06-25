@@ -9,8 +9,7 @@
 // Wiring into a runbook is T-07's job; this task only registers the action.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { execFileSync } from 'node:child_process';
-import { resolveExecutable } from '../utils/process.js';
+import { runCommandSync } from '../utils/process.js';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
 import { emitGateEvent, resolveRepoRoot } from './gate-utils.js';
@@ -108,7 +107,7 @@ const execCommandRunner: RunCommandFn = (
   options?: { cwd?: string },
 ): CommandResult => {
   try {
-    const output = execFileSync(resolveExecutable(cmd), args as string[], {
+    const output = runCommandSync(cmd, args as string[], {
       encoding: 'utf-8',
       cwd: options?.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],

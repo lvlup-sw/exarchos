@@ -8,7 +8,7 @@
  *
  *   1. **Shell-shim spawn** — `execFile(Sync)('npm'|'npx'|'pnpm'|'yarn', …)`
  *      with a bare package-manager name. `execFile` spawns without a shell, so
- *      a `.cmd` shim won't launch on Windows. Route through `resolveExecutable`
+ *      a `.cmd` shim won't launch on Windows. Route through `runCommandSync`
  *      (src/utils/process.ts).
  *   2. **Non-portable module path** — `new URL(import.meta.url).pathname`, which
  *      yields `/D:/…` on Windows and doubles to `D:\D:\…` under `path.resolve`.
@@ -53,9 +53,28 @@ function parseArgs(argv) {
 // correct source line.
 function stripComments(content) {
   const blank = (s) => s.replace(/[^\n]/g, ' ');
-  return content
-    .replace(/\/\*[\s\S]*?\*\//g, blank)
-    .replace(/(^|[^:])\/\/[^\n]*/g, (m, p1) => p1 + blank(m.slice(p1.length)));
+  // Block comments first.
+  const noBlock = content.replace(/\/\*[\s\S]*?\*\//g, blank);
+  // Line comments, string-aware: a `//` inside a '', "", or `` literal is not a
+  // comment, so it must not blank the rest of the line (CodeRabbit #1624).
+  return noBlock
+    .split('\n')
+    .map((line) => {
+      let quote = null;
+      for (let i = 0; i < line.length; i++) {
+        const c = line[i];
+        if (quote) {
+          if (c === '\\') i++;
+          else if (c === quote) quote = null;
+        } else if (c === '"' || c === "'" || c === '`') {
+          quote = c;
+        } else if (c === '/' && line[i + 1] === '/') {
+          return line.slice(0, i) + ' '.repeat(line.length - i);
+        }
+      }
+      return line;
+    })
+    .join('\n');
 }
 
 function lineOf(content, index) {
@@ -127,7 +146,7 @@ function main() {
     if (!isTest) {
       // 1 — shell-shim spawn (production only; tests may exercise the raw form)
       for (const m of src.matchAll(SPAWN_RE)) {
-        record(file, raw, m.index, 'spawn-shim: route npm/npx via resolveExecutable');
+        record(file, raw, m.index, 'spawn-shim: route npm/npx via runCommandSync');
       }
     } else {
       // 3 — leaked SQLite handle in test teardown.

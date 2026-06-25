@@ -1,32 +1,42 @@
 import { describe, it, expect } from 'vitest';
-import { resolveExecutable } from './process.js';
+import { needsWindowsShell, runCommandSync } from './process.js';
 
-describe('resolveExecutable (#1623)', () => {
-  it('ResolveExecutable_BareNpmOnWin32_AppendsCmd', () => {
-    expect(resolveExecutable('npm', 'win32')).toBe('npm.cmd');
-    expect(resolveExecutable('npx', 'win32')).toBe('npx.cmd');
-    expect(resolveExecutable('pnpm', 'win32')).toBe('pnpm.cmd');
-    expect(resolveExecutable('yarn', 'win32')).toBe('yarn.cmd');
+describe('needsWindowsShell (#1623)', () => {
+  it('NeedsWindowsShell_BarePackageManagerOnWin32_True', () => {
+    for (const pm of ['npm', 'npx', 'pnpm', 'yarn', 'corepack']) {
+      expect(needsWindowsShell(pm, 'win32')).toBe(true);
+    }
   });
 
-  it('ResolveExecutable_BareNpmOnPosix_Unchanged', () => {
-    expect(resolveExecutable('npm', 'linux')).toBe('npm');
-    expect(resolveExecutable('npx', 'darwin')).toBe('npx');
+  it('NeedsWindowsShell_BarePackageManagerOnPosix_False', () => {
+    expect(needsWindowsShell('npm', 'linux')).toBe(false);
+    expect(needsWindowsShell('npx', 'darwin')).toBe(false);
   });
 
-  it('ResolveExecutable_NativeBinaryOnWin32_Unchanged', () => {
-    // git/cargo are real .exe shims — never remapped, even on Windows.
-    expect(resolveExecutable('git', 'win32')).toBe('git');
-    expect(resolveExecutable('cargo', 'win32')).toBe('cargo');
+  it('NeedsWindowsShell_NativeBinaryOnWin32_False', () => {
+    // git/cargo are real .exe shims — they launch without a shell.
+    expect(needsWindowsShell('git', 'win32')).toBe(false);
+    expect(needsWindowsShell('cargo', 'win32')).toBe(false);
   });
 
-  it('ResolveExecutable_PathOrExtension_Unchanged', () => {
-    // Explicit paths and already-extensioned names are taken as-is, so a
-    // caller that already resolved the shim isn't double-suffixed.
-    expect(resolveExecutable('npm.cmd', 'win32')).toBe('npm.cmd');
-    expect(resolveExecutable('./node_modules/.bin/vitest', 'win32')).toBe(
-      './node_modules/.bin/vitest',
-    );
-    expect(resolveExecutable('C:\\tools\\npm', 'win32')).toBe('C:\\tools\\npm');
+  it('NeedsWindowsShell_PathOrExtension_False', () => {
+    // Explicit paths / already-extensioned names are launched as given.
+    expect(needsWindowsShell('npm.cmd', 'win32')).toBe(false);
+    expect(needsWindowsShell('./node_modules/.bin/vitest', 'win32')).toBe(false);
+    expect(needsWindowsShell('C:\\tools\\npm', 'win32')).toBe(false);
+  });
+});
+
+describe('runCommandSync (#1623)', () => {
+  it('RunCommandSync_NativeCommand_PassesThroughAndReturnsStdout', () => {
+    // On the POSIX CI host this exercises the non-shell pass-through path
+    // against a real binary; the win32 shell branch is covered end-to-end by
+    // the un-skipped test-adequacy integration test on windows-latest.
+    const out = String(runCommandSync('node', ['--version'], { encoding: 'utf-8' }));
+    expect(out).toMatch(/^v\d+\./);
+  });
+
+  it('RunCommandSync_NonZeroExit_Throws', () => {
+    expect(() => runCommandSync('node', ['-e', 'process.exit(3)'])).toThrow();
   });
 });

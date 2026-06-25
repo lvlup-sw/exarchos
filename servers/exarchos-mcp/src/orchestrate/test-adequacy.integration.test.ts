@@ -94,13 +94,12 @@ interface AdequacyData {
 // ─── tests ───────────────────────────────────────────────────────────────────
 
 // Spawns REAL `npm`/git in a temp fixture and exercises the mutation kill-probe.
-// The #1623 spawn helper (resolveExecutable -> npm.cmd) is wired into the
-// production path, but this end-to-end probe has additional Windows-specific
-// behavior (npm.cmd output / mutation-restore round-trip) that isn't green on
-// the CI runner yet, so it stays win32-skipped — the spawn fix itself ships and
-// is unit-covered (resolveExecutable + the mocked handler tests). Re-enabling
-// this on Windows is its own follow-up.
-describe.skipIf(process.platform === 'win32')('check_test_adequacy acceptance (kill probe through handleOrchestrate)', () => {
+// Runs on Windows too: the handler routes the spawn through `runCommandSync`,
+// which launches the `npm`/`npx` `.cmd` shim via `shell: true` (#1623 —
+// execFile can't start a `.cmd` directly since CVE-2024-27980 / Node ≥20.12.2).
+// This is the end-to-end acceptance that the cross-platform spawn actually
+// works, not just the mocked handler tests.
+describe('check_test_adequacy acceptance (kill probe through handleOrchestrate)', () => {
   const cleanups: Array<() => void> = [];
 
   afterEach(() => {

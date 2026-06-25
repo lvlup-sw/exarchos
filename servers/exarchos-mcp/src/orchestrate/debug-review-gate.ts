@@ -5,7 +5,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { execFileSync } from 'node:child_process';
-import { resolveExecutable } from '../utils/process.js';
+import { runCommandSync } from '../utils/process.js';
 import { existsSync } from 'node:fs';
 import type { ToolResult } from '../format.js';
 
@@ -158,7 +158,7 @@ function getChangedFiles(repoRoot: string, baseBranch: string): string[] | null 
 
 function runTests(repoRoot: string): boolean {
   try {
-    execFileSync(resolveExecutable('npm'), ['run', 'test:run'], {
+    runCommandSync('npm', ['run', 'test:run'], {
       cwd: repoRoot,
       stdio: 'pipe',
     });
