@@ -58,61 +58,49 @@ Please do this:
 9. Tell me the original state path, migrated state path, bridge binary path, target Exarchos version, and every command you ran. Do not switch my agent config to the migrated state path unless I explicitly approve that final step.
 ```
 
-## Before you start
+## Quick migration
 
-1. Close Claude Code, Codex, opencode, and any other agent session using Exarchos.
-2. Identify the state directory. If you set `WORKFLOW_STATE_DIR`, use that value. Claude Code plugin installs commonly use `~/.claude/workflow-state`; standalone and other harnesses may use `~/.exarchos/state`.
-3. Work on a copy. Keep the original JSONL directory unchanged until you have verified the migrated copy.
+Close Claude Code, Codex, opencode, Cursor, and any other agent session using Exarchos before you start.
 
-## Bridge through v2.9.0
-
-Use a v2.9.x binary as the bridge. v2.9.x is the last line that can hydrate legacy JSONL workflow events into `exarchos.db`; v2.10.0 and later expect the SQLite database to already exist.
-
-The commands below use the common Claude Code state path, `~/.claude/workflow-state`. If your install uses a different `WORKFLOW_STATE_DIR`, replace that path in each command.
-
-First, copy the old state directory. Do not run the bridge against your only copy.
+The commands below use the common Claude Code state path. Run them in the same terminal so the path variables stay set. If your install uses a different state directory, change `STATE` before running the rest.
 
 ```bash
-cp -a ~/.claude/workflow-state ~/.claude/workflow-state-v211
+STATE=~/.claude/workflow-state
+MIGRATED=~/.claude/workflow-state-v211
+BRIDGE=~/.local/exarchos-2.9.0
 ```
 
-Install a temporary v2.9.0 binary into its own directory. This does not replace your current `exarchos` on PATH.
+Copy the old state directory. Do not run the bridge against your only copy.
 
 ```bash
-mkdir -p ~/.local/exarchos-2.9.0
-curl -fsSL https://lvlup-sw.github.io/exarchos/get-exarchos.sh -o /tmp/get-exarchos.sh
-EXARCHOS_INSTALL_DIR=~/.local/exarchos-2.9.0 bash /tmp/get-exarchos.sh --version v2.9.0
+cp -a "$STATE" "$MIGRATED"
 ```
 
-Run the v2.9.0 binary once against the copied state directory:
+Install the v2.9.0 bridge binary and run it once against the copied state. This does not replace your current `exarchos` on PATH.
 
 ```bash
-WORKFLOW_STATE_DIR=~/.claude/workflow-state-v211 \
-  ~/.local/exarchos-2.9.0/exarchos doctor
-```
+mkdir -p "$BRIDGE"
+curl -fsSL https://lvlup-sw.github.io/exarchos/get-exarchos.sh \
+  | EXARCHOS_INSTALL_DIR="$BRIDGE" bash -s -- --version v2.9.0
 
-The v2.9.0 doctor run opens the copied state directory with a runtime that still knows how to hydrate JSONL workflow events into SQLite. After it finishes, the copied directory should contain `exarchos.db`.
-
-```bash
-ls ~/.claude/workflow-state-v211/exarchos.db
+WORKFLOW_STATE_DIR="$MIGRATED" "$BRIDGE/exarchos" doctor
+ls "$MIGRATED/exarchos.db"
 ```
 
 If the temporary install fails because the `v2.9.0` tag is unavailable in your environment, use the newest available v2.9.x tag and run the same `doctor` command against the copied state directory.
 
-## Verify with v2.10 or later
-
-Install or update to your target v2.10.0+ release, then run `doctor` against the migrated copy. This example uses v2.11.0-preview.4:
+Install or use your target v2.10.0+ runtime, then verify the migrated copy. This example installs v2.11.0-preview.4:
 
 ```bash
 curl -fsSL https://lvlup-sw.github.io/exarchos/get-exarchos.sh | bash -s -- --version v2.11.0-preview.4
 
-WORKFLOW_STATE_DIR=~/.claude/workflow-state-v211 exarchos doctor
+WORKFLOW_STATE_DIR="$MIGRATED" exarchos doctor
 ```
 
-Then verify one known workflow:
+If you know a workflow id, verify it directly:
 
 ```bash
-WORKFLOW_STATE_DIR=~/.claude/workflow-state-v211 exarchos workflow get --feature-id <feature-id>
+WORKFLOW_STATE_DIR="$MIGRATED" exarchos workflow get --feature-id <feature-id>
 ```
 
 Inside Claude Code, restart the session and run:
@@ -128,7 +116,7 @@ If the workflow appears in the pipeline view and `rehydrate` can load it, the mi
 Update the MCP server configuration or plugin environment so `WORKFLOW_STATE_DIR` points at the migrated copy:
 
 ```bash
-export WORKFLOW_STATE_DIR=~/.claude/workflow-state-v211
+export WORKFLOW_STATE_DIR="$MIGRATED"
 ```
 
 For Claude Code plugin users, restart Claude Code after updating the plugin or environment. For Codex, Cursor, opencode, or another MCP client, update the client config that launches `exarchos mcp` and restart the client.
