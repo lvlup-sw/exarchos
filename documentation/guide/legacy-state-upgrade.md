@@ -33,7 +33,13 @@ Do not wipe the directory if you want to keep old workflows. Use the bridge path
 
 Do not use v2.10.0 or later as the bridge runtime. Those versions expect SQLite state to already exist.
 
-## Agent prompt
+## Choose a path
+
+Most users should let their local coding agent do the migration. The agent can inspect your actual state path, avoid overwriting an existing migrated copy, and report exactly what it changed.
+
+If you would rather do it yourself, use the shorter terminal flow below the prompt. Both paths do the same thing: preserve the original JSONL state directory, bridge a copy through v2.9.x, then verify that the copy works with v2.10.0 or later.
+
+## Option 1: Ask an agent
 
 If you want a local coding agent to perform the migration for you, copy this prompt into that agent. Replace the paths or target version first if your setup differs.
 
@@ -58,7 +64,7 @@ Please do this:
 9. Tell me the original state path, migrated state path, bridge binary path, target Exarchos version, and every command you ran. Do not switch my agent config to the migrated state path unless I explicitly approve that final step.
 ```
 
-## Quick migration
+## Option 2: Run it yourself
 
 Close Claude Code, Codex, opencode, Cursor, and any other agent session using Exarchos before you start.
 
@@ -113,7 +119,7 @@ If the workflow appears in the pipeline view and `rehydrate` can load it, the mi
 
 ## Switch agents to the migrated copy
 
-Update the MCP server configuration or plugin environment so `WORKFLOW_STATE_DIR` points at the migrated copy:
+After either path succeeds, update the MCP server configuration or plugin environment so `WORKFLOW_STATE_DIR` points at the migrated copy:
 
 ```bash
 export WORKFLOW_STATE_DIR="$MIGRATED"
