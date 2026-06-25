@@ -14,7 +14,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -42,6 +42,7 @@ vi.mock('./mock-boundary.js', async (importOriginal) => {
 import { EventStore } from '../event-store/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { handleOrchestrate } from './composite.js';
+import { rmrf } from '../test-helpers/temp-dir.js';
 
 function probePass() {
   return {
@@ -72,7 +73,7 @@ describe('verification-ladder self-routing (FIX-1)', () => {
   afterEach(() => {
     for (const d of stateDirs.splice(0)) {
       try {
-        rmSync(d, { recursive: true, force: true });
+        rmrf(d);
       } catch {
         /* best-effort */
       }

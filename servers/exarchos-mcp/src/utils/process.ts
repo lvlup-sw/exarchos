@@ -1,3 +1,11 @@
+import {
+  execFileSync,
+  spawnSync,
+  type ExecFileSyncOptions,
+  type SpawnSyncOptionsWithStringEncoding,
+  type SpawnSyncReturns,
+} from 'node:child_process';
+
 /**
  * Check if a process with the given PID is alive.
  *
@@ -37,4 +45,84 @@ export function isPidAlive(pid: number): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Package managers / task runners that ship as `.cmd` batch shims on Windows.
+ * Since the CVE-2024-27980 fix (Node >= 20.12.2), `child_process.execFile*`
+ * refuses to launch a `.cmd`/`.bat` directly — it throws `EINVAL` unless
+ * `shell: true` is set. Native binaries (`git`, `cargo`, …) are real `.exe`s and
+ * spawn fine without a shell.
+ */
+const WINDOWS_CMD_SHIMS = new Set(['npm', 'npx', 'pnpm', 'yarn', 'corepack']);
+
+/**
+ * Whether `command` is a package-manager shim that needs a shell to launch on
+ * the given platform — true only for a bare shim name (no path / extension) on
+ * win32. Pure and platform-injectable so the win32 branch is unit-testable on
+ * the Linux CI host. (#1623)
+ */
+export function needsWindowsShell(
+  command: string,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  if (platform !== 'win32') return false;
+  // A path or an already-extensioned/explicit binary is launched as given.
+  if (command.includes('/') || command.includes('\\') || command.includes('.')) {
+    return false;
+  }
+  return WINDOWS_CMD_SHIMS.has(command);
+}
+
+/**
+ * `execFileSync` that launches Windows package-manager shims correctly.
+ *
+ * On win32 a bare `npm`/`npx`/… resolves to a `.cmd` shim that `execFile` can't
+ * start without a shell (CVE-2024-27980 / Node >= 20.12.2 -> `EINVAL`). For
+ * those commands this runs through `cmd.exe` (`shell: true`, which resolves the
+ * `.cmd` via `PATHEXT`) and double-quotes whitespace-bearing args so paths
+ * survive the shell's tokenization. Everywhere else (and off Windows) it is a
+ * thin pass-through, preserving `execFileSync` semantics — returns stdout,
+ * throws on a non-zero exit.
+ *
+ * Args MUST be trusted (fixed subcommands / resolved file paths): with
+ * `shell: true`, an arg containing shell metacharacters could inject. (#1623)
+ */
+export function runCommandSync(
+  command: string,
+  args: readonly string[],
+  options: ExecFileSyncOptions = {},
+): string | Buffer {
+  if (needsWindowsShell(command)) {
+    const quoted = args.map((a) => (/\s/.test(a) ? `"${a}"` : a));
+    return execFileSync(command, quoted, { ...options, shell: true });
+  }
+  return execFileSync(command, args as string[], options);
+}
+
+/**
+ * `spawnSync` that launches Windows package-manager shims correctly — the
+ * non-throwing sibling of {@link runCommandSync}.
+ *
+ * Returns the full `SpawnSyncReturns` (status / stdout / stderr / error) instead
+ * of throwing on a non-zero exit, for callers that branch on the exit code
+ * rather than on a thrown error. The win32 `.cmd`-shim handling is identical to
+ * `runCommandSync`: a bare `npm`/`npx`/… is launched through `cmd.exe`
+ * (`shell: true`, resolved via `PATHEXT`) with whitespace-bearing args quoted;
+ * everything else (and all of POSIX) is a thin pass-through preserving
+ * `spawnSync` semantics.
+ *
+ * Args MUST be trusted (fixed subcommands / resolved file paths): with
+ * `shell: true`, an arg containing shell metacharacters could inject. (#1623)
+ */
+export function spawnCommandSync(
+  command: string,
+  args: readonly string[],
+  options: SpawnSyncOptionsWithStringEncoding,
+): SpawnSyncReturns<string> {
+  if (needsWindowsShell(command)) {
+    const quoted = args.map((a) => (/\s/.test(a) ? `"${a}"` : a));
+    return spawnSync(command, quoted, { ...options, shell: true });
+  }
+  return spawnSync(command, args as string[], options);
 }

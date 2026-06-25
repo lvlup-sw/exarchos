@@ -24,13 +24,14 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { EventStore } from '../event-store/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { handleOrchestrate } from './composite.js';
+import { rmrf } from '../test-helpers/temp-dir.js';
 
 // ─── git fixture helpers ─────────────────────────────────────────────────────
 
@@ -106,7 +107,7 @@ describe('check_mock_boundary acceptance (through handleOrchestrate)', () => {
     extra: Record<string, unknown> = {},
   ): Promise<{ result: { success: boolean; data: MockBoundaryData }; eventStore: EventStore; featureId: string }> {
     const stateDir = mkdtempSync(path.join(os.tmpdir(), 'mock-boundary-state-'));
-    cleanups.push(() => rmSync(stateDir, { recursive: true, force: true }));
+    cleanups.push(() => rmrf(stateDir));
     const eventStore = new EventStore(stateDir);
     await eventStore.initialize();
     const ctx = makeCtx(stateDir, eventStore);
@@ -130,7 +131,7 @@ describe('check_mock_boundary acceptance (through handleOrchestrate)', () => {
     'HandleOrchestrate_CheckMockBoundary_UnownedMock_AdvisoryWithSteerNextAction',
     async () => {
       const repoRoot = initRepo('mock-boundary-unowned-');
-      cleanups.push(() => rmSync(repoRoot, { recursive: true, force: true }));
+      cleanups.push(() => rmrf(repoRoot));
       writeBaseProject(repoRoot);
 
       // Branch: add a test file that mocks a third-party dependency.
@@ -177,7 +178,7 @@ describe('check_mock_boundary acceptance (through handleOrchestrate)', () => {
     'HandleOrchestrate_CheckMockBoundary_FirstPartyMock_Passes',
     async () => {
       const repoRoot = initRepo('mock-boundary-firstparty-');
-      cleanups.push(() => rmSync(repoRoot, { recursive: true, force: true }));
+      cleanups.push(() => rmrf(repoRoot));
       writeBaseProject(repoRoot);
 
       // Branch: add a test that mocks a FIRST-PARTY relative module. `./foo.js`
@@ -208,7 +209,7 @@ describe('check_mock_boundary acceptance (through handleOrchestrate)', () => {
     'CheckMockBoundary_ConfigOverrideBlocking_StillHonored',
     async () => {
       const repoRoot = initRepo('mock-boundary-blocking-');
-      cleanups.push(() => rmSync(repoRoot, { recursive: true, force: true }));
+      cleanups.push(() => rmrf(repoRoot));
       // `.exarchos.yml` flips the gate to blocking via a review-gate override.
       writeBaseProject(
         repoRoot,
@@ -241,7 +242,7 @@ describe('check_mock_boundary acceptance (through handleOrchestrate)', () => {
     'GateEvent_EscapeHatch_LoggedInPayload',
     async () => {
       const repoRoot = initRepo('mock-boundary-escape-');
-      cleanups.push(() => rmSync(repoRoot, { recursive: true, force: true }));
+      cleanups.push(() => rmrf(repoRoot));
       writeBaseProject(repoRoot);
 
       git(repoRoot, ['checkout', '-b', 'feature/escape', '-q']);

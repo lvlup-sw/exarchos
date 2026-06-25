@@ -12,6 +12,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { execFileSync } from 'node:child_process';
+import { runCommandSync } from '../utils/process.js';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
 import { resolveTestRuntime } from '../config/test-runtime-resolver.js';
@@ -428,7 +429,10 @@ function checkTestsPass(
       checkFail(ctx, 'Tests pass', 'empty test command');
       return;
     }
-    execFileSync(testProg, testArgs as string[], {
+    // runCommandSync (not raw execFileSync): the resolved test command is a
+    // package-manager shim (`npm run test:run`) whose `.cmd` launcher execFile
+    // refuses to start on Windows since CVE-2024-27980 (Node >= 20.12.2). (#1623)
+    runCommandSync(testProg, testArgs as string[], {
       cwd: repoRoot,
       timeout: 120_000,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -445,7 +449,9 @@ function checkTestsPass(
         checkFail(ctx, 'Tests pass', 'empty typecheck command');
         return;
       }
-      execFileSync(tcProg, tcArgs as string[], {
+      // runCommandSync (not raw execFileSync): a resolved `npm run typecheck`
+      // shim won't launch via execFile on Windows since CVE-2024-27980. (#1623)
+      runCommandSync(tcProg, tcArgs as string[], {
         cwd: repoRoot,
         timeout: 60_000,
         stdio: ['pipe', 'pipe', 'pipe'],

@@ -7,6 +7,7 @@ import { handleViewTelemetry } from '../tools.js';
 import { withTelemetry } from '../middleware.js';
 import { resetMaterializerCache } from '../../views/tools.js';
 import { TELEMETRY_STREAM } from '../constants.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 const RUN_BENCHMARKS = process.env.RUN_BENCHMARKS === 'true';
 
@@ -21,7 +22,7 @@ describe('Latency Benchmarks', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it.skipIf(!RUN_BENCHMARKS)('withTelemetry wrapper adds less than 10ms overhead', async () => {

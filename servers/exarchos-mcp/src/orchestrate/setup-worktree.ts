@@ -6,6 +6,7 @@
 
 import { existsSync, appendFileSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { runCommandSync } from '../utils/process.js';
 import { join } from 'node:path';
 import { toPosix } from '../utils/paths.js';
 import type { ToolResult } from '../format.js';
@@ -399,7 +400,7 @@ function runInstallStep(worktreePath: string): CheckResult {
   }
 
   try {
-    execFileSync(cmd, cmdArgs as string[], {
+    runCommandSync(cmd, cmdArgs as string[], {
       encoding: 'utf-8',
       cwd: worktreePath,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -446,7 +447,7 @@ function runBaselineTests(worktreePath: string, skipTests: boolean): CheckResult
   }
 
   try {
-    execFileSync(cmd, cmdArgs as string[], {
+    runCommandSync(cmd, cmdArgs as string[], {
       encoding: 'utf-8',
       cwd: worktreePath,
       stdio: ['pipe', 'pipe', 'pipe'],

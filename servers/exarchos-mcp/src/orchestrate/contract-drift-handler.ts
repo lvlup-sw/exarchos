@@ -17,7 +17,7 @@
 // test per boundary, delete redundant shape assertions.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { execFileSync } from 'node:child_process';
+import { runCommandSync } from '../utils/process.js';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
 import {
@@ -108,12 +108,12 @@ const defaultRunCommand: CommandRunFn = async ({ repoRoot, command }) => {
     return { exitCode: 1, stdout: `unparseable command "${command}": ${err instanceof Error ? err.message : String(err)}` };
   }
   try {
-    const stdout = execFileSync(cmd, [...cmdArgs], {
+    const stdout = runCommandSync(cmd, [...cmdArgs], {
       cwd: repoRoot,
       timeout: 120_000,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    }) as string;
     return { exitCode: 0, stdout };
   } catch (err) {
     const e = err as { status?: number; stdout?: string | Buffer; stderr?: string | Buffer };

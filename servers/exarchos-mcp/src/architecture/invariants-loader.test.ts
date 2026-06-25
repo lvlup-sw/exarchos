@@ -51,11 +51,12 @@ const REQUIRED_INVARIANT_IDS = [
 
 /**
  * The DIM-* axiom-dimension entries were excised in the axiom-excision
- * feature (#1477). The catalog now carries exactly 19 entries: 18 INV-*
- * (counting sub-disciplines INV-5a..d as four) plus `basileus-boundary`.
- * Zero DIM-* entries remain; zero `axiom_overlap` fields remain.
+ * feature (#1477). The catalog now carries exactly 20 entries: 19 INV-*
+ * (counting sub-disciplines INV-5a..d as four, and INV-16 os-portability
+ * added in #1623) plus `basileus-boundary`. Zero DIM-* entries remain; zero
+ * `axiom_overlap` fields remain.
  */
-const EXPECTED_CATALOG_SIZE = 19;
+const EXPECTED_CATALOG_SIZE = 20;
 
 /**
  * Most tests in this file exercise catalog *contents*, not the Wave B2
@@ -127,9 +128,9 @@ describe('invariants-loader', () => {
     }
   });
 
-  it('LoadInvariants_NoDimEntries_CatalogHas19', () => {
+  it('LoadInvariants_NoDimEntries_CatalogHas20', () => {
     // Axiom excision (#1477) removed all 8 DIM-* entries. The catalog is now
-    // exactly 19 entries: 18 INV-* (INV-5a..d counted individually) plus the
+    // exactly 20 entries: 19 INV-* (INV-5a..d counted individually) plus the
     // single `basileus-boundary` cross-product entry.
     const entries = loadInvariants(INVARIANTS_DOC, { scope: 'all' }, ENABLED_CONFIG);
     expect(entries.length).toBe(EXPECTED_CATALOG_SIZE);
@@ -853,7 +854,7 @@ invariants:
     // 'substrate' returns every entry on the substrate axis regardless of
     // cost-of-load. After the axiom excision (#1477) the catalog has 19
     // entries, all substrate-axis (the sole authoring entry DIM-8 was
-    // removed with the rest of the DIM-* block). So substrate === all === 19.
+    // removed with the rest of the DIM-* block). So substrate === all === 20 (INV-16 added in #1623).
     const substrate = loadInvariants(
       INVARIANTS_DOC,
       { scope: 'substrate' as 'core' },

@@ -17,7 +17,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -28,6 +28,7 @@ import type { ResolvedVerificationRuntime } from '../config/test-runtime-resolve
 import { resolveConfig } from '../config/resolve.js';
 import type { ProjectConfig } from '../config/yaml-schema.js';
 import type { MutationRunResult } from './mutation-adequacy.js';
+import { rmrf } from '../test-helpers/temp-dir.js';
 
 // ─── fixtures ────────────────────────────────────────────────────────────────
 
@@ -106,7 +107,7 @@ afterEach(() => {
 
 async function newStore(): Promise<{ stateDir: string; eventStore: EventStore }> {
   const stateDir = mkdtempSync(path.join(os.tmpdir(), 'mutadq-state-'));
-  cleanups.push(() => rmSync(stateDir, { recursive: true, force: true }));
+  cleanups.push(() => rmrf(stateDir));
   const eventStore = new EventStore(stateDir);
   await eventStore.initialize();
   return { stateDir, eventStore };

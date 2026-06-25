@@ -10,7 +10,7 @@
 // the four distinct emission paths and fails today; α-08 closes the gap.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -18,6 +18,7 @@ import { EventStore } from '../event-store/store.js';
 import { handleInit } from './tools.js';
 import { handleCancel } from './cancel.js';
 import { assertCanonicalEnvelope } from './test-helpers/canonical-envelope.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 let tempDir: string;
 let store: EventStore;
@@ -29,7 +30,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await rm(tempDir, { recursive: true, force: true });
+  await rmrfAsync(tempDir);
 });
 
 /**

@@ -6,7 +6,7 @@
 // flywheel integration.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { spawnSync } from 'node:child_process';
+import { spawnCommandSync } from '../utils/process.js';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
 import { emitGateEvent } from './gate-utils.js';
@@ -34,14 +34,17 @@ interface PostMergeResult {
 
 /**
  * Wraps spawnSync to match the command runner signature expected by
- * the pure TypeScript checkPostMerge function.
+ * the pure TypeScript checkPostMerge function. Routes through
+ * `spawnCommandSync` so a resolved package-manager command (`checkPostMerge`
+ * spawns `npm`) launches its `.cmd` shim on Windows — raw `spawnSync('npm', …)`
+ * throws EINVAL since CVE-2024-27980 (Node >= 20.12.2). (#1623)
  */
 function execCommandRunner(
   cmd: string,
   args: readonly string[],
   cwd?: string,
 ): CommandResult {
-  const result = spawnSync(cmd, [...args], {
+  const result = spawnCommandSync(cmd, [...args], {
     cwd,
     encoding: 'utf-8',
     timeout: 120_000,

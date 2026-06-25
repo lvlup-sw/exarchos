@@ -8,7 +8,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { existsSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { runCommandSync } from '../utils/process.js';
 import { join, resolve } from 'node:path';
 import { toPosix } from '../utils/paths.js';
 import type { ToolResult } from '../format.js';
@@ -133,7 +133,7 @@ function checkWorktreeTests(
     }
 
     try {
-      execFileSync('npm', ['run', 'test:run'], {
+      runCommandSync('npm', ['run', 'test:run'], {
         cwd: wtPath,
         encoding: 'utf-8',
         timeout: 120_000,

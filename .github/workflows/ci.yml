@@ -85,6 +85,13 @@ jobs:
       - run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
         working-directory: servers/exarchos-mcp
       - run: npm run typecheck
+
+      # Windows-portability lint (#1623): editor-first ESLint rules, also run
+      # here as a config-rot guard + second enforcement of the spawn-shim /
+      # URL.pathname anti-patterns (the grep-gate is the primary CI enforcer).
+      - run: npm run lint:windows
+      - run: bash scripts/check-eslint-windows.test.sh
+
       - run: npm run test:run
       # skills:guard — rebuild the generated skills tree in-place and
       # fail if `git diff skills/` is non-empty. Prevents drift from
@@ -386,6 +393,12 @@ jobs:
 
       - name: Event-store access via composition root (#1342)
         run: node scripts/check-event-store-composition-root.mjs
+
+      - name: Windows-portability anti-patterns (#1623)
+        run: node scripts/check-windows-portability.mjs
+
+      - name: Windows-portability gate self-test (#1623)
+        run: bash scripts/check-windows-portability.test.sh
 
       - name: npm-ci-retry helper tests
         run: bash scripts/npm-ci-retry.test.sh

@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { EventStore } from '../../event-store/store.js';
 import { generateWorkflowEvents } from './cold-start.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 const RUN_BENCHMARKS = process.env.RUN_BENCHMARKS === 'true';
 
@@ -18,7 +19,7 @@ describe('Event Store Benchmarks', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   // ─── 1. Single Event Append ───────────────────────────────────────────────
