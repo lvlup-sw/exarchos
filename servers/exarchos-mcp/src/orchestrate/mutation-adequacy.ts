@@ -17,7 +17,7 @@
 // that to a Warning carrier rather than failing the gate closed-with-an-error.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { execFileSync } from 'node:child_process';
+import { runCommandSync } from '../utils/process.js';
 import { z } from 'zod';
 
 import type { ToolResult } from '../format.js';
@@ -340,12 +340,16 @@ function defaultRunMutation(args: MutationRunArgs): MutationRunResult {
   const [bin, ...rest] = tokens;
   if (!bin) return { ok: false, reason: 'no resolvable mutation command' };
   try {
-    const stdout = execFileSync(bin, rest, {
+    // runCommandSync (not raw execFileSync): the mutation command resolves to a
+    // package-manager shim (`npx stryker`, `npm run mutation`) whose `.cmd`
+    // launcher execFile refuses to start on Windows since CVE-2024-27980
+    // (Node >= 20.12.2). (#1623)
+    const stdout = runCommandSync(bin, rest, {
       cwd: args.repoRoot,
       timeout: 600_000,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    }).toString();
     return { ok: true, report: stdout };
   } catch (err) {
     const e = err as { stdout?: string | Buffer; status?: number };

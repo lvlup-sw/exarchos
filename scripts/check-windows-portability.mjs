@@ -3,7 +3,7 @@
  * Windows-portability anti-pattern CI gate (#1623, follow-up to #1620).
  *
  * The blocking `windows-latest` job (#1620) catches Windows breakage, but only
- * after an ~8-minute run. This gate fires in seconds and flags the three
+ * after an ~8-minute run. This gate fires in seconds and flags the four
  * known, high-signal regressions at PR time:
  *
  *   1. **Shell-shim spawn** — `execFile(Sync)('npm'|'npx'|'pnpm'|'yarn', …)`
@@ -19,6 +19,13 @@
  *      the store (`.close()`). On NTFS the open `exarchos.db` handle blocks the
  *      unlink (EPERM/EBUSY). Use `rmrf`/`rmrfAsync`, or `eventStore.close()`
  *      before removing.
+ *   4. **Dynamic-bin spawn** — `execFile(Sync)`/`spawn(Sync)` with a RESOLVED
+ *      command *variable* (not a string literal). A literal `'git'` is a real
+ *      `.exe`; a variable bin can resolve to a `npm`/`npx` `.cmd` shim that raw
+ *      execFile/spawn can't launch on Windows (CVE-2024-27980). Route through
+ *      `runCommandSync`/`spawnCommandSync`. The literal-name rule (1) can't see
+ *      a variable bin — this is the hole that shipped the test-adequacy
+ *      false-red kill probe. Production files only; the spawn helper is exempt.
  *
  *   Exit 0 — clean.  Exit 1 — violations (`path:line  excerpt` on stderr).
  *   Exit 2 — usage / environment error.
@@ -102,6 +109,17 @@ function* walk(dir) {
 const SPAWN_RE = /\bexecFile(?:Sync)?\s*\(\s*['"](?:npm|npx|pnpm|yarn|corepack)['"]/g;
 const URL_PATHNAME_RE = /new\s+URL\s*\(\s*import\.meta\.url\s*\)\s*\.pathname/g;
 const RECURSIVE_RM_RE = /\b(?:fs\.|fsp\.|fsPromises\.)?rm(?:Sync)?\s*\([^;]{0,160}recursive/g;
+// 4 — dynamic-bin spawn: execFile/spawn whose first arg is a RESOLVED command
+// variable (an identifier, not a string literal). A literal `'git'` is a real
+// `.exe` and launches fine; but a variable bin can resolve to a `npm`/`npx`/…
+// `.cmd` shim that raw execFile/spawn can't launch on Windows since
+// CVE-2024-27980 — it must route through runCommandSync/spawnCommandSync. The
+// literal-name SPAWN_RE above cannot see a variable bin: that blind spot is
+// what shipped the test-adequacy false-red kill probe (#1623).
+const DYNAMIC_SPAWN_RE = /\b(?:execFile|execFileSync|spawn|spawnSync)\s*\(\s*[A-Za-z_$][\w$.]*/g;
+// The shell-aware spawn helpers legitimately call raw execFile/spawn with a
+// variable bin — that is their whole job. Exempt only this file.
+const SPAWN_HELPER_RE = /utils[/\\]process\.ts$/;
 
 function main() {
   const args = parseArgs(process.argv.slice(2));
@@ -137,6 +155,10 @@ function main() {
     const raw = readFileSync(file, 'utf8');
     const src = stripComments(raw);
     const isTest = /\.test\.ts$/.test(file);
+    // Benchmarks are dev-only tooling, never the shipped runtime path; like
+    // tests they may spawn a bin (the running `node` via process.execPath) the
+    // shipped code wouldn't, so they're exempt from the dynamic-spawn rule.
+    const isBench = /\.bench\.ts$/.test(file);
 
     // 2 — non-portable module path (anywhere)
     for (const m of src.matchAll(URL_PATHNAME_RE)) {
@@ -147,6 +169,17 @@ function main() {
       // 1 — shell-shim spawn (production only; tests may exercise the raw form)
       for (const m of src.matchAll(SPAWN_RE)) {
         record(file, raw, m.index, 'spawn-shim: route npm/npx via runCommandSync');
+      }
+      // 4 — dynamic-bin spawn (production only; the spawn helper + benches exempt)
+      if (!SPAWN_HELPER_RE.test(file) && !isBench) {
+        for (const m of src.matchAll(DYNAMIC_SPAWN_RE)) {
+          record(
+            file,
+            raw,
+            m.index,
+            'dynamic-spawn: a resolved command bin must route through runCommandSync/spawnCommandSync',
+          );
+        }
       }
     } else {
       // 3 — leaked SQLite handle in test teardown.

@@ -15,7 +15,7 @@
 // finding (a failed probe is a finding, not a tool error).
 // ────────────────────────────────────────────────────────────────────────────
 
-import { execFileSync } from 'node:child_process';
+import { runCommandSync } from '../utils/process.js';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
 import {
@@ -130,13 +130,18 @@ function buildDefaultRunTests(repoRoot: string): TestRunFn {
     }
     const args = [...rest, '--', ...testFiles];
     try {
-      const output = execFileSync(bin, args, {
+      // runCommandSync (not raw execFileSync): on Windows the resolved test
+      // command is a package-manager shim (`npm run test:run`) whose `.cmd`
+      // launcher execFile refuses to start since CVE-2024-27980 (Node
+      // >= 20.12.2) — it would throw EINVAL, which the catch below misreads as a
+      // failing (red) test and FALSELY passes the kill probe. (#1623)
+      const output = runCommandSync(bin, args, {
         cwd: repoRoot,
         timeout: 120_000,
         encoding: 'utf-8',
         stdio: ['pipe', 'pipe', 'pipe'],
       });
-      return { passed: true, output };
+      return { passed: true, output: output.toString() };
     } catch (err) {
       const e = err as { stdout?: string | Buffer; stderr?: string | Buffer };
       const out =

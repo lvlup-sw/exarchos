@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { needsWindowsShell, runCommandSync } from './process.js';
+import { needsWindowsShell, runCommandSync, spawnCommandSync } from './process.js';
 
 describe('needsWindowsShell (#1623)', () => {
   it('NeedsWindowsShell_BarePackageManagerOnWin32_True', () => {
@@ -38,5 +38,22 @@ describe('runCommandSync (#1623)', () => {
 
   it('RunCommandSync_NonZeroExit_Throws', () => {
     expect(() => runCommandSync('node', ['-e', 'process.exit(3)'])).toThrow();
+  });
+});
+
+describe('spawnCommandSync (#1623)', () => {
+  it('SpawnCommandSync_NativeCommand_ReturnsStdoutAndZeroStatus', () => {
+    // POSIX CI host exercises the non-shell pass-through; the win32 `.cmd`-shim
+    // branch is covered end-to-end by the post-merge spawn on windows-latest.
+    const r = spawnCommandSync('node', ['--version'], { encoding: 'utf-8' });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toMatch(/^v\d+\./);
+  });
+
+  it('SpawnCommandSync_NonZeroExit_CapturesStatusWithoutThrowing', () => {
+    // Unlike runCommandSync, the spawn sibling does NOT throw — it surfaces the
+    // exit code so callers (post-merge) can branch on it.
+    const r = spawnCommandSync('node', ['-e', 'process.exit(3)'], { encoding: 'utf-8' });
+    expect(r.status).toBe(3);
   });
 });

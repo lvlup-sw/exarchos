@@ -1,4 +1,10 @@
-import { execFileSync, type ExecFileSyncOptions } from 'node:child_process';
+import {
+  execFileSync,
+  spawnSync,
+  type ExecFileSyncOptions,
+  type SpawnSyncOptionsWithStringEncoding,
+  type SpawnSyncReturns,
+} from 'node:child_process';
 
 /**
  * Check if a process with the given PID is alive.
@@ -92,4 +98,31 @@ export function runCommandSync(
     return execFileSync(command, quoted, { ...options, shell: true });
   }
   return execFileSync(command, args as string[], options);
+}
+
+/**
+ * `spawnSync` that launches Windows package-manager shims correctly — the
+ * non-throwing sibling of {@link runCommandSync}.
+ *
+ * Returns the full `SpawnSyncReturns` (status / stdout / stderr / error) instead
+ * of throwing on a non-zero exit, for callers that branch on the exit code
+ * rather than on a thrown error. The win32 `.cmd`-shim handling is identical to
+ * `runCommandSync`: a bare `npm`/`npx`/… is launched through `cmd.exe`
+ * (`shell: true`, resolved via `PATHEXT`) with whitespace-bearing args quoted;
+ * everything else (and all of POSIX) is a thin pass-through preserving
+ * `spawnSync` semantics.
+ *
+ * Args MUST be trusted (fixed subcommands / resolved file paths): with
+ * `shell: true`, an arg containing shell metacharacters could inject. (#1623)
+ */
+export function spawnCommandSync(
+  command: string,
+  args: readonly string[],
+  options: SpawnSyncOptionsWithStringEncoding,
+): SpawnSyncReturns<string> {
+  if (needsWindowsShell(command)) {
+    const quoted = args.map((a) => (/\s/.test(a) ? `"${a}"` : a));
+    return spawnSync(command, quoted, { ...options, shell: true });
+  }
+  return spawnSync(command, args as string[], options);
 }
