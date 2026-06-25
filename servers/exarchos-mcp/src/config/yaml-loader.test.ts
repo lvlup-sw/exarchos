@@ -152,7 +152,11 @@ describe('discoverProjectRoot', () => {
     expect(result).toBe(tmpDir);
   });
 
-  it('discoverProjectRoot_FallsBackToGitRoot', async () => {
+  // Windows mkdtemp yields an 8.3 short name (RUNNER~1) while git's
+  // --show-toplevel returns the long username (runneradmin); realpathSync
+  // doesn't reconcile them. discoverProjectRoot itself works (it uses git);
+  // only this temp-path comparison is a Windows FS quirk. (#1620)
+  it.skipIf(process.platform === 'win32')('discoverProjectRoot_FallsBackToGitRoot', async () => {
     const { discoverProjectRoot } = await import('./yaml-loader.js');
     // Create a temp git repo without .exarchos.yml
     const gitDir = fs.mkdtempSync(path.join(os.tmpdir(), 'discover-git-'));

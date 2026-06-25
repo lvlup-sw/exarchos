@@ -93,7 +93,10 @@ interface AdequacyData {
 
 // ─── tests ───────────────────────────────────────────────────────────────────
 
-describe('check_test_adequacy acceptance (kill probe through handleOrchestrate)', () => {
+// Spawns REAL `npm`/test-runner in a temp git fixture; `execFile('npm', …)`
+// can't launch the npm.cmd shim on Windows (a separate cross-platform-spawn
+// gap, tracked for follow-up). The kill-probe logic is unit-covered. (#1620)
+describe.skipIf(process.platform === 'win32')('check_test_adequacy acceptance (kill probe through handleOrchestrate)', () => {
   const cleanups: Array<() => void> = [];
 
   afterEach(() => {

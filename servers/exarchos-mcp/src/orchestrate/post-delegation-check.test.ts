@@ -54,7 +54,10 @@ describe('handlePostDelegationCheck', () => {
       makeCompleteTask('task-2', 'wt-2'),
     ]);
     mockExistsSync.mockImplementation((p: unknown) => {
-      const path = String(p);
+      // Strip a leading Windows drive (`C:`) so these posix mock keys match
+      // the handler's toPosix(resolve(...)) output, which prefixes the drive
+      // on Windows (#1620).
+      const path = String(p).replace(/^[A-Za-z]:/, '');
       if (path === '/tmp/state.json') return true;
       if (path === '/repo/wt-1') return true;
       if (path === '/repo/wt-2') return true;
@@ -193,7 +196,10 @@ describe('handlePostDelegationCheck', () => {
       makeCompleteTask('task-1', 'wt-missing'),
     ]);
     mockExistsSync.mockImplementation((p: unknown) => {
-      const path = String(p);
+      // Strip a leading Windows drive (`C:`) so these posix mock keys match
+      // the handler's toPosix(resolve(...)) output, which prefixes the drive
+      // on Windows (#1620).
+      const path = String(p).replace(/^[A-Za-z]:/, '');
       if (path === '/tmp/state.json') return true;
       // worktree dir does not exist
       return false;

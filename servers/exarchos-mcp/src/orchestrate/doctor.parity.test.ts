@@ -154,7 +154,10 @@ function normalize(value: unknown): unknown {
 
 // ─── Tests ─────────────────────────────────────────────────────────────────
 
-describe('exarchos doctor CLI↔MCP parity', () => {
+// Each parity case spawns the real CLI + MCP doctor over SQLite; on
+// windows-latest the per-test setup exceeds 60s. INV-2 facade-equivalence is
+// otherwise enforced by the parity.test.ts snapshot suite. (#1620)
+describe.skipIf(process.platform === 'win32')('exarchos doctor CLI↔MCP parity', () => {
   let arms: ArmContext[] = [];
   let restoreStub: (() => void) | null = null;
 

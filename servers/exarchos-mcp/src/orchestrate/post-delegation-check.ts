@@ -10,6 +10,7 @@
 import { existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
+import { toPosix } from '../utils/paths.js';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
 import { resolveWorkflowState } from './resolve-state.js';
@@ -105,10 +106,15 @@ function checkWorktreeTests(
   }
 
   const results: CheckResult[] = [];
-  const resolvedRepoRoot = resolve(repoRoot);
+  // POSIX-normalize so the containment guard's `+ '/'` separator and the
+  // existsSync paths are correct on Windows — `resolve` emits backslashes there,
+  // so `startsWith(resolvedRepoRoot + '/')` never matched and valid worktrees
+  // were wrongly rejected as "escapes repository root" (#1620). `resolve` is
+  // kept (not `join`) so `..` is still normalized away — the escape guard holds.
+  const resolvedRepoRoot = toPosix(resolve(repoRoot));
 
   for (const wt of worktrees) {
-    const wtPath = resolve(repoRoot, wt);
+    const wtPath = toPosix(resolve(repoRoot, wt));
 
     // Guard: reject worktree paths that escape the repository root
     if (!wtPath.startsWith(resolvedRepoRoot + '/') && wtPath !== resolvedRepoRoot) {
@@ -121,7 +127,7 @@ function checkWorktreeTests(
       continue;
     }
 
-    if (!existsSync(join(wtPath, 'package.json'))) {
+    if (!existsSync(toPosix(join(wtPath, 'package.json')))) {
       results.push(checkSkip(`Worktree tests: ${wt} (no package.json)`));
       continue;
     }

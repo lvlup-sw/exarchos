@@ -8,6 +8,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
+import { toPosix } from '../utils/paths.js';
 import type { ToolResult } from '../format.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -150,7 +151,7 @@ export function handleSpecCoverageCheck(args: SpecCoverageCheckArgs): ToolResult
 
   // Check: each test file exists on disk
   for (const testFile of testFiles) {
-    const fullPath = join(repoRoot, testFile);
+    const fullPath = toPosix(join(repoRoot, testFile));
     if (existsSync(fullPath)) {
       checks.push({ status: 'PASS', name: `Test file exists: ${testFile}` });
       found++;

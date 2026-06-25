@@ -128,7 +128,7 @@ function formatReport(
 // extracted below so each concern (read vs error formatting vs control
 // flow) sits in its own function and stays easy to read in isolation.
 function ensureGitignored(repoRoot: string): CheckResult {
-  const gitignorePath = join(repoRoot, '.gitignore');
+  const gitignorePath = toPosix(join(repoRoot, '.gitignore'));
 
   let detail: 'already present' | 'added' | 'created with entry';
   let needsAppend: boolean;

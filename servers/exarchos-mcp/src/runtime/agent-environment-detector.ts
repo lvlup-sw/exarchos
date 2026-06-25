@@ -190,7 +190,7 @@ async function probeJsonMcpConfig(
  * runtime error.
  */
 async function probeExarchosPluginInstall(fs: DetectorFs, home: string): Promise<boolean> {
-  const installedPluginsPath = path.join(home, '.claude', 'plugins', 'installed_plugins.json');
+  const installedPluginsPath = toPosix(path.join(home, '.claude', 'plugins', 'installed_plugins.json'));
   let raw: string | null;
   try {
     raw = await readOrNull(fs, installedPluginsPath);
@@ -217,7 +217,7 @@ async function probeExarchosPluginInstall(fs: DetectorFs, home: string): Promise
       if (typeof entry !== 'object' || entry === null) continue;
       const installPath = (entry as { installPath?: unknown }).installPath;
       if (typeof installPath !== 'string') continue;
-      const manifestPath = path.join(installPath, '.claude-plugin', 'plugin.json');
+      const manifestPath = toPosix(path.join(installPath, '.claude-plugin', 'plugin.json'));
       if (await manifestWiresExarchosMcp(fs, manifestPath)) return true;
     }
   }
