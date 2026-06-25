@@ -18,6 +18,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { execFileSync } from 'node:child_process';
+import { resolveExecutable } from '../utils/process.js';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
 import {
@@ -108,7 +109,7 @@ const defaultRunCommand: CommandRunFn = async ({ repoRoot, command }) => {
     return { exitCode: 1, stdout: `unparseable command "${command}": ${err instanceof Error ? err.message : String(err)}` };
   }
   try {
-    const stdout = execFileSync(cmd, [...cmdArgs], {
+    const stdout = execFileSync(resolveExecutable(cmd), [...cmdArgs], {
       cwd: repoRoot,
       timeout: 120_000,
       encoding: 'utf-8',

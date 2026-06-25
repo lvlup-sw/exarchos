@@ -6,6 +6,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { execFileSync } from 'node:child_process';
+import { resolveExecutable } from '../utils/process.js';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
 import { emitGateEvent, resolveRepoRoot } from './gate-utils.js';
@@ -61,7 +62,7 @@ const execCommandRunner: RunCommandFn = (
   options?: { cwd?: string },
 ): CommandResult => {
   try {
-    const output = execFileSync(cmd, args as string[], {
+    const output = execFileSync(resolveExecutable(cmd), args as string[], {
       encoding: 'utf-8',
       cwd: options?.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
