@@ -7,6 +7,7 @@
 
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { toPosix } from '../utils/paths.js';
 import type { ToolResult } from '../format.js';
 
 // ─── Argument & Result Types ─────────────────────────────────────────────────
@@ -96,10 +97,12 @@ function checkFile(
 
       counters.checked++;
 
-      // Resolve: absolute paths as-is, relative paths from file's directory
+      // Resolve: absolute paths as-is, relative paths from file's directory.
+      // POSIX-normalize so the existence check is separator-agnostic (join
+      // emits backslashes on Windows). (#1620)
       const resolvedPath = fileTarget.startsWith('/')
         ? fileTarget
-        : join(fileDir, fileTarget);
+        : toPosix(join(fileDir, fileTarget));
 
       if (!existsSync(resolvedPath)) {
         brokenLinks.push({
