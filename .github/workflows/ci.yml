@@ -557,12 +557,12 @@ jobs:
             echo "::error::MCP server tests: ${{ needs.test-mcp.result }}"
             exit 1
           fi
-          # test-windows is ADVISORY: the windows-latest job surfaces the
-          # pre-existing Linux-only Windows-portability gap, tracked in #1620
-          # (v2.11.0). It must NOT block the rc cut — warn, do not fail. Re-arm
-          # to `exit 1` once the Windows suite is green.
+          # test-windows is BLOCKING. The Windows-portability gap (#1620) is
+          # closed — the windows-latest MCP suite is green — so a red Windows
+          # job now fails CI like any other tier, guarding against regressions.
           if [[ "${{ needs.test-windows.result }}" =~ ^(failure|cancelled)$ ]]; then
-            echo "::warning::Windows unit tests advisory (${{ needs.test-windows.result }}) — tracked in #1620"
+            echo "::error::Windows unit tests: ${{ needs.test-windows.result }}"
+            exit 1
           fi
           if [[ "${{ needs.validate-no-legacy.result }}" =~ ^(failure|cancelled)$ ]]; then
             echo "::error::Validate no legacy: ${{ needs.validate-no-legacy.result }}"
