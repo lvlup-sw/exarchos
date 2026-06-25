@@ -48,7 +48,8 @@
     "validate": "bash scripts/validate-plugin.sh && node scripts/check-prefix-fingerprint.mjs && node scripts/check-prose-lint.mjs && node scripts/check-event-store-composition-root.mjs && node scripts/check-query-upcast-choke-point.mjs && node scripts/check-no-state-json.mjs && node scripts/check-single-workflow-fold.mjs",
     "docs:dev": "cd documentation && npm run docs:dev",
     "docs:build": "cd documentation && npm run docs:build",
-    "docs:preview": "cd documentation && npm run docs:preview"
+    "docs:preview": "cd documentation && npm run docs:preview",
+    "lint:windows": "eslint 'servers/exarchos-mcp/src/**/*.ts'"
   },
   "keywords": [
     "claude-code-plugin",
@@ -77,9 +78,11 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.0.0",
+    "eslint": "^9.39.4",
     "knip": "^6.6.2",
     "tsx": "^4.21.0",
     "typescript": "^5.0.0",
+    "typescript-eslint": "^8.62.0",
     "vitest": "^3.0.0",
     "zod": "^4.3.6"
   },
