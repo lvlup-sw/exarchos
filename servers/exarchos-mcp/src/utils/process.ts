@@ -46,7 +46,7 @@ export function isPidAlive(pid: number): boolean {
  * must be resolved to its `.cmd` form on win32. Native binaries (`git`,
  * `cargo`, …) are real `.exe`s and need no remapping.
  */
-const WINDOWS_CMD_SHIMS = new Set(['npm', 'npx', 'pnpm', 'yarn', 'corepack', 'tsc', 'vitest']);
+const WINDOWS_CMD_SHIMS = new Set(['npm', 'npx', 'pnpm', 'yarn', 'corepack']);
 
 /**
  * Resolve a command name to the platform-appropriate executable for

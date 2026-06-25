@@ -47,7 +47,7 @@ describe('handleSetupWorktree', () => {
 
   it('DerivedPaths_AreCorrect', () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
-      const cmdStr = String(cmd);
+      const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
       if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
       if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
@@ -79,7 +79,7 @@ describe('handleSetupWorktree', () => {
 
   it('FullSetup_AllStepsPass', () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
-      const cmdStr = String(cmd);
+      const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
       if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
       if (cmdStr === 'git' && argsArr.includes('show-ref')) {
@@ -117,7 +117,7 @@ describe('handleSetupWorktree', () => {
 
   it('BranchExists_SkipsCreation_StepPasses', () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
-      const cmdStr = String(cmd);
+      const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
       if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
       if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
@@ -149,7 +149,7 @@ describe('handleSetupWorktree', () => {
 
   it('WorktreeExists_SkipsCreation_StepPasses', () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
-      const cmdStr = String(cmd);
+      const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
       if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
       if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
@@ -182,7 +182,7 @@ describe('handleSetupWorktree', () => {
   it('WorktreesNotGitignored_AddsToGitignore', () => {
     let gitignoreCheckCallCount = 0;
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
-      const cmdStr = String(cmd);
+      const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
       if (cmdStr === 'git' && argsArr.includes('check-ignore')) {
         gitignoreCheckCallCount++;
@@ -234,7 +234,7 @@ describe('handleSetupWorktree', () => {
     // concatenated line that no longer ignores either path. The fix
     // prepends a newline so the final contents are "dist\n.worktrees/\n".
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
-      const cmdStr = String(cmd);
+      const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
       if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
       if (cmdStr === 'git' && argsArr.includes('rev-parse')) return '.git';
@@ -276,7 +276,7 @@ describe('handleSetupWorktree', () => {
 
   it('NpmInstallFails_Step4Fails', () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
-      const cmdStr = String(cmd);
+      const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
       if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
       if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
@@ -311,7 +311,7 @@ describe('handleSetupWorktree', () => {
 
   it('SkipTests_Step5Skipped', () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
-      const cmdStr = String(cmd);
+      const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
       if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
       if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
@@ -346,7 +346,7 @@ describe('handleSetupWorktree', () => {
 
   it('TestsFail_Step5Fails_OverallFails', () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
-      const cmdStr = String(cmd);
+      const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
       if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
       if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
@@ -418,7 +418,7 @@ describe('handleSetupWorktree', () => {
 
   it('runInstallStep_NoPackageJson_SkipsWithReason', () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
-      const cmdStr = String(cmd);
+      const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
       if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
       if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
@@ -452,7 +452,7 @@ describe('handleSetupWorktree', () => {
 
   it('runInstallStep_NpmProject_RunsNpmInstall', () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
-      const cmdStr = String(cmd);
+      const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
       if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
       if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
@@ -485,7 +485,7 @@ describe('handleSetupWorktree', () => {
 
   it('runInstallStep_PnpmLockfilePresent_DoesNotRunNpmInstall_RunsPnpmInstall', () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
-      const cmdStr = String(cmd);
+      const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
       if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
       if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
@@ -535,7 +535,7 @@ describe('handleSetupWorktree', () => {
     // No Berry signals → Classic. `--immutable` is Berry-only; Classic must
     // get `--frozen-lockfile`.
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
-      const cmdStr = String(cmd);
+      const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
       if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
       if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
@@ -577,7 +577,7 @@ describe('handleSetupWorktree', () => {
 
   it('runInstallStep_YarnBerryViaYarnrcYml_RunsYarnInstallImmutable', () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
-      const cmdStr = String(cmd);
+      const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
       if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
       if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
@@ -620,7 +620,7 @@ describe('handleSetupWorktree', () => {
 
   it('runInstallStep_BunLockfilePresent_RunsBunInstall', () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
-      const cmdStr = String(cmd);
+      const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
       if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
       if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
@@ -654,7 +654,7 @@ describe('handleSetupWorktree', () => {
 
   it('runBaselineTests_PnpmProject_RunsPnpmTest', () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
-      const cmdStr = String(cmd);
+      const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
       if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
       if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
@@ -695,7 +695,7 @@ describe('handleSetupWorktree', () => {
 
   it('runBaselineTests_BunProject_RunsBunTest', () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
-      const cmdStr = String(cmd);
+      const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
       if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
       if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
@@ -726,7 +726,7 @@ describe('handleSetupWorktree', () => {
 
   it('runBaselineTests_NpmMissingTestRunScript_SkipsWithRemediation', () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
-      const cmdStr = String(cmd);
+      const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
       if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
       if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
@@ -770,7 +770,7 @@ describe('handleSetupWorktree', () => {
 
   it('runBaselineTests_PythonProject_RunsPytest', () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
-      const cmdStr = String(cmd);
+      const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
       if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
       if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
@@ -801,7 +801,7 @@ describe('handleSetupWorktree', () => {
 
   it('runBaselineTests_NoMarkers_SkipsWithRemediation', () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
-      const cmdStr = String(cmd);
+      const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
       if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
       if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
@@ -835,7 +835,7 @@ describe('handleSetupWorktree', () => {
 
   it('runInstallStep_BunPriorityOverPnpm_BunWins', () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
-      const cmdStr = String(cmd);
+      const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
       if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
       if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
@@ -875,7 +875,7 @@ describe('handleSetupWorktree', () => {
     function setupBaseExecMocks() {
       // Generic happy-path mocks for show-ref / rev-parse / install / test.
       vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
-        const cmdStr = String(cmd);
+        const cmdStr = String(cmd).replace(/\.cmd$/, '');
         const argsArr = args as string[];
         if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
         if (cmdStr === 'git' && argsArr.includes('rev-parse')) return '.git';
@@ -1040,7 +1040,7 @@ describe('handleSetupWorktree', () => {
   describe('branch-override resolution (DR-3)', () => {
     function setupHappyPathMocks() {
       vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
-        const cmdStr = String(cmd);
+        const cmdStr = String(cmd).replace(/\.cmd$/, '');
         const argsArr = args as string[];
         if (cmdStr === 'git' && argsArr.includes('show-ref')) {
           // Branch does not exist — handler proceeds to create it.
@@ -1155,7 +1155,7 @@ describe('handleSetupWorktree', () => {
     // test stand the repo on an arbitrary integration branch.
     function setupBaseResolutionMocks(currentBranch: string) {
       vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
-        const cmdStr = String(cmd);
+        const cmdStr = String(cmd).replace(/\.cmd$/, '');
         const argsArr = args as string[];
         if (cmdStr === 'git' && argsArr.includes('show-ref')) {
           const error = new Error('not found') as Error & { status: number };

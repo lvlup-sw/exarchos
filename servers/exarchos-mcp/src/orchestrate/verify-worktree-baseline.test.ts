@@ -190,7 +190,7 @@ describe('handleVerifyWorktreeBaseline', () => {
     expect(data.testCommand).toBe('pytest');
     // Verify pytest was invoked with no args (cmd='pytest', args=[]).
     const calls = vi.mocked(execFileSync).mock.calls;
-    const pytestCall = calls.find((c) => String(c[0]) === 'pytest');
+    const pytestCall = calls.find((c) => String(c[0]).replace(/\.cmd$/, '') === 'pytest');
     expect(pytestCall).toBeDefined();
     expect(pytestCall?.[1]).toEqual([]);
   });
@@ -218,7 +218,7 @@ describe('handleVerifyWorktreeBaseline', () => {
     expect(data.projectType).toBe('Node.js (bun)');
     expect(data.testCommand).toBe('bun test');
     const calls = vi.mocked(execFileSync).mock.calls;
-    const bunCall = calls.find((c) => String(c[0]) === 'bun');
+    const bunCall = calls.find((c) => String(c[0]).replace(/\.cmd$/, '') === 'bun');
     expect(bunCall?.[1]).toEqual(['test']);
   });
 
@@ -497,7 +497,7 @@ describe('handleVerifyWorktreeBaseline', () => {
     expect(data.projectType).toBe('Node.js (pnpm)');
     expect(data.testCommand).toBe('pnpm test');
     const calls = vi.mocked(execFileSync).mock.calls;
-    const pnpmCall = calls.find((c) => String(c[0]) === 'pnpm');
+    const pnpmCall = calls.find((c) => String(c[0]).replace(/\.cmd$/, '') === 'pnpm');
     expect(pnpmCall?.[1]).toEqual(['test']);
   });
 });
