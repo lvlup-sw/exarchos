@@ -210,7 +210,13 @@ export async function handleAddPrComment(
     if (existingComment) {
       // Side effect already ran — recover from event between *.requested and *.executed.
       const repo = await provider.getRepository();
-      const commentUrl = `https://github.com/${repo.nameWithOwner}/pull/${args.prId}#issuecomment-${existingComment.id}`;
+      // A recovered thread reply uses the #discussion_r anchor; a top-level PR
+      // comment uses #issuecomment- (matches the fresh-path anchors below).
+      const anchor =
+        args.threadId !== undefined
+          ? `discussion_r${existingComment.id}`
+          : `issuecomment-${existingComment.id}`;
+      const commentUrl = `https://github.com/${repo.nameWithOwner}/pull/${args.prId}#${anchor}`;
 
       await ctx.eventStore.append(
         'vcs',

@@ -274,7 +274,7 @@ export async function handleTestAdequacy(
       probe.passed,
       {
         dimension: 'D1',
-        phase: 'delegate',
+        phase: args.phase ?? 'delegate',
         taskId: args.taskId,
         ...(args.branch ? { branch: args.branch } : {}),
         redObserved: probe.redObserved,
