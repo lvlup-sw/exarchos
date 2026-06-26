@@ -499,7 +499,11 @@ describe('EventTypes', () => {
     // #1242: bumped 131 → 132 to include `workflow.handoff_summarized`, the
     // auto-summarized handoff fallback folded by the rehydration reducer with
     // operator-precedence (operator checkpoint handoff always wins the slot).
-    expect(EventTypes).toHaveLength(132);
+    // WLM foundation: bumped 132 → 136 to include the worktree lifecycle
+    // (lease/ownership) family — `worktree.adopted` / `worktree.reserved` /
+    // `worktree.released` / `worktree.orphan_detected`. The GC half reuses the
+    // existing `worktree.remove.*` pair (no `worktree.pruned` / `worktree.merge_*`).
+    expect(EventTypes).toHaveLength(136);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');
@@ -518,6 +522,10 @@ describe('EventTypes', () => {
     expect(EventTypes).toContain('phase.blocked');
     expect(EventTypes).toContain('phase.entered');
     expect(EventTypes).toContain('phase.exited');
+    expect(EventTypes).toContain('worktree.adopted');
+    expect(EventTypes).toContain('worktree.reserved');
+    expect(EventTypes).toContain('worktree.released');
+    expect(EventTypes).toContain('worktree.orphan_detected');
     // Retirement guard: init.executed removed in DR-5 (task 018).
     expect(EventTypes as readonly string[]).not.toContain('init.executed');
   });

@@ -644,6 +644,13 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       case 'worktree.baseline':
       case 'worktree.remove.requested':
       case 'worktree.remove.executed':
+      // WLM foundation — worktree lifecycle (lease/ownership half). These are
+      // worktree-pool observations (adopt/reserve/release/orphan); they carry no
+      // workflow_state-affecting fields, so the projection folds to identity.
+      case 'worktree.adopted':
+      case 'worktree.reserved':
+      case 'worktree.released':
+      case 'worktree.orphan_detected':
       case 'test.result':
       case 'typecheck.result':
       case 'ci.status':
