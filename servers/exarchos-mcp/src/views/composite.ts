@@ -27,6 +27,7 @@ import {
   handleViewConvergence,
 } from './tools.js';
 import { handleViewInvariantsEffective } from './effective-catalog.js';
+import { handleViewWorktrees } from '../orchestrate/worktree/handlers.js';
 import { handleStackStatus, handleStackPlace } from '../stack/tools.js';
 import { handleViewTelemetry } from '../telemetry/tools.js';
 import type { QualityHintsConfig } from '../capabilities/resolver.js';
@@ -363,6 +364,12 @@ export async function handleView(
         startedAt,
       );
 
+    case 'worktrees':
+      // WLM foundation (task 008) — read the `worktrees@v1` projection via the
+      // WorktreeManager facade. Behavior lives in the shared dispatch core
+      // (INV-2); the handler takes the full DispatchContext for `ctx.eventStore`.
+      return envelopeWrap(await handleViewWorktrees(rest, ctx), startedAt);
+
     case 'describe':
       return envelopeWrap(
         await handleDescribe(rest as { actions: string[] }, viewActions),
@@ -396,6 +403,7 @@ export async function handleView(
             'provenance',
             'convergence',
             'invariants_effective',
+            'worktrees',
             'describe',
           ] as const,
         },

@@ -2777,6 +2777,95 @@ const orchestrateActions: readonly ToolAction[] = [
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: LOCAL_MUTATION,
   },
+  // ─── Worktree-lifecycle Actions (WLM foundation, task 008) ────────────────
+  // INV-5d: ACTIONS on exarchos_orchestrate, NOT a fifth visible tool. Each
+  // delegates to the in-process `WorktreeManager` facade (INV-2 — adapters
+  // carry zero behavior). `worktrees` (the read) rides exarchos_view.
+  {
+    name: 'acquire_worktree',
+    description:
+      'Acquire a worktree for the live process: adopt-then-reserve composite. Adopts every on-disk worktree under repoRoot first (the adopt-gate), then reserves worktreeId for the caller. Idempotent. Auto-emits worktree.adopted (per newly tracked worktree) and worktree.reserved.',
+    schema: z
+      .object({
+        repoRoot: z.string().min(1),
+        worktreeId: z.string().min(1),
+        path: z.string().min(1).optional(),
+        featureId: featureIdSchema.optional(),
+        // All-or-nothing: a (pid, startedAt) tuple must describe ONE real
+        // process. Both explicit, or neither (then both are derived from the
+        // current process). A partial override is rejected by the refine below
+        // AND by the handler — keeping the schema and resolveOwner in sync. In
+        // Zod v4 `.refine()` keeps the value a ZodObject, so `.shape` still
+        // drives buildRegistrationSchema / addFlagsFromSchema.
+        ownerPid: z.number().int().positive().optional(),
+        ownerStartedAt: z.string().min(1).optional(),
+      })
+      .refine(
+        (v) => (v.ownerPid === undefined) === (v.ownerStartedAt === undefined),
+        {
+          message:
+            'ownerPid and ownerStartedAt must be provided together (both or neither)',
+        },
+      ),
+    phases: ALL_PHASES,
+    roles: ROLE_LEAD,
+    autoEmits: [
+      { event: 'worktree.adopted', condition: 'conditional', description: 'Per on-disk worktree not yet tracked' },
+      { event: 'worktree.reserved', condition: 'always' },
+    ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION_IDEMPOTENT,
+  },
+  {
+    name: 'release_worktree',
+    description:
+      "Release the caller's worktree reservation. Appends worktree.released for worktreeId; a no-op when nothing is held (idempotent). Auto-emits worktree.released.",
+    schema: z.object({
+      worktreeId: z.string().min(1),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_LEAD,
+    autoEmits: [
+      { event: 'worktree.released', condition: 'always' },
+    ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION_IDEMPOTENT,
+  },
+  {
+    name: 'prune_worktrees',
+    description:
+      'Garbage-collect governed worktrees through the fail-closed safety ladder. Defaults to dry-run (report candidates + reclaimable bytes + grouped skip reasons, delete nothing); pass dryRun:false to apply. Orphan deletion needs pruneOrphans:true + yes:true on an apply run. Auto-emits worktree.remove.requested then worktree.remove.executed per deleted worktree.',
+    schema: z.object({
+      repoRoot: z.string().min(1),
+      // INV-5c: dry-run is the safe default. The default is enforced in the
+      // handler (dryRun === false ⇒ apply) — NOT a Zod `.default()` — because
+      // the MCP-registration flattener forbids divergent defaults across the
+      // shared `dryRun` field (merge_orchestrate / prune_stale_workflows
+      // already declare it `.optional()` with no default).
+      dryRun: z.boolean().optional(),
+      pruneOrphans: z.boolean().optional(),
+      yes: z.boolean().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_LEAD,
+    autoEmits: [
+      { event: 'worktree.remove.requested', condition: 'conditional', description: 'Per delete-eligible candidate on an apply run' },
+      { event: 'worktree.remove.executed', condition: 'conditional', description: 'After each git worktree remove succeeds' },
+    ],
+    // prune_worktrees → compensable + destructive (the two-event delete split
+    // is the compensating recovery seam) AND idempotent (a re-run re-classifies
+    // and deletes only what is still eligible). No preset carries this exact
+    // tuple, so it is declared inline; the `superRefine` constraint
+    // (destructive ⇒ compensable) is satisfied.
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: {
+      safety: 'compensable',
+      readOnly: false,
+      destructive: true,
+      idempotent: true,
+      openWorld: false,
+    },
+  },
   makeDescribeAction(),
 ];
 
@@ -3121,6 +3210,20 @@ const viewActions: readonly ToolAction[] = [
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: READ_ONLY_LOCAL,
   },
+  // ─── Worktree-lifecycle view (WLM foundation, task 008) ───────────────────
+  // The read leg of the worktree actions: folds the `worktrees` stream through
+  // the `worktrees@v1` projection. Pure read — no adopt, no git probe, no
+  // append — so it sits on the wholesale-read-only exarchos_view tool.
+  {
+    name: 'worktrees',
+    description:
+      'List the governed worktree set — the live worktrees@v1 projection (each entry: worktreeId, path, featureId, lifecycle state, owner pid/start-time). Read-only; emits no events.',
+    schema: z.object({}),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
+  },
   makeDescribeAction(),
 ];
 
@@ -3160,14 +3263,14 @@ export const TOOL_REGISTRY: readonly CompositeTool[] = [
     description: 'Task coordination — claim, complete, and fail tasks',
     actions: orchestrateActions,
     cli: { alias: 'orch' },
-    slimDescription: 'Task coordination, quality gates, validation actions, and VCS operations. Use describe(actions) for schemas.\n\nActions: task_claim, task_complete, task_fail, review_triage, prepare_delegation, prepare_synthesis, assess_stack, check_static_analysis, check_integration_suite, check_security_scan, check_context_economy, check_operational_resilience, check_workflow_determinism, check_review_verdict, check_convergence, check_provenance_chain, check_design_completeness, check_plan_coverage, check_post_merge, check_task_decomposition, check_event_emissions, extract_task, review_diff, verify_worktree, select_debug_track, investigation_timer, check_coverage_thresholds, assess_refactor_scope, check_pr_comments, validate_pr_body, validate_pr_stack, debug_review_gate, extract_fix_tasks, generate_traceability, spec_coverage_check, verify_worktree_baseline, setup_worktree, verify_delegation_saga, post_delegation_check, reconcile_state, pre_synthesis_check, runbook, agent_spec, onboard, doctor, create_pr, merge_pr, check_ci, list_prs, get_pr_comments, add_pr_comment, create_issue, merge_orchestrate, check_invariant_conformance',
+    slimDescription: 'Task coordination, quality gates, validation actions, and VCS operations. Use describe(actions) for schemas.\n\nActions: task_claim, task_complete, task_fail, review_triage, prepare_delegation, prepare_synthesis, assess_stack, check_static_analysis, check_integration_suite, check_security_scan, check_context_economy, check_operational_resilience, check_workflow_determinism, check_review_verdict, check_convergence, check_provenance_chain, check_design_completeness, check_plan_coverage, check_post_merge, check_task_decomposition, check_event_emissions, extract_task, review_diff, verify_worktree, select_debug_track, investigation_timer, check_coverage_thresholds, assess_refactor_scope, check_pr_comments, validate_pr_body, validate_pr_stack, debug_review_gate, extract_fix_tasks, generate_traceability, spec_coverage_check, verify_worktree_baseline, setup_worktree, verify_delegation_saga, post_delegation_check, reconcile_state, pre_synthesis_check, runbook, agent_spec, onboard, doctor, create_pr, merge_pr, check_ci, list_prs, get_pr_comments, add_pr_comment, create_issue, merge_orchestrate, check_invariant_conformance, acquire_worktree, release_worktree, prune_worktrees',
   },
   {
     name: 'exarchos_view',
     description: 'CQRS materialized views — pipeline, tasks, workflow status, stack, and telemetry',
     actions: viewActions,
     cli: { alias: 'vw' },
-    slimDescription: 'CQRS materialized views for pipeline, tasks, and telemetry. Use describe(actions) for schemas.\n\nActions: pipeline, tasks, workflow_status, stack_status, stack_place, telemetry, team_performance, delegation_timeline, code_quality, eval_results, quality_correlation, quality_attribution, quality_hints, delegation_readiness, synthesis_readiness, shepherd_status, convergence, session_provenance, provenance, invariants_effective',
+    slimDescription: 'CQRS materialized views for pipeline, tasks, and telemetry. Use describe(actions) for schemas.\n\nActions: pipeline, tasks, workflow_status, stack_status, stack_place, telemetry, team_performance, delegation_timeline, code_quality, eval_results, quality_correlation, quality_attribution, quality_hints, delegation_readiness, synthesis_readiness, shepherd_status, convergence, session_provenance, provenance, invariants_effective, worktrees',
   },
   {
     name: 'exarchos_sync',

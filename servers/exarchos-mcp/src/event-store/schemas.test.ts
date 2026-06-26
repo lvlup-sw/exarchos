@@ -74,7 +74,13 @@ import {
   BranchDeleteExecutedData,
   WorktreeRemoveRequestedData,
   WorktreeRemoveExecutedData,
+  // WLM foundation — worktree lifecycle (lease/ownership half) schemas.
+  WorktreeAdoptedData,
+  WorktreeReservedData,
+  WorktreeReleasedData,
+  WorktreeOrphanDetectedData,
 } from './schemas.js';
+import { randomUUID } from 'node:crypto';
 
 // ─── T1: EventEmissionSource + EVENT_EMISSION_REGISTRY ──────────────────────
 
@@ -574,7 +580,11 @@ describe('EventTypes', () => {
     // Bumped 131 → 132: workflow.handoff_summarized (#1242 — auto-summarized
     //   handoff fallback; folded into latestHandoff only when no operator
     //   handoff holds the slot, operator-authored takes precedence).
-    expect(EventTypes).toHaveLength(132);
+    // Bumped 132 → 136: WLM foundation — worktree.adopted / worktree.reserved /
+    //   worktree.released / worktree.orphan_detected (the lease/ownership half of
+    //   worktree lifecycle management; the GC half reuses the worktree.remove.*
+    //   pair, so no worktree.pruned / worktree.merge_* types are added).
+    expect(EventTypes).toHaveLength(136);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');
@@ -586,6 +596,10 @@ describe('EventTypes', () => {
     expect(EventTypes).toContain('feedback.recorded');
     expect(EventTypes).toContain('workflow.handoff_summarized');
     expect(EventTypes).toContain('phase.blocked');
+    expect(EventTypes).toContain('worktree.adopted');
+    expect(EventTypes).toContain('worktree.reserved');
+    expect(EventTypes).toContain('worktree.released');
+    expect(EventTypes).toContain('worktree.orphan_detected');
     // Retirement guard: init.executed removed in DR-5 (task 018).
     expect(EventTypes as readonly string[]).not.toContain('init.executed');
   });
@@ -3766,6 +3780,214 @@ describe('merge.executing_started (#1309 liveness event)', () => {
         sourceBranch: 'feat/x',
         targetBranch: 'integration',
         startedAt: '2026-06-21T00:00:00.000Z',
+      }),
+    ).toThrow();
+  });
+});
+
+// ─── WLM foundation: worktree lifecycle event family ────────────────────────
+//
+// The lease/ownership half — `worktree.adopted` / `worktree.reserved` /
+// `worktree.released` / `worktree.orphan_detected` — added alongside the
+// REUSED `worktree.remove.requested`/`worktree.remove.executed` GC pair. The
+// per-invocation `operationId` drives the existing two-component
+// `<eventType>:<operationId>` idempotency key (see workflow/compensation.ts).
+
+describe('WLM worktree lifecycle schemas', () => {
+  const NEW_LIFECYCLE_TYPES = [
+    'worktree.adopted',
+    'worktree.reserved',
+    'worktree.released',
+    'worktree.orphan_detected',
+  ] as const;
+
+  // A well-formed payload for each new type. `worktree.reserved` carries a
+  // non-null owner (it records who holds the lease); the other three may pass
+  // null for ownerPid/ownerStartedAt.
+  const wellFormed = (
+    type: (typeof NEW_LIFECYCLE_TYPES)[number],
+    operationId: string,
+  ): Record<string, unknown> => {
+    const base = {
+      worktreeId: '/repo/.worktrees/agent-abc',
+      path: '/repo/.worktrees/agent-abc',
+      featureId: 'feat-001',
+      operationId,
+    };
+    return type === 'worktree.reserved'
+      ? { ...base, ownerPid: 4242, ownerStartedAt: '2026-06-25T00:00:00.000Z' }
+      : { ...base, ownerPid: null, ownerStartedAt: null };
+  };
+
+  it('WorktreeSchemas_FourNewLifecycleTypes_RegisteredAndValidate', () => {
+    // Each new type must be wired into EVERY map the existing worktree family
+    // appears in: the EventTypes union, the emission registry (classified
+    // 'auto' like the remove pair), and the data-schema map — and validate a
+    // well-formed payload.
+    for (const type of NEW_LIFECYCLE_TYPES) {
+      expect(EventTypes, `${type} missing from EventTypes`).toContain(type);
+      expect(EVENT_EMISSION_REGISTRY[type], `${type} should be classified 'auto'`).toBe('auto');
+
+      const schema = EVENT_DATA_SCHEMAS[type];
+      expect(schema, `${type} missing from EVENT_DATA_SCHEMAS`).toBeDefined();
+
+      const parsed = schema!.parse(wellFormed(type, randomUUID())) as Record<string, unknown>;
+      expect(parsed).toMatchObject({
+        worktreeId: '/repo/.worktrees/agent-abc',
+        path: '/repo/.worktrees/agent-abc',
+        featureId: 'feat-001',
+      });
+      expect(typeof parsed.operationId).toBe('string');
+    }
+  });
+
+  it('WorktreeSchemas_FeatureIdNullAndReservedOwner_BehaveAsSpecified', () => {
+    // featureId is `string | null` across the family; ownerPid/ownerStartedAt
+    // are non-null ONLY for worktree.reserved.
+    const reserved = WorktreeReservedData.parse(
+      wellFormed('worktree.reserved', randomUUID()),
+    );
+    expect(reserved.ownerPid).toBe(4242);
+    expect(reserved.ownerStartedAt).toBe('2026-06-25T00:00:00.000Z');
+
+    const adopted = WorktreeAdoptedData.parse({
+      worktreeId: '/repo/.worktrees/orphan',
+      path: '/repo/.worktrees/orphan',
+      featureId: null,
+      operationId: randomUUID(),
+      ownerPid: null,
+      ownerStartedAt: null,
+    });
+    expect(adopted.featureId).toBeNull();
+    expect(adopted.ownerPid).toBeNull();
+  });
+
+  it('WorktreeSchemas_ReuseExistingRemoveRequestedExecuted_NotDuplicated', () => {
+    // GC deletion REUSES the remove pair — no `worktree.pruned`, and no
+    // `worktree.merge_*` types are introduced.
+    for (const forbidden of [
+      'worktree.pruned',
+      'worktree.merge_requested',
+      'worktree.merge_executed',
+    ]) {
+      expect(EventTypes as readonly string[]).not.toContain(forbidden);
+      expect(EVENT_DATA_SCHEMAS as Record<string, unknown>).not.toHaveProperty(forbidden);
+    }
+
+    // The remove pair is REUSED (no new event types). Its identity is still
+    // operationId + worktreePath, with an OPTIONAL `worktreeId` the emitter
+    // stamps so the reducer can drop by the already-canonical key WITHOUT a
+    // realpath() at fold time (deterministic cold rebuild). Optional =
+    // backward-compatible: a legacy event omitting it still parses, and an
+    // absent optional field is NOT injected onto the parsed object.
+    expect(EventTypes).toContain('worktree.remove.requested');
+    expect(EventTypes).toContain('worktree.remove.executed');
+    const requested = WorktreeRemoveRequestedData.parse({
+      operationId: randomUUID(),
+      worktreePath: '/repo/.worktrees/gc-me',
+    }) as Record<string, unknown>;
+    expect(requested).not.toHaveProperty('worktreeId'); // absent ⇒ not injected.
+    const executed = WorktreeRemoveExecutedData.parse({
+      operationId: randomUUID(),
+      worktreePath: '/repo/.worktrees/gc-me',
+      removed: true,
+    }) as Record<string, unknown>;
+    expect(executed).not.toHaveProperty('worktreeId');
+
+    // When the emitter DOES stamp it, the canonical worktreeId round-trips.
+    const stampedReq = WorktreeRemoveRequestedData.parse({
+      operationId: randomUUID(),
+      worktreePath: '/repo/.worktrees/gc-me',
+      worktreeId: '/repo/.worktrees/gc-me',
+    });
+    expect(stampedReq.worktreeId).toBe('/repo/.worktrees/gc-me');
+    const stampedExe = WorktreeRemoveExecutedData.parse({
+      operationId: randomUUID(),
+      worktreePath: '/repo/.worktrees/gc-me',
+      removed: true,
+      worktreeId: '/repo/.worktrees/gc-me',
+    });
+    expect(stampedExe.worktreeId).toBe('/repo/.worktrees/gc-me');
+  });
+
+  it('WorktreeSchemas_LifecycleKey_IncludesOperationId', () => {
+    // The idempotency key is the existing TWO-component `<eventType>:<operationId>`
+    // form (mirrors `worktree.remove.requested:${operationId}`), NOT a path-based
+    // or 5-component compound key. operationId is sourced from the validated
+    // payload so the contract is coupled to the registered schema.
+    const operationId = randomUUID();
+    const schema = EVENT_DATA_SCHEMAS['worktree.reserved'];
+    expect(schema).toBeDefined();
+    const parsed = schema!.parse(wellFormed('worktree.reserved', operationId)) as {
+      operationId: string;
+    };
+
+    const key = `worktree.reserved:${parsed.operationId}`;
+    expect(key.split(':')).toHaveLength(2);
+    expect(key).toBe(`worktree.reserved:${operationId}`);
+    expect(key.endsWith(operationId)).toBe(true);
+  });
+
+  it('WorktreeSchemas_ReserveReleaseReacquire_ProducesDistinctKeys_NoSilentCollapse', () => {
+    // Three appends — reserve → release → re-reserve — over the same worktree,
+    // each with a freshly-minted operationId, must yield three distinct keys.
+    // The per-invocation operationId (not the path) is the discriminator, so the
+    // re-acquire never silently collapses onto the original reservation.
+    const steps: Array<[(typeof NEW_LIFECYCLE_TYPES)[number], string]> = [
+      ['worktree.reserved', randomUUID()],
+      ['worktree.released', randomUUID()],
+      ['worktree.reserved', randomUUID()],
+    ];
+
+    const keys = steps.map(([type, operationId]) => {
+      const schema = EVENT_DATA_SCHEMAS[type];
+      expect(schema, `${type} missing from EVENT_DATA_SCHEMAS`).toBeDefined();
+      const parsed = schema!.parse(wellFormed(type, operationId)) as { operationId: string };
+      return `${type}:${parsed.operationId}`;
+    });
+
+    expect(new Set(keys).size).toBe(3);
+    // The two reserve keys share the event-type prefix but differ by operationId.
+    expect(keys[0]).not.toBe(keys[2]);
+    expect(keys[0].startsWith('worktree.reserved:')).toBe(true);
+    expect(keys[2].startsWith('worktree.reserved:')).toBe(true);
+  });
+
+  it('WorktreeSchemas_MalformedPayload_RejectedByZod', () => {
+    const operationId = randomUUID();
+
+    // Missing required worktreeId.
+    expect(() =>
+      WorktreeReservedData.parse({
+        path: '/repo/.worktrees/agent-abc',
+        featureId: 'feat-001',
+        operationId,
+        ownerPid: 4242,
+        ownerStartedAt: '2026-06-25T00:00:00.000Z',
+      }),
+    ).toThrow();
+
+    // worktree.reserved requires a non-null owner — null ownerPid is rejected.
+    expect(() =>
+      WorktreeReservedData.parse({
+        ...wellFormed('worktree.reserved', operationId),
+        ownerPid: null,
+      }),
+    ).toThrow();
+
+    // Wrong field type (path as a number).
+    expect(() =>
+      WorktreeOrphanDetectedData.parse({
+        ...wellFormed('worktree.orphan_detected', operationId),
+        path: 1234,
+      }),
+    ).toThrow();
+
+    // operationId must be a UUID, not an arbitrary string.
+    expect(() =>
+      WorktreeReleasedData.parse({
+        ...wellFormed('worktree.released', operationId),
+        operationId: 'not-a-uuid',
       }),
     ).toThrow();
   });

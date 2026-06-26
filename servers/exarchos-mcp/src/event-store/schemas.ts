@@ -208,6 +208,18 @@ export const EventTypes = [
   // B5: remove-worktree
   'worktree.remove.requested',
   'worktree.remove.executed',
+  // WLM foundation — worktree lifecycle (adopt / reserve / release / orphan).
+  // These four share one payload shape (`worktreeId`, `path`, `featureId`,
+  // `ownerPid`, `ownerStartedAt`, `operationId`). They are the lease/ownership
+  // half of worktree lifecycle management; the GC/deletion half REUSES the
+  // `worktree.remove.requested`/`worktree.remove.executed` pair above (there is
+  // deliberately no `worktree.pruned` / `worktree.merge_*` type). Like the
+  // remove pair, they are `auto` (deterministic plumbing) and keyed on the
+  // existing two-component `<eventType>:<operationId>` idempotency convention.
+  'worktree.adopted',
+  'worktree.reserved',
+  'worktree.released',
+  'worktree.orphan_detected',
   // #1290 — emitted by `resolveWorkspace` (servers/exarchos-mcp/src/workspace/
   // discovery.ts) when the dispatch boundary resolves a missing `featureId`
   // from MCP roots or via the cwd-walk fallback. Records the source so audit
@@ -595,6 +607,18 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'branch.delete.executed': 'auto',
   'worktree.remove.requested': 'auto',
   'worktree.remove.executed': 'auto',
+
+  // WLM foundation — worktree lifecycle events. Auto-emitted by the worktree
+  // lifecycle manager as deterministic plumbing (adopt/reserve/release/heal on
+  // the lease path). `worktree.orphan_detected` is registered + folded now (so
+  // WLM-3's on-demand probe emits it without a schema migration), but its
+  // EMITTER is deferred to WLM-3 (DR-4/5 on-demand ground-truth probe) — the
+  // foundation GC reclaims orphans structurally via the prune ladder instead.
+  // See EventTypes above and docs/specs/2026-06-25-wlm-foundation.md (DR-6).
+  'worktree.adopted': 'auto',
+  'worktree.reserved': 'auto',
+  'worktree.released': 'auto',
+  'worktree.orphan_detected': 'auto',
 
   // #1290 — auto-emitted by the workspace discovery resolver on the
   // dispatch boundary. See EventTypes registration above.
@@ -1874,20 +1898,93 @@ export const BranchDeleteExecutedData = z.object({
 /**
  * worktree.remove.requested — B5.1: durable intent recorded BEFORE
  * `git worktree remove` fires. B5.3 idempotency check: `git worktree list` filter.
+ *
+ * `worktreeId` is the OPTIONAL canonical (symlink-resolved, POSIX-separator)
+ * projection key, stamped by the emitter (`WorktreeManager`) so the
+ * `worktrees@v1` reducer can drop the entry by the ALREADY-CANONICAL key during
+ * replay — without a `realpath()` filesystem call at fold time. That keeps the
+ * cold rebuild deterministic from the event log alone (INV-1): once the worktree
+ * is deleted, or on a host with a different symlink topology, re-deriving the key
+ * from `worktreePath` via the live filesystem would fold differently. Optional
+ * for backward compatibility: a legacy event without it still folds via the
+ * `worktreePath` canonicalization fallback.
  */
 export const WorktreeRemoveRequestedData = z.object({
   operationId: z.string().uuid().describe('Idempotency key — stable across retries'),
   worktreePath: z.string().min(1).describe('Absolute path of the worktree to remove'),
+  worktreeId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe('Canonical worktrees@v1 key, stamped so replay drops by stored id (no realpath at fold time)'),
 });
 
 /**
  * worktree.remove.executed — B5.1: records the outcome of the removal.
  * `removed: false` indicates the worktree was already absent (idempotent success).
+ *
+ * Carries the same OPTIONAL canonical `worktreeId` as the requested event so the
+ * reducer drops the projection entry by the stored key during a filesystem-free
+ * replay (see {@link WorktreeRemoveRequestedData}).
  */
 export const WorktreeRemoveExecutedData = z.object({
   operationId: z.string().uuid().describe('Correlates to the worktree.remove.requested event'),
   worktreePath: z.string().min(1).describe('Path that was targeted'),
   removed: z.boolean().describe('True if removed; false if already absent (idempotent success)'),
+  worktreeId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe('Canonical worktrees@v1 key, stamped so replay drops by stored id (no realpath at fold time)'),
+});
+
+/**
+ * WLM foundation — worktree lifecycle event data.
+ *
+ * `worktree.adopted` / `worktree.reserved` / `worktree.released` /
+ * `worktree.orphan_detected` share one payload shape. `worktreeId` is DEFINED
+ * as the canonical (symlink-resolved) worktree path: it is the stable identity
+ * a later reducer canonicalizes the remove pair's `worktreePath` onto, which is
+ * why GC deletion REUSES `worktree.remove.requested`/`worktree.remove.executed`
+ * (no `worktree.pruned` and no `worktree.merge_*` types are introduced).
+ *
+ * Idempotency: these events use the existing two-component
+ * `<eventType>:<operationId>` key — exactly like `worktree.remove.requested:${operationId}`
+ * in `workflow/compensation.ts`. The per-invocation `operationId` is the sole
+ * discriminator, so a reserve → release → re-reserve sequence mints three
+ * distinct operationIds and therefore three distinct keys (no silent collapse).
+ * Keys are minted by callers; the schema's contract is only that every
+ * lifecycle payload carries `operationId` so callers can build the key.
+ *
+ * `ownerPid` / `ownerStartedAt` identify the holding process and are non-null
+ * only on `worktree.reserved` (the reservation records who holds the lease);
+ * the other three may pass null.
+ */
+const WorktreeLifecycleBaseData = z.object({
+  worktreeId: z.string().min(1).describe('Canonical (symlink-resolved) worktree path — stable identity'),
+  path: z.string().min(1).describe('Absolute filesystem path to the worktree'),
+  featureId: z.string().min(1).nullable().describe('Owning feature id, or null when unattached'),
+  operationId: z.string().uuid().describe('Idempotency key — stable across retries of one invocation'),
+});
+
+export const WorktreeAdoptedData = WorktreeLifecycleBaseData.extend({
+  ownerPid: z.number().int().nullable().describe('PID of the holder, or null'),
+  ownerStartedAt: z.string().nullable().describe('Holder process start time (ISO 8601), or null'),
+});
+
+export const WorktreeReservedData = WorktreeLifecycleBaseData.extend({
+  ownerPid: z.number().int().describe('PID of the reserving process (non-null for reservations)'),
+  ownerStartedAt: z.string().min(1).describe('Reserving process start time (ISO 8601, non-null for reservations)'),
+});
+
+export const WorktreeReleasedData = WorktreeLifecycleBaseData.extend({
+  ownerPid: z.number().int().nullable().describe('PID of the prior holder, or null'),
+  ownerStartedAt: z.string().nullable().describe('Prior holder process start time (ISO 8601), or null'),
+});
+
+export const WorktreeOrphanDetectedData = WorktreeLifecycleBaseData.extend({
+  ownerPid: z.number().int().nullable().describe('PID recorded on the orphaned reservation, or null'),
+  ownerStartedAt: z.string().nullable().describe('Start time recorded on the orphaned reservation, or null'),
 });
 
 // ─── Command Resolver Event Data (#1199 T15) ────────────────────────────────
@@ -2661,6 +2758,12 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'worktree.remove.requested': WorktreeRemoveRequestedData,
   'worktree.remove.executed': WorktreeRemoveExecutedData,
 
+  // WLM foundation — worktree lifecycle (lease/ownership half).
+  'worktree.adopted': WorktreeAdoptedData,
+  'worktree.reserved': WorktreeReservedData,
+  'worktree.released': WorktreeReleasedData,
+  'worktree.orphan_detected': WorktreeOrphanDetectedData,
+
   // #1290 — workspace discovery resolution
   'workspace.resolved': WorkspaceResolvedData,
 
@@ -2792,6 +2895,12 @@ export type BranchDeleteExecuted = z.infer<typeof BranchDeleteExecutedData>;
 export type WorktreeRemoveRequested = z.infer<typeof WorktreeRemoveRequestedData>;
 export type WorktreeRemoveExecuted = z.infer<typeof WorktreeRemoveExecutedData>;
 
+// WLM foundation — worktree lifecycle (lease/ownership half).
+export type WorktreeAdopted = z.infer<typeof WorktreeAdoptedData>;
+export type WorktreeReserved = z.infer<typeof WorktreeReservedData>;
+export type WorktreeReleased = z.infer<typeof WorktreeReleasedData>;
+export type WorktreeOrphanDetected = z.infer<typeof WorktreeOrphanDetectedData>;
+
 // #1290 — workspace discovery
 export type WorkspaceResolved = z.infer<typeof WorkspaceResolvedData>;
 
@@ -2920,6 +3029,11 @@ export type EventDataMap = {
   'branch.delete.executed': BranchDeleteExecuted;
   'worktree.remove.requested': WorktreeRemoveRequested;
   'worktree.remove.executed': WorktreeRemoveExecuted;
+  // WLM foundation — worktree lifecycle (lease/ownership half).
+  'worktree.adopted': WorktreeAdopted;
+  'worktree.reserved': WorktreeReserved;
+  'worktree.released': WorktreeReleased;
+  'worktree.orphan_detected': WorktreeOrphanDetected;
   // #1290 — workspace discovery
   'workspace.resolved': WorkspaceResolved;
   // #1274 — dispatch elicitation hand-off

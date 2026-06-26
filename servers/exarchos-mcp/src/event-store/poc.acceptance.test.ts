@@ -14,14 +14,16 @@ import { rmrfAsync } from '../test-helpers/temp-dir.js';
  * Anchor of the integration phase. Two acceptance assertions, derived
  * directly from the design's POC scope:
  *
- *   AC3 — Seven AtomicAppender consumers unchanged.
+ *   AC3 — AtomicAppender consumers unchanged.
  *     The substrate flip is gated on the seam holding: no consumer
  *     reaches into AtomicAppender internals, so swapping the body
  *     (JSONL → SQLite) requires zero changes outside the appender. We
  *     verify by enumerating the files under `src/` (excluding
  *     `__tests__/`, `__shims__/`, and `*.test.ts`) that mention the
- *     `AtomicAppender` symbol; the set must equal exactly the seven
- *     consumers the design pins.
+ *     `AtomicAppender` symbol; the set must equal exactly the
+ *     consumers the design pins (the four substrate-internal files plus
+ *     the Wave-4 `decide`/`aggregateStream` primitive consumers —
+ *     merge-orchestrate, execute-merge, and the WLM worktree manager).
  *
  *   Bench — SQLite append throughput ≥ 1000 ops/sec/stream.
  *     The performance SLA on `event-append` (testingStrategy line 1092
@@ -64,6 +66,7 @@ const EXPECTED_CONSUMERS = [
   'src/event-store/tools.ts',
   'src/orchestrate/execute-merge.ts',
   'src/orchestrate/merge-orchestrate.ts',
+  'src/orchestrate/worktree/manager.ts',
   'src/storage/sqlite-backend.ts',
 ] as const;
 
