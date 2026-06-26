@@ -17,7 +17,7 @@ import type { ToolResult } from '../format.js';
  *
  * Usage:
  * ```ts
- * const guard = requiresGitHub(vcsProvider, 'assess_stack');
+ * const guard = requiresGitHub(vcsProvider, 'check_pr_comments');
  * if (guard) return guard;
  * // ... proceed with gh CLI calls
  * ```
