@@ -75,7 +75,7 @@ External-provider failures in this batch surface as recoverable, contract-preser
 
 **Acceptance criteria:**
 - **Resolution parsing (DR-3/DR-4):** GitLab/ADO carry resolution **inline** in the same discussions/threads response as the comment bodies (unlike GitHub's separable GraphQL `reviewThreads` call). So fail-soft here is *per-field defensive parsing*: if an individual discussion/thread is missing or has an unrecognized resolution/status field, that comment's `resolved` is left **absent** (unknown, never coerced to `false`) while the rest of the harvest maps normally. (GitHub's separable-call fail-soft is github-specific and unchanged.)
-- **PR-number derivation (DR-1):** GitHub — if the stdout URL's trailing segment cannot be parsed, fall back to `gh pr view <url> --json number,url` (recovers a real `number`) rather than throwing. GitLab — `{url, number}` come from `glab mr view --json`; there is **no** independent fallback (a second `mr view` shares the same failure mode, and `PrResult.number` is non-optional — a partial `{url}` would break the contract and poison the `pr.create.executed` event at `create-pr.ts:298`). If the post-create read fails, return a structured `VCS_ERROR` ("MR created but its id could not be read"), never a contract-invalid partial.
+- **PR-number derivation (DR-1):** GitHub — if the stdout URL's trailing segment cannot be parsed, fall back to `gh pr view <url> --json number,url` (recovers a real `number`) rather than throwing. GitLab — `{url, number}` come from `glab mr view --json`; there is **no** independent fallback (a second `mr view` shares the same failure mode, and `PrResult.number` is non-optional — a partial `{url}` would break the contract and poison the `pr.create.executed` event at `create-pr.ts:298`). If the post-create read fails, the provider **throws** (`createPr` returns `Promise<PrResult>` with non-optional `number`, so neither a partial `{url}` nor a `ToolResult` is type-valid); `handleCreatePr`'s existing catch (`create-pr.ts:310`) maps the rejection to `VCS_ERROR` end-to-end. Never a contract-invalid partial.
 - A unit test exercises each degraded branch and asserts the contract (GitHub: `resolved` absent on a missing/unrecognized resolution field; URL+number recovered via `pr view` fallback; GitLab: `VCS_ERROR` — not a partial `PrResult` — when the post-create `mr view` read fails).
 
 ### Technical Design
@@ -167,11 +167,11 @@ In `vcs/github.ts`, remove the `--json`/`url,number` argv pair from `gh pr creat
 **Boundary Touching:** true
 **Implements:** DR-1, DR-5
 
-**Provider-unit defensive class-lock** (not action-level — the `listPrs` precheck blocks GitLab `create_pr` end-to-end; see DR-1 scope note). In `vcs/gitlab.ts`, remove `--json`/`url,iid` from `glab mr create`. Do **not** parse create's output stream (undocumented; `exec` is stdout-only). After a successful create, read `{iid, webUrl}` via `glab mr view <headBranch> --json iid,webUrl` → `{number: iid, url: webUrl}`. DR-5: if the `mr view` read fails, return a structured `VCS_ERROR` (not a partial `PrResult` — `number` is required). Verify the actual `mr view --json` field keys (`iid`/`webUrl` vs `url`) against the installed `glab` during implementation; resolve the just-created MR unambiguously (the open MR for `headBranch`). Preserve `draft`/`labels`. Add the GitLab class-lock assertion (no `--json` in the create argv) here.
+**Provider-unit defensive class-lock** (not action-level — the `listPrs` precheck blocks GitLab `create_pr` end-to-end; see DR-1 scope note). In `vcs/gitlab.ts`, remove `--json`/`url,iid` from `glab mr create`. Do **not** parse create's output stream (undocumented; `exec` is stdout-only). After a successful create, read `{iid, webUrl}` via `glab mr view <headBranch> --json iid,webUrl` → `{number: iid, url: webUrl}`. DR-5: if the `mr view` read fails, **throw** (provider returns `Promise<PrResult>`; `number` is required, so neither a partial nor a `ToolResult` is valid) — `handleCreatePr` maps the rejection to `VCS_ERROR`. Verify the actual `mr view --json` field keys (`iid`/`webUrl` vs `url`) against the installed `glab` during implementation; resolve the just-created MR unambiguously (the open MR for `headBranch`). Preserve `draft`/`labels`. Add the GitLab class-lock assertion (no `--json` in the create argv) here.
 
 **Verification (medium):** scoped tests + `check_test_adequacy` kill-probe.
 **Files:** `servers/exarchos-mcp/src/vcs/gitlab.ts`, `servers/exarchos-mcp/src/vcs/gitlab.test.ts`
-**Expected tests:** `GitLab_CreatePr_OmitsJsonFlagOnCreate`, `GitLab_CreatePr_ReadsIidAndUrlFromMrView`, `GitLab_CreatePr_ReturnsVcsErrorWhenViewReadFails`
+**Expected tests:** `GitLab_CreatePr_OmitsJsonFlagOnCreate`, `GitLab_CreatePr_ReadsIidAndUrlFromMrView`, `GitLab_CreatePr_ThrowsWhenViewReadFails`
 **Dependencies:** None
 **Parallelizable:** Yes
 
@@ -302,4 +302,4 @@ With the gate narrowed (010), extend `assess-stack` tests: inject a GitLab and a
 - [x] Every task carries a `riskTier` stamp
 - [x] Medium/high-tier tasks carry adequacy-judged tests (test-after); low-tier tasks lean on static analysis
 - [x] Open questions resolved (INV-2 duplication; DR-2 build boundary) or explicitly deferred (Windows `az` shim) with rationale
-- [ ] Ready for `plan-review`
+- [x] Ready for `plan-review` — **survived** a 4-round dispatched adversarial pass (rounds 1–3 refuted → revised; round 4 both voters `survives`)
