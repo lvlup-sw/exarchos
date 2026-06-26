@@ -25,7 +25,7 @@ import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { dirname, join, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { COMMAND_TO_SKILL, COMMAND_ONLY } from './canonical-skills.js';
+import { COMMAND_TO_SKILL, COMMAND_ONLY, canonicalCommandSet } from './canonical-skills.js';
 
 // `src/config/` → repo root is two levels up.
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -119,5 +119,12 @@ describe('canonical-skills map (T1, #1472)', () => {
         ).toBe(true);
       }
     }
+  });
+
+  it('CanonicalCommandSet_MatchesCommandsDir', () => {
+    // The accessor is the canonical "which /commands exist" surface. It must
+    // equal exactly the set of command names derived from commands/*.md at
+    // test time — no missing commands, no phantom entries.
+    expect(canonicalCommandSet()).toEqual(commandNames);
   });
 });
