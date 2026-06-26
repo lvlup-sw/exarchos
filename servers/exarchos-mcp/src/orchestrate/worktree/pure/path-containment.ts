@@ -40,7 +40,15 @@ export type RealpathResolver = (p: string) => string;
  */
 export function defaultRealpath(p: string): string {
   try {
-    return fs.realpathSync(p);
+    // `.native` (not the JS `fs.realpathSync`) so Windows 8.3 SHORT names are
+    // expanded to their long form (#1620): on CI the temp root is reported as
+    // `C:\Users\RUNNER~1\...`, but `git worktree list --porcelain` emits the
+    // long form `C:\Users\runneradmin\...`. The JS realpath leaves `RUNNER~1`
+    // un-expanded while git uses the long form, so a worktreeId derived from a
+    // test-constructed temp path and one derived from git's output would diverge
+    // in the username segment and the `worktrees@v1` lookup would miss. `.native`
+    // canonicalizes both to the long form. No-op on POSIX (no 8.3 names).
+    return fs.realpathSync.native(p);
   } catch {
     const parent = path.dirname(p);
     if (parent === p) {
