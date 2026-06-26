@@ -354,6 +354,48 @@ describe('worktreesReducer.apply (WLM foundation)', () => {
     );
     expect(canonical in symRemoved.worktrees).toBe(false);
   });
+
+  it('WorktreesReducer_RemoveExecuted_DropsByStoredWorktreeId_NoFilesystemAtFoldTime', () => {
+    // Fix 7 / INV-1: when the remove event carries the already-canonical
+    // `worktreeId` the emitter stamped, the reducer drops by that STORED key and
+    // never touches the filesystem — so the cold rebuild is deterministic from
+    // the log alone, even after the worktree is gone or on a host with different
+    // symlink topology. A resolver that THROWS proves no realpath() runs.
+    const throwingRealpath: RealpathResolver = () => {
+      throw new Error('realpath must NOT be called when worktreeId is stamped');
+    };
+    const reducer = createWorktreesReducer(throwingRealpath);
+
+    const adopted = reducer.apply(
+      reducer.initial,
+      buildEvent({
+        type: 'worktree.adopted',
+        sequence: 1,
+        data: { worktreeId: WT_A, path: WT_A, featureId: 'feat-a', operationId: 'op-1' },
+      }),
+    );
+    expect(adopted.worktrees[WT_A]).toBeDefined();
+
+    // The executed event stamps the canonical worktreeId; worktreePath would, if
+    // resolved, blow up the throwing resolver — but it must be IGNORED here.
+    const removed = reducer.apply(
+      adopted,
+      buildEvent({
+        type: 'worktree.remove.executed',
+        sequence: 2,
+        data: {
+          worktreePath: '/some/now-deleted/or/foreign/path',
+          worktreeId: WT_A,
+          removed: true,
+          operationId: 'op-1',
+        },
+      }),
+    );
+
+    // Dropped by the stored key — no throw, entry gone.
+    expect(WT_A in removed.worktrees).toBe(false);
+    expect(removed.projectionSequence).toBe(2);
+  });
 });
 
 describe('worktrees@v1 registration guard (DR-1)', () => {

@@ -2785,14 +2785,28 @@ const orchestrateActions: readonly ToolAction[] = [
     name: 'acquire_worktree',
     description:
       'Acquire a worktree for the live process: adopt-then-reserve composite. Adopts every on-disk worktree under repoRoot first (the adopt-gate), then reserves worktreeId for the caller. Idempotent. Auto-emits worktree.adopted (per newly tracked worktree) and worktree.reserved.',
-    schema: z.object({
-      repoRoot: z.string().min(1),
-      worktreeId: z.string().min(1),
-      path: z.string().min(1).optional(),
-      featureId: featureIdSchema.optional(),
-      ownerPid: z.number().int().positive().optional(),
-      ownerStartedAt: z.string().min(1).optional(),
-    }),
+    schema: z
+      .object({
+        repoRoot: z.string().min(1),
+        worktreeId: z.string().min(1),
+        path: z.string().min(1).optional(),
+        featureId: featureIdSchema.optional(),
+        // All-or-nothing: a (pid, startedAt) tuple must describe ONE real
+        // process. Both explicit, or neither (then both are derived from the
+        // current process). A partial override is rejected by the refine below
+        // AND by the handler — keeping the schema and resolveOwner in sync. In
+        // Zod v4 `.refine()` keeps the value a ZodObject, so `.shape` still
+        // drives buildRegistrationSchema / addFlagsFromSchema.
+        ownerPid: z.number().int().positive().optional(),
+        ownerStartedAt: z.string().min(1).optional(),
+      })
+      .refine(
+        (v) => (v.ownerPid === undefined) === (v.ownerStartedAt === undefined),
+        {
+          message:
+            'ownerPid and ownerStartedAt must be provided together (both or neither)',
+        },
+      ),
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
     autoEmits: [

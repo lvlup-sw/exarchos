@@ -1898,20 +1898,44 @@ export const BranchDeleteExecutedData = z.object({
 /**
  * worktree.remove.requested — B5.1: durable intent recorded BEFORE
  * `git worktree remove` fires. B5.3 idempotency check: `git worktree list` filter.
+ *
+ * `worktreeId` is the OPTIONAL canonical (symlink-resolved, POSIX-separator)
+ * projection key, stamped by the emitter (`WorktreeManager`) so the
+ * `worktrees@v1` reducer can drop the entry by the ALREADY-CANONICAL key during
+ * replay — without a `realpath()` filesystem call at fold time. That keeps the
+ * cold rebuild deterministic from the event log alone (INV-1): once the worktree
+ * is deleted, or on a host with a different symlink topology, re-deriving the key
+ * from `worktreePath` via the live filesystem would fold differently. Optional
+ * for backward compatibility: a legacy event without it still folds via the
+ * `worktreePath` canonicalization fallback.
  */
 export const WorktreeRemoveRequestedData = z.object({
   operationId: z.string().uuid().describe('Idempotency key — stable across retries'),
   worktreePath: z.string().min(1).describe('Absolute path of the worktree to remove'),
+  worktreeId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe('Canonical worktrees@v1 key, stamped so replay drops by stored id (no realpath at fold time)'),
 });
 
 /**
  * worktree.remove.executed — B5.1: records the outcome of the removal.
  * `removed: false` indicates the worktree was already absent (idempotent success).
+ *
+ * Carries the same OPTIONAL canonical `worktreeId` as the requested event so the
+ * reducer drops the projection entry by the stored key during a filesystem-free
+ * replay (see {@link WorktreeRemoveRequestedData}).
  */
 export const WorktreeRemoveExecutedData = z.object({
   operationId: z.string().uuid().describe('Correlates to the worktree.remove.requested event'),
   worktreePath: z.string().min(1).describe('Path that was targeted'),
   removed: z.boolean().describe('True if removed; false if already absent (idempotent success)'),
+  worktreeId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe('Canonical worktrees@v1 key, stamped so replay drops by stored id (no realpath at fold time)'),
 });
 
 /**

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -6,6 +6,13 @@ import { isPathWithin, defaultRealpath, type RealpathResolver } from './path-con
 
 /** Identity resolver: no symlinks, paths pass through unchanged. */
 const identity: RealpathResolver = (p) => p;
+
+/** A Node fs error carrying a POSIX `code`, for simulating realpath failures. */
+function errnoError(code: string): NodeJS.ErrnoException {
+  const err = new Error(`${code}: simulated`) as NodeJS.ErrnoException;
+  err.code = code;
+  return err;
+}
 
 describe('isPathWithin', () => {
   it('PathContainment_SymlinkedRoot_ResolvesRealpathAndMatches', () => {
@@ -88,4 +95,39 @@ describe('isPathWithin', () => {
       }
     },
   );
+});
+
+describe('defaultRealpath error handling', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('DefaultRealpath_EnoentTail_SynthesizesThroughExistingAncestor', () => {
+    // ENOENT (the tail does not exist yet) is the ONE tolerated failure: resolve
+    // the existing ancestor and re-append the missing leaf, so a brand-new path
+    // still canonicalizes instead of throwing.
+    const realRoot = fs.realpathSync(os.tmpdir());
+    const missingChild = path.join(realRoot, `wlm-realpath-missing-${process.pid}`, 'leaf');
+    // The tail does not exist → defaultRealpath synthesizes it onto the resolved
+    // ancestor rather than throwing.
+    expect(defaultRealpath(missingChild)).toBe(missingChild);
+  });
+
+  it('DefaultRealpath_EloopOrEacces_RethrowsInsteadOfSynthesizing', () => {
+    // A non-ENOENT failure (ELOOP symlink cycle, EACCES permission denied, …) is
+    // a GENUINE resolution error, not a "not yet created" path. Synthesizing past
+    // it would fabricate a canonical path no real lookup produces (e.g. resolving
+    // *through* a symlink loop), so the resolver must fail closed and rethrow.
+    for (const code of ['ELOOP', 'EACCES', 'ENOTDIR'] as const) {
+      const spy = vi
+        .spyOn(fs.realpathSync, 'native')
+        .mockImplementation(() => {
+          throw errnoError(code);
+        });
+      expect(() => defaultRealpath('/some/looping/path')).toThrow(
+        new RegExp(code),
+      );
+      spy.mockRestore();
+    }
+  });
 });

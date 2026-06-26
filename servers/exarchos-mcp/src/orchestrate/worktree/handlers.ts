@@ -59,26 +59,63 @@ function optionalBoolean(value: unknown): boolean | undefined {
 }
 
 /**
- * Resolve the reserving process identity. An explicit `ownerPid` /
- * `ownerStartedAt` pair wins (the caller already knows the live owner); else we
- * stamp the CURRENT process via the injected {@link ProcessSource} so the
- * reservation is healed correctly once this process dies (crash-safe ownership,
- * DR-3). A platform that cannot resolve a create-time fingerprint yields `''` —
- * still a well-formed reservation, it just cannot defeat PID reuse.
+ * Resolve the reserving process identity — **all-or-nothing**.
+ *
+ * A `(ownerPid, ownerStartedAt)` tuple must describe ONE real process, so the
+ * two fields are accepted only together:
+ *
+ *   - **both** explicit → use them verbatim (the caller already knows the live
+ *     owner, e.g. it is stamping on behalf of a child it spawned);
+ *   - **neither** → derive BOTH from the CURRENT process — `process.pid` paired
+ *     with that same PID's create-time via the injected {@link ProcessSource} —
+ *     so the reservation heals correctly once this process dies (DR-3);
+ *   - **exactly one** → REJECT. Pairing a lone `ownerStartedAt` with
+ *     `process.pid`, or a lone `ownerPid` with a derived create-time, would
+ *     persist a fingerprint NO real process ever had — a reservation that can
+ *     never be matched against a live process (ownership corruption).
+ *
+ * A platform that cannot resolve the current process's create-time yields `''`
+ * (still a well-formed reservation; it just cannot defeat PID reuse).
  */
 function resolveOwner(
   rest: Record<string, unknown>,
   processSource: ProcessSource,
-): { ownerPid: number; ownerStartedAt: string } {
-  const explicitPid = rest.ownerPid;
-  const ownerPid =
-    typeof explicitPid === 'number' && Number.isInteger(explicitPid) && explicitPid > 0
-      ? explicitPid
-      : process.pid;
-  const explicitStartedAt = optionalString(rest.ownerStartedAt);
-  const ownerStartedAt =
-    explicitStartedAt ?? processSource.getStartTime(ownerPid) ?? '';
-  return { ownerPid, ownerStartedAt };
+):
+  | { ok: true; owner: { ownerPid: number; ownerStartedAt: string } }
+  | { ok: false; error: string } {
+  const hasPid = rest.ownerPid !== undefined;
+  const hasStartedAt = rest.ownerStartedAt !== undefined;
+
+  // Partial override → reject (the all-or-nothing contract).
+  if (hasPid !== hasStartedAt) {
+    return {
+      ok: false,
+      error:
+        'ownerPid and ownerStartedAt must be provided together (both or neither) — a partial owner override would persist a tuple no real process had',
+    };
+  }
+
+  if (hasPid && hasStartedAt) {
+    const explicitPid = rest.ownerPid;
+    if (
+      typeof explicitPid !== 'number' ||
+      !Number.isInteger(explicitPid) ||
+      explicitPid <= 0
+    ) {
+      return { ok: false, error: 'ownerPid must be a positive integer' };
+    }
+    const explicitStartedAt = optionalString(rest.ownerStartedAt);
+    if (explicitStartedAt === undefined || explicitStartedAt.length === 0) {
+      return { ok: false, error: 'ownerStartedAt must be a non-empty string' };
+    }
+    return { ok: true, owner: { ownerPid: explicitPid, ownerStartedAt: explicitStartedAt } };
+  }
+
+  // Neither explicit → derive BOTH from the current process.
+  const ownerPid = process.pid;
+  const probe = processSource.getStartTime(ownerPid);
+  const ownerStartedAt = probe.status === 'present' ? probe.startedAt : '';
+  return { ok: true, owner: { ownerPid, ownerStartedAt } };
 }
 
 // ─── acquire_worktree ────────────────────────────────────────────────────────
@@ -113,14 +150,38 @@ export async function handleAcquireWorktree(
   // reservation lands (mirrors prune's step 0).
   const adoptResult = await manager.adopt(repoRoot);
 
+  const ownerResult = resolveOwner(args, processSource);
+  if (!ownerResult.ok) {
+    return invalidInput(ownerResult.error, {
+      ownerPid: 'number (with ownerStartedAt)',
+      ownerStartedAt: 'string (with ownerPid)',
+    });
+  }
+
   const featureId = args.featureId === null ? null : optionalString(args.featureId) ?? null;
   const reserveInput: ReserveInput = {
     worktreeId,
     path: optionalString(args.path) ?? worktreeId,
     featureId,
-    ...resolveOwner(args, processSource),
+    ownerPid: ownerResult.owner.ownerPid,
+    ownerStartedAt: ownerResult.owner.ownerStartedAt,
   };
-  await manager.reserve(reserveInput);
+  const reserveResult = await manager.reserve(reserveInput);
+
+  // Exclusive ownership: the worktree is already reserved by a different live
+  // owner — reject the claim rather than fabricate a second concurrent owner.
+  if (!reserveResult.reserved) {
+    return {
+      success: false,
+      error: {
+        code: 'WORKTREE_RESERVED',
+        message: `worktree ${worktreeId} is already reserved by a live owner`,
+        ...(reserveResult.conflict
+          ? { conflict: reserveResult.conflict }
+          : {}),
+      },
+    };
+  }
 
   return {
     success: true,
@@ -137,10 +198,14 @@ export async function handleAcquireWorktree(
 // ─── release_worktree ────────────────────────────────────────────────────────
 
 /**
- * Release the caller's reservation: appends `worktree.released`. An unknown
- * `worktreeId` still emits a well-formed released event (the manager folds the
- * current entry for provenance and clears the owner fields), so the action is a
- * safe idempotent no-op when nothing is held.
+ * Release the CALLER's reservation: appends `worktree.released`. The caller's
+ * process identity is resolved (or taken from an explicit owner override) and
+ * passed to the manager, which REFUSES to release a worktree currently reserved
+ * by a DIFFERENT live owner (a stale caller must not free someone else's live
+ * claim — reaping a dead owner is `reconcile`'s job). An unknown / not-reserved
+ * / dead-owner / same-owner `worktreeId` still emits a well-formed released
+ * event (owner fields cleared) — a safe idempotent no-op when nothing live is
+ * held.
  */
 export async function handleReleaseWorktree(
   args: Record<string, unknown>,
@@ -154,10 +219,27 @@ export async function handleReleaseWorktree(
     });
   }
   const manager = buildManager(ctx, deps);
-  await manager.release(worktreeId);
+  const processSource = deps?.processSource ?? defaultProcessSource;
+  const ownerResult = resolveOwner(args, processSource);
+  if (!ownerResult.ok) {
+    return invalidInput(ownerResult.error, {
+      ownerPid: 'number (with ownerStartedAt)',
+      ownerStartedAt: 'string (with ownerPid)',
+    });
+  }
+  const result = await manager.release(worktreeId, ownerResult.owner);
+  if (result.rejectedForeignOwner) {
+    return {
+      success: false,
+      error: {
+        code: 'WORKTREE_OWNED_BY_OTHER',
+        message: `worktree ${worktreeId} is reserved by a different live owner — refusing to release another process's claim`,
+      },
+    };
+  }
   return {
     success: true,
-    data: { worktreeId, released: true },
+    data: { worktreeId, released: result.released },
   };
 }
 

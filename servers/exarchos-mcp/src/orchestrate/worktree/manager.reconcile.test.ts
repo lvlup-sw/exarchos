@@ -26,7 +26,7 @@ import {
   WORKTREES_STREAM,
   WORKTREES_REDUCER,
 } from './manager.js';
-import type { ProcessSource } from './pure/process-identity.js';
+import type { ProcessSource, StartTimeProbe } from './pure/process-identity.js';
 import type { WorktreesProjection } from './projections/worktrees.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -34,10 +34,10 @@ import type { WorktreesProjection } from './projections/worktrees.js';
 /** A ProcessSource backed by a PID→create-time map (absent PID ⇒ exited). */
 function sourceFrom(table: Record<number, string>): ProcessSource {
   return {
-    getStartTime(pid: number): string | null {
+    getStartTime(pid: number): StartTimeProbe {
       return Object.prototype.hasOwnProperty.call(table, pid)
-        ? table[pid]
-        : null;
+        ? { status: 'present', startedAt: table[pid] }
+        : { status: 'absent' };
     },
   };
 }
@@ -112,10 +112,15 @@ describe('WorktreeManager (real event store)', () => {
     const event = reserved[0];
     // Lands on the dedicated singleton `worktrees` stream.
     expect(event.streamId).toBe(WORKTREES_STREAM);
-    // Two-component idempotency key: `<eventType>:<operationId>`.
+    // reserve now routes through `decide` over worktrees@v1 (fold → validate
+    // exclusive ownership → append under OCC), so the per-call idempotency key is
+    // the decide-derived `<streamId>:<reducerId>:<operationId>` — one key per call,
+    // still anchored on the payload's operationId.
     const operationId = (event.data as { operationId?: unknown }).operationId;
     expect(typeof operationId).toBe('string');
-    expect(event.idempotencyKey).toBe(`worktree.reserved:${operationId}`);
+    expect(event.idempotencyKey).toBe(
+      `${WORKTREES_STREAM}:${WORKTREES_REDUCER}:${operationId}`,
+    );
     // Payload round-trips the reservation owner.
     expect(event.data).toMatchObject({
       worktreeId: '/wt/alpha',
@@ -124,6 +129,114 @@ describe('WorktreeManager (real event store)', () => {
       ownerPid: 1234,
       ownerStartedAt: 'boot-1234',
     });
+  });
+
+  // ─── reserve: exclusive ownership (fold-before-append, fix 4) ─────────────────
+
+  it('Reserve_ConcurrentDifferentOwners_OneWins_NoDoubleReserve', async () => {
+    // Two live owners race to reserve the SAME worktree. Because reserve now
+    // folds worktrees@v1 under OCC before appending, exactly ONE wins; the loser
+    // re-folds against the now-reserved state and is rejected. A blind append
+    // (the bug) would let BOTH "succeed", fabricating two concurrent owners.
+    const manager = new WorktreeManager({
+      eventStore: store,
+      processSource: sourceFrom({ 100: 'boot-100', 200: 'boot-200' }), // both live
+    });
+    const base = {
+      worktreeId: '/wt/contended',
+      path: '/wt/contended',
+      featureId: 'feat-x',
+    };
+
+    const [a, b] = await Promise.all([
+      manager.reserve({ ...base, ownerPid: 100, ownerStartedAt: 'boot-100' }),
+      manager.reserve({ ...base, ownerPid: 200, ownerStartedAt: 'boot-200' }),
+    ]);
+
+    // Exactly one `worktree.reserved` was appended.
+    expect(eventsOfType(store, 'worktree.reserved')).toHaveLength(1);
+    // Exactly one call reports `reserved: true`; the other is rejected with the
+    // winning owner surfaced as the conflict.
+    expect([a.reserved, b.reserved].sort()).toEqual([false, true]);
+    const loser = a.reserved ? b : a;
+    const winner = a.reserved ? a : b;
+    expect(winner.conflict).toBeUndefined();
+    expect(loser.conflict).toBeDefined();
+
+    // The fold shows a single live owner — whichever won.
+    const proj = await projection(store);
+    const entry = proj.worktrees['/wt/contended'];
+    expect(entry.state).toBe('reserved');
+    expect([100, 200]).toContain(entry.ownerPid);
+    // The reported conflict owner is the one that actually holds the lease.
+    expect(loser.conflict?.ownerPid).toBe(entry.ownerPid);
+  });
+
+  it('Reserve_AlreadyReservedByLiveOwner_RejectsSecondClaim', async () => {
+    const manager = new WorktreeManager({
+      eventStore: store,
+      processSource: sourceFrom({ 100: 'boot-100' }), // owner 100 is live
+    });
+    await manager.reserve({
+      worktreeId: '/wt/held',
+      path: '/wt/held',
+      featureId: 'feat-x',
+      ownerPid: 100,
+      ownerStartedAt: 'boot-100',
+    });
+
+    // A different process tries to claim the live-owned worktree → rejected.
+    const second = await manager.reserve({
+      worktreeId: '/wt/held',
+      path: '/wt/held',
+      featureId: 'feat-x',
+      ownerPid: 999,
+      ownerStartedAt: 'boot-999',
+    });
+    expect(second.reserved).toBe(false);
+    expect(second.conflict).toEqual({ ownerPid: 100, ownerStartedAt: 'boot-100' });
+    expect(eventsOfType(store, 'worktree.reserved')).toHaveLength(1);
+  });
+
+  // ─── release: never free a foreign live owner's claim (fix 4) ─────────────────
+
+  it('Release_ForeignLiveOwner_Rejected_LeavesReservationIntact', async () => {
+    const manager = new WorktreeManager({
+      eventStore: store,
+      processSource: sourceFrom({ 100: 'boot-100' }), // owner 100 is live
+    });
+    await manager.reserve({
+      worktreeId: '/wt/owned',
+      path: '/wt/owned',
+      featureId: 'feat-x',
+      ownerPid: 100,
+      ownerStartedAt: 'boot-100',
+    });
+
+    // A stale/foreign caller (owner 200) must NOT be able to release owner 100's
+    // live reservation.
+    const foreign = await manager.release('/wt/owned', {
+      ownerPid: 200,
+      ownerStartedAt: 'boot-200',
+    });
+    expect(foreign.rejectedForeignOwner).toBe(true);
+    expect(foreign.released).toBe(false);
+    expect(eventsOfType(store, 'worktree.released')).toHaveLength(0);
+
+    // The reservation is intact — still held by owner 100.
+    let proj = await projection(store);
+    expect(proj.worktrees['/wt/owned'].state).toBe('reserved');
+    expect(proj.worktrees['/wt/owned'].ownerPid).toBe(100);
+
+    // The true owner CAN release it.
+    const own = await manager.release('/wt/owned', {
+      ownerPid: 100,
+      ownerStartedAt: 'boot-100',
+    });
+    expect(own.rejectedForeignOwner).toBe(false);
+    expect(own.released).toBe(true);
+    proj = await projection(store);
+    expect(proj.worktrees['/wt/owned'].state).toBe('released');
   });
 
   // ─── reconcile: dead owner ────────────────────────────────────────────────────

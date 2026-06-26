@@ -86,6 +86,25 @@ describe('classifyPruneCandidate', () => {
     expect(result).toEqual<PruneClassification>({ action: 'orphan-unverifiable' });
   });
 
+  it('PruneLadder_NullHeadAncestorWithBacking_FailsClosed', () => {
+    // The merge probe was UNCOMPUTABLE (`null`) while the backing repo is
+    // PRESENT (so the orphan rung does not catch it). Merge state is therefore
+    // unverified — we could not prove HEAD is merged — so the candidate must
+    // fail closed (skip), NOT fall through to `delete-eligible`. This is the
+    // destructive hole: a `null` ancestry with a live backing repo previously
+    // reached deletion.
+    const result = classifyPruneCandidate(
+      eligibleCandidate({
+        backingGitdirPresent: true,
+        headAncestorOfIntegration: null,
+      }),
+    );
+    expect(result).toEqual<PruneClassification>({
+      action: 'skip',
+      reason: 'cannot-verify-merge',
+    });
+  });
+
   it('PruneLadder_OriginUnreachable_LeftUntouchedFailClosed', () => {
     // Origin unreachable -> merge ancestry cannot be trusted -> fail closed,
     // left untouched.

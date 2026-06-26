@@ -1,37 +1,59 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  isOwnerAlive,
+  ownerLiveness,
   defaultProcessSource,
   type OwnerDescriptor,
   type ProcessSource,
+  type StartTimeProbe,
 } from './process-identity.js';
 
-/** Build a stub ProcessSource whose getStartTime returns a fixed value. */
+/**
+ * Build a stub ProcessSource whose getStartTime returns a fixed probe. A string
+ * models a present PID with that create-time; `null` models an absent (exited)
+ * PID. (Probe-failed `unknown` is exercised via {@link sourceUnknown}.)
+ */
 function sourceReturning(value: string | null): ProcessSource {
-  return { getStartTime: vi.fn().mockReturnValue(value) };
+  const probe: StartTimeProbe =
+    value === null ? { status: 'absent' } : { status: 'present', startedAt: value };
+  return { getStartTime: vi.fn().mockReturnValue(probe) };
 }
 
-describe('isOwnerAlive', () => {
+/** A source whose probe COULD NOT RUN — present-or-absent is unknowable. */
+function sourceUnknown(): ProcessSource {
+  return { getStartTime: vi.fn().mockReturnValue({ status: 'unknown' } satisfies StartTimeProbe) };
+}
+
+describe('ownerLiveness', () => {
   const owner: OwnerDescriptor = { ownerPid: 1234, ownerStartedAt: 'orig-create-time' };
 
   it('ProcessIdentity_PidAbsentOrStartedAtMismatch_ReportsDead', () => {
     // PID absent: the owning process exited -> dead.
     const absentSource = sourceReturning(null);
-    expect(isOwnerAlive(owner, absentSource)).toBe(false);
+    expect(ownerLiveness(owner, absentSource)).toBe('dead');
     expect(absentSource.getStartTime).toHaveBeenCalledWith(1234);
 
     // PID present but create-time differs: the PID was reused by a newer
     // process (later create-time) -> the original owner is dead.
     const reusedSource = sourceReturning('newer-create-time');
-    expect(isOwnerAlive(owner, reusedSource)).toBe(false);
+    expect(ownerLiveness(owner, reusedSource)).toBe('dead');
     expect(reusedSource.getStartTime).toHaveBeenCalledWith(1234);
   });
 
   it('ProcessIdentity_PidPresentAndStartedAtMatches_ReportsAlive', () => {
     // Same PID, same create-time: it is still the original process -> alive.
     const liveSource = sourceReturning('orig-create-time');
-    expect(isOwnerAlive(owner, liveSource)).toBe(true);
+    expect(ownerLiveness(owner, liveSource)).toBe('alive');
     expect(liveSource.getStartTime).toHaveBeenCalledWith(1234);
+  });
+
+  it('ProcessIdentity_ProbeCouldNotRun_ReportsUnknown_NotDead', () => {
+    // The create-time probe FAILED (permission / missing ps|PowerShell /
+    // unsupported platform). The owner may still be live — it is NOT proven
+    // dead — so liveness is `unknown`, distinct from `dead`. This is the seam
+    // that stops a probe failure from releasing a still-live reservation.
+    const unknownSource = sourceUnknown();
+    expect(ownerLiveness(owner, unknownSource)).toBe('unknown');
+    expect(unknownSource.getStartTime).toHaveBeenCalledWith(1234);
   });
 
   it('ProcessIdentity_CreateTime_ResolvesOnLinuxMacWindows', () => {
@@ -57,31 +79,31 @@ describe('isOwnerAlive', () => {
 
       // Same process: source reports the recorded create-time -> alive.
       expect(
-        isOwnerAlive(platformOwner, sourceReturning(platform.startedAt)),
+        ownerLiveness(platformOwner, sourceReturning(platform.startedAt)),
         `${platform.name}: matching create-time should be alive`,
-      ).toBe(true);
+      ).toBe('alive');
 
       // PID reuse: source reports a different (later) create-time -> dead.
       expect(
-        isOwnerAlive(platformOwner, sourceReturning(platform.reused)),
+        ownerLiveness(platformOwner, sourceReturning(platform.reused)),
         `${platform.name}: reused PID create-time should be dead`,
-      ).toBe(false);
+      ).toBe('dead');
 
       // PID gone on this platform -> dead.
       expect(
-        isOwnerAlive(platformOwner, sourceReturning(null)),
+        ownerLiveness(platformOwner, sourceReturning(null)),
         `${platform.name}: absent PID should be dead`,
-      ).toBe(false);
+      ).toBe('dead');
     }
   });
 });
 
 describe('defaultProcessSource', () => {
-  it('short-circuits non-positive PIDs to null without any OS access', () => {
-    // pid <= 0 can never be a live owner; the default source returns null
-    // before probing the OS (no spawn, no /proc read) — keeps the unit test
-    // free of real OS calls and deterministic on every platform.
-    expect(defaultProcessSource.getStartTime(0)).toBeNull();
-    expect(defaultProcessSource.getStartTime(-1)).toBeNull();
+  it('short-circuits non-positive PIDs to absent without any OS access', () => {
+    // pid <= 0 can never be a live owner; the default source returns an `absent`
+    // probe before touching the OS (no spawn, no /proc read) — keeps the unit
+    // test free of real OS calls and deterministic on every platform.
+    expect(defaultProcessSource.getStartTime(0)).toEqual({ status: 'absent' });
+    expect(defaultProcessSource.getStartTime(-1)).toEqual({ status: 'absent' });
   });
 });

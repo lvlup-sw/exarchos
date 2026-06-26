@@ -40,7 +40,7 @@ import {
   defaultGitRunner,
   type GitRunner,
 } from './manager.js';
-import type { ProcessSource } from './pure/process-identity.js';
+import type { ProcessSource, StartTimeProbe } from './pure/process-identity.js';
 import type { WorktreesProjection } from './projections/worktrees.js';
 import { canonicalWorktreeId } from './pure/path-containment.js';
 
@@ -107,8 +107,10 @@ async function projection(store: EventStore): Promise<WorktreesProjection> {
 /** A ProcessSource backed by a PID→create-time map (absent PID ⇒ exited). */
 function sourceFrom(table: Record<number, string>): ProcessSource {
   return {
-    getStartTime(pid: number): string | null {
-      return Object.prototype.hasOwnProperty.call(table, pid) ? table[pid] : null;
+    getStartTime(pid: number): StartTimeProbe {
+      return Object.prototype.hasOwnProperty.call(table, pid)
+        ? { status: 'present', startedAt: table[pid] }
+        : { status: 'absent' };
     },
   };
 }
@@ -647,6 +649,96 @@ describe('WorktreeManager.prune (real git + real event store)', () => {
     const proj = await projection(store);
     expect(proj.worktrees[delId]).toBeUndefined(); // dropped
     expect(proj.worktrees[deadId].state).toBe('released'); // reconcile healed it
+  });
+
+  // ─── fix 1: a dirty-probe FAILURE (backing present) fails closed ──────────
+
+  it('Prune_DirtyProbeFails_BackingPresent_FailsClosed_NotDeleted', async () => {
+    const repo = await initRepoWithOrigin(workdir, 'repo');
+    git(repo, ['branch', 'feat/integ']);
+    await setIntegrationBranch(store, 'feat-probe', 'feat/integ');
+    const wtPath = path.join(workdir, 'wt-probe');
+    const wtId = addWorktree(repo, wtPath, 'probe-branch'); // clean + merged → otherwise eligible
+    const canonicalWt = canonicalWorktreeId(wtPath);
+
+    // The worktree's backing repo is PRESENT, but `git status` ERRORS (non-zero)
+    // — a locked index / transient failure. Cleanliness is unverifiable, so the
+    // probe must fail CLOSED (treat as dirty, skip), never read as clean and
+    // proceed to delete-eligible (the data-loss hole). Other git ops pass through.
+    const statusErrorsRunner: GitRunner = {
+      run(args, cwd) {
+        if (args[0] === 'status' && canonicalWorktreeId(cwd) === canonicalWt) {
+          return { status: 128, stdout: '' }; // git status failed.
+        }
+        return defaultGitRunner.run(args, cwd);
+      },
+    };
+
+    const manager = new WorktreeManager({
+      eventStore: store,
+      gitRunner: statusErrorsRunner,
+    });
+    const releasedId = await makeReleased(manager, wtPath, 'feat-probe');
+    expect(releasedId).toBe(wtId);
+
+    const result = await manager.prune({ repoRoot: repo, apply: true });
+
+    const report = result.candidates.find((c) => c.worktreeId === wtId);
+    expect(report?.classification).toEqual({ action: 'skip', reason: 'dirty' });
+    expect(result.deleted).not.toContain(wtId);
+    expect(eventsOfType(store, 'worktree.remove.executed')).toHaveLength(0);
+    expect((await projection(store)).worktrees[wtId]).toBeDefined();
+  });
+
+  // ─── TOCTOU: goes dirty between plan and under-lock commit → not deleted ──
+
+  it('Prune_GoesDirtyBetweenPlanAndCommit_NotDeleted', async () => {
+    const repo = await initRepoWithOrigin(workdir, 'repo');
+    git(repo, ['branch', 'feat/integ']);
+    await setIntegrationBranch(store, 'feat-toctou', 'feat/integ');
+    const wtPath = path.join(workdir, 'wt-toctou');
+    const wtId = addWorktree(repo, wtPath, 'toctou-branch'); // clean + merged → eligible
+    const canonicalWt = canonicalWorktreeId(wtPath);
+
+    // A runner that reports the TARGET worktree CLEAN on the first `git status`
+    // (the planning classification) but DIRTY on every subsequent one (the
+    // under-lock re-verify inside executeDeletion). This is the TOCTOU window:
+    // the worktree became dirty AFTER it was classified delete-eligible. The
+    // re-check under the lock must catch it and abort — `entry.state` alone is
+    // still `released`, so a state-only re-check (the bug) would delete it.
+    let targetStatusCalls = 0;
+    const flipToDirtyRunner: GitRunner = {
+      run(args, cwd) {
+        const isTargetStatus =
+          args[0] === 'status' && canonicalWorktreeId(cwd) === canonicalWt;
+        if (isTargetStatus) {
+          targetStatusCalls += 1;
+          if (targetStatusCalls > 1) {
+            // Second+ status on the target → pretend an untracked file appeared.
+            return { status: 0, stdout: '?? scratch.txt\n' };
+          }
+        }
+        return defaultGitRunner.run(args, cwd);
+      },
+    };
+
+    const manager = new WorktreeManager({
+      eventStore: store,
+      gitRunner: flipToDirtyRunner,
+    });
+    const releasedId = await makeReleased(manager, wtPath, 'feat-toctou');
+    expect(releasedId).toBe(wtId);
+
+    const result = await manager.prune({ repoRoot: repo, apply: true });
+
+    // Planning saw it eligible, but the under-lock re-verify saw it dirty and
+    // aborted: nothing deleted, NO durable remove intent committed, entry intact.
+    expect(result.deleted).not.toContain(wtId);
+    expect(eventsOfType(store, 'worktree.remove.requested')).toHaveLength(0);
+    expect(eventsOfType(store, 'worktree.remove.executed')).toHaveLength(0);
+    expect((await projection(store)).worktrees[wtId]).toBeDefined();
+    // Confirm the re-verify actually ran a second status probe on the target.
+    expect(targetStatusCalls).toBeGreaterThan(1);
   });
 
   // ─── recovery path never uses `git reset --hard` ──────────────────────────

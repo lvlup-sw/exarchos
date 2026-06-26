@@ -33,10 +33,31 @@ export type RealpathResolver = (p: string) => string;
 // ============================================================
 
 /**
+ * Whether `err` is a Node filesystem error carrying the given POSIX `code`. A
+ * narrow type guard so the {@link defaultRealpath} catch can branch on `ENOENT`
+ * without an `any` cast.
+ */
+function isErrnoCode(err: unknown, code: string): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'code' in err &&
+    (err as { code?: unknown }).code === code
+  );
+}
+
+/**
  * realpath that tolerates a not-yet-existing tail: it resolves the longest
  * existing ancestor and re-appends the remaining segments, so a brand-new path
  * still canonicalizes through any symlinked parent (defeating symlink escape)
  * instead of throwing `ENOENT`.
+ *
+ * **Only `ENOENT` (a missing tail) is synthesized.** Any other failure —
+ * `ENOTDIR` (a path component is a file), `ELOOP` (a symlink cycle), `EACCES`
+ * (permission denied) — is a genuine resolution error, NOT a "not yet created"
+ * path: synthesizing past it would fabricate a canonical path no real lookup
+ * would produce (e.g. resolving *through* a symlink loop), so we fail closed and
+ * rethrow.
  */
 export function defaultRealpath(p: string): string {
   try {
@@ -49,7 +70,12 @@ export function defaultRealpath(p: string): string {
     // in the username segment and the `worktrees@v1` lookup would miss. `.native`
     // canonicalizes both to the long form. No-op on POSIX (no 8.3 names).
     return fs.realpathSync.native(p);
-  } catch {
+  } catch (err) {
+    // Only a MISSING tail is tolerated (resolve the existing ancestor, re-append
+    // the rest). ENOTDIR / ELOOP / EACCES are real errors — rethrow, fail closed.
+    if (!isErrnoCode(err, 'ENOENT')) {
+      throw err;
+    }
     const parent = path.dirname(p);
     if (parent === p) {
       return p; // reached the filesystem root; nothing left to resolve.

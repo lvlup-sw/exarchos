@@ -99,6 +99,7 @@ export type PruneSkipReason =
   | 'dirty'
   | 'unverifiable-integration-ref'
   | 'unmerged'
+  | 'cannot-verify-merge'
   | 'origin-unreachable';
 
 /**
@@ -138,8 +139,10 @@ const skip = (reason: PruneSkipReason): PruneClassification => ({ action: 'skip'
  * 6. HEAD not an ancestor of the integration ref ⇒ skip `unmerged`.
  * 7. Backing `.git` gitdir missing ⇒ `orphan-unverifiable` (handler-gated
  *    deletion only).
- * 8. Origin unreachable ⇒ skip `origin-unreachable` (fail-closed).
- * 9. Otherwise ⇒ `delete-eligible`.
+ * 8. Merge ancestry uncomputable (`null`) while the backing repo is PRESENT ⇒
+ *    skip `cannot-verify-merge` (fail-closed — we could not prove HEAD is merged).
+ * 9. Origin unreachable ⇒ skip `origin-unreachable` (fail-closed).
+ * 10. Otherwise ⇒ `delete-eligible`.
  *
  * Pure over its {@link PruneCandidate}; performs no git/fs/OS access.
  */
@@ -173,8 +176,9 @@ export function classifyPruneCandidate(candidate: PruneCandidate): PruneClassifi
   }
 
   // 6. HEAD carries work not merged into the integration ref -> skip unmerged.
-  //    `null` (uncomputable, e.g. an orphan) is NOT treated as unmerged here;
-  //    it threads through to the orphan rung below.
+  //    `null` (the merge probe could not run, e.g. an orphan) is NOT treated as
+  //    unmerged here; it threads through to the orphan rung (rung 7) or, when the
+  //    backing repo is present, to the fail-closed rung 8 below.
   if (candidate.headAncestorOfIntegration === false) {
     return skip('unmerged');
   }
@@ -184,11 +188,20 @@ export function classifyPruneCandidate(candidate: PruneCandidate): PruneClassifi
     return { action: 'orphan-unverifiable' };
   }
 
-  // 8. Cannot reach origin -> cannot trust merge ancestry -> fail closed.
+  // 8. Backing repo PRESENT but the merge probe was uncomputable (`null`) -> we
+  //    could not prove HEAD is merged into the integration ref -> fail closed.
+  //    Without this rung a `null` ancestry with a present backing repo fell
+  //    through to `delete-eligible`, deleting a worktree of UNVERIFIED merge
+  //    state (data loss). A merge state that cannot be verified is never deleted.
+  if (candidate.headAncestorOfIntegration === null) {
+    return skip('cannot-verify-merge');
+  }
+
+  // 9. Cannot reach origin -> cannot trust merge ancestry -> fail closed.
   if (!candidate.originReachable) {
     return skip('origin-unreachable');
   }
 
-  // 9. Released/orphan-state, clean, merged, origin-reachable, backing present.
+  // 10. Released/orphan-state, clean, merged, origin-reachable, backing present.
   return { action: 'delete-eligible' };
 }

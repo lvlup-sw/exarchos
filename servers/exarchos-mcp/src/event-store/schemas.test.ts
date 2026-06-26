@@ -3874,21 +3874,40 @@ describe('WLM worktree lifecycle schemas', () => {
       expect(EVENT_DATA_SCHEMAS as Record<string, unknown>).not.toHaveProperty(forbidden);
     }
 
-    // The remove pair is untouched: it still keys on operationId + worktreePath
-    // (NOT a new worktreeId field — a later reducer canonicalizes the path).
+    // The remove pair is REUSED (no new event types). Its identity is still
+    // operationId + worktreePath, with an OPTIONAL `worktreeId` the emitter
+    // stamps so the reducer can drop by the already-canonical key WITHOUT a
+    // realpath() at fold time (deterministic cold rebuild). Optional =
+    // backward-compatible: a legacy event omitting it still parses, and an
+    // absent optional field is NOT injected onto the parsed object.
     expect(EventTypes).toContain('worktree.remove.requested');
     expect(EventTypes).toContain('worktree.remove.executed');
     const requested = WorktreeRemoveRequestedData.parse({
       operationId: randomUUID(),
       worktreePath: '/repo/.worktrees/gc-me',
     }) as Record<string, unknown>;
-    expect(requested).not.toHaveProperty('worktreeId');
+    expect(requested).not.toHaveProperty('worktreeId'); // absent ⇒ not injected.
     const executed = WorktreeRemoveExecutedData.parse({
       operationId: randomUUID(),
       worktreePath: '/repo/.worktrees/gc-me',
       removed: true,
     }) as Record<string, unknown>;
     expect(executed).not.toHaveProperty('worktreeId');
+
+    // When the emitter DOES stamp it, the canonical worktreeId round-trips.
+    const stampedReq = WorktreeRemoveRequestedData.parse({
+      operationId: randomUUID(),
+      worktreePath: '/repo/.worktrees/gc-me',
+      worktreeId: '/repo/.worktrees/gc-me',
+    });
+    expect(stampedReq.worktreeId).toBe('/repo/.worktrees/gc-me');
+    const stampedExe = WorktreeRemoveExecutedData.parse({
+      operationId: randomUUID(),
+      worktreePath: '/repo/.worktrees/gc-me',
+      removed: true,
+      worktreeId: '/repo/.worktrees/gc-me',
+    });
+    expect(stampedExe.worktreeId).toBe('/repo/.worktrees/gc-me');
   });
 
   it('WorktreeSchemas_LifecycleKey_IncludesOperationId', () => {

@@ -58,7 +58,9 @@ const EMPTY_PROBE: GitWorktreeProbe = {
 };
 
 /** Fixed create-time fingerprint so `reserve` is byte-stable across arms. */
-const FIXED_SOURCE: ProcessSource = { getStartTime: () => 'fixed-start' };
+const FIXED_SOURCE: ProcessSource = {
+  getStartTime: () => ({ status: 'present', startedAt: 'fixed-start' }),
+};
 
 const DETERMINISTIC_DEPS = { gitProbe: EMPTY_PROBE, processSource: FIXED_SOURCE };
 

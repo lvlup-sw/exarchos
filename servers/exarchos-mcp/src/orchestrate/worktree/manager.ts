@@ -77,7 +77,7 @@ import {
   defaultRealpath,
   type RealpathResolver,
 } from './pure/path-containment.js';
-import { isReservationOwnerAlive, selectDeadReservations } from './pure/ownership.js';
+import { reservationLiveness, selectDeadReservations } from './pure/ownership.js';
 import {
   classifyPruneCandidate,
   type PruneCandidate,
@@ -511,6 +511,42 @@ export interface ReserveInput {
   readonly ownerStartedAt: string;
 }
 
+/** The live-process identity of a reservation owner (PID + create-time). */
+export interface ReservationOwner {
+  /** PID of the owning process. */
+  readonly ownerPid: number;
+  /** The owning process's opaque create-time fingerprint (equality-compared). */
+  readonly ownerStartedAt: string;
+}
+
+/** Outcome of a {@link WorktreeManager.reserve} call. */
+export interface ReserveResult {
+  /**
+   * True when this call holds the reservation afterwards — it either claimed a
+   * free/dead/own worktree or re-affirmed an existing same-owner reservation.
+   * `false` ⇒ the worktree is already `reserved` by a DIFFERENT live owner and
+   * the claim was rejected (exclusive ownership upheld).
+   */
+  readonly reserved: boolean;
+  /**
+   * The live owner already holding the worktree, present ONLY when
+   * `reserved === false`. Lets the caller report who blocked the claim.
+   */
+  readonly conflict?: ReservationOwner;
+}
+
+/** Outcome of a {@link WorktreeManager.release} call. */
+export interface ReleaseResult {
+  /** True when this call appended a `worktree.released` (the claim is now free). */
+  readonly released: boolean;
+  /**
+   * True when the release was REJECTED because the worktree is currently
+   * `reserved` by a different live owner — a stale/foreign caller must never
+   * release another live process's reservation. `released` is then `false`.
+   */
+  readonly rejectedForeignOwner: boolean;
+}
+
 /** Outcome of a {@link WorktreeManager.reconcile} pass. */
 export interface ReconcileResult {
   /**
@@ -557,56 +593,153 @@ export class WorktreeManager {
   }
 
   /**
-   * Reserve a worktree for a live process: append `worktree.reserved` to the
-   * `worktrees` stream. The `operationId` is minted per call (outside any retry)
-   * so the two-component idempotency key `worktree.reserved:<operationId>` makes
-   * a transient retry a cache-hit rather than a duplicate reservation.
+   * Reserve a worktree for a live process, UPHOLDING exclusive ownership.
+   *
+   * Routed through `decide` over `worktrees@v1` (like reconcile / adopt) so the
+   * reservation is a load → fold → validate → append under optimistic concurrency
+   * control — NOT a blind append. Folding first closes the double-reserve race:
+   * if the worktree is already `reserved` by a DIFFERENT owner whose liveness is
+   * not provably `dead` (i.e. `alive` OR an unprovable `unknown`), the claim is
+   * REJECTED (emits nothing) and {@link ReserveResult.reserved} is `false`. Two
+   * concurrent reserves therefore resolve to exactly one winner: the loser's
+   * commit fails OCC, re-folds against the now-reserved state, and rejects.
+   *
+   * A free / `adopted` / `released` / `orphan` worktree, a worktree whose owner
+   * is provably `dead`, or a same-owner re-affirmation all proceed and emit
+   * `worktree.reserved`. The `operationId` is minted per attempt and drives the
+   * decide idempotency key (`worktrees:worktrees@v1:<operationId>`).
    */
-  async reserve(input: ReserveInput): Promise<void> {
-    const operationId = randomUUID();
-    await this.eventStore.append(
-      WORKTREES_STREAM,
-      {
-        type: 'worktree.reserved',
-        data: {
-          worktreeId: input.worktreeId,
-          path: input.path,
-          featureId: input.featureId,
-          ownerPid: input.ownerPid,
-          ownerStartedAt: input.ownerStartedAt,
-          operationId,
+  async reserve(input: ReserveInput): Promise<ReserveResult> {
+    const appender = this.eventStore.getAppender();
+    let reserved = false;
+    let conflict: ReservationOwner | undefined;
+    await withStateRetry(async () => {
+      reserved = false;
+      conflict = undefined;
+      const operationId = randomUUID();
+      const result = await appender.decide<WorktreesProjection>(
+        WORKTREES_STREAM,
+        WORKTREES_REDUCER,
+        (state) => {
+          const entry = state.worktrees[input.worktreeId];
+          const liveOwner = this.liveForeignOwner(entry, {
+            ownerPid: input.ownerPid,
+            ownerStartedAt: input.ownerStartedAt,
+          });
+          if (liveOwner !== null) {
+            conflict = liveOwner; // already held by a different live owner → reject.
+            return [];
+          }
+          return [
+            {
+              type: 'worktree.reserved',
+              data: {
+                worktreeId: input.worktreeId,
+                path: input.path,
+                featureId: input.featureId,
+                ownerPid: input.ownerPid,
+                ownerStartedAt: input.ownerStartedAt,
+                operationId,
+              },
+            },
+          ];
         },
-      },
-      { idempotencyKey: `worktree.reserved:${operationId}` },
-    );
+        // alwaysEnforceConsistency=false: a rejected claim returns zero events
+        // and must not throw on an unrelated concurrent append; the emit path
+        // still commits under expectedSequence OCC (the double-reserve guard).
+        { operationId, alwaysEnforceConsistency: false },
+      );
+      reserved = result.kind !== 'no-op';
+    });
+    return conflict !== undefined ? { reserved: false, conflict } : { reserved };
   }
 
   /**
-   * Release a worktree: append `worktree.released` to the `worktrees` stream.
+   * Release a worktree, REFUSING to free another live process's reservation.
    *
-   * The current entry is folded up first so the released event carries the
-   * worktree's `path` / `featureId` provenance (owner fields are cleared, per
-   * the reducer's contract). An unknown `worktreeId` still emits a well-formed
-   * released event (path defaults to the id, featureId to `null`).
+   * Routed through `decide` over `worktrees@v1` so the release folds the current
+   * state first: if the worktree is `reserved` by a live owner that is NOT the
+   * caller (`owner`), the release is REJECTED (emits nothing) and
+   * {@link ReleaseResult.rejectedForeignOwner} is `true` — a stale caller can no
+   * longer relinquish someone else's live claim. A release with no caller
+   * identity cannot match a live owner, so it too is refused while a live foreign
+   * owner holds the worktree (reaping a dead owner is `reconcile`'s job).
+   *
+   * Otherwise (free / not-`reserved` / dead-owner / same-owner) it appends
+   * `worktree.released`, folding the current entry for `path` / `featureId`
+   * provenance (owner fields cleared). An unknown `worktreeId` still emits a
+   * well-formed released event (path defaults to the id, featureId to `null`) —
+   * a safe idempotent no-op when nothing is held.
    */
-  async release(worktreeId: string): Promise<void> {
-    const entry = await this.lookupEntry(worktreeId);
-    const operationId = randomUUID();
-    await this.eventStore.append(
-      WORKTREES_STREAM,
-      {
-        type: 'worktree.released',
-        data: {
-          worktreeId,
-          path: entry?.path ?? worktreeId,
-          featureId: entry?.featureId ?? null,
-          ownerPid: null,
-          ownerStartedAt: null,
-          operationId,
+  async release(worktreeId: string, owner?: ReservationOwner): Promise<ReleaseResult> {
+    const appender = this.eventStore.getAppender();
+    let released = false;
+    let rejectedForeignOwner = false;
+    await withStateRetry(async () => {
+      released = false;
+      rejectedForeignOwner = false;
+      const operationId = randomUUID();
+      const result = await appender.decide<WorktreesProjection>(
+        WORKTREES_STREAM,
+        WORKTREES_REDUCER,
+        (state) => {
+          const entry = state.worktrees[worktreeId];
+          if (this.liveForeignOwner(entry, owner) !== null) {
+            rejectedForeignOwner = true; // live foreign reservation → never release.
+            return [];
+          }
+          return [
+            {
+              type: 'worktree.released',
+              data: {
+                worktreeId,
+                path: entry?.path ?? worktreeId,
+                featureId: entry?.featureId ?? null,
+                ownerPid: null,
+                ownerStartedAt: null,
+                operationId,
+              },
+            },
+          ];
         },
-      },
-      { idempotencyKey: `worktree.released:${operationId}` },
-    );
+        { operationId, alwaysEnforceConsistency: false },
+      );
+      released = result.kind !== 'no-op';
+    });
+    return { released, rejectedForeignOwner };
+  }
+
+  /**
+   * If `entry` is `reserved` by a live owner (liveness `alive` OR unprovable
+   * `unknown`) that is NOT `caller`, return that owner; otherwise `null`. The
+   * single ownership-conflict predicate shared by `reserve` (reject a foreign
+   * live claim) and `release` (refuse to free a foreign live claim). A provably
+   * `dead` owner, a non-`reserved` entry, or a same-owner caller all return
+   * `null` (no live foreign owner blocks the operation). Pure over the injected
+   * {@link ProcessSource}.
+   */
+  private liveForeignOwner(
+    entry: WorktreeEntry | undefined,
+    caller: ReservationOwner | undefined,
+  ): ReservationOwner | null {
+    if (
+      entry === undefined ||
+      entry.state !== 'reserved' ||
+      entry.ownerPid === null ||
+      entry.ownerStartedAt === null
+    ) {
+      return null;
+    }
+    if (reservationLiveness(entry, this.processSource) === 'dead') {
+      return null; // provably dead owner → no live claim to protect.
+    }
+    const sameOwner =
+      caller !== undefined &&
+      entry.ownerPid === caller.ownerPid &&
+      entry.ownerStartedAt === caller.ownerStartedAt;
+    return sameOwner
+      ? null
+      : { ownerPid: entry.ownerPid, ownerStartedAt: entry.ownerStartedAt };
   }
 
   /**
@@ -841,6 +974,8 @@ export class WorktreeManager {
           repoRoot,
           report.worktreeId,
           report.path,
+          orphansOptedIn,
+          branchCache,
         );
         if (attempted) {
           reports[i] = { ...report, deleted: true };
@@ -890,9 +1025,17 @@ export class WorktreeManager {
     entry: WorktreeEntry,
     branchCache: Map<string, string | null>,
   ): Promise<PruneCandidate> {
-    const inUse = isReservationOwnerAlive(entry, this.processSource);
-    const dirty = this.isDirty(entry.path);
+    // Treat BOTH a live owner (`alive`) AND an unprovable one (`unknown` — the
+    // owner could not be probed) as in-use, so a probe failure NEVER lets the
+    // ladder reclaim a possibly-live reservation. Only a provably `dead` owner
+    // (or a non-reserved entry) is not in-use.
+    const inUse = reservationLiveness(entry, this.processSource) !== 'dead';
+    // Backing presence is computed BEFORE dirtiness so `isDirty` can fail closed
+    // ONLY when the backing repo is present (see its doc): an orphan's `git
+    // status` fails because the backing is gone, which is the orphan rung's job,
+    // not a "dirty" skip.
     const backingGitdirPresent = probeBackingGitdir(entry.path);
+    const dirty = this.isDirty(entry.path, backingGitdirPresent);
     const integrationRef = await this.resolveIntegrationRef(
       entry,
       backingGitdirPresent,
@@ -967,13 +1110,34 @@ export class WorktreeManager {
 
   // ─── Real-git fact probes (over the injected GitRunner) ─────────────────────
 
-  /** `git status --porcelain --untracked-files=all` non-empty ⇒ dirty (untracked-aware). */
-  private isDirty(worktreePath: string): boolean {
+  /**
+   * `git status --porcelain --untracked-files=all` non-empty ⇒ dirty
+   * (untracked-aware).
+   *
+   * **Fail-closed on a probe failure WHEN THE BACKING REPO IS PRESENT.** A
+   * non-zero git status with a live backing repo means cleanliness could NOT be
+   * verified (a locked index, a transient git error, a broken-but-present repo),
+   * so we return `true` (treat as dirty, skip) — NEVER `false`. Reading a probe
+   * failure as "clean" was a data-loss hole: it let the ladder reach
+   * `delete-eligible` and wipe uncommitted work.
+   *
+   * When the backing repo is GONE (`backingPresent === false`), `git status`
+   * cannot run by definition (the worktree is an orphan); that is the ORPHAN
+   * rung's responsibility (handler-gated `--prune-orphans --yes` deletion), so we
+   * must NOT pre-empt it with a `dirty` skip — return `false` and let the ladder
+   * thread to the orphan rung. The orphan opt-in is itself the explicit
+   * "content is unverifiable" acknowledgment.
+   */
+  private isDirty(worktreePath: string, backingPresent: boolean): boolean {
     const { status, stdout } = this.gitRunner.run(
       ['status', '--porcelain', '--untracked-files=all'],
       worktreePath,
     );
-    if (status !== 0) return false; // cannot prove dirty (e.g. broken backing)
+    if (status !== 0) {
+      // Cannot prove CLEAN: fail closed (dirty) only when a backing repo exists;
+      // an orphan's unverifiability is handled by the orphan rung instead.
+      return backingPresent;
+    }
     return stdout.trim().length > 0;
   }
 
@@ -1026,16 +1190,22 @@ export class WorktreeManager {
    *
    *   - **Plan / reserve / re-verify UNDER the stream lock → commit intent.** A
    *     `decide` over `worktrees@v1` re-folds the CURRENT state and emits
-   *     `worktree.remove.requested` ONLY while the entry is still present and in
-   *     a deletion-eligible state (`released` / `orphan`). A concurrent reconcile
-   *     / prune that flipped the state out from under us re-folds to a no-op, so
-   *     we never double-free or delete a re-reserved worktree.
+   *     `worktree.remove.requested` ONLY while the entry is still present, in a
+   *     deletion-eligible state (`released` / `orphan`), AND still passes the
+   *     FULL safety ladder when re-classified against fresh disk + ownership
+   *     facts. The state re-check alone is not enough: a `released` worktree that
+   *     went dirty / unmerged / back in-use AFTER the planning classification
+   *     would still be `released`, so we re-gather facts and re-run
+   *     {@link classifyPruneCandidate} here — a now-ineligible candidate aborts
+   *     (emits nothing), never committing the delete intent. A concurrent
+   *     reconcile / prune that flipped state re-folds to a no-op too.
    *   - **Idempotent side-effect OUTSIDE the lock.** Run `git worktree remove`
    *     only when the worktree is still registered; an already-absent worktree
    *     downgrades to `removed: false` (idempotent success), and a remove that
    *     fails while the worktree is STILL registered surfaces as a real error.
    *   - **Commit outcome.** Emit `worktree.remove.executed` (idempotency keyed on
-   *     `operationId`) — the `worktrees@v1` reducer drops the entry on it.
+   *     `operationId`, stamped with the canonical `worktreeId`) — the
+   *     `worktrees@v1` reducer drops the entry on it.
    *
    * Returns `attempted: false` only when the under-lock re-verify aborts (the
    * candidate was no longer eligible at commit time).
@@ -1044,6 +1214,8 @@ export class WorktreeManager {
     repoRoot: string,
     worktreeId: string,
     worktreePath: string,
+    orphansOptedIn: boolean,
+    branchCache: Map<string, string | null>,
   ): Promise<{ attempted: boolean; removed: boolean }> {
     const appender = this.eventStore.getAppender();
     const operationId = randomUUID();
@@ -1054,16 +1226,28 @@ export class WorktreeManager {
       const result = await appender.decide<WorktreesProjection>(
         WORKTREES_STREAM,
         WORKTREES_REDUCER,
-        (state) => {
+        async (state) => {
           const entry = state.worktrees[worktreeId];
           // Gone (already removed) OR no longer deletion-eligible by state
           // (re-reserved / re-adopted under us) ⇒ abort: emit nothing.
           if (entry === undefined) return [];
           if (entry.state !== 'released' && entry.state !== 'orphan') return [];
+          // TOCTOU close: re-run the FULL ladder against CURRENT facts (dirty /
+          // merge ancestry / ownership liveness), not just the projection state.
+          // A worktree that became dirty / unmerged / in-use between the planning
+          // pass and now is no longer safe — abort rather than commit the delete.
+          const facts = await this.gatherFacts(entry, branchCache);
+          const classification = classifyPruneCandidate(facts);
+          const stillEligible =
+            classification.action === 'delete-eligible' ||
+            (classification.action === 'orphan-unverifiable' && orphansOptedIn);
+          if (!stillEligible) return [];
           return [
             {
               type: 'worktree.remove.requested',
-              data: { operationId, worktreePath },
+              // Stamp the canonical `worktreeId` so the reducer drops the entry
+              // by the stored key on replay — no realpath() at fold time (INV-1).
+              data: { operationId, worktreePath, worktreeId },
             },
           ];
         },
@@ -1080,7 +1264,7 @@ export class WorktreeManager {
     const removed = this.removeWorktreeIfRegistered(repoRoot, worktreePath);
 
     // ── Phase C: record the outcome (drops the entry on the reducer). ──
-    await this.appendRemoveExecuted(operationId, worktreePath, removed);
+    await this.appendRemoveExecuted(operationId, worktreePath, removed, worktreeId);
     return { attempted: true, removed };
   }
 
@@ -1094,11 +1278,18 @@ export class WorktreeManager {
   private async recoverOrphanedRemovals(repoRoot: string): Promise<void> {
     const orphaned = await this.listOrphanedRemovals();
     const handled = new Set<string>();
-    for (const { operationId, worktreePath } of orphaned) {
+    for (const { operationId, worktreePath, worktreeId } of orphaned) {
       if (handled.has(operationId)) continue; // one executed per operationId
       handled.add(operationId);
       const removed = this.removeWorktreeIfRegistered(repoRoot, worktreePath);
-      await this.appendRemoveExecuted(operationId, worktreePath, removed);
+      // Carry the stamped `worktreeId` from the original requested event (when
+      // present) onto the completing executed event so replay still drops by id.
+      await this.appendRemoveExecuted(
+        operationId,
+        worktreePath,
+        removed,
+        worktreeId ?? undefined,
+      );
     }
   }
 
@@ -1127,18 +1318,27 @@ export class WorktreeManager {
     return false; // raced absent between precheck and remove — idempotent miss.
   }
 
-  /** Append `worktree.remove.executed` (idempotency keyed on `operationId`). */
+  /**
+   * Append `worktree.remove.executed` (idempotency keyed on `operationId`).
+   * Stamps the canonical `worktreeId` when known (always for a fresh deletion;
+   * carried over from the orphaned `requested` event on crash recovery, where it
+   * may be absent for a legacy pre-stamp event) so the reducer drops the entry
+   * by the stored key without a realpath() at fold time (INV-1).
+   */
   private async appendRemoveExecuted(
     operationId: string,
     worktreePath: string,
     removed: boolean,
+    worktreeId?: string,
   ): Promise<void> {
+    const data: Record<string, unknown> = { operationId, worktreePath, removed };
+    if (worktreeId !== undefined) data.worktreeId = worktreeId;
     await withStateRetry(() =>
       this.eventStore.append(
         WORKTREES_STREAM,
         {
           type: 'worktree.remove.executed',
-          data: { operationId, worktreePath, removed },
+          data,
         },
         { idempotencyKey: `worktree.remove.executed:${operationId}` },
       ),
@@ -1151,7 +1351,7 @@ export class WorktreeManager {
    * deletions to resume, in stream order.
    */
   private async listOrphanedRemovals(): Promise<
-    Array<{ operationId: string; worktreePath: string }>
+    Array<{ operationId: string; worktreePath: string; worktreeId: string | null }>
   > {
     const events = await this.eventStore.query(WORKTREES_STREAM);
     const executedOps = new Set<string>();
@@ -1160,27 +1360,22 @@ export class WorktreeManager {
       const op = eventStringField(event, 'operationId');
       if (op !== null) executedOps.add(op);
     }
-    const orphaned: Array<{ operationId: string; worktreePath: string }> = [];
+    const orphaned: Array<{
+      operationId: string;
+      worktreePath: string;
+      worktreeId: string | null;
+    }> = [];
     for (const event of events) {
       if (event.type !== 'worktree.remove.requested') continue;
       const operationId = eventStringField(event, 'operationId');
       const worktreePath = eventStringField(event, 'worktreePath');
       if (operationId === null || worktreePath === null) continue;
       if (executedOps.has(operationId)) continue;
-      orphaned.push({ operationId, worktreePath });
+      // `worktreeId` is present on post-stamp requested events, null on legacy.
+      const worktreeId = eventStringField(event, 'worktreeId');
+      orphaned.push({ operationId, worktreePath, worktreeId });
     }
     return orphaned;
-  }
-
-  /**
-   * Fold the `worktrees` stream and return the entry for `worktreeId`, or
-   * `undefined` when no live entry is keyed under it. Read-only.
-   */
-  private async lookupEntry(
-    worktreeId: string,
-  ): Promise<WorktreeEntry | undefined> {
-    const projection = await this.loadProjection();
-    return projection.worktrees[worktreeId];
   }
 
   /** Read-only fold of the `worktrees` stream through `worktrees@v1`. */

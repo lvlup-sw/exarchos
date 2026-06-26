@@ -30,13 +30,18 @@
  *
  * ## Remove correlation
  *
- * The remove pair carries `worktreePath` (an absolute path), not `worktreeId`.
- * Because `worktreeId` IS the canonical (symlink-resolved) path, we canonicalize
- * the remove event's `worktreePath` through the injected {@link RealpathResolver}
- * and drop the entry under that key. The resolver is injected (defaulting to
- * {@link defaultRealpath}) so the canonicalization is deterministic and
- * unit-testable with a simulated symlink map — mirroring the Task-001
- * `isPathWithin` primitive.
+ * The remove pair carries the already-canonical `worktreeId` (stamped by the
+ * emitting {@link WorktreeManager}); the reducer drops the entry under that
+ * STORED key with NO filesystem call, so the fold is deterministic from the
+ * event log alone — the same log re-folds identically after the worktree is gone
+ * or on a host with a different symlink topology (INV-1 cold rebuild).
+ *
+ * For backward compatibility a legacy remove event that carries only
+ * `worktreePath` (no `worktreeId`) is handled via a fallback: canonicalize the
+ * `worktreePath` through the injected {@link RealpathResolver} (defaulting to
+ * {@link defaultRealpath}). That fallback is the ONLY path that touches the
+ * filesystem, and only for pre-stamp events — mirroring the Task-001
+ * `isPathWithin` primitive's injectable resolver for deterministic tests.
  *
  * ## Purity contract
  *
@@ -163,24 +168,35 @@ function upsertLifecycle(
 }
 
 /**
- * Drop the entry targeted by a `worktree.remove.executed` event. The event
- * carries `worktreePath`; we canonicalize it through `realpath` to recover the
- * `worktreeId` key. Returns `state` by identity when the path is missing or no
- * entry is keyed under the canonical id (idempotent — a remove for an
- * already-absent worktree is a no-op).
+ * Drop the entry targeted by a `worktree.remove.executed` event.
+ *
+ * Prefers the STORED canonical `worktreeId` the emitter stamped onto the event
+ * (no filesystem access — the deterministic, cold-rebuildable path). Only when
+ * that is absent (a legacy pre-stamp event) does it fall back to canonicalizing
+ * the event's `worktreePath` through `realpath`. Returns `state` by identity
+ * when neither key is present or no entry is keyed under the resolved id
+ * (idempotent — a remove for an already-absent worktree is a no-op).
  */
 function dropRemoved(
   state: WorktreesProjection,
   event: WorkflowEvent,
   realpath: RealpathResolver,
 ): WorktreesProjection {
-  const worktreePath = extractString(event.data, 'worktreePath');
-  if (!worktreePath) return state;
-  // Canonicalize through the SAME `toPosix(realpath(resolve(...)))` form the
-  // emitter (`WorktreeManager.adopt`) keys its entries under, so a remove event
-  // folds onto the adopted entry's key on Windows too (#1620), not a
-  // backslash-vs-forward-slash sibling that would miss.
-  const worktreeId = canonicalWorktreeId(worktreePath, realpath);
+  // Stamped canonical key wins — drop by it with NO realpath() call so the fold
+  // is deterministic from the log alone, even after the worktree is gone (INV-1).
+  const storedId = extractString(event.data, 'worktreeId');
+  let worktreeId: string;
+  if (storedId) {
+    worktreeId = storedId;
+  } else {
+    const worktreePath = extractString(event.data, 'worktreePath');
+    if (!worktreePath) return state;
+    // Legacy fallback (pre-stamp events only): canonicalize through the SAME
+    // `toPosix(realpath(resolve(...)))` form the emitter keys its entries under,
+    // so a remove event folds onto the adopted entry's key on Windows too
+    // (#1620), not a backslash-vs-forward-slash sibling that would miss.
+    worktreeId = canonicalWorktreeId(worktreePath, realpath);
+  }
   if (!Object.prototype.hasOwnProperty.call(state.worktrees, worktreeId)) {
     return state;
   }
