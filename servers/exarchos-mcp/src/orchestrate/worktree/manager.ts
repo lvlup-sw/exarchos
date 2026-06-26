@@ -853,6 +853,20 @@ export class WorktreeManager {
   }
 
   /**
+   * Read-only listing of the governed worktree set: fold the `worktrees`
+   * stream through `worktrees@v1` and return every live {@link WorktreeEntry}.
+   *
+   * Pure read — appends nothing and runs no git/process probe — so it backs
+   * the `worktrees` view action with zero side effects. The order mirrors the
+   * projection's insertion order (`Object.values`), which is stable for a given
+   * stream so two reads of the same log return the same sequence.
+   */
+  async list(): Promise<readonly WorktreeEntry[]> {
+    const projection = await this.loadProjection();
+    return Object.values(projection.worktrees);
+  }
+
+  /**
    * Gather the injected facts the pure ladder classifies over, for one entry.
    * Every fact is read here (state, ownership liveness, dirty, integration ref,
    * merge ancestry, backing gitdir, origin) — the ladder computes none of them.

@@ -88,6 +88,11 @@ import { handleCreateIssue } from './vcs/create-issue.js';
 import type { HandleCreateIssueArgs } from './vcs/create-issue.js';
 import { createVcsProvider } from '../vcs/factory.js';
 import { handleMergeOrchestrate } from './merge-orchestrate.js';
+import {
+  handleAcquireWorktree,
+  handleReleaseWorktree,
+  handlePruneWorktrees,
+} from './worktree/handlers.js';
 import { handleScaffold } from './invariants/scaffold.js';
 import type { HandleScaffoldArgs } from './invariants/scaffold.js';
 import { handleAdd } from './invariants/add.js';
@@ -493,6 +498,14 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   // public entry point. The internal `handleExecuteMerge` (T15) is NOT
   // registered here; only `merge_orchestrate` is the public action verb.
   merge_orchestrate: adaptCtx(handleMergeOrchestrate),
+  // Worktree-lifecycle (WLM foundation, task 008) — each delegates to the
+  // in-process `WorktreeManager` facade over `ctx.eventStore`. The
+  // `(args, ctx) => ToolResult` shape matches `adaptCtx`; the handlers' third
+  // (deps) parameter is a test-only DI seam left at its default here. The read
+  // leg (`worktrees`) rides exarchos_view, not this table.
+  acquire_worktree: adaptCtx(handleAcquireWorktree),
+  release_worktree: adaptCtx(handleReleaseWorktree),
+  prune_worktrees: adaptCtx(handlePruneWorktrees),
 };
 
 /** Exported for sync test — ensures registry.ts stays in sync with handler keys. */

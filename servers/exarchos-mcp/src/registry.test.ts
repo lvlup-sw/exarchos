@@ -702,7 +702,10 @@ describe('TOOL_REGISTRY', () => {
       // #1587 retired `check_tdd_compliance` (the test-FIRST ordering gate): 72 → 71.
       // The keeper is `check_test_adequacy` (outcome-based adequacy, test-after).
       // #1581 task 018 added `discover_bridge` (the deep-rung discover escalation): 71 → 72.
-      expect(composite!.actions).toHaveLength(72);
+      // WLM foundation (task 008) added the three worktree-lifecycle ACTIONS
+      // (`acquire_worktree`, `release_worktree`, `prune_worktrees`) onto
+      // exarchos_orchestrate — INV-5d, no new visible tool: 72 → 75.
+      expect(composite!.actions).toHaveLength(75);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -785,6 +788,11 @@ describe('TOOL_REGISTRY', () => {
           // verification-ladder slice 3 R5 (#1520): explicit name assertion so
           // the length bump cannot be satisfied by a different action.
           'mutation-adequacy',
+          // WLM foundation (task 008): explicit name assertions so the length
+          // bump cannot be satisfied by a different action.
+          'acquire_worktree',
+          'release_worktree',
+          'prune_worktrees',
         ]),
       );
     });
