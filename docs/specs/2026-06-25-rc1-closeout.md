@@ -106,3 +106,175 @@ The change set is confined to the VCS adapter layer and the runtime shim emitter
 - **INV-2 duplication (DR-1):** does `orchestrate/vcs/create-pr.ts` re-build the create argv, or delegate to `provider.createPr`? Resolve at `/plan` via symbol inspection; if duplicated, the fix is one task that touches both and a parity assertion.
 - **Windows `az` shim (DR-4):** new Azure DevOps `getPrComments` invokes `az`, which is `az.cmd` on win32 — the #1623 class of `.cmd`-shim spawn bug. Existing `az repos pr` calls already go through the async `exec` in `vcs/shell.ts` with the same exposure, so this batch stays consistent with the current path; flag for a separate Windows-portability follow-up rather than widening scope here.
 - **Live-CI coverage (DR-3/DR-4):** there is no live GitLab/ADO CI; tests are mocked-CLI suites mirroring the GitHub provider tests (the existing provider test harnesses already mock `exec`). Acceptable — same coverage posture as the shipped GitHub harvester.
+
+#### Resolutions folded in during planning
+
+- **DR-1 / INV-2:** resolved — `handleCreatePr` (`orchestrate/vcs/create-pr.ts:279`) delegates to `provider.createPr`; it does **not** re-build the argv. The `--json` bug is provider-only; no handler dedup is required.
+- **DR-2 / build boundary:** resolved — the MCP server tsconfig is `rootDir: ./src`, so production code in `servers/exarchos-mcp/src/` cannot import root `src/config/canonical-skills.ts`. The coupling is therefore a **test-only guard** that imports the SoT across the package boundary (the established pattern: `install-skills-bridge.test.ts` already imports `../../../../src/...`). The emitter reduces its hand-kept array to a `COMMAND_DESCRIPTIONS` map keyed by command name (names + `skill: exarchos:<name>` derive locally); the guard asserts those keys equal the canonical set. `canonical-skills.test.ts` already validates the SoT against `commands/*.md`.
+
+## Decomposition
+
+The decomposition maps every task to one or more DR-N from the section above.
+A task with no DR-N is a coverage gap; a DR-N with no task is unimplemented — both are flagged by `check_plan_coverage`.
+
+### Scope
+
+**Target:** Full design (DR-1..DR-5).
+**Excluded:** #1616 (re-homed under #1258/#1253 — edits the Z3 consolidation surface `playbooks.ts`); Windows `az`/`.cmd`-shim hardening for the new ADO path (consistent with existing `az repos pr` calls; tracked separately — see Open Questions).
+
+### Traceability matrix (DR-N → tasks)
+
+| DR | Requirement | Tasks |
+|----|-------------|-------|
+| DR-1 | `create_pr` succeeds without `--json` across providers | 001, 002, 003 |
+| DR-2 | one SoT for the canonical command set in the shim | 004, 005, 006 |
+| DR-3 | GitLab `getPrComments` conforms to `PrComment` | 007, 009 |
+| DR-4 | Azure DevOps `getPrComments` conforms to `PrComment` | 008, 009 |
+| DR-5 | provider side effects degrade fail-soft | 001, 007, 008 |
+
+### Tasks
+
+Each task carries a `riskTier` stamp selecting its verification depth (the ladder in `@skills/_shared/references/verification.md`); tests are judged test-after by adequacy.
+
+#### Task 001: Fix `github.createPr` — drop `--json`, capture URL from stdout
+
+**Risk Tier:** medium
+**Boundary Touching:** true
+**Implements:** DR-1, DR-5
+
+In `vcs/github.ts`, remove the `--json`/`url,number` argv pair from `gh pr create`; capture the PR URL as the last non-empty stdout line; derive `number` from the URL's trailing `/(\d+)/?$` segment. DR-5 fallback: if the segment does not parse, run `gh pr view <url> --json number,url` rather than throwing. Preserve `draft`/`labels` and the `PrResult {url, number}` shape.
+
+**Verification (medium):** scoped tests + `check_test_adequacy` kill-probe.
+**Files:** `servers/exarchos-mcp/src/vcs/github.ts`, `servers/exarchos-mcp/src/vcs/github.test.ts`
+**Expected tests:** `GitHub_CreatePr_OmitsJsonFlag`, `GitHub_CreatePr_ParsesNumberFromUrl`, `GitHub_CreatePr_FallsBackToPrViewOnUnparseableUrl`
+**Dependencies:** None
+**Parallelizable:** Yes
+
+#### Task 002: Fix `gitlab.createPr` — drop the latent `--json` sibling
+
+**Risk Tier:** medium
+**Boundary Touching:** true
+**Implements:** DR-1, DR-5
+
+In `vcs/gitlab.ts`, apply the same class fix to `glab mr create`: remove `--json`/`url,iid`; capture the MR URL from stdout; derive `number` (iid) from the URL's trailing segment; DR-5 fallback to `glab mr view <url> --json iid`. Preserve `draft`/`labels`.
+
+**Verification (medium):** scoped tests + `check_test_adequacy` kill-probe.
+**Files:** `servers/exarchos-mcp/src/vcs/gitlab.ts`, `servers/exarchos-mcp/src/vcs/gitlab.test.ts`
+**Expected tests:** `GitLab_CreatePr_OmitsJsonFlag`, `GitLab_CreatePr_ParsesIidFromUrl`, `GitLab_CreatePr_FallsBackToMrViewOnUnparseableUrl`
+**Dependencies:** None
+**Parallelizable:** Yes
+
+#### Task 003: Verify ADO `createPr` `--output json` validity + lock the class
+
+**Risk Tier:** low
+**Boundary Touching:** false
+**Implements:** DR-1
+
+Confirm `az repos pr create --output json` is valid (global `--output`, unlike a write-command `--json`) and leave the invocation unchanged. Add the class-locking regression assertion: ADO's create argv carries no bare `--json` write flag, and (cross-provider) `gh pr create`/`glab mr create` argv contain no `--json` token.
+
+**Verification (low):** static analysis (typecheck + lint) + the regression assertion.
+**Files:** `servers/exarchos-mcp/src/vcs/azure-devops.ts` (expected no change), `servers/exarchos-mcp/src/vcs/azure-devops.test.ts`
+**Expected tests:** `AzureDevOps_CreatePr_UsesOutputJsonNotWriteJsonFlag`
+**Dependencies:** None
+**Parallelizable:** Yes (sequence before 008 — same file `azure-devops.ts`)
+
+#### Task 004: Add `canonicalCommandSet()` accessor to the SoT
+
+**Risk Tier:** low
+**Boundary Touching:** false
+**Implements:** DR-2
+
+In `src/config/canonical-skills.ts`, export `canonicalCommandSet(): readonly string[]` = sorted union of `Object.keys(COMMAND_TO_SKILL)` and `[...COMMAND_ONLY]`. Extend `canonical-skills.test.ts` to assert the accessor equals the set derived from `commands/*.md` at test time.
+
+**Verification (low):** static analysis + the accessor drift assertion.
+**Files:** `src/config/canonical-skills.ts`, `src/config/canonical-skills.test.ts`
+**Expected tests:** `CanonicalCommandSet_MatchesCommandsDir`
+**Dependencies:** None
+**Parallelizable:** Yes
+
+#### Task 005: Derive `CANONICAL_COMMANDS` from a description map + reconcile drift
+
+**Risk Tier:** medium
+**Boundary Touching:** false
+**Implements:** DR-2
+
+In `runtime/command-shim-emitter.ts`, replace the hand-kept `CANONICAL_COMMANDS` array with a `COMMAND_DESCRIPTIONS: Record<string, string>` map; build `CANONICAL_COMMANDS` by mapping its keys to `{ name, skill: \`exarchos:${name}\`, description }`. Reconcile the drift: remove `reload`; add `discover` and `invariants` with descriptions. Update any emitter golden/baseline fixtures for the Copilot/Cursor shim output.
+
+**Verification (medium):** scoped tests + `check_test_adequacy` kill-probe.
+**Files:** `servers/exarchos-mcp/src/runtime/command-shim-emitter.ts`, `servers/exarchos-mcp/src/runtime/command-shim-emitter.test.ts`
+**Expected tests:** `EmitCommandShim_AdvertisesDiscoverAndInvariants`, `EmitCommandShim_DropsRetiredReload`
+**Dependencies:** None
+**Parallelizable:** Yes (independent file from 004; both feed 006)
+
+#### Task 006: Coupling guard — shim command set == canonical SoT
+
+**Risk Tier:** medium
+**Boundary Touching:** true
+**Implements:** DR-2
+
+Add a guard test in the MCP server that imports the root SoT (`../../../../src/config/canonical-skills.js`, the established cross-boundary test pattern) and asserts `Object.keys(COMMAND_DESCRIPTIONS)` (sorted) equals `canonicalCommandSet()`; assert `reload` is absent and `discover`/`invariants` present. Prove it fails on a deliberately-drifted fixture and passes on the reconciled tree.
+
+**Verification (medium):** scoped tests + `check_test_adequacy` kill-probe (the guard must fail on injected drift).
+**Files:** `servers/exarchos-mcp/src/runtime/command-shim-emitter.test.ts`
+**Expected tests:** `CommandShim_NameSet_EqualsCanonicalSoT`, `CommandShim_Guard_FailsOnInjectedDrift`
+**Dependencies:** 004, 005
+**Parallelizable:** No
+
+#### Task 007: Implement `GitLabProvider.getPrComments` to full `PrComment` parity
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Implements:** DR-3, DR-5
+
+Mirror `github.getPrComments`: harvest MR notes + discussion threads (via the provider's existing `exec`/`glab`/REST path), normalize to `PrComment` (`source`, `path`/`line` for diff notes, one-level `parentId`, tri-state `resolved` from GitLab discussion `resolved`). DR-5: fail-soft resolution — if the discussion/resolution surface is unavailable, leave `resolved` absent (never `false`); the base harvest still returns. Replace `GitLab_GetPrComments_ThrowsUnsupported` with a harvesting suite mirroring `github.test.ts`. No leak of GitLab field names; no change to `assess_stack`.
+
+**Verification (high):** medium set + the integration suite across the `assess_stack` seam.
+**Files:** `servers/exarchos-mcp/src/vcs/gitlab.ts`, `servers/exarchos-mcp/src/vcs/gitlab.test.ts`
+**Expected tests:** `GitLab_GetPrComments_AggregatesNotesAndThreads`, `GitLab_GetPrComments_MapsResolvedTriState`, `GitLab_GetPrComments_ThreadsRepliesByParentId`, `GitLab_GetPrComments_LeavesResolvedAbsentOnEnrichmentFailure`
+**Dependencies:** 002 (same file `gitlab.ts`)
+**Parallelizable:** Yes (vs. 008)
+
+#### Task 008: Implement `AzureDevOpsProvider.getPrComments` to full `PrComment` parity
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Implements:** DR-4, DR-5
+
+Mirror `github.getPrComments`: harvest PR comment threads (via the provider's existing `exec`/`az repos pr`/ADO REST path), normalize to `PrComment` (`source`, `path`/`line` for file/line-anchored threads, one-level `parentId`, thread status `active`/`fixed`/`closed` → tri-state `resolved`: fixed/closed→true, active→false, unknown→absent). DR-5 fail-soft on unparseable status. Replace `AzureDevOps_GetPrComments_ThrowsUnsupported` with a harvesting suite. No Azure field-name leak; no change to `assess_stack`.
+
+**Verification (high):** medium set + the integration suite across the `assess_stack` seam.
+**Files:** `servers/exarchos-mcp/src/vcs/azure-devops.ts`, `servers/exarchos-mcp/src/vcs/azure-devops.test.ts`
+**Expected tests:** `AzureDevOps_GetPrComments_AggregatesThreads`, `AzureDevOps_GetPrComments_MapsThreadStatusToTriState`, `AzureDevOps_GetPrComments_ThreadsRepliesByParentId`, `AzureDevOps_GetPrComments_LeavesResolvedAbsentOnUnknownStatus`
+**Dependencies:** 003 (same file `azure-devops.ts`)
+**Parallelizable:** Yes (vs. 007)
+
+#### Task 009: Integration — GitLab/ADO comments flow through `assess_stack` branch-free (INV-6)
+
+**Risk Tier:** medium
+**Boundary Touching:** true
+**Implements:** DR-3, DR-4
+
+Verify (extend `assess-stack` tests) that GitLab and ADO `PrComment[]` surface as `comment-reply` action items through the existing harvest loop with **no** provider/workflow-type branch added (INV-6), honoring tri-state `resolved` (absent/false → actionable; true → filtered).
+
+**Verification (medium):** scoped tests + `check_test_adequacy` kill-probe.
+**Files:** `servers/exarchos-mcp/src/orchestrate/assess-stack.test.ts`
+**Expected tests:** `AssessStack_SurfacesGitLabComments_NoBranch`, `AssessStack_SurfacesAdoComments_NoBranch`
+**Dependencies:** 007, 008
+**Parallelizable:** No
+
+### Parallelization
+
+- **Wave 1 (parallel):** 001 (github.ts), 002 (gitlab.ts), 003 (azure-devops.ts), 004 (canonical-skills.ts), 005 (command-shim-emitter.ts) — five disjoint files.
+- **Wave 2 (parallel):** 006 (after 004+005), 007 (after 002), 008 (after 003).
+- **Wave 3:** 009 (after 007+008).
+- **Critical path:** 002→007→009 ‖ 003→008→009 (the high-tier provider work). DR-2 chain (004‖005→006) runs alongside and is shorter.
+- **Same-file sequencing:** 002→007 and 003→008 share a provider file each, so they merge in order rather than running concurrently in separate worktrees.
+
+### Completion checklist
+
+- [x] Every DR-N in `## Design & Rationale` maps to at least one task in the matrix
+- [x] Every task `Implements:` a DR-N that exists in this document
+- [x] Every task carries a `riskTier` stamp
+- [x] Medium/high-tier tasks carry adequacy-judged tests (test-after); low-tier tasks lean on static analysis
+- [x] Open questions resolved (INV-2 duplication; DR-2 build boundary) or explicitly deferred (Windows `az` shim) with rationale
+- [ ] Ready for `plan-review`
