@@ -60,11 +60,14 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import * as path from 'node:path';
 import type { EventStore } from '../../event-store/store.js';
-import type { EventInput } from '../../event-store/atomic-appender.js';
+import type { EventInput, DecideResult } from '../../event-store/atomic-appender.js';
+import type { WorkflowEvent } from '../../event-store/schemas.js';
 import { spawnCommandSync } from '../../utils/process.js';
 import { withStateRetry } from '../../workflow/state-retry.js';
+import { resolveWorkflowState } from '../resolve-state.js';
 import {
   defaultProcessSource,
   type ProcessSource,
@@ -73,7 +76,13 @@ import {
   defaultRealpath,
   type RealpathResolver,
 } from './pure/path-containment.js';
-import { selectDeadReservations } from './pure/ownership.js';
+import { isReservationOwnerAlive, selectDeadReservations } from './pure/ownership.js';
+import {
+  classifyPruneCandidate,
+  type PruneCandidate,
+  type PruneClassification,
+  type PruneSkipReason,
+} from './pure/prune-ladder.js';
 import type {
   WorktreeEntry,
   WorktreesProjection,
@@ -280,6 +289,29 @@ export const defaultGitWorktreeProbe: GitWorktreeProbe = {
   },
 };
 
+// ─── Low-level git runner (prune fact-gathering + deletion, Task 007) ────────
+
+/**
+ * Minimal injectable seam over `git`. Every prune git operation (the dirty
+ * probe, ref-resolvability, merge-ancestry, origin reachability, the worktree
+ * registration check, AND the `git worktree remove` deletion) routes through
+ * this one runner. Injected so a test can record the exact argument vectors and
+ * assert the recovery/deletion path NEVER shells `git reset --hard` (the data-
+ * loss footgun this WLM slice exists to eliminate); the default is the real,
+ * portable git spawn ({@link spawnCommandSync}, #1623). Never throws — a git
+ * failure surfaces as a non-zero `status`.
+ */
+export interface GitRunner {
+  run(args: readonly string[], cwd: string): { status: number; stdout: string };
+}
+
+/** Default real git runner over the portable {@link spawnCommandSync} helper. */
+export const defaultGitRunner: GitRunner = {
+  run(args: readonly string[], cwd: string): { status: number; stdout: string } {
+    return gitCapture(args, cwd);
+  },
+};
+
 /** Per-worktree outcome of an {@link WorktreeManager.adopt} pass. */
 export interface WorktreeAdoptionReport {
   /** Canonical (symlink-resolved) worktree path — the projection key. */
@@ -300,6 +332,131 @@ export interface AdoptResult {
   readonly worktrees: readonly WorktreeAdoptionReport[];
   /** The `worktreeId`s for which a `worktree.adopted` event was appended. */
   readonly adopted: readonly string[];
+}
+
+// ─── Prune (GC) types (Task 007, DR-6) ──────────────────────────────────────
+
+/** Arguments for {@link WorktreeManager.prune}. */
+export interface PruneOptions {
+  /** Repo root the on-disk worktree set is enumerated from (adopt-gate + probe). */
+  readonly repoRoot: string;
+  /**
+   * The explicit non-dry-run flag. Omitted / `false` ⇒ DRY-RUN (the default):
+   * report candidates + reclaimable bytes + grouped skip reasons, delete
+   * NOTHING and run no crash-recovery side-effects. `true` ⇒ delete every
+   * delete-eligible candidate (and, gated, opted-in orphans).
+   */
+  readonly apply?: boolean;
+  /**
+   * Opt in to deleting `orphan-unverifiable` candidates (backing repo gone, so
+   * content is unverifiable). Effective ONLY together with {@link yes} on an
+   * `apply` run — `--prune-orphans --yes`.
+   */
+  readonly pruneOrphans?: boolean;
+  /** Explicit confirmation required alongside {@link pruneOrphans} for orphans. */
+  readonly yes?: boolean;
+}
+
+/** Per-candidate line of a {@link PruneResult}. */
+export interface PruneCandidateReport {
+  /** Canonical (symlink-resolved) worktree path — the projection key. */
+  readonly worktreeId: string;
+  /** Absolute worktree path. */
+  readonly path: string;
+  /** Owning feature id, or `null` when unattached. */
+  readonly featureId: string | null;
+  /** Folded `worktrees@v1` lifecycle state at classification time. */
+  readonly state: WorktreeEntry['state'];
+  /** The ladder verdict for this candidate. */
+  readonly classification: PruneClassification;
+  /** Best-effort on-disk bytes reclaimable IF deleted (0 when not reclaimable). */
+  readonly reclaimableBytes: number;
+  /** True when THIS pass actually deleted the worktree (always false on dry-run). */
+  readonly deleted: boolean;
+}
+
+/** Outcome of a {@link WorktreeManager.prune} pass. */
+export interface PruneResult {
+  /** True when nothing was deleted because no explicit `apply` flag was passed. */
+  readonly dryRun: boolean;
+  /** Every governed worktree, with its ladder verdict and reclaimable bytes. */
+  readonly candidates: readonly PruneCandidateReport[];
+  /** The `worktreeId`s actually deleted this pass (empty on dry-run). */
+  readonly deleted: readonly string[];
+  /** Total reclaimable bytes across delete-eligible (+opted-in orphan) candidates. */
+  readonly reclaimableBytes: number;
+  /** Skip {@link PruneSkipReason} → the `worktreeId`s skipped for it (scannable). */
+  readonly skipsByReason: Readonly<Partial<Record<PruneSkipReason, readonly string[]>>>;
+}
+
+/**
+ * Whether the worktree's backing `.git` gitdir pointer resolves (orphan probe).
+ *
+ *   - `.git` is a directory   → an embedded / main repo: backing present.
+ *   - `.git` is a file        → a linked worktree pointer (`gitdir: <path>`):
+ *                               present iff the pointed-to admin dir stats.
+ *   - `.git` missing / other  → backing gone (orphan).
+ *
+ * Pure filesystem stat; never throws.
+ */
+function probeBackingGitdir(worktreePath: string): boolean {
+  const dotGit = path.join(worktreePath, '.git');
+  let st;
+  try {
+    st = statSync(dotGit);
+  } catch {
+    return false;
+  }
+  if (st.isDirectory()) return true;
+  if (!st.isFile()) return false;
+  let content: string;
+  try {
+    content = readFileSync(dotGit, 'utf8');
+  } catch {
+    return false;
+  }
+  const match = content.match(/^gitdir:\s*(.+)$/m);
+  if (!match) return false;
+  const target = match[1].trim();
+  const resolved = path.isAbsolute(target)
+    ? target
+    : path.resolve(worktreePath, target);
+  try {
+    statSync(resolved);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Best-effort recursive byte size of `dir` (0 on any error; symlinks skipped). */
+function dirSizeBytes(dir: string): number {
+  let total = 0;
+  let entries: import('node:fs').Dirent[];
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    try {
+      if (entry.isDirectory()) {
+        total += dirSizeBytes(full);
+      } else if (entry.isFile()) {
+        total += statSync(full).size;
+      }
+    } catch {
+      // Unreadable entry — skip; reclaimable bytes is best-effort.
+    }
+  }
+  return total;
+}
+
+/** Read a string field off an event payload (`null` when absent / non-string). */
+function eventStringField(event: WorkflowEvent, key: string): string | null {
+  const value = event.data?.[key];
+  return typeof value === 'string' ? value : null;
 }
 
 /** Constructor dependencies for {@link WorktreeManager}. */
@@ -331,6 +488,12 @@ export interface WorktreeManagerDeps {
    * through, so adopt and the reducer agree on the key).
    */
   readonly realpath?: RealpathResolver;
+  /**
+   * Low-level git runner used by `prune` for every git probe + the deletion.
+   * Injected so a test can record argument vectors (e.g. assert the recovery
+   * path never `git reset --hard`s); defaults to {@link defaultGitRunner}.
+   */
+  readonly gitRunner?: GitRunner;
 }
 
 /** Arguments for {@link WorktreeManager.reserve}. */
@@ -367,6 +530,7 @@ export class WorktreeManager {
   private readonly gitProbe: GitWorktreeProbe;
   private readonly featureIdResolver: FeatureIdResolver;
   private readonly realpath: RealpathResolver;
+  private readonly gitRunner: GitRunner;
 
   constructor(deps: WorktreeManagerDeps) {
     this.eventStore = deps.eventStore;
@@ -374,6 +538,7 @@ export class WorktreeManager {
     this.gitProbe = deps.gitProbe ?? defaultGitWorktreeProbe;
     this.featureIdResolver = deps.featureIdResolver ?? unattachedFeatureIdResolver;
     this.realpath = deps.realpath ?? defaultRealpath;
+    this.gitRunner = deps.gitRunner ?? defaultGitRunner;
   }
 
   /**
@@ -578,6 +743,404 @@ export class WorktreeManager {
       })),
       adopted,
     };
+  }
+
+  /**
+   * Prune (GC) governed worktrees through the fail-closed safety ladder (DR-6).
+   *
+   * The flow that closes the Claude Code #55724 data-loss hole (parallel agents
+   * losing uncommitted work to a naive recency GC):
+   *
+   *   0. **Adopt-gate** — `adopt(repoRoot)` FIRST, so every on-disk worktree has
+   *      a `worktrees@v1` state before the ladder runs. An unadopted active
+   *      worktree therefore enters the ladder as `adopted` (skipped), never as
+   *      "no record" that a careless GC might reclaim.
+   *   1. **Crash-recovery (apply only)** — finish any `worktree.remove.requested`
+   *      with no paired `worktree.remove.executed` (a crash mid-deletion) via the
+   *      idempotent precheck, reusing the original `operationId` so the audit
+   *      pair stays 1:1 and the entry is dropped exactly once.
+   *   2. **Classify** every candidate by GATHERING injected facts (state,
+   *      ownership liveness, untracked-aware dirty, per-worktree integration ref,
+   *      merge ancestry, backing-gitdir presence, origin reachability) and
+   *      calling the pure {@link classifyPruneCandidate}. Eligibility is
+   *      STATE-BASED (`released` / `orphan` only) — never mtime.
+   *   3. **Report or delete.** Dry-run (the DEFAULT) reports candidates +
+   *      reclaimable bytes + grouped skip reasons and deletes nothing. An `apply`
+   *      run deletes each delete-eligible candidate (and, only under
+   *      `pruneOrphans && yes`, each orphan) through the INV-13 two-event split:
+   *      `worktree.remove.requested` (durable intent, re-verifying eligibility
+   *      UNDER the stream lock) → `git worktree remove` → `worktree.remove.executed`.
+   *      It NEVER `git reset --hard`s.
+   */
+  async prune(options: PruneOptions): Promise<PruneResult> {
+    const { repoRoot } = options;
+    const apply = options.apply === true;
+    const orphansOptedIn = options.pruneOrphans === true && options.yes === true;
+
+    // ── Step 0: adopt-gate — track every on-disk worktree before classifying. ──
+    await this.adopt(repoRoot);
+
+    // ── Step 1 (apply only): finish crashed deletions before re-classifying. ──
+    // Recovery emits events (a side effect), so a DRY-RUN stays side-effect-free.
+    if (apply) {
+      await this.recoverOrphanedRemovals(repoRoot);
+    }
+
+    // ── Step 2: classify every candidate over the pure ladder. ────────────────
+    // Reload AFTER recovery so any resumed-and-dropped entry is gone.
+    const projection = await this.loadProjection();
+    const candidates = Object.values(projection.worktrees);
+    // Per-feature integration-branch lookups are stable within one pass — cache.
+    const branchCache = new Map<string, string | null>();
+
+    const reports: PruneCandidateReport[] = [];
+    for (const entry of candidates) {
+      const facts = await this.gatherFacts(entry, branchCache);
+      const classification = classifyPruneCandidate(facts);
+      const reclaimable =
+        classification.action === 'delete-eligible' ||
+        classification.action === 'orphan-unverifiable'
+          ? dirSizeBytes(entry.path)
+          : 0;
+      reports.push({
+        worktreeId: entry.worktreeId,
+        path: entry.path,
+        featureId: entry.featureId,
+        state: entry.state,
+        classification,
+        reclaimableBytes: reclaimable,
+        deleted: false,
+      });
+    }
+
+    // ── Step 3: delete (apply only) — two-event split per eligible candidate. ──
+    const deleted: string[] = [];
+    if (apply) {
+      for (let i = 0; i < reports.length; i += 1) {
+        const report = reports[i];
+        const eligible =
+          report.classification.action === 'delete-eligible' ||
+          (report.classification.action === 'orphan-unverifiable' && orphansOptedIn);
+        if (!eligible) continue;
+        const { attempted } = await this.executeDeletion(
+          repoRoot,
+          report.worktreeId,
+          report.path,
+        );
+        if (attempted) {
+          reports[i] = { ...report, deleted: true };
+          deleted.push(report.worktreeId);
+        }
+      }
+    }
+
+    // Group skips by reason so the report is scannable (the dry-run contract).
+    const skipsByReason: Partial<Record<PruneSkipReason, string[]>> = {};
+    for (const report of reports) {
+      if (report.classification.action === 'skip') {
+        const reason = report.classification.reason;
+        (skipsByReason[reason] ??= []).push(report.worktreeId);
+      }
+    }
+
+    return {
+      dryRun: !apply,
+      candidates: reports,
+      deleted,
+      reclaimableBytes: reports.reduce((sum, r) => sum + r.reclaimableBytes, 0),
+      skipsByReason,
+    };
+  }
+
+  /**
+   * Gather the injected facts the pure ladder classifies over, for one entry.
+   * Every fact is read here (state, ownership liveness, dirty, integration ref,
+   * merge ancestry, backing gitdir, origin) — the ladder computes none of them.
+   */
+  private async gatherFacts(
+    entry: WorktreeEntry,
+    branchCache: Map<string, string | null>,
+  ): Promise<PruneCandidate> {
+    const inUse = isReservationOwnerAlive(entry, this.processSource);
+    const dirty = this.isDirty(entry.path);
+    const backingGitdirPresent = probeBackingGitdir(entry.path);
+    const integrationRef = await this.resolveIntegrationRef(
+      entry,
+      backingGitdirPresent,
+      branchCache,
+    );
+    const headAncestorOfIntegration =
+      integrationRef !== null
+        ? this.headAncestorOf(entry.path, integrationRef)
+        : null;
+    const originReachable = this.originReachable(entry.path);
+    return {
+      state: entry.state,
+      inUse,
+      dirty,
+      integrationRef,
+      headAncestorOfIntegration,
+      backingGitdirPresent,
+      originReachable,
+    };
+  }
+
+  /**
+   * Resolve the integration ref this candidate's HEAD is merge-checked against,
+   * PER-WORKTREE: the entry's `featureId` → that workflow's
+   * `synthesis.integrationBranch`. Returns `null` (the ladder fail-closes) when:
+   *
+   *   - the worktree is unattached (`featureId` is `null`); OR
+   *   - the workflow has no resolvable `synthesis.integrationBranch`; OR
+   *   - the backing repo is present but the branch does NOT resolve as a ref in
+   *     the worktree — merge state is then unverifiable, so we fail closed
+   *     (rung 5) rather than letting an uncomputable merge-base reach the
+   *     delete-eligible rung.
+   *
+   * When the backing repo is GONE (orphan) the branch name is passed through
+   * unchecked: merge-base cannot run, so {@link headAncestorOf} returns `null`,
+   * and the candidate threads to the orphan rung (handler-gated deletion) rather
+   * than fail-closing at rung 5.
+   */
+  private async resolveIntegrationRef(
+    entry: WorktreeEntry,
+    backingGitdirPresent: boolean,
+    branchCache: Map<string, string | null>,
+  ): Promise<string | null> {
+    if (entry.featureId === null) return null;
+    let branch = branchCache.get(entry.featureId);
+    if (branch === undefined) {
+      branch = await this.lookupIntegrationBranch(entry.featureId);
+      branchCache.set(entry.featureId, branch);
+    }
+    if (branch === null || branch.length === 0) return null;
+    if (!backingGitdirPresent) return branch;
+    return this.refResolvable(entry.path, branch) ? branch : null;
+  }
+
+  /**
+   * Load a workflow's `synthesis.integrationBranch` from the event store (the
+   * SQLite source of truth, via {@link resolveWorkflowState}). Returns `null`
+   * when the workflow is unknown, errors, or has no integration branch set.
+   */
+  private async lookupIntegrationBranch(featureId: string): Promise<string | null> {
+    const resolved = await resolveWorkflowState({
+      featureId,
+      eventStore: this.eventStore,
+    });
+    if ('error' in resolved) return null;
+    const synthesis = (
+      resolved.state as { synthesis?: { integrationBranch?: unknown } }
+    ).synthesis;
+    const branch = synthesis?.integrationBranch;
+    return typeof branch === 'string' && branch.length > 0 ? branch : null;
+  }
+
+  // ─── Real-git fact probes (over the injected GitRunner) ─────────────────────
+
+  /** `git status --porcelain --untracked-files=all` non-empty ⇒ dirty (untracked-aware). */
+  private isDirty(worktreePath: string): boolean {
+    const { status, stdout } = this.gitRunner.run(
+      ['status', '--porcelain', '--untracked-files=all'],
+      worktreePath,
+    );
+    if (status !== 0) return false; // cannot prove dirty (e.g. broken backing)
+    return stdout.trim().length > 0;
+  }
+
+  /** Whether `ref` resolves to a commit in the worktree (`git rev-parse --verify`). */
+  private refResolvable(worktreePath: string, ref: string): boolean {
+    return (
+      this.gitRunner.run(['rev-parse', '--verify', '--quiet', ref], worktreePath)
+        .status === 0
+    );
+  }
+
+  /**
+   * `git merge-base --is-ancestor HEAD <ref>`: `true` (HEAD merged, exit 0),
+   * `false` (unmerged, exit 1), or `null` when the probe could not run (any
+   * other exit — e.g. an orphan with no backing repo).
+   */
+  private headAncestorOf(worktreePath: string, ref: string): boolean | null {
+    const { status } = this.gitRunner.run(
+      ['merge-base', '--is-ancestor', 'HEAD', ref],
+      worktreePath,
+    );
+    if (status === 0) return true;
+    if (status === 1) return false;
+    return null;
+  }
+
+  /** Whether `origin` is reachable from the worktree (`git ls-remote origin`). */
+  private originReachable(worktreePath: string): boolean {
+    return this.gitRunner.run(['ls-remote', 'origin'], worktreePath).status === 0;
+  }
+
+  /** Whether `worktreePath` is still registered in `git worktree list` (canonical compare). */
+  private isWorktreeRegistered(repoRoot: string, worktreePath: string): boolean {
+    const { status, stdout } = this.gitRunner.run(
+      ['worktree', 'list', '--porcelain'],
+      repoRoot,
+    );
+    if (status !== 0) return false;
+    const targetId = this.realpath(path.resolve(worktreePath));
+    return parseWorktreeListPorcelain(stdout).some(
+      (wt) => this.realpath(path.resolve(wt.path)) === targetId,
+    );
+  }
+
+  // ─── Two-event deletion (INV-13) ────────────────────────────────────────────
+
+  /**
+   * Delete one eligible worktree through the INV-13 two-event split. NEVER
+   * `git reset --hard`s; the only mutating git command is `git worktree remove`.
+   *
+   *   - **Plan / reserve / re-verify UNDER the stream lock → commit intent.** A
+   *     `decide` over `worktrees@v1` re-folds the CURRENT state and emits
+   *     `worktree.remove.requested` ONLY while the entry is still present and in
+   *     a deletion-eligible state (`released` / `orphan`). A concurrent reconcile
+   *     / prune that flipped the state out from under us re-folds to a no-op, so
+   *     we never double-free or delete a re-reserved worktree.
+   *   - **Idempotent side-effect OUTSIDE the lock.** Run `git worktree remove`
+   *     only when the worktree is still registered; an already-absent worktree
+   *     downgrades to `removed: false` (idempotent success), and a remove that
+   *     fails while the worktree is STILL registered surfaces as a real error.
+   *   - **Commit outcome.** Emit `worktree.remove.executed` (idempotency keyed on
+   *     `operationId`) — the `worktrees@v1` reducer drops the entry on it.
+   *
+   * Returns `attempted: false` only when the under-lock re-verify aborts (the
+   * candidate was no longer eligible at commit time).
+   */
+  private async executeDeletion(
+    repoRoot: string,
+    worktreeId: string,
+    worktreePath: string,
+  ): Promise<{ attempted: boolean; removed: boolean }> {
+    const appender = this.eventStore.getAppender();
+    const operationId = randomUUID();
+
+    // ── Phase A: durable intent, re-verifying eligibility under the lock. ──
+    let kind: DecideResult['kind'] = 'no-op';
+    await withStateRetry(async () => {
+      const result = await appender.decide<WorktreesProjection>(
+        WORKTREES_STREAM,
+        WORKTREES_REDUCER,
+        (state) => {
+          const entry = state.worktrees[worktreeId];
+          // Gone (already removed) OR no longer deletion-eligible by state
+          // (re-reserved / re-adopted under us) ⇒ abort: emit nothing.
+          if (entry === undefined) return [];
+          if (entry.state !== 'released' && entry.state !== 'orphan') return [];
+          return [
+            {
+              type: 'worktree.remove.requested',
+              data: { operationId, worktreePath },
+            },
+          ];
+        },
+        // alwaysEnforceConsistency=false: an abort (no-op) must not throw a
+        // spurious ConcurrencyError when an unrelated append raced the stream;
+        // the emit path still commits under expectedSequence OCC.
+        { operationId, alwaysEnforceConsistency: false },
+      );
+      kind = result.kind;
+    });
+    if (kind === 'no-op') return { attempted: false, removed: false };
+
+    // ── Phase B: idempotent side-effect OUTSIDE the lock. ──
+    const removed = this.removeWorktreeIfRegistered(repoRoot, worktreePath);
+
+    // ── Phase C: record the outcome (drops the entry on the reducer). ──
+    await this.appendRemoveExecuted(operationId, worktreePath, removed);
+    return { attempted: true, removed };
+  }
+
+  /**
+   * Finish any crashed deletion: a `worktree.remove.requested` on the worktrees
+   * stream with no paired `worktree.remove.executed`. For each, run the same
+   * idempotent precheck + `git worktree remove` and emit the missing
+   * `worktree.remove.executed` REUSING the original `operationId`, so the audit
+   * pair stays 1:1 and the entry is dropped exactly once across the crash.
+   */
+  private async recoverOrphanedRemovals(repoRoot: string): Promise<void> {
+    const orphaned = await this.listOrphanedRemovals();
+    const handled = new Set<string>();
+    for (const { operationId, worktreePath } of orphaned) {
+      if (handled.has(operationId)) continue; // one executed per operationId
+      handled.add(operationId);
+      const removed = this.removeWorktreeIfRegistered(repoRoot, worktreePath);
+      await this.appendRemoveExecuted(operationId, worktreePath, removed);
+    }
+  }
+
+  /**
+   * `git worktree remove --force` when still registered; idempotent otherwise.
+   * Returns whether THIS call removed it (`false` = already absent, an
+   * idempotent success). Throws only when the remove fails AND the worktree is
+   * still registered (a real failure that must not be masked as success).
+   */
+  private removeWorktreeIfRegistered(
+    repoRoot: string,
+    worktreePath: string,
+  ): boolean {
+    if (!this.isWorktreeRegistered(repoRoot, worktreePath)) return false;
+    const ok =
+      this.gitRunner.run(
+        ['worktree', 'remove', '--force', worktreePath],
+        repoRoot,
+      ).status === 0;
+    if (ok) return true;
+    if (this.isWorktreeRegistered(repoRoot, worktreePath)) {
+      throw new Error(
+        `git worktree remove failed for ${worktreePath} (still registered)`,
+      );
+    }
+    return false; // raced absent between precheck and remove — idempotent miss.
+  }
+
+  /** Append `worktree.remove.executed` (idempotency keyed on `operationId`). */
+  private async appendRemoveExecuted(
+    operationId: string,
+    worktreePath: string,
+    removed: boolean,
+  ): Promise<void> {
+    await withStateRetry(() =>
+      this.eventStore.append(
+        WORKTREES_STREAM,
+        {
+          type: 'worktree.remove.executed',
+          data: { operationId, worktreePath, removed },
+        },
+        { idempotencyKey: `worktree.remove.executed:${operationId}` },
+      ),
+    );
+  }
+
+  /**
+   * Scan the worktrees stream for `worktree.remove.requested` events with no
+   * paired `worktree.remove.executed` (operationId-correlated) — the crashed
+   * deletions to resume, in stream order.
+   */
+  private async listOrphanedRemovals(): Promise<
+    Array<{ operationId: string; worktreePath: string }>
+  > {
+    const events = await this.eventStore.query(WORKTREES_STREAM);
+    const executedOps = new Set<string>();
+    for (const event of events) {
+      if (event.type !== 'worktree.remove.executed') continue;
+      const op = eventStringField(event, 'operationId');
+      if (op !== null) executedOps.add(op);
+    }
+    const orphaned: Array<{ operationId: string; worktreePath: string }> = [];
+    for (const event of events) {
+      if (event.type !== 'worktree.remove.requested') continue;
+      const operationId = eventStringField(event, 'operationId');
+      const worktreePath = eventStringField(event, 'worktreePath');
+      if (operationId === null || worktreePath === null) continue;
+      if (executedOps.has(operationId)) continue;
+      orphaned.push({ operationId, worktreePath });
+    }
+    return orphaned;
   }
 
   /**
