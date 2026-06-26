@@ -609,8 +609,12 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'worktree.remove.executed': 'auto',
 
   // WLM foundation — worktree lifecycle events. Auto-emitted by the worktree
-  // lifecycle manager as deterministic plumbing (adopt/reserve/release on the
-  // lease path, orphan detection on the reconcile path). See EventTypes above.
+  // lifecycle manager as deterministic plumbing (adopt/reserve/release/heal on
+  // the lease path). `worktree.orphan_detected` is registered + folded now (so
+  // WLM-3's on-demand probe emits it without a schema migration), but its
+  // EMITTER is deferred to WLM-3 (DR-4/5 on-demand ground-truth probe) — the
+  // foundation GC reclaims orphans structurally via the prune ladder instead.
+  // See EventTypes above and docs/specs/2026-06-25-wlm-foundation.md (DR-6).
   'worktree.adopted': 'auto',
   'worktree.reserved': 'auto',
   'worktree.released': 'auto',
