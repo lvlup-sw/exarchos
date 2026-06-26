@@ -23,6 +23,9 @@ import './merge-orchestrator/index.js';
 // Wave 3 (#1554) — canonical workflow-state@v1 reducer registration (side-effect import)
 import './workflow-state/index.js';
 
+// WLM foundation — worktrees@v1 lifecycle reducer registration (side-effect import)
+import '../orchestrate/worktree/projections/index.js';
+
 export type { ProjectionReducer } from './types.js';
 export { assertReducerImmutable } from './testing.js';
 
