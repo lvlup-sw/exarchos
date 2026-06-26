@@ -2,8 +2,15 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   emitCommandShim,
   CANONICAL_COMMANDS,
+  COMMAND_DESCRIPTIONS,
   type CommandShimResult,
 } from './command-shim-emitter.js';
+// Cross-package-boundary import of the root canonical SoT. The MCP package
+// cannot import this in PRODUCTION code (`rootDir: ./src`), so the coupling
+// between the shim's command set and the root SoT is enforced TEST-ONLY. This
+// `../../../../src/...` reach into the repo root is an established test pattern
+// (see cli-commands/install-skills-bridge.test.ts).
+import { canonicalCommandSet } from '../../../../src/config/canonical-skills.js';
 
 // ─── In-memory fs stub ─────────────────────────────────────────────────────
 
@@ -141,5 +148,51 @@ describe('CommandShimEmitter', () => {
     await emitCommandShim('copilot', '/project', { fs });
     const written = fs.files.get('/project/.github/copilot-instructions.md')!;
     expect(written).not.toContain('/reload');
+  });
+
+  // ─── Coupling guard: shim set == root canonical SoT (#1609, test-only) ──────
+  //
+  // The shim's hand-kept COMMAND_DESCRIPTIONS map and the root SoT
+  // (`canonicalCommandSet()`) are physically separate files in separate
+  // packages, so they can drift. This guard pins them together: any command
+  // added/removed in the root SoT (which is itself guarded against commands/*.md)
+  // must be mirrored in the shim, or CI fails here.
+
+  /** Equality predicate mirroring the guard, so the drift test exercises the
+   *  exact comparison logic that protects the real export. */
+  const matchesCanonical = (names: readonly string[]): boolean => {
+    const sortedNames = [...names].sort();
+    const canonical = canonicalCommandSet();
+    return (
+      sortedNames.length === canonical.length &&
+      sortedNames.every((name, i) => name === canonical[i])
+    );
+  };
+
+  it('CommandShim_NameSet_EqualsCanonicalSoT', () => {
+    expect(Object.keys(COMMAND_DESCRIPTIONS).sort()).toEqual(canonicalCommandSet());
+    expect(matchesCanonical(Object.keys(COMMAND_DESCRIPTIONS))).toBe(true);
+
+    // The specific drift this guard was born to catch (#1609).
+    expect(Object.keys(COMMAND_DESCRIPTIONS)).not.toContain('reload');
+    expect(Object.keys(COMMAND_DESCRIPTIONS)).toContain('discover');
+    expect(Object.keys(COMMAND_DESCRIPTIONS)).toContain('invariants');
+  });
+
+  it('CommandShim_Guard_FailsOnInjectedDrift', () => {
+    // Prove the comparison actually CATCHES drift — otherwise a guard that
+    // always passes is worthless. Drift a COPY of the key set (never mutate the
+    // real export) two ways and assert each fails the canonical equality check.
+    const realKeys = Object.keys(COMMAND_DESCRIPTIONS);
+
+    const withBogusAdded = [...realKeys, 'bogus-command'];
+    expect(matchesCanonical(withBogusAdded)).toBe(false);
+
+    const withRealDropped = realKeys.filter((name) => name !== 'plan');
+    expect(matchesCanonical(withRealDropped)).toBe(false);
+
+    // The real export is untouched and still matches.
+    expect(Object.keys(COMMAND_DESCRIPTIONS)).toContain('plan');
+    expect(matchesCanonical(realKeys)).toBe(true);
   });
 });
