@@ -1,6 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AzureDevOpsProvider } from './azure-devops.js';
-import { UnsupportedOperationError } from './provider.js';
+import { isResolvedKnown } from './provider.js';
+
+// `az repos pr show` resolves the route params (repositoryId + project) the
+// `az devops invoke pullRequestThreads` call needs. Shared across getPrComments
+// tests; the second mocked exec is the thread-list invoke.
+const PR_SHOW_RESPONSE = JSON.stringify({
+  repository: {
+    id: 'repo-guid',
+    project: { id: 'proj-guid', name: 'MyProject' },
+  },
+});
 
 // Mock the shell execution helper
 vi.mock('./shell.js', () => ({
@@ -490,19 +500,453 @@ describe('AzureDevOpsProvider', () => {
     expect(result.reviewers[0].state).toBe('approved');
   });
 
-  // ── getPrComments (DR-7 #1592 task 013 — signature conformance) ───────────
-  // The PrComment contract was widened (source/parentId/resolved/state) in task
-  // 010. Azure DevOps still does not implement harvesting (tracked as a DR-7
-  // follow-up issue), so getPrComments must conform to the widened
-  // `Promise<PrComment[]>` signature — which it does by throwing (it returns no
-  // value) — and surface a structured UnsupportedOperationError, not a no-op.
+  // ── getPrComments (#1613 — two-source PrComment harvesting) ───────────────
+  // ADO has no `az repos pr` thread-list subcommand. getPrComments resolves the
+  // repositoryId + project via `az repos pr show`, then lists threads via
+  // `az devops invoke --area git --resource pullRequestThreads`, normalizing to
+  // PrComment. ADO has only two sources: review-inline (threadContext present)
+  // and issue-comment (no threadContext) — no review-summary.
 
-  it('AzureDevOps_GetPrComments_ThrowsUnsupported', async () => {
-    await expect(provider.getPrComments('100')).rejects.toThrow(
-      UnsupportedOperationError,
-    );
-    await expect(provider.getPrComments('100')).rejects.toThrow(
-      'azure-devops: getPrComments is not yet supported',
-    );
+  it('AzureDevOps_GetPrComments_AggregatesThreads', async () => {
+    mockExec
+      .mockResolvedValueOnce(PR_SHOW_RESPONSE)
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          value: [
+            {
+              id: 1,
+              status: 'active',
+              threadContext: null,
+              comments: [
+                {
+                  id: 1,
+                  parentCommentId: 0,
+                  content: 'PR-level discussion',
+                  commentType: 'text',
+                  author: { uniqueName: 'alice@org.com', displayName: 'Alice' },
+                  publishedDate: '2026-06-01T00:00:00Z',
+                },
+              ],
+            },
+            {
+              id: 2,
+              status: 'fixed',
+              threadContext: {
+                filePath: '/src/foo.ts',
+                rightFileStart: { line: 42 },
+              },
+              comments: [
+                {
+                  id: 1,
+                  parentCommentId: 0,
+                  content: 'inline nit',
+                  commentType: 'text',
+                  author: { uniqueName: 'bob@org.com', displayName: 'Bob' },
+                  publishedDate: '2026-06-02T00:00:00Z',
+                },
+              ],
+            },
+          ],
+        })
+      );
+
+    const result = await provider.getPrComments('100');
+
+    // 1) resolve route params, 2) invoke pullRequestThreads with them.
+    expect(mockExec).toHaveBeenNthCalledWith(1, 'az', [
+      'repos',
+      'pr',
+      'show',
+      '--id',
+      '100',
+      '--output',
+      'json',
+    ]);
+    expect(mockExec).toHaveBeenNthCalledWith(2, 'az', [
+      'devops',
+      'invoke',
+      '--area',
+      'git',
+      '--resource',
+      'pullRequestThreads',
+      '--route-parameters',
+      'project=MyProject',
+      'repositoryId=repo-guid',
+      'pullRequestId=100',
+      '--api-version',
+      '7.1',
+      '--output',
+      'json',
+    ]);
+
+    expect(result).toHaveLength(2);
+    expect(result[0]).toMatchObject({
+      source: 'issue-comment',
+      body: 'PR-level discussion',
+      author: 'alice@org.com',
+      createdAt: '2026-06-01T00:00:00Z',
+    });
+    expect(result[1]).toMatchObject({
+      source: 'review-inline',
+      body: 'inline nit',
+      author: 'bob@org.com',
+    });
+  });
+
+  it('AzureDevOps_GetPrComments_ClassifiesThreadContextAsReviewInlineWithPathLine', async () => {
+    mockExec
+      .mockResolvedValueOnce(PR_SHOW_RESPONSE)
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          value: [
+            {
+              id: 7,
+              status: 'active',
+              threadContext: {
+                filePath: '/src/bar.ts',
+                rightFileStart: { line: 13 },
+              },
+              comments: [
+                {
+                  id: 1,
+                  parentCommentId: 0,
+                  content: 'fix this',
+                  commentType: 'text',
+                  author: { uniqueName: 'c@org.com' },
+                  publishedDate: '2026-06-03T00:00:00Z',
+                },
+              ],
+            },
+          ],
+        })
+      );
+
+    const result = await provider.getPrComments('100');
+    expect(result).toHaveLength(1);
+    expect(result[0].source).toBe('review-inline');
+    expect(result[0].path).toBe('/src/bar.ts');
+    expect(result[0].line).toBe(13);
+  });
+
+  it('AzureDevOps_GetPrComments_ComposesPrUniqueIdsAcrossThreads', async () => {
+    mockExec
+      .mockResolvedValueOnce(PR_SHOW_RESPONSE)
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          value: [
+            {
+              id: 3,
+              status: 'active',
+              threadContext: null,
+              comments: [
+                {
+                  id: 1,
+                  parentCommentId: 0,
+                  content: 'a',
+                  commentType: 'text',
+                  author: { uniqueName: 'x@org.com' },
+                  publishedDate: '2026-06-01T00:00:00Z',
+                },
+              ],
+            },
+            {
+              id: 4,
+              status: 'active',
+              threadContext: null,
+              comments: [
+                {
+                  id: 1,
+                  parentCommentId: 0,
+                  content: 'b',
+                  commentType: 'text',
+                  author: { uniqueName: 'y@org.com' },
+                  publishedDate: '2026-06-01T00:00:00Z',
+                },
+              ],
+            },
+          ],
+        })
+      );
+
+    const result = await provider.getPrComments('100');
+    expect(result).toHaveLength(2);
+    // Raw comment.id=1 collides across threads; composed ids must not.
+    expect(result[0].id).toBe(3 * 100000 + 1);
+    expect(result[1].id).toBe(4 * 100000 + 1);
+    expect(result[0].id).not.toBe(result[1].id);
+  });
+
+  it('AzureDevOps_GetPrComments_ExcludesSystemThreads', async () => {
+    mockExec
+      .mockResolvedValueOnce(PR_SHOW_RESPONSE)
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          value: [
+            {
+              id: 5,
+              status: 'closed',
+              threadContext: null,
+              comments: [
+                {
+                  id: 1,
+                  parentCommentId: 0,
+                  content: 'Bob voted -5',
+                  commentType: 'system',
+                  author: { uniqueName: 'system' },
+                  publishedDate: '2026-06-01T00:00:00Z',
+                },
+              ],
+            },
+            {
+              id: 6,
+              status: 'active',
+              threadContext: null,
+              comments: [
+                {
+                  id: 1,
+                  parentCommentId: 0,
+                  content: 'real feedback',
+                  commentType: 'text',
+                  author: { uniqueName: 'r@org.com' },
+                  publishedDate: '2026-06-01T00:00:00Z',
+                },
+              ],
+            },
+          ],
+        })
+      );
+
+    const result = await provider.getPrComments('100');
+    expect(result).toHaveLength(1);
+    expect(result[0].body).toBe('real feedback');
+  });
+
+  it('AzureDevOps_GetPrComments_MapsDecidedStatusesToResolvedTrue', async () => {
+    const decided = ['fixed', 'closed', 'wontFix', 'byDesign'];
+    mockExec
+      .mockResolvedValueOnce(PR_SHOW_RESPONSE)
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          value: decided.map((status, i) => ({
+            id: 10 + i,
+            status,
+            threadContext: null,
+            comments: [
+              {
+                id: 1,
+                parentCommentId: 0,
+                content: status,
+                commentType: 'text',
+                author: { uniqueName: 'a@org.com' },
+                publishedDate: '2026-06-01T00:00:00Z',
+              },
+            ],
+          })),
+        })
+      );
+
+    const result = await provider.getPrComments('100');
+    expect(result).toHaveLength(4);
+    for (const c of result) {
+      expect(c.resolved).toBe(true);
+    }
+  });
+
+  it('AzureDevOps_GetPrComments_MapsOpenStatusesToResolvedFalse', async () => {
+    const open = ['active', 'pending'];
+    mockExec
+      .mockResolvedValueOnce(PR_SHOW_RESPONSE)
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          value: open.map((status, i) => ({
+            id: 20 + i,
+            status,
+            threadContext: null,
+            comments: [
+              {
+                id: 1,
+                parentCommentId: 0,
+                content: status,
+                commentType: 'text',
+                author: { uniqueName: 'a@org.com' },
+                publishedDate: '2026-06-01T00:00:00Z',
+              },
+            ],
+          })),
+        })
+      );
+
+    const result = await provider.getPrComments('100');
+    expect(result).toHaveLength(2);
+    for (const c of result) {
+      expect(c.resolved).toBe(false);
+    }
+  });
+
+  it('AzureDevOps_GetPrComments_ThreadsRepliesByParentId', async () => {
+    mockExec
+      .mockResolvedValueOnce(PR_SHOW_RESPONSE)
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          value: [
+            {
+              id: 8,
+              status: 'active',
+              threadContext: null,
+              comments: [
+                {
+                  id: 1,
+                  parentCommentId: 0,
+                  content: 'top-level',
+                  commentType: 'text',
+                  author: { uniqueName: 'a@org.com' },
+                  publishedDate: '2026-06-01T00:00:00Z',
+                },
+                {
+                  id: 2,
+                  parentCommentId: 1,
+                  content: 'reply',
+                  commentType: 'text',
+                  author: { uniqueName: 'b@org.com' },
+                  publishedDate: '2026-06-01T01:00:00Z',
+                },
+              ],
+            },
+          ],
+        })
+      );
+
+    const result = await provider.getPrComments('100');
+    expect(result).toHaveLength(2);
+    const [top, reply] = result;
+    // Top-level comment has no parent.
+    expect(top.parentId).toBeUndefined();
+    // Reply's parentId is the composed id of the top-level comment.
+    expect(reply.parentId).toBe(8 * 100000 + 1);
+    expect(reply.parentId).toBe(top.id);
+  });
+
+  it('AzureDevOps_GetPrComments_EmitsOnlyContractKeys', async () => {
+    mockExec
+      .mockResolvedValueOnce(PR_SHOW_RESPONSE)
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          value: [
+            {
+              id: 9,
+              status: 'fixed',
+              threadContext: {
+                filePath: '/src/baz.ts',
+                rightFileStart: { line: 5 },
+              },
+              comments: [
+                {
+                  id: 2,
+                  parentCommentId: 1,
+                  content: 'leak check',
+                  commentType: 'text',
+                  author: { uniqueName: 'a@org.com', displayName: 'A' },
+                  publishedDate: '2026-06-04T00:00:00Z',
+                },
+              ],
+            },
+          ],
+        })
+      );
+
+    const result = await provider.getPrComments('100');
+    expect(result).toHaveLength(1);
+
+    const allowed = [
+      'id',
+      'author',
+      'body',
+      'createdAt',
+      'source',
+      'path',
+      'line',
+      'parentId',
+      'resolved',
+      'state',
+    ];
+    for (const key of Object.keys(result[0])) {
+      expect(allowed).toContain(key);
+    }
+    // No Azure-native field names may leak through.
+    for (const leaked of [
+      'content',
+      'commentType',
+      'publishedDate',
+      'threadContext',
+      'parentCommentId',
+      'uniqueName',
+      'displayName',
+    ]) {
+      expect(result[0]).not.toHaveProperty(leaked);
+    }
+  });
+
+  it('AzureDevOps_GetPrComments_LeavesResolvedAbsentOnUnknownStatus', async () => {
+    mockExec
+      .mockResolvedValueOnce(PR_SHOW_RESPONSE)
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          value: [
+            // Explicit 'unknown', missing status, and an unrecognized value all
+            // degrade to absent (tri-state unknown — never coerced to false).
+            {
+              id: 30,
+              status: 'unknown',
+              threadContext: null,
+              comments: [
+                {
+                  id: 1,
+                  parentCommentId: 0,
+                  content: 'u',
+                  commentType: 'text',
+                  author: { uniqueName: 'a@org.com' },
+                  publishedDate: '2026-06-01T00:00:00Z',
+                },
+              ],
+            },
+            {
+              id: 31,
+              threadContext: null,
+              comments: [
+                {
+                  id: 1,
+                  parentCommentId: 0,
+                  content: 'm',
+                  commentType: 'text',
+                  author: { uniqueName: 'a@org.com' },
+                  publishedDate: '2026-06-01T00:00:00Z',
+                },
+              ],
+            },
+            {
+              id: 32,
+              status: 'somethingNew',
+              threadContext: null,
+              comments: [
+                {
+                  id: 1,
+                  parentCommentId: 0,
+                  content: 'n',
+                  commentType: 'text',
+                  author: { uniqueName: 'a@org.com' },
+                  publishedDate: '2026-06-01T00:00:00Z',
+                },
+              ],
+            },
+          ],
+        })
+      );
+
+    const result = await provider.getPrComments('100');
+    expect(result).toHaveLength(3);
+    for (const c of result) {
+      expect(c.resolved).toBeUndefined();
+      expect(isResolvedKnown(c)).toBe(false);
+    }
   });
 });

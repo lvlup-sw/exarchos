@@ -42,6 +42,56 @@ interface AzReviewer {
   readonly displayName?: string;
 }
 
+// ─── PR comment-thread harvesting (#1613) ─────────────────────────────────────
+// ADO exposes no `az repos pr` thread-list subcommand, so PR comment threads are
+// read through the REST `pullRequestThreads` resource via `az devops invoke`.
+// `az repos pr show` first yields the repositoryId + project the invoke needs as
+// route parameters (the provider config carries neither).
+
+interface AzPrShowResponse {
+  readonly repository: {
+    readonly id?: string;
+    readonly project?: { readonly id?: string; readonly name?: string };
+  };
+}
+
+interface AzCommentPosition {
+  readonly line?: number;
+}
+
+interface AzThreadContext {
+  readonly filePath?: string;
+  readonly rightFileStart?: AzCommentPosition;
+  readonly rightFileEnd?: AzCommentPosition;
+  readonly leftFileStart?: AzCommentPosition;
+  readonly leftFileEnd?: AzCommentPosition;
+}
+
+interface AzCommentAuthor {
+  readonly uniqueName?: string;
+  readonly displayName?: string;
+}
+
+interface AzPrThreadComment {
+  readonly id: number;
+  readonly parentCommentId?: number;
+  readonly content?: string;
+  readonly commentType?: string;
+  readonly author?: AzCommentAuthor;
+  readonly publishedDate?: string;
+}
+
+interface AzPrThread {
+  readonly id: number;
+  readonly status?: string;
+  readonly threadContext?: AzThreadContext | null;
+  readonly comments?: readonly AzPrThreadComment[];
+}
+
+interface AzPrThreadsResponse {
+  readonly value?: readonly AzPrThread[];
+}
+
 function mapAzPipelineStatus(run: AzPipelineRun): CiCheck['status'] {
   if (run.status !== 'completed') {
     return 'pending';
@@ -82,6 +132,39 @@ function mapAzVote(vote: number): ReviewerStatus['state'] {
   if (vote >= 5) return 'approved';
   if (vote < 0) return 'changes_requested';
   return 'pending';
+}
+
+// ADO comment ids are sequential WITHIN a thread, and parentCommentId is also
+// per-thread — a raw comment.id collides across threads. Fold the threadId in to
+// get a PR-unique numeric id (the consumer keys idempotency off it). The stride
+// bounds in-thread comment ids; ADO threads never approach 100k comments.
+const ID_THREAD_STRIDE = 100_000;
+
+function composePrUniqueId(threadId: number, commentId: number): number {
+  return threadId * ID_THREAD_STRIDE + commentId;
+}
+
+/**
+ * Map the full Azure DevOps CommentThreadStatus enum to the PrComment tri-state
+ * `resolved`. Decided states → `true`; open states → `false`; `unknown`, an
+ * unrecognized value, or a missing status → `undefined` (absent, per DR-5 —
+ * never coerced to false).
+ */
+function mapThreadStatusToResolved(
+  status: string | undefined,
+): boolean | undefined {
+  switch (status) {
+    case 'fixed':
+    case 'closed':
+    case 'wontFix':
+    case 'byDesign':
+      return true;
+    case 'active':
+    case 'pending':
+      return false;
+    default:
+      return undefined;
+  }
 }
 
 export class AzureDevOpsProvider implements VcsProvider {
@@ -277,8 +360,103 @@ export class AzureDevOpsProvider implements VcsProvider {
     throw new UnsupportedOperationError('azure-devops', 'listPrs');
   }
 
-  async getPrComments(_prId: string): Promise<PrComment[]> {
-    throw new UnsupportedOperationError('azure-devops', 'getPrComments');
+  async getPrComments(prId: string): Promise<PrComment[]> {
+    // ADO has no `az repos pr` thread-list subcommand; PR comment threads live
+    // behind the REST `pullRequestThreads` resource, reached via `az devops
+    // invoke`. That invoke addresses the resource by route parameters
+    // (project + repositoryId + pullRequestId), none of which the provider
+    // config carries — so resolve repositoryId + project from `az repos pr
+    // show` first, then invoke.
+    const showOutput = await exec('az', [
+      'repos',
+      'pr',
+      'show',
+      '--id',
+      prId,
+      '--output',
+      'json',
+    ]);
+    const prData = JSON.parse(showOutput) as AzPrShowResponse;
+    const repositoryId = prData.repository.id;
+    const project =
+      prData.repository.project?.name ?? prData.repository.project?.id;
+    if (!repositoryId || !project) {
+      throw new Error(
+        `azure-devops: could not resolve repositoryId/project for PR ${prId} from 'az repos pr show'`,
+      );
+    }
+
+    const invokeOutput = await exec('az', [
+      'devops',
+      'invoke',
+      '--area',
+      'git',
+      '--resource',
+      'pullRequestThreads',
+      '--route-parameters',
+      `project=${project}`,
+      `repositoryId=${repositoryId}`,
+      `pullRequestId=${prId}`,
+      '--api-version',
+      '7.1',
+      '--output',
+      'json',
+    ]);
+
+    // `az devops invoke` returns the raw REST envelope `{ value: [...] }`; guard
+    // for a bare-array shape defensively (DR-5).
+    const parsedUnknown: unknown = JSON.parse(invokeOutput);
+    const threads: readonly AzPrThread[] = Array.isArray(parsedUnknown)
+      ? (parsedUnknown as readonly AzPrThread[])
+      : ((parsedUnknown as AzPrThreadsResponse).value ?? []);
+
+    const comments: PrComment[] = [];
+
+    for (const thread of threads) {
+      const threadId = thread.id;
+      const resolved = mapThreadStatusToResolved(thread.status);
+      const ctx = thread.threadContext;
+      // A thread anchored to a file/line is a review-inline thread; otherwise it
+      // is PR-level conversation (issue-comment). ADO has no review-summary kind.
+      const filePath =
+        ctx && typeof ctx.filePath === 'string' && ctx.filePath.length > 0
+          ? ctx.filePath
+          : undefined;
+      const isInline = filePath !== undefined;
+      const line = ctx?.rightFileStart?.line;
+
+      for (const comment of thread.comments ?? []) {
+        // Skip system comments (vote changes, ref pushes, status updates) — not
+        // human feedback.
+        if (comment.commentType === 'system') continue;
+
+        let parentId: number | undefined;
+        if (
+          typeof comment.parentCommentId === 'number' &&
+          comment.parentCommentId > 0
+        ) {
+          // One-level threading: a reply points at the top-level comment it
+          // answers, mapped through the same composed-id scheme.
+          parentId = composePrUniqueId(threadId, comment.parentCommentId);
+        }
+
+        comments.push({
+          id: composePrUniqueId(threadId, comment.id),
+          author:
+            comment.author?.uniqueName ?? comment.author?.displayName ?? '',
+          body: comment.content ?? '',
+          createdAt: comment.publishedDate ?? '',
+          source: isInline ? 'review-inline' : 'issue-comment',
+          ...(isInline && filePath !== undefined ? { path: filePath } : {}),
+          ...(isInline && typeof line === 'number' ? { line } : {}),
+          ...(parentId !== undefined ? { parentId } : {}),
+          // Tri-state resolved: decided → true, open → false, unknown → absent.
+          ...(resolved !== undefined ? { resolved } : {}),
+        });
+      }
+    }
+
+    return comments;
   }
 
   async getPrDiff(_prId: string): Promise<string> {
