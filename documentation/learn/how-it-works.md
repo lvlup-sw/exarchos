@@ -6,7 +6,7 @@ outline: deep
 
 ## MCP server as state backend
 
-Exarchos ships as a single binary with an `mcp` subcommand. Claude Code spawns it as a stdio MCP server. No network listeners, no database, no external dependencies.
+Exarchos ships as a single binary with an `mcp` subcommand. Claude Code spawns it as a stdio MCP server. No network listeners and no external service dependency.
 
 Four composite tools cover the entire API surface:
 
@@ -21,11 +21,11 @@ Every tool input is a Zod-validated discriminated union keyed on `action`. The s
 
 ## Event-sourced append-only log
 
-Every action produces events stored in JSONL files on the local filesystem. State is a projection of events, not a mutable record.
+Every action produces events stored in the local SQLite event store. State is a projection of events, not a mutable record.
 
 When you call `exarchos_workflow({ action: "get", featureId: "my-feature" })`, the server replays events and returns the computed current state. CQRS view projections (pipeline, tasks, convergence) work the same way: fold events into a view, return the result.
 
-If the state file gets corrupted or deleted, `reconcile` rebuilds it by replaying the event log. The events are the source of truth. Everything else is derived.
+If projected state gets corrupted or deleted, `reconcile` rebuilds it by replaying the event log. The events are the source of truth. Everything else is derived.
 
 ## State machine enforcing phase transitions
 

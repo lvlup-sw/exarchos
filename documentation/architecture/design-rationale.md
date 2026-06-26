@@ -18,17 +18,17 @@ MCP also enables input validation. When an agent calls `exarchos_workflow({ acti
 
 Trade-off: MCP adds operational overhead. The server needs to start up, establish stdio communication, and initialize its state. This adds latency to the first tool call. For simple tasks that don't need structured workflows, a few markdown files in the context are lighter. The MCP approach pays off when workflows are complex enough that losing state mid-session would cost more than the server overhead.
 
-## Why event sourcing over a database
+## Why event sourcing
 
-Agent workflows have a specific access pattern: events happen in order, most writes are appends, and the most common query is "give me the current state." This is a good fit for event sourcing with JSONL files.
+Agent workflows have a specific access pattern: events happen in order, most writes are appends, and the most common query is "give me the current state." This is a good fit for event sourcing.
 
-JSONL is simple. Each event is a line of JSON appended to a file. No schema migrations, no connection pooling, no query language. You can debug a workflow by opening the file in a text editor. You can back it up by copying a file. You can move it to another machine by copying a directory.
+Early Exarchos releases used JSONL files because they were simple: one event per line, easy to copy, and easy to inspect in a text editor. Current releases use SQLite as the required local event-store substrate so concurrent agents, idempotency claims, stream queries, and projections share one durable source of truth.
 
 Events are the audit trail. With a traditional database, you'd need a separate record-keeping system to answer "what happened during this workflow?" With event sourcing, the events *are* the history. Every transition, guard failure, task assignment, and review result is recorded with timestamps and context.
 
-Exarchos does use SQLite as an optional acceleration layer. The SQLite backend caches queries and sequence lookups for better performance on large event streams. But JSONL is always the source of truth. If the SQLite database corrupts, the server deletes it and rebuilds from JSONL on the next startup. No data loss.
+Because SQLite is local, the operational model is still file-based: back up or move the workflow store by copying the state directory while agents are stopped. If you have a pre-v2.9.0 JSONL-only directory, bridge it through v2.9.x before starting v2.10.0 or later; see [Legacy State Upgrade](/guide/legacy-state-upgrade).
 
-Trade-off: Query flexibility is limited. You can't write arbitrary SQL against a JSONL file. The solution is CQRS (Command Query Responsibility Segregation) materialized views, where the `exarchos_view` tool provides pre-built projections like pipeline status, task details, and convergence metrics. This adds code complexity, but it cleanly separates the write path (append events) from the read path (query views).
+Trade-off: Query flexibility is intentionally mediated. Even though events live in SQLite, callers should use CQRS (Command Query Responsibility Segregation) materialized views rather than coupling directly to tables. The `exarchos_view` tool provides pre-built projections like pipeline status, task details, and convergence metrics. This adds code complexity, but it cleanly separates the write path (append events) from the read path (query views).
 
 ## Why typed agents over a single general-purpose agent
 
