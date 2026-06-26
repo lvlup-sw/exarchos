@@ -25,6 +25,7 @@ const STATE_DIR = '/tmp/test-assess-stack';
 // ─── Mock VcsProvider Helper ────────────────────────────────────────────────
 
 function createMockProvider(overrides: {
+  name?: VcsProvider['name'];
   checkCi?: CiStatus;
   reviewStatus?: ReviewStatus;
   prComments?: PrComment[];
@@ -34,7 +35,7 @@ function createMockProvider(overrides: {
   const defaultReview: ReviewStatus = { state: 'pending', reviewers: [] };
 
   return {
-    name: 'github',
+    name: overrides.name ?? 'github',
     createPr: vi.fn(),
     checkCi: vi.fn<(prId: string) => Promise<CiStatus>>().mockResolvedValue(overrides.checkCi ?? defaultCi),
     mergePr: vi.fn(),
@@ -89,6 +90,50 @@ describe('handleAssessStack', () => {
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('INVALID_INPUT');
       expect(result.error?.message).toContain('prNumbers');
+    });
+  });
+
+  // ─── Provider-Identity Gate (#1612/#1613) ─────────────────────────────────
+  // assess_stack must NOT short-circuit for non-GitHub providers: every
+  // provider call it makes is supported for GitLab/ADO or already fail-soft, so
+  // the harvest proceeds and their PR/MR comments surface as action items.
+
+  describe('non-GitHub provider gating', () => {
+    it('AssessStack_NonGitHubProvider_ProceedsNotSkipped', async () => {
+      const provider = createMockProvider({
+        name: 'gitlab',
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: [
+          {
+            id: 1,
+            author: 'alice',
+            body: 'Please address this',
+            createdAt: '2026-01-01T00:00:00Z',
+            source: 'issue-comment',
+          },
+        ],
+      });
+
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        mockEventStore,
+        provider,
+      );
+
+      // Proceeds: success with a real assessment payload, not a skip stub.
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        skipped?: boolean;
+        status?: unknown;
+        actionItems?: unknown[];
+        recommendation?: string;
+      };
+      expect(data.skipped).toBeUndefined();
+      expect(data.status).toBeDefined();
+      expect(data.recommendation).toBeDefined();
+      // The harvest actually ran against the non-GitHub provider.
+      expect(provider.getPrComments).toHaveBeenCalledWith('42');
     });
   });
 
