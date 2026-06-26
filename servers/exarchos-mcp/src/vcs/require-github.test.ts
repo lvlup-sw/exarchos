@@ -7,25 +7,25 @@ import { GitHubProvider } from './github.js';
 describe('requiresGitHub', () => {
   it('requiresGitHub_GitHubProvider_ReturnsNull', () => {
     const provider = new GitHubProvider({});
-    const result = requiresGitHub(provider, 'assess_stack');
+    const result = requiresGitHub(provider, 'check_pr_comments');
     expect(result).toBeNull();
   });
 
   it('requiresGitHub_UndefinedProvider_ReturnsNull', () => {
-    const result = requiresGitHub(undefined, 'assess_stack');
+    const result = requiresGitHub(undefined, 'check_pr_comments');
     expect(result).toBeNull();
   });
 
   it('requiresGitHub_GitLabProvider_ReturnsSkippedResult', () => {
     const provider = new GitLabProvider({});
-    const result = requiresGitHub(provider, 'assess_stack');
+    const result = requiresGitHub(provider, 'check_pr_comments');
     expect(result).not.toBeNull();
     expect(result!.success).toBe(true);
     const data = result!.data as { skipped: boolean; reason: string; provider: string; operation: string };
     expect(data.skipped).toBe(true);
-    expect(data.reason).toBe('gitlab: assess_stack is not yet supported');
+    expect(data.reason).toBe('gitlab: check_pr_comments is not yet supported');
     expect(data.provider).toBe('gitlab');
-    expect(data.operation).toBe('assess_stack');
+    expect(data.operation).toBe('check_pr_comments');
   });
 
   it('requiresGitHub_AzureDevOpsProvider_ReturnsSkippedResult', () => {

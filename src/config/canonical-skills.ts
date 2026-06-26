@@ -55,3 +55,14 @@ export const COMMAND_ONLY: ReadonlySet<string> = new Set<string>([
   'rehydrate',
   'tag',
 ]);
+
+/**
+ * The canonical set of workflow command names: the sorted union of every
+ * skill-delegating command (`COMMAND_TO_SKILL` keys) and every command-only
+ * command (`COMMAND_ONLY`). This is the one accessor downstream consumers
+ * read to learn "which `/commands` exist" without re-deriving the set from
+ * the two underlying structures (or, worse, hand-maintaining a third copy).
+ */
+export function canonicalCommandSet(): readonly string[] {
+  return [...Object.keys(COMMAND_TO_SKILL), ...COMMAND_ONLY].sort();
+}

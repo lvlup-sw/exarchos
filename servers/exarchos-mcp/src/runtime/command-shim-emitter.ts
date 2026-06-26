@@ -43,29 +43,54 @@ export interface ShimEmitterDeps {
 
 // ─── Canonical command list ─────────────────────────────────────────────────
 
-export const CANONICAL_COMMANDS: readonly CommandMapping[] = [
-  { name: 'ideate', skill: 'exarchos:ideate', description: 'Start collaborative design exploration for a feature or problem' },
-  { name: 'plan', skill: 'exarchos:plan', description: 'Create TDD implementation plan from design document' },
-  // `tdd` was retired in #1590 (commands/tdd.md + its alias + the COMMAND_TO_SKILL
-  // entry were deleted). This shim list is hardcoded separately, so it must drop
-  // it too — otherwise runtimes that consume command shims (Copilot, Cursor)
-  // advertise `/tdd`, which dispatches to a skill that no longer exists.
-  { name: 'review', skill: 'exarchos:review', description: 'Run two-stage review (spec compliance + code quality)' },
-  { name: 'synthesize', skill: 'exarchos:synthesize', description: 'Create pull request from feature branch' },
-  { name: 'shepherd', skill: 'exarchos:shepherd', description: 'Shepherd PRs through CI and reviews to merge readiness' },
-  { name: 'debug', skill: 'exarchos:debug', description: 'Start debug workflow for bugs and regressions' },
-  { name: 'refactor', skill: 'exarchos:refactor', description: 'Start refactor workflow for code improvement' },
-  { name: 'oneshot', skill: 'exarchos:oneshot', description: 'Run a lightweight oneshot workflow — plan + TDD implement + optional PR' },
-  { name: 'delegate', skill: 'exarchos:delegate', description: 'Dispatch tasks to Claude Code subagents' },
-  { name: 'rehydrate', skill: 'exarchos:rehydrate', description: 'Re-inject workflow state and behavioral guidance into current context' },
-  { name: 'checkpoint', skill: 'exarchos:checkpoint', description: 'Save workflow state and prepare for session handoff' },
-  { name: 'cleanup', skill: 'exarchos:cleanup', description: 'Resolve merged workflow to completed state' },
-  { name: 'prune', skill: 'exarchos:prune', description: 'Prune stale workflows from the pipeline' },
-  { name: 'autocompact', skill: 'exarchos:autocompact', description: 'Toggle autocompact on/off or set threshold percentage' },
-  { name: 'dogfood', skill: 'exarchos:dogfood', description: 'Review failed tool calls, diagnose root causes, and triage' },
-  { name: 'reload', skill: 'exarchos:reload', description: 'Manually trigger context reload to recover from context degradation' },
-  { name: 'tag', skill: 'exarchos:tag', description: 'Retroactively attribute the current session to a feature, project, or concern' },
-] as const;
+/**
+ * Canonical command name → human-readable description.
+ *
+ * This map is the single hand-kept structure for the shim; `CANONICAL_COMMANDS`
+ * is DERIVED from it so the `skill` slug can never drift from the command name.
+ * The key set MUST equal the root canonical source-of-truth
+ * (`src/config/canonical-skills.ts` → `canonicalCommandSet()`); the co-located
+ * coupling guard in `command-shim-emitter.test.ts` imports that accessor across
+ * the package boundary and fails CI on any divergence. (The MCP package cannot
+ * import the root SoT in production code — `rootDir: ./src` — so the coupling is
+ * enforced test-only.)
+ *
+ * Drift history:
+ * - `tdd` was retired in #1590 (commands/tdd.md + alias + COMMAND_TO_SKILL entry
+ *   deleted); dropped here too so shim-consuming runtimes (Copilot, Cursor) stop
+ *   advertising `/tdd` → a skill that no longer exists.
+ * - `reload` had no commands/reload.md and no SoT entry; dropped (#1609).
+ * - `discover` + `invariants` have command files + SoT entries but were missing
+ *   here; added (#1609).
+ */
+export const COMMAND_DESCRIPTIONS: Record<string, string> = {
+  ideate: 'Start collaborative design exploration for a feature or problem',
+  plan: 'Create TDD implementation plan from design document',
+  review: 'Run two-stage review (spec compliance + code quality)',
+  synthesize: 'Create pull request from feature branch',
+  shepherd: 'Shepherd PRs through CI and reviews to merge readiness',
+  debug: 'Start debug workflow for bugs and regressions',
+  refactor: 'Start refactor workflow for code improvement',
+  oneshot: 'Run a lightweight oneshot workflow — plan + TDD implement + optional PR',
+  delegate: 'Dispatch tasks to Claude Code subagents',
+  rehydrate: 'Re-inject workflow state and behavioral guidance into current context',
+  checkpoint: 'Save workflow state and prepare for session handoff',
+  cleanup: 'Resolve merged workflow to completed state',
+  prune: 'Prune stale workflows from the pipeline',
+  autocompact: 'Toggle autocompact on/off or set threshold percentage',
+  dogfood: 'Review failed tool calls, diagnose root causes, and triage',
+  discover: 'Start a discovery workflow for research and document deliverables',
+  invariants: 'Author an architectural invariant catalog entry through a guided interview',
+  tag: 'Retroactively attribute the current session to a feature, project, or concern',
+};
+
+export const CANONICAL_COMMANDS: readonly CommandMapping[] = Object.keys(
+  COMMAND_DESCRIPTIONS,
+).map((name) => ({
+  name,
+  skill: `exarchos:${name}`,
+  description: COMMAND_DESCRIPTIONS[name],
+}));
 
 // ─── Default fs ─────────────────────────────────────────────────────────────
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GitLabProvider } from './gitlab.js';
-import { UnsupportedOperationError } from './provider.js';
+import type { PrComment } from './provider.js';
 
 // Mock the shell execution helper
 vi.mock('./shell.js', () => ({
@@ -24,10 +24,18 @@ describe('GitLabProvider', () => {
 
   // ── createPr ────────────────────────────────────────────────────────────
 
+  // `glab mr create` has no `--json` flag, so createPr issues a bare create
+  // then reads identity via `glab mr view <branch> --json iid,webUrl`. Tests
+  // stub the two exec calls in order: create (output ignored), then view.
+  const VIEW_JSON = (iid: number, webUrl: string): string =>
+    JSON.stringify({ iid, webUrl });
+
   it('GitLabProvider_CreatePr_CallsGlabWithCorrectArgs', async () => {
-    mockExec.mockResolvedValue(
-      JSON.stringify({ url: 'https://gitlab.com/test/repo/-/merge_requests/10', iid: 10 })
-    );
+    mockExec
+      .mockResolvedValueOnce('') // create — output not parsed
+      .mockResolvedValueOnce(
+        VIEW_JSON(10, 'https://gitlab.com/test/repo/-/merge_requests/10')
+      );
 
     const result = await provider.createPr({
       title: 'feat: gitlab test',
@@ -36,7 +44,7 @@ describe('GitLabProvider', () => {
       headBranch: 'feat/test',
     });
 
-    expect(mockExec).toHaveBeenCalledWith('glab', [
+    expect(mockExec).toHaveBeenNthCalledWith(1, 'glab', [
       'mr',
       'create',
       '--title',
@@ -47,17 +55,87 @@ describe('GitLabProvider', () => {
       'feat/test',
       '--target-branch',
       'main',
+    ]);
+    expect(mockExec).toHaveBeenNthCalledWith(2, 'glab', [
+      'mr',
+      'view',
+      'feat/test',
       '--json',
-      'url,iid',
+      'iid,webUrl',
     ]);
     expect(result.url).toBe('https://gitlab.com/test/repo/-/merge_requests/10');
     expect(result.number).toBe(10);
   });
 
+  it('GitLab_CreatePr_OmitsJsonFlagOnCreate', async () => {
+    mockExec
+      .mockResolvedValueOnce('')
+      .mockResolvedValueOnce(
+        VIEW_JSON(10, 'https://gitlab.com/test/repo/-/merge_requests/10')
+      );
+
+    await provider.createPr({
+      title: 'no json on create',
+      body: 'body',
+      baseBranch: 'main',
+      headBranch: 'feat/test',
+    });
+
+    const createArgs = mockExec.mock.calls[0][1] ?? [];
+    expect(createArgs).toContain('mr');
+    expect(createArgs).toContain('create');
+    expect(createArgs).not.toContain('--json');
+    expect(createArgs).not.toContain('url,iid');
+  });
+
+  it('GitLab_CreatePr_ReadsIidAndUrlFromMrView', async () => {
+    mockExec
+      .mockResolvedValueOnce('Created MR !42')
+      .mockResolvedValueOnce(
+        VIEW_JSON(42, 'https://gitlab.com/test/repo/-/merge_requests/42')
+      );
+
+    const result = await provider.createPr({
+      title: 'reads from view',
+      body: 'body',
+      baseBranch: 'main',
+      headBranch: 'feat/view',
+    });
+
+    expect(mockExec).toHaveBeenNthCalledWith(2, 'glab', [
+      'mr',
+      'view',
+      'feat/view',
+      '--json',
+      'iid,webUrl',
+    ]);
+    expect(result).toEqual({
+      url: 'https://gitlab.com/test/repo/-/merge_requests/42',
+      number: 42,
+    });
+  });
+
+  it('GitLab_CreatePr_ThrowsWhenViewReadFails', async () => {
+    mockExec
+      .mockResolvedValueOnce('Created MR !99')
+      .mockRejectedValueOnce(new Error('glab mr view failed'));
+
+    await expect(
+      provider.createPr({
+        title: 'view fails',
+        body: 'body',
+        baseBranch: 'main',
+        headBranch: 'feat/view-fail',
+      })
+    ).rejects.toThrow('glab mr view failed');
+  });
+
   it('GitLabProvider_CreatePr_IncludesDraftFlag', async () => {
-    mockExec.mockResolvedValue(
-      JSON.stringify({ url: 'https://gitlab.com/test/repo/-/merge_requests/11', iid: 11 })
-    );
+    mockExec
+      .mockResolvedValueOnce('')
+      .mockResolvedValueOnce(
+        VIEW_JSON(11, 'https://gitlab.com/test/repo/-/merge_requests/11')
+      );
 
     await provider.createPr({
       title: 'draft mr',
@@ -67,16 +145,16 @@ describe('GitLabProvider', () => {
       draft: true,
     });
 
-    expect(mockExec).toHaveBeenCalledWith(
-      'glab',
-      expect.arrayContaining(['--draft'])
-    );
+    const createArgs = mockExec.mock.calls[0][1] ?? [];
+    expect(createArgs).toContain('--draft');
   });
 
   it('GitLabProvider_CreatePr_IncludesLabels', async () => {
-    mockExec.mockResolvedValue(
-      JSON.stringify({ url: 'https://gitlab.com/test/repo/-/merge_requests/12', iid: 12 })
-    );
+    mockExec
+      .mockResolvedValueOnce('')
+      .mockResolvedValueOnce(
+        VIEW_JSON(12, 'https://gitlab.com/test/repo/-/merge_requests/12')
+      );
 
     await provider.createPr({
       title: 'labeled mr',
@@ -86,10 +164,9 @@ describe('GitLabProvider', () => {
       labels: ['bug', 'priority'],
     });
 
-    expect(mockExec).toHaveBeenCalledWith(
-      'glab',
-      expect.arrayContaining(['--label', 'bug,priority'])
-    );
+    const createArgs = mockExec.mock.calls[0][1] ?? [];
+    expect(createArgs).toContain('--label');
+    expect(createArgs).toContain('bug,priority');
   });
 
   it('GitLabProvider_CreatePr_PropagatesExecError', async () => {
@@ -364,19 +441,433 @@ describe('GitLabProvider', () => {
     expect(result.reviewers).toHaveLength(0);
   });
 
-  // ── getPrComments (DR-7 #1592 task 013 — signature conformance) ───────────
-  // The PrComment contract was widened (source/parentId/resolved/state) in task
-  // 010. GitLab still does not implement harvesting (tracked as a DR-7 follow-up
-  // issue), so getPrComments must conform to the widened `Promise<PrComment[]>`
-  // signature — which it does by throwing (it returns no value) — and surface a
-  // structured UnsupportedOperationError rather than a silent no-op.
+  // ── getPrComments ─────────────────────────────────────────────────────────
+  // GitLab harvests ALL feedback from one paginated endpoint:
+  // `projects/:fullpath/merge_requests/<iid>/discussions`. Each test stubs that
+  // endpoint per page; a diff `position` ⇒ 'review-inline', everything else ⇒
+  // 'issue-comment'. There is no 'review-summary' surface on GitLab.
 
-  it('GitLab_GetPrComments_ThrowsUnsupported', async () => {
-    await expect(provider.getPrComments('10')).rejects.toThrow(
-      UnsupportedOperationError,
-    );
-    await expect(provider.getPrComments('10')).rejects.toThrow(
-      'gitlab: getPrComments is not yet supported',
-    );
+  // Route mocked `exec` to a per-page canned discussions payload, keyed by the
+  // `page=` query param the implementation appends.
+  function stubDiscussions(pages: readonly unknown[][]): void {
+    mockExec.mockImplementation((_cmd: string, args?: readonly string[]) => {
+      const endpoint = (args ?? []).find((a) => a.includes('discussions')) ?? '';
+      // Anchor on the separator so we don't match the `page` inside `per_page`.
+      const m = endpoint.match(/[?&]page=(\d+)/);
+      const page = m ? Number(m[1]) : 1;
+      return Promise.resolve(JSON.stringify(pages[page - 1] ?? []));
+    });
+  }
+
+  const CONTRACT_KEYS = new Set<keyof PrComment>([
+    'id',
+    'author',
+    'body',
+    'createdAt',
+    'source',
+    'path',
+    'line',
+    'parentId',
+    'resolved',
+    'state',
+  ]);
+
+  it('GitLab_GetPrComments_AggregatesNotesAndThreads', async () => {
+    stubDiscussions([
+      [
+        {
+          id: 'd1',
+          individual_note: true,
+          notes: [
+            {
+              id: 1,
+              body: 'PR-level note',
+              author: { username: 'alice' },
+              created_at: '2026-04-15T10:00:00Z',
+              type: null,
+              system: false,
+              resolvable: false,
+            },
+          ],
+        },
+        {
+          id: 'd2',
+          individual_note: false,
+          notes: [
+            {
+              id: 2,
+              body: 'thread root',
+              author: { username: 'bob' },
+              created_at: '2026-04-15T10:05:00Z',
+              type: 'DiscussionNote',
+              system: false,
+              resolvable: false,
+            },
+            {
+              id: 3,
+              body: 'thread reply',
+              author: { username: 'carol' },
+              created_at: '2026-04-15T10:06:00Z',
+              type: 'DiscussionNote',
+              system: false,
+              resolvable: false,
+            },
+          ],
+        },
+      ],
+    ]);
+
+    const result = await provider.getPrComments('42');
+
+    expect(mockExec).toHaveBeenCalledWith('glab', [
+      'api',
+      'projects/:fullpath/merge_requests/42/discussions?per_page=100&page=1',
+    ]);
+    expect(result).toHaveLength(3);
+    expect(result.map((c) => c.id)).toEqual([1, 2, 3]);
+    expect(result.every((c) => c.source === 'issue-comment')).toBe(true);
+  });
+
+  it('GitLab_GetPrComments_ClassifiesDiffNoteAsReviewInlineWithPathLine', async () => {
+    stubDiscussions([
+      [
+        {
+          id: 'd1',
+          individual_note: true,
+          notes: [
+            {
+              id: 10,
+              body: 'inline nit',
+              author: { username: 'alice' },
+              created_at: '2026-04-15T10:00:00Z',
+              type: 'DiffNote',
+              system: false,
+              resolvable: true,
+              resolved: false,
+              position: {
+                old_path: 'src/main.ts',
+                new_path: 'src/main.ts',
+                position_type: 'text',
+                old_line: null,
+                new_line: 42,
+              },
+            },
+          ],
+        },
+      ],
+    ]);
+
+    const result = await provider.getPrComments('42');
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      id: 10,
+      source: 'review-inline',
+      path: 'src/main.ts',
+      line: 42,
+    });
+  });
+
+  it('GitLab_GetPrComments_MapsResolvableDiscussionTriState', async () => {
+    stubDiscussions([
+      [
+        {
+          id: 'd1',
+          individual_note: true,
+          notes: [
+            {
+              id: 1,
+              body: 'resolved thread',
+              author: { username: 'a' },
+              created_at: '2026-04-15T10:00:00Z',
+              type: 'DiffNote',
+              system: false,
+              resolvable: true,
+              resolved: true,
+              position: { new_path: 'a.ts', new_line: 1 },
+            },
+          ],
+        },
+        {
+          id: 'd2',
+          individual_note: true,
+          notes: [
+            {
+              id: 2,
+              body: 'open thread',
+              author: { username: 'b' },
+              created_at: '2026-04-15T10:01:00Z',
+              type: 'DiffNote',
+              system: false,
+              resolvable: true,
+              resolved: false,
+              position: { new_path: 'b.ts', new_line: 2 },
+            },
+          ],
+        },
+      ],
+    ]);
+
+    const result = await provider.getPrComments('42');
+
+    const byId = Object.fromEntries(result.map((c) => [c.id, c]));
+    expect(byId[1].resolved).toBe(true);
+    expect(byId[2].resolved).toBe(false);
+  });
+
+  it('GitLab_GetPrComments_LeavesResolvedAbsentOnNonResolvableNote', async () => {
+    stubDiscussions([
+      [
+        {
+          id: 'd1',
+          individual_note: true,
+          notes: [
+            {
+              id: 1,
+              body: 'plain comment',
+              author: { username: 'a' },
+              created_at: '2026-04-15T10:00:00Z',
+              type: null,
+              system: false,
+              resolvable: false,
+              resolved: false, // present but resolvable:false ⇒ must stay absent
+            },
+          ],
+        },
+      ],
+    ]);
+
+    const result = await provider.getPrComments('42');
+
+    expect(result).toHaveLength(1);
+    expect('resolved' in result[0]).toBe(false);
+    expect(result[0].resolved).toBeUndefined();
+  });
+
+  it('GitLab_GetPrComments_ThreadsRepliesByParentId', async () => {
+    stubDiscussions([
+      [
+        {
+          id: 'd1',
+          individual_note: false,
+          notes: [
+            {
+              id: 100,
+              body: 'root',
+              author: { username: 'a' },
+              created_at: '2026-04-15T10:00:00Z',
+              type: 'DiscussionNote',
+              system: false,
+              resolvable: false,
+            },
+            {
+              id: 101,
+              body: 'reply one',
+              author: { username: 'b' },
+              created_at: '2026-04-15T10:01:00Z',
+              type: 'DiscussionNote',
+              system: false,
+              resolvable: false,
+            },
+            {
+              id: 102,
+              body: 'reply two',
+              author: { username: 'c' },
+              created_at: '2026-04-15T10:02:00Z',
+              type: 'DiscussionNote',
+              system: false,
+              resolvable: false,
+            },
+          ],
+        },
+      ],
+    ]);
+
+    const result = await provider.getPrComments('42');
+
+    expect(result).toHaveLength(3);
+    expect('parentId' in result[0]).toBe(false);
+    expect(result[1].parentId).toBe(100);
+    expect(result[2].parentId).toBe(100);
+  });
+
+  it('GitLab_GetPrComments_PaginatesBeyondFirstPage', async () => {
+    // Page 1 is full (== per_page 100) ⇒ the loop must fetch page 2.
+    const fullPage = Array.from({ length: 100 }, (_, i) => ({
+      id: `d${i}`,
+      individual_note: true,
+      notes: [
+        {
+          id: i + 1,
+          body: `note ${i}`,
+          author: { username: 'a' },
+          created_at: '2026-04-15T10:00:00Z',
+          type: null,
+          system: false,
+          resolvable: false,
+        },
+      ],
+    }));
+    const secondPage = [
+      {
+        id: 'last',
+        individual_note: true,
+        notes: [
+          {
+            id: 1000,
+            body: 'overflow note',
+            author: { username: 'z' },
+            created_at: '2026-04-15T11:00:00Z',
+            type: null,
+            system: false,
+            resolvable: false,
+          },
+        ],
+      },
+    ];
+    stubDiscussions([fullPage, secondPage]);
+
+    const result = await provider.getPrComments('42');
+
+    expect(mockExec).toHaveBeenCalledWith('glab', [
+      'api',
+      'projects/:fullpath/merge_requests/42/discussions?per_page=100&page=1',
+    ]);
+    expect(mockExec).toHaveBeenCalledWith('glab', [
+      'api',
+      'projects/:fullpath/merge_requests/42/discussions?per_page=100&page=2',
+    ]);
+    expect(result).toHaveLength(101);
+    expect(result.some((c) => c.id === 1000)).toBe(true);
+  });
+
+  it('GitLab_GetPrComments_EmitsOnlyContractKeys', async () => {
+    stubDiscussions([
+      [
+        {
+          id: 'd1',
+          individual_note: false,
+          notes: [
+            {
+              id: 1,
+              body: 'root inline',
+              author: { username: 'a' },
+              created_at: '2026-04-15T10:00:00Z',
+              type: 'DiffNote',
+              system: false,
+              resolvable: true,
+              resolved: true,
+              position: { new_path: 'x.ts', new_line: 5, old_path: 'x.ts' },
+            },
+            {
+              id: 2,
+              body: 'reply',
+              author: { username: 'b' },
+              created_at: '2026-04-15T10:01:00Z',
+              type: 'DiffNote',
+              system: false,
+              resolvable: true,
+              resolved: true,
+              position: { new_path: 'x.ts', new_line: 5, old_path: 'x.ts' },
+            },
+          ],
+        },
+      ],
+    ]);
+
+    const result = await provider.getPrComments('42');
+
+    for (const comment of result) {
+      for (const key of Object.keys(comment)) {
+        expect(CONTRACT_KEYS.has(key as keyof PrComment)).toBe(true);
+      }
+    }
+    // Sanity: no raw GitLab field names leaked through.
+    const leaked = result.flatMap((c) => Object.keys(c));
+    expect(leaked).not.toContain('new_path');
+    expect(leaked).not.toContain('resolvable');
+    expect(leaked).not.toContain('system');
+    expect(leaked).not.toContain('position');
+  });
+
+  it('GitLab_GetPrComments_LeavesResolvedAbsentOnMissingResolutionField', async () => {
+    stubDiscussions([
+      [
+        {
+          id: 'd1',
+          individual_note: true,
+          notes: [
+            {
+              id: 1,
+              body: 'resolvable but no resolved field',
+              author: { username: 'a' },
+              created_at: '2026-04-15T10:00:00Z',
+              type: 'DiffNote',
+              system: false,
+              resolvable: true,
+              // `resolved` deliberately omitted (missing/garbled field)
+              position: { new_path: 'a.ts', new_line: 1 },
+            },
+          ],
+        },
+      ],
+    ]);
+
+    const result = await provider.getPrComments('42');
+
+    expect(result).toHaveLength(1);
+    // Per-field defensive: missing resolution leaves `resolved` absent, but the
+    // rest of the comment still maps.
+    expect('resolved' in result[0]).toBe(false);
+    expect(result[0]).toMatchObject({
+      id: 1,
+      source: 'review-inline',
+      path: 'a.ts',
+      line: 1,
+    });
+  });
+
+  it('GitLab_GetPrComments_SkipsSystemNotes', async () => {
+    // System notes (label/description activity) are not feedback — GitHub's
+    // comment endpoints never surface these, so two-source parity drops them.
+    stubDiscussions([
+      [
+        {
+          id: 'd1',
+          individual_note: true,
+          notes: [
+            {
+              id: 1,
+              body: 'changed the description',
+              author: { username: 'gitlab-bot' },
+              created_at: '2026-04-15T10:00:00Z',
+              type: null,
+              system: true,
+              resolvable: false,
+            },
+          ],
+        },
+        {
+          id: 'd2',
+          individual_note: true,
+          notes: [
+            {
+              id: 2,
+              body: 'real comment',
+              author: { username: 'alice' },
+              created_at: '2026-04-15T10:01:00Z',
+              type: null,
+              system: false,
+              resolvable: false,
+            },
+          ],
+        },
+      ],
+    ]);
+
+    const result = await provider.getPrComments('42');
+
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe(2);
   });
 });

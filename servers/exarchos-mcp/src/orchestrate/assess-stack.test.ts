@@ -25,6 +25,7 @@ const STATE_DIR = '/tmp/test-assess-stack';
 // ─── Mock VcsProvider Helper ────────────────────────────────────────────────
 
 function createMockProvider(overrides: {
+  name?: VcsProvider['name'];
   checkCi?: CiStatus;
   reviewStatus?: ReviewStatus;
   prComments?: PrComment[];
@@ -34,7 +35,7 @@ function createMockProvider(overrides: {
   const defaultReview: ReviewStatus = { state: 'pending', reviewers: [] };
 
   return {
-    name: 'github',
+    name: overrides.name ?? 'github',
     createPr: vi.fn(),
     checkCi: vi.fn<(prId: string) => Promise<CiStatus>>().mockResolvedValue(overrides.checkCi ?? defaultCi),
     mergePr: vi.fn(),
@@ -89,6 +90,50 @@ describe('handleAssessStack', () => {
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('INVALID_INPUT');
       expect(result.error?.message).toContain('prNumbers');
+    });
+  });
+
+  // ─── Provider-Identity Gate (#1612/#1613) ─────────────────────────────────
+  // assess_stack must NOT short-circuit for non-GitHub providers: every
+  // provider call it makes is supported for GitLab/ADO or already fail-soft, so
+  // the harvest proceeds and their PR/MR comments surface as action items.
+
+  describe('non-GitHub provider gating', () => {
+    it('AssessStack_NonGitHubProvider_ProceedsNotSkipped', async () => {
+      const provider = createMockProvider({
+        name: 'gitlab',
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: [
+          {
+            id: 1,
+            author: 'alice',
+            body: 'Please address this',
+            createdAt: '2026-01-01T00:00:00Z',
+            source: 'issue-comment',
+          },
+        ],
+      });
+
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        mockEventStore,
+        provider,
+      );
+
+      // Proceeds: success with a real assessment payload, not a skip stub.
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        skipped?: boolean;
+        status?: unknown;
+        actionItems?: unknown[];
+        recommendation?: string;
+      };
+      expect(data.skipped).toBeUndefined();
+      expect(data.status).toBeDefined();
+      expect(data.recommendation).toBeDefined();
+      // The harvest actually ran against the non-GitHub provider.
+      expect(provider.getPrComments).toHaveBeenCalledWith('42');
     });
   });
 
@@ -1373,6 +1418,149 @@ describe('handleAssessStack', () => {
         const commentReplies = data.actionItems.filter((i) => i.type === 'comment-reply');
         expect(commentReplies).toHaveLength(1);
       }
+    });
+  });
+
+  // ─── Multi-Provider Comment Surfacing (#1612/#1613, INV-6) ────────────────
+  // assess_stack surfaces GitLab/ADO PR/MR comments as `comment-reply` action
+  // items through the SAME provider-branch-free harvest path it uses for
+  // GitHub. The mock providers differ only by `name`; the harvest reads
+  // `getPrComments` generically, so identical comment payloads must yield
+  // identical action items regardless of provider name.
+
+  describe('multi-provider comment surfacing', () => {
+    // A mix of resolved (filtered) and unresolved (surfaced) comments, reused
+    // across the GitLab and ADO cases so the only variable is provider `name`.
+    const mixedComments = (): PrComment[] => [
+      {
+        id: 1,
+        author: 'alice',
+        body: 'Please address this finding',
+        createdAt: '2026-01-01T00:00:00Z',
+        source: 'review-inline',
+        path: 'src/a.ts',
+        line: 12,
+        // resolved absent → unknown → surfaced
+      },
+      {
+        id: 2,
+        author: 'bob',
+        body: 'Already handled in a prior push',
+        createdAt: '2026-01-01T00:00:00Z',
+        source: 'review-inline',
+        path: 'src/b.ts',
+        line: 34,
+        resolved: true, // explicitly resolved → filtered out
+      },
+      {
+        id: 3,
+        author: 'carol',
+        body: 'Overall needs another pass on validation',
+        createdAt: '2026-01-01T00:00:00Z',
+        source: 'review-summary',
+        state: 'COMMENTED',
+        // resolved absent → unknown → surfaced
+      },
+    ];
+
+    it('AssessStack_SurfacesGitLabComments_AsCommentReply', async () => {
+      const provider = createMockProvider({
+        name: 'gitlab',
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: mixedComments(),
+      });
+
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        mockEventStore,
+        provider,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        skipped?: boolean;
+        actionItems: Array<{ type: string; pr: number; file?: string }>;
+        status: { prs: Array<{ unresolvedComments: Array<{ body: string }> }> };
+      };
+      // Did NOT short-circuit for the non-GitHub provider.
+      expect(data.skipped).toBeUndefined();
+      expect(provider.getPrComments).toHaveBeenCalledWith('42');
+
+      // The two unresolved comments surface as comment-reply items; the
+      // explicitly-resolved one is filtered out.
+      const commentReplies = data.actionItems.filter((i) => i.type === 'comment-reply');
+      expect(commentReplies).toHaveLength(2);
+      expect(commentReplies.every((i) => i.pr === 42)).toBe(true);
+      expect(commentReplies.some((i) => i.file === 'src/a.ts')).toBe(true);
+
+      const surfacedBodies = data.status.prs[0].unresolvedComments.map((c) => c.body);
+      expect(surfacedBodies).toContain('Please address this finding');
+      expect(surfacedBodies).toContain('Overall needs another pass on validation');
+      expect(surfacedBodies).not.toContain('Already handled in a prior push');
+    });
+
+    it('AssessStack_SurfacesAdoComments_AsCommentReply', async () => {
+      const provider = createMockProvider({
+        name: 'azure-devops',
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: mixedComments(),
+      });
+
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        mockEventStore,
+        provider,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        skipped?: boolean;
+        actionItems: Array<{ type: string; pr: number; file?: string }>;
+        status: { prs: Array<{ unresolvedComments: Array<{ body: string }> }> };
+      };
+      expect(data.skipped).toBeUndefined();
+      expect(provider.getPrComments).toHaveBeenCalledWith('42');
+
+      const commentReplies = data.actionItems.filter((i) => i.type === 'comment-reply');
+      expect(commentReplies).toHaveLength(2);
+      expect(commentReplies.every((i) => i.pr === 42)).toBe(true);
+      expect(commentReplies.some((i) => i.file === 'src/a.ts')).toBe(true);
+
+      const surfacedBodies = data.status.prs[0].unresolvedComments.map((c) => c.body);
+      expect(surfacedBodies).toContain('Please address this finding');
+      expect(surfacedBodies).toContain('Overall needs another pass on validation');
+      expect(surfacedBodies).not.toContain('Already handled in a prior push');
+    });
+
+    it('AssessStack_HarvestLoop_NoProviderBranch', async () => {
+      // INV-6: the harvest path must NOT condition on provider name. Given the
+      // SAME comment payload from a GitLab vs an ADO provider, the produced
+      // comment-reply action items must be byte-for-byte identical.
+      const runFor = async (name: VcsProvider['name']) => {
+        const provider = createMockProvider({
+          name,
+          checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+          prComments: mixedComments(),
+        });
+        const result = await handleAssessStack(
+          { featureId: 'test-feature', prNumbers: [42] },
+          STATE_DIR,
+          mockEventStore,
+          provider,
+        );
+        expect(result.success).toBe(true);
+        const data = result.data as { actionItems: Array<{ type: string }> };
+        return data.actionItems.filter((i) => i.type === 'comment-reply');
+      };
+
+      const gitlabItems = await runFor('gitlab');
+      const adoItems = await runFor('azure-devops');
+
+      // Identical action items prove the harvest does not branch on provider.
+      expect(gitlabItems).toHaveLength(2);
+      expect(adoItems).toEqual(gitlabItems);
     });
   });
 });

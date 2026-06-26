@@ -22,9 +22,8 @@ describe('GitHubProvider', () => {
   });
 
   it('GitHubProvider_CreatePr_CallsGhWithCorrectArgs', async () => {
-    mockExec.mockResolvedValue(
-      JSON.stringify({ url: 'https://github.com/test/repo/pull/42', number: 42 })
-    );
+    // gh pr create prints the created PR URL to stdout — there is no --json flag.
+    mockExec.mockResolvedValue('https://github.com/test/repo/pull/42');
 
     const result = await provider.createPr({
       title: 'feat: test',
@@ -46,8 +45,6 @@ describe('GitHubProvider', () => {
         'main',
         '--head',
         'feat/test',
-        '--json',
-        'url,number',
       ])
     );
     expect(result.url).toBe('https://github.com/test/repo/pull/42');
@@ -55,9 +52,7 @@ describe('GitHubProvider', () => {
   });
 
   it('GitHubProvider_CreatePr_IncludesDraftFlag', async () => {
-    mockExec.mockResolvedValue(
-      JSON.stringify({ url: 'https://github.com/test/repo/pull/43', number: 43 })
-    );
+    mockExec.mockResolvedValue('https://github.com/test/repo/pull/43');
 
     await provider.createPr({
       title: 'draft pr',
@@ -74,9 +69,7 @@ describe('GitHubProvider', () => {
   });
 
   it('GitHubProvider_CreatePr_IncludesLabels', async () => {
-    mockExec.mockResolvedValue(
-      JSON.stringify({ url: 'https://github.com/test/repo/pull/44', number: 44 })
-    );
+    mockExec.mockResolvedValue('https://github.com/test/repo/pull/44');
 
     await provider.createPr({
       title: 'labeled pr',
@@ -90,6 +83,67 @@ describe('GitHubProvider', () => {
       'gh',
       expect.arrayContaining(['--label', 'bug,priority'])
     );
+  });
+
+  // ─── #1622: gh pr create has no --json flag ──────────────────────────────────
+
+  // gh pr create exits non-zero on flag-parse if --json is passed (it's valid
+  // only on gh pr view/list), so the PR is never created. The argv must omit it.
+  it('GitHub_CreatePr_OmitsJsonFlag', async () => {
+    mockExec.mockResolvedValue('https://github.com/o/r/pull/7');
+
+    await provider.createPr({
+      title: 't',
+      body: 'b',
+      baseBranch: 'main',
+      headBranch: 'feat/x',
+    });
+
+    const createCall = mockExec.mock.calls.find(
+      (call) => Array.isArray(call[1]) && call[1].includes('create'),
+    );
+    expect(createCall?.[1]).not.toContain('--json');
+  });
+
+  // On success gh prints the created PR URL; number is its trailing path segment.
+  it('GitHub_CreatePr_ParsesNumberFromUrl', async () => {
+    mockExec.mockResolvedValue('https://github.com/o/r/pull/42');
+
+    const result = await provider.createPr({
+      title: 't',
+      body: 'b',
+      baseBranch: 'main',
+      headBranch: 'feat/x',
+    });
+
+    expect(result).toEqual({ url: 'https://github.com/o/r/pull/42', number: 42 });
+  });
+
+  // If stdout carries no parseable trailing number, fall back to gh pr view
+  // (structured) rather than throwing.
+  it('GitHub_CreatePr_FallsBackToPrViewOnUnparseableUrl', async () => {
+    mockExec
+      .mockResolvedValueOnce(
+        'Creating pull request for feat/x into main\nhttps://github.com/o/r/pull/abc',
+      )
+      .mockResolvedValueOnce(
+        JSON.stringify({ number: 99, url: 'https://github.com/o/r/pull/99' }),
+      );
+
+    const result = await provider.createPr({
+      title: 't',
+      body: 'b',
+      baseBranch: 'main',
+      headBranch: 'feat/x',
+    });
+
+    const viewCall = mockExec.mock.calls.find(
+      (call) => Array.isArray(call[1]) && call[1].includes('view'),
+    );
+    expect(viewCall?.[1]).toEqual(
+      expect.arrayContaining(['pr', 'view', '--json', 'number,url']),
+    );
+    expect(result).toEqual({ number: 99, url: 'https://github.com/o/r/pull/99' });
   });
 
   it('GitHubProvider_CheckCi_ParsesGhOutput', async () => {

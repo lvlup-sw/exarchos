@@ -8,7 +8,6 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { VcsProvider, CiStatus, PrComment as VcsPrComment } from '../vcs/provider.js';
-import { requiresGitHub } from '../vcs/require-github.js';
 import { createVcsProvider } from '../vcs/factory.js';
 import type { EventStore } from '../event-store/store.js';
 import type { ToolResult } from '../format.js';
@@ -491,8 +490,13 @@ export async function handleAssessStack(
   provider?: VcsProvider,
   registry: ReviewAdapterRegistry = createReviewAdapterRegistry(),
 ): Promise<ToolResult> {
-  const vcsGuard = requiresGitHub(provider, 'assess_stack');
-  if (vcsGuard) return vcsGuard;
+  // No provider-identity gate here: every provider call in this handler is
+  // supported for GitLab/ADO (`checkCi`, `getReviewStatus`, `getPrComments`)
+  // or already fail-soft (`listPrs` via `queryPrMergeState`, and the
+  // check/review/comment query helpers, all catch → `null`/`[]`). The harvest
+  // loop is provider-branch-free (INV-6), so non-GitHub providers proceed and
+  // surface their PR/MR comments as action items. `requiresGitHub` still gates
+  // the `gh`-CLI-bound `check_pr_comments`/`validate_pr_stack` handlers.
 
   // Input validation
   if (!args.featureId) {
