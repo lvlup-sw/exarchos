@@ -106,7 +106,14 @@ describe('defaultRealpath error handling', () => {
     // ENOENT (the tail does not exist yet) is the ONE tolerated failure: resolve
     // the existing ancestor and re-append the missing leaf, so a brand-new path
     // still canonicalizes instead of throwing.
-    const realRoot = fs.realpathSync(os.tmpdir());
+    //
+    // Canonicalize the ancestor with `.native` — the SAME resolver `defaultRealpath`
+    // uses (path-containment.ts) — so `realRoot` is a fixed point of the function
+    // under test. The plain `fs.realpathSync` leaves Windows 8.3 short names
+    // un-expanded (CI temp root is `C:\Users\RUNNER~1\...`), but `defaultRealpath`
+    // expands them to long form (`runneradmin`); using it here keeps the assertion
+    // focused on missing-tail synthesis instead of failing on ancestor expansion.
+    const realRoot = fs.realpathSync.native(os.tmpdir());
     const missingChild = path.join(realRoot, `wlm-realpath-missing-${process.pid}`, 'leaf');
     // The tail does not exist → defaultRealpath synthesizes it onto the resolved
     // ancestor rather than throwing.
