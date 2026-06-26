@@ -130,8 +130,8 @@ A task with no DR-N is a coverage gap; a DR-N with no task is unimplemented — 
 **Excluded:**
 - #1616 (re-homed under #1258/#1253 — edits the Z3 consolidation surface `playbooks.ts`).
 - Windows `az`/`.cmd`-shim hardening for the new ADO path (consistent with existing `az repos pr` calls; tracked separately — see Open Questions).
-- GitLab/ADO enablement of `check_pr_comments` and `validate_pr_stack` (they call `getRepository`/`listPrs`, which still throw for those providers). Only `assess_stack` is enabled here; the other two stay GitHub-gated. Tracked as a follow-up under DR-7 parent #1592.
-- **GitLab/ADO `create_pr` end-to-end** — blocked by the fail-closed `listPrs` precheck in `handleCreatePr` (`create-pr.ts:224`); `listPrs` is unimplemented for both. This batch lands only the GitHub end-to-end fix plus the GitLab/ADO provider-unit `--json` class-lock. Completing GitLab/ADO `create_pr` (implementing `listPrs`/`getRepository`) is the same provider-completion follow-up as the `assess_stack` `listPrs` and `check_pr_comments` gaps — one tracked item under #1592.
+- GitLab/ADO enablement of `check_pr_comments` and `validate_pr_stack` (they call `getRepository`/`listPrs`, which still throw for those providers). Only `assess_stack` is enabled here; the other two stay GitHub-gated. Tracked as **#1626** (DR-7 parent #1592).
+- **GitLab/ADO `create_pr` end-to-end** — blocked by the fail-closed `listPrs` precheck in `handleCreatePr` (`create-pr.ts:224`); `listPrs` is unimplemented for both. This batch lands only the GitHub end-to-end fix plus the GitLab/ADO provider-unit `--json` class-lock. Completing GitLab/ADO `create_pr` (implementing `listPrs`/`getRepository`) is the same provider-completion follow-up as the `assess_stack` `listPrs` and `check_pr_comments` gaps — tracked as **#1626** (under #1592).
 
 ### Traceability matrix (DR-N → tasks)
 
