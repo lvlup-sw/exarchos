@@ -73,6 +73,7 @@ import {
   type ProcessSource,
 } from './pure/process-identity.js';
 import {
+  canonicalWorktreeId,
   defaultRealpath,
   type RealpathResolver,
 } from './pure/path-containment.js';
@@ -542,6 +543,20 @@ export class WorktreeManager {
   }
 
   /**
+   * Canonical, separator-stable `worktreeId` for an on-disk worktree path — the
+   * SINGLE keying derivation shared by adopt, the registry re-check, and (via
+   * the same {@link canonicalWorktreeId} helper) the `worktrees@v1` reducer's
+   * remove-event correlation. Routes the manager's injected {@link realpath} so
+   * adopt and the reducer agree on the key, and applies {@link toPosix} AFTER
+   * realpath+resolve so `git worktree list --porcelain`'s forward-slash output
+   * and Node's native backslashes fold to one key on Windows (#1620). No-op on
+   * POSIX.
+   */
+  private canonicalId(p: string): string {
+    return canonicalWorktreeId(p, this.realpath);
+  }
+
+  /**
    * Reserve a worktree for a live process: append `worktree.reserved` to the
    * `worktrees` stream. The `operationId` is minted per call (outside any retry)
    * so the two-component idempotency key `worktree.reserved:<operationId>` makes
@@ -684,7 +699,7 @@ export class WorktreeManager {
     // paths, but we canonicalize again so `worktreeId` matches the reducer's key.
     const onDisk = this.gitProbe.listWorktrees(repoRoot);
     const probed = onDisk.map((wt) => ({
-      worktreeId: this.realpath(path.resolve(wt.path)),
+      worktreeId: this.canonicalId(wt.path),
       path: wt.path,
       featureId: this.featureIdResolver(wt),
       verification: this.gitProbe.verifyHead(wt.path),
@@ -997,9 +1012,9 @@ export class WorktreeManager {
       repoRoot,
     );
     if (status !== 0) return false;
-    const targetId = this.realpath(path.resolve(worktreePath));
+    const targetId = this.canonicalId(worktreePath);
     return parseWorktreeListPorcelain(stdout).some(
-      (wt) => this.realpath(path.resolve(wt.path)) === targetId,
+      (wt) => this.canonicalId(wt.path) === targetId,
     );
   }
 

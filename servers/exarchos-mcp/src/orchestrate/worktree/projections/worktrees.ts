@@ -47,10 +47,10 @@
  * `projectionSequence` bump), preserving change-detection semantics. Enforced by
  * `assertReducerImmutable` in the co-located test.
  */
-import * as path from 'node:path';
 import type { ProjectionReducer } from '../../../projections/types.js';
 import type { WorkflowEvent } from '../../../event-store/schemas.js';
 import {
+  canonicalWorktreeId,
   defaultRealpath,
   type RealpathResolver,
 } from '../pure/path-containment.js';
@@ -176,7 +176,11 @@ function dropRemoved(
 ): WorktreesProjection {
   const worktreePath = extractString(event.data, 'worktreePath');
   if (!worktreePath) return state;
-  const worktreeId = realpath(path.resolve(worktreePath));
+  // Canonicalize through the SAME `toPosix(realpath(resolve(...)))` form the
+  // emitter (`WorktreeManager.adopt`) keys its entries under, so a remove event
+  // folds onto the adopted entry's key on Windows too (#1620), not a
+  // backslash-vs-forward-slash sibling that would miss.
+  const worktreeId = canonicalWorktreeId(worktreePath, realpath);
   if (!Object.prototype.hasOwnProperty.call(state.worktrees, worktreeId)) {
     return state;
   }

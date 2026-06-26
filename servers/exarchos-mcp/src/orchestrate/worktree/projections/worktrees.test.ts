@@ -18,6 +18,7 @@ import {
 } from './worktrees.js';
 import type { WorkflowEvent } from '../../../event-store/schemas.js';
 import type { RealpathResolver } from '../pure/path-containment.js';
+import { toPosix } from '../../../utils/paths.js';
 import { assertReducerImmutable } from '../../../projections/testing.js';
 
 // Side-effect import — registers `worktrees@v1` with the process-wide
@@ -53,10 +54,12 @@ function buildEvent(overrides: {
 /** Identity resolver — `path.resolve` already normalised the input. */
 const identityRealpath: RealpathResolver = (p) => p;
 
-// Canonical (already-absolute, platform-resolved) worktree ids used across the
-// suite. `path.resolve` keeps these consistent on POSIX and Windows alike.
-const WT_A = path.resolve('/srv/wt/feature-a');
-const WT_B = path.resolve('/srv/wt/feature-b');
+// Canonical worktree ids used across the suite, in the SAME separator-stable
+// form production keys under: `toPosix(path.resolve(...))` (#1620). The reducer
+// canonicalizes a remove event's `worktreePath` to this exact form, so the keys
+// must match it on Windows (forward-slash) as well as POSIX (no-op there).
+const WT_A = toPosix(path.resolve('/srv/wt/feature-a'));
+const WT_B = toPosix(path.resolve('/srv/wt/feature-b'));
 
 describe('worktreesReducer.apply (WLM foundation)', () => {
   it('WorktreesReducer_FoldEvents_ReproducesStateFromLogAlone', () => {
@@ -320,9 +323,13 @@ describe('worktreesReducer.apply (WLM foundation)', () => {
     // the remove event carries the unresolved path; the injected resolver
     // canonicalizes it back to the stored worktreeId. ──
     const rawSymlink = path.resolve('/var/wt/feature-c');
-    const canonical = path.resolve('/private/var/wt/feature-c');
+    // The resolver returns the OS-native symlink target; the stored key is its
+    // `toPosix` form (what production keys under), and the reducer canonicalizes
+    // the remove event's `worktreePath` to the same form (#1620).
+    const osCanonical = path.resolve('/private/var/wt/feature-c');
+    const canonical = toPosix(osCanonical);
     const symlinkRealpath: RealpathResolver = (p) =>
-      p === rawSymlink ? canonical : p;
+      p === rawSymlink ? osCanonical : p;
     const symReducer = createWorktreesReducer(symlinkRealpath);
 
     const symAdopted = symReducer.apply(

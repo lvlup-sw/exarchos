@@ -37,6 +37,7 @@ import {
   createWorktreesReducer,
   type WorktreesProjection,
 } from './projections/worktrees.js';
+import { canonicalWorktreeId } from './pure/path-containment.js';
 
 // ─── git + event-store helpers ──────────────────────────────────────────────
 
@@ -128,7 +129,7 @@ describe('WorktreeManager.adopt (real git + real event store)', () => {
     // A real hand-made worktree — created by git directly, NOT by the manager.
     const wtPath = path.join(workdir, 'hand-wt');
     git(repo, ['worktree', 'add', '-q', wtPath, '-b', 'hand-branch']);
-    const wtId = realpathSync(wtPath);
+    const wtId = canonicalWorktreeId(wtPath);
 
     const before = countOnDiskWorktrees(repo);
 
@@ -167,11 +168,11 @@ describe('WorktreeManager.adopt (real git + real event store)', () => {
     const result = await manager.adopt(repo);
 
     const adoptedIds = new Set(result.adopted);
-    expect(adoptedIds.has(realpathSync(agentPath))).toBe(true);
-    expect(adoptedIds.has(realpathSync(plainPath))).toBe(true);
+    expect(adoptedIds.has(canonicalWorktreeId(agentPath))).toBe(true);
+    expect(adoptedIds.has(canonicalWorktreeId(plainPath))).toBe(true);
     const proj = await projection(store);
-    expect(proj.worktrees[realpathSync(agentPath)].state).toBe('adopted');
-    expect(proj.worktrees[realpathSync(plainPath)].state).toBe('adopted');
+    expect(proj.worktrees[canonicalWorktreeId(agentPath)].state).toBe('adopted');
+    expect(proj.worktrees[canonicalWorktreeId(plainPath)].state).toBe('adopted');
   });
 
   // ─── adopt: hand-made worktree records featureId null ─────────────────────
@@ -180,7 +181,7 @@ describe('WorktreeManager.adopt (real git + real event store)', () => {
     const repo = await initRepo(path.join(workdir, 'repo'));
     const wtPath = path.join(workdir, 'unattached-wt');
     git(repo, ['worktree', 'add', '-q', wtPath, '-b', 'unattached-branch']);
-    const wtId = realpathSync(wtPath);
+    const wtId = canonicalWorktreeId(wtPath);
 
     // Default resolver → no harness knowledge → unattached (featureId null).
     const manager = new WorktreeManager({ eventStore: store });
@@ -216,7 +217,7 @@ describe('WorktreeManager.adopt (real git + real event store)', () => {
     git(repoA, ['add', '.']);
     git(repoA, ['commit', '-q', '-m', 'c1']);
     git(repoA, ['push', '-q', '-u', 'origin', 'work']);
-    const idA = realpathSync(repoA);
+    const idA = canonicalWorktreeId(repoA);
 
     // Clone B: an EXTERNAL process advances `work` to c2 and pushes.
     const repoB = path.join(workdir, 'B');
@@ -254,7 +255,7 @@ describe('WorktreeManager.adopt (real git + real event store)', () => {
     const repo = await initRepo(path.join(workdir, 'repo'));
     const wtPath = path.join(workdir, 'released-wt');
     git(repo, ['worktree', 'add', '-q', wtPath, '-b', 'rel-branch']);
-    const wtId = realpathSync(wtPath);
+    const wtId = canonicalWorktreeId(wtPath);
 
     const manager = new WorktreeManager({ eventStore: store });
     // A finished agent: reserve then release the worktree.

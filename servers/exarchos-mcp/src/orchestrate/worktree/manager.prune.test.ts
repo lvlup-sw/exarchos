@@ -42,6 +42,7 @@ import {
 } from './manager.js';
 import type { ProcessSource } from './pure/process-identity.js';
 import type { WorktreesProjection } from './projections/worktrees.js';
+import { canonicalWorktreeId } from './pure/path-containment.js';
 
 // ─── git + event-store helpers ──────────────────────────────────────────────
 
@@ -83,7 +84,7 @@ async function initRepoWithOrigin(
 /** Add a linked worktree on a fresh branch at `repo`'s current HEAD. */
 function addWorktree(repo: string, wtPath: string, branch: string): string {
   git(repo, ['worktree', 'add', '-q', wtPath, '-b', branch]);
-  return realpathSync(wtPath);
+  return canonicalWorktreeId(wtPath);
 }
 
 /** Raw persisted events on the `worktrees` stream. */
@@ -163,7 +164,7 @@ describe('WorktreeManager.prune (real git + real event store)', () => {
     wtPath: string,
     featureId: string | null,
   ): Promise<string> {
-    const wtId = realpathSync(wtPath);
+    const wtId = canonicalWorktreeId(wtPath);
     await manager.reserve({
       worktreeId: wtId,
       path: wtPath,
@@ -619,7 +620,7 @@ describe('WorktreeManager.prune (real git + real event store)', () => {
     const delId = await makeReleased(manager, delPath, 'feat-cc');
     // wt-dead: reserved with a dead owner + NO featureId → reconcile releases it
     // but it is never delete-eligible (fails closed), so prune never touches it.
-    const deadId = realpathSync(deadPath);
+    const deadId = canonicalWorktreeId(deadPath);
     await manager.reserve({
       worktreeId: deadId,
       path: deadPath,
