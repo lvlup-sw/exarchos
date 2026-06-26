@@ -149,6 +149,11 @@ export class GitHubProvider implements VcsProvider {
   }
 
   async createPr(opts: CreatePrOpts): Promise<PrResult> {
+    // NB: `gh pr create` has NO `--json` flag (that's valid only on
+    // `gh pr view`/`gh pr list`); passing it makes gh exit non-zero on
+    // flag-parse BEFORE creating the PR. On success gh prints the created PR
+    // URL to stdout, so we parse the URL/number from that — mirroring how
+    // createIssue derives the issue number from its `gh issue create` stdout.
     const args = [
       'pr',
       'create',
@@ -160,8 +165,6 @@ export class GitHubProvider implements VcsProvider {
       opts.baseBranch,
       '--head',
       opts.headBranch,
-      '--json',
-      'url,number',
     ];
 
     if (opts.draft) {
@@ -173,7 +176,24 @@ export class GitHubProvider implements VcsProvider {
     }
 
     const output = await exec('gh', args);
-    const parsed = JSON.parse(output) as { url: string; number: number };
+    // gh may print progress/notice lines before the URL; take the last
+    // non-empty line as the created PR URL.
+    const url =
+      output
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+        .at(-1) ?? '';
+    const number = Number(url.match(/\/(\d+)\/?$/)?.[1]);
+
+    if (Number.isFinite(number)) {
+      return { url, number };
+    }
+
+    // Fallback: stdout carried no parseable trailing PR number. Resolve the
+    // structured fields via `gh pr view` rather than throwing.
+    const viewOutput = await exec('gh', ['pr', 'view', url, '--json', 'number,url']);
+    const parsed = JSON.parse(viewOutput) as { url: string; number: number };
     return { url: parsed.url, number: parsed.number };
   }
 
