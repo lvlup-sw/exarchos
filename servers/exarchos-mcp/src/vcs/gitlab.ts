@@ -82,6 +82,10 @@ export class GitLabProvider implements VcsProvider {
   }
 
   async createPr(opts: CreatePrOpts): Promise<PrResult> {
+    // `glab mr create` has NO `--json` flag, and its create stream is
+    // undocumented — so we do not parse its stdout. We issue the create, then
+    // read the freshly created MR's identity with `glab mr view` (which DOES
+    // support `--json` field selection, matching `checkCi`/`getReviewStatus`).
     const args = [
       'mr',
       'create',
@@ -93,8 +97,6 @@ export class GitLabProvider implements VcsProvider {
       opts.headBranch,
       '--target-branch',
       opts.baseBranch,
-      '--json',
-      'url,iid',
     ];
 
     if (opts.draft) {
@@ -105,9 +107,20 @@ export class GitLabProvider implements VcsProvider {
       args.push('--label', opts.labels.join(','));
     }
 
-    const output = await exec('glab', args);
-    const parsed = JSON.parse(output) as { url: string; iid: number };
-    return { url: parsed.url, number: parsed.iid };
+    await exec('glab', args);
+
+    // Resolve the new MR by its source branch. A read failure THROWS (does not
+    // return a partial): `PrResult.number` is non-optional, and the caller
+    // `handleCreatePr` maps the throw to a structured VCS_ERROR.
+    const viewOutput = await exec('glab', [
+      'mr',
+      'view',
+      opts.headBranch,
+      '--json',
+      'iid,webUrl',
+    ]);
+    const parsed = JSON.parse(viewOutput) as { iid: number; webUrl: string };
+    return { url: parsed.webUrl, number: parsed.iid };
   }
 
   async checkCi(prId: string): Promise<CiStatus> {

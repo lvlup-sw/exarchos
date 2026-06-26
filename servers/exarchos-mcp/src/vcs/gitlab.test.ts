@@ -24,10 +24,18 @@ describe('GitLabProvider', () => {
 
   // ── createPr ────────────────────────────────────────────────────────────
 
+  // `glab mr create` has no `--json` flag, so createPr issues a bare create
+  // then reads identity via `glab mr view <branch> --json iid,webUrl`. Tests
+  // stub the two exec calls in order: create (output ignored), then view.
+  const VIEW_JSON = (iid: number, webUrl: string): string =>
+    JSON.stringify({ iid, webUrl });
+
   it('GitLabProvider_CreatePr_CallsGlabWithCorrectArgs', async () => {
-    mockExec.mockResolvedValue(
-      JSON.stringify({ url: 'https://gitlab.com/test/repo/-/merge_requests/10', iid: 10 })
-    );
+    mockExec
+      .mockResolvedValueOnce('') // create — output not parsed
+      .mockResolvedValueOnce(
+        VIEW_JSON(10, 'https://gitlab.com/test/repo/-/merge_requests/10')
+      );
 
     const result = await provider.createPr({
       title: 'feat: gitlab test',
@@ -36,7 +44,7 @@ describe('GitLabProvider', () => {
       headBranch: 'feat/test',
     });
 
-    expect(mockExec).toHaveBeenCalledWith('glab', [
+    expect(mockExec).toHaveBeenNthCalledWith(1, 'glab', [
       'mr',
       'create',
       '--title',
@@ -47,17 +55,87 @@ describe('GitLabProvider', () => {
       'feat/test',
       '--target-branch',
       'main',
+    ]);
+    expect(mockExec).toHaveBeenNthCalledWith(2, 'glab', [
+      'mr',
+      'view',
+      'feat/test',
       '--json',
-      'url,iid',
+      'iid,webUrl',
     ]);
     expect(result.url).toBe('https://gitlab.com/test/repo/-/merge_requests/10');
     expect(result.number).toBe(10);
   });
 
+  it('GitLab_CreatePr_OmitsJsonFlagOnCreate', async () => {
+    mockExec
+      .mockResolvedValueOnce('')
+      .mockResolvedValueOnce(
+        VIEW_JSON(10, 'https://gitlab.com/test/repo/-/merge_requests/10')
+      );
+
+    await provider.createPr({
+      title: 'no json on create',
+      body: 'body',
+      baseBranch: 'main',
+      headBranch: 'feat/test',
+    });
+
+    const createArgs = mockExec.mock.calls[0][1] ?? [];
+    expect(createArgs).toContain('mr');
+    expect(createArgs).toContain('create');
+    expect(createArgs).not.toContain('--json');
+    expect(createArgs).not.toContain('url,iid');
+  });
+
+  it('GitLab_CreatePr_ReadsIidAndUrlFromMrView', async () => {
+    mockExec
+      .mockResolvedValueOnce('Created MR !42')
+      .mockResolvedValueOnce(
+        VIEW_JSON(42, 'https://gitlab.com/test/repo/-/merge_requests/42')
+      );
+
+    const result = await provider.createPr({
+      title: 'reads from view',
+      body: 'body',
+      baseBranch: 'main',
+      headBranch: 'feat/view',
+    });
+
+    expect(mockExec).toHaveBeenNthCalledWith(2, 'glab', [
+      'mr',
+      'view',
+      'feat/view',
+      '--json',
+      'iid,webUrl',
+    ]);
+    expect(result).toEqual({
+      url: 'https://gitlab.com/test/repo/-/merge_requests/42',
+      number: 42,
+    });
+  });
+
+  it('GitLab_CreatePr_ThrowsWhenViewReadFails', async () => {
+    mockExec
+      .mockResolvedValueOnce('Created MR !99')
+      .mockRejectedValueOnce(new Error('glab mr view failed'));
+
+    await expect(
+      provider.createPr({
+        title: 'view fails',
+        body: 'body',
+        baseBranch: 'main',
+        headBranch: 'feat/view-fail',
+      })
+    ).rejects.toThrow('glab mr view failed');
+  });
+
   it('GitLabProvider_CreatePr_IncludesDraftFlag', async () => {
-    mockExec.mockResolvedValue(
-      JSON.stringify({ url: 'https://gitlab.com/test/repo/-/merge_requests/11', iid: 11 })
-    );
+    mockExec
+      .mockResolvedValueOnce('')
+      .mockResolvedValueOnce(
+        VIEW_JSON(11, 'https://gitlab.com/test/repo/-/merge_requests/11')
+      );
 
     await provider.createPr({
       title: 'draft mr',
@@ -67,16 +145,16 @@ describe('GitLabProvider', () => {
       draft: true,
     });
 
-    expect(mockExec).toHaveBeenCalledWith(
-      'glab',
-      expect.arrayContaining(['--draft'])
-    );
+    const createArgs = mockExec.mock.calls[0][1] ?? [];
+    expect(createArgs).toContain('--draft');
   });
 
   it('GitLabProvider_CreatePr_IncludesLabels', async () => {
-    mockExec.mockResolvedValue(
-      JSON.stringify({ url: 'https://gitlab.com/test/repo/-/merge_requests/12', iid: 12 })
-    );
+    mockExec
+      .mockResolvedValueOnce('')
+      .mockResolvedValueOnce(
+        VIEW_JSON(12, 'https://gitlab.com/test/repo/-/merge_requests/12')
+      );
 
     await provider.createPr({
       title: 'labeled mr',
@@ -86,10 +164,9 @@ describe('GitLabProvider', () => {
       labels: ['bug', 'priority'],
     });
 
-    expect(mockExec).toHaveBeenCalledWith(
-      'glab',
-      expect.arrayContaining(['--label', 'bug,priority'])
-    );
+    const createArgs = mockExec.mock.calls[0][1] ?? [];
+    expect(createArgs).toContain('--label');
+    expect(createArgs).toContain('bug,priority');
   });
 
   it('GitLabProvider_CreatePr_PropagatesExecError', async () => {
