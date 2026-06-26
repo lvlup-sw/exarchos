@@ -104,6 +104,33 @@ describe('AzureDevOpsProvider', () => {
     );
   });
 
+  it('AzureDevOps_CreatePr_UsesOutputJsonNotWriteJsonFlag', async () => {
+    // #1622: `az repos pr create` gets JSON via the GLOBAL `--output json`
+    // flag — that is valid. The broken pattern (a bare `--json` write flag on
+    // a create/write command) must NOT appear. Lock the create argv.
+    mockExec.mockResolvedValue(
+      JSON.stringify({
+        repository: { webUrl: 'https://dev.azure.com/org/project/_git/repo' },
+        pullRequestId: 200,
+      })
+    );
+
+    await provider.createPr({
+      title: 'verify output json',
+      body: 'body',
+      baseBranch: 'main',
+      headBranch: 'feat/x',
+    });
+
+    const [cmd, argv] = mockExec.mock.calls[0] as [string, string[]];
+    expect(cmd).toBe('az');
+    const outputIdx = argv.indexOf('--output');
+    expect(outputIdx).toBeGreaterThanOrEqual(0);
+    expect(argv[outputIdx + 1]).toBe('json');
+    // No bare `--json` write flag anywhere in the create invocation.
+    expect(argv).not.toContain('--json');
+  });
+
   it('AzureDevOpsProvider_CreatePr_PropagatesExecError', async () => {
     mockExec.mockRejectedValue(new Error('az not found'));
 
