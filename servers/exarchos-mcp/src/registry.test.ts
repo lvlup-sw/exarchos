@@ -16,6 +16,7 @@ import {
   findActionInRegistry,
   ActionAnnotationsSchema,
   validateAnnotations,
+  validateAction,
   WorkflowSetOutputSchema,
   WorkflowTransitionOutputSchema,
   WorkflowUpdateOutputSchema,
@@ -1177,6 +1178,115 @@ describe('TOOL_REGISTRY', () => {
       expect(
         provenance!.schema.safeParse({ workflowId: 'wf-1' }).success,
       ).toBe(true);
+    });
+  });
+
+  // ─── WLM operational-core registration floor (DR-4 / DR-7) ────────────────
+  //
+  // The three new WLM operational-core actions are `serialize_merge` (the
+  // optimistic integration-branch merge lease, on exarchos_orchestrate, DR-7)
+  // and the liveness reads `ps` / `wait` (on exarchos_view, DR-4). The registry
+  // runs `validateAction` over EVERY action in a module-load loop, so any one of
+  // these missing its `outputSchema` or a malformed `annotations` block would
+  // throw at IMPORT time (DIM-3 contracts fail closed at startup, not at first
+  // call). These floor assertions pin that contract so a future registry edit
+  // that drops a schema/annotation on one of the new actions is caught here with
+  // a named failure rather than as an opaque import crash.
+  describe('WLM operational-core registration floor (DR-4/DR-7)', () => {
+    // [toolName, actionName] for each newly-registered operational-core action.
+    const NEW_ACTIONS: ReadonlyArray<readonly [string, string]> = [
+      ['exarchos_orchestrate', 'serialize_merge'],
+      ['exarchos_view', 'ps'],
+      ['exarchos_view', 'wait'],
+    ];
+
+    it('Registry_NewActions_DeclareOutputSchemaAndCoreAnnotations', () => {
+      for (const [tool, name] of NEW_ACTIONS) {
+        const action = findAction(tool, name);
+        expect(action, `${tool}.${name} must be registered`).toBeDefined();
+
+        // outputSchema: present AND a real Zod schema (has a `.parse` method —
+        // the exact shape `validateAction` requires before the response
+        // envelope can be type-checked).
+        expect(
+          action!.outputSchema,
+          `${tool}.${name} must declare an outputSchema`,
+        ).toBeDefined();
+        expect(
+          typeof (action!.outputSchema as { parse?: unknown }).parse,
+          `${tool}.${name}.outputSchema must be a Zod schema (got non-parseable value)`,
+        ).toBe('function');
+
+        // annotations: present AND every core boolean field typed correctly,
+        // plus a recognized `safety` class. This mirrors the per-field shape the
+        // registry's `ActionAnnotationsSchema` enforces.
+        const ann = action!.annotations;
+        expect(ann, `${tool}.${name} must declare annotations`).toBeDefined();
+        expect(typeof ann!.safety, `${tool}.${name}.annotations.safety`).toBe(
+          'string',
+        );
+        expect(
+          typeof ann!.readOnly,
+          `${tool}.${name}.annotations.readOnly`,
+        ).toBe('boolean');
+        expect(
+          typeof ann!.destructive,
+          `${tool}.${name}.annotations.destructive`,
+        ).toBe('boolean');
+        expect(
+          typeof ann!.idempotent,
+          `${tool}.${name}.annotations.idempotent`,
+        ).toBe('boolean');
+        expect(
+          typeof ann!.openWorld,
+          `${tool}.${name}.annotations.openWorld`,
+        ).toBe('boolean');
+      }
+
+      // The view liveness reads are wholesale read-only (they ride the
+      // read-only exarchos_view tool); serialize_merge mutates shared state.
+      const ps = findAction('exarchos_view', 'ps');
+      const wait = findAction('exarchos_view', 'wait');
+      expect(ps!.annotations!.readOnly).toBe(true);
+      expect(wait!.annotations!.readOnly).toBe(true);
+      const serializeMerge = findAction('exarchos_orchestrate', 'serialize_merge');
+      expect(serializeMerge!.annotations!.readOnly).toBe(false);
+    });
+
+    it('Registry_ModuleLoad_DoesNotThrowOnNewActions', () => {
+      // `TOOL_REGISTRY` was already imported at module top — its module-load
+      // `validateAction` loop ran without throwing, otherwise this test file
+      // could not have loaded. Re-running the SAME fail-closed gate over each
+      // new action proves explicitly that none of them would crash startup.
+      for (const [tool, name] of NEW_ACTIONS) {
+        const action = findAction(tool, name);
+        expect(action, `${tool}.${name} must be registered`).toBeDefined();
+        expect(
+          () => validateAction(action!, tool),
+          `${tool}.${name} fails the module-load validateAction gate — it would ` +
+            `throw at import time and crash MCP startup`,
+        ).not.toThrow();
+      }
+
+      // The module itself imports cleanly (cached re-import — asserts the
+      // load-time validation loop already succeeded for the whole registry).
+      return expect(import('./registry.js')).resolves.toBeDefined();
+    });
+
+    it('Registry_VisibleCompositeToolCount_StaysFour', () => {
+      // INV-5d: the WLM operational-core actions are ACTIONS on existing
+      // composites, NOT new visible tools. The visible (non-hidden) composite
+      // count must stay at exactly 4 (the four top-level CLI verbs / MCP tools),
+      // with exarchos_sync the sole hidden composite (total 5).
+      const visibleTools = TOOL_REGISTRY.filter((t) => !t.hidden);
+      expect(visibleTools.length).toBe(4);
+      expect(visibleTools.map((t) => t.name).sort()).toEqual([
+        'exarchos_event',
+        'exarchos_orchestrate',
+        'exarchos_view',
+        'exarchos_workflow',
+      ]);
+      expect(TOOL_REGISTRY).toHaveLength(5);
     });
   });
 

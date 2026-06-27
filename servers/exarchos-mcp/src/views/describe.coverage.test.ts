@@ -23,6 +23,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { DispatchContext } from '../core/dispatch.js';
 import { EventStore } from '../event-store/store.js';
+import { TOOL_REGISTRY } from '../registry.js';
 import { handleView } from './composite.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -65,6 +66,98 @@ function collectDispatchedActionNames(): string[] {
   }
   return [...names].sort();
 }
+
+/**
+ * Registered view-action names on `exarchos_view`, EXCLUDING `describe`.
+ *
+ * `describe` is the introspection action itself: it is BOTH registered (via
+ * `makeDescribeAction` in TOOL_REGISTRY.viewActions) AND routed (a
+ * `case 'describe':` arm in `handleView`), but `collectDispatchedActionNames`
+ * deliberately omits it because it is not a materialized-view action. To put
+ * the routed surface and the registered surface on equal footing for the
+ * equality guard, we drop `describe` from BOTH sides. This is the view-side
+ * analogue of the orchestrate guard's documented `SPECIAL_ACTIONS` skip-set
+ * (`registry.test.ts` → `OrchestrateActions_MatchCompositeHandlers_InSync`) —
+ * the one intentional exception to set equality.
+ */
+function collectRegisteredViewActionNames(): string[] {
+  const view = TOOL_REGISTRY.find((t) => t.name === 'exarchos_view');
+  if (!view) {
+    throw new Error(
+      'collectRegisteredViewActionNames: exarchos_view composite not found in TOOL_REGISTRY',
+    );
+  }
+  return view.actions
+    .map((a) => a.name)
+    .filter((n) => n !== 'describe')
+    .sort();
+}
+
+// ─── View-side EQUALITY guard (DR-4 / DR-7 — close the view DOA hole) ────────
+//
+// The pre-existing `describe.coverage` test above is a SUPERSET guard:
+// "registry COVERS the dispatched surface" (registered ⊇ routed). That shape
+// lets a view action be registered-but-UNROUTED — registered in
+// TOOL_REGISTRY.viewActions with NO `case` arm in `handleView` — ship Dead On
+// Arrival: every call falls through to `default` → UNKNOWN_ACTION at runtime,
+// while the action's own unit tests (which call the underlying handler
+// directly) stay green. This is exactly the class of bug the orchestrate twin
+// (`OrchestrateActions_MatchCompositeHandlers_InSync`) was added to fence after
+// `onboard` shipped registered-but-unrouted.
+//
+// This guard upgrades the contract to EQUALITY: the set of view actions routed
+// by the `handleView` switch (source-parsed via the same tightened regex the
+// coverage test uses) MUST equal the set registered on `exarchos_view`, modulo
+// the single documented `describe` exception. It turns red in BOTH directions —
+// a registered-but-unrouted action AND a routed-but-unregistered action.
+describe('ExarchosView — registry↔dispatch EQUALITY guard (DR-4/DR-7, view DOA fence)', () => {
+  it('ViewActions_MatchCompositeHandlers_InSync', () => {
+    const routed = collectDispatchedActionNames(); // case arms (minus describe)
+    const registered = collectRegisteredViewActionNames(); // registry (minus describe)
+
+    // Sanity: both surfaces must be non-empty, and must include the WLM
+    // operational-core liveness reads (`ps` / `wait`, Task 004) plus the
+    // foundation read (`worktrees`, Task 008). If a future regex/registry edit
+    // collapses either set to zero this fails loudly rather than passing
+    // vacuously (two empty sets are trivially equal).
+    expect(routed.length).toBeGreaterThan(0);
+    expect(registered.length).toBeGreaterThan(0);
+    for (const name of ['ps', 'wait', 'worktrees']) {
+      expect(routed, `handleView must route '${name}'`).toContain(name);
+      expect(
+        registered,
+        `exarchos_view must register '${name}'`,
+      ).toContain(name);
+    }
+
+    // Direction 1 — registered-but-UNROUTED (the DOA hole the superset test
+    // cannot see). A view action in the registry with no `case` arm in
+    // handleView would dispatch to UNKNOWN_ACTION at runtime.
+    const registeredNotRouted = registered.filter((n) => !routed.includes(n));
+    expect(
+      registeredNotRouted,
+      `View action(s) registered on exarchos_view but NOT routed by handleView ` +
+        `(would ship DOA → UNKNOWN_ACTION): [${registeredNotRouted.join(', ')}]. ` +
+        `Add a matching 'case' arm in views/composite.ts.`,
+    ).toEqual([]);
+
+    // Direction 2 — routed-but-UNREGISTERED. Per-action Zod validation in the
+    // dispatch core is silently skipped and the action is invisible to
+    // `describe`. (The superset test already covers this direction; the
+    // equality guard re-pins it so one test owns the full contract.)
+    const routedNotRegistered = routed.filter((n) => !registered.includes(n));
+    expect(
+      routedNotRegistered,
+      `View action(s) routed by handleView but NOT registered on exarchos_view ` +
+        `(Zod validation skipped + invisible to describe): ` +
+        `[${routedNotRegistered.join(', ')}]. ` +
+        `Add it to TOOL_REGISTRY.viewActions in src/registry.ts.`,
+    ).toEqual([]);
+
+    // Belt-and-suspenders: the two surfaces are identical sets.
+    expect(routed).toEqual(registered);
+  });
+});
 
 describe('ExarchosViewDescribe — registry-vs-dispatch parity (T1, #1446 residue)', () => {
   let tempStateDir: string;
