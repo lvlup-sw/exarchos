@@ -3266,6 +3266,41 @@ const viewActions: readonly ToolAction[] = [
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: READ_ONLY_LOCAL,
   },
+  // ─── Worktree-lifecycle liveness reads (WLM operational core, DR-4) ────────
+  // The `ps` / `wait` read leg over the singleton `worktrees` stream: `ps`
+  // surfaces the live `inFlightMerges` set, `wait` blocks (caller-bounded) on a
+  // serialized merge reaching its terminal. `ps probe:true` runs the on-demand
+  // DR-5 orphan probe and emits worktree.released / worktree.orphan_detected —
+  // the single write path — but both ride the wholesale-read-only exarchos_view
+  // tool (annotated read-only per the WLM view surface contract).
+  {
+    name: 'ps',
+    description:
+      'List the live serialized-merge set — the worktrees@v1 inFlightMerges (each: integrationRef, operationId, sourceBranch, holder pid/start-time) — as a pure fold, NO process scan. Pass probe:true to additionally run the on-demand DR-5 process probe and emit worktree.released (owner dead, idle) / worktree.orphan_detected (owner dead, still occupied) — the orphan emitter, the sole write path. Read-only by default.',
+    schema: z.object({
+      probe: z.boolean().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
+  },
+  {
+    name: 'wait',
+    description:
+      'Block until the serialized merge on integrationRef reaches its terminal worktree.merge_executed (caller-bounded poll, re-folding worktrees@v1 each iteration). Returns a structured wait-timeout on expiry; never hangs, spins up no background timer, and emits no events. timeoutMs bounds the wait.',
+    schema: z.object({
+      integrationRef: z.string().min(1),
+      // Bounded-wait budget. Same base type (ZodNumber) as serialize_merge /
+      // doctor `timeoutMs` so the MCP-registration flattener sees no divergent
+      // shape for the shared `timeoutMs` field name.
+      timeoutMs: z.number().int().positive().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
+  },
   makeDescribeAction(),
 ];
 
@@ -3312,7 +3347,7 @@ export const TOOL_REGISTRY: readonly CompositeTool[] = [
     description: 'CQRS materialized views — pipeline, tasks, workflow status, stack, and telemetry',
     actions: viewActions,
     cli: { alias: 'vw' },
-    slimDescription: 'CQRS materialized views for pipeline, tasks, and telemetry. Use describe(actions) for schemas.\n\nActions: pipeline, tasks, workflow_status, stack_status, stack_place, telemetry, team_performance, delegation_timeline, code_quality, eval_results, quality_correlation, quality_attribution, quality_hints, delegation_readiness, synthesis_readiness, shepherd_status, convergence, session_provenance, provenance, invariants_effective, worktrees',
+    slimDescription: 'CQRS materialized views for pipeline, tasks, and telemetry. Use describe(actions) for schemas.\n\nActions: pipeline, tasks, workflow_status, stack_status, stack_place, telemetry, team_performance, delegation_timeline, code_quality, eval_results, quality_correlation, quality_attribution, quality_hints, delegation_readiness, synthesis_readiness, shepherd_status, convergence, session_provenance, provenance, invariants_effective, worktrees, ps, wait',
   },
   {
     name: 'exarchos_sync',

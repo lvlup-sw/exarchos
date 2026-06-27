@@ -27,7 +27,12 @@ import {
   handleViewConvergence,
 } from './tools.js';
 import { handleViewInvariantsEffective } from './effective-catalog.js';
-import { handleViewWorktrees } from '../orchestrate/worktree/handlers.js';
+import {
+  handleViewWorktrees,
+  handleViewPs,
+  handleViewWait,
+  type WorktreeViewDeps,
+} from '../orchestrate/worktree/handlers.js';
 import { handleStackStatus, handleStackPlace } from '../stack/tools.js';
 import { handleViewTelemetry } from '../telemetry/tools.js';
 import type { QualityHintsConfig } from '../capabilities/resolver.js';
@@ -76,6 +81,13 @@ function envelopeWrap(result: ToolResult, startedAt: number): ToolResult {
 export async function handleView(
   args: Record<string, unknown>,
   ctx: DispatchContext,
+  // WLM operational core (DR-4) — test-only DI seam for the `ps` / `wait`
+  // worktree-liveness arms (fake process-table source / realpath / sleep clock).
+  // Production dispatch (`core/dispatch.ts`) calls `handleView(args, ctx)` with
+  // no third argument, so the real OS-backed defaults are wired; only the named
+  // worktree tests thread it. Other action arms ignore it. An extra optional
+  // parameter keeps `handleView` assignable to `CompositeHandler` (2 params).
+  deps?: WorktreeViewDeps,
 ): Promise<ToolResult> {
   const startedAt = Date.now();
   const { stateDir, eventStore } = ctx;
@@ -370,6 +382,19 @@ export async function handleView(
       // (INV-2); the handler takes the full DispatchContext for `ctx.eventStore`.
       return envelopeWrap(await handleViewWorktrees(rest, ctx), startedAt);
 
+    case 'ps':
+      // WLM operational core (DR-4) — list the live serialized-merge set from
+      // `inFlightMerges` (no process scan). `probe: true` additionally pulls the
+      // DR-5 process probe and emits worktree.released / worktree.orphan_detected
+      // (the deferred orphan emitter — the sole write path on this view surface).
+      return envelopeWrap(await handleViewPs(rest, ctx, deps), startedAt);
+
+    case 'wait':
+      // WLM operational core (DR-4) — caller-bounded poll until the serialized
+      // merge on `integrationRef` reaches its terminal worktree.merge_executed.
+      // Read-only, structured-timeout-on-expiry, no background timer.
+      return envelopeWrap(await handleViewWait(rest, ctx, deps), startedAt);
+
     case 'describe':
       return envelopeWrap(
         await handleDescribe(rest as { actions: string[] }, viewActions),
@@ -404,6 +429,8 @@ export async function handleView(
             'convergence',
             'invariants_effective',
             'worktrees',
+            'ps',
+            'wait',
             'describe',
           ] as const,
         },
