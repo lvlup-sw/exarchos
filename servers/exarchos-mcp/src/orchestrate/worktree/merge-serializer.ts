@@ -144,7 +144,11 @@ function buildDefaultReadIntegrationHead(gitExec: GitExec): (input: SerializeMer
  * probe — the SAME ground-truth liveness lens the manager uses for reservation
  * reaping. A holder with a null pid/create-time cannot be proven dead (the lease
  * pre-dates a holder fingerprint), so it is held, not reclaimed. Provably dead
- * means PID absent OR present-with-mismatched create-time (PID reuse).
+ * means PID absent from a SUPPORTED process table OR present-with-mismatched
+ * create-time (PID reuse). On an UNSUPPORTED table (off-Linux, no enumerator)
+ * the probe yields `'unknown'` → `releasable === false`, so this returns `false`
+ * and the holder is HELD, never reclaimed — fail closed (DR-7): the off-Linux
+ * path must never steal a live holder's merge lease.
  */
 function isHolderProvablyDead(
   holder: InFlightMerge,
@@ -583,6 +587,92 @@ function buildDefaultIsMergeApplied(
 }
 
 /**
+ * Re-claim a crash-interrupted merge lease under OCC so a RESUMED
+ * `merge_orchestrate` runs AT MOST ONCE across concurrent recovery passes (DR-7
+ * / DR-12 no-double-merge).
+ *
+ * The `resumeCrashedMerge` precheck (`isMergeApplied`) is a read-only git probe:
+ * two concurrent resumes can BOTH observe "not applied" and BOTH re-run the
+ * merge, double-applying it. This re-claim is the serialization point — the SAME
+ * claim-inside-`decide` OCC the live `serializeMerge` path uses. It re-folds
+ * `inFlightMerges` inside the closure and commits a re-claim ONLY when the slot
+ * is STILL the lease being resumed (`operationId` unchanged) AND still
+ * ours-or-provably-dead under the now-fail-closed liveness (an `'unknown'`
+ * holder on an unsupported table is NOT reclaimable). The re-claim keeps the
+ * holder's ORIGINAL `operationId` (so the eventual terminal still correlates via
+ * the reducer's operationId guard) but stamps OUR LIVE identity, so a racing
+ * resumer re-folds, sees a live foreign holder, and backs off.
+ *
+ * Returns `true` iff this call WON the slot; `false` (closure no-op, OCC
+ * `ConcurrencyError`, or transient `StorageBusyError`) means a concurrent
+ * claimant holds it — the caller MUST abort the resume rather than re-merge. We
+ * never retry-and-steal: re-running the merge is the exact hazard guarded here.
+ *
+ * The `decide` idempotency key is a FRESH uuid (NOT the holder's operationId,
+ * which already keys the original CLAIM via `serializeMerge`) so the re-claim is
+ * a genuine new commit, never a cache-hit of the pre-crash claim.
+ */
+async function tryReclaimLeaseForResume(
+  appender: AtomicAppender,
+  holder: InFlightMerge,
+  selfPid: number,
+  selfStartedAt: string,
+  processTableSource: ProcessTableSource,
+): Promise<boolean> {
+  try {
+    const result = await appender.decide<WorktreesProjection>(
+      WORKTREES_STREAM,
+      WORKTREES_REDUCER,
+      (state) => {
+        const current = state.inFlightMerges[holder.integrationRef];
+        // The lease vanished (a concurrent resume already terminated it) OR a
+        // concurrent resumer re-claimed under a different lease — either way it
+        // is no longer ours to take over.
+        if (current === undefined || current.operationId !== holder.operationId) {
+          return [];
+        }
+        // Re-verify against the FRESH fold (fail-closed): the slot is takeable
+        // only when it is STILL us (a wedged self-release) or STILL provably
+        // dead. A holder that became a live foreign process is left untouched.
+        const stillSelf =
+          current.holderPid === selfPid &&
+          current.holderStartedAt !== null &&
+          current.holderStartedAt !== '' &&
+          current.holderStartedAt === selfStartedAt;
+        const stillDead = isHolderProvablyDead(current, processTableSource);
+        if (!stillSelf && !stillDead) {
+          return [];
+        }
+        // Win the slot: re-claim the SAME lease (operationId unchanged) under OUR
+        // live identity so a racing resumer re-folds and backs off as foreign-live.
+        return [
+          {
+            type: 'worktree.merge_requested',
+            data: {
+              integrationRef: holder.integrationRef,
+              operationId: holder.operationId,
+              sourceBranch: holder.sourceBranch,
+              holderPid: selfPid,
+              holderStartedAt: selfStartedAt,
+              ...(holder.worktreeId != null ? { worktreeId: holder.worktreeId } : {}),
+            },
+          },
+        ];
+      },
+      { operationId: randomUUID(), alwaysEnforceConsistency: false },
+    );
+    return result.kind === 'committed';
+  } catch (err) {
+    // Lost the OCC (a concurrent resumer committed first) or transient substrate
+    // contention — treat as "did not win" so the caller aborts the resume.
+    if (err instanceof ConcurrencyError || err instanceof StorageBusyError) {
+      return false;
+    }
+    throw err;
+  }
+}
+
+/**
  * Resume a crash-interrupted serialized merge: an unpaired
  * `worktree.merge_requested` (CLAIM) on `integrationRef` with no
  * `worktree.merge_executed` (RELEASE), whose holder is THIS process or provably
@@ -642,6 +732,24 @@ export async function resumeCrashedMerge(
   let reMerged = false;
   let mergeResult: ToolResult | undefined;
   if (!isMergeApplied(input, holder.sourceBranch)) {
+    // ─── OCC re-claim BEFORE the re-merge (DR-7 / DR-12 no-double-merge) ──
+    // The `isMergeApplied` precheck is a read-only git probe — two concurrent
+    // resumes can BOTH see "not applied" and BOTH re-run the merge. Serialize
+    // the re-merge behind the SAME claim-inside-`decide` OCC `serializeMerge`
+    // uses: only the resumer that WINS the re-claim re-runs `merge_orchestrate`;
+    // a loser aborts rather than double-applying. (When the merge is ALREADY
+    // applied no merge runs, so the keyed terminal alone is safe without a claim.)
+    const reclaimed = await tryReclaimLeaseForResume(
+      appender,
+      holder,
+      selfPid,
+      selfStartedAt,
+      processTableSource,
+    );
+    if (!reclaimed) {
+      // A concurrent claimant holds the slot — never double-run the merge.
+      return { resumed: false, reason: 'foreign-live-holder' };
+    }
     mergeResult = await mergeOrchestrate(
       {
         featureId: input.featureId,

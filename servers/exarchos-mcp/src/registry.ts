@@ -3267,23 +3267,29 @@ const viewActions: readonly ToolAction[] = [
     annotations: READ_ONLY_LOCAL,
   },
   // ─── Worktree-lifecycle liveness reads (WLM operational core, DR-4) ────────
-  // The `ps` / `wait` read leg over the singleton `worktrees` stream: `ps`
-  // surfaces the live `inFlightMerges` set, `wait` blocks (caller-bounded) on a
-  // serialized merge reaching its terminal. `ps probe:true` runs the on-demand
-  // DR-5 orphan probe and emits worktree.released / worktree.orphan_detected —
-  // the single write path — but both ride the wholesale-read-only exarchos_view
-  // tool (annotated read-only per the WLM view surface contract).
+  // The `ps` / `wait` leg over the singleton `worktrees` stream: `ps` surfaces
+  // the live `inFlightMerges` set, `wait` blocks (caller-bounded) on a serialized
+  // merge reaching its terminal. `ps probe:true` runs the on-demand DR-5 orphan
+  // probe and emits worktree.released / worktree.orphan_detected — a conditional
+  // idempotent heal. Annotation honesty: `wait` is genuinely read-only, but `ps`
+  // has that conditional write path, so it is annotated `local-mutation` /
+  // `idempotent` (NOT readOnly) — re-running converges (the heals are
+  // idempotent), it just is not a zero-append read.
   {
     name: 'ps',
     description:
-      'List the live serialized-merge set — the worktrees@v1 inFlightMerges (each: integrationRef, operationId, sourceBranch, holder pid/start-time) — as a pure fold, NO process scan. Pass probe:true to additionally run the on-demand DR-5 process probe and emit worktree.released (owner dead, idle) / worktree.orphan_detected (owner dead, still occupied) — the orphan emitter, the sole write path. Read-only by default.',
+      'List the live serialized-merge set — the worktrees@v1 inFlightMerges (each: integrationRef, operationId, sourceBranch, holder pid/start-time) — as a pure fold, NO process scan. Pass probe:true to additionally run the on-demand DR-5 process probe and emit worktree.released (owner dead, idle) / worktree.orphan_detected (owner dead, still occupied) — the orphan emitter, a conditional write path. Idempotent: without probe it is a pure read; with probe the heals re-converge on re-run.',
     schema: z.object({
       probe: z.boolean().optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
     outputSchema: EnvelopeSchema(z.unknown()),
-    annotations: READ_ONLY_LOCAL,
+    // `ps probe:true` can append worktree.released / worktree.orphan_detected, so
+    // it is NOT readOnly. The heals are idempotent (re-running a probe over an
+    // already-reconciled set emits nothing) and non-destructive → idempotent
+    // local-mutation. `wait` / `worktrees` stay genuinely READ_ONLY_LOCAL.
+    annotations: LOCAL_MUTATION_IDEMPOTENT,
   },
   {
     name: 'wait',

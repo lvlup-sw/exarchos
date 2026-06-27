@@ -82,8 +82,20 @@ function liveTable(pairs: ReadonlyArray<{ pid: number; startTime: string }>): Pr
   return { list: () => records };
 }
 
-/** Empty process table — every probed pid reads as absent (provably dead). */
+/** Empty but SUPPORTED process table — every probed pid reads as absent (provably dead). */
 const EMPTY_TABLE: ProcessTableSource = { list: () => [] };
+
+/**
+ * UNSUPPORTED process table — the off-Linux shape (no enumerator). `list()` is
+ * `[]` but `isSupported()` is `false`, so a probed pid reads as `'unknown'`,
+ * NEVER provably dead. A holder probed against this table must be HELD, not
+ * reclaimed (DR-7 fail-closed). Mirrors the real `defaultProcessTableSource`
+ * off-Linux.
+ */
+const UNSUPPORTED_TABLE: ProcessTableSource = {
+  list: () => [],
+  isSupported: () => false,
+};
 
 /** A merge_orchestrate stub that records the featureIds it ran for. */
 function recordingMerge(into: string[]): (input: { featureId: string }) => Promise<ToolResult> {
@@ -256,6 +268,64 @@ describe('serialize_merge — single-writer ordering', () => {
 
     // The lease is released at the end — no in-flight merge remains.
     expect((await foldWorktrees(arm)).inFlightMerges[integrationRef]).toBeUndefined();
+  });
+});
+
+// ─── Test 1b: off-Linux unsupported table NEVER reclaims a live holder (REV-H1)─
+
+describe('serialize_merge — unsupported process table (DR-7 fail-closed)', () => {
+  it('SerializeMerge_UnsupportedProcessTable_DoesNotReclaimLiveHolder', async () => {
+    const arm = await createArm();
+    const integrationRef = 'integration/unsupported';
+    const holderOpId = 'live-holder-op';
+
+    // A holder whose pid is absent from the UNSUPPORTED table's empty list. On a
+    // SUPPORTED-empty table this pid would read as provably dead and be reclaimed
+    // inline; on the UNSUPPORTED table it reads 'unknown', so it must be HELD —
+    // the off-Linux path must never steal what could be a LIVE merge holder.
+    await seedHolder(arm, {
+      integrationRef,
+      operationId: holderOpId,
+      sourceBranch: 'feat/held',
+      holderPid: 9090,
+      holderStartedAt: 'boot-9090',
+    });
+
+    // A fake clock that the injected sleep advances, so the bounded wait expires
+    // deterministically (no real timer, no hang) INSTEAD of reclaiming the holder.
+    let clock = 0;
+    const sleep: SleepFn = async (ms) => {
+      clock += ms;
+    };
+    const merged: string[] = [];
+    const result = await serializeMerge(
+      { featureId: 'F', integrationRef, sourceBranch: 'feat/new', strategy: 'merge', timeoutMs: 1_000 },
+      arm.ctx,
+      {
+        now: () => clock,
+        sleep,
+        processTableSource: UNSUPPORTED_TABLE, // pid 9090 → 'unknown', NOT dead.
+        selfPid: 222,
+        selfStartedAt: 'self-222',
+        mergeOrchestrate: recordingMerge(merged),
+        readIntegrationHead: () => 'head-sha',
+      },
+    );
+
+    // The slot was NEVER stolen: the wait timed out structurally instead.
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('MERGE_SLOT_TIMEOUT');
+    expect((result.data as { reason?: string }).reason).toBe('merge-slot-timeout');
+    // The merge NEVER ran — no live holder was reclaimed.
+    expect(merged).toEqual([]);
+    // The holder's lease is STILL in flight (no merge_executed reclaimed it).
+    const projection = await foldWorktrees(arm);
+    expect(projection.inFlightMerges[integrationRef]?.operationId).toBe(holderOpId);
+    const events = await arm.eventStore.query(WORKTREES_STREAM);
+    const reclaims = events.filter(
+      (e) => e.type === 'worktree.merge_executed' && e.data?.operationId === holderOpId,
+    );
+    expect(reclaims).toHaveLength(0); // the holder was held, never reclaimed.
   });
 });
 

@@ -541,8 +541,10 @@ export interface WorktreeManagerDeps {
    * Ground-truth process-table source used by the on-demand orphan probe
    * ({@link WorktreeManager.probeAndReclaim}, DR-5). Injected so the probe is
    * testable with a fake table and zero OS access; defaults to the real
-   * {@link defaultProcessTableSource} (`/proc` on Linux, empty/fail-closed
-   * elsewhere). NOTE: distinct from {@link processSource} — that is the per-PID
+   * {@link defaultProcessTableSource} (`/proc` on Linux; off-Linux the source
+   * reports `isSupported() === false` so every owner reads `'unknown'` and the
+   * probe releases / orphans NOTHING — fail closed, never a spurious heal).
+   * NOTE: distinct from {@link processSource} — that is the per-PID
    * create-time probe for reservation liveness; this enumerates the FULL table
    * for cwd-occupancy + protected-ancestry subtraction.
    */

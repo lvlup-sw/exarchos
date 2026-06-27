@@ -95,8 +95,19 @@ function liveTable(pairs: ReadonlyArray<{ pid: number; startTime: string }>): Pr
   return { list: () => records };
 }
 
-/** Empty process table — every probed pid reads as absent (provably dead). */
+/** Empty but SUPPORTED process table — every probed pid reads as absent (provably dead). */
 const EMPTY_TABLE: ProcessTableSource = { list: () => [] };
+
+/**
+ * UNSUPPORTED process table — the off-Linux shape (no enumerator, DR-11/#1579).
+ * `list()` is `[]` but `isSupported()` is `false`, so a probed pid reads as
+ * `'unknown'`, NEVER provably dead. Reclaim consumers must fail closed against
+ * it (REV-H1). Mirrors the real `defaultProcessTableSource` off-Linux.
+ */
+const UNSUPPORTED_TABLE: ProcessTableSource = {
+  list: () => [],
+  isSupported: () => false,
+};
 
 /** A per-PID create-time source backed by a map (absent pid ⇒ exited). */
 function startTimeSource(table: Record<number, string>): ProcessSource {
@@ -480,6 +491,131 @@ describe('DR-12 — no reset --hard, INV-14 pass-through', () => {
     expect(data.recoveryError).toBe('reset-keep-blocked');
     expect(data.recoveryErrorDetail).toBe('git reset --keep refused to discard local work');
     // The lease was released despite the reversal — no wedged slot.
+    expect((await foldWorktrees(arm)).inFlightMerges[integrationRef]).toBeUndefined();
+  });
+});
+
+// ─── Test 6: off-Linux unsupported table reclaims/orphans NOTHING (REV-H1) ────
+
+describe('DR-12 — unsupported process table fails closed (REV-H1)', () => {
+  it('ProbeAndReclaim_UnsupportedTable_EmitsNoEvents', async () => {
+    const arm = await createArm();
+    const manager = new WorktreeManager({
+      eventStore: arm.eventStore,
+      processTableSource: UNSUPPORTED_TABLE,
+    });
+
+    // A reserved worktree whose owner pid (4242) is absent from the empty table.
+    // On a SUPPORTED table this owner reads provably dead and the probe emits
+    // worktree.released; on the UNSUPPORTED table it reads 'unknown', so the
+    // probe must emit NOTHING — fail closed, never a spurious heal off-Linux.
+    const wtId = '/wlm/unsupported-wt';
+    await manager.reserve({
+      worktreeId: wtId,
+      path: wtId,
+      featureId: 'F',
+      ownerPid: 4242,
+      ownerStartedAt: 'boot-4242',
+    });
+
+    const before = (await arm.eventStore.query(WORKTREES_STREAM)).length;
+    const result = await manager.probeAndReclaim(999999); // selfPid not in table.
+
+    expect(result.released).toEqual([]);
+    expect(result.orphaned).toEqual([]);
+    expect(result.probed).toBe(1);
+    // No terminal lifecycle event was appended — the reservation stands.
+    const events = await arm.eventStore.query(WORKTREES_STREAM);
+    expect(events.length).toBe(before);
+    expect(events.some((e) => e.type === 'worktree.released')).toBe(false);
+    expect(events.some((e) => e.type === 'worktree.orphan_detected')).toBe(false);
+    expect((await foldWorktrees(arm)).worktrees[wtId]?.state).toBe('reserved');
+  });
+});
+
+// ─── Test 7: two concurrent resumes never double-merge (REV-M1 OCC) ───────────
+
+describe('DR-12 — concurrent resume does not double-merge (REV-M1)', () => {
+  it('Recovery_TwoConcurrentResumes_OccPreventsDoubleMerge', async () => {
+    const arm = await createArm();
+    const integrationRef = 'integration/concurrent-resume';
+    const opId = 'crashed-op';
+
+    // A CRASHED holder (pid 9999, absent → provably dead). Two DIFFERENT live
+    // processes (101, 102) both attempt to resume it concurrently. Without the
+    // OCC re-claim both pass the read-only `isMergeApplied` precheck and both
+    // re-run merge_orchestrate — a DOUBLE merge. The re-claim must serialize them
+    // so the merge runs AT MOST once.
+    await seedHolder(arm, {
+      integrationRef,
+      operationId: opId,
+      sourceBranch: 'feat/crashed',
+      holderPid: 9999,
+      holderStartedAt: 'gone-9999',
+    });
+
+    // 9999 absent (dead); BOTH resumers (101, 102) read alive, so once one
+    // re-claims the slot the other sees a LIVE foreign holder and backs off.
+    const table = liveTable([
+      { pid: 101, startTime: 'live-101' },
+      { pid: 102, startTime: 'live-102' },
+    ]);
+
+    let mergeCount = 0;
+    const mergeOrchestrate = async (): Promise<ToolResult> => {
+      mergeCount += 1;
+      // Hold briefly so the loser's OCC attempt overlaps the winner's merge.
+      await new Promise((r) => setTimeout(r, 40));
+      return { success: true, data: { phase: 'completed' } };
+    };
+
+    const resumeDeps = (selfPid: number, selfStartedAt: string) => ({
+      selfPid,
+      selfStartedAt,
+      processTableSource: table,
+      isMergeApplied: () => false, // not applied → both WANT to re-merge.
+      mergeOrchestrate,
+    });
+
+    const [a, b] = await Promise.all([
+      resumeCrashedMerge(
+        { featureId: 'F', integrationRef, strategy: 'merge', repoRoot: '/unused' },
+        arm.ctx,
+        resumeDeps(101, 'live-101'),
+      ),
+      resumeCrashedMerge(
+        { featureId: 'F', integrationRef, strategy: 'merge', repoRoot: '/unused' },
+        arm.ctx,
+        resumeDeps(102, 'live-102'),
+      ),
+    ]);
+
+    // THE invariant: the merge ran AT MOST once across the two concurrent resumes.
+    expect(mergeCount).toBe(1);
+
+    // Exactly one resume won; the other backed off without re-merging.
+    const outcomes = [a, b];
+    const winners = outcomes.filter((o) => o.resumed === true);
+    const losers = outcomes.filter((o) => o.resumed === false);
+    expect(winners).toHaveLength(1);
+    expect(losers).toHaveLength(1);
+
+    const winner = winners[0];
+    if (winner.resumed) {
+      expect(winner.operationId).toBe(opId);
+      expect(winner.reMerged).toBe(true);
+    }
+    const loser = losers[0];
+    if (!loser.resumed) {
+      // The loser either saw a live foreign holder (our re-claim) or an
+      // already-terminated slot — both are correct "did not re-merge" outcomes.
+      expect(['foreign-live-holder', 'no-lease']).toContain(loser.reason);
+    }
+
+    // Exactly ONE terminal landed under the holder's ORIGINAL operationId; the
+    // slot ends clear.
+    const events = await arm.eventStore.query(WORKTREES_STREAM);
+    expect(executedFor(events, opId)).toHaveLength(1);
     expect((await foldWorktrees(arm)).inFlightMerges[integrationRef]).toBeUndefined();
   });
 });
