@@ -92,6 +92,7 @@ import {
   handleAcquireWorktree,
   handleReleaseWorktree,
   handlePruneWorktrees,
+  handleSerializeMerge,
 } from './worktree/handlers.js';
 import { handleScaffold } from './invariants/scaffold.js';
 import type { HandleScaffoldArgs } from './invariants/scaffold.js';
@@ -506,6 +507,12 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   acquire_worktree: adaptCtx(handleAcquireWorktree),
   release_worktree: adaptCtx(handleReleaseWorktree),
   prune_worktrees: adaptCtx(handlePruneWorktrees),
+  // Integration-branch merge serializer (WLM operational core, DR-7) — the
+  // optimistic per-`integrationRef` lease that composes `merge_orchestrate`
+  // UNCHANGED. Rides exarchos_orchestrate (INV-5d — no new visible tool); the
+  // `(args, ctx) => ToolResult` shape matches `adaptCtx`, with the third (deps)
+  // parameter left at its production default here.
+  serialize_merge: adaptCtx(handleSerializeMerge),
 };
 
 /** Exported for sync test — ensures registry.ts stays in sync with handler keys. */

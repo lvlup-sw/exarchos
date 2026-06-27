@@ -2866,6 +2866,48 @@ const orchestrateActions: readonly ToolAction[] = [
       openWorld: false,
     },
   },
+  // ─── Integration-branch merge serializer (WLM operational core, DR-7) ──────
+  // INV-5d: an ACTION on exarchos_orchestrate, NOT a fifth visible tool. An
+  // OPTIMISTIC LEASE over `integrationRef` — the right to merge `sourceBranch`
+  // into `integrationRef` lives in the event log (the
+  // worktree.merge_requested / worktree.merge_executed pair on the singleton
+  // `worktrees` stream), enforcing at most one in-flight merge per integration
+  // ref. It then composes `merge_orchestrate` UNCHANGED for the git work. No
+  // flock / PID file / advisory-lock library — the lease IS the serialization.
+  {
+    name: 'serialize_merge',
+    description:
+      'Serialize an integration-branch merge behind an optimistic per-integrationRef lease, then compose merge_orchestrate UNCHANGED. Grants at most one in-flight merge per integrationRef: a held slot bounded-waits (re-folding worktrees@v1) and reclaims a provably-dead holder inline, or returns a structured merge-slot-timeout. Auto-emits worktree.merge_requested (claim) then worktree.merge_executed (release). Use for: landing a source branch onto a shared integration ref under cross-process serialization. Do NOT use for: a single unsynchronized merge (use merge_orchestrate); a raw provider PR merge (use merge_pr).',
+    schema: z.object({
+      featureId: z.string().min(1),
+      integrationRef: z.string().min(1),
+      sourceBranch: z.string().min(1),
+      strategy: z.enum(['squash', 'rebase', 'merge']),
+      taskId: z.string().optional(),
+      repoRoot: z.string().optional(),
+      // Bounded-wait budget before merge-slot-timeout. Same base type
+      // (ZodNumber) as `doctor.timeoutMs` so the MCP-registration flattener
+      // does not see a divergent shape for the shared `timeoutMs` field name.
+      timeoutMs: z.number().int().positive().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_LEAD,
+    autoEmits: [
+      { event: 'worktree.merge_requested', condition: 'always', description: 'The lease CLAIM (single-writer per integrationRef)' },
+      { event: 'worktree.merge_executed', condition: 'always', description: 'The lease RELEASE (plain keyed append)' },
+    ],
+    // Multi-step serialized merge (wait → claim → compose merge_orchestrate →
+    // release) is the canonical long-running verb — advisory Tasks-augmented
+    // dispatch, mirroring merge_orchestrate.
+    dispatch: { taskSuitable: true, taskTtlSuggestionMs: 60_000 },
+    // Mutates shared state (the integration branch + working tree, via the
+    // composed merge_orchestrate) from the main worktree — the strictest
+    // mutating trust tier. Mirrors merge_orchestrate so the resolver mints the
+    // same fs:write + shell:exec capabilities.
+    posture: 'shared-mutating',
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: COMPENSABLE_REMOTE,
+  },
   makeDescribeAction(),
 ];
 
