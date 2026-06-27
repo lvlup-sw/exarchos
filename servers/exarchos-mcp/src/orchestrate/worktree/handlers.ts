@@ -19,6 +19,7 @@ import type { DispatchContext } from '../../core/dispatch.js';
 import type { ToolResult } from '../../format.js';
 import {
   WorktreeManager,
+  DEFAULT_WAIT_TIMEOUT_MS,
   type WorktreeManagerDeps,
   type ReserveInput,
 } from './manager.js';
@@ -31,6 +32,8 @@ import {
   type SerializeMergeInput,
   type SerializeMergeDeps,
 } from './merge-serializer.js';
+import type { SleepFn } from './git-retry.js';
+import type { InFlightMerge } from './projections/worktrees.js';
 
 // ─── Shared helpers ──────────────────────────────────────────────────────────
 
@@ -364,4 +367,129 @@ export async function handleSerializeMerge(
     ...(timeoutMs !== undefined ? { timeoutMs } : {}),
   };
   return serializeMerge(input, ctx, deps);
+}
+
+// ─── ps / wait (WLM operational core, DR-4 — read-only liveness surface) ──────
+
+/**
+ * Test/DI seam for the worktree-lifecycle VIEW handlers (`ps` / `wait`),
+ * threaded by {@link handleView} as its optional third argument. Extends the
+ * manager-construction {@link InjectableDeps} (fake process-table source /
+ * realpath) with the probe self-PID and the bounded-wait timing seams. Kept OUT
+ * of the registry input schema — these are never user-facing flags; production
+ * dispatch omits every field so the manager wires the real OS-backed defaults.
+ */
+export interface WorktreeViewDeps extends InjectableDeps {
+  /** Probe self-PID whose FULL ancestry is excluded from occupancy. Defaults to `process.pid`. */
+  readonly selfPid?: number;
+  /** Bounded-wait sleep seam (shared with `git-retry.ts`). Defaults to the real `setTimeout` sleep. */
+  readonly sleep?: SleepFn;
+  /** Monotone clock for the wait deadline. Defaults to `Date.now`. */
+  readonly now?: () => number;
+  /** Wait poll interval (ms). Defaults to the manager's `DEFAULT_WAIT_POLL_INTERVAL_MS`. */
+  readonly pollIntervalMs?: number;
+}
+
+/**
+ * `ps` — list the live serialized-merge set from `inFlightMerges` (an open
+ * `worktree.merge_requested` with no paired `worktree.merge_executed`) WITHOUT a
+ * process scan: a pure fold of the `worktrees@v1` projection.
+ *
+ * `probe: true` additionally pulls the DR-5 ground-truth process probe on demand
+ * and emits `worktree.released` (owner dead, not in use) / `worktree.orphan_detected`
+ * (owner dead, still occupied) from the finding — the ONLY write path on this
+ * otherwise read-only view surface (the deferred orphan emitter). Without
+ * `probe`, no table is enumerated at all.
+ */
+export async function handleViewPs(
+  args: Record<string, unknown>,
+  ctx: DispatchContext,
+  deps?: WorktreeViewDeps,
+): Promise<ToolResult> {
+  // `buildManager` takes the manager-construction subset; the extra view-only
+  // seams (`selfPid` / timing) ride through by width subtyping and the manager
+  // ignores them — only `processTableSource` / `realpath` are consumed here.
+  const manager = buildManager(ctx, deps);
+  const inFlight = await manager.listInFlightMerges();
+
+  if (optionalBoolean(args.probe) !== true) {
+    return { success: true, data: { inFlight, count: inFlight.length } };
+  }
+
+  // --probe: pull the DR-5 probe on demand and emit released / orphan_detected.
+  const reclaim = await manager.probeAndReclaim(deps?.selfPid);
+  return {
+    success: true,
+    data: { inFlight, count: inFlight.length, probe: reclaim },
+  };
+}
+
+/** Structured (never-hang) bounded-wait timeout for {@link handleViewWait}. */
+function waitTimeout(
+  integrationRef: string,
+  timeoutMs: number,
+  holder: InFlightMerge,
+): ToolResult {
+  return {
+    success: false,
+    error: {
+      code: 'WAIT_TIMEOUT',
+      message: `merge slot for integration ref '${integrationRef}' did not reach a terminal worktree.merge_executed within ${timeoutMs}ms`,
+    },
+    // The error envelope has a fixed field set; the structured payload rides
+    // `data`, with `reason` the stable kebab discriminator callers match on.
+    data: {
+      reason: 'wait-timeout' as const,
+      integrationRef,
+      timeoutMs,
+      holder: {
+        operationId: holder.operationId,
+        sourceBranch: holder.sourceBranch,
+        holderPid: holder.holderPid,
+      },
+    },
+  };
+}
+
+/**
+ * `wait` — block until the serialized merge on `integrationRef` reaches its
+ * terminal `worktree.merge_executed` (DR-4). Caller-bounded: folds the current
+ * events and, if not yet terminal, bounded-polls the injected `sleep` seam under
+ * an explicit `--timeout`, re-folding each iteration; returns a STRUCTURED
+ * timeout on expiry. Pure read — appends nothing, spins up NO background
+ * interval/daemon, and NEVER hangs.
+ */
+export async function handleViewWait(
+  args: Record<string, unknown>,
+  ctx: DispatchContext,
+  deps?: WorktreeViewDeps,
+): Promise<ToolResult> {
+  const integrationRef = optionalString(args.integrationRef);
+  if (!integrationRef) {
+    return invalidInput('wait requires integrationRef: string', {
+      integrationRef: 'string',
+    });
+  }
+  const timeoutMs =
+    typeof args.timeoutMs === 'number' &&
+    Number.isInteger(args.timeoutMs) &&
+    args.timeoutMs > 0
+      ? args.timeoutMs
+      : DEFAULT_WAIT_TIMEOUT_MS;
+
+  const manager = buildManager(ctx);
+  const result = await manager.waitForMergeTerminal(integrationRef, {
+    timeoutMs,
+    ...(deps?.sleep !== undefined ? { sleep: deps.sleep } : {}),
+    ...(deps?.now !== undefined ? { now: deps.now } : {}),
+    ...(deps?.pollIntervalMs !== undefined ? { pollIntervalMs: deps.pollIntervalMs } : {}),
+  });
+
+  if (result.resolved) {
+    return {
+      success: true,
+      data: { integrationRef, resolved: true, waitedMs: result.waitedMs },
+    };
+  }
+  return waitTimeout(integrationRef, timeoutMs, result.holder);
 }

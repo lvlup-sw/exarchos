@@ -77,6 +77,12 @@ import {
   defaultRealpath,
   type RealpathResolver,
 } from './pure/path-containment.js';
+import {
+  probeWorktrees,
+  defaultProcessTableSource,
+  type ProcessTableSource,
+} from './pure/probe.js';
+import { defaultSleep, type SleepFn } from './git-retry.js';
 import { reservationLiveness, selectDeadReservations } from './pure/ownership.js';
 import {
   classifyPruneCandidate,
@@ -87,6 +93,7 @@ import {
 import type {
   WorktreeEntry,
   WorktreesProjection,
+  InFlightMerge,
 } from './projections/worktrees.js';
 // Side-effect import: registers the `worktrees@v1` reducer with the
 // process-wide `defaultRegistry` so the appender's `aggregateStream` / `decide`
@@ -99,6 +106,12 @@ export const WORKTREES_STREAM = 'worktrees';
 
 /** Reducer id used to fold {@link WORKTREES_STREAM} into the live worktree set. */
 export const WORKTREES_REDUCER = 'worktrees@v1';
+
+/** Default bounded-wait budget (ms) for {@link WorktreeManager.waitForMergeTerminal}. */
+export const DEFAULT_WAIT_TIMEOUT_MS = 30_000;
+
+/** Default poll interval (ms) between bounded-wait re-folds. */
+export const DEFAULT_WAIT_POLL_INTERVAL_MS = 200;
 
 // ─── Real git ground-truth probe (Task 005 owns it) ─────────────────────────
 
@@ -495,6 +508,16 @@ export interface WorktreeManagerDeps {
    * path never `git reset --hard`s); defaults to {@link defaultGitRunner}.
    */
   readonly gitRunner?: GitRunner;
+  /**
+   * Ground-truth process-table source used by the on-demand orphan probe
+   * ({@link WorktreeManager.probeAndReclaim}, DR-5). Injected so the probe is
+   * testable with a fake table and zero OS access; defaults to the real
+   * {@link defaultProcessTableSource} (`/proc` on Linux, empty/fail-closed
+   * elsewhere). NOTE: distinct from {@link processSource} — that is the per-PID
+   * create-time probe for reservation liveness; this enumerates the FULL table
+   * for cwd-occupancy + protected-ancestry subtraction.
+   */
+  readonly processTableSource?: ProcessTableSource;
 }
 
 /** Arguments for {@link WorktreeManager.reserve}. */
@@ -557,6 +580,21 @@ export interface ReconcileResult {
   readonly released: readonly string[];
 }
 
+/** Outcome of a {@link WorktreeManager.probeAndReclaim} pass (DR-5 + orphan emitter). */
+export interface ProbeReclaimResult {
+  /** `worktreeId`s for which a `worktree.released` was emitted (owner dead, not in use). */
+  readonly released: readonly string[];
+  /** `worktreeId`s for which a `worktree.orphan_detected` was emitted (owner dead, still in use). */
+  readonly orphaned: readonly string[];
+  /** Total governed worktrees the probe classified this pass. */
+  readonly probed: number;
+}
+
+/** Outcome of a {@link WorktreeManager.waitForMergeTerminal} bounded poll. */
+export type WaitForMergeTerminalResult =
+  | { readonly resolved: true; readonly waitedMs: number }
+  | { readonly resolved: false; readonly holder: InFlightMerge; readonly waitedMs: number };
+
 /**
  * The in-process worktree-lifecycle facade. Construct one per
  * {@link EventStore}; it is cheap and holds no mutable state.
@@ -568,6 +606,7 @@ export class WorktreeManager {
   private readonly featureIdResolver: FeatureIdResolver;
   private readonly realpath: RealpathResolver;
   private readonly gitRunner: GitRunner;
+  private readonly processTableSource: ProcessTableSource;
 
   constructor(deps: WorktreeManagerDeps) {
     this.eventStore = deps.eventStore;
@@ -576,6 +615,7 @@ export class WorktreeManager {
     this.featureIdResolver = deps.featureIdResolver ?? unattachedFeatureIdResolver;
     this.realpath = deps.realpath ?? defaultRealpath;
     this.gitRunner = deps.gitRunner ?? defaultGitRunner;
+    this.processTableSource = deps.processTableSource ?? defaultProcessTableSource;
   }
 
   /**
@@ -1014,6 +1054,151 @@ export class WorktreeManager {
   async list(): Promise<readonly WorktreeEntry[]> {
     const projection = await this.loadProjection();
     return Object.values(projection.worktrees);
+  }
+
+  /**
+   * Read-only listing of the live serialized-merge set (DR-4): fold the
+   * `worktrees` stream and return every {@link InFlightMerge} — an open
+   * `worktree.merge_requested` with no paired `worktree.merge_executed`. Backs
+   * the `ps` view action's in-flight column. Appends nothing and runs NO process
+   * scan — it is a pure fold of the event log.
+   */
+  async listInFlightMerges(): Promise<readonly InFlightMerge[]> {
+    const projection = await this.loadProjection();
+    return Object.values(projection.inFlightMerges);
+  }
+
+  /**
+   * On-demand orphan / stale-reservation probe + emit — the deferred orphan
+   * emitter (DR-5). Folds the `worktrees@v1` projection, runs the ground-truth
+   * {@link probeWorktrees} process probe over every governed worktree, and emits
+   * exactly ONE terminal lifecycle event per finding:
+   *
+   *   - recorded owner provably DEAD and NOT occupied by a live process →
+   *     `worktree.released` (heal the stale reservation, exactly as `reconcile`
+   *     does — but cross-checked against ground-truth cwd occupancy).
+   *   - recorded owner provably DEAD but the worktree IS still occupied by a
+   *     live, non-ancestry process → `worktree.orphan_detected` (the recorded
+   *     owner is gone yet work may be live; flag as orphan, do NOT free).
+   *
+   * A live / unprovable (`unknown`) owner, and any unreserved entry, emit
+   * NOTHING — the probe never reclaims what it cannot prove gone. `selfPid` (and
+   * its FULL parent-PID ancestry) is excluded from occupancy so the
+   * orchestrator's own drifted cwd never marks a worktree in-use. This is the
+   * ONLY write path on the otherwise read-only `ps`/`wait` view surface, and it
+   * runs only when the caller passes `--probe`. Idempotent across runs: once
+   * released/orphaned the entry is no longer `reserved`, so a re-probe finds no
+   * dead owner and emits nothing.
+   */
+  async probeAndReclaim(selfPid: number = process.pid): Promise<ProbeReclaimResult> {
+    const projection = await this.loadProjection();
+    const entries = Object.values(projection.worktrees);
+    const targets = entries.map((entry) => ({
+      worktreePath: entry.path,
+      owner:
+        entry.state === 'reserved' &&
+        entry.ownerPid !== null &&
+        entry.ownerStartedAt !== null
+          ? { ownerPid: entry.ownerPid, ownerStartedAt: entry.ownerStartedAt }
+          : null,
+    }));
+    // Findings come back in target order; zip with `entries` by index so the
+    // canonical `worktreeId` (the projection key) — not just the probe's `path`
+    // — is what we stamp on the emitted event.
+    const findings = probeWorktrees(
+      { targets, selfPid },
+      this.processTableSource,
+      this.realpath,
+    );
+
+    const released: string[] = [];
+    const orphaned: string[] = [];
+    for (let i = 0; i < entries.length; i += 1) {
+      const entry = entries[i];
+      const finding = findings[i];
+      if (finding === undefined) continue;
+      if (finding.releasable) {
+        // Owner provably dead AND no live occupant → free the stale reservation.
+        await this.appendLifecycle('worktree.released', entry);
+        released.push(entry.worktreeId);
+      } else if (finding.ownerLiveness === 'dead' && finding.inUse) {
+        // Owner provably dead BUT a live foreign process occupies it → orphan.
+        await this.appendLifecycle('worktree.orphan_detected', entry);
+        orphaned.push(entry.worktreeId);
+      }
+    }
+    return { released, orphaned, probed: entries.length };
+  }
+
+  /**
+   * Append one terminal lifecycle event (`worktree.released` /
+   * `worktree.orphan_detected`) for `entry`, clearing the owner fields. Keyed by
+   * `<eventType>:<operationId>` for idempotency (matching the rest of the
+   * worktree family); the `worktrees@v1` reducer flips the entry's state and
+   * nulls the owner on fold. A plain keyed append — no OCC pin — because the
+   * probe already established the owner is provably dead (no live claim to race).
+   */
+  private async appendLifecycle(
+    type: 'worktree.released' | 'worktree.orphan_detected',
+    entry: WorktreeEntry,
+  ): Promise<void> {
+    const operationId = randomUUID();
+    await withStateRetry(() =>
+      this.eventStore.append(
+        WORKTREES_STREAM,
+        {
+          type,
+          data: {
+            worktreeId: entry.worktreeId,
+            path: entry.path,
+            featureId: entry.featureId,
+            ownerPid: null,
+            ownerStartedAt: null,
+            operationId,
+          },
+        },
+        { idempotencyKey: `${type}:${operationId}` },
+      ),
+    );
+  }
+
+  /**
+   * Caller-bounded poll until the serialized merge on `integrationRef` reaches
+   * its terminal `worktree.merge_executed` (DR-4). Folds `worktrees@v1` each
+   * iteration: when `inFlightMerges[integrationRef]` is clear the wait RESOLVES;
+   * otherwise it sleeps `pollIntervalMs` via the INJECTED {@link SleepFn} seam
+   * (shared with `git-retry.ts`) and re-folds, until the explicit `timeoutMs`
+   * deadline — then returns `{ resolved: false }` with the still-live holder so
+   * the caller can surface a STRUCTURED timeout. Pure read: appends NOTHING and
+   * creates NO background interval/timer (the only timer is the injected sleep's
+   * own, which production wires to `setTimeout` and tests replace). NEVER hangs.
+   */
+  async waitForMergeTerminal(
+    integrationRef: string,
+    opts: {
+      readonly timeoutMs?: number;
+      readonly sleep?: SleepFn;
+      readonly now?: () => number;
+      readonly pollIntervalMs?: number;
+    } = {},
+  ): Promise<WaitForMergeTerminalResult> {
+    const sleep = opts.sleep ?? defaultSleep;
+    const now = opts.now ?? Date.now;
+    const pollIntervalMs = opts.pollIntervalMs ?? DEFAULT_WAIT_POLL_INTERVAL_MS;
+    const timeoutMs = opts.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS;
+    const start = now();
+    const deadline = start + timeoutMs;
+    while (true) {
+      const projection = await this.loadProjection();
+      const holder = projection.inFlightMerges[integrationRef];
+      if (holder === undefined) {
+        return { resolved: true, waitedMs: now() - start };
+      }
+      if (now() >= deadline) {
+        return { resolved: false, holder, waitedMs: now() - start };
+      }
+      await sleep(pollIntervalMs);
+    }
   }
 
   /**
