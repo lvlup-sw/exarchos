@@ -26,6 +26,11 @@ import {
   defaultProcessSource,
   type ProcessSource,
 } from './pure/process-identity.js';
+import {
+  serializeMerge,
+  type SerializeMergeInput,
+  type SerializeMergeDeps,
+} from './merge-serializer.js';
 
 // ─── Shared helpers ──────────────────────────────────────────────────────────
 
@@ -295,4 +300,68 @@ export async function handleViewWorktrees(
     success: true,
     data: { worktrees, count: worktrees.length },
   };
+}
+
+// ─── serialize_merge (WLM operational core, DR-7) ─────────────────────────────
+
+/**
+ * Serialize an integration-branch merge behind the optimistic per-`integrationRef`
+ * lease, then compose `merge_orchestrate` UNCHANGED. The lease (a
+ * `worktree.merge_requested` / `worktree.merge_executed` pair on the singleton
+ * `worktrees` stream) is the ONLY serialization — no flock, no `.lock` file. The
+ * `deps` parameter is the test-only DI seam (injected sleep / process-table
+ * probe / composed merge); production callers omit it so the serializer wires the
+ * real OS-backed defaults. Validates the four required fields up front so a
+ * malformed dispatch returns a structured `INVALID_INPUT` rather than reaching
+ * the lease loop.
+ */
+export async function handleSerializeMerge(
+  args: Record<string, unknown>,
+  ctx: DispatchContext,
+  deps?: SerializeMergeDeps,
+): Promise<ToolResult> {
+  const featureId = optionalString(args.featureId);
+  if (!featureId) {
+    return invalidInput('serialize_merge requires featureId: string', {
+      featureId: 'string',
+    });
+  }
+  const integrationRef = optionalString(args.integrationRef);
+  if (!integrationRef) {
+    return invalidInput('serialize_merge requires integrationRef: string', {
+      integrationRef: 'string',
+    });
+  }
+  const sourceBranch = optionalString(args.sourceBranch);
+  if (!sourceBranch) {
+    return invalidInput('serialize_merge requires sourceBranch: string', {
+      sourceBranch: 'string',
+    });
+  }
+  const strategy = optionalString(args.strategy);
+  if (strategy !== 'squash' && strategy !== 'rebase' && strategy !== 'merge') {
+    return invalidInput(
+      "serialize_merge requires strategy: 'squash' | 'rebase' | 'merge'",
+      { strategy: "'squash' | 'rebase' | 'merge'" },
+    );
+  }
+  const taskId = optionalString(args.taskId);
+  const repoRoot = optionalString(args.repoRoot);
+  const timeoutMs =
+    typeof args.timeoutMs === 'number' &&
+    Number.isInteger(args.timeoutMs) &&
+    args.timeoutMs > 0
+      ? args.timeoutMs
+      : undefined;
+
+  const input: SerializeMergeInput = {
+    featureId,
+    integrationRef,
+    sourceBranch,
+    strategy,
+    ...(taskId !== undefined ? { taskId } : {}),
+    ...(repoRoot !== undefined ? { repoRoot } : {}),
+    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+  };
+  return serializeMerge(input, ctx, deps);
 }

@@ -705,7 +705,9 @@ describe('TOOL_REGISTRY', () => {
       // WLM foundation (task 008) added the three worktree-lifecycle ACTIONS
       // (`acquire_worktree`, `release_worktree`, `prune_worktrees`) onto
       // exarchos_orchestrate — INV-5d, no new visible tool: 72 → 75.
-      expect(composite!.actions).toHaveLength(75);
+      // WLM operational core (DR-7) added `serialize_merge` (the optimistic
+      // integration-branch merge lease) onto exarchos_orchestrate: 75 → 76.
+      expect(composite!.actions).toHaveLength(76);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -793,6 +795,9 @@ describe('TOOL_REGISTRY', () => {
           'acquire_worktree',
           'release_worktree',
           'prune_worktrees',
+          // WLM operational core (DR-7): explicit name assertion so the length
+          // bump cannot be satisfied by a different action.
+          'serialize_merge',
         ]),
       );
     });
