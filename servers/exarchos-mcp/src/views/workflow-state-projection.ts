@@ -651,6 +651,12 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       case 'worktree.reserved':
       case 'worktree.released':
       case 'worktree.orphan_detected':
+      // WLM operational-core — serialized-merge lease pair (DR-4 / DR-7). These
+      // ride the singleton `worktrees` stream and are folded by the worktrees@v1
+      // projection, not by workflow-state; they carry no workflow_state-affecting
+      // fields, so this projection folds to identity like the lifecycle family.
+      case 'worktree.merge_requested':
+      case 'worktree.merge_executed':
       case 'test.result':
       case 'typecheck.result':
       case 'ci.status':

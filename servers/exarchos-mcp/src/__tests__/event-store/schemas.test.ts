@@ -502,8 +502,11 @@ describe('EventTypes', () => {
     // WLM foundation: bumped 132 → 136 to include the worktree lifecycle
     // (lease/ownership) family — `worktree.adopted` / `worktree.reserved` /
     // `worktree.released` / `worktree.orphan_detected`. The GC half reuses the
-    // existing `worktree.remove.*` pair (no `worktree.pruned` / `worktree.merge_*`).
-    expect(EventTypes).toHaveLength(136);
+    // existing `worktree.remove.*` pair (no `worktree.pruned`).
+    // WLM operational-core: bumped 136 → 138 to include the serialized-merge
+    // lease pair — `worktree.merge_requested` / `worktree.merge_executed`
+    // (DR-4 / DR-7), the CLAIM + RELEASE on the singleton `worktrees` stream.
+    expect(EventTypes).toHaveLength(138);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');
