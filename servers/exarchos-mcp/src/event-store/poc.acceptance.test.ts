@@ -67,6 +67,7 @@ const EXPECTED_CONSUMERS = [
   'src/orchestrate/execute-merge.ts',
   'src/orchestrate/merge-orchestrate.ts',
   'src/orchestrate/worktree/manager.ts',
+  'src/orchestrate/worktree/merge-serializer.ts',
   'src/storage/sqlite-backend.ts',
 ] as const;
 

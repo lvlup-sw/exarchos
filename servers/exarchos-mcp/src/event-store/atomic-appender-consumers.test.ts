@@ -35,6 +35,9 @@ import { fileURLToPath } from 'node:url';
 
 const FROZEN_IMPORT_BASELINE = [
   'src/event-store/store.ts',
+  // WLM operational-core (#1578): the serialize_merge optimistic lease claims
+  // the worktrees stream via the AtomicAppender decide seam.
+  'src/orchestrate/worktree/merge-serializer.ts',
 ] as const;
 
 /**
@@ -90,7 +93,7 @@ async function listProductionTsFiles(srcRoot: string): Promise<string[]> {
 const IMPORT_REGEX = /^\s*import\b[^;]*\bAtomicAppender\b/m;
 
 describe('AtomicAppender_ConsumerCount_MatchesBaselineEnumeration', () => {
-  it('exactly 3 production .ts files import AtomicAppender (frozen baseline)', async () => {
+  it('exactly the frozen-baseline production .ts files import AtomicAppender', async () => {
     const srcRoot = resolveSrcRoot();
     const repoRoot = path.dirname(srcRoot);
     const candidates = await listProductionTsFiles(srcRoot);
