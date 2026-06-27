@@ -82,6 +82,25 @@ export interface ProcessRecord {
 export interface ProcessTableSource {
   /** Snapshot every visible process. A point-in-time read, never a live stream. */
   list(): readonly ProcessRecord[];
+  /**
+   * Whether this platform's process enumeration is actually SUPPORTED — i.e.
+   * whether an empty `list()` means "no processes" (provably) or "could not
+   * enumerate" (unknown). This is the load-bearing distinction the off-Linux
+   * fail-closed contract rests on: on a platform without a real enumerator
+   * (macOS / Windows before DR-11, #1579) `list()` returns `[]`, and treating
+   * that `[]` as "every PID is absent → every owner is provably dead" would
+   * reclaim LIVE holders (DR-7 corruption). When `isSupported()` is `false`,
+   * a PID lookup is `'unknown'` (NOT `'dead'`), so every reclaim consumer fails
+   * closed — mirroring the `unknown` three-state contract of
+   * {@link ProcessSource} in `process-identity.ts`.
+   *
+   * OPTIONAL purely for backward-compatibility with in-memory test doubles that
+   * supply a concrete records list: an absent predicate is read as `true`
+   * (supported) by {@link isTableSupported}, because such a double IS asserting
+   * a real enumerated table. The real {@link defaultProcessTableSource} always
+   * declares it explicitly (`true` only on Linux).
+   */
+  isSupported?(): boolean;
 }
 
 /** A worktree path plus the current PID whose entire ancestry is protected. */
@@ -210,18 +229,46 @@ function occupantsOf(
 }
 
 /**
- * Adapt a point-in-time {@link ProcessTableSource} snapshot into the per-PID
- * {@link ProcessSource} that {@link ownerLiveness} consumes.
- *
- * A full ground-truth snapshot resolves to `present` / `absent` only — never the
- * per-PID probe's `unknown`: there is no separate create-time probe that could
- * fail to run, the process is simply in the enumerated table or it is not. So
- * owner liveness over a snapshot is two-valued (`alive` / `dead`); the `unknown`
- * fail-closed branch belongs to the live per-PID `defaultProcessSource`, not here.
+ * Whether a {@link ProcessTableSource}'s enumeration is supported. An absent
+ * `isSupported` predicate is read as supported (`true`) — see the field doc:
+ * an in-memory double that supplies a concrete records list IS a real table, so
+ * "PID absent → provably dead" still holds for it. Only a source that explicitly
+ * reports `false` (the real off-Linux {@link defaultProcessTableSource}) flips
+ * lookups to `'unknown'`.
  */
-function tableAsProcessSource(byPid: ReadonlyMap<number, ProcessRecord>): ProcessSource {
+function isTableSupported(source: ProcessTableSource): boolean {
+  return source.isSupported?.() ?? true;
+}
+
+/**
+ * Adapt a point-in-time {@link ProcessTableSource} snapshot into the per-PID
+ * {@link ProcessSource} that {@link ownerLiveness} consumes — THREE-valued.
+ *
+ * When the table is SUPPORTED (`supported === true`), a PID present in the
+ * enumerated snapshot resolves to `present` and an absent one to `absent`: the
+ * absence is authoritative (the process is provably gone), so owner liveness is
+ * two-valued (`alive` / `dead`) over a real enumeration.
+ *
+ * When the table is UNSUPPORTED (`supported === false` — e.g. macOS / Windows
+ * before DR-11, where `list()` returns `[]` because there is no enumerator),
+ * a PID lookup CANNOT distinguish "absent" from "unenumerated", so it resolves
+ * to `'unknown'` for EVERY pid. That propagates through {@link ownerLiveness} to
+ * an `'unknown'` verdict, and every reclaim consumer fails closed (never treats
+ * the holder as provably dead) — mirroring the `unknown` fail-closed branch of
+ * the live per-PID `defaultProcessSource`. This is the fix for the off-Linux
+ * dead-holder-reclaim hole that would otherwise free a LIVE merge holder.
+ */
+function tableAsProcessSource(
+  byPid: ReadonlyMap<number, ProcessRecord>,
+  supported: boolean,
+): ProcessSource {
   return {
     getStartTime(pid: number): StartTimeProbe {
+      if (!supported) {
+        // Unsupported enumeration: an empty/partial table cannot prove a PID
+        // absent, so every lookup is `unknown` → callers fail closed.
+        return { status: 'unknown' };
+      }
       const record = byPid.get(pid);
       return record === undefined
         ? { status: 'absent' }
@@ -257,15 +304,20 @@ export function probeWorktreeUsage(
  * Probe each recorded reservation owner's liveness against the process table.
  *
  * An owner is `releasable` only when {@link ownerLiveness} reports `'dead'` — the
- * PID is absent, or present but with a mismatched create-time (PID reuse). A live
- * owner (PID present AND create-time matches) is never releasable. Pure over the
- * injected {@link ProcessTableSource}.
+ * PID is absent from a SUPPORTED table, or present but with a mismatched
+ * create-time (PID reuse). A live owner (PID present AND create-time matches) is
+ * never releasable, and on an UNSUPPORTED table every owner is `'unknown'` (NOT
+ * `'dead'`) so nothing is releasable — fail closed. Pure over the injected
+ * {@link ProcessTableSource}.
  */
 export function probeReservations(
   reservations: readonly ReservationOwner[],
   source: ProcessTableSource,
 ): ReservationFinding[] {
-  const processSource = tableAsProcessSource(indexByPid(source.list()));
+  const processSource = tableAsProcessSource(
+    indexByPid(source.list()),
+    isTableSupported(source),
+  );
   return reservations.map((reservation) => {
     const liveness = ownerLiveness(
       { ownerPid: reservation.ownerPid, ownerStartedAt: reservation.ownerStartedAt },
@@ -287,8 +339,10 @@ export function probeReservations(
  * liveness lens ({@link probeReservations}) over a single process snapshot. A
  * worktree is releasable only when its recorded owner is provably `'dead'` AND it
  * is NOT in use by any live non-ancestry process — live occupancy is the ground
- * truth that vetoes a stale "owner dead" ledger verdict. Pure over the injected
- * {@link ProcessTableSource} and {@link RealpathResolver}.
+ * truth that vetoes a stale "owner dead" ledger verdict. On an UNSUPPORTED
+ * process table the owner verdict is `'unknown'` (never `'dead'`), so nothing is
+ * releasable and nothing is an orphan candidate — fail closed. Pure over the
+ * injected {@link ProcessTableSource} and {@link RealpathResolver}.
  */
 export function probeWorktrees(
   query: WorktreeProbeQuery,
@@ -298,7 +352,7 @@ export function probeWorktrees(
   const records = source.list();
   const byPid = indexByPid(records);
   const protectedPids = protectedAncestry(query.selfPid, byPid);
-  const processSource = tableAsProcessSource(byPid);
+  const processSource = tableAsProcessSource(byPid, isTableSupported(source));
 
   return query.targets.map((target) => {
     const occupantPids = occupantsOf(target.worktreePath, records, protectedPids, realpath);
@@ -373,14 +427,21 @@ function enumerateProcLinux(): ProcessRecord[] {
  *
  * Linux ground truth is read from `/proc`. macOS / Windows enumeration is
  * deferred to DR-11 (#1579); the injected-source seam keeps those platforms open
- * without foreclosing here. A consumer that receives an empty table on an
- * unsupported platform MUST fail closed — treat "cannot enumerate" as "cannot
- * prove free" and never release — mirroring the `unknown` fail-closed contract of
- * the per-PID `defaultProcessSource`. Never exercised by the unit tests (those
- * inject a fake table), so the probe core stays free of real OS calls.
+ * without foreclosing here. On those unsupported platforms `list()` returns `[]`
+ * AND `isSupported()` returns `false`, so the empty table is read as "cannot
+ * enumerate" (every PID `'unknown'`) — NOT as "every owner provably dead". That
+ * is the fail-closed contract that prevents reclaiming a LIVE merge holder
+ * off-Linux (DR-7), mirroring the `unknown` branch of the per-PID
+ * `defaultProcessSource`. Never exercised by the unit tests (those inject a fake
+ * table), so the probe core stays free of real OS calls.
  */
 export const defaultProcessTableSource: ProcessTableSource = {
   list(): readonly ProcessRecord[] {
     return process.platform === 'linux' ? enumerateProcLinux() : [];
+  },
+  isSupported(): boolean {
+    // Only Linux `/proc` enumeration is implemented today (DR-11 / #1579). On
+    // every other platform the empty `list()` is "unenumerated", not "empty".
+    return process.platform === 'linux';
   },
 };

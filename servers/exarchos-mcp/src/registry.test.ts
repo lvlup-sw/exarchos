@@ -1243,11 +1243,17 @@ describe('TOOL_REGISTRY', () => {
         ).toBe('boolean');
       }
 
-      // The view liveness reads are wholesale read-only (they ride the
-      // read-only exarchos_view tool); serialize_merge mutates shared state.
+      // Annotation honesty (REV-L1): `ps probe:true` runs the DR-5 orphan
+      // emitter, a conditional idempotent write path — so `ps` is annotated
+      // local-mutation / idempotent (NOT readOnly), even though it rides the
+      // exarchos_view tool. `wait` is genuinely read-only; serialize_merge
+      // mutates shared state.
       const ps = findAction('exarchos_view', 'ps');
       const wait = findAction('exarchos_view', 'wait');
-      expect(ps!.annotations!.readOnly).toBe(true);
+      expect(ps!.annotations!.safety).toBe('local-mutation');
+      expect(ps!.annotations!.readOnly).toBe(false); // has a conditional write path.
+      expect(ps!.annotations!.idempotent).toBe(true); // the heals re-converge.
+      expect(ps!.annotations!.destructive).toBe(false);
       expect(wait!.annotations!.readOnly).toBe(true);
       const serializeMerge = findAction('exarchos_orchestrate', 'serialize_merge');
       expect(serializeMerge!.annotations!.readOnly).toBe(false);

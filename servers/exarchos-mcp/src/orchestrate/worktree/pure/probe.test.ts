@@ -9,10 +9,25 @@ import {
 } from './probe.js';
 import type { RealpathResolver } from './path-containment.js';
 
-/** A fixed-snapshot ProcessTableSource over an in-memory process table. */
+/**
+ * A fixed-snapshot, SUPPORTED ProcessTableSource over an in-memory process
+ * table — `list()` is authoritative, so a PID absent from it is provably gone.
+ * (No `isSupported`; the probe reads an absent predicate as supported.)
+ */
 function tableSource(records: readonly ProcessRecord[]): ProcessTableSource {
   return { list: () => records };
 }
+
+/**
+ * An UNSUPPORTED ProcessTableSource — the off-Linux shape where enumeration is
+ * not implemented (DR-11/#1579). `list()` returns `[]` but `isSupported()` is
+ * `false`, so an absent PID is `'unknown'`, NEVER provably dead. Mirrors the
+ * real `defaultProcessTableSource` off-Linux.
+ */
+const UNSUPPORTED_TABLE: ProcessTableSource = {
+  list: () => [],
+  isSupported: () => false,
+};
 
 /** Identity resolver: no symlinks, paths pass through unchanged. */
 const identity: RealpathResolver = (p) => p;
@@ -138,9 +153,30 @@ describe('probeReservations', () => {
     expect(byPath['/wt/reused'].liveness).toBe('dead');
     expect(byPath['/wt/reused'].releasable).toBe(true);
 
-    // PID absent from the table (owner exited) -> dead -> releasable.
+    // PID absent from a SUPPORTED table (owner exited) -> dead -> releasable.
+    // (The table is non-empty / enumerated, so absence is authoritative.)
     expect(byPath['/wt/gone'].liveness).toBe('dead');
     expect(byPath['/wt/gone'].releasable).toBe(true);
+  });
+
+  it('Probe_UnsupportedPlatformTable_FailsClosed_NeverReleasable', () => {
+    // The off-Linux hole (REV-H1): an UNSUPPORTED table cannot prove a PID
+    // absent, so an owner that LOOKS gone (its pid is not in the empty list) must
+    // read as 'unknown', NOT 'dead' — and therefore is NEVER releasable. The old
+    // two-valued mapping classified this owner 'dead' and let `waitForFreeSlot`
+    // reclaim a LIVE merge holder; this pins the fail-closed contract.
+    const findings = probeReservations(
+      [
+        { worktreePath: '/wt/a', ownerPid: 4242, ownerStartedAt: 'boot-4242' },
+        { worktreePath: '/wt/b', ownerPid: 7, ownerStartedAt: 'boot-7' },
+      ],
+      UNSUPPORTED_TABLE,
+    );
+
+    for (const finding of findings) {
+      expect(finding.liveness).toBe('unknown'); // cannot prove dead off-Linux.
+      expect(finding.releasable).toBe(false); // fail closed — never reclaim.
+    }
   });
 });
 
@@ -179,6 +215,29 @@ describe('probeWorktrees (composite)', () => {
     );
     expect(free.inUse).toBe(false);
     expect(free.releasable).toBe(true);
+  });
+
+  it('Probe_UnsupportedTable_OwnerUnknown_NotReleasableNorOrphan', () => {
+    // On an UNSUPPORTED table the composite probe must classify a reserved
+    // worktree as neither releasable NOR an orphan candidate: ownerLiveness is
+    // 'unknown' (not 'dead'), so manager.probeAndReclaim — which emits
+    // worktree.released only when `releasable` and worktree.orphan_detected only
+    // when `ownerLiveness === 'dead' && inUse` — emits NOTHING. Fail closed.
+    const W = '/repo/.worktrees/W';
+    const [finding] = probeWorktrees(
+      {
+        targets: [{ worktreePath: W, owner: { ownerPid: 555, ownerStartedAt: 'boot-555' } }],
+        selfPid: 999999,
+      },
+      UNSUPPORTED_TABLE,
+      identity,
+    );
+
+    expect(finding.ownerLiveness).toBe('unknown'); // cannot prove dead off-Linux.
+    expect(finding.releasable).toBe(false); // no worktree.released.
+    expect(finding.inUse).toBe(false); // empty list → no occupant either.
+    // Neither emit branch fires: not releasable, and ownerLiveness !== 'dead'.
+    expect(finding.ownerLiveness === 'dead' && finding.inUse).toBe(false);
   });
 
   it('reports ownerLiveness "none" for an unreserved worktree', () => {
