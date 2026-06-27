@@ -473,3 +473,219 @@ function resolveSelfStartedAt(pid: number, source: ProcessSource): string {
   const probe = source.getStartTime(pid);
   return probe.status === 'present' ? probe.startedAt : '';
 }
+
+// ─── Crash-mid-merge resume (DR-12) ──────────────────────────────────────────
+//
+// `serializeMerge`'s `finally` releases the lease, and its wait-for-slot loop
+// reclaims a provably-DEAD holder inline (Task 006). Two edges remain on the
+// recovery surface that the lease loop alone does NOT cover:
+//
+//   1. SAME-PROCESS stuck lease — the merge ran, but the best-effort RELEASE
+//      append failed (the `finally` swallows it). The slot now reads as held by
+//      a LIVE process (us), so the inline dead-holder probe will NOT reclaim it
+//      and a fresh claimant waits out the full budget. This process can safely
+//      finish its OWN lease.
+//   2. A crashed holder whose slot is reclaimed through an explicit
+//      reconcile/recovery pass rather than incidentally during another merge's
+//      wait loop.
+//
+// `resumeCrashedMerge` handles both: it folds the unpaired CLAIM, confirms the
+// lease is ours OR provably dead (never a different live merge), runs an
+// IDEMPOTENT precheck against the integration ref (`git merge-base
+// --is-ancestor <sourceBranch> <integrationRef>` — is the merge already
+// applied?), and emits the terminal `worktree.merge_executed` EXACTLY ONCE
+// (INV-8/13) under the holder's ORIGINAL `operationId`. The terminal is a keyed
+// append, so a double resume — or a race with the inline reclaim — converges on
+// one release. It NEVER `git reset --hard`s: a resumed merge composes
+// `merge_orchestrate` UNCHANGED, whose own INV-14 reversal is `--abort` →
+// `--keep`.
+
+/** Caller-facing arguments for {@link resumeCrashedMerge}. */
+export interface ResumeCrashedMergeInput {
+  /** Owning feature workflow id — threaded UNCHANGED to a resumed `merge_orchestrate`. */
+  readonly featureId: string;
+  /** Integration ref whose unpaired lease to resume (the per-branch serialization key). */
+  readonly integrationRef: string;
+  /** Merge strategy for a resumed `merge_orchestrate`. */
+  readonly strategy: 'squash' | 'rebase' | 'merge';
+  /** Optional task id, threaded UNCHANGED to a resumed `merge_orchestrate`. */
+  readonly taskId?: string;
+  /** Optional repository root for the precheck + a resumed `merge_orchestrate`. */
+  readonly repoRoot?: string;
+}
+
+/**
+ * Injected seams for {@link resumeCrashedMerge} — every external effect (process
+ * table, git ancestry probe, the composed merge) is reachable so the resume is
+ * deterministically testable with zero OS / git access. Production omits every field.
+ */
+export interface ResumeCrashedMergeDeps {
+  /** Process-table probe for dead-holder detection. Defaults to {@link defaultProcessTableSource}. */
+  readonly processTableSource?: ProcessTableSource;
+  /** Per-PID source for the resuming process's own create-time. Defaults to {@link defaultProcessSource}. */
+  readonly processSource?: ProcessSource;
+  /** PID of the resuming process (own-lease identity). Defaults to `process.pid`. */
+  readonly selfPid?: number;
+  /** Create-time fingerprint of the resuming process. Defaults to the resolved create-time of `selfPid`. */
+  readonly selfStartedAt?: string;
+  /** The merge COMPOSED UNCHANGED for a resume. Defaults to the real {@link handleMergeOrchestrate}. */
+  readonly mergeOrchestrate?: (
+    input: HandleMergeOrchestrateInput,
+    ctx: DispatchContext,
+  ) => Promise<ToolResult>;
+  /**
+   * Idempotent precheck: is `sourceBranch` already an ancestor of
+   * `integrationRef` (the merge already applied)? Defaults to a
+   * `git merge-base --is-ancestor` over {@link defaultGitExec}.
+   */
+  readonly isMergeApplied?: (
+    input: ResumeCrashedMergeInput,
+    sourceBranch: string,
+  ) => boolean;
+}
+
+/** Outcome of a {@link resumeCrashedMerge} pass. */
+export type ResumeCrashedMergeOutcome =
+  /** No unpaired CLAIM for the ref (nothing to resume), OR a DIFFERENT live process owns it. */
+  | { readonly resumed: false; readonly reason: 'no-lease' | 'foreign-live-holder' }
+  /** A resume re-merge ran and FAILED — the lease is left intact (no terminal), the failure surfaced. */
+  | {
+      readonly resumed: false;
+      readonly reason: 'resume-merge-failed';
+      readonly operationId: string;
+      readonly mergeResult: ToolResult;
+    }
+  /** The lease was terminated exactly once. `reMerged` ⇒ the precheck said "not applied" so the merge re-ran. */
+  | {
+      readonly resumed: true;
+      readonly operationId: string;
+      readonly reMerged: boolean;
+      readonly holderKind: 'self' | 'dead';
+      readonly mergeResult?: ToolResult;
+    };
+
+/** Default `git merge-base --is-ancestor <sourceBranch> <integrationRef>` precheck. */
+function buildDefaultIsMergeApplied(
+  gitExec: GitExec,
+): (input: ResumeCrashedMergeInput, sourceBranch: string) => boolean {
+  return (input, sourceBranch) => {
+    const repoRoot = input.repoRoot ?? process.cwd();
+    // exit 0 ⇒ sourceBranch is an ancestor of integrationRef (already merged).
+    return (
+      gitExec(repoRoot, [
+        'merge-base',
+        '--is-ancestor',
+        sourceBranch,
+        input.integrationRef,
+      ]).exitCode === 0
+    );
+  };
+}
+
+/**
+ * Resume a crash-interrupted serialized merge: an unpaired
+ * `worktree.merge_requested` (CLAIM) on `integrationRef` with no
+ * `worktree.merge_executed` (RELEASE), whose holder is THIS process or provably
+ * dead. Idempotently terminates the lease exactly once — re-running
+ * `merge_orchestrate` only when the precheck proves the merge was NOT applied
+ * before the crash.
+ *
+ * Resolves to `{ resumed: false, reason: 'no-lease' }` when there is no lease to
+ * resume (idempotent across repeated calls — once terminated, the next fold sees
+ * an empty slot), and `{ resumed: false, reason: 'foreign-live-holder' }` when a
+ * DIFFERENT live process still owns the merge (we never steal an active merge).
+ */
+export async function resumeCrashedMerge(
+  input: ResumeCrashedMergeInput,
+  ctx: DispatchContext,
+  deps: ResumeCrashedMergeDeps = {},
+): Promise<ResumeCrashedMergeOutcome> {
+  const processTableSource = deps.processTableSource ?? defaultProcessTableSource;
+  const processSource = deps.processSource ?? defaultProcessSource;
+  const mergeOrchestrate = deps.mergeOrchestrate ?? handleMergeOrchestrate;
+  const isMergeApplied = deps.isMergeApplied ?? buildDefaultIsMergeApplied(defaultGitExec);
+  const selfPid = deps.selfPid ?? process.pid;
+  const selfStartedAt =
+    deps.selfStartedAt ?? resolveSelfStartedAt(selfPid, processSource);
+
+  const appender = ctx.eventStore.getAppender();
+  const { aggregate } = await appender.aggregateStream<WorktreesProjection>(
+    WORKTREES_STREAM,
+    WORKTREES_REDUCER,
+  );
+  const holder = aggregate.inFlightMerges[input.integrationRef];
+  if (holder === undefined) {
+    // No unpaired CLAIM for this ref — nothing to resume (idempotent: a prior
+    // resume already terminated it, or the lease was never held).
+    return { resumed: false, reason: 'no-lease' };
+  }
+
+  // Only terminate a lease we MAY safely finish: our OWN (a failed best-effort
+  // release that wedged our slot — the holder is alive and is us) OR a provably
+  // dead holder (a crashed process). A DIFFERENT LIVE holder owns an ACTIVE
+  // merge; leave it untouched so we never steal a live merge's lease.
+  const sameProcess =
+    holder.holderPid === selfPid &&
+    holder.holderStartedAt !== null &&
+    holder.holderStartedAt !== '' &&
+    holder.holderStartedAt === selfStartedAt;
+  const dead = isHolderProvablyDead(holder, processTableSource);
+  if (!sameProcess && !dead) {
+    return { resumed: false, reason: 'foreign-live-holder' };
+  }
+  const holderKind: 'self' | 'dead' = sameProcess ? 'self' : 'dead';
+
+  // Idempotent precheck: is the merge already applied to the integration ref?
+  // `git merge-base --is-ancestor <sourceBranch> <integrationRef>` exit 0 ⇒ the
+  // source tip is already contained → the pre-crash merge SUCCEEDED → skip the
+  // re-merge and just release. Otherwise RESUME by re-running merge_orchestrate.
+  let reMerged = false;
+  let mergeResult: ToolResult | undefined;
+  if (!isMergeApplied(input, holder.sourceBranch)) {
+    mergeResult = await mergeOrchestrate(
+      {
+        featureId: input.featureId,
+        sourceBranch: holder.sourceBranch,
+        // `merge_orchestrate` calls the integration ref `targetBranch`.
+        targetBranch: input.integrationRef,
+        strategy: input.strategy,
+        ...(input.taskId !== undefined ? { taskId: input.taskId } : {}),
+        ...(input.repoRoot !== undefined ? { repoRoot: input.repoRoot } : {}),
+      },
+      ctx,
+    );
+    reMerged = true;
+    // A FAILED resume merge must NOT emit the terminal — leave the lease intact
+    // so a later resume / dead-holder reclaim can retry, and surface the
+    // failure. `merge_orchestrate`'s own INV-14 reversal has already rewound any
+    // partial merge (`--abort` → `--keep`, never `--hard`), so nothing is
+    // half-applied.
+    if (!mergeResult.success) {
+      return {
+        resumed: false,
+        reason: 'resume-merge-failed',
+        operationId: holder.operationId,
+        mergeResult,
+      };
+    }
+  }
+
+  // Emit the terminal EXACTLY ONCE under the holder's ORIGINAL operationId. The
+  // keyed append (`worktree.merge_executed:<operationId>`) dedups, so a double
+  // resume — or a race with the inline dead-holder reclaim — converges on ONE
+  // release (INV-8/13); the reducer's operationId guard correlates it to exactly
+  // the CLAIM it terminates.
+  await appendMergeExecuted(appender, {
+    integrationRef: holder.integrationRef,
+    operationId: holder.operationId,
+    sourceBranch: holder.sourceBranch,
+    worktreeId: holder.worktreeId,
+  });
+  return {
+    resumed: true,
+    operationId: holder.operationId,
+    reMerged,
+    holderKind,
+    ...(mergeResult !== undefined ? { mergeResult } : {}),
+  };
+}

@@ -473,6 +473,35 @@ function eventStringField(event: WorkflowEvent, key: string): string | null {
   return typeof value === 'string' ? value : null;
 }
 
+/**
+ * Whether a prune candidate is covered by an unpaired in-flight merge lease
+ * (DR-12, no double-free). Pure over a folded `inFlightMerges` map so it is
+ * shared by both the classification pass (over the planning fold) AND the
+ * under-lock re-verification inside `executeDeletion` (over the fold INSIDE the
+ * `decide` closure — "re-verified under its claim").
+ *
+ * A lease covers the candidate when EITHER:
+ *   - the lease is attributed to this exact worktree (`merge.worktreeId === worktreeId`); or
+ *   - the lease targets the candidate's resolved integration ref
+ *     (`merge.integrationRef === integrationRef`) — the serializer leaves
+ *     `worktreeId` null, so the integration-ref match is what catches a
+ *     `serialize_merge` racing the GC for the same branch.
+ *
+ * Both arms are conservative (fail-closed): a held lease keeps the worktree, so
+ * the GC never deletes a worktree whose branch a live merge is mid-applying.
+ */
+function mergeLeaseHeld(
+  worktreeId: string,
+  integrationRef: string | null,
+  inFlightMerges: Readonly<Record<string, InFlightMerge>>,
+): boolean {
+  for (const merge of Object.values(inFlightMerges)) {
+    if (merge.worktreeId !== null && merge.worktreeId === worktreeId) return true;
+    if (integrationRef !== null && merge.integrationRef === integrationRef) return true;
+  }
+  return false;
+}
+
 /** Constructor dependencies for {@link WorktreeManager}. */
 export interface WorktreeManagerDeps {
   /** The shared event store — the manager's ONLY persistence path. */
@@ -984,7 +1013,20 @@ export class WorktreeManager {
     const reports: PruneCandidateReport[] = [];
     for (const entry of candidates) {
       const facts = await this.gatherFacts(entry, branchCache);
-      const classification = classifyPruneCandidate(facts);
+      let classification = classifyPruneCandidate(facts);
+      // No double-free (DR-12): a worktree (or its integration branch) that
+      // holds an unpaired in-flight merge lease is never deletion-eligible while
+      // the merge runs — override an otherwise-deletable classification to a
+      // scannable `in-flight-merge` skip. The under-lock re-verify in
+      // `executeDeletion` enforces the same guard against a lease that appears
+      // AFTER this planning fold, so the report and the commit gate agree.
+      if (
+        (classification.action === 'delete-eligible' ||
+          classification.action === 'orphan-unverifiable') &&
+        mergeLeaseHeld(entry.worktreeId, facts.integrationRef, projection.inFlightMerges)
+      ) {
+        classification = { action: 'skip', reason: 'in-flight-merge' };
+      }
       const reclaimable =
         classification.action === 'delete-eligible' ||
         classification.action === 'orphan-unverifiable'
@@ -1422,6 +1464,14 @@ export class WorktreeManager {
           // A worktree that became dirty / unmerged / in-use between the planning
           // pass and now is no longer safe — abort rather than commit the delete.
           const facts = await this.gatherFacts(entry, branchCache);
+          // No double-free (DR-12), re-verified UNDER the claim: a merge lease
+          // that landed on this worktree (or its integration branch) AFTER the
+          // planning fold is visible in THIS in-closure fold of `inFlightMerges`,
+          // so a `serialize_merge` that won the slot concurrently aborts the
+          // delete intent — the GC never removes a worktree mid-merge.
+          if (mergeLeaseHeld(worktreeId, facts.integrationRef, state.inFlightMerges)) {
+            return [];
+          }
           const classification = classifyPruneCandidate(facts);
           const stillEligible =
             classification.action === 'delete-eligible' ||

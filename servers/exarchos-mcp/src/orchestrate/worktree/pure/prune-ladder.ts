@@ -91,6 +91,13 @@ export interface PruneCandidate {
 /**
  * Why a candidate was skipped. A small, stable enum so the handler can **group**
  * skips by reason in its dry-run report (the "scannable skip reason" contract).
+ *
+ * `in-flight-merge` is NOT produced by {@link classifyPruneCandidate} — the pure
+ * ladder classifies over per-worktree facts and has no view of the serialized
+ * merge lease. It is produced by the manager's prune ladder, which folds
+ * `inFlightMerges` and overrides an otherwise-deletable candidate that (or whose
+ * integration branch) holds an unpaired merge lease, so a concurrent
+ * `serialize_merge` is never double-freed (DR-12).
  */
 export type PruneSkipReason =
   | 'no-adoption-record'
@@ -100,7 +107,8 @@ export type PruneSkipReason =
   | 'unverifiable-integration-ref'
   | 'unmerged'
   | 'cannot-verify-merge'
-  | 'origin-unreachable';
+  | 'origin-unreachable'
+  | 'in-flight-merge';
 
 /**
  * Classification of a single prune candidate.
