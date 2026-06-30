@@ -419,6 +419,33 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
         };
       }
 
+      // ── Plan-review revise count (DR-1) ────────────────────────────────
+      // Fold each `workflow.plan-revision` occurrence into the NESTED
+      // `planReview.revisionCount` — the exact field the `revisionsExhausted`
+      // guard (workflow/guards.ts) reads — so the plan↔plan-review revise loop
+      // is bounded by an event-sourced count, not advisory prose. A pure
+      // left-fold (+1 per event): replaying the log from `init()` reconstructs
+      // the identical count, and other `planReview` fields set via
+      // `state.patched` (e.g. `approved` / `gapsFound`) are preserved by the
+      // spread rather than clobbered.
+      case 'workflow.plan-revision': {
+        const priorPlanReview = isPlainObject(view.planReview)
+          ? (view.planReview as Record<string, unknown>)
+          : {};
+        const rawCount = priorPlanReview.revisionCount;
+        const currentCount =
+          typeof rawCount === 'number' && Number.isFinite(rawCount)
+            ? rawCount
+            : 0;
+        return {
+          ...view,
+          planReview: {
+            ...priorPlanReview,
+            revisionCount: currentCount + 1,
+          },
+        };
+      }
+
       // ── Merge Orchestrator (#1504/#1554 — close the projection gap) ─────
       // Mirrors the file-path applyEventToState (state-store.ts:804-853): each
       // terminal merge event REPLACES `mergeOrchestrator` (no spread) so the

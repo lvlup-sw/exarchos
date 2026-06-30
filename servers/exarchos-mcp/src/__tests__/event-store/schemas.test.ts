@@ -503,7 +503,10 @@ describe('EventTypes', () => {
     // (lease/ownership) family — `worktree.adopted` / `worktree.reserved` /
     // `worktree.released` / `worktree.orphan_detected`. The GC half reuses the
     // existing `worktree.remove.*` pair (no `worktree.pruned` / `worktree.merge_*`).
-    expect(EventTypes).toHaveLength(136);
+    // DR-1: bumped 136 → 137 to include `workflow.plan-revision`, the counted
+    // plan-review revise cycle (plan-review analog of `workflow.fix-cycle`,
+    // folded into `state.planReview.revisionCount`).
+    expect(EventTypes).toHaveLength(137);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');
@@ -526,6 +529,7 @@ describe('EventTypes', () => {
     expect(EventTypes).toContain('worktree.reserved');
     expect(EventTypes).toContain('worktree.released');
     expect(EventTypes).toContain('worktree.orphan_detected');
+    expect(EventTypes).toContain('workflow.plan-revision');
     // Retirement guard: init.executed removed in DR-5 (task 018).
     expect(EventTypes as readonly string[]).not.toContain('init.executed');
   });

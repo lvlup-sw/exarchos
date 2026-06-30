@@ -1142,3 +1142,80 @@ describe('WorkflowStateProjection mergeOrchestrator fold', () => {
     expect(view.mergeOrchestrator).toBeUndefined();
   });
 });
+
+// ─── Plan-review revise count (DR-1) ─────────────────────────────────────────
+
+describe('WorkflowStateProjection plan-revision count (DR-1)', () => {
+  type View = ReturnType<typeof workflowStateProjection.init>;
+  function revisionCountOf(state: View): number | undefined {
+    const planReview = state.planReview as { revisionCount?: number } | undefined;
+    return planReview?.revisionCount;
+  }
+
+  it('Apply_PlanRevision_FoldsIntoNestedPlanReviewRevisionCount', () => {
+    // AC (c): the count folds into the NESTED `planReview.revisionCount` — the
+    // exact field `revisionsExhausted` reads — not a top-level field.
+    let state = workflowStateProjection.init();
+    expect(revisionCountOf(state)).toBeUndefined();
+    expect(state.revisionCount).toBeUndefined(); // never a top-level field
+
+    state = workflowStateProjection.apply(
+      state,
+      makeEvent('workflow.plan-revision', { count: 1, featureId: 'f' }),
+    );
+    expect(revisionCountOf(state)).toBe(1);
+
+    state = workflowStateProjection.apply(
+      state,
+      makeEvent('workflow.plan-revision', { count: 2, featureId: 'f' }),
+    );
+    expect(revisionCountOf(state)).toBe(2);
+    expect(state.revisionCount).toBeUndefined();
+  });
+
+  it('Apply_PlanRevision_PreservesOtherPlanReviewFields', () => {
+    // The fold spreads the prior planReview, so an `approved` / `gapsFound`
+    // written via state.patched survives the revision-count increment.
+    let state = workflowStateProjection.init();
+    state = workflowStateProjection.apply(
+      state,
+      makeEvent('state.patched', { patch: { 'planReview.approved': true } }),
+    );
+    state = workflowStateProjection.apply(
+      state,
+      makeEvent('workflow.plan-revision', { count: 1, featureId: 'f' }),
+    );
+
+    const planReview = state.planReview as {
+      approved?: boolean;
+      revisionCount?: number;
+    };
+    expect(planReview.approved).toBe(true);
+    expect(planReview.revisionCount).toBe(1);
+  });
+
+  it('Apply_PlanRevision_CountIsEventDerivedAndSurvivesReplay', () => {
+    // AC (d): the count is purely event-derived — replaying the log from a fresh
+    // `init()` reconstructs the identical count (a left-fold of +1 per event),
+    // so a reconcile/rebuild can never drift from the live projection.
+    const events: WorkflowEvent[] = [
+      makeEvent('workflow.started', { featureId: 'f', workflowType: 'feature' }),
+      makeEvent('workflow.plan-revision', { count: 1, featureId: 'f' }),
+      makeEvent('workflow.plan-revision', { count: 2, featureId: 'f' }),
+      makeEvent('workflow.plan-revision', { count: 3, featureId: 'f' }),
+    ];
+
+    const foldAll = (): View =>
+      events.reduce(
+        (s, e) => workflowStateProjection.apply(s, e),
+        workflowStateProjection.init(),
+      );
+
+    const live = foldAll();
+    const replayed = foldAll();
+
+    expect(revisionCountOf(live)).toBe(3);
+    expect(revisionCountOf(replayed)).toBe(3);
+    expect(replayed.planReview).toEqual(live.planReview);
+  });
+});
