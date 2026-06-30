@@ -32,7 +32,7 @@ import {
   resolveMutationDiffScope,
   type MutationDiffScope,
 } from '../config/toolchains.js';
-import { emitGateEvent, resolveRepoRoot } from './gate-utils.js';
+import { defaultGitExec, emitGateEvent, resolveRepoRoot } from './gate-utils.js';
 
 // ─── Stryker mutation-testing-report-schema (subset we consume) ─────────────
 //
@@ -279,56 +279,152 @@ export interface MutationAdequacyArgs {
   readonly detectToolchainId?: (repoRoot: string) => string | null;
   /** Mutation runner. Defaults to a real shell-out capturing stdout as the report. */
   readonly runMutation?: (args: MutationRunArgs) => MutationRunResult | Promise<MutationRunResult>;
+  /**
+   * Diff seam used to resolve the per-runner diff-scope (PIT `<changed>` classes,
+   * mutmut changed paths). Defaults to {@link defaultRunDiff}; injected in tests
+   * so no real git/diff runs (DR-5 / Gap C).
+   */
+  readonly runDiff?: RunDiff;
+}
+
+// ─── Diff seam (DR-5, Gap C) ─────────────────────────────────────────────────
+//
+// `composeScopedCommand` needs the diff to materialize two per-runner scopes the
+// descriptor leaves as a `<changed>` placeholder: PIT's `-DtargetClasses` (the
+// changed Java classes) and mutmut's `--paths-to-mutate` (the changed .py
+// paths). The diff is injected as a `runDiff` seam so the unit tests mock it —
+// no real git/diff ever runs in the suite. The production default shells out to
+// `git diff --name-only <base>...HEAD` (the merge-base form the sibling
+// test-adequacy probe uses), degrading to `[]` on any git failure so a scope
+// computation never throws into the run path.
+
+/** Resolves the repo-relative paths changed since `base` (injectable diff seam). */
+export type RunDiff = (base: string, repoRoot: string) => readonly string[];
+
+/** Default diff seam: `git diff --name-only <base>...HEAD`; `[]` on any git failure. */
+export const defaultRunDiff: RunDiff = (base, repoRoot) => {
+  const result = defaultGitExec(repoRoot, ['diff', '--name-only', `${base}...HEAD`]);
+  if (result.exitCode !== 0) return [];
+  return result.stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+};
+
+/** Context the diff-scope applier needs to resolve a `<changed>` placeholder. */
+export interface ScopeContext {
+  readonly base: string;
+  readonly repoRoot: string;
+  readonly runDiff: RunDiff;
+}
+
+/**
+ * Map changed `.java` file paths to PIT `-DtargetClasses` fully-qualified class
+ * names. The Maven/Gradle convention places sources under `src/{main,test}/java/`
+ * (or a bare `java/` root); the FQCN is the path below that root with `/`→`.` and
+ * the `.java` extension dropped (`src/main/java/com/x/Foo.java` → `com.x.Foo`). A
+ * `.java` path with no recognizable source root falls back to its dotted form.
+ * Non-`.java` files are ignored. De-duplicated, order-preserving.
+ */
+function changedJavaClasses(files: readonly string[]): string[] {
+  const classes = new Set<string>();
+  for (const file of files) {
+    const posix = file.replace(/\\/g, '/');
+    if (!posix.endsWith('.java')) continue;
+    const noExt = posix.slice(0, -'.java'.length);
+    const rooted = noExt.match(/(?:^|\/)(?:src\/(?:main|test)\/java|java)\/(.+)$/);
+    const rel = rooted ? rooted[1] : noExt;
+    classes.add(rel.replace(/\//g, '.'));
+  }
+  return [...classes];
+}
+
+/**
+ * Changed `.py` file paths for mutmut's `--paths-to-mutate` restriction
+ * (POSIX-normalized, de-duplicated, order-preserving). Non-`.py` files are
+ * ignored.
+ *
+ * (A higher-fidelity LINE-level scope is possible via mutmut's `--use-patch-file`
+ * — only mutate lines in a materialized patch — but that needs a patch artifact
+ * on disk; path restriction is the seam this slice ships.)
+ */
+function changedPythonPaths(files: readonly string[]): string[] {
+  const paths = new Set<string>();
+  for (const file of files) {
+    const posix = file.replace(/\\/g, '/');
+    if (posix.endsWith('.py')) paths.add(posix);
+  }
+  return [...paths];
 }
 
 /**
  * Compose a resolved mutation command with its per-runner diff scope. The
- * augmentation lives in the toolchains SoT (002); the handler stays runner-
- * agnostic. Returns the scoped command and any `unscoped-warning` to surface.
+ * augmentation identity lives in the toolchains SoT (002); the handler stays
+ * runner-agnostic. The diff-derived placeholders are resolved against the
+ * injected `runDiff` seam (DR-5 / Gap C):
+ *
+ *   - `append-flag` carrying `<changed>` (PIT `-DtargetClasses=<changed>`) →
+ *     substitute the changed Java classes derived from the diff;
+ *   - `path-restricted` (mutmut `--paths-to-mutate=<changed>`) → substitute the
+ *     changed `.py` paths.
+ *
+ * When the diff touches no scopable file for the runner there is nothing to
+ * scope to — rather than ship an empty placeholder or silently mutate the whole
+ * tree, it degrades to the unscoped-warning contract (never silently full-tree).
+ * Returns the scoped command and any warning to surface.
  */
-function composeScopedCommand(
+export function composeScopedCommand(
   command: string,
   scope: MutationDiffScope,
+  ctx: ScopeContext,
 ): { readonly command: string; readonly warning?: string } {
   switch (scope.kind) {
-    case 'append-flag':
-      // A descriptor whose flag still carries an unresolved `<changed>` token
-      // (Java PIT `-DtargetClasses=<changed>`) cannot be applied yet: computing
-      // the changed-class glob from `base` is the deferred applier work
-      // (R10/v2.12). Appending the literal placeholder would ship a broken
-      // command scoping to a class literally named `<changed>`, so we degrade to
-      // the unscoped-warning contract instead — never silently broken, never
-      // silently full-tree.
+    case 'append-flag': {
       if (scope.flag.includes('<changed>')) {
-        return {
-          command,
-          warning:
-            `mutation diff-scope for this toolchain needs changed-class ` +
-            `computation (flag '${scope.flag}' still carries an unresolved ` +
-            `<changed> placeholder), which is deferred to R10/v2.12; the ` +
-            `mutation run is unscoped (full-tree) for now`,
-        };
+        // PIT: resolve `<changed>` to the changed classes derived from the diff
+        // and substitute them into the flag (`-DtargetClasses=com.x.Foo,...`).
+        // A literal `<changed>` must NEVER reach the runner (it would scope to a
+        // class named `<changed>`); an empty changed-set degrades to a warning.
+        const classes = changedJavaClasses(ctx.runDiff(ctx.base, ctx.repoRoot));
+        if (classes.length === 0) {
+          return {
+            command,
+            warning:
+              `mutation diff-scope resolved no changed classes for flag ` +
+              `'${scope.flag}' (the diff touched no Java sources); the mutation ` +
+              `run is unscoped (full-tree) for now`,
+          };
+        }
+        const flag = scope.flag.replace('<changed>', classes.join(','));
+        return { command: `${command} ${flag}` };
       }
       // `tokenized` only affects shell-quoting, which the runner owns; here we
       // append the flag string verbatim (it already carries its own spacing).
       return { command: `${command} ${scope.flag}` };
+    }
     case 'already-native':
       // The runner already diff-scopes itself (cargo-mutants `--in-diff`);
-      // appending a second scope would double-scope. Append nothing.
+      // appending a second scope would double-scope. Append nothing — and never
+      // consult the diff seam (there is no placeholder to resolve).
       return { command };
-    case 'path-restricted':
-      // The path-restriction applier (mutmut: map `base` → changed paths) is
-      // the deferred applier work (R10/v2.12). Running the command unchanged
-      // would mutate the WHOLE tree while the descriptor claims it is scoped —
-      // a silent downgrade. Degrade to the unscoped-warning contract so the
-      // downgrade is always visible.
-      return {
-        command,
-        warning:
-          `path-restricted mutation diff-scope (mutmut changed-path ` +
-          `restriction) is not yet applied for this toolchain; it is deferred ` +
-          `to R10/v2.12. The mutation run is unscoped (full-tree) for now`,
-      };
+    case 'path-restricted': {
+      // mutmut: restrict the run to the diff's changed `.py` paths via the
+      // descriptor's flag template (`--paths-to-mutate=<changed>`). An empty
+      // changed-set degrades to a warning rather than silently mutating the
+      // whole tree while the descriptor claims a scope.
+      const paths = changedPythonPaths(ctx.runDiff(ctx.base, ctx.repoRoot));
+      if (paths.length === 0) {
+        return {
+          command,
+          warning:
+            `path-restricted mutation diff-scope resolved no changed paths ` +
+            `(the diff touched no Python sources); the mutation run is unscoped ` +
+            `(full-tree) for now`,
+        };
+      }
+      const flag = scope.flag.replace('<changed>', paths.join(','));
+      return { command: `${command} ${flag}` };
+    }
     case 'unscoped-warning':
       return { command, warning: scope.warning };
   }
@@ -500,7 +596,12 @@ export async function handleMutationAdequacy(
   const detect = args.detectToolchainId ?? ((root: string) => detectToolchain(root)?.id ?? null);
   const toolchainId = detect(repoRoot) ?? '';
   const diffScope = resolveMutationDiffScope(toolchainId, args.base);
-  const scoped = composeScopedCommand(runtime.mutation, diffScope);
+  const runDiff = args.runDiff ?? defaultRunDiff;
+  const scoped = composeScopedCommand(runtime.mutation, diffScope, {
+    base: args.base,
+    repoRoot,
+    runDiff,
+  });
 
   // ── Run (injected seam). Bracket with the INV-10 liveness pair. ────────────
   const runMutation = args.runMutation ?? defaultRunMutation;
