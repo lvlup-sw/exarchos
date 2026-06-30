@@ -71,9 +71,9 @@ describe('mutation-adequacy roster characterization (PIN)', () => {
     const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
     const actionNames = (orchestrate?.actions ?? []).map((a) => a.name);
 
-    it('exposes exactly 75 actions (WLM foundation task 008 added acquire_worktree, release_worktree, prune_worktrees; #1587 retired check_tdd_compliance; #1581 task 018 added discover_bridge)', () => {
+    it('exposes exactly 76 actions (WLM foundation task 008 added acquire_worktree, release_worktree, prune_worktrees; #1587 retired check_tdd_compliance; #1581 task 018 added discover_bridge; DR-4 added check_exploration_depth)', () => {
       expect(orchestrate).toBeDefined();
-      expect(actionNames).toHaveLength(75);
+      expect(actionNames).toHaveLength(76);
     });
 
     it('carries the mutation-adequacy action (R5 / task 003)', () => {
@@ -95,6 +95,7 @@ describe('mutation-adequacy roster characterization (PIN)', () => {
         'check_coverage_thresholds',
         'check_design_completeness',
         'check_event_emissions',
+        'check_exploration_depth',
         'check_integration_suite',
         'check_invariant_conformance',
         'check_mock_boundary',
