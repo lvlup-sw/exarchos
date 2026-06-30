@@ -51,6 +51,7 @@ import {
 import type { CheckpointEnforcementConfig } from '../workflow/checkpoint.js';
 import { globToRegExp } from '../architecture/glob-to-regexp.js';
 import type { GateName } from '../workflow/verification-policy.js';
+import { deriveWorkflowRiskTier } from '../workflow/verification-policy.js';
 import { resolveGateSet, ladderGateNames } from '../workflow/phase-kind.js';
 import type { PhaseKind } from '../workflow/phase-kind.js';
 import {
@@ -747,6 +748,36 @@ async function emitAuditEvent(
   }
 }
 
+// ─── Workflow Risk-Tier Persistence (DR-2) ──────────────────────────────────
+
+/**
+ * Persist the workflow-level `riskTier` to `state.riskTier` via the
+ * event-sourced `state.patched` single-writer path — the same generic
+ * field-update event `workflow/tools.ts` emits (`data.patch` carries the
+ * dot-path delta the projection folds). `state.riskTier` is the top-level field
+ * the `/review` required-reviews contract reads (`resolveWorkflowRiskTier` →
+ * `getRequiredReviews`), so stamping it here is what arms the high-tier
+ * `mutation-adequacy` backstop.
+ *
+ * Idempotent per `(stream, tier)`: the idempotency key (carried on the event so
+ * the best-effort {@link emitAuditEvent} path preserves it) dedupes a re-invoked
+ * `prepare_delegation` that re-derives the same tier; a later wave that raises
+ * the tier appends a fresh patch the projection folds last-write-wins. Emission
+ * is best-effort like the surrounding audit events — the ready dispatch path
+ * must not hard-depend on a write (a re-invocation re-stamps idempotently).
+ */
+async function persistWorkflowRiskTier(
+  store: EventStore,
+  streamId: string,
+  riskTier: RiskTier,
+): Promise<void> {
+  await emitAuditEvent(store, streamId, {
+    type: 'state.patched',
+    idempotencyKey: `${streamId}:workflow-risktier:${riskTier}`,
+    data: { featureId: streamId, fields: ['riskTier'], patch: { riskTier } },
+  });
+}
+
 // ─── Git Exec Helper ───────────────────────────────────────────────────────
 
 function createGitExec(): (args: readonly string[]) => string {
@@ -774,7 +805,18 @@ function sharedCheckoutHazardWarning(expected: number): string {
 }
 
 export async function handlePrepareDelegation(
-  args: { featureId: string; tasks?: TaskInput[]; nativeIsolation?: boolean },
+  args: {
+    featureId: string;
+    tasks?: TaskInput[];
+    nativeIsolation?: boolean;
+    /**
+     * task 004 (DR-2): an explicit workflow-level risk-tier override. When
+     * supplied it WINS over the derived max-of-tiers and is what gets persisted
+     * to `state.riskTier`. Absent, the tier is derived from the wave's task
+     * classifications. Validated below alongside the task fields.
+     */
+    riskTier?: RiskTier;
+  },
   stateDir: string,
   ctx?: DispatchContext,
 ): Promise<ToolResult> {
@@ -838,6 +880,19 @@ export async function handlePrepareDelegation(
         code: 'INVALID_INPUT',
         message:
           'tasks must be an array of objects each with a string id and title; optional fields must be well-typed (files/blockedBy: string[]; testLayer: acceptance|integration|unit|property; riskTier: low|medium|high; boundaryTouching: boolean)',
+      },
+    };
+  }
+
+  // task 004 (DR-2): the optional workflow-level riskTier override is persisted
+  // verbatim, so an out-of-vocabulary value must be rejected at the boundary
+  // rather than stamped onto state and silently ignored by getRequiredReviews.
+  if (!isOptionalOneOf(args.riskTier, ['low', 'medium', 'high'])) {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message: 'riskTier must be one of low|medium|high',
       },
     };
   }
@@ -1288,6 +1343,18 @@ export async function handlePrepareDelegation(
         };
       }
       taskClassifications = classified.classifications;
+    }
+
+    // ─── DR-2: Derive + persist workflow-level riskTier (max-of-tiers) ──────
+    // Stamp `state.riskTier` once, here at prepare_delegation, so the `/review`
+    // boundary's tier-aware required-reviews contract appends the high-tier
+    // `mutation-adequacy` backstop. The explicit caller override wins over the
+    // derived max; absent both tasks and an override there is nothing to stamp.
+    const workflowRiskTier =
+      args.riskTier ??
+      (taskClassifications ? deriveWorkflowRiskTier(taskClassifications) : undefined);
+    if (workflowRiskTier !== undefined) {
+      await persistWorkflowRiskTier(store, streamId, workflowRiskTier);
     }
 
     const result: PrepareDelegationResult = {

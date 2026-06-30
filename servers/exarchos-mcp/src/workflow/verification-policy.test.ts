@@ -14,9 +14,10 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   resolveVerificationSequence,
+  deriveWorkflowRiskTier,
   VERIFICATION_GATE_NAMES,
 } from './verification-policy.js';
-import type { GateName } from './verification-policy.js';
+import type { GateName, RiskTier } from './verification-policy.js';
 
 const TIERS = ['low', 'medium', 'high'] as const;
 const BOUNDARY = [false, true] as const;
@@ -127,5 +128,64 @@ describe('verification-policy', () => {
     expect(src).not.toMatch(/from ['"]node:fs['"]/);
     expect(src).not.toMatch(/from ['"]fs['"]/);
     expect(src).not.toMatch(/\.exarchos\.yml/);
+  });
+});
+
+// ─── Workflow-level Risk Tier (max-of-tiers) — DR-2 ─────────────────────────
+//
+// `deriveWorkflowRiskTier` folds a wave's per-task tiers into one workflow-level
+// tier by MAX under `low < medium < high`. The top rung (`high`) is what arms
+// the `mutation-adequacy` review backstop, so the monotone "any task high ⇒
+// workflow high" property is the load-bearing one.
+describe('deriveWorkflowRiskTier', () => {
+  it('WorkflowRiskTier_MixedTiers_ReturnsMaximum', () => {
+    // A mix whose max is high → high (acceptance criterion a).
+    expect(
+      deriveWorkflowRiskTier([
+        { riskTier: 'low' },
+        { riskTier: 'high' },
+        { riskTier: 'medium' },
+      ]),
+    ).toBe('high');
+
+    // A mix topping out at medium → medium (high never appears).
+    expect(
+      deriveWorkflowRiskTier([{ riskTier: 'low' }, { riskTier: 'medium' }]),
+    ).toBe('medium');
+
+    // Order of appearance is irrelevant — max is position-independent.
+    expect(
+      deriveWorkflowRiskTier([{ riskTier: 'high' }, { riskTier: 'low' }]),
+    ).toBe('high');
+  });
+
+  it('WorkflowRiskTier_NoTierTask_TreatedAsLow_DoesNotRaiseMax', () => {
+    // A task with no tier is treated as low and must NOT raise the max
+    // (acceptance criterion b): a no-tier task alongside a medium task → medium,
+    // never high.
+    expect(
+      deriveWorkflowRiskTier([{}, { riskTier: 'medium' }, {}]),
+    ).toBe('medium');
+
+    // A no-tier task does not lower a high either — high stays high.
+    expect(deriveWorkflowRiskTier([{ riskTier: 'high' }, {}])).toBe('high');
+  });
+
+  it('WorkflowRiskTier_AllUntieredOrEmpty_ReturnsLowFloor', () => {
+    // Empty wave and an all-untiered wave both resolve to the low floor.
+    expect(deriveWorkflowRiskTier([])).toBe('low');
+    expect(deriveWorkflowRiskTier([{}, {}, {}])).toBe('low');
+    expect(deriveWorkflowRiskTier([{ riskTier: 'low' }, {}])).toBe('low');
+  });
+
+  it('WorkflowRiskTier_SingleHighTask_YieldsHigh', () => {
+    // The degenerate "any task high" case (acceptance criterion c, unit slice):
+    // a single high task in an otherwise-low wave yields high.
+    const tasks: ReadonlyArray<{ riskTier?: RiskTier }> = [
+      { riskTier: 'low' },
+      { riskTier: 'low' },
+      { riskTier: 'high' },
+    ];
+    expect(deriveWorkflowRiskTier(tasks)).toBe('high');
   });
 });

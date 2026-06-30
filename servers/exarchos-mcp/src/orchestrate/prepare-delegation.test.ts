@@ -1543,6 +1543,139 @@ describe('handlePrepareDelegation', () => {
     expect(data.taskClassifications).toHaveLength(1);
   });
 
+  // ─── Workflow Risk-Tier Persistence (DR-2) ───────────────────────────────
+  //
+  // prepare_delegation derives the workflow-level riskTier (max-of-tiers over
+  // the classified wave) and persists it to state.riskTier via the
+  // event-sourced state.patched single-writer path. An explicit caller-supplied
+  // riskTier override wins over the derived value.
+  describe('Workflow riskTier persistence', () => {
+    /** Extract the riskTier patches the handler emitted via state.patched. */
+    function riskTierPatches(
+      store: { append: { mock: { calls: unknown[][] } } },
+    ): Array<Record<string, unknown>> {
+      return store.append.mock.calls
+        .map((c) => c[1] as { type?: string; data?: { patch?: Record<string, unknown> } })
+        .filter(
+          (e) =>
+            e.type === 'state.patched' &&
+            !!e.data?.patch &&
+            Object.prototype.hasOwnProperty.call(e.data.patch, 'riskTier'),
+        )
+        .map((e) => e.data!.patch!);
+    }
+
+    it('PrepareDelegation_HighRiskTask_PersistsWorkflowRiskTierHigh_ViaStatePatched', async () => {
+      // A wave whose max tier is high (a schema-file task) → state.riskTier=high,
+      // persisted through exactly one state.patched event (single writer).
+      const state = readyWorkflowState();
+      setupMaterializer(state);
+      vi.mocked(generateQualityHints).mockReturnValue([]);
+      const args = {
+        featureId: 'test-feature',
+        tasks: [
+          // high: matches the **/*schema* high-risk glob.
+          { id: 'task-1', title: 'edit schema', files: ['src/event-store/schemas.ts'] },
+          // medium default — must not lower the max.
+          { id: 'task-2', title: 'Add tests' },
+        ],
+      };
+
+      const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+      expect(result.success).toBe(true);
+      const patches = riskTierPatches(mockStore);
+      expect(patches).toHaveLength(1); // single writer
+      expect(patches[0]).toEqual({ riskTier: 'high' });
+    });
+
+    it('PrepareDelegation_AllMediumTasks_PersistsDerivedMedium', async () => {
+      // No high task → derived workflow tier is medium (the per-task default),
+      // proving derivation, not a hardcoded high.
+      const state = readyWorkflowState();
+      setupMaterializer(state);
+      vi.mocked(generateQualityHints).mockReturnValue([]);
+      const args = {
+        featureId: 'test-feature',
+        tasks: [
+          { id: 'task-1', title: 'Implement widget' },
+          { id: 'task-2', title: 'Add tests' },
+        ],
+      };
+
+      const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+      expect(result.success).toBe(true);
+      expect(riskTierPatches(mockStore)).toEqual([{ riskTier: 'medium' }]);
+    });
+
+    it('PrepareDelegation_ExplicitRiskTierOverride_WinsOverDerived', async () => {
+      // The wave derives to medium, but the caller forces high — the explicit
+      // override is what gets persisted.
+      const state = readyWorkflowState();
+      setupMaterializer(state);
+      vi.mocked(generateQualityHints).mockReturnValue([]);
+      const args = {
+        featureId: 'test-feature',
+        riskTier: 'high' as const,
+        tasks: [
+          { id: 'task-1', title: 'Implement widget' },
+          { id: 'task-2', title: 'Add tests' },
+        ],
+      };
+
+      const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+      expect(result.success).toBe(true);
+      expect(riskTierPatches(mockStore)).toEqual([{ riskTier: 'high' }]);
+    });
+
+    it('PrepareDelegation_OverrideWinsDownward_OverHighDerivation', async () => {
+      // Override precedence is direction-agnostic: a high-deriving wave forced to
+      // low persists low (the caller has context the heuristic lacks).
+      const state = readyWorkflowState();
+      setupMaterializer(state);
+      vi.mocked(generateQualityHints).mockReturnValue([]);
+      const args = {
+        featureId: 'test-feature',
+        riskTier: 'low' as const,
+        tasks: [{ id: 'task-1', title: 'edit schema', files: ['src/event-store/schemas.ts'] }],
+      };
+
+      const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+      expect(result.success).toBe(true);
+      expect(riskTierPatches(mockStore)).toEqual([{ riskTier: 'low' }]);
+    });
+
+    it('PrepareDelegation_NoTasksNoOverride_DoesNotPersistRiskTier', async () => {
+      // Nothing to derive from and no override → no riskTier stamp emitted.
+      const state = readyWorkflowState();
+      setupMaterializer(state);
+      vi.mocked(generateQualityHints).mockReturnValue([]);
+      const args = { featureId: 'test-feature' };
+
+      const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+      expect(result.success).toBe(true);
+      expect(riskTierPatches(mockStore)).toEqual([]);
+    });
+
+    it('PrepareDelegation_InvalidRiskTierOverride_ReturnsInvalidInput', async () => {
+      // An out-of-vocabulary override is rejected at the boundary, not stamped.
+      const args = {
+        featureId: 'test-feature',
+        riskTier: 'critical',
+      } as unknown as { featureId: string; riskTier?: 'low' | 'medium' | 'high' };
+
+      const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('INVALID_INPUT');
+      expect(result.error?.message).toContain('riskTier');
+    });
+  });
+
   // ─── Task Classification ─────────────────────────────────────────────────
 
   describe('Task classification', () => {

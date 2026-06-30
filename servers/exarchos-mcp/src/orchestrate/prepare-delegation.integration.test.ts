@@ -17,7 +17,13 @@ import * as os from 'node:os';
 import { handlePrepareDelegation } from './prepare-delegation.js';
 import { handleSetupWorktree } from './setup-worktree.js';
 import { handleOrchestrate } from './composite.js';
-import { resetMaterializerCache } from '../views/tools.js';
+import {
+  resetMaterializerCache,
+  getOrCreateMaterializer,
+  queryDeltaEvents,
+} from '../views/tools.js';
+import { WORKFLOW_STATE_VIEW } from '../views/workflow-state-projection.js';
+import { getRequiredReviews } from '../workflow/review-contract.js';
 import { EventStore } from '../event-store/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
@@ -526,5 +532,137 @@ describe('HandleOrchestrate_PrepareDelegation_StampsRiskTierBoundaryAndVerificat
     expect(c.verificationSequence).toEqual([
       ...resolveVerificationSequence('medium', true),
     ]);
+  });
+});
+
+// ─── DR-2: workflow-level riskTier persistence + review-contract wiring ──────
+//
+// Drives prepare_delegation through the production handleOrchestrate path on a
+// real EventStore, then proves the END-TO-END wiring task 004 delivers:
+//   1. the derived workflow tier persists to state.riskTier (event-sourced
+//      state.patched, materialized through the real workflow-state projection);
+//   2. that persisted tier feeds the /review required-reviews contract so the
+//      high-tier mutation-adequacy backstop is armed.
+describe('HandleOrchestrate_PrepareDelegation_PersistsWorkflowRiskTier (DR-2)', () => {
+  async function seedReadyStream(
+    store: EventStore,
+    streamId: string,
+    taskIds: readonly string[],
+  ): Promise<void> {
+    await store.append(streamId, {
+      type: 'workflow.transition',
+      data: { to: 'plan-review' },
+    });
+    await store.append(streamId, {
+      type: 'state.patched',
+      data: { patch: { 'artifacts.plan': 'plan.md' } },
+    });
+    for (const taskId of taskIds) {
+      await store.append(streamId, { type: 'task.assigned', data: { taskId } });
+    }
+    for (const taskId of taskIds) {
+      await store.append(streamId, {
+        type: 'worktree.created',
+        data: { taskId, worktreePath: `/w/${taskId}` },
+      });
+    }
+  }
+
+  async function materializeRiskTier(
+    store: EventStore,
+    stateDir: string,
+    streamId: string,
+  ): Promise<unknown> {
+    const materializer = getOrCreateMaterializer(stateDir);
+    const events = await queryDeltaEvents(store, materializer, streamId, WORKFLOW_STATE_VIEW);
+    const view = materializer.materialize<{ riskTier?: unknown }>(
+      streamId,
+      WORKFLOW_STATE_VIEW,
+      events,
+    );
+    return view.riskTier;
+  }
+
+  it('persists state.riskTier=high for a high-tier wave and arms the mutation-adequacy backstop', async () => {
+    const ctxStore = new EventStore(tmpDir);
+    const streamId = 'dr2-workflow-risktier';
+    const taskIds = ['t-high', 't-medium'] as const;
+    await seedReadyStream(ctxStore, streamId, taskIds);
+    await flushAsyncQueue();
+
+    const ctx: DispatchContext = {
+      stateDir: tmpDir,
+      eventStore: ctxStore,
+      enableTelemetry: false,
+    };
+
+    const guard = await import('./dispatch-guard.js');
+    vi.mocked(guard.getCurrentBranch).mockReturnValue('feature/risk-closeout');
+    vi.mocked(guard.assertCurrentBranchNotProtected).mockReturnValue({ blocked: false });
+
+    const result = await handleOrchestrate(
+      {
+        action: 'prepare_delegation',
+        featureId: streamId,
+        nativeIsolation: true,
+        tasks: [
+          // high via the **/*schema* glob; medium default — max-of-tiers ⇒ high.
+          { id: 't-high', title: 'edit schema', files: ['src/event-store/schemas.ts'] },
+          { id: 't-medium', title: 'Add validation logic', files: ['src/validate.ts'] },
+        ],
+      },
+      ctx,
+    );
+    expect(result.success).toBe(true);
+
+    // (1) the state.patched riskTier event actually persisted to the real store.
+    const patchEvents = await ctxStore.query(streamId, { type: 'state.patched' });
+    const riskTierPatch = patchEvents.find(
+      (e) => !!(e.data as { patch?: Record<string, unknown> }).patch
+        && 'riskTier' in (e.data as { patch: Record<string, unknown> }).patch,
+    );
+    expect(riskTierPatch).toBeDefined();
+    expect((riskTierPatch!.data as { patch: { riskTier: string } }).patch.riskTier).toBe('high');
+
+    // (2) folded through the real workflow-state projection → state.riskTier=high.
+    const riskTier = await materializeRiskTier(ctxStore, tmpDir, streamId);
+    expect(riskTier).toBe('high');
+
+    // (3) that persisted tier arms the /review mutation-adequacy backstop.
+    expect(getRequiredReviews('feature', riskTier as string)).toContain('mutation-adequacy');
+  });
+
+  it('an explicit caller riskTier override wins over the derived value end-to-end', async () => {
+    const ctxStore = new EventStore(tmpDir);
+    const streamId = 'dr2-override';
+    const taskIds = ['t-only'] as const;
+    await seedReadyStream(ctxStore, streamId, taskIds);
+    await flushAsyncQueue();
+
+    const ctx: DispatchContext = {
+      stateDir: tmpDir,
+      eventStore: ctxStore,
+      enableTelemetry: false,
+    };
+
+    const guard = await import('./dispatch-guard.js');
+    vi.mocked(guard.getCurrentBranch).mockReturnValue('feature/risk-closeout');
+    vi.mocked(guard.assertCurrentBranchNotProtected).mockReturnValue({ blocked: false });
+
+    const result = await handleOrchestrate(
+      {
+        action: 'prepare_delegation',
+        featureId: streamId,
+        nativeIsolation: true,
+        // The task derives to medium, but the caller forces high — override wins.
+        riskTier: 'high',
+        tasks: [{ id: 't-only', title: 'Add validation logic', files: ['src/validate.ts'] }],
+      },
+      ctx,
+    );
+    expect(result.success).toBe(true);
+
+    const riskTier = await materializeRiskTier(ctxStore, tmpDir, streamId);
+    expect(riskTier).toBe('high');
   });
 });
