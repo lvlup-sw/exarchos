@@ -110,29 +110,44 @@ After saving the Decomposition section, **auto-continue to plan-review**:
 Plan-review refutes the plan and **auto-loops** back to `/exarchos:plan` if it finds gaps (similar to `/exarchos:review` → `/exarchos:delegate --fixes`):
 
 ```text
-/exarchos:plan → plan-review (dispatched, adversarial) → [refuted?] → /exarchos:plan --revise (auto-loop)
-                      ↓
-                 [survives]
+/exarchos:plan → plan-review (dispatched, adversarial) → [refuted?] ─┬─ [under cap] → transition(plan) → /exarchos:plan --revise ─┐
+                      ↓                                               └─ [cap reached] → transition(blocked) → [HUMAN]            │
+                 [survives]                                          ◄───────────────────── (re-dispatch plan-review) ───────────┘
                       ↓
             [HUMAN: approve?] ← checkpoint
                       ↓
                  /exarchos:delegate
 ```
 
-### On Gaps Found (Auto-Loop)
+### On Gaps Found (Auto-Loop, bounded)
 
-If plan-review refutes the plan:
+If plan-review refutes the plan, the loop revises through the **HSM revise edge** (so the
+runtime emits a counted `plan-revision` event and bounds the loop) — never a bare `update` +
+re-invoke:
 
-1. Update state with gaps using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "update"`:
+1. Record the gaps via `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "update"`:
    - Set `planReview.gapsFound` to true
    - Set `planReview.gaps` to the reviewer's concrete gap list
 
-2. Auto-invoke:
-   ```typescript
-   Skill({ skill: "exarchos:plan", args: "--revise $SPEC_PATH" })
-   ```
+2. **Check the revision cap by attempting the terminating transition first** —
+   `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "transition"`, `target: "blocked"`:
+   - **If it succeeds** — the `revisions-exhausted` guard passed, i.e. the configured
+     `.exarchos.yml workflow.maxPlanRevisions` cap (default **1**) is reached. The plan did not
+     converge within the cap. **Do NOT auto-revise.** Surface to the human:
+     "Plan-review refuted after the revision cap; parked at `blocked` for a human decision
+     (raise `.exarchos.yml workflow.maxPlanRevisions` to allow more cycles)."
+   - **If it returns `GUARD_FAILED`** — the cap is not yet reached. Revise:
+     1. `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "transition"`, `target: "plan"`
+        — traverses the counted revise edge (the runtime emits one `plan-revision` event and
+        increments `planReview.revisionCount`).
+     2. Auto-invoke:
+        ```typescript
+        Skill({ skill: "exarchos:plan", args: "--revise $SPEC_PATH" })
+        ```
 
-The `--revise` flag provides gap context for targeted spec updates.
+The `--revise` flag provides gap context for targeted spec updates; the plan skill's Auto-Chain then
+transitions back to `plan-review` and re-dispatches the adversarial pass. The cap is enforced by the
+guard (reading the injected cap), not by advisory prose — so the loop cannot run unbounded.
 
 ### On No Gaps (Human Checkpoint)
 
