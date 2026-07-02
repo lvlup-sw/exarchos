@@ -77,6 +77,10 @@ const PhaseConfig = z.object({
 const WorkflowConfig = z.object({
   'skip-phases': z.array(z.string()).optional(),
   'max-fix-cycles': z.number().int().min(1).max(10).optional(),
+  // DR-1: bound on plan-review revise cycles. Injected at transition time as the
+  // reserved ephemeral `_maxPlanRevisions` for the pure `revisionsExhausted`
+  // guard; never event-sourced (INV-1 — a config threshold is not a fact).
+  'max-plan-revisions': z.number().int().min(1).max(10).optional(),
   'required-reviews': z.array(z.string().min(1)).optional(),
   phases: z.record(z.string(), PhaseConfig).optional(),
 }).strict();

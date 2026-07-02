@@ -173,30 +173,26 @@ describe('escalationRequired', () => {
 // ─── Task 4: revisionsExhausted Guard Tests ─────────────────────────────────
 
 describe('revisionsExhausted', () => {
-  it('revisionsExhausted_CountAtMax_ReturnsTrue', () => {
-    const state: Record<string, unknown> = {
-      planReview: { revisionCount: 3 },
-    };
+  // DR-1: the cap is `state._maxPlanRevisions` (injected from
+  // `.exarchos.yml workflow.maxPlanRevisions` in tools.ts) and falls back to
+  // DEFAULT_MAX_PLAN_REVISIONS (1) when not injected. `revisionCount` is the
+  // event-sourced fact; the cap is injected policy, never event-sourced (INV-1).
 
-    const result = guards.revisionsExhausted.evaluate(state);
-
-    expect(result).toBe(true);
+  // ── Default cap (no `_maxPlanRevisions` injected) = 1 ──
+  it('revisionsExhausted_DefaultCap_CountAtOne_ReturnsTrue', () => {
+    // Flagged behavior change: default cap is now 1 (was 3), so one revision
+    // reaches the cap.
+    const state: Record<string, unknown> = { planReview: { revisionCount: 1 } };
+    expect(guards.revisionsExhausted.evaluate(state)).toBe(true);
   });
 
-  it('revisionsExhausted_CountAboveMax_ReturnsTrue', () => {
-    const state: Record<string, unknown> = {
-      planReview: { revisionCount: 5 },
-    };
-
-    const result = guards.revisionsExhausted.evaluate(state);
-
-    expect(result).toBe(true);
+  it('revisionsExhausted_DefaultCap_CountAboveDefault_ReturnsTrue', () => {
+    const state: Record<string, unknown> = { planReview: { revisionCount: 5 } };
+    expect(guards.revisionsExhausted.evaluate(state)).toBe(true);
   });
 
-  it('revisionsExhausted_CountBelowMax_ReturnsFailure', () => {
-    const state: Record<string, unknown> = {
-      planReview: { revisionCount: 1 },
-    };
+  it('revisionsExhausted_DefaultCap_ZeroRevisions_ReturnsFailure', () => {
+    const state: Record<string, unknown> = { planReview: { revisionCount: 0 } };
 
     const result = guards.revisionsExhausted.evaluate(state);
 
@@ -204,7 +200,7 @@ describe('revisionsExhausted', () => {
     const failure = result as GuardFailure;
     expect(failure.passed).toBe(false);
     expect(failure.reason).toContain('revisions-exhausted');
-    expect(failure.reason).toContain('1/3');
+    expect(failure.reason).toContain('0/1');
   });
 
   it('revisionsExhausted_NoRevisionCount_ReturnsFailure', () => {
@@ -215,13 +211,14 @@ describe('revisionsExhausted', () => {
     expect(result).not.toBe(true);
     const failure = result as GuardFailure;
     expect(failure.passed).toBe(false);
-    expect(failure.reason).toContain('revisions-exhausted');
-    expect(failure.reason).toContain('0/3');
+    expect(failure.reason).toContain('0/1');
   });
 
-  it('revisionsExhausted_ZeroRevisions_ReturnsFailure', () => {
+  // ── Injected cap (`_maxPlanRevisions`) honored — `.exarchos.yml` override ──
+  it('revisionsExhausted_InjectedCap_CountBelowCap_ReturnsFailure', () => {
     const state: Record<string, unknown> = {
-      planReview: { revisionCount: 0 },
+      planReview: { revisionCount: 1 },
+      _maxPlanRevisions: 3,
     };
 
     const result = guards.revisionsExhausted.evaluate(state);
@@ -229,6 +226,39 @@ describe('revisionsExhausted', () => {
     expect(result).not.toBe(true);
     const failure = result as GuardFailure;
     expect(failure.passed).toBe(false);
+    expect(failure.reason).toContain('1/3');
+  });
+
+  it('revisionsExhausted_InjectedCap_CountAtCap_ReturnsTrue', () => {
+    const state: Record<string, unknown> = {
+      planReview: { revisionCount: 3 },
+      _maxPlanRevisions: 3,
+    };
+    expect(guards.revisionsExhausted.evaluate(state)).toBe(true);
+  });
+
+  it('revisionsExhausted_InjectedCap_BoundaryAtTwo', () => {
+    // Cap 2: one revision is allowed, the second reaches the cap.
+    const below: Record<string, unknown> = {
+      planReview: { revisionCount: 1 },
+      _maxPlanRevisions: 2,
+    };
+    expect(guards.revisionsExhausted.evaluate(below)).not.toBe(true);
+
+    const at: Record<string, unknown> = {
+      planReview: { revisionCount: 2 },
+      _maxPlanRevisions: 2,
+    };
+    expect(guards.revisionsExhausted.evaluate(at)).toBe(true);
+  });
+
+  it('revisionsExhausted_NonFiniteInjectedCap_FallsBackToDefault', () => {
+    // A malformed injected cap must not disable the bound — fall back to 1.
+    const state: Record<string, unknown> = {
+      planReview: { revisionCount: 1 },
+      _maxPlanRevisions: Number.NaN,
+    };
+    expect(guards.revisionsExhausted.evaluate(state)).toBe(true);
   });
 });
 

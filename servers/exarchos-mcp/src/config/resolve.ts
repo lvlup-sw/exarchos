@@ -38,6 +38,7 @@ export interface ResolvedProjectConfig {
   readonly workflow: {
     readonly skipPhases: readonly string[];
     readonly maxFixCycles: number;
+    readonly maxPlanRevisions: number;
     readonly requiredReviews: readonly string[];
     readonly phases: Readonly<Record<string, { readonly humanCheckpoint: boolean }>>;
   };
@@ -175,6 +176,7 @@ export const DEFAULTS: ResolvedProjectConfig = deepFreeze({
   workflow: {
     skipPhases: [],
     maxFixCycles: 3,
+    maxPlanRevisions: 1,
     requiredReviews: [],
     phases: {},
   },
@@ -341,6 +343,7 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
   // ── Workflow ──
   const skipPhases = [...(project.workflow?.['skip-phases'] ?? DEFAULTS.workflow.skipPhases)];
   const maxFixCycles = project.workflow?.['max-fix-cycles'] ?? DEFAULTS.workflow.maxFixCycles;
+  const maxPlanRevisions = project.workflow?.['max-plan-revisions'] ?? DEFAULTS.workflow.maxPlanRevisions;
   const requiredReviews = [...(project.workflow?.['required-reviews'] ?? DEFAULTS.workflow.requiredReviews)];
   const phases: Record<string, { readonly humanCheckpoint: boolean }> = {};
   if (project.workflow?.phases) {
@@ -401,7 +404,7 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
       routing: { coderabbitThreshold, riskWeights },
     },
     vcs: { provider: vcsProvider, settings: vcsSettings },
-    workflow: { skipPhases, maxFixCycles, requiredReviews, phases },
+    workflow: { skipPhases, maxFixCycles, maxPlanRevisions, requiredReviews, phases },
     tools: { defaultBranch, commitStyle, prTemplate, autoMerge, prStrategy },
     hooks: { on: hooksOn },
     plugins: { impeccable: { enabled: impeccableEnabled } },

@@ -7,13 +7,14 @@ import {
   isBuiltInWorkflowType,
   executeTransition,
   countPlanRevisions,
+  getValidTransitions,
 } from './state-machine.js';
 import type {
   SerializedTopology,
   WorkflowTypeSummary,
   HSMDefinition,
 } from './state-machine.js';
-import { EXCLUDED_MERGE_PHASES } from './hsm-definitions.js';
+import { EXCLUDED_MERGE_PHASES, createFeatureHSM } from './hsm-definitions.js';
 import { EVENT_DATA_SCHEMAS, isBuiltInEventType } from '../event-store/schemas.js';
 import { buildHsmEventData } from './hsm-transition-guard.js';
 import { mapInternalToExternalType } from './events.js';
@@ -698,5 +699,57 @@ describe('Plan-revision counted event (DR-1)', () => {
     // external type the projection folds — closing state-machine → projection.
     expect(mapInternalToExternalType('plan-revision')).toBe('workflow.plan-revision');
     expect(isBuiltInEventType('workflow.plan-revision')).toBe(true);
+  });
+});
+
+describe('Feature HSM plan-review bound (DR-1, Task 002)', () => {
+  // Task 002 wires the DR-1 mechanism into the REAL feature HSM: the revise
+  // edge carries `isRevision` (emitting the counted event Task 001 built) and
+  // `plan-review → blocked` is ordered BEFORE the revise edge so the bound wins
+  // at the cap. Transition targets are enumerated in array order
+  // (getValidTransitions / computeNextActions iterate `hsm.transitions`), so
+  // ordering IS the precedence.
+  const planReviewTransitions = () =>
+    createFeatureHSM().transitions.filter((t) => t.from === 'plan-review');
+
+  it('ReviseEdge_CarriesIsRevisionFlag', () => {
+    const revise = planReviewTransitions().find((t) => t.to === 'plan');
+    expect(revise).toBeDefined();
+    expect(revise!.isRevision).toBe(true);
+  });
+
+  it('ForwardAndTerminalEdges_AreNotRevisions', () => {
+    // Only the plan-review → plan revise edge counts; delegate/blocked do not.
+    for (const target of ['delegate', 'blocked'] as const) {
+      const t = planReviewTransitions().find((x) => x.to === target);
+      expect(t).toBeDefined();
+      expect(t!.isRevision ?? false).toBe(false);
+    }
+  });
+
+  it('BlockedEdge_OrderedBeforeReviseEdge', () => {
+    // Precedence: at the cap both `revisionsExhausted` (→ blocked) and
+    // `planReviewGapsFound` (→ plan) pass; ordering blocked first means the
+    // order-preserving enumeration surfaces the terminating exit first.
+    const targets = getValidTransitions(createFeatureHSM(), 'plan-review').map((t) => t.phase);
+    const blockedIdx = targets.indexOf('blocked');
+    const planIdx = targets.indexOf('plan');
+    expect(blockedIdx).toBeGreaterThanOrEqual(0);
+    expect(planIdx).toBeGreaterThanOrEqual(0);
+    expect(blockedIdx).toBeLessThan(planIdx);
+  });
+
+  it('ReviseEdge_TraversalEmitsCountedPlanRevision_OnRealHsm', () => {
+    // End-to-end on the real HSM: traversing the revise edge emits exactly one
+    // counted plan-revision event (the fact the cap is checked against).
+    const hsm = createFeatureHSM();
+    const state = {
+      phase: 'plan-review',
+      planReview: { gapsFound: true, revisionCount: 0 },
+      _events: [],
+    };
+    const result = executeTransition(hsm, state, 'plan');
+    expect(result.success).toBe(true);
+    expect(result.events.filter((e) => e.type === 'plan-revision')).toHaveLength(1);
   });
 });

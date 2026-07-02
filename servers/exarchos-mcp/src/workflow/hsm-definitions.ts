@@ -212,13 +212,21 @@ export function createFeatureHSM(): HSMDefinition {
     // initial, so it needs no inbound bootstrap transition.
     { from: 'plan', to: 'plan-review', guard: guards.planArtifactExists },
     { from: 'plan-review', to: 'delegate', guard: guards.planReviewComplete },
+    // DR-1: `blocked` must precede the revise edge. Transitions are evaluated
+    // first-match-wins and `composeGuards` cannot express ¬, so precedence is
+    // expressed by ordering: at the revision cap `revisionsExhausted` fires and
+    // the loop terminates instead of revising forever.
+    { from: 'plan-review', to: 'blocked', guard: guards.revisionsExhausted },
     {
       from: 'plan-review',
       to: 'plan',
       guard: guards.planReviewGapsFound,
+      // DR-1: traversing the revise edge emits a counted `plan-revision` event
+      // (state-machine.ts), folded into `planReview.revisionCount` — the
+      // event-sourced fact the cap is checked against.
+      isRevision: true,
       effects: ['log'],
     },
-    { from: 'plan-review', to: 'blocked', guard: guards.revisionsExhausted },
     { from: 'delegate', to: 'review', guard: composeGuards(
       'all-tasks-complete+team-disbanded',
       'All tasks must be complete and team must be disbanded',

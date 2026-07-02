@@ -493,6 +493,13 @@ export async function handleSet(
     skipPhases?: readonly string[];
     requiredReviews?: readonly string[];
     checkpoint?: CheckpointEnforcementConfig;
+    /**
+     * DR-1: resolved `.exarchos.yml workflow.maxPlanRevisions` cap. Injected
+     * into the reserved ephemeral `state._maxPlanRevisions` for the pure
+     * `revisionsExhausted` guard, then stripped before persistence — never
+     * event-sourced (INV-1: a config threshold is not a fact).
+     */
+    maxPlanRevisions?: number;
   },
 ): Promise<ToolResult> {
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
@@ -652,6 +659,22 @@ export async function handleSet(
         if (typeDefaults.length) {
           mutableState._requiredReviews = typeDefaults;
         }
+      }
+
+      // ─── Inject plan-revision cap for guard evaluation (DR-1) ──────────
+      // `revisionsExhausted` is a PURE guard and cannot read config, so the
+      // resolved `.exarchos.yml workflow.maxPlanRevisions` cap is injected here
+      // (as `_requiredReviews` is above) into a reserved ephemeral field the
+      // guard reads. It is stripped before persistence below — the cap is a
+      // config threshold, not a fact, so it never enters the event log (INV-1).
+      // The sibling `workflow.maxFixCycles` is likewise a runtime-injected
+      // override, never event-sourced. Absent injection the guard falls back to
+      // its default (1) — the conservative, loop-terminating value.
+      if (
+        typeof options?.maxPlanRevisions === 'number' &&
+        Number.isFinite(options.maxPlanRevisions)
+      ) {
+        mutableState._maxPlanRevisions = options.maxPlanRevisions;
       }
     }
 
@@ -817,8 +840,10 @@ export async function handleSet(
         }
       }
 
-      // Clean up transient guard-evaluation field — not persisted to state.
+      // Clean up transient guard-evaluation fields — not persisted to state
+      // (INV-1: the injected config cap is not a fact and must not be folded).
       delete mutableState._requiredReviews;
+      delete mutableState._maxPlanRevisions;
     }
 
     // Transition events are now emitted inside `hsmTransitionGuard.attempt`
@@ -1106,6 +1131,13 @@ export async function handleTransition(
     skipPhases?: readonly string[];
     requiredReviews?: readonly string[];
     checkpoint?: CheckpointEnforcementConfig;
+    /**
+     * DR-1: resolved `.exarchos.yml workflow.maxPlanRevisions` cap. Injected
+     * into the reserved ephemeral `state._maxPlanRevisions` for the pure
+     * `revisionsExhausted` guard, then stripped before persistence — never
+     * event-sourced (INV-1: a config threshold is not a fact).
+     */
+    maxPlanRevisions?: number;
   },
 ): Promise<ToolResult> {
   return applyTransition(
@@ -1137,6 +1169,13 @@ async function applyTransition(
     skipPhases?: readonly string[];
     requiredReviews?: readonly string[];
     checkpoint?: CheckpointEnforcementConfig;
+    /**
+     * DR-1: resolved `.exarchos.yml workflow.maxPlanRevisions` cap. Injected
+     * into the reserved ephemeral `state._maxPlanRevisions` for the pure
+     * `revisionsExhausted` guard, then stripped before persistence — never
+     * event-sourced (INV-1: a config threshold is not a fact).
+     */
+    maxPlanRevisions?: number;
   },
 ): Promise<ToolResult> {
   const result = await handleSet(

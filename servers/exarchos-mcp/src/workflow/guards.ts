@@ -164,7 +164,10 @@ function buildFailedReviewsExpectedShape(
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-export const MAX_PLAN_REVISIONS = 3;
+// DR-1: default plan-revision cap when `.exarchos.yml workflow.maxPlanRevisions`
+// is not injected (`state._maxPlanRevisions`). One adversarial revise cycle then
+// escalate — down from the prior hardcoded 3 (an intentional, flagged change).
+export const DEFAULT_MAX_PLAN_REVISIONS = 1;
 const MAX_SYNTHESIZE_RETRIES = 3;
 
 // ─── Synthesis Guard Helpers ────────────────────────────────────────────────
@@ -867,10 +870,16 @@ export const guards = {
       const planReview = state.planReview as Record<string, unknown> | undefined;
       const rawCount = planReview?.revisionCount;
       const count = typeof rawCount === 'number' && Number.isFinite(rawCount) ? rawCount : 0;
-      if (count >= MAX_PLAN_REVISIONS) return true;
+      // Cap is the injected `.exarchos.yml` value (`_maxPlanRevisions`, set in
+      // tools.ts beside `_requiredReviews`); falls back to the default when no
+      // config was injected. The cap is a config threshold, not event-sourced
+      // state (INV-1) — `revisionCount` is the event-sourced fact.
+      const rawCap = state._maxPlanRevisions;
+      const cap = typeof rawCap === 'number' && Number.isFinite(rawCap) ? rawCap : DEFAULT_MAX_PLAN_REVISIONS;
+      if (count >= cap) return true;
       return {
         passed: false,
-        reason: `revisions-exhausted not satisfied: ${count}/${MAX_PLAN_REVISIONS} revisions`,
+        reason: `revisions-exhausted not satisfied: ${count}/${cap} revisions`,
       };
     },
   },

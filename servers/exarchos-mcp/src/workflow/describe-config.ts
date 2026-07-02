@@ -66,6 +66,7 @@ export function buildConfigDescription(config: ResolvedProjectConfig) {
     workflow: {
       skipPhases: annotate(config.workflow.skipPhases, DEFAULTS.workflow.skipPhases),
       maxFixCycles: annotate(config.workflow.maxFixCycles, DEFAULTS.workflow.maxFixCycles),
+      maxPlanRevisions: annotate(config.workflow.maxPlanRevisions, DEFAULTS.workflow.maxPlanRevisions),
     },
     tools: {
       defaultBranch: annotate(config.tools.defaultBranch, DEFAULTS.tools.defaultBranch),

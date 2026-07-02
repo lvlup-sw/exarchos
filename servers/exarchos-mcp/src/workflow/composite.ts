@@ -101,10 +101,14 @@ export async function handleWorkflow(
       const skipPhases = ctx.projectConfig?.workflow.skipPhases;
       const requiredReviews = ctx.projectConfig?.workflow.requiredReviews;
       const checkpoint = ctx.projectConfig?.checkpoint;
+      // DR-1: the resolved plan-revision cap for the pure `revisionsExhausted`
+      // guard, injected as `_maxPlanRevisions` (never event-sourced — INV-1).
+      const maxPlanRevisions = ctx.projectConfig?.workflow.maxPlanRevisions;
       const transitionOptions: Record<string, unknown> = {};
       if (skipPhases?.length) transitionOptions.skipPhases = skipPhases;
       if (requiredReviews?.length) transitionOptions.requiredReviews = requiredReviews;
       if (checkpoint) transitionOptions.checkpoint = checkpoint;
+      if (typeof maxPlanRevisions === 'number') transitionOptions.maxPlanRevisions = maxPlanRevisions;
       return envelopeWrap(
         await handleTransition(
           rest as unknown as Parameters<typeof handleTransition>[0],

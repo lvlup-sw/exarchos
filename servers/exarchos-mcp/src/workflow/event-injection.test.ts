@@ -458,3 +458,85 @@ describe('handleSet_UnifiedHydration', () => {
     querySpy.mockRestore();
   });
 });
+
+// ─── DR-1 (Task 002): plan-revision cap injection into revisionsExhausted ────
+// The cap reaches the PURE `revisionsExhausted` guard via the reserved ephemeral
+// `_maxPlanRevisions`, injected in handleSet from resolved
+// `.exarchos.yml workflow.maxPlanRevisions` (as `_requiredReviews` is), then
+// stripped before persistence — never event-sourced (INV-1: config is not a fact).
+
+describe('handleSet_PlanRevisionCapInjection', () => {
+  async function driveToPlanReviewWithRevisions(
+    featureId: string,
+    eventStore: EventStore,
+    revisionCount: number,
+  ): Promise<void> {
+    await handleInit({ featureId, workflowType: 'feature' }, tmpDir, eventStore);
+    // #1581: `plan` is the initial phase; set the plan artifact and advance.
+    await handleSet(
+      { featureId, updates: { 'artifacts.plan': 'docs/specs/x.md' } },
+      tmpDir,
+      eventStore,
+    );
+    await handleSet({ featureId, phase: 'plan-review' }, tmpDir, eventStore);
+    // Gaps found + a revision count the cap is checked against.
+    await handleSet(
+      { featureId, updates: { planReview: { gapsFound: true, revisionCount } } },
+      tmpDir,
+      eventStore,
+    );
+  }
+
+  it('AtInjectedCap_TransitionToBlockedSucceeds_AndCapNotPersisted', async () => {
+    const eventStore = new EventStore(tmpDir);
+    await driveToPlanReviewWithRevisions('cap-at', eventStore, 1);
+
+    const result = await handleSet(
+      { featureId: 'cap-at', phase: 'blocked' },
+      tmpDir,
+      eventStore,
+      { maxPlanRevisions: 1 },
+    );
+
+    expect(result.success).toBe(true);
+    expect((result.data as Record<string, unknown>).phase).toBe('blocked');
+
+    // INV-1: the injected config cap is transient — never folded into state.
+    const raw = JSON.parse(
+      await fs.readFile(path.join(tmpDir, 'cap-at.state.json'), 'utf-8'),
+    );
+    expect(raw._maxPlanRevisions).toBeUndefined();
+  });
+
+  it('BelowInjectedCap_TransitionToBlockedIsGuarded', async () => {
+    // `.exarchos.yml` override to 3 keeps the revise loop open at 1 revision:
+    // the terminating `plan-review → blocked` edge is guarded off.
+    const eventStore = new EventStore(tmpDir);
+    await driveToPlanReviewWithRevisions('cap-below', eventStore, 1);
+
+    const result = await handleSet(
+      { featureId: 'cap-below', phase: 'blocked' },
+      tmpDir,
+      eventStore,
+      { maxPlanRevisions: 3 },
+    );
+
+    expect(result.success).toBe(false);
+    expect((result.error as Record<string, unknown>).code).toBe('GUARD_FAILED');
+  });
+
+  it('DefaultCap_NoInjection_BlockedAtOneRevision', async () => {
+    // Without injected config the guard falls back to the default cap (1).
+    const eventStore = new EventStore(tmpDir);
+    await driveToPlanReviewWithRevisions('cap-default', eventStore, 1);
+
+    const result = await handleSet(
+      { featureId: 'cap-default', phase: 'blocked' },
+      tmpDir,
+      eventStore,
+    );
+
+    expect(result.success).toBe(true);
+    expect((result.data as Record<string, unknown>).phase).toBe('blocked');
+  });
+});

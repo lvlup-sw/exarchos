@@ -2709,10 +2709,14 @@ describe('Feature HSM Plan Revision Termination', () => {
   });
 
   it('featureHSM_PlanReviewToBlocked_SucceedsWhenRevisionsExhausted', () => {
+    // DR-1: cap is the injected `_maxPlanRevisions` (from
+    // `.exarchos.yml workflow.maxPlanRevisions`); at the cap the terminating
+    // edge fires.
     const hsm = getHSMDefinition('feature');
     const state: Record<string, unknown> = {
       phase: 'plan-review',
       planReview: { revisionCount: 3 },
+      _maxPlanRevisions: 3,
       _events: [],
       _history: {},
     };
@@ -2724,6 +2728,25 @@ describe('Feature HSM Plan Revision Termination', () => {
   });
 
   it('featureHSM_PlanReviewToBlocked_FailsWhenRevisionsBelowMax', () => {
+    // Injected cap 3 keeps the revise loop open at 1 revision.
+    const hsm = getHSMDefinition('feature');
+    const state: Record<string, unknown> = {
+      phase: 'plan-review',
+      planReview: { revisionCount: 1 },
+      _maxPlanRevisions: 3,
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'blocked');
+
+    expect(result.success).toBe(false);
+    expect(result.errorCode).toBe('GUARD_FAILED');
+  });
+
+  it('featureHSM_PlanReviewToBlocked_DefaultCapIsOne_NoInjection', () => {
+    // Flagged behavior change (DR-1): without an injected cap the default is 1
+    // (was 3), so a single revision reaches the bound.
     const hsm = getHSMDefinition('feature');
     const state: Record<string, unknown> = {
       phase: 'plan-review',
@@ -2734,8 +2757,8 @@ describe('Feature HSM Plan Revision Termination', () => {
 
     const result = executeTransition(hsm, state, 'blocked');
 
-    expect(result.success).toBe(false);
-    expect(result.errorCode).toBe('GUARD_FAILED');
+    expect(result.success).toBe(true);
+    expect(result.newPhase).toBe('blocked');
   });
 });
 
