@@ -137,6 +137,7 @@ Activating the presence requirement (DR-2) without recording the dimension or ha
 - `orchestrate/mutation-adequacy.ts` — `composeScopedCommand` seam + PIT/mutmut + full-scope.
 - `orchestrate/composite.ts` + `src/registry.ts` — `check_exploration_depth` wiring.
 - `commands/plan.md`, `workflow/playbooks.ts` — re-plumbed loop + cap prose.
+- `skills-src/mutation-adequacy/SKILL.md`, `skills-src/review/SKILL.md`, `commands/review.md` — qualify the "required at HIGH tier" prose for the DR-2a no-toolchain skip-pass (required only when a mutation toolchain is resolvable).
 - `docs/system-design.html` — diagrams + two-axes callout.
 
 ### Alternatives considered
@@ -208,8 +209,8 @@ Each task carries a `riskTier` stamp selecting its verification depth. Tests are
 #### Task 005: Project mutation dimension + no-toolchain skip-pass (dead-lock fix)
 
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-2a
-**Files:** `views/workflow-state-projection.ts`, `workflow/tools.ts`, `orchestrate/mutation-adequacy.ts` (skip-pass envelope), co-located `*.test.ts`
-**Verification:** high — tests: gate result projects into `reviews['mutation-adequacy']`; no-toolchain skip-passes and is not required; missing run (toolchain present) blocks. Integration across review→synthesize.
+**Files:** `views/workflow-state-projection.ts`, `workflow/tools.ts`, `orchestrate/mutation-adequacy.ts` (skip-pass envelope), `skills-src/mutation-adequacy/SKILL.md` + `skills-src/review/SKILL.md` + `commands/review.md` (qualify the unconditional "required at HIGH tier" prose → "required at HIGH tier **when a mutation toolchain is resolvable**; otherwise skip-passes"), co-located `*.test.ts`
+**Verification:** high — tests: gate result projects into `reviews['mutation-adequacy']`; no-toolchain skip-passes and is not required; missing run (toolchain present) blocks. Integration across review→synthesize. Skill edit: `npm run build:skills` + `npm run skills:guard` clean.
 **Dependencies:** 004 · **Parallelizable:** No
 
 #### Task 006: Score enforcement at `review → synthesize` (pre-resolved + injected)
