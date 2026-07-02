@@ -155,7 +155,7 @@ export const KIND_OBLIGATIONS = {
 // `getRequiredReviews`, SYNTHESIZE to the fixed readiness order — so every
 // boundary resolves to EXACTLY the sequence its owning policy produces (proven
 // cell-by-cell in the tests). All four gate-bearing kinds are wired and live;
-// only GATHER carries no gates (`gates: null`).
+// MERGE and GATHER carry no gates (`gates: null`).
 
 /** Context a gate resolver needs to compute the sequence for a phase. */
 export interface ResolveGateSetCtx {
@@ -191,8 +191,8 @@ export interface ResolveGateSetCtx {
  *
  * Every entry is live — each delegates to the policy module that owns its
  * sequence (see the per-resolver comments below). None throw; a kind with no
- * gates (GATHER) carries `gates: null` in `KIND_OBLIGATIONS` and never reaches
- * this registry.
+ * gates (MERGE, GATHER) carries `gates: null` in `KIND_OBLIGATIONS` and never
+ * reaches this registry.
  */
 const GATE_RESOLVERS: Readonly<
   Record<GateResolverName, (ctx: ResolveGateSetCtx) => readonly ResolvedGate[]>
