@@ -1906,8 +1906,8 @@ const orchestrateActions: readonly ToolAction[] = [
       "DEFAULTS.review.gates['mutation-adequacy']; an explicit override can raise " +
       'it to blocking). An unresolved mutation command → Skipped (reason names ' +
       'remediation); a malformed/empty report → Warning (degrade, never throws). ' +
-      "scope:'full' returns a deferred-to-R10/v2.12 advisory (no inline full-tree " +
-      'run). Emits mutation.executing_started/executed (INV-10) and a foldable ' +
+      "scope:'full' runs full-tree only with offline:true (nightly lane); else a " +
+      'deferred advisory (no inline run). Emits mutation.executing_started/executed (INV-10) and a foldable ' +
       'gate.executed carrying mutationScore (INV-1); operationId makes the gate ' +
       'emission idempotent (INV-8). Reuse `base` as a string verbatim.',
     // `base` reuses the existing string field contract (request_synthesize.base /
@@ -1930,6 +1930,9 @@ const orchestrateActions: readonly ToolAction[] = [
       operationId: z.string().optional(),
       threshold: z.number().min(0).max(1).optional(),
       scope: z.string().optional(),
+      // DR-6: explicit offline/opt-in for a full-tree run. Inline `/review` never
+      // sets it, so `scope:'full'` stays deferred on the inline path.
+      offline: z.boolean().optional(),
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,

@@ -267,8 +267,20 @@ export interface MutationAdequacyArgs {
   readonly operationId?: string;
   /** Adequacy threshold override; falls back to config, then the soft default. */
   readonly threshold?: number;
-  /** `'diff'` (default) runs scoped; `'full'` returns a deferred-to-R10 advisory. */
+  /**
+   * `'diff'` (default) runs scoped. `'full'` runs the whole tree — but ONLY behind
+   * the explicit `offline` opt-in (DR-6); without it, `'full'` returns a deferred
+   * advisory (the long-running op belongs to a nightly/offline lane, never inline
+   * `/review`).
+   */
   readonly scope?: string;
+  /**
+   * DR-6: explicit offline/opt-in for a full-tree mutation run. Only an offline
+   * caller (nightly job, manual `--offline`) sets this; inline `/review` never
+   * does, so `scope:'full'` stays deferred on the inline path (no wall-clock
+   * full-tree run). Ignored for `scope:'diff'`.
+   */
+  readonly offline?: boolean;
   /** Resolved project config — threaded by the dispatch adapter (severity + threshold). */
   readonly projectConfig?: ResolvedProjectConfig;
 
@@ -516,10 +528,12 @@ export async function handleMutationAdequacy(
     };
   }
 
-  // ── §4.5 — `full` scope is the canonical long-running op; deferred to
-  // R10/v2.12 lifecycle verbs. Never an inline full-tree run (it would defeat
-  // the token goal, research §6 Q3). Return a deferred advisory, no runner call.
-  if (scope === 'full') {
+  // ── §4.5 / DR-6 — `full` scope is the canonical long-running op. Inline
+  // `/review` (no `offline` opt-in) NEVER runs it full-tree — it would defeat
+  // the token/wall-clock goal (research §6 Q3): return a deferred advisory, no
+  // runner call. Only an explicit offline caller (`offline:true` — a nightly job
+  // or `--offline`) falls through to the real full-tree run below.
+  if (scope === 'full' && !args.offline) {
     return {
       success: true,
       data: {
@@ -609,17 +623,25 @@ export async function handleMutationAdequacy(
     };
   }
 
-  // ── Compose the per-runner diff scope (002). Identity stays in the SoT; the
+  // ── Compose the command. `full` (offline opt-in, DR-6) runs the whole tree —
+  // the resolved runner verbatim, NO diff scope. `diff` (the inline default)
+  // composes the per-runner diff scope (002). Identity stays in the SoT; the
   // handler is runner-agnostic. ──────────────────────────────────────────────
-  const detect = args.detectToolchainId ?? ((root: string) => detectToolchain(root)?.id ?? null);
-  const toolchainId = detect(repoRoot) ?? '';
-  const diffScope = resolveMutationDiffScope(toolchainId, args.base);
   const runDiff = args.runDiff ?? defaultRunDiff;
-  const scoped = composeScopedCommand(runtime.mutation, diffScope, {
-    base: args.base,
-    repoRoot,
-    runDiff,
-  });
+  const scoped: { readonly command: string; readonly warning?: string } =
+    scope === 'full'
+      ? { command: runtime.mutation }
+      : (() => {
+          const detect =
+            args.detectToolchainId ?? ((root: string) => detectToolchain(root)?.id ?? null);
+          const toolchainId = detect(repoRoot) ?? '';
+          const diffScope = resolveMutationDiffScope(toolchainId, args.base);
+          return composeScopedCommand(runtime.mutation, diffScope, {
+            base: args.base,
+            repoRoot,
+            runDiff,
+          });
+        })();
 
   // ── Run (injected seam). Bracket with the INV-10 liveness pair. ────────────
   const runMutation = args.runMutation ?? defaultRunMutation;

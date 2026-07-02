@@ -122,6 +122,7 @@ interface DispatchOpts {
   /** Records the commands the runner was asked to execute. */
   recordRuns?: string[];
   scope?: string;
+  offline?: boolean;
   base?: string;
   threshold?: number;
   operationId?: string;
@@ -144,6 +145,7 @@ async function dispatchMutation(
       featureId: 'feat-mutadq',
       base: opts.base ?? 'main',
       ...(opts.scope !== undefined ? { scope: opts.scope } : {}),
+      ...(opts.offline !== undefined ? { offline: opts.offline } : {}),
       ...(opts.threshold !== undefined ? { threshold: opts.threshold } : {}),
       ...(opts.operationId !== undefined ? { operationId: opts.operationId } : {}),
       // Test seams — injected through the dispatch args.
@@ -253,6 +255,45 @@ describe('mutation-adequacy action (dispatch-through handleOrchestrate)', () => 
     expect(typeof data.reason).toBe('string');
     expect(data.reason).toMatch(/R10|v2\.12|deferred/i);
     // No inline full-tree run — the runner was never invoked.
+    expect(recordRuns).toHaveLength(0);
+  });
+
+  it('HandleOrchestrate_MutationAdequacy_FullScopeOffline_RunsFullTreeScored', async () => {
+    // DR-6: the explicit offline opt-in runs the WHOLE tree and produces a scored
+    // result — not the deferred advisory — with an unscoped command (no diff --since).
+    const recordRuns: string[] = [];
+    const { stateDir, eventStore } = await newStore();
+    const { success, data } = await dispatchMutation({
+      scope: 'full',
+      offline: true,
+      eventStore,
+      stateDir,
+      recordRuns,
+      runResult: {
+        ok: true,
+        report: strykerReport([{ status: 'Killed' }, { status: 'Killed' }, { status: 'Survived' }]),
+      },
+    });
+
+    expect(success).toBe(true);
+    expect(data.deferred).toBeUndefined(); // actually ran — not deferred
+    expect(data.mutationScore).toBeCloseTo(2 / 3, 5);
+    // Ran once, full-tree: the command is the resolved runner verbatim, unscoped.
+    expect(recordRuns).toHaveLength(1);
+    expect(recordRuns[0]).toContain('npx stryker run');
+    expect(recordRuns[0]).not.toContain('--since');
+    // Foldable gate.executed emitted (INV-1) so the offline run records the dimension.
+    const gates = await eventStore.query('feat-mutadq', { type: 'gate.executed' });
+    expect(
+      gates.some((e) => (e.data as { gateName?: string }).gateName === 'mutation-adequacy'),
+    ).toBe(true);
+  });
+
+  it('HandleOrchestrate_MutationAdequacy_FullScopeWithoutOffline_StaysDeferred', async () => {
+    // Inline /review never sets `offline` → full-tree is never run inline.
+    const recordRuns: string[] = [];
+    const { data } = await dispatchMutation({ scope: 'full', offline: false, recordRuns });
+    expect(data.deferred).toBe(true);
     expect(recordRuns).toHaveLength(0);
   });
 
