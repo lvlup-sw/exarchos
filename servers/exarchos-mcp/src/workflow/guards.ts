@@ -352,6 +352,34 @@ export const guards = {
         }
       }
 
+      // Check 4: mutation score enforcement (DR-3). PURE — reads only the
+      // values `workflow/tools.ts` pre-resolves and injects (`_mutationEnforcement`,
+      // `_mutationThreshold`), never `ResolvedProjectConfig`. Advisory by default
+      // (#1520/R5): enforcement fires ONLY when the injected mode is `block` and a
+      // finite threshold was injected (both set together, HIGH tier only). This is
+      // the score gate — distinct from the dimension's presence/advisory status
+      // (Checks 1/3, DR-2a); the gate-level run stays blocking:false (no double-block).
+      // A skip-passed run (no toolchain) carries no real score and is never enforced.
+      if (
+        state._mutationEnforcement === 'block' &&
+        typeof state._mutationThreshold === 'number' &&
+        Number.isFinite(state._mutationThreshold)
+      ) {
+        const dim = reviews['mutation-adequacy'] as Record<string, unknown> | undefined;
+        const score = dim?.mutationScore;
+        if (
+          dim &&
+          dim.skipped !== true &&
+          typeof score === 'number' &&
+          score < (state._mutationThreshold as number)
+        ) {
+          reasons.push(
+            `mutation-adequacy score ${score} is below the enforced threshold ` +
+              `${state._mutationThreshold} (review.mutationEnforcement: block)`,
+          );
+        }
+      }
+
       if (reasons.length === 0) return true;
 
       return {

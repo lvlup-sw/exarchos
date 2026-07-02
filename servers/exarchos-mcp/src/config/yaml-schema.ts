@@ -58,6 +58,8 @@ const RoutingConfig = z.object({
 const ReviewConfig = z.object({
   dimensions: DimensionsMap.optional(),
   gates: z.record(z.string(), GateConfig).optional(),
+  // DR-3: mutation score enforcement at review→synthesize. Advisory by default.
+  'mutation-enforcement': z.enum(['block', 'advisory']).optional(),
   routing: RoutingConfig.optional(),
 }).strict();
 

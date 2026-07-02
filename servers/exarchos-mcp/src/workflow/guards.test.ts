@@ -583,6 +583,64 @@ describe('allReviewsPassed (synthesis ready)', () => {
     expect((result as GuardFailure).reason).toContain('mutation-adequacy');
   });
 
+  // ── DR-3: mutation score enforcement (Check 4, injected values only) ──
+  const mutationBase = (
+    score: number,
+    inject: Record<string, unknown>,
+    extra: Record<string, unknown> = {},
+  ): Record<string, unknown> => ({
+    featureId: 'test-feature',
+    phase: 'review',
+    reviews: {
+      review: { status: 'pass' },
+      'mutation-adequacy': { status: 'pass', mutationScore: score, ...extra },
+    },
+    _requiredReviews: ['review', 'mutation-adequacy'],
+    ...inject,
+  });
+
+  it('MutationEnforcement_BlockModeSubThreshold_Blocks_DR3', () => {
+    const state = mutationBase(0.1, { _mutationEnforcement: 'block', _mutationThreshold: 0.4 });
+    const result = guards.allReviewsPassed.evaluate(state);
+    expect(result).not.toBe(true);
+    expect((result as GuardFailure).reason).toContain('below the enforced threshold');
+  });
+
+  it('MutationEnforcement_BlockModeAtOrAboveThreshold_Passes_DR3', () => {
+    expect(
+      guards.allReviewsPassed.evaluate(
+        mutationBase(0.4, { _mutationEnforcement: 'block', _mutationThreshold: 0.4 }),
+      ),
+    ).toBe(true);
+    expect(
+      guards.allReviewsPassed.evaluate(
+        mutationBase(0.9, { _mutationEnforcement: 'block', _mutationThreshold: 0.4 }),
+      ),
+    ).toBe(true);
+  });
+
+  it('MutationEnforcement_AdvisoryDefault_SubThresholdNeverBlocks_DR3', () => {
+    // No injected mode (advisory default) → a sub-threshold score does not block.
+    expect(guards.allReviewsPassed.evaluate(mutationBase(0.01, {}))).toBe(true);
+    expect(
+      guards.allReviewsPassed.evaluate(
+        mutationBase(0.01, { _mutationEnforcement: 'advisory', _mutationThreshold: 0.4 }),
+      ),
+    ).toBe(true);
+  });
+
+  it('MutationEnforcement_SkipPassRun_NeverEnforced_DR3', () => {
+    // A no-toolchain skip-pass carries no real score → not enforced even in block mode.
+    const state = mutationBase(0, { _mutationEnforcement: 'block', _mutationThreshold: 0.4 }, { skipped: true });
+    expect(guards.allReviewsPassed.evaluate(state)).toBe(true);
+  });
+
+  it('MutationEnforcement_BlockModeButNoThresholdInjected_NotEnforced_DR3', () => {
+    // Guard reads injected values only: mode without a finite threshold is inert.
+    const state = mutationBase(0.01, { _mutationEnforcement: 'block' });
+    expect(guards.allReviewsPassed.evaluate(state)).toBe(true);
+  });
+
   it('SynthesisReadyGuard_RequiredDimensionPresentButFailed_ReturnsFailed', () => {
     const state: Record<string, unknown> = {
       featureId: 'test-feature',

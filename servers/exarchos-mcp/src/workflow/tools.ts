@@ -500,6 +500,14 @@ export async function handleSet(
      * event-sourced (INV-1: a config threshold is not a fact).
      */
     maxPlanRevisions?: number;
+    /**
+     * DR-3: resolved `.exarchos.yml review.mutationEnforcement` mode and the
+     * resolved mutation threshold. Injected (HIGH tier only) into
+     * `_mutationEnforcement` / `_mutationThreshold` for the pure `allReviewsPassed`
+     * score check, then stripped before persistence — never event-sourced (INV-1).
+     */
+    mutationEnforcement?: 'block' | 'advisory';
+    mutationThreshold?: number;
   },
 ): Promise<ToolResult> {
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
@@ -676,6 +684,25 @@ export async function handleSet(
       ) {
         mutableState._maxPlanRevisions = options.maxPlanRevisions;
       }
+
+      // ─── Inject mutation score-enforcement mode + threshold (DR-3) ──────
+      // `allReviewsPassed` is a PURE guard and cannot read config, so the
+      // resolved `review.mutationEnforcement` mode + threshold are injected here
+      // (as `_requiredReviews` / `_maxPlanRevisions` are). HIGH tier only —
+      // low/medium never run mutation-adequacy, so the guard's score check stays
+      // inert there. Advisory by default: with mode !== 'block' nothing is
+      // injected, so the guard never enforces. Stripped before persistence below.
+      if (resolveWorkflowRiskTier(mutableState) === 'high') {
+        if (options?.mutationEnforcement !== undefined) {
+          mutableState._mutationEnforcement = options.mutationEnforcement;
+        }
+        if (
+          typeof options?.mutationThreshold === 'number' &&
+          Number.isFinite(options.mutationThreshold)
+        ) {
+          mutableState._mutationThreshold = options.mutationThreshold;
+        }
+      }
     }
 
     // ─── Hydrate _events from event store for guard evaluation ──────────
@@ -844,6 +871,8 @@ export async function handleSet(
       // (INV-1: the injected config cap is not a fact and must not be folded).
       delete mutableState._requiredReviews;
       delete mutableState._maxPlanRevisions;
+      delete mutableState._mutationEnforcement;
+      delete mutableState._mutationThreshold;
     }
 
     // Transition events are now emitted inside `hsmTransitionGuard.attempt`
@@ -1138,6 +1167,14 @@ export async function handleTransition(
      * event-sourced (INV-1: a config threshold is not a fact).
      */
     maxPlanRevisions?: number;
+    /**
+     * DR-3: resolved `.exarchos.yml review.mutationEnforcement` mode and the
+     * resolved mutation threshold. Injected (HIGH tier only) into
+     * `_mutationEnforcement` / `_mutationThreshold` for the pure `allReviewsPassed`
+     * score check, then stripped before persistence — never event-sourced (INV-1).
+     */
+    mutationEnforcement?: 'block' | 'advisory';
+    mutationThreshold?: number;
   },
 ): Promise<ToolResult> {
   return applyTransition(
@@ -1176,6 +1213,14 @@ async function applyTransition(
      * event-sourced (INV-1: a config threshold is not a fact).
      */
     maxPlanRevisions?: number;
+    /**
+     * DR-3: resolved `.exarchos.yml review.mutationEnforcement` mode and the
+     * resolved mutation threshold. Injected (HIGH tier only) into
+     * `_mutationEnforcement` / `_mutationThreshold` for the pure `allReviewsPassed`
+     * score check, then stripped before persistence — never event-sourced (INV-1).
+     */
+    mutationEnforcement?: 'block' | 'advisory';
+    mutationThreshold?: number;
   },
 ): Promise<ToolResult> {
   const result = await handleSet(

@@ -26,6 +26,11 @@ export interface ResolvedProjectConfig {
   readonly review: {
     readonly dimensions: Readonly<Record<'D1' | 'D2' | 'D3' | 'D4' | 'D5', ResolvedDimensionConfig>>;
     readonly gates: Readonly<Record<string, ResolvedGateConfig>>;
+    // DR-3: mutation score enforcement at `review → synthesize`. `advisory`
+    // (default) never blocks; `block` fails the guard when a HIGH-tier run is
+    // sub-threshold. A dedicated key (not the gate's `blocking:false`) so the
+    // default is unambiguous — no default-vs-explicit-false confusion.
+    readonly mutationEnforcement: 'block' | 'advisory';
     readonly routing: {
       readonly coderabbitThreshold: number;
       readonly riskWeights: Readonly<Record<string, number>>;
@@ -164,6 +169,9 @@ export const DEFAULTS: ResolvedProjectConfig = deepFreeze({
       // override (blocking: true).
       'mutation-adequacy': { enabled: true, blocking: false, params: { threshold: 0.4 } },
     },
+    // DR-3 (#1520/R5): advisory by default — a sub-threshold mutation score
+    // surfaces survivor follow-ups but does not block review→synthesize.
+    mutationEnforcement: 'advisory',
     routing: {
       coderabbitThreshold: 0.4,
       riskWeights: { ...DEFAULT_RISK_WEIGHTS },
@@ -334,6 +342,9 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
     ? { ...project.review.routing['risk-weights'] }
     : { ...DEFAULT_RISK_WEIGHTS };
 
+  const mutationEnforcement =
+    project.review?.['mutation-enforcement'] ?? DEFAULTS.review.mutationEnforcement;
+
   // ── VCS ──
   const vcsProvider = project.vcs?.provider ?? DEFAULTS.vcs.provider;
   const vcsSettings = project.vcs?.settings
@@ -401,6 +412,7 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
     review: {
       dimensions,
       gates,
+      mutationEnforcement,
       routing: { coderabbitThreshold, riskWeights },
     },
     vcs: { provider: vcsProvider, settings: vcsSettings },

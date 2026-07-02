@@ -150,6 +150,16 @@ describe('resolveConfig', () => {
     expect(result.workflow.maxPlanRevisions).toBe(3);
   });
 
+  it('resolveConfig_MutationEnforcement_DefaultsToAdvisory', () => {
+    // DR-3: advisory by default (#1520/R5) — never blocks review→synthesize.
+    expect(resolveConfig({}).review.mutationEnforcement).toBe('advisory');
+  });
+
+  it('resolveConfig_MutationEnforcement_OverridesToBlock', () => {
+    const project: ProjectConfig = { review: { 'mutation-enforcement': 'block' } };
+    expect(resolveConfig(project).review.mutationEnforcement).toBe('block');
+  });
+
   it('resolveConfig_ToolsPartial_MergesWithDefaults', () => {
     const project: ProjectConfig = { tools: { 'auto-merge': false } };
     const result = resolveConfig(project);
