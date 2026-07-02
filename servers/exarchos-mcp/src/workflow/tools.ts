@@ -36,7 +36,7 @@ import { getHSMDefinition, isBuiltInWorkflowType, getValidTransitions } from './
 import { hsmTransitionGuard } from './hsm-transition-guard.js';
 import { getPlaybook, composePhasePlaybook } from './playbooks.js';
 import { lintHandoff, type HandoffLintFinding } from './handoff-lint.js';
-import { getRequiredReviews } from './review-contract.js';
+import { resolveGateSet } from './phase-kind.js';
 import { type ToolResult } from '../format.js';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
@@ -662,8 +662,27 @@ export async function handleSet(
         // roster when absent — exactly the pre-slice-3 behaviour.
         // `getRequiredReviews` ignores an unrecognised tier, so a malformed
         // stamp can never inject a dimension.
-        const riskTier = resolveWorkflowRiskTier(mutableState);
-        const typeDefaults = getRequiredReviews(workflowType, riskTier);
+        // Coerce the (defensively-read, possibly-undefined/garbage) tier to a
+        // literal RiskTier for the resolver ctx. Only `high` carries an extra
+        // review dimension (mutation-adequacy); every other value → the base
+        // roster, so collapsing non-high to `low` is byte-identical to the prior
+        // `getRequiredReviews(workflowType, rawTier)` behavior (the ctx shim).
+        const rawTier = resolveWorkflowRiskTier(mutableState);
+        const riskTier =
+          rawTier === 'high' ? 'high' : rawTier === 'medium' ? 'medium' : 'low';
+        // DR-7: route the review roster through the single REVIEW gate-set
+        // resolver — `resolveGateSet('REVIEW')`, the same resolver phase-entry
+        // uses — instead of calling `getRequiredReviews` directly, so REVIEW
+        // obligations have ONE source. The `'review-contract'` resolver wraps
+        // `getRequiredReviews` verbatim (review-contract.ts SoT), so the resolved
+        // dimension set is byte-identical (parity-pinned). `boundaryTouching` is
+        // unused by the review resolver; an absent/unrecognised tier falls back to
+        // the workflow-type base roster (the ctx shim — never throws).
+        const typeDefaults = resolveGateSet('REVIEW', {
+          riskTier,
+          boundaryTouching: false,
+          workflowType,
+        }).flatMap((g) => (g.family === 'review' ? [g.gate] : []));
         if (typeDefaults.length) {
           mutableState._requiredReviews = typeDefaults;
         }

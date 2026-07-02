@@ -67,8 +67,8 @@ export type GateResolverName =
  * actions (decompose → coverage → spec-coverage → provenance → traceability);
  * the `'deep'` rung adds the `check_exploration_depth` obligation (DR-7), which
  * is therefore a member here so the `'plan'` family of {@link ResolvedGate} can
- * carry it. (`check_exploration_depth` has no registry action yet — its gate
- * wiring is DR-7/tasks 016+018; it is reachable only at opt-in `'deep'` depth.)
+ * carry it. (`check_exploration_depth` has a registered gate handler + action;
+ * it is reachable only at opt-in `'deep'` depth.)
  */
 export type PlanGateName = PlanDepthGateName;
 
