@@ -548,6 +548,41 @@ describe('allReviewsPassed (synthesis ready)', () => {
     expect(result).toBe(true);
   });
 
+  it('SynthesisReadyGuard_MutationAdequacySkipPassPresent_Passes_DR2a', () => {
+    // DR-2a dead-lock fix: at HIGH tier mutation-adequacy is a required dimension.
+    // The projection folds the mutation gate.executed (incl. a no-toolchain
+    // skip-pass) into reviews['mutation-adequacy'] with status 'pass', so the
+    // presence requirement is satisfied by the recorded run — review→synthesize
+    // is no longer dead-locked.
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      phase: 'review',
+      reviews: {
+        review: { status: 'pass' },
+        'mutation-adequacy': { status: 'pass', skipped: true, mutationScore: 0 },
+      },
+      _requiredReviews: ['review', 'mutation-adequacy'],
+    };
+
+    expect(guards.allReviewsPassed.evaluate(state)).toBe(true);
+  });
+
+  it('SynthesisReadyGuard_MutationAdequacyRequiredButNeverRun_Blocks_DR2a', () => {
+    // The complement: a toolchain-present repo where the mutation gate never ran
+    // leaves the dimension absent → the guard still blocks (a required gate that
+    // did not execute must not silently pass).
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      phase: 'review',
+      reviews: { review: { status: 'pass' } },
+      _requiredReviews: ['review', 'mutation-adequacy'],
+    };
+
+    const result = guards.allReviewsPassed.evaluate(state);
+    expect(result).not.toBe(true);
+    expect((result as GuardFailure).reason).toContain('mutation-adequacy');
+  });
+
   it('SynthesisReadyGuard_RequiredDimensionPresentButFailed_ReturnsFailed', () => {
     const state: Record<string, unknown> = {
       featureId: 'test-feature',

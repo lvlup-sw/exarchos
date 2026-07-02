@@ -779,6 +779,77 @@ describe('WorkflowStateProjection passthrough events', () => {
   });
 });
 
+// ─── Mutation-adequacy dimension (DR-2a) ─────────────────────────────────────
+
+describe('WorkflowStateProjection mutation-adequacy dimension (DR-2a)', () => {
+  type Dim = { status?: string; passed?: boolean; mutationScore?: number; skipped?: boolean };
+  const dimOf = (s: ReturnType<typeof workflowStateProjection.init>): Dim | undefined =>
+    (s.reviews as Record<string, Dim>)['mutation-adequacy'];
+
+  it('foldsMutationGateExecutedIntoReviewsDimension', () => {
+    const state = workflowStateProjection.init();
+    const next = workflowStateProjection.apply(
+      state,
+      makeEvent('gate.executed', {
+        gateName: 'mutation-adequacy',
+        layer: 'review',
+        passed: true,
+        details: { mutationScore: 0.82, threshold: 0.4 },
+      }),
+    );
+    const dim = dimOf(next);
+    expect(dim).toBeDefined();
+    expect(dim!.status).toBe('pass');
+    expect(dim!.passed).toBe(true);
+    expect(dim!.mutationScore).toBe(0.82);
+    expect(dim!.skipped ?? false).toBe(false);
+  });
+
+  it('foldsSkipPassWhenNoToolchain', () => {
+    // No-toolchain emits a skip-passing gate.executed; the dimension is recorded
+    // as skip-pass so review→synthesize is not dead-locked at HIGH tier.
+    const state = workflowStateProjection.init();
+    const next = workflowStateProjection.apply(
+      state,
+      makeEvent('gate.executed', {
+        gateName: 'mutation-adequacy',
+        layer: 'review',
+        passed: true,
+        details: { skipped: true, reason: 'no runner', mutationScore: 0 },
+      }),
+    );
+    expect(dimOf(next)!.status).toBe('pass');
+    expect(dimOf(next)!.skipped).toBe(true);
+  });
+
+  it('advisoryPassEvenWhenScoreBelowThreshold', () => {
+    // DR-2a records the dimension as advisory 'pass'; the raw sub-threshold
+    // verdict rides `passed` for the DR-3 (task 006) score-enforcement check.
+    const state = workflowStateProjection.init();
+    const next = workflowStateProjection.apply(
+      state,
+      makeEvent('gate.executed', {
+        gateName: 'mutation-adequacy',
+        layer: 'review',
+        passed: false,
+        details: { mutationScore: 0.1, threshold: 0.4 },
+      }),
+    );
+    expect(dimOf(next)!.status).toBe('pass');
+    expect(dimOf(next)!.passed).toBe(false);
+    expect(dimOf(next)!.mutationScore).toBe(0.1);
+  });
+
+  it('nonMutationGateExecutedIsNoOp', () => {
+    const state = workflowStateProjection.init();
+    const next = workflowStateProjection.apply(
+      state,
+      makeEvent('gate.executed', { gateName: 'static-analysis', layer: 'delegate', passed: true }),
+    );
+    expect(next).toEqual(state);
+  });
+});
+
 // ─── Round-Trip Integration ────────────────────────────────────────────────
 
 describe('WorkflowStateProjection round-trip', () => {

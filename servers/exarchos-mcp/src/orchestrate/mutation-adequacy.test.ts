@@ -211,6 +211,26 @@ describe('mutation-adequacy action (dispatch-through handleOrchestrate)', () => 
     expect(recordRuns).toHaveLength(0);
   });
 
+  it('HandleOrchestrate_MutationAdequacy_NoToolchain_EmitsSkipPassGateExecuted', async () => {
+    // DR-2a: no toolchain still emits a skip-passing gate.executed so the
+    // projection records reviews['mutation-adequacy'] as skip-pass — otherwise
+    // review→synthesize dead-locks at HIGH tier on a repo with no mutation runner.
+    const { stateDir, eventStore } = await newStore();
+    const { success, data } = await dispatchMutation({ mutationCmd: null, eventStore, stateDir });
+    expect(success).toBe(true);
+    expect(data.skipped).toBe(true);
+
+    const events = await eventStore.query('feat-mutadq', { type: 'gate.executed' });
+    const gate = events.find(
+      (e) => (e.data as { gateName?: string }).gateName === 'mutation-adequacy',
+    );
+    expect(gate).toBeDefined();
+    const gd = gate!.data as { layer?: string; passed?: boolean; details?: { skipped?: boolean } };
+    expect(gd.layer).toBe('review');
+    expect(gd.passed).toBe(true);
+    expect(gd.details?.skipped).toBe(true);
+  });
+
   it('HandleOrchestrate_MutationAdequacy_MalformedReport_Warning', async () => {
     const { success, data } = await dispatchMutation({
       runResult: { ok: true, report: 'not-json-at-all{' },

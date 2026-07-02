@@ -61,7 +61,7 @@ Activating the presence requirement (DR-2) without recording the dimension or ha
 
 **Acceptance criteria:**
 - The mutation `gate.executed` (layer `review`) result is **projected into `reviews['mutation-adequacy']`** (in `views/workflow-state-projection.ts`, beside the `review.routed` folding) so the dimension is satisfied by the actual gate run, not an agent hand-write.
-- When no mutation toolchain resolves, the gate result is **skip-passing** (advisory, with a surfaced warning / doctor signal) and `mutation-adequacy` is **not injected as a hard presence requirement** into `_requiredReviews` — `review → synthesize` is not blocked by a structurally-unrunnable gate.
+- When no mutation toolchain resolves, the handler **emits a skip-passing `gate.executed`** (advisory, `details.skipped:true`, with a surfaced reason), which the projection folds into `reviews['mutation-adequacy']` as a recorded skip-pass. Presence is thus satisfied by a **recorded fact** (INV-1) rather than by dropping the requirement or coupling the transition path to toolchain resolution — so `mutation-adequacy` stays a required dimension (the "required at HIGH tier" skill/command prose remains accurate) yet `review → synthesize` is never blocked by a structurally-unrunnable gate. The complement holds: a toolchain-present repo where the gate never ran leaves the dimension absent → still blocked.
 - Regression test: high-tier workflow **with** a toolchain and a passing mutation run can transition; **without** a toolchain it can transition (skip-pass) and emits a warning; with a toolchain and a *missing* run it is blocked (presence required).
 
 #### DR-3: Enforce the mutation score at high tier, single locus (Gap E)
@@ -128,7 +128,7 @@ Activating the presence requirement (DR-2) without recording the dimension or ha
 - `workflow/state-machine.ts` — `isRevision` flag, `plan-revision` emission, `countPlanRevisions`.
 - `workflow/hsm-definitions.ts` — `createFeatureHSM` transition flag + precedence ordering.
 - `workflow/guards.ts` — `revisionsExhausted` (cap source), `allReviewsPassed` (injected score read).
-- `workflow/tools.ts` — `getRequiredReviews` injection (toolchain-gated), score pre-resolve+inject, `resolveGateSet('REVIEW')` routing.
+- `workflow/tools.ts` — `_maxPlanRevisions` inject (DR-1); `getRequiredReviews` injection, score pre-resolve+inject (DR-3), `resolveGateSet('REVIEW')` routing (DR-7). (DR-2a does NOT gate the injection on toolchain presence — presence is satisfied by the recorded skip-pass fact; see task 005.)
 - `workflow/review-contract.ts` — `getRequiredReviews` (SoT; unchanged behavior).
 - `workflow/phase-kind.ts` — stale-comment deletion; `REVIEW` ctx shim.
 - `config/resolve.ts` + `config/yaml-schema.ts` — `review.mutationEnforcement` key; `workflow.maxPlanRevisions` / `max-plan-revisions` (default 1), injected at transition time as the reserved ephemeral `_maxPlanRevisions` (never event-sourced — INV-1).
@@ -137,8 +137,9 @@ Activating the presence requirement (DR-2) without recording the dimension or ha
 - `orchestrate/mutation-adequacy.ts` — `composeScopedCommand` seam + PIT/mutmut + full-scope.
 - `orchestrate/composite.ts` + `src/registry.ts` — `check_exploration_depth` wiring.
 - `commands/plan.md`, `workflow/playbooks.ts` — re-plumbed loop + cap prose.
-- `skills-src/mutation-adequacy/SKILL.md`, `skills-src/review/SKILL.md`, `commands/review.md` — qualify the "required at HIGH tier" prose for the DR-2a no-toolchain skip-pass (required only when a mutation toolchain is resolvable).
 - `docs/system-design.html` — diagrams + two-axes callout.
+
+(No skill/command prose edit for DR-2a: under the recorded-skip-pass seam the "required at HIGH tier" prose stays accurate — the dimension IS required and IS recorded, as skip-pass when no toolchain resolves.)
 
 ### Alternatives considered
 
@@ -209,8 +210,9 @@ Each task carries a `riskTier` stamp selecting its verification depth. Tests are
 #### Task 005: Project mutation dimension + no-toolchain skip-pass (dead-lock fix)
 
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-2a
-**Files:** `views/workflow-state-projection.ts`, `workflow/tools.ts`, `orchestrate/mutation-adequacy.ts` (skip-pass envelope), `skills-src/mutation-adequacy/SKILL.md` + `skills-src/review/SKILL.md` + `commands/review.md` (qualify the unconditional "required at HIGH tier" prose → "required at HIGH tier **when a mutation toolchain is resolvable**; otherwise skip-passes"), co-located `*.test.ts`
-**Verification:** high — tests: gate result projects into `reviews['mutation-adequacy']`; no-toolchain skip-passes and is not required; missing run (toolchain present) blocks. Integration across review→synthesize. Skill edit: `npm run build:skills` + `npm run skills:guard` clean.
+**Files:** `views/workflow-state-projection.ts` (dedicated `gate.executed` case: fold the mutation gate → `reviews['mutation-adequacy']`, advisory status `pass`, carrying `passed`/`mutationScore`/`skipped`), `orchestrate/mutation-adequacy.ts` (emit a skip-passing `gate.executed` on the no-toolchain and degrade paths), co-located `*.test.ts`
+**Verification:** high — tests: gate result projects into `reviews['mutation-adequacy']`; no-toolchain emits + folds a skip-pass so the required dimension is satisfied; sub-threshold folds advisory `pass` (DR-3 enforces the score separately); missing run (toolchain present) leaves it absent → blocks. Guard-level dead-lock proof via `allReviewsPassed`.
+**Seam (INV-1):** presence is satisfied by a **recorded skip-pass fact**, NOT by gating `_requiredReviews` injection on toolchain presence in `workflow/tools.ts` (which would couple the pure transition path to toolchain resolution) — so this task does **not** touch `tools.ts`, and the "required at HIGH tier" skill/command prose stays accurate (no skill edit needed).
 **Dependencies:** 004 · **Parallelizable:** No
 
 #### Task 006: Score enforcement at `review → synthesize` (pre-resolved + injected)

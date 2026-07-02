@@ -576,6 +576,24 @@ export async function handleMutationAdequacy(
       runtime.remediation ??
       'no mutation runner resolved for this repository — install one (e.g. stryker, ' +
         'cargo-mutants, mutmut) or set `mutation:` in .exarchos.yml';
+    // DR-2a: emit a skip-passing gate.executed so the projection records
+    // `reviews['mutation-adequacy']` as skip-pass. Without this the required
+    // dimension is silently absent and `review → synthesize` dead-locks at HIGH
+    // tier on a repo that has no mutation runner (INV-1: presence is satisfied
+    // by a recorded fact, not by dropping the requirement).
+    try {
+      await emitGateEvent(
+        eventStore,
+        args.featureId,
+        MUTATION_GATE_NAME,
+        MUTATION_GATE_LAYER,
+        true,
+        { skipped: true, reason, mutationScore: 0 },
+        args.operationId,
+      );
+    } catch {
+      /* fire-and-forget — emission failure must not break the advisory verdict */
+    }
     return {
       success: true,
       data: {
@@ -619,12 +637,14 @@ export async function handleMutationAdequacy(
 
   // ── Run-level degrade (no parseable report) → Warning, never a throw. ──────
   if (!runResult.ok) {
+    await emitAdvisoryGate(eventStore, args, runResult.reason);
     return warningCarrier(runResult.reason, scoped.warning);
   }
 
   // ── Parse + fold (001). Malformed report → Warning (degrade). ──────────────
   const parsed = parseMutationReport(runResult.report);
   if (!parsed.ok) {
+    await emitAdvisoryGate(eventStore, args, parsed.reason);
     return warningCarrier(parsed.reason, scoped.warning);
   }
 
@@ -681,6 +701,33 @@ function resolveThreshold(args: MutationAdequacyArgs): number {
   const configured = args.projectConfig?.review.gates[MUTATION_GATE_NAME]?.params?.threshold;
   if (typeof configured === 'number') return configured;
   return DEFAULT_MUTATION_THRESHOLD;
+}
+
+/**
+ * DR-2a: emit an advisory (passing) `gate.executed` for a degrade path (runner
+ * produced no parseable report). Records `reviews['mutation-adequacy']` as
+ * skip-pass so a toolchain-present-but-unparseable run does not leave the
+ * required dimension absent (a secondary `review → synthesize` dead-lock).
+ * Fire-and-forget: an emission failure must never break the advisory verdict.
+ */
+async function emitAdvisoryGate(
+  eventStore: EventStore,
+  args: MutationAdequacyArgs,
+  reason: string,
+): Promise<void> {
+  try {
+    await emitGateEvent(
+      eventStore,
+      args.featureId,
+      MUTATION_GATE_NAME,
+      MUTATION_GATE_LAYER,
+      true,
+      { skipped: true, reason, mutationScore: 0 },
+      args.operationId,
+    );
+  } catch {
+    /* fire-and-forget */
+  }
 }
 
 /** Build a degraded Warning carrier (a malformed/empty report never throws). */
