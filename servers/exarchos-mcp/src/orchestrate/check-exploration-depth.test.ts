@@ -67,12 +67,13 @@ interface EnvelopeData {
 describe('check_exploration_depth gate (DR-4)', () => {
   let base: string;
   let stateDir: string;
+  let eventStore: EventStore;
   let ctx: DispatchContext;
 
   beforeEach(async () => {
     base = await mkdtemp(path.join(tmpdir(), 'exploration-depth-'));
     stateDir = path.join(base, 'state');
-    const eventStore = new EventStore(stateDir);
+    eventStore = new EventStore(stateDir);
     await eventStore.initialize();
     ctx = {
       stateDir,
@@ -83,6 +84,10 @@ describe('check_exploration_depth gate (DR-4)', () => {
   });
 
   afterEach(async () => {
+    // MUST close the SQLite handle before removing the temp dir — on Windows an
+    // open `exarchos.db` handle blocks `fs.rm` with EBUSY (store.ts close()
+    // contract). POSIX tolerates unlinking an open file, so this is Windows-only.
+    eventStore.close();
     await rm(base, { recursive: true, force: true });
   });
 
