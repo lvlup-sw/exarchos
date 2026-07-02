@@ -640,25 +640,30 @@ describe('HandleOrchestrate_PrepareDelegation_PersistsWorkflowRiskTier (DR-2)', 
     // derivation appends and the projection folds last-write-wins.
     const ctxStore = new EventStore(tmpDir);
     const streamId = 'dr2-risktier-reraise';
+    try {
+      await persistWorkflowRiskTier(ctxStore, streamId, 'high');
+      await persistWorkflowRiskTier(ctxStore, streamId, 'medium');
+      await persistWorkflowRiskTier(ctxStore, streamId, 'high');
 
-    await persistWorkflowRiskTier(ctxStore, streamId, 'high');
-    await persistWorkflowRiskTier(ctxStore, streamId, 'medium');
-    await persistWorkflowRiskTier(ctxStore, streamId, 'high');
+      // All three patches must persist (the value-based key would have dropped the
+      // third as a cache-hit, leaving `medium` as the last applied value).
+      const patches = await ctxStore.query(streamId, { type: 'state.patched' });
+      const tierPatches = patches.filter(
+        (e) =>
+          !!(e.data as { patch?: Record<string, unknown> }).patch &&
+          'riskTier' in (e.data as { patch: Record<string, unknown> }).patch,
+      );
+      expect(tierPatches.length).toBe(3);
 
-    // All three patches must persist (the value-based key would have dropped the
-    // third as a cache-hit, leaving `medium` as the last applied value).
-    const patches = await ctxStore.query(streamId, { type: 'state.patched' });
-    const tierPatches = patches.filter(
-      (e) =>
-        !!(e.data as { patch?: Record<string, unknown> }).patch &&
-        'riskTier' in (e.data as { patch: Record<string, unknown> }).patch,
-    );
-    expect(tierPatches.length).toBe(3);
-
-    // Materialized through the real projection → last-write-wins yields `high`.
-    const riskTier = await materializeRiskTier(ctxStore, tmpDir, streamId);
-    expect(riskTier).toBe('high');
-    expect(getRequiredReviews('feature', riskTier as string)).toContain('mutation-adequacy');
+      // Materialized through the real projection → last-write-wins yields `high`.
+      const riskTier = await materializeRiskTier(ctxStore, tmpDir, streamId);
+      expect(riskTier).toBe('high');
+      expect(getRequiredReviews('feature', riskTier as string)).toContain('mutation-adequacy');
+    } finally {
+      // MUST close the SQLite handle before the afterEach removes tmpDir — an open
+      // handle blocks fs.rm on Windows (EventStore.close() contract; CodeRabbit).
+      ctxStore.close();
+    }
   });
 
   it('an explicit caller riskTier override wins over the derived value end-to-end', async () => {
