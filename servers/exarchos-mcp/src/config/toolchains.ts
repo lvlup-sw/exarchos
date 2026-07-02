@@ -395,15 +395,18 @@ export function testGlobsForToolchain(toolchainId: string): readonly string[] | 
  *                       applier can shell-quote correctly.
  * - `already-native`  — the runner already diff-scopes itself (cargo-mutants
  *                       `--in-diff`); the applier appends nothing.
- * - `path-restricted` — restrict the run to the diff's changed paths (mutmut);
- *                       the applier maps `base` → changed paths.
+ * - `path-restricted` — restrict the run to the diff's changed paths (mutmut's
+ *                       `--paths-to-mutate`); `flag` carries a `<changed>`
+ *                       placeholder the applier fills with the diff's changed
+ *                       paths (the same applier-resolves-placeholder pattern as
+ *                       PIT's `-DtargetClasses=<changed>` append-flag).
  * - `unscoped-warning`— no known augmentation; run unscoped and surface
  *                       `warning` (the Task-seam note), never silently full.
  */
 export type MutationDiffScope =
   | { readonly kind: 'append-flag'; readonly flag: string; readonly tokenized: boolean; readonly warning?: undefined }
   | { readonly kind: 'already-native'; readonly warning?: undefined }
-  | { readonly kind: 'path-restricted'; readonly warning?: undefined }
+  | { readonly kind: 'path-restricted'; readonly flag: string; readonly warning?: undefined }
   | { readonly kind: 'unscoped-warning'; readonly warning: string };
 
 /**
@@ -421,8 +424,9 @@ const MUTATION_DIFF_SCOPE: Readonly<Record<string, (base: string) => MutationDif
   dotnet: (base) => ({ kind: 'append-flag', flag: `--since ${base}`, tokenized: true }),
   // cargo-mutants is already `--in-diff` — do not double-scope.
   rust: () => ({ kind: 'already-native' }),
-  // mutmut has no diff flag; restrict the run to the changed paths.
-  python: () => ({ kind: 'path-restricted' }),
+  // mutmut has no `--since`; restrict the run to the changed paths via
+  // `--paths-to-mutate` (the applier fills `<changed>` with the diff's .py paths).
+  python: () => ({ kind: 'path-restricted', flag: '--paths-to-mutate=<changed>' }),
   // PIT scopes via -DtargetClasses=<changed>; same strategy for both Java build
   // tools (the changed-class glob is computed by the applier from `base`).
   'java-maven': () => ({ kind: 'append-flag', flag: '-DtargetClasses=<changed>', tokenized: false }),

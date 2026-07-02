@@ -592,7 +592,10 @@ describe('EventTypes', () => {
     // Bumped 136 → 138: WLM operational-core — worktree.merge_requested /
     //   worktree.merge_executed (DR-4 / DR-7 — the serialized-merge lease pair on
     //   the singleton `worktrees` stream; CLAIM + RELEASE correlated by operationId).
-    expect(EventTypes).toHaveLength(138);
+    // Bumped 138 → 139: workflow.plan-revision (DR-1 / #1630 — counted plan-review
+    //   revise cycle; the plan-review analog of workflow.fix-cycle, folded into
+    //   state.planReview.revisionCount to bound the plan↔plan-review loop).
+    expect(EventTypes).toHaveLength(139);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');
@@ -608,6 +611,7 @@ describe('EventTypes', () => {
     expect(EventTypes).toContain('worktree.reserved');
     expect(EventTypes).toContain('worktree.released');
     expect(EventTypes).toContain('worktree.orphan_detected');
+    expect(EventTypes).toContain('workflow.plan-revision');
     // Retirement guard: init.executed removed in DR-5 (task 018).
     expect(EventTypes as readonly string[]).not.toContain('init.executed');
   });

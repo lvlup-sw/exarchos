@@ -708,7 +708,9 @@ describe('TOOL_REGISTRY', () => {
       // exarchos_orchestrate — INV-5d, no new visible tool: 72 → 75.
       // WLM operational core (DR-7) added `serialize_merge` (the optimistic
       // integration-branch merge lease) onto exarchos_orchestrate: 75 → 76.
-      expect(composite!.actions).toHaveLength(76);
+      // DR-4 (Gap B, #1630) added `check_exploration_depth` (deep-only
+      // Exploration-citation planning gate): 76 → 77.
+      expect(composite!.actions).toHaveLength(77);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -799,6 +801,9 @@ describe('TOOL_REGISTRY', () => {
           // WLM operational core (DR-7): explicit name assertion so the length
           // bump cannot be satisfied by a different action.
           'serialize_merge',
+          // DR-4 (#1630): explicit name assertion so the length bump cannot be
+          // satisfied by a different action.
+          'check_exploration_depth',
         ]),
       );
     });

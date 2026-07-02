@@ -44,6 +44,16 @@ export interface Transition {
   readonly guard?: Guard;
   readonly effects?: readonly Effect[];
   readonly isFixCycle?: boolean;
+  /**
+   * Marks a plan-review revise loop edge (DR-1). When traversed, the executor
+   * emits one counted `plan-revision` event — the exact analog of `isFixCycle`
+   * → `fix-cycle`. The `plan-review → plan` transition carries this so the
+   * revise loop can be bounded (the projection folds the count into
+   * `state.planReview.revisionCount`, the location the `revisionsExhausted`
+   * guard reads). An `Effect` is deliberately NOT the mechanism — a counted
+   * cycle must be an event so the count is event-derived and replay-stable.
+   */
+  readonly isRevision?: boolean;
 }
 
 export interface HSMDefinition {
@@ -113,6 +123,7 @@ export interface SerializedTopology {
     to: string;
     guard?: { id: string; description: string };
     isFixCycle?: boolean;
+    isRevision?: boolean;
     effects?: readonly string[];
   }>;
   tracks: Record<string, string[]>;
@@ -221,6 +232,7 @@ export function serializeTopology(workflowType: string): SerializedTopology {
       entry.guard = { id: t.guard.id, description: t.guard.description };
     }
     if (t.isFixCycle !== undefined) entry.isFixCycle = t.isFixCycle;
+    if (t.isRevision !== undefined) entry.isRevision = t.isRevision;
     if (t.effects !== undefined) entry.effects = t.effects;
     return entry;
   });
@@ -427,6 +439,28 @@ function countFixCycles(
     const metadata = e.metadata as Record<string, unknown> | undefined;
     return metadata?.compoundStateId === compoundId;
   }).length;
+}
+
+/**
+ * Count `plan-revision` events in the log (DR-1) — the revise-cycle analog of
+ * `countFixCycles`. Unlike fix cycles (bounded per-compound by the circuit
+ * breaker), plan-review revisions are bounded by a single workflow-level count
+ * that `revisionsExhausted` reads from `state.planReview.revisionCount`, so the
+ * count is global (not scoped to a compound). The projection folds these same
+ * events into that nested field; this function derives the identical count
+ * directly from the event log, so the bound is event-sourced and replay-stable.
+ *
+ * Accepts both the internal HSM-emitted shape (`type: 'plan-revision'`) and the
+ * persisted external shape (`type: 'workflow.plan-revision'`) so a caller can
+ * derive the count from either an in-flight `result.events` list or a rehydrated
+ * event log.
+ */
+export function countPlanRevisions(
+  events: readonly Record<string, unknown>[]
+): number {
+  return events.filter(
+    (e) => e.type === 'plan-revision' || e.type === 'workflow.plan-revision'
+  ).length;
 }
 
 /**
@@ -822,6 +856,26 @@ export function executeTransition(
       // A top-level (non-compound) child has no parent compound. Omit the key
       // entirely rather than emitting `compoundStateId: undefined`, which would
       // violate WorkflowFixCycleData's optional-string contract (#1339).
+      metadata: { ...(parent ? { compoundStateId: parent.id } : {}) },
+    });
+  }
+
+  // If a plan-review revise cycle, add a counted plan-revision event (DR-1).
+  // The exact analog of the fix-cycle emission above: a counted *event* (not an
+  // Effect) so the revise count is event-derived and survives replay. The
+  // emission boundary (hsm-transition-guard) folds in the 1-based ordinal as
+  // `count` and the projection folds occurrences into
+  // `state.planReview.revisionCount`. `compoundStateId` follows the same
+  // omit-when-absent rule as fix-cycle (#1339) — plan-review is a top-level
+  // atomic phase today, but mirroring keeps the shape stable if it is ever
+  // nested in a compound.
+  if (transition.isRevision) {
+    const parent = getParentCompound(hsm, currentPhase);
+    transitionEvents.push({
+      type: 'plan-revision',
+      from: currentPhase,
+      to: targetPhase,
+      trigger: 'execute-transition',
       metadata: { ...(parent ? { compoundStateId: parent.id } : {}) },
     });
   }

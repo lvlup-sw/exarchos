@@ -779,6 +779,106 @@ describe('WorkflowStateProjection passthrough events', () => {
   });
 });
 
+// ─── Mutation-adequacy dimension (DR-2a) ─────────────────────────────────────
+
+describe('WorkflowStateProjection mutation-adequacy dimension (DR-2a)', () => {
+  type Dim = {
+    status?: string;
+    passed?: boolean;
+    mutationScore?: number;
+    skipped?: boolean;
+    degraded?: boolean;
+  };
+  const dimOf = (s: ReturnType<typeof workflowStateProjection.init>): Dim | undefined =>
+    (s.reviews as Record<string, Dim>)['mutation-adequacy'];
+
+  it('foldsMutationGateExecutedIntoReviewsDimension', () => {
+    const state = workflowStateProjection.init();
+    const next = workflowStateProjection.apply(
+      state,
+      makeEvent('gate.executed', {
+        gateName: 'mutation-adequacy',
+        layer: 'review',
+        passed: true,
+        details: { mutationScore: 0.82, threshold: 0.4 },
+      }),
+    );
+    const dim = dimOf(next);
+    expect(dim).toBeDefined();
+    expect(dim!.status).toBe('pass');
+    expect(dim!.passed).toBe(true);
+    expect(dim!.mutationScore).toBe(0.82);
+    expect(dim!.skipped ?? false).toBe(false);
+  });
+
+  it('foldsSkipPassWhenNoToolchain', () => {
+    // No-toolchain emits a skip-passing gate.executed; the dimension is recorded
+    // as skip-pass so review→synthesize is not dead-locked at HIGH tier.
+    const state = workflowStateProjection.init();
+    const next = workflowStateProjection.apply(
+      state,
+      makeEvent('gate.executed', {
+        gateName: 'mutation-adequacy',
+        layer: 'review',
+        passed: true,
+        details: { skipped: true, reason: 'no runner', mutationScore: 0 },
+      }),
+    );
+    expect(dimOf(next)!.status).toBe('pass');
+    expect(dimOf(next)!.skipped).toBe(true);
+    // RVC-R1: a no-toolchain skip-pass carries NO degrade marker.
+    expect(dimOf(next)!.degraded ?? false).toBe(false);
+  });
+
+  it('foldsDegradedMarkerFromDegradePath_RVC_R1', () => {
+    // RVC-R1: a degrade path (toolchain present but runner failed / unparseable
+    // report) emits skipped:true AND degraded:true. The projection must carry the
+    // degraded flag so `allReviewsPassed` Check 4 can fail it closed under block
+    // enforcement — a shared skipped:true marker alone would let a broken runner
+    // silently pass review→synthesize.
+    const state = workflowStateProjection.init();
+    const next = workflowStateProjection.apply(
+      state,
+      makeEvent('gate.executed', {
+        gateName: 'mutation-adequacy',
+        layer: 'review',
+        passed: true,
+        details: { skipped: true, degraded: true, reason: 'stryker exited 1', mutationScore: 0 },
+      }),
+    );
+    expect(dimOf(next)!.status).toBe('pass');
+    expect(dimOf(next)!.skipped).toBe(true);
+    expect(dimOf(next)!.degraded).toBe(true);
+  });
+
+  it('advisoryPassEvenWhenScoreBelowThreshold', () => {
+    // DR-2a records the dimension as advisory 'pass'; the raw sub-threshold
+    // verdict rides `passed` for the DR-3 (task 006) score-enforcement check.
+    const state = workflowStateProjection.init();
+    const next = workflowStateProjection.apply(
+      state,
+      makeEvent('gate.executed', {
+        gateName: 'mutation-adequacy',
+        layer: 'review',
+        passed: false,
+        details: { mutationScore: 0.1, threshold: 0.4 },
+      }),
+    );
+    expect(dimOf(next)!.status).toBe('pass');
+    expect(dimOf(next)!.passed).toBe(false);
+    expect(dimOf(next)!.mutationScore).toBe(0.1);
+  });
+
+  it('nonMutationGateExecutedIsNoOp', () => {
+    const state = workflowStateProjection.init();
+    const next = workflowStateProjection.apply(
+      state,
+      makeEvent('gate.executed', { gateName: 'static-analysis', layer: 'delegate', passed: true }),
+    );
+    expect(next).toEqual(state);
+  });
+});
+
 // ─── Round-Trip Integration ────────────────────────────────────────────────
 
 describe('WorkflowStateProjection round-trip', () => {
@@ -1140,5 +1240,82 @@ describe('WorkflowStateProjection mergeOrchestrator fold', () => {
     // A passing preflight is observation; the executor's merge.executed produces
     // the next terminal write. Mirrors applyEventToState (returns false → no-op).
     expect(view.mergeOrchestrator).toBeUndefined();
+  });
+});
+
+// ─── Plan-review revise count (DR-1) ─────────────────────────────────────────
+
+describe('WorkflowStateProjection plan-revision count (DR-1)', () => {
+  type View = ReturnType<typeof workflowStateProjection.init>;
+  function revisionCountOf(state: View): number | undefined {
+    const planReview = state.planReview as { revisionCount?: number } | undefined;
+    return planReview?.revisionCount;
+  }
+
+  it('Apply_PlanRevision_FoldsIntoNestedPlanReviewRevisionCount', () => {
+    // AC (c): the count folds into the NESTED `planReview.revisionCount` — the
+    // exact field `revisionsExhausted` reads — not a top-level field.
+    let state = workflowStateProjection.init();
+    expect(revisionCountOf(state)).toBeUndefined();
+    expect(state.revisionCount).toBeUndefined(); // never a top-level field
+
+    state = workflowStateProjection.apply(
+      state,
+      makeEvent('workflow.plan-revision', { count: 1, featureId: 'f' }),
+    );
+    expect(revisionCountOf(state)).toBe(1);
+
+    state = workflowStateProjection.apply(
+      state,
+      makeEvent('workflow.plan-revision', { count: 2, featureId: 'f' }),
+    );
+    expect(revisionCountOf(state)).toBe(2);
+    expect(state.revisionCount).toBeUndefined();
+  });
+
+  it('Apply_PlanRevision_PreservesOtherPlanReviewFields', () => {
+    // The fold spreads the prior planReview, so an `approved` / `gapsFound`
+    // written via state.patched survives the revision-count increment.
+    let state = workflowStateProjection.init();
+    state = workflowStateProjection.apply(
+      state,
+      makeEvent('state.patched', { patch: { 'planReview.approved': true } }),
+    );
+    state = workflowStateProjection.apply(
+      state,
+      makeEvent('workflow.plan-revision', { count: 1, featureId: 'f' }),
+    );
+
+    const planReview = state.planReview as {
+      approved?: boolean;
+      revisionCount?: number;
+    };
+    expect(planReview.approved).toBe(true);
+    expect(planReview.revisionCount).toBe(1);
+  });
+
+  it('Apply_PlanRevision_CountIsEventDerivedAndSurvivesReplay', () => {
+    // AC (d): the count is purely event-derived — replaying the log from a fresh
+    // `init()` reconstructs the identical count (a left-fold of +1 per event),
+    // so a reconcile/rebuild can never drift from the live projection.
+    const events: WorkflowEvent[] = [
+      makeEvent('workflow.started', { featureId: 'f', workflowType: 'feature' }),
+      makeEvent('workflow.plan-revision', { count: 1, featureId: 'f' }),
+      makeEvent('workflow.plan-revision', { count: 2, featureId: 'f' }),
+      makeEvent('workflow.plan-revision', { count: 3, featureId: 'f' }),
+    ];
+
+    const foldAll = (): View =>
+      events.reduce(
+        (s, e) => workflowStateProjection.apply(s, e),
+        workflowStateProjection.init(),
+      );
+
+    const live = foldAll();
+    const replayed = foldAll();
+
+    expect(revisionCountOf(live)).toBe(3);
+    expect(revisionCountOf(replayed)).toBe(3);
+    expect(replayed.planReview).toEqual(live.planReview);
   });
 });

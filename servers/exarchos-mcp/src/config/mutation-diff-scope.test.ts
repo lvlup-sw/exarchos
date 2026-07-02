@@ -51,9 +51,13 @@ describe('resolveMutationDiffScope (per-runner diff-scope table)', () => {
   });
 
   it('ResolveMutationDiffScope_PythonMutmut_RestrictsToChangedPaths', () => {
-    // mutmut has no diff flag; the runner is restricted to the changed paths.
+    // mutmut has no `--since`; the run is restricted to the changed paths via
+    // `--paths-to-mutate`, whose `<changed>` placeholder the applier fills.
     const scope = resolveMutationDiffScope('python', BASE);
     expect(scope.kind).toBe('path-restricted');
+    if (scope.kind === 'path-restricted') {
+      expect(scope.flag).toBe('--paths-to-mutate=<changed>');
+    }
     expect(scope.warning).toBeUndefined();
   });
 

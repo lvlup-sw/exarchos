@@ -26,6 +26,11 @@ export interface ResolvedProjectConfig {
   readonly review: {
     readonly dimensions: Readonly<Record<'D1' | 'D2' | 'D3' | 'D4' | 'D5', ResolvedDimensionConfig>>;
     readonly gates: Readonly<Record<string, ResolvedGateConfig>>;
+    // DR-3: mutation score enforcement at `review → synthesize`. `advisory`
+    // (default) never blocks; `block` fails the guard when a HIGH-tier run is
+    // sub-threshold. A dedicated key (not the gate's `blocking:false`) so the
+    // default is unambiguous — no default-vs-explicit-false confusion.
+    readonly mutationEnforcement: 'block' | 'advisory';
     readonly routing: {
       readonly coderabbitThreshold: number;
       readonly riskWeights: Readonly<Record<string, number>>;
@@ -38,6 +43,7 @@ export interface ResolvedProjectConfig {
   readonly workflow: {
     readonly skipPhases: readonly string[];
     readonly maxFixCycles: number;
+    readonly maxPlanRevisions: number;
     readonly requiredReviews: readonly string[];
     readonly phases: Readonly<Record<string, { readonly humanCheckpoint: boolean }>>;
   };
@@ -163,6 +169,9 @@ export const DEFAULTS: ResolvedProjectConfig = deepFreeze({
       // override (blocking: true).
       'mutation-adequacy': { enabled: true, blocking: false, params: { threshold: 0.4 } },
     },
+    // DR-3 (#1520/R5): advisory by default — a sub-threshold mutation score
+    // surfaces survivor follow-ups but does not block review→synthesize.
+    mutationEnforcement: 'advisory',
     routing: {
       coderabbitThreshold: 0.4,
       riskWeights: { ...DEFAULT_RISK_WEIGHTS },
@@ -175,6 +184,7 @@ export const DEFAULTS: ResolvedProjectConfig = deepFreeze({
   workflow: {
     skipPhases: [],
     maxFixCycles: 3,
+    maxPlanRevisions: 1,
     requiredReviews: [],
     phases: {},
   },
@@ -332,6 +342,9 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
     ? { ...project.review.routing['risk-weights'] }
     : { ...DEFAULT_RISK_WEIGHTS };
 
+  const mutationEnforcement =
+    project.review?.['mutation-enforcement'] ?? DEFAULTS.review.mutationEnforcement;
+
   // ── VCS ──
   const vcsProvider = project.vcs?.provider ?? DEFAULTS.vcs.provider;
   const vcsSettings = project.vcs?.settings
@@ -341,6 +354,7 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
   // ── Workflow ──
   const skipPhases = [...(project.workflow?.['skip-phases'] ?? DEFAULTS.workflow.skipPhases)];
   const maxFixCycles = project.workflow?.['max-fix-cycles'] ?? DEFAULTS.workflow.maxFixCycles;
+  const maxPlanRevisions = project.workflow?.['max-plan-revisions'] ?? DEFAULTS.workflow.maxPlanRevisions;
   const requiredReviews = [...(project.workflow?.['required-reviews'] ?? DEFAULTS.workflow.requiredReviews)];
   const phases: Record<string, { readonly humanCheckpoint: boolean }> = {};
   if (project.workflow?.phases) {
@@ -398,10 +412,11 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
     review: {
       dimensions,
       gates,
+      mutationEnforcement,
       routing: { coderabbitThreshold, riskWeights },
     },
     vcs: { provider: vcsProvider, settings: vcsSettings },
-    workflow: { skipPhases, maxFixCycles, requiredReviews, phases },
+    workflow: { skipPhases, maxFixCycles, maxPlanRevisions, requiredReviews, phases },
     tools: { defaultBranch, commitStyle, prTemplate, autoMerge, prStrategy },
     hooks: { on: hooksOn },
     plugins: { impeccable: { enabled: impeccableEnabled } },

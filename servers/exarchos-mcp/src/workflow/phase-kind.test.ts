@@ -289,6 +289,9 @@ describe('review-contract resolver (DR-9)', () => {
   it('ResolveGateSet_ReviewKind_MatchesReviewContractSoT', () => {
     // SoT cross-check: the resolver must equal getRequiredReviews verbatim — the
     // dimension vocabulary stays owned by review-contract.ts, never re-listed.
+    // This is the DR-7 parity guarantee: `workflow/tools.ts` now routes its
+    // `_requiredReviews` injection through `resolveGateSet('REVIEW')` instead of
+    // calling `getRequiredReviews` directly, so the injected roster is byte-identical.
     for (const riskTier of ['low', 'medium', 'high'] as const) {
       const resolved = resolveGateSet('REVIEW', {
         riskTier,
@@ -297,6 +300,21 @@ describe('review-contract resolver (DR-9)', () => {
       }).map((g) => g.gate);
       expect(resolved).toEqual(getRequiredReviews('feature', riskTier));
     }
+  });
+
+  it('ResolveGateSet_ReviewKind_AbsentWorkflowType_FallsBackToBase_NeverThrows_DR7', () => {
+    // DR-7 ctx shim: an absent/unrecognised workflowType resolves to the base
+    // roster (never throws) — the routing's degrade path when state carries no
+    // recognizable workflow type.
+    expect(() =>
+      resolveGateSet('REVIEW', { riskTier: 'high', boundaryTouching: false }),
+    ).not.toThrow();
+    const resolved = resolveGateSet('REVIEW', {
+      riskTier: 'high',
+      boundaryTouching: false,
+      workflowType: 'not-a-real-type',
+    }).map((g) => g.gate);
+    expect(resolved).toEqual(getRequiredReviews('not-a-real-type', 'high'));
   });
 });
 

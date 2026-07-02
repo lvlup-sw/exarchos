@@ -45,6 +45,7 @@ describe('resolveConfig', () => {
     // Workflow defaults
     expect(result.workflow.skipPhases).toEqual([]);
     expect(result.workflow.maxFixCycles).toBe(3);
+    expect(result.workflow.maxPlanRevisions).toBe(1); // DR-1: default cap 1
     expect(result.workflow.phases).toEqual({});
 
     // Tools defaults
@@ -140,6 +141,23 @@ describe('resolveConfig', () => {
     const project: ProjectConfig = { workflow: { 'max-fix-cycles': 5 } };
     const result = resolveConfig(project);
     expect(result.workflow.maxFixCycles).toBe(5);
+  });
+
+  it('resolveConfig_MaxPlanRevisions_OverridesDefault', () => {
+    // DR-1: `.exarchos.yml workflow.max-plan-revisions` overrides the default 1.
+    const project: ProjectConfig = { workflow: { 'max-plan-revisions': 3 } };
+    const result = resolveConfig(project);
+    expect(result.workflow.maxPlanRevisions).toBe(3);
+  });
+
+  it('resolveConfig_MutationEnforcement_DefaultsToAdvisory', () => {
+    // DR-3: advisory by default (#1520/R5) — never blocks review→synthesize.
+    expect(resolveConfig({}).review.mutationEnforcement).toBe('advisory');
+  });
+
+  it('resolveConfig_MutationEnforcement_OverridesToBlock', () => {
+    const project: ProjectConfig = { review: { 'mutation-enforcement': 'block' } };
+    expect(resolveConfig(project).review.mutationEnforcement).toBe('block');
   });
 
   it('resolveConfig_ToolsPartial_MergesWithDefaults', () => {

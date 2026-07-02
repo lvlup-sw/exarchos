@@ -32,7 +32,8 @@ import {
   resolveMutationDiffScope,
   type MutationDiffScope,
 } from '../config/toolchains.js';
-import { emitGateEvent, resolveRepoRoot } from './gate-utils.js';
+import { defaultGitExec, emitGateEvent, resolveRepoRoot } from './gate-utils.js';
+import { orchestrateLogger } from '../logger.js';
 
 // ─── Stryker mutation-testing-report-schema (subset we consume) ─────────────
 //
@@ -267,8 +268,20 @@ export interface MutationAdequacyArgs {
   readonly operationId?: string;
   /** Adequacy threshold override; falls back to config, then the soft default. */
   readonly threshold?: number;
-  /** `'diff'` (default) runs scoped; `'full'` returns a deferred-to-R10 advisory. */
+  /**
+   * `'diff'` (default) runs scoped. `'full'` runs the whole tree — but ONLY behind
+   * the explicit `offline` opt-in (DR-6); without it, `'full'` returns a deferred
+   * advisory (the long-running op belongs to a nightly/offline lane, never inline
+   * `/review`).
+   */
   readonly scope?: string;
+  /**
+   * DR-6: explicit offline/opt-in for a full-tree mutation run. Only an offline
+   * caller (nightly job, manual `--offline`) sets this; inline `/review` never
+   * does, so `scope:'full'` stays deferred on the inline path (no wall-clock
+   * full-tree run). Ignored for `scope:'diff'`.
+   */
+  readonly offline?: boolean;
   /** Resolved project config — threaded by the dispatch adapter (severity + threshold). */
   readonly projectConfig?: ResolvedProjectConfig;
 
@@ -279,56 +292,152 @@ export interface MutationAdequacyArgs {
   readonly detectToolchainId?: (repoRoot: string) => string | null;
   /** Mutation runner. Defaults to a real shell-out capturing stdout as the report. */
   readonly runMutation?: (args: MutationRunArgs) => MutationRunResult | Promise<MutationRunResult>;
+  /**
+   * Diff seam used to resolve the per-runner diff-scope (PIT `<changed>` classes,
+   * mutmut changed paths). Defaults to {@link defaultRunDiff}; injected in tests
+   * so no real git/diff runs (DR-5 / Gap C).
+   */
+  readonly runDiff?: RunDiff;
+}
+
+// ─── Diff seam (DR-5, Gap C) ─────────────────────────────────────────────────
+//
+// `composeScopedCommand` needs the diff to materialize two per-runner scopes the
+// descriptor leaves as a `<changed>` placeholder: PIT's `-DtargetClasses` (the
+// changed Java classes) and mutmut's `--paths-to-mutate` (the changed .py
+// paths). The diff is injected as a `runDiff` seam so the unit tests mock it —
+// no real git/diff ever runs in the suite. The production default shells out to
+// `git diff --name-only <base>...HEAD` (the merge-base form the sibling
+// test-adequacy probe uses), degrading to `[]` on any git failure so a scope
+// computation never throws into the run path.
+
+/** Resolves the repo-relative paths changed since `base` (injectable diff seam). */
+export type RunDiff = (base: string, repoRoot: string) => readonly string[];
+
+/** Default diff seam: `git diff --name-only <base>...HEAD`; `[]` on any git failure. */
+export const defaultRunDiff: RunDiff = (base, repoRoot) => {
+  const result = defaultGitExec(repoRoot, ['diff', '--name-only', `${base}...HEAD`]);
+  if (result.exitCode !== 0) return [];
+  return result.stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+};
+
+/** Context the diff-scope applier needs to resolve a `<changed>` placeholder. */
+export interface ScopeContext {
+  readonly base: string;
+  readonly repoRoot: string;
+  readonly runDiff: RunDiff;
+}
+
+/**
+ * Map changed `.java` file paths to PIT `-DtargetClasses` fully-qualified class
+ * names. The Maven/Gradle convention places sources under `src/{main,test}/java/`
+ * (or a bare `java/` root); the FQCN is the path below that root with `/`→`.` and
+ * the `.java` extension dropped (`src/main/java/com/x/Foo.java` → `com.x.Foo`). A
+ * `.java` path with no recognizable source root falls back to its dotted form.
+ * Non-`.java` files are ignored. De-duplicated, order-preserving.
+ */
+function changedJavaClasses(files: readonly string[]): string[] {
+  const classes = new Set<string>();
+  for (const file of files) {
+    const posix = file.replace(/\\/g, '/');
+    if (!posix.endsWith('.java')) continue;
+    const noExt = posix.slice(0, -'.java'.length);
+    const rooted = noExt.match(/(?:^|\/)(?:src\/(?:main|test)\/java|java)\/(.+)$/);
+    const rel = rooted ? rooted[1] : noExt;
+    classes.add(rel.replace(/\//g, '.'));
+  }
+  return [...classes];
+}
+
+/**
+ * Changed `.py` file paths for mutmut's `--paths-to-mutate` restriction
+ * (POSIX-normalized, de-duplicated, order-preserving). Non-`.py` files are
+ * ignored.
+ *
+ * (A higher-fidelity LINE-level scope is possible via mutmut's `--use-patch-file`
+ * — only mutate lines in a materialized patch — but that needs a patch artifact
+ * on disk; path restriction is the seam this slice ships.)
+ */
+function changedPythonPaths(files: readonly string[]): string[] {
+  const paths = new Set<string>();
+  for (const file of files) {
+    const posix = file.replace(/\\/g, '/');
+    if (posix.endsWith('.py')) paths.add(posix);
+  }
+  return [...paths];
 }
 
 /**
  * Compose a resolved mutation command with its per-runner diff scope. The
- * augmentation lives in the toolchains SoT (002); the handler stays runner-
- * agnostic. Returns the scoped command and any `unscoped-warning` to surface.
+ * augmentation identity lives in the toolchains SoT (002); the handler stays
+ * runner-agnostic. The diff-derived placeholders are resolved against the
+ * injected `runDiff` seam (DR-5 / Gap C):
+ *
+ *   - `append-flag` carrying `<changed>` (PIT `-DtargetClasses=<changed>`) →
+ *     substitute the changed Java classes derived from the diff;
+ *   - `path-restricted` (mutmut `--paths-to-mutate=<changed>`) → substitute the
+ *     changed `.py` paths.
+ *
+ * When the diff touches no scopable file for the runner there is nothing to
+ * scope to — rather than ship an empty placeholder or silently mutate the whole
+ * tree, it degrades to the unscoped-warning contract (never silently full-tree).
+ * Returns the scoped command and any warning to surface.
  */
-function composeScopedCommand(
+export function composeScopedCommand(
   command: string,
   scope: MutationDiffScope,
+  ctx: ScopeContext,
 ): { readonly command: string; readonly warning?: string } {
   switch (scope.kind) {
-    case 'append-flag':
-      // A descriptor whose flag still carries an unresolved `<changed>` token
-      // (Java PIT `-DtargetClasses=<changed>`) cannot be applied yet: computing
-      // the changed-class glob from `base` is the deferred applier work
-      // (R10/v2.12). Appending the literal placeholder would ship a broken
-      // command scoping to a class literally named `<changed>`, so we degrade to
-      // the unscoped-warning contract instead — never silently broken, never
-      // silently full-tree.
+    case 'append-flag': {
       if (scope.flag.includes('<changed>')) {
-        return {
-          command,
-          warning:
-            `mutation diff-scope for this toolchain needs changed-class ` +
-            `computation (flag '${scope.flag}' still carries an unresolved ` +
-            `<changed> placeholder), which is deferred to R10/v2.12; the ` +
-            `mutation run is unscoped (full-tree) for now`,
-        };
+        // PIT: resolve `<changed>` to the changed classes derived from the diff
+        // and substitute them into the flag (`-DtargetClasses=com.x.Foo,...`).
+        // A literal `<changed>` must NEVER reach the runner (it would scope to a
+        // class named `<changed>`); an empty changed-set degrades to a warning.
+        const classes = changedJavaClasses(ctx.runDiff(ctx.base, ctx.repoRoot));
+        if (classes.length === 0) {
+          return {
+            command,
+            warning:
+              `mutation diff-scope resolved no changed classes for flag ` +
+              `'${scope.flag}' (the diff touched no Java sources); the mutation ` +
+              `run is unscoped (full-tree) for now`,
+          };
+        }
+        const flag = scope.flag.replace('<changed>', classes.join(','));
+        return { command: `${command} ${flag}` };
       }
       // `tokenized` only affects shell-quoting, which the runner owns; here we
       // append the flag string verbatim (it already carries its own spacing).
       return { command: `${command} ${scope.flag}` };
+    }
     case 'already-native':
       // The runner already diff-scopes itself (cargo-mutants `--in-diff`);
-      // appending a second scope would double-scope. Append nothing.
+      // appending a second scope would double-scope. Append nothing — and never
+      // consult the diff seam (there is no placeholder to resolve).
       return { command };
-    case 'path-restricted':
-      // The path-restriction applier (mutmut: map `base` → changed paths) is
-      // the deferred applier work (R10/v2.12). Running the command unchanged
-      // would mutate the WHOLE tree while the descriptor claims it is scoped —
-      // a silent downgrade. Degrade to the unscoped-warning contract so the
-      // downgrade is always visible.
-      return {
-        command,
-        warning:
-          `path-restricted mutation diff-scope (mutmut changed-path ` +
-          `restriction) is not yet applied for this toolchain; it is deferred ` +
-          `to R10/v2.12. The mutation run is unscoped (full-tree) for now`,
-      };
+    case 'path-restricted': {
+      // mutmut: restrict the run to the diff's changed `.py` paths via the
+      // descriptor's flag template (`--paths-to-mutate=<changed>`). An empty
+      // changed-set degrades to a warning rather than silently mutating the
+      // whole tree while the descriptor claims a scope.
+      const paths = changedPythonPaths(ctx.runDiff(ctx.base, ctx.repoRoot));
+      if (paths.length === 0) {
+        return {
+          command,
+          warning:
+            `path-restricted mutation diff-scope resolved no changed paths ` +
+            `(the diff touched no Python sources); the mutation run is unscoped ` +
+            `(full-tree) for now`,
+        };
+      }
+      const flag = scope.flag.replace('<changed>', paths.join(','));
+      return { command: `${command} ${flag}` };
+    }
     case 'unscoped-warning':
       return { command, warning: scope.warning };
   }
@@ -420,10 +529,12 @@ export async function handleMutationAdequacy(
     };
   }
 
-  // ── §4.5 — `full` scope is the canonical long-running op; deferred to
-  // R10/v2.12 lifecycle verbs. Never an inline full-tree run (it would defeat
-  // the token goal, research §6 Q3). Return a deferred advisory, no runner call.
-  if (scope === 'full') {
+  // ── §4.5 / DR-6 — `full` scope is the canonical long-running op. Inline
+  // `/review` (no `offline` opt-in) NEVER runs it full-tree — it would defeat
+  // the token/wall-clock goal (research §6 Q3): return a deferred advisory, no
+  // runner call. Only an explicit offline caller (`offline:true` — a nightly job
+  // or `--offline`) falls through to the real full-tree run below.
+  if (scope === 'full' && !args.offline) {
     return {
       success: true,
       data: {
@@ -480,6 +591,30 @@ export async function handleMutationAdequacy(
       runtime.remediation ??
       'no mutation runner resolved for this repository — install one (e.g. stryker, ' +
         'cargo-mutants, mutmut) or set `mutation:` in .exarchos.yml';
+    // DR-2a: emit a skip-passing gate.executed so the projection records
+    // `reviews['mutation-adequacy']` as skip-pass. Without this the required
+    // dimension is silently absent and `review → synthesize` dead-locks at HIGH
+    // tier on a repo that has no mutation runner (INV-1: presence is satisfied
+    // by a recorded fact, not by dropping the requirement).
+    try {
+      await emitGateEvent(
+        eventStore,
+        args.featureId,
+        MUTATION_GATE_NAME,
+        MUTATION_GATE_LAYER,
+        true,
+        { skipped: true, reason, mutationScore: 0 },
+        mutationGateKey(args.operationId, 'skip-no-toolchain'),
+      );
+    } catch (err) {
+      // Fire-and-forget — emission failure must not break the advisory verdict,
+      // but a dropped no-toolchain skip-pass re-enters the DR-2a dead-lock at
+      // review→synthesize, so surface a diagnostic (RVC-R4).
+      orchestrateLogger.warn(
+        { featureId: args.featureId, err: err instanceof Error ? err.message : String(err) },
+        'mutation-adequacy: failed to emit no-toolchain skip-pass gate.executed; dimension may be absent at review→synthesize',
+      );
+    }
     return {
       success: true,
       data: {
@@ -495,12 +630,25 @@ export async function handleMutationAdequacy(
     };
   }
 
-  // ── Compose the per-runner diff scope (002). Identity stays in the SoT; the
+  // ── Compose the command. `full` (offline opt-in, DR-6) runs the whole tree —
+  // the resolved runner verbatim, NO diff scope. `diff` (the inline default)
+  // composes the per-runner diff scope (002). Identity stays in the SoT; the
   // handler is runner-agnostic. ──────────────────────────────────────────────
-  const detect = args.detectToolchainId ?? ((root: string) => detectToolchain(root)?.id ?? null);
-  const toolchainId = detect(repoRoot) ?? '';
-  const diffScope = resolveMutationDiffScope(toolchainId, args.base);
-  const scoped = composeScopedCommand(runtime.mutation, diffScope);
+  const runDiff = args.runDiff ?? defaultRunDiff;
+  const scoped: { readonly command: string; readonly warning?: string } =
+    scope === 'full'
+      ? { command: runtime.mutation }
+      : (() => {
+          const detect =
+            args.detectToolchainId ?? ((root: string) => detectToolchain(root)?.id ?? null);
+          const toolchainId = detect(repoRoot) ?? '';
+          const diffScope = resolveMutationDiffScope(toolchainId, args.base);
+          return composeScopedCommand(runtime.mutation, diffScope, {
+            base: args.base,
+            repoRoot,
+            runDiff,
+          });
+        })();
 
   // ── Run (injected seam). Bracket with the INV-10 liveness pair. ────────────
   const runMutation = args.runMutation ?? defaultRunMutation;
@@ -518,12 +666,14 @@ export async function handleMutationAdequacy(
 
   // ── Run-level degrade (no parseable report) → Warning, never a throw. ──────
   if (!runResult.ok) {
+    await emitAdvisoryGate(eventStore, args, runResult.reason);
     return warningCarrier(runResult.reason, scoped.warning);
   }
 
   // ── Parse + fold (001). Malformed report → Warning (degrade). ──────────────
   const parsed = parseMutationReport(runResult.report);
   if (!parsed.ok) {
+    await emitAdvisoryGate(eventStore, args, parsed.reason);
     return warningCarrier(parsed.reason, scoped.warning);
   }
 
@@ -532,8 +682,9 @@ export async function handleMutationAdequacy(
   const passed = carrier.mutationScore >= threshold;
   const nextActions = survivorAffordances(parsed.report);
 
-  // ── Emit the foldable gate.executed (004 / INV-1). Idempotent via
-  // operationId (INV-8) — NO CAS-pin on the follow-on event. ─────────────────
+  // ── Emit the foldable gate.executed (004 / INV-1). Idempotent via an
+  // OUTCOME-suffixed operationId key (INV-8, RVC-R7) — NO CAS-pin on the
+  // follow-on event. ─────────────────────────────────────────────────────────
   try {
     await emitGateEvent(
       eventStore,
@@ -549,10 +700,16 @@ export async function handleMutationAdequacy(
         total: carrier.total,
         threshold,
       },
-      args.operationId,
+      mutationGateKey(args.operationId, 'scored'),
     );
-  } catch {
-    /* fire-and-forget — emission failure must not break the verdict */
+  } catch (err) {
+    // Fire-and-forget — emission failure must not break the verdict. A dropped
+    // real-score emission leaves the dimension absent, which fails CLOSED at
+    // review→synthesize (safe), but still warrants a diagnostic trail (RVC-R4).
+    orchestrateLogger.warn(
+      { featureId: args.featureId, err: err instanceof Error ? err.message : String(err) },
+      'mutation-adequacy: failed to emit scored gate.executed',
+    );
   }
 
   // ── INV-5b advisory carrier. Severity (006) is applied by the dispatch
@@ -574,12 +731,71 @@ export async function handleMutationAdequacy(
   };
 }
 
+/**
+ * Idempotency key for a mutation gate.executed emission, suffixed by OUTCOME.
+ * `emitGateEvent` collapses same-key re-emissions to one row, so keying every
+ * outcome by the bare `operationId` let a skip-pass/degraded row suppress a later
+ * scored row for the same run (CodeRabbit RVC-R7). Suffixing by outcome keeps the
+ * intended idempotency (a retried SAME-outcome emission still collapses) while
+ * letting a different outcome append a fresh row the projection folds
+ * last-write-wins. `undefined` when no operationId was threaded (fire-and-forget,
+ * one row per call).
+ */
+function mutationGateKey(
+  operationId: string | undefined,
+  outcome: 'scored' | 'degraded' | 'skip-no-toolchain',
+): string | undefined {
+  return operationId === undefined ? undefined : `${operationId}:${outcome}`;
+}
+
 /** Resolve the effective threshold: arg override > config > soft default. */
 function resolveThreshold(args: MutationAdequacyArgs): number {
   if (typeof args.threshold === 'number') return args.threshold;
   const configured = args.projectConfig?.review.gates[MUTATION_GATE_NAME]?.params?.threshold;
   if (typeof configured === 'number') return configured;
   return DEFAULT_MUTATION_THRESHOLD;
+}
+
+/**
+ * DR-2a: emit an advisory (passing) `gate.executed` for a degrade path — a
+ * toolchain IS present but the runner failed or produced no parseable report.
+ * Records `reviews['mutation-adequacy']` as skip-pass so the required dimension
+ * is not left absent (a secondary `review → synthesize` dead-lock).
+ *
+ * The marker is `{ skipped: true, degraded: true }` — deliberately DISTINCT from
+ * the no-toolchain skip-pass (`{ skipped: true }`, no `degraded`). Both satisfy
+ * the presence requirement and stay advisory by default, but `degraded` lets the
+ * `review.mutationEnforcement: 'block'` score gate fail CLOSED on a broken runner
+ * (guards.ts `allReviewsPassed` Check 4): a present-but-broken runner produced no
+ * verifiable score, so block enforcement must not silently pass it. The
+ * no-toolchain case stays advisory even under block mode — it is "a backstop the
+ * repo cannot run" (spec §Trade-offs, DR-2a), not a backstop that failed.
+ *
+ * Fire-and-forget: an emission failure must never break the advisory verdict, but
+ * a dropped emission leaves the dimension absent and re-enters the dead-lock, so
+ * surface it via the structured logger (stderr — stdout is the MCP protocol).
+ */
+async function emitAdvisoryGate(
+  eventStore: EventStore,
+  args: MutationAdequacyArgs,
+  reason: string,
+): Promise<void> {
+  try {
+    await emitGateEvent(
+      eventStore,
+      args.featureId,
+      MUTATION_GATE_NAME,
+      MUTATION_GATE_LAYER,
+      true,
+      { skipped: true, degraded: true, reason, mutationScore: 0 },
+      mutationGateKey(args.operationId, 'degraded'),
+    );
+  } catch (err) {
+    orchestrateLogger.warn(
+      { featureId: args.featureId, err: err instanceof Error ? err.message : String(err) },
+      'mutation-adequacy: failed to emit degraded skip-pass gate.executed; dimension may be absent at review→synthesize',
+    );
+  }
 }
 
 /** Build a degraded Warning carrier (a malformed/empty report never throws). */

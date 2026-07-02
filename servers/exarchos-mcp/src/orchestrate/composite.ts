@@ -27,6 +27,7 @@ import { handlePrepareSynthesis } from './prepare-synthesis.js';
 import { handleAssessStack } from './assess-stack.js';
 import { handleDesignCompleteness } from './design-completeness.js';
 import { handlePlanCoverage } from './plan-coverage.js';
+import { handleCheckExplorationDepth } from './check-exploration-depth.js';
 import { handleTestAdequacy } from './test-adequacy-handler.js';
 import { handleContractDrift } from './contract-drift-handler.js';
 import { handleMockBoundary } from './mock-boundary-handler.js';
@@ -392,6 +393,10 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   assess_stack: adaptWithEventStoreAndConfig(handleAssessStack),
   check_design_completeness: adaptWithEventStore(handleDesignCompleteness),
   check_plan_coverage: adaptWithEventStore(handlePlanCoverage),
+  // DR-4 (Gap B): deep-only Exploration-citation gate. Self-skips at
+  // thin/standard depth; at deep it verifies the spec's `### Exploration`
+  // section cites the /exarchos:discover pass by path + correlationId.
+  check_exploration_depth: adaptWithEventStore(handleCheckExplorationDepth),
   // Verification-ladder gates (task 005): wrapped in adaptLadderGate so a
   // failing advisory verdict picks up its per-workflow severity (oneshot →
   // warning) from the resolved workflowType. The `dimension` mirrors each

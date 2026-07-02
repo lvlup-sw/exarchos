@@ -90,6 +90,20 @@ describe('ProjectConfigSchema', () => {
     expect(ProjectConfigSchema.safeParse({ workflow: { 'max-fix-cycles': 11 } }).success).toBe(false);
   });
 
+  it('ProjectConfigSchema_MaxPlanRevisions_ValidatesRange', () => {
+    // DR-1: same 1..10 int bound as max-fix-cycles.
+    expect(ProjectConfigSchema.safeParse({ workflow: { 'max-plan-revisions': 0 } }).success).toBe(false);
+    expect(ProjectConfigSchema.safeParse({ workflow: { 'max-plan-revisions': 3 } }).success).toBe(true);
+    expect(ProjectConfigSchema.safeParse({ workflow: { 'max-plan-revisions': 11 } }).success).toBe(false);
+  });
+
+  it('ProjectConfigSchema_MutationEnforcement_ValidatesEnum', () => {
+    // DR-3: only 'block' | 'advisory'.
+    expect(ProjectConfigSchema.safeParse({ review: { 'mutation-enforcement': 'block' } }).success).toBe(true);
+    expect(ProjectConfigSchema.safeParse({ review: { 'mutation-enforcement': 'advisory' } }).success).toBe(true);
+    expect(ProjectConfigSchema.safeParse({ review: { 'mutation-enforcement': 'warn' } }).success).toBe(false);
+  });
+
   it('ProjectConfigSchema_HookAction_RequiresCommand', () => {
     const result = ProjectConfigSchema.safeParse({ hooks: { on: { 'workflow.transition': [{ timeout: 5000 }] } } });
     expect(result.success).toBe(false);

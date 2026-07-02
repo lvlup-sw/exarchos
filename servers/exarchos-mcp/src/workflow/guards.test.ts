@@ -173,30 +173,26 @@ describe('escalationRequired', () => {
 // ─── Task 4: revisionsExhausted Guard Tests ─────────────────────────────────
 
 describe('revisionsExhausted', () => {
-  it('revisionsExhausted_CountAtMax_ReturnsTrue', () => {
-    const state: Record<string, unknown> = {
-      planReview: { revisionCount: 3 },
-    };
+  // DR-1: the cap is `state._maxPlanRevisions` (injected from
+  // `.exarchos.yml workflow.maxPlanRevisions` in tools.ts) and falls back to
+  // DEFAULT_MAX_PLAN_REVISIONS (1) when not injected. `revisionCount` is the
+  // event-sourced fact; the cap is injected policy, never event-sourced (INV-1).
 
-    const result = guards.revisionsExhausted.evaluate(state);
-
-    expect(result).toBe(true);
+  // ── Default cap (no `_maxPlanRevisions` injected) = 1 ──
+  it('revisionsExhausted_DefaultCap_CountAtOne_ReturnsTrue', () => {
+    // Flagged behavior change: default cap is now 1 (was 3), so one revision
+    // reaches the cap.
+    const state: Record<string, unknown> = { planReview: { revisionCount: 1 } };
+    expect(guards.revisionsExhausted.evaluate(state)).toBe(true);
   });
 
-  it('revisionsExhausted_CountAboveMax_ReturnsTrue', () => {
-    const state: Record<string, unknown> = {
-      planReview: { revisionCount: 5 },
-    };
-
-    const result = guards.revisionsExhausted.evaluate(state);
-
-    expect(result).toBe(true);
+  it('revisionsExhausted_DefaultCap_CountAboveDefault_ReturnsTrue', () => {
+    const state: Record<string, unknown> = { planReview: { revisionCount: 5 } };
+    expect(guards.revisionsExhausted.evaluate(state)).toBe(true);
   });
 
-  it('revisionsExhausted_CountBelowMax_ReturnsFailure', () => {
-    const state: Record<string, unknown> = {
-      planReview: { revisionCount: 1 },
-    };
+  it('revisionsExhausted_DefaultCap_ZeroRevisions_ReturnsFailure', () => {
+    const state: Record<string, unknown> = { planReview: { revisionCount: 0 } };
 
     const result = guards.revisionsExhausted.evaluate(state);
 
@@ -204,7 +200,7 @@ describe('revisionsExhausted', () => {
     const failure = result as GuardFailure;
     expect(failure.passed).toBe(false);
     expect(failure.reason).toContain('revisions-exhausted');
-    expect(failure.reason).toContain('1/3');
+    expect(failure.reason).toContain('0/1');
   });
 
   it('revisionsExhausted_NoRevisionCount_ReturnsFailure', () => {
@@ -215,13 +211,14 @@ describe('revisionsExhausted', () => {
     expect(result).not.toBe(true);
     const failure = result as GuardFailure;
     expect(failure.passed).toBe(false);
-    expect(failure.reason).toContain('revisions-exhausted');
-    expect(failure.reason).toContain('0/3');
+    expect(failure.reason).toContain('0/1');
   });
 
-  it('revisionsExhausted_ZeroRevisions_ReturnsFailure', () => {
+  // ── Injected cap (`_maxPlanRevisions`) honored — `.exarchos.yml` override ──
+  it('revisionsExhausted_InjectedCap_CountBelowCap_ReturnsFailure', () => {
     const state: Record<string, unknown> = {
-      planReview: { revisionCount: 0 },
+      planReview: { revisionCount: 1 },
+      _maxPlanRevisions: 3,
     };
 
     const result = guards.revisionsExhausted.evaluate(state);
@@ -229,6 +226,39 @@ describe('revisionsExhausted', () => {
     expect(result).not.toBe(true);
     const failure = result as GuardFailure;
     expect(failure.passed).toBe(false);
+    expect(failure.reason).toContain('1/3');
+  });
+
+  it('revisionsExhausted_InjectedCap_CountAtCap_ReturnsTrue', () => {
+    const state: Record<string, unknown> = {
+      planReview: { revisionCount: 3 },
+      _maxPlanRevisions: 3,
+    };
+    expect(guards.revisionsExhausted.evaluate(state)).toBe(true);
+  });
+
+  it('revisionsExhausted_InjectedCap_BoundaryAtTwo', () => {
+    // Cap 2: one revision is allowed, the second reaches the cap.
+    const below: Record<string, unknown> = {
+      planReview: { revisionCount: 1 },
+      _maxPlanRevisions: 2,
+    };
+    expect(guards.revisionsExhausted.evaluate(below)).not.toBe(true);
+
+    const at: Record<string, unknown> = {
+      planReview: { revisionCount: 2 },
+      _maxPlanRevisions: 2,
+    };
+    expect(guards.revisionsExhausted.evaluate(at)).toBe(true);
+  });
+
+  it('revisionsExhausted_NonFiniteInjectedCap_FallsBackToDefault', () => {
+    // A malformed injected cap must not disable the bound — fall back to 1.
+    const state: Record<string, unknown> = {
+      planReview: { revisionCount: 1 },
+      _maxPlanRevisions: Number.NaN,
+    };
+    expect(guards.revisionsExhausted.evaluate(state)).toBe(true);
   });
 });
 
@@ -516,6 +546,146 @@ describe('allReviewsPassed (synthesis ready)', () => {
 
     const result = guards.allReviewsPassed.evaluate(state);
     expect(result).toBe(true);
+  });
+
+  it('SynthesisReadyGuard_MutationAdequacySkipPassPresent_Passes_DR2a', () => {
+    // DR-2a dead-lock fix: at HIGH tier mutation-adequacy is a required dimension.
+    // The projection folds the mutation gate.executed (incl. a no-toolchain
+    // skip-pass) into reviews['mutation-adequacy'] with status 'pass', so the
+    // presence requirement is satisfied by the recorded run — review→synthesize
+    // is no longer dead-locked.
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      phase: 'review',
+      reviews: {
+        review: { status: 'pass' },
+        'mutation-adequacy': { status: 'pass', skipped: true, mutationScore: 0 },
+      },
+      _requiredReviews: ['review', 'mutation-adequacy'],
+    };
+
+    expect(guards.allReviewsPassed.evaluate(state)).toBe(true);
+  });
+
+  it('SynthesisReadyGuard_MutationAdequacyRequiredButNeverRun_Blocks_DR2a', () => {
+    // The complement: a toolchain-present repo where the mutation gate never ran
+    // leaves the dimension absent → the guard still blocks (a required gate that
+    // did not execute must not silently pass).
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      phase: 'review',
+      reviews: { review: { status: 'pass' } },
+      _requiredReviews: ['review', 'mutation-adequacy'],
+    };
+
+    const result = guards.allReviewsPassed.evaluate(state);
+    expect(result).not.toBe(true);
+    expect((result as GuardFailure).reason).toContain('mutation-adequacy');
+  });
+
+  // ── DR-3: mutation score enforcement (Check 4, injected values only) ──
+  const mutationBase = (
+    score: number,
+    inject: Record<string, unknown>,
+    extra: Record<string, unknown> = {},
+  ): Record<string, unknown> => ({
+    featureId: 'test-feature',
+    phase: 'review',
+    reviews: {
+      review: { status: 'pass' },
+      'mutation-adequacy': { status: 'pass', mutationScore: score, ...extra },
+    },
+    _requiredReviews: ['review', 'mutation-adequacy'],
+    ...inject,
+  });
+
+  it('MutationEnforcement_BlockModeSubThreshold_Blocks_DR3', () => {
+    const state = mutationBase(0.1, { _mutationEnforcement: 'block', _mutationThreshold: 0.4 });
+    const result = guards.allReviewsPassed.evaluate(state);
+    expect(result).not.toBe(true);
+    expect((result as GuardFailure).reason).toContain('below the enforced threshold');
+  });
+
+  it('MutationEnforcement_BlockModeAtOrAboveThreshold_Passes_DR3', () => {
+    expect(
+      guards.allReviewsPassed.evaluate(
+        mutationBase(0.4, { _mutationEnforcement: 'block', _mutationThreshold: 0.4 }),
+      ),
+    ).toBe(true);
+    expect(
+      guards.allReviewsPassed.evaluate(
+        mutationBase(0.9, { _mutationEnforcement: 'block', _mutationThreshold: 0.4 }),
+      ),
+    ).toBe(true);
+  });
+
+  it('MutationEnforcement_AdvisoryDefault_SubThresholdNeverBlocks_DR3', () => {
+    // No injected mode (advisory default) → a sub-threshold score does not block.
+    expect(guards.allReviewsPassed.evaluate(mutationBase(0.01, {}))).toBe(true);
+    expect(
+      guards.allReviewsPassed.evaluate(
+        mutationBase(0.01, { _mutationEnforcement: 'advisory', _mutationThreshold: 0.4 }),
+      ),
+    ).toBe(true);
+  });
+
+  it('MutationEnforcement_SkipPassRun_NeverEnforced_DR3', () => {
+    // A no-toolchain skip-pass carries no real score → not enforced even in block mode.
+    const state = mutationBase(0, { _mutationEnforcement: 'block', _mutationThreshold: 0.4 }, { skipped: true });
+    expect(guards.allReviewsPassed.evaluate(state)).toBe(true);
+  });
+
+  it('MutationEnforcement_BlockModeButNoThresholdInjected_NotEnforced_DR3', () => {
+    // Guard reads injected values only: mode without a finite threshold is inert.
+    const state = mutationBase(0.01, { _mutationEnforcement: 'block' });
+    expect(guards.allReviewsPassed.evaluate(state)).toBe(true);
+  });
+
+  it('MutationEnforcement_BlockModeDegradedRun_Blocks_RVC_R1', () => {
+    // RVC-R1: a DEGRADED run (toolchain present but the runner crashed or emitted
+    // an unparseable report) carries skipped:true AND degraded:true. It produced
+    // no verifiable score, so under block enforcement it must fail CLOSED —
+    // distinct from the no-toolchain skip-pass (below), which stays advisory. The
+    // shared skipped:true marker alone must NOT be read as "score verified".
+    const state = mutationBase(
+      0,
+      { _mutationEnforcement: 'block', _mutationThreshold: 0.4 },
+      { skipped: true, degraded: true },
+    );
+    const result = guards.allReviewsPassed.evaluate(state);
+    expect(result).not.toBe(true);
+    expect((result as GuardFailure).reason).toContain('degraded');
+  });
+
+  it('MutationEnforcement_BlockModeNonFiniteScore_Blocks_RVC_R6', () => {
+    // RVC-R6 (CodeRabbit): a present-but-non-finite score (NaN from a 0/0 mutation
+    // ratio when every mutant was uncovered) is unverifiable. `NaN < threshold` is
+    // always false, which would silently pass under block — fail it closed.
+    const state = mutationBase(Number.NaN, {
+      _mutationEnforcement: 'block',
+      _mutationThreshold: 0.4,
+    });
+    const result = guards.allReviewsPassed.evaluate(state);
+    expect(result).not.toBe(true);
+    expect((result as GuardFailure).reason).toContain('non-finite');
+  });
+
+  it('MutationEnforcement_DegradedRun_AdvisoryDefault_NeverBlocks_RVC_R1', () => {
+    // The fail-closed behavior is scoped to block enforcement. Under advisory
+    // (the default, and explicit) a degraded run still satisfies the presence
+    // requirement and does not block — no secondary dead-lock.
+    expect(
+      guards.allReviewsPassed.evaluate(mutationBase(0, {}, { skipped: true, degraded: true })),
+    ).toBe(true);
+    expect(
+      guards.allReviewsPassed.evaluate(
+        mutationBase(
+          0,
+          { _mutationEnforcement: 'advisory', _mutationThreshold: 0.4 },
+          { skipped: true, degraded: true },
+        ),
+      ),
+    ).toBe(true);
   });
 
   it('SynthesisReadyGuard_RequiredDimensionPresentButFailed_ReturnsFailed', () => {
