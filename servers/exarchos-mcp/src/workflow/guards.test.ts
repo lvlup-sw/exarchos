@@ -641,6 +641,40 @@ describe('allReviewsPassed (synthesis ready)', () => {
     expect(guards.allReviewsPassed.evaluate(state)).toBe(true);
   });
 
+  it('MutationEnforcement_BlockModeDegradedRun_Blocks_RVC_R1', () => {
+    // RVC-R1: a DEGRADED run (toolchain present but the runner crashed or emitted
+    // an unparseable report) carries skipped:true AND degraded:true. It produced
+    // no verifiable score, so under block enforcement it must fail CLOSED —
+    // distinct from the no-toolchain skip-pass (below), which stays advisory. The
+    // shared skipped:true marker alone must NOT be read as "score verified".
+    const state = mutationBase(
+      0,
+      { _mutationEnforcement: 'block', _mutationThreshold: 0.4 },
+      { skipped: true, degraded: true },
+    );
+    const result = guards.allReviewsPassed.evaluate(state);
+    expect(result).not.toBe(true);
+    expect((result as GuardFailure).reason).toContain('degraded');
+  });
+
+  it('MutationEnforcement_DegradedRun_AdvisoryDefault_NeverBlocks_RVC_R1', () => {
+    // The fail-closed behavior is scoped to block enforcement. Under advisory
+    // (the default, and explicit) a degraded run still satisfies the presence
+    // requirement and does not block — no secondary dead-lock.
+    expect(
+      guards.allReviewsPassed.evaluate(mutationBase(0, {}, { skipped: true, degraded: true })),
+    ).toBe(true);
+    expect(
+      guards.allReviewsPassed.evaluate(
+        mutationBase(
+          0,
+          { _mutationEnforcement: 'advisory', _mutationThreshold: 0.4 },
+          { skipped: true, degraded: true },
+        ),
+      ),
+    ).toBe(true);
+  });
+
   it('SynthesisReadyGuard_RequiredDimensionPresentButFailed_ReturnsFailed', () => {
     const state: Record<string, unknown> = {
       featureId: 'test-feature',

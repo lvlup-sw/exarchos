@@ -394,7 +394,7 @@
       </tbody>
     </table>
     <figure class="panel">
-      <svg viewBox="0 0 960 262" font-size="13" role="img" aria-label="A riskTier stamped per task at the plan phase flows through an adversarial plan-review, whose revise loop is bounded by a configurable cap (default one) before it blocks for a human. At delegate the tier is classified and frozen and the workflow tier is the max of the task tiers. At review a high workflow tier requires a recorded mutation-adequacy backstop; its score is advisory by default and blocks only when configured.">
+      <svg viewBox="0 0 1120 300" font-size="13" role="img" aria-label="A riskTier stamped per task at the plan phase flows through an adversarial plan-review, whose revise loop is bounded by a configurable cap (default one) before it blocks for a human. At delegate the tier is classified and frozen and the workflow tier is the max of the task tiers. At review a high workflow tier requires a recorded mutation-adequacy backstop; its score is advisory by default and blocks only when configured. On pass, review transitions forward to synthesize (open PR, merge); on failure it loops back to delegate for a bounded fix cycle.">
         <defs>
           <marker id="dv-g" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="var(--green)"/></marker>
           <marker id="dv-v" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="var(--violet)"/></marker>
@@ -435,10 +435,20 @@
         <text x="818" y="144" text-anchor="middle" font-size="12" font-family="var(--mono)" fill="var(--ink-dim)">mutation backstop (high tier)</text>
         <text x="818" y="162" text-anchor="middle" font-size="12" font-family="var(--mono)" fill="var(--ink-faint)">recorded dimension · advisory</text>
 
+        <!-- review → synthesize terminal (on pass, DR-8) -->
+        <line x1="916" y1="134" x2="952" y2="134" class="flow" stroke="var(--green)" stroke-width="2" marker-end="url(#dv-g)"/>
+        <text x="934" y="126" text-anchor="middle" font-size="10.5" font-family="var(--mono)" fill="var(--green)">pass</text>
+        <rect x="952" y="86" width="144" height="96" rx="12" fill="oklch(0.81 0.15 150 / .07)" stroke="oklch(0.81 0.15 150 / .55)"/>
+        <text x="1024" y="126" text-anchor="middle" font-size="16" font-family="var(--disp)" fill="var(--green)">synthesize</text>
+        <text x="1024" y="150" text-anchor="middle" font-size="12" font-family="var(--mono)" fill="var(--ink-faint)">open PR → merge</text>
+
+        <!-- review → delegate fix-cycle back-arc (on fail, bounded — DR-8) -->
+        <path d="M744,182 C704,256 632,256 586,184" fill="none" class="flow" stroke="var(--violet)" stroke-width="1.4" stroke-dasharray="4 3" marker-end="url(#dv-v)"/>
+        <text x="664" y="274" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--violet)">on fail → delegate · --fixes (bounded fix cycle)</text>
+
         <text x="470" y="228" text-anchor="middle" font-size="12.5" font-family="var(--mono)" fill="var(--ink-dim)">one resolver, two axes: <tspan fill="var(--green)">riskTier</tspan> (verification depth) · <tspan fill="var(--green)">designDepth</tspan> (planning depth) — resolved once on phase entry, then frozen</text>
-        <text x="818" y="228" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--violet)">score blocks only on config</text>
       </svg>
-      <figcaption>The risk-verification data-flow: a <span class="mono">riskTier</span> is stamped per task at <b>plan</b>, classified and frozen at <b>delegate</b> where the workflow tier is the <b>max of the task tiers</b>, and — at a high workflow tier — earns a <b>recorded</b> mutation-adequacy backstop at <b>review</b> whose score is advisory unless a project opts into blocking. The <b>plan-review</b> revise loop traverses a counted edge and is bounded by a configurable cap before it blocks for a human.</figcaption>
+      <figcaption>The risk-verification data-flow and its phase transitions: a <span class="mono">riskTier</span> is stamped per task at <b>plan</b>, classified and frozen at <b>delegate</b> where the workflow tier is the <b>max of the task tiers</b>, and — at a high workflow tier — earns a <b>recorded</b> mutation-adequacy backstop at <b>review</b> whose score is advisory unless a project opts into blocking (and which fails closed under blocking when the runner degrades). Two loops are bounded: the <b>plan-review</b> revise edge is counted and capped before it blocks for a human, and a failing <b>review</b> loops back to <b>delegate</b> for a bounded fix cycle. On pass, <b>review</b> transitions forward to <b>synthesize</b> — open the PR, then merge.</figcaption>
     </figure>
     <div class="decision">
       <div class="dh">Decision: replace mandatory red-green-refactor with a risk-proportional ladder <span class="enf">issue #1515</span></div>
@@ -572,7 +582,7 @@
         <tr><td><b>Projections, snapshots, reconcile</b></td><td><span class="chip built">built</span></td><td>pure folds with degrade-to-rebuild fallbacks</td></tr>
         <tr><td><b>Two-event handler pattern + idempotency</b></td><td><span class="chip built">built</span></td><td>merge-orchestrate, create-pr, branch and worktree cleanup</td></tr>
         <tr><td><b>CLI = MCP facade parity, 4 composite tools</b></td><td><span class="chip built">built</span></td><td>byte-equal results, schema-checked</td></tr>
-        <tr><td><b>Risk-proportional verification ladder</b></td><td><span class="chip des">in flight</span></td><td>slices shipped; the test-first excision is the live path (#1515)</td></tr>
+        <tr><td><b>Risk-proportional verification ladder</b></td><td><span class="chip built">built</span></td><td>ladder + bounded plan-review loop + high-tier mutation backstop wired; test-first excision shipped (#1515)</td></tr>
         <tr><td><b>Lifecycle verbs · worktree manager</b></td><td><span class="chip des">in flight</span></td><td>the v2.12 zone (#1090, #1574)</td></tr>
         <tr><td><b>Workflow Builder SDK + authored IR</b></td><td><span class="chip plan">planned</span></td><td>the v3.0 consolidation endpoint (#1258)</td></tr>
         <tr><td><b>Standards conformance · one SKILL.md, AGENTS.md, MCP</b></td><td><span class="chip plan">planned</span></td><td>bare logical names, vendor distribution (#1601, #1602, #1605)</td></tr>

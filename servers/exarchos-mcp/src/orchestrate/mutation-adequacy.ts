@@ -33,6 +33,7 @@ import {
   type MutationDiffScope,
 } from '../config/toolchains.js';
 import { defaultGitExec, emitGateEvent, resolveRepoRoot } from './gate-utils.js';
+import { orchestrateLogger } from '../logger.js';
 
 // ─── Stryker mutation-testing-report-schema (subset we consume) ─────────────
 //
@@ -605,8 +606,14 @@ export async function handleMutationAdequacy(
         { skipped: true, reason, mutationScore: 0 },
         args.operationId,
       );
-    } catch {
-      /* fire-and-forget — emission failure must not break the advisory verdict */
+    } catch (err) {
+      // Fire-and-forget — emission failure must not break the advisory verdict,
+      // but a dropped no-toolchain skip-pass re-enters the DR-2a dead-lock at
+      // review→synthesize, so surface a diagnostic (RVC-R4).
+      orchestrateLogger.warn(
+        { featureId: args.featureId, err: err instanceof Error ? err.message : String(err) },
+        'mutation-adequacy: failed to emit no-toolchain skip-pass gate.executed; dimension may be absent at review→synthesize',
+      );
     }
     return {
       success: true,
@@ -694,8 +701,14 @@ export async function handleMutationAdequacy(
       },
       args.operationId,
     );
-  } catch {
-    /* fire-and-forget — emission failure must not break the verdict */
+  } catch (err) {
+    // Fire-and-forget — emission failure must not break the verdict. A dropped
+    // real-score emission leaves the dimension absent, which fails CLOSED at
+    // review→synthesize (safe), but still warrants a diagnostic trail (RVC-R4).
+    orchestrateLogger.warn(
+      { featureId: args.featureId, err: err instanceof Error ? err.message : String(err) },
+      'mutation-adequacy: failed to emit scored gate.executed',
+    );
   }
 
   // ── INV-5b advisory carrier. Severity (006) is applied by the dispatch
@@ -726,11 +739,23 @@ function resolveThreshold(args: MutationAdequacyArgs): number {
 }
 
 /**
- * DR-2a: emit an advisory (passing) `gate.executed` for a degrade path (runner
- * produced no parseable report). Records `reviews['mutation-adequacy']` as
- * skip-pass so a toolchain-present-but-unparseable run does not leave the
- * required dimension absent (a secondary `review → synthesize` dead-lock).
- * Fire-and-forget: an emission failure must never break the advisory verdict.
+ * DR-2a: emit an advisory (passing) `gate.executed` for a degrade path — a
+ * toolchain IS present but the runner failed or produced no parseable report.
+ * Records `reviews['mutation-adequacy']` as skip-pass so the required dimension
+ * is not left absent (a secondary `review → synthesize` dead-lock).
+ *
+ * The marker is `{ skipped: true, degraded: true }` — deliberately DISTINCT from
+ * the no-toolchain skip-pass (`{ skipped: true }`, no `degraded`). Both satisfy
+ * the presence requirement and stay advisory by default, but `degraded` lets the
+ * `review.mutationEnforcement: 'block'` score gate fail CLOSED on a broken runner
+ * (guards.ts `allReviewsPassed` Check 4): a present-but-broken runner produced no
+ * verifiable score, so block enforcement must not silently pass it. The
+ * no-toolchain case stays advisory even under block mode — it is "a backstop the
+ * repo cannot run" (spec §Trade-offs, DR-2a), not a backstop that failed.
+ *
+ * Fire-and-forget: an emission failure must never break the advisory verdict, but
+ * a dropped emission leaves the dimension absent and re-enters the dead-lock, so
+ * surface it via the structured logger (stderr — stdout is the MCP protocol).
  */
 async function emitAdvisoryGate(
   eventStore: EventStore,
@@ -744,11 +769,14 @@ async function emitAdvisoryGate(
       MUTATION_GATE_NAME,
       MUTATION_GATE_LAYER,
       true,
-      { skipped: true, reason, mutationScore: 0 },
+      { skipped: true, degraded: true, reason, mutationScore: 0 },
       args.operationId,
     );
-  } catch {
-    /* fire-and-forget */
+  } catch (err) {
+    orchestrateLogger.warn(
+      { featureId: args.featureId, err: err instanceof Error ? err.message : String(err) },
+      'mutation-adequacy: failed to emit degraded skip-pass gate.executed; dimension may be absent at review→synthesize',
+    );
   }
 }
 

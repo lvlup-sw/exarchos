@@ -782,7 +782,13 @@ describe('WorkflowStateProjection passthrough events', () => {
 // ─── Mutation-adequacy dimension (DR-2a) ─────────────────────────────────────
 
 describe('WorkflowStateProjection mutation-adequacy dimension (DR-2a)', () => {
-  type Dim = { status?: string; passed?: boolean; mutationScore?: number; skipped?: boolean };
+  type Dim = {
+    status?: string;
+    passed?: boolean;
+    mutationScore?: number;
+    skipped?: boolean;
+    degraded?: boolean;
+  };
   const dimOf = (s: ReturnType<typeof workflowStateProjection.init>): Dim | undefined =>
     (s.reviews as Record<string, Dim>)['mutation-adequacy'];
 
@@ -820,6 +826,29 @@ describe('WorkflowStateProjection mutation-adequacy dimension (DR-2a)', () => {
     );
     expect(dimOf(next)!.status).toBe('pass');
     expect(dimOf(next)!.skipped).toBe(true);
+    // RVC-R1: a no-toolchain skip-pass carries NO degrade marker.
+    expect(dimOf(next)!.degraded ?? false).toBe(false);
+  });
+
+  it('foldsDegradedMarkerFromDegradePath_RVC_R1', () => {
+    // RVC-R1: a degrade path (toolchain present but runner failed / unparseable
+    // report) emits skipped:true AND degraded:true. The projection must carry the
+    // degraded flag so `allReviewsPassed` Check 4 can fail it closed under block
+    // enforcement — a shared skipped:true marker alone would let a broken runner
+    // silently pass review→synthesize.
+    const state = workflowStateProjection.init();
+    const next = workflowStateProjection.apply(
+      state,
+      makeEvent('gate.executed', {
+        gateName: 'mutation-adequacy',
+        layer: 'review',
+        passed: true,
+        details: { skipped: true, degraded: true, reason: 'stryker exited 1', mutationScore: 0 },
+      }),
+    );
+    expect(dimOf(next)!.status).toBe('pass');
+    expect(dimOf(next)!.skipped).toBe(true);
+    expect(dimOf(next)!.degraded).toBe(true);
   });
 
   it('advisoryPassEvenWhenScoreBelowThreshold', () => {

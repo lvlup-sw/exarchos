@@ -149,11 +149,13 @@ export const KIND_OBLIGATIONS = {
 //
 // Behavior-neutral dispatch from a phase kind to its ordered gate sequence. The
 // kind layer holds no gate logic of its own: it reads the kind's `gates.resolver`
-// name from `KIND_OBLIGATIONS` and dispatches to a named resolver. In this slice
-// only `'verification-ladder'` (IMPLEMENT) is wired — it delegates verbatim to
-// `resolveVerificationPolicy`, so an IMPLEMENT boundary resolves to EXACTLY the
-// same sequence it does today (proven cell-by-cell in the test). The remaining
-// resolver names are registered but inert; wiring them is deferred to S3.
+// name from `KIND_OBLIGATIONS` and dispatches to a named resolver. Each resolver
+// delegates verbatim to the policy module that owns its sequence — IMPLEMENT to
+// `resolveVerificationPolicy`, PLAN to `resolvePlanDepthPolicy`, REVIEW to
+// `getRequiredReviews`, SYNTHESIZE to the fixed readiness order — so every
+// boundary resolves to EXACTLY the sequence its owning policy produces (proven
+// cell-by-cell in the tests). All four gate-bearing kinds are wired and live;
+// only GATHER carries no gates (`gates: null`).
 
 /** Context a gate resolver needs to compute the sequence for a phase. */
 export interface ResolveGateSetCtx {
@@ -184,12 +186,13 @@ export interface ResolveGateSetCtx {
 /**
  * Named gate-resolver registry, keyed by the `gates.resolver` string in
  * `KIND_OBLIGATIONS`. Centralising dispatch here keeps the kind layer
- * extensible for S3: wiring a deferred kind is replacing its thrower entry,
- * not editing `resolveGateSet`'s control flow.
+ * extensible: adding a future gate-bearing kind is registering one more
+ * resolver entry, not editing `resolveGateSet`'s control flow.
  *
- * The inert entries fail LOUD on purpose — they are never reached at an
- * IMPLEMENT boundary in S1/S2, so any call is a wiring mistake, not a valid
- * runtime path.
+ * Every entry is live — each delegates to the policy module that owns its
+ * sequence (see the per-resolver comments below). None throw; a kind with no
+ * gates (GATHER) carries `gates: null` in `KIND_OBLIGATIONS` and never reaches
+ * this registry.
  */
 const GATE_RESOLVERS: Readonly<
   Record<GateResolverName, (ctx: ResolveGateSetCtx) => readonly ResolvedGate[]>

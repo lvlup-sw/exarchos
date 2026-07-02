@@ -359,24 +359,38 @@ export const guards = {
       // finite threshold was injected (both set together, HIGH tier only). This is
       // the score gate — distinct from the dimension's presence/advisory status
       // (Checks 1/3, DR-2a); the gate-level run stays blocking:false (no double-block).
-      // A skip-passed run (no toolchain) carries no real score and is never enforced.
+      // Two skip-pass flavors differ HERE: a no-toolchain skip-pass (`skipped:true`,
+      // no `degraded`) carries no real score and stays advisory even under block —
+      // it is a backstop the repo cannot run (DR-2a trade-off). A DEGRADED run
+      // (`degraded:true` — toolchain present but the runner failed or emitted an
+      // unparseable report) fails CLOSED under block: it produced no verifiable
+      // score, so silently passing it would defeat the enforcement (review finding
+      // RVC-R1). The shared `skipped:true` marker alone must NOT be treated as
+      // "score verified".
       if (
         state._mutationEnforcement === 'block' &&
         typeof state._mutationThreshold === 'number' &&
         Number.isFinite(state._mutationThreshold)
       ) {
         const dim = reviews['mutation-adequacy'] as Record<string, unknown> | undefined;
-        const score = dim?.mutationScore;
-        if (
-          dim &&
-          dim.skipped !== true &&
-          typeof score === 'number' &&
-          score < (state._mutationThreshold as number)
-        ) {
+        if (dim?.degraded === true) {
           reasons.push(
-            `mutation-adequacy score ${score} is below the enforced threshold ` +
-              `${state._mutationThreshold} (review.mutationEnforcement: block)`,
+            `mutation-adequacy gate degraded (runner failed or emitted an unparseable ` +
+              `report) and produced no verifiable score (review.mutationEnforcement: block)`,
           );
+        } else {
+          const score = dim?.mutationScore;
+          if (
+            dim &&
+            dim.skipped !== true &&
+            typeof score === 'number' &&
+            score < (state._mutationThreshold as number)
+          ) {
+            reasons.push(
+              `mutation-adequacy score ${score} is below the enforced threshold ` +
+                `${state._mutationThreshold} (review.mutationEnforcement: block)`,
+            );
+          }
         }
       }
 

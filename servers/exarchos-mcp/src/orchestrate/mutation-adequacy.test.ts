@@ -227,10 +227,18 @@ describe('mutation-adequacy action (dispatch-through handleOrchestrate)', () => 
       (e) => (e.data as { gateName?: string }).gateName === 'mutation-adequacy',
     );
     expect(gate).toBeDefined();
-    const gd = gate!.data as { layer?: string; passed?: boolean; details?: { skipped?: boolean } };
+    const gd = gate!.data as {
+      layer?: string;
+      passed?: boolean;
+      details?: { skipped?: boolean; degraded?: boolean };
+    };
     expect(gd.layer).toBe('review');
     expect(gd.passed).toBe(true);
     expect(gd.details?.skipped).toBe(true);
+    // RVC-R1: the no-toolchain skip-pass is NOT marked degraded — that marker is
+    // reserved for a present-but-broken runner, so block enforcement can tell the
+    // two apart (a backstop the repo cannot run stays advisory even under block).
+    expect(gd.details?.degraded).toBeUndefined();
   });
 
   it('HandleOrchestrate_MutationAdequacy_MalformedReport_Warning', async () => {
@@ -244,6 +252,52 @@ describe('mutation-adequacy action (dispatch-through handleOrchestrate)', () => 
     expect(data.warning!.length).toBeGreaterThan(0);
     // A degraded report has no usable score; passed is not a hard failure.
     expect(data.passed).toBe(true);
+  });
+
+  it('HandleOrchestrate_MutationAdequacy_MalformedReport_EmitsDegradedSkipPass_RVC_R1', async () => {
+    // RVC-R1: a degrade (toolchain PRESENT, unparseable report) records a skip-pass
+    // marked degraded:true — DISTINCT from the no-toolchain skip-pass — so the
+    // block-enforcement score gate can fail closed while advisory stays live.
+    const { stateDir, eventStore } = await newStore();
+    const { success } = await dispatchMutation({
+      runResult: { ok: true, report: 'not-json-at-all{' },
+      eventStore,
+      stateDir,
+    });
+    expect(success).toBe(true);
+
+    const events = await eventStore.query('feat-mutadq', { type: 'gate.executed' });
+    const gate = events.find(
+      (e) => (e.data as { gateName?: string }).gateName === 'mutation-adequacy',
+    );
+    expect(gate).toBeDefined();
+    const gd = gate!.data as { passed?: boolean; details?: { skipped?: boolean; degraded?: boolean } };
+    expect(gd.passed).toBe(true);
+    expect(gd.details?.skipped).toBe(true);
+    expect(gd.details?.degraded).toBe(true);
+  });
+
+  it('HandleOrchestrate_MutationAdequacy_RunnerFailure_EmitsDegradedSkipPass_RVC_R1', async () => {
+    // The runner-crash degrade (ok:false) is the other degrade path — also marked
+    // degraded:true so block enforcement fails closed on a broken runner rather
+    // than silently passing review→synthesize.
+    const { stateDir, eventStore } = await newStore();
+    const { success } = await dispatchMutation({
+      runResult: { ok: false, reason: 'stryker exited 1' },
+      eventStore,
+      stateDir,
+    });
+    expect(success).toBe(true);
+
+    const events = await eventStore.query('feat-mutadq', { type: 'gate.executed' });
+    const gate = events.find(
+      (e) => (e.data as { gateName?: string }).gateName === 'mutation-adequacy',
+    );
+    expect(gate).toBeDefined();
+    const gd = gate!.data as { passed?: boolean; details?: { skipped?: boolean; degraded?: boolean } };
+    expect(gd.passed).toBe(true);
+    expect(gd.details?.skipped).toBe(true);
+    expect(gd.details?.degraded).toBe(true);
   });
 
   it('HandleOrchestrate_MutationAdequacy_FullScope_DeferredAdvisory', async () => {

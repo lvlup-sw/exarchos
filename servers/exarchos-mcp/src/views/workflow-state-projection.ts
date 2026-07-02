@@ -484,6 +484,12 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
               passed: data.passed === true,
               ...(typeof rawScore === 'number' ? { mutationScore: rawScore } : {}),
               ...(details.skipped === true ? { skipped: true } : {}),
+              // Carry the degrade marker (RVC-R1): a `degraded` run (toolchain
+              // present but the runner failed/unparseable) shares `skipped:true`
+              // with the no-toolchain skip-pass, but `allReviewsPassed` Check 4
+              // must fail it CLOSED under block enforcement — it produced no
+              // verifiable score. The no-toolchain skip-pass omits `degraded`.
+              ...(details.degraded === true ? { degraded: true } : {}),
             },
           },
         };
