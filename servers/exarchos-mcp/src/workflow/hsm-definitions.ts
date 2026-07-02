@@ -543,13 +543,22 @@ export function createRefactorHSM(): HSMDefinition {
       to: 'overhaul-delegate',
       guard: guards.planReviewComplete,
     },
+    // DR-1: `blocked` must precede the revise edge — transitions are
+    // first-match-wins, so at the revision cap `revisionsExhausted` fires and the
+    // loop terminates instead of revising forever. Mirrors the feature HSM
+    // (Sentry: the overhaul track had the revise edge first AND lacked
+    // `isRevision`, so the counter never incremented → unbounded plan-review loop).
+    { from: 'overhaul-plan-review', to: 'blocked', guard: guards.revisionsExhausted },
     {
       from: 'overhaul-plan-review',
       to: 'overhaul-plan',
       guard: guards.planReviewGapsFound,
+      // DR-1: traversing the revise edge emits a counted `plan-revision` event
+      // folded into `planReview.revisionCount` — the fact the cap is checked
+      // against. Without it the count never increments and the cap never trips.
+      isRevision: true,
       effects: ['log'],
     },
-    { from: 'overhaul-plan-review', to: 'blocked', guard: guards.revisionsExhausted },
     { from: 'blocked', to: 'overhaul-delegate', guard: guards.humanUnblocked },
     {
       from: 'overhaul-delegate',

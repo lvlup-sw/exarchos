@@ -300,6 +300,42 @@ describe('mutation-adequacy action (dispatch-through handleOrchestrate)', () => 
     expect(gd.details?.degraded).toBe(true);
   });
 
+  it('HandleOrchestrate_MutationAdequacy_SameOperationId_DegradeThenScore_BothRowsPersist_RVC_R7', async () => {
+    // RVC-R7 (CodeRabbit): gate.executed emissions are keyed by operationId
+    // SUFFIXED with outcome, so a degraded row does NOT suppress a later scored
+    // row for the same operationId (the bare-operationId key deduped the second
+    // emission, stranding the skip-pass and losing the real score).
+    const { stateDir, eventStore } = await newStore();
+    const op = 'op-shared-123';
+
+    // First run degrades (unparseable report) → degraded skip-pass row.
+    await dispatchMutation({
+      runResult: { ok: true, report: 'not-json{' },
+      operationId: op,
+      eventStore,
+      stateDir,
+    });
+    // Retry under the SAME operationId scores a real result → scored row.
+    await dispatchMutation({
+      runResult: { ok: true, report: strykerReport([{ status: 'Killed' }, { status: 'Killed' }]) },
+      operationId: op,
+      eventStore,
+      stateDir,
+    });
+
+    const mut = (await eventStore.query('feat-mutadq', { type: 'gate.executed' })).filter(
+      (e) => (e.data as { gateName?: string }).gateName === 'mutation-adequacy',
+    );
+    // Both rows persist — a shared bare-operationId key would have collapsed to 1.
+    expect(mut.length).toBe(2);
+    // The scored row (not degraded, real score) survives for the projection to fold.
+    const scored = mut.find((e) => {
+      const d = (e.data as { details?: { degraded?: boolean; mutationScore?: number } }).details;
+      return d?.degraded !== true && typeof d?.mutationScore === 'number' && d.mutationScore > 0;
+    });
+    expect(scored).toBeDefined();
+  });
+
   it('HandleOrchestrate_MutationAdequacy_FullScope_DeferredAdvisory', async () => {
     const recordRuns: string[] = [];
     const { success, data } = await dispatchMutation({ scope: 'full', recordRuns });

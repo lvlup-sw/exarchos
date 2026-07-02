@@ -14,7 +14,7 @@ import { execFileSync } from 'node:child_process';
 import * as path from 'node:path';
 import { toPosix } from '../utils/paths.js';
 import * as os from 'node:os';
-import { handlePrepareDelegation } from './prepare-delegation.js';
+import { handlePrepareDelegation, persistWorkflowRiskTier } from './prepare-delegation.js';
 import { handleSetupWorktree } from './setup-worktree.js';
 import { handleOrchestrate } from './composite.js';
 import {
@@ -629,6 +629,35 @@ describe('HandleOrchestrate_PrepareDelegation_PersistsWorkflowRiskTier (DR-2)', 
     expect(riskTier).toBe('high');
 
     // (3) that persisted tier arms the /review mutation-adequacy backstop.
+    expect(getRequiredReviews('feature', riskTier as string)).toContain('mutation-adequacy');
+  });
+
+  it('re-raised tier survives high → medium → high (no value-keyed dedup — RVC-R9)', async () => {
+    // Regression: persistWorkflowRiskTier keyed the state.patched by tier value,
+    // so a workflow that went high → medium → high cache-hit the second `high` at
+    // the store and materialized to `medium` — silently under-arming the
+    // mutation-adequacy backstop. With the value-based key removed, every
+    // derivation appends and the projection folds last-write-wins.
+    const ctxStore = new EventStore(tmpDir);
+    const streamId = 'dr2-risktier-reraise';
+
+    await persistWorkflowRiskTier(ctxStore, streamId, 'high');
+    await persistWorkflowRiskTier(ctxStore, streamId, 'medium');
+    await persistWorkflowRiskTier(ctxStore, streamId, 'high');
+
+    // All three patches must persist (the value-based key would have dropped the
+    // third as a cache-hit, leaving `medium` as the last applied value).
+    const patches = await ctxStore.query(streamId, { type: 'state.patched' });
+    const tierPatches = patches.filter(
+      (e) =>
+        !!(e.data as { patch?: Record<string, unknown> }).patch &&
+        'riskTier' in (e.data as { patch: Record<string, unknown> }).patch,
+    );
+    expect(tierPatches.length).toBe(3);
+
+    // Materialized through the real projection → last-write-wins yields `high`.
+    const riskTier = await materializeRiskTier(ctxStore, tmpDir, streamId);
+    expect(riskTier).toBe('high');
     expect(getRequiredReviews('feature', riskTier as string)).toContain('mutation-adequacy');
   });
 

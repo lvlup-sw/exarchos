@@ -604,7 +604,7 @@ export async function handleMutationAdequacy(
         MUTATION_GATE_LAYER,
         true,
         { skipped: true, reason, mutationScore: 0 },
-        args.operationId,
+        mutationGateKey(args.operationId, 'skip-no-toolchain'),
       );
     } catch (err) {
       // Fire-and-forget — emission failure must not break the advisory verdict,
@@ -682,8 +682,9 @@ export async function handleMutationAdequacy(
   const passed = carrier.mutationScore >= threshold;
   const nextActions = survivorAffordances(parsed.report);
 
-  // ── Emit the foldable gate.executed (004 / INV-1). Idempotent via
-  // operationId (INV-8) — NO CAS-pin on the follow-on event. ─────────────────
+  // ── Emit the foldable gate.executed (004 / INV-1). Idempotent via an
+  // OUTCOME-suffixed operationId key (INV-8, RVC-R7) — NO CAS-pin on the
+  // follow-on event. ─────────────────────────────────────────────────────────
   try {
     await emitGateEvent(
       eventStore,
@@ -699,7 +700,7 @@ export async function handleMutationAdequacy(
         total: carrier.total,
         threshold,
       },
-      args.operationId,
+      mutationGateKey(args.operationId, 'scored'),
     );
   } catch (err) {
     // Fire-and-forget — emission failure must not break the verdict. A dropped
@@ -728,6 +729,23 @@ export async function handleMutationAdequacy(
       next_actions: nextActions,
     },
   };
+}
+
+/**
+ * Idempotency key for a mutation gate.executed emission, suffixed by OUTCOME.
+ * `emitGateEvent` collapses same-key re-emissions to one row, so keying every
+ * outcome by the bare `operationId` let a skip-pass/degraded row suppress a later
+ * scored row for the same run (CodeRabbit RVC-R7). Suffixing by outcome keeps the
+ * intended idempotency (a retried SAME-outcome emission still collapses) while
+ * letting a different outcome append a fresh row the projection folds
+ * last-write-wins. `undefined` when no operationId was threaded (fire-and-forget,
+ * one row per call).
+ */
+function mutationGateKey(
+  operationId: string | undefined,
+  outcome: 'scored' | 'degraded' | 'skip-no-toolchain',
+): string | undefined {
+  return operationId === undefined ? undefined : `${operationId}:${outcome}`;
 }
 
 /** Resolve the effective threshold: arg override > config > soft default. */
@@ -770,7 +788,7 @@ async function emitAdvisoryGate(
       MUTATION_GATE_LAYER,
       true,
       { skipped: true, degraded: true, reason, mutationScore: 0 },
-      args.operationId,
+      mutationGateKey(args.operationId, 'degraded'),
     );
   } catch (err) {
     orchestrateLogger.warn(

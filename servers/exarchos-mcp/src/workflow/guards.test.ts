@@ -657,6 +657,19 @@ describe('allReviewsPassed (synthesis ready)', () => {
     expect((result as GuardFailure).reason).toContain('degraded');
   });
 
+  it('MutationEnforcement_BlockModeNonFiniteScore_Blocks_RVC_R6', () => {
+    // RVC-R6 (CodeRabbit): a present-but-non-finite score (NaN from a 0/0 mutation
+    // ratio when every mutant was uncovered) is unverifiable. `NaN < threshold` is
+    // always false, which would silently pass under block — fail it closed.
+    const state = mutationBase(Number.NaN, {
+      _mutationEnforcement: 'block',
+      _mutationThreshold: 0.4,
+    });
+    const result = guards.allReviewsPassed.evaluate(state);
+    expect(result).not.toBe(true);
+    expect((result as GuardFailure).reason).toContain('non-finite');
+  });
+
   it('MutationEnforcement_DegradedRun_AdvisoryDefault_NeverBlocks_RVC_R1', () => {
     // The fail-closed behavior is scoped to block enforcement. Under advisory
     // (the default, and explicit) a degraded run still satisfies the presence

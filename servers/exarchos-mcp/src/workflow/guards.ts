@@ -380,16 +380,22 @@ export const guards = {
           );
         } else {
           const score = dim?.mutationScore;
-          if (
-            dim &&
-            dim.skipped !== true &&
-            typeof score === 'number' &&
-            score < (state._mutationThreshold as number)
-          ) {
-            reasons.push(
-              `mutation-adequacy score ${score} is below the enforced threshold ` +
-                `${state._mutationThreshold} (review.mutationEnforcement: block)`,
-            );
+          if (dim && dim.skipped !== true && typeof score === 'number') {
+            if (!Number.isFinite(score)) {
+              // A present-but-non-finite score (e.g. NaN from a 0/0 mutation ratio
+              // when every mutant was uncovered) is UNVERIFIABLE. `NaN < threshold`
+              // is always false, which would silently pass — the opposite of the
+              // fail-closed intent (RVC-R1 / CodeRabbit). Block it under enforcement.
+              reasons.push(
+                `mutation-adequacy produced a non-finite score (unverifiable) ` +
+                  `(review.mutationEnforcement: block)`,
+              );
+            } else if (score < (state._mutationThreshold as number)) {
+              reasons.push(
+                `mutation-adequacy score ${score} is below the enforced threshold ` +
+                  `${state._mutationThreshold} (review.mutationEnforcement: block)`,
+              );
+            }
           }
         }
       }

@@ -759,21 +759,23 @@ async function emitAuditEvent(
  * `getRequiredReviews`), so stamping it here is what arms the high-tier
  * `mutation-adequacy` backstop.
  *
- * Idempotent per `(stream, tier)`: the idempotency key (carried on the event so
- * the best-effort {@link emitAuditEvent} path preserves it) dedupes a re-invoked
- * `prepare_delegation` that re-derives the same tier; a later wave that raises
- * the tier appends a fresh patch the projection folds last-write-wins. Emission
- * is best-effort like the surrounding audit events — the ready dispatch path
- * must not hard-depend on a write (a re-invocation re-stamps idempotently).
+ * Each call appends a `state.patched` the projection folds last-write-wins, so
+ * `state.riskTier` always reflects the latest derived tier. It is deliberately
+ * NOT keyed by tier value: a value-based idempotency key dropped a *re-raised*
+ * tier — a high → medium → high sequence cache-hit the second `high` and left
+ * the tier stuck at `medium`, silently under-arming the `mutation-adequacy`
+ * backstop (CodeRabbit RVC-R9). A redundant re-invocation that re-derives the
+ * same tier just appends a value-identical patch, a harmless no-op under the
+ * fold. Emission is best-effort like the surrounding audit events — the ready
+ * dispatch path must not hard-depend on a write (a re-invocation re-stamps).
  */
-async function persistWorkflowRiskTier(
+export async function persistWorkflowRiskTier(
   store: EventStore,
   streamId: string,
   riskTier: RiskTier,
 ): Promise<void> {
   await emitAuditEvent(store, streamId, {
     type: 'state.patched',
-    idempotencyKey: `${streamId}:workflow-risktier:${riskTier}`,
     data: { featureId: streamId, fields: ['riskTier'], patch: { riskTier } },
   });
 }

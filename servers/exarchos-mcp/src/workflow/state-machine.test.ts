@@ -14,7 +14,7 @@ import type {
   WorkflowTypeSummary,
   HSMDefinition,
 } from './state-machine.js';
-import { EXCLUDED_MERGE_PHASES, createFeatureHSM } from './hsm-definitions.js';
+import { EXCLUDED_MERGE_PHASES, createFeatureHSM, createRefactorHSM } from './hsm-definitions.js';
 import { EVENT_DATA_SCHEMAS, isBuiltInEventType } from '../event-store/schemas.js';
 import { buildHsmEventData } from './hsm-transition-guard.js';
 import { mapInternalToExternalType } from './events.js';
@@ -749,6 +749,52 @@ describe('Feature HSM plan-review bound (DR-1, Task 002)', () => {
       _events: [],
     };
     const result = executeTransition(hsm, state, 'plan');
+    expect(result.success).toBe(true);
+    expect(result.events.filter((e) => e.type === 'plan-revision')).toHaveLength(1);
+  });
+});
+
+describe('Overhaul HSM plan-review bound (DR-1 parity — RVC-R8)', () => {
+  // Regression (Sentry): the overhaul track carried the same `revisionsExhausted`
+  // bound but its revise edge was ordered BEFORE `blocked` and lacked
+  // `isRevision`, so the counter never incremented and the cap could never win
+  // first-match → unbounded plan-review loop. Mirror the feature HSM exactly.
+  const overhaulPlanReview = () =>
+    createRefactorHSM().transitions.filter((t) => t.from === 'overhaul-plan-review');
+
+  it('ReviseEdge_CarriesIsRevisionFlag', () => {
+    const revise = overhaulPlanReview().find((t) => t.to === 'overhaul-plan');
+    expect(revise).toBeDefined();
+    expect(revise!.isRevision).toBe(true);
+  });
+
+  it('ForwardAndTerminalEdges_AreNotRevisions', () => {
+    for (const target of ['overhaul-delegate', 'blocked'] as const) {
+      const t = overhaulPlanReview().find((x) => x.to === target);
+      expect(t).toBeDefined();
+      expect(t!.isRevision ?? false).toBe(false);
+    }
+  });
+
+  it('BlockedEdge_OrderedBeforeReviseEdge', () => {
+    const targets = getValidTransitions(createRefactorHSM(), 'overhaul-plan-review').map(
+      (t) => t.phase,
+    );
+    const blockedIdx = targets.indexOf('blocked');
+    const planIdx = targets.indexOf('overhaul-plan');
+    expect(blockedIdx).toBeGreaterThanOrEqual(0);
+    expect(planIdx).toBeGreaterThanOrEqual(0);
+    expect(blockedIdx).toBeLessThan(planIdx);
+  });
+
+  it('ReviseEdge_TraversalEmitsCountedPlanRevision_OnRealHsm', () => {
+    const hsm = createRefactorHSM();
+    const state = {
+      phase: 'overhaul-plan-review',
+      planReview: { gapsFound: true, revisionCount: 0 },
+      _events: [],
+    };
+    const result = executeTransition(hsm, state, 'overhaul-plan');
     expect(result.success).toBe(true);
     expect(result.events.filter((e) => e.type === 'plan-revision')).toHaveLength(1);
   });
