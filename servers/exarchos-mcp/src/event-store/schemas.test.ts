@@ -4037,11 +4037,12 @@ describe('WLM operational-core merge lease schemas', () => {
     expect(EventTypes).toContain('worktree.merge_executed');
   });
 
-  it('EventTypes_CountIs138_BothPinsUpdated', () => {
+  it('EventTypes_CountIs139_BothPinsUpdated', () => {
     // The single canonical count after adding the two operational-core merge
-    // types (136 foundation → 138). The pinned literal in BOTH schemas.test.ts
-    // files must agree with this — a divergence means one pin was missed.
-    expect(EventTypes).toHaveLength(138);
+    // types (136 foundation → 138) and main's `workflow.plan-revision` merged in
+    // (138 → 139). The pinned literal in BOTH schemas.test.ts files must agree
+    // with this — a divergence means one pin was missed.
+    expect(EventTypes).toHaveLength(139);
     // No duplicate slipped in while bumping the count.
     expect(new Set(EventTypes).size).toBe(EventTypes.length);
   });
