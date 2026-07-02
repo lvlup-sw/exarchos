@@ -82,7 +82,7 @@ interface HsmInternalEvent {
 export function buildHsmEventData(
   evt: HsmInternalEvent,
   featureId: string,
-  opts: { guardId?: string; fixCycleOrdinal?: number },
+  opts: { guardId?: string; fixCycleOrdinal?: number; planRevisionOrdinal?: number },
 ): Record<string, unknown> {
   const metadata = evt.metadata ?? {};
   const compoundStateId = metadata.compoundStateId;
@@ -97,6 +97,18 @@ export function buildHsmEventData(
           ? { compoundStateId }
           : {}),
         count: opts.fixCycleOrdinal ?? 1,
+        featureId,
+      };
+    case 'plan-revision':
+      // WorkflowPlanRevisionData: { compoundStateId?, count, featureId } (DR-1).
+      // Identical shaping to fix-cycle — the count is the 1-based revise-cycle
+      // ordinal supplied by the emission boundary; `compoundStateId` is omitted
+      // when absent (plan-review is a top-level atomic phase).
+      return {
+        ...(typeof compoundStateId === 'string'
+          ? { compoundStateId }
+          : {}),
+        count: opts.planRevisionOrdinal ?? 1,
         featureId,
       };
     case 'compound-entry':
@@ -216,6 +228,23 @@ async function nextFixCycleOrdinal(
     );
     return matching.length + 1;
   }
+  return prior.length + 1;
+}
+
+/**
+ * Count prior `workflow.plan-revision` events on the stream so the next
+ * plan-revision event can carry a 1-based `count` that satisfies
+ * `WorkflowPlanRevisionData` (DR-1). The plan-review revise loop is bounded by a
+ * single workflow-level count, so — unlike fix cycles — the ordinal is NOT
+ * scoped by `compoundStateId`; every prior plan-revision on the stream counts.
+ */
+async function nextPlanRevisionOrdinal(
+  eventStore: EventStore,
+  featureId: string,
+): Promise<number> {
+  const prior = await eventStore.query(featureId, {
+    type: 'workflow.plan-revision' as EventType,
+  });
   return prior.length + 1;
 }
 
@@ -577,9 +606,17 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
                 evt.metadata?.compoundStateId,
               )
             : undefined;
+        // DR-1 — plan-revision carries a 1-based ordinal `count` the HSM walk
+        // doesn't supply, derived from prior plan-revision events on the stream
+        // (the revise-loop analog of `fixCycleOrdinal`).
+        const planRevisionOrdinal =
+          evt.type === 'plan-revision'
+            ? await nextPlanRevisionOrdinal(context.eventStore, featureId)
+            : undefined;
         const data = buildHsmEventData(evt, featureId, {
           ...(transition.guard ? { guardId: transition.guard.id } : {}),
           ...(fixCycleOrdinal !== undefined ? { fixCycleOrdinal } : {}),
+          ...(planRevisionOrdinal !== undefined ? { planRevisionOrdinal } : {}),
         });
         const validatedEvent = buildValidatedEvent(featureId, 1, {
           type: mapInternalToExternalType(evt.type) as EventType,

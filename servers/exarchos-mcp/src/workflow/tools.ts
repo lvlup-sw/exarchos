@@ -36,7 +36,7 @@ import { getHSMDefinition, isBuiltInWorkflowType, getValidTransitions } from './
 import { hsmTransitionGuard } from './hsm-transition-guard.js';
 import { getPlaybook, composePhasePlaybook } from './playbooks.js';
 import { lintHandoff, type HandoffLintFinding } from './handoff-lint.js';
-import { getRequiredReviews } from './review-contract.js';
+import { resolveGateSet } from './phase-kind.js';
 import { type ToolResult } from '../format.js';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
@@ -493,6 +493,21 @@ export async function handleSet(
     skipPhases?: readonly string[];
     requiredReviews?: readonly string[];
     checkpoint?: CheckpointEnforcementConfig;
+    /**
+     * DR-1: resolved `.exarchos.yml workflow.maxPlanRevisions` cap. Injected
+     * into the reserved ephemeral `state._maxPlanRevisions` for the pure
+     * `revisionsExhausted` guard, then stripped before persistence — never
+     * event-sourced (INV-1: a config threshold is not a fact).
+     */
+    maxPlanRevisions?: number;
+    /**
+     * DR-3: resolved `.exarchos.yml review.mutationEnforcement` mode and the
+     * resolved mutation threshold. Injected (HIGH tier only) into
+     * `_mutationEnforcement` / `_mutationThreshold` for the pure `allReviewsPassed`
+     * score check, then stripped before persistence — never event-sourced (INV-1).
+     */
+    mutationEnforcement?: 'block' | 'advisory';
+    mutationThreshold?: number;
   },
 ): Promise<ToolResult> {
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
@@ -647,10 +662,64 @@ export async function handleSet(
         // roster when absent — exactly the pre-slice-3 behaviour.
         // `getRequiredReviews` ignores an unrecognised tier, so a malformed
         // stamp can never inject a dimension.
-        const riskTier = resolveWorkflowRiskTier(mutableState);
-        const typeDefaults = getRequiredReviews(workflowType, riskTier);
+        // Coerce the (defensively-read, possibly-undefined/garbage) tier to a
+        // literal RiskTier for the resolver ctx. Only `high` carries an extra
+        // review dimension (mutation-adequacy); every other value → the base
+        // roster, so collapsing non-high to `low` is byte-identical to the prior
+        // `getRequiredReviews(workflowType, rawTier)` behavior (the ctx shim).
+        const rawTier = resolveWorkflowRiskTier(mutableState);
+        const riskTier =
+          rawTier === 'high' ? 'high' : rawTier === 'medium' ? 'medium' : 'low';
+        // DR-7: route the review roster through the single REVIEW gate-set
+        // resolver — `resolveGateSet('REVIEW')`, the same resolver phase-entry
+        // uses — instead of calling `getRequiredReviews` directly, so REVIEW
+        // obligations have ONE source. The `'review-contract'` resolver wraps
+        // `getRequiredReviews` verbatim (review-contract.ts SoT), so the resolved
+        // dimension set is byte-identical (parity-pinned). `boundaryTouching` is
+        // unused by the review resolver; an absent/unrecognised tier falls back to
+        // the workflow-type base roster (the ctx shim — never throws).
+        const typeDefaults = resolveGateSet('REVIEW', {
+          riskTier,
+          boundaryTouching: false,
+          workflowType,
+        }).flatMap((g) => (g.family === 'review' ? [g.gate] : []));
         if (typeDefaults.length) {
           mutableState._requiredReviews = typeDefaults;
+        }
+      }
+
+      // ─── Inject plan-revision cap for guard evaluation (DR-1) ──────────
+      // `revisionsExhausted` is a PURE guard and cannot read config, so the
+      // resolved `.exarchos.yml workflow.maxPlanRevisions` cap is injected here
+      // (as `_requiredReviews` is above) into a reserved ephemeral field the
+      // guard reads. It is stripped before persistence below — the cap is a
+      // config threshold, not a fact, so it never enters the event log (INV-1).
+      // The sibling `workflow.maxFixCycles` is likewise a runtime-injected
+      // override, never event-sourced. Absent injection the guard falls back to
+      // its default (1) — the conservative, loop-terminating value.
+      if (
+        typeof options?.maxPlanRevisions === 'number' &&
+        Number.isFinite(options.maxPlanRevisions)
+      ) {
+        mutableState._maxPlanRevisions = options.maxPlanRevisions;
+      }
+
+      // ─── Inject mutation score-enforcement mode + threshold (DR-3) ──────
+      // `allReviewsPassed` is a PURE guard and cannot read config, so the
+      // resolved `review.mutationEnforcement` mode + threshold are injected here
+      // (as `_requiredReviews` / `_maxPlanRevisions` are). HIGH tier only —
+      // low/medium never run mutation-adequacy, so the guard's score check stays
+      // inert there. Advisory by default: with mode !== 'block' nothing is
+      // injected, so the guard never enforces. Stripped before persistence below.
+      if (resolveWorkflowRiskTier(mutableState) === 'high') {
+        if (options?.mutationEnforcement !== undefined) {
+          mutableState._mutationEnforcement = options.mutationEnforcement;
+        }
+        if (
+          typeof options?.mutationThreshold === 'number' &&
+          Number.isFinite(options.mutationThreshold)
+        ) {
+          mutableState._mutationThreshold = options.mutationThreshold;
         }
       }
     }
@@ -817,8 +886,12 @@ export async function handleSet(
         }
       }
 
-      // Clean up transient guard-evaluation field — not persisted to state.
+      // Clean up transient guard-evaluation fields — not persisted to state
+      // (INV-1: the injected config cap is not a fact and must not be folded).
       delete mutableState._requiredReviews;
+      delete mutableState._maxPlanRevisions;
+      delete mutableState._mutationEnforcement;
+      delete mutableState._mutationThreshold;
     }
 
     // Transition events are now emitted inside `hsmTransitionGuard.attempt`
@@ -1106,6 +1179,21 @@ export async function handleTransition(
     skipPhases?: readonly string[];
     requiredReviews?: readonly string[];
     checkpoint?: CheckpointEnforcementConfig;
+    /**
+     * DR-1: resolved `.exarchos.yml workflow.maxPlanRevisions` cap. Injected
+     * into the reserved ephemeral `state._maxPlanRevisions` for the pure
+     * `revisionsExhausted` guard, then stripped before persistence — never
+     * event-sourced (INV-1: a config threshold is not a fact).
+     */
+    maxPlanRevisions?: number;
+    /**
+     * DR-3: resolved `.exarchos.yml review.mutationEnforcement` mode and the
+     * resolved mutation threshold. Injected (HIGH tier only) into
+     * `_mutationEnforcement` / `_mutationThreshold` for the pure `allReviewsPassed`
+     * score check, then stripped before persistence — never event-sourced (INV-1).
+     */
+    mutationEnforcement?: 'block' | 'advisory';
+    mutationThreshold?: number;
   },
 ): Promise<ToolResult> {
   return applyTransition(
@@ -1137,6 +1225,21 @@ async function applyTransition(
     skipPhases?: readonly string[];
     requiredReviews?: readonly string[];
     checkpoint?: CheckpointEnforcementConfig;
+    /**
+     * DR-1: resolved `.exarchos.yml workflow.maxPlanRevisions` cap. Injected
+     * into the reserved ephemeral `state._maxPlanRevisions` for the pure
+     * `revisionsExhausted` guard, then stripped before persistence — never
+     * event-sourced (INV-1: a config threshold is not a fact).
+     */
+    maxPlanRevisions?: number;
+    /**
+     * DR-3: resolved `.exarchos.yml review.mutationEnforcement` mode and the
+     * resolved mutation threshold. Injected (HIGH tier only) into
+     * `_mutationEnforcement` / `_mutationThreshold` for the pure `allReviewsPassed`
+     * score check, then stripped before persistence — never event-sourced (INV-1).
+     */
+    mutationEnforcement?: 'block' | 'advisory';
+    mutationThreshold?: number;
   },
 ): Promise<ToolResult> {
   const result = await handleSet(

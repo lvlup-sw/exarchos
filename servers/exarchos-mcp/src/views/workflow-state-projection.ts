@@ -419,6 +419,82 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
         };
       }
 
+      // ── Plan-review revise count (DR-1) ────────────────────────────────
+      // Fold each `workflow.plan-revision` occurrence into the NESTED
+      // `planReview.revisionCount` — the exact field the `revisionsExhausted`
+      // guard (workflow/guards.ts) reads — so the plan↔plan-review revise loop
+      // is bounded by an event-sourced count, not advisory prose. A pure
+      // left-fold (+1 per event): replaying the log from `init()` reconstructs
+      // the identical count, and other `planReview` fields set via
+      // `state.patched` (e.g. `approved` / `gapsFound`) are preserved by the
+      // spread rather than clobbered.
+      case 'workflow.plan-revision': {
+        const priorPlanReview = isPlainObject(view.planReview)
+          ? (view.planReview as Record<string, unknown>)
+          : {};
+        const rawCount = priorPlanReview.revisionCount;
+        const currentCount =
+          typeof rawCount === 'number' && Number.isFinite(rawCount)
+            ? rawCount
+            : 0;
+        return {
+          ...view,
+          planReview: {
+            ...priorPlanReview,
+            revisionCount: currentCount + 1,
+          },
+        };
+      }
+
+      // ── Mutation-adequacy dimension (DR-2a) ─────────────────────────────
+      // Fold the mutation gate's `gate.executed` (layer 'review') into
+      // `reviews['mutation-adequacy']` so the required dimension is satisfied by
+      // the ACTUAL gate run — the recorded fact, not an agent hand-write (INV-1).
+      // This closes the DR-2 dead-lock: `state.riskTier='high'` makes
+      // `allReviewsPassed` require the dimension's presence; without this fold
+      // nothing ever populated it. A no-toolchain run emits a skip-passing
+      // `gate.executed` (mutation-adequacy.ts), so the dimension is recorded as
+      // skip-pass rather than silently absent. The dimension is advisory by
+      // default (status 'pass'); the raw score/verdict rides
+      // `mutationScore`/`passed` for the DR-3 score-enforcement check in
+      // `allReviewsPassed`. Non-mutation `gate.executed` events stay no-ops.
+      case 'gate.executed': {
+        const data = event.data as
+          | {
+              gateName?: string;
+              layer?: string;
+              passed?: boolean;
+              details?: Record<string, unknown>;
+            }
+          | undefined;
+        // 'mutation-adequacy' is the review-contract dimension name (SoT:
+        // workflow/review-contract.ts); the gate.executed carries it verbatim.
+        if (data?.gateName !== 'mutation-adequacy') return view;
+        const details = isPlainObject(data.details)
+          ? (data.details as Record<string, unknown>)
+          : {};
+        const rawScore = details.mutationScore;
+        return {
+          ...view,
+          reviews: {
+            ...view.reviews,
+            'mutation-adequacy': {
+              status: 'pass',
+              gateName: 'mutation-adequacy',
+              passed: data.passed === true,
+              ...(typeof rawScore === 'number' ? { mutationScore: rawScore } : {}),
+              ...(details.skipped === true ? { skipped: true } : {}),
+              // Carry the degrade marker (RVC-R1): a `degraded` run (toolchain
+              // present but the runner failed/unparseable) shares `skipped:true`
+              // with the no-toolchain skip-pass, but `allReviewsPassed` Check 4
+              // must fail it CLOSED under block enforcement — it produced no
+              // verifiable score. The no-toolchain skip-pass omits `degraded`.
+              ...(details.degraded === true ? { degraded: true } : {}),
+            },
+          },
+        };
+      }
+
       // ── Merge Orchestrator (#1504/#1554 — close the projection gap) ─────
       // Mirrors the file-path applyEventToState (state-store.ts:804-853): each
       // terminal merge event REPLACES `mergeOrchestrator` (no spread) so the
@@ -590,7 +666,6 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       case 'task.polled':
       case 'task.result':
       case 'task.cancelled':
-      case 'gate.executed':
       case 'stack.restacked':
       case 'stack.enqueued':
       case 'stack.submitted':

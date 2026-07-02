@@ -27,7 +27,9 @@ import { handleOrchestrate } from './composite.js';
 import type { ResolvedVerificationRuntime } from '../config/test-runtime-resolver.js';
 import { resolveConfig } from '../config/resolve.js';
 import type { ProjectConfig } from '../config/yaml-schema.js';
-import type { MutationRunResult } from './mutation-adequacy.js';
+import type { MutationRunResult, RunDiff } from './mutation-adequacy.js';
+import { composeScopedCommand } from './mutation-adequacy.js';
+import { resolveMutationDiffScope } from '../config/toolchains.js';
 import { rmrf } from '../test-helpers/temp-dir.js';
 
 // ─── fixtures ────────────────────────────────────────────────────────────────
@@ -120,6 +122,7 @@ interface DispatchOpts {
   /** Records the commands the runner was asked to execute. */
   recordRuns?: string[];
   scope?: string;
+  offline?: boolean;
   base?: string;
   threshold?: number;
   operationId?: string;
@@ -142,6 +145,7 @@ async function dispatchMutation(
       featureId: 'feat-mutadq',
       base: opts.base ?? 'main',
       ...(opts.scope !== undefined ? { scope: opts.scope } : {}),
+      ...(opts.offline !== undefined ? { offline: opts.offline } : {}),
       ...(opts.threshold !== undefined ? { threshold: opts.threshold } : {}),
       ...(opts.operationId !== undefined ? { operationId: opts.operationId } : {}),
       // Test seams — injected through the dispatch args.
@@ -209,6 +213,34 @@ describe('mutation-adequacy action (dispatch-through handleOrchestrate)', () => 
     expect(recordRuns).toHaveLength(0);
   });
 
+  it('HandleOrchestrate_MutationAdequacy_NoToolchain_EmitsSkipPassGateExecuted', async () => {
+    // DR-2a: no toolchain still emits a skip-passing gate.executed so the
+    // projection records reviews['mutation-adequacy'] as skip-pass — otherwise
+    // review→synthesize dead-locks at HIGH tier on a repo with no mutation runner.
+    const { stateDir, eventStore } = await newStore();
+    const { success, data } = await dispatchMutation({ mutationCmd: null, eventStore, stateDir });
+    expect(success).toBe(true);
+    expect(data.skipped).toBe(true);
+
+    const events = await eventStore.query('feat-mutadq', { type: 'gate.executed' });
+    const gate = events.find(
+      (e) => (e.data as { gateName?: string }).gateName === 'mutation-adequacy',
+    );
+    expect(gate).toBeDefined();
+    const gd = gate!.data as {
+      layer?: string;
+      passed?: boolean;
+      details?: { skipped?: boolean; degraded?: boolean };
+    };
+    expect(gd.layer).toBe('review');
+    expect(gd.passed).toBe(true);
+    expect(gd.details?.skipped).toBe(true);
+    // RVC-R1: the no-toolchain skip-pass is NOT marked degraded — that marker is
+    // reserved for a present-but-broken runner, so block enforcement can tell the
+    // two apart (a backstop the repo cannot run stays advisory even under block).
+    expect(gd.details?.degraded).toBeUndefined();
+  });
+
   it('HandleOrchestrate_MutationAdequacy_MalformedReport_Warning', async () => {
     const { success, data } = await dispatchMutation({
       runResult: { ok: true, report: 'not-json-at-all{' },
@@ -222,6 +254,88 @@ describe('mutation-adequacy action (dispatch-through handleOrchestrate)', () => 
     expect(data.passed).toBe(true);
   });
 
+  it('HandleOrchestrate_MutationAdequacy_MalformedReport_EmitsDegradedSkipPass_RVC_R1', async () => {
+    // RVC-R1: a degrade (toolchain PRESENT, unparseable report) records a skip-pass
+    // marked degraded:true — DISTINCT from the no-toolchain skip-pass — so the
+    // block-enforcement score gate can fail closed while advisory stays live.
+    const { stateDir, eventStore } = await newStore();
+    const { success } = await dispatchMutation({
+      runResult: { ok: true, report: 'not-json-at-all{' },
+      eventStore,
+      stateDir,
+    });
+    expect(success).toBe(true);
+
+    const events = await eventStore.query('feat-mutadq', { type: 'gate.executed' });
+    const gate = events.find(
+      (e) => (e.data as { gateName?: string }).gateName === 'mutation-adequacy',
+    );
+    expect(gate).toBeDefined();
+    const gd = gate!.data as { passed?: boolean; details?: { skipped?: boolean; degraded?: boolean } };
+    expect(gd.passed).toBe(true);
+    expect(gd.details?.skipped).toBe(true);
+    expect(gd.details?.degraded).toBe(true);
+  });
+
+  it('HandleOrchestrate_MutationAdequacy_RunnerFailure_EmitsDegradedSkipPass_RVC_R1', async () => {
+    // The runner-crash degrade (ok:false) is the other degrade path — also marked
+    // degraded:true so block enforcement fails closed on a broken runner rather
+    // than silently passing review→synthesize.
+    const { stateDir, eventStore } = await newStore();
+    const { success } = await dispatchMutation({
+      runResult: { ok: false, reason: 'stryker exited 1' },
+      eventStore,
+      stateDir,
+    });
+    expect(success).toBe(true);
+
+    const events = await eventStore.query('feat-mutadq', { type: 'gate.executed' });
+    const gate = events.find(
+      (e) => (e.data as { gateName?: string }).gateName === 'mutation-adequacy',
+    );
+    expect(gate).toBeDefined();
+    const gd = gate!.data as { passed?: boolean; details?: { skipped?: boolean; degraded?: boolean } };
+    expect(gd.passed).toBe(true);
+    expect(gd.details?.skipped).toBe(true);
+    expect(gd.details?.degraded).toBe(true);
+  });
+
+  it('HandleOrchestrate_MutationAdequacy_SameOperationId_DegradeThenScore_BothRowsPersist_RVC_R7', async () => {
+    // RVC-R7 (CodeRabbit): gate.executed emissions are keyed by operationId
+    // SUFFIXED with outcome, so a degraded row does NOT suppress a later scored
+    // row for the same operationId (the bare-operationId key deduped the second
+    // emission, stranding the skip-pass and losing the real score).
+    const { stateDir, eventStore } = await newStore();
+    const op = 'op-shared-123';
+
+    // First run degrades (unparseable report) → degraded skip-pass row.
+    await dispatchMutation({
+      runResult: { ok: true, report: 'not-json{' },
+      operationId: op,
+      eventStore,
+      stateDir,
+    });
+    // Retry under the SAME operationId scores a real result → scored row.
+    await dispatchMutation({
+      runResult: { ok: true, report: strykerReport([{ status: 'Killed' }, { status: 'Killed' }]) },
+      operationId: op,
+      eventStore,
+      stateDir,
+    });
+
+    const mut = (await eventStore.query('feat-mutadq', { type: 'gate.executed' })).filter(
+      (e) => (e.data as { gateName?: string }).gateName === 'mutation-adequacy',
+    );
+    // Both rows persist — a shared bare-operationId key would have collapsed to 1.
+    expect(mut.length).toBe(2);
+    // The scored row (not degraded, real score) survives for the projection to fold.
+    const scored = mut.find((e) => {
+      const d = (e.data as { details?: { degraded?: boolean; mutationScore?: number } }).details;
+      return d?.degraded !== true && typeof d?.mutationScore === 'number' && d.mutationScore > 0;
+    });
+    expect(scored).toBeDefined();
+  });
+
   it('HandleOrchestrate_MutationAdequacy_FullScope_DeferredAdvisory', async () => {
     const recordRuns: string[] = [];
     const { success, data } = await dispatchMutation({ scope: 'full', recordRuns });
@@ -231,6 +345,45 @@ describe('mutation-adequacy action (dispatch-through handleOrchestrate)', () => 
     expect(typeof data.reason).toBe('string');
     expect(data.reason).toMatch(/R10|v2\.12|deferred/i);
     // No inline full-tree run — the runner was never invoked.
+    expect(recordRuns).toHaveLength(0);
+  });
+
+  it('HandleOrchestrate_MutationAdequacy_FullScopeOffline_RunsFullTreeScored', async () => {
+    // DR-6: the explicit offline opt-in runs the WHOLE tree and produces a scored
+    // result — not the deferred advisory — with an unscoped command (no diff --since).
+    const recordRuns: string[] = [];
+    const { stateDir, eventStore } = await newStore();
+    const { success, data } = await dispatchMutation({
+      scope: 'full',
+      offline: true,
+      eventStore,
+      stateDir,
+      recordRuns,
+      runResult: {
+        ok: true,
+        report: strykerReport([{ status: 'Killed' }, { status: 'Killed' }, { status: 'Survived' }]),
+      },
+    });
+
+    expect(success).toBe(true);
+    expect(data.deferred).toBeUndefined(); // actually ran — not deferred
+    expect(data.mutationScore).toBeCloseTo(2 / 3, 5);
+    // Ran once, full-tree: the command is the resolved runner verbatim, unscoped.
+    expect(recordRuns).toHaveLength(1);
+    expect(recordRuns[0]).toContain('npx stryker run');
+    expect(recordRuns[0]).not.toContain('--since');
+    // Foldable gate.executed emitted (INV-1) so the offline run records the dimension.
+    const gates = await eventStore.query('feat-mutadq', { type: 'gate.executed' });
+    expect(
+      gates.some((e) => (e.data as { gateName?: string }).gateName === 'mutation-adequacy'),
+    ).toBe(true);
+  });
+
+  it('HandleOrchestrate_MutationAdequacy_FullScopeWithoutOffline_StaysDeferred', async () => {
+    // Inline /review never sets `offline` → full-tree is never run inline.
+    const recordRuns: string[] = [];
+    const { data } = await dispatchMutation({ scope: 'full', offline: false, recordRuns });
+    expect(data.deferred).toBe(true);
     expect(recordRuns).toHaveLength(0);
   });
 
@@ -260,19 +413,21 @@ describe('mutation-adequacy action (dispatch-through handleOrchestrate)', () => 
 });
 
 
-// ─── Diff-scope applier degradation + scope validation (PR #1541 review) ─────
+// ─── Diff-scope applier resolution (DR-5 / Gap C) ────────────────────────────
 //
 // The diff-scope DESCRIPTOR encodes intent (toolchains SoT); the applier
-// (composeScopedCommand) materializes it. For toolchains whose applier work is
-// deferred (Java PIT changed-class glob, mutmut changed-path restriction) the
-// applier must NOT ship a broken/literal-placeholder command nor silently run
-// full-tree — it degrades to the unscoped-warning contract. These dispatch
-// through handleOrchestrate with an injected `detectToolchainId` seam.
+// (composeScopedCommand) materializes it against the injected `runDiff` seam.
+// PIT's `-DtargetClasses=<changed>` resolves to the changed Java classes; mutmut
+// path-restricts to the changed `.py` paths. A normal diff-scoped run substitutes
+// the placeholder and does NOT degrade to the unscoped-warning. Only when the
+// diff touches no scopable file does the applier fall back to the warning
+// contract (never a literal `<changed>`, never silent full-tree). These dispatch
+// through handleOrchestrate with injected `detectToolchainId` + `runDiff` seams.
 
 /** Dispatch the action for a specific detected toolchain, capturing runs. */
 async function dispatchForToolchain(
   toolchainId: string,
-  opts: { scope?: string; recordRuns?: string[] } = {},
+  opts: { scope?: string; recordRuns?: string[]; runDiff?: RunDiff } = {},
 ): Promise<{ success: boolean; data: MutationData; warnings?: string[]; error?: { code?: string } }> {
   const { stateDir, eventStore } = await newStore();
   const ctx = makeCtx(stateDir, eventStore);
@@ -284,6 +439,8 @@ async function dispatchForToolchain(
       ...(opts.scope !== undefined ? { scope: opts.scope } : {}),
       resolve: () => runtimeWith('mutate run'),
       detectToolchainId: () => toolchainId,
+      // Injected diff seam — keeps the suite hermetic (no real git/diff).
+      ...(opts.runDiff ? { runDiff: opts.runDiff } : {}),
       runMutation: (runArgs: { command: string }) => {
         opts.recordRuns?.push(runArgs.command);
         return { ok: true as const, report: strykerReport([{ status: 'Killed' }]) };
@@ -294,37 +451,62 @@ async function dispatchForToolchain(
   return result as { success: boolean; data: MutationData; warnings?: string[]; error?: { code?: string } };
 }
 
-describe('mutation-adequacy diff-scope applier degradation', () => {
-  it('MutationAdequacy_JavaScope_DegradesToWarning_NeverShipsLiteralPlaceholder', async () => {
+describe('mutation-adequacy diff-scope applier resolution', () => {
+  it('MutationAdequacy_JavaScope_ResolvesChangedClasses_NoDegradeWarning', async () => {
     const recordRuns: string[] = [];
-    const { success, warnings } = await dispatchForToolchain('java-maven', { recordRuns });
+    const { success, warnings } = await dispatchForToolchain('java-maven', {
+      recordRuns,
+      runDiff: () => ['src/main/java/com/example/Calc.java'],
+    });
 
     expect(success).toBe(true);
-    // The literal `<changed>` placeholder must NEVER reach the runner.
     expect(recordRuns).toHaveLength(1);
+    // `<changed>` resolved to the FQCN — the literal placeholder never ships.
     expect(recordRuns[0]).not.toContain('<changed>');
-    expect(recordRuns[0]).not.toContain('-DtargetClasses');
-    expect(recordRuns[0]).toBe('mutate run');
-    // The scope downgrade is surfaced, never silent.
+    expect(recordRuns[0]).toContain('-DtargetClasses=com.example.Calc');
+    // A normal diff-scoped run does NOT degrade to the unscoped warning.
     const surfaced = (warnings ?? []).join(' ');
-    expect(surfaced).toMatch(/<changed>|unscoped|full-tree/i);
+    expect(surfaced).not.toMatch(/unscoped|full-tree/i);
   });
 
-  it('MutationAdequacy_PythonPathRestricted_DegradesToWarning_NeverSilentFullTree', async () => {
+  it('MutationAdequacy_PythonPathRestricted_RestrictsToChangedPaths_NoDegradeWarning', async () => {
     const recordRuns: string[] = [];
-    const { success, warnings } = await dispatchForToolchain('python', { recordRuns });
+    const { success, warnings } = await dispatchForToolchain('python', {
+      recordRuns,
+      runDiff: () => ['app/calc.py', 'app/util.py'],
+    });
 
     expect(success).toBe(true);
-    // path-restricted is not yet applied — run the plain command but WARN.
+    expect(recordRuns).toHaveLength(1);
+    // mutmut path-restricts to the changed `.py` paths (--paths-to-mutate).
+    expect(recordRuns[0]).toContain('--paths-to-mutate=');
+    expect(recordRuns[0]).toContain('app/calc.py');
+    expect(recordRuns[0]).toContain('app/util.py');
+    expect(recordRuns[0]).not.toContain('<changed>');
+    const surfaced = (warnings ?? []).join(' ');
+    expect(surfaced).not.toMatch(/unscoped|full-tree/i);
+  });
+
+  it('MutationAdequacy_JavaScope_EmptyRelevantDiff_DegradesToWarning_NeverSilentFullTree', async () => {
+    // Boundary: a diff with no Java sources cannot be scoped — degrade to the
+    // unscoped warning (never an empty `-DtargetClasses=`, never silent full-tree).
+    const recordRuns: string[] = [];
+    const { success, warnings } = await dispatchForToolchain('java-maven', {
+      recordRuns,
+      runDiff: () => ['docs/readme.md'],
+    });
+
+    expect(success).toBe(true);
     expect(recordRuns).toHaveLength(1);
     expect(recordRuns[0]).toBe('mutate run');
+    expect(recordRuns[0]).not.toContain('<changed>');
     const surfaced = (warnings ?? []).join(' ');
-    expect(surfaced).toMatch(/path-restricted|unscoped|full-tree/i);
+    expect(surfaced).toMatch(/unscoped|full-tree/i);
   });
 
   it('MutationAdequacy_RustNativeScope_AppendsNothing_NoWarning', async () => {
     // Control: cargo-mutants is already --in-diff; the applier appends nothing
-    // and surfaces no scope-downgrade warning.
+    // and surfaces no scope-downgrade warning (and never consults the diff seam).
     const recordRuns: string[] = [];
     const { success, warnings } = await dispatchForToolchain('rust', { recordRuns });
 
@@ -332,6 +514,115 @@ describe('mutation-adequacy diff-scope applier degradation', () => {
     expect(recordRuns).toEqual(['mutate run']);
     const surfaced = (warnings ?? []).join(' ');
     expect(surfaced).not.toMatch(/unscoped|full-tree|path-restricted/i);
+  });
+});
+
+// ─── composeScopedCommand — shape-based unit tests (mocked diff seam) ────────
+//
+// Acceptance criterion #3 (DR-5 / Gap C): call the applier directly with a
+// MOCKED `runDiff` — no live mutation run, no real git. PIT resolves `<changed>`
+// to the changed classes; mutmut path-restricts to the changed `.py` paths;
+// neither degrades to the unscoped-warning on a normal diff. The descriptor is
+// pulled from the toolchains SoT (resolveMutationDiffScope), not hand-built.
+
+describe('composeScopedCommand diff-seam resolution (DR-5 / Gap C)', () => {
+  /** A ScopeContext whose mocked diff returns a fixed changed-file set. */
+  const ctxWithDiff = (changed: readonly string[]) => ({
+    base: 'main',
+    repoRoot: '/repo',
+    runDiff: (() => changed) as RunDiff,
+  });
+
+  it('Pit_ResolvesChangedPlaceholderToChangedClasses_NoDegradeWarning', () => {
+    const scope = resolveMutationDiffScope('java-maven', 'main'); // -DtargetClasses=<changed>
+    const out = composeScopedCommand(
+      'mvn org.pitest:pitest-maven:mutationCoverage',
+      scope,
+      ctxWithDiff([
+        'src/main/java/com/example/Calc.java',
+        'src/test/java/com/example/CalcTest.java',
+      ]),
+    );
+
+    expect(out.warning).toBeUndefined();
+    expect(out.command).toContain('-DtargetClasses=');
+    expect(out.command).toContain('com.example.Calc');
+    expect(out.command).toContain('com.example.CalcTest');
+    // The literal `<changed>` placeholder is fully substituted — never shipped.
+    expect(out.command).not.toContain('<changed>');
+  });
+
+  it('Mutmut_PathRestrictsToChangedPaths_NoDegradeWarning', () => {
+    const scope = resolveMutationDiffScope('python', 'main'); // --paths-to-mutate=<changed>
+    const out = composeScopedCommand(
+      'mutmut run',
+      scope,
+      ctxWithDiff(['app/calc.py', 'app/util.py', 'README.md']),
+    );
+
+    expect(out.warning).toBeUndefined();
+    expect(out.command).toContain('--paths-to-mutate=');
+    expect(out.command).toContain('app/calc.py');
+    expect(out.command).toContain('app/util.py');
+    // Non-`.py` files are not path-restriction targets.
+    expect(out.command).not.toContain('README.md');
+    expect(out.command).not.toContain('<changed>');
+  });
+
+  it('Stryker_AppendFlagWithoutPlaceholder_AppendsVerbatim_NeverCallsDiff', () => {
+    // Control: Stryker's `--since=<base>` carries no `<changed>`; the seam is
+    // never consulted and nothing degrades.
+    let called = false;
+    const scope = resolveMutationDiffScope('node', 'origin/main');
+    const out = composeScopedCommand('npx stryker run', scope, {
+      base: 'origin/main',
+      repoRoot: '/repo',
+      runDiff: () => {
+        called = true;
+        return [];
+      },
+    });
+
+    expect(out.warning).toBeUndefined();
+    expect(out.command).toBe('npx stryker run --since=origin/main');
+    expect(called).toBe(false);
+  });
+
+  it('Rust_AlreadyNative_AppendsNothing_NeverCallsDiff', () => {
+    let called = false;
+    const scope = resolveMutationDiffScope('rust', 'main');
+    const out = composeScopedCommand('cargo mutants --in-diff', scope, {
+      base: 'main',
+      repoRoot: '/repo',
+      runDiff: () => {
+        called = true;
+        return [];
+      },
+    });
+
+    expect(out).toEqual({ command: 'cargo mutants --in-diff' });
+    expect(called).toBe(false);
+  });
+
+  it('Pit_EmptyRelevantDiff_DegradesToUnscopedWarning_NeverSilentFullTree', () => {
+    const scope = resolveMutationDiffScope('java-maven', 'main');
+    const out = composeScopedCommand(
+      'mvn org.pitest:pitest-maven:mutationCoverage',
+      scope,
+      ctxWithDiff(['docs/readme.md']), // no `.java` files changed
+    );
+
+    // Never ship an empty `-DtargetClasses=`; degrade to a visible warning.
+    expect(out.command).toBe('mvn org.pitest:pitest-maven:mutationCoverage');
+    expect(out.warning).toMatch(/unscoped|full-tree/i);
+  });
+
+  it('Mutmut_EmptyRelevantDiff_DegradesToUnscopedWarning', () => {
+    const scope = resolveMutationDiffScope('python', 'main');
+    const out = composeScopedCommand('mutmut run', scope, ctxWithDiff(['docs/readme.md']));
+
+    expect(out.command).toBe('mutmut run');
+    expect(out.warning).toMatch(/unscoped|full-tree/i);
   });
 });
 

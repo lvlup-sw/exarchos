@@ -1421,6 +1421,11 @@ const orchestrateActions: readonly ToolAction[] = [
       featureId: z.string().min(1),
       tasks: z.array(z.object({ id: z.string(), title: z.string() })).optional(),
       nativeIsolation: z.boolean().default(false).describe('When true, skip worktree-related blockers (the host platform handles isolation natively)'),
+      // DR-2: explicit workflow-level risk-tier override. Absent, prepare_delegation
+      // derives state.riskTier as the max-of-tiers over the classified wave; when
+      // supplied it WINS over the derived value (the planner has context the
+      // heuristic cannot infer).
+      riskTier: z.enum(['low', 'medium', 'high']).optional().describe('Explicit workflow risk-tier override; wins over the derived max-of-tiers'),
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
@@ -1720,6 +1725,42 @@ const orchestrateActions: readonly ToolAction[] = [
     annotations: LOCAL_MUTATION,
   },
   {
+    name: 'check_exploration_depth',
+    description:
+      'Deep-depth planning gate (DR-4): verifies a `deep`-designDepth spec carries ' +
+      'the template-required `### Exploration` section citing the /exarchos:discover ' +
+      'research pass by report path + correlationId, failing when the section is ' +
+      'absent (or present but not citing the pass). SELF-SKIPS at thin/standard ' +
+      'depth — the Exploration citation is a deep-only obligation. Resolves ' +
+      'designDepth + the unified docs/specs/ artifact path from explicit args, then ' +
+      'from workflow state. Emits a gate.executed event (gate "exploration-depth", ' +
+      'layer planning, dimension D1) on every path, including the skip.',
+    schema: z.object({
+      featureId: z.string().min(1),
+      // The unified docs/specs/ artifact. Optional — resolved from workflow-state
+      // artifacts (plan preferred, then design) when absent.
+      designPath: z.string().optional(),
+      // Frozen per-feature designDepth stamp. Optional — resolved from
+      // state.designDepth when absent; non-`deep` self-skips.
+      designDepth: z.enum(['thin', 'standard', 'deep']).optional(),
+      stateFile: z.string().optional(),
+    }),
+    // Callable in the plan phase, but deliberately NOT the full PLAN_PHASES set:
+    // that set is the canonical plan-STRUCTURE binding pinned to the `standard`
+    // rung (`setEqualsNames(a.phases, PLAN_PHASE_NAMES)` in phase-kind.test.ts).
+    // check_exploration_depth is the DEEP-ONLY obligation the plan-structure
+    // resolver appends at `deep` depth — it must stay OUT of the standard-rung
+    // binding, so it uses the subset idiom (cf. the check_design_completeness alias).
+    phases: new Set<string>(['plan']),
+    roles: ROLE_LEAD,
+    gate: { blocking: true, dimension: 'D1' },
+    autoEmits: [
+      { event: 'gate.executed', condition: 'always' },
+    ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
+  },
+  {
     name: 'check_test_adequacy',
     description:
       'Per-task test-adequacy kill probe (mutation-testing-at-N=1): reverts the ' +
@@ -1865,8 +1906,8 @@ const orchestrateActions: readonly ToolAction[] = [
       "DEFAULTS.review.gates['mutation-adequacy']; an explicit override can raise " +
       'it to blocking). An unresolved mutation command → Skipped (reason names ' +
       'remediation); a malformed/empty report → Warning (degrade, never throws). ' +
-      "scope:'full' returns a deferred-to-R10/v2.12 advisory (no inline full-tree " +
-      'run). Emits mutation.executing_started/executed (INV-10) and a foldable ' +
+      "scope:'full' runs full-tree only with offline:true (nightly lane); else a " +
+      'deferred advisory (no inline run). Emits mutation.executing_started/executed (INV-10) and a foldable ' +
       'gate.executed carrying mutationScore (INV-1); operationId makes the gate ' +
       'emission idempotent (INV-8). Reuse `base` as a string verbatim.',
     // `base` reuses the existing string field contract (request_synthesize.base /
@@ -1889,6 +1930,9 @@ const orchestrateActions: readonly ToolAction[] = [
       operationId: z.string().optional(),
       threshold: z.number().min(0).max(1).optional(),
       scope: z.string().optional(),
+      // DR-6: explicit offline/opt-in for a full-tree run. Inline `/review` never
+      // sets it, so `scope:'full'` stays deferred on the inline path.
+      offline: z.boolean().optional(),
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,

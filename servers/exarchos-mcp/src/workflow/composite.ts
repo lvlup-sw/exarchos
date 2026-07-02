@@ -101,10 +101,22 @@ export async function handleWorkflow(
       const skipPhases = ctx.projectConfig?.workflow.skipPhases;
       const requiredReviews = ctx.projectConfig?.workflow.requiredReviews;
       const checkpoint = ctx.projectConfig?.checkpoint;
+      // DR-1: the resolved plan-revision cap for the pure `revisionsExhausted`
+      // guard, injected as `_maxPlanRevisions` (never event-sourced — INV-1).
+      const maxPlanRevisions = ctx.projectConfig?.workflow.maxPlanRevisions;
+      // DR-3: the resolved mutation score-enforcement mode + threshold for the
+      // pure `allReviewsPassed` guard, injected as `_mutationEnforcement` /
+      // `_mutationThreshold` (HIGH tier only, in tools.ts).
+      const mutationEnforcement = ctx.projectConfig?.review.mutationEnforcement;
+      const mutationThreshold = ctx.projectConfig?.review.gates['mutation-adequacy']?.params
+        ?.threshold as number | undefined;
       const transitionOptions: Record<string, unknown> = {};
       if (skipPhases?.length) transitionOptions.skipPhases = skipPhases;
       if (requiredReviews?.length) transitionOptions.requiredReviews = requiredReviews;
       if (checkpoint) transitionOptions.checkpoint = checkpoint;
+      if (typeof maxPlanRevisions === 'number') transitionOptions.maxPlanRevisions = maxPlanRevisions;
+      if (mutationEnforcement !== undefined) transitionOptions.mutationEnforcement = mutationEnforcement;
+      if (typeof mutationThreshold === 'number') transitionOptions.mutationThreshold = mutationThreshold;
       return envelopeWrap(
         await handleTransition(
           rest as unknown as Parameters<typeof handleTransition>[0],

@@ -92,3 +92,43 @@ export function resolveVerificationSequence(
   }
   return Object.freeze(sequence);
 }
+
+// ─── Workflow-level Risk Tier (max-of-tiers) ────────────────────────────────
+
+/**
+ * Ordinal rank of each tier — the single source of the `low < medium < high`
+ * ordering. Frozen so the comparison can never silently widen.
+ */
+const RISK_TIER_RANK: Readonly<Record<RiskTier, number>> = Object.freeze({
+  low: 0,
+  medium: 1,
+  high: 2,
+});
+
+/**
+ * Derive the workflow-level risk tier as the MAXIMUM tier across a wave's
+ * decomposed tasks, under the ordering `low < medium < high` ({@link RISK_TIER_RANK}).
+ *
+ * This is the per-feature analog of a task's `riskTier`: the verification
+ * ladder's top rung (`high`) gates the `mutation-adequacy` review backstop at
+ * the `/review` boundary, so the workflow tier is `high` iff ANY task is `high`.
+ * Max-of-tiers is the general monotone rule; the "any task high" boolean is its
+ * degenerate case.
+ *
+ * A task with no tier is treated as `low` and never raises the max. An empty
+ * wave — or a wave of all-untiered tasks — resolves to `low`, the floor.
+ *
+ * Pure: no I/O, no config reads.
+ */
+export function deriveWorkflowRiskTier(
+  tasks: readonly { readonly riskTier?: RiskTier }[],
+): RiskTier {
+  let maxTier: RiskTier = 'low';
+  for (const task of tasks) {
+    const tier = task.riskTier ?? 'low';
+    if (RISK_TIER_RANK[tier] > RISK_TIER_RANK[maxTier]) {
+      maxTier = tier;
+    }
+  }
+  return maxTier;
+}

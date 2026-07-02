@@ -34,10 +34,10 @@
       }
     ],
     "events": [],
-    "transitionCriteria": "Plan approved → delegate | Gaps found → plan",
+    "transitionCriteria": "Plan approved → delegate | Gaps found (under cap) → plan | Gaps found (cap reached) → blocked",
     "guardPrerequisites": "Plan review complete",
     "validationScripts": [],
     "humanCheckpoint": true,
-    "compactGuidance": "You are at the plan-review checkpoint over the unified docs/specs/ artifact. plan-review is a DISPATCHED, fresh-context, adversarial pass (DR-10) — not an inline plan-vs-design delta (one artifact now): provision a read-only reviewer with only {artifact + spec} (never this authoring transcript) via prepare_review scope:\"plan\", prompted to refute the plan, depth scaled by the frozen designDepth (deep → a multi-voter panel applying varied framings / self-consistency; thin → a single light pass). On the refutation verdict: gaps → back to plan (--revise); survives → record approval with exarchos_workflow update updates: { planReview: { approved: true } } and transition to delegate. Anti-pattern: rubber-stamping without checking every DR-N requirement has a task. Escalate: 3+ revision cycles without convergence."
+    "compactGuidance": "You are at the plan-review checkpoint over the unified docs/specs/ artifact. plan-review is a DISPATCHED, fresh-context, adversarial pass (DR-10): provision a read-only reviewer with only {artifact + spec} (never this transcript) via prepare_review scope:\"plan\", prompted to refute the plan, depth scaled by frozen designDepth (deep → multi-voter panel, varied framings / self-consistency; thin → single light pass). On the verdict: gaps → revise via the counted HSM edge, NOT update+re-invoke — first `exarchos_workflow` transition to `blocked` (its `revisions-exhausted` guard reads the injected `.exarchos.yml workflow.maxPlanRevisions` cap, default 1); on GUARD_FAILED (under cap) transition to `plan` (emits a counted `plan-revision`) then `/exarchos:plan --revise`; on success (cap reached) park at `blocked` for human. Survives → update { planReview: { approved: true } } then transition to delegate. Anti-pattern: rubber-stamping without a task per DR-N; hand-looping past the cap."
   }
 }

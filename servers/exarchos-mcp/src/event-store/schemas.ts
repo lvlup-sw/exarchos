@@ -20,6 +20,13 @@ export const EventTypes = [
   'stack.enqueued',
   'workflow.transition',
   'workflow.fix-cycle',
+  // DR-1 — counted plan-review revise cycle. The plan-review analog of
+  // `workflow.fix-cycle`: emitted when the `plan-review → plan` revise edge is
+  // traversed (HSM `isRevision` flag). The workflow-state projection folds
+  // occurrences into `state.planReview.revisionCount`, the field the
+  // `revisionsExhausted` guard reads, so the revise loop is bounded by an
+  // event-sourced (replay-stable) count rather than advisory prose.
+  'workflow.plan-revision',
   'workflow.guard-failed',
   'workflow.checkpoint',
   // #1242 (F1 of #1239 spike) — auto-summarized handoff fallback. Emitted by a
@@ -380,6 +387,7 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'workflow.started': 'auto',
   'workflow.transition': 'auto',
   'workflow.fix-cycle': 'auto',
+  'workflow.plan-revision': 'auto',
   'workflow.guard-failed': 'auto',
   'workflow.checkpoint': 'auto',
   // #1242 — emitted by a summarizer subagent via event.append (agent-driven,
@@ -819,6 +827,16 @@ export const WorkflowFixCycleData = z.object({
   // Only meaningful inside a compound state; a top-level child has no parent
   // compound, so absence is valid (#1339). Compound entry/exit always carry a
   // defined id and keep their non-optional `z.string()`.
+  compoundStateId: z.string().optional(),
+  count: z.number().int(),
+  featureId: z.string(),
+});
+
+// DR-1 — counted plan-review revise cycle. Mirrors WorkflowFixCycleData: the
+// emission boundary stamps the 1-based occurrence ordinal as `count`, and
+// `compoundStateId` is optional because plan-review is a top-level atomic phase
+// (no parent compound) — omitted rather than emitted as `undefined`.
+export const WorkflowPlanRevisionData = z.object({
   compoundStateId: z.string().optional(),
   count: z.number().int(),
   featureId: z.string(),
@@ -2574,6 +2592,7 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'workflow.started': WorkflowStartedData,
   'workflow.transition': WorkflowTransitionData,
   'workflow.fix-cycle': WorkflowFixCycleData,
+  'workflow.plan-revision': WorkflowPlanRevisionData,
   'workflow.guard-failed': WorkflowGuardFailedData,
   'workflow.checkpoint': WorkflowCheckpointData,
   'workflow.handoff_summarized': WorkflowHandoffSummarizedData,
@@ -2798,6 +2817,7 @@ export type StackRestacked = z.infer<typeof StackRestackedData>;
 export type StackEnqueued = z.infer<typeof StackEnqueuedData>;
 export type WorkflowTransition = z.infer<typeof WorkflowTransitionData>;
 export type WorkflowFixCycle = z.infer<typeof WorkflowFixCycleData>;
+export type WorkflowPlanRevision = z.infer<typeof WorkflowPlanRevisionData>;
 export type WorkflowGuardFailed = z.infer<typeof WorkflowGuardFailedData>;
 export type WorkflowCheckpoint = z.infer<typeof WorkflowCheckpointData>;
 export type WorkflowHandoffSummarized = z.infer<typeof WorkflowHandoffSummarizedData>;
@@ -2935,6 +2955,7 @@ export type EventDataMap = {
   'stack.enqueued': StackEnqueued;
   'workflow.transition': WorkflowTransition;
   'workflow.fix-cycle': WorkflowFixCycle;
+  'workflow.plan-revision': WorkflowPlanRevision;
   'workflow.guard-failed': WorkflowGuardFailed;
   'workflow.checkpoint': WorkflowCheckpoint;
   'workflow.handoff_summarized': WorkflowHandoffSummarized;

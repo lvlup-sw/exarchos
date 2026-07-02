@@ -164,7 +164,10 @@ function buildFailedReviewsExpectedShape(
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-export const MAX_PLAN_REVISIONS = 3;
+// DR-1: default plan-revision cap when `.exarchos.yml workflow.maxPlanRevisions`
+// is not injected (`state._maxPlanRevisions`). One adversarial revise cycle then
+// escalate — down from the prior hardcoded 3 (an intentional, flagged change).
+export const DEFAULT_MAX_PLAN_REVISIONS = 1;
 const MAX_SYNTHESIZE_RETRIES = 3;
 
 // ─── Synthesis Guard Helpers ────────────────────────────────────────────────
@@ -346,6 +349,54 @@ export const guards = {
           const segments = s.path.split('.');
           if (segments.some((seg) => UNSAFE_KEYS.has(seg))) continue;
           suggestedUpdates[`reviews.${s.path}.status`] = 'pass';
+        }
+      }
+
+      // Check 4: mutation score enforcement (DR-3). PURE — reads only the
+      // values `workflow/tools.ts` pre-resolves and injects (`_mutationEnforcement`,
+      // `_mutationThreshold`), never `ResolvedProjectConfig`. Advisory by default
+      // (#1520/R5): enforcement fires ONLY when the injected mode is `block` and a
+      // finite threshold was injected (both set together, HIGH tier only). This is
+      // the score gate — distinct from the dimension's presence/advisory status
+      // (Checks 1/3, DR-2a); the gate-level run stays blocking:false (no double-block).
+      // Two skip-pass flavors differ HERE: a no-toolchain skip-pass (`skipped:true`,
+      // no `degraded`) carries no real score and stays advisory even under block —
+      // it is a backstop the repo cannot run (DR-2a trade-off). A DEGRADED run
+      // (`degraded:true` — toolchain present but the runner failed or emitted an
+      // unparseable report) fails CLOSED under block: it produced no verifiable
+      // score, so silently passing it would defeat the enforcement (review finding
+      // RVC-R1). The shared `skipped:true` marker alone must NOT be treated as
+      // "score verified".
+      if (
+        state._mutationEnforcement === 'block' &&
+        typeof state._mutationThreshold === 'number' &&
+        Number.isFinite(state._mutationThreshold)
+      ) {
+        const dim = reviews['mutation-adequacy'] as Record<string, unknown> | undefined;
+        if (dim?.degraded === true) {
+          reasons.push(
+            `mutation-adequacy gate degraded (runner failed or emitted an unparseable ` +
+              `report) and produced no verifiable score (review.mutationEnforcement: block)`,
+          );
+        } else {
+          const score = dim?.mutationScore;
+          if (dim && dim.skipped !== true && typeof score === 'number') {
+            if (!Number.isFinite(score)) {
+              // A present-but-non-finite score (e.g. NaN from a 0/0 mutation ratio
+              // when every mutant was uncovered) is UNVERIFIABLE. `NaN < threshold`
+              // is always false, which would silently pass — the opposite of the
+              // fail-closed intent (RVC-R1 / CodeRabbit). Block it under enforcement.
+              reasons.push(
+                `mutation-adequacy produced a non-finite score (unverifiable) ` +
+                  `(review.mutationEnforcement: block)`,
+              );
+            } else if (score < (state._mutationThreshold as number)) {
+              reasons.push(
+                `mutation-adequacy score ${score} is below the enforced threshold ` +
+                  `${state._mutationThreshold} (review.mutationEnforcement: block)`,
+              );
+            }
+          }
         }
       }
 
@@ -867,10 +918,16 @@ export const guards = {
       const planReview = state.planReview as Record<string, unknown> | undefined;
       const rawCount = planReview?.revisionCount;
       const count = typeof rawCount === 'number' && Number.isFinite(rawCount) ? rawCount : 0;
-      if (count >= MAX_PLAN_REVISIONS) return true;
+      // Cap is the injected `.exarchos.yml` value (`_maxPlanRevisions`, set in
+      // tools.ts beside `_requiredReviews`); falls back to the default when no
+      // config was injected. The cap is a config threshold, not event-sourced
+      // state (INV-1) — `revisionCount` is the event-sourced fact.
+      const rawCap = state._maxPlanRevisions;
+      const cap = typeof rawCap === 'number' && Number.isFinite(rawCap) ? rawCap : DEFAULT_MAX_PLAN_REVISIONS;
+      if (count >= cap) return true;
       return {
         passed: false,
-        reason: `revisions-exhausted not satisfied: ${count}/${MAX_PLAN_REVISIONS} revisions`,
+        reason: `revisions-exhausted not satisfied: ${count}/${cap} revisions`,
       };
     },
   },
