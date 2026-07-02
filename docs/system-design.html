@@ -393,6 +393,53 @@
         <tr><td class="v"><b>high / boundary</b></td><td>full suite, integration checks, mutation-adequacy backstop</td><td>wall-clock, run offline</td></tr>
       </tbody>
     </table>
+    <figure class="panel">
+      <svg viewBox="0 0 960 262" font-size="13" role="img" aria-label="A riskTier stamped per task at the plan phase flows through an adversarial plan-review, whose revise loop is bounded by a configurable cap (default one) before it blocks for a human. At delegate the tier is classified and frozen and the workflow tier is the max of the task tiers. At review a high workflow tier requires a recorded mutation-adequacy backstop; its score is advisory by default and blocks only when configured.">
+        <defs>
+          <marker id="dv-g" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="var(--green)"/></marker>
+          <marker id="dv-v" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="var(--violet)"/></marker>
+          <marker id="dv-n" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="var(--ink-faint)"/></marker>
+        </defs>
+
+        <!-- revise back-arc: plan-review → plan, bounded (DR-1) -->
+        <path d="M300,86 C300,44 176,44 176,86" fill="none" class="flow" stroke="var(--ink-faint)" stroke-width="1.4" stroke-dasharray="4 3" marker-end="url(#dv-n)"/>
+        <text x="238" y="34" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--ink-faint)">revise ≤ maxPlanRevisions (1) · else → blocked</text>
+
+        <!-- plan -->
+        <rect x="24" y="86" width="196" height="96" rx="12" fill="oklch(0.81 0.15 150 / .07)" stroke="oklch(0.81 0.15 150 / .55)"/>
+        <text x="122" y="120" text-anchor="middle" font-size="16" font-family="var(--disp)" fill="var(--green)">plan</text>
+        <text x="122" y="144" text-anchor="middle" font-size="12" font-family="var(--mono)" fill="var(--ink-dim)">riskTier stamped per task</text>
+        <text x="122" y="162" text-anchor="middle" font-size="12" font-family="var(--mono)" fill="var(--ink-faint)">+ designDepth (planning)</text>
+
+        <line x1="220" y1="134" x2="256" y2="134" class="flow" stroke="var(--ink-faint)" stroke-width="1.6" marker-end="url(#dv-n)"/>
+
+        <!-- plan-review -->
+        <rect x="256" y="86" width="196" height="96" rx="12" fill="none" stroke="var(--line)"/>
+        <text x="354" y="120" text-anchor="middle" font-size="16" font-family="var(--disp)" fill="var(--ink)">plan-review</text>
+        <text x="354" y="144" text-anchor="middle" font-size="12" font-family="var(--mono)" fill="var(--ink-dim)">adversarial refute</text>
+        <text x="354" y="162" text-anchor="middle" font-size="12" font-family="var(--mono)" fill="var(--ink-faint)">counted revise edge</text>
+
+        <line x1="452" y1="134" x2="488" y2="134" class="flow" stroke="var(--ink-faint)" stroke-width="1.6" marker-end="url(#dv-n)"/>
+
+        <!-- delegate -->
+        <rect x="488" y="86" width="196" height="96" rx="12" fill="none" stroke="var(--line)"/>
+        <text x="586" y="120" text-anchor="middle" font-size="16" font-family="var(--disp)" fill="var(--ink)">delegate</text>
+        <text x="586" y="144" text-anchor="middle" font-size="12" font-family="var(--mono)" fill="var(--ink-dim)">classify · freeze tier</text>
+        <text x="586" y="162" text-anchor="middle" font-size="12" font-family="var(--mono)" fill="var(--ink-faint)">riskTier = max-of-tiers</text>
+
+        <line x1="684" y1="134" x2="720" y2="134" class="flow" stroke="var(--violet)" stroke-width="2" marker-end="url(#dv-v)"/>
+
+        <!-- review -->
+        <rect x="720" y="86" width="196" height="96" rx="12" fill="oklch(0.74 0.15 292 / .09)" stroke="var(--violet)" stroke-width="1.7"/>
+        <text x="818" y="120" text-anchor="middle" font-size="16" font-family="var(--disp)" fill="var(--violet)">review</text>
+        <text x="818" y="144" text-anchor="middle" font-size="12" font-family="var(--mono)" fill="var(--ink-dim)">mutation backstop (high tier)</text>
+        <text x="818" y="162" text-anchor="middle" font-size="12" font-family="var(--mono)" fill="var(--ink-faint)">recorded dimension · advisory</text>
+
+        <text x="470" y="228" text-anchor="middle" font-size="12.5" font-family="var(--mono)" fill="var(--ink-dim)">one resolver, two axes: <tspan fill="var(--green)">riskTier</tspan> (verification depth) · <tspan fill="var(--green)">designDepth</tspan> (planning depth) — resolved once on phase entry, then frozen</text>
+        <text x="818" y="228" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--violet)">score blocks only on config</text>
+      </svg>
+      <figcaption>The risk-verification data-flow: a <span class="mono">riskTier</span> is stamped per task at <b>plan</b>, classified and frozen at <b>delegate</b> where the workflow tier is the <b>max of the task tiers</b>, and — at a high workflow tier — earns a <b>recorded</b> mutation-adequacy backstop at <b>review</b> whose score is advisory unless a project opts into blocking. The <b>plan-review</b> revise loop traverses a counted edge and is bounded by a configurable cap before it blocks for a human.</figcaption>
+    </figure>
     <div class="decision">
       <div class="dh">Decision: replace mandatory red-green-refactor with a risk-proportional ladder <span class="enf">issue #1515</span></div>
       <dl>
