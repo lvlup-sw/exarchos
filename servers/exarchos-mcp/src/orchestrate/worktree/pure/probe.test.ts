@@ -4,6 +4,7 @@ import {
   probeWorktreeUsage,
   probeReservations,
   probeWorktrees,
+  probeLaunchHolders,
   type ProcessRecord,
   type ProcessTableSource,
 } from './probe.js';
@@ -249,5 +250,76 @@ describe('probeWorktrees (composite)', () => {
     expect(finding.ownerLiveness).toBe('none');
     expect(finding.inUse).toBe(false);
     expect(finding.releasable).toBe(false); // 'none' is not 'dead' -> not releasable
+  });
+});
+
+describe('probeLaunchHolders (DR-6)', () => {
+  it('reconciles a dead supervisor holder, holds a live one', () => {
+    // The `holderPid` is the launcher/SUPERVISOR PID responsible for writing the
+    // `launch.executed` terminal. A launch is reconcilable iff that holder is
+    // provably dead (PID absent, OR present with a mismatched create-time = PID
+    // reuse) — the terminal will otherwise never be written. A live holder (PID
+    // present AND create-time matches) is NEVER reconcilable.
+    const records: ProcessRecord[] = [
+      { pid: 11, ppid: 1, cwd: '/x', startTime: 'live-ct' }, // live supervisor of launch-live
+      { pid: 22, ppid: 1, cwd: '/x', startTime: 'reused-ct' }, // PID 22 REUSED by newer proc
+    ];
+
+    const findings = probeLaunchHolders(
+      [
+        { worktreeId: '/wt/launch-live', holderPid: 11, holderStartedAt: 'live-ct' }, // alive
+        { worktreeId: '/wt/launch-reused', holderPid: 22, holderStartedAt: 'orig-ct' }, // reuse -> dead
+        { worktreeId: '/wt/launch-gone', holderPid: 33, holderStartedAt: 'gone-ct' }, // absent -> dead
+      ],
+      tableSource(records),
+    );
+
+    const byId = Object.fromEntries(findings.map((f) => [f.worktreeId, f]));
+
+    expect(byId['/wt/launch-live'].liveness).toBe('alive');
+    expect(byId['/wt/launch-live'].reconcilable).toBe(false);
+
+    expect(byId['/wt/launch-reused'].liveness).toBe('dead');
+    expect(byId['/wt/launch-reused'].reconcilable).toBe(true);
+
+    expect(byId['/wt/launch-gone'].liveness).toBe('dead');
+    expect(byId['/wt/launch-gone'].reconcilable).toBe(true);
+  });
+
+  it('holds a launch whose holder identity was never captured (null)', () => {
+    // A `launch.executing_started` whose emitter could not capture the holder
+    // PID/create-time cannot be proven dead → 'unknown' → NEVER reconcilable
+    // (fail closed), even against a SUPPORTED table.
+    const findings = probeLaunchHolders(
+      [
+        { worktreeId: '/wt/no-pid', holderPid: null, holderStartedAt: 'boot-x' },
+        { worktreeId: '/wt/no-ct', holderPid: 44, holderStartedAt: null },
+      ],
+      tableSource([]),
+    );
+
+    for (const finding of findings) {
+      expect(finding.liveness).toBe('unknown');
+      expect(finding.reconcilable).toBe(false);
+    }
+  });
+
+  it('Probe_UnsupportedPlatformTable_FailsClosed_NeverReconcilable', () => {
+    // Off-Linux the process table is UNSUPPORTED: a holder that LOOKS gone (its
+    // pid is not in the empty list) reads as 'unknown', NOT 'dead', so NOTHING is
+    // reconciled — mirroring the reservation probe's fail-closed contract so a
+    // live supervisor's launch is never reclaimed on a platform we cannot probe.
+    const findings = probeLaunchHolders(
+      [
+        { worktreeId: '/wt/a', holderPid: 4242, holderStartedAt: 'boot-4242' },
+        { worktreeId: '/wt/b', holderPid: 7, holderStartedAt: 'boot-7' },
+      ],
+      UNSUPPORTED_TABLE,
+    );
+
+    for (const finding of findings) {
+      expect(finding.liveness).toBe('unknown');
+      expect(finding.reconcilable).toBe(false);
+    }
   });
 });
