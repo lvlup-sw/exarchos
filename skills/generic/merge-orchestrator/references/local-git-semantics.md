@@ -2,11 +2,13 @@
 
 This reference explains why `merge_orchestrate` performs a local `git merge` rather than calling the VCS provider — and why that distinction matters for the recovery contract.
 
+> **Routing.** For a shared integration branch, `serialize_merge` is the integration-merge path — it holds a single-writer lease and composes `merge_orchestrate` unchanged, so everything below describes the git work that runs inside a serialized merge. This reference documents the composed executor; invoke `merge_orchestrate` directly only for a non-integration (private / scratch / solo) merge or when you already hold the lease.
+
 > **Recovery vocabulary.** The orchestrator's failure handling is modeled as a database transaction, not a saga: it records a **recovery point** (the integration branch's pre-merge HEAD) and, on failure, runs the INV-14 **recovery ladder** (`git merge --abort` → `git reset --keep <recoveryPointSha>`, never `--hard`) to rewind to that point. "Recovery point" and "recovery" replace the older "rollback anchor" / "rollback" / "compensation" framing throughout. The legacy `merge.rollback` event name and its `rollbackSha` wire field are retained during the v2.11.x deprecation window; the canonical successor event is `merge.recovered`.
 
 ## The model
 
-`merge_orchestrate` is the SDLC handoff for landing a subagent's worktree branch onto the integration branch in the **main worktree**. Every operation in the orchestrator is a local-git operation:
+`merge_orchestrate` is the SDLC handoff for landing a subagent's worktree branch onto the integration branch in the **main worktree** — driven by `serialize_merge` when the target is a shared integration ref. Every operation in the orchestrator is a local-git operation:
 
 - **Preflight** — `git status --porcelain`, `git diff --cached --quiet`, `git rev-parse --abbrev-ref HEAD`, `git merge-base --is-ancestor`, `git rev-parse --git-dir`. All run against local refs.
 - **Recovery point** — `git rev-parse HEAD` captures the integration branch's tip before the merge, persisted as a write-ahead-log marker before any ref mutation.

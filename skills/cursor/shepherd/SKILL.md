@@ -17,7 +17,7 @@ This skill uses VCS operations through Exarchos MCP actions (`check_ci`, `list_p
 These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
 No `gh`/`glab`/`az` commands needed — the MCP server handles provider dispatch.
 
-> The `merge_pr` invoked here is the remote PR merge primitive (synthesize-phase). It is distinct from `merge_orchestrate` (`@skills/merge-orchestrator/SKILL.md`), which is the local `git merge` orchestrator used during the upstream `merge-pending` substate. This skill never invokes `merge_orchestrate`.
+> The `merge_pr` invoked here is the remote PR merge primitive (synthesize-phase). It is distinct from the integration merge run during the upstream `merge-pending` substate — there, `serialize_merge` (`@skills/merge-orchestrator/SKILL.md`) is the integration-merge path: it holds a single-writer lease and composes the local `git merge` (raw `merge_orchestrate` is that composed executor / the non-integration path). This skill never invokes `serialize_merge` or `merge_orchestrate`.
 
 Iterative loop that shepherds published PRs through CI checks and code reviews to merge readiness. Uses the `assess_stack` composite action for all PR health checks, fixing failures and addressing feedback until the stack is green.
 

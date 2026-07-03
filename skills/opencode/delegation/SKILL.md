@@ -308,9 +308,11 @@ For the full transition table, consult `@skills/workflow-state/references/phase-
 
 ### Worktree-Bearing Tasks: Auto-Detour to `merge-pending`
 
-When a `task.completed` event carries a worktree association (`data.worktree` or `data.worktreePath`), the HSM auto-transitions through `feature/merge-pending` before reaching `review`. The `next_actions` projection surfaces a `merge_orchestrate` verb (idempotency-keyed by `${streamId}:merge_orchestrate:${taskId}`) so a runtime that consumes `next_actions` will dispatch the merge automatically.
+When a `task.completed` event carries a worktree association (`data.worktree` or `data.worktreePath`), the HSM auto-transitions through `feature/merge-pending` before reaching `review`. The `next_actions` projection surfaces the merge verb (idempotency-keyed by `${streamId}:merge_orchestrate:${taskId}`) so a runtime that consumes `next_actions` will dispatch the merge automatically.
 
-The merge lands the subagent's branch on the integration branch via a local `git merge` with a recorded rollback SHA — see `@skills/merge-orchestrator/SKILL.md`. The HSM exits `merge-pending` back to `delegate` once the merge terminates (`completed` / `rolled-back` / `aborted`), at which point `delegate` either re-enters `merge-pending` for the next worktree-bearing task or transitions on to `review` when all delegation is complete.
+**Land it through `serialize_merge`.** The integration branch is shared — sibling worktree merges within the same wave (or a concurrent operator) can race for it. `serialize_merge` is THE integration-merge path: it holds an optimistic per-`integrationRef` single-writer lease, then composes `merge_orchestrate` unchanged to do the local `git merge` with a recorded recovery-point SHA — see `@skills/merge-orchestrator/SKILL.md`. Do **not** dispatch raw `merge_orchestrate` to land onto the integration branch — a live foreign lease makes it fail closed (`MERGE_LEASE_HELD`, naming `serialize_merge`). Raw `merge_orchestrate` is for a non-integration merge (a private / scratch branch no sibling will touch) or a crash-resumed caller re-presenting its original lease.
+
+The HSM exits `merge-pending` back to `delegate` once the merge terminates (`completed` / `rolled-back` / `aborted`), at which point `delegate` either re-enters `merge-pending` for the next worktree-bearing task or transitions on to `review` when all delegation is complete.
 
 This detour is invisible to the delegation skill itself — the all-tasks-complete guard still gates the `delegate → review` transition. The merge-pending substate just sits between task completion and the next dispatch decision.
 
@@ -336,7 +338,8 @@ for orchestrate action schemas.
 ## When integration advances mid-wave
 
 Runbook for recovering when a subagent worktree's branch has diverged from the
-integration branch. Triggered by `merge_orchestrate` ancestry preflight: the
+integration branch. Triggered by the integration merge's ancestry preflight
+(run by the composed `merge_orchestrate` inside `serialize_merge`): the
 failure message links here verbatim and includes the manual `git rebase`
 command. Auto-rebase is **not** wired today — operators
 must drive recovery by hand.
@@ -397,18 +400,25 @@ subagent worktree) and that `git status` is clean.
    genuine drift between the two branches, not preflight noise. Do **not**
    pass `--strategy-option=theirs` blindly; that drops the subagent's work.
 
-3. **Re-run ancestry preflight from the main worktree:**
+3. **Re-run the integration merge from the main worktree** — through
+   `serialize_merge`, which re-composes `merge_orchestrate`'s ancestry
+   preflight under the single-writer lease:
 
    ```typescript
    exarchos_orchestrate({
-     action: "merge_orchestrate",
+     action: "serialize_merge",
      featureId: "<featureId>",
+     integrationRef: "<integration-branch>",
+     sourceBranch: "<feature-branch>",
+     strategy: "squash",           // squash | rebase | merge
      taskId: "<taskId>",
    })
    ```
 
    The preflight should now pass. Proceed with the orchestrator's normal
-   merge flow.
+   merge flow. (Re-run raw `merge_orchestrate` directly only for a
+   non-integration merge, or as the crash-resumed caller re-presenting its
+   original `leaseOperationId`.)
 
 ### Rollback procedure
 

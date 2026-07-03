@@ -2,6 +2,8 @@
 
 What to do when `merge_orchestrate` returns a non-`completed` outcome.
 
+> **Routing on re-dispatch.** For a shared integration branch, `serialize_merge` is the integration-merge path — it re-composes `merge_orchestrate` under its single-writer lease. Wherever this runbook says "re-dispatch" / "re-invoke," do so **through `serialize_merge`** for a shared integration ref. Invoke `merge_orchestrate` directly only for a non-integration merge, or as the crash-resumed caller re-presenting the original `leaseOperationId` — a bare re-dispatch against a leased integration ref fails closed (`MERGE_LEASE_HELD`).
+
 ## `phase: 'aborted'` — preflight blocked
 
 The merge was never attempted. `data.preflight` carries the structured guard sub-results so you can identify which guard failed without reading workflow state.
@@ -33,7 +35,7 @@ Inspect each guard field in order (the orchestrator evaluates them in this prece
 
 ### Re-dispatch
 
-After resolving the underlying condition, re-invoke `merge_orchestrate` with the same arguments. The fresh dispatch re-runs preflight; if all guards now pass, the executor proceeds.
+After resolving the underlying condition, re-invoke the merge with the same arguments — through `serialize_merge` for a shared integration ref (it re-composes `merge_orchestrate` under its lease), or `merge_orchestrate` directly for a non-integration / lease-held merge. The fresh dispatch re-runs preflight; if all guards now pass, the executor proceeds.
 
 ## `phase: 'rolled-back'` — merge attempted, recovered
 
@@ -87,7 +89,7 @@ For merge conflicts (most common cause of `merge-failed`):
 3. Resolve conflicts manually
 4. `git add` the resolved files
 5. `git commit` to complete the merge
-6. **Do not** re-dispatch `merge_orchestrate` — the merge is now done manually. Follow the repository's event-first commit-point invariant: emit the `merge.executed` event FIRST, then update `mergeOrchestrator.phase` to `completed` via `{{MCP_PREFIX}}exarchos_workflow update`. Reversing the order risks a state-file/event-stream divergence if the event append fails after the state write.
+6. **Do not** re-dispatch the merge (neither `serialize_merge` nor `merge_orchestrate`) — the merge is now done manually. Follow the repository's event-first commit-point invariant: emit the `merge.executed` event FIRST, then update `mergeOrchestrator.phase` to `completed` via `{{MCP_PREFIX}}exarchos_workflow update`. Reversing the order risks a state-file/event-stream divergence if the event append fails after the state write.
 
 ```typescript
 // Event first — the repository treats event append as the commit point.
