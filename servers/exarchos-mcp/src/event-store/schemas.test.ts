@@ -82,6 +82,11 @@ import {
   // WLM operational-core — serialized-merge lease pair (DR-4 / DR-7).
   WorktreeMergeRequestedData,
   WorktreeMergeExecutedData,
+  // harness-launcher (DR-2) — create pair + child liveness pair.
+  WorktreeCreateRequestedData,
+  WorktreeCreateExecutedData,
+  LaunchExecutingStartedData,
+  LaunchExecutedData,
   type WorkflowEvent,
 } from './schemas.js';
 import { workflowStateProjection } from '../views/workflow-state-projection.js';
@@ -595,7 +600,12 @@ describe('EventTypes', () => {
     // Bumped 138 → 139: workflow.plan-revision (DR-1 / #1630 — counted plan-review
     //   revise cycle; the plan-review analog of workflow.fix-cycle, folded into
     //   state.planReview.revisionCount to bound the plan↔plan-review loop).
-    expect(EventTypes).toHaveLength(139);
+    // Bumped 139 → 143: harness-launcher (DR-2) — worktree.create.requested /
+    //   worktree.create.executed (the launcher's INV-13 top-level worktree create
+    //   pair, distinct from the task-scoped worktree.created terminal) plus
+    //   launch.executing_started / launch.executed (the child-process liveness
+    //   pair, mirroring InFlightMerge's holderPid/holderStartedAt).
+    expect(EventTypes).toHaveLength(143);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');
@@ -4037,12 +4047,14 @@ describe('WLM operational-core merge lease schemas', () => {
     expect(EventTypes).toContain('worktree.merge_executed');
   });
 
-  it('EventTypes_CountIs139_BothPinsUpdated', () => {
+  it('EventTypes_CountPins_143_AllThreeSites', () => {
     // The single canonical count after adding the two operational-core merge
-    // types (136 foundation → 138) and main's `workflow.plan-revision` merged in
-    // (138 → 139). The pinned literal in BOTH schemas.test.ts files must agree
-    // with this — a divergence means one pin was missed.
-    expect(EventTypes).toHaveLength(139);
+    // types (136 foundation → 138), main's `workflow.plan-revision` merged in
+    // (138 → 139), and the harness-launcher (DR-2) create pair + launch liveness
+    // pair (139 → 143). The pinned literal at ALL THREE toHaveLength sites (this
+    // file at two sites plus the mirror __tests__/event-store/schemas.test.ts)
+    // must agree with this — a divergence means one pin was missed.
+    expect(EventTypes).toHaveLength(143);
     // No duplicate slipped in while bumping the count.
     expect(new Set(EventTypes).size).toBe(EventTypes.length);
   });
@@ -4147,5 +4159,92 @@ describe('WLM operational-core merge lease schemas', () => {
       // Identity fold — no workflow_state field is mutated.
       expect(next).toEqual(baseView);
     }
+  });
+});
+
+describe('harness-launcher event schemas (DR-2)', () => {
+  const NEW_TYPES = [
+    'worktree.create.requested',
+    'worktree.create.executed',
+    'launch.executing_started',
+    'launch.executed',
+  ] as const;
+
+  it('EventTypes_IncludesCreatePairAndLaunch', () => {
+    // All four new literals must be members of the closed EventTypes union — the
+    // create pair (INV-13 intent/terminal) plus the child-process liveness pair.
+    for (const type of NEW_TYPES) {
+      expect(EventTypes).toContain(type);
+    }
+  });
+
+  it('EventTypes_WorktreeCreated_Untouched', () => {
+    // The task-scoped `worktree.created` terminal is DISTINCT from the launcher's
+    // top-level `worktree.create.*` pair and must be left intact: still a member,
+    // still requires taskId + branch, still classified 'model' (readiness path).
+    expect(EventTypes).toContain('worktree.created');
+    expect(EVENT_EMISSION_REGISTRY['worktree.created']).toBe('model');
+
+    // A well-formed task-worktree payload still parses.
+    const ok = WorktreeCreatedData.parse({
+      taskId: 'task-001',
+      path: '/abs/worktree',
+      branch: 'task/foo',
+    });
+    expect(ok).toMatchObject({ taskId: 'task-001', branch: 'task/foo' });
+
+    // taskId and branch remain REQUIRED — dropping either is rejected.
+    expect(() => WorktreeCreatedData.parse({ path: '/abs/worktree', branch: 'task/foo' })).toThrow();
+    expect(() => WorktreeCreatedData.parse({ taskId: 'task-001', path: '/abs/worktree' })).toThrow();
+  });
+
+  it('LaunchExecutingStarted_CarriesWorktreeIdAndHolderPid', () => {
+    // The liveness start payload mirrors InFlightMerge's holder fields so a
+    // dead-holder reconciler is expressible later: worktreeId + holderPid +
+    // holderStartedAt must all be present.
+    const parsed = LaunchExecutingStartedData.parse({
+      worktreeId: '/abs/launch-worktree',
+      holderPid: 4242,
+      holderStartedAt: '2026-07-02T00:00:00.000Z',
+    });
+    expect(parsed).toMatchObject({
+      worktreeId: '/abs/launch-worktree',
+      holderPid: 4242,
+      holderStartedAt: '2026-07-02T00:00:00.000Z',
+    });
+
+    // Omitting holderPid (the liveness ground truth) is rejected at the boundary.
+    expect(() =>
+      LaunchExecutingStartedData.parse({
+        worktreeId: '/abs/launch-worktree',
+        holderStartedAt: '2026-07-02T00:00:00.000Z',
+      }),
+    ).toThrow();
+
+    // The paired terminal accepts a null exitCode (signalled / not captured).
+    expect(
+      LaunchExecutedData.parse({ worktreeId: '/abs/launch-worktree', exitCode: null }).exitCode,
+    ).toBeNull();
+  });
+
+  it('EmissionRegistry_FourNewTypes_ClassifiedAuto', () => {
+    // All four are deterministic plumbing — appended around `git worktree add`
+    // and around the spawned child, never model-authored. They must also carry a
+    // data schema in EVENT_DATA_SCHEMAS.
+    for (const type of NEW_TYPES) {
+      expect(EVENT_EMISSION_REGISTRY[type], `${type} should be classified 'auto'`).toBe('auto');
+      const schema = EVENT_DATA_SCHEMAS[type];
+      expect(schema, `${type} missing from EVENT_DATA_SCHEMAS`).toBeDefined();
+    }
+
+    // The create pair mirrors the INV-13 remove pair: intent parses with an
+    // operationId + worktreePath, terminal carries the `created` outcome flag.
+    const opId = randomUUID();
+    expect(
+      WorktreeCreateRequestedData.parse({ operationId: opId, worktreePath: '/abs/launch-worktree' }).operationId,
+    ).toBe(opId);
+    expect(
+      WorktreeCreateExecutedData.parse({ operationId: opId, worktreePath: '/abs/launch-worktree', created: true }).created,
+    ).toBe(true);
   });
 });

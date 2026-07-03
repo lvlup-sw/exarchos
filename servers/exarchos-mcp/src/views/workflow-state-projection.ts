@@ -732,6 +732,14 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       // fields, so this projection folds to identity like the lifecycle family.
       case 'worktree.merge_requested':
       case 'worktree.merge_executed':
+      // harness-launcher (DR-2) — the launcher's top-level worktree create pair
+      // and the child-process liveness pair. These ride the worktrees/launch
+      // streams and carry no workflow_state-affecting fields, so this projection
+      // folds them to identity like the merge-lease and lifecycle families.
+      case 'worktree.create.requested':
+      case 'worktree.create.executed':
+      case 'launch.executing_started':
+      case 'launch.executed':
       case 'test.result':
       case 'typecheck.result':
       case 'ci.status':

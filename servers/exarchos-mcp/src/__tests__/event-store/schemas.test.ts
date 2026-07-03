@@ -509,7 +509,12 @@ describe('EventTypes', () => {
     // DR-1 (#1630): bumped 138 → 139 to include `workflow.plan-revision`, the
     // counted plan-review revise cycle (plan-review analog of
     // `workflow.fix-cycle`, folded into `state.planReview.revisionCount`).
-    expect(EventTypes).toHaveLength(139);
+    // harness-launcher (DR-2): bumped 139 → 143 to include the launcher's
+    // top-level worktree create pair — `worktree.create.requested` /
+    // `worktree.create.executed` (distinct from the task-scoped
+    // `worktree.created` terminal) — plus the child-process liveness pair
+    // `launch.executing_started` / `launch.executed`.
+    expect(EventTypes).toHaveLength(143);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');
