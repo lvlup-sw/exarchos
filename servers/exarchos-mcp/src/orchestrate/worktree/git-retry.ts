@@ -119,6 +119,51 @@ export function isIndexLockError(err: unknown): boolean {
   return extractLockPath(err) !== undefined;
 }
 
+// ─── Result-aware lock detection (for non-throwing git executors) ────────────
+
+/**
+ * The minimal shape of a non-throwing git executor result the result-aware
+ * adapters key off. Both the synchronous `GitExec` (`spawnSync`/`execFileSync`)
+ * and any async executor that reports failures via `exitCode` (rather than
+ * throwing) satisfy this. Kept structural so `git-retry` stays decoupled from
+ * the concrete `GitExecResult` type in `pure/merge-preflight.ts`.
+ */
+export interface GitExecLikeResult {
+  /** Process exit code — non-zero signals a git failure. */
+  readonly exitCode: number;
+  /** Captured stderr (git writes its lock-contention message here). */
+  readonly stderr?: string;
+  /**
+   * Captured stdout. The canonical `defaultGitExec` folds stderr INTO stdout on
+   * failure, so the signature is matched against both channels for robustness.
+   */
+  readonly stdout?: string;
+}
+
+/**
+ * Extract the contended lock-file path from a NON-THROWING git executor result,
+ * or `undefined` when the result is not a recognizable `index.lock` contention.
+ *
+ * Gated on `exitCode !== 0` FIRST (a successful command whose output merely
+ * mentions a `*.lock` path must never be mistaken for contention), then matched
+ * against the folded `stderr`/`stdout` via the shared {@link extractLockPath}
+ * signature. This is the result-plane analogue of {@link extractLockPath}'s
+ * throw-plane detection.
+ */
+export function extractLockPathFromResult(result: GitExecLikeResult): string | undefined {
+  if (result.exitCode === 0) return undefined;
+  return extractLockPath(result);
+}
+
+/**
+ * True when a non-throwing git executor result is a transient `index.lock`-family
+ * contention (`exitCode !== 0` AND the lock signature is present). The
+ * result-plane analogue of {@link isIndexLockError}.
+ */
+export function isIndexLockResult(result: GitExecLikeResult): boolean {
+  return extractLockPathFromResult(result) !== undefined;
+}
+
 // ─── Structured exhaustion error ────────────────────────────────────────────
 
 /** Diagnostics carried by {@link IndexLockContentionError}. */
@@ -158,6 +203,28 @@ export class IndexLockContentionError extends Error {
     this.delaysMs = diagnostics.delaysMs;
     this.lastError = lastError;
   }
+}
+
+// ─── Backoff computation (shared by every retry adapter) ────────────────────
+
+/**
+ * Exponential backoff with bounded symmetric jitter for the given 0-based
+ * `attempt` (the failed attempt whose backoff is being computed). The base
+ * delay is `baseDelayMs * backoffFactor^attempt`; the injected `jitter` source
+ * is signed in `[-1, 1]`, so the effective multiplier stays in
+ * `[1 - jitterFraction, 1 + jitterFraction]` (> 0 for the default 0.25). Shared
+ * by the throw-plane {@link withIndexLockRetry} and both result-plane adapters
+ * so all three produce the identical DR-8 backoff sequence.
+ */
+function computeBackoffDelayMs(
+  attempt: number,
+  baseDelayMs: number,
+  backoffFactor: number,
+  jitterFraction: number,
+  jitter: JitterFn,
+): number {
+  const baseDelay = baseDelayMs * backoffFactor ** attempt;
+  return Math.max(0, Math.round(baseDelay * (1 + jitterFraction * jitter())));
 }
 
 // ─── Retry wrapper ──────────────────────────────────────────────────────────
@@ -234,14 +301,13 @@ export async function withIndexLockRetry<T>(
         break;
       }
 
-      // Exponential backoff with bounded symmetric jitter. The failed attempt's
-      // base delay is `baseDelayMs * backoffFactor^attempt`; the jitter source
-      // is signed in `[-1, 1]`, so the effective multiplier stays in
-      // `[1 - jitterFraction, 1 + jitterFraction]` (> 0 for the default 0.25).
-      const baseDelay = baseDelayMs * backoffFactor ** attempt;
-      const delayMs = Math.max(
-        0,
-        Math.round(baseDelay * (1 + jitterFraction * jitter())),
+      // Exponential backoff with bounded symmetric jitter (shared helper).
+      const delayMs = computeBackoffDelayMs(
+        attempt,
+        baseDelayMs,
+        backoffFactor,
+        jitterFraction,
+        jitter,
       );
       delaysMs.push(delayMs);
       if (options.onRetry) {
@@ -260,6 +326,159 @@ export async function withIndexLockRetry<T>(
     },
     lastError,
   );
+}
+
+// ─── Result-aware adapters (for non-throwing git executors) ──────────────────
+//
+// `withIndexLockRetry` above is throw-based: it engages when `op()` THROWS a
+// lock error. But the two real call sites don't throw — they RETURN the failure
+// (a `GitExecResult` with `exitCode !== 0`). The kernel's throw-plane wrapper is
+// therefore inert over them (nothing is ever thrown to catch). These two thin
+// adapters re-key the same bounded backoff onto a RESULT predicate
+// ({@link isIndexLockResult}) instead of a thrown error, one async and one sync.
+//
+// Exhaustion contract: unlike the throw-plane wrapper (which throws
+// `IndexLockContentionError`), the result-plane adapters RETURN the last failing
+// result. That result is itself structured — `exitCode !== 0` with the lock
+// signature still in `stderr`/`stdout` — so callers see a contention result, not
+// a silent success/no-op, WITHOUT the adapter breaking the executor's
+// "never throws" contract (which every `GitExec` consumer relies on).
+
+/**
+ * Async, result-aware variant of {@link withIndexLockRetry}. Runs a
+ * (possibly async) git executor that REPORTS failures via its returned result
+ * (never throws), retrying ONLY while the result is a transient `index.lock`
+ * contention ({@link isIndexLockResult}) with the same DR-8 backoff sequence.
+ * A success or a non-lock failure short-circuits immediately. On exhaustion the
+ * last (still-structured) contention result is returned — never a silent no-op.
+ *
+ * Backoff/jitter/sleep are injected (via {@link IndexLockRetryOptions}); with
+ * deterministic fakes the retry sequence is assertable.
+ */
+export async function withIndexLockRetryResult<R extends GitExecLikeResult>(
+  op: () => Promise<R> | R,
+  options: IndexLockRetryOptions = {},
+): Promise<R> {
+  const sleep = options.sleep ?? defaultSleep;
+  const jitter = options.jitter ?? defaultJitter;
+  const maxRetries = options.maxRetries ?? MAX_INDEX_LOCK_RETRIES;
+  const baseDelayMs = options.baseDelayMs ?? INDEX_LOCK_BASE_DELAY_MS;
+  const backoffFactor = options.backoffFactor ?? INDEX_LOCK_BACKOFF_FACTOR;
+  const jitterFraction = options.jitterFraction ?? INDEX_LOCK_JITTER_FRACTION;
+
+  // Infinite loop with a return on every exit path: attempt 0 is the initial
+  // run, 1..maxRetries are retries. `attempt >= maxRetries` on a contention
+  // result exhausts the budget and returns that structured result.
+  for (let attempt = 0; ; attempt += 1) {
+    const result = await op();
+    const lockPath = extractLockPathFromResult(result);
+    if (lockPath === undefined || attempt >= maxRetries) {
+      return result;
+    }
+    const delayMs = computeBackoffDelayMs(
+      attempt,
+      baseDelayMs,
+      backoffFactor,
+      jitterFraction,
+      jitter,
+    );
+    if (options.onRetry) {
+      await options.onRetry({ attempt: attempt + 1, delayMs, lockPath });
+    }
+    await sleep(delayMs);
+  }
+}
+
+/**
+ * Synchronous blocking sleep seam — invoked with a delay (ms). The synchronous
+ * counterpart of {@link SleepFn}, needed because {@link withIndexLockRetrySync}
+ * wraps a synchronous `GitExec` (`spawnSync`/`execFileSync`) and cannot `await`.
+ */
+export type SyncSleepFn = (ms: number) => void;
+
+/**
+ * Default real synchronous sleep. Blocks the calling thread for `ms` via
+ * `Atomics.wait` on a throwaway `SharedArrayBuffer` — the standard way to sleep
+ * synchronously in Node without a busy-spin. The bounded worst case is the
+ * DR-8 backoff sum (~200+400+800 ≈ 1.5s), acceptable for keeping the pure merge
+ * pipeline's synchronous contract intact. This is the ONLY place a real
+ * synchronous wait happens; every testable path injects a fake {@link SyncSleepFn}.
+ */
+export const defaultSyncSleep: SyncSleepFn = (ms) => {
+  if (ms <= 0) return;
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+};
+
+/**
+ * Options for {@link withIndexLockRetrySync}. Mirrors {@link IndexLockRetryOptions}
+ * but with a SYNCHRONOUS sleep + non-async `onRetry`, since the wrapped executor
+ * is synchronous.
+ */
+export interface IndexLockRetrySyncOptions {
+  /** Injected synchronous sleep seam. Defaults to {@link defaultSyncSleep}. */
+  readonly sleep?: SyncSleepFn;
+  /** Injected signed-jitter source in `[-1, 1]`. Defaults to {@link defaultJitter}. */
+  readonly jitter?: JitterFn;
+  /** Retries after the initial attempt. Defaults to {@link MAX_INDEX_LOCK_RETRIES}. */
+  readonly maxRetries?: number;
+  /** Base backoff (ms). Defaults to {@link INDEX_LOCK_BASE_DELAY_MS}. */
+  readonly baseDelayMs?: number;
+  /** Exponential factor. Defaults to {@link INDEX_LOCK_BACKOFF_FACTOR}. */
+  readonly backoffFactor?: number;
+  /** Symmetric jitter fraction. Defaults to {@link INDEX_LOCK_JITTER_FRACTION}. */
+  readonly jitterFraction?: number;
+  /** Invoked once per retry, BEFORE the (blocking) backoff sleep. */
+  readonly onRetry?: (info: {
+    attempt: number;
+    delayMs: number;
+    lockPath: string;
+  }) => void;
+}
+
+/**
+ * Synchronous, result-aware variant of {@link withIndexLockRetry} used to wrap a
+ * synchronous `GitExec`. `GitExec` runs `spawnSync`/`execFileSync` and REPORTS
+ * failures via `exitCode` (never throws), so the retry engages on
+ * {@link isIndexLockResult} rather than a thrown error, and sleeps SYNCHRONOUSLY
+ * between attempts (bounded worst case ~1.5s) to preserve the pure merge
+ * pipeline's synchronous contract.
+ *
+ * A naive async wrap of a synchronous, never-throwing executor is both
+ * type-infeasible (the executor returns `R`, not `Promise<R>`) and inert
+ * (nothing is ever thrown for the throw-plane wrapper to catch) — hence this
+ * dedicated adapter.
+ *
+ * On exhaustion the last (still-structured) contention result is returned, never
+ * a silent no-op, keeping the executor's "never throws" contract.
+ */
+export function withIndexLockRetrySync<R extends GitExecLikeResult>(
+  op: () => R,
+  options: IndexLockRetrySyncOptions = {},
+): R {
+  const sleep = options.sleep ?? defaultSyncSleep;
+  const jitter = options.jitter ?? defaultJitter;
+  const maxRetries = options.maxRetries ?? MAX_INDEX_LOCK_RETRIES;
+  const baseDelayMs = options.baseDelayMs ?? INDEX_LOCK_BASE_DELAY_MS;
+  const backoffFactor = options.backoffFactor ?? INDEX_LOCK_BACKOFF_FACTOR;
+  const jitterFraction = options.jitterFraction ?? INDEX_LOCK_JITTER_FRACTION;
+
+  // Infinite loop with a return on every exit path (see withIndexLockRetryResult).
+  for (let attempt = 0; ; attempt += 1) {
+    const result = op();
+    const lockPath = extractLockPathFromResult(result);
+    if (lockPath === undefined || attempt >= maxRetries) {
+      return result;
+    }
+    const delayMs = computeBackoffDelayMs(
+      attempt,
+      baseDelayMs,
+      backoffFactor,
+      jitterFraction,
+      jitter,
+    );
+    options.onRetry?.({ attempt: attempt + 1, delayMs, lockPath });
+    sleep(delayMs);
+  }
 }
 
 // ─── Burst-creation stagger ─────────────────────────────────────────────────

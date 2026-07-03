@@ -403,8 +403,15 @@ describe('DR-12 — exhausted index.lock retry', () => {
     const arm = await createArm();
     const integrationRef = 'integration/locked';
 
-    // merge_orchestrate's DR-8 retry seam exhausts and throws the structured
-    // contention error (the serializer composes merge_orchestrate UNCHANGED).
+    // The now-real DR-1/DR-8 retry seam lives one layer down, in the default
+    // `defaultGitExec` composition (wrapped in `withIndexLockRetrySync`), which
+    // retries transient `.git/index.lock` contention with bounded backoff and, on
+    // exhaustion, surfaces a structured contention failure. This test does NOT
+    // exercise that kernel (it owns dedicated coverage in git-retry.test.ts +
+    // git-exec-default.test.ts); it fabricates a terminal structured error and
+    // injects it via `mergeOrchestrate` to isolate ONE thing: the serializer
+    // passes a structured contention error through UNCHANGED (INV-14) and still
+    // releases the lease in `finally` (no half-merge).
     const lockErr = new IndexLockContentionError(
       { lockPath: '/repo/.git/index.lock', attempts: 4, maxRetries: 3, delaysMs: [200, 400, 800] },
       new Error("fatal: Unable to create '/repo/.git/index.lock': File exists."),
