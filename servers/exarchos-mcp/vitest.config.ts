@@ -28,6 +28,12 @@ export default defineConfig({
     hookTimeout: 60000,
     include: [
       'src/**/*.test.ts',
+      // `*.type-test.ts` files carry compile-time type assertions whose real
+      // gate is `tsc --noEmit` (their `.type-test.ts` name deliberately dodges
+      // the tsconfig `**/*.test.ts` exclude so tsc *does* check them). Vitest
+      // strips types, so these files only anchor a trivial runtime `expect`;
+      // include them so they are still discoverable when run explicitly.
+      'src/**/*.type-test.ts',
       'scripts/**/*.test.ts',
       // `test/process/**` holds PR1 integration tests that spawn the
       // compiled binary over real stdio transport (task 1.6). Kept outside
