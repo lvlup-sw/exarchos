@@ -61,6 +61,13 @@ const identityRealpath: RealpathResolver = (p) => p;
 const WT_A = toPosix(path.resolve('/srv/wt/feature-a'));
 const WT_B = toPosix(path.resolve('/srv/wt/feature-b'));
 
+// Integration refs used by the in-flight-merge (DR-4) suite. These are branch
+// refs, NOT filesystem paths — `inFlightMerges` is keyed by `integrationRef`,
+// which typically maps to no adopted worktree entry (the integration branch is
+// the main worktree).
+const INT_REF = 'feat/wlm-operational-core';
+const INT_REF_OTHER = 'feat/other-integration';
+
 describe('worktreesReducer.apply (WLM foundation)', () => {
   it('WorktreesReducer_FoldEvents_ReproducesStateFromLogAlone', () => {
     const reducer = createWorktreesReducer(identityRealpath);
@@ -115,6 +122,7 @@ describe('worktreesReducer.apply (WLM foundation)', () => {
           ownerStartedAt: null,
         },
       },
+      inFlightMerges: {},
     } satisfies WorktreesProjection);
   });
 
@@ -395,6 +403,389 @@ describe('worktreesReducer.apply (WLM foundation)', () => {
     // Dropped by the stored key — no throw, entry gone.
     expect(WT_A in removed.worktrees).toBe(false);
     expect(removed.projectionSequence).toBe(2);
+  });
+});
+
+describe('worktreesReducer.apply — in-flight merges + orphan folding (DR-4)', () => {
+  it('WorktreesProjection_MergeRequestedNoExecuted_AppearsInInFlightMerges', () => {
+    const reducer = createWorktreesReducer(identityRealpath);
+
+    const state = reducer.apply(
+      reducer.initial,
+      buildEvent({
+        type: 'worktree.merge_requested',
+        sequence: 1,
+        data: {
+          integrationRef: INT_REF,
+          sourceBranch: 'task/wlm-oc-003-reducer',
+          operationId: 'op-merge-1',
+          holderPid: 5151,
+          holderStartedAt: '2026-06-25T04:00:00.000Z',
+        },
+      }),
+    );
+
+    // A requested-but-not-yet-executed merge is live in `inFlightMerges`, keyed
+    // by its integrationRef and carrying the lease-holder fields verbatim.
+    expect(state.inFlightMerges[INT_REF]).toEqual({
+      integrationRef: INT_REF,
+      operationId: 'op-merge-1',
+      sourceBranch: 'task/wlm-oc-003-reducer',
+      holderPid: 5151,
+      holderStartedAt: '2026-06-25T04:00:00.000Z',
+      worktreeId: null,
+    });
+    // It does NOT leak into the worktreeId-keyed entries map.
+    expect(state.worktrees).toEqual({});
+    expect(state.projectionSequence).toBe(1);
+  });
+
+  it('WorktreesProjection_MergeRequestedThenExecuted_ClearsInFlightMerges', () => {
+    const reducer = createWorktreesReducer(identityRealpath);
+
+    const requested = reducer.apply(
+      reducer.initial,
+      buildEvent({
+        type: 'worktree.merge_requested',
+        sequence: 1,
+        data: {
+          integrationRef: INT_REF,
+          sourceBranch: 'task/x',
+          operationId: 'op-merge-1',
+          holderPid: 6262,
+          holderStartedAt: '2026-06-25T05:00:00.000Z',
+        },
+      }),
+    );
+    expect(requested.inFlightMerges[INT_REF]).toBeDefined();
+
+    const executed = reducer.apply(
+      requested,
+      buildEvent({
+        type: 'worktree.merge_executed',
+        sequence: 2,
+        data: {
+          integrationRef: INT_REF,
+          operationId: 'op-merge-1',
+          status: 'merged',
+          mergeSha: 'abc1234',
+        },
+      }),
+    );
+    // The RELEASE half clears the in-flight entry for that integrationRef.
+    expect(INT_REF in executed.inFlightMerges).toBe(false);
+    expect(executed.inFlightMerges).toEqual({});
+    expect(executed.projectionSequence).toBe(2);
+
+    // Idempotent: a release for an already-cleared merge is a no-op (identity).
+    const executedAgain = reducer.apply(
+      executed,
+      buildEvent({
+        type: 'worktree.merge_executed',
+        sequence: 3,
+        data: { integrationRef: INT_REF, operationId: 'op-merge-1', status: 'merged' },
+      }),
+    );
+    expect(executedAgain).toBe(executed);
+  });
+
+  it('WorktreesProjection_IntegrationMergeWithNoWorktreeEntry_HasHomeInInFlightMerges', () => {
+    const reducer = createWorktreesReducer(identityRealpath);
+
+    // Adopt a worktree whose worktreeId is unrelated to the integration ref.
+    const adopted = reducer.apply(
+      reducer.initial,
+      buildEvent({
+        type: 'worktree.adopted',
+        sequence: 1,
+        data: { worktreeId: WT_A, path: WT_A, featureId: 'feat-a', operationId: 'op-1' },
+      }),
+    );
+
+    // A merge targeting the integration BRANCH — there is NO adopted worktree
+    // entry keyed under `integrationRef` (the integration branch IS the main
+    // worktree, not an adopted feature worktree).
+    const merged = reducer.apply(
+      adopted,
+      buildEvent({
+        type: 'worktree.merge_requested',
+        sequence: 2,
+        data: {
+          integrationRef: INT_REF,
+          sourceBranch: 'task/x',
+          operationId: 'op-merge-1',
+          holderPid: 7373,
+          holderStartedAt: '2026-06-25T06:00:00.000Z',
+        },
+      }),
+    );
+
+    // No worktree entry is keyed under the integrationRef...
+    expect(INT_REF in merged.worktrees).toBe(false);
+    // ...yet the merge still has a home in `inFlightMerges`.
+    expect(merged.inFlightMerges[INT_REF]).toMatchObject({
+      integrationRef: INT_REF,
+      sourceBranch: 'task/x',
+      holderPid: 7373,
+      worktreeId: null,
+    });
+    // The pre-existing, unrelated worktree entry is left untouched.
+    expect(merged.worktrees[WT_A].state).toBe('adopted');
+  });
+
+  it('WorktreesProjection_MergeExecuted_MismatchedOperationId_DoesNotClobberClaim', () => {
+    const reducer = createWorktreesReducer(identityRealpath);
+
+    const requested = reducer.apply(
+      reducer.initial,
+      buildEvent({
+        type: 'worktree.merge_requested',
+        sequence: 1,
+        data: {
+          integrationRef: INT_REF,
+          sourceBranch: 'task/current',
+          operationId: 'op-current',
+          holderPid: 33,
+          holderStartedAt: '2026-06-25T10:00:00.000Z',
+        },
+      }),
+    );
+
+    // A stale release correlating to a DIFFERENT operationId must not clear the
+    // current claim under the same integrationRef — identity, no sequence bump.
+    const stale = reducer.apply(
+      requested,
+      buildEvent({
+        type: 'worktree.merge_executed',
+        sequence: 2,
+        data: { integrationRef: INT_REF, operationId: 'op-stale', status: 'aborted' },
+      }),
+    );
+    expect(stale).toBe(requested);
+    expect(stale.inFlightMerges[INT_REF].operationId).toBe('op-current');
+  });
+
+  it('WorktreesProjection_MergeExecuted_MissingOperationId_DoesNotClearLease', () => {
+    // Fail-closed guard (Sentry #15015231/1): a `worktree.merge_executed` with NO
+    // operationId cannot prove lease ownership, so it must clear NOTHING —
+    // symmetric with upsertInFlightMerge. Production always stamps an operationId;
+    // this guards the reducer against a malformed/legacy event clobbering a live
+    // lease and violating the DR-7 serialization guarantee.
+    const reducer = createWorktreesReducer(identityRealpath);
+
+    const requested = reducer.apply(
+      reducer.initial,
+      buildEvent({
+        type: 'worktree.merge_requested',
+        sequence: 1,
+        data: {
+          integrationRef: INT_REF,
+          sourceBranch: 'task/current',
+          operationId: 'op-current',
+          holderPid: 33,
+          holderStartedAt: '2026-06-25T10:00:00.000Z',
+        },
+      }),
+    );
+
+    const noOp = reducer.apply(
+      requested,
+      buildEvent({
+        type: 'worktree.merge_executed',
+        sequence: 2,
+        data: { integrationRef: INT_REF }, // operationId ABSENT
+      }),
+    );
+    // Identity return (no sequence bump), lease untouched.
+    expect(noOp).toBe(requested);
+    expect(noOp.inFlightMerges[INT_REF].operationId).toBe('op-current');
+  });
+
+  it('WorktreesProjection_ProbeFinding_EmitsAndFoldsOrphanDetected', () => {
+    const reducer = createWorktreesReducer(identityRealpath);
+
+    // A live reservation: a process holds the worktree.
+    const reserved = reducer.apply(
+      reducer.initial,
+      buildEvent({
+        type: 'worktree.reserved',
+        sequence: 1,
+        data: {
+          worktreeId: WT_A,
+          path: WT_A,
+          featureId: 'feat-a',
+          ownerPid: 8484,
+          ownerStartedAt: '2026-06-25T07:00:00.000Z',
+          operationId: 'op-res',
+        },
+      }),
+    );
+    expect(reserved.worktrees[WT_A].state).toBe('reserved');
+    expect(reserved.worktrees[WT_A].ownerPid).toBe(8484);
+
+    // A probe finds the holder dead → `worktree.orphan_detected`. Folding the
+    // finding flips the entry's liveness: state becomes `orphan`, owner cleared.
+    const orphaned = reducer.apply(
+      reserved,
+      buildEvent({
+        type: 'worktree.orphan_detected',
+        sequence: 2,
+        data: {
+          worktreeId: WT_A,
+          path: WT_A,
+          featureId: 'feat-a',
+          ownerPid: null,
+          ownerStartedAt: null,
+          operationId: 'op-orphan',
+        },
+      }),
+    );
+    expect(orphaned.worktrees[WT_A].state).toBe('orphan');
+    expect(orphaned.worktrees[WT_A].ownerPid).toBeNull();
+    expect(orphaned.worktrees[WT_A].ownerStartedAt).toBeNull();
+    expect(orphaned.projectionSequence).toBe(2);
+
+    // A subsequent release folds liveness to `released` (owner stays cleared).
+    const released = reducer.apply(
+      orphaned,
+      buildEvent({
+        type: 'worktree.released',
+        sequence: 3,
+        data: { worktreeId: WT_A, path: WT_A, featureId: 'feat-a', operationId: 'op-rel' },
+      }),
+    );
+    expect(released.worktrees[WT_A].state).toBe('released');
+    expect(released.worktrees[WT_A].ownerPid).toBeNull();
+  });
+
+  it('WorktreesProjection_ColdRebuild_EqualsLiveState', () => {
+    const reducer = createWorktreesReducer(identityRealpath);
+    // A log interleaving the lifecycle family with the merge-lease pair on the
+    // singleton stream — cold replay must reproduce both maps byte-for-byte.
+    const log: readonly WorkflowEvent[] = [
+      buildEvent({
+        type: 'worktree.adopted',
+        sequence: 1,
+        data: { worktreeId: WT_A, path: WT_A, featureId: 'feat-a', operationId: 'op-1' },
+      }),
+      buildEvent({
+        type: 'worktree.merge_requested',
+        sequence: 2,
+        data: {
+          integrationRef: INT_REF,
+          sourceBranch: 'task/a',
+          operationId: 'op-m-1',
+          holderPid: 11,
+          holderStartedAt: '2026-06-25T08:00:00.000Z',
+        },
+      }),
+      buildEvent({
+        type: 'worktree.merge_requested',
+        sequence: 3,
+        data: {
+          integrationRef: INT_REF_OTHER,
+          sourceBranch: 'task/b',
+          operationId: 'op-m-2',
+          holderPid: 22,
+          holderStartedAt: '2026-06-25T09:00:00.000Z',
+          worktreeId: WT_A,
+        },
+      }),
+      buildEvent({
+        type: 'worktree.merge_executed',
+        sequence: 4,
+        data: { integrationRef: INT_REF, operationId: 'op-m-1', status: 'merged', mergeSha: 'sha-1' },
+      }),
+      buildEvent({
+        type: 'worktree.orphan_detected',
+        sequence: 5,
+        data: {
+          worktreeId: WT_A,
+          path: WT_A,
+          featureId: 'feat-a',
+          ownerPid: null,
+          ownerStartedAt: null,
+          operationId: 'op-orphan',
+        },
+      }),
+    ];
+
+    // "Live" — fold each event as it arrives, threading the accumulator.
+    let live = reducer.initial;
+    for (const ev of log) {
+      live = reducer.apply(live, ev);
+    }
+
+    // "Cold rebuild" — replay the same persisted log from the seed.
+    const cold = log.reduce((acc, ev) => reducer.apply(acc, ev), reducer.initial);
+
+    expect(cold).toEqual(live);
+    // INT_REF was requested then executed → cleared; INT_REF_OTHER still live.
+    expect(Object.keys(cold.inFlightMerges)).toEqual([INT_REF_OTHER]);
+    expect(cold.inFlightMerges[INT_REF_OTHER].worktreeId).toBe(WT_A);
+    // WT_A's liveness folded to orphan.
+    expect(cold.worktrees[WT_A].state).toBe('orphan');
+  });
+
+  it('WorktreesReducer_AssertReducerImmutable_Passes', () => {
+    const reducer = createWorktreesReducer(identityRealpath);
+    const events: readonly WorkflowEvent[] = [
+      buildEvent({
+        type: 'worktree.adopted',
+        sequence: 1,
+        data: { worktreeId: WT_A, path: WT_A, featureId: 'feat-a', operationId: 'op-1' },
+      }),
+      buildEvent({
+        type: 'worktree.merge_requested',
+        sequence: 2,
+        data: {
+          integrationRef: INT_REF,
+          sourceBranch: 'task/a',
+          operationId: 'op-m-1',
+          holderPid: 11,
+          holderStartedAt: '2026-06-25T08:00:00.000Z',
+        },
+      }),
+      buildEvent({
+        type: 'worktree.merge_requested',
+        sequence: 3,
+        data: {
+          integrationRef: INT_REF_OTHER,
+          sourceBranch: 'task/b',
+          operationId: 'op-m-2',
+          holderPid: 22,
+          holderStartedAt: '2026-06-25T09:00:00.000Z',
+        },
+      }),
+      buildEvent({
+        type: 'worktree.merge_executed',
+        sequence: 4,
+        data: { integrationRef: INT_REF, operationId: 'op-m-1', status: 'merged', mergeSha: 'sha-1' },
+      }),
+      buildEvent({
+        type: 'worktree.orphan_detected',
+        sequence: 5,
+        data: {
+          worktreeId: WT_A,
+          path: WT_A,
+          featureId: 'feat-a',
+          ownerPid: null,
+          ownerStartedAt: null,
+          operationId: 'op-orphan',
+        },
+      }),
+      buildEvent({
+        type: 'worktree.released',
+        sequence: 6,
+        data: { worktreeId: WT_A, path: WT_A, featureId: 'feat-a', operationId: 'op-rel' },
+      }),
+    ];
+
+    // Deep-freezes the seed + every intermediate; the merge + lifecycle folds
+    // must never mutate the frozen `state` argument in place.
+    expect(() => assertReducerImmutable(reducer, events)).not.toThrow();
+    // Order-independence of the purity property.
+    expect(() => assertReducerImmutable(reducer, [...events].reverse())).not.toThrow();
   });
 });
 

@@ -2910,6 +2910,48 @@ const orchestrateActions: readonly ToolAction[] = [
       openWorld: false,
     },
   },
+  // ─── Integration-branch merge serializer (WLM operational core, DR-7) ──────
+  // INV-5d: an ACTION on exarchos_orchestrate, NOT a fifth visible tool. An
+  // OPTIMISTIC LEASE over `integrationRef` — the right to merge `sourceBranch`
+  // into `integrationRef` lives in the event log (the
+  // worktree.merge_requested / worktree.merge_executed pair on the singleton
+  // `worktrees` stream), enforcing at most one in-flight merge per integration
+  // ref. It then composes `merge_orchestrate` UNCHANGED for the git work. No
+  // flock / PID file / advisory-lock library — the lease IS the serialization.
+  {
+    name: 'serialize_merge',
+    description:
+      'Serialize an integration-branch merge behind an optimistic per-integrationRef lease, then compose merge_orchestrate UNCHANGED. Grants at most one in-flight merge per integrationRef: a held slot bounded-waits (re-folding worktrees@v1) and reclaims a provably-dead holder inline, or returns a structured merge-slot-timeout. Auto-emits worktree.merge_requested (claim) then worktree.merge_executed (release). Use for: landing a source branch onto a shared integration ref under cross-process serialization. Do NOT use for: a single unsynchronized merge (use merge_orchestrate); a raw provider PR merge (use merge_pr).',
+    schema: z.object({
+      featureId: z.string().min(1),
+      integrationRef: z.string().min(1),
+      sourceBranch: z.string().min(1),
+      strategy: z.enum(['squash', 'rebase', 'merge']),
+      taskId: z.string().optional(),
+      repoRoot: z.string().optional(),
+      // Bounded-wait budget before merge-slot-timeout. Same base type
+      // (ZodNumber) as `doctor.timeoutMs` so the MCP-registration flattener
+      // does not see a divergent shape for the shared `timeoutMs` field name.
+      timeoutMs: z.number().int().positive().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_LEAD,
+    autoEmits: [
+      { event: 'worktree.merge_requested', condition: 'always', description: 'The lease CLAIM (single-writer per integrationRef)' },
+      { event: 'worktree.merge_executed', condition: 'always', description: 'The lease RELEASE (plain keyed append)' },
+    ],
+    // Multi-step serialized merge (wait → claim → compose merge_orchestrate →
+    // release) is the canonical long-running verb — advisory Tasks-augmented
+    // dispatch, mirroring merge_orchestrate.
+    dispatch: { taskSuitable: true, taskTtlSuggestionMs: 60_000 },
+    // Mutates shared state (the integration branch + working tree, via the
+    // composed merge_orchestrate) from the main worktree — the strictest
+    // mutating trust tier. Mirrors merge_orchestrate so the resolver mints the
+    // same fs:write + shell:exec capabilities.
+    posture: 'shared-mutating',
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: COMPENSABLE_REMOTE,
+  },
   makeDescribeAction(),
 ];
 
@@ -3268,6 +3310,47 @@ const viewActions: readonly ToolAction[] = [
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: READ_ONLY_LOCAL,
   },
+  // ─── Worktree-lifecycle liveness reads (WLM operational core, DR-4) ────────
+  // The `ps` / `wait` leg over the singleton `worktrees` stream: `ps` surfaces
+  // the live `inFlightMerges` set, `wait` blocks (caller-bounded) on a serialized
+  // merge reaching its terminal. `ps probe:true` runs the on-demand DR-5 orphan
+  // probe and emits worktree.released / worktree.orphan_detected — a conditional
+  // idempotent heal. Annotation honesty: `wait` is genuinely read-only, but `ps`
+  // has that conditional write path, so it is annotated `local-mutation` /
+  // `idempotent` (NOT readOnly) — re-running converges (the heals are
+  // idempotent), it just is not a zero-append read.
+  {
+    name: 'ps',
+    description:
+      'List the live serialized-merge set — the worktrees@v1 inFlightMerges (each: integrationRef, operationId, sourceBranch, holder pid/start-time) — as a pure fold, NO process scan. Pass probe:true to additionally run the on-demand DR-5 process probe and emit worktree.released (owner dead, idle) / worktree.orphan_detected (owner dead, still occupied) — the orphan emitter, a conditional write path. Idempotent: without probe it is a pure read; with probe the heals re-converge on re-run.',
+    schema: z.object({
+      probe: z.boolean().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    // `ps probe:true` can append worktree.released / worktree.orphan_detected, so
+    // it is NOT readOnly. The heals are idempotent (re-running a probe over an
+    // already-reconciled set emits nothing) and non-destructive → idempotent
+    // local-mutation. `wait` / `worktrees` stay genuinely READ_ONLY_LOCAL.
+    annotations: LOCAL_MUTATION_IDEMPOTENT,
+  },
+  {
+    name: 'wait',
+    description:
+      'Block until the serialized merge on integrationRef reaches its terminal worktree.merge_executed (caller-bounded poll, re-folding worktrees@v1 each iteration). Returns a structured wait-timeout on expiry; never hangs, spins up no background timer, and emits no events. timeoutMs bounds the wait.',
+    schema: z.object({
+      integrationRef: z.string().min(1),
+      // Bounded-wait budget. Same base type (ZodNumber) as serialize_merge /
+      // doctor `timeoutMs` so the MCP-registration flattener sees no divergent
+      // shape for the shared `timeoutMs` field name.
+      timeoutMs: z.number().int().positive().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
+  },
   makeDescribeAction(),
 ];
 
@@ -3314,7 +3397,7 @@ export const TOOL_REGISTRY: readonly CompositeTool[] = [
     description: 'CQRS materialized views — pipeline, tasks, workflow status, stack, and telemetry',
     actions: viewActions,
     cli: { alias: 'vw' },
-    slimDescription: 'CQRS materialized views for pipeline, tasks, and telemetry. Use describe(actions) for schemas.\n\nActions: pipeline, tasks, workflow_status, stack_status, stack_place, telemetry, team_performance, delegation_timeline, code_quality, eval_results, quality_correlation, quality_attribution, quality_hints, delegation_readiness, synthesis_readiness, shepherd_status, convergence, session_provenance, provenance, invariants_effective, worktrees',
+    slimDescription: 'CQRS materialized views for pipeline, tasks, and telemetry. Use describe(actions) for schemas.\n\nActions: pipeline, tasks, workflow_status, stack_status, stack_place, telemetry, team_performance, delegation_timeline, code_quality, eval_results, quality_correlation, quality_attribution, quality_hints, delegation_readiness, synthesis_readiness, shepherd_status, convergence, session_provenance, provenance, invariants_effective, worktrees, ps, wait',
   },
   {
     name: 'exarchos_sync',

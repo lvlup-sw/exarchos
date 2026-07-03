@@ -220,13 +220,26 @@ export const EventTypes = [
   // `ownerPid`, `ownerStartedAt`, `operationId`). They are the lease/ownership
   // half of worktree lifecycle management; the GC/deletion half REUSES the
   // `worktree.remove.requested`/`worktree.remove.executed` pair above (there is
-  // deliberately no `worktree.pruned` / `worktree.merge_*` type). Like the
-  // remove pair, they are `auto` (deterministic plumbing) and keyed on the
-  // existing two-component `<eventType>:<operationId>` idempotency convention.
+  // deliberately no `worktree.pruned` type). Like the remove pair, they are
+  // `auto` (deterministic plumbing) and keyed on the existing two-component
+  // `<eventType>:<operationId>` idempotency convention.
   'worktree.adopted',
   'worktree.reserved',
   'worktree.released',
   'worktree.orphan_detected',
+  // WLM operational-core (DR-4 / DR-7) — the serialized-merge lease pair that
+  // rides the singleton `worktrees` stream alongside the lifecycle family above.
+  // `worktree.merge_requested` is the CLAIM (intent + lease record: which
+  // operation holds the right to merge `sourceBranch` into `integrationRef`,
+  // and which live process holds it). `worktree.merge_executed` is the RELEASE
+  // (terminal outcome: merged / aborted / failed). `operationId` is the sole
+  // discriminator so two concurrent merges onto one `integrationRef` mint
+  // distinct keys and never collide. The CLAIM is appended via the event-store
+  // `decide` seam (its own `${streamId}:${reducerId}:${operationId}` key); the
+  // RELEASE is a plain keyed append `<eventType>:<operationId>` per the
+  // worktree-family convention.
+  'worktree.merge_requested',
+  'worktree.merge_executed',
   // #1290 — emitted by `resolveWorkspace` (servers/exarchos-mcp/src/workspace/
   // discovery.ts) when the dispatch boundary resolves a missing `featureId`
   // from MCP roots or via the cwd-walk fallback. Records the source so audit
@@ -627,6 +640,13 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'worktree.reserved': 'auto',
   'worktree.released': 'auto',
   'worktree.orphan_detected': 'auto',
+
+  // WLM operational-core (DR-4 / DR-7) — serialized-merge lease pair. Both are
+  // `auto`: the CLAIM is appended deterministically by the merge orchestrator
+  // via the event-store `decide` seam, and the RELEASE is a deterministic
+  // keyed append on the terminal outcome — neither is model-authored.
+  'worktree.merge_requested': 'auto',
+  'worktree.merge_executed': 'auto',
 
   // #1290 — auto-emitted by the workspace discovery resolver on the
   // dispatch boundary. See EventTypes registration above.
@@ -1964,7 +1984,9 @@ export const WorktreeRemoveExecutedData = z.object({
  * as the canonical (symlink-resolved) worktree path: it is the stable identity
  * a later reducer canonicalizes the remove pair's `worktreePath` onto, which is
  * why GC deletion REUSES `worktree.remove.requested`/`worktree.remove.executed`
- * (no `worktree.pruned` and no `worktree.merge_*` types are introduced).
+ * (no `worktree.pruned` type is introduced; the serialized-merge lease pair
+ * `worktree.merge_requested`/`worktree.merge_executed` is defined separately
+ * below as the WLM operational-core layer — DR-4 / DR-7).
  *
  * Idempotency: these events use the existing two-component
  * `<eventType>:<operationId>` key — exactly like `worktree.remove.requested:${operationId}`
@@ -2003,6 +2025,73 @@ export const WorktreeReleasedData = WorktreeLifecycleBaseData.extend({
 export const WorktreeOrphanDetectedData = WorktreeLifecycleBaseData.extend({
   ownerPid: z.number().int().nullable().describe('PID recorded on the orphaned reservation, or null'),
   ownerStartedAt: z.string().nullable().describe('Start time recorded on the orphaned reservation, or null'),
+});
+
+/**
+ * WLM operational-core — serialized-merge lease event data (DR-4 / DR-7).
+ *
+ * `worktree.merge_requested` is the CLAIM half: an intent-to-merge record that
+ * doubles as a lease (which live process is currently authorized to merge
+ * `sourceBranch` into `integrationRef`). `worktree.merge_executed` is the
+ * RELEASE half: the terminal outcome of that operation.
+ *
+ * Both ride the singleton `worktrees` stream alongside the lifecycle family and
+ * are correlated by `operationId`. `operationId` is the SOLE discriminator, so
+ * two distinct merge attempts onto the SAME `integrationRef` mint two distinct
+ * operationIds and therefore two distinct idempotency keys — they never collapse
+ * into one another, which is what serializes merges per branch without a literal
+ * `<integrationRef>:…` key. The CLAIM is appended via the event-store `decide`
+ * seam, which derives its own `${streamId}:${reducerId}:${operationId}` key; the
+ * RELEASE is a plain keyed append `<eventType>:<operationId>` per the
+ * worktree-family convention. The schema's only contract is that both payloads
+ * carry `operationId` so callers can build those keys.
+ *
+ * `holderPid` / `holderStartedAt` identify the live process that holds the merge
+ * lease (liveness ground truth for orphan reclamation). `worktreeId` is the
+ * OPTIONAL canonical worktrees@v1 key, stamped when the merge is attributable to
+ * a specific tracked worktree.
+ */
+export const WorktreeMergeRequestedData = z.object({
+  integrationRef: z.string().min(1).describe('Integration ref the merge targets (the per-branch serialization key)'),
+  sourceBranch: z.string().min(1).describe('Branch being merged into integrationRef'),
+  operationId: z.string().min(1).describe('Idempotency key / lease correlator — the sole per-merge discriminator'),
+  holderPid: z.number().int().describe('PID of the live process holding the merge lease (liveness ground truth)'),
+  holderStartedAt: z
+    .string()
+    .min(1)
+    .nullable()
+    .describe('Lease-holder process start time (ISO 8601) — disambiguates PID reuse; null when the platform cannot resolve it'),
+  worktreeId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe('Canonical worktrees@v1 key, when the merge is attributable to a specific tracked worktree'),
+});
+
+/**
+ * worktree.merge_executed — RELEASE half of the serialized-merge lease.
+ *
+ * Correlates back to its `worktree.merge_requested` via `operationId` and
+ * records the terminal `status`. `mergeSha` is present only on `status: 'merged'`
+ * (the resulting integration commit). `recoveryError` is an OPTIONAL diagnostic
+ * captured when the lease was released during recovery of a dead holder rather
+ * than by the original operation completing.
+ */
+export const WorktreeMergeExecutedData = z.object({
+  integrationRef: z.string().min(1).describe('Integration ref the merge targeted (matches the requested event)'),
+  operationId: z.string().min(1).describe('Correlates to the worktree.merge_requested event'),
+  status: z.enum(['merged', 'aborted', 'failed']).describe('Terminal outcome of the merge operation'),
+  mergeSha: z.string().min(1).optional().describe('Resulting integration commit SHA — present only on status "merged"'),
+  recoveryError: z
+    .string()
+    .min(1)
+    .optional()
+    .describe('Diagnostic captured when the lease was released during dead-holder recovery'),
+  worktreeId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe('Canonical worktrees@v1 key the released lease was attributable to, when known'),
 });
 
 // ─── Command Resolver Event Data (#1199 T15) ────────────────────────────────
@@ -2783,6 +2872,10 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'worktree.released': WorktreeReleasedData,
   'worktree.orphan_detected': WorktreeOrphanDetectedData,
 
+  // WLM operational-core — serialized-merge lease pair (DR-4 / DR-7).
+  'worktree.merge_requested': WorktreeMergeRequestedData,
+  'worktree.merge_executed': WorktreeMergeExecutedData,
+
   // #1290 — workspace discovery resolution
   'workspace.resolved': WorkspaceResolvedData,
 
@@ -2921,6 +3014,10 @@ export type WorktreeReserved = z.infer<typeof WorktreeReservedData>;
 export type WorktreeReleased = z.infer<typeof WorktreeReleasedData>;
 export type WorktreeOrphanDetected = z.infer<typeof WorktreeOrphanDetectedData>;
 
+// WLM operational-core — serialized-merge lease pair (DR-4 / DR-7).
+export type WorktreeMergeRequested = z.infer<typeof WorktreeMergeRequestedData>;
+export type WorktreeMergeExecuted = z.infer<typeof WorktreeMergeExecutedData>;
+
 // #1290 — workspace discovery
 export type WorkspaceResolved = z.infer<typeof WorkspaceResolvedData>;
 
@@ -3055,6 +3152,9 @@ export type EventDataMap = {
   'worktree.reserved': WorktreeReserved;
   'worktree.released': WorktreeReleased;
   'worktree.orphan_detected': WorktreeOrphanDetected;
+  // WLM operational-core — serialized-merge lease pair (DR-4 / DR-7).
+  'worktree.merge_requested': WorktreeMergeRequested;
+  'worktree.merge_executed': WorktreeMergeExecuted;
   // #1290 — workspace discovery
   'workspace.resolved': WorkspaceResolved;
   // #1274 — dispatch elicitation hand-off

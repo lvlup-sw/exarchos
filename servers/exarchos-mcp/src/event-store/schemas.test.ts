@@ -79,7 +79,12 @@ import {
   WorktreeReservedData,
   WorktreeReleasedData,
   WorktreeOrphanDetectedData,
+  // WLM operational-core — serialized-merge lease pair (DR-4 / DR-7).
+  WorktreeMergeRequestedData,
+  WorktreeMergeExecutedData,
+  type WorkflowEvent,
 } from './schemas.js';
+import { workflowStateProjection } from '../views/workflow-state-projection.js';
 import { randomUUID } from 'node:crypto';
 
 // ─── T1: EventEmissionSource + EVENT_EMISSION_REGISTRY ──────────────────────
@@ -583,11 +588,14 @@ describe('EventTypes', () => {
     // Bumped 132 → 136: WLM foundation — worktree.adopted / worktree.reserved /
     //   worktree.released / worktree.orphan_detected (the lease/ownership half of
     //   worktree lifecycle management; the GC half reuses the worktree.remove.*
-    //   pair, so no worktree.pruned / worktree.merge_* types are added).
-    // Bumped 136 → 137: workflow.plan-revision (DR-1 — counted plan-review
+    //   pair, so no worktree.pruned type is added).
+    // Bumped 136 → 138: WLM operational-core — worktree.merge_requested /
+    //   worktree.merge_executed (DR-4 / DR-7 — the serialized-merge lease pair on
+    //   the singleton `worktrees` stream; CLAIM + RELEASE correlated by operationId).
+    // Bumped 138 → 139: workflow.plan-revision (DR-1 / #1630 — counted plan-review
     //   revise cycle; the plan-review analog of workflow.fix-cycle, folded into
     //   state.planReview.revisionCount to bound the plan↔plan-review loop).
-    expect(EventTypes).toHaveLength(137);
+    expect(EventTypes).toHaveLength(139);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');
@@ -3867,13 +3875,10 @@ describe('WLM worktree lifecycle schemas', () => {
   });
 
   it('WorktreeSchemas_ReuseExistingRemoveRequestedExecuted_NotDuplicated', () => {
-    // GC deletion REUSES the remove pair — no `worktree.pruned`, and no
-    // `worktree.merge_*` types are introduced.
-    for (const forbidden of [
-      'worktree.pruned',
-      'worktree.merge_requested',
-      'worktree.merge_executed',
-    ]) {
+    // GC deletion REUSES the remove pair — no `worktree.pruned` type is
+    // introduced. (The `worktree.merge_*` pair IS introduced separately by the
+    // WLM operational-core layer — DR-4 / DR-7 — and is asserted elsewhere.)
+    for (const forbidden of ['worktree.pruned']) {
       expect(EventTypes as readonly string[]).not.toContain(forbidden);
       expect(EVENT_DATA_SCHEMAS as Record<string, unknown>).not.toHaveProperty(forbidden);
     }
@@ -3994,5 +3999,153 @@ describe('WLM worktree lifecycle schemas', () => {
         operationId: 'not-a-uuid',
       }),
     ).toThrow();
+  });
+});
+
+// ─── WLM operational-core: serialized-merge lease pair (DR-4 / DR-7) ─────────
+//
+// `worktree.merge_requested` (CLAIM + lease record) / `worktree.merge_executed`
+// (RELEASE + outcome) ride the singleton `worktrees` stream alongside the
+// lifecycle family. They are correlated by `operationId`, which is the SOLE
+// per-merge discriminator: two merges onto the SAME integrationRef mint two
+// operationIds and therefore two distinct idempotency keys, so they never
+// collide. The CLAIM key is derived by the event-store `decide` seam
+// (`${streamId}:${reducerId}:${operationId}`); the RELEASE is a plain keyed
+// append `<eventType>:<operationId>`.
+
+describe('WLM operational-core merge lease schemas', () => {
+  const MERGE_TYPES = ['worktree.merge_requested', 'worktree.merge_executed'] as const;
+
+  const wellFormedRequested = (operationId: string, integrationRef = 'integration/wlm'): Record<string, unknown> => ({
+    integrationRef,
+    sourceBranch: 'task/wlm-oc-001',
+    operationId,
+    holderPid: 4242,
+    holderStartedAt: '2026-06-25T00:00:00.000Z',
+  });
+
+  const wellFormedExecuted = (operationId: string, integrationRef = 'integration/wlm'): Record<string, unknown> => ({
+    integrationRef,
+    operationId,
+    status: 'merged',
+    mergeSha: 'a'.repeat(40),
+  });
+
+  it('EventTypes_IncludesWorktreeMergeRequestedAndExecuted', () => {
+    // Both new types must be members of the closed EventTypes union.
+    expect(EventTypes).toContain('worktree.merge_requested');
+    expect(EventTypes).toContain('worktree.merge_executed');
+  });
+
+  it('EventTypes_CountIs139_BothPinsUpdated', () => {
+    // The single canonical count after adding the two operational-core merge
+    // types (136 foundation → 138) and main's `workflow.plan-revision` merged in
+    // (138 → 139). The pinned literal in BOTH schemas.test.ts files must agree
+    // with this — a divergence means one pin was missed.
+    expect(EventTypes).toHaveLength(139);
+    // No duplicate slipped in while bumping the count.
+    expect(new Set(EventTypes).size).toBe(EventTypes.length);
+  });
+
+  it('WorktreeMergeEvents_ClassificationMaps_Exhaustive', () => {
+    // Each merge type must be wired into EVERY map the worktree family appears
+    // in: the emission registry (classified 'auto' — deterministic plumbing,
+    // not model-authored) and the data-schema map (with a parseable payload).
+    for (const type of MERGE_TYPES) {
+      expect(EVENT_EMISSION_REGISTRY[type], `${type} should be classified 'auto'`).toBe('auto');
+      const schema = EVENT_DATA_SCHEMAS[type];
+      expect(schema, `${type} missing from EVENT_DATA_SCHEMAS`).toBeDefined();
+    }
+
+    const requested = WorktreeMergeRequestedData.parse(wellFormedRequested(randomUUID()));
+    expect(requested).toMatchObject({
+      integrationRef: 'integration/wlm',
+      sourceBranch: 'task/wlm-oc-001',
+      holderPid: 4242,
+      holderStartedAt: '2026-06-25T00:00:00.000Z',
+    });
+    // `worktreeId` is optional — absent ⇒ not injected onto the parsed object.
+    expect(requested as Record<string, unknown>).not.toHaveProperty('worktreeId');
+    expect(
+      (WorktreeMergeRequestedData.parse({ ...wellFormedRequested(randomUUID()), worktreeId: '/repo/.worktrees/x' }))
+        .worktreeId,
+    ).toBe('/repo/.worktrees/x');
+
+    const executed = WorktreeMergeExecutedData.parse(wellFormedExecuted(randomUUID()));
+    expect(executed.status).toBe('merged');
+    expect(executed.mergeSha).toBe('a'.repeat(40));
+    // status is a closed enum; an out-of-set value is rejected.
+    expect(() =>
+      WorktreeMergeExecutedData.parse({ ...wellFormedExecuted(randomUUID()), status: 'bogus' }),
+    ).toThrow();
+    // `recoveryError` is the optional dead-holder-recovery diagnostic.
+    expect(
+      (WorktreeMergeExecutedData.parse({ ...wellFormedExecuted(randomUUID()), recoveryError: 'holder pid dead' }))
+        .recoveryError,
+    ).toBe('holder pid dead');
+  });
+
+  it('WorktreeMergeEvents_IdempotencyKey_PerOperationId_NoCollisionAcrossMergesOnSameBranch', () => {
+    // PROPERTY under test: two DISTINCT merges targeting the SAME integrationRef
+    // must never collapse onto one idempotency key. operationId is the sole
+    // discriminator, so each merge mints its own key regardless of the shared
+    // integrationRef — that is what serializes merges per branch without a
+    // literal `<integrationRef>:…` key.
+    const integrationRef = 'integration/wlm';
+    const opA = randomUUID();
+    const opB = randomUUID();
+
+    // CLAIM keys (decide seam): `${streamId}:${reducerId}:${operationId}`. Two
+    // merges on the same branch share streamId + reducerId but differ by opId.
+    const streamId = 'worktrees';
+    const reducerId = 'worktrees@v1';
+    const claimA = WorktreeMergeRequestedData.parse(wellFormedRequested(opA, integrationRef));
+    const claimB = WorktreeMergeRequestedData.parse(wellFormedRequested(opB, integrationRef));
+    const claimKeyA = `${streamId}:${reducerId}:${claimA.operationId}`;
+    const claimKeyB = `${streamId}:${reducerId}:${claimB.operationId}`;
+    expect(claimKeyA).not.toBe(claimKeyB);
+    expect(claimA.integrationRef).toBe(claimB.integrationRef); // same branch…
+    expect(claimA.operationId).not.toBe(claimB.operationId); // …distinct operations.
+
+    // RELEASE keys (plain keyed append): `<eventType>:<operationId>`.
+    const relA = WorktreeMergeExecutedData.parse(wellFormedExecuted(opA, integrationRef));
+    const relB = WorktreeMergeExecutedData.parse(wellFormedExecuted(opB, integrationRef));
+    const relKeyA = `worktree.merge_executed:${relA.operationId}`;
+    const relKeyB = `worktree.merge_executed:${relB.operationId}`;
+    expect(relKeyA.split(':')).toHaveLength(2);
+    expect(relKeyA).not.toBe(relKeyB);
+
+    // The RELEASE correlates back to its CLAIM by operationId, so the four keys
+    // form two non-colliding (claim, release) pairs.
+    expect(new Set([claimKeyA, claimKeyB, relKeyA, relKeyB]).size).toBe(4);
+    expect(relA.operationId).toBe(claimA.operationId);
+  });
+
+  it('WorkflowStateProjection_HandlesNewWorktreeMergeTypes_Exhaustive', () => {
+    // The workflow-state projection is NOT the worktrees projection: these merge
+    // events carry no workflow_state-affecting fields, so the reducer must fold
+    // them to identity. Critically, both must be HANDLED — the `never`-exhaustive
+    // default throws on any unhandled built-in type, so a missing case arm would
+    // throw here instead of returning the view unchanged.
+    const baseView = workflowStateProjection.init();
+    for (const type of MERGE_TYPES) {
+      const data = type === 'worktree.merge_requested' ? wellFormedRequested(randomUUID()) : wellFormedExecuted(randomUUID());
+      const event = {
+        streamId: 'worktrees',
+        sequence: 1,
+        timestamp: '2026-06-25T00:00:00.000Z',
+        type,
+        schemaVersion: '1.0',
+        data,
+      } as unknown as WorkflowEvent;
+
+      expect(isBuiltInEventType(type)).toBe(true); // exercises the switch, not the early custom-type return.
+      let next: typeof baseView | undefined;
+      expect(() => {
+        next = workflowStateProjection.apply(baseView, event);
+      }, `${type} must be handled by the projection switch, not the never-default`).not.toThrow();
+      // Identity fold — no workflow_state field is mutated.
+      expect(next).toEqual(baseView);
+    }
   });
 });
