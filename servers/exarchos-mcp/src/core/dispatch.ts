@@ -8,6 +8,7 @@ import type { ConfigHookRunner } from '../hooks/config-hooks.js';
 import type { Outbox } from '../sync/outbox.js';
 import type { ChannelEmitter } from '../channel/emitter.js';
 import type { CapabilityResolver } from '../capabilities/resolver.js';
+import { enforceSharedMutatingGate } from '../capabilities/resolver.js';
 import type { StorageBackend } from '../storage/backend.js';
 import type { RootsClient } from '../workspace/discovery.js';
 import type { ElicitationClient } from '../dispatch/elicitation-dispatch.js';
@@ -895,6 +896,24 @@ export async function dispatch(
     // custom tools manage their own capability surface.
     const denied = enforceReadonlyGate(tool, actionName, ctx.capabilityResolver);
     if (denied) return attachMeta(denied);
+
+    // DR-4 / INV-11: shared-mutating posture gate. Actions declaring
+    // `posture: 'shared-mutating'` (merge_orchestrate, serialize_merge,
+    // prune_worktrees) mutate the shared integration ref / main working tree
+    // with no worktree isolation. Reject a task-isolated (isolation:worktree)
+    // or read-only (no fs:write) caller at the resolver seam BEFORE the handler
+    // runs — structured CAPABILITY_DENIED, no handler entry, no event emission.
+    // Runs AFTER the readonly gate so the read-only tier keeps its existing
+    // message; this gate adds the task-isolated rejection the readonly allowlist
+    // cannot express (a task-isolated caller holds full mcp:exarchos and passes
+    // enforceReadonlyGate).
+    const postureDenied = enforceSharedMutatingGate(
+      tool,
+      actionName,
+      matchingAction.posture,
+      ctx.capabilityResolver,
+    );
+    if (postureDenied) return attachMeta(postureDenied);
 
     // T-12 (P4 of rehydration-machinery-refactor): emit
     // `session.machinery_consumed` on the first non-rehydrate L5 handler

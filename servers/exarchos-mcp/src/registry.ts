@@ -2912,6 +2912,12 @@ const orchestrateActions: readonly ToolAction[] = [
     // and deletes only what is still eligible). No preset carries this exact
     // tuple, so it is declared inline; the `superRefine` constraint
     // (destructive ⇒ compensable) is satisfied.
+    // DR-4 / INV-11: garbage-collects governed worktrees + their branches —
+    // shared, un-isolated state destroyed from the main worktree, the strictest
+    // mutating trust tier. Mirrors merge_orchestrate / serialize_merge so the
+    // resolver gate rejects a task-isolated or read-only caller BEFORE the
+    // destructive prune runs.
+    posture: 'shared-mutating',
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: {
       safety: 'compensable',
