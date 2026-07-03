@@ -392,8 +392,12 @@ export interface WorktreeViewDeps extends InjectableDeps {
 
 /**
  * `ps` — list the live serialized-merge set from `inFlightMerges` (an open
- * `worktree.merge_requested` with no paired `worktree.merge_executed`) WITHOUT a
- * process scan: a pure fold of the `worktrees@v1` projection.
+ * `worktree.merge_requested` with no paired `worktree.merge_executed`) AND the
+ * live launcher-launch set from `worktrees` entries carrying a launch marker (an
+ * open `launch.executing_started` with no paired `launch.executed`, DR-2), both
+ * WITHOUT a process scan: a pure fold of the `worktrees@v1` projection. The
+ * launch column reflects the launch straight from events — in-flight while
+ * started-without-terminal, and cleared the moment the terminal folds.
  *
  * `probe: true` additionally pulls the DR-5 ground-truth process probe on demand
  * and emits `worktree.released` (owner dead, not in use) / `worktree.orphan_detected`
@@ -411,16 +415,31 @@ export async function handleViewPs(
   // ignores them — only `processTableSource` / `realpath` are consumed here.
   const manager = buildManager(ctx, deps);
   const inFlight = await manager.listInFlightMerges();
+  const launches = await manager.listInFlightLaunches();
 
   if (optionalBoolean(args.probe) !== true) {
-    return { success: true, data: { inFlight, count: inFlight.length } };
+    return {
+      success: true,
+      data: {
+        inFlight,
+        count: inFlight.length,
+        launches,
+        launchCount: launches.length,
+      },
+    };
   }
 
   // --probe: pull the DR-5 probe on demand and emit released / orphan_detected.
   const reclaim = await manager.probeAndReclaim(deps?.selfPid);
   return {
     success: true,
-    data: { inFlight, count: inFlight.length, probe: reclaim },
+    data: {
+      inFlight,
+      count: inFlight.length,
+      launches,
+      launchCount: launches.length,
+      probe: reclaim,
+    },
   };
 }
 
