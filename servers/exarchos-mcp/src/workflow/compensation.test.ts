@@ -7,14 +7,21 @@ import { executeCompensation } from './compensation.js';
 import { ConcurrencyError } from '../event-store/concurrency-error.js';
 import { EventStore } from '../event-store/store.js';
 
-// Mock child_process so no real shell commands run
-vi.mock('child_process', () => ({
-  execFile: vi.fn(),
-}));
+// Mock ONLY `child_process.execFile` (the async side-effect path the SUT shells
+// git through) — the rest of the module stays REAL so the INV-14 dirty-guard's
+// `defaultGitRunner` (spawnSync-backed) and the real-worktree test setup below
+// (execFileSync) run actual git. Spreading the actual module keeps
+// `spawnSync`/`execFileSync` defined; without it the whole module would be
+// replaced and those would be `undefined`.
+vi.mock('child_process', async () => {
+  const actual = await vi.importActual<typeof import('child_process')>('child_process');
+  return { ...actual, execFile: vi.fn() };
+});
 
-import { execFile } from 'child_process';
+import { execFile, execFileSync } from 'child_process';
+import * as fsSync from 'node:fs';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
-import { WORKTREES_STREAM } from '../orchestrate/worktree/manager.js';
+import { WORKTREES_STREAM, defaultGitRunner } from '../orchestrate/worktree/manager.js';
 import { createWorktreesReducer } from '../orchestrate/worktree/projections/worktrees.js';
 import type { RealpathResolver } from '../orchestrate/worktree/pure/path-containment.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
@@ -1448,5 +1455,208 @@ describe('Task 009: worktree.remove unified onto the `worktrees` stream (DR-3/DR
     );
     expect(executed.length).toBe(1);
     expect((executed[0].data as { removed: boolean }).removed).toBe(true);
+  });
+});
+
+// ─── Task 010 / DR-3: INV-14 teardown dirty-guard (never force-remove work) ──
+//
+// HIGH-tier, boundary-touching. The cancel-compensation teardown historically
+// `--force`-removed every worktree with NO dirty guard, so uncommitted work —
+// INCLUDING untracked-only changes — in a cancelled workflow's worktree was
+// destroyed (the Claude Code #55724 data-loss mode). These tests pin the guard
+// against a REAL git worktree (real untracked file, no hand-mock of the dirty
+// probe): a dirty worktree is skipped-and-surfaced with a scannable reason and
+// NEVER `--force`-removed; a clean worktree is removed exactly as before.
+//
+// Real substrate: a real git repo + worktree per test (the SUT's `defaultGitRunner`
+// dirty probe is real spawnSync git); the `execFile`-shelled side effects
+// (`git worktree list` / `git worktree remove`) stay mocked so the removal path
+// is observable without mutating the real repo.
+
+describe('Task 010: teardown dirty-guard (INV-14 / DR-3)', () => {
+  let repoDir: string;
+  let worktreePath: string;
+  let stateDir: string;
+  let eventStore: EventStore;
+
+  /** Real git in `cwd` (child_process is spread-actual, so execFileSync is real). */
+  function git(cwd: string, args: readonly string[]): string {
+    return execFileSync('git', args as string[], {
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+      .toString()
+      .trim();
+  }
+
+  /** True if any mocked execFile call was `git worktree remove … --force`. */
+  function forceRemoveCalls(): unknown[][] {
+    return mockedExecFile.mock.calls.filter((call) => {
+      const args = call[1] as string[] | undefined;
+      return (
+        args?.includes('worktree') && args?.includes('remove') && args?.includes('--force')
+      );
+    });
+  }
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    repoDir = await fs.mkdtemp(path.join(os.tmpdir(), 'exarchos-task010-'));
+    // Real repo with one commit so a worktree can be added off a real branch.
+    git(repoDir, ['init', '-q', '-b', 'work']);
+    git(repoDir, ['config', 'user.email', 'task010@example.com']);
+    git(repoDir, ['config', 'user.name', 'Task010 Test']);
+    git(repoDir, ['config', 'commit.gpgsign', 'false']);
+    await fs.writeFile(path.join(repoDir, 'README.md'), '# dirty-guard test\n');
+    git(repoDir, ['add', '.']);
+    git(repoDir, ['commit', '-q', '-m', 'init']);
+
+    worktreePath = path.join(repoDir, 'wt');
+    git(repoDir, ['worktree', 'add', '-q', worktreePath, '-b', 'feature/x']);
+
+    // Real event store (the DR-3 unified `worktrees` stream lands here).
+    stateDir = await fs.mkdtemp(path.join(os.tmpdir(), 'exarchos-task010-state-'));
+    eventStore = new EventStore(stateDir);
+    await eventStore.initialize();
+
+    // Mock ONLY the execFile side effects: report the worktree as registered and
+    // let `git worktree remove` succeed. The dirty probe does NOT go through here
+    // — it runs real spawnSync git via `defaultGitRunner`.
+    mockedExecFile.mockImplementation(
+      (cmd: unknown, args: unknown, opts: unknown, cb?: unknown) => {
+        const callback = typeof opts === 'function' ? opts : cb;
+        const argList = args as string[];
+        if (argList?.includes('worktree') && argList?.includes('list')) {
+          (callback as (e: null, o: string, s: string) => void)(
+            null,
+            `${worktreePath}  abc1234 [feature/x]\n`,
+            '',
+          );
+          return undefined as never;
+        }
+        (callback as (e: null, o: string, s: string) => void)(null, '', '');
+        return undefined as never;
+      },
+    );
+  });
+
+  afterEach(async () => {
+    await rmrfAsync(repoDir);
+    await rmrfAsync(stateDir);
+  });
+
+  function makeCleanupState(): Record<string, unknown> {
+    return makeState({
+      phase: 'delegate',
+      synthesis: {
+        integrationBranch: null,
+        mergeOrder: [],
+        mergedBranches: [],
+        prUrl: null,
+        prFeedback: [],
+      },
+      worktrees: {
+        t1: { branch: 'feature/x', taskId: 't1', status: 'active', path: worktreePath },
+      },
+      tasks: [],
+    });
+  }
+
+  it('Compensation_DirtyWorktreeIncludingUntrackedOnly_SkippedAndSurfacedNeverForceRemoved', async () => {
+    // The ONLY change is an untracked file the author never `git add`ed — no
+    // tracked modification, no staged change, no commit ahead. This is the
+    // untracked-only data-loss case the naive `--force` remove would destroy.
+    await fs.writeFile(path.join(worktreePath, 'UNSAVED_WORK.txt'), 'precious untracked work\n');
+    // Sanity: the untracked-aware probe genuinely sees it as dirty (real git).
+    const probe = defaultGitRunner.run(
+      ['status', '--porcelain', '--untracked-files=all'],
+      worktreePath,
+    );
+    expect(probe.stdout.trim().length).toBeGreaterThan(0);
+
+    const result = await executeCompensation(makeCleanupState(), 'delegate', makeEvents(1), 1, {
+      dryRun: false,
+      eventStore,
+      featureId: 'task010-dirty',
+      realpath: identityRealpath,
+    });
+
+    // 1. The worktree was NEVER `--force`-removed.
+    expect(forceRemoveCalls().length).toBe(0);
+
+    // 2. Skipped-and-surfaced: the action reports the preserved worktree.
+    const cleanup = result.actions.find((a) => a.actionId === 'delegate:cleanup-worktrees');
+    expect(cleanup).toBeDefined();
+    expect(cleanup!.skippedWorktrees).toBeDefined();
+    expect(cleanup!.skippedWorktrees!.map((s) => s.worktreePath)).toContain(worktreePath);
+
+    // 3. Nothing was recorded as removed on the unified stream (no vacuous drop):
+    // no adopt, no remove pair — the worktree is left intact and still governed
+    // by whatever created it.
+    const worktreesEvents = await eventStore.query(WORKTREES_STREAM);
+    expect(worktreesEvents.some((e) => e.type === 'worktree.remove.executed')).toBe(false);
+    expect(worktreesEvents.some((e) => e.type === 'worktree.adopted')).toBe(false);
+
+    // 4. The untracked work still exists on disk — it was preserved.
+    expect(fsSync.existsSync(path.join(worktreePath, 'UNSAVED_WORK.txt'))).toBe(true);
+  });
+
+  it('Compensation_CleanWorktree_RemovedAsBefore', async () => {
+    // No uncommitted work — the worktree is clean, so the dirty-guard passes and
+    // the DR-3 unified removal runs exactly as before.
+    const probe = defaultGitRunner.run(
+      ['status', '--porcelain', '--untracked-files=all'],
+      worktreePath,
+    );
+    expect(probe.stdout.trim().length).toBe(0);
+
+    const result = await executeCompensation(makeCleanupState(), 'delegate', makeEvents(1), 1, {
+      dryRun: false,
+      eventStore,
+      featureId: 'task010-clean',
+      realpath: identityRealpath,
+    });
+
+    // The clean worktree WAS `--force`-removed (removal path reached).
+    expect(forceRemoveCalls().length).toBe(1);
+
+    const cleanup = result.actions.find((a) => a.actionId === 'delegate:cleanup-worktrees');
+    expect(cleanup).toBeDefined();
+    expect(cleanup!.status).toBe('executed');
+    // No worktree was preserved — nothing to surface.
+    expect(cleanup!.skippedWorktrees).toBeUndefined();
+
+    // The unified stream records the completed removal (adopt → requested → executed).
+    const worktreesEvents = await eventStore.query(WORKTREES_STREAM);
+    const executed = worktreesEvents.filter((e) => e.type === 'worktree.remove.executed');
+    expect(executed.length).toBe(1);
+    expect((executed[0].data as { removed: boolean }).removed).toBe(true);
+  });
+
+  it('Compensation_SkipResult_CarriesScannableReason', async () => {
+    // A skipped teardown must carry a stable, scannable reason token so
+    // callers / telemetry can branch on WHY the worktree survived — not parse prose.
+    await fs.writeFile(path.join(worktreePath, 'untracked.txt'), 'work\n');
+
+    const result = await executeCompensation(makeCleanupState(), 'delegate', makeEvents(1), 1, {
+      dryRun: false,
+      eventStore,
+      featureId: 'task010-reason',
+      realpath: identityRealpath,
+    });
+
+    const cleanup = result.actions.find((a) => a.actionId === 'delegate:cleanup-worktrees');
+    expect(cleanup).toBeDefined();
+
+    // Structured, scannable discriminator on the result.
+    expect(cleanup!.skippedWorktrees).toEqual([
+      { worktreePath, reason: 'dirty-worktree-preserved' },
+    ]);
+
+    // The reason token is ALSO surfaced in the human-readable message (so it
+    // rides the `compensation:<action>` event metadata telemetry consumes).
+    expect(cleanup!.message).toContain('dirty-worktree-preserved');
+    expect(cleanup!.message).toContain(worktreePath);
   });
 });

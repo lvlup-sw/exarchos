@@ -1,6 +1,7 @@
 import { execFile as execFileCb } from 'child_process';
 import { promisify } from 'util';
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { appendEvent } from './events.js';
 import { ErrorCode } from './schemas.js';
 import { withStateRetry } from './state-retry.js';
@@ -12,7 +13,14 @@ import type { WorkflowEvent } from '../event-store/schemas.js';
 // owns — so a compensation removal genuinely reaches the `worktrees@v1` view
 // instead of being stranded on the `featureId` stream (the DIM-1 single-source
 // violation). `withIndexLockRetry` (DR-1) wraps this call site's git remove.
-import { WORKTREES_STREAM } from '../orchestrate/worktree/manager.js';
+// `defaultGitRunner` / `GitRunner` are the SAME real-git probe seam the
+// WorktreeManager uses for its INV-14 dirty check — reused here so the
+// teardown's dirty-guard is byte-for-byte the ladder's, not a re-invention.
+import {
+  WORKTREES_STREAM,
+  defaultGitRunner,
+  type GitRunner,
+} from '../orchestrate/worktree/manager.js';
 import {
   withIndexLockRetry,
   type IndexLockRetryOptions,
@@ -194,6 +202,37 @@ async function worktreeIsRegistered(
     // the prefix matched a longer, unrelated path.
     return next === '' || next === ' ' || next === '\t';
   });
+}
+
+// ─── INV-14 dirty-guard (DR-3) ───────────────────────────────────────────────
+
+/**
+ * True when the worktree at `worktreePath` carries uncommitted work.
+ *
+ * `git status --porcelain --untracked-files=all` non-empty ⇒ dirty — the SAME
+ * **untracked-aware** probe {@link WorktreeManager}'s `isDirty` uses, so an
+ * untracked-only worktree (a brand-new file the author never `git add`ed) is
+ * correctly seen as dirty and is preserved, not force-removed.
+ *
+ * **Fail-CLOSED.** When the probe cannot prove the tree clean — a non-zero git
+ * status on a worktree that IS present on disk (a locked index, a transient git
+ * error, a broken-but-present repo) — this returns `true` (treat as dirty, skip).
+ * Reading an unverifiable probe as "clean" would let the teardown `--force`-remove
+ * and silently destroy uncommitted work (the Claude Code #55724 data-loss mode).
+ * Mirrors the manager's backing-present fail-closed stance. Callers MUST gate this
+ * on the worktree actually existing on disk — an ABSENT path is an idempotent
+ * no-op for the removal, not a dirty skip.
+ */
+function worktreeHasUncommittedChanges(
+  worktreePath: string,
+  gitRunner: GitRunner,
+): boolean {
+  const { status, stdout } = gitRunner.run(
+    ['status', '--porcelain', '--untracked-files=all'],
+    worktreePath,
+  );
+  if (status !== 0) return true; // cannot prove clean ⇒ preserve (fail-closed)
+  return stdout.trim().length > 0;
 }
 
 // ─── Recovery operationId discovery (Sentry #14059864/1) ──────────────────
@@ -441,6 +480,25 @@ export interface CompensationCheckpoint {
   readonly completedActions: readonly string[];
 }
 
+/**
+ * Scannable reason a compensation worktree teardown PRESERVED a worktree rather
+ * than removing it. A closed token set — a consumer / telemetry sink branches on
+ * it without parsing prose — mirroring the launcher teardown's
+ * `TeardownRecoveryError` discriminator shape.
+ */
+export type WorktreeTeardownSkipReason =
+  /**
+   * The worktree had uncommitted work (INCLUDING untracked-only changes) — it is
+   * preserved, never `--force`-removed (INV-14; recovery never `git reset --hard`s).
+   */
+  | 'dirty-worktree-preserved';
+
+/** A worktree the compensation teardown deliberately preserved rather than removed. */
+export interface SkippedWorktreeTeardown {
+  readonly worktreePath: string;
+  readonly reason: WorktreeTeardownSkipReason;
+}
+
 export interface CompensationOptions {
   readonly dryRun: boolean;
   readonly stateDir?: string;
@@ -463,12 +521,28 @@ export interface CompensationOptions {
    * asserted without a wall-clock wait.
    */
   readonly indexLockRetry?: IndexLockRetryOptions;
+  /**
+   * Injectable git probe for the INV-14 teardown dirty-guard (`git status
+   * --porcelain --untracked-files=all`). Defaults to {@link defaultGitRunner} —
+   * the SAME real-git spawn the WorktreeManager probes with — so a worktree with
+   * uncommitted work (including untracked-only) is preserved, not force-removed.
+   * Distinct from the `execFile`-based side-effect helpers so a test can drive the
+   * dirty check against a REAL worktree while stubbing the removal.
+   */
+  readonly gitRunner?: GitRunner;
 }
 
 export interface CompensationActionResult {
   readonly actionId: string;
   readonly status: 'executed' | 'skipped' | 'failed' | 'dry-run';
   readonly message: string;
+  /**
+   * Worktrees the teardown deliberately PRESERVED (dirty-guard) instead of
+   * removing — each with a scannable {@link WorktreeTeardownSkipReason} so
+   * callers / telemetry can see WHY a worktree survived compensation. Absent when
+   * nothing was preserved.
+   */
+  readonly skippedWorktrees?: readonly SkippedWorktreeTeardown[];
 }
 
 export interface CompensationResult {
@@ -602,11 +676,32 @@ function createCleanupWorktreesAction(): CompensationAction {
         };
       }
 
+      const gitRunner = options.gitRunner ?? defaultGitRunner;
+      const skippedWorktrees: SkippedWorktreeTeardown[] = [];
+      let removed = 0;
+
       try {
         for (const worktree of Object.values(worktrees)) {
           const worktreePath = worktree.path as string | undefined;
           if (!worktreePath) continue;
 
+          // ─── INV-14 dirty-guard (DR-3): NEVER --force-remove uncommitted work ──
+          // A worktree that is present on disk AND carries uncommitted changes —
+          // INCLUDING untracked-only changes — is skipped-and-surfaced with a
+          // scannable reason, never destroyed. Recovery NEVER `git reset --hard`s.
+          // An ABSENT path is deliberately NOT probed here: the removal below
+          // already treats it as an idempotent no-op (`removed:false`), and
+          // fail-closing on the git error a missing directory produces would
+          // wrongly strand it as "dirty" forever.
+          if (
+            existsSync(worktreePath) &&
+            worktreeHasUncommittedChanges(worktreePath, gitRunner)
+          ) {
+            skippedWorktrees.push({ worktreePath, reason: 'dirty-worktree-preserved' });
+            continue;
+          }
+
+          removed += 1;
           if (options.eventStore && options.featureId) {
             // ─── DR-3: unified `worktrees`-stream removal ────────────────────
             // Adopt-then-remove on the SINGLETON stream (retry-wrapped remove),
@@ -627,10 +722,20 @@ function createCleanupWorktreesAction(): CompensationAction {
             }
           }
         }
+
+        const base = `Cleaned up ${removed} worktree(s)`;
+        const message =
+          skippedWorktrees.length === 0
+            ? base
+            : `${base}; preserved ${skippedWorktrees.length} worktree(s) with ` +
+              `uncommitted changes (dirty-worktree-preserved): ` +
+              skippedWorktrees.map((s) => s.worktreePath).join(', ');
+
         return {
           actionId: 'delegate:cleanup-worktrees',
           status: 'executed',
-          message: `Cleaned up ${Object.keys(worktrees).length} worktree(s)`,
+          message,
+          ...(skippedWorktrees.length > 0 && { skippedWorktrees }),
         };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -638,6 +743,7 @@ function createCleanupWorktreesAction(): CompensationAction {
           actionId: 'delegate:cleanup-worktrees',
           status: 'failed',
           message: `Failed to clean up worktrees: ${msg}`,
+          ...(skippedWorktrees.length > 0 && { skippedWorktrees }),
         };
       }
     },
