@@ -13,10 +13,11 @@
 //     of any space / enforcement / confinement claim — an explicit non-goal of
 //     this feature).
 //
-// The non-dry-run path is a clearly-marked, typed seam ({@link LifecycleRunner}):
-// until Task 010 provides `./lifecycle-core#runLifecycle`, a non-dry-run launch
-// returns a structured `NOT_WIRED` result. Task 010 fills the seam by injecting
-// a runner — no reshaping of the verb required.
+// The non-dry-run path runs the real lifecycle ({@link LifecycleRunner}): an
+// explicit `lifecycle` override wins (tests / advanced callers), otherwise the
+// verb builds the real `./lifecycle-core#runLifecycle` runner from the injected
+// `lifecycleDeps`. Absent both — no event-store substrate to supervise a launch —
+// it returns a structured `NOT_WIRED` result.
 //
 // Implements:
 //   - DR-1: the `exarchos <harness>` launcher verb — schema-constrained enum,
@@ -31,6 +32,7 @@ import {
   type RuntimeId,
 } from './harness-registry.js';
 import { deriveWorktreePath } from './topology.js';
+import { makeLifecycleRunner, type RunLifecycleDeps } from './lifecycle-core.js';
 import type { ToolResult } from '../format.js';
 
 // ============================================================
@@ -152,13 +154,11 @@ export interface ResolvedLaunch {
 }
 
 /**
- * The non-dry-run lifecycle entrypoint seam.
- *
- * Task 010 provides the real implementation
- * (`./lifecycle-core#runLifecycle`) and injects it via
- * {@link LauncherVerbDeps.lifecycle}. Until then a non-dry-run launch returns a
- * structured `NOT_WIRED` result. Typed here so Task 010 fills the seam WITHOUT
- * reshaping the verb.
+ * The non-dry-run lifecycle entrypoint seam. The real implementation is
+ * `./lifecycle-core#runLifecycle`; the verb builds it from
+ * {@link LauncherVerbDeps.lifecycleDeps} or accepts an explicit override via
+ * {@link LauncherVerbDeps.lifecycle}. Typed here so the core stays decoupled from
+ * the verb's schema surface.
  */
 export type LifecycleRunner = (launch: ResolvedLaunch) => Promise<ToolResult>;
 
@@ -170,10 +170,18 @@ export interface LauncherVerbDeps {
    */
   readonly base?: string;
   /**
-   * The non-dry-run lifecycle runner (Task 010). Absent → non-dry-run returns
-   * `NOT_WIRED`. Never invoked on the `--dry-run` path.
+   * Explicit non-dry-run lifecycle runner override. Wins over the default built
+   * from {@link lifecycleDeps} (tests / advanced callers inject a spy here).
+   * Never invoked on the `--dry-run` path.
    */
   readonly lifecycle?: LifecycleRunner;
+  /**
+   * Dependencies the DEFAULT non-dry-run lifecycle runner is built from when no
+   * explicit {@link lifecycle} is supplied — the real `runLifecycle` binding
+   * (event store + spawn / holder seams). Absent (and no explicit `lifecycle`) →
+   * the non-dry-run path returns a structured `NOT_WIRED`.
+   */
+  readonly lifecycleDeps?: RunLifecycleDeps;
 }
 
 // ============================================================
@@ -197,8 +205,10 @@ function invalidInput(message: string): ToolResult {
  *   3. `--dry-run`: derive the worktree path via {@link deriveWorktreePath}
  *      (the SAME guard creation uses) and return the {@link DryRunPlan} — NO
  *      worktree created, NO process spawned.
- *   4. non-dry-run: delegate to the injected {@link LifecycleRunner} (Task 010)
- *      or, absent one, return a structured `NOT_WIRED` result.
+ *   4. non-dry-run: run the real lifecycle — an explicit {@link LifecycleRunner}
+ *      override, else the default runner built from
+ *      {@link LauncherVerbDeps.lifecycleDeps}; absent both, a structured
+ *      `NOT_WIRED` result.
  */
 export async function runLauncherVerb(
   raw: unknown,
@@ -266,10 +276,15 @@ export async function runLauncherVerb(
     return { success: true, data: plan };
   }
 
-  // (4) Non-dry-run: delegate to the lifecycle runner (Task 010) or report the
-  // seam is not yet wired. Kept typed so Task 010 fills it without reshaping.
-  if (deps.lifecycle) {
-    return deps.lifecycle({
+  // (4) Non-dry-run: run the real lifecycle. An explicit `lifecycle` override
+  // wins; otherwise build the real `runLifecycle` runner from `lifecycleDeps`.
+  // With neither there is no event-store substrate to supervise a launch, so
+  // return a structured `NOT_WIRED`.
+  const runner: LifecycleRunner | undefined =
+    deps.lifecycle ??
+    (deps.lifecycleDeps ? makeLifecycleRunner(deps.lifecycleDeps) : undefined);
+  if (runner) {
+    return runner({
       harness,
       runtimeId: resolution.runtimeId,
       feature: feature ?? null,
@@ -283,7 +298,7 @@ export async function runLauncherVerb(
     error: {
       code: 'NOT_WIRED',
       message:
-        'exarchos <harness>: non-dry-run lifecycle binding lands in task-010 (real verb→lifecycle spawn). Re-run with --dry-run to preview the derived worktree path + event plan.',
+        'exarchos <harness>: non-dry-run launch requires a wired lifecycle substrate (event store); none supplied. Re-run with --dry-run to preview the derived worktree path + event plan.',
     },
   };
 }

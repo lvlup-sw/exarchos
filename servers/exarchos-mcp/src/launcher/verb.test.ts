@@ -142,13 +142,16 @@ describe('exarchos <harness> launcher verb (DR-1)', () => {
   // ─── Seam contract (non-dry-run) ──────────────────────────────────────────
 
   it('Verb_NonDryRun_UnwiredReturnsNotWired', async () => {
+    // No explicit `lifecycle` AND no `lifecycleDeps` → the verb has no event-store
+    // substrate to supervise a launch, so it returns a structured NOT_WIRED
+    // rather than throwing or spawning against a bare base path.
     const result = await runLauncherVerb(
       { harness: 'claude-code', dryRun: false },
       { base: POSIX_BASE },
     );
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('NOT_WIRED');
-    expect(result.error?.message).toContain('task-010');
+    expect(result.error?.message).toContain('lifecycle substrate');
   });
 
   it('Verb_NonDryRun_DelegatesToInjectedLifecycle', async () => {
