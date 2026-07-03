@@ -88,6 +88,52 @@ export const LauncherVerbSchema = z.object({
 export type LauncherVerbInput = z.infer<typeof LauncherVerbSchema>;
 
 // ============================================================
+// INV-5 conformance surface (DR-1: schema constraints + when-NOT-to-use)
+// ============================================================
+
+/**
+ * INV-5 conformance metadata for the CLI-only `exarchos <harness>` launcher
+ * verb.
+ *
+ * The launcher is a process-supervisor **CLI** verb, NOT an MCP tool/action —
+ * the stdio MCP surface cannot own a child's lifecycle (see
+ * `renderImplementerPrompt` / the spec's chokepoint table). It therefore carries
+ * its INV-5 conformance surface HERE, alongside the schema, rather than in the
+ * MCP `TOOL_REGISTRY` (where the four composite tools declare theirs). Two
+ * halves, mirroring what a registered action declares:
+ *
+ *  - `schemaConstraints` (INV-5a — input ergonomics): the explicit, enumerated
+ *    input contract, each field's constraint spelled out, so the callable
+ *    surface is self-describing and cannot silently accept off-contract input.
+ *    Sourced from {@link LauncherVerbSchema} / {@link TIER1_HARNESSES} so the
+ *    documented constraint and the enforced schema can never drift apart.
+ *  - `whenNotToUse` (INV-5a / INV-5c — negative space): the "do NOT use for"
+ *    clause. Each entry states a case where the launcher is the WRONG surface
+ *    and points at the right alternative — the same convention the registry's
+ *    `merge_orchestrate` / `invariants_scaffold` descriptions follow.
+ */
+export const LAUNCHER_VERB_CONFORMANCE = {
+  /** The CLI verb this conformance surface describes. */
+  verb: 'exarchos <harness>',
+  /** INV-5a input contract — one constraint statement per schema field. */
+  schemaConstraints: [
+    `harness: required; enum of the five Tier-1 harnesses (${TIER1_HARNESSES.join(
+      ' | ',
+    )}) — any other value is rejected with a structured error carrying validTargets (never a throw).`,
+    'feature: optional; a non-empty feature id the launch worktree is associated with (sanitized to a single safe path segment before derivation).',
+    'dryRun: optional; boolean, default false — when true, previews the derived worktree path + event plan WITHOUT creating a worktree or spawning a process.',
+  ],
+  /** INV-5a / INV-5c negative space — "do NOT use for", each with a pointer. */
+  whenNotToUse: [
+    'Do NOT use to mutate Exarchos workflow state — state flows through the MCP dispatch handler (exarchos_workflow / exarchos_event / exarchos_orchestrate), never the launcher.',
+    'Do NOT use to launch the `generic` runtime — it has no harness process to supervise (an explicit non-goal; the schema enum omits it).',
+    'Do NOT use to enforce filesystem-write confinement or a space/boundary tier — an explicit non-goal; the launcher owns the process + top-level-worktree lifecycle, not the kernel write path.',
+    'Do NOT use to track a harness-created nested subagent worktree — that is the WLM adopt/reconcile path; the launcher only reserves + creates the top-level worktree it spawns into.',
+    'Do NOT use to serialize integration merges — route those through serialize_merge; the launcher is a caller, not the merge owner.',
+  ],
+} as const;
+
+// ============================================================
 // Worktree-id derivation (preview stand-in)
 // ============================================================
 

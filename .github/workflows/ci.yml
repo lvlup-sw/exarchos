@@ -238,6 +238,34 @@ jobs:
             exit 1
           fi
 
+      # DR-8 (harness-launcher #1603): the NAMED win32-fragile launcher tests.
+      # `npm run test:run` above already executes these on this windows-latest
+      # host; running them again BY NAME pins the DR-8 contract that the Windows
+      # lane gates the async spawn shim resolution (task 003,
+      # src/utils/process.spawn.test.ts) and the worktree path
+      # derivation/containment (task 009, src/launcher/topology.test.ts) —
+      # authored OS-native, not POSIX-literal mocks. Naming the files (vs. only
+      # the whole suite) makes a future path-filter/matrix regression that drops
+      # either one fail loudly here rather than pass green-on-zero. The zero-count
+      # guard is the same fail-closed backstop as DR-11s above.
+      #
+      # NOTE: marking test-windows as a REQUIRED branch-protection check is a
+      # manual repo-settings step (Settings → Branches → main → required status
+      # checks) — out-of-repo and not vitest-assertable. Capture it as a manual
+      # followup in the merge PR so "lane present but non-blocking" cannot
+      # silently pass as done. (test-windows already flows into the blocking
+      # ci-gate aggregator below.)
+      - name: DR-8 — named win32-fragile launcher tests (spawn 003 + path 009)
+        shell: bash
+        run: |
+          npx vitest run src/utils/process.spawn.test.ts src/launcher/topology.test.ts --reporter=json --outputFile=.launcher-win-guard.json
+          count=$(node -e "const r=require('./.launcher-win-guard.json');process.stdout.write(String((r.numPassedTests||0)+(r.numFailedTests||0)))")
+          echo "win32-fragile launcher tests executed on windows-latest: $count"
+          if [ "$count" -eq 0 ]; then
+            echo '::error::named win32-fragile launcher tests ran 0 tests on windows-latest — DR-8 guard (a path-filter/matrix regression dropped src/utils/process.spawn.test.ts or src/launcher/topology.test.ts)'
+            exit 1
+          fi
+
   # ─────────────────────────────────────────────────────────────────────
   # binary-matrix
   # ─────────────────────────────────────────────────────────────────────
