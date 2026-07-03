@@ -2087,6 +2087,11 @@ export const WorktreeMergeExecutedData = z.object({
     .min(1)
     .optional()
     .describe('Diagnostic captured when the lease was released during dead-holder recovery'),
+  worktreeId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe('Canonical worktrees@v1 key the released lease was attributable to, when known'),
 });
 
 // ─── Command Resolver Event Data (#1199 T15) ────────────────────────────────

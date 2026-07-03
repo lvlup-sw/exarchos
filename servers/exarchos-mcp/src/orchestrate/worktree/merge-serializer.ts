@@ -182,17 +182,27 @@ function isHolderProvablyDead(
  */
 async function appendMergeExecuted(
   appender: AtomicAppender,
-  merge: { integrationRef: string; operationId: string; sourceBranch: string; worktreeId?: string | null },
+  merge: { integrationRef: string; operationId: string; worktreeId?: string | null },
+  outcome: {
+    status: 'merged' | 'aborted' | 'failed';
+    mergeSha?: string;
+    recoveryError?: string;
+  },
 ): Promise<void> {
   await appender.append(
     WORKTREES_STREAM,
     [
       {
         type: 'worktree.merge_executed',
+        // Schema-conformant payload (WorktreeMergeExecutedData): `status` is
+        // REQUIRED; `sourceBranch` is NOT part of the release contract (it lives
+        // on the CLAIM) and the reducer correlates by integrationRef+operationId.
         data: {
           integrationRef: merge.integrationRef,
           operationId: merge.operationId,
-          sourceBranch: merge.sourceBranch,
+          status: outcome.status,
+          ...(outcome.mergeSha != null ? { mergeSha: outcome.mergeSha } : {}),
+          ...(outcome.recoveryError != null ? { recoveryError: outcome.recoveryError } : {}),
           ...(merge.worktreeId != null ? { worktreeId: merge.worktreeId } : {}),
         },
       },
@@ -359,6 +369,9 @@ export async function serializeMerge(
   //
   // We hold the lease. RELEASE in `finally` so a thrown / failed merge never
   // wedges the slot (the dead-holder reclaim is only a crash safety net).
+  // `terminalStatus` records the truthful release disposition; it stays 'failed'
+  // if the merge throws (the honest terminal for a wedged-then-reclaimed slot).
+  let terminalStatus: 'merged' | 'failed' = 'failed';
   try {
     const integrationHead = readIntegrationHead(input);
     const mergeResult = await mergeOrchestrate(
@@ -378,6 +391,7 @@ export async function serializeMerge(
     // serializer's own lease metadata under a dedicated key so the composed
     // per-featureId `merge.*` events are byte-identical to a direct call.
     if (mergeResult.success) {
+      terminalStatus = 'merged';
       return {
         ...mergeResult,
         data: {
@@ -397,11 +411,11 @@ export async function serializeMerge(
     // reclaim path clears once this process exits; surfacing it here would
     // mask the merge's own result/error.
     try {
-      await appendMergeExecuted(appender, {
-        integrationRef: input.integrationRef,
-        operationId,
-        sourceBranch: input.sourceBranch,
-      });
+      await appendMergeExecuted(
+        appender,
+        { integrationRef: input.integrationRef, operationId },
+        { status: terminalStatus },
+      );
     } catch {
       /* best-effort release — see note above */
     }
@@ -448,12 +462,15 @@ async function waitForFreeSlot(args: WaitForFreeSlotArgs): Promise<WaitOutcome> 
     // provably gone, emit its terminal release under its OWN operationId, then
     // re-fold (the slot should now be clear).
     if (isHolderProvablyDead(holder, processTableSource)) {
-      await appendMergeExecuted(appender, {
-        integrationRef: holder.integrationRef,
-        operationId: holder.operationId,
-        sourceBranch: holder.sourceBranch,
-        worktreeId: holder.worktreeId,
-      });
+      await appendMergeExecuted(
+        appender,
+        {
+          integrationRef: holder.integrationRef,
+          operationId: holder.operationId,
+          worktreeId: holder.worktreeId,
+        },
+        { status: 'aborted', recoveryError: 'dead-holder-reclaimed' },
+      );
       continue;
     }
 
@@ -790,12 +807,17 @@ export async function resumeCrashedMerge(
   // resume — or a race with the inline dead-holder reclaim — converges on ONE
   // release (INV-8/13); the reducer's operationId guard correlates it to exactly
   // the CLAIM it terminates.
-  await appendMergeExecuted(appender, {
-    integrationRef: holder.integrationRef,
-    operationId: holder.operationId,
-    sourceBranch: holder.sourceBranch,
-    worktreeId: holder.worktreeId,
-  });
+  // Reached only when the merge succeeded or was already applied (a failed
+  // resume returns early WITHOUT emitting) → the terminal status is 'merged'.
+  await appendMergeExecuted(
+    appender,
+    {
+      integrationRef: holder.integrationRef,
+      operationId: holder.operationId,
+      worktreeId: holder.worktreeId,
+    },
+    { status: 'merged' },
+  );
   return {
     resumed: true,
     operationId: holder.operationId,

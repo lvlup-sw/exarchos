@@ -580,6 +580,34 @@ describe('serialize_merge — unresolvable create-time (Sentry #15023070/1)', ()
     expect(() => schema.parse(claim!.data)).not.toThrow();
     expect(() => schema.parse({ ...claim!.data, holderStartedAt: '' })).toThrow();
   });
+
+  it('SerializeMerge_Release_EmitsSchemaValidStatus_NoStraySourceBranch', async () => {
+    // Sentry #15023037/0: the RELEASE event must carry the required `status` and
+    // must NOT carry the CLAIM-only `sourceBranch`, so the raw stored event
+    // conforms to WorktreeMergeExecutedData.
+    const arm = await createArm();
+    const merged: string[] = [];
+    const result = await serializeMerge(
+      { featureId: 'F', integrationRef: 'integration/release', sourceBranch: 'feat/y', strategy: 'merge', timeoutMs: 10_000 },
+      arm.ctx,
+      {
+        selfPid: 777,
+        selfStartedAt: 'self-777',
+        mergeOrchestrate: recordingMerge(merged),
+        readIntegrationHead: () => null,
+      },
+    );
+    expect(result.success).toBe(true);
+
+    const events = await arm.eventStore.query(WORKTREES_STREAM);
+    const release = events.find((e) => e.type === 'worktree.merge_executed');
+    expect(release).toBeDefined();
+    const data = release!.data as Record<string, unknown>;
+    expect(data.status).toBe('merged'); // truthful terminal for a successful merge
+    expect('sourceBranch' in data).toBe(false); // CLAIM-only field, not on the release
+    // The raw stored event validates against the canonical release schema.
+    expect(() => EVENT_DATA_SCHEMAS['worktree.merge_executed'].parse(data)).not.toThrow();
+  });
 });
 
 // ─── Test 6: handleOrchestrate routes serialize_merge to the handler ──────────
