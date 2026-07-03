@@ -184,5 +184,35 @@ export function computeNextActions(
     }
   }
 
+  // DR-2 (WLM slice 3, task 008): once a workflow reaches the SYNTHESIZE phase
+  // its governed worktrees have served their purpose and begin to accumulate —
+  // there is otherwise no GC cadence surfaced anywhere. Publish an INV-12
+  // prune-cadence affordance suggesting a `prune_worktrees` dry-run so the
+  // reclamation hint appears exactly when the workflow is finalizing, never
+  // earlier. Gated on the phase's KIND (SYNTHESIZE), not its name (INV-6), so
+  // it fires for every workflow type whose synthesis leg reuses that kind
+  // (feature / debug / oneshot / refactor). `merge-pending` is kind MERGE (not
+  // SYNTHESIZE), so the mid-implementation merge substate never triggers it.
+  // Like the deep-rung affordances above this is an opt-in the caller MAY
+  // invoke — dry-run first (the safe default), then re-invoke with dryRun:false
+  // to apply; it never auto-runs, and prune_worktrees itself defaults to
+  // dry-run (INV-5c).
+  if (currentKind === 'SYNTHESIZE') {
+    const candidate: NextAction = {
+      verb: 'prune_worktrees',
+      reason:
+        'INV-12 GC cadence: the workflow has reached synthesis, so governed worktrees can be reclaimed. Run prune_worktrees as a dry-run first (the default — reports candidates + reclaimable bytes, deletes nothing), then re-invoke with dryRun:false to apply.',
+      validTargets: ['prune_worktrees'],
+      hint: 'dry-run first',
+    };
+    const parsed = NextAction.safeParse(candidate);
+    if (!parsed.success) {
+      throw new Error(
+        `computeNextActions produced invalid prune_worktrees NextAction: ${parsed.error.message}`,
+      );
+    }
+    actions.push(parsed.data);
+  }
+
   return actions;
 }
