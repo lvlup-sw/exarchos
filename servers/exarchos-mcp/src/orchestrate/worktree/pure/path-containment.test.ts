@@ -2,7 +2,12 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { isPathWithin, defaultRealpath, type RealpathResolver } from './path-containment.js';
+import {
+  isPathWithin,
+  canonicalizeForContainment,
+  defaultRealpath,
+  type RealpathResolver,
+} from './path-containment.js';
 
 /** Identity resolver: no symlinks, paths pass through unchanged. */
 const identity: RealpathResolver = (p) => p;
@@ -15,10 +20,12 @@ function errnoError(code: string): NodeJS.ErrnoException {
 }
 
 describe('isPathWithin', () => {
-  it('PathContainment_SymlinkedRoot_ResolvesRealpathAndMatches', () => {
-    // Model macOS's /var -> /private/var symlink: the worktree is recorded
-    // under one form and the candidate under another. Resolving symlinks on
-    // BOTH sides must canonicalize them to the same root and match.
+  it('PathContainment_MacOSPrivateVarSymlink_Matches', () => {
+    // macOS's per-user temp/worktree root `/var/...` is a symlink to
+    // `/private/var/...`. A candidate reported under one form and a worktree
+    // recorded under the other must canonicalize to the same root and match.
+    // Model the symlink with an injected resolver (no real FS, deterministic on
+    // every platform incl. the Linux-only CI).
     const symlinkMap: Record<string, string> = {
       '/var/folders/abc/wt': '/private/var/folders/abc/wt',
       '/var/folders/abc/wt/src/file.ts': '/private/var/folders/abc/wt/src/file.ts',
@@ -26,20 +33,70 @@ describe('isPathWithin', () => {
     };
     const symlinkRealpath: RealpathResolver = (p) => symlinkMap[p] ?? p;
 
-    // Candidate under the symlinked /var form, worktree under /var form.
+    // The canonicalizer collapses the `/var` symlink to its `/private/var` form.
+    expect(canonicalizeForContainment('/var/folders/abc/wt', symlinkRealpath)).toBe(
+      '/private/var/folders/abc/wt',
+    );
+
+    // Candidate under the symlinked `/var` form, worktree under the `/var` form.
     expect(
       isPathWithin('/var/folders/abc/wt/src/file.ts', '/var/folders/abc/wt', symlinkRealpath),
     ).toBe(true);
 
     // Candidate under the symlinked form, worktree recorded under the canonical
-    // /private/var form — both-sides resolution still matches.
+    // `/private/var` form — both-sides resolution still matches.
     expect(
-      isPathWithin(
-        '/var/folders/abc/wt/src/file.ts',
-        '/private/var/folders/abc/wt',
-        symlinkRealpath,
-      ),
+      isPathWithin('/var/folders/abc/wt/src/file.ts', '/private/var/folders/abc/wt', symlinkRealpath),
     ).toBe(true);
+
+    // A sibling under the symlinked root is NOT contained.
+    expect(
+      isPathWithin('/var/folders/abc/wt-sibling/file.ts', '/private/var/folders/abc/wt', symlinkRealpath),
+    ).toBe(false);
+  });
+
+  it('PathContainment_Win32ShortName_MatchesViaNativeRealpath', () => {
+    // Shape-based Windows coverage: CI is Linux-only, so we cannot mint a real
+    // 8.3 SHORT name. Instead validate the two properties that make win32
+    // containment correct, without a real Windows host.
+    //
+    // (a) The default containment resolver routes through `fs.realpathSync.native`
+    //     — the ONLY API that expands Windows 8.3 short names (`RUNNER~1` →
+    //     `runneradmin`). The plain JS `fs.realpathSync` leaves them un-expanded.
+    const nativeSpy = vi
+      .spyOn(fs.realpathSync, 'native')
+      .mockImplementation((p) => String(p));
+    defaultRealpath('C:/Users/RUNNER~1/wt');
+    expect(nativeSpy).toHaveBeenCalledWith('C:/Users/RUNNER~1/wt');
+    nativeSpy.mockRestore();
+
+    // (b) Model the 8.3 → long-form expansion the OS's native realpath performs
+    //     and prove the canonicalizer + containment collapse the short/long
+    //     divide. `\`-separated win32 inputs are normalized to absolute POSIX
+    //     even when the test runs on Linux (a win32 `path.resolve` would prepend
+    //     the Linux cwd and never match the injected resolver).
+    const expandShort: RealpathResolver = (p) => p.replace('RUNNER~1', 'runneradmin');
+
+    // The canonicalizer expands the 8.3 short name to its long form.
+    expect(canonicalizeForContainment('C:\\Users\\RUNNER~1\\wt', expandShort)).toBe(
+      'C:/Users/runneradmin/wt',
+    );
+
+    // A candidate addressed via the 8.3 short name is within the worktree
+    // recorded under the long form (and vice-versa is covered by both-sides
+    // canonicalization).
+    expect(
+      isPathWithin('C:\\Users\\RUNNER~1\\wt\\src\\file.ts', 'C:\\Users\\runneradmin\\wt', expandShort),
+    ).toBe(true);
+    expect(
+      isPathWithin('C:\\Users\\runneradmin\\wt\\src\\file.ts', 'C:\\Users\\RUNNER~1\\wt', expandShort),
+    ).toBe(true);
+
+    // A sibling under the 8.3-short root is NOT contained (no startsWith
+    // false-positive across the short/long divide).
+    expect(
+      isPathWithin('C:\\Users\\RUNNER~1\\wt-sibling\\file.ts', 'C:\\Users\\runneradmin\\wt', expandShort),
+    ).toBe(false);
   });
 
   it('rejects a partial-segment sibling (/a/bc is NOT within /a/b)', () => {
@@ -62,39 +119,44 @@ describe('isPathWithin', () => {
     expect(isPathWithin('/etc/passwd', '/a/b', identity)).toBe(false);
   });
 
-  it.skipIf(process.platform === 'win32')(
-    'defaultRealpath resolves a real symlinked root and matches',
-    () => {
-      // Exercise the *default* resolver against a real symlink: a candidate
-      // addressed through the symlink must be judged within the worktree
-      // addressed through the canonical (resolved) directory.
-      const base = fs.mkdtempSync(path.join(os.tmpdir(), 'wlm-pathcontain-'));
+  it('defaultRealpath resolves a real symlinked root and matches', () => {
+    // Exercise the *default* resolver against a real symlink: a candidate
+    // addressed through the symlink must be judged within the worktree addressed
+    // through the canonical (resolved) directory. Cross-platform — symlink
+    // creation is capability-guarded (Windows without Developer Mode throws
+    // EPERM) rather than platform-skipped, so the assertion runs wherever the OS
+    // supports symlinks and no-ops elsewhere.
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'wlm-pathcontain-'));
+    try {
+      const realRoot = path.join(base, 'real-root');
+      const worktree = path.join(realRoot, 'wt');
+      fs.mkdirSync(worktree, { recursive: true });
+      const candidateFile = path.join(worktree, 'src', 'file.ts');
+      fs.mkdirSync(path.dirname(candidateFile), { recursive: true });
+      fs.writeFileSync(candidateFile, '// fixture');
+
+      const link = path.join(base, 'link-root');
       try {
-        const realRoot = path.join(base, 'real-root');
-        const worktree = path.join(realRoot, 'wt');
-        fs.mkdirSync(worktree, { recursive: true });
-        const candidateFile = path.join(worktree, 'src', 'file.ts');
-        fs.mkdirSync(path.dirname(candidateFile), { recursive: true });
-        fs.writeFileSync(candidateFile, '// fixture');
-
-        const link = path.join(base, 'link-root');
         fs.symlinkSync(realRoot, link, 'dir');
-
-        // Candidate addressed via the symlink; worktree via the real path.
-        const candidateViaLink = path.join(link, 'wt', 'src', 'file.ts');
-        expect(isPathWithin(candidateViaLink, worktree)).toBe(true);
-
-        // Sanity: defaultRealpath actually collapses the symlink.
-        expect(defaultRealpath(path.join(link, 'wt'))).toBe(fs.realpathSync(worktree));
-
-        // A sibling of the worktree, addressed via the symlink, is NOT within.
-        const siblingViaLink = path.join(link, 'wt-sibling', 'file.ts');
-        expect(isPathWithin(siblingViaLink, worktree)).toBe(false);
-      } finally {
-        fs.rmSync(base, { recursive: true, force: true });
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'EPERM') return; // no symlink privilege
+        throw err;
       }
-    },
-  );
+
+      // Candidate addressed via the symlink; worktree via the real path.
+      const candidateViaLink = path.join(link, 'wt', 'src', 'file.ts');
+      expect(isPathWithin(candidateViaLink, worktree)).toBe(true);
+
+      // Sanity: defaultRealpath actually collapses the symlink.
+      expect(defaultRealpath(path.join(link, 'wt'))).toBe(fs.realpathSync.native(worktree));
+
+      // A sibling of the worktree, addressed via the symlink, is NOT within.
+      const siblingViaLink = path.join(link, 'wt-sibling', 'file.ts');
+      expect(isPathWithin(siblingViaLink, worktree)).toBe(false);
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('defaultRealpath error handling', () => {
