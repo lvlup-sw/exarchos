@@ -82,7 +82,15 @@ import {
   defaultProcessTableSource,
   type ProcessTableSource,
 } from './pure/probe.js';
-import { defaultSleep, type SleepFn } from './git-retry.js';
+import {
+  defaultSleep,
+  defaultJitter,
+  withIndexLockRetry,
+  isIndexLockError,
+  MAX_INDEX_LOCK_RETRIES,
+  type SleepFn,
+  type JitterFn,
+} from './git-retry.js';
 import { reservationLiveness, selectDeadReservations } from './pure/ownership.js';
 import {
   classifyPruneCandidate,
@@ -566,6 +574,25 @@ export interface WorktreeManagerDeps {
    * for cwd-occupancy + protected-ancestry subtraction.
    */
   readonly processTableSource?: ProcessTableSource;
+  /**
+   * Injected sleep seam for the DR-1 `index.lock` retry backoff on the prune
+   * remove path. Injected so a test can assert the retry sequence
+   * deterministically without a real wall-clock wait; defaults to
+   * {@link defaultSleep} (the same timing seam reused across the WLM core).
+   */
+  readonly sleep?: SleepFn;
+  /**
+   * Injected signed-jitter source (`[-1, 1]`) for the DR-1 retry backoff.
+   * Injected so the jittered backoff delays are deterministic under test;
+   * defaults to {@link defaultJitter} (real `Math.random()`-derived jitter).
+   */
+  readonly jitter?: JitterFn;
+  /**
+   * Retries after the initial attempt for the DR-1 `index.lock` retry wrapper
+   * around the prune `git worktree remove`. Injected so a test can shrink the
+   * budget; defaults to {@link MAX_INDEX_LOCK_RETRIES}.
+   */
+  readonly maxIndexLockRetries?: number;
 }
 
 /** Arguments for {@link WorktreeManager.reserve}. */
@@ -655,6 +682,9 @@ export class WorktreeManager {
   private readonly realpath: RealpathResolver;
   private readonly gitRunner: GitRunner;
   private readonly processTableSource: ProcessTableSource;
+  private readonly sleep: SleepFn;
+  private readonly jitter: JitterFn;
+  private readonly maxIndexLockRetries: number;
 
   constructor(deps: WorktreeManagerDeps) {
     this.eventStore = deps.eventStore;
@@ -664,6 +694,9 @@ export class WorktreeManager {
     this.realpath = deps.realpath ?? defaultRealpath;
     this.gitRunner = deps.gitRunner ?? defaultGitRunner;
     this.processTableSource = deps.processTableSource ?? defaultProcessTableSource;
+    this.sleep = deps.sleep ?? defaultSleep;
+    this.jitter = deps.jitter ?? defaultJitter;
+    this.maxIndexLockRetries = deps.maxIndexLockRetries ?? MAX_INDEX_LOCK_RETRIES;
   }
 
   /**
@@ -1541,7 +1574,7 @@ export class WorktreeManager {
     if (kind === 'no-op') return { attempted: false, removed: false };
 
     // ── Phase B: idempotent side-effect OUTSIDE the lock. ──
-    const removed = this.removeWorktreeIfRegistered(repoRoot, worktreePath);
+    const removed = await this.removeWorktreeIfRegistered(repoRoot, worktreePath);
 
     // ── Phase C: record the outcome (drops the entry on the reducer). ──
     await this.appendRemoveExecuted(operationId, worktreePath, removed, worktreeId);
@@ -1561,7 +1594,7 @@ export class WorktreeManager {
     for (const { operationId, worktreePath, worktreeId } of orphaned) {
       if (handled.has(operationId)) continue; // one executed per operationId
       handled.add(operationId);
-      const removed = this.removeWorktreeIfRegistered(repoRoot, worktreePath);
+      const removed = await this.removeWorktreeIfRegistered(repoRoot, worktreePath);
       // Carry the stamped `worktreeId` from the original requested event (when
       // present) onto the completing executed event so replay still drops by id.
       await this.appendRemoveExecuted(
@@ -1578,17 +1611,48 @@ export class WorktreeManager {
    * Returns whether THIS call removed it (`false` = already absent, an
    * idempotent success). Throws only when the remove fails AND the worktree is
    * still registered (a real failure that must not be masked as success).
+   *
+   * The mutating `git worktree remove --force` is wrapped in the DR-1
+   * {@link withIndexLockRetry} seam: under burst dispatch two processes can race
+   * for `.git/index.lock`, surfacing as
+   * `fatal: Unable to create '…/index.lock': File exists.`. That contention is
+   * transient, so the wrapper retries with injected exponential backoff + jitter
+   * and SUCCEEDS without surfacing the error; an exhausted budget surfaces a
+   * structured {@link IndexLockContentionError} (never a silent no-op / false
+   * drop). The synchronous {@link GitRunner} never throws — a lock failure
+   * surfaces as a non-zero `status` with the lock diagnostic on
+   * `stderr`/`stdout` — so the retry `op` re-throws a lock-shaped error the
+   * wrapper recognizes; any other non-zero `status` flows through to the same
+   * still-registered failure check as before.
    */
-  private removeWorktreeIfRegistered(
+  private async removeWorktreeIfRegistered(
     repoRoot: string,
     worktreePath: string,
-  ): boolean {
+  ): Promise<boolean> {
     if (!this.isWorktreeRegistered(repoRoot, worktreePath)) return false;
-    const ok =
-      this.gitRunner.run(
-        ['worktree', 'remove', '--force', worktreePath],
-        repoRoot,
-      ).status === 0;
+    const ok = await withIndexLockRetry(
+      () => {
+        const result = this.gitRunner.run(
+          ['worktree', 'remove', '--force', worktreePath],
+          repoRoot,
+        );
+        if (result.status !== 0 && isIndexLockError(result)) {
+          // Re-throw the transient lock contention as an error the retry
+          // wrapper recognizes — the synchronous runner never throws on its own.
+          throw new Error(
+            result.stderr && result.stderr.length > 0
+              ? result.stderr
+              : result.stdout,
+          );
+        }
+        return result.status === 0;
+      },
+      {
+        sleep: this.sleep,
+        jitter: this.jitter,
+        maxRetries: this.maxIndexLockRetries,
+      },
+    );
     if (ok) return true;
     if (this.isWorktreeRegistered(repoRoot, worktreePath)) {
       throw new Error(
