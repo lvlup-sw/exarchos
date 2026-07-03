@@ -11,7 +11,7 @@
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import * as os from 'node:os';
@@ -19,6 +19,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { EventStore } from '../../event-store/store.js';
+import { EVENT_DATA_SCHEMAS } from '../../event-store/schemas.js';
 import type { DispatchContext } from '../../core/dispatch.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 import { writeStateFile } from '../../workflow/state-store.js';
@@ -537,8 +538,75 @@ describe('serialize_merge — the lease IS the serialization', () => {
     );
     expect(result.success).toBe(true);
 
-    const lockFiles = execFileSync('find', [arm.stateDir, '-name', '*.lock'], { encoding: 'utf-8' }).trim();
-    expect(lockFiles).toBe('');
+    // Cross-platform recursive walk — never shell out to `find` (on Windows that
+    // resolves to C:\Windows\System32\find.exe, whose syntax differs entirely).
+    const lockFiles = readdirSync(arm.stateDir, { recursive: true }).filter((entry) =>
+      entry.toString().endsWith('.lock'),
+    );
+    expect(lockFiles).toEqual([]);
+  });
+});
+
+// ─── Test 5b: unresolved create-time emits schema-valid null holderStartedAt ───
+
+describe('serialize_merge — unresolvable create-time (Sentry #15023070/1)', () => {
+  it('SerializeMerge_UnresolvedStartTime_EmitsNullHolderStartedAt_SchemaValid', async () => {
+    const arm = await createArm();
+    const merged: string[] = [];
+    // A process source that can't resolve the caller's create-time (the off-Linux
+    // shape). Do NOT inject selfStartedAt, so resolveSelfStartedAt runs and must
+    // yield null — NOT '' — keeping the emitted event schema-valid.
+    const result = await serializeMerge(
+      { featureId: 'F', integrationRef: 'integration/nostart', sourceBranch: 'feat/x', strategy: 'merge', timeoutMs: 10_000 },
+      arm.ctx,
+      {
+        processSource: { getStartTime: () => ({ status: 'absent' as const }) },
+        selfPid: 555,
+        mergeOrchestrate: recordingMerge(merged),
+        readIntegrationHead: () => null,
+      },
+    );
+    expect(result.success).toBe(true);
+
+    const events = await arm.eventStore.query(WORKTREES_STREAM);
+    const claim = events.find((e) => e.type === 'worktree.merge_requested');
+    expect(claim).toBeDefined();
+    // Modeled as null (absence), never an out-of-contract empty string.
+    expect((claim!.data as { holderStartedAt?: unknown }).holderStartedAt).toBeNull();
+
+    // The stored raw event validates against the canonical data schema — null is
+    // in-contract now (z.string().min(1).nullable()); '' would still be rejected.
+    const schema = EVENT_DATA_SCHEMAS['worktree.merge_requested'];
+    expect(() => schema.parse(claim!.data)).not.toThrow();
+    expect(() => schema.parse({ ...claim!.data, holderStartedAt: '' })).toThrow();
+  });
+
+  it('SerializeMerge_Release_EmitsSchemaValidStatus_NoStraySourceBranch', async () => {
+    // Sentry #15023037/0: the RELEASE event must carry the required `status` and
+    // must NOT carry the CLAIM-only `sourceBranch`, so the raw stored event
+    // conforms to WorktreeMergeExecutedData.
+    const arm = await createArm();
+    const merged: string[] = [];
+    const result = await serializeMerge(
+      { featureId: 'F', integrationRef: 'integration/release', sourceBranch: 'feat/y', strategy: 'merge', timeoutMs: 10_000 },
+      arm.ctx,
+      {
+        selfPid: 777,
+        selfStartedAt: 'self-777',
+        mergeOrchestrate: recordingMerge(merged),
+        readIntegrationHead: () => null,
+      },
+    );
+    expect(result.success).toBe(true);
+
+    const events = await arm.eventStore.query(WORKTREES_STREAM);
+    const release = events.find((e) => e.type === 'worktree.merge_executed');
+    expect(release).toBeDefined();
+    const data = release!.data as Record<string, unknown>;
+    expect(data.status).toBe('merged'); // truthful terminal for a successful merge
+    expect('sourceBranch' in data).toBe(false); // CLAIM-only field, not on the release
+    // The raw stored event validates against the canonical release schema.
+    expect(() => EVENT_DATA_SCHEMAS['worktree.merge_executed'].parse(data)).not.toThrow();
   });
 });
 

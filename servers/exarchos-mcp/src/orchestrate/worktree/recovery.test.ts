@@ -533,6 +533,55 @@ describe('DR-12 — unsupported process table fails closed (REV-H1)', () => {
   });
 });
 
+// ─── Test 6b: one failed reclaim never aborts the batch (CodeRabbit #4621186637) ─
+
+describe('probeAndReclaim — per-entry fault isolation', () => {
+  it('ProbeAndReclaim_OneReleaseAppendThrows_RemainingStillReclaimed', async () => {
+    const arm = await createArm();
+    // EMPTY but SUPPORTED table → both reserved owners read provably dead, so
+    // both are releasable. Reserve two so the batch has more than one target.
+    const manager = new WorktreeManager({
+      eventStore: arm.eventStore,
+      processTableSource: EMPTY_TABLE,
+    });
+    const wtFail = '/wlm/reclaim-fails';
+    const wtOk = '/wlm/reclaim-succeeds';
+    await manager.reserve({ worktreeId: wtFail, path: wtFail, featureId: 'F', ownerPid: 4242, ownerStartedAt: 'boot-4242' });
+    await manager.reserve({ worktreeId: wtOk, path: wtOk, featureId: 'F', ownerPid: 4343, ownerStartedAt: 'boot-4343' });
+
+    // Inject a transient persistence failure for ONLY the first worktree's
+    // release append; every other append delegates to the real store. A generic
+    // Error is not in withStateRetry's retryable set, so it propagates at once.
+    const realAppend = arm.eventStore.append.bind(arm.eventStore);
+    const appendSpy = vi
+      .spyOn(arm.eventStore, 'append')
+      .mockImplementation((streamId, event, options) => {
+        const worktreeId = (event as { data?: { worktreeId?: string } }).data?.worktreeId;
+        if (event.type === 'worktree.released' && worktreeId === wtFail) {
+          throw new Error('injected append failure');
+        }
+        return realAppend(streamId, event, options);
+      });
+
+    // Must NOT throw despite the first entry failing.
+    const result = await manager.probeAndReclaim(999999);
+    appendSpy.mockRestore();
+
+    expect(result.probed).toBe(2);
+    // Truthful counts (INV-1): only the entry whose event provably landed is
+    // reported released — the failed one is NOT (no phantom reclaim).
+    expect(result.released).toContain(wtOk);
+    expect(result.released).not.toContain(wtFail);
+    expect(result.orphaned).toEqual([]);
+
+    // The failed entry stays `reserved` (retried next pass, INV-8); the other
+    // folded to `released`.
+    const projection = await foldWorktrees(arm);
+    expect(projection.worktrees[wtFail]?.state).toBe('reserved');
+    expect(projection.worktrees[wtOk]?.state).toBe('released');
+  });
+});
+
 // ─── Test 7: two concurrent resumes never double-merge (REV-M1 OCC) ───────────
 
 describe('DR-12 — concurrent resume does not double-merge (REV-M1)', () => {

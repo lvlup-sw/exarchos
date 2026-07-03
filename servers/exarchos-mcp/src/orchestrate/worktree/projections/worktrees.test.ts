@@ -565,6 +565,42 @@ describe('worktreesReducer.apply — in-flight merges + orphan folding (DR-4)', 
     expect(stale.inFlightMerges[INT_REF].operationId).toBe('op-current');
   });
 
+  it('WorktreesProjection_MergeExecuted_MissingOperationId_DoesNotClearLease', () => {
+    // Fail-closed guard (Sentry #15015231/1): a `worktree.merge_executed` with NO
+    // operationId cannot prove lease ownership, so it must clear NOTHING —
+    // symmetric with upsertInFlightMerge. Production always stamps an operationId;
+    // this guards the reducer against a malformed/legacy event clobbering a live
+    // lease and violating the DR-7 serialization guarantee.
+    const reducer = createWorktreesReducer(identityRealpath);
+
+    const requested = reducer.apply(
+      reducer.initial,
+      buildEvent({
+        type: 'worktree.merge_requested',
+        sequence: 1,
+        data: {
+          integrationRef: INT_REF,
+          sourceBranch: 'task/current',
+          operationId: 'op-current',
+          holderPid: 33,
+          holderStartedAt: '2026-06-25T10:00:00.000Z',
+        },
+      }),
+    );
+
+    const noOp = reducer.apply(
+      requested,
+      buildEvent({
+        type: 'worktree.merge_executed',
+        sequence: 2,
+        data: { integrationRef: INT_REF }, // operationId ABSENT
+      }),
+    );
+    // Identity return (no sequence bump), lease untouched.
+    expect(noOp).toBe(requested);
+    expect(noOp.inFlightMerges[INT_REF].operationId).toBe('op-current');
+  });
+
   it('WorktreesProjection_ProbeFinding_EmitsAndFoldsOrphanDetected', () => {
     const reducer = createWorktreesReducer(identityRealpath);
 

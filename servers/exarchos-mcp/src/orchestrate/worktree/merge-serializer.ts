@@ -113,8 +113,8 @@ export interface SerializeMergeDeps {
   readonly processSource?: ProcessSource;
   /** PID stamped on the claim (lease holder identity). Defaults to `process.pid`. */
   readonly selfPid?: number;
-  /** Create-time fingerprint stamped on the claim. Defaults to the resolved create-time of `selfPid`. */
-  readonly selfStartedAt?: string;
+  /** Create-time fingerprint stamped on the claim. Defaults to the resolved create-time of `selfPid`, or `null` when the platform cannot resolve it. */
+  readonly selfStartedAt?: string | null;
   /** The merge COMPOSED UNCHANGED. Defaults to the real {@link handleMergeOrchestrate}. */
   readonly mergeOrchestrate?: (
     input: HandleMergeOrchestrateInput,
@@ -182,17 +182,27 @@ function isHolderProvablyDead(
  */
 async function appendMergeExecuted(
   appender: AtomicAppender,
-  merge: { integrationRef: string; operationId: string; sourceBranch: string; worktreeId?: string | null },
+  merge: { integrationRef: string; operationId: string; worktreeId?: string | null },
+  outcome: {
+    status: 'merged' | 'aborted' | 'failed';
+    mergeSha?: string;
+    recoveryError?: string;
+  },
 ): Promise<void> {
   await appender.append(
     WORKTREES_STREAM,
     [
       {
         type: 'worktree.merge_executed',
+        // Schema-conformant payload (WorktreeMergeExecutedData): `status` is
+        // REQUIRED; `sourceBranch` is NOT part of the release contract (it lives
+        // on the CLAIM) and the reducer correlates by integrationRef+operationId.
         data: {
           integrationRef: merge.integrationRef,
           operationId: merge.operationId,
-          sourceBranch: merge.sourceBranch,
+          status: outcome.status,
+          ...(outcome.mergeSha != null ? { mergeSha: outcome.mergeSha } : {}),
+          ...(outcome.recoveryError != null ? { recoveryError: outcome.recoveryError } : {}),
           ...(merge.worktreeId != null ? { worktreeId: merge.worktreeId } : {}),
         },
       },
@@ -218,7 +228,7 @@ async function tryClaim(
   input: SerializeMergeInput,
   operationId: string,
   holderPid: number,
-  holderStartedAt: string,
+  holderStartedAt: string | null,
 ): Promise<boolean> {
   let claimed = false;
   try {
@@ -359,6 +369,9 @@ export async function serializeMerge(
   //
   // We hold the lease. RELEASE in `finally` so a thrown / failed merge never
   // wedges the slot (the dead-holder reclaim is only a crash safety net).
+  // `terminalStatus` records the truthful release disposition; it stays 'failed'
+  // if the merge throws (the honest terminal for a wedged-then-reclaimed slot).
+  let terminalStatus: 'merged' | 'failed' = 'failed';
   try {
     const integrationHead = readIntegrationHead(input);
     const mergeResult = await mergeOrchestrate(
@@ -378,6 +391,7 @@ export async function serializeMerge(
     // serializer's own lease metadata under a dedicated key so the composed
     // per-featureId `merge.*` events are byte-identical to a direct call.
     if (mergeResult.success) {
+      terminalStatus = 'merged';
       return {
         ...mergeResult,
         data: {
@@ -397,11 +411,11 @@ export async function serializeMerge(
     // reclaim path clears once this process exits; surfacing it here would
     // mask the merge's own result/error.
     try {
-      await appendMergeExecuted(appender, {
-        integrationRef: input.integrationRef,
-        operationId,
-        sourceBranch: input.sourceBranch,
-      });
+      await appendMergeExecuted(
+        appender,
+        { integrationRef: input.integrationRef, operationId },
+        { status: terminalStatus },
+      );
     } catch {
       /* best-effort release — see note above */
     }
@@ -448,12 +462,15 @@ async function waitForFreeSlot(args: WaitForFreeSlotArgs): Promise<WaitOutcome> 
     // provably gone, emit its terminal release under its OWN operationId, then
     // re-fold (the slot should now be clear).
     if (isHolderProvablyDead(holder, processTableSource)) {
-      await appendMergeExecuted(appender, {
-        integrationRef: holder.integrationRef,
-        operationId: holder.operationId,
-        sourceBranch: holder.sourceBranch,
-        worktreeId: holder.worktreeId,
-      });
+      await appendMergeExecuted(
+        appender,
+        {
+          integrationRef: holder.integrationRef,
+          operationId: holder.operationId,
+          worktreeId: holder.worktreeId,
+        },
+        { status: 'aborted', recoveryError: 'dead-holder-reclaimed' },
+      );
       continue;
     }
 
@@ -469,13 +486,15 @@ async function waitForFreeSlot(args: WaitForFreeSlotArgs): Promise<WaitOutcome> 
 
 /**
  * Resolve the claiming process's create-time fingerprint via the injected
- * {@link ProcessSource}. A platform that cannot resolve it yields `''` — still a
- * well-formed claim; it just cannot defeat PID reuse for dead-holder probing
- * (mirrors {@link resolveOwner} in `handlers.ts`).
+ * {@link ProcessSource}. A platform that cannot resolve it yields `null` — still
+ * a well-formed claim; it just cannot defeat PID reuse for dead-holder probing.
+ * Modeled as `null` (not `''`) so the emitted `holderStartedAt` stays schema-
+ * valid (`z.string().min(1).nullable()`) rather than an out-of-contract empty
+ * string that only the projection defensively normalized.
  */
-function resolveSelfStartedAt(pid: number, source: ProcessSource): string {
+function resolveSelfStartedAt(pid: number, source: ProcessSource): string | null {
   const probe = source.getStartTime(pid);
-  return probe.status === 'present' ? probe.startedAt : '';
+  return probe.status === 'present' ? probe.startedAt : null;
 }
 
 // ─── Crash-mid-merge resume (DR-12) ──────────────────────────────────────────
@@ -616,7 +635,7 @@ async function tryReclaimLeaseForResume(
   appender: AtomicAppender,
   holder: InFlightMerge,
   selfPid: number,
-  selfStartedAt: string,
+  selfStartedAt: string | null,
   processTableSource: ProcessTableSource,
 ): Promise<boolean> {
   try {
@@ -661,7 +680,12 @@ async function tryReclaimLeaseForResume(
       },
       { operationId: randomUUID(), alwaysEnforceConsistency: false },
     );
-    return result.kind === 'committed';
+    // A cache-hit (the same keyed append already landed) is a WIN, same as a
+    // fresh commit — only a no-op (the decide closure emitted nothing: lease
+    // vanished or turned foreign-live) means we did not take the slot. Mirrors
+    // tryClaim's `!== 'no-op'` check; `=== 'committed'` would wrongly fail on a
+    // cache-hit (improbable under randomUUID, but a latent semantic inconsistency).
+    return result.kind !== 'no-op';
   } catch (err) {
     // Lost the OCC (a concurrent resumer committed first) or transient substrate
     // contention — treat as "did not win" so the caller aborts the resume.
@@ -783,12 +807,17 @@ export async function resumeCrashedMerge(
   // resume — or a race with the inline dead-holder reclaim — converges on ONE
   // release (INV-8/13); the reducer's operationId guard correlates it to exactly
   // the CLAIM it terminates.
-  await appendMergeExecuted(appender, {
-    integrationRef: holder.integrationRef,
-    operationId: holder.operationId,
-    sourceBranch: holder.sourceBranch,
-    worktreeId: holder.worktreeId,
-  });
+  // Reached only when the merge succeeded or was already applied (a failed
+  // resume returns early WITHOUT emitting) → the terminal status is 'merged'.
+  await appendMergeExecuted(
+    appender,
+    {
+      integrationRef: holder.integrationRef,
+      operationId: holder.operationId,
+      worktreeId: holder.worktreeId,
+    },
+    { status: 'merged' },
+  );
   return {
     resumed: true,
     operationId: holder.operationId,

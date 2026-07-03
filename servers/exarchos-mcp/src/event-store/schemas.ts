@@ -2093,7 +2093,11 @@ export const WorktreeMergeRequestedData = z.object({
   sourceBranch: z.string().min(1).describe('Branch being merged into integrationRef'),
   operationId: z.string().min(1).describe('Idempotency key / lease correlator — the sole per-merge discriminator'),
   holderPid: z.number().int().describe('PID of the live process holding the merge lease (liveness ground truth)'),
-  holderStartedAt: z.string().min(1).describe('Lease-holder process start time (ISO 8601) — disambiguates PID reuse'),
+  holderStartedAt: z
+    .string()
+    .min(1)
+    .nullable()
+    .describe('Lease-holder process start time (ISO 8601) — disambiguates PID reuse; null when the platform cannot resolve it'),
   worktreeId: z
     .string()
     .min(1)
@@ -2120,6 +2124,11 @@ export const WorktreeMergeExecutedData = z.object({
     .min(1)
     .optional()
     .describe('Diagnostic captured when the lease was released during dead-holder recovery'),
+  worktreeId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe('Canonical worktrees@v1 key the released lease was attributable to, when known'),
 });
 
 // ─── Harness-Launcher Event Data (DR-2) ─────────────────────────────────────

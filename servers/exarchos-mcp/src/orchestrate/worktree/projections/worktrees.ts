@@ -163,6 +163,32 @@ export interface InFlightMerge {
 }
 
 /**
+ * A single in-flight serialized merge — the CLAIM half of the
+ * `worktree.merge_requested` / `worktree.merge_executed` lease pair (DR-4).
+ *
+ * Keyed in {@link WorktreesProjection.inFlightMerges} by `integrationRef` (the
+ * per-branch serialization key), NOT by `worktreeId`: an integration-branch
+ * merge typically maps to no adopted worktree entry. `holderPid` /
+ * `holderStartedAt` identify the live process holding the merge lease (liveness
+ * ground truth for orphan reclamation); `worktreeId` is the optional canonical
+ * `worktrees@v1` key when the merge is attributable to a specific worktree.
+ */
+export interface InFlightMerge {
+  /** Integration ref the merge targets — the map key / per-branch serialization key. */
+  readonly integrationRef: string;
+  /** Idempotency key / lease correlator — the sole per-merge discriminator. */
+  readonly operationId: string;
+  /** Branch being merged into `integrationRef`. */
+  readonly sourceBranch: string;
+  /** PID of the live process holding the merge lease, or `null` when absent. */
+  readonly holderPid: number | null;
+  /** Lease-holder process start time (ISO 8601), or `null` — disambiguates PID reuse. */
+  readonly holderStartedAt: string | null;
+  /** Canonical `worktrees@v1` key when attributable to a tracked worktree, else `null`. */
+  readonly worktreeId: string | null;
+}
+
+/**
  * The full projected state: a map of {@link WorktreeEntry} keyed by
  * `worktreeId`, a map of {@link InFlightMerge} keyed by `integrationRef`, plus
  * the monotone `projectionSequence` stale-snapshot detector (bumped only on
@@ -352,9 +378,15 @@ function clearInFlightMerge(
   if (!Object.prototype.hasOwnProperty.call(state.inFlightMerges, integrationRef)) {
     return state;
   }
+  // Fail closed: only the lease holder — proven by a MATCHING operationId — may
+  // clear it. A missing operationId cannot establish ownership, so it clears
+  // nothing (symmetric with upsertInFlightMerge, which no-ops without one),
+  // upholding the DR-7 merge-serialization guarantee even against a malformed
+  // `worktree.merge_executed` event a future change might introduce.
   const operationId = extractString(event.data, 'operationId');
+  if (!operationId) return state;
   const existing = state.inFlightMerges[integrationRef];
-  if (operationId && existing.operationId !== operationId) return state;
+  if (existing.operationId !== operationId) return state;
   const nextInFlight: Record<string, InFlightMerge> = {};
   for (const [key, value] of Object.entries(state.inFlightMerges)) {
     if (key !== integrationRef) nextInFlight[key] = value;

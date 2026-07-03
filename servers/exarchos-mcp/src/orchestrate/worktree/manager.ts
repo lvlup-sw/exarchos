@@ -1177,14 +1177,24 @@ export class WorktreeManager {
       const entry = entries[i];
       const finding = findings[i];
       if (finding === undefined) continue;
-      if (finding.releasable) {
-        // Owner provably dead AND no live occupant → free the stale reservation.
-        await this.appendLifecycle('worktree.released', entry);
-        released.push(entry.worktreeId);
-      } else if (finding.ownerLiveness === 'dead' && finding.inUse) {
-        // Owner provably dead BUT a live foreign process occupies it → orphan.
-        await this.appendLifecycle('worktree.orphan_detected', entry);
-        orphaned.push(entry.worktreeId);
+      // Per-entry isolation: a transient append failure on ONE reclaim must not
+      // abort the whole batch. An entry is counted as released/orphaned ONLY
+      // after its event provably lands (INV-1) — never report a reclaim that
+      // failed to persist. A skipped entry stays `reserved`, so the next probe
+      // pass retries it at-most-once (INV-8); the reclaim self-heals across runs.
+      try {
+        if (finding.releasable) {
+          // Owner provably dead AND no live occupant → free the stale reservation.
+          await this.appendLifecycle('worktree.released', entry);
+          released.push(entry.worktreeId);
+        } else if (finding.ownerLiveness === 'dead' && finding.inUse) {
+          // Owner provably dead BUT a live foreign process occupies it → orphan.
+          await this.appendLifecycle('worktree.orphan_detected', entry);
+          orphaned.push(entry.worktreeId);
+        }
+      } catch {
+        // Reclaim is self-healing across passes — skip this entry, keep going.
+        continue;
       }
     }
     return { released, orphaned, probed: entries.length };
