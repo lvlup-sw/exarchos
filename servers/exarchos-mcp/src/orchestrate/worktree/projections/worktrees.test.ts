@@ -123,6 +123,7 @@ describe('worktreesReducer.apply (WLM foundation)', () => {
         },
       },
       inFlightMerges: {},
+      inFlightPrunes: {},
     } satisfies WorktreesProjection);
   });
 
@@ -1007,6 +1008,152 @@ describe('worktreesReducer.apply — launcher launch liveness folding (DR-2)', (
         data: { worktreeId: WT_A, exitCode: 0 },
       }),
     ];
+    expect(() => assertReducerImmutable(reducer, events)).not.toThrow();
+    expect(() => assertReducerImmutable(reducer, [...events].reverse())).not.toThrow();
+  });
+});
+
+describe('worktreesReducer.apply — prune-run liveness folding (DR-3 / INV-10)', () => {
+  const PRUNE_OP = 'op-prune-1';
+  const REPO_ROOT = toPosix(path.resolve('/srv/repo'));
+
+  it('WorktreesReducer_PrunePair_FoldsAndClears', () => {
+    const reducer = createWorktreesReducer(identityRealpath);
+
+    // CLAIM: `prune.executing_started` marks an in-flight prune under its
+    // operationId, carrying the live-holder liveness ground truth verbatim.
+    const started = reducer.apply(
+      reducer.initial,
+      buildEvent({
+        type: 'prune.executing_started',
+        sequence: 1,
+        data: {
+          operationId: PRUNE_OP,
+          repoRoot: REPO_ROOT,
+          holderPid: 9090,
+          holderStartedAt: '2026-07-03T00:00:00.000Z',
+        },
+      }),
+    );
+    expect(started.inFlightPrunes[PRUNE_OP]).toEqual({
+      operationId: PRUNE_OP,
+      repoRoot: REPO_ROOT,
+      holderPid: 9090,
+      holderStartedAt: '2026-07-03T00:00:00.000Z',
+    });
+    // The prune claim does NOT leak into the worktree or merge maps.
+    expect(started.worktrees).toEqual({});
+    expect(started.inFlightMerges).toEqual({});
+    expect(started.projectionSequence).toBe(1);
+
+    // TERMINAL: `prune.executed` clears the in-flight prune for that operationId.
+    const executed = reducer.apply(
+      started,
+      buildEvent({
+        type: 'prune.executed',
+        sequence: 2,
+        data: { operationId: PRUNE_OP, deletedCount: 3 },
+      }),
+    );
+    expect(PRUNE_OP in executed.inFlightPrunes).toBe(false);
+    expect(executed.inFlightPrunes).toEqual({});
+    expect(executed.projectionSequence).toBe(2);
+
+    // Idempotent: a terminal for an already-cleared prune is a no-op (identity).
+    const executedAgain = reducer.apply(
+      executed,
+      buildEvent({
+        type: 'prune.executed',
+        sequence: 3,
+        data: { operationId: PRUNE_OP, deletedCount: 0 },
+      }),
+    );
+    expect(executedAgain).toBe(executed);
+  });
+
+  it('WorktreesReducer_PruneStarted_MissingKeys_LaxNoOp', () => {
+    // Lax replay tolerance (mirrors upsertInFlightMerge): a malformed CLAIM
+    // missing operationId/repoRoot folds to identity, never a partial phantom.
+    const reducer = createWorktreesReducer(identityRealpath);
+    const noOp = reducer.apply(
+      reducer.initial,
+      buildEvent({
+        type: 'prune.executing_started',
+        sequence: 1,
+        data: { repoRoot: REPO_ROOT }, // operationId ABSENT
+      }),
+    );
+    expect(noOp).toBe(reducer.initial);
+    expect(noOp.inFlightPrunes).toEqual({});
+  });
+
+  it('WorktreesReducer_PrunePair_InterleavesWithLifecycleAndMerge_ColdRebuildEquals', () => {
+    // The prune pair rides the SAME singleton `worktrees` stream as the
+    // lifecycle + merge families; a cold replay must reproduce all three maps.
+    const reducer = createWorktreesReducer(identityRealpath);
+    const log: readonly WorkflowEvent[] = [
+      buildEvent({
+        type: 'worktree.adopted',
+        sequence: 1,
+        data: { worktreeId: WT_A, path: WT_A, featureId: 'feat-a', operationId: 'op-1' },
+      }),
+      buildEvent({
+        type: 'prune.executing_started',
+        sequence: 2,
+        data: { operationId: PRUNE_OP, repoRoot: REPO_ROOT, holderPid: 7, holderStartedAt: 'boot' },
+      }),
+      buildEvent({
+        type: 'worktree.merge_requested',
+        sequence: 3,
+        data: {
+          integrationRef: INT_REF,
+          sourceBranch: 'task/x',
+          operationId: 'op-m-1',
+          holderPid: 8,
+          holderStartedAt: 'boot-m',
+        },
+      }),
+      // A lifecycle transition while the prune is in flight must carry the
+      // in-flight prune marker forward untouched (structural-share).
+      buildEvent({
+        type: 'worktree.released',
+        sequence: 4,
+        data: { worktreeId: WT_A, path: WT_A, featureId: 'feat-a', operationId: 'op-rel' },
+      }),
+    ];
+
+    let live = reducer.initial;
+    for (const ev of log) live = reducer.apply(live, ev);
+    const cold = log.reduce((acc, ev) => reducer.apply(acc, ev), reducer.initial);
+
+    expect(cold).toEqual(live);
+    // Prune still in flight (no terminal yet); merge still live; entry released.
+    expect(cold.inFlightPrunes[PRUNE_OP]).toBeDefined();
+    expect(cold.inFlightMerges[INT_REF]).toBeDefined();
+    expect(cold.worktrees[WT_A].state).toBe('released');
+  });
+
+  it('WorktreesReducer_PrunePair_PassesAssertReducerImmutable', () => {
+    const reducer = createWorktreesReducer(identityRealpath);
+    const events: readonly WorkflowEvent[] = [
+      buildEvent({
+        type: 'prune.executing_started',
+        sequence: 1,
+        data: { operationId: PRUNE_OP, repoRoot: REPO_ROOT, holderPid: 9090, holderStartedAt: 'boot' },
+      }),
+      buildEvent({
+        type: 'worktree.adopted',
+        sequence: 2,
+        data: { worktreeId: WT_A, path: WT_A, featureId: 'feat-a', operationId: 'op-1' },
+      }),
+      buildEvent({
+        type: 'prune.executed',
+        sequence: 3,
+        data: { operationId: PRUNE_OP, deletedCount: 1 },
+      }),
+    ];
+    // Deep-freezes the seed + every intermediate; the prune folds must never
+    // mutate the frozen `state` argument in place.
     expect(() => assertReducerImmutable(reducer, events)).not.toThrow();
     expect(() => assertReducerImmutable(reducer, [...events].reverse())).not.toThrow();
   });

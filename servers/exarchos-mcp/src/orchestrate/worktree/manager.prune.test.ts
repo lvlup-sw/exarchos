@@ -39,6 +39,7 @@ import {
   WORKTREES_REDUCER,
   defaultGitRunner,
   type GitRunner,
+  type GitWorktreeProbe,
 } from './manager.js';
 import type { ProcessSource, StartTimeProbe } from './pure/process-identity.js';
 import type { WorktreesProjection } from './projections/worktrees.js';
@@ -564,6 +565,113 @@ describe('WorktreeManager.prune (real git + real event store)', () => {
       wtId,
     );
     expect(stillListed).toBe(false);
+  });
+
+  // ─── INV-10 prune-run liveness pair (DR-3) ────────────────────────────────
+
+  it('PruneWorktrees_Run_EmitsStartedAndTerminalExactlyOnce', async () => {
+    const repo = await initRepoWithOrigin(workdir, 'repo');
+    git(repo, ['branch', 'feat/integ']);
+    await setIntegrationBranch(store, 'feat-live', 'feat/integ');
+    const wtPath = path.join(workdir, 'wt-live');
+    addWorktree(repo, wtPath, 'live-branch');
+
+    const manager = new WorktreeManager({ eventStore: store });
+    const wtId = await makeReleased(manager, wtPath, 'feat-live');
+
+    const result = await manager.prune({ repoRoot: repo, apply: true });
+    expect(result.deleted).toContain(wtId);
+
+    // Exactly one started + one terminal — the INV-10 1:1 liveness pair.
+    const started = eventsOfType(store, 'prune.executing_started');
+    const executed = eventsOfType(store, 'prune.executed');
+    expect(started).toHaveLength(1);
+    expect(executed).toHaveLength(1);
+
+    // Same operationId correlates the pair.
+    const startData = started[0].data as {
+      operationId?: unknown;
+      repoRoot?: unknown;
+      holderPid?: unknown;
+    };
+    const endData = executed[0].data as {
+      operationId?: unknown;
+      deletedCount?: unknown;
+    };
+    expect(typeof startData.operationId).toBe('string');
+    expect(endData.operationId).toBe(startData.operationId);
+    // Started carries the live-holder identity + the governed repo root.
+    expect(startData.repoRoot).toBe(repo);
+    expect(startData.holderPid).toBe(process.pid);
+    // Terminal reports how many worktrees the pass deleted (one here).
+    expect(endData.deletedCount).toBe(1);
+
+    // Started BRACKETS the whole pass: before the deletion intent, terminal after.
+    const removeReq = eventsOfType(store, 'worktree.remove.requested')[0];
+    const removeExe = eventsOfType(store, 'worktree.remove.executed')[0];
+    expect(started[0].sequence as number).toBeLessThan(
+      removeReq.sequence as number,
+    );
+    expect(executed[0].sequence as number).toBeGreaterThan(
+      removeExe.sequence as number,
+    );
+
+    // The terminal CLEARED the in-flight marker — no phantom prune survives.
+    expect((await projection(store)).inFlightPrunes).toEqual({});
+  });
+
+  it('PruneWorktrees_DryRun_AlsoEmitsLivenessPairSoPsSeesIt', async () => {
+    // A dry-run prune still runs the adopt-gate + per-candidate git probes, so it
+    // too must be `ps`/`wait`-visible — emission is NOT gated on `apply`.
+    const repo = await initRepoWithOrigin(workdir, 'repo');
+    const wtPath = path.join(workdir, 'wt-dry');
+    addWorktree(repo, wtPath, 'dry-branch');
+
+    const manager = new WorktreeManager({ eventStore: store });
+    const result = await manager.prune({ repoRoot: repo }); // default ⇒ dry-run
+    expect(result.dryRun).toBe(true);
+
+    const started = eventsOfType(store, 'prune.executing_started');
+    const executed = eventsOfType(store, 'prune.executed');
+    expect(started).toHaveLength(1);
+    expect(executed).toHaveLength(1);
+    // Nothing deleted on a dry-run ⇒ terminal reports 0.
+    expect((executed[0].data as { deletedCount?: unknown }).deletedCount).toBe(0);
+    // In-flight marker cleared after the pass.
+    expect((await projection(store)).inFlightPrunes).toEqual({});
+  });
+
+  it('PruneWorktrees_LadderThrows_StillEmitsTerminal_PairStays1To1', async () => {
+    // INV-10 phantom-safety: even when the ladder throws mid-pass, the `finally`
+    // emits the paired terminal, so a failed prune never strands a phantom
+    // in-flight prune. The started fired; the terminal must too — exactly once.
+    const repo = await initRepo(path.join(workdir, 'repo'));
+    const boom: GitWorktreeProbe = {
+      listWorktrees() {
+        throw new Error('git worktree list blew up mid-prune');
+      },
+      verifyHead() {
+        throw new Error('unreached — listWorktrees throws first');
+      },
+    };
+    const manager = new WorktreeManager({ eventStore: store, gitProbe: boom });
+
+    await expect(
+      manager.prune({ repoRoot: repo, apply: true }),
+    ).rejects.toThrow(/blew up mid-prune/);
+
+    const started = eventsOfType(store, 'prune.executing_started');
+    const executed = eventsOfType(store, 'prune.executed');
+    expect(started).toHaveLength(1);
+    expect(executed).toHaveLength(1);
+    // The terminal correlates to the started even on the failure path.
+    const startOp = (started[0].data as { operationId?: unknown }).operationId;
+    expect((executed[0].data as { operationId?: unknown }).operationId).toBe(
+      startOp,
+    );
+    // Deleted nothing ⇒ terminal reports 0; in-flight cleared (no phantom).
+    expect((executed[0].data as { deletedCount?: unknown }).deletedCount).toBe(0);
+    expect((await projection(store)).inFlightPrunes).toEqual({});
   });
 
   // ─── crash between requested and executed resumes idempotently ────────────

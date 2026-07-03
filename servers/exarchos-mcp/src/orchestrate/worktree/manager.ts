@@ -1015,6 +1015,84 @@ export class WorktreeManager {
   }
 
   /**
+   * Prune (GC) governed worktrees, wrapped in the INV-10 prune-run liveness pair
+   * (DR-3). Mints a per-pass `operationId`, appends `prune.executing_started`
+   * BEFORE the safety ladder runs, and appends the paired terminal
+   * `prune.executed` in a `finally` so a throw mid-pass still terminates the pair
+   * exactly once — a phantom in-flight prune can never persist. The
+   * `worktrees@v1` projection folds the pair into `inFlightPrunes`, so an
+   * in-flight prune is `ps`/`wait`-visible (the rolled-forward foundation
+   * deferral). Delegates the actual ladder work to {@link runPruneLadder}.
+   */
+  async prune(options: PruneOptions): Promise<PruneResult> {
+    const operationId = randomUUID();
+    await this.appendPruneStarted(operationId, options.repoRoot);
+    // Read in the `finally` even on a throw, so the terminal always reports the
+    // count reclaimed BEFORE the failure (0 on a throw before any deletion).
+    let result: PruneResult | undefined;
+    try {
+      result = await this.runPruneLadder(options);
+      return result;
+    } finally {
+      await this.appendPruneExecuted(operationId, result?.deleted.length ?? 0);
+    }
+  }
+
+  /**
+   * Append the INV-10 prune-run liveness START (`prune.executing_started`) —
+   * records the live holder (this process) so a long GC pass is observable as
+   * "started but not yet terminated" (DR-3). A plain keyed append (idempotency
+   * `<eventType>:<operationId>`), matching the rest of the worktree family;
+   * wrapped in {@link withStateRetry} so an unrelated concurrent append to
+   * `worktrees` does not surface a spurious ConcurrencyError.
+   */
+  private async appendPruneStarted(
+    operationId: string,
+    repoRoot: string,
+  ): Promise<void> {
+    const holderPid = process.pid;
+    const probe = this.processSource.getStartTime(holderPid);
+    // Null (never '') when the platform cannot resolve the create-time — the
+    // DR-5 null-ready holderStartedAt contract (schema: `.min(1).nullable()`).
+    const holderStartedAt =
+      probe.status === 'present' && probe.startedAt.length > 0
+        ? probe.startedAt
+        : null;
+    await withStateRetry(() =>
+      this.eventStore.append(
+        WORKTREES_STREAM,
+        {
+          type: 'prune.executing_started',
+          data: { operationId, repoRoot, holderPid, holderStartedAt },
+        },
+        { idempotencyKey: `prune.executing_started:${operationId}` },
+      ),
+    );
+  }
+
+  /**
+   * Append the paired TERMINAL (`prune.executed`) — clears the in-flight prune
+   * marker so it can never become a phantom (INV-10 1:1 pair). Emitted from the
+   * public {@link prune} wrapper's `finally`, so a throw mid-pass still
+   * terminates the pair.
+   */
+  private async appendPruneExecuted(
+    operationId: string,
+    deletedCount: number,
+  ): Promise<void> {
+    await withStateRetry(() =>
+      this.eventStore.append(
+        WORKTREES_STREAM,
+        {
+          type: 'prune.executed',
+          data: { operationId, deletedCount },
+        },
+        { idempotencyKey: `prune.executed:${operationId}` },
+      ),
+    );
+  }
+
+  /**
    * Prune (GC) governed worktrees through the fail-closed safety ladder (DR-6).
    *
    * The flow that closes the Claude Code #55724 data-loss hole (parallel agents
@@ -1041,7 +1119,7 @@ export class WorktreeManager {
    *      UNDER the stream lock) → `git worktree remove` → `worktree.remove.executed`.
    *      It NEVER `git reset --hard`s.
    */
-  async prune(options: PruneOptions): Promise<PruneResult> {
+  private async runPruneLadder(options: PruneOptions): Promise<PruneResult> {
     const { repoRoot } = options;
     const apply = options.apply === true;
     const orphansOptedIn = options.pruneOrphans === true && options.yes === true;

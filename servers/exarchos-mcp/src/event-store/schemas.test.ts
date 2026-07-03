@@ -605,7 +605,11 @@ describe('EventTypes', () => {
     //   pair, distinct from the task-scoped worktree.created terminal) plus
     //   launch.executing_started / launch.executed (the child-process liveness
     //   pair, mirroring InFlightMerge's holderPid/holderStartedAt).
-    expect(EventTypes).toHaveLength(143);
+    // Bumped 143 → 145: WLM slice 3 (DR-3, epic #1574) — prune-run liveness pair
+    //   prune.executing_started / prune.executed (the INV-10 pair emitted by the
+    //   WorktreeManager around a `prune_worktrees` GC pass, folded by worktrees@v1
+    //   into `inFlightPrunes` so an in-flight prune is `ps`/`wait`-visible).
+    expect(EventTypes).toHaveLength(145);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');
@@ -622,6 +626,8 @@ describe('EventTypes', () => {
     expect(EventTypes).toContain('worktree.released');
     expect(EventTypes).toContain('worktree.orphan_detected');
     expect(EventTypes).toContain('workflow.plan-revision');
+    expect(EventTypes).toContain('prune.executing_started');
+    expect(EventTypes).toContain('prune.executed');
     // Retirement guard: init.executed removed in DR-5 (task 018).
     expect(EventTypes as readonly string[]).not.toContain('init.executed');
   });
@@ -4047,14 +4053,16 @@ describe('WLM operational-core merge lease schemas', () => {
     expect(EventTypes).toContain('worktree.merge_executed');
   });
 
-  it('EventTypes_CountPins_143_AllThreeSites', () => {
+  it('EventTypes_CountPins_145_AllThreeSites', () => {
     // The single canonical count after adding the two operational-core merge
     // types (136 foundation → 138), main's `workflow.plan-revision` merged in
-    // (138 → 139), and the harness-launcher (DR-2) create pair + launch liveness
-    // pair (139 → 143). The pinned literal at ALL THREE toHaveLength sites (this
-    // file at two sites plus the mirror __tests__/event-store/schemas.test.ts)
-    // must agree with this — a divergence means one pin was missed.
-    expect(EventTypes).toHaveLength(143);
+    // (138 → 139), the harness-launcher (DR-2) create pair + launch liveness
+    // pair (139 → 143), and the WLM slice 3 (DR-3) prune-run liveness pair
+    // prune.executing_started / prune.executed (143 → 145). The pinned literal
+    // at ALL THREE toHaveLength sites (this file at two sites plus the mirror
+    // __tests__/event-store/schemas.test.ts) must agree with this — a divergence
+    // means one pin was missed.
+    expect(EventTypes).toHaveLength(145);
     // No duplicate slipped in while bumping the count.
     expect(new Set(EventTypes).size).toBe(EventTypes.length);
   });
