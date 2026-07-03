@@ -113,8 +113,8 @@ export interface SerializeMergeDeps {
   readonly processSource?: ProcessSource;
   /** PID stamped on the claim (lease holder identity). Defaults to `process.pid`. */
   readonly selfPid?: number;
-  /** Create-time fingerprint stamped on the claim. Defaults to the resolved create-time of `selfPid`. */
-  readonly selfStartedAt?: string;
+  /** Create-time fingerprint stamped on the claim. Defaults to the resolved create-time of `selfPid`, or `null` when the platform cannot resolve it. */
+  readonly selfStartedAt?: string | null;
   /** The merge COMPOSED UNCHANGED. Defaults to the real {@link handleMergeOrchestrate}. */
   readonly mergeOrchestrate?: (
     input: HandleMergeOrchestrateInput,
@@ -218,7 +218,7 @@ async function tryClaim(
   input: SerializeMergeInput,
   operationId: string,
   holderPid: number,
-  holderStartedAt: string,
+  holderStartedAt: string | null,
 ): Promise<boolean> {
   let claimed = false;
   try {
@@ -469,13 +469,15 @@ async function waitForFreeSlot(args: WaitForFreeSlotArgs): Promise<WaitOutcome> 
 
 /**
  * Resolve the claiming process's create-time fingerprint via the injected
- * {@link ProcessSource}. A platform that cannot resolve it yields `''` — still a
- * well-formed claim; it just cannot defeat PID reuse for dead-holder probing
- * (mirrors {@link resolveOwner} in `handlers.ts`).
+ * {@link ProcessSource}. A platform that cannot resolve it yields `null` — still
+ * a well-formed claim; it just cannot defeat PID reuse for dead-holder probing.
+ * Modeled as `null` (not `''`) so the emitted `holderStartedAt` stays schema-
+ * valid (`z.string().min(1).nullable()`) rather than an out-of-contract empty
+ * string that only the projection defensively normalized.
  */
-function resolveSelfStartedAt(pid: number, source: ProcessSource): string {
+function resolveSelfStartedAt(pid: number, source: ProcessSource): string | null {
   const probe = source.getStartTime(pid);
-  return probe.status === 'present' ? probe.startedAt : '';
+  return probe.status === 'present' ? probe.startedAt : null;
 }
 
 // ─── Crash-mid-merge resume (DR-12) ──────────────────────────────────────────
@@ -616,7 +618,7 @@ async function tryReclaimLeaseForResume(
   appender: AtomicAppender,
   holder: InFlightMerge,
   selfPid: number,
-  selfStartedAt: string,
+  selfStartedAt: string | null,
   processTableSource: ProcessTableSource,
 ): Promise<boolean> {
   try {
@@ -661,7 +663,12 @@ async function tryReclaimLeaseForResume(
       },
       { operationId: randomUUID(), alwaysEnforceConsistency: false },
     );
-    return result.kind === 'committed';
+    // A cache-hit (the same keyed append already landed) is a WIN, same as a
+    // fresh commit — only a no-op (the decide closure emitted nothing: lease
+    // vanished or turned foreign-live) means we did not take the slot. Mirrors
+    // tryClaim's `!== 'no-op'` check; `=== 'committed'` would wrongly fail on a
+    // cache-hit (improbable under randomUUID, but a latent semantic inconsistency).
+    return result.kind !== 'no-op';
   } catch (err) {
     // Lost the OCC (a concurrent resumer committed first) or transient substrate
     // contention — treat as "did not win" so the caller aborts the resume.

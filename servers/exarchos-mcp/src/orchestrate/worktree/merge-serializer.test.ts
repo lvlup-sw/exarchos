@@ -19,6 +19,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { EventStore } from '../../event-store/store.js';
+import { EVENT_DATA_SCHEMAS } from '../../event-store/schemas.js';
 import type { DispatchContext } from '../../core/dispatch.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 import { writeStateFile } from '../../workflow/state-store.js';
@@ -543,6 +544,41 @@ describe('serialize_merge — the lease IS the serialization', () => {
       entry.toString().endsWith('.lock'),
     );
     expect(lockFiles).toEqual([]);
+  });
+});
+
+// ─── Test 5b: unresolved create-time emits schema-valid null holderStartedAt ───
+
+describe('serialize_merge — unresolvable create-time (Sentry #15023070/1)', () => {
+  it('SerializeMerge_UnresolvedStartTime_EmitsNullHolderStartedAt_SchemaValid', async () => {
+    const arm = await createArm();
+    const merged: string[] = [];
+    // A process source that can't resolve the caller's create-time (the off-Linux
+    // shape). Do NOT inject selfStartedAt, so resolveSelfStartedAt runs and must
+    // yield null — NOT '' — keeping the emitted event schema-valid.
+    const result = await serializeMerge(
+      { featureId: 'F', integrationRef: 'integration/nostart', sourceBranch: 'feat/x', strategy: 'merge', timeoutMs: 10_000 },
+      arm.ctx,
+      {
+        processSource: { getStartTime: () => ({ status: 'absent' as const }) },
+        selfPid: 555,
+        mergeOrchestrate: recordingMerge(merged),
+        readIntegrationHead: () => null,
+      },
+    );
+    expect(result.success).toBe(true);
+
+    const events = await arm.eventStore.query(WORKTREES_STREAM);
+    const claim = events.find((e) => e.type === 'worktree.merge_requested');
+    expect(claim).toBeDefined();
+    // Modeled as null (absence), never an out-of-contract empty string.
+    expect((claim!.data as { holderStartedAt?: unknown }).holderStartedAt).toBeNull();
+
+    // The stored raw event validates against the canonical data schema — null is
+    // in-contract now (z.string().min(1).nullable()); '' would still be rejected.
+    const schema = EVENT_DATA_SCHEMAS['worktree.merge_requested'];
+    expect(() => schema.parse(claim!.data)).not.toThrow();
+    expect(() => schema.parse({ ...claim!.data, holderStartedAt: '' })).toThrow();
   });
 });
 

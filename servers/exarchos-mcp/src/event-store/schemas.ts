@@ -2056,7 +2056,11 @@ export const WorktreeMergeRequestedData = z.object({
   sourceBranch: z.string().min(1).describe('Branch being merged into integrationRef'),
   operationId: z.string().min(1).describe('Idempotency key / lease correlator — the sole per-merge discriminator'),
   holderPid: z.number().int().describe('PID of the live process holding the merge lease (liveness ground truth)'),
-  holderStartedAt: z.string().min(1).describe('Lease-holder process start time (ISO 8601) — disambiguates PID reuse'),
+  holderStartedAt: z
+    .string()
+    .min(1)
+    .nullable()
+    .describe('Lease-holder process start time (ISO 8601) — disambiguates PID reuse; null when the platform cannot resolve it'),
   worktreeId: z
     .string()
     .min(1)
