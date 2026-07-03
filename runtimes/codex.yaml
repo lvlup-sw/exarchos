@@ -62,11 +62,11 @@ capabilities:
   hasSkillChaining: false
   mcpPrefix: "mcp__exarchos__"
 skillsInstallPath: "$HOME/.agents/skills"
-# supportedCapabilities mirrors `codexAdapter.supportLevels` (Task 4f).
-# Three-state classification:
-#   - native: the runtime has a first-class primitive
-#   - advisory: the spec may declare it but the runtime has no enforcement
-#     primitive (orchestrator-managed)
+# supportedCapabilities mirrors `codexAdapter.supportLevels` (Task 4f). The
+# three states are a capability-support signal for the prose renderer, not a
+# space or write guarantee:
+#   - native: the runtime has a first-class primitive for this capability
+#   - advisory: no first-class primitive; the capability is launcher-managed
 #   - unsupported: omitted from this map; consumers detect by absence
 # See docs/designs/2026-04-25-delegation-runtime-parity.md §4 and
 # docs/research/2026-04-25-delegation-platform-agnosticity.md §3.
@@ -77,6 +77,11 @@ supportedCapabilities:
   subagent:spawn: native
   mcp:exarchos: native
   mcp:exarchos:readonly: native
+  # isolation:worktree — launcher-managed lifecycle (DR-1/DR-3): `exarchos
+  # <harness>` owns this harness process and its top-level worktree lifecycle
+  # (create → place → observe → teardown). A lifecycle relationship, not a
+  # filesystem write guarantee — the launcher composes with whatever isolation
+  # the harness provides itself and makes no space or write claim.
   isolation:worktree: advisory
   session:resume: advisory
   # Omitted (unsupported on Codex):

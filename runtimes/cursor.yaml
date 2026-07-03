@@ -16,12 +16,12 @@
 # can be the entry point depending on how the user installed.
 #
 # `supportedCapabilities` mirrors `cursorAdapter.supportLevels` in
-# `servers/exarchos-mcp/src/agents/adapters/cursor.ts`:
+# `servers/exarchos-mcp/src/agents/adapters/cursor.ts` (a capability-support
+# signal for the prose renderer, not a space or write guarantee):
 #   - 5 native: `fs:read`, `fs:write`, `shell:exec`, `subagent:spawn`, `mcp:exarchos`
-#   - 2 advisory: `isolation:worktree` (orchestrator manages worktree
-#     fan-out; the runtime cannot enforce the boundary), `session:resume`
-#     (Cursor has session continuity but no first-class resume primitive
-#     Exarchos can bind to)
+#   - 2 advisory: `isolation:worktree` (launcher-managed lifecycle — see the
+#     inline note by that key below), `session:resume` (Cursor has session
+#     continuity but no first-class resume primitive Exarchos can bind to)
 #   - unsupported (omitted by contract): `subagent:completion-signal`,
 #     `subagent:start-signal`, `team:agent-teams` — Claude-only primitives
 #
@@ -48,6 +48,11 @@ supportedCapabilities:
   subagent:spawn: native
   mcp:exarchos: native
   mcp:exarchos:readonly: native
+  # isolation:worktree — launcher-managed lifecycle (DR-1/DR-3): `exarchos
+  # <harness>` owns this harness process and its top-level worktree lifecycle
+  # (create → place → observe → teardown). A lifecycle relationship, not a
+  # filesystem write guarantee — the launcher composes with whatever isolation
+  # the harness provides itself and makes no space or write claim.
   isolation:worktree: advisory
   session:resume: advisory
 skillsInstallPath: "~/.cursor/skills"

@@ -44,9 +44,10 @@ capabilities:
 # Fine-grained support matrix consumed by the prose renderer (Tasks 8/9)
 # to gate `<!-- requires:* -->` and `<!-- requires:native:* -->` blocks.
 # Mirrors `OpenCodeAdapter.supportLevels` in
-# `servers/exarchos-mcp/src/agents/adapters/opencode.ts`. OpenCode covers
-# fs/shell/subagent-spawn/MCP natively, treats `isolation:worktree` and
-# `session:resume` as advisory (orchestrator-managed, no first-class
+# `servers/exarchos-mcp/src/agents/adapters/opencode.ts` (a capability-support
+# signal for the prose renderer, not a space or write guarantee). OpenCode
+# covers fs/shell/subagent-spawn/MCP natively, treats `isolation:worktree` and
+# `session:resume` as advisory (launcher-managed lifecycle, no first-class
 # primitive), and rejects Claude-only signal hooks and Agent Teams —
 # those are absent from this map by contract (`unsupported` capabilities
 # are omitted entirely so the renderer can distinguish "any support"
@@ -58,6 +59,11 @@ supportedCapabilities:
   subagent:spawn: native
   mcp:exarchos: native
   mcp:exarchos:readonly: native
+  # isolation:worktree — launcher-managed lifecycle (DR-1/DR-3): `exarchos
+  # <harness>` owns this harness process and its top-level worktree lifecycle
+  # (create → place → observe → teardown). A lifecycle relationship, not a
+  # filesystem write guarantee — the launcher composes with whatever isolation
+  # the harness provides itself and makes no space or write claim.
   isolation:worktree: advisory
   session:resume: advisory
 skillsInstallPath: "~/.config/opencode/skills"
