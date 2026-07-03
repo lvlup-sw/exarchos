@@ -316,9 +316,15 @@ function clearInFlightMerge(
   if (!Object.prototype.hasOwnProperty.call(state.inFlightMerges, integrationRef)) {
     return state;
   }
+  // Fail closed: only the lease holder — proven by a MATCHING operationId — may
+  // clear it. A missing operationId cannot establish ownership, so it clears
+  // nothing (symmetric with upsertInFlightMerge, which no-ops without one),
+  // upholding the DR-7 merge-serialization guarantee even against a malformed
+  // `worktree.merge_executed` event a future change might introduce.
   const operationId = extractString(event.data, 'operationId');
+  if (!operationId) return state;
   const existing = state.inFlightMerges[integrationRef];
-  if (operationId && existing.operationId !== operationId) return state;
+  if (existing.operationId !== operationId) return state;
   const nextInFlight: Record<string, InFlightMerge> = {};
   for (const [key, value] of Object.entries(state.inFlightMerges)) {
     if (key !== integrationRef) nextInFlight[key] = value;
