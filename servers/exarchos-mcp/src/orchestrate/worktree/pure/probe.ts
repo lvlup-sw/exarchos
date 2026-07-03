@@ -15,8 +15,9 @@
  *
  *   1. **Injected enumeration.** The host process table is reached only through
  *      an injected {@link ProcessTableSource}, so the decision logic is fully
- *      unit-testable with a fake table and zero OS calls — and the macOS /
- *      Windows enumeration paths (DR-11, deferred to #1579) stay open behind the
+ *      unit-testable with a fake table and zero OS calls. Linux (`/proc`) and
+ *      win32 (`Get-CimInstance Win32_Process` + best-effort PEB cwd, DR-5) are
+ *      the real enumerators; the macOS path (DR-11, #1579) stays open behind the
  *      same seam instead of being foreclosed by a hard-coded `ps`/native call.
  *
  *   2. **Symlink-canonicalized containment.** Whether a process cwd lives inside
@@ -40,6 +41,7 @@
  */
 
 import * as fs from 'node:fs';
+import { runCommandSync } from '../../../utils/process.js';
 import {
   isPathWithin,
   defaultRealpath,
@@ -85,20 +87,21 @@ export interface ProcessTableSource {
   /**
    * Whether this platform's process enumeration is actually SUPPORTED — i.e.
    * whether an empty `list()` means "no processes" (provably) or "could not
-   * enumerate" (unknown). This is the load-bearing distinction the off-Linux
-   * fail-closed contract rests on: on a platform without a real enumerator
-   * (macOS / Windows before DR-11, #1579) `list()` returns `[]`, and treating
-   * that `[]` as "every PID is absent → every owner is provably dead" would
-   * reclaim LIVE holders (DR-7 corruption). When `isSupported()` is `false`,
-   * a PID lookup is `'unknown'` (NOT `'dead'`), so every reclaim consumer fails
-   * closed — mirroring the `unknown` three-state contract of
-   * {@link ProcessSource} in `process-identity.ts`.
+   * enumerate" (unknown). This is the load-bearing distinction the fail-closed
+   * contract rests on: on a platform without a real enumerator (macOS before
+   * DR-11, #1579) `list()` returns `[]`, and treating that `[]` as "every PID is
+   * absent → every owner is provably dead" would reclaim LIVE holders (DR-7
+   * corruption). When `isSupported()` is `false`, a PID lookup is `'unknown'`
+   * (NOT `'dead'`), so every reclaim consumer fails closed — mirroring the
+   * `unknown` three-state contract of {@link ProcessSource} in
+   * `process-identity.ts`.
    *
    * OPTIONAL purely for backward-compatibility with in-memory test doubles that
    * supply a concrete records list: an absent predicate is read as `true`
    * (supported) by {@link isTableSupported}, because such a double IS asserting
    * a real enumerated table. The real {@link defaultProcessTableSource} always
-   * declares it explicitly (`true` only on Linux).
+   * declares it explicitly (`true` on Linux and win32 — both COMPLETE
+   * enumerations, DR-5; `false` on every other platform).
    */
   isSupported?(): boolean;
 }
@@ -325,14 +328,15 @@ function isTableSupported(source: ProcessTableSource): boolean {
  * absence is authoritative (the process is provably gone), so owner liveness is
  * two-valued (`alive` / `dead`) over a real enumeration.
  *
- * When the table is UNSUPPORTED (`supported === false` — e.g. macOS / Windows
- * before DR-11, where `list()` returns `[]` because there is no enumerator),
- * a PID lookup CANNOT distinguish "absent" from "unenumerated", so it resolves
- * to `'unknown'` for EVERY pid. That propagates through {@link ownerLiveness} to
+ * When the table is UNSUPPORTED (`supported === false` — e.g. macOS before
+ * DR-11, where `list()` returns `[]` because there is no enumerator), a PID
+ * lookup CANNOT distinguish "absent" from "unenumerated", so it resolves to
+ * `'unknown'` for EVERY pid. That propagates through {@link ownerLiveness} to
  * an `'unknown'` verdict, and every reclaim consumer fails closed (never treats
  * the holder as provably dead) — mirroring the `unknown` fail-closed branch of
- * the live per-PID `defaultProcessSource`. This is the fix for the off-Linux
- * dead-holder-reclaim hole that would otherwise free a LIVE merge holder.
+ * the live per-PID `defaultProcessSource`. This is the fix for the
+ * off-supported-platform dead-holder-reclaim hole that would otherwise free a
+ * LIVE merge holder.
  */
 function tableAsProcessSource(
   byPid: ReadonlyMap<number, ProcessRecord>,
@@ -498,26 +502,195 @@ function enumerateProcLinux(): ProcessRecord[] {
   return records;
 }
 
+// ============================================================
+// Default real source (thin; win32 — DR-5)
+// ============================================================
+
 /**
- * Default {@link ProcessTableSource} backed by the real OS.
- *
- * Linux ground truth is read from `/proc`. macOS / Windows enumeration is
- * deferred to DR-11 (#1579); the injected-source seam keeps those platforms open
- * without foreclosing here. On those unsupported platforms `list()` returns `[]`
- * AND `isSupported()` returns `false`, so the empty table is read as "cannot
- * enumerate" (every PID `'unknown'`) — NOT as "every owner provably dead". That
- * is the fail-closed contract that prevents reclaiming a LIVE merge holder
- * off-Linux (DR-7), mirroring the `unknown` branch of the per-PID
- * `defaultProcessSource`. Never exercised by the unit tests (those inject a fake
- * table), so the probe core stays free of real OS calls.
+ * Reads the raw win32 process-table enumeration (the stdout of
+ * {@link WIN32_PROCESS_TABLE_COMMAND}). Injected so the win32 enumeration branch
+ * is unit-testable on the POSIX CI host — there is no Windows runner in this
+ * repo's default CI, so the win32 tests are shape-based against this seam and the
+ * pure {@link parseWin32ProcessTable}, never the real PowerShell.
  */
-export const defaultProcessTableSource: ProcessTableSource = {
-  list(): readonly ProcessRecord[] {
-    return process.platform === 'linux' ? enumerateProcLinux() : [];
-  },
-  isSupported(): boolean {
-    // Only Linux `/proc` enumeration is implemented today (DR-11 / #1579). On
-    // every other platform the empty `list()` is "unenumerated", not "empty".
-    return process.platform === 'linux';
-  },
-};
+export type Win32ProcessTableReader = () => string;
+
+/** Tab separator between the four emitted fields (`\t` can never appear in a Windows path). */
+const WIN32_FIELD_SEP = '\t';
+
+/**
+ * One-shot PowerShell that enumerates the win32 process table as TAB-separated
+ * `pid<TAB>ppid<TAB>createTime<TAB>cwd` lines — one process per line, `cwd` LAST
+ * because it is the only field that can be empty or contain spaces (a Windows
+ * path never contains a TAB or a newline). `createTime` is the process FILETIME
+ * (`CreationDate.ToFileTimeUtc()`): an opaque, monotonically-increasing 64-bit
+ * integer compared only for equality, so a reused PID yields a strictly larger
+ * value — exactly the create-time fingerprint the per-PID source in
+ * `process-identity.ts` uses.
+ *
+ * pid / ppid / createTime come from `Get-CimInstance Win32_Process`, a COMPLETE
+ * and authoritative enumeration, so a PID absent from the parsed table is
+ * provably gone — the soundness `isSupported() === true` on win32 rests on. `cwd`
+ * is resolved BEST-EFFORT by reading the process PEB
+ * (`ProcessParameters->CurrentDirectory`); a process whose PEB is not readable
+ * (a different user's process, a denied handle) emits an EMPTY cwd rather than
+ * dropping the record — so the enumeration stays complete for owner-liveness
+ * while occupancy containment degrades to best-effort for those processes
+ * (mirroring the `/proc/<pid>/cwd` EACCES skip on Linux). The inline PEB read is
+ * the real, CI-UNVERIFIED win32 edge (no Windows host in default CI); it FAILS
+ * SOFT to an empty cwd on any error (denied handle, unexpected offset), so it can
+ * never crash the probe or corrupt the pid/create-time fields. Uses `[char]`
+ * codes for TAB (9), NUL (0) and backslash (92) so the script embeds cleanly with
+ * no shell/JS escaping.
+ */
+const WIN32_PROCESS_TABLE_COMMAND = [
+  "$ErrorActionPreference = 'SilentlyContinue'",
+  '$sep = [string][char]9',
+  "$src = @'",
+  'using System;',
+  'using System.Text;',
+  'using System.Runtime.InteropServices;',
+  'public static class WlmCwd {',
+  '  [StructLayout(LayoutKind.Sequential)] struct PBI {',
+  '    public IntPtr ExitStatus; public IntPtr PebBaseAddress; public IntPtr AffinityMask;',
+  '    public IntPtr BasePriority; public IntPtr UniqueProcessId; public IntPtr InheritedFromUniqueProcessId; }',
+  '  [DllImport("ntdll.dll")] static extern int NtQueryInformationProcess(IntPtr h, int c, ref PBI p, int l, ref int r);',
+  '  [DllImport("kernel32.dll", SetLastError=true)] static extern IntPtr OpenProcess(int a, bool i, int pid);',
+  '  [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);',
+  '  [DllImport("kernel32.dll", SetLastError=true)] static extern bool ReadProcessMemory(IntPtr h, IntPtr a, byte[] b, int s, out int read);',
+  '  static long ReadPtr(IntPtr h, long addr) {',
+  '    byte[] b = new byte[IntPtr.Size]; int r;',
+  '    if (!ReadProcessMemory(h, (IntPtr)addr, b, b.Length, out r) || r != b.Length) return 0;',
+  '    return IntPtr.Size == 8 ? BitConverter.ToInt64(b, 0) : (long)BitConverter.ToInt32(b, 0); }',
+  '  public static string Get(int pid) {',
+  '    IntPtr h = OpenProcess(0x0410, false, pid); if (h == IntPtr.Zero) return "";',
+  '    try {',
+  '      PBI pbi = new PBI(); int ret = 0;',
+  '      if (NtQueryInformationProcess(h, 0, ref pbi, Marshal.SizeOf(pbi), ref ret) != 0) return "";',
+  '      long peb = (long)pbi.PebBaseAddress; if (peb == 0) return "";',
+  '      long pp = ReadPtr(h, peb + (IntPtr.Size == 8 ? 0x20 : 0x10)); if (pp == 0) return "";',
+  '      int cdOff = IntPtr.Size == 8 ? 0x38 : 0x24;',
+  '      byte[] us = new byte[IntPtr.Size == 8 ? 16 : 8]; int r;',
+  '      if (!ReadProcessMemory(h, (IntPtr)(pp + cdOff), us, us.Length, out r) || r != us.Length) return "";',
+  '      ushort len = BitConverter.ToUInt16(us, 0);',
+  '      long buf = IntPtr.Size == 8 ? BitConverter.ToInt64(us, 8) : (long)BitConverter.ToInt32(us, 4);',
+  '      if (len == 0 || buf == 0 || len > 0x7FFF) return "";',
+  '      byte[] s = new byte[len];',
+  '      if (!ReadProcessMemory(h, (IntPtr)buf, s, len, out r) || r == 0) return "";',
+  '      return Encoding.Unicode.GetString(s, 0, r);',
+  '    } catch { return ""; } finally { CloseHandle(h); } } }',
+  "'@",
+  'Add-Type -TypeDefinition $src -ErrorAction SilentlyContinue | Out-Null',
+  'Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | ForEach-Object {',
+  '  $ft = 0; try { if ($_.CreationDate) { $ft = $_.CreationDate.ToFileTimeUtc() } } catch { $ft = 0 }',
+  '  if ($ft -le 0) { return }',
+  "  $cwd = ''; try { $cwd = [WlmCwd]::Get([int]$_.ProcessId) } catch { $cwd = '' }",
+  '  if ($cwd) { $cwd = $cwd.TrimEnd([char]0).TrimEnd([char]92) }',
+  '  @([int]$_.ProcessId, [int]$_.ParentProcessId, $ft, $cwd) -join $sep',
+  '}',
+].join('\n');
+
+/**
+ * Parse the win32 process-table enumeration ({@link WIN32_PROCESS_TABLE_COMMAND}
+ * output) into {@link ProcessRecord}s. Pure: no OS access, so the win32 shape is
+ * unit-testable on the POSIX CI host.
+ *
+ * Each non-blank line is TAB-separated `pid<TAB>ppid<TAB>createTime<TAB>cwd`.
+ * pid / ppid / createTime must each be a run of digits (createTime is a FILETIME
+ * integer, opaque and equality-compared); a line missing any of them — a process
+ * that vanished mid-enumeration, or a malformed row — is skipped, mirroring the
+ * `/proc` reader's null-skip. `cwd` is field 4 onward (rejoined defensively
+ * though a path never contains a TAB) and preserved VERBATIM; containment
+ * canonicalization (the launcher's realpath / 8.3 handling) happens later, in
+ * `path-containment` (DR-5). A record with an empty cwd is kept — its PID/
+ * create-time still anchor owner-liveness — it simply never matches a worktree
+ * root, so occupancy stays best-effort for PEB-unreadable processes.
+ */
+export function parseWin32ProcessTable(raw: string): ProcessRecord[] {
+  const records: ProcessRecord[] = [];
+  for (const line of raw.split(/\r?\n/)) {
+    if (line.trim() === '') continue;
+    const fields = line.split(WIN32_FIELD_SEP);
+    if (fields.length < 3) continue;
+    const pidRaw = fields[0]?.trim() ?? '';
+    const ppidRaw = fields[1]?.trim() ?? '';
+    const startRaw = fields[2]?.trim() ?? '';
+    if (!/^\d+$/.test(pidRaw) || !/^\d+$/.test(ppidRaw) || !/^\d+$/.test(startRaw)) continue;
+    const cwd = fields.length >= 4 ? fields.slice(3).join(WIN32_FIELD_SEP).trim() : '';
+    records.push({ pid: Number(pidRaw), ppid: Number(ppidRaw), cwd, startTime: startRaw });
+  }
+  return records;
+}
+
+/** The real win32 reader: run the enumeration PowerShell through the #1623-safe shim. */
+function defaultWin32ProcessTableReader(): string {
+  // `powershell` is a real binary (not a `.cmd` shim), so `runCommandSync` is a
+  // thin pass-through here — but going through it keeps the INV-16 idiom uniform
+  // (never a direct shim spawn, #1623). A busy host's full table can exceed the
+  // default 1 MiB buffer, so widen it.
+  const out = runCommandSync(
+    'powershell',
+    ['-NoProfile', '-NonInteractive', '-Command', WIN32_PROCESS_TABLE_COMMAND],
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 * 1024 * 1024 },
+  );
+  return typeof out === 'string' ? out : out.toString('utf8');
+}
+
+/** Enumerate the win32 process table; a failed spawn/parse yields an empty table. */
+function enumerateWin32(read: Win32ProcessTableReader): ProcessRecord[] {
+  try {
+    return parseWin32ProcessTable(read());
+  } catch {
+    return [];
+  }
+}
+
+// ============================================================
+// Default real source (linux + win32; injectable platform seam)
+// ============================================================
+
+/** Injectable seams for {@link makeDefaultProcessTableSource} (default → host platform / real PowerShell). */
+export interface ProcessTableSourceDeps {
+  /** Host platform to resolve the enumerator for; defaults to `process.platform`. */
+  readonly platform?: NodeJS.Platform;
+  /** Win32 raw-table reader; defaults to the real PowerShell enumeration. Injected in tests. */
+  readonly readWin32ProcessTable?: Win32ProcessTableReader;
+}
+
+/**
+ * Build the real-OS {@link ProcessTableSource} for a platform (DR-5).
+ *
+ * Enumeration ground truth per platform:
+ *   - **linux** — `/proc` (`enumerateProcLinux`).
+ *   - **win32** — `Get-CimInstance Win32_Process` + best-effort PEB cwd
+ *     ({@link enumerateWin32}), behind the injectable {@link Win32ProcessTableReader}.
+ *   - **every other platform** — no enumerator yet (DR-11 / #1579): `list()`
+ *     returns `[]` AND `isSupported()` returns `false`, so the empty table reads
+ *     as "cannot enumerate" (every PID `'unknown'`) — NOT "every owner provably
+ *     dead". That is the fail-closed contract preventing a LIVE-merge-holder
+ *     reclaim off the supported platforms (DR-7), mirroring the `unknown` branch
+ *     of the per-PID `defaultProcessSource`.
+ *
+ * `isSupported()` is `true` on linux AND win32 because BOTH enumerations are
+ * complete: a PID absent from the parsed table is provably gone, so owner
+ * liveness is authoritative (`alive`/`dead`) there. The platform/reader seams
+ * keep the real OS calls out of the unit tests — the pure probe core is never
+ * exercised against a real table.
+ */
+export function makeDefaultProcessTableSource(deps: ProcessTableSourceDeps = {}): ProcessTableSource {
+  const platform = deps.platform ?? process.platform;
+  const readWin32 = deps.readWin32ProcessTable ?? defaultWin32ProcessTableReader;
+  return {
+    list(): readonly ProcessRecord[] {
+      if (platform === 'linux') return enumerateProcLinux();
+      if (platform === 'win32') return enumerateWin32(readWin32);
+      return [];
+    },
+    isSupported(): boolean {
+      return platform === 'linux' || platform === 'win32';
+    },
+  };
+}
+
+/** Default {@link ProcessTableSource} backed by the real OS (linux `/proc` + win32 CIM/PEB). */
+export const defaultProcessTableSource: ProcessTableSource = makeDefaultProcessTableSource();

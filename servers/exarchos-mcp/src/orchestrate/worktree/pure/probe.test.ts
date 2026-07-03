@@ -5,6 +5,8 @@ import {
   probeReservations,
   probeWorktrees,
   probeLaunchHolders,
+  makeDefaultProcessTableSource,
+  parseWin32ProcessTable,
   type ProcessRecord,
   type ProcessTableSource,
 } from './probe.js';
@@ -321,5 +323,114 @@ describe('probeLaunchHolders (DR-6)', () => {
       expect(finding.liveness).toBe('unknown');
       expect(finding.reconcilable).toBe(false);
     }
+  });
+});
+
+describe('makeDefaultProcessTableSource (win32 process source — DR-5)', () => {
+  // The exact TAB-separated `pid<TAB>ppid<TAB>FILETIME<TAB>cwd` shape
+  // `WIN32_PROCESS_TABLE_COMMAND` emits, fed through the injected reader so NO
+  // real PowerShell runs — the win32 test is shape-based (there is no Windows
+  // host in CI). FILETIMEs are opaque, equality-compared create-times.
+  const WIN32_RAW = [
+    '4242\t1000\t133600000000000000\tC:\\repo\\.worktrees\\W\\agent',
+    '5555\t4242\t133600000000000001\tC:\\repo\\.worktrees\\W\\agent\\src',
+    '77\t1\t133700000000000000\t', // PEB-unreadable → empty cwd, still enumerated
+    '', // blank line ignored
+    'not\ta\tprocess\trow', // non-numeric pid/ppid/createtime → skipped
+  ].join('\n');
+
+  it('ProcessSource_Win32_ResolvesCwdAndCreateTime', () => {
+    // Behind the SAME injected process-source seam the pure probe already uses,
+    // the win32 source resolves each process's cwd AND create-time from the
+    // shimmed enumeration — no OS access on the POSIX CI host.
+    const source = makeDefaultProcessTableSource({
+      platform: 'win32',
+      readWin32ProcessTable: () => WIN32_RAW,
+    });
+
+    // `Get-CimInstance Win32_Process` is a COMPLETE enumeration → authoritative,
+    // so an absent PID is provably gone: win32 is a SUPPORTED table.
+    expect(source.isSupported?.()).toBe(true);
+
+    // Malformed/blank rows dropped; the three well-formed processes each resolve
+    // BOTH cwd (verbatim, spaces/backslashes preserved) and create-time.
+    expect(source.list()).toEqual([
+      {
+        pid: 4242,
+        ppid: 1000,
+        cwd: 'C:\\repo\\.worktrees\\W\\agent',
+        startTime: '133600000000000000',
+      },
+      {
+        pid: 5555,
+        ppid: 4242,
+        cwd: 'C:\\repo\\.worktrees\\W\\agent\\src',
+        startTime: '133600000000000001',
+      },
+      { pid: 77, ppid: 1, cwd: '', startTime: '133700000000000000' },
+    ]);
+
+    // The resolved create-time DRIVES owner-liveness over the win32 table: a
+    // matching FILETIME is alive; a reused (mismatched) one is dead; a PID absent
+    // from the complete enumeration is provably dead (never 'unknown').
+    const findings = probeReservations(
+      [
+        { worktreePath: '/wt/live', ownerPid: 4242, ownerStartedAt: '133600000000000000' },
+        { worktreePath: '/wt/reused', ownerPid: 5555, ownerStartedAt: '133500000000000000' },
+        { worktreePath: '/wt/gone', ownerPid: 999, ownerStartedAt: 'boot-999' },
+      ],
+      source,
+    );
+    const byPath = Object.fromEntries(findings.map((f) => [f.worktreePath, f]));
+    expect(byPath['/wt/live'].liveness).toBe('alive');
+    expect(byPath['/wt/reused'].liveness).toBe('dead'); // create-time mismatch (PID reuse)
+    expect(byPath['/wt/gone'].liveness).toBe('dead'); // absent from a supported table
+  });
+
+  it('ProcessSource_UnsupportedPlatform_ReturnsUnknownFailClosed', () => {
+    // A platform with no enumerator (freebsd here; equally macOS / #1579): list()
+    // is empty AND isSupported() is false, so a PID that LOOKS gone reads as
+    // 'unknown' (NOT 'dead') and is NEVER releasable — fail closed (DR-7). The
+    // win32 reader is only consulted on win32.
+    let readerCalls = 0;
+    const source = makeDefaultProcessTableSource({
+      platform: 'freebsd',
+      readWin32ProcessTable: () => {
+        readerCalls += 1;
+        return WIN32_RAW;
+      },
+    });
+
+    expect(source.isSupported?.()).toBe(false);
+    expect(source.list()).toEqual([]);
+    expect(readerCalls).toBe(0); // off-win32 never runs the win32 enumeration
+
+    const findings = probeReservations(
+      [{ worktreePath: '/wt/a', ownerPid: 4242, ownerStartedAt: 'boot-4242' }],
+      source,
+    );
+    expect(findings[0].liveness).toBe('unknown');
+    expect(findings[0].releasable).toBe(false);
+  });
+
+  it('Win32ProcessTable_Parses_SkipsMalformed_KeepsEmptyCwd_PreservesSpaces', () => {
+    // Parser contract: numeric pid/ppid/createTime required (else the row is a
+    // vanished/malformed process → skipped); cwd is field 4 onward, preserved
+    // VERBATIM (spaces/backslashes intact) for the later realpath canonicalizer;
+    // a row with no cwd field keeps cwd '' so its PID/create-time still anchor
+    // owner-liveness.
+    const raw = [
+      '10\t2\t133600000000000000\tC:\\a b\\wt', // spaces in cwd preserved
+      '   ', // whitespace-only ignored
+      'x\t2\t3\tC:\\bad', // non-numeric pid → skipped
+      '11\ty\t3\tC:\\bad', // non-numeric ppid → skipped
+      '12\t2\tnope\tC:\\bad', // non-numeric createtime → skipped
+      '13\t2\t7', // no cwd field → cwd '' kept
+    ].join('\n');
+
+    expect(parseWin32ProcessTable(raw)).toEqual([
+      { pid: 10, ppid: 2, cwd: 'C:\\a b\\wt', startTime: '133600000000000000' },
+      { pid: 13, ppid: 2, cwd: '', startTime: '7' },
+    ]);
   });
 });
