@@ -477,7 +477,9 @@ export async function handleViewWait(
       ? args.timeoutMs
       : DEFAULT_WAIT_TIMEOUT_MS;
 
-  const manager = buildManager(ctx);
+  // Pass `deps` through so injected DI seams (processTableSource / realpath) are
+  // honored, matching handleViewPs — see the width-subtyping note there.
+  const manager = buildManager(ctx, deps);
   const result = await manager.waitForMergeTerminal(integrationRef, {
     timeoutMs,
     ...(deps?.sleep !== undefined ? { sleep: deps.sleep } : {}),

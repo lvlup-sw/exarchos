@@ -11,7 +11,7 @@
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import * as os from 'node:os';
@@ -537,8 +537,12 @@ describe('serialize_merge — the lease IS the serialization', () => {
     );
     expect(result.success).toBe(true);
 
-    const lockFiles = execFileSync('find', [arm.stateDir, '-name', '*.lock'], { encoding: 'utf-8' }).trim();
-    expect(lockFiles).toBe('');
+    // Cross-platform recursive walk — never shell out to `find` (on Windows that
+    // resolves to C:\Windows\System32\find.exe, whose syntax differs entirely).
+    const lockFiles = readdirSync(arm.stateDir, { recursive: true }).filter((entry) =>
+      entry.toString().endsWith('.lock'),
+    );
+    expect(lockFiles).toEqual([]);
   });
 });
 
