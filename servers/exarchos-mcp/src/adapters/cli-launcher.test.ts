@@ -59,13 +59,17 @@ async function initRepo(dir: string): Promise<string> {
   await writeFile(path.join(dir, 'README.md'), '# cli launcher wiring test\n');
   git(dir, ['add', '.']);
   git(dir, ['commit', '-q', '-m', 'init']);
-  return realpathSync(dir);
+  // `.native` (not the JS `realpathSync`) so Windows 8.3 SHORT names are expanded
+  // to their long form — mirroring production's `defaultRealpath`, so the path the
+  // launcher derives (via `deriveWorktreePath`) matches this test's expectation on
+  // the windows-latest runner (whose `os.tmpdir()` is an 8.3 `RUNNER~1` path).
+  return realpathSync.native(dir);
 }
 
 async function addBaseWorktree(repo: string, workdir: string): Promise<string> {
   const base = path.join(workdir, 'base-wt');
   git(repo, ['worktree', 'add', '-q', base, '-b', 'base-branch']);
-  return realpathSync(base);
+  return realpathSync.native(base);
 }
 
 // ── Controllable fake spawn (auto-exits with a fixed outcome) ────────────────
@@ -206,7 +210,9 @@ describe('exarchos <harness> launcher CLI wiring (DR-1 / DR-6, R-1)', () => {
     expect(fake.calls[0].command).toBe('claude');
     // ...and the child was placed IN the created sibling worktree (not '.').
     const expectedPath = deriveWorktreePath(base, 'exarchos-claude-code');
-    expect(realpathSync(fake.calls[0].cwd)).toBe(realpathSync(expectedPath));
+    // `.native` on both sides so Windows 8.3 short names are expanded consistently
+    // (see `initRepo`/`addBaseWorktree`) — matching production's `defaultRealpath`.
+    expect(realpathSync.native(fake.calls[0].cwd)).toBe(realpathSync.native(expectedPath));
     expect(existsSync(fake.calls[0].cwd)).toBe(true);
 
     // The launch ran to its guaranteed terminal.

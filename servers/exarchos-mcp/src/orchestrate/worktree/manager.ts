@@ -252,10 +252,14 @@ function gitCapture(
   // `git` writes its failure diagnostics to stderr, not stdout — surface both so
   // a non-zero status carries a meaningful message (a bare stdout is empty on a
   // failed `git worktree add`, which would otherwise produce an unhelpful error).
+  // When the spawn itself fails BEFORE git launches (ENOENT, timeout kill),
+  // `status` is null and the diagnostic lives on `result.error` instead — fold it
+  // into the stderr fallback so callers never get an empty message on spawn failure.
+  const stderr = result.stderr ?? '';
   return {
     status: result.status ?? 1,
     stdout: result.stdout ?? '',
-    stderr: result.stderr ?? '',
+    stderr: stderr || (result.error?.message ?? ''),
   };
 }
 

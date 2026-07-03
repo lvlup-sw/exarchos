@@ -67,7 +67,11 @@ async function initRepo(dir: string): Promise<string> {
   await writeFile(path.join(dir, 'README.md'), '# launcher create test\n');
   git(dir, ['add', '.']);
   git(dir, ['commit', '-q', '-m', 'init']);
-  return realpathSync(dir);
+  // `.native` (not the JS `realpathSync`) so Windows 8.3 SHORT names are expanded
+  // to their long form — mirroring production's `defaultRealpath`, so the path the
+  // launcher derives (via `deriveWorktreePath`) matches this test's expectation on
+  // the windows-latest runner (whose `os.tmpdir()` is an 8.3 `RUNNER~1` path).
+  return realpathSync.native(dir);
 }
 
 /** Raw persisted events on the `worktrees` stream (sync read backend). */
@@ -96,7 +100,7 @@ async function projection(store: EventStore): Promise<WorktreesProjection> {
 async function addBaseWorktree(repo: string, workdir: string): Promise<string> {
   const base = path.join(workdir, 'base-wt');
   git(repo, ['worktree', 'add', '-q', base, '-b', 'base-branch']);
-  return realpathSync(base);
+  return realpathSync.native(base);
 }
 
 /** A git runner that records every argument vector, delegating to real git. */
