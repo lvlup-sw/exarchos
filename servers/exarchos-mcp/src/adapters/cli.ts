@@ -17,6 +17,8 @@ import {
   VALIDATION_ERROR_CODE,
 } from './schema-to-flags.js';
 import { HandleMergeOrchestrateArgsSchema } from '../orchestrate/merge-orchestrate.js';
+import { TIER1_HARNESSES } from '../launcher/harness-registry.js';
+import { runLauncherVerb, renderDryRunPlan, isDryRunPlan } from '../launcher/verb.js';
 import type { FollowSubcommand } from '../cli/follow-formatter.js';
 import { prettyPrint, printError, toCliResult } from './cli-format.js';
 // NOTE: `./schema-introspection.js` is intentionally NOT imported at the top
@@ -1112,6 +1114,64 @@ export function buildCli(ctx: DispatchContext): Command {
       // continuing; HANDLER_ERROR (2) rather than a "command not found" exit.
       process.exitCode = CLI_EXIT_CODES.HANDLER_ERROR;
     });
+
+  // ─── Top-level `exarchos <harness>` launcher verbs (DR-1, task 004) ──────
+  //
+  // A CLI-only process-supervisor verb (the stdio MCP surface can't own a
+  // child's lifecycle), registered as ONE top-level command per Tier-1
+  // harness so an operator types `exarchos claude-code --dry-run` — the
+  // Aspire-style `exarchos <harness>` surface. The harness enum, path
+  // derivation, dry-run event plan, and the non-dry-run `NOT_WIRED` seam all
+  // live in `launcher/verb.ts`; this block is a thin Commander adapter over
+  // `runLauncherVerb`.
+  //
+  // `--dry-run` prints the derived worktree path + event plan (human-readable
+  // via `renderDryRunPlan`, or the raw envelope under `--json`) WITHOUT
+  // creating a worktree or spawning. The real non-dry-run lifecycle spawn is
+  // wired in task 010 (which injects the `lifecycle` runner); until then a
+  // non-dry-run launch surfaces the structured `NOT_WIRED` result as a
+  // HANDLER_ERROR (exit 2).
+  for (const harness of TIER1_HARNESSES) {
+    program
+      .command(harness)
+      .description(
+        `Launch the ${harness} harness through the Exarchos lifecycle (spawn → place → observe → teardown). Use --dry-run to preview the derived worktree path + event plan.`,
+      )
+      .option('--feature <id>', 'Feature id to associate with the launch worktree')
+      .option(
+        '--dry-run',
+        'Print the derived worktree path + event plan without creating a worktree or spawning a process',
+      )
+      .option('--json', 'Output raw JSON')
+      .action(async (opts: Record<string, unknown>) => {
+        const isJson = Boolean(opts.json);
+        const feature = typeof opts.feature === 'string' ? opts.feature : undefined;
+        const dryRun = Boolean(opts.dryRun);
+
+        const result = await runLauncherVerb(
+          { harness, feature, dryRun },
+          { base: process.cwd() },
+        );
+
+        // Dry-run success in human mode → render the plan; JSON mode falls
+        // through to the shared envelope emitter so machine consumers get one
+        // shape (INV-2 facade equivalence).
+        if (result.success && !isJson && isDryRunPlan(result.data)) {
+          process.stdout.write(`${renderDryRunPlan(result.data)}\n`);
+          process.exitCode = CLI_EXIT_CODES.SUCCESS;
+          return;
+        }
+
+        emitResult(result, isJson);
+        if (result.success) {
+          process.exitCode = CLI_EXIT_CODES.SUCCESS;
+        } else if (result.error?.code === VALIDATION_ERROR_CODE) {
+          process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
+        } else {
+          process.exitCode = CLI_EXIT_CODES.HANDLER_ERROR;
+        }
+      });
+  }
 
   return program;
 }
