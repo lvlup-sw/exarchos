@@ -25,6 +25,7 @@ import {
 } from './manager.js';
 import {
   defaultProcessSource,
+  resolveStartedAt,
   type ProcessSource,
 } from './pure/process-identity.js';
 import {
@@ -83,14 +84,18 @@ function optionalBoolean(value: unknown): boolean | undefined {
  *     persist a fingerprint NO real process ever had — a reservation that can
  *     never be matched against a live process (ownership corruption).
  *
- * A platform that cannot resolve the current process's create-time yields `''`
- * (still a well-formed reservation; it just cannot defeat PID reuse).
+ * A platform that cannot resolve the current process's create-time yields `null`
+ * — NEVER the empty string `''` (DR-5). The reservation is still well-formed (it
+ * just cannot defeat PID reuse), and `null` threads through the null-ready
+ * `WorktreeReservedData.ownerStartedAt` instead of tripping the `''`-vs-`.min(1)`
+ * invalid-raw-event class. An EXPLICIT owner override still demands a non-empty
+ * create-time (a caller stamping on behalf of a child knows the real value).
  */
 function resolveOwner(
   rest: Record<string, unknown>,
   processSource: ProcessSource,
 ):
-  | { ok: true; owner: { ownerPid: number; ownerStartedAt: string } }
+  | { ok: true; owner: { ownerPid: number; ownerStartedAt: string | null } }
   | { ok: false; error: string } {
   const hasPid = rest.ownerPid !== undefined;
   const hasStartedAt = rest.ownerStartedAt !== undefined;
@@ -120,10 +125,10 @@ function resolveOwner(
     return { ok: true, owner: { ownerPid: explicitPid, ownerStartedAt: explicitStartedAt } };
   }
 
-  // Neither explicit → derive BOTH from the current process.
+  // Neither explicit → derive BOTH from the current process. An unresolvable
+  // create-time resolves to `null` (never `''`, DR-5) via the pure seam.
   const ownerPid = process.pid;
-  const probe = processSource.getStartTime(ownerPid);
-  const ownerStartedAt = probe.status === 'present' ? probe.startedAt : '';
+  const ownerStartedAt = resolveStartedAt(processSource, ownerPid);
   return { ok: true, owner: { ownerPid, ownerStartedAt } };
 }
 

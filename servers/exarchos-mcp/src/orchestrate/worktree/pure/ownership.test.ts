@@ -83,6 +83,27 @@ describe('reservationLiveness', () => {
     expect(reservationLiveness(e, source)).toBe('dead');
   });
 
+  it('ReservationLiveness_NullOwnerStartedAt_TreatedFailClosed', () => {
+    // DR-5: a reservation whose owner create-time is null (the platform could not
+    // resolve it at reserve time — threaded as null, NEVER '') has NO attributable
+    // live owner. Liveness fails closed toward reclamation: it is 'dead' (never
+    // 'alive'/'unknown'), so the heal fold can free a phantom that can never be
+    // matched to a live process — even when the recorded PID is present with a
+    // live-looking create-time in the table.
+    const nullStart = entry({ ownerPid: 100, ownerStartedAt: null });
+    const livePidSource = sourceFrom({ 100: 'boot-100' });
+    expect(reservationLiveness(nullStart, livePidSource)).toBe('dead');
+
+    // Independent of the probe outcome: an unprobeable source yields 'dead' too —
+    // the null owner descriptor short-circuits before the source is consulted.
+    expect(reservationLiveness(nullStart, UNKNOWN_SOURCE)).toBe('dead');
+
+    // And such a reservation is selected for release by the heal fold.
+    expect(
+      selectDeadReservations([nullStart], livePidSource).map((e) => e.worktreeId),
+    ).toEqual([nullStart.worktreeId]);
+  });
+
   it('NonReservedState_IsDead', () => {
     const source = sourceFrom({ 100: 'boot-100' });
     for (const state of ['adopted', 'released', 'orphan'] as WorktreeState[]) {

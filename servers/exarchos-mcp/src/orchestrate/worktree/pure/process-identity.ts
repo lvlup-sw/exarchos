@@ -121,6 +121,27 @@ export function ownerLiveness(owner: OwnerDescriptor, source: ProcessSource): Ow
   return probe.startedAt === owner.ownerStartedAt ? 'alive' : 'dead';
 }
 
+/**
+ * Resolve `pid`'s create-time fingerprint to a NON-EMPTY string, or `null` when
+ * the platform cannot resolve it — the create-time-resolution seam a caller uses
+ * to stamp `ownerStartedAt` on a reservation (DR-5).
+ *
+ * Coalesces every non-resolvable outcome to `null`: an `absent`/`unknown` probe,
+ * OR a `present` probe whose create-time is the empty string. It NEVER returns
+ * `''` — an empty create-time is a value NO liveness probe can equality-match, so
+ * persisting it would be the `''`-vs-`.min(1)` invalid-raw-event class; `null`
+ * threads cleanly through the null-ready `WorktreeReservedData.ownerStartedAt`
+ * and is correctly read as "no attributable live owner" (fail-closed). Mirrors
+ * the launcher's `holderStartedAt` resolution. Pure over the injected
+ * {@link ProcessSource}; performs no OS access itself.
+ */
+export function resolveStartedAt(source: ProcessSource, pid: number): string | null {
+  const probe = source.getStartTime(pid);
+  return probe.status === 'present' && probe.startedAt.length > 0
+    ? probe.startedAt
+    : null;
+}
+
 // ============================================================
 // Default real source (portable; thin)
 // ============================================================

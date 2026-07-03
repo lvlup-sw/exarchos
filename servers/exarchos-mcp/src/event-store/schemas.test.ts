@@ -3890,6 +3890,39 @@ describe('WLM worktree lifecycle schemas', () => {
     expect(adopted.ownerPid).toBeNull();
   });
 
+  it('WorktreeSchemas_ReservedOwnerStartedAt_NullReadyNeverEmptyString', () => {
+    // DR-5: `worktree.reserved` may carry ownerStartedAt: null when the platform
+    // cannot resolve the reserving process's create-time — mirroring the
+    // launcher's `.min(1).nullable()` holderStartedAt. A NON-EMPTY string is
+    // still accepted (the resolved case), and the reservation keeps its non-null
+    // ownerPid, but the empty string `''` is the ONE forbidden value: it would
+    // reconstitute the `''`-vs-`.min(1)` invalid-raw-event class this closes.
+    const base = {
+      worktreeId: '/repo/.worktrees/agent-abc',
+      path: '/repo/.worktrees/agent-abc',
+      featureId: 'feat-001',
+      operationId: randomUUID(),
+      ownerPid: 4242,
+    };
+
+    // null create-time → accepted (the create-time-unresolvable platform).
+    const nullStart = WorktreeReservedData.parse({ ...base, ownerStartedAt: null });
+    expect(nullStart.ownerStartedAt).toBeNull();
+    expect(nullStart.ownerPid).toBe(4242);
+
+    // resolved non-empty create-time → accepted (defeats PID reuse).
+    const resolved = WorktreeReservedData.parse({
+      ...base,
+      ownerStartedAt: '2026-06-25T00:00:00.000Z',
+    });
+    expect(resolved.ownerStartedAt).toBe('2026-06-25T00:00:00.000Z');
+
+    // empty string → REJECTED (never persist '' — that is the invalid class).
+    expect(() =>
+      WorktreeReservedData.parse({ ...base, ownerStartedAt: '' }),
+    ).toThrow();
+  });
+
   it('WorktreeSchemas_ReuseExistingRemoveRequestedExecuted_NotDuplicated', () => {
     // GC deletion REUSES the remove pair — no `worktree.pruned` type is
     // introduced. (The `worktree.merge_*` pair IS introduced separately by the

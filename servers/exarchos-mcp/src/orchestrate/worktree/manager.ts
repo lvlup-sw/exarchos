@@ -605,16 +605,25 @@ export interface ReserveInput {
   readonly featureId: string | null;
   /** PID of the reserving (live) process. */
   readonly ownerPid: number;
-  /** Reserving process's create-time fingerprint (opaque, compared for equality). */
-  readonly ownerStartedAt: string;
+  /**
+   * Reserving process's create-time fingerprint (opaque, compared for equality),
+   * or `null` when the platform cannot resolve it. NEVER the empty string `''`:
+   * a create-time-unresolvable platform threads `null` end-to-end (DR-5), mirroring
+   * the launcher's null-ready `holderStartedAt`. A `null` owner create-time cannot
+   * be matched to a live process, so liveness treats it fail-closed (reclaimable).
+   */
+  readonly ownerStartedAt: string | null;
 }
 
 /** The live-process identity of a reservation owner (PID + create-time). */
 export interface ReservationOwner {
   /** PID of the owning process. */
   readonly ownerPid: number;
-  /** The owning process's opaque create-time fingerprint (equality-compared). */
-  readonly ownerStartedAt: string;
+  /**
+   * The owning process's opaque create-time fingerprint (equality-compared), or
+   * `null` when the platform could not resolve it (DR-5 — never `''`).
+   */
+  readonly ownerStartedAt: string | null;
 }
 
 /** Outcome of a {@link WorktreeManager.reserve} call. */

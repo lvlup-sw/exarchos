@@ -18,6 +18,7 @@ import { handleView } from '../../views/composite.js';
 import {
   handleAcquireWorktree,
   handleReleaseWorktree,
+  handleViewWorktrees,
 } from './handlers.js';
 import { WORKTREES_STREAM, type GitWorktreeProbe } from './manager.js';
 import type { ProcessSource, StartTimeProbe } from './pure/process-identity.js';
@@ -41,6 +42,15 @@ const EMPTY_PROBE: GitWorktreeProbe = {
 /** Fixed, present create-time so reserve is byte-stable and OS-free. */
 const FIXED_SOURCE: ProcessSource = {
   getStartTime: (): StartTimeProbe => ({ status: 'present', startedAt: 'fixed-start' }),
+};
+
+/**
+ * A ProcessSource whose create-time probe can NEVER resolve (permission error /
+ * missing tool / unsupported platform) — models the DR-5 create-time-unresolvable
+ * platform so the derived reservation owner must fall back to `null`, never `''`.
+ */
+const UNRESOLVABLE_SOURCE: ProcessSource = {
+  getStartTime: (): StartTimeProbe => ({ status: 'unknown' }),
 };
 
 const DEPS = { gitProbe: EMPTY_PROBE, processSource: FIXED_SOURCE };
@@ -117,6 +127,45 @@ describe('resolveOwner all-or-nothing (acquire_worktree)', () => {
     const result = await handleAcquireWorktree(baseArgs, arm.ctx, DEPS);
     expect(result.success).toBe(true);
     expect((result.data as { reserved?: boolean }).reserved).toBe(true);
+  });
+});
+
+// ─── DR-5: null-ready ownerStartedAt (never the empty string) ─────────────────
+
+describe('DR-5 null-ready ownerStartedAt (acquire_worktree)', () => {
+  it('Reserve_UnresolvableCreateTime_StoresNullNeverEmptyString', async () => {
+    const arm = await createArm();
+
+    // Derive the owner from the current process on a platform whose create-time
+    // probe cannot resolve — the reservation must persist ownerStartedAt as null,
+    // NOT the empty string. A `''` would trip the schema's `.min(1)` and never
+    // fold into a matchable owner (the invalid-raw-event class DR-5 closes).
+    const result = await handleAcquireWorktree(
+      { repoRoot: '/tmp/wlm-h-repo', worktreeId: '/tmp/wlm-h-nullstart' },
+      arm.ctx,
+      { gitProbe: EMPTY_PROBE, processSource: UNRESOLVABLE_SOURCE },
+    );
+
+    // The reserve SUCCEEDS (a well-formed reservation) rather than throwing on a
+    // schema-rejected empty create-time.
+    expect(result.success).toBe(true);
+    expect((result.data as { reserved?: boolean }).reserved).toBe(true);
+
+    // The persisted `worktree.reserved` event carries null — not '' — for the
+    // owner create-time, so it validated against `.min(1).nullable()` and folds
+    // to a null-owner reservation.
+    const events = await arm.ctx.eventStore.query(WORKTREES_STREAM);
+    const reserved = events.filter((e) => e.type === 'worktree.reserved');
+    expect(reserved).toHaveLength(1);
+    expect(reserved[0].data?.ownerStartedAt).toBeNull();
+    expect(reserved[0].data?.ownerStartedAt).not.toBe('');
+
+    // The folded projection agrees: the reserved entry holds ownerStartedAt: null.
+    const view = await handleViewWorktrees({}, arm.ctx, {});
+    const worktrees = (view.data as { worktrees: WorktreeEntry[] }).worktrees;
+    const entry = worktrees.find((w) => w.worktreeId === '/tmp/wlm-h-nullstart');
+    expect(entry?.state).toBe('reserved');
+    expect(entry?.ownerStartedAt).toBeNull();
   });
 });
 

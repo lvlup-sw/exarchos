@@ -2050,9 +2050,13 @@ export const WorktreeRemoveExecutedData = z.object({
  * Keys are minted by callers; the schema's contract is only that every
  * lifecycle payload carries `operationId` so callers can build the key.
  *
- * `ownerPid` / `ownerStartedAt` identify the holding process and are non-null
- * only on `worktree.reserved` (the reservation records who holds the lease);
- * the other three may pass null.
+ * `ownerPid` / `ownerStartedAt` identify the holding process. `ownerPid` is
+ * non-null only on `worktree.reserved` (the reservation records who holds the
+ * lease); `ownerStartedAt` is a NON-EMPTY create-time fingerprint on a reserved
+ * event when the platform can resolve it, or null when it cannot (DR-5 — a
+ * create-time-unresolvable platform reserves with `ownerStartedAt: null`, NEVER
+ * the empty string `''`; the `.min(1).nullable()` shape mirrors the launcher's
+ * `holderStartedAt`). The other three lifecycle events may pass null for both.
  */
 const WorktreeLifecycleBaseData = z.object({
   worktreeId: z.string().min(1).describe('Canonical (symlink-resolved) worktree path — stable identity'),
@@ -2068,7 +2072,11 @@ export const WorktreeAdoptedData = WorktreeLifecycleBaseData.extend({
 
 export const WorktreeReservedData = WorktreeLifecycleBaseData.extend({
   ownerPid: z.number().int().describe('PID of the reserving process (non-null for reservations)'),
-  ownerStartedAt: z.string().min(1).describe('Reserving process start time (ISO 8601, non-null for reservations)'),
+  ownerStartedAt: z
+    .string()
+    .min(1)
+    .nullable()
+    .describe('Reserving process start time (ISO 8601) — non-empty when resolved, or null when the platform cannot resolve create-time (DR-5, never the empty string)'),
 });
 
 export const WorktreeReleasedData = WorktreeLifecycleBaseData.extend({
