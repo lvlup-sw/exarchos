@@ -61,9 +61,11 @@ export interface ReconcileLaunchesResult {
    */
   readonly reconciled: readonly string[];
   /**
-   * The `worktreeId`s left in-flight — the holder is live, or its liveness is
-   * unprovable (`'unknown'` / uncaptured / unsupported table). Fail closed: a
-   * live supervisor's launch is never reconciled away.
+   * The `worktreeId`s left in-flight — the holder is live, its liveness is
+   * unprovable (`'unknown'` / uncaptured / unsupported table), OR its terminal
+   * append failed this pass (isolated so it does not sink the others; a later
+   * pass retries it). Fail closed: a live supervisor's launch is never reconciled
+   * away.
    */
   readonly leftInFlight: readonly string[];
   /** Total in-flight launches probed this pass. */
@@ -100,16 +102,30 @@ export async function reconcileLaunches(
   const reconciled: string[] = [];
   const leftInFlight: string[] = [];
   for (const finding of findings) {
-    if (finding.reconcilable) {
-      // Supervisor provably dead → the terminal will never be written by the
-      // launcher; write it through the idempotent seam so the reducer clears the
-      // phantom in-flight marker. `null` exitCode = uncaptured / signalled death.
+    if (!finding.reconcilable) {
+      leftInFlight.push(finding.worktreeId);
+      continue;
+    }
+    // Supervisor provably dead → the terminal will never be written by the
+    // launcher; write it through the idempotent seam so the reducer clears the
+    // phantom in-flight marker. `null` exitCode = uncaptured / signalled death.
+    //
+    // Isolate per-finding failure: a single append that retries out (e.g.
+    // `withStateRetry` exhausted) must NOT sink the whole pass. Earlier terminals
+    // already written stay reconciled, every later finding is still processed, and
+    // the failed `worktreeId` is reported as left-in-flight so a subsequent
+    // on-demand pass retries it (the terminal seam is idempotent, so a retry is
+    // safe). Kept SEQUENTIAL — not `Promise.allSettled` — because every append
+    // lands on the singleton `worktrees` stream, whose in-process
+    // StreamLockManager already serializes same-stream appends (INV-7); running
+    // them concurrently buys no parallelism and only obscures ordering.
+    try {
       await emitLaunchExecuted(eventStore, {
         worktreeId: finding.worktreeId,
         exitCode: null,
       });
       reconciled.push(finding.worktreeId);
-    } else {
+    } catch {
       leftInFlight.push(finding.worktreeId);
     }
   }

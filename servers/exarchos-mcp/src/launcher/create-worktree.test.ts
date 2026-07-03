@@ -413,6 +413,74 @@ describe('createLauncherWorktree (real git + real event store)', () => {
     for (const c of calls) expect(c[0]).toBe('worktree');
   });
 
+  // ─── a failed git worktree add surfaces git's stderr diagnostic ───────────
+  // Regression (Sentry MEDIUM, PR #1632): `gitCapture`/`GitRunner` used to drop
+  // stderr and return the (empty) stdout as the error, so WORKTREE_CREATE_FAILED
+  // carried no diagnostic. Drive a REAL git failure (a `-b` branch collision with
+  // the already-existing `work` branch) through the real runner and assert the
+  // failure result carries git's actual message.
+  it('Create_GitAddFails_SurfacesStderrDiagnostic', async () => {
+    const result = await createLauncherWorktree(
+      store,
+      // `work` already exists (the repo's initial branch) → `git worktree add -b
+      // work …` fails with "fatal: a branch named 'work' already exists".
+      { baseWorktree: base, id: 'wt-add-fail', featureId: null, newBranch: 'work', repoRoot: repo },
+      { ...OWNER },
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok || result.reason !== 'git-add-failed') {
+      throw new Error(`expected git-add-failed, got ${JSON.stringify(result)}`);
+    }
+    // The real git diagnostic (on stderr) is surfaced — not an empty string.
+    expect(result.stderr.trim().length).toBeGreaterThan(0);
+    expect(result.stderr).toContain('already exists');
+    // The INV-13 intent is left open (no terminal) for a recovery pass.
+    expect(eventsOfType(store, CREATE_REQUESTED)).toHaveLength(1);
+    expect(eventsOfType(store, CREATE_EXECUTED)).toHaveLength(0);
+  });
+
+  // ─── the intent persists the requested branch for faithful crash-resume ────
+  it('Create_IntentPersistsRequestedBranch', async () => {
+    const result = await createLauncherWorktree(
+      store,
+      { baseWorktree: base, id: 'wt-persist-b', featureId: null, newBranch: 'launch-persist', repoRoot: repo },
+      { ...OWNER },
+    );
+    expect(result.ok).toBe(true);
+    // The durable intent captures the `-b` branch so recovery can replay it (INV-13).
+    expect(strField(eventsOfType(store, CREATE_REQUESTED)[0], 'branch')).toBe('launch-persist');
+  });
+
+  // ─── crash-resume replays the ORIGINAL branch, not a path-derived one ──────
+  // Regression (CodeRabbit MAJOR, PR #1632): `recoverPendingCreations` rebuilt the
+  // add from the path alone, so a resumed create that originally used `-b` would
+  // land on a DIFFERENT branch (git deriving one from the path basename). The
+  // intent now carries `branch`, so resume replays `git worktree add -b <branch>`.
+  it('Create_CrashResume_ReplaysOriginalBranch', async () => {
+    const absentPath = path.join(workdir, 'resumed-with-branch');
+    const absentId = canonicalWorktreeId(absentPath);
+    const op = '33333333-3333-4333-8333-333333333333';
+    // A branch name deliberately DISTINCT from the path basename, so a
+    // path-derived branch would be observably wrong.
+    const requestedBranch = 'launch-resumed-feature';
+    await store.append(
+      WORKTREES_STREAM,
+      {
+        type: CREATE_REQUESTED,
+        data: { operationId: op, worktreePath: absentPath, worktreeId: absentId, branch: requestedBranch },
+      },
+      { idempotencyKey: `${CREATE_REQUESTED}:${op}` },
+    );
+    expect(existsSync(absentPath)).toBe(false);
+
+    const recovered = await recoverPendingCreations(store, repo);
+    expect(recovered.find((r) => r.operationId === op)?.created).toBe(true);
+    expect(existsSync(absentPath)).toBe(true);
+    // The resumed worktree is on the ORIGINALLY-REQUESTED branch — proof the
+    // persisted `-b` was replayed rather than derived from the path basename.
+    expect(git(absentPath, ['symbolic-ref', '--short', 'HEAD'])).toBe(requestedBranch);
+  });
+
   // ─── the flow never emits the task-scoped worktree.created ────────────────
 
   it('Create_DoesNotEmitWorktreeCreated', async () => {

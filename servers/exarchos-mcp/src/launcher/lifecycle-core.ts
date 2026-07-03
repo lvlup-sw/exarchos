@@ -324,6 +324,11 @@ export async function runLifecycle(
   // live child); the uninstaller is called in the `finally` so no handler
   // outlives the launch. Undefined until installed (spawn-failure path).
   let uninstallSignals: (() => void) | undefined;
+  // The live child, tracked so the `finally` can guarantee it is reaped even when
+  // a post-spawn step throws. Set right after a successful spawn and CLEARED the
+  // instant its exit is cleanly observed — so the finally kills it ONLY on the
+  // post-spawn error path (see the finally below).
+  let liveChild: ChildHandle | undefined;
   try {
     // ── (4) Liveness CLAIM (supervisor holderPid), BEFORE the spawn. ──────────
     await emitExecutingStarted(eventStore, { worktreeId, holderPid, holderStartedAt });
@@ -338,6 +343,7 @@ export async function runLifecycle(
       return spawnFailureResult(err);
     }
     childPid = child.pid;
+    liveChild = child;
 
     // ── (5b) Install signal handlers over the live child (DR-6). ──────────────
     // A trapped SIGINT/SIGTERM forwards to the child, runs the SAME guaranteed-
@@ -353,6 +359,8 @@ export async function runLifecycle(
     // ── (6) Observe: await the child's exit. ──────────────────────────────────
     const exit = await child.exit;
     exitCode = exit.code;
+    // Cleanly observed → the child is gone; the finally must NOT kill it.
+    liveChild = undefined;
 
     // ── (7) Teardown exactly once: emit the guaranteed terminal + release. ────
     await teardownOnce(exitCode);
@@ -367,10 +375,41 @@ export async function runLifecycle(
     };
     return { success: true, data };
   } finally {
-    // Uninstall the signal handlers so none outlives the launch, THEN guarantee
-    // the terminal-once even if a throw slipped between claim and observe.
+    // Uninstall the signal handlers so none outlives the launch.
     uninstallSignals?.();
+    // Guard the post-spawn failure path: if `installSignals` or `await child.exit`
+    // threw/rejected with the child still live, neither the normal-exit nor the
+    // signal path reaped it — kill and reap it here so no orphan survives an error
+    // path. A cleanly-observed exit cleared `liveChild`, so this runs ONLY on the
+    // failure path; it also drops the child before teardown's occupancy probe.
+    if (liveChild !== undefined) {
+      await killAndReapChild(liveChild);
+    }
+    // THEN guarantee the terminal-once even if a throw slipped between claim and
+    // observe (idempotent; a no-op if the try body or signal path already fired).
     await teardownOnce(exitCode);
+  }
+}
+
+/**
+ * Best-effort kill-and-reap of a still-live child on the post-spawn ERROR path
+ * (an `installSignals` throw or an `await child.exit` rejection). SIGKILL is
+ * uncatchable so the child terminates promptly; awaiting `exit` afterwards
+ * collects it so THIS parent reaps it rather than leaving an orphan reparented to
+ * init. Both steps swallow their own errors — the exit promise may already be the
+ * rejection that brought us here — so the ORIGINAL failure still propagates and
+ * teardown still runs.
+ */
+async function killAndReapChild(child: Pick<ChildHandle, 'kill' | 'exit'>): Promise<void> {
+  try {
+    child.kill('SIGKILL');
+  } catch {
+    /* the child may already be gone — best-effort. */
+  }
+  try {
+    await child.exit;
+  } catch {
+    /* exit may itself reject (the failure that brought us here); swallow it. */
   }
 }
 

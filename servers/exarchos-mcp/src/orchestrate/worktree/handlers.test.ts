@@ -410,11 +410,19 @@ describe('ps — in-flight liveness read (DR-4)', () => {
     const data = result.data as {
       reconcile: { reconciled: string[]; leftInFlight: string[]; probed: number };
       probe: { probed: number };
+      launches: unknown[];
+      launchCount: number;
     };
     // The reservation reclaim STILL ran (existing behavior intact)...
     expect(data.probe).toBeDefined();
     // ...and the phantom launch was reconciled to a terminal on the SAME pass.
     expect(data.reconcile.reconciled).toContain('/wlm/phantom-launch-wt');
+
+    // Regression (CodeRabbit, PR #1632): the SAME probe response must report the
+    // POST-reconcile launch column, not the stale pre-reconcile snapshot — else a
+    // just-healed phantom is reported as BOTH in-flight and reconciled in one call.
+    expect(data.launchCount).toBe(0);
+    expect(data.launches).toHaveLength(0);
 
     // The heal wrote exactly one `launch.executed` — the reconciler is the ONLY
     // writer of it here (probeAndReclaim writes worktree.released/orphan_detected).

@@ -266,6 +266,39 @@ describe('exarchos <harness> launcher CLI wiring (DR-1 / DR-6, R-1)', () => {
     expect(fake.calls).toHaveLength(1);
   }, 30_000);
 
+  // ── A non-Commander rejection from the launch is trapped as UNCAUGHT_EXCEPTION ─
+  // Regression (CodeRabbit MAJOR, PR #1632): the launcher `.action` was missing the
+  // try/catch every other top-level verb has, so a rejection from the verb / wiring
+  // escaped `runCli` (which normalizes only CommanderError) as an uncaught
+  // rejection — skipping the UNCAUGHT_EXCEPTION envelope + exit-3 mapping.
+  it('LauncherCli_LaunchRejection_MapsToUncaughtException', async () => {
+    const fake = makeFakeSpawn();
+    const stderrChunks: string[] = [];
+    vi.spyOn(process.stderr, 'write').mockImplementation((data: unknown): boolean => {
+      stderrChunks.push(typeof data === 'string' ? data : String(data));
+      return true;
+    });
+
+    // A post-spawn throw from the signal-install seam makes `runLifecycle` reject,
+    // so a non-Commander rejection propagates out of the verb.
+    const { exitCode, stdout } = await runLauncherCli(
+      ctx,
+      baseOverrides(fake, {
+        installSignals: () => {
+          throw new Error('install seam boom');
+        },
+      }),
+      ['claude-code', '--json'],
+    );
+
+    // The launch reached the post-spawn seam (the spawn ran)...
+    expect(fake.calls).toHaveLength(1);
+    // ...and the rejection was TRAPPED into the canonical exit-3 envelope rather
+    // than escaping as an uncaught rejection.
+    expect(exitCode).toBe(CLI_EXIT_CODES.UNCAUGHT_EXCEPTION);
+    expect(stdout + stderrChunks.join('')).toContain('UNCAUGHT_EXCEPTION');
+  }, 30_000);
+
   // ── Unknown harness is still a structured rejection, not a spawn ─────────────
   it('LauncherCli_UnknownHarness_NeverRegistered', async () => {
     const fake = makeFakeSpawn();

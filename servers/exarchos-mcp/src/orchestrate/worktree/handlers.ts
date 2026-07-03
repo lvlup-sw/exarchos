@@ -440,13 +440,20 @@ export async function handleViewPs(
   // the SAME injected ground-truth process table (undefined ⇒ the real OS source).
   const reclaim = await manager.probeAndReclaim(deps?.selfPid);
   const reconcile = await reconcileLaunches(ctx.eventStore, deps?.processTableSource);
+  // Re-fold the in-flight launches AFTER the reconcile pass so the reported
+  // launch column reflects post-reconcile state. The `launches` captured above is
+  // PRE-reconcile: a phantom launch just healed to a `launch.executed` terminal by
+  // `reconcileLaunches` would otherwise still appear in-flight here, so a single
+  // `ps --probe` response would report the same launch as both in-flight and
+  // healed. `inFlight` (serialized merges) is untouched by the launch reconciler.
+  const freshLaunches = await manager.listInFlightLaunches();
   return {
     success: true,
     data: {
       inFlight,
       count: inFlight.length,
-      launches,
-      launchCount: launches.length,
+      launches: freshLaunches,
+      launchCount: freshLaunches.length,
       probe: reclaim,
       reconcile,
     },

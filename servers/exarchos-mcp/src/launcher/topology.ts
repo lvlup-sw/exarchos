@@ -29,7 +29,7 @@ import * as path from 'node:path';
 import { toPosix } from '../utils/paths.js';
 import {
   defaultRealpath,
-  isPathWithin,
+  isPathWithinCanonical,
   type RealpathResolver,
 } from '../orchestrate/worktree/pure/path-containment.js';
 
@@ -196,8 +196,11 @@ export function guardWorktreeContainment(
   const canonicalParent = path.posix.dirname(canonicalBase);
 
   // (1) Nested inside (or equal to) the base worktree — reuse the proven
-  // symlink-resolved containment predicate against the base.
-  if (isPathWithin(target, base, realpath)) {
+  // containment predicate over the ALREADY-canonical base/target snapshot
+  // (canonicalBase/canonicalTarget above), so this nested check shares one
+  // resolved snapshot with the sibling check below instead of re-running realpath
+  // on the raw inputs.
+  if (isPathWithinCanonical(canonicalTarget, canonicalBase)) {
     return refuse(
       'nested-inside-base',
       base,

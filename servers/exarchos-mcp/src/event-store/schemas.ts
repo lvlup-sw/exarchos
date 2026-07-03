@@ -2151,6 +2151,18 @@ export const WorktreeCreateRequestedData = z.object({
     .min(1)
     .optional()
     .describe('Canonical worktrees@v1 key, stamped so replay folds by stored id (no realpath at fold time)'),
+  branch: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      'New branch (git worktree add -b) captured in the durable intent so crash-resume replays the ORIGINAL command instead of deriving a branch from the path basename (INV-13). Omitted when git derives the branch from the path.',
+    ),
+  startPoint: z
+    .string()
+    .min(1)
+    .optional()
+    .describe('Start-point commit-ish captured in the intent so crash-resume replays it faithfully (INV-13).'),
 });
 
 /**

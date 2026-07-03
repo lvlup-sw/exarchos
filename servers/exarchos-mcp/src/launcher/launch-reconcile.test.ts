@@ -128,6 +128,54 @@ describe('phantom-launch reconciler (DR-6)', () => {
     expect(await terminalCount(eventStore, WT_ID)).toBe(1);
   });
 
+  it('Reconcile_OneTerminalAppendFails_OthersStillReconciled', async () => {
+    // Regression (CodeRabbit MAJOR, PR #1632): the reconcile loop awaited each
+    // terminal append sequentially with NO isolation, so one append that retried
+    // out sank the whole pass — later findings went unprocessed and earlier
+    // successes were dropped from the result. Each per-finding failure is now
+    // isolated so the pass makes maximal forward progress.
+    const eventStore = await createStore();
+    const WT_FAIL = '/srv/wt/launch-fail';
+    const WT_OK = '/srv/wt/launch-ok';
+    // Two phantom launches, both with dead holders (empty supported table).
+    await seedInFlightLaunch(eventStore, {
+      worktreeId: WT_FAIL,
+      holderPid: 4242,
+      holderStartedAt: 'boot-4242',
+    });
+    await seedInFlightLaunch(eventStore, {
+      worktreeId: WT_OK,
+      holderPid: 4343,
+      holderStartedAt: 'boot-4343',
+    });
+
+    // The terminal append for WT_FAIL rejects (models retries exhausted); every
+    // other append passes through to the real store.
+    const realAppend = eventStore.append.bind(eventStore);
+    vi.spyOn(eventStore, 'append').mockImplementation(
+      (...args: Parameters<EventStore['append']>) => {
+        const [, event] = args;
+        const worktreeId = (event.data as Record<string, unknown> | undefined)?.worktreeId;
+        if (event.type === LAUNCH_EXECUTED && worktreeId === WT_FAIL) {
+          return Promise.reject(new Error('append boom for WT_FAIL'));
+        }
+        return realAppend(...args);
+      },
+    );
+
+    const result = await reconcileLaunches(eventStore, tableSource([]));
+
+    // The whole pass did NOT reject; the failure is isolated per finding.
+    expect(result.probed).toBe(2);
+    // The healthy launch is still reconciled; the failed one is reported
+    // left-in-flight so a later pass retries it.
+    expect(result.reconciled).toEqual([WT_OK]);
+    expect(result.leftInFlight).toEqual([WT_FAIL]);
+    // The healthy launch got its terminal; the failed one did not.
+    expect(await terminalCount(eventStore, WT_OK)).toBe(1);
+    expect(await terminalCount(eventStore, WT_FAIL)).toBe(0);
+  });
+
   it('Reconcile_LiveHolder_LeftInFlight', async () => {
     const eventStore = await createStore();
     await seedInFlightLaunch(eventStore, {

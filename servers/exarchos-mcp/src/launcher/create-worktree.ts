@@ -204,7 +204,10 @@ export async function createLauncherWorktree(
 
   // ── Step C (INV-13): intent → add → terminal, all on the worktrees stream. ──
   const operationId = deps.operationId ?? randomUUID();
-  await appendCreateRequested(eventStore, operationId, worktreePath, worktreeId);
+  await appendCreateRequested(eventStore, operationId, worktreePath, worktreeId, {
+    ...(input.newBranch !== undefined ? { branch: input.newBranch } : {}),
+    ...(input.startPoint !== undefined ? { startPoint: input.startPoint } : {}),
+  });
 
   const outcome = ensureWorktreeCreated(
     gitRunner,
@@ -244,11 +247,16 @@ export interface RecoverPendingCreationsDeps {
   readonly realpath?: RealpathResolver;
   /**
    * Reconstruct the `git worktree add` argument vector for a resumed creation.
-   * The `worktree.create.requested` event carries only path/id (not the branch),
-   * so the default re-runs `git worktree add <path>` and lets git derive a
-   * branch from the (unique) path basename.
+   * The `worktree.create.requested` intent now carries the original `branch`/
+   * `startPoint` (INV-13), so the default replays the FULL command
+   * ({@link composeAddArgs}) — including `-b <branch>` — instead of deriving a
+   * branch from the path basename. The recovered `spec` is passed as the second
+   * argument.
    */
-  readonly rebuildAddArgs?: (worktreePath: string) => readonly string[];
+  readonly rebuildAddArgs?: (
+    worktreePath: string,
+    spec: AddArgsSpec,
+  ) => readonly string[];
 }
 
 /**
@@ -267,19 +275,23 @@ export async function recoverPendingCreations(
   const gitRunner = deps.gitRunner ?? defaultGitRunner;
   const realpath = deps.realpath ?? defaultRealpath;
   const rebuildAddArgs =
-    deps.rebuildAddArgs ?? ((p: string): readonly string[] => ['worktree', 'add', p]);
+    deps.rebuildAddArgs ??
+    ((p: string, spec: AddArgsSpec): readonly string[] => composeAddArgs(p, spec));
 
   const pending = await listPendingCreations(eventStore);
   const handled = new Set<string>();
   const recovered: RecoveredCreation[] = [];
-  for (const { operationId, worktreePath, worktreeId } of pending) {
+  for (const { operationId, worktreePath, worktreeId, branch, startPoint } of pending) {
     if (handled.has(operationId)) continue; // one executed per operationId
     handled.add(operationId);
     const outcome = ensureWorktreeCreated(
       gitRunner,
       repoRoot,
       worktreePath,
-      rebuildAddArgs(worktreePath),
+      rebuildAddArgs(worktreePath, {
+        ...(branch !== undefined ? { branch } : {}),
+        ...(startPoint !== undefined ? { startPoint } : {}),
+      }),
       realpath,
     );
     if (!outcome.ok) continue; // still unrecoverable — leave the intent for later.
@@ -297,16 +309,39 @@ export async function recoverPendingCreations(
 
 // ─── Internal helpers ────────────────────────────────────────────────────────
 
+/** The `-b`/start-point spec threaded through the create pair for faithful replay. */
+interface AddArgsSpec {
+  /** New branch to create with `-b` (omit to let git derive one from the path). */
+  readonly branch?: string;
+  /** Optional start-point commit-ish. */
+  readonly startPoint?: string;
+}
+
+/**
+ * The single `git worktree add` argument-vector composer, shared by the initial
+ * create ({@link buildAddArgs}) and crash-resume ({@link recoverPendingCreations}).
+ * Centralizing it guarantees recovery replays the EXACT command the durable intent
+ * recorded (INV-13) — a `-b <branch>` or start-point is never silently dropped on
+ * resume, so a resumed create can never diverge to a different branch derived from
+ * the path basename.
+ */
+function composeAddArgs(worktreePath: string, spec: AddArgsSpec): string[] {
+  const args: string[] = ['worktree', 'add'];
+  if (spec.branch !== undefined) args.push('-b', spec.branch);
+  args.push(worktreePath);
+  if (spec.startPoint !== undefined) args.push(spec.startPoint);
+  return args;
+}
+
 /** Build the `git worktree add` argument vector for `input`. */
 function buildAddArgs(
   input: CreateLauncherWorktreeInput,
   worktreePath: string,
 ): readonly string[] {
-  const args: string[] = ['worktree', 'add'];
-  if (input.newBranch !== undefined) args.push('-b', input.newBranch);
-  args.push(worktreePath);
-  if (input.startPoint !== undefined) args.push(input.startPoint);
-  return args;
+  return composeAddArgs(worktreePath, {
+    ...(input.newBranch !== undefined ? { branch: input.newBranch } : {}),
+    ...(input.startPoint !== undefined ? { startPoint: input.startPoint } : {}),
+  });
 }
 
 /** Outcome of the idempotent {@link ensureWorktreeCreated} precheck. */
@@ -332,12 +367,17 @@ function ensureWorktreeCreated(
   if (isWorktreeRegistered(gitRunner, repoRoot, worktreePath, realpath)) {
     return { ok: true, created: false };
   }
-  const { status, stdout } = gitRunner.run(addArgs, repoRoot);
+  const { status, stdout, stderr } = gitRunner.run(addArgs, repoRoot);
   if (status === 0) return { ok: true, created: true };
   if (isWorktreeRegistered(gitRunner, repoRoot, worktreePath, realpath)) {
     return { ok: true, created: false }; // raced into existence — idempotent.
   }
-  return { ok: false, stderr: stdout };
+  // `git worktree add` writes its failure diagnostic (permission denied, invalid
+  // path, branch collision, …) to stderr, not stdout — surface it so a
+  // WORKTREE_CREATE_FAILED carries a meaningful message. Fall back to stdout only
+  // for a runner that leaves stderr unpopulated (e.g. a legacy test double).
+  const diagnostic = stderr !== undefined && stderr.trim().length > 0 ? stderr : stdout;
+  return { ok: false, stderr: diagnostic };
 }
 
 /** Whether `worktreePath` is registered in `git worktree list` (canonical compare). */
@@ -361,11 +401,24 @@ async function appendCreateRequested(
   operationId: string,
   worktreePath: string,
   worktreeId: string,
+  spec: AddArgsSpec,
 ): Promise<void> {
   await withStateRetry(() =>
     eventStore.append(
       WORKTREES_STREAM,
-      { type: CREATE_REQUESTED, data: { operationId, worktreePath, worktreeId } },
+      {
+        type: CREATE_REQUESTED,
+        // Persist branch/startPoint in the durable intent so a crash-resume
+        // replays the ORIGINAL command faithfully (INV-13) — omitted when
+        // unset so the event stays minimal (git derives the branch from path).
+        data: {
+          operationId,
+          worktreePath,
+          worktreeId,
+          ...(spec.branch !== undefined ? { branch: spec.branch } : {}),
+          ...(spec.startPoint !== undefined ? { startPoint: spec.startPoint } : {}),
+        },
+      },
       { idempotencyKey: `${CREATE_REQUESTED}:${operationId}` },
     ),
   );
@@ -401,7 +454,15 @@ function eventStringField(event: WorkflowEvent, key: string): string | null {
  */
 async function listPendingCreations(
   eventStore: EventStore,
-): Promise<Array<{ operationId: string; worktreePath: string; worktreeId: string | null }>> {
+): Promise<
+  Array<{
+    operationId: string;
+    worktreePath: string;
+    worktreeId: string | null;
+    branch?: string;
+    startPoint?: string;
+  }>
+> {
   const events = await eventStore.query(WORKTREES_STREAM);
   const executedOps = new Set<string>();
   for (const event of events) {
@@ -413,6 +474,8 @@ async function listPendingCreations(
     operationId: string;
     worktreePath: string;
     worktreeId: string | null;
+    branch?: string;
+    startPoint?: string;
   }> = [];
   for (const event of events) {
     if (event.type !== CREATE_REQUESTED) continue;
@@ -421,7 +484,16 @@ async function listPendingCreations(
     if (operationId === null || worktreePath === null) continue;
     if (executedOps.has(operationId)) continue;
     const worktreeId = eventStringField(event, 'worktreeId');
-    pending.push({ operationId, worktreePath, worktreeId });
+    // The original -b branch / start-point, replayed verbatim on resume (INV-13).
+    const branch = eventStringField(event, 'branch');
+    const startPoint = eventStringField(event, 'startPoint');
+    pending.push({
+      operationId,
+      worktreePath,
+      worktreeId,
+      ...(branch !== null ? { branch } : {}),
+      ...(startPoint !== null ? { startPoint } : {}),
+    });
   }
   return pending;
 }

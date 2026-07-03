@@ -242,14 +242,21 @@ export function parseWorktreeListPorcelain(stdout: string): OnDiskWorktree[] {
 function gitCapture(
   args: readonly string[],
   cwd: string,
-): { status: number; stdout: string } {
+): { status: number; stdout: string; stderr: string } {
   const result = spawnCommandSync('git', args, {
     cwd,
     encoding: 'utf-8',
     timeout: 30_000,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  return { status: result.status ?? 1, stdout: result.stdout ?? '' };
+  // `git` writes its failure diagnostics to stderr, not stdout — surface both so
+  // a non-zero status carries a meaningful message (a bare stdout is empty on a
+  // failed `git worktree add`, which would otherwise produce an unhelpful error).
+  return {
+    status: result.status ?? 1,
+    stdout: result.stdout ?? '',
+    stderr: result.stderr ?? '',
+  };
 }
 
 /** Resolve a ref to its sha in `worktreePath`, or `null` when it does not exist. */
@@ -316,12 +323,18 @@ export const defaultGitWorktreeProbe: GitWorktreeProbe = {
  * failure surfaces as a non-zero `status`.
  */
 export interface GitRunner {
-  run(args: readonly string[], cwd: string): { status: number; stdout: string };
+  run(
+    args: readonly string[],
+    cwd: string,
+  ): { status: number; stdout: string; stderr?: string };
 }
 
 /** Default real git runner over the portable {@link spawnCommandSync} helper. */
 export const defaultGitRunner: GitRunner = {
-  run(args: readonly string[], cwd: string): { status: number; stdout: string } {
+  run(
+    args: readonly string[],
+    cwd: string,
+  ): { status: number; stdout: string; stderr: string } {
     return gitCapture(args, cwd);
   },
 };

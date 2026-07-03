@@ -335,6 +335,82 @@ describe('runLifecycle — launcher lifecycle integrator (real git + real event 
     expect(eventsOfType(store, LAUNCH_EXECUTED)).toHaveLength(1);
   }, 20_000);
 
+  // ─── post-spawn failure kills + reaps the live child (no orphan) ──────────
+  // Regression (CodeRabbit MAJOR, PR #1632): once spawn succeeded, a throw from
+  // `installSignals` or a rejection from `await child.exit` sent control to the
+  // `finally`, which only uninstalled + tore down — it never killed the live
+  // child, leaking an orphan reparented to init. The core now force-kills + reaps
+  // the child on that path.
+
+  it('Lifecycle_PostSpawnInstallSignalsThrows_KillsChild_NoOrphan', async () => {
+    const killCalls: (NodeJS.Signals | number | undefined)[] = [];
+    // A child whose exit does NOT auto-resolve — it settles only when killed, so
+    // it is provably "live" until the error path reaps it.
+    let resolveExit!: (e: SpawnExit) => void;
+    const exit = new Promise<SpawnExit>((res) => {
+      resolveExit = res;
+    });
+    const spawnChild: SpawnHarnessChildFn = async () => ({
+      pid: 55555,
+      exit,
+      kill: (signal) => {
+        killCalls.push(signal);
+        resolveExit({ code: null, signal: 'SIGKILL' }); // SIGKILL terminates → exit settles.
+        return true;
+      },
+    });
+
+    await expect(
+      runLifecycle(makeParams(), {
+        ctx,
+        spawnChild,
+        installSignals: () => {
+          throw new Error('install boom');
+        },
+        newBranch: 'launch-install-throw',
+        repoRoot: repo,
+        ...HOLDER,
+      }),
+    ).rejects.toThrow('install boom');
+
+    // The live child was force-killed on the error path — no orphan survives...
+    expect(killCalls).toContain('SIGKILL');
+    // ...and the launch was still closed with the guaranteed terminal.
+    expect(eventsOfType(store, LAUNCH_EXECUTED)).toHaveLength(1);
+  }, 20_000);
+
+  it('Lifecycle_PostSpawnObserveRejects_KillsChild_NoOrphan', async () => {
+    const killCalls: (NodeJS.Signals | number | undefined)[] = [];
+    const exit = Promise.reject(new Error('observe boom'));
+    // Mark handled so the double-await (observe + reap) never trips an unhandled
+    // rejection; `await exit` still throws at each use site.
+    exit.catch(() => undefined);
+    const spawnChild: SpawnHarnessChildFn = async () => ({
+      pid: 55556,
+      exit,
+      kill: (signal) => {
+        killCalls.push(signal);
+        return true;
+      },
+    });
+
+    await expect(
+      runLifecycle(makeParams(), {
+        ctx,
+        spawnChild,
+        installSignals: () => () => undefined, // no-op so we reach the observe step
+        newBranch: 'launch-observe-reject',
+        repoRoot: repo,
+        ...HOLDER,
+      }),
+    ).rejects.toThrow('observe boom');
+
+    // A rejected observe still force-kills the (possibly-live) child...
+    expect(killCalls).toContain('SIGKILL');
+    // ...and the launch closes with the guaranteed terminal.
+    expect(eventsOfType(store, LAUNCH_EXECUTED)).toHaveLength(1);
+  }, 20_000);
+
   it('Verb_NonDryRun_InvokesLifecycleAndSpawns', async () => {
     const fake = makeFakeSpawn({ code: 0, signal: null });
 

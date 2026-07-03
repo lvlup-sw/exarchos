@@ -1170,36 +1170,51 @@ export function buildCli(ctx: DispatchContext, options?: BuildCliOptions): Comma
         const feature = typeof opts.feature === 'string' ? opts.feature : undefined;
         const dryRun = Boolean(opts.dryRun);
 
-        // A real launch self-heals crashed prior launches, then runs the wired
-        // lifecycle. Dry-run mutates nothing, so it skips recovery entirely.
-        if (!dryRun) {
-          await recoverBeforeLaunch(ctx, launcherRepoRoot, launcherOverrides);
-        }
+        // Trap any rejection from startup recovery, lifecycle-deps wiring, or the
+        // verb so a non-Commander failure becomes the same UNCAUGHT_EXCEPTION
+        // envelope + exit-3 mapping every other top-level verb uses — rather than
+        // escaping `runCli` (which normalizes only CommanderError) as an uncaught
+        // rejection. INV-2: the adapter shapes the error into the envelope;
+        // behavior stays in the verb.
+        try {
+          // A real launch self-heals crashed prior launches, then runs the wired
+          // lifecycle. Dry-run mutates nothing, so it skips recovery entirely.
+          if (!dryRun) {
+            await recoverBeforeLaunch(ctx, launcherRepoRoot, launcherOverrides);
+          }
 
-        const result = await runLauncherVerb(
-          { harness, feature, dryRun },
-          {
-            base: launcherBase,
-            lifecycleDeps: makeLauncherLifecycleDeps(ctx, launcherOverrides),
-          },
-        );
+          const result = await runLauncherVerb(
+            { harness, feature, dryRun },
+            {
+              base: launcherBase,
+              lifecycleDeps: makeLauncherLifecycleDeps(ctx, launcherOverrides),
+            },
+          );
 
-        // Dry-run success in human mode → render the plan; JSON mode falls
-        // through to the shared envelope emitter so machine consumers get one
-        // shape (INV-2 facade equivalence).
-        if (result.success && !isJson && isDryRunPlan(result.data)) {
-          process.stdout.write(`${renderDryRunPlan(result.data)}\n`);
-          process.exitCode = CLI_EXIT_CODES.SUCCESS;
-          return;
-        }
+          // Dry-run success in human mode → render the plan; JSON mode falls
+          // through to the shared envelope emitter so machine consumers get one
+          // shape (INV-2 facade equivalence).
+          if (result.success && !isJson && isDryRunPlan(result.data)) {
+            process.stdout.write(`${renderDryRunPlan(result.data)}\n`);
+            process.exitCode = CLI_EXIT_CODES.SUCCESS;
+            return;
+          }
 
-        emitResult(result, isJson);
-        if (result.success) {
-          process.exitCode = CLI_EXIT_CODES.SUCCESS;
-        } else if (result.error?.code === VALIDATION_ERROR_CODE) {
-          process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
-        } else {
-          process.exitCode = CLI_EXIT_CODES.HANDLER_ERROR;
+          emitResult(result, isJson);
+          if (result.success) {
+            process.exitCode = CLI_EXIT_CODES.SUCCESS;
+          } else if (result.error?.code === VALIDATION_ERROR_CODE) {
+            process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
+          } else {
+            process.exitCode = CLI_EXIT_CODES.HANDLER_ERROR;
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          emitResult(
+            { success: false, error: { code: 'UNCAUGHT_EXCEPTION', message } },
+            isJson,
+          );
+          process.exitCode = CLI_EXIT_CODES.UNCAUGHT_EXCEPTION;
         }
       });
   }
