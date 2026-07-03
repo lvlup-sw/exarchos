@@ -240,6 +240,23 @@ export const EventTypes = [
   // worktree-family convention.
   'worktree.merge_requested',
   'worktree.merge_executed',
+  // harness-launcher (DR-2) — the launcher's top-level worktree create pair plus
+  // the child-process liveness pair. `worktree.create.requested`/
+  // `worktree.create.executed` mirror the INV-13 `worktree.remove.*` intent/
+  // terminal pair (durable intent BEFORE the non-idempotent create; terminal
+  // AFTER it succeeds). This terminal is DISTINCT from the task-scoped
+  // `worktree.created` above (which requires `taskId`+`branch` and is
+  // task-worktree-only): the launcher creates a task-LESS top-level worktree, so
+  // it needs its own shared-stem create pair rather than reusing the task
+  // terminal. `launch.executing_started`/`launch.executed` are the liveness pair
+  // — `launch.executing_started` records the live child process
+  // (`holderPid`/`holderStartedAt`, mirroring `InFlightMerge`) so a dead-holder
+  // reconciler is expressible later; `launch.executed` is the terminal ("executed"
+  // = the child process exited). All four are `auto` deterministic plumbing.
+  'worktree.create.requested',
+  'worktree.create.executed',
+  'launch.executing_started',
+  'launch.executed',
   // #1290 — emitted by `resolveWorkspace` (servers/exarchos-mcp/src/workspace/
   // discovery.ts) when the dispatch boundary resolves a missing `featureId`
   // from MCP roots or via the cwd-walk fallback. Records the source so audit
@@ -647,6 +664,15 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   // keyed append on the terminal outcome — neither is model-authored.
   'worktree.merge_requested': 'auto',
   'worktree.merge_executed': 'auto',
+
+  // harness-launcher (DR-2) — top-level worktree create pair + child liveness
+  // pair. All four are `auto` deterministic plumbing: the create intent/terminal
+  // are appended around the launcher's `git worktree add`, and the liveness pair
+  // is emitted around the spawned child process — none is model-authored.
+  'worktree.create.requested': 'auto',
+  'worktree.create.executed': 'auto',
+  'launch.executing_started': 'auto',
+  'launch.executed': 'auto',
 
   // #1290 — auto-emitted by the workspace discovery resolver on the
   // dispatch boundary. See EventTypes registration above.
@@ -1489,6 +1515,17 @@ export type SessionMachineryConsumedData = z.infer<typeof SessionMachineryConsum
 
 // ─── Readiness Event Data ───────────────────────────────────────────────────
 
+/**
+ * worktree.created — the TASK-worktree terminal (UNCHANGED). Requires
+ * `taskId` + `branch`: it records the per-task worktree an implementer boots into
+ * and is classified `'model'` (the readiness path, not deterministic plumbing).
+ *
+ * Deliberately distinct from the launcher's top-level create pair
+ * `worktree.create.requested`/`worktree.create.executed` (harness-launcher, DR-2):
+ * that pair is the INV-13 intent/terminal for a task-LESS top-level worktree and
+ * carries no `taskId`. Two different KINDS of worktree, two different terminals —
+ * do NOT reuse this task terminal for the launcher's top-level creation.
+ */
 export const WorktreeCreatedData = z.object({
   taskId: z.string().describe('Task this worktree was created for'),
   path: z.string().describe('Absolute filesystem path to the worktree'),
@@ -2092,6 +2129,91 @@ export const WorktreeMergeExecutedData = z.object({
     .min(1)
     .optional()
     .describe('Canonical worktrees@v1 key the released lease was attributable to, when known'),
+});
+
+// ─── Harness-Launcher Event Data (DR-2) ─────────────────────────────────────
+
+/**
+ * worktree.create.requested — the launcher's top-level worktree INTENT (INV-13).
+ *
+ * Mirrors {@link WorktreeRemoveRequestedData}: a durable intent recorded BEFORE
+ * the non-idempotent `git worktree add` fires, correlated to its terminal by
+ * `operationId`. This is the launcher's TASK-LESS top-level worktree — distinct
+ * from the task-scoped `worktree.created` terminal (which requires `taskId` +
+ * `branch`). `worktreeId` is the OPTIONAL canonical (symlink-resolved) key,
+ * stamped so a later reducer folds by the stored id without a `realpath()` call.
+ */
+export const WorktreeCreateRequestedData = z.object({
+  operationId: z.string().uuid().describe('Idempotency key — stable across retries'),
+  worktreePath: z.string().min(1).describe('Absolute path of the top-level worktree to create'),
+  worktreeId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe('Canonical worktrees@v1 key, stamped so replay folds by stored id (no realpath at fold time)'),
+  branch: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      'New branch (git worktree add -b) captured in the durable intent so crash-resume replays the ORIGINAL command instead of deriving a branch from the path basename (INV-13). Omitted when git derives the branch from the path.',
+    ),
+  startPoint: z
+    .string()
+    .min(1)
+    .optional()
+    .describe('Start-point commit-ish captured in the intent so crash-resume replays it faithfully (INV-13).'),
+});
+
+/**
+ * worktree.create.executed — the launcher's top-level worktree TERMINAL (INV-13).
+ *
+ * The shared-stem terminal for {@link WorktreeCreateRequestedData}, correlated by
+ * `operationId`. `created: false` indicates the worktree already existed
+ * (idempotent success). A NEW terminal — NOT the task-scoped `worktree.created`.
+ */
+export const WorktreeCreateExecutedData = z.object({
+  operationId: z.string().uuid().describe('Correlates to the worktree.create.requested event'),
+  worktreePath: z.string().min(1).describe('Path that was targeted'),
+  created: z.boolean().describe('True if created; false if already present (idempotent success)'),
+  worktreeId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe('Canonical worktrees@v1 key, stamped so replay folds by stored id (no realpath at fold time)'),
+});
+
+/**
+ * launch.executing_started — launcher child-process liveness START.
+ *
+ * Mirrors the liveness fields of {@link InFlightMerge}: `holderPid` /
+ * `holderStartedAt` identify the live child process the launcher spawned into the
+ * top-level worktree, so a dead-holder reconciler can later reclaim an abandoned
+ * launch by probing whether that PID (with matching start time, to defeat PID
+ * reuse) is still alive. `worktreeId` binds the launch to its top-level worktree.
+ * Emitted BEFORE the child is observed as terminated, so a long-running launch is
+ * observable as "started but not yet terminated" — the INV-10
+ * `<surface>.executing_started` + paired terminal pattern.
+ */
+export const LaunchExecutingStartedData = z.object({
+  worktreeId: z.string().min(1).describe('Canonical worktrees@v1 key of the launch top-level worktree'),
+  holderPid: z.number().int().describe('PID of the live child process holding the launch (liveness ground truth)'),
+  holderStartedAt: z
+    .string()
+    .min(1)
+    .describe('Child process start time (ISO 8601) — disambiguates PID reuse'),
+});
+
+/**
+ * launch.executed — launcher child-process liveness TERMINAL.
+ *
+ * The paired terminal for {@link LaunchExecutingStartedData}: "executed" = the
+ * child process exited. Correlated back to its start by `worktreeId`, carrying the
+ * process `exitCode` (null when terminated by signal / not captured).
+ */
+export const LaunchExecutedData = z.object({
+  worktreeId: z.string().min(1).describe('Canonical worktrees@v1 key of the launch top-level worktree'),
+  exitCode: z.number().int().nullable().describe('Child process exit code, or null when signalled / not captured'),
 });
 
 // ─── Command Resolver Event Data (#1199 T15) ────────────────────────────────
@@ -2876,6 +2998,12 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'worktree.merge_requested': WorktreeMergeRequestedData,
   'worktree.merge_executed': WorktreeMergeExecutedData,
 
+  // harness-launcher (DR-2) — top-level worktree create pair + child liveness pair.
+  'worktree.create.requested': WorktreeCreateRequestedData,
+  'worktree.create.executed': WorktreeCreateExecutedData,
+  'launch.executing_started': LaunchExecutingStartedData,
+  'launch.executed': LaunchExecutedData,
+
   // #1290 — workspace discovery resolution
   'workspace.resolved': WorkspaceResolvedData,
 
@@ -3018,6 +3146,12 @@ export type WorktreeOrphanDetected = z.infer<typeof WorktreeOrphanDetectedData>;
 export type WorktreeMergeRequested = z.infer<typeof WorktreeMergeRequestedData>;
 export type WorktreeMergeExecuted = z.infer<typeof WorktreeMergeExecutedData>;
 
+// harness-launcher (DR-2) — top-level worktree create pair + child liveness pair.
+export type WorktreeCreateRequested = z.infer<typeof WorktreeCreateRequestedData>;
+export type WorktreeCreateExecuted = z.infer<typeof WorktreeCreateExecutedData>;
+export type LaunchExecutingStarted = z.infer<typeof LaunchExecutingStartedData>;
+export type LaunchExecuted = z.infer<typeof LaunchExecutedData>;
+
 // #1290 — workspace discovery
 export type WorkspaceResolved = z.infer<typeof WorkspaceResolvedData>;
 
@@ -3155,6 +3289,11 @@ export type EventDataMap = {
   // WLM operational-core — serialized-merge lease pair (DR-4 / DR-7).
   'worktree.merge_requested': WorktreeMergeRequested;
   'worktree.merge_executed': WorktreeMergeExecuted;
+  // harness-launcher (DR-2) — top-level worktree create pair + child liveness pair.
+  'worktree.create.requested': WorktreeCreateRequested;
+  'worktree.create.executed': WorktreeCreateExecuted;
+  'launch.executing_started': LaunchExecutingStarted;
+  'launch.executed': LaunchExecuted;
   // #1290 — workspace discovery
   'workspace.resolved': WorkspaceResolved;
   // #1274 — dispatch elicitation hand-off

@@ -789,6 +789,180 @@ describe('worktreesReducer.apply — in-flight merges + orphan folding (DR-4)', 
   });
 });
 
+describe('worktreesReducer.apply — launcher launch liveness folding (DR-2)', () => {
+  /** Reserve WT_A first (the launcher reserves before it launches a child). */
+  function reserveWtA(reducer: ReturnType<typeof createWorktreesReducer>) {
+    return reducer.apply(
+      reducer.initial,
+      buildEvent({
+        type: 'worktree.reserved',
+        sequence: 1,
+        data: {
+          worktreeId: WT_A,
+          path: WT_A,
+          featureId: null,
+          ownerPid: 4242,
+          ownerStartedAt: '2026-06-25T04:00:00.000Z',
+          operationId: 'op-res',
+        },
+      }),
+    );
+  }
+
+  it('PsProjection_FoldsLaunch_ReflectsInFlight', () => {
+    const reducer = createWorktreesReducer(identityRealpath);
+    const reserved = reserveWtA(reducer);
+    // No launch yet → the entry carries no in-flight marker.
+    expect(reserved.worktrees[WT_A].launch).toBeUndefined();
+
+    const started = reducer.apply(
+      reserved,
+      buildEvent({
+        type: 'launch.executing_started',
+        sequence: 2,
+        data: {
+          worktreeId: WT_A,
+          holderPid: 5151,
+          holderStartedAt: '2026-06-25T04:30:00.000Z',
+        },
+      }),
+    );
+
+    // The launcher worktree entry now reflects launch-in-flight, carrying the
+    // live-child liveness ground truth. The reservation lifecycle is untouched.
+    expect(started.worktrees[WT_A].launch).toEqual({
+      holderPid: 5151,
+      holderStartedAt: '2026-06-25T04:30:00.000Z',
+    });
+    expect(started.worktrees[WT_A].state).toBe('reserved');
+    expect(started.projectionSequence).toBe(2);
+
+    // A launch event for an unknown worktree is a lax no-op (identity) — no
+    // full entry can be constructed from a launch payload alone.
+    const orphanLaunch = reducer.apply(
+      started,
+      buildEvent({
+        type: 'launch.executing_started',
+        sequence: 3,
+        data: { worktreeId: WT_B, holderPid: 9, holderStartedAt: 'x' },
+      }),
+    );
+    expect(orphanLaunch).toBe(started);
+  });
+
+  it('PsProjection_LaunchExecuted_ClearsInFlight', () => {
+    const reducer = createWorktreesReducer(identityRealpath);
+    const reserved = reserveWtA(reducer);
+    const started = reducer.apply(
+      reserved,
+      buildEvent({
+        type: 'launch.executing_started',
+        sequence: 2,
+        data: {
+          worktreeId: WT_A,
+          holderPid: 5151,
+          holderStartedAt: '2026-06-25T04:30:00.000Z',
+        },
+      }),
+    );
+    expect(started.worktrees[WT_A].launch).toBeDefined();
+
+    const executed = reducer.apply(
+      started,
+      buildEvent({
+        type: 'launch.executed',
+        sequence: 3,
+        data: { worktreeId: WT_A, exitCode: 0 },
+      }),
+    );
+
+    // The terminal CLEARS the in-flight marker — so a permanent launch phantom
+    // cannot survive a real child exit. The entry itself remains governed.
+    expect(executed.worktrees[WT_A].launch).toBeUndefined();
+    expect(executed.worktrees[WT_A].state).toBe('reserved');
+    expect(executed.projectionSequence).toBe(3);
+    // A cleared entry deep-equals a never-launched one (no phantom `launch` key).
+    expect(executed.worktrees[WT_A]).toEqual(reserved.worktrees[WT_A]);
+
+    // Idempotent: a terminal for an already-cleared launch is a no-op (identity).
+    const executedAgain = reducer.apply(
+      executed,
+      buildEvent({
+        type: 'launch.executed',
+        sequence: 4,
+        data: { worktreeId: WT_A, exitCode: 0 },
+      }),
+    );
+    expect(executedAgain).toBe(executed);
+  });
+
+  it('PsProjection_LaunchInFlight_SurvivesInterleavedLifecycleEvent', () => {
+    // An in-flight launch marker must not be silently dropped by a lifecycle
+    // transition that folds while the child is still running — only the terminal
+    // clears it (phantom-safety in the OTHER direction: under-reporting a live
+    // launch child, not a stuck phantom).
+    const reducer = createWorktreesReducer(identityRealpath);
+    const reserved = reserveWtA(reducer);
+    const started = reducer.apply(
+      reserved,
+      buildEvent({
+        type: 'launch.executing_started',
+        sequence: 2,
+        data: { worktreeId: WT_A, holderPid: 5151, holderStartedAt: 'boot' },
+      }),
+    );
+
+    const released = reducer.apply(
+      started,
+      buildEvent({
+        type: 'worktree.released',
+        sequence: 3,
+        data: { worktreeId: WT_A, path: WT_A, featureId: null, operationId: 'op-rel' },
+      }),
+    );
+
+    // Lifecycle state advanced, but the launch marker carried forward untouched.
+    expect(released.worktrees[WT_A].state).toBe('released');
+    expect(released.worktrees[WT_A].launch).toEqual({
+      holderPid: 5151,
+      holderStartedAt: 'boot',
+    });
+
+    // Immutability holds across the interleaved launch + lifecycle folds.
+    const events: readonly WorkflowEvent[] = [
+      buildEvent({
+        type: 'worktree.reserved',
+        sequence: 1,
+        data: {
+          worktreeId: WT_A,
+          path: WT_A,
+          featureId: null,
+          ownerPid: 4242,
+          ownerStartedAt: 'boot',
+          operationId: 'op-res',
+        },
+      }),
+      buildEvent({
+        type: 'launch.executing_started',
+        sequence: 2,
+        data: { worktreeId: WT_A, holderPid: 5151, holderStartedAt: 'boot' },
+      }),
+      buildEvent({
+        type: 'worktree.released',
+        sequence: 3,
+        data: { worktreeId: WT_A, path: WT_A, featureId: null, operationId: 'op-rel' },
+      }),
+      buildEvent({
+        type: 'launch.executed',
+        sequence: 4,
+        data: { worktreeId: WT_A, exitCode: 0 },
+      }),
+    ];
+    expect(() => assertReducerImmutable(reducer, events)).not.toThrow();
+    expect(() => assertReducerImmutable(reducer, [...events].reverse())).not.toThrow();
+  });
+});
+
 describe('worktrees@v1 registration guard (DR-1)', () => {
   it('Projection_WorktreesV1_IsRegistered_AggregateStreamResolves', async () => {
     // Resolving `worktrees@v1` through the process-wide registry (populated by

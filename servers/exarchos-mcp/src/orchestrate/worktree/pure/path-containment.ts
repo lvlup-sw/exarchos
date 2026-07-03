@@ -162,9 +162,29 @@ export function isPathWithin(
   worktreePath: string,
   realpath: RealpathResolver = defaultRealpath,
 ): boolean {
-  const resolvedCandidate = toPosix(realpath(toAbsolutePosix(candidatePath)));
-  const resolvedWorktree = toPosix(realpath(toAbsolutePosix(worktreePath)));
+  return isPathWithinCanonical(
+    toPosix(realpath(toAbsolutePosix(candidatePath))),
+    toPosix(realpath(toAbsolutePosix(worktreePath))),
+  );
+}
 
-  const rel = path.posix.relative(resolvedWorktree, resolvedCandidate);
+/**
+ * The pure containment predicate over ALREADY-canonical (absolute, symlink-
+ * resolved, POSIX-normalized) paths — performs NO filesystem access of its own.
+ * Decided with `path.posix.relative`: the relative path is empty (same path) or
+ * does not climb out (`../`) and is not itself absolute, so a partial-segment
+ * sibling such as `/a/bc` is correctly NOT within `/a/b` (its relative path is
+ * `../bc`).
+ *
+ * Use this directly when BOTH paths are already canonical (e.g.
+ * {@link guardWorktreeContainment}, which resolves base/target once up front) to
+ * avoid resolving the same paths a second time; use {@link isPathWithin} when the
+ * inputs still need symlink resolution.
+ */
+export function isPathWithinCanonical(
+  canonicalCandidate: string,
+  canonicalWorktree: string,
+): boolean {
+  const rel = path.posix.relative(canonicalWorktree, canonicalCandidate);
   return rel === '' || (!rel.startsWith('../') && rel !== '..' && !path.posix.isAbsolute(rel));
 }

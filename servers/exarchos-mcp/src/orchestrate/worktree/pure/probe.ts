@@ -141,6 +141,82 @@ export interface ReservationFinding {
   readonly releasable: boolean;
 }
 
+/**
+ * A recorded in-flight launcher launch to probe for holder liveness (DR-6).
+ *
+ * The `holderPid` is the launcher/**supervisor** PID — the long-lived process
+ * responsible for writing the `launch.executed` terminal — NOT the spawned child
+ * PID. That distinction is load-bearing: on an uncatchable death (`SIGKILL` /
+ * host loss) the supervisor never runs its teardown, so no terminal is ever
+ * written and the launch would fold as a PERMANENT in-flight phantom. A provably
+ * dead holder is therefore the signal that the terminal will never arrive on its
+ * own and must be reconciled. `holderStartedAt` is the create-time fingerprint,
+ * equality-compared to defeat PID reuse.
+ */
+export interface LaunchHolder {
+  /** Canonical `worktrees@v1` key of the launch top-level worktree. */
+  readonly worktreeId: string;
+  /** Supervisor PID recorded at launch, or `null` when the emitter did not capture it. */
+  readonly holderPid: number | null;
+  /** Supervisor create-time fingerprint (equality-compared), or `null` when uncaptured. */
+  readonly holderStartedAt: string | null;
+}
+
+/** Per-launch liveness finding from {@link probeLaunchHolders}. */
+export interface LaunchFinding {
+  readonly worktreeId: string;
+  /** Holder liveness: `'dead'` (gone or PID-reused) is the only reconcilable state. */
+  readonly liveness: OwnerLiveness;
+  /**
+   * True iff the holder is provably `'dead'` — the terminal will never be
+   * written, so the launch is reconcilable to a `launch.executed`. `'alive'` and
+   * `'unknown'` (incl. an uncaptured `null` holder identity) are held in-flight,
+   * failing closed so a live supervisor's launch is never reconciled away.
+   */
+  readonly reconcilable: boolean;
+}
+
+/**
+ * Probe each in-flight launch's SUPERVISOR-holder liveness against the process
+ * table (DR-6). The dead-holder analog of {@link probeReservations}, keyed to the
+ * launcher liveness pair (`holderPid` / `holderStartedAt`) rather than a
+ * reservation owner.
+ *
+ * A launch is `reconcilable` only when {@link ownerLiveness} reports `'dead'` —
+ * the supervisor PID is absent from a SUPPORTED table, or present with a
+ * mismatched create-time (PID reuse). A live holder (PID present AND create-time
+ * matches) is never reconcilable. A holder with an uncaptured (`null`) PID or
+ * create-time cannot be proven dead, so it is `'unknown'` and held; and on an
+ * UNSUPPORTED table every holder is `'unknown'` (NOT `'dead'`) so nothing is
+ * reconciled — fail closed, exactly mirroring the reservation probe. Pure over
+ * the injected {@link ProcessTableSource}; performs no OS access of its own and
+ * registers NO timer/interval — it runs only when called (INV-10/15).
+ */
+export function probeLaunchHolders(
+  holders: readonly LaunchHolder[],
+  source: ProcessTableSource,
+): LaunchFinding[] {
+  const processSource = tableAsProcessSource(
+    indexByPid(source.list()),
+    isTableSupported(source),
+  );
+  return holders.map((holder) => {
+    if (holder.holderPid === null || holder.holderStartedAt === null) {
+      // Holder identity was never captured — cannot prove death → fail closed.
+      return { worktreeId: holder.worktreeId, liveness: 'unknown', reconcilable: false };
+    }
+    const liveness = ownerLiveness(
+      { ownerPid: holder.holderPid, ownerStartedAt: holder.holderStartedAt },
+      processSource,
+    );
+    return {
+      worktreeId: holder.worktreeId,
+      liveness,
+      reconcilable: liveness === 'dead',
+    };
+  });
+}
+
 /** A worktree plus its recorded reservation owner (null when unreserved). */
 export interface WorktreeReservationTarget {
   readonly worktreePath: string;

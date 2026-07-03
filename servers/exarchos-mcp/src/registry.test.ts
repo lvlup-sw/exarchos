@@ -26,6 +26,12 @@ import { wrap, wrapError } from './format.js';
 import { zodToJsonSchema } from './adapters/json-schema.js';
 import { ConcurrencyError } from './event-store/concurrency-error.js';
 import { rmrfAsync } from './test-helpers/temp-dir.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+import { parse as parseYaml } from 'yaml';
+import { LAUNCHER_VERB_CONFORMANCE } from './launcher/verb.js';
+import { TIER1_HARNESSES } from './launcher/harness-registry.js';
 
 describe('buildCompositeSchema', () => {
   it('should create a discriminated union from two actions', () => {
@@ -2686,5 +2692,151 @@ describe('asOf registry schema (T6, #1555)', () => {
     expect(action!.outputSchema).toBeDefined();
     const envelope = wrap({ phase: 'ideate', tasksTotal: 0 }, {}, { ms: 1 }, []);
     expect(action!.outputSchema!.safeParse(envelope).success).toBe(true);
+  });
+});
+
+// ─── harness-launcher verb conformance + Windows CI lane (task 015) ──────────
+//
+// DR-1 / DR-8. The `exarchos <harness>` launcher is a CLI-only process-supervisor
+// verb (the stdio MCP surface cannot own a child's lifecycle), so:
+//   - its INV-5 conformance surface (schema constraints + when-NOT-to-use) lives
+//     on the verb module, not in TOOL_REGISTRY;
+//   - it must NOT grow the visible MCP tool count (INV-5d);
+//   - its win32-fragile tests are gated by a NAMED Windows CI lane (DR-8).
+// These four tests are co-located here (registry.test.ts is the visible-tool-count
+// home) per the task's lane discipline.
+describe('harness-launcher verb conformance + Windows CI lane (task 015, DR-1/DR-8)', () => {
+  // ─── INV-5 verb conformance (DR-1) ────────────────────────────────────────
+
+  it('Verb_SchemaConstraints_Present', () => {
+    const { schemaConstraints } = LAUNCHER_VERB_CONFORMANCE;
+    expect(Array.isArray(schemaConstraints)).toBe(true);
+    expect(schemaConstraints.length).toBeGreaterThan(0);
+
+    // Every constraint statement is a non-empty string.
+    for (const constraint of schemaConstraints) {
+      expect(typeof constraint).toBe('string');
+      expect(constraint.trim().length).toBeGreaterThan(0);
+    }
+
+    // Each of the three schema fields has its constraint spelled out.
+    const joined = schemaConstraints.join('\n');
+    expect(joined).toContain('harness');
+    expect(joined).toContain('feature');
+    expect(joined).toContain('dryRun');
+
+    // The harness constraint enumerates the exact Tier-1 enum, so the documented
+    // constraint cannot drift from the enforced LauncherVerbSchema.
+    for (const harness of TIER1_HARNESSES) {
+      expect(joined).toContain(harness);
+    }
+    // ...and names the structured-error escape hatch for an unknown value.
+    expect(joined).toContain('validTargets');
+  });
+
+  it('Verb_WhenNotToUse_Present', () => {
+    const { whenNotToUse } = LAUNCHER_VERB_CONFORMANCE;
+    expect(Array.isArray(whenNotToUse)).toBe(true);
+    expect(whenNotToUse.length).toBeGreaterThan(0);
+
+    // Every entry is an explicit "do NOT use" negative-space clause (the same
+    // convention merge_orchestrate / invariants_scaffold descriptions follow).
+    for (const clause of whenNotToUse) {
+      expect(typeof clause).toBe('string');
+      expect(clause.toLowerCase()).toContain('do not use');
+    }
+
+    // The clause points at the right alternatives for the load-bearing misuses,
+    // so an agent is steered off the wrong surface (INV-5a), not just told "no".
+    const joined = whenNotToUse.join('\n');
+    expect(joined).toContain('serialize_merge'); // integration merges
+    expect(joined).toContain('adopt'); // harness-created nested worktrees
+    expect(joined.toLowerCase()).toContain('generic'); // no process to spawn
+  });
+
+  // ─── Visible-tool-count fence (DR-1, INV-5d) ──────────────────────────────
+
+  it('VisibleToolCount_Unchanged', () => {
+    // The launcher verb is CLI-only, so importing its module MUST NOT grow the
+    // visible MCP tool surface. The four user-facing composites stay exactly
+    // what they were; exarchos_sync remains the sole hidden composite (total 5).
+    const visibleTools = TOOL_REGISTRY.filter((t) => !t.hidden);
+    expect(visibleTools.length).toBe(4);
+    expect(visibleTools.map((t) => t.name).sort()).toEqual([
+      'exarchos_event',
+      'exarchos_orchestrate',
+      'exarchos_view',
+      'exarchos_workflow',
+    ]);
+    expect(TOOL_REGISTRY).toHaveLength(5);
+
+    // No composite tool or action leaks the launcher verb / a harness target
+    // onto the callable MCP surface.
+    const allNames = TOOL_REGISTRY.flatMap((t) => [
+      t.name,
+      ...t.actions.map((a) => a.name),
+    ]);
+    const forbidden = [
+      'launch',
+      'launcher',
+      LAUNCHER_VERB_CONFORMANCE.verb,
+      ...TIER1_HARNESSES,
+    ];
+    for (const name of forbidden) {
+      expect(allNames).not.toContain(name);
+    }
+  });
+
+  // ─── Windows CI lane (DR-8) ───────────────────────────────────────────────
+  //
+  // Parses .github/workflows/ci.yml and asserts a Windows lane WIRES the two
+  // named win32-fragile tests OS-native: the async spawn shim resolution (task
+  // 003) and the worktree path derivation/containment (task 009). Naming the
+  // files (not just `npm run test:run`) means a future path-filter / matrix
+  // regression that drops them fails this assertion loudly rather than passing
+  // green-on-zero. The "required/blocking" gating itself is a GitHub
+  // branch-protection setting (out-of-repo, not vitest-assertable) — tracked as
+  // a manual repo-settings step in the merge PR checklist.
+  it('WindowsLane_RunsNamedSpawnAndPathTests_Required', () => {
+    const SPAWN_TEST = 'src/utils/process.spawn.test.ts'; // task 003 (DR-4/DR-8)
+    const PATH_TEST = 'src/launcher/topology.test.ts'; // task 009 (DR-5/DR-8)
+
+    // registry.test.ts lives at servers/exarchos-mcp/src — the repo root (which
+    // owns .github/) is three levels up. Resolved from the source file, so the
+    // walk holds regardless of the test runner's cwd. This stays INSIDE the
+    // worktree (ci.yml is a worktree file), so the `..` walk never escapes it.
+    const here = dirname(fileURLToPath(import.meta.url));
+    const ciPath = resolve(here, '../../../.github/workflows/ci.yml');
+    const raw = readFileSync(ciPath, 'utf8');
+
+    const parsed: unknown = parseYaml(raw);
+    expect(parsed !== null && typeof parsed === 'object').toBe(true);
+    const doc = parsed as Record<string, unknown>;
+    const jobs = doc.jobs;
+    expect(jobs !== null && typeof jobs === 'object').toBe(true);
+    const jobsMap = jobs as Record<string, unknown>;
+
+    // Collect every job that runs on a real Windows host.
+    const windowsJobs = Object.entries(jobsMap).filter(([, job]) => {
+      if (job === null || typeof job !== 'object') return false;
+      const runsOn = (job as Record<string, unknown>)['runs-on'];
+      return typeof runsOn === 'string' && runsOn.includes('windows');
+    });
+    expect(
+      windowsJobs.length,
+      'ci.yml must wire at least one windows-latest lane',
+    ).toBeGreaterThan(0);
+
+    // At least one Windows lane must NAME both win32-fragile test files in its
+    // steps (not merely run the whole suite) — so dropping either is caught.
+    const jobNamesBothTests = windowsJobs.filter(([, job]) => {
+      const steps = (job as Record<string, unknown>).steps;
+      const serialized = JSON.stringify(steps ?? job);
+      return serialized.includes(SPAWN_TEST) && serialized.includes(PATH_TEST);
+    });
+    expect(
+      jobNamesBothTests.length,
+      `a windows-latest lane must reference BOTH ${SPAWN_TEST} and ${PATH_TEST} by name`,
+    ).toBeGreaterThan(0);
   });
 });

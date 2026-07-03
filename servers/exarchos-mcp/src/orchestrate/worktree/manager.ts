@@ -242,14 +242,25 @@ export function parseWorktreeListPorcelain(stdout: string): OnDiskWorktree[] {
 function gitCapture(
   args: readonly string[],
   cwd: string,
-): { status: number; stdout: string } {
+): { status: number; stdout: string; stderr: string } {
   const result = spawnCommandSync('git', args, {
     cwd,
     encoding: 'utf-8',
     timeout: 30_000,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  return { status: result.status ?? 1, stdout: result.stdout ?? '' };
+  // `git` writes its failure diagnostics to stderr, not stdout — surface both so
+  // a non-zero status carries a meaningful message (a bare stdout is empty on a
+  // failed `git worktree add`, which would otherwise produce an unhelpful error).
+  // When the spawn itself fails BEFORE git launches (ENOENT, timeout kill),
+  // `status` is null and the diagnostic lives on `result.error` instead — fold it
+  // into the stderr fallback so callers never get an empty message on spawn failure.
+  const stderr = result.stderr ?? '';
+  return {
+    status: result.status ?? 1,
+    stdout: result.stdout ?? '',
+    stderr: stderr || (result.error?.message ?? ''),
+  };
 }
 
 /** Resolve a ref to its sha in `worktreePath`, or `null` when it does not exist. */
@@ -316,12 +327,18 @@ export const defaultGitWorktreeProbe: GitWorktreeProbe = {
  * failure surfaces as a non-zero `status`.
  */
 export interface GitRunner {
-  run(args: readonly string[], cwd: string): { status: number; stdout: string };
+  run(
+    args: readonly string[],
+    cwd: string,
+  ): { status: number; stdout: string; stderr?: string };
 }
 
 /** Default real git runner over the portable {@link spawnCommandSync} helper. */
 export const defaultGitRunner: GitRunner = {
-  run(args: readonly string[], cwd: string): { status: number; stdout: string } {
+  run(
+    args: readonly string[],
+    cwd: string,
+  ): { status: number; stdout: string; stderr: string } {
     return gitCapture(args, cwd);
   },
 };
@@ -1110,6 +1127,22 @@ export class WorktreeManager {
   async listInFlightMerges(): Promise<readonly InFlightMerge[]> {
     const projection = await this.loadProjection();
     return Object.values(projection.inFlightMerges);
+  }
+
+  /**
+   * Read-only listing of the live launcher-launch set (DR-2): fold the
+   * `worktrees` stream and return every {@link WorktreeEntry} whose launcher
+   * child is in flight — a `launch.executing_started` with no paired
+   * `launch.executed`, surfaced as a present `launch` marker on the entry. Backs
+   * the `ps` view action's launch column. Appends nothing and runs NO process
+   * scan — it is a pure fold of the event log, so the terminal deterministically
+   * clears a launch from this set (no permanent phantom).
+   */
+  async listInFlightLaunches(): Promise<readonly WorktreeEntry[]> {
+    const projection = await this.loadProjection();
+    return Object.values(projection.worktrees).filter(
+      (entry) => entry.launch !== undefined,
+    );
   }
 
   /**

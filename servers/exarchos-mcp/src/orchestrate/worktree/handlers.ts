@@ -34,6 +34,7 @@ import {
 } from './merge-serializer.js';
 import type { SleepFn } from './git-retry.js';
 import type { InFlightMerge } from './projections/worktrees.js';
+import { reconcileLaunches } from '../../launcher/launch-reconcile.js';
 
 // ─── Shared helpers ──────────────────────────────────────────────────────────
 
@@ -392,14 +393,22 @@ export interface WorktreeViewDeps extends InjectableDeps {
 
 /**
  * `ps` — list the live serialized-merge set from `inFlightMerges` (an open
- * `worktree.merge_requested` with no paired `worktree.merge_executed`) WITHOUT a
- * process scan: a pure fold of the `worktrees@v1` projection.
+ * `worktree.merge_requested` with no paired `worktree.merge_executed`) AND the
+ * live launcher-launch set from `worktrees` entries carrying a launch marker (an
+ * open `launch.executing_started` with no paired `launch.executed`, DR-2), both
+ * WITHOUT a process scan: a pure fold of the `worktrees@v1` projection. The
+ * launch column reflects the launch straight from events — in-flight while
+ * started-without-terminal, and cleared the moment the terminal folds.
  *
  * `probe: true` additionally pulls the DR-5 ground-truth process probe on demand
  * and emits `worktree.released` (owner dead, not in use) / `worktree.orphan_detected`
- * (owner dead, still occupied) from the finding — the ONLY write path on this
- * otherwise read-only view surface (the deferred orphan emitter). Without
- * `probe`, no table is enumerated at all.
+ * (owner dead, still occupied) from the finding — the reservation-reclaim write.
+ * It ALSO runs the DR-6 phantom-launch reconciler ({@link reconcileLaunches}):
+ * an in-flight `launch.executing_started` whose SUPERVISOR holder is provably
+ * dead (SIGKILL / host death — no catchable teardown ever ran) is healed to a
+ * `launch.executed` terminal, so a permanent launch phantom cannot survive in
+ * `ps` forever. Both are on-demand, fail-closed (a live/unprovable holder is left
+ * in-flight). Without `probe`, no table is enumerated and neither write runs.
  */
 export async function handleViewPs(
   args: Record<string, unknown>,
@@ -411,16 +420,43 @@ export async function handleViewPs(
   // ignores them — only `processTableSource` / `realpath` are consumed here.
   const manager = buildManager(ctx, deps);
   const inFlight = await manager.listInFlightMerges();
+  const launches = await manager.listInFlightLaunches();
 
   if (optionalBoolean(args.probe) !== true) {
-    return { success: true, data: { inFlight, count: inFlight.length } };
+    return {
+      success: true,
+      data: {
+        inFlight,
+        count: inFlight.length,
+        launches,
+        launchCount: launches.length,
+      },
+    };
   }
 
-  // --probe: pull the DR-5 probe on demand and emit released / orphan_detected.
+  // --probe: pull the DR-5 probe on demand and emit released / orphan_detected,
+  // then reconcile any phantom in-flight launch whose supervisor is provably
+  // dead (DR-6) — the launch.* counterpart of the reservation reclaim. Both read
+  // the SAME injected ground-truth process table (undefined ⇒ the real OS source).
   const reclaim = await manager.probeAndReclaim(deps?.selfPid);
+  const reconcile = await reconcileLaunches(ctx.eventStore, deps?.processTableSource);
+  // Re-fold the in-flight launches AFTER the reconcile pass so the reported
+  // launch column reflects post-reconcile state. The `launches` captured above is
+  // PRE-reconcile: a phantom launch just healed to a `launch.executed` terminal by
+  // `reconcileLaunches` would otherwise still appear in-flight here, so a single
+  // `ps --probe` response would report the same launch as both in-flight and
+  // healed. `inFlight` (serialized merges) is untouched by the launch reconciler.
+  const freshLaunches = await manager.listInFlightLaunches();
   return {
     success: true,
-    data: { inFlight, count: inFlight.length, probe: reclaim },
+    data: {
+      inFlight,
+      count: inFlight.length,
+      launches: freshLaunches,
+      launchCount: freshLaunches.length,
+      probe: reclaim,
+      reconcile,
+    },
   };
 }
 

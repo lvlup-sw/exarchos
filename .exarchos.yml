@@ -22,6 +22,10 @@ vcs:
 
 workflow:
   max-fix-cycles: 3
+  # Plan-review revision cap. Raised from the default (1) to allow the
+  # harness-launcher rev.4 revision after a fresh independent adversarial
+  # panel refuted the round-4 "survives-after-polish" self-assessment.
+  max-plan-revisions: 5
 
 tools:
   commit-style: conventional

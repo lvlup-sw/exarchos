@@ -17,6 +17,13 @@ import {
   VALIDATION_ERROR_CODE,
 } from './schema-to-flags.js';
 import { HandleMergeOrchestrateArgsSchema } from '../orchestrate/merge-orchestrate.js';
+import { TIER1_HARNESSES } from '../launcher/harness-registry.js';
+import { runLauncherVerb, renderDryRunPlan, isDryRunPlan } from '../launcher/verb.js';
+import {
+  makeLauncherLifecycleDeps,
+  recoverBeforeLaunch,
+  type LauncherWiringOverrides,
+} from '../launcher/production-deps.js';
 import type { FollowSubcommand } from '../cli/follow-formatter.js';
 import { prettyPrint, printError, toCliResult } from './cli-format.js';
 // NOTE: `./schema-introspection.js` is intentionally NOT imported at the top
@@ -211,6 +218,18 @@ export const VIEW_FOLLOW_ACTIONS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Options for {@link buildCli}. Production callers pass none; the launcher-wiring
+ * DI seam ({@link BuildCliOptions.launcher}) lets the CLI-surface tests inject an
+ * OS-effect fake (spawn / signal registrar / startup recovery) at the production
+ * boundary so a real non-dry-run launch is exercised deterministically WITHOUT
+ * re-implementing the wiring the CLI action runs.
+ */
+export interface BuildCliOptions {
+  /** OS-effect / advanced overrides threaded into the `exarchos <harness>` launcher wiring. */
+  readonly launcher?: LauncherWiringOverrides;
+}
+
+/**
  * Builds a Commander program from the TOOL_REGISTRY.
  *
  * Each composite tool becomes a top-level command (with `exarchos_` prefix stripped),
@@ -218,7 +237,7 @@ export const VIEW_FOLLOW_ACTIONS: ReadonlySet<string> = new Set([
  *
  * Also registers the `schema` introspection command and `mcp` server mode.
  */
-export function buildCli(ctx: DispatchContext): Command {
+export function buildCli(ctx: DispatchContext, options?: BuildCliOptions): Command {
   const packageVersion = resolvePackageVersion();
   const program = new Command('exarchos')
     .description('Agent governance for AI coding — event-sourced SDLC workflows')
@@ -1112,6 +1131,93 @@ export function buildCli(ctx: DispatchContext): Command {
       // continuing; HANDLER_ERROR (2) rather than a "command not found" exit.
       process.exitCode = CLI_EXIT_CODES.HANDLER_ERROR;
     });
+
+  // ─── Top-level `exarchos <harness>` launcher verbs (DR-1) ────────────────
+  //
+  // A CLI-only process-supervisor verb (the stdio MCP surface can't own a
+  // child's lifecycle), registered as ONE top-level command per Tier-1
+  // harness so an operator types `exarchos claude-code --dry-run` — the
+  // Aspire-style `exarchos <harness>` surface. The harness enum, path
+  // derivation, dry-run event plan, and the non-dry-run lifecycle seam all
+  // live in `launcher/verb.ts`; this block is a thin Commander adapter over
+  // `runLauncherVerb`.
+  //
+  // `--dry-run` prints the derived worktree path + event plan (human-readable
+  // via `renderDryRunPlan`, or the raw envelope under `--json`) WITHOUT
+  // creating a worktree or spawning. A NON-dry-run launch composes a REAL
+  // lifecycle substrate from the dispatch context (`makeLauncherLifecycleDeps`
+  // — event store + fail-closed teardown + signal handlers) and hands it to the
+  // verb as `lifecycleDeps`, so the launch actually spawns → places → observes →
+  // tears down (DR-6). Before spawning it self-heals any prior crashed launch
+  // (`recoverBeforeLaunch`) so no orphaned half-created worktree survives.
+  const launcherOverrides = options?.launcher;
+  const launcherBase = launcherOverrides?.base ?? process.cwd();
+  const launcherRepoRoot = launcherOverrides?.repoRoot ?? launcherBase;
+  for (const harness of TIER1_HARNESSES) {
+    program
+      .command(harness)
+      .description(
+        `Launch the ${harness} harness through the Exarchos lifecycle (spawn → place → observe → teardown). Use --dry-run to preview the derived worktree path + event plan.`,
+      )
+      .option('--feature <id>', 'Feature id to associate with the launch worktree')
+      .option(
+        '--dry-run',
+        'Print the derived worktree path + event plan without creating a worktree or spawning a process',
+      )
+      .option('--json', 'Output raw JSON')
+      .action(async (opts: Record<string, unknown>) => {
+        const isJson = Boolean(opts.json);
+        const feature = typeof opts.feature === 'string' ? opts.feature : undefined;
+        const dryRun = Boolean(opts.dryRun);
+
+        // Trap any rejection from startup recovery, lifecycle-deps wiring, or the
+        // verb so a non-Commander failure becomes the same UNCAUGHT_EXCEPTION
+        // envelope + exit-3 mapping every other top-level verb uses — rather than
+        // escaping `runCli` (which normalizes only CommanderError) as an uncaught
+        // rejection. INV-2: the adapter shapes the error into the envelope;
+        // behavior stays in the verb.
+        try {
+          // A real launch self-heals crashed prior launches, then runs the wired
+          // lifecycle. Dry-run mutates nothing, so it skips recovery entirely.
+          if (!dryRun) {
+            await recoverBeforeLaunch(ctx, launcherRepoRoot, launcherOverrides);
+          }
+
+          const result = await runLauncherVerb(
+            { harness, feature, dryRun },
+            {
+              base: launcherBase,
+              lifecycleDeps: makeLauncherLifecycleDeps(ctx, launcherOverrides),
+            },
+          );
+
+          // Dry-run success in human mode → render the plan; JSON mode falls
+          // through to the shared envelope emitter so machine consumers get one
+          // shape (INV-2 facade equivalence).
+          if (result.success && !isJson && isDryRunPlan(result.data)) {
+            process.stdout.write(`${renderDryRunPlan(result.data)}\n`);
+            process.exitCode = CLI_EXIT_CODES.SUCCESS;
+            return;
+          }
+
+          emitResult(result, isJson);
+          if (result.success) {
+            process.exitCode = CLI_EXIT_CODES.SUCCESS;
+          } else if (result.error?.code === VALIDATION_ERROR_CODE) {
+            process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
+          } else {
+            process.exitCode = CLI_EXIT_CODES.HANDLER_ERROR;
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          emitResult(
+            { success: false, error: { code: 'UNCAUGHT_EXCEPTION', message } },
+            isJson,
+          );
+          process.exitCode = CLI_EXIT_CODES.UNCAUGHT_EXCEPTION;
+        }
+      });
+  }
 
   return program;
 }

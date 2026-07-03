@@ -22,7 +22,8 @@ import {
 import { WORKTREES_STREAM, type GitWorktreeProbe } from './manager.js';
 import type { ProcessSource, StartTimeProbe } from './pure/process-identity.js';
 import type { ProcessTableSource, ProcessRecord } from './pure/probe.js';
-import type { InFlightMerge } from './projections/worktrees.js';
+import type { InFlightMerge, WorktreeEntry } from './projections/worktrees.js';
+import { emitLaunchExecutingStarted, emitLaunchExecuted } from '../../launcher/liveness.js';
 
 // ─── Deterministic injected deps ─────────────────────────────────────────────
 
@@ -318,6 +319,122 @@ describe('ps — in-flight liveness read (DR-4)', () => {
     const types = events.map((e) => e.type);
     expect(types).toContain('worktree.released');
     expect(types).toContain('worktree.orphan_detected');
+  });
+
+  it('HandleView_Ps_SurfacesInFlightLaunches_ClearedByTerminal', async () => {
+    const arm = await createArm();
+    // The launcher reserves its top-level worktree, then a child starts.
+    await seedReserved(arm, {
+      worktreeId: '/wlm/launch-wt',
+      path: '/wlm/launch-wt',
+      ownerPid: 4242,
+      ownerStartedAt: 'boot-4242',
+      operationId: 'op-launch',
+    });
+    await emitLaunchExecutingStarted(arm.ctx.eventStore, {
+      worktreeId: '/wlm/launch-wt',
+      holderPid: 7777,
+      holderStartedAt: 'boot-7777',
+    });
+
+    // ps surfaces the launch straight from events — no process scan.
+    const listSpy = vi.fn((): readonly ProcessRecord[] => []);
+    const inFlightResult = await handleView({ action: 'ps' }, arm.ctx, {
+      processTableSource: { list: listSpy },
+      realpath: (p) => p,
+    });
+    expect(inFlightResult.success).toBe(true);
+    const inFlightData = inFlightResult.data as {
+      launches: WorktreeEntry[];
+      launchCount: number;
+    };
+    expect(inFlightData.launchCount).toBe(1);
+    expect(inFlightData.launches[0].worktreeId).toBe('/wlm/launch-wt');
+    expect(inFlightData.launches[0].launch).toEqual({
+      holderPid: 7777,
+      holderStartedAt: 'boot-7777',
+    });
+    expect(listSpy).not.toHaveBeenCalled();
+
+    // After the terminal folds, ps reflects a cleared launch column.
+    await emitLaunchExecuted(arm.ctx.eventStore, {
+      worktreeId: '/wlm/launch-wt',
+      exitCode: 0,
+    });
+    const clearedResult = await handleView({ action: 'ps' }, arm.ctx, {
+      realpath: (p) => p,
+    });
+    const clearedData = clearedResult.data as {
+      launches: WorktreeEntry[];
+      launchCount: number;
+    };
+    expect(clearedData.launchCount).toBe(0);
+    expect(clearedData.launches).toEqual([]);
+  });
+
+  it('HandleView_Ps_Probe_ReconcilesPhantomLaunch', async () => {
+    const arm = await createArm();
+    // The launcher reserved its worktree and its child CLAIM landed, but the
+    // SUPERVISOR was SIGKILL'd / the host died — no catchable teardown ever ran,
+    // so no `launch.executed` terminal was written. This is a permanent phantom
+    // that `ps` would fold as in-flight forever without the DR-6 reconciler.
+    await seedReserved(arm, {
+      worktreeId: '/wlm/phantom-launch-wt',
+      path: '/wlm/phantom-launch-wt',
+      ownerPid: 8881,
+      ownerStartedAt: 'boot-8881',
+      operationId: 'op-phantom',
+    });
+    await emitLaunchExecutingStarted(arm.ctx.eventStore, {
+      worktreeId: '/wlm/phantom-launch-wt',
+      holderPid: 8882, // the now-dead supervisor holder
+      holderStartedAt: 'boot-8882',
+    });
+
+    // Provably dead: a SUPPORTED but empty table (the holder PID is absent).
+    const table: ProcessTableSource = { list: () => [], isSupported: () => true };
+
+    // Before the probe: the phantom is in-flight, NO terminal written.
+    const before = (await arm.ctx.eventStore.query(WORKTREES_STREAM)).filter(
+      (e) => e.type === 'launch.executed',
+    );
+    expect(before).toHaveLength(0);
+
+    const result = await handleView({ action: 'ps', probe: true }, arm.ctx, {
+      processTableSource: table,
+      realpath: (p) => p,
+      selfPid: 999999,
+    });
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      reconcile: { reconciled: string[]; leftInFlight: string[]; probed: number };
+      probe: { probed: number };
+      launches: unknown[];
+      launchCount: number;
+    };
+    // The reservation reclaim STILL ran (existing behavior intact)...
+    expect(data.probe).toBeDefined();
+    // ...and the phantom launch was reconciled to a terminal on the SAME pass.
+    expect(data.reconcile.reconciled).toContain('/wlm/phantom-launch-wt');
+
+    // Regression (CodeRabbit, PR #1632): the SAME probe response must report the
+    // POST-reconcile launch column, not the stale pre-reconcile snapshot — else a
+    // just-healed phantom is reported as BOTH in-flight and reconciled in one call.
+    expect(data.launchCount).toBe(0);
+    expect(data.launches).toHaveLength(0);
+
+    // The heal wrote exactly one `launch.executed` — the reconciler is the ONLY
+    // writer of it here (probeAndReclaim writes worktree.released/orphan_detected).
+    const after = (await arm.ctx.eventStore.query(WORKTREES_STREAM)).filter(
+      (e) => e.type === 'launch.executed',
+    );
+    expect(after).toHaveLength(1);
+    expect(after[0].data?.worktreeId).toBe('/wlm/phantom-launch-wt');
+
+    // A follow-up ps shows the launch column cleared — no permanent phantom.
+    const cleared = await handleView({ action: 'ps' }, arm.ctx, { realpath: (p) => p });
+    expect((cleared.data as { launchCount: number }).launchCount).toBe(0);
   });
 });
 
