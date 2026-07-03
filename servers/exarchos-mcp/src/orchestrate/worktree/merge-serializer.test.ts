@@ -30,7 +30,7 @@ import {
   handleMergeOrchestrate,
   type HandleMergeOrchestrateInput,
 } from '../merge-orchestrate.js';
-import { serializeMerge, resumeCrashedMerge } from './merge-serializer.js';
+import { serializeMerge } from './merge-serializer.js';
 import { handleSerializeMerge } from './handlers.js';
 import { WORKTREES_STREAM, WORKTREES_REDUCER } from './manager.js';
 import type { WorktreesProjection } from './projections/worktrees.js';
@@ -821,45 +821,9 @@ describe('serialize_merge — DR-2 lease threading through the guard', () => {
     expect(typeof captured.leaseOperationId).toBe('string');
   });
 
-  it('SerializeMerge_CrashResumedNewPid_OriginalOperationId_PassesGuard', async () => {
-    const arm = await createArm();
-    const integrationRef = 'integration/resume-lease';
-    // A crashed holder: its recorded pid is absent from the SUPPORTED empty
-    // table → provably dead, so the resume may take over the lease.
-    await seedHolder(arm, {
-      integrationRef,
-      operationId: 'crashed-op',
-      sourceBranch: 'feat/crashed',
-      holderPid: 4242,
-      holderStartedAt: 'gone',
-    });
-
-    const captured: { leaseOperationId?: string } = {};
-    // The resume re-claims under a NEW live pid (333). Pin the guard's table so
-    // that new identity reads ALIVE — a missing thread would fail closed.
-    const guardTable = liveTable([{ pid: 333, startTime: 'self-333' }]);
-
-    const outcome = await resumeCrashedMerge(
-      { featureId: 'F', integrationRef, strategy: 'merge' },
-      arm.ctx,
-      {
-        // The resume's own dead-holder probe uses the EMPTY (supported) table so
-        // the original crashed holder reads provably dead → resume is allowed.
-        processTableSource: EMPTY_TABLE,
-        selfPid: 333,
-        selfStartedAt: 'self-333',
-        isMergeApplied: () => false, // force a re-merge (not already applied).
-        mergeOrchestrate: realMergeCapturingLease(captured, guardTable),
-      },
-    );
-
-    // The resumed lease passed the guard by presenting the ORIGINAL operationId,
-    // even though the re-claim stamped a NEW pid (match by operationId, not pid).
-    expect(outcome.resumed).toBe(true);
-    expect(captured.leaseOperationId).toBe('crashed-op');
-    if (outcome.resumed) {
-      expect(outcome.reMerged).toBe(true);
-      expect(outcome.mergeResult?.success).toBe(true);
-    }
-  });
+  // The former `SerializeMerge_CrashResumedNewPid_OriginalOperationId_PassesGuard`
+  // exercised the DR-2 "match by operationId, not pid" guard through the standalone
+  // `resumeCrashedMerge` export, which was excised (DR-3, WLM slice 3). That guard
+  // contract is covered directly in `merge-orchestrate.test.ts`
+  // (`handleMergeOrchestrate (DR-2 — single-writer lease guard)`), so no coverage is lost.
 });

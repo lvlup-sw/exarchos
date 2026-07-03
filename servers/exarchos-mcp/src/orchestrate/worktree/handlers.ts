@@ -32,11 +32,31 @@ import {
   serializeMerge,
   type SerializeMergeInput,
   type SerializeMergeDeps,
+  reconcileMerges,
 } from './merge-serializer.js';
 import type { SleepFn } from './git-retry.js';
 import type { InFlightMerge } from './projections/worktrees.js';
 import { reconcileLaunches } from '../../launcher/launch-reconcile.js';
 
+// ─── Shared helpers ──────────────────────────────────────────────────────────
+
+
+// ─── Worktree-lifecycle dispatch handlers (WLM foundation, task 008) ─────────
+//
+// The four composite ACTIONS that ride the existing visible tools (INV-5d — NO
+// new visible tool):
+//
+//   - `acquire_worktree`  (exarchos_orchestrate) — adopt-then-reserve composite.
+//   - `release_worktree`  (exarchos_orchestrate) — release the caller's claim.
+//   - `prune_worktrees`   (exarchos_orchestrate) — the GC (dry-run by default).
+//   - `worktrees`         (exarchos_view)        — read the worktrees@v1 fold.
+//
+// Every handler carries ZERO behavior of its own (INV-2): it constructs the
+// in-process {@link WorktreeManager} facade over `ctx.eventStore` and delegates.
+// Because both the CLI and MCP adapters dispatch through the same composite
+// router, the same DispatchContext + args project an identical ToolResult on
+// either surface.
+// ─────────────────────────────────────────────────────────────────────────────
 // ─── Shared helpers ──────────────────────────────────────────────────────────
 
 /**
@@ -412,8 +432,12 @@ export interface WorktreeViewDeps extends InjectableDeps {
  * an in-flight `launch.executing_started` whose SUPERVISOR holder is provably
  * dead (SIGKILL / host death — no catchable teardown ever ran) is healed to a
  * `launch.executed` terminal, so a permanent launch phantom cannot survive in
- * `ps` forever. Both are on-demand, fail-closed (a live/unprovable holder is left
- * in-flight). Without `probe`, no table is enumerated and neither write runs.
+ * `ps` forever. It ALSO runs the DR-3 crash-mid-merge reconciler
+ * ({@link reconcileMerges}): a stranded `worktree.merge_requested` whose holder is
+ * provably dead is freed to a `worktree.merge_executed` terminal, so a crashed
+ * merge lease can never fold as a permanent `ps` phantom either. All three are
+ * on-demand, fail-closed (a live/unprovable holder is left in-flight). Without
+ * `probe`, no table is enumerated and none of the reconcile writes run.
  */
 export async function handleViewPs(
   args: Record<string, unknown>,
@@ -440,27 +464,31 @@ export async function handleViewPs(
   }
 
   // --probe: pull the DR-5 probe on demand and emit released / orphan_detected,
-  // then reconcile any phantom in-flight launch whose supervisor is provably
-  // dead (DR-6) — the launch.* counterpart of the reservation reclaim. Both read
-  // the SAME injected ground-truth process table (undefined ⇒ the real OS source).
+  // then reconcile any phantom in-flight launch whose supervisor is provably dead
+  // (DR-6) and any stranded in-flight merge lease whose holder is provably dead
+  // (DR-3, crash-mid-merge). All three read the SAME injected ground-truth process
+  // table (undefined ⇒ the real OS source) and fail closed off it.
   const reclaim = await manager.probeAndReclaim(deps?.selfPid);
   const reconcile = await reconcileLaunches(ctx.eventStore, deps?.processTableSource);
-  // Re-fold the in-flight launches AFTER the reconcile pass so the reported
-  // launch column reflects post-reconcile state. The `launches` captured above is
-  // PRE-reconcile: a phantom launch just healed to a `launch.executed` terminal by
-  // `reconcileLaunches` would otherwise still appear in-flight here, so a single
-  // `ps --probe` response would report the same launch as both in-flight and
-  // healed. `inFlight` (serialized merges) is untouched by the launch reconciler.
+  const mergeReconcile = await reconcileMerges(ctx.eventStore, deps?.processTableSource);
+  // Re-fold BOTH in-flight columns AFTER the reconcile passes so the reported
+  // state is POST-reconcile. Both `launches` and `inFlight` captured above are
+  // PRE-reconcile: a phantom launch just healed by `reconcileLaunches`, or a
+  // crashed merge lease just freed by `reconcileMerges`, would otherwise still
+  // appear in-flight — a single `ps --probe` response reporting the same entry as
+  // BOTH in-flight and reconciled.
   const freshLaunches = await manager.listInFlightLaunches();
+  const freshInFlight = await manager.listInFlightMerges();
   return {
     success: true,
     data: {
-      inFlight,
-      count: inFlight.length,
+      inFlight: freshInFlight,
+      count: freshInFlight.length,
       launches: freshLaunches,
       launchCount: freshLaunches.length,
       probe: reclaim,
       reconcile,
+      mergeReconcile,
     },
   };
 }
