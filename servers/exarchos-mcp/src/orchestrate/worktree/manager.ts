@@ -1113,6 +1113,22 @@ export class WorktreeManager {
   }
 
   /**
+   * Read-only listing of the live launcher-launch set (DR-2): fold the
+   * `worktrees` stream and return every {@link WorktreeEntry} whose launcher
+   * child is in flight — a `launch.executing_started` with no paired
+   * `launch.executed`, surfaced as a present `launch` marker on the entry. Backs
+   * the `ps` view action's launch column. Appends nothing and runs NO process
+   * scan — it is a pure fold of the event log, so the terminal deterministically
+   * clears a launch from this set (no permanent phantom).
+   */
+  async listInFlightLaunches(): Promise<readonly WorktreeEntry[]> {
+    const projection = await this.loadProjection();
+    return Object.values(projection.worktrees).filter(
+      (entry) => entry.launch !== undefined,
+    );
+  }
+
+  /**
    * On-demand orphan / stale-reservation probe + emit — the deferred orphan
    * emitter (DR-5). Folds the `worktrees@v1` projection, runs the ground-truth
    * {@link probeWorktrees} process probe over every governed worktree, and emits

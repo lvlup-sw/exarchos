@@ -22,7 +22,8 @@ import {
 import { WORKTREES_STREAM, type GitWorktreeProbe } from './manager.js';
 import type { ProcessSource, StartTimeProbe } from './pure/process-identity.js';
 import type { ProcessTableSource, ProcessRecord } from './pure/probe.js';
-import type { InFlightMerge } from './projections/worktrees.js';
+import type { InFlightMerge, WorktreeEntry } from './projections/worktrees.js';
+import { emitLaunchExecutingStarted, emitLaunchExecuted } from '../../launcher/liveness.js';
 
 // ─── Deterministic injected deps ─────────────────────────────────────────────
 
@@ -318,6 +319,57 @@ describe('ps — in-flight liveness read (DR-4)', () => {
     const types = events.map((e) => e.type);
     expect(types).toContain('worktree.released');
     expect(types).toContain('worktree.orphan_detected');
+  });
+
+  it('HandleView_Ps_SurfacesInFlightLaunches_ClearedByTerminal', async () => {
+    const arm = await createArm();
+    // The launcher reserves its top-level worktree, then a child starts.
+    await seedReserved(arm, {
+      worktreeId: '/wlm/launch-wt',
+      path: '/wlm/launch-wt',
+      ownerPid: 4242,
+      ownerStartedAt: 'boot-4242',
+      operationId: 'op-launch',
+    });
+    await emitLaunchExecutingStarted(arm.ctx.eventStore, {
+      worktreeId: '/wlm/launch-wt',
+      holderPid: 7777,
+      holderStartedAt: 'boot-7777',
+    });
+
+    // ps surfaces the launch straight from events — no process scan.
+    const listSpy = vi.fn((): readonly ProcessRecord[] => []);
+    const inFlightResult = await handleView({ action: 'ps' }, arm.ctx, {
+      processTableSource: { list: listSpy },
+      realpath: (p) => p,
+    });
+    expect(inFlightResult.success).toBe(true);
+    const inFlightData = inFlightResult.data as {
+      launches: WorktreeEntry[];
+      launchCount: number;
+    };
+    expect(inFlightData.launchCount).toBe(1);
+    expect(inFlightData.launches[0].worktreeId).toBe('/wlm/launch-wt');
+    expect(inFlightData.launches[0].launch).toEqual({
+      holderPid: 7777,
+      holderStartedAt: 'boot-7777',
+    });
+    expect(listSpy).not.toHaveBeenCalled();
+
+    // After the terminal folds, ps reflects a cleared launch column.
+    await emitLaunchExecuted(arm.ctx.eventStore, {
+      worktreeId: '/wlm/launch-wt',
+      exitCode: 0,
+    });
+    const clearedResult = await handleView({ action: 'ps' }, arm.ctx, {
+      realpath: (p) => p,
+    });
+    const clearedData = clearedResult.data as {
+      launches: WorktreeEntry[];
+      launchCount: number;
+    };
+    expect(clearedData.launchCount).toBe(0);
+    expect(clearedData.launches).toEqual([]);
   });
 });
 

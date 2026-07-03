@@ -21,6 +21,10 @@
  *                                 `integrationRef` (the CLAIM half of the lease)
  *   - `worktree.merge_executed` → CLEAR the in-flight merge for that
  *                                 `integrationRef` (the RELEASE half)
+ *   - `launch.executing_started`→ MARK the launcher worktree entry (keyed by
+ *                                 `worktreeId`) launch-in-flight (DR-2 CLAIM)
+ *   - `launch.executed`         → CLEAR the launch-in-flight marker on that
+ *                                 entry (DR-2 terminal — kills the phantom)
  *
  * `worktree.remove.requested` is durable intent only and is a no-op here; the
  * entry is dropped on `worktree.remove.executed`. Every lifecycle event carries
@@ -104,6 +108,32 @@ export interface WorktreeEntry {
   readonly ownerPid: number | null;
   /** Holder process start time (ISO 8601) — non-null only while `state === 'reserved'`. */
   readonly ownerStartedAt: string | null;
+  /**
+   * Launcher liveness marker (DR-2) — PRESENT only while a launcher child
+   * process is executing in this (task-less, top-level) worktree: SET by
+   * `launch.executing_started`, CLEARED (field removed) by the paired
+   * `launch.executed` terminal. Absent on every non-launch worktree and after
+   * the launch terminates, so a permanent launch phantom cannot survive the
+   * terminal. Orthogonal to `state`: a lifecycle transition (reserve / release /
+   * orphan / adopt) carries this marker forward untouched — the launch child's
+   * liveness is independent of the reservation lifecycle.
+   */
+  readonly launch?: LaunchInFlight;
+}
+
+/**
+ * The liveness ground truth of an in-flight launcher child process (DR-2),
+ * carried on a {@link WorktreeEntry} while its launch is executing. Mirrors the
+ * `holderPid` / `holderStartedAt` pair on {@link InFlightMerge}: a later
+ * dead-holder reconciler can probe whether `holderPid` (with matching
+ * `holderStartedAt`, to defeat PID reuse) is still alive and reclaim an
+ * abandoned launch. `null` fields mean the emitter could not capture the value.
+ */
+export interface LaunchInFlight {
+  /** PID of the live launcher child process holding the launch, or `null`. */
+  readonly holderPid: number | null;
+  /** Child process start time (ISO 8601) — disambiguates PID reuse, or `null`. */
+  readonly holderStartedAt: string | null;
 }
 
 /**
@@ -200,6 +230,11 @@ function upsertLifecycle(
   // `path` defaults to the worktreeId (the canonical path) when absent.
   const entryPath = extractString(event.data, 'path') ?? worktreeId;
   const reserved = next === 'reserved';
+  // A launcher child's liveness is orthogonal to the reservation lifecycle:
+  // carry any in-flight launch marker forward across a reserve/release/orphan/
+  // adopt so an interleaved lifecycle event can never silently drop a live
+  // launch (the terminal `launch.executed` is the ONLY thing that clears it).
+  const carriedLaunch = state.worktrees[worktreeId]?.launch;
   const entry: WorktreeEntry = {
     worktreeId,
     path: entryPath,
@@ -209,6 +244,7 @@ function upsertLifecycle(
     ownerStartedAt: reserved
       ? (extractString(event.data, 'ownerStartedAt') ?? null)
       : null,
+    ...(carriedLaunch !== undefined ? { launch: carriedLaunch } : {}),
   };
   return {
     projectionSequence: state.projectionSequence + 1,
@@ -330,6 +366,66 @@ function clearInFlightMerge(
   };
 }
 
+// ─── Launch liveness fold helpers (DR-2) ────────────────────────────────────
+
+/**
+ * Fold a `launch.executing_started` onto the launcher worktree entry keyed by
+ * `worktreeId`: mark it launch-in-flight by attaching the {@link LaunchInFlight}
+ * liveness ground truth (`holderPid` / `holderStartedAt`). The launcher reserves
+ * FIRST (`create-worktree.ts`), so the entry already exists by the time this
+ * fires; a launch event for an absent entry returns `state` by identity (lax
+ * replay tolerance — a launch event carries no `path` / `featureId` to construct
+ * a full entry, mirroring {@link upsertInFlightMerge}). Only the targeted entry
+ * is rebuilt; every other entry and the merge map structural-share through.
+ */
+function markLaunchInFlight(
+  state: WorktreesProjection,
+  event: WorkflowEvent,
+): WorktreesProjection {
+  const worktreeId = extractString(event.data, 'worktreeId');
+  if (!worktreeId) return state;
+  const existing = state.worktrees[worktreeId];
+  if (existing === undefined) return state;
+  const launch: LaunchInFlight = {
+    holderPid: extractNumber(event.data, 'holderPid') ?? null,
+    holderStartedAt: extractString(event.data, 'holderStartedAt') ?? null,
+  };
+  const entry: WorktreeEntry = { ...existing, launch };
+  return {
+    projectionSequence: state.projectionSequence + 1,
+    worktrees: { ...state.worktrees, [worktreeId]: entry },
+    inFlightMerges: state.inFlightMerges,
+  };
+}
+
+/**
+ * Fold a `launch.executed` terminal onto the launcher worktree entry keyed by
+ * `worktreeId`: CLEAR the in-flight marker (remove the `launch` field). Returns
+ * `state` by identity when the entry is absent OR carries no in-flight launch
+ * (idempotent — a terminal for an already-cleared / never-launched worktree is a
+ * no-op). Clearing on the terminal is what guarantees a launch-in-flight marker
+ * cannot become a permanent phantom (DR-2). The entry's lifecycle `state` and
+ * every other field are preserved untouched.
+ */
+function clearLaunchInFlight(
+  state: WorktreesProjection,
+  event: WorkflowEvent,
+): WorktreesProjection {
+  const worktreeId = extractString(event.data, 'worktreeId');
+  if (!worktreeId) return state;
+  const existing = state.worktrees[worktreeId];
+  if (existing === undefined || existing.launch === undefined) return state;
+  // Rebuild the entry WITHOUT the `launch` field (drop, not set-to-undefined,
+  // so a cleared entry deep-equals a never-launched one — no phantom key).
+  const { launch: _cleared, ...rest } = existing;
+  const entry: WorktreeEntry = rest;
+  return {
+    projectionSequence: state.projectionSequence + 1,
+    worktrees: { ...state.worktrees, [worktreeId]: entry },
+    inFlightMerges: state.inFlightMerges,
+  };
+}
+
 // ─── Reducer factory + default instance ─────────────────────────────────────
 
 /**
@@ -364,6 +460,10 @@ export function createWorktreesReducer(
           return upsertInFlightMerge(state, event);
         case 'worktree.merge_executed':
           return clearInFlightMerge(state, event);
+        case 'launch.executing_started':
+          return markLaunchInFlight(state, event);
+        case 'launch.executed':
+          return clearLaunchInFlight(state, event);
         default:
           // Unknown / intent-only event (e.g. `worktree.remove.requested`) —
           // return identity to preserve structural-sharing semantics.
