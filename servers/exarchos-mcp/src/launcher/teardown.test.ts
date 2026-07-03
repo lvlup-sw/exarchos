@@ -56,7 +56,15 @@ import {
   teardownLaunch,
   makeLifecycleTeardown,
   recoverCrashedLaunch,
+  type TeardownOutcome,
 } from './teardown.js';
+import {
+  installSignalHandlers,
+  type SignalChild,
+  type SignalListener,
+  type SignalRegistrar,
+  type TrappedSignal,
+} from './signals.js';
 
 // ─── git + event-store helpers (mirror lifecycle.test.ts) ─────────────────────
 
@@ -180,6 +188,37 @@ const HOLDER = {
   holderPid: process.pid,
   holderStartedAt: 'teardown-boot-fingerprint',
 } as const;
+
+// ─── Deterministic signal-registration fake (drives installSignalHandlers) ────
+
+/**
+ * A {@link SignalRegistrar} that captures listeners in-memory so a test drives
+ * the trap by calling {@link fire} — no real signal is delivered to the vitest
+ * process. `fire` awaits each listener so the async trap body (forward → terminal
+ * → reap → teardown) is fully settled before the test asserts.
+ */
+function makeFakeRegistrar(): {
+  registrar: SignalRegistrar;
+  fire(signal: TrappedSignal): Promise<void>;
+} {
+  const listeners = new Map<TrappedSignal, SignalListener[]>();
+  return {
+    registrar: {
+      add(signal, listener) {
+        listeners.set(signal, [...(listeners.get(signal) ?? []), listener]);
+      },
+      remove(signal, listener) {
+        listeners.set(
+          signal,
+          (listeners.get(signal) ?? []).filter((l) => l !== listener),
+        );
+      },
+    },
+    async fire(signal) {
+      await Promise.all((listeners.get(signal) ?? []).map((l) => l(signal)));
+    },
+  };
+}
 
 // ─── Suite ────────────────────────────────────────────────────────────────────
 
@@ -516,5 +555,90 @@ describe('teardownLaunch — launcher teardown safety + recovery (DR-6)', () => 
     expect(terminalsFor(store, 'wt-origin')).toHaveLength(1);
     expect(noDestructiveGit(unreachable.calls)).toBe(true);
     expect(release.calls).toHaveLength(0);
+  }, 20_000);
+
+  // ── Teardown_ChildExitsDuringSignalPath_ReservationReleasedNotLingering (#1634) ─
+  //
+  // DR-6 signal-path race: on a trapped SIGINT/SIGTERM the launcher forwards the
+  // signal, reaps the child, and tears down. Teardown's occupancy probe must run
+  // AFTER the child is reaped — otherwise the still-exiting child is counted as
+  // occupying its OWN reserved worktree, teardown refuses the release
+  // ('worktree-in-use'), and the reservation LINGERS until the next GC. This wires
+  // the REAL installSignalHandlers + REAL teardownLaunch over a REAL reserved
+  // worktree and asserts the reservation is RELEASED promptly on the signal path.
+  it('Teardown_ChildExitsDuringSignalPath_ReservationReleasedNotLingering', async () => {
+    const { worktreeId, worktreePath } = await makeRealWorktree(
+      'exarchos-signalrace',
+      'launch-signalrace',
+    );
+
+    // Ground-truth process table: the spawned CHILD occupies its reserved worktree
+    // (cwd inside it, a live NON-ancestry PID) UNTIL it is reaped. The reap
+    // (reapWithEscalation) is the sole reader of `child.exit`, so reading it models
+    // the OS collecting the child — after which it no longer occupies the worktree.
+    const CHILD_PID = 987654;
+    let childReaped = false;
+    const childRecord: ProcessRecord = {
+      pid: CHILD_PID,
+      ppid: process.pid,
+      cwd: worktreePath,
+      startTime: 'signal-child',
+    };
+    const table: ProcessTableSource = {
+      list: () => (childReaped ? [] : [childRecord]),
+      isSupported: () => true,
+    };
+    const exitPromise = Promise.resolve<SpawnExit>({ code: null, signal: 'SIGTERM' });
+    const child: SignalChild = {
+      kill: () => true,
+      get exit() {
+        childReaped = true; // the reap collects the child → its worktree is freed.
+        return exitPromise;
+      },
+    };
+
+    // The signal path's teardown is the REAL teardownLaunch with the default WLM
+    // release (event-only) over the SAME reserved owner, so a clean release
+    // actually transitions the reservation to `released`. Its outcome is captured
+    // (installSignalHandlers discards it, exactly as makeLifecycleTeardown does).
+    const gitRec = recordingGit();
+    let outcome: TeardownOutcome | undefined;
+    const teardown = async (): Promise<void> => {
+      outcome = await teardownLaunch(
+        { eventStore: store, worktreeId, worktreePath, exitCode: null },
+        {
+          gitRunner: gitRec.runner,
+          processTableSource: table,
+          selfPid: process.pid,
+          owner: { ownerPid: process.pid, ownerStartedAt: 'crashed-owner-fingerprint' },
+        },
+      );
+    };
+
+    const registrar = makeFakeRegistrar();
+    installSignalHandlers({
+      child,
+      teardown,
+      emitTerminal: () => emitLaunchExecuted(store, { worktreeId, exitCode: null }),
+      signals: registrar.registrar,
+    });
+
+    // The operator interrupts the launcher (Ctrl-C / kill) mid-launch.
+    await registrar.fire('SIGTERM');
+
+    // Teardown ran AFTER the reap, so its occupancy probe saw the child gone and
+    // the reservation was RELEASED — not withheld as 'worktree-in-use'.
+    expect(outcome?.released).toBe(true);
+    expect(outcome?.recoveryError).toBeUndefined();
+    // Ground truth in the WLM ledger: the reservation actually transitioned to
+    // `released` — it does NOT linger `reserved` for the next GC to reap.
+    const entry = (await new WorktreeManager({ eventStore: store }).list()).find(
+      (e) => e.worktreeId === worktreeId,
+    );
+    expect(entry?.state).toBe('released');
+    // The guaranteed terminal still rode the signal path exactly once...
+    expect(terminalsFor(store, worktreeId)).toHaveLength(1);
+    // ...and nothing destructive ran (event-only release; work preserved on disk).
+    expect(noResetHard(gitRec.calls)).toBe(true);
   }, 20_000);
 });

@@ -10,15 +10,21 @@
  *
  *   1. **Forward** the terminating signal to the child, so the child tears down
  *      *with* the launcher rather than surviving as an orphan.
- *   2. **Guarantee teardown** runs on parent interruption (release / recovery —
- *      owned by the injected {@link SignalTeardown}; task 012 extends it).
- *   3. **Emit the guaranteed `launch.executed` terminal** through the idempotent
+ *   2. **Emit the guaranteed `launch.executed` terminal** through the idempotent
  *      Task-006 seam ({@link liveness.emitLaunchExecuted}, injected here as
- *      {@link EmitTerminalFn}). This is the DR-6 "every catchable exit" contract
+ *      {@link EmitTerminalFn}) — FIRST, before the reap, so a slow / ignoring
+ *      child can never block it. This is the DR-6 "every catchable exit" contract
  *      asserted ON the signal path — NOT deferred to the Task-016
  *      uncatchable-death (`SIGKILL`/host-death) reconciler.
- *   4. **Reap** the child (await its exit) so THIS parent collects it — proof it
+ *   3. **Reap** the child (await its exit) so THIS parent collects it — proof it
  *      is never left detached / reparented.
+ *   4. **Guarantee teardown** runs on parent interruption (release / recovery —
+ *      owned by the injected {@link SignalTeardown}; task 012 extends it), AFTER
+ *      the reap: teardown's occupancy probe must see the child already collected,
+ *      else the still-exiting child is counted as occupying its OWN reserved
+ *      worktree and the release is withheld, leaving the reservation to linger
+ *      until the next GC (#1634). Reaping before teardown mirrors the normal-exit
+ *      path (observe → teardown) so both exit routes release promptly.
  *
  * ## Installable, self-contained seam
  *
@@ -176,7 +182,7 @@ export function installSignalHandlers(
   const killTimeoutMs = options.killTimeoutMs ?? DEFAULT_KILL_TIMEOUT_MS;
   const scheduleEscalation = options.scheduleEscalation ?? defaultScheduleEscalation;
 
-  // The guaranteed-once trap body: forward → teardown → terminal → reap. Memoized
+  // The guaranteed-once trap body: forward → terminal → reap → teardown. Memoized
   // so a double signal (or a SIGINT then SIGTERM) collapses to ONE run.
   const runOnce = once(async (signal: TrappedSignal): Promise<void> => {
     // (1) Forward the terminating signal to the child FIRST — orphan prevention.
@@ -184,21 +190,31 @@ export function installSignalHandlers(
     //     launcher, never left detached / reparented to init.
     child.kill(signal);
     try {
-      // (2) Guarantee teardown runs on parent interruption (best-effort; the
-      //     teardown seam owns its own release/recoveryError semantics).
-      await teardown(signal);
-    } finally {
-      // (3) Emit the GUARANTEED `launch.executed` terminal via the idempotent
+      // (2) Emit the GUARANTEED `launch.executed` terminal via the idempotent
       //     Task-006 seam — the DR-6 "every catchable exit" contract asserted on
-      //     the signal path. In a `finally` so it fires even if teardown threw,
-      //     and BEFORE the reap so a slow child never blocks the terminal.
+      //     the signal path. Emitted FIRST, BEFORE the reap, so a child that
+      //     ignores / slow-handles the forwarded signal can never block the
+      //     terminal. Idempotent, so teardown's own terminal emit later collapses
+      //     onto this one — never a second `launch.executed` row.
       await emitTerminal();
+    } finally {
+      try {
+        // (3) Reap the child so THIS parent collects it — the proof it is not
+        //     orphaned / detached — but NEVER hang: a child that ignores or
+        //     slow-handles the forwarded signal is escalated to SIGKILL after
+        //     `killTimeoutMs`, then reaped.
+        await reapWithEscalation(child, killTimeoutMs, scheduleEscalation);
+      } finally {
+        // (4) Teardown runs AFTER the reap (#1634): the release path's occupancy
+        //     probe must see the child ALREADY collected, else the still-exiting
+        //     child is counted as occupying its own reserved worktree and the
+        //     release is withheld — leaving the reservation to linger until the
+        //     next GC. Reaping first mirrors the normal-exit path (observe →
+        //     teardown); the teardown seam owns its own release/recoveryError
+        //     semantics (best-effort here).
+        await teardown(signal);
+      }
     }
-    // (4) Reap the child so THIS parent collects it — the proof it is not
-    //     orphaned / detached — but NEVER hang: a child that ignores or
-    //     slow-handles the forwarded signal is escalated to SIGKILL after
-    //     `killTimeoutMs`, then reaped. Done last so it cannot delay the terminal.
-    await reapWithEscalation(child, killTimeoutMs, scheduleEscalation);
   });
 
   // The registered listener never rejects: signal handlers on `process` must not
