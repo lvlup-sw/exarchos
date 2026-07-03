@@ -2226,7 +2226,10 @@ export const LaunchExecutingStartedData = z.object({
   holderStartedAt: z
     .string()
     .min(1)
-    .describe('Child process start time (ISO 8601) — disambiguates PID reuse'),
+    .nullable()
+    .describe(
+      'Supervisor process start time (ISO 8601) — disambiguates PID reuse; non-empty when resolved, or null when the platform cannot resolve create-time (DR-6, never the empty string)',
+    ),
 });
 
 /**

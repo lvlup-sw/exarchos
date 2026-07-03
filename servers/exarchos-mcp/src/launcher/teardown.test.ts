@@ -539,22 +539,97 @@ describe('teardownLaunch — launcher teardown safety + recovery (DR-6)', () => 
     expect(noDestructiveGit(nonGit.calls)).toBe(true);
     expect(release.calls).toHaveLength(0);
 
-    // (B) Origin configured but UNREACHABLE: `git ls-remote origin` fails.
+    // (B) Origin configured but UNREACHABLE. The reachability check rides the
+    // async, NON-BLOCKING `originReachable` seam (never a blocking sync `ls-remote`
+    // on the teardown event loop) — injected here to resolve `false` deterministically.
     const unreachable = scriptedGit((args) => {
       if (args[0] === 'rev-parse') return { status: 0, stdout: 'true' };
       if (args[0] === 'remote' && args[1] === 'get-url') return { status: 0, stdout: 'git@x:y.git' };
-      if (args[0] === 'ls-remote') return { status: 128 };
       return { status: 0 };
     });
     const outcomeB = await teardownLaunch(
       { eventStore: store, worktreeId: 'wt-origin', worktreePath: '/some/worktree', exitCode: 0 },
-      { release: release.fn, gitRunner: unreachable.runner, processTableSource: fakeTable([]) },
+      {
+        release: release.fn,
+        gitRunner: unreachable.runner,
+        originReachable: async () => false,
+        processTableSource: fakeTable([]),
+      },
     );
     expect(outcomeB.originError).toBe('origin-unreachable');
     expect(outcomeB.released).toBe(false);
     expect(terminalsFor(store, 'wt-origin')).toHaveLength(1);
     expect(noDestructiveGit(unreachable.calls)).toBe(true);
+    // The sync runner NEVER ran the network `ls-remote` — that is the async seam's job.
+    expect(unreachable.calls.some((a) => a[0] === 'ls-remote')).toBe(false);
     expect(release.calls).toHaveLength(0);
+  }, 20_000);
+
+  // ── Teardown_OriginProbe_NonBlocking (#1635, DR-6) ────────────────────────────
+  //
+  // The origin-reachability probe is the one NETWORK round-trip in the fail-closed
+  // gate. It MUST run through the async, non-blocking seam so a slow/hanging origin
+  // never freezes the launcher's teardown event loop (its signal handling +
+  // terminal emission). A controllable deferred `originReachable` proves teardown
+  // YIELDS to the loop — it stays pending while the probe is in flight, and only
+  // completes once the async probe resolves. A regression to a blocking sync
+  // `ls-remote` would settle the gate synchronously (the injected sync runner even
+  // reports REACHABLE), so teardown would already be settled by the next macrotask.
+  it('Teardown_OriginProbe_NonBlocking', async () => {
+    const release = fakeRelease({ released: true, rejectedForeignOwner: false });
+    // rev-parse ok + origin CONFIGURED; a sync `ls-remote` (the blocking path this
+    // fix removes) would report status 0 = REACHABLE and skip the async seam.
+    const gitRec = scriptedGit((args) => {
+      if (args[0] === 'rev-parse') return { status: 0, stdout: 'true' };
+      if (args[0] === 'remote' && args[1] === 'get-url') return { status: 0, stdout: 'git@x:y.git' };
+      return { status: 0 };
+    });
+
+    // A deferred async origin probe: it records that it STARTED and hands back a
+    // promise the test resolves on demand — so teardown must await the event loop.
+    let resolveProbe!: (reachable: boolean) => void;
+    let probeStarted = false;
+    const originReachable = (): Promise<boolean> => {
+      probeStarted = true;
+      return new Promise<boolean>((r) => {
+        resolveProbe = r;
+      });
+    };
+
+    const pending = teardownLaunch(
+      { eventStore: store, worktreeId: 'wt-nonblock', worktreePath: '/some/worktree', exitCode: 0 },
+      {
+        release: release.fn,
+        gitRunner: gitRec.runner,
+        originReachable,
+        processTableSource: fakeTable([]),
+        selfPid: process.pid,
+      },
+    );
+    let settled = false;
+    void pending.then(() => {
+      settled = true;
+    });
+
+    // Yield the event loop repeatedly until the async origin probe STARTS. The
+    // guaranteed-terminal emit that precedes the gate is itself async (a real
+    // SQLite append), so teardown reaches the origin gate after a few ticks — a
+    // blocking sync `ls-remote` (the reverted path) would NEVER start this seam,
+    // so this loop would exhaust and the assertion below would fail.
+    for (let i = 0; i < 200 && !probeStarted; i += 1) {
+      await new Promise((r) => setImmediate(r));
+    }
+    // The probe is in flight and unresolved → teardown YIELDED to the loop (the
+    // network round-trip never blocked it), so it has NOT settled.
+    expect(probeStarted).toBe(true);
+    expect(settled).toBe(false);
+
+    // Resolve the async probe (origin reachable) → teardown runs through to release.
+    resolveProbe(true);
+    const outcome = await pending;
+    expect(outcome.originError).toBeUndefined();
+    expect(outcome.released).toBe(true);
+    expect(terminalsFor(store, 'wt-nonblock')).toHaveLength(1);
   }, 20_000);
 
   // ── Teardown_ChildExitsDuringSignalPath_ReservationReleasedNotLingering (#1634) ─

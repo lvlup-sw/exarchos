@@ -52,8 +52,12 @@ export interface EmitLaunchExecutingStartedInput {
   /** PID of the launcher/supervisor process holding the launch — the long-lived
    * process that owns the child and writes the terminal (task-016 dead-holder anchor). */
   readonly holderPid: number;
-  /** Supervisor process start time (ISO 8601) — disambiguates PID reuse. */
-  readonly holderStartedAt: string;
+  /**
+   * Supervisor process start time (ISO 8601) — disambiguates PID reuse. `null`
+   * (NEVER `''`) when the platform cannot resolve create-time, honoring the
+   * null-ready `LaunchExecutingStartedData.holderStartedAt` schema contract.
+   */
+  readonly holderStartedAt: string | null;
 }
 
 /** Arguments for {@link emitLaunchExecuted}. */

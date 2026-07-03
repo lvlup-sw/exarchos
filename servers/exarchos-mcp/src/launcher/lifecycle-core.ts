@@ -216,8 +216,12 @@ export interface RunLifecycleDeps {
    * that owns the child's lifecycle and emits the terminal.
    */
   readonly holderPid?: number;
-  /** Supervisor create-time fingerprint (defeats PID reuse). Defaults to a probed value. */
-  readonly holderStartedAt?: string;
+  /**
+   * Supervisor create-time fingerprint (defeats PID reuse). Defaults to a probed
+   * value — `null` (NEVER `''`) when the platform cannot resolve it, so the
+   * emitted claim honors the null-ready `holderStartedAt` schema contract.
+   */
+  readonly holderStartedAt?: string | null;
   /** Process-identity source for the holder start-time probe. Defaults to the OS source. */
   readonly processSource?: ProcessSource;
   /** New branch for the created worktree (`git worktree add -b`). Omit to let git derive it. */
@@ -438,10 +442,16 @@ function once(
   return (exitCode) => (pending ??= body(exitCode));
 }
 
-/** Resolve the supervisor create-time via the injected source; `''` when unprobed. */
-function resolveHolderStartedAt(pid: number, source: ProcessSource): string {
+/**
+ * Resolve the supervisor create-time via the injected source; `null` (NEVER the
+ * empty string `''`) when the platform cannot resolve it. `null` threads through
+ * the launcher's null-ready `holderStartedAt` claim contract
+ * (`z.string().min(1).nullable()`); `''` would be the `''`-vs-`.min(1)`
+ * invalid-raw-event class. Mirrors `merge-serializer`'s `resolveSelfStartedAt`.
+ */
+function resolveHolderStartedAt(pid: number, source: ProcessSource): string | null {
   const probe = source.getStartTime(pid);
-  return probe.status === 'present' ? probe.startedAt : '';
+  return probe.status === 'present' ? probe.startedAt : null;
 }
 
 /** Map a non-`ok` {@link CreateLauncherWorktreeResult} to a structured ToolResult. */
