@@ -142,7 +142,7 @@ export interface RunLifecycleDeps {
   /** WLM composition facade; defaults to a fresh one over `ctx`. */
   readonly wlm?: LauncherWlm;
   /** Async harness-spawn primitive; defaults to the real {@link spawnHarnessChild}. */
-  readonly spawn?: SpawnHarnessChildFn;
+  readonly spawnChild?: SpawnHarnessChildFn;
   /** Harness resolver; defaults to the real {@link resolveHarness}. */
   readonly resolveHarness?: (target: string) => HarnessResolution;
   /** Liveness CLAIM emitter; defaults to the real {@link emitLaunchExecutingStarted}. */
@@ -204,7 +204,7 @@ export async function runLifecycle(
 ): Promise<ToolResult> {
   const eventStore = deps.ctx.eventStore;
   const resolveHarnessFn = deps.resolveHarness ?? resolveHarness;
-  const spawn = deps.spawn ?? spawnHarnessChild;
+  const spawnChild = deps.spawnChild ?? spawnHarnessChild;
   const emitExecutingStarted = deps.emitExecutingStarted ?? emitLaunchExecutingStarted;
   const emitExecuted = deps.emitExecuted ?? emitLaunchExecuted;
   const teardown = deps.teardown ?? defaultTeardown;
@@ -267,7 +267,7 @@ export async function runLifecycle(
     // ── (5) Spawn the child into the placed worktree. ─────────────────────────
     let child: ChildHandle;
     try {
-      child = await spawn(descriptor);
+      child = await spawnChild(descriptor);
     } catch (err) {
       // Spawn never started: close the launch (terminal) and report structured.
       await teardownOnce(null);

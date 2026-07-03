@@ -313,7 +313,7 @@ describe('teardownLaunch — launcher teardown safety + recovery (DR-6)', () => 
     const normalWt = canonicalWorktreeId(deriveWorktreePath(base, 'exarchos-catch-n'));
     const rNormal = await runLifecycle(makeParams('exarchos-catch-n'), {
       ctx,
-      spawn: makeFakeSpawn({ code: 0, signal: null }),
+      spawnChild: makeFakeSpawn({ code: 0, signal: null }),
       teardown: makeLifecycleTeardown({
         release: release.fn,
         processTableSource: fakeTable([]),
@@ -330,7 +330,7 @@ describe('teardownLaunch — launcher teardown safety + recovery (DR-6)', () => 
     const failWt = canonicalWorktreeId(deriveWorktreePath(base, 'exarchos-catch-f'));
     const rFail = await runLifecycle(makeParams('exarchos-catch-f'), {
       ctx,
-      spawn: throwingSpawn,
+      spawnChild: throwingSpawn,
       teardown: makeLifecycleTeardown({
         release: release.fn,
         processTableSource: fakeTable([]),

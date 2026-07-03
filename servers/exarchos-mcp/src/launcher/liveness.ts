@@ -7,7 +7,7 @@
  * onto the launcher worktree entry (keyed by `worktreeId`):
  *
  *   1. {@link emitLaunchExecutingStarted} — the CLAIM. Appends
- *      `launch.executing_started` (`worktreeId` + live-child `holderPid` +
+ *      `launch.executing_started` (`worktreeId` + supervisor `holderPid` +
  *      `holderStartedAt`) BEFORE the child is observed as terminated, so a
  *      long-running launch is observable as "started but not yet terminated".
  *   2. {@link emitLaunchExecuted} — the guaranteed-terminal, AT-MOST-ONCE seam.
@@ -49,9 +49,10 @@ export const LAUNCH_EXECUTED = 'launch.executed';
 export interface EmitLaunchExecutingStartedInput {
   /** Canonical `worktrees@v1` key of the launch top-level worktree. */
   readonly worktreeId: string;
-  /** PID of the live child process holding the launch (liveness ground truth). */
+  /** PID of the launcher/supervisor process holding the launch — the long-lived
+   * process that owns the child and writes the terminal (task-016 dead-holder anchor). */
   readonly holderPid: number;
-  /** Child process start time (ISO 8601) — disambiguates PID reuse. */
+  /** Supervisor process start time (ISO 8601) — disambiguates PID reuse. */
   readonly holderStartedAt: string;
 }
 

@@ -191,7 +191,7 @@ describe('runLifecycle — launcher lifecycle integrator (real git + real event 
 
     const result = await runLifecycle(makeParams(), {
       ctx,
-      spawn: fake.fn,
+      spawnChild: fake.fn,
       teardown,
       newBranch: 'launch-once',
       repoRoot: repo,
@@ -218,7 +218,7 @@ describe('runLifecycle — launcher lifecycle integrator (real git + real event 
     try {
       const result = await runLifecycle(makeParams(), {
         ctx,
-        spawn: fake.fn,
+        spawnChild: fake.fn,
         newBranch: 'launch-nohandle',
         repoRoot: repo,
         ...HOLDER,
@@ -244,7 +244,7 @@ describe('runLifecycle — launcher lifecycle integrator (real git + real event 
 
     const result = await runLifecycle(makeParams(), {
       ctx,
-      spawn: fake.fn,
+      spawnChild: fake.fn,
       newBranch: 'launch-place',
       repoRoot: repo,
       ...HOLDER,
@@ -283,7 +283,7 @@ describe('runLifecycle — launcher lifecycle integrator (real git + real event 
         base,
         lifecycleDeps: {
           ctx,
-          spawn: fake.fn,
+          spawnChild: fake.fn,
           newBranch: 'launch-verb',
           repoRoot: repo,
           ...HOLDER,

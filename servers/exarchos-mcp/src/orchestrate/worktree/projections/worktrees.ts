@@ -130,9 +130,9 @@ export interface WorktreeEntry {
  * abandoned launch. `null` fields mean the emitter could not capture the value.
  */
 export interface LaunchInFlight {
-  /** PID of the live launcher child process holding the launch, or `null`. */
+  /** PID of the launcher/supervisor process holding the launch, or `null`. */
   readonly holderPid: number | null;
-  /** Child process start time (ISO 8601) — disambiguates PID reuse, or `null`. */
+  /** Supervisor process start time (ISO 8601) — disambiguates PID reuse, or `null`. */
   readonly holderStartedAt: string | null;
 }
 
