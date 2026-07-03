@@ -34,6 +34,7 @@ import {
 } from './merge-serializer.js';
 import type { SleepFn } from './git-retry.js';
 import type { InFlightMerge } from './projections/worktrees.js';
+import { reconcileLaunches } from '../../launcher/launch-reconcile.js';
 
 // ─── Shared helpers ──────────────────────────────────────────────────────────
 
@@ -401,9 +402,13 @@ export interface WorktreeViewDeps extends InjectableDeps {
  *
  * `probe: true` additionally pulls the DR-5 ground-truth process probe on demand
  * and emits `worktree.released` (owner dead, not in use) / `worktree.orphan_detected`
- * (owner dead, still occupied) from the finding — the ONLY write path on this
- * otherwise read-only view surface (the deferred orphan emitter). Without
- * `probe`, no table is enumerated at all.
+ * (owner dead, still occupied) from the finding — the reservation-reclaim write.
+ * It ALSO runs the DR-6 phantom-launch reconciler ({@link reconcileLaunches}):
+ * an in-flight `launch.executing_started` whose SUPERVISOR holder is provably
+ * dead (SIGKILL / host death — no catchable teardown ever ran) is healed to a
+ * `launch.executed` terminal, so a permanent launch phantom cannot survive in
+ * `ps` forever. Both are on-demand, fail-closed (a live/unprovable holder is left
+ * in-flight). Without `probe`, no table is enumerated and neither write runs.
  */
 export async function handleViewPs(
   args: Record<string, unknown>,
@@ -429,8 +434,12 @@ export async function handleViewPs(
     };
   }
 
-  // --probe: pull the DR-5 probe on demand and emit released / orphan_detected.
+  // --probe: pull the DR-5 probe on demand and emit released / orphan_detected,
+  // then reconcile any phantom in-flight launch whose supervisor is provably
+  // dead (DR-6) — the launch.* counterpart of the reservation reclaim. Both read
+  // the SAME injected ground-truth process table (undefined ⇒ the real OS source).
   const reclaim = await manager.probeAndReclaim(deps?.selfPid);
+  const reconcile = await reconcileLaunches(ctx.eventStore, deps?.processTableSource);
   return {
     success: true,
     data: {
@@ -439,6 +448,7 @@ export async function handleViewPs(
       launches,
       launchCount: launches.length,
       probe: reclaim,
+      reconcile,
     },
   };
 }

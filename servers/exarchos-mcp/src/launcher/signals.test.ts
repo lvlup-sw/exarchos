@@ -30,6 +30,8 @@ import { LAUNCH_EXECUTED, emitLaunchExecuted } from './liveness.js';
 import {
   installSignalHandlers,
   type EmitTerminalFn,
+  type EscalationTimer,
+  type ScheduleEscalation,
   type SignalChild,
   type SignalListener,
   type SignalRegistrar,
@@ -260,6 +262,88 @@ describe('installSignalHandlers — signal handling + orphan prevention (DR-6)',
     expect(fake.killCalls).toHaveLength(1);
     expect(teardownCount).toBe(1);
     expect(terminalCount).toBe(1);
+  });
+
+  // ── Signals_NonExitingChild_EscalatesToSigkill (DR-6 / R-5) ─────────────────
+  it('Signals_NonExitingChild_EscalatesToSigkill', async () => {
+    const log: string[] = [];
+    const registrar = makeFakeRegistrar();
+
+    // A child that IGNORES the forwarded signal: its `exit` never resolves on its
+    // own — ONLY a SIGKILL makes it exit. Without escalation the reap would hang
+    // the launcher forever.
+    const killCalls: (NodeJS.Signals | number | undefined)[] = [];
+    let resolveExit!: (e: SpawnExit) => void;
+    const exitPromise = new Promise<SpawnExit>((res) => {
+      resolveExit = res;
+    });
+    const child: SignalChild = {
+      kill(signal) {
+        killCalls.push(signal);
+        log.push(`kill:${String(signal)}`);
+        if (signal === 'SIGKILL') resolveExit({ code: null, signal: 'SIGKILL' });
+        return true;
+      },
+      get exit() {
+        return exitPromise;
+      },
+    };
+
+    // A deterministic escalation scheduler that fires the SIGKILL timer at once —
+    // no wall-clock wait. Records that it was armed.
+    let armed = false;
+    const scheduleEscalation: ScheduleEscalation = (onExpire): EscalationTimer => {
+      armed = true;
+      onExpire();
+      return { cancel: () => undefined };
+    };
+
+    installSignalHandlers({
+      child,
+      teardown: () => undefined,
+      emitTerminal: async () => ({ appended: true, worktreeId: 'wt', exitCode: null }),
+      signals: registrar.registrar,
+      killTimeoutMs: 5,
+      scheduleEscalation,
+    });
+
+    // This RESOLVES (does not hang) only because escalation forces the SIGKILL —
+    // the child's own `exit` would never settle otherwise.
+    await registrar.fire('SIGTERM');
+
+    expect(armed).toBe(true);
+    // The original signal was forwarded first, THEN SIGKILL escalated the
+    // unresponsive child.
+    expect(killCalls).toEqual(['SIGTERM', 'SIGKILL']);
+  });
+
+  // ── Signals_ExitingChild_NoEscalation (escalation is cancelled on clean exit) ─
+  it('Signals_ExitingChild_NoEscalation', async () => {
+    const log: string[] = [];
+    const fake = makeFakeChild(log); // auto-resolving exit
+    const registrar = makeFakeRegistrar();
+
+    let cancelled = false;
+    const scheduleEscalation: ScheduleEscalation = (): EscalationTimer => ({
+      cancel: () => {
+        cancelled = true;
+      },
+    });
+
+    installSignalHandlers({
+      child: fake.child,
+      teardown: () => undefined,
+      emitTerminal: async () => ({ appended: true, worktreeId: 'wt', exitCode: null }),
+      signals: registrar.registrar,
+      scheduleEscalation,
+    });
+
+    await registrar.fire('SIGTERM');
+
+    // A child that exits on its own is NEVER SIGKILL'd, and the pending escalation
+    // timer is cancelled so nothing lingers.
+    expect(fake.killCalls).toEqual(['SIGTERM']);
+    expect(cancelled).toBe(true);
   });
 
   // ── Bonus: the uninstaller detaches every handler (nothing outlives the launch)

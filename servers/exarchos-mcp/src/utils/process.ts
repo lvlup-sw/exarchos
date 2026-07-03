@@ -438,14 +438,35 @@ export function spawnHarnessChild(
     }
 
     let settled = false;
-    const exit = new Promise<SpawnExit>((resolveExit) => {
-      child.on('exit', (code, signal) => resolveExit({ code, signal }));
+    // Capture the `exit` resolver so a POST-settle `'error'` (see below) can
+    // still complete the terminal — otherwise a child that emits `'error'` after
+    // `'spawn'` without ever emitting `'exit'` leaves `exit` pending forever and
+    // hangs any supervisor awaiting `child.exit`.
+    let exitSettled = false;
+    let resolveExit!: (value: SpawnExit) => void;
+    const exit = new Promise<SpawnExit>((res) => {
+      resolveExit = res;
+    });
+    child.on('exit', (code, signal) => {
+      exitSettled = true;
+      resolveExit({ code, signal });
     });
 
     child.on('error', (err) => {
-      if (settled) return;
-      settled = true;
-      reject(new SpawnError('SPAWN_FAILED', `failed to spawn '${request.command}'`, err));
+      if (!settled) {
+        // Pre-settle error: the spawn never started — reject with a coded error.
+        settled = true;
+        reject(new SpawnError('SPAWN_FAILED', `failed to spawn '${request.command}'`, err));
+        return;
+      }
+      // Post-settle error: the child already spawned, so `spawn` resolved the
+      // handle. A later `'error'` (e.g. an async I/O failure) may mean `'exit'`
+      // never fires — resolve `exit` with a synthetic terminal so the supervisor
+      // (runLifecycle's `await child.exit`) never blocks. First terminal wins.
+      if (!exitSettled) {
+        exitSettled = true;
+        resolveExit({ code: null, signal: null });
+      }
     });
 
     child.on('spawn', () => {

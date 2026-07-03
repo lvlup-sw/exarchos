@@ -19,6 +19,11 @@ import {
 import { HandleMergeOrchestrateArgsSchema } from '../orchestrate/merge-orchestrate.js';
 import { TIER1_HARNESSES } from '../launcher/harness-registry.js';
 import { runLauncherVerb, renderDryRunPlan, isDryRunPlan } from '../launcher/verb.js';
+import {
+  makeLauncherLifecycleDeps,
+  recoverBeforeLaunch,
+  type LauncherWiringOverrides,
+} from '../launcher/production-deps.js';
 import type { FollowSubcommand } from '../cli/follow-formatter.js';
 import { prettyPrint, printError, toCliResult } from './cli-format.js';
 // NOTE: `./schema-introspection.js` is intentionally NOT imported at the top
@@ -213,6 +218,18 @@ export const VIEW_FOLLOW_ACTIONS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Options for {@link buildCli}. Production callers pass none; the launcher-wiring
+ * DI seam ({@link BuildCliOptions.launcher}) lets the CLI-surface tests inject an
+ * OS-effect fake (spawn / signal registrar / startup recovery) at the production
+ * boundary so a real non-dry-run launch is exercised deterministically WITHOUT
+ * re-implementing the wiring the CLI action runs.
+ */
+export interface BuildCliOptions {
+  /** OS-effect / advanced overrides threaded into the `exarchos <harness>` launcher wiring. */
+  readonly launcher?: LauncherWiringOverrides;
+}
+
+/**
  * Builds a Commander program from the TOOL_REGISTRY.
  *
  * Each composite tool becomes a top-level command (with `exarchos_` prefix stripped),
@@ -220,7 +237,7 @@ export const VIEW_FOLLOW_ACTIONS: ReadonlySet<string> = new Set([
  *
  * Also registers the `schema` introspection command and `mcp` server mode.
  */
-export function buildCli(ctx: DispatchContext): Command {
+export function buildCli(ctx: DispatchContext, options?: BuildCliOptions): Command {
   const packageVersion = resolvePackageVersion();
   const program = new Command('exarchos')
     .description('Agent governance for AI coding — event-sourced SDLC workflows')
@@ -1115,22 +1132,27 @@ export function buildCli(ctx: DispatchContext): Command {
       process.exitCode = CLI_EXIT_CODES.HANDLER_ERROR;
     });
 
-  // ─── Top-level `exarchos <harness>` launcher verbs (DR-1, task 004) ──────
+  // ─── Top-level `exarchos <harness>` launcher verbs (DR-1) ────────────────
   //
   // A CLI-only process-supervisor verb (the stdio MCP surface can't own a
   // child's lifecycle), registered as ONE top-level command per Tier-1
   // harness so an operator types `exarchos claude-code --dry-run` — the
   // Aspire-style `exarchos <harness>` surface. The harness enum, path
-  // derivation, dry-run event plan, and the non-dry-run `NOT_WIRED` seam all
+  // derivation, dry-run event plan, and the non-dry-run lifecycle seam all
   // live in `launcher/verb.ts`; this block is a thin Commander adapter over
   // `runLauncherVerb`.
   //
   // `--dry-run` prints the derived worktree path + event plan (human-readable
   // via `renderDryRunPlan`, or the raw envelope under `--json`) WITHOUT
-  // creating a worktree or spawning. The real non-dry-run lifecycle spawn is
-  // wired in task 010 (which injects the `lifecycle` runner); until then a
-  // non-dry-run launch surfaces the structured `NOT_WIRED` result as a
-  // HANDLER_ERROR (exit 2).
+  // creating a worktree or spawning. A NON-dry-run launch composes a REAL
+  // lifecycle substrate from the dispatch context (`makeLauncherLifecycleDeps`
+  // — event store + fail-closed teardown + signal handlers) and hands it to the
+  // verb as `lifecycleDeps`, so the launch actually spawns → places → observes →
+  // tears down (DR-6). Before spawning it self-heals any prior crashed launch
+  // (`recoverBeforeLaunch`) so no orphaned half-created worktree survives.
+  const launcherOverrides = options?.launcher;
+  const launcherBase = launcherOverrides?.base ?? process.cwd();
+  const launcherRepoRoot = launcherOverrides?.repoRoot ?? launcherBase;
   for (const harness of TIER1_HARNESSES) {
     program
       .command(harness)
@@ -1148,9 +1170,18 @@ export function buildCli(ctx: DispatchContext): Command {
         const feature = typeof opts.feature === 'string' ? opts.feature : undefined;
         const dryRun = Boolean(opts.dryRun);
 
+        // A real launch self-heals crashed prior launches, then runs the wired
+        // lifecycle. Dry-run mutates nothing, so it skips recovery entirely.
+        if (!dryRun) {
+          await recoverBeforeLaunch(ctx, launcherRepoRoot, launcherOverrides);
+        }
+
         const result = await runLauncherVerb(
           { harness, feature, dryRun },
-          { base: process.cwd() },
+          {
+            base: launcherBase,
+            lifecycleDeps: makeLauncherLifecycleDeps(ctx, launcherOverrides),
+          },
         );
 
         // Dry-run success in human mode → render the plan; JSON mode falls

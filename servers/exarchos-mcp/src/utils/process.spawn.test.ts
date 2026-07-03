@@ -163,6 +163,54 @@ describe('spawnHarnessChild — cross-OS async spawn (DR-4 / DR-8)', () => {
     }
   }, 20000);
 
+  it('AsyncSpawn_PostSettleError_ResolvesExit_NeverHangs', async () => {
+    // A child that emits `'error'` AFTER it already `'spawn'`ed (an async I/O
+    // failure) may never emit `'exit'`. The supervisor awaits `child.exit`, so a
+    // dropped post-settle error would leave that promise pending forever and hang
+    // the whole launch (runLifecycle's `await child.exit`). The handle's `exit`
+    // must instead resolve with a synthetic terminal (R-6).
+    const capture = makeCaptureSpawn();
+    const pending = spawnHarnessChild(
+      { command: process.execPath, args: ['-e', ''], cwd: process.cwd(), stdio: 'ignore' },
+      { platform: 'linux', spawn: capture.spawnFn },
+    );
+    // The child spawns successfully → the handle resolves.
+    capture.child()?.emit('spawn');
+    const handle = await pending;
+    expect(handle.pid).toBe(4242);
+
+    // Now a LATER error fires with NO subsequent 'exit'. Without the fix, `exit`
+    // hangs; with it, `exit` resolves to a synthetic terminal.
+    capture.child()?.emit('error', new Error('async i/o failure after spawn'));
+
+    // A hard timeout so a regression manifests as a fast failure, not a hang.
+    const exit = await Promise.race([
+      handle.exit,
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('child.exit never resolved (post-settle error dropped)')), 1000),
+      ),
+    ]);
+    expect(exit).toEqual({ code: null, signal: null });
+  });
+
+  it('AsyncSpawn_PostSettleError_DoesNotOverrideRealExit', async () => {
+    // If a real 'exit' already landed, a later 'error' must NOT clobber it — the
+    // first terminal wins.
+    const capture = makeCaptureSpawn();
+    const pending = spawnHarnessChild(
+      { command: process.execPath, args: ['-e', ''], cwd: process.cwd(), stdio: 'ignore' },
+      { platform: 'linux', spawn: capture.spawnFn },
+    );
+    capture.child()?.emit('spawn');
+    const handle = await pending;
+
+    capture.child()?.emit('exit', 7, null); // the genuine terminal
+    capture.child()?.emit('error', new Error('late error after a real exit'));
+
+    const exit = await handle.exit;
+    expect(exit).toEqual({ code: 7, signal: null });
+  });
+
   it('AsyncSpawn_Unknown_StructuredError', async () => {
     // An unresolvable command surfaces as a rejected SpawnError, not an uncaught
     // throw. POSIX: the real spawn emits ENOENT → SPAWN_FAILED.

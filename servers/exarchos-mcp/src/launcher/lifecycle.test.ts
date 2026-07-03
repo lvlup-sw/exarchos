@@ -44,6 +44,8 @@ import {
   runLifecycle,
   type LifecycleResultData,
   type LifecycleTeardown,
+  type LifecycleSignalContext,
+  type InstallSignals,
   type SpawnHarnessChildFn,
 } from './lifecycle-core.js';
 
@@ -270,6 +272,67 @@ describe('runLifecycle — launcher lifecycle integrator (real git + real event 
     expect(claim).toHaveLength(1);
     expect(claim[0].data?.holderPid).toBe(HOLDER.holderPid);
     expect(claim[0].data?.worktreeId).toBe(data.worktreeId);
+  }, 20_000);
+
+  it('Lifecycle_InstallsSignals_AfterSpawn_ThenUninstalls', async () => {
+    const fake = makeFakeSpawn({ code: 0, signal: null });
+
+    // The signal-install seam is invoked with the LIVE child + the guaranteed-
+    // once teardown + terminal, and its uninstaller is called once the launch is
+    // over — so no signal handler outlives the child (DR-6, R-2).
+    let installCtx: LifecycleSignalContext | undefined;
+    let uninstalled = 0;
+    const installSignals: InstallSignals = (sigCtx) => {
+      installCtx = sigCtx;
+      return () => {
+        uninstalled += 1;
+      };
+    };
+
+    const result = await runLifecycle(makeParams(), {
+      ctx,
+      spawnChild: fake.fn,
+      installSignals,
+      newBranch: 'launch-signals',
+      repoRoot: repo,
+      ...HOLDER,
+    });
+
+    expect(result.success).toBe(true);
+    // The seam received the live child (with kill + exit) and the two guaranteed
+    // seams the DR-6 signal path forwards through.
+    expect(installCtx).toBeDefined();
+    expect(typeof installCtx?.child.kill).toBe('function');
+    expect(typeof installCtx?.teardown).toBe('function');
+    expect(typeof installCtx?.emitTerminal).toBe('function');
+    // The handlers were uninstalled exactly once after observe/in `finally`.
+    expect(uninstalled).toBe(1);
+  }, 20_000);
+
+  it('Lifecycle_SpawnFailure_NoSignalsInstalled_StillEmitsTerminal', async () => {
+    const failingSpawn: SpawnHarnessChildFn = async () => {
+      throw new Error('spawn refused');
+    };
+    let installed = 0;
+
+    const result = await runLifecycle(makeParams(), {
+      ctx,
+      spawnChild: failingSpawn,
+      installSignals: () => {
+        installed += 1;
+        return () => undefined;
+      },
+      newBranch: 'launch-spawnfail',
+      repoRoot: repo,
+      ...HOLDER,
+    });
+
+    // Spawn never started → structured failure, and NO signal handler was
+    // installed (there is no child to supervise)...
+    expect(result.success).toBe(false);
+    expect(installed).toBe(0);
+    // ...yet the launch was still closed with the guaranteed terminal.
+    expect(eventsOfType(store, LAUNCH_EXECUTED)).toHaveLength(1);
   }, 20_000);
 
   it('Verb_NonDryRun_InvokesLifecycleAndSpawns', async () => {

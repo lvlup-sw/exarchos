@@ -41,7 +41,7 @@
  * `launch.executed` row.
  */
 
-import type { ChildHandle, SpawnExit } from '../utils/process.js';
+import type { ChildHandle } from '../utils/process.js';
 import type { EmitLaunchExecutedResult } from './liveness.js';
 
 // ============================================================
@@ -97,6 +97,27 @@ export interface SignalRegistrar {
 /** A registered signal listener; may run async (the trap body is async). */
 export type SignalListener = (signal: TrappedSignal) => void | Promise<void>;
 
+/** A cancellable handle over the SIGTERM→SIGKILL escalation timer (DR-6 / R-5). */
+export interface EscalationTimer {
+  /** Cancel the pending escalation (called the moment the child reaps on its own). */
+  cancel(): void;
+}
+
+/**
+ * Schedules the SIGTERM→SIGKILL escalation timer. Injected so a test drives the
+ * escalation deterministically (invoke `onExpire` synchronously) instead of
+ * waiting a real {@link DEFAULT_KILL_TIMEOUT_MS}. Defaults to an unref'd
+ * `setTimeout` ({@link defaultScheduleEscalation}) so it never keeps the event
+ * loop alive on its own.
+ */
+export type ScheduleEscalation = (
+  onExpire: () => void,
+  timeoutMs: number,
+) => EscalationTimer;
+
+/** Default grace period (ms) before a child that ignores the forwarded signal is SIGKILL'd. */
+export const DEFAULT_KILL_TIMEOUT_MS = 10_000;
+
 // ============================================================
 // Install options
 // ============================================================
@@ -119,6 +140,19 @@ export interface InstallSignalHandlersOptions {
    * the trap body funnels any error here instead. Defaults to a no-op.
    */
   readonly onError?: (error: unknown, signal: TrappedSignal) => void;
+  /**
+   * Grace period (ms) after the forwarded signal before a child that has NOT
+   * exited is escalated to `SIGKILL`, so a child that ignores or slow-handles the
+   * signal can never hang the launcher's reap (DR-6 / R-5). Defaults to
+   * {@link DEFAULT_KILL_TIMEOUT_MS}.
+   */
+  readonly killTimeoutMs?: number;
+  /**
+   * The escalation-timer scheduler; defaults to {@link defaultScheduleEscalation}
+   * (an unref'd `setTimeout`). Injected so a test fires the SIGKILL escalation
+   * deterministically without a real wall-clock wait.
+   */
+  readonly scheduleEscalation?: ScheduleEscalation;
 }
 
 // ============================================================
@@ -139,6 +173,8 @@ export function installSignalHandlers(
   const registrar = options.signals ?? processSignalRegistrar();
   const trapped = options.trap ?? DEFAULT_TRAPPED_SIGNALS;
   const onError = options.onError ?? noop;
+  const killTimeoutMs = options.killTimeoutMs ?? DEFAULT_KILL_TIMEOUT_MS;
+  const scheduleEscalation = options.scheduleEscalation ?? defaultScheduleEscalation;
 
   // The guaranteed-once trap body: forward → teardown → terminal → reap. Memoized
   // so a double signal (or a SIGINT then SIGTERM) collapses to ONE run.
@@ -158,10 +194,11 @@ export function installSignalHandlers(
       //     and BEFORE the reap so a slow child never blocks the terminal.
       await emitTerminal();
     }
-    // (4) Reap the child: await its exit so THIS parent collects it — the proof
-    //     it is not orphaned / detached. Done last so it cannot delay the
-    //     terminal; deterministic under a well-behaved (or faked) child.
-    await reap(child.exit);
+    // (4) Reap the child so THIS parent collects it — the proof it is not
+    //     orphaned / detached — but NEVER hang: a child that ignores or
+    //     slow-handles the forwarded signal is escalated to SIGKILL after
+    //     `killTimeoutMs`, then reaped. Done last so it cannot delay the terminal.
+    await reapWithEscalation(child, killTimeoutMs, scheduleEscalation);
   });
 
   // The registered listener never rejects: signal handlers on `process` must not
@@ -200,9 +237,48 @@ function once<A>(body: (arg: A) => Promise<void>): (arg: A) => Promise<void> {
   return (arg) => (pending ??= body(arg));
 }
 
-/** Await the child's exit for reaping; the outcome itself is not needed here. */
-async function reap(exit: Promise<SpawnExit>): Promise<void> {
-  await exit;
+/**
+ * Reap the child, escalating to `SIGKILL` if it does not exit within `timeoutMs`
+ * of the forwarded signal (DR-6 / R-5). Races `child.exit` against the injected
+ * escalation timer: a clean exit cancels the timer; on expiry a `SIGKILL` is
+ * delivered and the now-terminating child is awaited, so the supervisor can never
+ * block forever on a child that ignores/slow-handles the original signal.
+ */
+async function reapWithEscalation(
+  child: SignalChild,
+  timeoutMs: number,
+  schedule: ScheduleEscalation,
+): Promise<void> {
+  let timer: EscalationTimer | undefined;
+  const exited = child.exit.then((): 'exited' => 'exited');
+  const escalated = new Promise<'escalate'>((resolve) => {
+    timer = schedule(() => resolve('escalate'), timeoutMs);
+  });
+  // Cancel the pending timer the instant the child exits on its own, so the
+  // escalation never fires (and never keeps the event loop alive) after a reap.
+  void child.exit.then(() => timer?.cancel());
+
+  const outcome = await Promise.race([exited, escalated]);
+  if (outcome === 'escalate') {
+    // The child ignored/slow-handled the forwarded signal — force it down and
+    // await the guaranteed termination so this parent still collects it.
+    child.kill('SIGKILL');
+    await child.exit;
+  }
+}
+
+/**
+ * Default {@link ScheduleEscalation}: an unref'd `setTimeout`, so a pending
+ * escalation never keeps the event loop alive on its own (it is always cancelled
+ * on a clean exit anyway).
+ */
+function defaultScheduleEscalation(
+  onExpire: () => void,
+  timeoutMs: number,
+): EscalationTimer {
+  const handle = setTimeout(onExpire, timeoutMs);
+  if (typeof handle.unref === 'function') handle.unref();
+  return { cancel: () => clearTimeout(handle) };
 }
 
 /** No-op default {@link InstallSignalHandlersOptions.onError}. */

@@ -35,11 +35,16 @@
  * ## Injectable teardown seam (scope: later tasks extend, not reshape)
  *
  * {@link RunLifecycleDeps.teardown} is an overridable seam defaulting to
- * {@link defaultTeardown} (emit the terminal). Signal trapping/forwarding
- * (task 011) and teardown-safety edges — never `reset --hard`, recoveryError,
- * crash / cwd-drift / origin (task 012) — extend teardown WITHOUT reshaping this
- * core. Orientation injection (task 013) and the phantom reconciler (task 016)
- * likewise compose around this seam. None of those concerns live here.
+ * {@link defaultTeardown} (emit the terminal). Teardown-safety edges — never
+ * `reset --hard`, recoveryError, crash / cwd-drift / origin — extend teardown
+ * WITHOUT reshaping this core. Signal trapping/forwarding rides a SEPARATE
+ * default-noop extension point, {@link RunLifecycleDeps.installSignals}
+ * (defaulting to {@link noopInstallSignals}), invoked right after a successful
+ * spawn and uninstalled in the `finally`: production wires the real
+ * `signals#installSignalHandlers` there so a catchable interruption forwards to
+ * the child, runs the same guaranteed-once teardown + terminal, and reaps — no
+ * orphan. Orientation injection and the phantom reconciler likewise compose
+ * around these seams; none of those concerns live here.
  */
 
 import type { EventStore } from '../event-store/store.js';
@@ -62,6 +67,7 @@ import { LauncherWlm, createLauncherWlm } from './wlm-compose.js';
 import {
   emitLaunchExecutingStarted,
   emitLaunchExecuted,
+  type EmitLaunchExecutedResult,
 } from './liveness.js';
 import type {
   CreateLauncherWorktreeDeps,
@@ -127,6 +133,51 @@ export async function defaultTeardown(ctx: LifecycleTeardownContext): Promise<vo
 }
 
 // ============================================================
+// Signal-install seam (DR-6) — default no-op extension point
+// ============================================================
+
+/**
+ * The context the signal-install seam receives right after a successful spawn.
+ * It exposes exactly what the DR-6 signal path needs — the live child (to
+ * forward the terminating signal to + reap), the guaranteed-once teardown to run
+ * on parent interruption, and a pre-bound idempotent terminal emitter — WITHOUT
+ * this core importing the signal module. The production `lifecycleDeps` wires the
+ * real `signals#installSignalHandlers` into it; everything else defaults to
+ * {@link noopInstallSignals}.
+ *
+ * `teardown`/`emitTerminal` are the SAME guaranteed-once seams the normal-exit
+ * path uses (`teardown` collapses onto the memoized {@link once} body;
+ * `emitTerminal` rides the idempotent Task-006 seam), so a signal-driven teardown
+ * and a normal-exit teardown can never persist two terminals.
+ */
+export interface LifecycleSignalContext {
+  /** The live supervised child — forward the terminating signal + reap. */
+  readonly child: Pick<ChildHandle, 'kill' | 'exit'>;
+  /** Guaranteed-once teardown to run on a trapped SIGINT/SIGTERM. */
+  readonly teardown: (signal: 'SIGINT' | 'SIGTERM') => void | Promise<void>;
+  /** Pre-bound idempotent Task-006 terminal emitter (`worktreeId` + `exitCode: null`). */
+  readonly emitTerminal: () => Promise<EmitLaunchExecutedResult>;
+}
+
+/**
+ * Signal-install seam: trap + forward + reap the child, returning an UNINSTALLER
+ * the core calls once the launch is over so no handler outlives the child.
+ * Defaults to {@link noopInstallSignals} (installs nothing — the unit-test /
+ * no-supervisor case); the production `lifecycleDeps` wires the real
+ * `signals#installSignalHandlers`. A default-noop extension point does not
+ * reshape the core observe→teardown flow.
+ */
+export type InstallSignals = (ctx: LifecycleSignalContext) => () => void;
+
+/** No-op {@link InstallSignals}: installs no handler; its uninstaller is a no-op. */
+export const noopInstallSignals: InstallSignals = () => noopUninstall;
+
+/** Shared no-op uninstaller for {@link noopInstallSignals}. */
+function noopUninstall(): void {
+  /* intentionally empty — nothing was installed */
+}
+
+// ============================================================
 // Lifecycle deps + result
 // ============================================================
 
@@ -151,6 +202,14 @@ export interface RunLifecycleDeps {
   readonly emitExecuted?: EmitExecutedFn;
   /** Teardown seam; defaults to {@link defaultTeardown}. */
   readonly teardown?: LifecycleTeardown;
+  /**
+   * Signal-install seam invoked right after a successful spawn (DR-6). Defaults
+   * to {@link noopInstallSignals}; the production `lifecycleDeps` wires the real
+   * `signals#installSignalHandlers` so a trapped SIGINT/SIGTERM is forwarded to
+   * the child, teardown + the guaranteed terminal run, and the child is reaped —
+   * no orphan survives a catchable interruption of the launcher.
+   */
+  readonly installSignals?: InstallSignals;
   /**
    * The launcher/supervisor PID recorded on the liveness CLAIM (task-016's
    * dead-holder anchor). Defaults to `process.pid` — the long-lived supervisor
@@ -208,6 +267,7 @@ export async function runLifecycle(
   const emitExecutingStarted = deps.emitExecutingStarted ?? emitLaunchExecutingStarted;
   const emitExecuted = deps.emitExecuted ?? emitLaunchExecuted;
   const teardown = deps.teardown ?? defaultTeardown;
+  const installSignals = deps.installSignals ?? noopInstallSignals;
   const processSource = deps.processSource ?? defaultProcessSource;
   const wlm = deps.wlm ?? createLauncherWlm({ ctx: deps.ctx });
 
@@ -260,6 +320,10 @@ export async function runLifecycle(
 
   let exitCode: number | null = null;
   let childPid: number | undefined;
+  // Signal handlers are installed only AFTER a successful spawn (they need the
+  // live child); the uninstaller is called in the `finally` so no handler
+  // outlives the launch. Undefined until installed (spawn-failure path).
+  let uninstallSignals: (() => void) | undefined;
   try {
     // ── (4) Liveness CLAIM (supervisor holderPid), BEFORE the spawn. ──────────
     await emitExecutingStarted(eventStore, { worktreeId, holderPid, holderStartedAt });
@@ -274,6 +338,17 @@ export async function runLifecycle(
       return spawnFailureResult(err);
     }
     childPid = child.pid;
+
+    // ── (5b) Install signal handlers over the live child (DR-6). ──────────────
+    // A trapped SIGINT/SIGTERM forwards to the child, runs the SAME guaranteed-
+    // once teardown (memoized `teardownOnce`, `null` exit for a signalled child),
+    // guarantees the idempotent terminal, and reaps — no orphan if the launcher
+    // is interrupted. Defaults to a no-op; production wires the real installer.
+    uninstallSignals = installSignals({
+      child,
+      teardown: () => teardownOnce(null),
+      emitTerminal: () => emitExecuted(eventStore, { worktreeId, exitCode: null }),
+    });
 
     // ── (6) Observe: await the child's exit. ──────────────────────────────────
     const exit = await child.exit;
@@ -292,7 +367,9 @@ export async function runLifecycle(
     };
     return { success: true, data };
   } finally {
-    // Guaranteed terminal-once even if a throw slipped between claim and observe.
+    // Uninstall the signal handlers so none outlives the launch, THEN guarantee
+    // the terminal-once even if a throw slipped between claim and observe.
+    uninstallSignals?.();
     await teardownOnce(exitCode);
   }
 }
