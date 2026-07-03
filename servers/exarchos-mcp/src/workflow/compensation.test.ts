@@ -14,8 +14,15 @@ vi.mock('child_process', () => ({
 
 import { execFile } from 'child_process';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
+import { WORKTREES_STREAM } from '../orchestrate/worktree/manager.js';
+import { createWorktreesReducer } from '../orchestrate/worktree/projections/worktrees.js';
+import type { RealpathResolver } from '../orchestrate/worktree/pure/path-containment.js';
+import type { WorkflowEvent } from '../event-store/schemas.js';
 
 const mockedExecFile = vi.mocked(execFile);
+
+/** Identity resolver — `path.resolve` already normalised the input. */
+const identityRealpath: RealpathResolver = (p) => p;
 
 // ─── Mock event store helper ─────────────────────────────────────────────────
 
@@ -553,16 +560,23 @@ describe('B5.5: cleanup-worktrees parity harness (two-event sequence)', () => {
       dryRun: false,
       eventStore,
       featureId,
+      realpath: identityRealpath,
     });
 
-    // Query all events appended to the stream
-    const events = await eventStore.query(featureId);
+    // DR-3: the remove pair lands on the SINGLETON `worktrees` stream, NOT the
+    // `featureId` stream — the whole point of the unification.
+    const events = await eventStore.query('worktrees');
 
     const requestedEvents = events.filter((e) => e.type === 'worktree.remove.requested');
     const executedEvents = events.filter((e) => e.type === 'worktree.remove.executed');
 
     expect(requestedEvents.length).toBe(1);
     expect(executedEvents.length).toBe(1);
+
+    // The `featureId` stream carries NONE of the worktree.remove pair now.
+    const featureStream = await eventStore.query(featureId);
+    expect(featureStream.some((e) => e.type === 'worktree.remove.requested')).toBe(false);
+    expect(featureStream.some((e) => e.type === 'worktree.remove.executed')).toBe(false);
 
     // Assert: requested appears BEFORE executed in the stream
     const requestedSeq = requestedEvents[0].sequence;
@@ -1143,5 +1157,296 @@ describe('compensation: operational git failures surface (CodeRabbit #3224631272
     // branch.delete.executed should be emitted (idempotent recovery succeeded).
     const executedEvent = appendedEvents.find((e) => e.type === 'branch.delete.executed');
     expect(executedEvent).toBeDefined();
+  });
+});
+
+// ─── Task 009 / DR-3 + DR-1: unify worktree.remove onto the `worktrees` stream ─
+//
+// Compensation-triggered worktree teardown historically appended
+// `worktree.remove.*` to the `featureId` stream, so those removals never reached
+// the singleton `worktrees@v1` view — the DIM-1 single-source violation (the view
+// showed a live entry for a worktree that was actually removed). These tests pin
+// the unified behavior against a REAL SQLite EventStore:
+//   1. Adopt-then-remove on the `worktrees` stream, so the terminal drop is NOT
+//      vacuous and the view genuinely loses the entry.
+//   2. A crash between requested and executed (on the unified stream) resumes
+//      under the ORIGINAL operationId — no second pair.
+//   3. A PRE-unification crash (requested stranded on the legacy `featureId`
+//      stream) resumes under that original operationId, completing the pair on
+//      the `worktrees` stream.
+//   4. DR-1: the `git worktree remove` call site retries on transient
+//      `index.lock` contention.
+
+describe('Task 009: worktree.remove unified onto the `worktrees` stream (DR-3/DR-1)', () => {
+  let tmpDir: string;
+  let eventStore: EventStore;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'exarchos-task009-'));
+    eventStore = new EventStore(tmpDir);
+    await eventStore.initialize();
+  });
+
+  afterEach(async () => {
+    await rmrfAsync(tmpDir);
+  });
+
+  /**
+   * execFile mock: `git worktree list` reports `registeredPath` as present, the
+   * `git worktree remove` succeeds, everything else succeeds. When
+   * `registeredPath` is null nothing is registered (worktree already absent).
+   */
+  function stubWorktreeRegistered(registeredPath: string | null): void {
+    mockedExecFile.mockImplementation(
+      (cmd: unknown, args: unknown, opts: unknown, cb?: unknown) => {
+        const callback = typeof opts === 'function' ? opts : cb;
+        const argList = args as string[];
+        if (argList?.includes('worktree') && argList?.includes('list')) {
+          const stdout = registeredPath ? `${registeredPath}  abc1234 [feature/x]\n` : '';
+          (callback as (err: null, stdout: string, stderr: string) => void)(null, stdout, '');
+          return undefined as never;
+        }
+        (callback as (err: null, stdout: string, stderr: string) => void)(null, '', '');
+        return undefined as never;
+      },
+    );
+  }
+
+  const foldWorktrees = (events: readonly WorkflowEvent[]) => {
+    const reducer = createWorktreesReducer(identityRealpath);
+    return events.reduce((acc, ev) => reducer.apply(acc, ev), reducer.initial);
+  };
+
+  it('Compensation_WorktreeRemove_AdoptsThenEmitsPairOnWorktreesStream_ViewDropsEntry', async () => {
+    const featureId = 'task009-adopt-feature';
+    const worktreePath = '/tmp/wt-adopt-drop';
+    const worktreeId = path.resolve(worktreePath); // identityRealpath → toPosix(resolve)
+    stubWorktreeRegistered(worktreePath);
+
+    const state = makeState({
+      phase: 'delegate',
+      synthesis: { integrationBranch: null, mergeOrder: [], mergedBranches: [], prUrl: null, prFeedback: [] },
+      worktrees: { t1: { branch: 'feature/x', taskId: 't1', status: 'active', path: worktreePath } },
+      tasks: [],
+    });
+
+    await executeCompensation(state, 'delegate', makeEvents(1), 1, {
+      dryRun: false,
+      eventStore,
+      featureId,
+      realpath: identityRealpath,
+    });
+
+    const worktreesEvents = await eventStore.query(WORKTREES_STREAM);
+
+    // Adopt-gate fired: the worktree the manager never governed is adopted FIRST.
+    const adopted = worktreesEvents.filter((e) => e.type === 'worktree.adopted');
+    const requested = worktreesEvents.filter((e) => e.type === 'worktree.remove.requested');
+    const executed = worktreesEvents.filter((e) => e.type === 'worktree.remove.executed');
+    expect(adopted.length).toBe(1);
+    expect(requested.length).toBe(1);
+    expect(executed.length).toBe(1);
+    expect((adopted[0].data as { worktreeId: string }).worktreeId).toBe(worktreeId);
+
+    // Ordering: adopted → requested → executed on the SAME stream.
+    expect(adopted[0].sequence).toBeLessThan(requested[0].sequence);
+    expect(requested[0].sequence).toBeLessThan(executed[0].sequence);
+
+    // The `featureId` stream carries NONE of the worktree lifecycle now.
+    const featureEvents = await eventStore.query(featureId);
+    expect(featureEvents.some((e) => e.type.startsWith('worktree.'))).toBe(false);
+
+    // The view genuinely DROPS the entry — and, critically, the drop is NOT
+    // vacuous: fold everything BEFORE the terminal and the entry is present
+    // (the adopt created a real entry production, not a seeded stand-in).
+    const beforeTerminal = foldWorktrees(
+      worktreesEvents.filter((e) => e.type !== 'worktree.remove.executed'),
+    );
+    expect(beforeTerminal.worktrees[worktreeId]).toBeDefined();
+    const finalView = foldWorktrees(worktreesEvents);
+    expect(worktreeId in finalView.worktrees).toBe(false);
+  });
+
+  it('Compensation_CrashBetweenRequestedAndExecuted_ResumesIdempotently', async () => {
+    const featureId = 'task009-crash-feature';
+    const worktreePath = '/tmp/wt-crash-resume';
+    const worktreeId = path.resolve(worktreePath);
+    const crashedOperationId = 'aaaaaaaa-1111-2222-3333-444444444444';
+    stubWorktreeRegistered(worktreePath);
+
+    // Seed a crash mid-teardown ON THE UNIFIED STREAM: adopted + requested, no
+    // executed. Same idempotency keys production uses, so the resume dedupes.
+    await eventStore.append(
+      WORKTREES_STREAM,
+      {
+        type: 'worktree.adopted',
+        data: { worktreeId, path: worktreePath, featureId, ownerPid: null, ownerStartedAt: null, operationId: 'seed-adopt' },
+      },
+      { idempotencyKey: `worktree.adopted:${worktreeId}` },
+    );
+    await eventStore.append(
+      WORKTREES_STREAM,
+      {
+        type: 'worktree.remove.requested',
+        data: { operationId: crashedOperationId, worktreePath, worktreeId },
+      },
+      { idempotencyKey: `worktree.remove.requested:${crashedOperationId}` },
+    );
+
+    const state = makeState({
+      phase: 'delegate',
+      synthesis: { integrationBranch: null, mergeOrder: [], mergedBranches: [], prUrl: null, prFeedback: [] },
+      worktrees: { t1: { branch: 'feature/x', taskId: 't1', status: 'active', path: worktreePath } },
+      tasks: [],
+    });
+
+    await executeCompensation(state, 'delegate', makeEvents(1), 1, {
+      dryRun: false,
+      eventStore,
+      featureId,
+      realpath: identityRealpath,
+    });
+
+    const worktreesEvents = await eventStore.query(WORKTREES_STREAM);
+    const requested = worktreesEvents.filter((e) => e.type === 'worktree.remove.requested');
+    const executed = worktreesEvents.filter((e) => e.type === 'worktree.remove.executed');
+    const adopted = worktreesEvents.filter((e) => e.type === 'worktree.adopted');
+
+    // No SECOND pair: the crashed requested is reused (idempotency-key dedup),
+    // and adopt is skipped (entry already governed) — exactly one of each.
+    expect(requested.length).toBe(1);
+    expect(executed.length).toBe(1);
+    expect(adopted.length).toBe(1);
+    expect((requested[0].data as { operationId: string }).operationId).toBe(crashedOperationId);
+    expect((executed[0].data as { operationId: string; removed: boolean }).operationId).toBe(
+      crashedOperationId,
+    );
+    expect((executed[0].data as { removed: boolean }).removed).toBe(true);
+
+    // The view drops the entry after the resumed terminal.
+    expect(worktreeId in foldWorktrees(worktreesEvents).worktrees).toBe(false);
+  });
+
+  it('Compensation_PreDeployCrashLegacyFeatureStreamRequested_ResumedUnderOriginalOperationId', async () => {
+    const featureId = 'task009-legacy-feature';
+    const worktreePath = '/tmp/wt-legacy-resume';
+    const worktreeId = path.resolve(worktreePath);
+    const legacyOperationId = 'bbbbbbbb-5555-6666-7777-888888888888';
+    stubWorktreeRegistered(worktreePath);
+
+    // Seed a PRE-unification crash: `worktree.remove.requested` stranded on the
+    // LEGACY `featureId` stream (no worktreeId, no adopted, no worktrees-stream
+    // events) with no paired executed.
+    await eventStore.append(
+      featureId,
+      {
+        type: 'worktree.remove.requested',
+        data: { operationId: legacyOperationId, worktreePath },
+      },
+      { idempotencyKey: `worktree.remove.requested:${legacyOperationId}` },
+    );
+
+    const state = makeState({
+      phase: 'delegate',
+      synthesis: { integrationBranch: null, mergeOrder: [], mergedBranches: [], prUrl: null, prFeedback: [] },
+      worktrees: { t1: { branch: 'feature/x', taskId: 't1', status: 'active', path: worktreePath } },
+      tasks: [],
+    });
+
+    await executeCompensation(state, 'delegate', makeEvents(1), 1, {
+      dryRun: false,
+      eventStore,
+      featureId,
+      realpath: identityRealpath,
+    });
+
+    const worktreesEvents = await eventStore.query(WORKTREES_STREAM);
+    const requested = worktreesEvents.filter((e) => e.type === 'worktree.remove.requested');
+    const executed = worktreesEvents.filter((e) => e.type === 'worktree.remove.executed');
+    const adopted = worktreesEvents.filter((e) => e.type === 'worktree.adopted');
+
+    // Resumed under the ORIGINAL operationId — the pair is COMPLETED on the
+    // `worktrees` stream, and the untracked worktree is adopted first.
+    expect(adopted.length).toBe(1);
+    expect(requested.length).toBe(1);
+    expect(executed.length).toBe(1);
+    expect((requested[0].data as { operationId: string }).operationId).toBe(legacyOperationId);
+    expect((executed[0].data as { operationId: string }).operationId).toBe(legacyOperationId);
+
+    // The legacy `featureId` stream is left as-is: its orphaned requested stays,
+    // and NO executed is retro-fitted there (the pair now lives on `worktrees`).
+    const featureEvents = await eventStore.query(featureId);
+    expect(featureEvents.filter((e) => e.type === 'worktree.remove.requested').length).toBe(1);
+    expect(featureEvents.some((e) => e.type === 'worktree.remove.executed')).toBe(false);
+
+    // The unified view drops the entry.
+    expect(worktreeId in foldWorktrees(worktreesEvents).worktrees).toBe(false);
+  });
+
+  it('Compensation_WorktreeRemove_IndexLockContention_RetriesRemove (DR-1)', async () => {
+    const featureId = 'task009-lock-feature';
+    const worktreePath = '/tmp/wt-lock-retry';
+
+    // `git worktree remove` fails with a transient index.lock error on the FIRST
+    // attempt, succeeds on the second. `git worktree list` always reports it as
+    // registered so the failure would surface if the retry wrap were absent.
+    let removeAttempts = 0;
+    mockedExecFile.mockImplementation(
+      (cmd: unknown, args: unknown, opts: unknown, cb?: unknown) => {
+        const callback = typeof opts === 'function' ? opts : cb;
+        const argList = args as string[];
+        if (argList?.includes('worktree') && argList?.includes('list')) {
+          (callback as (err: null, stdout: string, stderr: string) => void)(
+            null,
+            `${worktreePath}  abc1234 [feature/x]\n`,
+            '',
+          );
+          return undefined as never;
+        }
+        if (argList?.includes('worktree') && argList?.includes('remove')) {
+          removeAttempts += 1;
+          if (removeAttempts === 1) {
+            (callback as (err: Error) => void)(
+              new Error(
+                `fatal: Unable to create '/repo/.git/worktrees/x/index.lock': File exists.`,
+              ),
+            );
+            return undefined as never;
+          }
+          (callback as (err: null, stdout: string, stderr: string) => void)(null, '', '');
+          return undefined as never;
+        }
+        (callback as (err: null, stdout: string, stderr: string) => void)(null, '', '');
+        return undefined as never;
+      },
+    );
+
+    const state = makeState({
+      phase: 'delegate',
+      synthesis: { integrationBranch: null, mergeOrder: [], mergedBranches: [], prUrl: null, prFeedback: [] },
+      worktrees: { t1: { branch: 'feature/x', taskId: 't1', status: 'active', path: worktreePath } },
+      tasks: [],
+    });
+
+    const result = await executeCompensation(state, 'delegate', makeEvents(1), 1, {
+      dryRun: false,
+      eventStore,
+      featureId,
+      realpath: identityRealpath,
+      // Inject a no-op sleep + zero jitter so the retry is instant + deterministic.
+      indexLockRetry: { sleep: async () => {}, jitter: () => 0 },
+    });
+
+    // The remove was RETRIED past the transient lock contention (2 attempts),
+    // and the action succeeded with the terminal recording removed=true.
+    expect(removeAttempts).toBe(2);
+    const cleanup = result.actions.find((a) => a.actionId === 'delegate:cleanup-worktrees');
+    expect(cleanup!.status).toBe('executed');
+    const executed = (await eventStore.query(WORKTREES_STREAM)).filter(
+      (e) => e.type === 'worktree.remove.executed',
+    );
+    expect(executed.length).toBe(1);
+    expect((executed[0].data as { removed: boolean }).removed).toBe(true);
   });
 });

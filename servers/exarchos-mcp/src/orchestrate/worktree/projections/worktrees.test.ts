@@ -404,6 +404,55 @@ describe('worktreesReducer.apply (WLM foundation)', () => {
     expect(WT_A in removed.worktrees).toBe(false);
     expect(removed.projectionSequence).toBe(2);
   });
+
+  it('WorktreesReducer_PreUnificationHistoryReplay_FoldsWithoutError', () => {
+    // Task 009 / requirement 4: the reducer stays TOTAL over pre-unification
+    // history. Before the `worktree.remove.*` compensation path was unified onto
+    // this stream, remove events were emitted on the `featureId` stream carrying
+    // ONLY `worktreePath` (no stamped `worktreeId`), and a remove could target a
+    // worktree the log never adopted. A replay that mixes those legacy shapes
+    // MUST fold without throwing and drop the entry it can correlate.
+    const reducer = createWorktreesReducer(identityRealpath);
+    const log: readonly WorkflowEvent[] = [
+      buildEvent({
+        type: 'worktree.adopted',
+        sequence: 1,
+        data: { worktreeId: WT_A, path: WT_A, featureId: 'feat-a', operationId: 'op-1' },
+      }),
+      // Legacy intent-only event (no `worktreeId`) — a no-op in the reducer.
+      buildEvent({
+        type: 'worktree.remove.requested',
+        sequence: 2,
+        data: { worktreePath: WT_A, operationId: 'op-1' },
+      }),
+      // Legacy terminal carrying ONLY `worktreePath` — the realpath fallback
+      // canonicalizes it back onto WT_A's stored key and drops the entry.
+      buildEvent({
+        type: 'worktree.remove.executed',
+        sequence: 3,
+        data: { worktreePath: WT_A, removed: true, operationId: 'op-1' },
+      }),
+      // A remove for a worktree NEVER adopted (WT_B) — must be a benign no-op,
+      // not a throw, so the fold is total over stranded pre-unification removes.
+      buildEvent({
+        type: 'worktree.remove.executed',
+        sequence: 4,
+        data: { worktreePath: WT_B, removed: false, operationId: 'op-x' },
+      }),
+    ];
+
+    let state: WorktreesProjection = reducer.initial;
+    expect(() => {
+      state = log.reduce((acc, ev) => reducer.apply(acc, ev), reducer.initial);
+    }).not.toThrow();
+
+    // WT_A was correlated and dropped; WT_B was never present (no phantom key).
+    expect(WT_A in state.worktrees).toBe(false);
+    expect(WT_B in state.worktrees).toBe(false);
+    // Only the adopt (+1) and WT_A drop (+1) advanced the sequence; the WT_A
+    // intent-only requested and the stranded WT_B drop were identity no-ops.
+    expect(state.projectionSequence).toBe(2);
+  });
 });
 
 describe('worktreesReducer.apply — in-flight merges + orphan folding (DR-4)', () => {
