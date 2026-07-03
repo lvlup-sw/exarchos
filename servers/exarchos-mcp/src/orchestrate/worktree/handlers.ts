@@ -35,7 +35,7 @@ import {
   reconcileMerges,
 } from './merge-serializer.js';
 import type { SleepFn } from './git-retry.js';
-import type { InFlightMerge } from './projections/worktrees.js';
+import type { InFlightMerge, InFlightPrune } from './projections/worktrees.js';
 import { reconcileLaunches } from '../../launcher/launch-reconcile.js';
 
 // ─── Shared helpers ──────────────────────────────────────────────────────────
@@ -418,12 +418,14 @@ export interface WorktreeViewDeps extends InjectableDeps {
 
 /**
  * `ps` — list the live serialized-merge set from `inFlightMerges` (an open
- * `worktree.merge_requested` with no paired `worktree.merge_executed`) AND the
- * live launcher-launch set from `worktrees` entries carrying a launch marker (an
- * open `launch.executing_started` with no paired `launch.executed`, DR-2), both
- * WITHOUT a process scan: a pure fold of the `worktrees@v1` projection. The
- * launch column reflects the launch straight from events — in-flight while
- * started-without-terminal, and cleared the moment the terminal folds.
+ * `worktree.merge_requested` with no paired `worktree.merge_executed`), the live
+ * launcher-launch set from `worktrees` entries carrying a launch marker (an open
+ * `launch.executing_started` with no paired `launch.executed`, DR-2), AND the
+ * live `prune_worktrees` GC set from `inFlightPrunes` (an open
+ * `prune.executing_started` with no paired `prune.executed`, DR-3 / INV-10) —
+ * all WITHOUT a process scan: a pure fold of the `worktrees@v1` projection. Each
+ * in-flight column reflects its liveness pair straight from events — in-flight
+ * while started-without-terminal, and cleared the moment the terminal folds.
  *
  * `probe: true` additionally pulls the DR-5 ground-truth process probe on demand
  * and emits `worktree.released` (owner dead, not in use) / `worktree.orphan_detected`
@@ -450,6 +452,7 @@ export async function handleViewPs(
   const manager = buildManager(ctx, deps);
   const inFlight = await manager.listInFlightMerges();
   const launches = await manager.listInFlightLaunches();
+  const prunes = await manager.listInFlightPrunes();
 
   if (optionalBoolean(args.probe) !== true) {
     return {
@@ -459,6 +462,8 @@ export async function handleViewPs(
         count: inFlight.length,
         launches,
         launchCount: launches.length,
+        prunes,
+        pruneCount: prunes.length,
       },
     };
   }
@@ -479,6 +484,11 @@ export async function handleViewPs(
   // BOTH in-flight and reconciled.
   const freshLaunches = await manager.listInFlightLaunches();
   const freshInFlight = await manager.listInFlightMerges();
+  // Re-fold the prune column too so all in-flight columns in one `ps --probe`
+  // response are POST-reconcile and mutually consistent (no prune reconciler
+  // runs on this pass today, but re-folding keeps the column symmetric with the
+  // merge / launch columns and correct should a prune reconciler be added).
+  const freshPrunes = await manager.listInFlightPrunes();
   return {
     success: true,
     data: {
@@ -486,6 +496,8 @@ export async function handleViewPs(
       count: freshInFlight.length,
       launches: freshLaunches,
       launchCount: freshLaunches.length,
+      prunes: freshPrunes,
+      pruneCount: freshPrunes.length,
       probe: reclaim,
       reconcile,
       mergeReconcile,
@@ -520,23 +532,57 @@ function waitTimeout(
   };
 }
 
+/** Structured (never-hang) bounded-wait timeout for `until: 'idle'` (DR-3). */
+function idleTimeout(
+  timeoutMs: number,
+  holders: readonly InFlightPrune[],
+): ToolResult {
+  return {
+    success: false,
+    error: {
+      code: 'WAIT_TIMEOUT',
+      message: `worktree layer did not become prune-idle within ${timeoutMs}ms (${holders.length} in-flight prune pass${holders.length === 1 ? '' : 'es'} still running)`,
+    },
+    // Same envelope convention as `waitTimeout`: the structured payload rides
+    // `data`, with `reason` the stable kebab discriminator callers match on.
+    data: {
+      reason: 'wait-idle-timeout' as const,
+      timeoutMs,
+      holders: holders.map((h) => ({
+        operationId: h.operationId,
+        repoRoot: h.repoRoot,
+        holderPid: h.holderPid,
+      })),
+    },
+  };
+}
+
 /**
- * `wait` — block until the serialized merge on `integrationRef` reaches its
- * terminal `worktree.merge_executed` (DR-4). Caller-bounded: folds the current
- * events and, if not yet terminal, bounded-polls the injected `sleep` seam under
- * an explicit `--timeout`, re-folding each iteration; returns a STRUCTURED
- * timeout on expiry. Pure read — appends nothing, spins up NO background
- * interval/daemon, and NEVER hangs.
+ * `wait` — block until a worktree-layer condition is reached (DR-3/DR-4).
+ * Caller-bounded, pure read: appends nothing, spins up NO background
+ * interval/daemon, and NEVER hangs — a timeout always returns a STRUCTURED
+ * result. Two modes, selected by `until` (default `'merge'`):
+ *
+ *   - `until: 'merge'` (default) — block until the serialized merge on
+ *     `integrationRef` reaches its terminal `worktree.merge_executed` (DR-4).
+ *     `integrationRef` is REQUIRED in this mode.
+ *   - `until: 'idle'` — block until NO in-flight `prune_worktrees` GC pass
+ *     remains, i.e. the prune terminal (`prune.executed`) has cleared every
+ *     `inFlightPrunes` claim (DR-3 / INV-10). `integrationRef` is not consulted.
+ *
+ * Both modes fold `worktrees@v1` and, if the condition is not yet met,
+ * bounded-poll the injected `sleep` seam under `timeoutMs`, re-folding each
+ * iteration.
  */
 export async function handleViewWait(
   args: Record<string, unknown>,
   ctx: DispatchContext,
   deps?: WorktreeViewDeps,
 ): Promise<ToolResult> {
-  const integrationRef = optionalString(args.integrationRef);
-  if (!integrationRef) {
-    return invalidInput('wait requires integrationRef: string', {
-      integrationRef: 'string',
+  const until = optionalString(args.until) ?? 'merge';
+  if (until !== 'merge' && until !== 'idle') {
+    return invalidInput("wait requires until: 'merge' | 'idle'", {
+      until: "'merge' | 'idle'",
     });
   }
   const timeoutMs =
@@ -546,16 +592,36 @@ export async function handleViewWait(
       ? args.timeoutMs
       : DEFAULT_WAIT_TIMEOUT_MS;
 
-  // Pass `deps` through so injected DI seams (processTableSource / realpath) are
-  // honored, matching handleViewPs — see the width-subtyping note there.
+  // Pass `deps` through so injected DI seams (processTableSource / realpath /
+  // sleep / clock) are honored, matching handleViewPs — see the width-subtyping
+  // note there. Both modes share the same timing seam wiring.
   const manager = buildManager(ctx, deps);
-  const result = await manager.waitForMergeTerminal(integrationRef, {
+  const timing = {
     timeoutMs,
     ...(deps?.sleep !== undefined ? { sleep: deps.sleep } : {}),
     ...(deps?.now !== undefined ? { now: deps.now } : {}),
     ...(deps?.pollIntervalMs !== undefined ? { pollIntervalMs: deps.pollIntervalMs } : {}),
-  });
+  };
 
+  if (until === 'idle') {
+    const idle = await manager.waitForPruneIdle(timing);
+    if (idle.resolved) {
+      return {
+        success: true,
+        data: { until: 'idle', resolved: true, waitedMs: idle.waitedMs },
+      };
+    }
+    return idleTimeout(timeoutMs, idle.holders);
+  }
+
+  // Default `until: 'merge'` — the DR-4 serialized-merge terminal poll.
+  const integrationRef = optionalString(args.integrationRef);
+  if (!integrationRef) {
+    return invalidInput('wait requires integrationRef: string', {
+      integrationRef: 'string',
+    });
+  }
+  const result = await manager.waitForMergeTerminal(integrationRef, timing);
   if (result.resolved) {
     return {
       success: true,

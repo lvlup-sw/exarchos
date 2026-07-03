@@ -102,6 +102,7 @@ import type {
   WorktreeEntry,
   WorktreesProjection,
   InFlightMerge,
+  InFlightPrune,
 } from './projections/worktrees.js';
 // Side-effect import: registers the `worktrees@v1` reducer with the
 // process-wide `defaultRegistry` so the appender's `aggregateStream` / `decide`
@@ -678,6 +679,16 @@ export interface ProbeReclaimResult {
 export type WaitForMergeTerminalResult =
   | { readonly resolved: true; readonly waitedMs: number }
   | { readonly resolved: false; readonly holder: InFlightMerge; readonly waitedMs: number };
+
+/**
+ * Outcome of a {@link WorktreeManager.waitForPruneIdle} bounded poll (DR-3).
+ * `resolved` when no in-flight `prune_worktrees` GC pass remains; otherwise the
+ * still-in-flight prune holder(s) accompany the structured-timeout verdict so
+ * the caller can report which passes are still running.
+ */
+export type WaitForPruneIdleResult =
+  | { readonly resolved: true; readonly waitedMs: number }
+  | { readonly resolved: false; readonly holders: readonly InFlightPrune[]; readonly waitedMs: number };
 
 /**
  * The in-process worktree-lifecycle facade. Construct one per
@@ -1266,6 +1277,20 @@ export class WorktreeManager {
   }
 
   /**
+   * Read-only listing of the live `prune_worktrees` GC set (DR-3 / INV-10): fold
+   * the `worktrees` stream and return every {@link InFlightPrune} — an open
+   * `prune.executing_started` with no paired `prune.executed`. Backs the `ps`
+   * view action's prune column (task-011's projection field, surfaced here).
+   * Appends nothing and runs NO process scan — it is a pure fold of the event
+   * log, so the terminal deterministically clears a prune from this set (no
+   * permanent phantom).
+   */
+  async listInFlightPrunes(): Promise<readonly InFlightPrune[]> {
+    const projection = await this.loadProjection();
+    return Object.values(projection.inFlightPrunes);
+  }
+
+  /**
    * On-demand orphan / stale-reservation probe + emit — the deferred orphan
    * emitter (DR-5). Folds the `worktrees@v1` projection, runs the ground-truth
    * {@link probeWorktrees} process probe over every governed worktree, and emits
@@ -1403,6 +1428,45 @@ export class WorktreeManager {
       }
       if (now() >= deadline) {
         return { resolved: false, holder, waitedMs: now() - start };
+      }
+      await sleep(pollIntervalMs);
+    }
+  }
+
+  /**
+   * Caller-bounded poll until the worktree layer is IDLE of prunes (DR-3) — no
+   * in-flight `prune_worktrees` GC pass remains. Folds `worktrees@v1` each
+   * iteration: when `inFlightPrunes` is empty the wait RESOLVES (the prune
+   * terminal `prune.executed` has cleared every claim); otherwise it sleeps
+   * `pollIntervalMs` via the INJECTED {@link SleepFn} seam (shared with
+   * `waitForMergeTerminal` / `git-retry.ts`) and re-folds, until the explicit
+   * `timeoutMs` deadline — then returns `{ resolved: false }` with the still-live
+   * holders so the caller can surface a STRUCTURED timeout. Pure read: appends
+   * NOTHING and creates NO background interval/timer (the only timer is the
+   * injected sleep's own). NEVER hangs.
+   */
+  async waitForPruneIdle(
+    opts: {
+      readonly timeoutMs?: number;
+      readonly sleep?: SleepFn;
+      readonly now?: () => number;
+      readonly pollIntervalMs?: number;
+    } = {},
+  ): Promise<WaitForPruneIdleResult> {
+    const sleep = opts.sleep ?? defaultSleep;
+    const now = opts.now ?? Date.now;
+    const pollIntervalMs = opts.pollIntervalMs ?? DEFAULT_WAIT_POLL_INTERVAL_MS;
+    const timeoutMs = opts.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS;
+    const start = now();
+    const deadline = start + timeoutMs;
+    while (true) {
+      const projection = await this.loadProjection();
+      const holders = Object.values(projection.inFlightPrunes);
+      if (holders.length === 0) {
+        return { resolved: true, waitedMs: now() - start };
+      }
+      if (now() >= deadline) {
+        return { resolved: false, holders, waitedMs: now() - start };
       }
       await sleep(pollIntervalMs);
     }
