@@ -1984,6 +1984,17 @@ const orchestrateActions: readonly ToolAction[] = [
       dryRun: z.boolean().optional(),
       resume: z.boolean().optional(),
       repoRoot: z.string().optional(),
+      // DR-2 single-writer lease guard: the caller-presented merge-lease
+      // correlator. When the target integration ref carries an in-flight
+      // `worktrees@v1` lease whose holder `operationId` differs from this
+      // value AND the holder is not provably dead, the handler fails closed
+      // (route through `serialize_merge`). `serialize_merge` threads its own
+      // lease `operationId` here so its composed call passes the guard; a
+      // crash-resumed caller presents the ORIGINAL claim's `operationId`.
+      // Optional string — the SOLE declaration of this field across the
+      // registry, so `buildRegistrationSchema` sees no same-name base-type
+      // collision. Omitting it preserves today's no-lease behavior.
+      leaseOperationId: z.string().optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_LEAD,

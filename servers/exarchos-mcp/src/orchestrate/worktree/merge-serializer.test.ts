@@ -26,13 +26,17 @@ import { writeStateFile } from '../../workflow/state-store.js';
 import type { ToolResult } from '../../format.js';
 
 import { handleOrchestrate } from '../composite.js';
-import { handleMergeOrchestrate } from '../merge-orchestrate.js';
-import { serializeMerge } from './merge-serializer.js';
+import {
+  handleMergeOrchestrate,
+  type HandleMergeOrchestrateInput,
+} from '../merge-orchestrate.js';
+import { serializeMerge, resumeCrashedMerge } from './merge-serializer.js';
 import { handleSerializeMerge } from './handlers.js';
 import { WORKTREES_STREAM, WORKTREES_REDUCER } from './manager.js';
 import type { WorktreesProjection } from './projections/worktrees.js';
 import type { ProcessTableSource, ProcessRecord } from './pure/probe.js';
 import type { SleepFn } from './git-retry.js';
+import type { MergePreflightResult, GitExec } from '../pure/merge-preflight.js';
 
 // ─── Arm: one stateDir + EventStore + ctx ────────────────────────────────────
 
@@ -724,5 +728,138 @@ describe('handleSerializeMerge — input guards', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
     expect(result.error?.message).toMatch(/strategy/i);
+  });
+});
+
+// ─── DR-2 — lease threaded through the composed merge_orchestrate guard ───────
+//
+// `merge_orchestrate` now enforces a single-writer lease guard: a foreign live
+// lease on the target integration ref fails the merge closed. The serializer
+// (and its crash-resume path) hold their OWN lease before composing
+// `merge_orchestrate`, so they MUST thread their lease `operationId` as
+// `leaseOperationId` — otherwise the guard would treat the serializer's own
+// live claim as a foreign holder and block. These tests run the REAL
+// `handleMergeOrchestrate` (so the REAL guard executes) with its preflight /
+// executor / git seams stubbed, capturing the threaded `leaseOperationId` and
+// injecting a live process table so a MISSING thread would deterministically
+// fail closed (kill-probe sensitivity).
+
+/** Minimal passing preflight — the composed guard runs before this is consulted. */
+const GUARD_PASSING_PREFLIGHT: MergePreflightResult = {
+  passed: true,
+  ancestry: { passed: true, checks: ['ancestry'] },
+  currentBranchProtection: { blocked: false, currentBranch: 'feat/x' },
+  worktree: { isMain: true, actual: '/repo', expected: '/repo' },
+  drift: { clean: true, uncommittedFiles: [], indexStale: false, detachedHead: false },
+};
+
+/** A gitExec that fails every call → neutralizes merge_orchestrate's section-0a probe. */
+const GUARD_NO_GIT: GitExec = () => ({ exitCode: 1, stdout: '', stderr: '' });
+
+/**
+ * A `mergeOrchestrate` dep that runs the REAL `handleMergeOrchestrate` (so the
+ * REAL DR-2 guard executes) with preflight / executor / git stubbed and the
+ * guard's process table pinned to `table`. Captures the `leaseOperationId` the
+ * caller threaded so the test can assert it matches the held lease.
+ */
+function realMergeCapturingLease(
+  captured: { leaseOperationId?: string },
+  table: ProcessTableSource,
+): (input: HandleMergeOrchestrateInput, ctx: DispatchContext) => Promise<ToolResult> {
+  return async (input, ctx) => {
+    captured.leaseOperationId = input.leaseOperationId;
+    return handleMergeOrchestrate(
+      {
+        ...input,
+        preflight: async () => GUARD_PASSING_PREFLIGHT,
+        executeMerge: async () => ({
+          success: true,
+          data: {
+            phase: 'completed' as const,
+            mergeSha: 'a'.repeat(40),
+            recoveryPointSha: 'b'.repeat(40),
+          },
+        }),
+        gitExec: GUARD_NO_GIT,
+        processTableSource: table,
+      },
+      ctx,
+    );
+  };
+}
+
+describe('serialize_merge — DR-2 lease threading through the guard', () => {
+  it('SerializeMerge_OwnLeaseThreadedThroughComposedCall_PassesGuard', async () => {
+    const arm = await createArm();
+    const integrationRef = 'integration/own-lease';
+    const captured: { leaseOperationId?: string } = {};
+    // The serializer stamps its own live identity on the claim; pin the guard's
+    // table so that identity reads ALIVE — a missing thread would fail closed.
+    const table = liveTable([{ pid: 222, startTime: 'self-222' }]);
+
+    const result = await serializeMerge(
+      { featureId: 'F', integrationRef, sourceBranch: 'feat/mine', strategy: 'merge', timeoutMs: 10_000 },
+      arm.ctx,
+      {
+        selfPid: 222,
+        selfStartedAt: 'self-222',
+        processTableSource: table,
+        mergeOrchestrate: realMergeCapturingLease(captured, table),
+        readIntegrationHead: () => null,
+      },
+    );
+
+    // The serializer's own lease passed the guard → the composed merge ran.
+    expect(result.success).toBe(true);
+
+    // The threaded leaseOperationId equals the CLAIM's operationId (the lease it holds).
+    const events = await arm.eventStore.query(WORKTREES_STREAM);
+    const claim = events.find((e) => e.type === 'worktree.merge_requested');
+    expect(claim).toBeDefined();
+    const claimOpId = (claim!.data as { operationId: string }).operationId;
+    expect(captured.leaseOperationId).toBe(claimOpId);
+    expect(typeof captured.leaseOperationId).toBe('string');
+  });
+
+  it('SerializeMerge_CrashResumedNewPid_OriginalOperationId_PassesGuard', async () => {
+    const arm = await createArm();
+    const integrationRef = 'integration/resume-lease';
+    // A crashed holder: its recorded pid is absent from the SUPPORTED empty
+    // table → provably dead, so the resume may take over the lease.
+    await seedHolder(arm, {
+      integrationRef,
+      operationId: 'crashed-op',
+      sourceBranch: 'feat/crashed',
+      holderPid: 4242,
+      holderStartedAt: 'gone',
+    });
+
+    const captured: { leaseOperationId?: string } = {};
+    // The resume re-claims under a NEW live pid (333). Pin the guard's table so
+    // that new identity reads ALIVE — a missing thread would fail closed.
+    const guardTable = liveTable([{ pid: 333, startTime: 'self-333' }]);
+
+    const outcome = await resumeCrashedMerge(
+      { featureId: 'F', integrationRef, strategy: 'merge' },
+      arm.ctx,
+      {
+        // The resume's own dead-holder probe uses the EMPTY (supported) table so
+        // the original crashed holder reads provably dead → resume is allowed.
+        processTableSource: EMPTY_TABLE,
+        selfPid: 333,
+        selfStartedAt: 'self-333',
+        isMergeApplied: () => false, // force a re-merge (not already applied).
+        mergeOrchestrate: realMergeCapturingLease(captured, guardTable),
+      },
+    );
+
+    // The resumed lease passed the guard by presenting the ORIGINAL operationId,
+    // even though the re-claim stamped a NEW pid (match by operationId, not pid).
+    expect(outcome.resumed).toBe(true);
+    expect(captured.leaseOperationId).toBe('crashed-op');
+    if (outcome.resumed) {
+      expect(outcome.reMerged).toBe(true);
+      expect(outcome.mergeResult?.success).toBe(true);
+    }
   });
 });

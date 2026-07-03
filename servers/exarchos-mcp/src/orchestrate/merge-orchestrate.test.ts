@@ -38,12 +38,18 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { EventStore } from '../event-store/store.js';
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import * as path from 'node:path';
+import { EventStore } from '../event-store/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
 
 import { handleMergeOrchestrate } from './merge-orchestrate.js';
-import type { MergePreflightResult } from './pure/merge-preflight.js';
+import type { MergePreflightResult, GitExec } from './pure/merge-preflight.js';
 import { VersionConflictError } from '../workflow/state-store.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
+import { WORKTREES_STREAM } from './worktree/manager.js';
+import type { ProcessTableSource, ProcessRecord } from './worktree/pure/probe.js';
 
 // ─── Test helpers ──────────────────────────────────────────────────────────
 
@@ -64,6 +70,14 @@ function makeMockEventStore(): EventStore {
     eventIds: ['evt-mock-requested'],
     timestamps: [new Date().toISOString()],
   });
+  // DR-2 lease guard: the handler folds `worktrees@v1` via
+  // `getAppender().aggregateStream(...)` before any git side effect. These
+  // legacy tests hold NO lease, so the mock returns an empty projection →
+  // guard finds no holder → proceeds exactly as before the guard existed.
+  const aggregateStream = vi.fn().mockResolvedValue({
+    aggregate: { projectionSequence: 0, worktrees: {}, inFlightMerges: {} },
+    version: 0,
+  });
   return {
     append: vi.fn().mockResolvedValue({
       sequence: 1,
@@ -73,7 +87,7 @@ function makeMockEventStore(): EventStore {
     // #1303 α-04: handler reads stream tail to compute expectedSequence
     // before appending merge.preflight. Empty array → expectedSequence: 0.
     query: vi.fn().mockResolvedValue([]),
-    getAppender: vi.fn().mockReturnValue({ decide }),
+    getAppender: vi.fn().mockReturnValue({ decide, aggregateStream }),
   } as unknown as EventStore;
 }
 
@@ -797,5 +811,318 @@ describe('handleMergeOrchestrate (T14 — resume path)', () => {
     expect(executeMerge).not.toHaveBeenCalled();
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('STATE_CONFLICT');
+  });
+});
+
+// ─── DR-2 — single-writer lease guard (task-005) ─────────────────────────────
+//
+// The guard folds `worktrees@v1` at the handler chokepoint and fails a merge
+// CLOSED when a FOREIGN live lease holds the target integration ref. These
+// tests drive it against a REAL EventStore (real fold) with the DR-5 probe
+// fixtures, injecting only the preflight / executor / git seams the handler
+// itself owns. A benign `gitExec` neutralizes the section-0a worktree probe so
+// the proceed-path tests exercise the guard in isolation.
+
+/** Real EventStore arm — the guard reads a genuine `worktrees@v1` fold. */
+interface LeaseArm {
+  readonly stateDir: string;
+  readonly eventStore: EventStore;
+  readonly ctx: DispatchContext;
+}
+
+const leaseArms: LeaseArm[] = [];
+
+async function createLeaseArm(): Promise<LeaseArm> {
+  const stateDir = await mkdtemp(path.join(tmpdir(), 'mo-lease-guard-'));
+  const eventStore = new EventStore(stateDir);
+  await eventStore.initialize();
+  const ctx: DispatchContext = { stateDir, eventStore, enableTelemetry: false };
+  const arm: LeaseArm = { stateDir, eventStore, ctx };
+  leaseArms.push(arm);
+  return arm;
+}
+
+/** Live process table reporting exactly the listed (pid, startTime) pairs alive. */
+function liveTable(pairs: ReadonlyArray<{ pid: number; startTime: string }>): ProcessTableSource {
+  const records: ProcessRecord[] = pairs.map(({ pid, startTime }) => ({
+    pid,
+    ppid: 1,
+    cwd: `/proc-fixture/${pid}`,
+    startTime,
+  }));
+  return { list: () => records };
+}
+
+/** Empty but SUPPORTED table — every probed pid reads as absent (provably dead). */
+const EMPTY_TABLE: ProcessTableSource = { list: () => [] };
+
+/** UNSUPPORTED (off-Linux) table — every probed pid reads `'unknown'`, never dead. */
+const UNSUPPORTED_TABLE: ProcessTableSource = {
+  list: () => [],
+  isSupported: () => false,
+};
+
+/** Seed a held merge lease (CLAIM) directly on the singleton worktrees stream. */
+async function seedLease(
+  arm: LeaseArm,
+  holder: {
+    integrationRef: string;
+    operationId: string;
+    sourceBranch: string;
+    holderPid: number;
+    holderStartedAt: string;
+  },
+): Promise<void> {
+  await arm.eventStore.getAppender().append(
+    WORKTREES_STREAM,
+    [{ type: 'worktree.merge_requested', data: { ...holder } }],
+    `worktree.merge_requested:${holder.operationId}`,
+  );
+}
+
+/** A gitExec that fails every invocation → neutralizes the section-0a probe. */
+const NO_GIT: GitExec = () => ({ exitCode: 1, stdout: '', stderr: '' });
+
+function passingExecuteMerge() {
+  return vi.fn().mockResolvedValue({
+    success: true,
+    data: {
+      phase: 'completed' as const,
+      mergeSha: MERGE_SHA,
+      recoveryPointSha: ROLLBACK_SHA,
+    },
+  });
+}
+
+describe('handleMergeOrchestrate (DR-2 — single-writer lease guard)', () => {
+  afterEach(async () => {
+    while (leaseArms.length > 0) {
+      const arm = leaseArms.pop();
+      if (arm) {
+        arm.eventStore.close();
+        await rmrfAsync(arm.stateDir);
+      }
+    }
+  });
+
+  it('MergeOrchestrate_ForeignLiveLeaseOnTarget_FailsClosedNamingSerializeMerge', async () => {
+    const arm = await createLeaseArm();
+    const integrationRef = 'integration/guard-foreign';
+    await seedLease(arm, {
+      integrationRef,
+      operationId: 'foreign-live-op',
+      sourceBranch: 'feat/other',
+      holderPid: 999,
+      holderStartedAt: 'alive-999',
+    });
+    const preflight = vi.fn().mockResolvedValue(PASSING_PREFLIGHT);
+    const executeMerge = passingExecuteMerge();
+
+    const result = await handleMergeOrchestrate(
+      {
+        featureId: 'feat-guard',
+        sourceBranch: 'feat/mine',
+        targetBranch: integrationRef,
+        strategy: 'squash',
+        // No leaseOperationId — a plain caller racing the integration branch.
+        preflight,
+        executeMerge,
+        gitExec: NO_GIT,
+        processTableSource: liveTable([{ pid: 999, startTime: 'alive-999' }]),
+      },
+      arm.ctx,
+    );
+
+    // Fail-closed with a structured error that NAMES serialize_merge.
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('MERGE_LEASE_HELD');
+    expect(result.error?.message).toMatch(/serialize_merge/);
+    expect((result.data as { reason?: string }).reason).toBe('foreign-live-lease');
+
+    // NO git side effect: the executor never ran and NO merge.preflight /
+    // merge.requested event landed on the feature stream (guard runs first).
+    expect(preflight).not.toHaveBeenCalled();
+    expect(executeMerge).not.toHaveBeenCalled();
+    const featureEvents = await arm.eventStore.query('feat-guard');
+    expect(featureEvents).toHaveLength(0);
+    // The lease is untouched — still held by the foreign holder.
+    const wt = await arm.eventStore
+      .getAppender()
+      .aggregateStream(WORKTREES_STREAM, 'worktrees@v1');
+    expect(
+      (wt.aggregate as { inFlightMerges: Record<string, { operationId: string }> })
+        .inFlightMerges[integrationRef]?.operationId,
+    ).toBe('foreign-live-op');
+  });
+
+  it('MergeOrchestrate_NoLease_BehavesAsToday', async () => {
+    const arm = await createLeaseArm();
+    // No lease seeded — the target integration ref is free.
+    const preflight = vi.fn().mockResolvedValue(PASSING_PREFLIGHT);
+    const executeMerge = passingExecuteMerge();
+
+    const result = await handleMergeOrchestrate(
+      {
+        featureId: 'feat-nolease',
+        sourceBranch: 'feat/mine',
+        targetBranch: 'integration/guard-free',
+        strategy: 'squash',
+        preflight,
+        executeMerge,
+        gitExec: NO_GIT,
+        processTableSource: liveTable([{ pid: 999, startTime: 'alive-999' }]),
+      },
+      arm.ctx,
+    );
+
+    // No holder → guard is transparent → preflight + executor run as today.
+    expect(result.success).toBe(true);
+    expect((result.data as { phase: string }).phase).toBe('completed');
+    expect(preflight).toHaveBeenCalledTimes(1);
+    expect(executeMerge).toHaveBeenCalledTimes(1);
+  });
+
+  it('MergeOrchestrate_DeadHolderLease_ProceedsAfterProbe', async () => {
+    const arm = await createLeaseArm();
+    const integrationRef = 'integration/guard-dead';
+    // Holder pid absent from the SUPPORTED empty table → provably dead.
+    await seedLease(arm, {
+      integrationRef,
+      operationId: 'dead-holder-op',
+      sourceBranch: 'feat/dead',
+      holderPid: 4242,
+      holderStartedAt: 'gone',
+    });
+    const preflight = vi.fn().mockResolvedValue(PASSING_PREFLIGHT);
+    const executeMerge = passingExecuteMerge();
+
+    const result = await handleMergeOrchestrate(
+      {
+        featureId: 'feat-dead',
+        sourceBranch: 'feat/mine',
+        targetBranch: integrationRef,
+        strategy: 'squash',
+        // No leaseOperationId — a provably-dead holder proceeds regardless.
+        preflight,
+        executeMerge,
+        gitExec: NO_GIT,
+        processTableSource: EMPTY_TABLE,
+      },
+      arm.ctx,
+    );
+
+    // Provably-dead holder does NOT block — the merge proceeds (back-compat).
+    expect(result.success).toBe(true);
+    expect(executeMerge).toHaveBeenCalledTimes(1);
+  });
+
+  it('MergeOrchestrate_UnknownHolderLiveness_FailsClosed', async () => {
+    const arm = await createLeaseArm();
+    const integrationRef = 'integration/guard-unknown';
+    // Same absent pid, but probed against the UNSUPPORTED (off-Linux) table:
+    // liveness reads 'unknown', NOT 'dead' → the guard must fail CLOSED.
+    await seedLease(arm, {
+      integrationRef,
+      operationId: 'unknown-holder-op',
+      sourceBranch: 'feat/held',
+      holderPid: 9090,
+      holderStartedAt: 'boot-9090',
+    });
+    const preflight = vi.fn().mockResolvedValue(PASSING_PREFLIGHT);
+    const executeMerge = passingExecuteMerge();
+
+    const result = await handleMergeOrchestrate(
+      {
+        featureId: 'feat-unknown',
+        sourceBranch: 'feat/mine',
+        targetBranch: integrationRef,
+        strategy: 'squash',
+        preflight,
+        executeMerge,
+        gitExec: NO_GIT,
+        processTableSource: UNSUPPORTED_TABLE,
+      },
+      arm.ctx,
+    );
+
+    // Unknown liveness counts as held → fail closed (off-Linux fail-closed).
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('MERGE_LEASE_HELD');
+    expect((result.data as { holder?: { liveness?: string } }).holder?.liveness).toBe('unknown');
+    expect(executeMerge).not.toHaveBeenCalled();
+  });
+
+  it('MergeOrchestrate_LeaseKeyShape_MatchesSerializerBareBranch', async () => {
+    const arm = await createLeaseArm();
+    // The serializer writes BARE branch names as the inFlightMerges key. Seed
+    // under the bare 'main' and target 'main': the handler builds
+    // `refs/heads/main` internally, but the guard MUST look up the BARE key the
+    // serializer WROTE. A guard that looked up `refs/heads/main` would miss the
+    // lease and proceed — this test would then go red.
+    await seedLease(arm, {
+      integrationRef: 'main',
+      operationId: 'bare-key-op',
+      sourceBranch: 'feat/other',
+      holderPid: 555,
+      holderStartedAt: 'alive-555',
+    });
+    const preflight = vi.fn().mockResolvedValue(PASSING_PREFLIGHT);
+    const executeMerge = passingExecuteMerge();
+
+    const result = await handleMergeOrchestrate(
+      {
+        featureId: 'feat-barekey',
+        sourceBranch: 'feat/mine',
+        targetBranch: 'main',
+        strategy: 'squash',
+        preflight,
+        executeMerge,
+        gitExec: NO_GIT,
+        processTableSource: liveTable([{ pid: 555, startTime: 'alive-555' }]),
+      },
+      arm.ctx,
+    );
+
+    // The bare-branch key matched → fail closed against the foreign live lease.
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('MERGE_LEASE_HELD');
+    expect((result.data as { integrationRef?: string }).integrationRef).toBe('main');
+    expect(executeMerge).not.toHaveBeenCalled();
+  });
+
+  it('MergeOrchestrate_MatchingLeaseOperationId_ProceedsThroughGuard', async () => {
+    // The serializer's own composed call (and a crash-resumed caller) present
+    // the holder's operationId as leaseOperationId → matched → proceed even
+    // though the holder is LIVE. This is the positive twin of the fail-closed
+    // path and pins the operationId-match short-circuit.
+    const arm = await createLeaseArm();
+    const integrationRef = 'integration/guard-own';
+    await seedLease(arm, {
+      integrationRef,
+      operationId: 'my-own-lease-op',
+      sourceBranch: 'feat/mine',
+      holderPid: 777,
+      holderStartedAt: 'alive-777',
+    });
+    const preflight = vi.fn().mockResolvedValue(PASSING_PREFLIGHT);
+    const executeMerge = passingExecuteMerge();
+
+    const result = await handleMergeOrchestrate(
+      {
+        featureId: 'feat-own',
+        sourceBranch: 'feat/mine',
+        targetBranch: integrationRef,
+        strategy: 'squash',
+        leaseOperationId: 'my-own-lease-op', // our own lease → matched by opId.
+        preflight,
+        executeMerge,
+        gitExec: NO_GIT,
+        processTableSource: liveTable([{ pid: 777, startTime: 'alive-777' }]),
+      },
+      arm.ctx,
+    );
+
+    expect(result.success).toBe(true);
+    expect(executeMerge).toHaveBeenCalledTimes(1);
   });
 });

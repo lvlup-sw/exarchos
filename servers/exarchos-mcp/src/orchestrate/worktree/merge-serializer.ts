@@ -381,6 +381,11 @@ export async function serializeMerge(
         // `merge_orchestrate` calls the integration ref `targetBranch`.
         targetBranch: input.integrationRef,
         strategy: input.strategy,
+        // Thread OUR lease `operationId` so `merge_orchestrate`'s DR-2
+        // single-writer guard recognizes the folded lease as ours (matched by
+        // operationId) and proceeds, instead of treating our own just-claimed
+        // live lease as a foreign holder and failing closed.
+        leaseOperationId: operationId,
         ...(input.taskId !== undefined ? { taskId: input.taskId } : {}),
         ...(input.repoRoot !== undefined ? { repoRoot: input.repoRoot } : {}),
       },
@@ -781,6 +786,11 @@ export async function resumeCrashedMerge(
         // `merge_orchestrate` calls the integration ref `targetBranch`.
         targetBranch: input.integrationRef,
         strategy: input.strategy,
+        // Present the ORIGINAL claim's `operationId` (unchanged across the
+        // re-claim, even from a NEW pid) so `merge_orchestrate`'s DR-2 guard
+        // matches the resumed lease as ours and proceeds — the crash-resume
+        // "match by operationId, not pid" contract.
+        leaseOperationId: holder.operationId,
         ...(input.taskId !== undefined ? { taskId: input.taskId } : {}),
         ...(input.repoRoot !== undefined ? { repoRoot: input.repoRoot } : {}),
       },
