@@ -267,6 +267,73 @@ jobs:
           fi
 
   # ─────────────────────────────────────────────────────────────────────
+  # test-windows-root (task 021)
+  # ─────────────────────────────────────────────────────────────────────
+  # Runs the ROOT-package unit suite (`npm run test:run`) on a real
+  # windows-latest host. The sibling `test-windows` lane above covers only
+  # servers/exarchos-mcp; the root package (installer surfaces, `src/`,
+  # `scripts/`) had NO Windows coverage until now. This lane closes that gap
+  # so root-side path/OS regressions fail here rather than shipping.
+  #
+  # Gated on `changes.outputs.root` — the same path filter as the Linux
+  # `test-root` lane — and wired into the blocking `ci-gate` aggregator
+  # below (with a fail-closed skip guard mirroring the MCP DR-5 guard).
+  #
+  # Install prerequisites mirror `test-root`: the root `unit` vitest project
+  # includes `scripts/**/*.test.ts` (e.g. `scripts/build-binary.test.ts`,
+  # which shells out to `bun build --compile`), so bun + the MCP server's
+  # runtime deps must be present for the bundler to resolve
+  # pino/commander/@modelcontextprotocol/sdk/zod/yaml. `shell: bash` is set
+  # on the *.sh install steps (Git Bash ships on windows-latest); npm steps
+  # use the default shell. PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD avoids the
+  # npm-ci chromium wedge (#1502).
+  #
+  # NOTE: marking this job as a REQUIRED branch-protection check is a manual
+  # repo-settings step (Settings → Branches → main → required status checks)
+  # — out-of-repo and not YAML-assertable. Capture it as a manual followup in
+  # the merge PR so "lane present but non-blocking" cannot silently pass as
+  # done. (test-windows-root already flows into the blocking ci-gate
+  # aggregator below.)
+  # ─────────────────────────────────────────────────────────────────────
+  test-windows-root:
+    name: Windows Unit (Root)
+    needs: changes
+    if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && needs.changes.outputs.root == 'true'
+    runs-on: windows-latest
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            servers/exarchos-mcp/package-lock.json
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      - name: Install root dependencies
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
+
+      # The MCP server's deps must be present so `bun build --compile` can
+      # resolve `pino`, `commander`, `@modelcontextprotocol/sdk`, `zod`, and
+      # `yaml` when bundling `servers/exarchos-mcp/src/index.ts` (exercised by
+      # `scripts/build-binary.test.ts`, part of the root `unit` project run by
+      # `npm run test:run`).
+      - name: Install MCP server dependencies
+        working-directory: servers/exarchos-mcp
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
+
+      - run: npm run test:run
+
+  # ─────────────────────────────────────────────────────────────────────
   # binary-matrix
   # ─────────────────────────────────────────────────────────────────────
   # Cross-compiles the Exarchos CLI + MCP server into a single native
@@ -595,7 +662,7 @@ jobs:
   ci-gate:
     name: CI Gate
     runs-on: ubuntu-latest
-    needs: [changes, test-root, test-mcp, test-windows, validate-no-legacy, grep-gates, outcome-tests]
+    needs: [changes, test-root, test-mcp, test-windows, test-windows-root, validate-no-legacy, grep-gates, outcome-tests]
     if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && always()
     steps:
       - name: Evaluate results
@@ -604,6 +671,7 @@ jobs:
           echo "test-root=${{ needs.test-root.result }}"
           echo "test-mcp=${{ needs.test-mcp.result }}"
           echo "test-windows=${{ needs.test-windows.result }}"
+          echo "test-windows-root=${{ needs.test-windows-root.result }}"
           echo "validate-no-legacy=${{ needs.validate-no-legacy.result }}"
           echo "grep-gates=${{ needs.grep-gates.result }}"
           echo "outcome-tests=${{ needs.outcome-tests.result }}"
@@ -635,6 +703,23 @@ jobs:
           if [[ "${{ needs.changes.outputs.mcp }}" == 'true' \
              && "${{ needs.test-windows.result }}" == 'skipped' ]]; then
             echo "::error::Windows lane skipped on an MCP-touching PR (path-filter/matrix regression dropped required Windows coverage)"
+            exit 1
+          fi
+          # test-windows-root (task 021) is BLOCKING — same posture as
+          # test-windows. It gives the root package (installer surfaces, src/)
+          # its first Windows coverage, so a red root Windows job fails CI.
+          if [[ "${{ needs.test-windows-root.result }}" =~ ^(failure|cancelled)$ ]]; then
+            echo "::error::Windows root-package tests: ${{ needs.test-windows-root.result }}"
+            exit 1
+          fi
+          # The root Windows lane is REQUIRED for any root-source change. A
+          # generic skip is OK (non-root PRs legitimately skip test-windows-root
+          # via `changes.outputs.root`). But if root code DID change and the
+          # lane was skipped, that's a path-filter/matrix regression dropping
+          # our only Windows coverage of the root package — fail closed.
+          if [[ "${{ needs.changes.outputs.root }}" == 'true' \
+             && "${{ needs.test-windows-root.result }}" == 'skipped' ]]; then
+            echo "::error::Windows root lane skipped on a root-touching PR (path-filter/matrix regression dropped required Windows root coverage)"
             exit 1
           fi
           if [[ "${{ needs.validate-no-legacy.result }}" =~ ^(failure|cancelled)$ ]]; then
