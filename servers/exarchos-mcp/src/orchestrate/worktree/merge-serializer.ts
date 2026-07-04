@@ -94,6 +94,17 @@ export interface SerializeMergeInput {
   readonly repoRoot?: string;
   /** Bounded-wait budget (ms). Defaults to {@link DEFAULT_MERGE_SLOT_TIMEOUT_MS}. */
   readonly timeoutMs?: number;
+  /**
+   * DR-1 / INV-5c safe default: when `true` (the DEFAULT — see
+   * {@link handleSerializeMerge}), the serializer claims NO lease and runs NO
+   * merge; it reads the fresh integration head and returns the PLANNED effect.
+   * Only `false` claims the `worktree.merge_requested` lease and composes the
+   * real `merge_orchestrate`. Undefined here is treated as an apply run because
+   * the safe default is applied at the handler boundary (the dispatch seam),
+   * NOT the pure serializer — a direct in-process caller that omits `dryRun`
+   * has already made its intent explicit by calling `serializeMerge` directly.
+   */
+  readonly dryRun?: boolean;
 }
 
 /**
@@ -331,6 +342,33 @@ export async function serializeMerge(
   const mergeOrchestrate = deps.mergeOrchestrate ?? handleMergeOrchestrate;
   const readIntegrationHead =
     deps.readIntegrationHead ?? buildDefaultReadIntegrationHead(defaultGitExec);
+
+  // ─── DR-1 / INV-5c dry-run short-circuit ──────────────────────────────────
+  //
+  // On a dry-run (`input.dryRun === true`) the lease is NOT claimed and
+  // `merge_orchestrate` is NOT run: append NO `worktree.merge_requested` /
+  // `worktree.merge_executed` events, and return the PLANNED effect instead —
+  // the merge params plus the freshly-read integration head. The head read is a
+  // pure `git rev-parse` (read-only, `null` on any failure), so a dry-run stays
+  // side-effect-free on the event log. The dispatch boundary
+  // (`handleSerializeMerge`) makes dry-run the DEFAULT; a direct caller passes
+  // `dryRun: false` (or leaves it undefined) to execute.
+  if (input.dryRun === true) {
+    const integrationHead = readIntegrationHead(input);
+    return {
+      success: true,
+      data: {
+        dryRun: true,
+        integrationRef: input.integrationRef,
+        sourceBranch: input.sourceBranch,
+        strategy: input.strategy,
+        featureId: input.featureId,
+        integrationHead,
+        ...(input.taskId !== undefined ? { taskId: input.taskId } : {}),
+        ...(input.repoRoot !== undefined ? { repoRoot: input.repoRoot } : {}),
+      },
+    };
+  }
 
   const selfPid = deps.selfPid ?? process.pid;
   const selfStartedAt =

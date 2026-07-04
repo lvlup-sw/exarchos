@@ -2961,7 +2961,7 @@ const orchestrateActions: readonly ToolAction[] = [
     name: 'serialize_merge',
     surface: 'worktree',
     description:
-      'Serialize an integration-branch merge behind an optimistic per-integrationRef lease, then compose merge_orchestrate UNCHANGED. Grants at most one in-flight merge per integrationRef: a held slot bounded-waits (re-folding worktrees@v1) and reclaims a provably-dead holder inline, or returns a structured merge-slot-timeout. Auto-emits worktree.merge_requested (claim) then worktree.merge_executed (release). Use for: landing a source branch onto a shared integration ref under cross-process serialization. Do NOT use for: a single unsynchronized merge (use merge_orchestrate); a raw provider PR merge (use merge_pr).',
+      'Serialize an integration-branch merge behind an optimistic per-integrationRef lease, then compose merge_orchestrate UNCHANGED. DEFAULTS TO DRY-RUN (INV-5c): omitting dryRun (or dryRun:true) claims NO lease, runs NO merge, and returns the planned effect (integration head + merge params); pass dryRun:false to actually claim the lease and execute. Grants at most one in-flight merge per integrationRef: a held slot bounded-waits (re-folding worktrees@v1) and reclaims a provably-dead holder inline, or returns a structured merge-slot-timeout. Auto-emits worktree.merge_requested (claim) then worktree.merge_executed (release) ONLY on an apply run. Use for: landing a source branch onto a shared integration ref under cross-process serialization. Do NOT use for: a single unsynchronized merge (use merge_orchestrate); a raw provider PR merge (use merge_pr).',
     schema: z.object({
       featureId: z.string().min(1),
       integrationRef: z.string().min(1),
@@ -2973,12 +2973,22 @@ const orchestrateActions: readonly ToolAction[] = [
       // (ZodNumber) as `doctor.timeoutMs` so the MCP-registration flattener
       // does not see a divergent shape for the shared `timeoutMs` field name.
       timeoutMs: z.number().int().positive().optional(),
+      // INV-5c safe default: dry-run unless the caller EXPLICITLY opts out with
+      // dryRun:false. Declared `.optional()` with NO Zod `.default()` because the
+      // MCP-registration flattener forbids divergent defaults across the shared
+      // `dryRun` field (prune_worktrees / merge_orchestrate / prune_stale_workflows
+      // all declare it `.optional()` with no default); the default is applied in
+      // handleSerializeMerge instead.
+      dryRun: z.boolean().optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
+    // Descriptive only (NOT the control point — the handler applies the dry-run
+    // default). On the default dry-run NOTHING is emitted; both lease events fire
+    // only on an apply run (dryRun:false).
     autoEmits: [
-      { event: 'worktree.merge_requested', condition: 'always', description: 'The lease CLAIM (single-writer per integrationRef)' },
-      { event: 'worktree.merge_executed', condition: 'always', description: 'The lease RELEASE (plain keyed append)' },
+      { event: 'worktree.merge_requested', condition: 'conditional', description: 'The lease CLAIM (single-writer per integrationRef) — apply run only (dryRun:false)' },
+      { event: 'worktree.merge_executed', condition: 'conditional', description: 'The lease RELEASE (plain keyed append) — apply run only (dryRun:false)' },
     ],
     // Multi-step serialized merge (wait → claim → compose merge_orchestrate →
     // release) is the canonical long-running verb — advisory Tasks-augmented

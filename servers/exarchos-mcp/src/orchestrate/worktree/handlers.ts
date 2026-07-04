@@ -184,6 +184,24 @@ export async function handleAcquireWorktree(
   // reservation lands (mirrors prune's step 0).
   const adoptResult = await manager.adopt(repoRoot);
 
+  // mutable-as-HARD-GATE (DR-1): reserving a worktree is a MUTATION intent, so
+  // REFUSE (structured error, not a mere report) when the adopt-gate's HEAD/
+  // ancestry re-verify says the target worktree is NOT mutable — a
+  // `stale-after-push` (behind upstream: committing could silently drop
+  // newly-pushed files) or `head-unresolved` worktree. The gate fires only when
+  // the adopt pass actually observed the target on disk (a report exists); a
+  // worktree not yet on disk carries no staleness evidence and reserves as before.
+  const adoptReport = adoptResult.worktrees.find((w) => w.worktreeId === worktreeId);
+  if (adoptReport !== undefined && !adoptReport.verification.mutable) {
+    return {
+      success: false,
+      error: {
+        code: 'WORKTREE_NOT_MUTABLE',
+        message: `worktree ${worktreeId} is not mutable (${adoptReport.verification.reason}) — refusing to reserve a stale worktree for mutation`,
+      },
+    };
+  }
+
   const ownerResult = resolveOwner(args, processSource);
   if (!ownerResult.ok) {
     return invalidInput(ownerResult.error, {
@@ -383,11 +401,22 @@ export async function handleSerializeMerge(
       ? args.timeoutMs
       : undefined;
 
+  // INV-5c safe default: dry-run unless the caller EXPLICITLY opts out with
+  // `dryRun: false`. The default is applied HERE (the dispatch boundary) — NOT a
+  // Zod `.default()` on the schema — because the MCP-registration flattener
+  // forbids divergent defaults across the shared `dryRun` field. A dispatched
+  // `serialize_merge` that omits `dryRun` therefore claims NO lease and runs NO
+  // merge; only `dryRun: false` executes. (Direct in-process callers of
+  // `serializeMerge` — e.g. the launcher's `serializeIntegrationMerge` — carry
+  // their own explicit intent; see that caller.)
+  const dryRun = optionalBoolean(args.dryRun) !== false;
+
   const input: SerializeMergeInput = {
     featureId,
     integrationRef,
     sourceBranch,
     strategy,
+    dryRun,
     ...(taskId !== undefined ? { taskId } : {}),
     ...(repoRoot !== undefined ? { repoRoot } : {}),
     ...(timeoutMs !== undefined ? { timeoutMs } : {}),
