@@ -35,6 +35,27 @@ describe('InvariantEntryV3Schema', () => {
     expect(parsed['integrity-class']).toBeUndefined();
   });
 
+  it('InvariantSchema_WorkflowAffinityDiscovery_Validates', () => {
+    // DR-4: `workflow-affinity: ['discovery']` (the canonical token) validates,
+    // AND the pre-DR-4 dead `'discover'` no longer does — so the schema and the
+    // runtime projection agree on ONE token.
+    const base = {
+      id: 'INV-9',
+      dimension: 'Discovery affinity',
+      axis: 'authoring',
+      'cost-of-load': 'always-load',
+      'applies-to': ['docs/**'],
+      summary: 'Discovery-scoped invariant.',
+      references: ['docs/architecture/invariants.md'],
+    };
+    expect(
+      InvariantEntryV3Schema.safeParse({ ...base, 'workflow-affinity': ['discovery'] }).success,
+    ).toBe(true);
+    expect(
+      InvariantEntryV3Schema.safeParse({ ...base, 'workflow-affinity': ['discover'] }).success,
+    ).toBe(false);
+  });
+
   it('InvariantSchemaV3_AcceptsAllV3Fields_ParsesRichEntry', () => {
     const rich = {
       id: 'INV-4',
@@ -53,7 +74,7 @@ describe('InvariantEntryV3Schema', () => {
       'integrity-class': 'substrate',
       severity: {
         default: 'blocking',
-        'by-workflow': { discover: 'advisory' },
+        'by-workflow': { discovery: 'advisory' },
         'by-phase': { ideate: 'advisory' },
       },
       enforcement: {

@@ -28,6 +28,7 @@ import {
   resolveStartedAt,
   type ProcessSource,
 } from './pure/process-identity.js';
+import { canonicalWorktreeId, defaultRealpath } from './pure/path-containment.js';
 import {
   serializeMerge,
   type SerializeMergeInput,
@@ -37,6 +38,15 @@ import {
 import type { SleepFn } from './git-retry.js';
 import type { InFlightMerge, InFlightPrune } from './projections/worktrees.js';
 import { reconcileLaunches } from '../../launcher/launch-reconcile.js';
+import {
+  DEFAULT_VIEW_ITEM_CAP,
+  SUMMARY_FIRST_PAGE_ITEMS,
+  estimateOutputTokens,
+  resolveOutputTokenThreshold,
+  countBy,
+  narrowAffordance,
+} from '../../views/output-cap.js';
+import type { QualityHintsConfig } from '../../capabilities/resolver.js';
 
 // ─── Shared helpers ──────────────────────────────────────────────────────────
 
@@ -86,6 +96,19 @@ function optionalString(value: unknown): string | undefined {
 
 function optionalBoolean(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined;
+}
+
+/** Parse a non-negative integer count from a number or numeric string (coerced flags). */
+function optionalNonNegInt(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isInteger(value) && value >= 0) return value;
+  if (typeof value === 'string' && /^\d+$/.test(value)) return Number(value);
+  return undefined;
+}
+
+/** Parse a positive integer count (>= 1) from a number or numeric string. */
+function optionalPosInt(value: unknown): number | undefined {
+  const n = optionalNonNegInt(value);
+  return n !== undefined && n >= 1 ? n : undefined;
 }
 
 /**
@@ -183,6 +206,41 @@ export async function handleAcquireWorktree(
   // Adopt-gate FIRST so an unadopted on-disk worktree is governed before the
   // reservation lands (mirrors prune's step 0).
   const adoptResult = await manager.adopt(repoRoot);
+
+  // mutable-as-HARD-GATE (DR-1): reserving a worktree is a MUTATION intent, so
+  // REFUSE (structured error, not a mere report) when the adopt-gate's HEAD/
+  // ancestry re-verify says the target worktree is NOT mutable — a
+  // `stale-after-push` (behind upstream: committing could silently drop
+  // newly-pushed files) or `head-unresolved` worktree. The gate fires only when
+  // the adopt pass actually observed the target on disk (a report exists); a
+  // worktree not yet on disk carries no staleness evidence and reserves as before.
+  //
+  // adopt stamps CANONICAL worktreeIds (path.resolve → realpath → toPosix); the
+  // caller's arg is NOT guaranteed canonical (a win32 drive-relative / forward-
+  // slash path resolves differently), so canonicalize it the SAME way ONLY for
+  // this lookup — otherwise the `.find` misses adopt's entry on Windows and the
+  // hard gate silently skips, letting a stale worktree reserve (#1642 / DR-1).
+  // The reservation below still keys on the caller's `worktreeId` as-passed, so
+  // release / view (which use that raw key) stay consistent with acquire.
+  // Canonicalize lazily — only when adopt actually observed worktrees on disk —
+  // so the common "nothing adopted" path never pays a realpath() call.
+  const canonicalIdForGate =
+    adoptResult.worktrees.length > 0
+      ? canonicalWorktreeId(worktreeId, deps?.realpath ?? defaultRealpath)
+      : undefined;
+  const adoptReport =
+    canonicalIdForGate === undefined
+      ? undefined
+      : adoptResult.worktrees.find((w) => w.worktreeId === canonicalIdForGate);
+  if (adoptReport !== undefined && !adoptReport.verification.mutable) {
+    return {
+      success: false,
+      error: {
+        code: 'WORKTREE_NOT_MUTABLE',
+        message: `worktree ${worktreeId} is not mutable (${adoptReport.verification.reason}) — refusing to reserve a stale worktree for mutation`,
+      },
+    };
+  }
 
   const ownerResult = resolveOwner(args, processSource);
   if (!ownerResult.ok) {
@@ -317,17 +375,62 @@ export async function handlePruneWorktrees(
  * Read the `worktrees@v1` projection: fold the `worktrees` stream and return
  * the live governed-worktree set. Pure read — no adopt, no git probe, no
  * append.
+ *
+ * DR-3 bounded output: a DETERMINISTIC item cap replaces the old unbounded dump
+ * when the caller omits `limit`, and a measured-size summary (counts by
+ * lifecycle state + a small first page) replaces per-item detail if the capped
+ * payload would still exceed the resolved `qualityHints.outputTokenThreshold`.
+ * Fail-open: an unresolvable threshold degrades to the item cap. Below cap AND
+ * threshold the payload is BYTE-IDENTICAL to the pre-DR-3 `{ worktrees, count }`.
  */
 export async function handleViewWorktrees(
-  _args: Record<string, unknown>,
+  args: Record<string, unknown>,
   ctx: DispatchContext,
   deps?: InjectableDeps,
 ): Promise<ToolResult> {
   const manager = buildManager(ctx, deps);
-  const worktrees = await manager.list();
+  const all = await manager.list();
+  const total = all.length;
+
+  const offset = optionalNonNegInt(args.offset) ?? 0;
+  const limitArg = optionalPosInt(args.limit);
+  const explicitLimit = limitArg !== undefined;
+  const pageSize = explicitLimit ? limitArg : DEFAULT_VIEW_ITEM_CAP;
+  const worktrees = all.slice(offset, offset + pageSize);
+  const capTruncated = !explicitLimit && total - offset > DEFAULT_VIEW_ITEM_CAP;
+
+  const config = ctx.config as QualityHintsConfig | undefined;
+  const narrowHint = 'exarchos vw worktrees --limit 20 --offset 0';
+
+  // Measured-size summary guard (same fail-open threshold path as pipeline).
+  const detailData = { worktrees, count: worktrees.length };
+  const threshold = resolveOutputTokenThreshold(config);
+  if (threshold !== null && estimateOutputTokens(detailData) > threshold) {
+    const firstPage = worktrees.slice(0, SUMMARY_FIRST_PAGE_ITEMS);
+    return {
+      success: true,
+      data: {
+        summary: { total, byState: countBy(all, (w) => w.state), firstPage },
+        total,
+        truncated: true,
+      },
+      next_actions: [narrowAffordance('worktrees', firstPage.length, total, narrowHint)],
+    };
+  }
+
+  // Default cap truncated the inventory → advertise narrowing + echo the total.
+  if (capTruncated) {
+    return {
+      success: true,
+      data: { worktrees, count: worktrees.length, total, truncated: true },
+      next_actions: [narrowAffordance('worktrees', worktrees.length, total, narrowHint)],
+    };
+  }
+
+  // Byte-identical to the pre-DR-3 payload below cap AND threshold.
   return {
     success: true,
-    data: { worktrees, count: worktrees.length },
+    data: detailData,
   };
 }
 
@@ -383,11 +486,22 @@ export async function handleSerializeMerge(
       ? args.timeoutMs
       : undefined;
 
+  // INV-5c safe default: dry-run unless the caller EXPLICITLY opts out with
+  // `dryRun: false`. The default is applied HERE (the dispatch boundary) — NOT a
+  // Zod `.default()` on the schema — because the MCP-registration flattener
+  // forbids divergent defaults across the shared `dryRun` field. A dispatched
+  // `serialize_merge` that omits `dryRun` therefore claims NO lease and runs NO
+  // merge; only `dryRun: false` executes. (Direct in-process callers of
+  // `serializeMerge` — e.g. the launcher's `serializeIntegrationMerge` — carry
+  // their own explicit intent; see that caller.)
+  const dryRun = optionalBoolean(args.dryRun) !== false;
+
   const input: SerializeMergeInput = {
     featureId,
     integrationRef,
     sourceBranch,
     strategy,
+    dryRun,
     ...(taskId !== undefined ? { taskId } : {}),
     ...(repoRoot !== undefined ? { repoRoot } : {}),
     ...(timeoutMs !== undefined ? { timeoutMs } : {}),

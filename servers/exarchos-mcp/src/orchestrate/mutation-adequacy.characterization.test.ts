@@ -35,7 +35,7 @@ describe('mutation-adequacy roster characterization (PIN)', () => {
     });
 
     it('non-feature and unknown workflow types declare no required reviews', () => {
-      for (const workflowType of ['debug', 'refactor', 'oneshot', 'discover', 'unknown-type']) {
+      for (const workflowType of ['debug', 'refactor', 'oneshot', 'discovery', 'unknown-type']) {
         expect(getRequiredReviews(workflowType)).toEqual([]);
       }
     });

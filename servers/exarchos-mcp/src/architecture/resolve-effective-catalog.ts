@@ -75,7 +75,7 @@ export interface ResolveEffectiveCatalogContext {
   config?: ExarchosConfigInput;
   /** SDLC phase to project for — e.g. `'ideate' | 'plan' | 'delegate'`. */
   phase: string;
-  /** Workflow kind to project for — e.g. `'feature' | 'debug' | 'discover'`. */
+  /** Workflow kind to project for — e.g. `'feature' | 'debug' | 'discovery'`. */
   workflowType: string;
   /** Files the current task touches (delegate-phase projection narrowing). */
   touchedFiles?: string[];

@@ -869,7 +869,28 @@ export function executeTransition(
   // omit-when-absent rule as fix-cycle (#1339) — plan-review is a top-level
   // atomic phase today, but mirroring keeps the shape stable if it is ever
   // nested in a compound.
-  if (transition.isRevision) {
+  //
+  // WLM-6 (DR-2): the standard feature `plan-review → plan` revise edge is
+  // RETIRED as a counter source here. That loop is now counted at its
+  // unskippable `prepare_review scope:plan` provisioning seam
+  // (orchestrate/prepare-review.ts → `workflow.plan-review-dispatched`), closing
+  // the skippable-edge bypass — so this edge must NOT also emit, or the count
+  // would double when the prescribed flow both re-provisions AND transitions.
+  // The retirement is scoped to that ONE edge (`plan-review → plan`): the
+  // overhaul track's `overhaul-plan-review → overhaul-plan` revise edge is a
+  // HUMAN CHECKPOINT (playbooks.ts) that never dispatches through
+  // `prepare_review`, so it KEEPS its edge counter (belt: the Sentry-regression
+  // class stays closed on that track). Scoped by edge here — NOT by removing the
+  // `isRevision` flag from the definition (hsm-definitions.ts) — so the flag
+  // stays a truthful "this is a revise edge" marker and any other `isRevision`
+  // edge (incl. the overhaul edge and the test mechanism HSMs) still emits.
+  // Gated on `hsm.id === 'feature'` so the retirement binds ONLY the standard
+  // feature HSM: a custom/test HSM that happens to name phases `plan-review`/
+  // `plan` (and never routes through the `prepare_review` seam) keeps its edge
+  // counter instead of silently losing its `plan-revision` cap feed.
+  const isStandardPlanReviseEdge =
+    hsm.id === 'feature' && currentPhase === 'plan-review' && targetPhase === 'plan';
+  if (transition.isRevision && !isStandardPlanReviseEdge) {
     const parent = getParentCompound(hsm, currentPhase);
     transitionEvents.push({
       type: 'plan-revision',

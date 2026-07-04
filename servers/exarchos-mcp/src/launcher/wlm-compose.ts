@@ -166,12 +166,17 @@ export class LauncherWlm {
    * lease is the single serialization point, so at most one in-flight merge runs
    * per `integrationRef`. Threads this facade's dispatch context so the composed
    * merge writes to the same substrate.
+   *
+   * DR-1 default-flip safety: `serialize_merge` now DEFAULTS to dry-run, so this
+   * integration-merge surface pins `dryRun: false` (an EXECUTE) unless the caller
+   * explicitly asked for a dry-run preview — otherwise the new default would
+   * silently no-op a real integration merge.
    */
   serializeIntegrationMerge(
     input: SerializeMergeInput,
     deps: SerializeMergeDeps = {},
   ): Promise<ToolResult> {
-    return serializeMerge(input, this.ctx, deps);
+    return serializeMerge({ ...input, dryRun: input.dryRun ?? false }, this.ctx, deps);
   }
 }
 

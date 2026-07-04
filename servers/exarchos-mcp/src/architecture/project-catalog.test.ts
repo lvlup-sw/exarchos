@@ -42,13 +42,15 @@ describe('projectCatalog', () => {
     expect(ids).toContain('INV-any');
   });
 
-  it('ProjectCatalog_DiscoverWorkflow_ExcludesCodeAxisInvariants', () => {
-    // A substrate (code-axis) invariant whose appliesTo are source modules.
+  it('ProjectCatalog_DiscoverySubstrateInvariant_Excluded', () => {
+    // DR-4: the canonical workflow-type token is `'discovery'`. A substrate
+    // (code-axis) invariant with NO explicit workflow-affinity is excluded from
+    // a discovery-workflow projection via the revived axis-substrate branch.
     const codeAxis = entry('INV-code', {
       axis: 'substrate',
       appliesTo: ['src/**'],
     });
-    // An authoring-axis invariant — survives a `discover` projection.
+    // An authoring-axis invariant — survives a `discovery` projection.
     const authoringAxis = entry('DIM-8', {
       axis: 'authoring',
       appliesTo: ['docs/**'],
@@ -56,11 +58,11 @@ describe('projectCatalog', () => {
 
     const result = projectCatalog([codeAxis, authoringAxis], {
       phase: 'review',
-      workflowType: 'discover',
+      workflowType: 'discovery',
     });
 
     const ids = result.map((e) => e.id);
-    // For `discover`, substrate code-axis invariants are excluded so the
+    // For `discovery`, substrate code-axis invariants are excluded so the
     // review gate does not fire on code dimensions.
     expect(ids).not.toContain('INV-code');
     expect(ids).toContain('DIM-8');

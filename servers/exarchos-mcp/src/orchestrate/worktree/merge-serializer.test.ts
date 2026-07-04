@@ -435,6 +435,9 @@ describe('serialize_merge — composition', () => {
         sourceBranch: 'feat',
         strategy: 'merge',
         repoRoot: repoSerial,
+        // dryRun:false — serialize_merge now DEFAULTS to dry-run (DR-1); this
+        // composition proof needs the real apply path so merge_orchestrate runs.
+        dryRun: false,
       },
       armSerial.ctx,
     );
