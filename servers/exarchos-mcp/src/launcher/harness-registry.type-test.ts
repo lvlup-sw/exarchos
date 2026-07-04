@@ -13,7 +13,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect } from 'vitest';
-import type { HarnessDescriptor } from './harness-registry.js';
+import type { HarnessDescriptor, InjectionCandidate } from './harness-registry.js';
 
 /**
  * `true` iff `T` is a function type, or (recursively) any of its array elements
@@ -42,8 +42,16 @@ type AssertPureData<T> = HasFunctionDeep<T> extends false ? true : never;
 
 // ── THE GATE ─────────────────────────────────────────────────────────────────
 // If any HarnessDescriptor field becomes (or nests) a function, `AssertPureData`
-// collapses to `never` and this assignment fails `tsc --noEmit`.
+// collapses to `never` and this assignment fails `tsc --noEmit`. This transitively
+// covers the `injection` candidate lists (a `HarnessDescriptor` field).
 const pureDataAssertionHolds: AssertPureData<HarnessDescriptor> = true;
+
+// The injection candidate union pinned EXPLICITLY too — `HasFunctionDeep`
+// distributes over `InjectionCandidate`'s members, so a function smuggled into
+// ANY member (flag/env/none) collapses this to `never` and fails the build. This
+// is the load-bearing pin for Task 014's new field; the descriptor gate above
+// only sees it as one nested array.
+const injectionPureDataAssertionHolds: AssertPureData<InjectionCandidate> = true;
 
 // ── Detector self-test (defends against a no-op HasFunctionDeep) ──────────────
 // Each `_Expect*` resolves to `true` only if the detector behaves; to `never`
@@ -64,20 +72,33 @@ type ExpectPure_Shape = HasFunctionDeep<{
 }> extends false
   ? true
   : never;
+// A function hidden in ONE member of a discriminated union must still be caught —
+// this pins that the GATE mechanism rejects a behavior hook hidden behind a
+// discriminant (the shape of `InjectionCandidate`). `HasFunctionDeep` distributes
+// over the union to `boolean`, so `AssertPureData` collapses to `never`; the tuple
+// wrap dodges the `never`-checked-type short-circuit so this resolves to `true`
+// only when the hook was detected.
+type ExpectFn_InUnionMember = [
+  AssertPureData<{ kind: 'a'; x: string } | { kind: 'b'; run: () => void }>,
+] extends [never]
+  ? true
+  : never;
 
 const detectorSelfTest: [
   ExpectFn_TopLevel,
   ExpectFn_Nested,
   ExpectFn_InArray,
   ExpectPure_Shape,
-] = [true, true, true, true];
+  ExpectFn_InUnionMember,
+] = [true, true, true, true, true];
 
 describe('harness-registry pure-data (DR-4)', () => {
   it('Registry_DescriptorPureData_CompileTimeAssertion', () => {
-    // Runtime anchor only. The guarantee is the two module-level type
-    // assignments above, which `tsc --noEmit` gates on. If either type
-    // regresses, the build fails before this test ever runs.
+    // Runtime anchor only. The guarantee is the module-level type assignments
+    // above, which `tsc --noEmit` gates on. If any type regresses, the build
+    // fails before this test ever runs.
     expect(pureDataAssertionHolds).toBe(true);
-    expect(detectorSelfTest).toEqual([true, true, true, true]);
+    expect(injectionPureDataAssertionHolds).toBe(true);
+    expect(detectorSelfTest).toEqual([true, true, true, true, true]);
   });
 });
