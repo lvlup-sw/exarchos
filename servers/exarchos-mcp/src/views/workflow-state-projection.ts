@@ -798,6 +798,11 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       case 'catalog.registered':
       case 'mutation.executing_started':
       case 'mutation.executed':
+      // WLM slice 3 (DR-3 / INV-10) — the prune-run liveness pair rides the
+      // singleton `worktrees` stream, never a feature stream, so it has no
+      // effect on any workflow's projected state (folded by `worktrees@v1`).
+      case 'prune.executing_started':
+      case 'prune.executed':
       // #1319 — lands on the shared `meta/feedback` stream, never a feature
       // stream, so it has no effect on any workflow's projected state.
       case 'feedback.recorded':

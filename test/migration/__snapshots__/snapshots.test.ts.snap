@@ -510,14 +510,32 @@ This single call:
 
 ### 4. Worktree Cleanup
 
-Remove all worktrees associated with the workflow:
-\`\`\`bash
-# Read worktrees from state (already captured in step 1)
-git worktree remove .worktrees/<name>
-git worktree prune
+Reclaim all worktrees associated with the workflow through the governed
+garbage-collector \`prune_worktrees\` — **not** ad-hoc \`git worktree remove\`.
+
+> **GC cadence — after synthesize (INV-12).** Governed worktrees become
+> reclaimable once a workflow reaches synthesis; cleanup runs post-merge (after
+> synthesize completes), so this is the natural point to apply the reclamation.
+> The \`next_actions\` projection surfaces the same \`prune_worktrees\` dry-run
+> affordance from synthesis onward.
+
+\`prune_worktrees\` runs the fail-closed safety ladder (it refuses to destroy a
+worktree with unsaved work) and auto-emits the \`worktree.remove.requested\` /
+\`worktree.remove.executed\` pair per deleted worktree. Dry-run first (the default
+— reports candidates + reclaimable bytes + grouped skip reasons, deletes
+nothing), then apply:
+
+\`\`\`typescript
+// Dry-run (default) — preview candidates, delete nothing
+mcp__plugin_exarchos_exarchos__exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>" })
+
+// Apply — reclaim the delete-eligible candidates
+mcp__plugin_exarchos_exarchos__exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>", dryRun: false })
 \`\`\`
 
-Handle gracefully if worktrees are already removed.
+Handle gracefully if worktrees are already removed. If the GC skips a worktree
+(e.g. uncommitted work), resolve the reported reason before re-applying — never
+force-remove a dirty worktree by hand.
 
 ### 5. Branch Sync
 
@@ -1188,9 +1206,11 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Worktree-Bearing Tasks: Auto-Detour to \`merge-pending\`
 
-When a \`task.completed\` event carries a worktree association (\`data.worktree\` or \`data.worktreePath\`), the HSM auto-transitions through \`feature/merge-pending\` before reaching \`review\`. The \`next_actions\` projection surfaces a \`merge_orchestrate\` verb (idempotency-keyed by \`\${streamId}:merge_orchestrate:\${taskId}\`) so a runtime that consumes \`next_actions\` will dispatch the merge automatically.
+When a \`task.completed\` event carries a worktree association (\`data.worktree\` or \`data.worktreePath\`), the HSM auto-transitions through \`feature/merge-pending\` before reaching \`review\`. The \`next_actions\` projection surfaces the merge verb (idempotency-keyed by \`\${streamId}:merge_orchestrate:\${taskId}\`) so a runtime that consumes \`next_actions\` will dispatch the merge automatically.
 
-The merge lands the subagent's branch on the integration branch via a local \`git merge\` with a recorded rollback SHA — see \`@skills/merge-orchestrator/SKILL.md\`. The HSM exits \`merge-pending\` back to \`delegate\` once the merge terminates (\`completed\` / \`rolled-back\` / \`aborted\`), at which point \`delegate\` either re-enters \`merge-pending\` for the next worktree-bearing task or transitions on to \`review\` when all delegation is complete.
+**Land it through \`serialize_merge\`.** The integration branch is shared — sibling worktree merges within the same wave (or a concurrent operator) can race for it. \`serialize_merge\` is THE integration-merge path: it holds an optimistic per-\`integrationRef\` single-writer lease, then composes \`merge_orchestrate\` unchanged to do the local \`git merge\` with a recorded recovery-point SHA — see \`@skills/merge-orchestrator/SKILL.md\`. Do **not** dispatch raw \`merge_orchestrate\` to land onto the integration branch — a live foreign lease makes it fail closed (\`MERGE_LEASE_HELD\`, naming \`serialize_merge\`). Raw \`merge_orchestrate\` is for a non-integration merge (a private / scratch branch no sibling will touch) or a crash-resumed caller re-presenting its original lease.
+
+The HSM exits \`merge-pending\` back to \`delegate\` once the merge terminates (\`completed\` / \`rolled-back\` / \`aborted\`), at which point \`delegate\` either re-enters \`merge-pending\` for the next worktree-bearing task or transitions on to \`review\` when all delegation is complete.
 
 This detour is invisible to the delegation skill itself — the all-tasks-complete guard still gates the \`delegate → review\` transition. The merge-pending substate just sits between task completion and the next dispatch decision.
 
@@ -1216,7 +1236,8 @@ for orchestrate action schemas.
 ## When integration advances mid-wave
 
 Runbook for recovering when a subagent worktree's branch has diverged from the
-integration branch. Triggered by \`merge_orchestrate\` ancestry preflight: the
+integration branch. Triggered by the integration merge's ancestry preflight
+(run by the composed \`merge_orchestrate\` inside \`serialize_merge\`): the
 failure message links here verbatim and includes the manual \`git rebase\`
 command. Auto-rebase is **not** wired today — operators
 must drive recovery by hand.
@@ -1297,18 +1318,25 @@ subagent worktree) and that \`git status\` is clean.
    genuine drift between the two branches, not preflight noise. Do **not**
    pass \`--strategy-option=theirs\` blindly; that drops the subagent's work.
 
-3. **Re-run ancestry preflight from the main worktree:**
+3. **Re-run the integration merge from the main worktree** — through
+   \`serialize_merge\`, which re-composes \`merge_orchestrate\`'s ancestry
+   preflight under the single-writer lease:
 
    \`\`\`typescript
    exarchos_orchestrate({
-     action: "merge_orchestrate",
+     action: "serialize_merge",
      featureId: "<featureId>",
+     integrationRef: "<integration-branch>",
+     sourceBranch: "<feature-branch>",
+     strategy: "squash",           // squash | rebase | merge
      taskId: "<taskId>",
    })
    \`\`\`
 
    The preflight should now pass. Proceed with the orchestrator's normal
-   merge flow.
+   merge flow. (Re-run raw \`merge_orchestrate\` directly only for a
+   non-integration merge, or as the crash-resumed caller re-presenting its
+   original \`leaseOperationId\`.)
 
 ### Rollback procedure
 
@@ -1918,11 +1946,11 @@ When delegation skill spawns parallel tasks:
 
 ## Merge-Pending Handoff
 
-When a subagent completes a task in its worktree, the workflow's HSM transitions from \`delegate\` to \`feature/merge-pending\`. The \`merge_orchestrate\` action lands the worktree's branch onto the integration branch via a local \`git merge\` with a recorded rollback SHA — see \`@skills/merge-orchestrator/SKILL.md\` for the full handoff protocol.
+When a subagent completes a task in its worktree, the workflow's HSM transitions from \`delegate\` to \`feature/merge-pending\`. Because the integration branch is shared — sibling worktree merges can race for it — \`serialize_merge\` is the integration-merge path: it holds a single-writer per-\`integrationRef\` lease, then composes \`merge_orchestrate\` to land the worktree's branch onto the integration branch via a local \`git merge\` with a recorded recovery-point SHA — see \`@skills/merge-orchestrator/SKILL.md\` for the full handoff protocol. Do **not** dispatch raw \`merge_orchestrate\` for this integration merge (a live foreign lease makes it fail closed); raw \`merge_orchestrate\` is for a non-integration merge or a crash-resumed caller re-presenting its original lease.
 
-Worktree cleanup (step 7 above) runs after the merge orchestrator reports \`phase: 'completed'\`.
+Worktree cleanup (step 7 above) runs after the merge reports \`phase: 'completed'\`.
 
-This is **not** the same as the synthesize-phase remote PR merge (\`merge_pr\`). \`merge_orchestrate\` operates on local refs in the main worktree; \`merge_pr\` calls the VCS provider once the integration branch is ready for the human-review PR.
+This is **not** the same as the synthesize-phase remote PR merge (\`merge_pr\`). \`serialize_merge\` / \`merge_orchestrate\` operate on local refs in the main worktree; \`merge_pr\` calls the VCS provider once the integration branch is ready for the human-review PR.
 
 ## Completion Criteria
 
@@ -2253,7 +2281,7 @@ Phase transitions auto-emit \`workflow.transition\` events via \`exarchos_workfl
 exports[`task 025 — per-runtime snapshot baselines > runtime: claude > Snapshots_AllSkillsAllRuntimes_MatchBaseline: skills/claude/merge-orchestrator/SKILL.md > skills/claude/merge-orchestrator/SKILL.md 1`] = `
 "---
 name: merge-orchestrator
-description: "Land a subagent worktree branch onto an integration branch with preflight + recorded recovery point. Triggers: operator (or \`next_actions\`) surfaces verb \`merge_orchestrate\` via Exarchos MCP. Local git operation — NOT remote PR merging (that is \`merge_pr\`)."
+description: "The composed executor that lands a subagent worktree branch onto an integration branch with preflight + recorded recovery point. For a shared integration branch route through \`serialize_merge\` (the single-writer lease that composes this action); invoke \`merge_orchestrate\` directly only for a non-integration merge or when you already hold the lease. Triggers: operator (or \`next_actions\`) surfaces the merge verb via Exarchos MCP. Local git operation — NOT remote PR merging (that is \`merge_pr\`)."
 metadata:
   author: exarchos
   version: 1.2.0
@@ -2268,6 +2296,18 @@ metadata:
 This skill performs **local \`git merge\`** of a source (subagent) worktree branch into a target (integration) branch, recording a **recovery point** SHA so the INV-14 recovery ladder (\`git merge --abort\` → \`git reset --keep\`, never \`--hard\`) can rewind the merge on any failure. It does **not** call the VCS provider (GitHub / GitLab / Azure DevOps) and does not require a PR id. For remote PR merging, see the companion skill that wraps the \`merge_pr\` action.
 
 The mental model and the rationale for why these are two separate concerns are documented in \`references/local-git-semantics.md\`.
+
+## Single-Writer Entry Point: \`serialize_merge\`
+
+For a **shared integration branch** — landing a subagent worktree branch onto the integration ref during the \`delegate → merge-pending → delegate\` loop, where a sibling worktree merge can race — **\`serialize_merge\` is THE integration-merge path.** It acquires an optimistic per-\`integrationRef\` lease (at most one in-flight merge per integration ref), then composes **this** action UNCHANGED under that lease. Route integration merges through \`serialize_merge\`; do **not** dispatch raw \`merge_orchestrate\` for them.
+
+Invoke \`merge_orchestrate\` directly **only** where no concurrent merge can race the target:
+
+- **Non-integration merge** — the target is a private / scratch / solo branch no other agent will touch.
+- **Crash-resumed caller** — a new pid finishing a merge it already leased, re-presenting the ORIGINAL claim's \`leaseOperationId\`.
+- **The composed executor call** that \`serialize_merge\` itself makes (it threads its lease \`operationId\` so its own call passes the guard).
+
+**DR-2 lease guard.** Raw \`merge_orchestrate\` against an integration ref that carries a live *foreign* lease (holder \`operationId\` ≠ the presented \`leaseOperationId\`, holder liveness ∈ {alive, unknown}) fails **closed** with a structured \`MERGE_LEASE_HELD\` error and **no git side effect** — the message names \`serialize_merge\` as the path. A no-lease or provably-dead-holder target proceeds exactly as before (back-compat; a dead holder is not a blocker). So the routing above is enforced at the handler chokepoint, not merely by convention — reach for \`serialize_merge\`.
 
 ## Overview
 
@@ -2288,7 +2328,9 @@ Activate this skill when:
 
 - The operator runs \`exarchos merge-orchestrate ...\` (CLI).
 - \`mcp__plugin_exarchos_exarchos__exarchos_orchestrate({ action: "merge_orchestrate", ... })\` is invoked directly.
-- An automated \`next_actions\` envelope surfaces a \`merge_orchestrate\` verb with idempotency key \`<streamId>:merge_orchestrate:<taskId>\`.
+- An automated \`next_actions\` envelope surfaces the merge verb (idempotency key \`<streamId>:merge_orchestrate:<taskId>\`) for the \`merge-pending\` detour.
+
+> **Route shared-integration merges through \`serialize_merge\`.** When the trigger is a shared integration branch (the \`merge-pending\` detour is the common case), land it via \`serialize_merge\` per the single-writer entry point above — \`serialize_merge\` composes this action under a lease. A direct raw \`merge_orchestrate\` dispatch is for a non-integration or already-lease-held merge only; against a leased integration ref it fails closed (\`MERGE_LEASE_HELD\`).
 
 Do **not** activate this skill:
 - To merge a remote PR — that is \`merge_pr\`. The two are disjoint actions; see Disambiguation below.
@@ -2309,6 +2351,8 @@ Do **not** activate this skill:
 Strategy is required at the schema layer (collision check + user-visible parity). There is no implicit default — operator intent is always explicit in the event log.
 
 ### Step 2: Invoke
+
+> **Integration merge?** The direct invocation below is the raw executor form — use it for a **non-integration** or already **lease-held** merge. For a shared integration branch, invoke \`serialize_merge\` instead (it composes this exact call under a single-writer lease); see the single-writer entry point above.
 
 Via MCP (illustrative — the canonical arg names come from \`describe\`):
 
@@ -2355,7 +2399,7 @@ When \`phase === 'aborted'\`, the data payload discriminates the cause:
 
 | \`data.reason\` | Payload fields | Cause | Operator remediation |
 |---------------|----------------|-------|----------------------|
-| \`target-checked-out-elsewhere\` | \`siblingWorktreePath: string\` (absolute path) | Target branch is already checked out in a sibling worktree of the same repository. Detected by the worktree-availability preflight *before* any event emission, executor invocation, or state persistence. | Resolve the sibling worktree: either remove it (\`git worktree remove <path>\`), switch its checkout to another branch, or invoke \`merge_orchestrate\` against a different target. Then re-dispatch. |
+| \`target-checked-out-elsewhere\` | \`siblingWorktreePath: string\` (absolute path) | Target branch is already checked out in a sibling worktree of the same repository. Detected by the worktree-availability preflight *before* any event emission, executor invocation, or state persistence. | Resolve the sibling worktree: either remove it (\`git worktree remove <path>\`), switch its checkout to another branch, or re-run the merge against a different target. Then re-dispatch (through \`serialize_merge\` for a shared integration ref). |
 | *(body preflight failures)* | \`data.preflight: { ancestry, worktree, currentBranchProtection, drift }\` | Body-preflight guard failed (ancestry mismatch, worktree drift, protected current branch, etc.). | Inspect \`preflight.*\` sub-results to identify which guard failed. Resolve the underlying condition (e.g., commit/stash drift, switch off a protected branch) and re-dispatch. |
 
 The \`target-checked-out-elsewhere\` abort path is special: it suppresses both the \`merge.requested\` and \`merge.preflight\` events and skips state persistence entirely. This guarantees the event log is never contaminated with an attempt that could not have captured a correct recovery point (the executor would have read HEAD from the wrong worktree).
@@ -2411,6 +2455,7 @@ Note: the \`target-checked-out-elsewhere\` early-abort path runs *before* the re
 
 | Don't | Do Instead |
 |-------|------------|
+| Dispatch raw \`merge_orchestrate\` to land onto a **shared integration branch** | Route through \`serialize_merge\` (single-writer lease); raw \`merge_orchestrate\` is for a non-integration / lease-held merge — a live foreign lease makes it fail closed (\`MERGE_LEASE_HELD\`) |
 | Use this skill to merge a remote PR | Use the \`merge_pr\` skill |
 | Manually emit \`merge.preflight\` / \`merge.requested\` / \`merge.executed\` / \`merge.rollback\` / \`merge.recovered\` in normal flow | Let the handler auto-emit; manual emission causes duplicates (one exception: documented manual-recovery flow in [\`recovery-runbook.md\`](references/recovery-runbook.md)) |
 | Wrap merge events under \`gate.executed\` | Direct stream append with the dedicated event type — these are state transitions, not gate executions |
@@ -3807,7 +3852,7 @@ This skill uses VCS operations through Exarchos MCP actions (\`check_ci\`, \`lis
 These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
 No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
 
-> The \`merge_pr\` invoked here is the remote PR merge primitive (synthesize-phase). It is distinct from \`merge_orchestrate\` (\`@skills/merge-orchestrator/SKILL.md\`), which is the local \`git merge\` orchestrator used during the upstream \`merge-pending\` substate. This skill never invokes \`merge_orchestrate\`.
+> The \`merge_pr\` invoked here is the remote PR merge primitive (synthesize-phase). It is distinct from the integration merge run during the upstream \`merge-pending\` substate — there, \`serialize_merge\` (\`@skills/merge-orchestrator/SKILL.md\`) is the integration-merge path: it holds a single-writer lease and composes the local \`git merge\` (raw \`merge_orchestrate\` is that composed executor / the non-integration path). This skill never invokes \`serialize_merge\` or \`merge_orchestrate\`.
 
 Iterative loop that shepherds published PRs through CI checks and code reviews to merge readiness. Uses the \`assess_stack\` composite action for all PR health checks, fixing failures and addressing feedback until the stack is green.
 
@@ -4120,7 +4165,7 @@ This skill uses VCS operations through Exarchos MCP actions (\`create_pr\`, \`me
 These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
 No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
 
-> **Not to be confused with \`merge_orchestrate\`.** This skill calls \`merge_pr\` to land a user-facing PR on \`main\` via the VCS provider — a remote operation. \`merge_orchestrate\` (\`@skills/merge-orchestrator/SKILL.md\`) is the upstream sibling: a local \`git merge\` of a subagent worktree branch onto the integration branch during the \`delegate → merge-pending → delegate\` HSM loop. Synthesize never invokes \`merge_orchestrate\`; merge-pending never invokes \`merge_pr\`.
+> **Not to be confused with the integration merge.** This skill calls \`merge_pr\` to land a user-facing PR on \`main\` via the VCS provider — a remote operation. The upstream sibling is \`serialize_merge\` (\`@skills/merge-orchestrator/SKILL.md\`): the integration-merge path that holds a single-writer lease and composes a local \`git merge\` of a subagent worktree branch onto the integration branch during the \`delegate → merge-pending → delegate\` HSM loop (raw \`merge_orchestrate\` is that composed executor / the non-integration path). Synthesize never invokes \`serialize_merge\` or \`merge_orchestrate\`; merge-pending never invokes \`merge_pr\`.
 
 ## Overview
 
@@ -4303,7 +4348,21 @@ mcp__plugin_exarchos_exarchos__exarchos_workflow({
 })
 \`\`\`
 
-Then sync: \`git fetch --prune\` and remove worktrees.
+Then sync: \`git fetch --prune\` and reclaim worktrees.
+
+> **Worktree GC cadence — after synthesize (INV-12).** Once a workflow reaches
+> synthesis its governed worktrees are no longer needed, so this is the point to
+> reclaim them. Use the governed garbage-collector \`prune_worktrees\` rather than
+> ad-hoc \`git worktree remove\`: dry-run first (the default — reports candidates
+> + reclaimable bytes, deletes nothing), then re-invoke with \`dryRun: false\` to
+> apply.
+> \`\`\`typescript
+> mcp__plugin_exarchos_exarchos__exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>" })            // dry-run (default)
+> mcp__plugin_exarchos_exarchos__exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>", dryRun: false }) // apply
+> \`\`\`
+> The \`next_actions\` projection surfaces this same \`prune_worktrees\` dry-run
+> affordance once the workflow is parked in synthesis. The full apply flow lands
+> in \`@skills/cleanup/SKILL.md\`.
 
 ## Anti-Patterns
 
@@ -5182,14 +5241,32 @@ This single call:
 
 ### 4. Worktree Cleanup
 
-Remove all worktrees associated with the workflow:
-\`\`\`bash
-# Read worktrees from state (already captured in step 1)
-git worktree remove .worktrees/<name>
-git worktree prune
+Reclaim all worktrees associated with the workflow through the governed
+garbage-collector \`prune_worktrees\` — **not** ad-hoc \`git worktree remove\`.
+
+> **GC cadence — after synthesize (INV-12).** Governed worktrees become
+> reclaimable once a workflow reaches synthesis; cleanup runs post-merge (after
+> synthesize completes), so this is the natural point to apply the reclamation.
+> The \`next_actions\` projection surfaces the same \`prune_worktrees\` dry-run
+> affordance from synthesis onward.
+
+\`prune_worktrees\` runs the fail-closed safety ladder (it refuses to destroy a
+worktree with unsaved work) and auto-emits the \`worktree.remove.requested\` /
+\`worktree.remove.executed\` pair per deleted worktree. Dry-run first (the default
+— reports candidates + reclaimable bytes + grouped skip reasons, deletes
+nothing), then apply:
+
+\`\`\`typescript
+// Dry-run (default) — preview candidates, delete nothing
+mcp__exarchos__exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>" })
+
+// Apply — reclaim the delete-eligible candidates
+mcp__exarchos__exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>", dryRun: false })
 \`\`\`
 
-Handle gracefully if worktrees are already removed.
+Handle gracefully if worktrees are already removed. If the GC skips a worktree
+(e.g. uncommitted work), resolve the reported reason before re-applying — never
+force-remove a dirty worktree by hand.
 
 ### 5. Branch Sync
 
@@ -5815,9 +5892,11 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Worktree-Bearing Tasks: Auto-Detour to \`merge-pending\`
 
-When a \`task.completed\` event carries a worktree association (\`data.worktree\` or \`data.worktreePath\`), the HSM auto-transitions through \`feature/merge-pending\` before reaching \`review\`. The \`next_actions\` projection surfaces a \`merge_orchestrate\` verb (idempotency-keyed by \`\${streamId}:merge_orchestrate:\${taskId}\`) so a runtime that consumes \`next_actions\` will dispatch the merge automatically.
+When a \`task.completed\` event carries a worktree association (\`data.worktree\` or \`data.worktreePath\`), the HSM auto-transitions through \`feature/merge-pending\` before reaching \`review\`. The \`next_actions\` projection surfaces the merge verb (idempotency-keyed by \`\${streamId}:merge_orchestrate:\${taskId}\`) so a runtime that consumes \`next_actions\` will dispatch the merge automatically.
 
-The merge lands the subagent's branch on the integration branch via a local \`git merge\` with a recorded rollback SHA — see \`@skills/merge-orchestrator/SKILL.md\`. The HSM exits \`merge-pending\` back to \`delegate\` once the merge terminates (\`completed\` / \`rolled-back\` / \`aborted\`), at which point \`delegate\` either re-enters \`merge-pending\` for the next worktree-bearing task or transitions on to \`review\` when all delegation is complete.
+**Land it through \`serialize_merge\`.** The integration branch is shared — sibling worktree merges within the same wave (or a concurrent operator) can race for it. \`serialize_merge\` is THE integration-merge path: it holds an optimistic per-\`integrationRef\` single-writer lease, then composes \`merge_orchestrate\` unchanged to do the local \`git merge\` with a recorded recovery-point SHA — see \`@skills/merge-orchestrator/SKILL.md\`. Do **not** dispatch raw \`merge_orchestrate\` to land onto the integration branch — a live foreign lease makes it fail closed (\`MERGE_LEASE_HELD\`, naming \`serialize_merge\`). Raw \`merge_orchestrate\` is for a non-integration merge (a private / scratch branch no sibling will touch) or a crash-resumed caller re-presenting its original lease.
+
+The HSM exits \`merge-pending\` back to \`delegate\` once the merge terminates (\`completed\` / \`rolled-back\` / \`aborted\`), at which point \`delegate\` either re-enters \`merge-pending\` for the next worktree-bearing task or transitions on to \`review\` when all delegation is complete.
 
 This detour is invisible to the delegation skill itself — the all-tasks-complete guard still gates the \`delegate → review\` transition. The merge-pending substate just sits between task completion and the next dispatch decision.
 
@@ -5843,7 +5922,8 @@ for orchestrate action schemas.
 ## When integration advances mid-wave
 
 Runbook for recovering when a subagent worktree's branch has diverged from the
-integration branch. Triggered by \`merge_orchestrate\` ancestry preflight: the
+integration branch. Triggered by the integration merge's ancestry preflight
+(run by the composed \`merge_orchestrate\` inside \`serialize_merge\`): the
 failure message links here verbatim and includes the manual \`git rebase\`
 command. Auto-rebase is **not** wired today — operators
 must drive recovery by hand.
@@ -5904,18 +5984,25 @@ subagent worktree) and that \`git status\` is clean.
    genuine drift between the two branches, not preflight noise. Do **not**
    pass \`--strategy-option=theirs\` blindly; that drops the subagent's work.
 
-3. **Re-run ancestry preflight from the main worktree:**
+3. **Re-run the integration merge from the main worktree** — through
+   \`serialize_merge\`, which re-composes \`merge_orchestrate\`'s ancestry
+   preflight under the single-writer lease:
 
    \`\`\`typescript
    exarchos_orchestrate({
-     action: "merge_orchestrate",
+     action: "serialize_merge",
      featureId: "<featureId>",
+     integrationRef: "<integration-branch>",
+     sourceBranch: "<feature-branch>",
+     strategy: "squash",           // squash | rebase | merge
      taskId: "<taskId>",
    })
    \`\`\`
 
    The preflight should now pass. Proceed with the orchestrator's normal
-   merge flow.
+   merge flow. (Re-run raw \`merge_orchestrate\` directly only for a
+   non-integration merge, or as the crash-resumed caller re-presenting its
+   original \`leaseOperationId\`.)
 
 ### Rollback procedure
 
@@ -6523,11 +6610,11 @@ When delegation skill spawns parallel tasks:
 
 ## Merge-Pending Handoff
 
-When a subagent completes a task in its worktree, the workflow's HSM transitions from \`delegate\` to \`feature/merge-pending\`. The \`merge_orchestrate\` action lands the worktree's branch onto the integration branch via a local \`git merge\` with a recorded rollback SHA — see \`@skills/merge-orchestrator/SKILL.md\` for the full handoff protocol.
+When a subagent completes a task in its worktree, the workflow's HSM transitions from \`delegate\` to \`feature/merge-pending\`. Because the integration branch is shared — sibling worktree merges can race for it — \`serialize_merge\` is the integration-merge path: it holds a single-writer per-\`integrationRef\` lease, then composes \`merge_orchestrate\` to land the worktree's branch onto the integration branch via a local \`git merge\` with a recorded recovery-point SHA — see \`@skills/merge-orchestrator/SKILL.md\` for the full handoff protocol. Do **not** dispatch raw \`merge_orchestrate\` for this integration merge (a live foreign lease makes it fail closed); raw \`merge_orchestrate\` is for a non-integration merge or a crash-resumed caller re-presenting its original lease.
 
-Worktree cleanup (step 7 above) runs after the merge orchestrator reports \`phase: 'completed'\`.
+Worktree cleanup (step 7 above) runs after the merge reports \`phase: 'completed'\`.
 
-This is **not** the same as the synthesize-phase remote PR merge (\`merge_pr\`). \`merge_orchestrate\` operates on local refs in the main worktree; \`merge_pr\` calls the VCS provider once the integration branch is ready for the human-review PR.
+This is **not** the same as the synthesize-phase remote PR merge (\`merge_pr\`). \`serialize_merge\` / \`merge_orchestrate\` operate on local refs in the main worktree; \`merge_pr\` calls the VCS provider once the integration branch is ready for the human-review PR.
 
 ## Completion Criteria
 
@@ -6858,7 +6945,7 @@ Phase transitions auto-emit \`workflow.transition\` events via \`exarchos_workfl
 exports[`task 025 — per-runtime snapshot baselines > runtime: codex > Snapshots_AllSkillsAllRuntimes_MatchBaseline: skills/codex/merge-orchestrator/SKILL.md > skills/codex/merge-orchestrator/SKILL.md 1`] = `
 "---
 name: merge-orchestrator
-description: "Land a subagent worktree branch onto an integration branch with preflight + recorded recovery point. Triggers: operator (or \`next_actions\`) surfaces verb \`merge_orchestrate\` via Exarchos MCP. Local git operation — NOT remote PR merging (that is \`merge_pr\`)."
+description: "The composed executor that lands a subagent worktree branch onto an integration branch with preflight + recorded recovery point. For a shared integration branch route through \`serialize_merge\` (the single-writer lease that composes this action); invoke \`merge_orchestrate\` directly only for a non-integration merge or when you already hold the lease. Triggers: operator (or \`next_actions\`) surfaces the merge verb via Exarchos MCP. Local git operation — NOT remote PR merging (that is \`merge_pr\`)."
 metadata:
   author: exarchos
   version: 1.2.0
@@ -6873,6 +6960,18 @@ metadata:
 This skill performs **local \`git merge\`** of a source (subagent) worktree branch into a target (integration) branch, recording a **recovery point** SHA so the INV-14 recovery ladder (\`git merge --abort\` → \`git reset --keep\`, never \`--hard\`) can rewind the merge on any failure. It does **not** call the VCS provider (GitHub / GitLab / Azure DevOps) and does not require a PR id. For remote PR merging, see the companion skill that wraps the \`merge_pr\` action.
 
 The mental model and the rationale for why these are two separate concerns are documented in \`references/local-git-semantics.md\`.
+
+## Single-Writer Entry Point: \`serialize_merge\`
+
+For a **shared integration branch** — landing a subagent worktree branch onto the integration ref during the \`delegate → merge-pending → delegate\` loop, where a sibling worktree merge can race — **\`serialize_merge\` is THE integration-merge path.** It acquires an optimistic per-\`integrationRef\` lease (at most one in-flight merge per integration ref), then composes **this** action UNCHANGED under that lease. Route integration merges through \`serialize_merge\`; do **not** dispatch raw \`merge_orchestrate\` for them.
+
+Invoke \`merge_orchestrate\` directly **only** where no concurrent merge can race the target:
+
+- **Non-integration merge** — the target is a private / scratch / solo branch no other agent will touch.
+- **Crash-resumed caller** — a new pid finishing a merge it already leased, re-presenting the ORIGINAL claim's \`leaseOperationId\`.
+- **The composed executor call** that \`serialize_merge\` itself makes (it threads its lease \`operationId\` so its own call passes the guard).
+
+**DR-2 lease guard.** Raw \`merge_orchestrate\` against an integration ref that carries a live *foreign* lease (holder \`operationId\` ≠ the presented \`leaseOperationId\`, holder liveness ∈ {alive, unknown}) fails **closed** with a structured \`MERGE_LEASE_HELD\` error and **no git side effect** — the message names \`serialize_merge\` as the path. A no-lease or provably-dead-holder target proceeds exactly as before (back-compat; a dead holder is not a blocker). So the routing above is enforced at the handler chokepoint, not merely by convention — reach for \`serialize_merge\`.
 
 ## Overview
 
@@ -6893,7 +6992,9 @@ Activate this skill when:
 
 - The operator runs \`exarchos merge-orchestrate ...\` (CLI).
 - \`mcp__exarchos__exarchos_orchestrate({ action: "merge_orchestrate", ... })\` is invoked directly.
-- An automated \`next_actions\` envelope surfaces a \`merge_orchestrate\` verb with idempotency key \`<streamId>:merge_orchestrate:<taskId>\`.
+- An automated \`next_actions\` envelope surfaces the merge verb (idempotency key \`<streamId>:merge_orchestrate:<taskId>\`) for the \`merge-pending\` detour.
+
+> **Route shared-integration merges through \`serialize_merge\`.** When the trigger is a shared integration branch (the \`merge-pending\` detour is the common case), land it via \`serialize_merge\` per the single-writer entry point above — \`serialize_merge\` composes this action under a lease. A direct raw \`merge_orchestrate\` dispatch is for a non-integration or already-lease-held merge only; against a leased integration ref it fails closed (\`MERGE_LEASE_HELD\`).
 
 Do **not** activate this skill:
 - To merge a remote PR — that is \`merge_pr\`. The two are disjoint actions; see Disambiguation below.
@@ -6914,6 +7015,8 @@ Do **not** activate this skill:
 Strategy is required at the schema layer (collision check + user-visible parity). There is no implicit default — operator intent is always explicit in the event log.
 
 ### Step 2: Invoke
+
+> **Integration merge?** The direct invocation below is the raw executor form — use it for a **non-integration** or already **lease-held** merge. For a shared integration branch, invoke \`serialize_merge\` instead (it composes this exact call under a single-writer lease); see the single-writer entry point above.
 
 Via MCP (illustrative — the canonical arg names come from \`describe\`):
 
@@ -6960,7 +7063,7 @@ When \`phase === 'aborted'\`, the data payload discriminates the cause:
 
 | \`data.reason\` | Payload fields | Cause | Operator remediation |
 |---------------|----------------|-------|----------------------|
-| \`target-checked-out-elsewhere\` | \`siblingWorktreePath: string\` (absolute path) | Target branch is already checked out in a sibling worktree of the same repository. Detected by the worktree-availability preflight *before* any event emission, executor invocation, or state persistence. | Resolve the sibling worktree: either remove it (\`git worktree remove <path>\`), switch its checkout to another branch, or invoke \`merge_orchestrate\` against a different target. Then re-dispatch. |
+| \`target-checked-out-elsewhere\` | \`siblingWorktreePath: string\` (absolute path) | Target branch is already checked out in a sibling worktree of the same repository. Detected by the worktree-availability preflight *before* any event emission, executor invocation, or state persistence. | Resolve the sibling worktree: either remove it (\`git worktree remove <path>\`), switch its checkout to another branch, or re-run the merge against a different target. Then re-dispatch (through \`serialize_merge\` for a shared integration ref). |
 | *(body preflight failures)* | \`data.preflight: { ancestry, worktree, currentBranchProtection, drift }\` | Body-preflight guard failed (ancestry mismatch, worktree drift, protected current branch, etc.). | Inspect \`preflight.*\` sub-results to identify which guard failed. Resolve the underlying condition (e.g., commit/stash drift, switch off a protected branch) and re-dispatch. |
 
 The \`target-checked-out-elsewhere\` abort path is special: it suppresses both the \`merge.requested\` and \`merge.preflight\` events and skips state persistence entirely. This guarantees the event log is never contaminated with an attempt that could not have captured a correct recovery point (the executor would have read HEAD from the wrong worktree).
@@ -7016,6 +7119,7 @@ Note: the \`target-checked-out-elsewhere\` early-abort path runs *before* the re
 
 | Don't | Do Instead |
 |-------|------------|
+| Dispatch raw \`merge_orchestrate\` to land onto a **shared integration branch** | Route through \`serialize_merge\` (single-writer lease); raw \`merge_orchestrate\` is for a non-integration / lease-held merge — a live foreign lease makes it fail closed (\`MERGE_LEASE_HELD\`) |
 | Use this skill to merge a remote PR | Use the \`merge_pr\` skill |
 | Manually emit \`merge.preflight\` / \`merge.requested\` / \`merge.executed\` / \`merge.rollback\` / \`merge.recovered\` in normal flow | Let the handler auto-emit; manual emission causes duplicates (one exception: documented manual-recovery flow in [\`recovery-runbook.md\`](references/recovery-runbook.md)) |
 | Wrap merge events under \`gate.executed\` | Direct stream append with the dedicated event type — these are state transitions, not gate executions |
@@ -8412,7 +8516,7 @@ This skill uses VCS operations through Exarchos MCP actions (\`check_ci\`, \`lis
 These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
 No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
 
-> The \`merge_pr\` invoked here is the remote PR merge primitive (synthesize-phase). It is distinct from \`merge_orchestrate\` (\`@skills/merge-orchestrator/SKILL.md\`), which is the local \`git merge\` orchestrator used during the upstream \`merge-pending\` substate. This skill never invokes \`merge_orchestrate\`.
+> The \`merge_pr\` invoked here is the remote PR merge primitive (synthesize-phase). It is distinct from the integration merge run during the upstream \`merge-pending\` substate — there, \`serialize_merge\` (\`@skills/merge-orchestrator/SKILL.md\`) is the integration-merge path: it holds a single-writer lease and composes the local \`git merge\` (raw \`merge_orchestrate\` is that composed executor / the non-integration path). This skill never invokes \`serialize_merge\` or \`merge_orchestrate\`.
 
 Iterative loop that shepherds published PRs through CI checks and code reviews to merge readiness. Uses the \`assess_stack\` composite action for all PR health checks, fixing failures and addressing feedback until the stack is green.
 
@@ -8725,7 +8829,7 @@ This skill uses VCS operations through Exarchos MCP actions (\`create_pr\`, \`me
 These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
 No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
 
-> **Not to be confused with \`merge_orchestrate\`.** This skill calls \`merge_pr\` to land a user-facing PR on \`main\` via the VCS provider — a remote operation. \`merge_orchestrate\` (\`@skills/merge-orchestrator/SKILL.md\`) is the upstream sibling: a local \`git merge\` of a subagent worktree branch onto the integration branch during the \`delegate → merge-pending → delegate\` HSM loop. Synthesize never invokes \`merge_orchestrate\`; merge-pending never invokes \`merge_pr\`.
+> **Not to be confused with the integration merge.** This skill calls \`merge_pr\` to land a user-facing PR on \`main\` via the VCS provider — a remote operation. The upstream sibling is \`serialize_merge\` (\`@skills/merge-orchestrator/SKILL.md\`): the integration-merge path that holds a single-writer lease and composes a local \`git merge\` of a subagent worktree branch onto the integration branch during the \`delegate → merge-pending → delegate\` HSM loop (raw \`merge_orchestrate\` is that composed executor / the non-integration path). Synthesize never invokes \`serialize_merge\` or \`merge_orchestrate\`; merge-pending never invokes \`merge_pr\`.
 
 ## Overview
 
@@ -8908,7 +9012,21 @@ mcp__exarchos__exarchos_workflow({
 })
 \`\`\`
 
-Then sync: \`git fetch --prune\` and remove worktrees.
+Then sync: \`git fetch --prune\` and reclaim worktrees.
+
+> **Worktree GC cadence — after synthesize (INV-12).** Once a workflow reaches
+> synthesis its governed worktrees are no longer needed, so this is the point to
+> reclaim them. Use the governed garbage-collector \`prune_worktrees\` rather than
+> ad-hoc \`git worktree remove\`: dry-run first (the default — reports candidates
+> + reclaimable bytes, deletes nothing), then re-invoke with \`dryRun: false\` to
+> apply.
+> \`\`\`typescript
+> mcp__exarchos__exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>" })            // dry-run (default)
+> mcp__exarchos__exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>", dryRun: false }) // apply
+> \`\`\`
+> The \`next_actions\` projection surfaces this same \`prune_worktrees\` dry-run
+> affordance once the workflow is parked in synthesis. The full apply flow lands
+> in \`@skills/cleanup/SKILL.md\`.
 
 ## Anti-Patterns
 
@@ -9787,14 +9905,32 @@ This single call:
 
 ### 4. Worktree Cleanup
 
-Remove all worktrees associated with the workflow:
-\`\`\`bash
-# Read worktrees from state (already captured in step 1)
-git worktree remove .worktrees/<name>
-git worktree prune
+Reclaim all worktrees associated with the workflow through the governed
+garbage-collector \`prune_worktrees\` — **not** ad-hoc \`git worktree remove\`.
+
+> **GC cadence — after synthesize (INV-12).** Governed worktrees become
+> reclaimable once a workflow reaches synthesis; cleanup runs post-merge (after
+> synthesize completes), so this is the natural point to apply the reclamation.
+> The \`next_actions\` projection surfaces the same \`prune_worktrees\` dry-run
+> affordance from synthesis onward.
+
+\`prune_worktrees\` runs the fail-closed safety ladder (it refuses to destroy a
+worktree with unsaved work) and auto-emits the \`worktree.remove.requested\` /
+\`worktree.remove.executed\` pair per deleted worktree. Dry-run first (the default
+— reports candidates + reclaimable bytes + grouped skip reasons, deletes
+nothing), then apply:
+
+\`\`\`typescript
+// Dry-run (default) — preview candidates, delete nothing
+mcp__exarchos__exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>" })
+
+// Apply — reclaim the delete-eligible candidates
+mcp__exarchos__exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>", dryRun: false })
 \`\`\`
 
-Handle gracefully if worktrees are already removed.
+Handle gracefully if worktrees are already removed. If the GC skips a worktree
+(e.g. uncommitted work), resolve the reported reason before re-applying — never
+force-remove a dirty worktree by hand.
 
 ### 5. Branch Sync
 
@@ -10412,9 +10548,11 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Worktree-Bearing Tasks: Auto-Detour to \`merge-pending\`
 
-When a \`task.completed\` event carries a worktree association (\`data.worktree\` or \`data.worktreePath\`), the HSM auto-transitions through \`feature/merge-pending\` before reaching \`review\`. The \`next_actions\` projection surfaces a \`merge_orchestrate\` verb (idempotency-keyed by \`\${streamId}:merge_orchestrate:\${taskId}\`) so a runtime that consumes \`next_actions\` will dispatch the merge automatically.
+When a \`task.completed\` event carries a worktree association (\`data.worktree\` or \`data.worktreePath\`), the HSM auto-transitions through \`feature/merge-pending\` before reaching \`review\`. The \`next_actions\` projection surfaces the merge verb (idempotency-keyed by \`\${streamId}:merge_orchestrate:\${taskId}\`) so a runtime that consumes \`next_actions\` will dispatch the merge automatically.
 
-The merge lands the subagent's branch on the integration branch via a local \`git merge\` with a recorded rollback SHA — see \`@skills/merge-orchestrator/SKILL.md\`. The HSM exits \`merge-pending\` back to \`delegate\` once the merge terminates (\`completed\` / \`rolled-back\` / \`aborted\`), at which point \`delegate\` either re-enters \`merge-pending\` for the next worktree-bearing task or transitions on to \`review\` when all delegation is complete.
+**Land it through \`serialize_merge\`.** The integration branch is shared — sibling worktree merges within the same wave (or a concurrent operator) can race for it. \`serialize_merge\` is THE integration-merge path: it holds an optimistic per-\`integrationRef\` single-writer lease, then composes \`merge_orchestrate\` unchanged to do the local \`git merge\` with a recorded recovery-point SHA — see \`@skills/merge-orchestrator/SKILL.md\`. Do **not** dispatch raw \`merge_orchestrate\` to land onto the integration branch — a live foreign lease makes it fail closed (\`MERGE_LEASE_HELD\`, naming \`serialize_merge\`). Raw \`merge_orchestrate\` is for a non-integration merge (a private / scratch branch no sibling will touch) or a crash-resumed caller re-presenting its original lease.
+
+The HSM exits \`merge-pending\` back to \`delegate\` once the merge terminates (\`completed\` / \`rolled-back\` / \`aborted\`), at which point \`delegate\` either re-enters \`merge-pending\` for the next worktree-bearing task or transitions on to \`review\` when all delegation is complete.
 
 This detour is invisible to the delegation skill itself — the all-tasks-complete guard still gates the \`delegate → review\` transition. The merge-pending substate just sits between task completion and the next dispatch decision.
 
@@ -10440,7 +10578,8 @@ for orchestrate action schemas.
 ## When integration advances mid-wave
 
 Runbook for recovering when a subagent worktree's branch has diverged from the
-integration branch. Triggered by \`merge_orchestrate\` ancestry preflight: the
+integration branch. Triggered by the integration merge's ancestry preflight
+(run by the composed \`merge_orchestrate\` inside \`serialize_merge\`): the
 failure message links here verbatim and includes the manual \`git rebase\`
 command. Auto-rebase is **not** wired today — operators
 must drive recovery by hand.
@@ -10501,18 +10640,25 @@ subagent worktree) and that \`git status\` is clean.
    genuine drift between the two branches, not preflight noise. Do **not**
    pass \`--strategy-option=theirs\` blindly; that drops the subagent's work.
 
-3. **Re-run ancestry preflight from the main worktree:**
+3. **Re-run the integration merge from the main worktree** — through
+   \`serialize_merge\`, which re-composes \`merge_orchestrate\`'s ancestry
+   preflight under the single-writer lease:
 
    \`\`\`typescript
    exarchos_orchestrate({
-     action: "merge_orchestrate",
+     action: "serialize_merge",
      featureId: "<featureId>",
+     integrationRef: "<integration-branch>",
+     sourceBranch: "<feature-branch>",
+     strategy: "squash",           // squash | rebase | merge
      taskId: "<taskId>",
    })
    \`\`\`
 
    The preflight should now pass. Proceed with the orchestrator's normal
-   merge flow.
+   merge flow. (Re-run raw \`merge_orchestrate\` directly only for a
+   non-integration merge, or as the crash-resumed caller re-presenting its
+   original \`leaseOperationId\`.)
 
 ### Rollback procedure
 
@@ -11120,11 +11266,11 @@ When delegation skill spawns parallel tasks:
 
 ## Merge-Pending Handoff
 
-When a subagent completes a task in its worktree, the workflow's HSM transitions from \`delegate\` to \`feature/merge-pending\`. The \`merge_orchestrate\` action lands the worktree's branch onto the integration branch via a local \`git merge\` with a recorded rollback SHA — see \`@skills/merge-orchestrator/SKILL.md\` for the full handoff protocol.
+When a subagent completes a task in its worktree, the workflow's HSM transitions from \`delegate\` to \`feature/merge-pending\`. Because the integration branch is shared — sibling worktree merges can race for it — \`serialize_merge\` is the integration-merge path: it holds a single-writer per-\`integrationRef\` lease, then composes \`merge_orchestrate\` to land the worktree's branch onto the integration branch via a local \`git merge\` with a recorded recovery-point SHA — see \`@skills/merge-orchestrator/SKILL.md\` for the full handoff protocol. Do **not** dispatch raw \`merge_orchestrate\` for this integration merge (a live foreign lease makes it fail closed); raw \`merge_orchestrate\` is for a non-integration merge or a crash-resumed caller re-presenting its original lease.
 
-Worktree cleanup (step 7 above) runs after the merge orchestrator reports \`phase: 'completed'\`.
+Worktree cleanup (step 7 above) runs after the merge reports \`phase: 'completed'\`.
 
-This is **not** the same as the synthesize-phase remote PR merge (\`merge_pr\`). \`merge_orchestrate\` operates on local refs in the main worktree; \`merge_pr\` calls the VCS provider once the integration branch is ready for the human-review PR.
+This is **not** the same as the synthesize-phase remote PR merge (\`merge_pr\`). \`serialize_merge\` / \`merge_orchestrate\` operate on local refs in the main worktree; \`merge_pr\` calls the VCS provider once the integration branch is ready for the human-review PR.
 
 ## Completion Criteria
 
@@ -11455,7 +11601,7 @@ Phase transitions auto-emit \`workflow.transition\` events via \`exarchos_workfl
 exports[`task 025 — per-runtime snapshot baselines > runtime: copilot > Snapshots_AllSkillsAllRuntimes_MatchBaseline: skills/copilot/merge-orchestrator/SKILL.md > skills/copilot/merge-orchestrator/SKILL.md 1`] = `
 "---
 name: merge-orchestrator
-description: "Land a subagent worktree branch onto an integration branch with preflight + recorded recovery point. Triggers: operator (or \`next_actions\`) surfaces verb \`merge_orchestrate\` via Exarchos MCP. Local git operation — NOT remote PR merging (that is \`merge_pr\`)."
+description: "The composed executor that lands a subagent worktree branch onto an integration branch with preflight + recorded recovery point. For a shared integration branch route through \`serialize_merge\` (the single-writer lease that composes this action); invoke \`merge_orchestrate\` directly only for a non-integration merge or when you already hold the lease. Triggers: operator (or \`next_actions\`) surfaces the merge verb via Exarchos MCP. Local git operation — NOT remote PR merging (that is \`merge_pr\`)."
 metadata:
   author: exarchos
   version: 1.2.0
@@ -11470,6 +11616,18 @@ metadata:
 This skill performs **local \`git merge\`** of a source (subagent) worktree branch into a target (integration) branch, recording a **recovery point** SHA so the INV-14 recovery ladder (\`git merge --abort\` → \`git reset --keep\`, never \`--hard\`) can rewind the merge on any failure. It does **not** call the VCS provider (GitHub / GitLab / Azure DevOps) and does not require a PR id. For remote PR merging, see the companion skill that wraps the \`merge_pr\` action.
 
 The mental model and the rationale for why these are two separate concerns are documented in \`references/local-git-semantics.md\`.
+
+## Single-Writer Entry Point: \`serialize_merge\`
+
+For a **shared integration branch** — landing a subagent worktree branch onto the integration ref during the \`delegate → merge-pending → delegate\` loop, where a sibling worktree merge can race — **\`serialize_merge\` is THE integration-merge path.** It acquires an optimistic per-\`integrationRef\` lease (at most one in-flight merge per integration ref), then composes **this** action UNCHANGED under that lease. Route integration merges through \`serialize_merge\`; do **not** dispatch raw \`merge_orchestrate\` for them.
+
+Invoke \`merge_orchestrate\` directly **only** where no concurrent merge can race the target:
+
+- **Non-integration merge** — the target is a private / scratch / solo branch no other agent will touch.
+- **Crash-resumed caller** — a new pid finishing a merge it already leased, re-presenting the ORIGINAL claim's \`leaseOperationId\`.
+- **The composed executor call** that \`serialize_merge\` itself makes (it threads its lease \`operationId\` so its own call passes the guard).
+
+**DR-2 lease guard.** Raw \`merge_orchestrate\` against an integration ref that carries a live *foreign* lease (holder \`operationId\` ≠ the presented \`leaseOperationId\`, holder liveness ∈ {alive, unknown}) fails **closed** with a structured \`MERGE_LEASE_HELD\` error and **no git side effect** — the message names \`serialize_merge\` as the path. A no-lease or provably-dead-holder target proceeds exactly as before (back-compat; a dead holder is not a blocker). So the routing above is enforced at the handler chokepoint, not merely by convention — reach for \`serialize_merge\`.
 
 ## Overview
 
@@ -11490,7 +11648,9 @@ Activate this skill when:
 
 - The operator runs \`exarchos merge-orchestrate ...\` (CLI).
 - \`mcp__exarchos__exarchos_orchestrate({ action: "merge_orchestrate", ... })\` is invoked directly.
-- An automated \`next_actions\` envelope surfaces a \`merge_orchestrate\` verb with idempotency key \`<streamId>:merge_orchestrate:<taskId>\`.
+- An automated \`next_actions\` envelope surfaces the merge verb (idempotency key \`<streamId>:merge_orchestrate:<taskId>\`) for the \`merge-pending\` detour.
+
+> **Route shared-integration merges through \`serialize_merge\`.** When the trigger is a shared integration branch (the \`merge-pending\` detour is the common case), land it via \`serialize_merge\` per the single-writer entry point above — \`serialize_merge\` composes this action under a lease. A direct raw \`merge_orchestrate\` dispatch is for a non-integration or already-lease-held merge only; against a leased integration ref it fails closed (\`MERGE_LEASE_HELD\`).
 
 Do **not** activate this skill:
 - To merge a remote PR — that is \`merge_pr\`. The two are disjoint actions; see Disambiguation below.
@@ -11511,6 +11671,8 @@ Do **not** activate this skill:
 Strategy is required at the schema layer (collision check + user-visible parity). There is no implicit default — operator intent is always explicit in the event log.
 
 ### Step 2: Invoke
+
+> **Integration merge?** The direct invocation below is the raw executor form — use it for a **non-integration** or already **lease-held** merge. For a shared integration branch, invoke \`serialize_merge\` instead (it composes this exact call under a single-writer lease); see the single-writer entry point above.
 
 Via MCP (illustrative — the canonical arg names come from \`describe\`):
 
@@ -11557,7 +11719,7 @@ When \`phase === 'aborted'\`, the data payload discriminates the cause:
 
 | \`data.reason\` | Payload fields | Cause | Operator remediation |
 |---------------|----------------|-------|----------------------|
-| \`target-checked-out-elsewhere\` | \`siblingWorktreePath: string\` (absolute path) | Target branch is already checked out in a sibling worktree of the same repository. Detected by the worktree-availability preflight *before* any event emission, executor invocation, or state persistence. | Resolve the sibling worktree: either remove it (\`git worktree remove <path>\`), switch its checkout to another branch, or invoke \`merge_orchestrate\` against a different target. Then re-dispatch. |
+| \`target-checked-out-elsewhere\` | \`siblingWorktreePath: string\` (absolute path) | Target branch is already checked out in a sibling worktree of the same repository. Detected by the worktree-availability preflight *before* any event emission, executor invocation, or state persistence. | Resolve the sibling worktree: either remove it (\`git worktree remove <path>\`), switch its checkout to another branch, or re-run the merge against a different target. Then re-dispatch (through \`serialize_merge\` for a shared integration ref). |
 | *(body preflight failures)* | \`data.preflight: { ancestry, worktree, currentBranchProtection, drift }\` | Body-preflight guard failed (ancestry mismatch, worktree drift, protected current branch, etc.). | Inspect \`preflight.*\` sub-results to identify which guard failed. Resolve the underlying condition (e.g., commit/stash drift, switch off a protected branch) and re-dispatch. |
 
 The \`target-checked-out-elsewhere\` abort path is special: it suppresses both the \`merge.requested\` and \`merge.preflight\` events and skips state persistence entirely. This guarantees the event log is never contaminated with an attempt that could not have captured a correct recovery point (the executor would have read HEAD from the wrong worktree).
@@ -11613,6 +11775,7 @@ Note: the \`target-checked-out-elsewhere\` early-abort path runs *before* the re
 
 | Don't | Do Instead |
 |-------|------------|
+| Dispatch raw \`merge_orchestrate\` to land onto a **shared integration branch** | Route through \`serialize_merge\` (single-writer lease); raw \`merge_orchestrate\` is for a non-integration / lease-held merge — a live foreign lease makes it fail closed (\`MERGE_LEASE_HELD\`) |
 | Use this skill to merge a remote PR | Use the \`merge_pr\` skill |
 | Manually emit \`merge.preflight\` / \`merge.requested\` / \`merge.executed\` / \`merge.rollback\` / \`merge.recovered\` in normal flow | Let the handler auto-emit; manual emission causes duplicates (one exception: documented manual-recovery flow in [\`recovery-runbook.md\`](references/recovery-runbook.md)) |
 | Wrap merge events under \`gate.executed\` | Direct stream append with the dedicated event type — these are state transitions, not gate executions |
@@ -13009,7 +13172,7 @@ This skill uses VCS operations through Exarchos MCP actions (\`check_ci\`, \`lis
 These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
 No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
 
-> The \`merge_pr\` invoked here is the remote PR merge primitive (synthesize-phase). It is distinct from \`merge_orchestrate\` (\`@skills/merge-orchestrator/SKILL.md\`), which is the local \`git merge\` orchestrator used during the upstream \`merge-pending\` substate. This skill never invokes \`merge_orchestrate\`.
+> The \`merge_pr\` invoked here is the remote PR merge primitive (synthesize-phase). It is distinct from the integration merge run during the upstream \`merge-pending\` substate — there, \`serialize_merge\` (\`@skills/merge-orchestrator/SKILL.md\`) is the integration-merge path: it holds a single-writer lease and composes the local \`git merge\` (raw \`merge_orchestrate\` is that composed executor / the non-integration path). This skill never invokes \`serialize_merge\` or \`merge_orchestrate\`.
 
 Iterative loop that shepherds published PRs through CI checks and code reviews to merge readiness. Uses the \`assess_stack\` composite action for all PR health checks, fixing failures and addressing feedback until the stack is green.
 
@@ -13322,7 +13485,7 @@ This skill uses VCS operations through Exarchos MCP actions (\`create_pr\`, \`me
 These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
 No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
 
-> **Not to be confused with \`merge_orchestrate\`.** This skill calls \`merge_pr\` to land a user-facing PR on \`main\` via the VCS provider — a remote operation. \`merge_orchestrate\` (\`@skills/merge-orchestrator/SKILL.md\`) is the upstream sibling: a local \`git merge\` of a subagent worktree branch onto the integration branch during the \`delegate → merge-pending → delegate\` HSM loop. Synthesize never invokes \`merge_orchestrate\`; merge-pending never invokes \`merge_pr\`.
+> **Not to be confused with the integration merge.** This skill calls \`merge_pr\` to land a user-facing PR on \`main\` via the VCS provider — a remote operation. The upstream sibling is \`serialize_merge\` (\`@skills/merge-orchestrator/SKILL.md\`): the integration-merge path that holds a single-writer lease and composes a local \`git merge\` of a subagent worktree branch onto the integration branch during the \`delegate → merge-pending → delegate\` HSM loop (raw \`merge_orchestrate\` is that composed executor / the non-integration path). Synthesize never invokes \`serialize_merge\` or \`merge_orchestrate\`; merge-pending never invokes \`merge_pr\`.
 
 ## Overview
 
@@ -13505,7 +13668,21 @@ mcp__exarchos__exarchos_workflow({
 })
 \`\`\`
 
-Then sync: \`git fetch --prune\` and remove worktrees.
+Then sync: \`git fetch --prune\` and reclaim worktrees.
+
+> **Worktree GC cadence — after synthesize (INV-12).** Once a workflow reaches
+> synthesis its governed worktrees are no longer needed, so this is the point to
+> reclaim them. Use the governed garbage-collector \`prune_worktrees\` rather than
+> ad-hoc \`git worktree remove\`: dry-run first (the default — reports candidates
+> + reclaimable bytes, deletes nothing), then re-invoke with \`dryRun: false\` to
+> apply.
+> \`\`\`typescript
+> mcp__exarchos__exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>" })            // dry-run (default)
+> mcp__exarchos__exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>", dryRun: false }) // apply
+> \`\`\`
+> The \`next_actions\` projection surfaces this same \`prune_worktrees\` dry-run
+> affordance once the workflow is parked in synthesis. The full apply flow lands
+> in \`@skills/cleanup/SKILL.md\`.
 
 ## Anti-Patterns
 
@@ -14384,14 +14561,32 @@ This single call:
 
 ### 4. Worktree Cleanup
 
-Remove all worktrees associated with the workflow:
-\`\`\`bash
-# Read worktrees from state (already captured in step 1)
-git worktree remove .worktrees/<name>
-git worktree prune
+Reclaim all worktrees associated with the workflow through the governed
+garbage-collector \`prune_worktrees\` — **not** ad-hoc \`git worktree remove\`.
+
+> **GC cadence — after synthesize (INV-12).** Governed worktrees become
+> reclaimable once a workflow reaches synthesis; cleanup runs post-merge (after
+> synthesize completes), so this is the natural point to apply the reclamation.
+> The \`next_actions\` projection surfaces the same \`prune_worktrees\` dry-run
+> affordance from synthesis onward.
+
+\`prune_worktrees\` runs the fail-closed safety ladder (it refuses to destroy a
+worktree with unsaved work) and auto-emits the \`worktree.remove.requested\` /
+\`worktree.remove.executed\` pair per deleted worktree. Dry-run first (the default
+— reports candidates + reclaimable bytes + grouped skip reasons, deletes
+nothing), then apply:
+
+\`\`\`typescript
+// Dry-run (default) — preview candidates, delete nothing
+mcp__exarchos__exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>" })
+
+// Apply — reclaim the delete-eligible candidates
+mcp__exarchos__exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>", dryRun: false })
 \`\`\`
 
-Handle gracefully if worktrees are already removed.
+Handle gracefully if worktrees are already removed. If the GC skips a worktree
+(e.g. uncommitted work), resolve the reported reason before re-applying — never
+force-remove a dirty worktree by hand.
 
 ### 5. Branch Sync
 
@@ -15019,9 +15214,11 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Worktree-Bearing Tasks: Auto-Detour to \`merge-pending\`
 
-When a \`task.completed\` event carries a worktree association (\`data.worktree\` or \`data.worktreePath\`), the HSM auto-transitions through \`feature/merge-pending\` before reaching \`review\`. The \`next_actions\` projection surfaces a \`merge_orchestrate\` verb (idempotency-keyed by \`\${streamId}:merge_orchestrate:\${taskId}\`) so a runtime that consumes \`next_actions\` will dispatch the merge automatically.
+When a \`task.completed\` event carries a worktree association (\`data.worktree\` or \`data.worktreePath\`), the HSM auto-transitions through \`feature/merge-pending\` before reaching \`review\`. The \`next_actions\` projection surfaces the merge verb (idempotency-keyed by \`\${streamId}:merge_orchestrate:\${taskId}\`) so a runtime that consumes \`next_actions\` will dispatch the merge automatically.
 
-The merge lands the subagent's branch on the integration branch via a local \`git merge\` with a recorded rollback SHA — see \`@skills/merge-orchestrator/SKILL.md\`. The HSM exits \`merge-pending\` back to \`delegate\` once the merge terminates (\`completed\` / \`rolled-back\` / \`aborted\`), at which point \`delegate\` either re-enters \`merge-pending\` for the next worktree-bearing task or transitions on to \`review\` when all delegation is complete.
+**Land it through \`serialize_merge\`.** The integration branch is shared — sibling worktree merges within the same wave (or a concurrent operator) can race for it. \`serialize_merge\` is THE integration-merge path: it holds an optimistic per-\`integrationRef\` single-writer lease, then composes \`merge_orchestrate\` unchanged to do the local \`git merge\` with a recorded recovery-point SHA — see \`@skills/merge-orchestrator/SKILL.md\`. Do **not** dispatch raw \`merge_orchestrate\` to land onto the integration branch — a live foreign lease makes it fail closed (\`MERGE_LEASE_HELD\`, naming \`serialize_merge\`). Raw \`merge_orchestrate\` is for a non-integration merge (a private / scratch branch no sibling will touch) or a crash-resumed caller re-presenting its original lease.
+
+The HSM exits \`merge-pending\` back to \`delegate\` once the merge terminates (\`completed\` / \`rolled-back\` / \`aborted\`), at which point \`delegate\` either re-enters \`merge-pending\` for the next worktree-bearing task or transitions on to \`review\` when all delegation is complete.
 
 This detour is invisible to the delegation skill itself — the all-tasks-complete guard still gates the \`delegate → review\` transition. The merge-pending substate just sits between task completion and the next dispatch decision.
 
@@ -15047,7 +15244,8 @@ for orchestrate action schemas.
 ## When integration advances mid-wave
 
 Runbook for recovering when a subagent worktree's branch has diverged from the
-integration branch. Triggered by \`merge_orchestrate\` ancestry preflight: the
+integration branch. Triggered by the integration merge's ancestry preflight
+(run by the composed \`merge_orchestrate\` inside \`serialize_merge\`): the
 failure message links here verbatim and includes the manual \`git rebase\`
 command. Auto-rebase is **not** wired today — operators
 must drive recovery by hand.
@@ -15108,18 +15306,25 @@ subagent worktree) and that \`git status\` is clean.
    genuine drift between the two branches, not preflight noise. Do **not**
    pass \`--strategy-option=theirs\` blindly; that drops the subagent's work.
 
-3. **Re-run ancestry preflight from the main worktree:**
+3. **Re-run the integration merge from the main worktree** — through
+   \`serialize_merge\`, which re-composes \`merge_orchestrate\`'s ancestry
+   preflight under the single-writer lease:
 
    \`\`\`typescript
    exarchos_orchestrate({
-     action: "merge_orchestrate",
+     action: "serialize_merge",
      featureId: "<featureId>",
+     integrationRef: "<integration-branch>",
+     sourceBranch: "<feature-branch>",
+     strategy: "squash",           // squash | rebase | merge
      taskId: "<taskId>",
    })
    \`\`\`
 
    The preflight should now pass. Proceed with the orchestrator's normal
-   merge flow.
+   merge flow. (Re-run raw \`merge_orchestrate\` directly only for a
+   non-integration merge, or as the crash-resumed caller re-presenting its
+   original \`leaseOperationId\`.)
 
 ### Rollback procedure
 
@@ -15727,11 +15932,11 @@ When delegation skill spawns parallel tasks:
 
 ## Merge-Pending Handoff
 
-When a subagent completes a task in its worktree, the workflow's HSM transitions from \`delegate\` to \`feature/merge-pending\`. The \`merge_orchestrate\` action lands the worktree's branch onto the integration branch via a local \`git merge\` with a recorded rollback SHA — see \`@skills/merge-orchestrator/SKILL.md\` for the full handoff protocol.
+When a subagent completes a task in its worktree, the workflow's HSM transitions from \`delegate\` to \`feature/merge-pending\`. Because the integration branch is shared — sibling worktree merges can race for it — \`serialize_merge\` is the integration-merge path: it holds a single-writer per-\`integrationRef\` lease, then composes \`merge_orchestrate\` to land the worktree's branch onto the integration branch via a local \`git merge\` with a recorded recovery-point SHA — see \`@skills/merge-orchestrator/SKILL.md\` for the full handoff protocol. Do **not** dispatch raw \`merge_orchestrate\` for this integration merge (a live foreign lease makes it fail closed); raw \`merge_orchestrate\` is for a non-integration merge or a crash-resumed caller re-presenting its original lease.
 
-Worktree cleanup (step 7 above) runs after the merge orchestrator reports \`phase: 'completed'\`.
+Worktree cleanup (step 7 above) runs after the merge reports \`phase: 'completed'\`.
 
-This is **not** the same as the synthesize-phase remote PR merge (\`merge_pr\`). \`merge_orchestrate\` operates on local refs in the main worktree; \`merge_pr\` calls the VCS provider once the integration branch is ready for the human-review PR.
+This is **not** the same as the synthesize-phase remote PR merge (\`merge_pr\`). \`serialize_merge\` / \`merge_orchestrate\` operate on local refs in the main worktree; \`merge_pr\` calls the VCS provider once the integration branch is ready for the human-review PR.
 
 ## Completion Criteria
 
@@ -16062,7 +16267,7 @@ Phase transitions auto-emit \`workflow.transition\` events via \`exarchos_workfl
 exports[`task 025 — per-runtime snapshot baselines > runtime: cursor > Snapshots_AllSkillsAllRuntimes_MatchBaseline: skills/cursor/merge-orchestrator/SKILL.md > skills/cursor/merge-orchestrator/SKILL.md 1`] = `
 "---
 name: merge-orchestrator
-description: "Land a subagent worktree branch onto an integration branch with preflight + recorded recovery point. Triggers: operator (or \`next_actions\`) surfaces verb \`merge_orchestrate\` via Exarchos MCP. Local git operation — NOT remote PR merging (that is \`merge_pr\`)."
+description: "The composed executor that lands a subagent worktree branch onto an integration branch with preflight + recorded recovery point. For a shared integration branch route through \`serialize_merge\` (the single-writer lease that composes this action); invoke \`merge_orchestrate\` directly only for a non-integration merge or when you already hold the lease. Triggers: operator (or \`next_actions\`) surfaces the merge verb via Exarchos MCP. Local git operation — NOT remote PR merging (that is \`merge_pr\`)."
 metadata:
   author: exarchos
   version: 1.2.0
@@ -16077,6 +16282,18 @@ metadata:
 This skill performs **local \`git merge\`** of a source (subagent) worktree branch into a target (integration) branch, recording a **recovery point** SHA so the INV-14 recovery ladder (\`git merge --abort\` → \`git reset --keep\`, never \`--hard\`) can rewind the merge on any failure. It does **not** call the VCS provider (GitHub / GitLab / Azure DevOps) and does not require a PR id. For remote PR merging, see the companion skill that wraps the \`merge_pr\` action.
 
 The mental model and the rationale for why these are two separate concerns are documented in \`references/local-git-semantics.md\`.
+
+## Single-Writer Entry Point: \`serialize_merge\`
+
+For a **shared integration branch** — landing a subagent worktree branch onto the integration ref during the \`delegate → merge-pending → delegate\` loop, where a sibling worktree merge can race — **\`serialize_merge\` is THE integration-merge path.** It acquires an optimistic per-\`integrationRef\` lease (at most one in-flight merge per integration ref), then composes **this** action UNCHANGED under that lease. Route integration merges through \`serialize_merge\`; do **not** dispatch raw \`merge_orchestrate\` for them.
+
+Invoke \`merge_orchestrate\` directly **only** where no concurrent merge can race the target:
+
+- **Non-integration merge** — the target is a private / scratch / solo branch no other agent will touch.
+- **Crash-resumed caller** — a new pid finishing a merge it already leased, re-presenting the ORIGINAL claim's \`leaseOperationId\`.
+- **The composed executor call** that \`serialize_merge\` itself makes (it threads its lease \`operationId\` so its own call passes the guard).
+
+**DR-2 lease guard.** Raw \`merge_orchestrate\` against an integration ref that carries a live *foreign* lease (holder \`operationId\` ≠ the presented \`leaseOperationId\`, holder liveness ∈ {alive, unknown}) fails **closed** with a structured \`MERGE_LEASE_HELD\` error and **no git side effect** — the message names \`serialize_merge\` as the path. A no-lease or provably-dead-holder target proceeds exactly as before (back-compat; a dead holder is not a blocker). So the routing above is enforced at the handler chokepoint, not merely by convention — reach for \`serialize_merge\`.
 
 ## Overview
 
@@ -16097,7 +16314,9 @@ Activate this skill when:
 
 - The operator runs \`exarchos merge-orchestrate ...\` (CLI).
 - \`mcp__exarchos__exarchos_orchestrate({ action: "merge_orchestrate", ... })\` is invoked directly.
-- An automated \`next_actions\` envelope surfaces a \`merge_orchestrate\` verb with idempotency key \`<streamId>:merge_orchestrate:<taskId>\`.
+- An automated \`next_actions\` envelope surfaces the merge verb (idempotency key \`<streamId>:merge_orchestrate:<taskId>\`) for the \`merge-pending\` detour.
+
+> **Route shared-integration merges through \`serialize_merge\`.** When the trigger is a shared integration branch (the \`merge-pending\` detour is the common case), land it via \`serialize_merge\` per the single-writer entry point above — \`serialize_merge\` composes this action under a lease. A direct raw \`merge_orchestrate\` dispatch is for a non-integration or already-lease-held merge only; against a leased integration ref it fails closed (\`MERGE_LEASE_HELD\`).
 
 Do **not** activate this skill:
 - To merge a remote PR — that is \`merge_pr\`. The two are disjoint actions; see Disambiguation below.
@@ -16118,6 +16337,8 @@ Do **not** activate this skill:
 Strategy is required at the schema layer (collision check + user-visible parity). There is no implicit default — operator intent is always explicit in the event log.
 
 ### Step 2: Invoke
+
+> **Integration merge?** The direct invocation below is the raw executor form — use it for a **non-integration** or already **lease-held** merge. For a shared integration branch, invoke \`serialize_merge\` instead (it composes this exact call under a single-writer lease); see the single-writer entry point above.
 
 Via MCP (illustrative — the canonical arg names come from \`describe\`):
 
@@ -16164,7 +16385,7 @@ When \`phase === 'aborted'\`, the data payload discriminates the cause:
 
 | \`data.reason\` | Payload fields | Cause | Operator remediation |
 |---------------|----------------|-------|----------------------|
-| \`target-checked-out-elsewhere\` | \`siblingWorktreePath: string\` (absolute path) | Target branch is already checked out in a sibling worktree of the same repository. Detected by the worktree-availability preflight *before* any event emission, executor invocation, or state persistence. | Resolve the sibling worktree: either remove it (\`git worktree remove <path>\`), switch its checkout to another branch, or invoke \`merge_orchestrate\` against a different target. Then re-dispatch. |
+| \`target-checked-out-elsewhere\` | \`siblingWorktreePath: string\` (absolute path) | Target branch is already checked out in a sibling worktree of the same repository. Detected by the worktree-availability preflight *before* any event emission, executor invocation, or state persistence. | Resolve the sibling worktree: either remove it (\`git worktree remove <path>\`), switch its checkout to another branch, or re-run the merge against a different target. Then re-dispatch (through \`serialize_merge\` for a shared integration ref). |
 | *(body preflight failures)* | \`data.preflight: { ancestry, worktree, currentBranchProtection, drift }\` | Body-preflight guard failed (ancestry mismatch, worktree drift, protected current branch, etc.). | Inspect \`preflight.*\` sub-results to identify which guard failed. Resolve the underlying condition (e.g., commit/stash drift, switch off a protected branch) and re-dispatch. |
 
 The \`target-checked-out-elsewhere\` abort path is special: it suppresses both the \`merge.requested\` and \`merge.preflight\` events and skips state persistence entirely. This guarantees the event log is never contaminated with an attempt that could not have captured a correct recovery point (the executor would have read HEAD from the wrong worktree).
@@ -16220,6 +16441,7 @@ Note: the \`target-checked-out-elsewhere\` early-abort path runs *before* the re
 
 | Don't | Do Instead |
 |-------|------------|
+| Dispatch raw \`merge_orchestrate\` to land onto a **shared integration branch** | Route through \`serialize_merge\` (single-writer lease); raw \`merge_orchestrate\` is for a non-integration / lease-held merge — a live foreign lease makes it fail closed (\`MERGE_LEASE_HELD\`) |
 | Use this skill to merge a remote PR | Use the \`merge_pr\` skill |
 | Manually emit \`merge.preflight\` / \`merge.requested\` / \`merge.executed\` / \`merge.rollback\` / \`merge.recovered\` in normal flow | Let the handler auto-emit; manual emission causes duplicates (one exception: documented manual-recovery flow in [\`recovery-runbook.md\`](references/recovery-runbook.md)) |
 | Wrap merge events under \`gate.executed\` | Direct stream append with the dedicated event type — these are state transitions, not gate executions |
@@ -17616,7 +17838,7 @@ This skill uses VCS operations through Exarchos MCP actions (\`check_ci\`, \`lis
 These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
 No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
 
-> The \`merge_pr\` invoked here is the remote PR merge primitive (synthesize-phase). It is distinct from \`merge_orchestrate\` (\`@skills/merge-orchestrator/SKILL.md\`), which is the local \`git merge\` orchestrator used during the upstream \`merge-pending\` substate. This skill never invokes \`merge_orchestrate\`.
+> The \`merge_pr\` invoked here is the remote PR merge primitive (synthesize-phase). It is distinct from the integration merge run during the upstream \`merge-pending\` substate — there, \`serialize_merge\` (\`@skills/merge-orchestrator/SKILL.md\`) is the integration-merge path: it holds a single-writer lease and composes the local \`git merge\` (raw \`merge_orchestrate\` is that composed executor / the non-integration path). This skill never invokes \`serialize_merge\` or \`merge_orchestrate\`.
 
 Iterative loop that shepherds published PRs through CI checks and code reviews to merge readiness. Uses the \`assess_stack\` composite action for all PR health checks, fixing failures and addressing feedback until the stack is green.
 
@@ -17929,7 +18151,7 @@ This skill uses VCS operations through Exarchos MCP actions (\`create_pr\`, \`me
 These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
 No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
 
-> **Not to be confused with \`merge_orchestrate\`.** This skill calls \`merge_pr\` to land a user-facing PR on \`main\` via the VCS provider — a remote operation. \`merge_orchestrate\` (\`@skills/merge-orchestrator/SKILL.md\`) is the upstream sibling: a local \`git merge\` of a subagent worktree branch onto the integration branch during the \`delegate → merge-pending → delegate\` HSM loop. Synthesize never invokes \`merge_orchestrate\`; merge-pending never invokes \`merge_pr\`.
+> **Not to be confused with the integration merge.** This skill calls \`merge_pr\` to land a user-facing PR on \`main\` via the VCS provider — a remote operation. The upstream sibling is \`serialize_merge\` (\`@skills/merge-orchestrator/SKILL.md\`): the integration-merge path that holds a single-writer lease and composes a local \`git merge\` of a subagent worktree branch onto the integration branch during the \`delegate → merge-pending → delegate\` HSM loop (raw \`merge_orchestrate\` is that composed executor / the non-integration path). Synthesize never invokes \`serialize_merge\` or \`merge_orchestrate\`; merge-pending never invokes \`merge_pr\`.
 
 ## Overview
 
@@ -18112,7 +18334,21 @@ mcp__exarchos__exarchos_workflow({
 })
 \`\`\`
 
-Then sync: \`git fetch --prune\` and remove worktrees.
+Then sync: \`git fetch --prune\` and reclaim worktrees.
+
+> **Worktree GC cadence — after synthesize (INV-12).** Once a workflow reaches
+> synthesis its governed worktrees are no longer needed, so this is the point to
+> reclaim them. Use the governed garbage-collector \`prune_worktrees\` rather than
+> ad-hoc \`git worktree remove\`: dry-run first (the default — reports candidates
+> + reclaimable bytes, deletes nothing), then re-invoke with \`dryRun: false\` to
+> apply.
+> \`\`\`typescript
+> mcp__exarchos__exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>" })            // dry-run (default)
+> mcp__exarchos__exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>", dryRun: false }) // apply
+> \`\`\`
+> The \`next_actions\` projection surfaces this same \`prune_worktrees\` dry-run
+> affordance once the workflow is parked in synthesis. The full apply flow lands
+> in \`@skills/cleanup/SKILL.md\`.
 
 ## Anti-Patterns
 
@@ -18991,14 +19227,32 @@ This single call:
 
 ### 4. Worktree Cleanup
 
-Remove all worktrees associated with the workflow:
-\`\`\`bash
-# Read worktrees from state (already captured in step 1)
-git worktree remove .worktrees/<name>
-git worktree prune
+Reclaim all worktrees associated with the workflow through the governed
+garbage-collector \`prune_worktrees\` — **not** ad-hoc \`git worktree remove\`.
+
+> **GC cadence — after synthesize (INV-12).** Governed worktrees become
+> reclaimable once a workflow reaches synthesis; cleanup runs post-merge (after
+> synthesize completes), so this is the natural point to apply the reclamation.
+> The \`next_actions\` projection surfaces the same \`prune_worktrees\` dry-run
+> affordance from synthesis onward.
+
+\`prune_worktrees\` runs the fail-closed safety ladder (it refuses to destroy a
+worktree with unsaved work) and auto-emits the \`worktree.remove.requested\` /
+\`worktree.remove.executed\` pair per deleted worktree. Dry-run first (the default
+— reports candidates + reclaimable bytes + grouped skip reasons, deletes
+nothing), then apply:
+
+\`\`\`typescript
+// Dry-run (default) — preview candidates, delete nothing
+mcp__exarchos__exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>" })
+
+// Apply — reclaim the delete-eligible candidates
+mcp__exarchos__exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>", dryRun: false })
 \`\`\`
 
-Handle gracefully if worktrees are already removed.
+Handle gracefully if worktrees are already removed. If the GC skips a worktree
+(e.g. uncommitted work), resolve the reported reason before re-applying — never
+force-remove a dirty worktree by hand.
 
 ### 5. Branch Sync
 
@@ -19597,9 +19851,11 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Worktree-Bearing Tasks: Auto-Detour to \`merge-pending\`
 
-When a \`task.completed\` event carries a worktree association (\`data.worktree\` or \`data.worktreePath\`), the HSM auto-transitions through \`feature/merge-pending\` before reaching \`review\`. The \`next_actions\` projection surfaces a \`merge_orchestrate\` verb (idempotency-keyed by \`\${streamId}:merge_orchestrate:\${taskId}\`) so a runtime that consumes \`next_actions\` will dispatch the merge automatically.
+When a \`task.completed\` event carries a worktree association (\`data.worktree\` or \`data.worktreePath\`), the HSM auto-transitions through \`feature/merge-pending\` before reaching \`review\`. The \`next_actions\` projection surfaces the merge verb (idempotency-keyed by \`\${streamId}:merge_orchestrate:\${taskId}\`) so a runtime that consumes \`next_actions\` will dispatch the merge automatically.
 
-The merge lands the subagent's branch on the integration branch via a local \`git merge\` with a recorded rollback SHA — see \`@skills/merge-orchestrator/SKILL.md\`. The HSM exits \`merge-pending\` back to \`delegate\` once the merge terminates (\`completed\` / \`rolled-back\` / \`aborted\`), at which point \`delegate\` either re-enters \`merge-pending\` for the next worktree-bearing task or transitions on to \`review\` when all delegation is complete.
+**Land it through \`serialize_merge\`.** The integration branch is shared — sibling worktree merges within the same wave (or a concurrent operator) can race for it. \`serialize_merge\` is THE integration-merge path: it holds an optimistic per-\`integrationRef\` single-writer lease, then composes \`merge_orchestrate\` unchanged to do the local \`git merge\` with a recorded recovery-point SHA — see \`@skills/merge-orchestrator/SKILL.md\`. Do **not** dispatch raw \`merge_orchestrate\` to land onto the integration branch — a live foreign lease makes it fail closed (\`MERGE_LEASE_HELD\`, naming \`serialize_merge\`). Raw \`merge_orchestrate\` is for a non-integration merge (a private / scratch branch no sibling will touch) or a crash-resumed caller re-presenting its original lease.
+
+The HSM exits \`merge-pending\` back to \`delegate\` once the merge terminates (\`completed\` / \`rolled-back\` / \`aborted\`), at which point \`delegate\` either re-enters \`merge-pending\` for the next worktree-bearing task or transitions on to \`review\` when all delegation is complete.
 
 This detour is invisible to the delegation skill itself — the all-tasks-complete guard still gates the \`delegate → review\` transition. The merge-pending substate just sits between task completion and the next dispatch decision.
 
@@ -19625,7 +19881,8 @@ for orchestrate action schemas.
 ## When integration advances mid-wave
 
 Runbook for recovering when a subagent worktree's branch has diverged from the
-integration branch. Triggered by \`merge_orchestrate\` ancestry preflight: the
+integration branch. Triggered by the integration merge's ancestry preflight
+(run by the composed \`merge_orchestrate\` inside \`serialize_merge\`): the
 failure message links here verbatim and includes the manual \`git rebase\`
 command. Auto-rebase is **not** wired today — operators
 must drive recovery by hand.
@@ -19686,18 +19943,25 @@ subagent worktree) and that \`git status\` is clean.
    genuine drift between the two branches, not preflight noise. Do **not**
    pass \`--strategy-option=theirs\` blindly; that drops the subagent's work.
 
-3. **Re-run ancestry preflight from the main worktree:**
+3. **Re-run the integration merge from the main worktree** — through
+   \`serialize_merge\`, which re-composes \`merge_orchestrate\`'s ancestry
+   preflight under the single-writer lease:
 
    \`\`\`typescript
    exarchos_orchestrate({
-     action: "merge_orchestrate",
+     action: "serialize_merge",
      featureId: "<featureId>",
+     integrationRef: "<integration-branch>",
+     sourceBranch: "<feature-branch>",
+     strategy: "squash",           // squash | rebase | merge
      taskId: "<taskId>",
    })
    \`\`\`
 
    The preflight should now pass. Proceed with the orchestrator's normal
-   merge flow.
+   merge flow. (Re-run raw \`merge_orchestrate\` directly only for a
+   non-integration merge, or as the crash-resumed caller re-presenting its
+   original \`leaseOperationId\`.)
 
 ### Rollback procedure
 
@@ -20305,11 +20569,11 @@ When delegation skill spawns parallel tasks:
 
 ## Merge-Pending Handoff
 
-When a subagent completes a task in its worktree, the workflow's HSM transitions from \`delegate\` to \`feature/merge-pending\`. The \`merge_orchestrate\` action lands the worktree's branch onto the integration branch via a local \`git merge\` with a recorded rollback SHA — see \`@skills/merge-orchestrator/SKILL.md\` for the full handoff protocol.
+When a subagent completes a task in its worktree, the workflow's HSM transitions from \`delegate\` to \`feature/merge-pending\`. Because the integration branch is shared — sibling worktree merges can race for it — \`serialize_merge\` is the integration-merge path: it holds a single-writer per-\`integrationRef\` lease, then composes \`merge_orchestrate\` to land the worktree's branch onto the integration branch via a local \`git merge\` with a recorded recovery-point SHA — see \`@skills/merge-orchestrator/SKILL.md\` for the full handoff protocol. Do **not** dispatch raw \`merge_orchestrate\` for this integration merge (a live foreign lease makes it fail closed); raw \`merge_orchestrate\` is for a non-integration merge or a crash-resumed caller re-presenting its original lease.
 
-Worktree cleanup (step 7 above) runs after the merge orchestrator reports \`phase: 'completed'\`.
+Worktree cleanup (step 7 above) runs after the merge reports \`phase: 'completed'\`.
 
-This is **not** the same as the synthesize-phase remote PR merge (\`merge_pr\`). \`merge_orchestrate\` operates on local refs in the main worktree; \`merge_pr\` calls the VCS provider once the integration branch is ready for the human-review PR.
+This is **not** the same as the synthesize-phase remote PR merge (\`merge_pr\`). \`serialize_merge\` / \`merge_orchestrate\` operate on local refs in the main worktree; \`merge_pr\` calls the VCS provider once the integration branch is ready for the human-review PR.
 
 ## Completion Criteria
 
@@ -20640,7 +20904,7 @@ Phase transitions auto-emit \`workflow.transition\` events via \`exarchos_workfl
 exports[`task 025 — per-runtime snapshot baselines > runtime: generic > Snapshots_AllSkillsAllRuntimes_MatchBaseline: skills/generic/merge-orchestrator/SKILL.md > skills/generic/merge-orchestrator/SKILL.md 1`] = `
 "---
 name: merge-orchestrator
-description: "Land a subagent worktree branch onto an integration branch with preflight + recorded recovery point. Triggers: operator (or \`next_actions\`) surfaces verb \`merge_orchestrate\` via Exarchos MCP. Local git operation — NOT remote PR merging (that is \`merge_pr\`)."
+description: "The composed executor that lands a subagent worktree branch onto an integration branch with preflight + recorded recovery point. For a shared integration branch route through \`serialize_merge\` (the single-writer lease that composes this action); invoke \`merge_orchestrate\` directly only for a non-integration merge or when you already hold the lease. Triggers: operator (or \`next_actions\`) surfaces the merge verb via Exarchos MCP. Local git operation — NOT remote PR merging (that is \`merge_pr\`)."
 metadata:
   author: exarchos
   version: 1.2.0
@@ -20655,6 +20919,18 @@ metadata:
 This skill performs **local \`git merge\`** of a source (subagent) worktree branch into a target (integration) branch, recording a **recovery point** SHA so the INV-14 recovery ladder (\`git merge --abort\` → \`git reset --keep\`, never \`--hard\`) can rewind the merge on any failure. It does **not** call the VCS provider (GitHub / GitLab / Azure DevOps) and does not require a PR id. For remote PR merging, see the companion skill that wraps the \`merge_pr\` action.
 
 The mental model and the rationale for why these are two separate concerns are documented in \`references/local-git-semantics.md\`.
+
+## Single-Writer Entry Point: \`serialize_merge\`
+
+For a **shared integration branch** — landing a subagent worktree branch onto the integration ref during the \`delegate → merge-pending → delegate\` loop, where a sibling worktree merge can race — **\`serialize_merge\` is THE integration-merge path.** It acquires an optimistic per-\`integrationRef\` lease (at most one in-flight merge per integration ref), then composes **this** action UNCHANGED under that lease. Route integration merges through \`serialize_merge\`; do **not** dispatch raw \`merge_orchestrate\` for them.
+
+Invoke \`merge_orchestrate\` directly **only** where no concurrent merge can race the target:
+
+- **Non-integration merge** — the target is a private / scratch / solo branch no other agent will touch.
+- **Crash-resumed caller** — a new pid finishing a merge it already leased, re-presenting the ORIGINAL claim's \`leaseOperationId\`.
+- **The composed executor call** that \`serialize_merge\` itself makes (it threads its lease \`operationId\` so its own call passes the guard).
+
+**DR-2 lease guard.** Raw \`merge_orchestrate\` against an integration ref that carries a live *foreign* lease (holder \`operationId\` ≠ the presented \`leaseOperationId\`, holder liveness ∈ {alive, unknown}) fails **closed** with a structured \`MERGE_LEASE_HELD\` error and **no git side effect** — the message names \`serialize_merge\` as the path. A no-lease or provably-dead-holder target proceeds exactly as before (back-compat; a dead holder is not a blocker). So the routing above is enforced at the handler chokepoint, not merely by convention — reach for \`serialize_merge\`.
 
 ## Overview
 
@@ -20675,7 +20951,9 @@ Activate this skill when:
 
 - The operator runs \`exarchos merge-orchestrate ...\` (CLI).
 - \`mcp__exarchos__exarchos_orchestrate({ action: "merge_orchestrate", ... })\` is invoked directly.
-- An automated \`next_actions\` envelope surfaces a \`merge_orchestrate\` verb with idempotency key \`<streamId>:merge_orchestrate:<taskId>\`.
+- An automated \`next_actions\` envelope surfaces the merge verb (idempotency key \`<streamId>:merge_orchestrate:<taskId>\`) for the \`merge-pending\` detour.
+
+> **Route shared-integration merges through \`serialize_merge\`.** When the trigger is a shared integration branch (the \`merge-pending\` detour is the common case), land it via \`serialize_merge\` per the single-writer entry point above — \`serialize_merge\` composes this action under a lease. A direct raw \`merge_orchestrate\` dispatch is for a non-integration or already-lease-held merge only; against a leased integration ref it fails closed (\`MERGE_LEASE_HELD\`).
 
 Do **not** activate this skill:
 - To merge a remote PR — that is \`merge_pr\`. The two are disjoint actions; see Disambiguation below.
@@ -20696,6 +20974,8 @@ Do **not** activate this skill:
 Strategy is required at the schema layer (collision check + user-visible parity). There is no implicit default — operator intent is always explicit in the event log.
 
 ### Step 2: Invoke
+
+> **Integration merge?** The direct invocation below is the raw executor form — use it for a **non-integration** or already **lease-held** merge. For a shared integration branch, invoke \`serialize_merge\` instead (it composes this exact call under a single-writer lease); see the single-writer entry point above.
 
 Via MCP (illustrative — the canonical arg names come from \`describe\`):
 
@@ -20742,7 +21022,7 @@ When \`phase === 'aborted'\`, the data payload discriminates the cause:
 
 | \`data.reason\` | Payload fields | Cause | Operator remediation |
 |---------------|----------------|-------|----------------------|
-| \`target-checked-out-elsewhere\` | \`siblingWorktreePath: string\` (absolute path) | Target branch is already checked out in a sibling worktree of the same repository. Detected by the worktree-availability preflight *before* any event emission, executor invocation, or state persistence. | Resolve the sibling worktree: either remove it (\`git worktree remove <path>\`), switch its checkout to another branch, or invoke \`merge_orchestrate\` against a different target. Then re-dispatch. |
+| \`target-checked-out-elsewhere\` | \`siblingWorktreePath: string\` (absolute path) | Target branch is already checked out in a sibling worktree of the same repository. Detected by the worktree-availability preflight *before* any event emission, executor invocation, or state persistence. | Resolve the sibling worktree: either remove it (\`git worktree remove <path>\`), switch its checkout to another branch, or re-run the merge against a different target. Then re-dispatch (through \`serialize_merge\` for a shared integration ref). |
 | *(body preflight failures)* | \`data.preflight: { ancestry, worktree, currentBranchProtection, drift }\` | Body-preflight guard failed (ancestry mismatch, worktree drift, protected current branch, etc.). | Inspect \`preflight.*\` sub-results to identify which guard failed. Resolve the underlying condition (e.g., commit/stash drift, switch off a protected branch) and re-dispatch. |
 
 The \`target-checked-out-elsewhere\` abort path is special: it suppresses both the \`merge.requested\` and \`merge.preflight\` events and skips state persistence entirely. This guarantees the event log is never contaminated with an attempt that could not have captured a correct recovery point (the executor would have read HEAD from the wrong worktree).
@@ -20798,6 +21078,7 @@ Note: the \`target-checked-out-elsewhere\` early-abort path runs *before* the re
 
 | Don't | Do Instead |
 |-------|------------|
+| Dispatch raw \`merge_orchestrate\` to land onto a **shared integration branch** | Route through \`serialize_merge\` (single-writer lease); raw \`merge_orchestrate\` is for a non-integration / lease-held merge — a live foreign lease makes it fail closed (\`MERGE_LEASE_HELD\`) |
 | Use this skill to merge a remote PR | Use the \`merge_pr\` skill |
 | Manually emit \`merge.preflight\` / \`merge.requested\` / \`merge.executed\` / \`merge.rollback\` / \`merge.recovered\` in normal flow | Let the handler auto-emit; manual emission causes duplicates (one exception: documented manual-recovery flow in [\`recovery-runbook.md\`](references/recovery-runbook.md)) |
 | Wrap merge events under \`gate.executed\` | Direct stream append with the dedicated event type — these are state transitions, not gate executions |
@@ -22194,7 +22475,7 @@ This skill uses VCS operations through Exarchos MCP actions (\`check_ci\`, \`lis
 These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
 No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
 
-> The \`merge_pr\` invoked here is the remote PR merge primitive (synthesize-phase). It is distinct from \`merge_orchestrate\` (\`@skills/merge-orchestrator/SKILL.md\`), which is the local \`git merge\` orchestrator used during the upstream \`merge-pending\` substate. This skill never invokes \`merge_orchestrate\`.
+> The \`merge_pr\` invoked here is the remote PR merge primitive (synthesize-phase). It is distinct from the integration merge run during the upstream \`merge-pending\` substate — there, \`serialize_merge\` (\`@skills/merge-orchestrator/SKILL.md\`) is the integration-merge path: it holds a single-writer lease and composes the local \`git merge\` (raw \`merge_orchestrate\` is that composed executor / the non-integration path). This skill never invokes \`serialize_merge\` or \`merge_orchestrate\`.
 
 Iterative loop that shepherds published PRs through CI checks and code reviews to merge readiness. Uses the \`assess_stack\` composite action for all PR health checks, fixing failures and addressing feedback until the stack is green.
 
@@ -22507,7 +22788,7 @@ This skill uses VCS operations through Exarchos MCP actions (\`create_pr\`, \`me
 These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
 No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
 
-> **Not to be confused with \`merge_orchestrate\`.** This skill calls \`merge_pr\` to land a user-facing PR on \`main\` via the VCS provider — a remote operation. \`merge_orchestrate\` (\`@skills/merge-orchestrator/SKILL.md\`) is the upstream sibling: a local \`git merge\` of a subagent worktree branch onto the integration branch during the \`delegate → merge-pending → delegate\` HSM loop. Synthesize never invokes \`merge_orchestrate\`; merge-pending never invokes \`merge_pr\`.
+> **Not to be confused with the integration merge.** This skill calls \`merge_pr\` to land a user-facing PR on \`main\` via the VCS provider — a remote operation. The upstream sibling is \`serialize_merge\` (\`@skills/merge-orchestrator/SKILL.md\`): the integration-merge path that holds a single-writer lease and composes a local \`git merge\` of a subagent worktree branch onto the integration branch during the \`delegate → merge-pending → delegate\` HSM loop (raw \`merge_orchestrate\` is that composed executor / the non-integration path). Synthesize never invokes \`serialize_merge\` or \`merge_orchestrate\`; merge-pending never invokes \`merge_pr\`.
 
 ## Overview
 
@@ -22690,7 +22971,21 @@ mcp__exarchos__exarchos_workflow({
 })
 \`\`\`
 
-Then sync: \`git fetch --prune\` and remove worktrees.
+Then sync: \`git fetch --prune\` and reclaim worktrees.
+
+> **Worktree GC cadence — after synthesize (INV-12).** Once a workflow reaches
+> synthesis its governed worktrees are no longer needed, so this is the point to
+> reclaim them. Use the governed garbage-collector \`prune_worktrees\` rather than
+> ad-hoc \`git worktree remove\`: dry-run first (the default — reports candidates
+> + reclaimable bytes, deletes nothing), then re-invoke with \`dryRun: false\` to
+> apply.
+> \`\`\`typescript
+> mcp__exarchos__exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>" })            // dry-run (default)
+> mcp__exarchos__exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>", dryRun: false }) // apply
+> \`\`\`
+> The \`next_actions\` projection surfaces this same \`prune_worktrees\` dry-run
+> affordance once the workflow is parked in synthesis. The full apply flow lands
+> in \`@skills/cleanup/SKILL.md\`.
 
 ## Anti-Patterns
 
@@ -23569,14 +23864,32 @@ This single call:
 
 ### 4. Worktree Cleanup
 
-Remove all worktrees associated with the workflow:
-\`\`\`bash
-# Read worktrees from state (already captured in step 1)
-git worktree remove .worktrees/<name>
-git worktree prune
+Reclaim all worktrees associated with the workflow through the governed
+garbage-collector \`prune_worktrees\` — **not** ad-hoc \`git worktree remove\`.
+
+> **GC cadence — after synthesize (INV-12).** Governed worktrees become
+> reclaimable once a workflow reaches synthesis; cleanup runs post-merge (after
+> synthesize completes), so this is the natural point to apply the reclamation.
+> The \`next_actions\` projection surfaces the same \`prune_worktrees\` dry-run
+> affordance from synthesis onward.
+
+\`prune_worktrees\` runs the fail-closed safety ladder (it refuses to destroy a
+worktree with unsaved work) and auto-emits the \`worktree.remove.requested\` /
+\`worktree.remove.executed\` pair per deleted worktree. Dry-run first (the default
+— reports candidates + reclaimable bytes + grouped skip reasons, deletes
+nothing), then apply:
+
+\`\`\`typescript
+// Dry-run (default) — preview candidates, delete nothing
+mcp__exarchos__exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>" })
+
+// Apply — reclaim the delete-eligible candidates
+mcp__exarchos__exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>", dryRun: false })
 \`\`\`
 
-Handle gracefully if worktrees are already removed.
+Handle gracefully if worktrees are already removed. If the GC skips a worktree
+(e.g. uncommitted work), resolve the reported reason before re-applying — never
+force-remove a dirty worktree by hand.
 
 ### 5. Branch Sync
 
@@ -24202,9 +24515,11 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Worktree-Bearing Tasks: Auto-Detour to \`merge-pending\`
 
-When a \`task.completed\` event carries a worktree association (\`data.worktree\` or \`data.worktreePath\`), the HSM auto-transitions through \`feature/merge-pending\` before reaching \`review\`. The \`next_actions\` projection surfaces a \`merge_orchestrate\` verb (idempotency-keyed by \`\${streamId}:merge_orchestrate:\${taskId}\`) so a runtime that consumes \`next_actions\` will dispatch the merge automatically.
+When a \`task.completed\` event carries a worktree association (\`data.worktree\` or \`data.worktreePath\`), the HSM auto-transitions through \`feature/merge-pending\` before reaching \`review\`. The \`next_actions\` projection surfaces the merge verb (idempotency-keyed by \`\${streamId}:merge_orchestrate:\${taskId}\`) so a runtime that consumes \`next_actions\` will dispatch the merge automatically.
 
-The merge lands the subagent's branch on the integration branch via a local \`git merge\` with a recorded rollback SHA — see \`@skills/merge-orchestrator/SKILL.md\`. The HSM exits \`merge-pending\` back to \`delegate\` once the merge terminates (\`completed\` / \`rolled-back\` / \`aborted\`), at which point \`delegate\` either re-enters \`merge-pending\` for the next worktree-bearing task or transitions on to \`review\` when all delegation is complete.
+**Land it through \`serialize_merge\`.** The integration branch is shared — sibling worktree merges within the same wave (or a concurrent operator) can race for it. \`serialize_merge\` is THE integration-merge path: it holds an optimistic per-\`integrationRef\` single-writer lease, then composes \`merge_orchestrate\` unchanged to do the local \`git merge\` with a recorded recovery-point SHA — see \`@skills/merge-orchestrator/SKILL.md\`. Do **not** dispatch raw \`merge_orchestrate\` to land onto the integration branch — a live foreign lease makes it fail closed (\`MERGE_LEASE_HELD\`, naming \`serialize_merge\`). Raw \`merge_orchestrate\` is for a non-integration merge (a private / scratch branch no sibling will touch) or a crash-resumed caller re-presenting its original lease.
+
+The HSM exits \`merge-pending\` back to \`delegate\` once the merge terminates (\`completed\` / \`rolled-back\` / \`aborted\`), at which point \`delegate\` either re-enters \`merge-pending\` for the next worktree-bearing task or transitions on to \`review\` when all delegation is complete.
 
 This detour is invisible to the delegation skill itself — the all-tasks-complete guard still gates the \`delegate → review\` transition. The merge-pending substate just sits between task completion and the next dispatch decision.
 
@@ -24230,7 +24545,8 @@ for orchestrate action schemas.
 ## When integration advances mid-wave
 
 Runbook for recovering when a subagent worktree's branch has diverged from the
-integration branch. Triggered by \`merge_orchestrate\` ancestry preflight: the
+integration branch. Triggered by the integration merge's ancestry preflight
+(run by the composed \`merge_orchestrate\` inside \`serialize_merge\`): the
 failure message links here verbatim and includes the manual \`git rebase\`
 command. Auto-rebase is **not** wired today — operators
 must drive recovery by hand.
@@ -24291,18 +24607,25 @@ subagent worktree) and that \`git status\` is clean.
    genuine drift between the two branches, not preflight noise. Do **not**
    pass \`--strategy-option=theirs\` blindly; that drops the subagent's work.
 
-3. **Re-run ancestry preflight from the main worktree:**
+3. **Re-run the integration merge from the main worktree** — through
+   \`serialize_merge\`, which re-composes \`merge_orchestrate\`'s ancestry
+   preflight under the single-writer lease:
 
    \`\`\`typescript
    exarchos_orchestrate({
-     action: "merge_orchestrate",
+     action: "serialize_merge",
      featureId: "<featureId>",
+     integrationRef: "<integration-branch>",
+     sourceBranch: "<feature-branch>",
+     strategy: "squash",           // squash | rebase | merge
      taskId: "<taskId>",
    })
    \`\`\`
 
    The preflight should now pass. Proceed with the orchestrator's normal
-   merge flow.
+   merge flow. (Re-run raw \`merge_orchestrate\` directly only for a
+   non-integration merge, or as the crash-resumed caller re-presenting its
+   original \`leaseOperationId\`.)
 
 ### Rollback procedure
 
@@ -24910,11 +25233,11 @@ When delegation skill spawns parallel tasks:
 
 ## Merge-Pending Handoff
 
-When a subagent completes a task in its worktree, the workflow's HSM transitions from \`delegate\` to \`feature/merge-pending\`. The \`merge_orchestrate\` action lands the worktree's branch onto the integration branch via a local \`git merge\` with a recorded rollback SHA — see \`@skills/merge-orchestrator/SKILL.md\` for the full handoff protocol.
+When a subagent completes a task in its worktree, the workflow's HSM transitions from \`delegate\` to \`feature/merge-pending\`. Because the integration branch is shared — sibling worktree merges can race for it — \`serialize_merge\` is the integration-merge path: it holds a single-writer per-\`integrationRef\` lease, then composes \`merge_orchestrate\` to land the worktree's branch onto the integration branch via a local \`git merge\` with a recorded recovery-point SHA — see \`@skills/merge-orchestrator/SKILL.md\` for the full handoff protocol. Do **not** dispatch raw \`merge_orchestrate\` for this integration merge (a live foreign lease makes it fail closed); raw \`merge_orchestrate\` is for a non-integration merge or a crash-resumed caller re-presenting its original lease.
 
-Worktree cleanup (step 7 above) runs after the merge orchestrator reports \`phase: 'completed'\`.
+Worktree cleanup (step 7 above) runs after the merge reports \`phase: 'completed'\`.
 
-This is **not** the same as the synthesize-phase remote PR merge (\`merge_pr\`). \`merge_orchestrate\` operates on local refs in the main worktree; \`merge_pr\` calls the VCS provider once the integration branch is ready for the human-review PR.
+This is **not** the same as the synthesize-phase remote PR merge (\`merge_pr\`). \`serialize_merge\` / \`merge_orchestrate\` operate on local refs in the main worktree; \`merge_pr\` calls the VCS provider once the integration branch is ready for the human-review PR.
 
 ## Completion Criteria
 
@@ -25245,7 +25568,7 @@ Phase transitions auto-emit \`workflow.transition\` events via \`exarchos_workfl
 exports[`task 025 — per-runtime snapshot baselines > runtime: opencode > Snapshots_AllSkillsAllRuntimes_MatchBaseline: skills/opencode/merge-orchestrator/SKILL.md > skills/opencode/merge-orchestrator/SKILL.md 1`] = `
 "---
 name: merge-orchestrator
-description: "Land a subagent worktree branch onto an integration branch with preflight + recorded recovery point. Triggers: operator (or \`next_actions\`) surfaces verb \`merge_orchestrate\` via Exarchos MCP. Local git operation — NOT remote PR merging (that is \`merge_pr\`)."
+description: "The composed executor that lands a subagent worktree branch onto an integration branch with preflight + recorded recovery point. For a shared integration branch route through \`serialize_merge\` (the single-writer lease that composes this action); invoke \`merge_orchestrate\` directly only for a non-integration merge or when you already hold the lease. Triggers: operator (or \`next_actions\`) surfaces the merge verb via Exarchos MCP. Local git operation — NOT remote PR merging (that is \`merge_pr\`)."
 metadata:
   author: exarchos
   version: 1.2.0
@@ -25260,6 +25583,18 @@ metadata:
 This skill performs **local \`git merge\`** of a source (subagent) worktree branch into a target (integration) branch, recording a **recovery point** SHA so the INV-14 recovery ladder (\`git merge --abort\` → \`git reset --keep\`, never \`--hard\`) can rewind the merge on any failure. It does **not** call the VCS provider (GitHub / GitLab / Azure DevOps) and does not require a PR id. For remote PR merging, see the companion skill that wraps the \`merge_pr\` action.
 
 The mental model and the rationale for why these are two separate concerns are documented in \`references/local-git-semantics.md\`.
+
+## Single-Writer Entry Point: \`serialize_merge\`
+
+For a **shared integration branch** — landing a subagent worktree branch onto the integration ref during the \`delegate → merge-pending → delegate\` loop, where a sibling worktree merge can race — **\`serialize_merge\` is THE integration-merge path.** It acquires an optimistic per-\`integrationRef\` lease (at most one in-flight merge per integration ref), then composes **this** action UNCHANGED under that lease. Route integration merges through \`serialize_merge\`; do **not** dispatch raw \`merge_orchestrate\` for them.
+
+Invoke \`merge_orchestrate\` directly **only** where no concurrent merge can race the target:
+
+- **Non-integration merge** — the target is a private / scratch / solo branch no other agent will touch.
+- **Crash-resumed caller** — a new pid finishing a merge it already leased, re-presenting the ORIGINAL claim's \`leaseOperationId\`.
+- **The composed executor call** that \`serialize_merge\` itself makes (it threads its lease \`operationId\` so its own call passes the guard).
+
+**DR-2 lease guard.** Raw \`merge_orchestrate\` against an integration ref that carries a live *foreign* lease (holder \`operationId\` ≠ the presented \`leaseOperationId\`, holder liveness ∈ {alive, unknown}) fails **closed** with a structured \`MERGE_LEASE_HELD\` error and **no git side effect** — the message names \`serialize_merge\` as the path. A no-lease or provably-dead-holder target proceeds exactly as before (back-compat; a dead holder is not a blocker). So the routing above is enforced at the handler chokepoint, not merely by convention — reach for \`serialize_merge\`.
 
 ## Overview
 
@@ -25280,7 +25615,9 @@ Activate this skill when:
 
 - The operator runs \`exarchos merge-orchestrate ...\` (CLI).
 - \`mcp__exarchos__exarchos_orchestrate({ action: "merge_orchestrate", ... })\` is invoked directly.
-- An automated \`next_actions\` envelope surfaces a \`merge_orchestrate\` verb with idempotency key \`<streamId>:merge_orchestrate:<taskId>\`.
+- An automated \`next_actions\` envelope surfaces the merge verb (idempotency key \`<streamId>:merge_orchestrate:<taskId>\`) for the \`merge-pending\` detour.
+
+> **Route shared-integration merges through \`serialize_merge\`.** When the trigger is a shared integration branch (the \`merge-pending\` detour is the common case), land it via \`serialize_merge\` per the single-writer entry point above — \`serialize_merge\` composes this action under a lease. A direct raw \`merge_orchestrate\` dispatch is for a non-integration or already-lease-held merge only; against a leased integration ref it fails closed (\`MERGE_LEASE_HELD\`).
 
 Do **not** activate this skill:
 - To merge a remote PR — that is \`merge_pr\`. The two are disjoint actions; see Disambiguation below.
@@ -25301,6 +25638,8 @@ Do **not** activate this skill:
 Strategy is required at the schema layer (collision check + user-visible parity). There is no implicit default — operator intent is always explicit in the event log.
 
 ### Step 2: Invoke
+
+> **Integration merge?** The direct invocation below is the raw executor form — use it for a **non-integration** or already **lease-held** merge. For a shared integration branch, invoke \`serialize_merge\` instead (it composes this exact call under a single-writer lease); see the single-writer entry point above.
 
 Via MCP (illustrative — the canonical arg names come from \`describe\`):
 
@@ -25347,7 +25686,7 @@ When \`phase === 'aborted'\`, the data payload discriminates the cause:
 
 | \`data.reason\` | Payload fields | Cause | Operator remediation |
 |---------------|----------------|-------|----------------------|
-| \`target-checked-out-elsewhere\` | \`siblingWorktreePath: string\` (absolute path) | Target branch is already checked out in a sibling worktree of the same repository. Detected by the worktree-availability preflight *before* any event emission, executor invocation, or state persistence. | Resolve the sibling worktree: either remove it (\`git worktree remove <path>\`), switch its checkout to another branch, or invoke \`merge_orchestrate\` against a different target. Then re-dispatch. |
+| \`target-checked-out-elsewhere\` | \`siblingWorktreePath: string\` (absolute path) | Target branch is already checked out in a sibling worktree of the same repository. Detected by the worktree-availability preflight *before* any event emission, executor invocation, or state persistence. | Resolve the sibling worktree: either remove it (\`git worktree remove <path>\`), switch its checkout to another branch, or re-run the merge against a different target. Then re-dispatch (through \`serialize_merge\` for a shared integration ref). |
 | *(body preflight failures)* | \`data.preflight: { ancestry, worktree, currentBranchProtection, drift }\` | Body-preflight guard failed (ancestry mismatch, worktree drift, protected current branch, etc.). | Inspect \`preflight.*\` sub-results to identify which guard failed. Resolve the underlying condition (e.g., commit/stash drift, switch off a protected branch) and re-dispatch. |
 
 The \`target-checked-out-elsewhere\` abort path is special: it suppresses both the \`merge.requested\` and \`merge.preflight\` events and skips state persistence entirely. This guarantees the event log is never contaminated with an attempt that could not have captured a correct recovery point (the executor would have read HEAD from the wrong worktree).
@@ -25403,6 +25742,7 @@ Note: the \`target-checked-out-elsewhere\` early-abort path runs *before* the re
 
 | Don't | Do Instead |
 |-------|------------|
+| Dispatch raw \`merge_orchestrate\` to land onto a **shared integration branch** | Route through \`serialize_merge\` (single-writer lease); raw \`merge_orchestrate\` is for a non-integration / lease-held merge — a live foreign lease makes it fail closed (\`MERGE_LEASE_HELD\`) |
 | Use this skill to merge a remote PR | Use the \`merge_pr\` skill |
 | Manually emit \`merge.preflight\` / \`merge.requested\` / \`merge.executed\` / \`merge.rollback\` / \`merge.recovered\` in normal flow | Let the handler auto-emit; manual emission causes duplicates (one exception: documented manual-recovery flow in [\`recovery-runbook.md\`](references/recovery-runbook.md)) |
 | Wrap merge events under \`gate.executed\` | Direct stream append with the dedicated event type — these are state transitions, not gate executions |
@@ -26799,7 +27139,7 @@ This skill uses VCS operations through Exarchos MCP actions (\`check_ci\`, \`lis
 These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
 No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
 
-> The \`merge_pr\` invoked here is the remote PR merge primitive (synthesize-phase). It is distinct from \`merge_orchestrate\` (\`@skills/merge-orchestrator/SKILL.md\`), which is the local \`git merge\` orchestrator used during the upstream \`merge-pending\` substate. This skill never invokes \`merge_orchestrate\`.
+> The \`merge_pr\` invoked here is the remote PR merge primitive (synthesize-phase). It is distinct from the integration merge run during the upstream \`merge-pending\` substate — there, \`serialize_merge\` (\`@skills/merge-orchestrator/SKILL.md\`) is the integration-merge path: it holds a single-writer lease and composes the local \`git merge\` (raw \`merge_orchestrate\` is that composed executor / the non-integration path). This skill never invokes \`serialize_merge\` or \`merge_orchestrate\`.
 
 Iterative loop that shepherds published PRs through CI checks and code reviews to merge readiness. Uses the \`assess_stack\` composite action for all PR health checks, fixing failures and addressing feedback until the stack is green.
 
@@ -27112,7 +27452,7 @@ This skill uses VCS operations through Exarchos MCP actions (\`create_pr\`, \`me
 These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
 No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
 
-> **Not to be confused with \`merge_orchestrate\`.** This skill calls \`merge_pr\` to land a user-facing PR on \`main\` via the VCS provider — a remote operation. \`merge_orchestrate\` (\`@skills/merge-orchestrator/SKILL.md\`) is the upstream sibling: a local \`git merge\` of a subagent worktree branch onto the integration branch during the \`delegate → merge-pending → delegate\` HSM loop. Synthesize never invokes \`merge_orchestrate\`; merge-pending never invokes \`merge_pr\`.
+> **Not to be confused with the integration merge.** This skill calls \`merge_pr\` to land a user-facing PR on \`main\` via the VCS provider — a remote operation. The upstream sibling is \`serialize_merge\` (\`@skills/merge-orchestrator/SKILL.md\`): the integration-merge path that holds a single-writer lease and composes a local \`git merge\` of a subagent worktree branch onto the integration branch during the \`delegate → merge-pending → delegate\` HSM loop (raw \`merge_orchestrate\` is that composed executor / the non-integration path). Synthesize never invokes \`serialize_merge\` or \`merge_orchestrate\`; merge-pending never invokes \`merge_pr\`.
 
 ## Overview
 
@@ -27295,7 +27635,21 @@ mcp__exarchos__exarchos_workflow({
 })
 \`\`\`
 
-Then sync: \`git fetch --prune\` and remove worktrees.
+Then sync: \`git fetch --prune\` and reclaim worktrees.
+
+> **Worktree GC cadence — after synthesize (INV-12).** Once a workflow reaches
+> synthesis its governed worktrees are no longer needed, so this is the point to
+> reclaim them. Use the governed garbage-collector \`prune_worktrees\` rather than
+> ad-hoc \`git worktree remove\`: dry-run first (the default — reports candidates
+> + reclaimable bytes, deletes nothing), then re-invoke with \`dryRun: false\` to
+> apply.
+> \`\`\`typescript
+> mcp__exarchos__exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>" })            // dry-run (default)
+> mcp__exarchos__exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>", dryRun: false }) // apply
+> \`\`\`
+> The \`next_actions\` projection surfaces this same \`prune_worktrees\` dry-run
+> affordance once the workflow is parked in synthesis. The full apply flow lands
+> in \`@skills/cleanup/SKILL.md\`.
 
 ## Anti-Patterns
 

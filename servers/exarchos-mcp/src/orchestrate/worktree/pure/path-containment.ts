@@ -141,6 +141,33 @@ function toAbsolutePosix(p: string): string {
 }
 
 /**
+ * Reduce `p` to the single canonical form containment compares against — the
+ * launcher's canonicalizer (`toPosix` + `realpathSync.native` 8.3 handling, DR-5):
+ *
+ *   1. make absolute in a separator-agnostic way ({@link toAbsolutePosix}), so a
+ *      win32 `C:\…` and a POSIX `/…` input both become an absolute POSIX path
+ *      without a win32 `path.resolve` mangling the injected-resolver POSIX inputs;
+ *   2. resolve symlinks AND Windows 8.3 SHORT names through the injected
+ *      {@link RealpathResolver} — the default {@link defaultRealpath} uses
+ *      `fs.realpathSync.native`, the only API that expands `RUNNER~1`→`runneradmin`;
+ *   3. normalize separators to POSIX ({@link toPosix}, #1620) so the key is
+ *      byte-identical across platforms.
+ *
+ * This is the ONE place worktree containment routes through the canonicalizer:
+ * {@link isPathWithin} reduces BOTH operands through it before the pure predicate
+ * compares them, so a symlinked (`/var`→`/private/var`) or 8.3-shortened
+ * (`RUNNER~1`→`runneradmin`) path containment-matches its long/canonical form.
+ * Exported so the launcher and its tests share the exact reduction rather than
+ * re-deriving it. A strict no-op on POSIX for an already-canonical absolute path.
+ */
+export function canonicalizeForContainment(
+  p: string,
+  realpath: RealpathResolver = defaultRealpath,
+): string {
+  return toPosix(realpath(toAbsolutePosix(p)));
+}
+
+/**
  * True when `candidatePath` is the worktree root itself or lives strictly
  * within it, after resolving symlinks on BOTH sides.
  *
@@ -163,8 +190,8 @@ export function isPathWithin(
   realpath: RealpathResolver = defaultRealpath,
 ): boolean {
   return isPathWithinCanonical(
-    toPosix(realpath(toAbsolutePosix(candidatePath))),
-    toPosix(realpath(toAbsolutePosix(worktreePath))),
+    canonicalizeForContainment(candidatePath, realpath),
+    canonicalizeForContainment(worktreePath, realpath),
   );
 }
 

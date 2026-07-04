@@ -444,6 +444,12 @@ jobs:
       - name: Windows-portability gate self-test (#1623)
         run: bash scripts/check-windows-portability.test.sh
 
+      - name: WLM wiring gate — DR-1 retry adapter + DR-2 skills reroute (task-004)
+        run: node scripts/check-wlm-wiring.mjs
+
+      - name: WLM wiring gate self-test (task-004)
+        run: bash scripts/check-wlm-wiring.test.sh
+
       - name: npm-ci-retry helper tests
         run: bash scripts/npm-ci-retry.test.sh
 
@@ -619,6 +625,16 @@ jobs:
           # job now fails CI like any other tier, guarding against regressions.
           if [[ "${{ needs.test-windows.result }}" =~ ^(failure|cancelled)$ ]]; then
             echo "::error::Windows unit tests: ${{ needs.test-windows.result }}"
+            exit 1
+          fi
+          # DR-5 (WLM slice 3): the windows lane is REQUIRED for any MCP change.
+          # The aggregator treats generic skips as OK (non-MCP PRs legitimately
+          # skip test-windows via `changes.outputs.mcp`). But if MCP code DID
+          # change and the lane was skipped, that's a path-filter/matrix
+          # regression dropping our only Windows coverage — fail closed.
+          if [[ "${{ needs.changes.outputs.mcp }}" == 'true' \
+             && "${{ needs.test-windows.result }}" == 'skipped' ]]; then
+            echo "::error::Windows lane skipped on an MCP-touching PR (path-filter/matrix regression dropped required Windows coverage)"
             exit 1
           fi
           if [[ "${{ needs.validate-no-legacy.result }}" =~ ^(failure|cancelled)$ ]]; then

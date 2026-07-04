@@ -109,14 +109,32 @@ This single call:
 
 ### 4. Worktree Cleanup
 
-Remove all worktrees associated with the workflow:
-```bash
-# Read worktrees from state (already captured in step 1)
-git worktree remove .worktrees/<name>
-git worktree prune
+Reclaim all worktrees associated with the workflow through the governed
+garbage-collector `prune_worktrees` — **not** ad-hoc `git worktree remove`.
+
+> **GC cadence — after synthesize (INV-12).** Governed worktrees become
+> reclaimable once a workflow reaches synthesis; cleanup runs post-merge (after
+> synthesize completes), so this is the natural point to apply the reclamation.
+> The `next_actions` projection surfaces the same `prune_worktrees` dry-run
+> affordance from synthesis onward.
+
+`prune_worktrees` runs the fail-closed safety ladder (it refuses to destroy a
+worktree with unsaved work) and auto-emits the `worktree.remove.requested` /
+`worktree.remove.executed` pair per deleted worktree. Dry-run first (the default
+— reports candidates + reclaimable bytes + grouped skip reasons, deletes
+nothing), then apply:
+
+```typescript
+// Dry-run (default) — preview candidates, delete nothing
+{{MCP_PREFIX}}exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>" })
+
+// Apply — reclaim the delete-eligible candidates
+{{MCP_PREFIX}}exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>", dryRun: false })
 ```
 
-Handle gracefully if worktrees are already removed.
+Handle gracefully if worktrees are already removed. If the GC skips a worktree
+(e.g. uncommitted work), resolve the reported reason before re-applying — never
+force-remove a dirty worktree by hand.
 
 ### 5. Branch Sync
 

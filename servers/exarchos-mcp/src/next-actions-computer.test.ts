@@ -427,3 +427,61 @@ describe('computeNextActions — deep-rung affordances (DR-7, task 018)', () => 
     expect(verbs).not.toContain('divergent_loop');
   });
 });
+
+// ─── DR-2 (WLM slice 3, task 008): post-synthesize prune-cadence affordance ───
+//
+// After a workflow reaches the SYNTHESIZE phase, governed worktrees accumulate
+// with no GC cadence surfaced anywhere. `computeNextActions` publishes an
+// INV-12 prune-cadence hint suggesting a `prune_worktrees` dry-run — gated on
+// the phase's KIND (SYNTHESIZE, INV-6), so it fires for every workflow type's
+// synthesis leg and NEVER on the mid-implementation MERGE substate or any
+// earlier phase.
+describe('computeNextActions — post-synthesize prune cadence (DR-2, task 008, INV-12)', () => {
+  it('NextActions_PostSynthesize_SuggestsPruneWorktreesDryRun', () => {
+    const hsm = getHSMDefinition('feature');
+    const actions = computeNextActions(
+      { phase: 'synthesize', workflowType: 'feature' },
+      hsm,
+    );
+
+    const prune = actions.find((a) => a.verb === 'prune_worktrees');
+    expect(prune).toBeDefined();
+    expect(prune?.validTargets).toEqual(['prune_worktrees']);
+    // The cadence hint MUST steer the caller to a dry-run first (INV-5c).
+    expect(prune?.reason.toLowerCase()).toContain('dry-run');
+    expect(prune?.hint?.toLowerCase()).toContain('dry-run');
+
+    // Every affordance validates against the NextAction schema (shape drift
+    // fails loud rather than shipping a malformed envelope).
+    for (const a of actions) {
+      expect(NextAction.safeParse(a).success).toBe(true);
+    }
+  });
+
+  it('NextActions_PostSynthesize_AllWorkflowTypes_SuggestPrune', () => {
+    // The affordance is KIND-gated (SYNTHESIZE), so every workflow type whose
+    // synthesis leg reuses that kind surfaces it — proving the gate is on kind,
+    // not the feature-specific phase name (INV-6).
+    for (const workflowType of ['feature', 'debug', 'oneshot', 'refactor']) {
+      const hsm = getHSMDefinition(workflowType);
+      const verbs = computeNextActions(
+        { phase: 'synthesize', workflowType },
+        hsm,
+      ).map((a) => a.verb);
+      expect(verbs).toContain('prune_worktrees');
+    }
+  });
+
+  it('NextActions_OtherPhases_NoPruneSuggestion', () => {
+    const hsm = getHSMDefinition('feature');
+    // Non-synthesize phases — including the mid-implementation MERGE substate
+    // (`merge-pending`, kind MERGE) — must NOT surface the prune cadence hint.
+    const otherPhases = ['plan', 'plan-review', 'delegate', 'review', 'merge-pending'];
+    for (const phase of otherPhases) {
+      const verbs = computeNextActions({ phase, workflowType: 'feature' }, hsm).map(
+        (a) => a.verb,
+      );
+      expect(verbs).not.toContain('prune_worktrees');
+    }
+  });
+});

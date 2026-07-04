@@ -31,9 +31,9 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { z } from 'zod';
+import { defaultRealpath } from '../orchestrate/worktree/pure/path-containment.js';
 
 /**
  * Shape of the PreToolUse hook payload we depend on. Validated with `safeParse`
@@ -77,18 +77,15 @@ function defaultGitToplevel(cwd: string): string | null {
   }
 }
 
-/** realpath that resolves the longest existing ancestor, then re-appends the
- *  non-existent tail — so a brand-new file path still canonicalizes through
- *  any symlinked parent (defeats symlink-escape) without throwing on ENOENT. */
-function defaultRealpath(p: string): string {
-  try {
-    return fs.realpathSync(p);
-  } catch {
-    const parent = path.dirname(p);
-    if (parent === p) return p;
-    return path.join(defaultRealpath(parent), path.basename(p));
-  }
-}
+// The realpath seam is the SHARED, `.native`-hardened {@link defaultRealpath}
+// from `pure/path-containment.ts` — the single canonicalizer (#1620). A private
+// copy here previously used the plain `fs.realpathSync`, which does NOT expand
+// Windows 8.3 SHORT names: on win32 CI `git rev-parse --show-toplevel` emits the
+// LONG form (`…/runneradmin/…`) while the write target realpath'd through the
+// un-hardened copy kept the 8.3 form (`…/RUNNER~1/…`), so the username segments
+// diverged, `path.relative` climbed out, and legitimate in-worktree writes were
+// wrongly DENIED. Routing through the one shared resolver removes that whole
+// class of drift (`.native` expands both sides to the long form; no-op on POSIX).
 
 /** True when `target` is the root itself or lives strictly within it. */
 function isWithin(root: string, target: string): boolean {

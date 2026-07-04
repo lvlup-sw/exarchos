@@ -39,10 +39,12 @@ import {
   WORKTREES_REDUCER,
   defaultGitRunner,
   type GitRunner,
+  type GitWorktreeProbe,
 } from './manager.js';
 import type { ProcessSource, StartTimeProbe } from './pure/process-identity.js';
 import type { WorktreesProjection } from './projections/worktrees.js';
 import { canonicalWorktreeId } from './pure/path-containment.js';
+import { IndexLockContentionError, type SleepFn } from './git-retry.js';
 
 // ─── git + event-store helpers ──────────────────────────────────────────────
 
@@ -140,7 +142,14 @@ function orphanWorktree(wtPath: string): void {
 
 // ─── Suite ──────────────────────────────────────────────────────────────────
 
-describe('WorktreeManager.prune (real git + real event store)', () => {
+// skipIf(win32): every test here builds WorktreeManager with the DEFAULT process
+// table, whose win32 enumeration (Get-CimInstance, DR-5) is nondeterministic on the
+// shared CI runner — a live process' cwd may transiently resolve inside a temp
+// worktree, flipping prune occupancy verdicts ('in-use' vs 'dirty'/'delete-eligible')
+// at random. These tests predate win32 enumeration (they assumed the off-Linux
+// 'unknown' path). Gated off win32 until #1641 injects a deterministic
+// ProcessTableSource to restore meaningful win32 coverage; Linux coverage unchanged.
+describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git + real event store)', () => {
   let stateDir: string;
   let workdir: string;
   let store: EventStore;
@@ -565,6 +574,113 @@ describe('WorktreeManager.prune (real git + real event store)', () => {
     expect(stillListed).toBe(false);
   });
 
+  // ─── INV-10 prune-run liveness pair (DR-3) ────────────────────────────────
+
+  it('PruneWorktrees_Run_EmitsStartedAndTerminalExactlyOnce', async () => {
+    const repo = await initRepoWithOrigin(workdir, 'repo');
+    git(repo, ['branch', 'feat/integ']);
+    await setIntegrationBranch(store, 'feat-live', 'feat/integ');
+    const wtPath = path.join(workdir, 'wt-live');
+    addWorktree(repo, wtPath, 'live-branch');
+
+    const manager = new WorktreeManager({ eventStore: store });
+    const wtId = await makeReleased(manager, wtPath, 'feat-live');
+
+    const result = await manager.prune({ repoRoot: repo, apply: true });
+    expect(result.deleted).toContain(wtId);
+
+    // Exactly one started + one terminal — the INV-10 1:1 liveness pair.
+    const started = eventsOfType(store, 'prune.executing_started');
+    const executed = eventsOfType(store, 'prune.executed');
+    expect(started).toHaveLength(1);
+    expect(executed).toHaveLength(1);
+
+    // Same operationId correlates the pair.
+    const startData = started[0].data as {
+      operationId?: unknown;
+      repoRoot?: unknown;
+      holderPid?: unknown;
+    };
+    const endData = executed[0].data as {
+      operationId?: unknown;
+      deletedCount?: unknown;
+    };
+    expect(typeof startData.operationId).toBe('string');
+    expect(endData.operationId).toBe(startData.operationId);
+    // Started carries the live-holder identity + the governed repo root.
+    expect(startData.repoRoot).toBe(repo);
+    expect(startData.holderPid).toBe(process.pid);
+    // Terminal reports how many worktrees the pass deleted (one here).
+    expect(endData.deletedCount).toBe(1);
+
+    // Started BRACKETS the whole pass: before the deletion intent, terminal after.
+    const removeReq = eventsOfType(store, 'worktree.remove.requested')[0];
+    const removeExe = eventsOfType(store, 'worktree.remove.executed')[0];
+    expect(started[0].sequence as number).toBeLessThan(
+      removeReq.sequence as number,
+    );
+    expect(executed[0].sequence as number).toBeGreaterThan(
+      removeExe.sequence as number,
+    );
+
+    // The terminal CLEARED the in-flight marker — no phantom prune survives.
+    expect((await projection(store)).inFlightPrunes).toEqual({});
+  });
+
+  it('PruneWorktrees_DryRun_AlsoEmitsLivenessPairSoPsSeesIt', async () => {
+    // A dry-run prune still runs the adopt-gate + per-candidate git probes, so it
+    // too must be `ps`/`wait`-visible — emission is NOT gated on `apply`.
+    const repo = await initRepoWithOrigin(workdir, 'repo');
+    const wtPath = path.join(workdir, 'wt-dry');
+    addWorktree(repo, wtPath, 'dry-branch');
+
+    const manager = new WorktreeManager({ eventStore: store });
+    const result = await manager.prune({ repoRoot: repo }); // default ⇒ dry-run
+    expect(result.dryRun).toBe(true);
+
+    const started = eventsOfType(store, 'prune.executing_started');
+    const executed = eventsOfType(store, 'prune.executed');
+    expect(started).toHaveLength(1);
+    expect(executed).toHaveLength(1);
+    // Nothing deleted on a dry-run ⇒ terminal reports 0.
+    expect((executed[0].data as { deletedCount?: unknown }).deletedCount).toBe(0);
+    // In-flight marker cleared after the pass.
+    expect((await projection(store)).inFlightPrunes).toEqual({});
+  });
+
+  it('PruneWorktrees_LadderThrows_StillEmitsTerminal_PairStays1To1', async () => {
+    // INV-10 phantom-safety: even when the ladder throws mid-pass, the `finally`
+    // emits the paired terminal, so a failed prune never strands a phantom
+    // in-flight prune. The started fired; the terminal must too — exactly once.
+    const repo = await initRepo(path.join(workdir, 'repo'));
+    const boom: GitWorktreeProbe = {
+      listWorktrees() {
+        throw new Error('git worktree list blew up mid-prune');
+      },
+      verifyHead() {
+        throw new Error('unreached — listWorktrees throws first');
+      },
+    };
+    const manager = new WorktreeManager({ eventStore: store, gitProbe: boom });
+
+    await expect(
+      manager.prune({ repoRoot: repo, apply: true }),
+    ).rejects.toThrow(/blew up mid-prune/);
+
+    const started = eventsOfType(store, 'prune.executing_started');
+    const executed = eventsOfType(store, 'prune.executed');
+    expect(started).toHaveLength(1);
+    expect(executed).toHaveLength(1);
+    // The terminal correlates to the started even on the failure path.
+    const startOp = (started[0].data as { operationId?: unknown }).operationId;
+    expect((executed[0].data as { operationId?: unknown }).operationId).toBe(
+      startOp,
+    );
+    // Deleted nothing ⇒ terminal reports 0; in-flight cleared (no phantom).
+    expect((executed[0].data as { deletedCount?: unknown }).deletedCount).toBe(0);
+    expect((await projection(store)).inFlightPrunes).toEqual({});
+  });
+
   // ─── crash between requested and executed resumes idempotently ────────────
 
   it('Prune_CrashBetweenRequestedAndDelete_ResumesIdempotently_SingleExecuted', async () => {
@@ -783,5 +899,135 @@ describe('WorktreeManager.prune (real git + real event store)', () => {
     ).toBe(false);
     // The crashed deletion was completed: entry dropped.
     expect((await projection(store)).worktrees[wtId]).toBeUndefined();
+  });
+
+  // ─── DR-1: the prune remove path is wrapped in the index.lock retry kernel ──
+  //
+  // These tests prove the manager ITSELF retries on transient `.git/index.lock`
+  // contention (DR-1 wiring of the DR-8 `withIndexLockRetry` kernel) — not a
+  // stub. They drive the real `removeWorktreeIfRegistered` mutation and inject a
+  // `gitRunner` that simulates `index.lock` contention on the `git worktree
+  // remove` attempts, with the backoff `sleep` injected so the retry sequence is
+  // deterministic and incurs no real wall-clock wait.
+
+  /** A no-op injected sleep that records the backoff delays passed to it. */
+  function recordingSleep(): { sleep: SleepFn; delays: number[] } {
+    const delays: number[] = [];
+    return {
+      delays,
+      sleep: async (ms: number) => {
+        delays.push(ms);
+      },
+    };
+  }
+
+  /** The exact lock-contention diagnostic git writes to stderr under #55724. */
+  const INDEX_LOCK_STDERR =
+    "fatal: Unable to create '/repo/.git/index.lock': File exists.\n" +
+    'Another git process seems to be running in this repository.';
+
+  it('PruneExecutor_TransientIndexLock_RetriesWithBackoffThenRemoves', async () => {
+    const repo = await initRepoWithOrigin(workdir, 'repo');
+    git(repo, ['branch', 'feat/integ']); // integration ref at HEAD → merged
+    await setIntegrationBranch(store, 'feat-lock', 'feat/integ');
+    const wtPath = path.join(workdir, 'wt-lock-retry');
+    const wtId = addWorktree(repo, wtPath, 'lock-retry-branch');
+
+    // Fail the FIRST two `git worktree remove` attempts with an index.lock
+    // contention error (status 128 + the lock diagnostic on stderr), then let
+    // the real git remove run on the third attempt and succeed.
+    let removeAttempts = 0;
+    const contendingRunner: GitRunner = {
+      run(args, cwd) {
+        const isRemove = args[0] === 'worktree' && args[1] === 'remove';
+        if (isRemove) {
+          removeAttempts += 1;
+          if (removeAttempts <= 2) {
+            return { status: 128, stdout: '', stderr: INDEX_LOCK_STDERR };
+          }
+        }
+        return defaultGitRunner.run(args, cwd);
+      },
+    };
+
+    const { sleep, delays } = recordingSleep();
+    const manager = new WorktreeManager({
+      eventStore: store,
+      gitRunner: contendingRunner,
+      sleep,
+      jitter: () => 0, // zero jitter → deterministic [200, 400, 800] backoff base
+    });
+    const releasedId = await makeReleased(manager, wtPath, 'feat-lock');
+    expect(releasedId).toBe(wtId);
+
+    // Drive the real deletion path: `removeWorktreeIfRegistered` must retry past
+    // the two transient lock failures and ultimately remove the worktree.
+    await manager.prune({ repoRoot: repo, apply: true });
+
+    // Retried exactly twice (3 total attempts), then succeeded.
+    expect(removeAttempts).toBe(3);
+    // Two backoff sleeps were applied (zero jitter ⇒ 200ms, 400ms).
+    expect(delays).toEqual([200, 400]);
+    // The worktree was actually removed: one executed event with removed:true.
+    const executedTrue = eventsOfType(store, 'worktree.remove.executed').filter(
+      (e) => (e.data as { removed?: unknown }).removed === true,
+    );
+    expect(executedTrue).toHaveLength(1);
+    // And the projection entry is dropped.
+    expect((await projection(store)).worktrees[wtId]).toBeUndefined();
+  });
+
+  it('PruneExecutor_ExhaustedIndexLockRetry_PropagatesStructuredErrorNoDelete', async () => {
+    const repo = await initRepo(path.join(workdir, 'repo'));
+    const wtPath = path.join(workdir, 'wt-lock-exhaust');
+    const wtId = addWorktree(repo, wtPath, 'lock-exhaust-branch');
+
+    // EVERY `git worktree remove` attempt loses the index.lock race — the
+    // contention never clears, so the bounded retry budget is exhausted.
+    let removeAttempts = 0;
+    const alwaysContendingRunner: GitRunner = {
+      run(args, cwd) {
+        const isRemove = args[0] === 'worktree' && args[1] === 'remove';
+        if (isRemove) {
+          removeAttempts += 1;
+          return { status: 128, stdout: '', stderr: INDEX_LOCK_STDERR };
+        }
+        return defaultGitRunner.run(args, cwd);
+      },
+    };
+
+    const { sleep } = recordingSleep();
+    const manager = new WorktreeManager({
+      eventStore: store,
+      gitRunner: alwaysContendingRunner,
+      sleep,
+      jitter: () => 0,
+      maxIndexLockRetries: 2, // shrink the budget: 3 total attempts then exhaust
+    });
+    const releasedId = await makeReleased(manager, wtPath, null);
+
+    // A crashed deletion whose worktree is STILL registered forces the recovery
+    // path to actually run `git worktree remove` (the DR-1 retry seam),
+    // independent of the eligibility ladder.
+    const operationId = randomUUID();
+    await store.append(
+      WORKTREES_STREAM,
+      {
+        type: 'worktree.remove.requested',
+        data: { operationId, worktreePath: wtPath, worktreeId: releasedId },
+      },
+      { idempotencyKey: `worktree.remove.requested:${operationId}` },
+    );
+
+    // Exhausted retries surface a STRUCTURED error, never a silent no-op (DR-1).
+    await expect(manager.prune({ repoRoot: repo, apply: true })).rejects.toThrow(
+      IndexLockContentionError,
+    );
+    // Initial attempt + 2 retries = 3 total before exhaustion.
+    expect(removeAttempts).toBe(3);
+    // The remove mutation failed, so NO executed event committed — the entry is
+    // still tracked (no half-state false-drop).
+    expect(eventsOfType(store, 'worktree.remove.executed')).toHaveLength(0);
+    expect((await projection(store)).worktrees[wtId]).toBeDefined();
   });
 });

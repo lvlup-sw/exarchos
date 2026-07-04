@@ -25,9 +25,11 @@ import * as path from 'node:path';
 
 import { EventStore } from '../event-store/store.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
+import { LaunchExecutingStartedData } from '../event-store/schemas.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 import { WORKTREES_STREAM } from '../orchestrate/worktree/manager.js';
+import type { ProcessSource } from '../orchestrate/worktree/pure/process-identity.js';
 import type {
   AsyncSpawnRequest,
   ChildHandle,
@@ -445,5 +447,47 @@ describe('runLifecycle — launcher lifecycle integrator (real git + real event 
     expect(existsSync(data.worktreePath)).toBe(true);
     // ...and the launch ran to its guaranteed terminal.
     expect(eventsOfType(store, LAUNCH_EXECUTED)).toHaveLength(1);
+  }, 20_000);
+
+  // ── LauncherClaim_HolderStartedAt_NonEmptyOrNullPerSchema (#1635, DR-6) ───────
+  //
+  // When the platform CANNOT resolve the supervisor's create-time, the launcher
+  // must mint the liveness CLAIM with holderStartedAt: null — NEVER the empty
+  // string '' (the ''-vs-.min(1) invalid-raw-event class task-014 closed for
+  // ownerStartedAt, mirrored here for holderStartedAt). Drive the real emit
+  // through a ProcessSource that cannot probe (no explicit holderStartedAt), then
+  // assert the PERSISTED claim carries null and stays schema-valid — while ''
+  // is rejected by the null-ready `.min(1).nullable()` schema.
+  it('LauncherClaim_HolderStartedAt_NonEmptyOrNullPerSchema', async () => {
+    const fake = makeFakeSpawn({ code: 0, signal: null });
+    // A source that never resolves a create-time — the create-time-unresolvable
+    // platform (missing `ps` / permission error / unsupported OS).
+    const unresolvable: ProcessSource = { getStartTime: () => ({ status: 'unknown' }) };
+
+    const result = await runLifecycle(makeParams(), {
+      ctx,
+      spawnChild: fake.fn,
+      processSource: unresolvable,
+      newBranch: 'launch-nullstart',
+      repoRoot: repo,
+      // holderStartedAt intentionally OMITTED → force the resolver path.
+    });
+    expect(result.success).toBe(true);
+
+    const claims = eventsOfType(store, LAUNCH_EXECUTING_STARTED);
+    expect(claims).toHaveLength(1);
+    const holderStartedAt = claims[0].data?.holderStartedAt;
+    // The minted create-time is explicit null (the unresolvable-platform contract)…
+    expect(holderStartedAt).toBeNull();
+    // …and is NEVER the empty string — the forbidden invalid-raw-event value.
+    expect(holderStartedAt).not.toBe('');
+    // The holder PID is still a real liveness anchor (only the create-time is null).
+    expect(typeof claims[0].data?.holderPid).toBe('number');
+
+    // The persisted claim satisfies the null-ready schema; '' is REJECTED by it.
+    expect(() => LaunchExecutingStartedData.parse(claims[0].data)).not.toThrow();
+    expect(() =>
+      LaunchExecutingStartedData.parse({ ...claims[0].data, holderStartedAt: '' }),
+    ).toThrow();
   }, 20_000);
 });

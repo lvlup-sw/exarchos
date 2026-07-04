@@ -326,6 +326,17 @@ export const EventTypes = [
   // in-runtime, event-sourced counterpart to the manual `/exarchos:dogfood`
   // transcript triage, which now reads this stream as input.
   'feedback.recorded',
+  // WLM slice 3 (DR-3, epic #1574) — prune-run liveness pair (INV-10). Rides the
+  // singleton `worktrees` stream alongside the worktree lifecycle family and is
+  // folded by `worktrees@v1` into `inFlightPrunes` (keyed by `operationId`).
+  // `prune.executing_started` records the live holder (the process running the
+  // `prune_worktrees` GC pass) so a long pass is observable as "started but not
+  // yet terminated"; `prune.executed` is the paired terminal that clears the
+  // in-flight marker (never a phantom). Makes an in-flight prune `ps`/`wait`-
+  // visible — the rolled-forward foundation deferral. Both are `auto`
+  // deterministic plumbing: the WorktreeManager owns both appends around the pass.
+  'prune.executing_started',
+  'prune.executed',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -715,6 +726,12 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   // deterministically when the action is invoked, so the model is never
   // separately nagged to hand-emit it. ('auto', not 'model'.)
   'feedback.recorded': 'auto',
+
+  // WLM slice 3 (DR-3) — prune-run liveness pair. Both `auto`: the
+  // WorktreeManager owns both appends deterministically around the prune pass,
+  // so the model is never asked to hand-emit them.
+  'prune.executing_started': 'auto',
+  'prune.executed': 'auto',
 };
 
 // ─── Base Event Schema ──────────────────────────────────────────────────────
@@ -2033,9 +2050,13 @@ export const WorktreeRemoveExecutedData = z.object({
  * Keys are minted by callers; the schema's contract is only that every
  * lifecycle payload carries `operationId` so callers can build the key.
  *
- * `ownerPid` / `ownerStartedAt` identify the holding process and are non-null
- * only on `worktree.reserved` (the reservation records who holds the lease);
- * the other three may pass null.
+ * `ownerPid` / `ownerStartedAt` identify the holding process. `ownerPid` is
+ * non-null only on `worktree.reserved` (the reservation records who holds the
+ * lease); `ownerStartedAt` is a NON-EMPTY create-time fingerprint on a reserved
+ * event when the platform can resolve it, or null when it cannot (DR-5 — a
+ * create-time-unresolvable platform reserves with `ownerStartedAt: null`, NEVER
+ * the empty string `''`; the `.min(1).nullable()` shape mirrors the launcher's
+ * `holderStartedAt`). The other three lifecycle events may pass null for both.
  */
 const WorktreeLifecycleBaseData = z.object({
   worktreeId: z.string().min(1).describe('Canonical (symlink-resolved) worktree path — stable identity'),
@@ -2051,7 +2072,11 @@ export const WorktreeAdoptedData = WorktreeLifecycleBaseData.extend({
 
 export const WorktreeReservedData = WorktreeLifecycleBaseData.extend({
   ownerPid: z.number().int().describe('PID of the reserving process (non-null for reservations)'),
-  ownerStartedAt: z.string().min(1).describe('Reserving process start time (ISO 8601, non-null for reservations)'),
+  ownerStartedAt: z
+    .string()
+    .min(1)
+    .nullable()
+    .describe('Reserving process start time (ISO 8601) — non-empty when resolved, or null when the platform cannot resolve create-time (DR-5, never the empty string)'),
 });
 
 export const WorktreeReleasedData = WorktreeLifecycleBaseData.extend({
@@ -2201,7 +2226,10 @@ export const LaunchExecutingStartedData = z.object({
   holderStartedAt: z
     .string()
     .min(1)
-    .describe('Child process start time (ISO 8601) — disambiguates PID reuse'),
+    .nullable()
+    .describe(
+      'Supervisor process start time (ISO 8601) — disambiguates PID reuse; non-empty when resolved, or null when the platform cannot resolve create-time (DR-6, never the empty string)',
+    ),
 });
 
 /**
@@ -2796,6 +2824,38 @@ export const FeedbackRecordedData = z.object({
   upstreamDelivered: z.boolean().optional(),
 });
 
+// ─── Prune-run liveness (WLM slice 3, DR-3 / INV-10) ────────────────────────
+//
+// `prune.executing_started` records the START of a `prune_worktrees` GC pass;
+// `prune.executed` is the paired TERMINAL. The pair rides the singleton
+// `worktrees` stream and is folded by `worktrees@v1` into `inFlightPrunes`
+// (keyed by `operationId`) so an in-flight prune is `ps`/`wait`-visible — the
+// INV-10 liveness idiom shared with the merge / launch / mutation pairs.
+
+/** Emitted at the START of a `prune_worktrees` GC pass (DR-3). */
+export const PruneExecutingStartedData = z.object({
+  /** Correlation key + `inFlightPrunes` map key — one per prune pass. */
+  operationId: z.string().min(1),
+  /** Repo root the prune pass governs. */
+  repoRoot: z.string().min(1),
+  /** PID of the live process running the prune (liveness ground truth). */
+  holderPid: z.number().int(),
+  /**
+   * Holder process create-time (ISO 8601) — disambiguates PID reuse for a later
+   * dead-holder reconciler. Modeled as `null` (never `''`) when the platform
+   * cannot resolve it, mirroring the DR-5 `ownerStartedAt` / `holderStartedAt`
+   * null-ready contract.
+   */
+  holderStartedAt: z.string().min(1).nullable(),
+});
+
+/** Paired TERMINAL: the `prune_worktrees` GC pass completed (DR-3). */
+export const PruneExecutedData = z.object({
+  operationId: z.string().min(1),
+  /** How many worktrees the pass deleted (0 on a dry-run or a no-op pass). */
+  deletedCount: z.number().int().nonnegative(),
+});
+
 // ─── Event Data Schemas Map ─────────────────────────────────────────────────
 
 export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
@@ -3020,6 +3080,10 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   // #1261 — dispatch-guard preflight observability
   'dispatch.preflight': DispatchPreflightData,
   'stash.detected': StashDetectedData,
+
+  // WLM slice 3 (DR-3 / INV-10) — prune-run liveness pair.
+  'prune.executing_started': PruneExecutingStartedData,
+  'prune.executed': PruneExecutedData,
 };
 
 // ─── TypeScript Types ───────────────────────────────────────────────────────
@@ -3170,6 +3234,10 @@ export type DispatchPreflight = z.infer<typeof DispatchPreflightData>;
 export type StashDetected = z.infer<typeof StashDetectedData>;
 export type FeedbackRecorded = z.infer<typeof FeedbackRecordedData>;
 
+// WLM slice 3 (DR-3 / INV-10) — prune-run liveness pair.
+export type PruneExecutingStarted = z.infer<typeof PruneExecutingStartedData>;
+export type PruneExecuted = z.infer<typeof PruneExecutedData>;
+
 // ─── Event Data Map ─────────────────────────────────────────────────────────
 
 export type EventDataMap = {
@@ -3309,6 +3377,9 @@ export type EventDataMap = {
   'dispatch.preflight': DispatchPreflight;
   'stash.detected': StashDetected;
   'feedback.recorded': FeedbackRecorded;
+  // WLM slice 3 (DR-3 / INV-10) — prune-run liveness pair.
+  'prune.executing_started': PruneExecutingStarted;
+  'prune.executed': PruneExecuted;
 };
 
 // ─── Event Catalog Serialization ────────────────────────────────────────────

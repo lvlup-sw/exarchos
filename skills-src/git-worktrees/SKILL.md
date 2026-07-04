@@ -179,11 +179,11 @@ When delegation skill spawns parallel tasks:
 
 ## Merge-Pending Handoff
 
-When a subagent completes a task in its worktree, the workflow's HSM transitions from `delegate` to `feature/merge-pending`. The `merge_orchestrate` action lands the worktree's branch onto the integration branch via a local `git merge` with a recorded rollback SHA — see `@skills/merge-orchestrator/SKILL.md` for the full handoff protocol.
+When a subagent completes a task in its worktree, the workflow's HSM transitions from `delegate` to `feature/merge-pending`. Because the integration branch is shared — sibling worktree merges can race for it — `serialize_merge` is the integration-merge path: it holds a single-writer per-`integrationRef` lease, then composes `merge_orchestrate` to land the worktree's branch onto the integration branch via a local `git merge` with a recorded recovery-point SHA — see `@skills/merge-orchestrator/SKILL.md` for the full handoff protocol. Do **not** dispatch raw `merge_orchestrate` for this integration merge (a live foreign lease makes it fail closed); raw `merge_orchestrate` is for a non-integration merge or a crash-resumed caller re-presenting its original lease.
 
-Worktree cleanup (step 7 above) runs after the merge orchestrator reports `phase: 'completed'`.
+Worktree cleanup (step 7 above) runs after the merge reports `phase: 'completed'`.
 
-This is **not** the same as the synthesize-phase remote PR merge (`merge_pr`). `merge_orchestrate` operates on local refs in the main worktree; `merge_pr` calls the VCS provider once the integration branch is ready for the human-review PR.
+This is **not** the same as the synthesize-phase remote PR merge (`merge_pr`). `serialize_merge` / `merge_orchestrate` operate on local refs in the main worktree; `merge_pr` calls the VCS provider once the integration branch is ready for the human-review PR.
 
 ## Completion Criteria
 

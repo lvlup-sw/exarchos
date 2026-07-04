@@ -383,16 +383,21 @@ export async function handleView(
       return envelopeWrap(await handleViewWorktrees(rest, ctx), startedAt);
 
     case 'ps':
-      // WLM operational core (DR-4) — list the live serialized-merge set from
-      // `inFlightMerges` (no process scan). `probe: true` additionally pulls the
-      // DR-5 process probe and emits worktree.released / worktree.orphan_detected
-      // (the deferred orphan emitter — the sole write path on this view surface).
+      // WLM operational core (DR-4/DR-3) — list the live worktree-layer liveness
+      // pairs from the `worktrees@v1` fold (no process scan): in-flight merges,
+      // launches, AND prunes (`inFlightPrunes`, DR-3). `probe: true` additionally
+      // pulls the DR-5 process probe and emits worktree.released /
+      // worktree.orphan_detected (the deferred orphan emitter — the sole write
+      // path on this view surface). `rest`/`deps` thread every field/mode.
       return envelopeWrap(await handleViewPs(rest, ctx, deps), startedAt);
 
     case 'wait':
-      // WLM operational core (DR-4) — caller-bounded poll until the serialized
-      // merge on `integrationRef` reaches its terminal worktree.merge_executed.
-      // Read-only, structured-timeout-on-expiry, no background timer.
+      // WLM operational core (DR-4/DR-3) — caller-bounded poll. Default
+      // until:'merge' blocks on the serialized merge on `integrationRef` reaching
+      // its terminal worktree.merge_executed; until:'idle' blocks until no
+      // in-flight prune_worktrees pass remains (prune terminal cleared). Both
+      // read-only, structured-timeout-on-expiry, no background timer. `rest`
+      // carries `until`/`integrationRef`/`timeoutMs` through unchanged.
       return envelopeWrap(await handleViewWait(rest, ctx, deps), startedAt);
 
     case 'describe':

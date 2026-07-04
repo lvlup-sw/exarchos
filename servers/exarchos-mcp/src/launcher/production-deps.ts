@@ -36,6 +36,7 @@
 
 import type { EventStore } from '../event-store/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
+import { launcherLogger } from '../logger.js';
 import {
   makeLifecycleTeardown,
   recoverCrashedLaunch,
@@ -153,6 +154,8 @@ export function makeLauncherLifecycleDeps(
         child: sigCtx.child,
         teardown: sigCtx.teardown,
         emitTerminal: sigCtx.emitTerminal,
+        onError: (error: unknown, signal) =>
+          launcherLogger.error({ err: error, signal, holderPid }, 'signal-path teardown/terminal failed'),
         ...(overrides.signalRegistrar ? { signals: overrides.signalRegistrar } : {}),
         ...(overrides.killTimeoutMs !== undefined
           ? { killTimeoutMs: overrides.killTimeoutMs }
@@ -214,8 +217,14 @@ function buildRecoverDeps(overrides: LauncherWiringOverrides): RecoverCrashedLau
   };
 }
 
-/** Probe a process's create-time via the injected source; `''` when unprobed. */
-function resolveStartedAt(pid: number, source: ProcessSource): string {
+/**
+ * Probe a process's create-time via the injected source; `null` (NEVER the empty
+ * string `''`) when the platform cannot resolve it. `null` threads cleanly
+ * through the launcher's null-ready `holderStartedAt` claim contract
+ * (`z.string().min(1).nullable()`), whereas `''` would be the `''`-vs-`.min(1)`
+ * invalid-raw-event class. Mirrors `merge-serializer`'s `resolveSelfStartedAt`.
+ */
+function resolveStartedAt(pid: number, source: ProcessSource): string | null {
   const probe = source.getStartTime(pid);
-  return probe.status === 'present' ? probe.startedAt : '';
+  return probe.status === 'present' ? probe.startedAt : null;
 }

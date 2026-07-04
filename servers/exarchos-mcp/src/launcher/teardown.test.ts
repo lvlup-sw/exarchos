@@ -14,7 +14,7 @@
 //     protected-ancestry), so teardown never refuses over its own cwd;
 //   - a non-git target / unreachable origin fails CLOSED with a structured error.
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { existsSync, realpathSync, writeFileSync } from 'node:fs';
@@ -56,7 +56,17 @@ import {
   teardownLaunch,
   makeLifecycleTeardown,
   recoverCrashedLaunch,
+  defaultOriginReachable,
+  ORIGIN_PROBE_TIMEOUT_MS,
+  type TeardownOutcome,
 } from './teardown.js';
+import {
+  installSignalHandlers,
+  type SignalChild,
+  type SignalListener,
+  type SignalRegistrar,
+  type TrappedSignal,
+} from './signals.js';
 
 // ─── git + event-store helpers (mirror lifecycle.test.ts) ─────────────────────
 
@@ -180,6 +190,37 @@ const HOLDER = {
   holderPid: process.pid,
   holderStartedAt: 'teardown-boot-fingerprint',
 } as const;
+
+// ─── Deterministic signal-registration fake (drives installSignalHandlers) ────
+
+/**
+ * A {@link SignalRegistrar} that captures listeners in-memory so a test drives
+ * the trap by calling {@link fire} — no real signal is delivered to the vitest
+ * process. `fire` awaits each listener so the async trap body (forward → terminal
+ * → reap → teardown) is fully settled before the test asserts.
+ */
+function makeFakeRegistrar(): {
+  registrar: SignalRegistrar;
+  fire(signal: TrappedSignal): Promise<void>;
+} {
+  const listeners = new Map<TrappedSignal, SignalListener[]>();
+  return {
+    registrar: {
+      add(signal, listener) {
+        listeners.set(signal, [...(listeners.get(signal) ?? []), listener]);
+      },
+      remove(signal, listener) {
+        listeners.set(
+          signal,
+          (listeners.get(signal) ?? []).filter((l) => l !== listener),
+        );
+      },
+    },
+    async fire(signal) {
+      await Promise.all((listeners.get(signal) ?? []).map((l) => l(signal)));
+    },
+  };
+}
 
 // ─── Suite ────────────────────────────────────────────────────────────────────
 
@@ -500,21 +541,221 @@ describe('teardownLaunch — launcher teardown safety + recovery (DR-6)', () => 
     expect(noDestructiveGit(nonGit.calls)).toBe(true);
     expect(release.calls).toHaveLength(0);
 
-    // (B) Origin configured but UNREACHABLE: `git ls-remote origin` fails.
+    // (B) Origin configured but UNREACHABLE. The reachability check rides the
+    // async, NON-BLOCKING `originReachable` seam (never a blocking sync `ls-remote`
+    // on the teardown event loop) — injected here to resolve `false` deterministically.
     const unreachable = scriptedGit((args) => {
       if (args[0] === 'rev-parse') return { status: 0, stdout: 'true' };
       if (args[0] === 'remote' && args[1] === 'get-url') return { status: 0, stdout: 'git@x:y.git' };
-      if (args[0] === 'ls-remote') return { status: 128 };
       return { status: 0 };
     });
     const outcomeB = await teardownLaunch(
       { eventStore: store, worktreeId: 'wt-origin', worktreePath: '/some/worktree', exitCode: 0 },
-      { release: release.fn, gitRunner: unreachable.runner, processTableSource: fakeTable([]) },
+      {
+        release: release.fn,
+        gitRunner: unreachable.runner,
+        originReachable: async () => false,
+        processTableSource: fakeTable([]),
+      },
     );
     expect(outcomeB.originError).toBe('origin-unreachable');
     expect(outcomeB.released).toBe(false);
     expect(terminalsFor(store, 'wt-origin')).toHaveLength(1);
     expect(noDestructiveGit(unreachable.calls)).toBe(true);
+    // The sync runner NEVER ran the network `ls-remote` — that is the async seam's job.
+    expect(unreachable.calls.some((a) => a[0] === 'ls-remote')).toBe(false);
     expect(release.calls).toHaveLength(0);
+  }, 20_000);
+
+  // ── Teardown_OriginProbe_NonBlocking (#1635, DR-6) ────────────────────────────
+  //
+  // The origin-reachability probe is the one NETWORK round-trip in the fail-closed
+  // gate. It MUST run through the async, non-blocking seam so a slow/hanging origin
+  // never freezes the launcher's teardown event loop (its signal handling +
+  // terminal emission). A controllable deferred `originReachable` proves teardown
+  // YIELDS to the loop — it stays pending while the probe is in flight, and only
+  // completes once the async probe resolves. A regression to a blocking sync
+  // `ls-remote` would settle the gate synchronously (the injected sync runner even
+  // reports REACHABLE), so teardown would already be settled by the next macrotask.
+  it('Teardown_OriginProbe_NonBlocking', async () => {
+    const release = fakeRelease({ released: true, rejectedForeignOwner: false });
+    // rev-parse ok + origin CONFIGURED; a sync `ls-remote` (the blocking path this
+    // fix removes) would report status 0 = REACHABLE and skip the async seam.
+    const gitRec = scriptedGit((args) => {
+      if (args[0] === 'rev-parse') return { status: 0, stdout: 'true' };
+      if (args[0] === 'remote' && args[1] === 'get-url') return { status: 0, stdout: 'git@x:y.git' };
+      return { status: 0 };
+    });
+
+    // A deferred async origin probe: it records that it STARTED and hands back a
+    // promise the test resolves on demand — so teardown must await the event loop.
+    let resolveProbe!: (reachable: boolean) => void;
+    let probeStarted = false;
+    const originReachable = (): Promise<boolean> => {
+      probeStarted = true;
+      return new Promise<boolean>((r) => {
+        resolveProbe = r;
+      });
+    };
+
+    const pending = teardownLaunch(
+      { eventStore: store, worktreeId: 'wt-nonblock', worktreePath: '/some/worktree', exitCode: 0 },
+      {
+        release: release.fn,
+        gitRunner: gitRec.runner,
+        originReachable,
+        processTableSource: fakeTable([]),
+        selfPid: process.pid,
+      },
+    );
+    let settled = false;
+    void pending.then(() => {
+      settled = true;
+    });
+
+    // Yield the event loop until the async origin probe STARTS *or* teardown
+    // settles — whichever first, bounded only by this test's own timeout, never
+    // a fixed tick budget. The guaranteed-terminal emit that precedes the origin
+    // gate is itself async (a real SQLite append); under a loaded CI runner that
+    // append can take more ticks than any fixed cap, which is exactly what made
+    // the old `for (i < 200)` budget flake. A blocking sync `ls-remote` (the
+    // reverted path) would settle `pending` WITHOUT ever starting the probe, so
+    // the `probeStarted` assertion below still catches that regression.
+    while (!probeStarted && !settled) {
+      await new Promise((r) => setImmediate(r));
+    }
+    // The probe is in flight and unresolved → teardown YIELDED to the loop (the
+    // network round-trip never blocked it), so it has NOT settled.
+    expect(probeStarted).toBe(true);
+    expect(settled).toBe(false);
+
+    // Resolve the async probe (origin reachable) → teardown runs through to release.
+    resolveProbe(true);
+    const outcome = await pending;
+    expect(outcome.originError).toBeUndefined();
+    expect(outcome.released).toBe(true);
+    expect(terminalsFor(store, 'wt-nonblock')).toHaveLength(1);
+  }, 20_000);
+
+  // ── DefaultOriginReachable_HungRemote_FailsClosedOnTimeout ──────────────────
+  //
+  // The default probe spawns `git ls-remote origin`; an unreachable/hung remote
+  // may never emit `close`, so WITHOUT a bound the promise stays pending forever
+  // and teardownLaunch (which awaits it) wedges on shutdown. Assert the bound:
+  // once ORIGIN_PROBE_TIMEOUT_MS elapses, the stalled child is SIGTERM'd and the
+  // verdict fails CLOSED (`false` → origin-unreachable), never a silent hang.
+  it('DefaultOriginReachable_HungRemote_FailsClosedOnTimeout', async () => {
+    vi.useFakeTimers();
+    try {
+      let killSignal: NodeJS.Signals | number | undefined;
+      // A child that NEVER emits `close`/`error` — models a hung `ls-remote`.
+      const hungChild = {
+        on() {
+          return this;
+        },
+        kill(sig?: NodeJS.Signals | number) {
+          killSignal = sig;
+          return true;
+        },
+      };
+      const spawnFn = (() => hungChild) as unknown as typeof import('node:child_process').spawn;
+
+      const probe = defaultOriginReachable('/some/worktree', {
+        spawnFn,
+        timeoutMs: ORIGIN_PROBE_TIMEOUT_MS,
+      });
+      // Nothing settles until the bound elapses …
+      await vi.advanceTimersByTimeAsync(ORIGIN_PROBE_TIMEOUT_MS);
+      // … then the stalled probe is reaped and the verdict fails closed.
+      await expect(probe).resolves.toBe(false);
+      expect(killSignal).toBe('SIGTERM');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // ── Teardown_ChildExitsDuringSignalPath_ReservationReleasedNotLingering (#1634) ─
+  //
+  // DR-6 signal-path race: on a trapped SIGINT/SIGTERM the launcher forwards the
+  // signal, reaps the child, and tears down. Teardown's occupancy probe must run
+  // AFTER the child is reaped — otherwise the still-exiting child is counted as
+  // occupying its OWN reserved worktree, teardown refuses the release
+  // ('worktree-in-use'), and the reservation LINGERS until the next GC. This wires
+  // the REAL installSignalHandlers + REAL teardownLaunch over a REAL reserved
+  // worktree and asserts the reservation is RELEASED promptly on the signal path.
+  it('Teardown_ChildExitsDuringSignalPath_ReservationReleasedNotLingering', async () => {
+    const { worktreeId, worktreePath } = await makeRealWorktree(
+      'exarchos-signalrace',
+      'launch-signalrace',
+    );
+
+    // Ground-truth process table: the spawned CHILD occupies its reserved worktree
+    // (cwd inside it, a live NON-ancestry PID) UNTIL it is reaped. The reap
+    // (reapWithEscalation) is the sole reader of `child.exit`, so reading it models
+    // the OS collecting the child — after which it no longer occupies the worktree.
+    const CHILD_PID = 987654;
+    let childReaped = false;
+    const childRecord: ProcessRecord = {
+      pid: CHILD_PID,
+      ppid: process.pid,
+      cwd: worktreePath,
+      startTime: 'signal-child',
+    };
+    const table: ProcessTableSource = {
+      list: () => (childReaped ? [] : [childRecord]),
+      isSupported: () => true,
+    };
+    const exitPromise = Promise.resolve<SpawnExit>({ code: null, signal: 'SIGTERM' });
+    const child: SignalChild = {
+      kill: () => true,
+      get exit() {
+        childReaped = true; // the reap collects the child → its worktree is freed.
+        return exitPromise;
+      },
+    };
+
+    // The signal path's teardown is the REAL teardownLaunch with the default WLM
+    // release (event-only) over the SAME reserved owner, so a clean release
+    // actually transitions the reservation to `released`. Its outcome is captured
+    // (installSignalHandlers discards it, exactly as makeLifecycleTeardown does).
+    const gitRec = recordingGit();
+    let outcome: TeardownOutcome | undefined;
+    const teardown = async (): Promise<void> => {
+      outcome = await teardownLaunch(
+        { eventStore: store, worktreeId, worktreePath, exitCode: null },
+        {
+          gitRunner: gitRec.runner,
+          processTableSource: table,
+          selfPid: process.pid,
+          owner: { ownerPid: process.pid, ownerStartedAt: 'crashed-owner-fingerprint' },
+        },
+      );
+    };
+
+    const registrar = makeFakeRegistrar();
+    installSignalHandlers({
+      child,
+      teardown,
+      emitTerminal: () => emitLaunchExecuted(store, { worktreeId, exitCode: null }),
+      signals: registrar.registrar,
+    });
+
+    // The operator interrupts the launcher (Ctrl-C / kill) mid-launch.
+    await registrar.fire('SIGTERM');
+
+    // Teardown ran AFTER the reap, so its occupancy probe saw the child gone and
+    // the reservation was RELEASED — not withheld as 'worktree-in-use'.
+    expect(outcome?.released).toBe(true);
+    expect(outcome?.recoveryError).toBeUndefined();
+    // Ground truth in the WLM ledger: the reservation actually transitioned to
+    // `released` — it does NOT linger `reserved` for the next GC to reap.
+    const entry = (await new WorktreeManager({ eventStore: store }).list()).find(
+      (e) => e.worktreeId === worktreeId,
+    );
+    expect(entry?.state).toBe('released');
+    // The guaranteed terminal still rode the signal path exactly once...
+    expect(terminalsFor(store, worktreeId)).toHaveLength(1);
+    // ...and nothing destructive ran (event-only release; work preserved on disk).
+    expect(noResetHard(gitRec.calls)).toBe(true);
   }, 20_000);
 });

@@ -17,7 +17,7 @@ This skill uses VCS operations through Exarchos MCP actions (`create_pr`, `merge
 These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
 No `gh`/`glab`/`az` commands needed — the MCP server handles provider dispatch.
 
-> **Not to be confused with `merge_orchestrate`.** This skill calls `merge_pr` to land a user-facing PR on `main` via the VCS provider — a remote operation. `merge_orchestrate` (`@skills/merge-orchestrator/SKILL.md`) is the upstream sibling: a local `git merge` of a subagent worktree branch onto the integration branch during the `delegate → merge-pending → delegate` HSM loop. Synthesize never invokes `merge_orchestrate`; merge-pending never invokes `merge_pr`.
+> **Not to be confused with the integration merge.** This skill calls `merge_pr` to land a user-facing PR on `main` via the VCS provider — a remote operation. The upstream sibling is `serialize_merge` (`@skills/merge-orchestrator/SKILL.md`): the integration-merge path that holds a single-writer lease and composes a local `git merge` of a subagent worktree branch onto the integration branch during the `delegate → merge-pending → delegate` HSM loop (raw `merge_orchestrate` is that composed executor / the non-integration path). Synthesize never invokes `serialize_merge` or `merge_orchestrate`; merge-pending never invokes `merge_pr`.
 
 ## Overview
 
@@ -200,7 +200,21 @@ mcp__exarchos__exarchos_workflow({
 })
 ```
 
-Then sync: `git fetch --prune` and remove worktrees.
+Then sync: `git fetch --prune` and reclaim worktrees.
+
+> **Worktree GC cadence — after synthesize (INV-12).** Once a workflow reaches
+> synthesis its governed worktrees are no longer needed, so this is the point to
+> reclaim them. Use the governed garbage-collector `prune_worktrees` rather than
+> ad-hoc `git worktree remove`: dry-run first (the default — reports candidates
+> + reclaimable bytes, deletes nothing), then re-invoke with `dryRun: false` to
+> apply.
+> ```typescript
+> mcp__exarchos__exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>" })            // dry-run (default)
+> mcp__exarchos__exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>", dryRun: false }) // apply
+> ```
+> The `next_actions` projection surfaces this same `prune_worktrees` dry-run
+> affordance once the workflow is parked in synthesis. The full apply flow lands
+> in `@skills/cleanup/SKILL.md`.
 
 ## Anti-Patterns
 

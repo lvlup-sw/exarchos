@@ -18,12 +18,16 @@ import { handleView } from '../../views/composite.js';
 import {
   handleAcquireWorktree,
   handleReleaseWorktree,
+  handleViewWorktrees,
 } from './handlers.js';
 import { WORKTREES_STREAM, type GitWorktreeProbe } from './manager.js';
 import type { ProcessSource, StartTimeProbe } from './pure/process-identity.js';
 import type { ProcessTableSource, ProcessRecord } from './pure/probe.js';
-import type { InFlightMerge, WorktreeEntry } from './projections/worktrees.js';
+import type { InFlightMerge, InFlightPrune, WorktreeEntry } from './projections/worktrees.js';
 import { emitLaunchExecutingStarted, emitLaunchExecuted } from '../../launcher/liveness.js';
+import { callCli, callMcp } from '../../__tests__/parity-harness.js';
+import { extractSchemaFields } from '../../adapters/schema-to-flags.js';
+import { TOOL_REGISTRY } from '../../registry.js';
 
 // ─── Deterministic injected deps ─────────────────────────────────────────────
 
@@ -41,6 +45,15 @@ const EMPTY_PROBE: GitWorktreeProbe = {
 /** Fixed, present create-time so reserve is byte-stable and OS-free. */
 const FIXED_SOURCE: ProcessSource = {
   getStartTime: (): StartTimeProbe => ({ status: 'present', startedAt: 'fixed-start' }),
+};
+
+/**
+ * A ProcessSource whose create-time probe can NEVER resolve (permission error /
+ * missing tool / unsupported platform) — models the DR-5 create-time-unresolvable
+ * platform so the derived reservation owner must fall back to `null`, never `''`.
+ */
+const UNRESOLVABLE_SOURCE: ProcessSource = {
+  getStartTime: (): StartTimeProbe => ({ status: 'unknown' }),
 };
 
 const DEPS = { gitProbe: EMPTY_PROBE, processSource: FIXED_SOURCE };
@@ -117,6 +130,45 @@ describe('resolveOwner all-or-nothing (acquire_worktree)', () => {
     const result = await handleAcquireWorktree(baseArgs, arm.ctx, DEPS);
     expect(result.success).toBe(true);
     expect((result.data as { reserved?: boolean }).reserved).toBe(true);
+  });
+});
+
+// ─── DR-5: null-ready ownerStartedAt (never the empty string) ─────────────────
+
+describe('DR-5 null-ready ownerStartedAt (acquire_worktree)', () => {
+  it('Reserve_UnresolvableCreateTime_StoresNullNeverEmptyString', async () => {
+    const arm = await createArm();
+
+    // Derive the owner from the current process on a platform whose create-time
+    // probe cannot resolve — the reservation must persist ownerStartedAt as null,
+    // NOT the empty string. A `''` would trip the schema's `.min(1)` and never
+    // fold into a matchable owner (the invalid-raw-event class DR-5 closes).
+    const result = await handleAcquireWorktree(
+      { repoRoot: '/tmp/wlm-h-repo', worktreeId: '/tmp/wlm-h-nullstart' },
+      arm.ctx,
+      { gitProbe: EMPTY_PROBE, processSource: UNRESOLVABLE_SOURCE },
+    );
+
+    // The reserve SUCCEEDS (a well-formed reservation) rather than throwing on a
+    // schema-rejected empty create-time.
+    expect(result.success).toBe(true);
+    expect((result.data as { reserved?: boolean }).reserved).toBe(true);
+
+    // The persisted `worktree.reserved` event carries null — not '' — for the
+    // owner create-time, so it validated against `.min(1).nullable()` and folds
+    // to a null-owner reservation.
+    const events = await arm.ctx.eventStore.query(WORKTREES_STREAM);
+    const reserved = events.filter((e) => e.type === 'worktree.reserved');
+    expect(reserved).toHaveLength(1);
+    expect(reserved[0].data?.ownerStartedAt).toBeNull();
+    expect(reserved[0].data?.ownerStartedAt).not.toBe('');
+
+    // The folded projection agrees: the reserved entry holds ownerStartedAt: null.
+    const view = await handleViewWorktrees({}, arm.ctx, {});
+    const worktrees = (view.data as { worktrees: WorktreeEntry[] }).worktrees;
+    const entry = worktrees.find((w) => w.worktreeId === '/tmp/wlm-h-nullstart');
+    expect(entry?.state).toBe('reserved');
+    expect(entry?.ownerStartedAt).toBeNull();
   });
 });
 
@@ -215,6 +267,30 @@ async function seedMergeExecuted(
     WORKTREES_STREAM,
     { type: 'worktree.merge_executed', data: { ...ref } },
     { idempotencyKey: `worktree.merge_executed:${ref.operationId}` },
+  );
+}
+
+/** Seed a CLAIM (`prune.executing_started`) — a live prune_worktrees GC pass. */
+async function seedPruneStarted(
+  arm: Arm,
+  p: { operationId: string; repoRoot: string; holderPid: number; holderStartedAt: string },
+): Promise<void> {
+  await arm.ctx.eventStore.append(
+    WORKTREES_STREAM,
+    { type: 'prune.executing_started', data: { ...p } },
+    { idempotencyKey: `prune.executing_started:${p.operationId}` },
+  );
+}
+
+/** Seed the paired TERMINAL (`prune.executed`) clearing the prune for `op`. */
+async function seedPruneExecuted(
+  arm: Arm,
+  p: { operationId: string; deletedCount: number },
+): Promise<void> {
+  await arm.ctx.eventStore.append(
+    WORKTREES_STREAM,
+    { type: 'prune.executed', data: { ...p } },
+    { idempotencyKey: `prune.executed:${p.operationId}` },
   );
 }
 
@@ -561,5 +637,169 @@ describe('wait — caller-bounded merge-terminal poll (DR-4)', () => {
 
     expect(setIntervalSpy.mock.calls.length - beforeInterval).toBe(0);
     expect(setTimeoutSpy.mock.calls.length - beforeTimeout).toBe(0);
+  });
+});
+
+// ─── ps / wait — the prune liveness pair (DR-3, task-021) ─────────────────────
+//
+// task-011 folded the `prune.executing_started` / `prune.executed` INV-10 pair
+// into the `worktrees@v1` `inFlightPrunes` projection field but deliberately left
+// the READ surface here. These tests pin that surface: `ps` lists the in-flight
+// prune column, and `wait until:'idle'` blocks until the prune terminal clears it
+// (structured timeout, never a hang). Every assertion drives the PUBLIC composite
+// entry (`handleView`) so a missing routing/schema arm goes red.
+
+describe('ps — in-flight prune surface (DR-3)', () => {
+  it('PruneWorktrees_InFlight_VisibleViaPs', async () => {
+    const arm = await createArm();
+    await seedPruneStarted(arm, {
+      operationId: 'op-prune',
+      repoRoot: '/wlm/repo',
+      holderPid: 4242,
+      holderStartedAt: 'boot-4242',
+    });
+
+    // Without `probe` the prune column is a pure fold — the process table (a spy)
+    // must NEVER be enumerated.
+    const listSpy = vi.fn((): readonly ProcessRecord[] => []);
+    const result = await handleView({ action: 'ps' }, arm.ctx, {
+      processTableSource: { list: listSpy },
+      realpath: (p) => p,
+    });
+
+    expect(result.success).toBe(true);
+    const data = result.data as { prunes: InFlightPrune[]; pruneCount: number };
+    expect(data.pruneCount).toBe(1);
+    expect(data.prunes[0].operationId).toBe('op-prune');
+    expect(data.prunes[0].repoRoot).toBe('/wlm/repo');
+    expect(data.prunes[0].holderPid).toBe(4242);
+    expect(listSpy).not.toHaveBeenCalled();
+
+    // After the paired terminal folds, ps reports a cleared prune column — the
+    // pair can never surface as a permanent phantom.
+    await seedPruneExecuted(arm, { operationId: 'op-prune', deletedCount: 0 });
+    const cleared = await handleView({ action: 'ps' }, arm.ctx, { realpath: (p) => p });
+    const clearedData = cleared.data as { prunes: InFlightPrune[]; pruneCount: number };
+    expect(clearedData.pruneCount).toBe(0);
+    expect(clearedData.prunes).toEqual([]);
+  });
+});
+
+describe("wait — until: 'idle' prune-idle poll (DR-3)", () => {
+  it('Wait_UntilIdle_ResolvesOnPruneTerminal', async () => {
+    const arm = await createArm();
+    await seedPruneStarted(arm, {
+      operationId: 'op-idle',
+      repoRoot: '/wlm/repo',
+      holderPid: 100,
+      holderStartedAt: 'boot-100',
+    });
+
+    // The injected sleep folds the prune terminal on its first call, so the next
+    // re-fold sees an empty inFlightPrunes and resolves idle — within the bounded
+    // budget, using NO real timer.
+    let sleeps = 0;
+    const sleep = vi.fn(async () => {
+      sleeps += 1;
+      if (sleeps === 1) {
+        await seedPruneExecuted(arm, { operationId: 'op-idle', deletedCount: 3 });
+      }
+    });
+
+    const result = await handleView(
+      { action: 'wait', until: 'idle', timeoutMs: 10_000 },
+      arm.ctx,
+      { sleep },
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as { until: string; resolved: boolean };
+    expect(data.until).toBe('idle');
+    expect(data.resolved).toBe(true);
+    expect(sleep).toHaveBeenCalledTimes(1);
+  });
+
+  it('Wait_UntilIdle_Timeout_StructuredNotHang', async () => {
+    const arm = await createArm();
+    // A prune pass that never terminates → prune-idle can never be reached.
+    await seedPruneStarted(arm, {
+      operationId: 'op-stuck-prune',
+      repoRoot: '/wlm/repo',
+      holderPid: 100,
+      holderStartedAt: 'boot-100',
+    });
+
+    // Controllable clock: each (instant) sleep advances it past the deadline so
+    // the bounded poll terminates with a STRUCTURED timeout, never hanging.
+    let t = 0;
+    const now = (): number => t;
+    const sleep = vi.fn(async (ms: number) => {
+      t += ms;
+    });
+
+    const result = await handleView(
+      { action: 'wait', until: 'idle', timeoutMs: 100 },
+      arm.ctx,
+      { now, sleep, pollIntervalMs: 200 },
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('WAIT_TIMEOUT');
+    const data = result.data as {
+      reason: string;
+      timeoutMs: number;
+      holders: Array<{ operationId: string; repoRoot: string; holderPid: number | null }>;
+    };
+    expect(data.reason).toBe('wait-idle-timeout');
+    expect(data.timeoutMs).toBe(100);
+    expect(data.holders).toHaveLength(1);
+    expect(data.holders[0].operationId).toBe('op-stuck-prune');
+    expect(data.holders[0].repoRoot).toBe('/wlm/repo');
+  });
+});
+
+describe("wait — until: 'idle' CLI/MCP flag parity (DR-3, task-021)", () => {
+  it('WaitSchema_UntilIdleFlag_ParityCliMcp', async () => {
+    // 1. Schema-level: `until` auto-emits as an enum flag from the ONE registry
+    // schema BOTH facades derive from (addFlagsFromSchema for the CLI, MCP
+    // registration for the server) — the structural root of CLI≡MCP parity
+    // (INV-2). Pin the exact enum value set + optionality so a schema drift that
+    // would desync the two surfaces is caught here.
+    const waitAction = TOOL_REGISTRY
+      .find((t) => t.name === 'exarchos_view')!
+      .actions.find((a) => a.name === 'wait')!;
+    const untilField = extractSchemaFields(waitAction.schema).find(
+      (f) => f.name === 'until',
+    );
+    expect(untilField).toBeDefined();
+    expect(untilField!.type).toBe('enum');
+    expect(untilField!.enumValues).toEqual(['merge', 'idle']);
+    expect(untilField!.required).toBe(false);
+
+    // 2. Behavioral: drive `wait until:'idle'` through BOTH facades against a
+    // prune-idle store. A missing routing/schema/coercion arm on EITHER surface
+    // goes red. Empty inFlightPrunes ⇒ resolves on the first fold (no real
+    // timer), so both facades run their real OS-backed deps deterministically.
+    const cliArm = await createArm();
+    const mcpArm = await createArm();
+
+    const { result: cliResult } = await callCli(cliArm.ctx, 'vw', 'wait', {
+      until: 'idle',
+      timeoutMs: 1_000,
+    });
+    const mcpResult = await callMcp(mcpArm.ctx, 'exarchos_view', {
+      action: 'wait',
+      until: 'idle',
+      timeoutMs: 1_000,
+    });
+
+    expect(cliResult.success).toBe(true);
+    expect(mcpResult.success).toBe(true);
+    const cliData = cliResult.data as { until: string; resolved: boolean };
+    const mcpData = mcpResult.data as { until: string; resolved: boolean };
+    expect(cliData.until).toBe('idle');
+    expect(mcpData.until).toBe('idle');
+    expect(cliData.resolved).toBe(true);
+    expect(mcpData.resolved).toBe(true);
   });
 });

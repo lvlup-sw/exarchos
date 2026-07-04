@@ -12,6 +12,7 @@ import { toPosix } from '../utils/paths.js';
 import type { ToolResult } from '../format.js';
 import { resolveTestRuntime } from '../config/test-runtime-resolver.js';
 import { splitCommand } from '../config/tokenize-command.js';
+import { burstStagger, type SleepFn, type JitterFn } from './worktree/git-retry.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -462,12 +463,48 @@ function runBaselineTests(worktreePath: string, skipTests: boolean): CheckResult
   }
 }
 
+// ─── DR-1: burst-stagger seam ────────────────────────────────────────────────
+//
+// Injected timing seams for the burst-creation stagger. `sleep`/`jitter`
+// default to the real implementations inside `git-retry.ts`; tests replace
+// them so the jitter window is asserted without wall-clock waits.
+export interface SetupWorktreeSeams {
+  /** Injected sleep for the burst stagger. Defaults to the real `setTimeout` sleep. */
+  readonly sleep?: SleepFn;
+  /** Injected signed-jitter source in `[-1, 1]`. Defaults to real `Math.random()`. */
+  readonly jitter?: JitterFn;
+}
+
+/**
+ * DR-1 burst predicate. A worktree creation is part of a *burst* when the
+ * enclosing workflow is delegating more than one task — the delegate wave
+ * dispatches those `setup_worktree` creations concurrently, so each one races
+ * for `.git/index` at the same instant (thundering herd). A single-task (or
+ * context-less) creation is never a burst, so it incurs no stagger. The
+ * `tasks` list is exactly what the composite adapter already materializes from
+ * workflow state, so this signal is live in production with no schema change.
+ */
+function isBurstCreation(workflowState?: SetupWorktreeWorkflowState): boolean {
+  return (workflowState?.tasks?.length ?? 0) > 1;
+}
+
 // ─── Handler ────────────────────────────────────────────────────────────────
 
+/**
+ * Create a git worktree for a task. Synchronous for a single (non-burst)
+ * creation; when the enclosing workflow is delegating a burst of tasks
+ * ({@link isBurstCreation}), the creation is first staggered by a bounded
+ * jittered delay (DR-1, via {@link burstStagger}) so parallel creations don't
+ * thundering-herd the git index — the return is then a `Promise`. The sole
+ * production caller (the composite `setup_worktree` adapter) already awaits the
+ * result, so the union return is transparent there; the injected `seams` keep
+ * the stagger's jitter window testable without real waits.
+ */
 export function handleSetupWorktree(
   args: SetupWorktreeArgs,
   workflowState?: SetupWorktreeWorkflowState,
-): ToolResult {
+  seams: SetupWorktreeSeams = {},
+): ToolResult | Promise<ToolResult> {
   // Validate required args
   if (!args.repoRoot) {
     return {
@@ -488,6 +525,26 @@ export function handleSetupWorktree(
     };
   }
 
+  // DR-1: at the creation seam, stagger burst-dispatched creations before any
+  // git mutation so they don't collide on `.git/index`. A single creation runs
+  // synchronously (no stagger); a burst awaits the jittered delay first.
+  if (isBurstCreation(workflowState)) {
+    return burstStagger({ sleep: seams.sleep, jitter: seams.jitter }).then(() =>
+      runSetupWorktreeSteps(args, workflowState),
+    );
+  }
+  return runSetupWorktreeSteps(args, workflowState);
+}
+
+/**
+ * The synchronous 5-step setup body (gitignore, branch, worktree, install,
+ * baseline tests). Extracted so the async burst-stagger seam wraps it without
+ * making the single-creation path async.
+ */
+function runSetupWorktreeSteps(
+  args: SetupWorktreeArgs,
+  workflowState?: SetupWorktreeWorkflowState,
+): ToolResult {
   // #1509/#1501: resolve the worktree base from the integration tip, never a
   // silent `main`, so managed-path worktrees match the native-isolation
   // guarantee. See resolveBaseBranch for the priority order.

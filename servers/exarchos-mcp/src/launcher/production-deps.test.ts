@@ -14,7 +14,7 @@
 //   - R-4: `recoverBeforeLaunch` invokes the crash-recovery pass and swallows a
 //     recovery failure so it can never block a launch.
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
@@ -22,6 +22,7 @@ import * as path from 'node:path';
 import { EventStore } from '../event-store/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
+import { launcherLogger } from '../logger.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 import {
   WorktreeManager,
@@ -233,6 +234,49 @@ describe('makeLauncherLifecycleDeps / recoverBeforeLaunch — production wiring 
     // The uninstaller detaches the trap so nothing outlives the launch.
     uninstall();
     expect(registrar.listenerCount('SIGTERM')).toBe(0);
+  });
+
+  // ── DR-6 review polish: a signal-path failure is LOGGED, not swallowed ───────
+  // Guards against a future refactor silently reverting to `signals.ts`'s `noop`
+  // onError default — the exact silent-swallow class this fix closes.
+  it('ProdDeps_InstallSignals_OnError_LogsSignalPathFailure', async () => {
+    const registrar = makeFakeRegistrar();
+    const deps = makeLauncherLifecycleDeps(ctx, {
+      holderPid: HOLDER_PID,
+      holderStartedAt: HOLDER_STARTED_AT,
+      signalRegistrar: registrar.registrar,
+    });
+
+    const errorSpy = vi.spyOn(launcherLogger, 'error').mockImplementation((() => {}) as never);
+
+    const child: SignalChild = {
+      kill() {
+        return true;
+      },
+      get exit() {
+        return Promise.resolve({ code: null, signal: 'SIGTERM' as NodeJS.Signals });
+      },
+    };
+    const teardownError = new Error('teardown blew up');
+    const sigCtx: LifecycleSignalContext = {
+      child,
+      teardown: () => {
+        throw teardownError;
+      },
+      emitTerminal: async () => ({ appended: true, worktreeId: 'wt', exitCode: null }),
+    };
+
+    deps.installSignals!(sigCtx);
+    await registrar.fire('SIGTERM');
+
+    // The wired `onError` funnels the failure to the launcher logger with
+    // structured context (err/signal/holderPid) instead of vanishing.
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ err: teardownError, signal: 'SIGTERM', holderPid: HOLDER_PID }),
+      'signal-path teardown/terminal failed',
+    );
+
+    errorSpy.mockRestore();
   });
 
   // ── R-4: recoverBeforeLaunch invokes the recovery pass ───────────────────────

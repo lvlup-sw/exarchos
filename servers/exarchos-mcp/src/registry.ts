@@ -1984,6 +1984,17 @@ const orchestrateActions: readonly ToolAction[] = [
       dryRun: z.boolean().optional(),
       resume: z.boolean().optional(),
       repoRoot: z.string().optional(),
+      // DR-2 single-writer lease guard: the caller-presented merge-lease
+      // correlator. When the target integration ref carries an in-flight
+      // `worktrees@v1` lease whose holder `operationId` differs from this
+      // value AND the holder is not provably dead, the handler fails closed
+      // (route through `serialize_merge`). `serialize_merge` threads its own
+      // lease `operationId` here so its composed call passes the guard; a
+      // crash-resumed caller presents the ORIGINAL claim's `operationId`.
+      // Optional string — the SOLE declaration of this field across the
+      // registry, so `buildRegistrationSchema` sees no same-name base-type
+      // collision. Omitting it preserves today's no-lease behavior.
+      leaseOperationId: z.string().optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
@@ -2901,6 +2912,12 @@ const orchestrateActions: readonly ToolAction[] = [
     // and deletes only what is still eligible). No preset carries this exact
     // tuple, so it is declared inline; the `superRefine` constraint
     // (destructive ⇒ compensable) is satisfied.
+    // DR-4 / INV-11: garbage-collects governed worktrees + their branches —
+    // shared, un-isolated state destroyed from the main worktree, the strictest
+    // mutating trust tier. Mirrors merge_orchestrate / serialize_merge so the
+    // resolver gate rejects a task-isolated or read-only caller BEFORE the
+    // destructive prune runs.
+    posture: 'shared-mutating',
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: {
       safety: 'compensable',
@@ -3322,7 +3339,7 @@ const viewActions: readonly ToolAction[] = [
   {
     name: 'ps',
     description:
-      'List the live serialized-merge set — the worktrees@v1 inFlightMerges (each: integrationRef, operationId, sourceBranch, holder pid/start-time) — as a pure fold, NO process scan. Pass probe:true to additionally run the on-demand DR-5 process probe and emit worktree.released (owner dead, idle) / worktree.orphan_detected (owner dead, still occupied) — the orphan emitter, a conditional write path. Idempotent: without probe it is a pure read; with probe the heals re-converge on re-run.',
+      'List the live worktree-layer liveness pairs as a pure fold, NO process scan: the worktrees@v1 inFlightMerges (each: integrationRef, operationId, sourceBranch, holder pid/start-time), the in-flight launcher launches, AND the inFlightPrunes — live prune_worktrees GC passes (each: operationId, repoRoot, holder pid/start-time; DR-3). Pass probe:true to additionally run the on-demand DR-5 process probe and emit worktree.released (owner dead, idle) / worktree.orphan_detected (owner dead, still occupied) — the orphan emitter, a conditional write path. Idempotent: without probe it is a pure read; with probe the heals re-converge on re-run.',
     schema: z.object({
       probe: z.boolean().optional(),
     }),
@@ -3338,9 +3355,18 @@ const viewActions: readonly ToolAction[] = [
   {
     name: 'wait',
     description:
-      'Block until the serialized merge on integrationRef reaches its terminal worktree.merge_executed (caller-bounded poll, re-folding worktrees@v1 each iteration). Returns a structured wait-timeout on expiry; never hangs, spins up no background timer, and emits no events. timeoutMs bounds the wait.',
+      "Block on a worktree-layer condition (caller-bounded poll, re-folding worktrees@v1 each iteration; structured wait-timeout on expiry; never hangs, no background timer, emits no events). until:'merge' (default) blocks until the serialized merge on integrationRef reaches its terminal worktree.merge_executed (integrationRef required). until:'idle' blocks until no in-flight prune_worktrees GC pass remains (the prune terminal cleared inFlightPrunes). timeoutMs bounds the wait.",
     schema: z.object({
-      integrationRef: z.string().min(1),
+      // Optional: required only in the default until:'merge' mode (the handler
+      // rejects a missing ref there). until:'idle' does not consult it. Base
+      // type (ZodString) is unchanged, so the MCP-registration flattener sees no
+      // divergent shape vs serialize_merge's required integrationRef (optionality
+      // drift is allowed; base-type/enum/default drift is not).
+      integrationRef: z.string().min(1).optional(),
+      // Mode selector (DR-3/DR-4). 'merge' polls the serialized-merge terminal;
+      // 'idle' polls until the prune liveness pair clears. New field name — no
+      // other action declares `until`, so no field-collision at the flattener.
+      until: z.enum(['merge', 'idle']).optional(),
       // Bounded-wait budget. Same base type (ZodNumber) as serialize_merge /
       // doctor `timeoutMs` so the MCP-registration flattener sees no divergent
       // shape for the shared `timeoutMs` field name.

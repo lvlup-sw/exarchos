@@ -82,7 +82,15 @@ import {
   defaultProcessTableSource,
   type ProcessTableSource,
 } from './pure/probe.js';
-import { defaultSleep, type SleepFn } from './git-retry.js';
+import {
+  defaultSleep,
+  defaultJitter,
+  withIndexLockRetry,
+  isIndexLockError,
+  MAX_INDEX_LOCK_RETRIES,
+  type SleepFn,
+  type JitterFn,
+} from './git-retry.js';
 import { reservationLiveness, selectDeadReservations } from './pure/ownership.js';
 import {
   classifyPruneCandidate,
@@ -94,6 +102,7 @@ import type {
   WorktreeEntry,
   WorktreesProjection,
   InFlightMerge,
+  InFlightPrune,
 } from './projections/worktrees.js';
 // Side-effect import: registers the `worktrees@v1` reducer with the
 // process-wide `defaultRegistry` so the appender's `aggregateStream` / `decide`
@@ -566,6 +575,25 @@ export interface WorktreeManagerDeps {
    * for cwd-occupancy + protected-ancestry subtraction.
    */
   readonly processTableSource?: ProcessTableSource;
+  /**
+   * Injected sleep seam for the DR-1 `index.lock` retry backoff on the prune
+   * remove path. Injected so a test can assert the retry sequence
+   * deterministically without a real wall-clock wait; defaults to
+   * {@link defaultSleep} (the same timing seam reused across the WLM core).
+   */
+  readonly sleep?: SleepFn;
+  /**
+   * Injected signed-jitter source (`[-1, 1]`) for the DR-1 retry backoff.
+   * Injected so the jittered backoff delays are deterministic under test;
+   * defaults to {@link defaultJitter} (real `Math.random()`-derived jitter).
+   */
+  readonly jitter?: JitterFn;
+  /**
+   * Retries after the initial attempt for the DR-1 `index.lock` retry wrapper
+   * around the prune `git worktree remove`. Injected so a test can shrink the
+   * budget; defaults to {@link MAX_INDEX_LOCK_RETRIES}.
+   */
+  readonly maxIndexLockRetries?: number;
 }
 
 /** Arguments for {@link WorktreeManager.reserve}. */
@@ -578,16 +606,25 @@ export interface ReserveInput {
   readonly featureId: string | null;
   /** PID of the reserving (live) process. */
   readonly ownerPid: number;
-  /** Reserving process's create-time fingerprint (opaque, compared for equality). */
-  readonly ownerStartedAt: string;
+  /**
+   * Reserving process's create-time fingerprint (opaque, compared for equality),
+   * or `null` when the platform cannot resolve it. NEVER the empty string `''`:
+   * a create-time-unresolvable platform threads `null` end-to-end (DR-5), mirroring
+   * the launcher's null-ready `holderStartedAt`. A `null` owner create-time cannot
+   * be matched to a live process, so liveness treats it fail-closed (reclaimable).
+   */
+  readonly ownerStartedAt: string | null;
 }
 
 /** The live-process identity of a reservation owner (PID + create-time). */
 export interface ReservationOwner {
   /** PID of the owning process. */
   readonly ownerPid: number;
-  /** The owning process's opaque create-time fingerprint (equality-compared). */
-  readonly ownerStartedAt: string;
+  /**
+   * The owning process's opaque create-time fingerprint (equality-compared), or
+   * `null` when the platform could not resolve it (DR-5 — never `''`).
+   */
+  readonly ownerStartedAt: string | null;
 }
 
 /** Outcome of a {@link WorktreeManager.reserve} call. */
@@ -644,6 +681,16 @@ export type WaitForMergeTerminalResult =
   | { readonly resolved: false; readonly holder: InFlightMerge; readonly waitedMs: number };
 
 /**
+ * Outcome of a {@link WorktreeManager.waitForPruneIdle} bounded poll (DR-3).
+ * `resolved` when no in-flight `prune_worktrees` GC pass remains; otherwise the
+ * still-in-flight prune holder(s) accompany the structured-timeout verdict so
+ * the caller can report which passes are still running.
+ */
+export type WaitForPruneIdleResult =
+  | { readonly resolved: true; readonly waitedMs: number }
+  | { readonly resolved: false; readonly holders: readonly InFlightPrune[]; readonly waitedMs: number };
+
+/**
  * The in-process worktree-lifecycle facade. Construct one per
  * {@link EventStore}; it is cheap and holds no mutable state.
  */
@@ -655,6 +702,9 @@ export class WorktreeManager {
   private readonly realpath: RealpathResolver;
   private readonly gitRunner: GitRunner;
   private readonly processTableSource: ProcessTableSource;
+  private readonly sleep: SleepFn;
+  private readonly jitter: JitterFn;
+  private readonly maxIndexLockRetries: number;
 
   constructor(deps: WorktreeManagerDeps) {
     this.eventStore = deps.eventStore;
@@ -664,6 +714,9 @@ export class WorktreeManager {
     this.realpath = deps.realpath ?? defaultRealpath;
     this.gitRunner = deps.gitRunner ?? defaultGitRunner;
     this.processTableSource = deps.processTableSource ?? defaultProcessTableSource;
+    this.sleep = deps.sleep ?? defaultSleep;
+    this.jitter = deps.jitter ?? defaultJitter;
+    this.maxIndexLockRetries = deps.maxIndexLockRetries ?? MAX_INDEX_LOCK_RETRIES;
   }
 
   /**
@@ -982,6 +1035,84 @@ export class WorktreeManager {
   }
 
   /**
+   * Prune (GC) governed worktrees, wrapped in the INV-10 prune-run liveness pair
+   * (DR-3). Mints a per-pass `operationId`, appends `prune.executing_started`
+   * BEFORE the safety ladder runs, and appends the paired terminal
+   * `prune.executed` in a `finally` so a throw mid-pass still terminates the pair
+   * exactly once — a phantom in-flight prune can never persist. The
+   * `worktrees@v1` projection folds the pair into `inFlightPrunes`, so an
+   * in-flight prune is `ps`/`wait`-visible (the rolled-forward foundation
+   * deferral). Delegates the actual ladder work to {@link runPruneLadder}.
+   */
+  async prune(options: PruneOptions): Promise<PruneResult> {
+    const operationId = randomUUID();
+    await this.appendPruneStarted(operationId, options.repoRoot);
+    // Read in the `finally` even on a throw, so the terminal always reports the
+    // count reclaimed BEFORE the failure (0 on a throw before any deletion).
+    let result: PruneResult | undefined;
+    try {
+      result = await this.runPruneLadder(options);
+      return result;
+    } finally {
+      await this.appendPruneExecuted(operationId, result?.deleted.length ?? 0);
+    }
+  }
+
+  /**
+   * Append the INV-10 prune-run liveness START (`prune.executing_started`) —
+   * records the live holder (this process) so a long GC pass is observable as
+   * "started but not yet terminated" (DR-3). A plain keyed append (idempotency
+   * `<eventType>:<operationId>`), matching the rest of the worktree family;
+   * wrapped in {@link withStateRetry} so an unrelated concurrent append to
+   * `worktrees` does not surface a spurious ConcurrencyError.
+   */
+  private async appendPruneStarted(
+    operationId: string,
+    repoRoot: string,
+  ): Promise<void> {
+    const holderPid = process.pid;
+    const probe = this.processSource.getStartTime(holderPid);
+    // Null (never '') when the platform cannot resolve the create-time — the
+    // DR-5 null-ready holderStartedAt contract (schema: `.min(1).nullable()`).
+    const holderStartedAt =
+      probe.status === 'present' && probe.startedAt.length > 0
+        ? probe.startedAt
+        : null;
+    await withStateRetry(() =>
+      this.eventStore.append(
+        WORKTREES_STREAM,
+        {
+          type: 'prune.executing_started',
+          data: { operationId, repoRoot, holderPid, holderStartedAt },
+        },
+        { idempotencyKey: `prune.executing_started:${operationId}` },
+      ),
+    );
+  }
+
+  /**
+   * Append the paired TERMINAL (`prune.executed`) — clears the in-flight prune
+   * marker so it can never become a phantom (INV-10 1:1 pair). Emitted from the
+   * public {@link prune} wrapper's `finally`, so a throw mid-pass still
+   * terminates the pair.
+   */
+  private async appendPruneExecuted(
+    operationId: string,
+    deletedCount: number,
+  ): Promise<void> {
+    await withStateRetry(() =>
+      this.eventStore.append(
+        WORKTREES_STREAM,
+        {
+          type: 'prune.executed',
+          data: { operationId, deletedCount },
+        },
+        { idempotencyKey: `prune.executed:${operationId}` },
+      ),
+    );
+  }
+
+  /**
    * Prune (GC) governed worktrees through the fail-closed safety ladder (DR-6).
    *
    * The flow that closes the Claude Code #55724 data-loss hole (parallel agents
@@ -1008,7 +1139,7 @@ export class WorktreeManager {
    *      UNDER the stream lock) → `git worktree remove` → `worktree.remove.executed`.
    *      It NEVER `git reset --hard`s.
    */
-  async prune(options: PruneOptions): Promise<PruneResult> {
+  private async runPruneLadder(options: PruneOptions): Promise<PruneResult> {
     const { repoRoot } = options;
     const apply = options.apply === true;
     const orphansOptedIn = options.pruneOrphans === true && options.yes === true;
@@ -1143,6 +1274,20 @@ export class WorktreeManager {
     return Object.values(projection.worktrees).filter(
       (entry) => entry.launch !== undefined,
     );
+  }
+
+  /**
+   * Read-only listing of the live `prune_worktrees` GC set (DR-3 / INV-10): fold
+   * the `worktrees` stream and return every {@link InFlightPrune} — an open
+   * `prune.executing_started` with no paired `prune.executed`. Backs the `ps`
+   * view action's prune column (task-011's projection field, surfaced here).
+   * Appends nothing and runs NO process scan — it is a pure fold of the event
+   * log, so the terminal deterministically clears a prune from this set (no
+   * permanent phantom).
+   */
+  async listInFlightPrunes(): Promise<readonly InFlightPrune[]> {
+    const projection = await this.loadProjection();
+    return Object.values(projection.inFlightPrunes);
   }
 
   /**
@@ -1283,6 +1428,45 @@ export class WorktreeManager {
       }
       if (now() >= deadline) {
         return { resolved: false, holder, waitedMs: now() - start };
+      }
+      await sleep(pollIntervalMs);
+    }
+  }
+
+  /**
+   * Caller-bounded poll until the worktree layer is IDLE of prunes (DR-3) — no
+   * in-flight `prune_worktrees` GC pass remains. Folds `worktrees@v1` each
+   * iteration: when `inFlightPrunes` is empty the wait RESOLVES (the prune
+   * terminal `prune.executed` has cleared every claim); otherwise it sleeps
+   * `pollIntervalMs` via the INJECTED {@link SleepFn} seam (shared with
+   * `waitForMergeTerminal` / `git-retry.ts`) and re-folds, until the explicit
+   * `timeoutMs` deadline — then returns `{ resolved: false }` with the still-live
+   * holders so the caller can surface a STRUCTURED timeout. Pure read: appends
+   * NOTHING and creates NO background interval/timer (the only timer is the
+   * injected sleep's own). NEVER hangs.
+   */
+  async waitForPruneIdle(
+    opts: {
+      readonly timeoutMs?: number;
+      readonly sleep?: SleepFn;
+      readonly now?: () => number;
+      readonly pollIntervalMs?: number;
+    } = {},
+  ): Promise<WaitForPruneIdleResult> {
+    const sleep = opts.sleep ?? defaultSleep;
+    const now = opts.now ?? Date.now;
+    const pollIntervalMs = opts.pollIntervalMs ?? DEFAULT_WAIT_POLL_INTERVAL_MS;
+    const timeoutMs = opts.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS;
+    const start = now();
+    const deadline = start + timeoutMs;
+    while (true) {
+      const projection = await this.loadProjection();
+      const holders = Object.values(projection.inFlightPrunes);
+      if (holders.length === 0) {
+        return { resolved: true, waitedMs: now() - start };
+      }
+      if (now() >= deadline) {
+        return { resolved: false, holders, waitedMs: now() - start };
       }
       await sleep(pollIntervalMs);
     }
@@ -1541,7 +1725,7 @@ export class WorktreeManager {
     if (kind === 'no-op') return { attempted: false, removed: false };
 
     // ── Phase B: idempotent side-effect OUTSIDE the lock. ──
-    const removed = this.removeWorktreeIfRegistered(repoRoot, worktreePath);
+    const removed = await this.removeWorktreeIfRegistered(repoRoot, worktreePath);
 
     // ── Phase C: record the outcome (drops the entry on the reducer). ──
     await this.appendRemoveExecuted(operationId, worktreePath, removed, worktreeId);
@@ -1561,7 +1745,7 @@ export class WorktreeManager {
     for (const { operationId, worktreePath, worktreeId } of orphaned) {
       if (handled.has(operationId)) continue; // one executed per operationId
       handled.add(operationId);
-      const removed = this.removeWorktreeIfRegistered(repoRoot, worktreePath);
+      const removed = await this.removeWorktreeIfRegistered(repoRoot, worktreePath);
       // Carry the stamped `worktreeId` from the original requested event (when
       // present) onto the completing executed event so replay still drops by id.
       await this.appendRemoveExecuted(
@@ -1578,17 +1762,48 @@ export class WorktreeManager {
    * Returns whether THIS call removed it (`false` = already absent, an
    * idempotent success). Throws only when the remove fails AND the worktree is
    * still registered (a real failure that must not be masked as success).
+   *
+   * The mutating `git worktree remove --force` is wrapped in the DR-1
+   * {@link withIndexLockRetry} seam: under burst dispatch two processes can race
+   * for `.git/index.lock`, surfacing as
+   * `fatal: Unable to create '…/index.lock': File exists.`. That contention is
+   * transient, so the wrapper retries with injected exponential backoff + jitter
+   * and SUCCEEDS without surfacing the error; an exhausted budget surfaces a
+   * structured {@link IndexLockContentionError} (never a silent no-op / false
+   * drop). The synchronous {@link GitRunner} never throws — a lock failure
+   * surfaces as a non-zero `status` with the lock diagnostic on
+   * `stderr`/`stdout` — so the retry `op` re-throws a lock-shaped error the
+   * wrapper recognizes; any other non-zero `status` flows through to the same
+   * still-registered failure check as before.
    */
-  private removeWorktreeIfRegistered(
+  private async removeWorktreeIfRegistered(
     repoRoot: string,
     worktreePath: string,
-  ): boolean {
+  ): Promise<boolean> {
     if (!this.isWorktreeRegistered(repoRoot, worktreePath)) return false;
-    const ok =
-      this.gitRunner.run(
-        ['worktree', 'remove', '--force', worktreePath],
-        repoRoot,
-      ).status === 0;
+    const ok = await withIndexLockRetry(
+      () => {
+        const result = this.gitRunner.run(
+          ['worktree', 'remove', '--force', worktreePath],
+          repoRoot,
+        );
+        if (result.status !== 0 && isIndexLockError(result)) {
+          // Re-throw the transient lock contention as an error the retry
+          // wrapper recognizes — the synchronous runner never throws on its own.
+          throw new Error(
+            result.stderr && result.stderr.length > 0
+              ? result.stderr
+              : result.stdout,
+          );
+        }
+        return result.status === 0;
+      },
+      {
+        sleep: this.sleep,
+        jitter: this.jitter,
+        maxRetries: this.maxIndexLockRetries,
+      },
+    );
     if (ok) return true;
     if (this.isWorktreeRegistered(repoRoot, worktreePath)) {
       throw new Error(

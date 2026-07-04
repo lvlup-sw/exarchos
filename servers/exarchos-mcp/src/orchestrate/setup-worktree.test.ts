@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { handleSetupWorktree } from './setup-worktree.js';
+import { BURST_STAGGER_MIN_MS, BURST_STAGGER_MAX_MS } from './worktree/git-retry.js';
 
 // Mock node:fs
 vi.mock('node:fs', () => ({
@@ -1232,6 +1233,119 @@ describe('handleSetupWorktree', () => {
         undefined,
       );
       expect(createdBranchBase()).toBe('main');
+    });
+  });
+
+  // ── DR-1: burst-creation stagger at the worktree-creation seam ───────────
+  //
+  // The DR-8 kernel's `burstStagger` is wired into the creation seam so that a
+  // delegate wave's parallel worktree creations don't thundering-herd the git
+  // index. A creation is a "burst" when the enclosing workflow delegates more
+  // than one task (the composite adapter already materializes that `tasks`
+  // list). Both the sleep and jitter seams are injected so the jitter window is
+  // asserted without wall-clock waits.
+
+  describe('DR-1 burst-creation stagger', () => {
+    // Happy-path mocks so `runSetupWorktreeSteps` completes without spawning
+    // real subprocesses or throwing — the stagger runs *before* these steps, so
+    // their pass/fail is irrelevant; only the recorded delays matter.
+    function setupCreationMocks() {
+      vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
+        const cmdStr = String(cmd).replace(/\.cmd$/, '');
+        const argsArr = args as string[];
+        if (cmdStr === 'git' && argsArr.includes('show-ref')) {
+          const error = new Error('not found') as Error & { status: number };
+          error.status = 1;
+          throw error; // branch absent → handler creates it
+        }
+        return '';
+      });
+      vi.mocked(existsSync).mockImplementation((p: unknown) => {
+        const path = String(p);
+        if (path === '/repo/.gitignore') return true;
+        if (path.endsWith('/package.json')) return true;
+        return false;
+      });
+      vi.mocked(readFileSync).mockImplementation((p: unknown) => {
+        const path = String(p);
+        if (path === '/repo/.gitignore') return '.worktrees/\n';
+        if (path.endsWith('package.json')) return VALID_PACKAGE_JSON;
+        return '';
+      });
+    }
+
+    it('SetupWorktree_BurstCreation_StaggersWithinConfiguredJitterWindow', async () => {
+      setupCreationMocks();
+
+      // Injected sleep seam records each stagger delay applied.
+      const recorded: number[] = [];
+      const sleep = (ms: number): Promise<void> => {
+        recorded.push(ms);
+        return Promise.resolve();
+      };
+
+      // Sweep the signed-jitter source across the full band [-1, 1] so the
+      // recorded delays exercise both edges of the configured window.
+      const jitterSweep = [-1, -0.5, 0, 0.5, 1];
+      let jitterCall = 0;
+      const jitter = (): number => jitterSweep[jitterCall++ % jitterSweep.length];
+
+      // A burst = a multi-task delegation. Each task's creation is one
+      // setup_worktree call racing for the git index; run the whole burst.
+      const workflowState = {
+        tasks: jitterSweep.map((_, i) => ({ id: `T-00${i + 1}` })),
+      };
+
+      for (const task of workflowState.tasks) {
+        const result = await handleSetupWorktree(
+          { repoRoot: '/repo', taskId: task.id, taskName: 'x', skipTests: true },
+          workflowState,
+          { sleep, jitter },
+        );
+        expect(result.success).toBe(true);
+      }
+
+      // Every creation in the burst staggered exactly once…
+      expect(recorded.length).toBe(workflowState.tasks.length);
+      // …and every stagger fell inside the configured jitter window.
+      for (const delay of recorded) {
+        expect(delay).toBeGreaterThanOrEqual(BURST_STAGGER_MIN_MS);
+        expect(delay).toBeLessThanOrEqual(BURST_STAGGER_MAX_MS);
+      }
+      // The swept jitter maps to distinct in-band delays, hitting both bounds —
+      // proving both the jitter source and the window are actually wired.
+      expect(recorded).toEqual([
+        BURST_STAGGER_MIN_MS, // jitter -1  → band floor
+        200,
+        300,
+        400,
+        BURST_STAGGER_MAX_MS, // jitter +1  → band ceiling
+      ]);
+    });
+
+    it('SetupWorktree_SingleCreation_NoStaggerDelay', async () => {
+      setupCreationMocks();
+
+      const recorded: number[] = [];
+      const sleep = (ms: number): Promise<void> => {
+        recorded.push(ms);
+        return Promise.resolve();
+      };
+      // Real jitter must never be consulted — assert it stays untouched too.
+      const jitter = vi.fn<[], number>(() => 0);
+
+      // A single-task workflow is not a burst → no stagger.
+      const workflowState = { tasks: [{ id: 'T-001' }] };
+
+      const result = await handleSetupWorktree(
+        { repoRoot: '/repo', taskId: 'T-001', taskName: 'x', skipTests: true },
+        workflowState,
+        { sleep, jitter },
+      );
+
+      expect(result.success).toBe(true);
+      expect(recorded).toEqual([]);
+      expect(jitter).not.toHaveBeenCalled();
     });
   });
 });

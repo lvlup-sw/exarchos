@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   ownerLiveness,
+  resolveStartedAt,
   defaultProcessSource,
   type OwnerDescriptor,
   type ProcessSource,
@@ -95,6 +96,33 @@ describe('ownerLiveness', () => {
         `${platform.name}: absent PID should be dead`,
       ).toBe('dead');
     }
+  });
+});
+
+describe('resolveStartedAt', () => {
+  it('ResolveStartedAt_UnresolvableOrEmpty_ReturnsNullNeverEmptyString', () => {
+    // DR-5: the create-time-resolution seam coalesces EVERY non-resolvable
+    // outcome to null and NEVER returns '' — an empty create-time is a value no
+    // liveness probe can equality-match, so persisting it is the invalid class.
+
+    // absent PID → null.
+    expect(resolveStartedAt(sourceReturning(null), 4242)).toBeNull();
+
+    // probe could not run (unknown) → null.
+    expect(resolveStartedAt(sourceUnknown(), 4242)).toBeNull();
+
+    // present but EMPTY create-time → coalesced to null (never '').
+    const emptyPresent: ProcessSource = {
+      getStartTime: vi.fn().mockReturnValue({ status: 'present', startedAt: '' } satisfies StartTimeProbe),
+    };
+    const empty = resolveStartedAt(emptyPresent, 4242);
+    expect(empty).toBeNull();
+    expect(empty).not.toBe('');
+  });
+
+  it('ResolveStartedAt_PresentNonEmpty_ReturnsCreateTimeVerbatim', () => {
+    // A resolved, non-empty create-time threads through unchanged (defeats reuse).
+    expect(resolveStartedAt(sourceReturning('8923145'), 4242)).toBe('8923145');
   });
 });
 

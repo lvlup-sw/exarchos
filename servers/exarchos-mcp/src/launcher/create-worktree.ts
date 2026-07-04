@@ -115,8 +115,12 @@ export interface CreateLauncherWorktreeDeps {
   readonly processSource?: ProcessSource;
   /** Reserving process PID. Defaults to `process.pid`. */
   readonly selfPid?: number;
-  /** Reserving process create-time fingerprint. Defaults to the probed value. */
-  readonly selfStartedAt?: string;
+  /**
+   * Reserving process create-time fingerprint. Defaults to the probed value —
+   * `null` (NEVER `''`) when the platform cannot resolve it, so the emitted
+   * `worktree.reserved` honors the null-ready `ownerStartedAt` contract (DR-5).
+   */
+  readonly selfStartedAt?: string | null;
   /** Idempotency correlator for the create pair. Defaults to a fresh uuid. */
   readonly operationId?: string;
 }
@@ -500,11 +504,13 @@ async function listPendingCreations(
 
 /**
  * Resolve the reserving process's create-time fingerprint via the injected
- * {@link ProcessSource}; `''` when it cannot be probed (still a well-formed
- * reservation — it just cannot defeat PID reuse). Mirrors the self-identity
- * resolution in `merge-serializer.ts` / `handlers.ts`.
+ * {@link ProcessSource}; `null` (NEVER the empty string `''`) when it cannot be
+ * probed — still a well-formed reservation, it just cannot defeat PID reuse.
+ * `null` threads through the null-ready `ownerStartedAt` contract (DR-5); `''`
+ * would be the `''`-vs-`.min(1)` invalid-raw-event class. Mirrors the
+ * self-identity resolution in `merge-serializer.ts` / `handlers.ts`.
  */
-function resolveSelfStartedAt(pid: number, source: ProcessSource): string {
+function resolveSelfStartedAt(pid: number, source: ProcessSource): string | null {
   const probe = source.getStartTime(pid);
-  return probe.status === 'present' ? probe.startedAt : '';
+  return probe.status === 'present' ? probe.startedAt : null;
 }

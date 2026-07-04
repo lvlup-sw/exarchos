@@ -71,6 +71,24 @@ import {
   StorageBusyError,
 } from '../event-store/index.js';
 import type { MergeOrchestratorState } from '../projections/merge-orchestrator/index.js';
+// DR-2 lease guard: fold the singleton `worktrees` stream to look up the
+// in-flight merge lease on the target integration ref. `WORKTREES_STREAM` /
+// `WORKTREES_REDUCER` are the SAME stream + reducer id `serialize_merge` writes
+// its lease through — importing them keeps the guard on the identical fold.
+import { WORKTREES_STREAM, WORKTREES_REDUCER } from './worktree/manager.js';
+// Side-effect import — ensures the `worktrees@v1` reducer is registered with
+// `defaultRegistry` so `aggregateStream` can resolve it by id (DR-1).
+import './worktree/projections/index.js';
+import type {
+  WorktreesProjection,
+  InFlightMerge,
+} from './worktree/projections/worktrees.js';
+import {
+  probeReservations,
+  defaultProcessTableSource,
+  type ProcessTableSource,
+} from './worktree/pure/probe.js';
+import type { OwnerLiveness } from './worktree/pure/process-identity.js';
 // Side-effect import — registers `merge-orchestrator@v1` with `defaultRegistry`
 // so the Wave 3 primitive (`AtomicAppender.decide`) can resolve the reducer
 // by id when Phase A commits `merge.requested` (audit §F1.2 two-event split).
@@ -119,6 +137,19 @@ export const HandleMergeOrchestrateArgsSchema = z.object({
   resume: z.boolean().optional(),
   /** Optional override for the repository root used by the preflight gitExec. */
   repoRoot: z.string().optional(),
+  /**
+   * DR-2 single-writer lease guard: the caller-presented merge-lease
+   * correlator. The preflight guard folds `worktrees@v1` and looks up the
+   * in-flight lease on the target integration ref. A holder whose
+   * `operationId` MATCHES this value is the caller's own lease and proceeds
+   * — that is how `serialize_merge` threads its lease `operationId` through
+   * its composed call, and how a crash-resumed caller (a NEW pid presenting
+   * the ORIGINAL claim's `operationId`) passes. A FOREIGN holder (different
+   * `operationId`) that is not provably dead fails the merge closed. Absent
+   * (undefined) ⇒ any live foreign lease blocks — the no-lease and
+   * dead-holder paths behave exactly as today (back-compat).
+   */
+  leaseOperationId: z.string().optional(),
 });
 
 export type HandleMergeOrchestrateArgs = z.infer<typeof HandleMergeOrchestrateArgsSchema>;
@@ -167,6 +198,13 @@ export interface HandleMergeOrchestrateInput extends HandleMergeOrchestrateArgs 
   readonly gitExec?: GitExec;
   readonly persistState?: OrchestratorPersistState;
   readonly readState?: OrchestratorReadState;
+  /**
+   * DR-2 lease-guard process-table probe (test-only DI seam). The guard routes
+   * a foreign lease holder's `holderPid` / `holderStartedAt` through the DR-5
+   * {@link probeReservations} liveness lens over this table. Production omits
+   * it → the real OS-backed {@link defaultProcessTableSource}.
+   */
+  readonly processTableSource?: ProcessTableSource;
 }
 
 // ─── Path normalization ────────────────────────────────────────────────────
@@ -288,6 +326,40 @@ function describePreflightFailure(preflight: MergePreflightResult): string {
   return 'preflight failed';
 }
 
+// ─── DR-2 lease-guard liveness ───────────────────────────────────────────────
+
+/**
+ * Classify a foreign merge-lease holder's liveness for the single-writer guard.
+ *
+ * Routes the holder's recorded `holderPid` / `holderStartedAt` through the DR-5
+ * {@link probeReservations} lens — the SAME ground-truth liveness the serializer
+ * uses for dead-holder reclamation (`merge-serializer.ts` `isHolderProvablyDead`).
+ * A holder with no captured fingerprint cannot be proven dead → `'unknown'`
+ * (held, fail closed). On an UNSUPPORTED process table every pid reads
+ * `'unknown'` (off-Linux fail-closed), so the guard never steals what could be a
+ * live holder's lease. Only `'dead'` (pid absent from a SUPPORTED table, or
+ * present with a mismatched create-time) lets the merge proceed.
+ */
+function classifyMergeHolderLiveness(
+  holder: InFlightMerge,
+  source: ProcessTableSource,
+): OwnerLiveness {
+  if (holder.holderPid === null || holder.holderStartedAt === null) {
+    return 'unknown';
+  }
+  const [finding] = probeReservations(
+    [
+      {
+        worktreePath: holder.integrationRef,
+        ownerPid: holder.holderPid,
+        ownerStartedAt: holder.holderStartedAt,
+      },
+    ],
+    source,
+  );
+  return finding?.liveness ?? 'unknown';
+}
+
 // ─── Handler ───────────────────────────────────────────────────────────────
 
 export async function handleMergeOrchestrate(
@@ -304,6 +376,7 @@ export async function handleMergeOrchestrate(
     dryRun: input.dryRun,
     resume: input.resume,
     repoRoot: input.repoRoot,
+    leaseOperationId: input.leaseOperationId,
   });
   if (!parsed.success) {
     return {
@@ -323,6 +396,63 @@ export async function handleMergeOrchestrate(
     input.persistState ?? buildDefaultPersistState(args.featureId, ctx.stateDir);
   const readState =
     input.readState ?? buildDefaultReadState(args.featureId, ctx.stateDir);
+  const processTableSource = input.processTableSource ?? defaultProcessTableSource;
+  const appender = ctx.eventStore.getAppender();
+
+  // ─── 0-lease. Single-writer lease guard (DR-2) ───────────────────────────
+  //
+  // Enforce single-writer integration merges at the handler chokepoint. Fold
+  // the singleton `worktrees` stream and look up the in-flight lease keyed by
+  // the target integration ref.
+  //
+  // LOOKUP KEY SHAPE (critical): the serializer writes BARE branch names as the
+  // `inFlightMerges` key (`merge-serializer.ts` — `integrationRef` === the
+  // caller's `targetBranch`), while THIS handler internally builds
+  // `refs/heads/${targetBranch}` for the section-0a worktree probe. The guard
+  // MUST look up the BARE `args.targetBranch` — the key the serializer WRITES —
+  // never the internal `refs/heads/...` form, or a real lease would be missed.
+  //
+  // A FOREIGN LIVE lease — holder `operationId` ≠ the caller-presented
+  // `leaseOperationId` AND holder liveness ∈ {alive, unknown} (unknown counts
+  // as held; a provably-dead holder proceeds) — fails the merge CLOSED with a
+  // structured error that NAMES `serialize_merge` as the path, and produces NO
+  // git side effect (the guard runs before section 0a's git reads and every
+  // event emission). Matched-by-`operationId` (the serializer's own composed
+  // call, or a crash-resumed caller from a NEW pid presenting the ORIGINAL
+  // claim's `operationId`), dead-holder, and no-lease callers all proceed —
+  // exactly as today (back-compat).
+  const worktreesFold = await appender.aggregateStream<WorktreesProjection>(
+    WORKTREES_STREAM,
+    WORKTREES_REDUCER,
+  );
+  const leaseHolder = worktreesFold.aggregate.inFlightMerges[args.targetBranch];
+  if (leaseHolder !== undefined && leaseHolder.operationId !== args.leaseOperationId) {
+    const liveness = classifyMergeHolderLiveness(leaseHolder, processTableSource);
+    if (liveness !== 'dead') {
+      // Foreign live (or unknown) lease holds the target — fail closed. No git
+      // side effect has run; the serializer is the single-writer entry point.
+      return {
+        success: false,
+        error: {
+          code: 'MERGE_LEASE_HELD',
+          message:
+            `integration ref '${args.targetBranch}' is held by an in-flight merge lease ` +
+            `(operationId=${leaseHolder.operationId}, liveness=${liveness}) — ` +
+            `route this merge through serialize_merge to acquire the single-writer lease`,
+        },
+        data: {
+          reason: 'foreign-live-lease' as const,
+          integrationRef: args.targetBranch,
+          holder: {
+            operationId: leaseHolder.operationId,
+            sourceBranch: leaseHolder.sourceBranch,
+            holderPid: leaseHolder.holderPid,
+            liveness,
+          },
+        },
+      };
+    }
+  }
 
   // ─── 0a. Target-worktree availability preflight (#1356) ──────────────────
   //
@@ -702,7 +832,7 @@ export async function handleMergeOrchestrate(
     args.taskId !== undefined
       ? `merge-requested:${args.featureId}:${args.taskId}`
       : `merge-requested:${args.featureId}`;
-  const appender = ctx.eventStore.getAppender();
+  // `appender` hoisted to the top of the handler for the DR-2 lease guard.
   try {
     await withStateRetry(() =>
       appender.decide<MergeOrchestratorState>(

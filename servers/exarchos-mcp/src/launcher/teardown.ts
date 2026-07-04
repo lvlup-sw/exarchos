@@ -14,7 +14,10 @@
  *      seam's `appended` flag surfaces which call actually wrote the row.
  *   2. **Fail-closed on a non-git target / unreachable origin.** Before reclaiming
  *      anything, teardown proves the target is a real git worktree and — when an
- *      `origin` remote IS configured — that it is reachable. A non-git target or a
+ *      `origin` remote IS configured — that it is reachable. The reachability
+ *      check is the one NETWORK round-trip, so it runs through the async,
+ *      NON-BLOCKING {@link OriginReachableFn} seam (never a blocking `spawnSync`
+ *      that would freeze the teardown event loop). A non-git target or a
  *      configured-but-unreachable origin fail CLOSED with a structured
  *      {@link TeardownOriginError}: no release, no destructive git. A worktree
  *      with no origin at all is a local-only launch and is NOT a fail-closed case.
@@ -48,6 +51,7 @@
  * escapes GC. The reclaim is event-only; it too never `reset --hard`s.
  */
 
+import { spawn } from 'node:child_process';
 import type { EventStore } from '../event-store/store.js';
 import {
   WorktreeManager,
@@ -114,6 +118,18 @@ export type ReleaseFn = (
   owner?: ReservationOwner,
 ) => Promise<ReleaseResult>;
 
+/**
+ * The async origin-reachability probe seam (DR-6). Resolves `true` iff the
+ * configured `origin` remote is reachable. It is deliberately ASYNC — the sync
+ * {@link GitRunner} would run the `git ls-remote origin` NETWORK round-trip on a
+ * blocking `spawnSync`, freezing the launcher's event loop (its signal handling
+ * and terminal emission) for the whole network latency. An async spawn lets
+ * teardown `await` the reachability check while the event loop stays live. Any
+ * non-zero exit / spawn error resolves `false` → fail-closed as
+ * `origin-unreachable`. Defaults to {@link defaultOriginReachable}.
+ */
+export type OriginReachableFn = (worktreePath: string) => Promise<boolean>;
+
 /** The idempotent Task-006 terminal emitter (guaranteed at-most-once). */
 export type EmitExecutedFn = typeof emitLaunchExecuted;
 
@@ -155,6 +171,12 @@ export interface TeardownDeps {
   readonly realpath?: RealpathResolver;
   /** Git runner for the non-git / origin safety gate. Defaults to {@link defaultGitRunner}. */
   readonly gitRunner?: GitRunner;
+  /**
+   * ASYNC origin-reachability probe (DR-6) — the NON-BLOCKING `git ls-remote
+   * origin` check. Defaults to {@link defaultOriginReachable}; injected so tests
+   * drive reachability deterministically without a real network round-trip.
+   */
+  readonly originReachable?: OriginReachableFn;
   /**
    * The supervisor ("self") PID whose FULL parent-PID ancestry is excluded from
    * the occupant set (cwd-drift). Defaults to `process.pid`.
@@ -200,13 +222,16 @@ export async function teardownLaunch(
   const processTableSource = deps.processTableSource ?? defaultProcessTableSource;
   const selfPid = deps.selfPid ?? process.pid;
   const release = deps.release ?? defaultRelease(eventStore, gitRunner, realpath);
+  const originReachable = deps.originReachable ?? defaultOriginReachable;
 
   // ── (1) Guaranteed terminal — FIRST, on every catchable path, idempotent. ──
   const terminal = await emitExecuted(eventStore, { worktreeId, exitCode });
   const base = { worktreeId, exitCode, terminalAppended: terminal.appended };
 
-  // ── (2) Fail-closed safety gate: non-git target / unreachable origin. ──
-  const originError = probeOriginSafety(gitRunner, worktreePath);
+  // ── (2) Fail-closed safety gate: non-git target / unreachable origin. The
+  //     origin-reachability probe is AWAITED through the async, NON-BLOCKING
+  //     seam so the network round-trip never freezes the teardown event loop. ──
+  const originError = await probeOriginSafety(gitRunner, worktreePath, originReachable);
   if (originError !== null) {
     return { ...base, released: false, originError };
   }
@@ -332,18 +357,23 @@ export async function recoverCrashedLaunch(
 /**
  * The fail-closed git-target safety verdict, or `null` when the target is a
  * trustworthy git worktree (reachable origin OR no origin configured at all —
- * a local-only launch). Reads git ground truth through the injected runner:
+ * a local-only launch). The two LOCAL, fast git reads (`rev-parse`,
+ * `remote get-url`) go through the sync runner; the origin-reachability check is
+ * the one NETWORK round-trip, so it is awaited through the async, non-blocking
+ * {@link OriginReachableFn} seam — never a blocking `spawnSync` on the teardown
+ * event loop (DR-6):
  *
  *   - `git rev-parse --is-inside-work-tree` non-zero ⇒ `'non-git-target'`.
  *   - `origin` configured (`git remote get-url origin` zero) BUT unreachable
- *     (`git ls-remote origin` non-zero) ⇒ `'origin-unreachable'`.
+ *     (async `originReachable` resolves `false`) ⇒ `'origin-unreachable'`.
  *   - no `origin` configured ⇒ local-only ⇒ trustworthy (`null`), never a
  *     fail-closed (mirrors the WLM `no-upstream → mutable` verdict).
  */
-function probeOriginSafety(
+async function probeOriginSafety(
   gitRunner: GitRunner,
   worktreePath: string,
-): TeardownOriginError | null {
+  originReachable: OriginReachableFn,
+): Promise<TeardownOriginError | null> {
   if (gitRunner.run(['rev-parse', '--is-inside-work-tree'], worktreePath).status !== 0) {
     return 'non-git-target';
   }
@@ -352,10 +382,68 @@ function probeOriginSafety(
   if (!originConfigured) {
     return null; // local-only launch — nothing external to be stale against.
   }
-  if (gitRunner.run(['ls-remote', 'origin'], worktreePath).status !== 0) {
+  if (!(await originReachable(worktreePath))) {
     return 'origin-unreachable';
   }
   return null;
+}
+
+/**
+ * Bound (ms) for the single origin-reachability network round-trip on teardown.
+ * `git ls-remote` against an unreachable or hung remote can otherwise never
+ * emit `close`, leaving {@link defaultOriginReachable}'s promise pending forever
+ * — and `teardownLaunch` AWAITS it on the shutdown path, so the whole teardown
+ * would wedge. On expiry the probe is killed and the verdict fails CLOSED
+ * (`origin-unreachable`), exactly as a non-zero exit does.
+ */
+export const ORIGIN_PROBE_TIMEOUT_MS = 5_000;
+
+/**
+ * Injected seams for {@link defaultOriginReachable}: the real `spawn` and the
+ * {@link ORIGIN_PROBE_TIMEOUT_MS} bound by default, overridden in tests to drive
+ * the timeout path deterministically without a real hung remote.
+ */
+export interface OriginReachableDeps {
+  readonly spawnFn?: typeof spawn;
+  readonly timeoutMs?: number;
+}
+
+/**
+ * Default async origin-reachability probe: spawn `git ls-remote origin` WITHOUT
+ * blocking the event loop (DR-6). Resolves `true` iff git exits 0 (origin
+ * reachable); any non-zero exit, spawn error (git missing, bad cwd), OR a probe
+ * that exceeds {@link ORIGIN_PROBE_TIMEOUT_MS} resolves `false`, so the teardown
+ * fails CLOSED as `origin-unreachable` rather than proceeding on — or hanging
+ * on — an unverifiable origin. `git` is a real binary (never a win32 `.cmd`
+ * shim), so a bare `spawn` is portable and shell-injection-free.
+ */
+export function defaultOriginReachable(
+  worktreePath: string,
+  deps: OriginReachableDeps = {},
+): Promise<boolean> {
+  const spawnFn = deps.spawnFn ?? spawn;
+  const timeoutMs = deps.timeoutMs ?? ORIGIN_PROBE_TIMEOUT_MS;
+  return new Promise((resolve) => {
+    const child = spawnFn('git', ['ls-remote', 'origin'], {
+      cwd: worktreePath,
+      stdio: 'ignore',
+    });
+    let settled = false;
+    const finish = (reachable: boolean): void => {
+      if (settled) return; // first outcome wins — timer vs. close/error race.
+      settled = true;
+      clearTimeout(timer);
+      resolve(reachable);
+    };
+    // Bound the one network round-trip: a hung remote must never wedge teardown.
+    const timer = setTimeout(() => {
+      child.kill('SIGTERM'); // reap the stalled probe, then fail closed.
+      finish(false);
+    }, timeoutMs);
+    timer.unref?.(); // a pending probe timer must not keep the loop alive.
+    child.on('error', () => finish(false));
+    child.on('close', (code) => finish(code === 0));
+  });
 }
 
 /**

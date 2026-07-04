@@ -514,7 +514,12 @@ describe('EventTypes', () => {
     // `worktree.create.executed` (distinct from the task-scoped
     // `worktree.created` terminal) — plus the child-process liveness pair
     // `launch.executing_started` / `launch.executed`.
-    expect(EventTypes).toHaveLength(143);
+    // WLM slice 3 (DR-3, epic #1574): bumped 143 → 145 to include the prune-run
+    // liveness pair `prune.executing_started` / `prune.executed`, emitted by the
+    // WorktreeManager around a `prune_worktrees` GC pass (INV-10), folded by
+    // `worktrees@v1` into `inFlightPrunes` so an in-flight prune is `ps`/`wait`-
+    // visible.
+    expect(EventTypes).toHaveLength(145);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');
@@ -538,6 +543,8 @@ describe('EventTypes', () => {
     expect(EventTypes).toContain('worktree.released');
     expect(EventTypes).toContain('worktree.orphan_detected');
     expect(EventTypes).toContain('workflow.plan-revision');
+    expect(EventTypes).toContain('prune.executing_started');
+    expect(EventTypes).toContain('prune.executed');
     // Retirement guard: init.executed removed in DR-5 (task 018).
     expect(EventTypes as readonly string[]).not.toContain('init.executed');
   });
