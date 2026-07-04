@@ -701,7 +701,6 @@ function createCleanupWorktreesAction(): CompensationAction {
             continue;
           }
 
-          removed += 1;
           if (options.eventStore && options.featureId) {
             // ─── DR-3: unified `worktrees`-stream removal ────────────────────
             // Adopt-then-remove on the SINGLETON stream (retry-wrapped remove),
@@ -721,6 +720,11 @@ function createCleanupWorktreesAction(): CompensationAction {
               // Worktree may already be removed; continue
             }
           }
+          // Count only AFTER the removal completes — the `Cleaned up ${removed}`
+          // message reports SUCCESSFUL removals, so a mid-loop throw (e.g. an
+          // event-store append failure in unifyWorktreeRemove) must not have
+          // pre-counted the worktree it failed on.
+          removed += 1;
         }
 
         const base = `Cleaned up ${removed} worktree(s)`;
