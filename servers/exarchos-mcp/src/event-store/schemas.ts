@@ -27,6 +27,21 @@ export const EventTypes = [
   // `revisionsExhausted` guard reads, so the revise loop is bounded by an
   // event-sourced (replay-stable) count rather than advisory prose.
   'workflow.plan-revision',
+  // WLM-6 (DR-2) — counted plan-review dispatch. Emitted by the unskippable
+  // `prepare_review scope:plan` provisioning seam (orchestrate/prepare-review.ts)
+  // on EVERY provisioning of the front-of-pipeline adversarial plan-review, so
+  // the plan-review revision loop is bounded at the one server action an agent
+  // MUST call to re-review — closing the skippable-edge bypass the old
+  // `plan-review → plan` `isRevision` counter left open (an agent could
+  // re-provision + re-dispatch without ever traversing the counted edge). Each
+  // event carries a 0-based `ordinal`; the workflow-state projection folds the
+  // MAX ordinal into `planReview.revisionCount` (the field `revisionsExhausted`
+  // reads), so the ordinal-0 initial review is revision 0 (no counter increment)
+  // and every re-dispatch is +1. A deterministic idempotency key
+  // (`${featureId}:plan-review-dispatch:${ordinal}`, INV-8) collapses a
+  // same-ordinal crash-retry at the storage layer. `auto` — the handler owns the
+  // append; the model is never asked to hand-emit it.
+  'workflow.plan-review-dispatched',
   'workflow.guard-failed',
   'workflow.checkpoint',
   // #1242 (F1 of #1239 spike) — auto-summarized handoff fallback. Emitted by a
@@ -429,6 +444,9 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'workflow.transition': 'auto',
   'workflow.fix-cycle': 'auto',
   'workflow.plan-revision': 'auto',
+  // WLM-6 (DR-2) — emitted deterministically by the `prepare_review scope:plan`
+  // handler, never hand-written by the model.
+  'workflow.plan-review-dispatched': 'auto',
   'workflow.guard-failed': 'auto',
   'workflow.checkpoint': 'auto',
   // #1242 — emitted by a summarizer subagent via event.append (agent-driven,
@@ -903,6 +921,16 @@ export const WorkflowPlanRevisionData = z.object({
   compoundStateId: z.string().optional(),
   count: z.number().int(),
   featureId: z.string(),
+});
+
+// WLM-6 (DR-2) — counted plan-review dispatch, emitted by the
+// `prepare_review scope:plan` provisioning seam. `ordinal` is the 0-based
+// dispatch index for this feature (0 = the initial review = revision 0, 1 = the
+// first re-dispatch = revision 1, …); the projection folds the MAX ordinal into
+// `planReview.revisionCount`. Non-negative because it is a count-derived index.
+export const WorkflowPlanReviewDispatchedData = z.object({
+  featureId: z.string(),
+  ordinal: z.number().int().nonnegative(),
 });
 
 export const WorkflowGuardFailedData = z.object({
@@ -2864,6 +2892,7 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'workflow.transition': WorkflowTransitionData,
   'workflow.fix-cycle': WorkflowFixCycleData,
   'workflow.plan-revision': WorkflowPlanRevisionData,
+  'workflow.plan-review-dispatched': WorkflowPlanReviewDispatchedData,
   'workflow.guard-failed': WorkflowGuardFailedData,
   'workflow.checkpoint': WorkflowCheckpointData,
   'workflow.handoff_summarized': WorkflowHandoffSummarizedData,
@@ -3103,6 +3132,7 @@ export type StackEnqueued = z.infer<typeof StackEnqueuedData>;
 export type WorkflowTransition = z.infer<typeof WorkflowTransitionData>;
 export type WorkflowFixCycle = z.infer<typeof WorkflowFixCycleData>;
 export type WorkflowPlanRevision = z.infer<typeof WorkflowPlanRevisionData>;
+export type WorkflowPlanReviewDispatched = z.infer<typeof WorkflowPlanReviewDispatchedData>;
 export type WorkflowGuardFailed = z.infer<typeof WorkflowGuardFailedData>;
 export type WorkflowCheckpoint = z.infer<typeof WorkflowCheckpointData>;
 export type WorkflowHandoffSummarized = z.infer<typeof WorkflowHandoffSummarizedData>;
@@ -3255,6 +3285,7 @@ export type EventDataMap = {
   'workflow.transition': WorkflowTransition;
   'workflow.fix-cycle': WorkflowFixCycle;
   'workflow.plan-revision': WorkflowPlanRevision;
+  'workflow.plan-review-dispatched': WorkflowPlanReviewDispatched;
   'workflow.guard-failed': WorkflowGuardFailed;
   'workflow.checkpoint': WorkflowCheckpoint;
   'workflow.handoff_summarized': WorkflowHandoffSummarized;

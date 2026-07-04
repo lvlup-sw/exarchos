@@ -187,7 +187,9 @@ describe('DR-12 — crash-mid-merge recovery via the production serialize_merge 
     // claimant (111) merges into the SAME integration ref; the crashed holder
     // (4242) is absent from the table → reclaimed inline before the merge runs.
     const result = await handleSerializeMerge(
-      { featureId: 'F', integrationRef, sourceBranch: 'feat/next', strategy: 'merge', timeoutMs: 30_000 },
+      // dryRun:false — serialize_merge now DEFAULTS to dry-run (DR-1); this crash-
+      // recovery proof needs the real apply path (lease claim + composed merge).
+      { featureId: 'F', integrationRef, sourceBranch: 'feat/next', strategy: 'merge', timeoutMs: 30_000, dryRun: false },
       arm.ctx,
       {
         selfPid: 111,

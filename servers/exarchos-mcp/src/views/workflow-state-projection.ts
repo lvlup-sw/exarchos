@@ -446,6 +446,47 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
         };
       }
 
+      // ── Plan-review dispatch count (WLM-6 DR-2) ─────────────────────────
+      // The standard `plan-review → plan` revise loop is now counted at its
+      // unskippable `prepare_review scope:plan` provisioning seam, not the
+      // (skippable) HSM edge. Each dispatch carries a 0-based `ordinal`; folding
+      // the MAX ordinal into the SAME `planReview.revisionCount` the
+      // `revisionsExhausted` guard reads means the ordinal-0 initial review is
+      // revision 0 (no counter increment) and each re-dispatch is +1. `max`
+      // (not `+1`) is what makes the initial free AND keeps the guard's
+      // `revisionCount >= cap` semantics correct: the count equals the number of
+      // RE-DISPATCHES (revisions), never the total provisionings. Replay-stable
+      // and idempotent under a same-ordinal crash-retry (the storage-layer
+      // idempotency key collapses the duplicate, and `max` is duplicate-proof
+      // even if one slipped through). Other `planReview` fields (`approved`,
+      // `gapsFound`) set via `state.patched` are preserved by the spread.
+      // A given workflow is either a feature (this event) or an overhaul (the
+      // `workflow.plan-revision` fold above) — never both — so the two folds
+      // never contend for `revisionCount` on one stream.
+      case 'workflow.plan-review-dispatched': {
+        const data = event.data as { ordinal?: number } | undefined;
+        const rawOrdinal = data?.ordinal;
+        const ordinal =
+          typeof rawOrdinal === 'number' && Number.isFinite(rawOrdinal) && rawOrdinal >= 0
+            ? rawOrdinal
+            : 0;
+        const priorPlanReview = isPlainObject(view.planReview)
+          ? (view.planReview as Record<string, unknown>)
+          : {};
+        const rawCount = priorPlanReview.revisionCount;
+        const currentCount =
+          typeof rawCount === 'number' && Number.isFinite(rawCount)
+            ? rawCount
+            : 0;
+        return {
+          ...view,
+          planReview: {
+            ...priorPlanReview,
+            revisionCount: Math.max(currentCount, ordinal),
+          },
+        };
+      }
+
       // ── Mutation-adequacy dimension (DR-2a) ─────────────────────────────
       // Fold the mutation gate's `gate.executed` (layer 'review') into
       // `reviews['mutation-adequacy']` so the required dimension is satisfied by

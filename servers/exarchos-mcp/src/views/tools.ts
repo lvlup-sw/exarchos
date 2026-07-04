@@ -25,7 +25,16 @@ import {
   pipelineProjection,
   PIPELINE_VIEW,
 } from './pipeline-view.js';
-import type { PipelineViewState } from './pipeline-view.js';
+import type { PipelineViewState, PipelineSummary } from './pipeline-view.js';
+import {
+  DEFAULT_VIEW_ITEM_CAP,
+  SUMMARY_FIRST_PAGE_ITEMS,
+  estimateOutputTokens,
+  resolveOutputTokenThreshold,
+  countBy,
+  narrowAffordance,
+} from './output-cap.js';
+import type { QualityHintsConfig } from '../capabilities/resolver.js';
 import {
   stackViewProjection,
   STACK_VIEW,
@@ -523,6 +532,11 @@ export async function handleViewPipeline(
   args: { limit?: number; offset?: number; includeCompleted?: boolean },
   stateDir: string,
   eventStore: EventStore,
+  // DR-3 — the resolved `.exarchos.yml` slice threaded from `views/composite.ts`
+  // so `qualityHints.outputTokenThreshold` drives the measured-size summary.
+  // Optional so existing internal callers (and tests) that omit it keep the
+  // item-cap-only behavior (fail-open: no config ⇒ default threshold).
+  config?: QualityHintsConfig,
 ): Promise<ToolResult> {
   try {
     const store = eventStore;
@@ -563,11 +577,20 @@ export async function handleViewPipeline(
       ? allWorkflows
       : allWorkflows.filter((w) => !(TERMINAL_PHASES as readonly string[]).includes(w.phase));
 
-    // Paginate the filtered results
+    // Paginate the filtered results. DR-3: when the caller omits `limit`, apply
+    // the DETERMINISTIC item cap instead of the old unbounded `slice(start,
+    // undefined)`, so a large inventory never dumps every row. An explicit
+    // `limit` is honored verbatim (the caller chose their page size).
     const total = filtered.length;
     const start = args.offset ?? 0;
-    const end = args.limit !== undefined ? start + args.limit : undefined;
+    const explicitLimit = args.limit !== undefined;
+    const pageSize = explicitLimit ? (args.limit as number) : DEFAULT_VIEW_ITEM_CAP;
+    const end = start + pageSize;
     const workflows = filtered.slice(start, end);
+    // The default cap actually truncated the inventory (only advertised when the
+    // caller did NOT set an explicit limit — an explicit page keeps today's
+    // no-affordance envelope, and a fully-shown inventory needs no narrowing).
+    const capTruncated = !explicitLimit && total - start > DEFAULT_VIEW_ITEM_CAP;
 
     // #1359 / PR4 T14 + T15 — derive `projectionAsOf` from the maximum
     // `_asOf` timestamp across the materialized workflows (the most
@@ -594,9 +617,38 @@ export async function handleViewPipeline(
       }
     }
 
+    // DR-3 measured-size summary guard. If the capped per-item payload would
+    // STILL exceed the resolved output-token threshold, return a counts-by-group
+    // summary + a small first page INSTEAD of per-item detail. Fail-open: an
+    // unresolvable threshold (`null`) degrades to the plain capped detail — never
+    // an unbounded dump nor an inventory-hiding error.
+    const detailData = { workflows, total };
+    const threshold = resolveOutputTokenThreshold(config);
+    const narrowHint = 'exarchos vw ls --limit 20 --offset 0';
+    if (threshold !== null && estimateOutputTokens(detailData) > threshold) {
+      const summary: PipelineSummary = {
+        total,
+        byPhase: countBy(filtered, (w) => w.phase),
+        byWorkflowType: countBy(filtered, (w) => w.workflowType),
+        firstPage: workflows.slice(0, SUMMARY_FIRST_PAGE_ITEMS),
+      };
+      return {
+        success: true,
+        data: { summary, total, truncated: true },
+        next_actions: [narrowAffordance('pipeline', summary.firstPage.length, total, narrowHint)],
+        ...(meta ? { _meta: meta } : {}),
+      };
+    }
+
+    // Per-item detail. Byte-identical to the pre-DR-3 payload below cap AND
+    // threshold; the narrow affordance rides `next_actions` ONLY when the
+    // default cap truncated the inventory.
     return {
       success: true,
-      data: { workflows, total },
+      data: detailData,
+      ...(capTruncated
+        ? { next_actions: [narrowAffordance('pipeline', workflows.length, total, narrowHint)] }
+        : {}),
       ...(meta ? { _meta: meta } : {}),
     };
   } catch (err) {

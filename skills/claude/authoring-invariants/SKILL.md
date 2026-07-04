@@ -80,7 +80,7 @@ violated?") — that sharpens both the summary and the later enforcement.
   framework-inferred (INV-6: the surface is workload-neutral).
 - `phase-affinity`: phases where it bites (`ideate | plan | delegate | review |
   synthesize`). Absent ⇒ all phases.
-- `workflow-affinity`: workflow types (`feature | debug | refactor | discover |
+- `workflow-affinity`: workflow types (`feature | debug | refactor | discovery |
   oneshot`). Absent ⇒ all.
 
 ### 3. Weight — `severity`, `integrity-class`, and the `tier` you author into

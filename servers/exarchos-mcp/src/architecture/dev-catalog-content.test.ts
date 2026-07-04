@@ -181,12 +181,13 @@ describe('dev-catalog v3 content — CR-6 mode:audit', () => {
 // ─── CR-3: projection metadata ───────────────────────────────────────────────
 
 describe('dev-catalog v3 content — CR-3 projection', () => {
-  it('workflowDiscoverPhaseReview_excludesCodeAxisInvariants', () => {
+  it('workflowDiscoveryPhaseReview_excludesCodeAxisInvariants', () => {
     const projected = projectCatalog(loadCatalog(), {
       phase: 'review',
-      workflowType: 'discover',
+      // DR-4: canonical workflow-type token is `'discovery'`.
+      workflowType: 'discovery',
     });
-    // No substrate-axis (code) invariant survives a discover-workflow review.
+    // No substrate-axis (code) invariant survives a discovery-workflow review.
     expect(projected.every((e) => e.axis !== 'substrate')).toBe(true);
   });
 

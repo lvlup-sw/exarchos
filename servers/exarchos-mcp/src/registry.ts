@@ -2,6 +2,15 @@ import { z } from 'zod';
 import { AsOfSchema, CheckpointHandoffSchema, WorkflowTypeSchema } from './workflow/schemas.js';
 import { agentSpecSchema as agentSpecSchemaForRegistry } from './agents/handler.js';
 import { EnvelopeSchema } from './schemas/envelope.js';
+import {
+  AcquireWorktreeOutputSchema,
+  ReleaseWorktreeOutputSchema,
+  PruneWorktreesOutputSchema,
+  SerializeMergeOutputSchema,
+  PsOutputSchema,
+  WaitOutputSchema,
+  WorktreesOutputSchema,
+} from './orchestrate/worktree/schemas.js';
 import type { AgentPosture } from './agents/spec.js';
 export { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray } from './coerce.js';
 import { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray } from './coerce.js';
@@ -366,6 +375,16 @@ export interface ToolAction {
    * load so a malformed declaration fails the import (DIM-3 fail-closed).
    */
   readonly outputSchema: z.ZodType;
+  /**
+   * DR-1 structural marker for the worktree "DR-10 surface" actions
+   * (acquire_worktree, release_worktree, prune_worktrees, serialize_merge, ps,
+   * wait, worktrees). Reads sit on `exarchos_view` and mutations on
+   * `exarchos_orchestrate`, so the surface is otherwise not structurally
+   * distinguishable; this marker lets a registry-driven conformance harness
+   * enumerate exactly the surface (typed outputSchema + parity) by filter
+   * rather than a hardcoded name list. Undefined on every non-surface action.
+   */
+  readonly surface?: 'worktree';
   /**
    * Per-action annotations (Wave 0 task E.1-E.5, design §2.4, #1289).
    * `safety` is server-trusted and is consumed by HSM guards +
@@ -2838,8 +2857,9 @@ const orchestrateActions: readonly ToolAction[] = [
   // carry zero behavior). `worktrees` (the read) rides exarchos_view.
   {
     name: 'acquire_worktree',
+    surface: 'worktree',
     description:
-      'Acquire a worktree for the live process: adopt-then-reserve composite. Adopts every on-disk worktree under repoRoot first (the adopt-gate), then reserves worktreeId for the caller. Idempotent. Auto-emits worktree.adopted (per newly tracked worktree) and worktree.reserved.',
+      'Acquire a worktree for the live process: adopt-then-reserve composite. Adopts every on-disk worktree under repoRoot first (the adopt-gate), then reserves worktreeId for the caller. Idempotent. Auto-emits worktree.adopted (per newly tracked worktree) and worktree.reserved. Use for: claiming a worktree for the current process before it does isolated work. Do NOT use for: reading the governed set (use worktrees); freeing a claim (use release_worktree).',
     schema: z
       .object({
         repoRoot: z.string().min(1),
@@ -2868,13 +2888,14 @@ const orchestrateActions: readonly ToolAction[] = [
       { event: 'worktree.adopted', condition: 'conditional', description: 'Per on-disk worktree not yet tracked' },
       { event: 'worktree.reserved', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: AcquireWorktreeOutputSchema,
     annotations: LOCAL_MUTATION_IDEMPOTENT,
   },
   {
     name: 'release_worktree',
+    surface: 'worktree',
     description:
-      "Release the caller's worktree reservation. Appends worktree.released for worktreeId; a no-op when nothing is held (idempotent). Auto-emits worktree.released.",
+      "Release the caller's worktree reservation. Appends worktree.released for worktreeId; a no-op when nothing is held (idempotent). Auto-emits worktree.released. Use for: freeing a worktree the current process reserved once its isolated work is done. Do NOT use for: freeing another live owner's claim (refused — reaping a dead owner is ps probe:true / reconcile's job); deleting the worktree from disk (use prune_worktrees).",
     schema: z.object({
       worktreeId: z.string().min(1),
     }),
@@ -2883,13 +2904,14 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'worktree.released', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: ReleaseWorktreeOutputSchema,
     annotations: LOCAL_MUTATION_IDEMPOTENT,
   },
   {
     name: 'prune_worktrees',
+    surface: 'worktree',
     description:
-      'Garbage-collect governed worktrees through the fail-closed safety ladder. Defaults to dry-run (report candidates + reclaimable bytes + grouped skip reasons, delete nothing); pass dryRun:false to apply. Orphan deletion needs pruneOrphans:true + yes:true on an apply run. Auto-emits worktree.remove.requested then worktree.remove.executed per deleted worktree.',
+      'Garbage-collect governed worktrees through the fail-closed safety ladder. Defaults to dry-run (report candidates + reclaimable bytes + grouped skip reasons, delete nothing); pass dryRun:false to apply. Orphan deletion needs pruneOrphans:true + yes:true on an apply run. Auto-emits worktree.remove.requested then worktree.remove.executed per deleted worktree. Use for: reclaiming released/orphan governed worktrees + their branches from the main worktree. Do NOT use for: freeing a live reservation (use release_worktree); listing the governed set (use worktrees).',
     schema: z.object({
       repoRoot: z.string().min(1),
       // INV-5c: dry-run is the safe default. The default is enforced in the
@@ -2918,7 +2940,7 @@ const orchestrateActions: readonly ToolAction[] = [
     // resolver gate rejects a task-isolated or read-only caller BEFORE the
     // destructive prune runs.
     posture: 'shared-mutating',
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: PruneWorktreesOutputSchema,
     annotations: {
       safety: 'compensable',
       readOnly: false,
@@ -2937,8 +2959,9 @@ const orchestrateActions: readonly ToolAction[] = [
   // flock / PID file / advisory-lock library — the lease IS the serialization.
   {
     name: 'serialize_merge',
+    surface: 'worktree',
     description:
-      'Serialize an integration-branch merge behind an optimistic per-integrationRef lease, then compose merge_orchestrate UNCHANGED. Grants at most one in-flight merge per integrationRef: a held slot bounded-waits (re-folding worktrees@v1) and reclaims a provably-dead holder inline, or returns a structured merge-slot-timeout. Auto-emits worktree.merge_requested (claim) then worktree.merge_executed (release). Use for: landing a source branch onto a shared integration ref under cross-process serialization. Do NOT use for: a single unsynchronized merge (use merge_orchestrate); a raw provider PR merge (use merge_pr).',
+      'Serialize an integration-branch merge behind an optimistic per-integrationRef lease, then compose merge_orchestrate UNCHANGED. DEFAULTS TO DRY-RUN (INV-5c): omitting dryRun (or dryRun:true) claims NO lease, runs NO merge, and returns the planned effect (integration head + merge params); pass dryRun:false to actually claim the lease and execute. Grants at most one in-flight merge per integrationRef: a held slot bounded-waits (re-folding worktrees@v1) and reclaims a provably-dead holder inline, or returns a structured merge-slot-timeout. Auto-emits worktree.merge_requested (claim) then worktree.merge_executed (release) ONLY on an apply run. Use for: landing a source branch onto a shared integration ref under cross-process serialization. Do NOT use for: a single unsynchronized merge (use merge_orchestrate); a raw provider PR merge (use merge_pr).',
     schema: z.object({
       featureId: z.string().min(1),
       integrationRef: z.string().min(1),
@@ -2950,12 +2973,22 @@ const orchestrateActions: readonly ToolAction[] = [
       // (ZodNumber) as `doctor.timeoutMs` so the MCP-registration flattener
       // does not see a divergent shape for the shared `timeoutMs` field name.
       timeoutMs: z.number().int().positive().optional(),
+      // INV-5c safe default: dry-run unless the caller EXPLICITLY opts out with
+      // dryRun:false. Declared `.optional()` with NO Zod `.default()` because the
+      // MCP-registration flattener forbids divergent defaults across the shared
+      // `dryRun` field (prune_worktrees / merge_orchestrate / prune_stale_workflows
+      // all declare it `.optional()` with no default); the default is applied in
+      // handleSerializeMerge instead.
+      dryRun: z.boolean().optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
+    // Descriptive only (NOT the control point — the handler applies the dry-run
+    // default). On the default dry-run NOTHING is emitted; both lease events fire
+    // only on an apply run (dryRun:false).
     autoEmits: [
-      { event: 'worktree.merge_requested', condition: 'always', description: 'The lease CLAIM (single-writer per integrationRef)' },
-      { event: 'worktree.merge_executed', condition: 'always', description: 'The lease RELEASE (plain keyed append)' },
+      { event: 'worktree.merge_requested', condition: 'conditional', description: 'The lease CLAIM (single-writer per integrationRef) — apply run only (dryRun:false)' },
+      { event: 'worktree.merge_executed', condition: 'conditional', description: 'The lease RELEASE (plain keyed append) — apply run only (dryRun:false)' },
     ],
     // Multi-step serialized merge (wait → claim → compose merge_orchestrate →
     // release) is the canonical long-running verb — advisory Tasks-augmented
@@ -2966,7 +2999,7 @@ const orchestrateActions: readonly ToolAction[] = [
     // mutating trust tier. Mirrors merge_orchestrate so the resolver mints the
     // same fs:write + shell:exec capabilities.
     posture: 'shared-mutating',
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: SerializeMergeOutputSchema,
     annotations: COMPENSABLE_REMOTE,
   },
   makeDescribeAction(),
@@ -3299,7 +3332,7 @@ const viewActions: readonly ToolAction[] = [
       phase: z.string().describe('SDLC phase to project for (e.g. ideate, plan, delegate)'),
       workflowType: z
         .string()
-        .describe('Workflow kind to project for (e.g. feature, debug, discover)'),
+        .describe('Workflow kind to project for (e.g. feature, debug, discovery)'),
       repoRoot: z
         .string()
         .optional()
@@ -3319,12 +3352,19 @@ const viewActions: readonly ToolAction[] = [
   // append — so it sits on the wholesale-read-only exarchos_view tool.
   {
     name: 'worktrees',
+    surface: 'worktree',
     description:
-      'List the governed worktree set — the live worktrees@v1 projection (each entry: worktreeId, path, featureId, lifecycle state, owner pid/start-time). Read-only; emits no events.',
-    schema: z.object({}),
+      'List the governed worktree set — the live worktrees@v1 projection (each entry: worktreeId, path, featureId, lifecycle state, owner pid/start-time). Read-only; emits no events. DR-3 bounded output: omitting limit caps the item count deterministically and, if the capped page would still blow the output-token budget, returns a counts-by-state summary + first page instead of per-item detail; narrow with limit/offset. Use for: inspecting which worktrees are governed and their reservation/orphan state. Do NOT use for: claiming or freeing a worktree (use acquire_worktree / release_worktree); the in-flight merge/prune liveness set (use ps).',
+    schema: z.object({
+      // Reuse pipeline's EXACT coerced base field types (coercedPositiveInt /
+      // coercedNonnegativeInt) so the MCP-registration flattener sees no divergent
+      // shape for the shared `limit` / `offset` field names (DR-3).
+      limit: coercedPositiveInt().optional(),
+      offset: coercedNonnegativeInt().optional(),
+    }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: WorktreesOutputSchema,
     annotations: READ_ONLY_LOCAL,
   },
   // ─── Worktree-lifecycle liveness reads (WLM operational core, DR-4) ────────
@@ -3338,14 +3378,15 @@ const viewActions: readonly ToolAction[] = [
   // idempotent), it just is not a zero-append read.
   {
     name: 'ps',
+    surface: 'worktree',
     description:
-      'List the live worktree-layer liveness pairs as a pure fold, NO process scan: the worktrees@v1 inFlightMerges (each: integrationRef, operationId, sourceBranch, holder pid/start-time), the in-flight launcher launches, AND the inFlightPrunes — live prune_worktrees GC passes (each: operationId, repoRoot, holder pid/start-time; DR-3). Pass probe:true to additionally run the on-demand DR-5 process probe and emit worktree.released (owner dead, idle) / worktree.orphan_detected (owner dead, still occupied) — the orphan emitter, a conditional write path. Idempotent: without probe it is a pure read; with probe the heals re-converge on re-run.',
+      'List the live worktree-layer liveness pairs as a pure fold, NO process scan: the worktrees@v1 inFlightMerges (each: integrationRef, operationId, sourceBranch, holder pid/start-time), the in-flight launcher launches, AND the inFlightPrunes — live prune_worktrees GC passes (each: operationId, repoRoot, holder pid/start-time; DR-3). Pass probe:true to additionally run the on-demand DR-5 process probe and emit worktree.released (owner dead, idle) / worktree.orphan_detected (owner dead, still occupied) — the orphan emitter, a conditional write path. Idempotent: without probe it is a pure read; with probe the heals re-converge on re-run. Use for: seeing which merges/launches/prunes are in flight, or (probe:true) reconciling dead holders on demand. Do NOT use for: the governed worktree set (use worktrees); blocking until a merge/prune completes (use wait).',
     schema: z.object({
       probe: z.boolean().optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: PsOutputSchema,
     // `ps probe:true` can append worktree.released / worktree.orphan_detected, so
     // it is NOT readOnly. The heals are idempotent (re-running a probe over an
     // already-reconciled set emits nothing) and non-destructive → idempotent
@@ -3354,8 +3395,9 @@ const viewActions: readonly ToolAction[] = [
   },
   {
     name: 'wait',
+    surface: 'worktree',
     description:
-      "Block on a worktree-layer condition (caller-bounded poll, re-folding worktrees@v1 each iteration; structured wait-timeout on expiry; never hangs, no background timer, emits no events). until:'merge' (default) blocks until the serialized merge on integrationRef reaches its terminal worktree.merge_executed (integrationRef required). until:'idle' blocks until no in-flight prune_worktrees GC pass remains (the prune terminal cleared inFlightPrunes). timeoutMs bounds the wait.",
+      "Block on a worktree-layer condition (caller-bounded poll, re-folding worktrees@v1 each iteration; structured wait-timeout on expiry; never hangs, no background timer, emits no events). until:'merge' (default) blocks until the serialized merge on integrationRef reaches its terminal worktree.merge_executed (integrationRef required). until:'idle' blocks until no in-flight prune_worktrees GC pass remains (the prune terminal cleared inFlightPrunes). timeoutMs bounds the wait. Use for: gating on a serialized merge terminal (until:'merge') or on prune-idle (until:'idle') before proceeding. Do NOT use for: a point-in-time liveness snapshot (use ps); running the merge itself (use serialize_merge).",
     schema: z.object({
       // Optional: required only in the default until:'merge' mode (the handler
       // rejects a missing ref there). until:'idle' does not consult it. Base
@@ -3374,7 +3416,7 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: WaitOutputSchema,
     annotations: READ_ONLY_LOCAL,
   },
   makeDescribeAction(),
@@ -3416,7 +3458,7 @@ export const TOOL_REGISTRY: readonly CompositeTool[] = [
     description: 'Task coordination — claim, complete, and fail tasks',
     actions: orchestrateActions,
     cli: { alias: 'orch' },
-    slimDescription: 'Task coordination, quality gates, validation actions, and VCS operations. Use describe(actions) for schemas.\n\nActions: task_claim, task_complete, task_fail, review_triage, prepare_delegation, prepare_synthesis, assess_stack, check_static_analysis, check_integration_suite, check_security_scan, check_context_economy, check_operational_resilience, check_workflow_determinism, check_review_verdict, check_convergence, check_provenance_chain, check_design_completeness, check_plan_coverage, check_post_merge, check_task_decomposition, check_event_emissions, extract_task, review_diff, verify_worktree, select_debug_track, investigation_timer, check_coverage_thresholds, assess_refactor_scope, check_pr_comments, validate_pr_body, validate_pr_stack, debug_review_gate, extract_fix_tasks, generate_traceability, spec_coverage_check, verify_worktree_baseline, setup_worktree, verify_delegation_saga, post_delegation_check, reconcile_state, pre_synthesis_check, runbook, agent_spec, onboard, doctor, create_pr, merge_pr, check_ci, list_prs, get_pr_comments, add_pr_comment, create_issue, merge_orchestrate, check_invariant_conformance, acquire_worktree, release_worktree, prune_worktrees',
+    slimDescription: 'Task coordination, quality gates, validation actions, and VCS operations. Use describe(actions) for schemas.\n\nActions: task_claim, task_complete, task_fail, review_triage, prepare_delegation, prepare_synthesis, assess_stack, check_static_analysis, check_integration_suite, check_security_scan, check_context_economy, check_operational_resilience, check_workflow_determinism, check_review_verdict, check_convergence, check_provenance_chain, check_design_completeness, check_plan_coverage, check_post_merge, check_task_decomposition, check_event_emissions, extract_task, review_diff, verify_worktree, select_debug_track, investigation_timer, check_coverage_thresholds, assess_refactor_scope, check_pr_comments, validate_pr_body, validate_pr_stack, debug_review_gate, extract_fix_tasks, generate_traceability, spec_coverage_check, verify_worktree_baseline, setup_worktree, verify_delegation_saga, post_delegation_check, reconcile_state, pre_synthesis_check, runbook, agent_spec, onboard, doctor, create_pr, merge_pr, check_ci, list_prs, get_pr_comments, add_pr_comment, create_issue, merge_orchestrate, check_invariant_conformance, acquire_worktree, release_worktree, prune_worktrees, serialize_merge',
   },
   {
     name: 'exarchos_view',
