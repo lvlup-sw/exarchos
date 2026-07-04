@@ -31,11 +31,13 @@ import {
 import { loadRuntime } from './runtimes/load.js';
 import { RuntimeTokenKey } from './runtimes/types.js';
 import type { RuntimeMap, PreferredFacade } from './runtimes/types.js';
+import { runSkillsGuard } from './skills-guard.js';
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync, statSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
+import { execSync } from 'node:child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -378,14 +380,15 @@ describe('buildAllSkills — task 007', () => {
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
-    writeFileSync(join(srcDir, 'foo', 'SKILL.md'), 'Hello {{AGENT_LABEL}}');
+    // {{TASK_TOOL}} → orchestration skill → per-runtime render (DR-2).
+    writeFileSync(join(srcDir, 'foo', 'SKILL.md'), 'Hello {{AGENT_LABEL}} {{TASK_TOOL}}');
     writeRuntimeFixtures(runtimesDir);
 
     buildAllSkills({ srcDir, outDir, runtimesDir });
 
     const clauPath = join(outDir, 'claude', 'foo', 'SKILL.md');
     expect(existsSync(clauPath)).toBe(true);
-    expect(readFileSync(clauPath, 'utf8')).toBe('Hello agent');
+    expect(readFileSync(clauPath, 'utf8')).toBe('Hello agent Task');
   });
 
   it('BuildAllSkills_SixRuntimes_GeneratesSixVariants', () => {
@@ -394,7 +397,8 @@ describe('buildAllSkills — task 007', () => {
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
-    writeFileSync(join(srcDir, 'foo', 'SKILL.md'), '{{AGENT_LABEL}}');
+    // {{TASK_TOOL}} → orchestration skill → one variant per runtime (DR-2).
+    writeFileSync(join(srcDir, 'foo', 'SKILL.md'), '{{AGENT_LABEL}} {{TASK_TOOL}}');
     writeRuntimeFixtures(runtimesDir);
 
     const report = buildAllSkills({ srcDir, outDir, runtimesDir });
@@ -416,9 +420,11 @@ describe('buildAllSkills — task 007', () => {
     // copied (orphan pruning). The original task-007 contract — every
     // file under `references/` mirrored unconditionally — was replaced
     // by the link-scanning pass in `copyLinkedReferences`.
+    // {{TASK_TOOL}} → orchestration skill → per-runtime; each variant mirrors
+    // its linked references (DR-2).
     writeFileSync(
       join(srcDir, 'foo', 'SKILL.md'),
-      '{{AGENT_LABEL}} — see [note](references/note.md)',
+      '{{AGENT_LABEL}} {{TASK_TOOL}} — see [note](references/note.md)',
     );
     writeFileSync(join(srcDir, 'foo', 'references', 'note.md'), 'a shared reference');
     writeRuntimeFixtures(runtimesDir);
@@ -439,7 +445,10 @@ describe('buildAllSkills — task 007', () => {
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
-    writeFileSync(join(srcDir, 'foo', 'SKILL.md'), 'default: {{AGENT_LABEL}}');
+    // {{TASK_TOOL}} → orchestration skill: per-runtime rendering + the
+    // per-runtime `SKILL.<runtime>.md` override hatch (DR-2). Overrides are an
+    // orchestration-only construct; the standard render has no override path.
+    writeFileSync(join(srcDir, 'foo', 'SKILL.md'), 'default: {{AGENT_LABEL}} {{TASK_TOOL}}');
     // Claude-specific override — used verbatim (no rendering).
     writeFileSync(join(srcDir, 'foo', 'SKILL.claude.md'), 'verbatim claude override {{UNRESOLVED}}');
     writeRuntimeFixtures(runtimesDir);
@@ -451,7 +460,7 @@ describe('buildAllSkills — task 007', () => {
       'verbatim claude override {{UNRESOLVED}}',
     );
     // Other runtimes still use SKILL.md + render.
-    expect(readFileSync(join(outDir, 'codex', 'foo', 'SKILL.md'), 'utf8')).toBe('default: agent');
+    expect(readFileSync(join(outDir, 'codex', 'foo', 'SKILL.md'), 'utf8')).toBe('default: agent Task');
     // Override usage recorded in report.
     expect(report.overridesUsed.length).toBeGreaterThan(0);
     expect(report.overridesUsed.some((p) => p.includes('SKILL.claude.md'))).toBe(true);
@@ -463,7 +472,8 @@ describe('buildAllSkills — task 007', () => {
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
-    writeFileSync(join(srcDir, 'foo', 'SKILL.md'), '{{AGENT_LABEL}}');
+    // {{TASK_TOOL}} → orchestration skill → per-runtime render (DR-2).
+    writeFileSync(join(srcDir, 'foo', 'SKILL.md'), '{{AGENT_LABEL}} {{TASK_TOOL}}');
     writeRuntimeFixtures(runtimesDir);
 
     // Pre-seed a stale output that is not produced by this build.
@@ -495,14 +505,16 @@ describe('buildAllSkills — task 007', () => {
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
-    // Body with no tokens at all.
+    // Body with no tokens at all → a procedural skill (no orchestration
+    // tokens) that collapses to the single `skills/standard/foo/` render.
     writeFileSync(join(srcDir, 'foo', 'SKILL.md'), 'plain content no tokens');
-    // Generic has no placeholders — should still copy unchanged.
+    // Generic has no placeholders — irrelevant now that this token-free
+    // procedural body renders once to the runtime-neutral standard tree.
     writeRuntimeFixtures(runtimesDir, { generic: { placeholders: {} } });
 
     buildAllSkills({ srcDir, outDir, runtimesDir });
 
-    expect(readFileSync(join(outDir, 'generic', 'foo', 'SKILL.md'), 'utf8')).toBe(
+    expect(readFileSync(join(outDir, 'standard', 'foo', 'SKILL.md'), 'utf8')).toBe(
       'plain content no tokens',
     );
   });
@@ -1394,7 +1406,7 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
       [
         '# Foo',
         '',
-        'Always-rendered intro.',
+        'Always-rendered intro. {{TASK_TOOL}}',
         '',
         '<!-- requires:team:agent-teams -->',
         '## Agent Teams Section',
@@ -1435,7 +1447,7 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
     writeFileSync(
       join(srcDir, 'foo', 'SKILL.md'),
       [
-        'intro',
+        'intro {{TASK_TOOL}}',
         '<!-- requires:native:session:resume -->',
         'native-only resume strategy block',
         '<!-- /requires -->',
@@ -1468,7 +1480,7 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
     writeFileSync(
       join(srcDir, 'foo', 'SKILL.md'),
       [
-        'intro',
+        'intro {{TASK_TOOL}}',
         '<!-- requires:not-a-real-cap -->',
         'body',
         '<!-- /requires -->',
@@ -1503,7 +1515,7 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
     writeFileSync(
       join(srcDir, 'foo', 'SKILL.md'),
       [
-        'intro',
+        'intro {{TASK_TOOL}}',
         '<!-- requires:team:agent-teams -->',
         'outer body',
         '<!-- requires:fs:read -->',
@@ -1548,7 +1560,7 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
     writeFileSync(
       join(srcDir, 'foo', 'SKILL.md'),
       [
-        '# Foo',
+        '# Foo {{TASK_TOOL}}',
         '<!-- requires:team:agent-teams -->',
         'See [foo](references/foo.md) for details.',
         '<!-- /requires -->',
@@ -1799,7 +1811,7 @@ describe('buildAllSkills — Wave B: post-render vocabulary lint', () => {
     writeFileSync(
       join(srcDir, 'foo', 'SKILL.md'),
       [
-        '# Foo',
+        '# Foo {{TASK_TOOL}}',
         '<!-- requires:team:agent-teams -->',
         'uses TaskList for coordination',
         '<!-- /requires -->',
@@ -1835,7 +1847,7 @@ describe('buildAllSkills — Wave B: post-render vocabulary lint', () => {
     writeFileSync(
       join(srcDir, 'foo', 'SKILL.md'),
       [
-        '# Foo',
+        '# Foo {{TASK_TOOL}}',
         '',
         'always-on intro',
         '',
@@ -1883,7 +1895,7 @@ describe('buildAllSkills — Wave B: post-render vocabulary lint', () => {
     writeFileSync(
       join(srcDir, 'foo', 'SKILL.md'),
       [
-        '# Foo',
+        '# Foo {{TASK_TOOL}}',
         '',
         'always-on intro',
         '',
@@ -1932,7 +1944,7 @@ describe('buildAllSkills — Wave B: post-render vocabulary lint', () => {
     writeFileSync(
       join(srcDir, 'foo', 'SKILL.md'),
       [
-        '# Foo',
+        '# Foo {{TASK_TOOL}}',
         '',
         'Capabilities map snippet:',
         '',
@@ -2096,7 +2108,7 @@ describe('buildAllSkills — Wave C: reference rendering + lint', () => {
     mkdirSync(join(srcDir, 'foo', 'references'), { recursive: true });
     writeFileSync(
       join(srcDir, 'foo', 'SKILL.md'),
-      ['# Foo', 'See [foo](references/foo.md) for details.'].join('\n'),
+      ['# Foo {{TASK_TOOL}}', 'See [foo](references/foo.md) for details.'].join('\n'),
     );
     writeFileSync(
       join(srcDir, 'foo', 'references', 'foo.md'),
@@ -2151,7 +2163,7 @@ describe('buildAllSkills — Wave C: reference rendering + lint', () => {
     mkdirSync(join(srcDir, 'foo', 'references'), { recursive: true });
     writeFileSync(
       join(srcDir, 'foo', 'SKILL.md'),
-      ['# Foo', 'See [foo](references/foo.md) for details.'].join('\n'),
+      ['# Foo {{TASK_TOOL}}', 'See [foo](references/foo.md) for details.'].join('\n'),
     );
     writeFileSync(
       join(srcDir, 'foo', 'references', 'foo.md'),
@@ -2196,7 +2208,7 @@ describe('buildAllSkills — Wave C: reference rendering + lint', () => {
     mkdirSync(join(srcDir, 'foo', 'references'), { recursive: true });
     writeFileSync(
       join(srcDir, 'foo', 'SKILL.md'),
-      ['# Foo', 'See [foo](references/foo.md) for details.'].join('\n'),
+      ['# Foo {{TASK_TOOL}}', 'See [foo](references/foo.md) for details.'].join('\n'),
     );
     writeFileSync(
       join(srcDir, 'foo', 'references', 'foo.md'),
@@ -2243,7 +2255,7 @@ describe('buildAllSkills — Wave C: reference rendering + lint', () => {
     mkdirSync(join(srcDir, 'foo', 'references'), { recursive: true });
     writeFileSync(
       join(srcDir, 'foo', 'SKILL.md'),
-      ['# Foo', 'See [bad](references/bad.md).'].join('\n'),
+      ['# Foo {{TASK_TOOL}}', 'See [bad](references/bad.md).'].join('\n'),
     );
     writeFileSync(
       join(srcDir, 'foo', 'references', 'bad.md'),
@@ -2472,5 +2484,153 @@ describe('assertRuntimeTokenCoverage — task 002 (prefix retention)', () => {
     const message = (err as Error).message;
     expect(message).toContain('MCP_PREFIX');
     expect(message).toContain('COMMAND_PREFIX');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 003 (DR-1): classification-driven emission + CHAIN target validation.
+//
+// A procedural skill (no orchestration tokens) collapses to ONE runtime-neutral
+// render under `skills/standard/<skill>/`; prefix tokens resolve to their
+// logical qualified form (`{{MCP_PREFIX}}` → `exarchos:`, `{{COMMAND_PREFIX}}` →
+// bare verb). An orchestration skill (any of TASK_TOOL / CHAIN / SPAWN_AGENT_CALL
+// / SUBAGENT_*) keeps the per-runtime pipeline under `skills/<runtime>/<skill>/`.
+// A `{{CHAIN next="..."}}` to a skill that does not exist fails the build.
+// ---------------------------------------------------------------------------
+
+const GIT_ENV = {
+  ...process.env,
+  GIT_AUTHOR_NAME: 'test',
+  GIT_AUTHOR_EMAIL: 'test@example.com',
+  GIT_COMMITTER_NAME: 'test',
+  GIT_COMMITTER_EMAIL: 'test@example.com',
+};
+
+const ALL_RUNTIME_NAMES = ['generic', 'claude', 'codex', 'opencode', 'copilot', 'cursor'];
+
+describe('buildAllSkills — task 003: classification-driven emission', () => {
+  it('buildAllSkills_ProceduralSkill_EmitsSingleStandardVariant', () => {
+    const root = makeTempDir();
+    const srcDir = join(root, 'skills-src');
+    const outDir = join(root, 'skills');
+    const runtimesDir = join(root, 'runtimes');
+    mkdirSync(join(srcDir, 'proc'), { recursive: true });
+    // Prefix-only source → procedural. References a linked reference file so
+    // we can also assert the reference is mirrored into the standard variant.
+    writeFileSync(
+      join(srcDir, 'proc', 'SKILL.md'),
+      'Call {{MCP_PREFIX}}exarchos_workflow; then run {{COMMAND_PREFIX}}review — see [note](references/note.md).\n',
+    );
+    mkdirSync(join(srcDir, 'proc', 'references'), { recursive: true });
+    writeFileSync(join(srcDir, 'proc', 'references', 'note.md'), 'a shared reference');
+    writeRuntimeFixtures(runtimesDir);
+
+    const report = buildAllSkills({ srcDir, outDir, runtimesDir });
+
+    // Rendered ONCE, to the runtime-neutral standard tree.
+    const standardFile = join(outDir, 'standard', 'proc', 'SKILL.md');
+    expect(existsSync(standardFile)).toBe(true);
+    const rendered = readFileSync(standardFile, 'utf8');
+    // Prefix tokens resolve to the logical qualified form.
+    expect(rendered).toContain('exarchos:exarchos_workflow');
+    // COMMAND_PREFIX resolves to the bare canonical verb (empty prefix).
+    expect(rendered).toContain('run review —');
+    // No raw harness-prefixed tool names leak into the neutral render.
+    expect(rendered).not.toContain('mcp__');
+    // The reference is mirrored under the standard variant.
+    expect(
+      readFileSync(join(outDir, 'standard', 'proc', 'references', 'note.md'), 'utf8'),
+    ).toBe('a shared reference');
+
+    // NOT emitted per-runtime — no `skills/<runtime>/proc/` anywhere.
+    for (const rt of ALL_RUNTIME_NAMES) {
+      expect(existsSync(join(outDir, rt, 'proc', 'SKILL.md'))).toBe(false);
+    }
+    // A single skill → a single variant.
+    expect(report.variantsWritten).toBe(1);
+  });
+
+  it('buildAllSkills_OrchestrationSkill_EmitsPerRuntimeVariants', () => {
+    const root = makeTempDir();
+    const srcDir = join(root, 'skills-src');
+    const outDir = join(root, 'skills');
+    const runtimesDir = join(root, 'runtimes');
+    mkdirSync(join(srcDir, 'orch'), { recursive: true });
+    // An orchestration token flips the class → per-runtime rendering.
+    writeFileSync(
+      join(srcDir, 'orch', 'SKILL.md'),
+      'Spawn a subagent with {{TASK_TOOL}} to fan out the work.\n',
+    );
+    writeRuntimeFixtures(runtimesDir);
+
+    const report = buildAllSkills({ srcDir, outDir, runtimesDir });
+
+    // One variant per runtime, under `skills/<runtime>/orch/`.
+    for (const rt of ALL_RUNTIME_NAMES) {
+      expect(existsSync(join(outDir, rt, 'orch', 'SKILL.md'))).toBe(true);
+    }
+    // NOT collapsed to the standard tree.
+    expect(existsSync(join(outDir, 'standard', 'orch', 'SKILL.md'))).toBe(false);
+    expect(report.variantsWritten).toBe(6);
+  });
+
+  it('skillsGuard_StandardTreeDrift_Fails', () => {
+    const root = makeTempDir();
+    const srcDir = join(root, 'skills-src');
+    const outDir = join(root, 'skills');
+    const runtimesDir = join(root, 'runtimes');
+    // Procedural skill → renders to `skills/standard/proc/`.
+    mkdirSync(join(srcDir, 'proc'), { recursive: true });
+    writeFileSync(
+      join(srcDir, 'proc', 'SKILL.md'),
+      'Use {{MCP_PREFIX}}exarchos_view and {{COMMAND_PREFIX}}review.\n',
+    );
+    writeRuntimeFixtures(runtimesDir);
+    buildAllSkills({ srcDir, outDir, runtimesDir });
+
+    execSync('git init -q -b main', { cwd: root, env: GIT_ENV });
+    execSync('git add -A', { cwd: root, env: GIT_ENV });
+    execSync('git commit -q -m "seed"', { cwd: root, env: GIT_ENV });
+
+    // Hand-edit the committed standard render and commit the drift. A fresh
+    // guard build regenerates the canonical bytes, so `git diff` on the
+    // standard subtree is non-empty.
+    const standardFile = join(outDir, 'standard', 'proc', 'SKILL.md');
+    expect(existsSync(standardFile)).toBe(true);
+    writeFileSync(standardFile, readFileSync(standardFile, 'utf8') + '\n<!-- hand edit -->\n');
+    execSync('git add -A', { cwd: root, env: GIT_ENV });
+    execSync('git commit -q -m "drift standard"', { cwd: root, env: GIT_ENV });
+
+    const result = runSkillsGuard({ cwd: root, regenerateAgents: () => {} });
+
+    expect(result.ok).toBe(false);
+    expect(result.exitCode).not.toBe(0);
+    // The drift is attributed to the standard tree, naming the file.
+    expect(result.message).toMatch(/skills\/standard\/proc\/SKILL\.md/);
+  });
+
+  it('chainToken_TargetSkillMissing_FailsBuild', () => {
+    const root = makeTempDir();
+    const srcDir = join(root, 'skills-src');
+    const outDir = join(root, 'skills');
+    const runtimesDir = join(root, 'runtimes');
+    mkdirSync(join(srcDir, 'chainer'), { recursive: true });
+    // CHAIN to a target that is neither a canonical verb nor an on-disk skill.
+    writeFileSync(
+      join(srcDir, 'chainer', 'SKILL.md'),
+      'Then run {{CHAIN next="totally-bogus-nonexistent-verb" args="$X"}}.\n',
+    );
+    writeRuntimeFixtures(runtimesDir);
+
+    let err: unknown;
+    try {
+      buildAllSkills({ srcDir, outDir, runtimesDir });
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(Error);
+    const message = (err as Error).message;
+    expect(message).toMatch(/CHAIN target/i);
+    expect(message).toContain('totally-bogus-nonexistent-verb');
   });
 });
