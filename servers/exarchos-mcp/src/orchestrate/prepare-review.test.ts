@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { handlePrepareReview, type PrepareReviewArgs } from './prepare-review.js';
 import { QUALITY_CHECK_CATALOG } from '../review/check-catalog.js';
 import { EventStore } from '../event-store/store.js';
+import { resolveWorkflowState } from './resolve-state.js';
 import type { ToolResult } from '../format.js';
 
 // ─── Typed assertion helpers ────────────────────────────────────────────────
@@ -333,5 +334,131 @@ describe('handlePrepareReview', () => {
         rmSync(emptyDir, { recursive: true, force: true });
       }
     });
+  });
+});
+
+// ─── DR-2 (WLM-6) task 004: stateful `prepare_review scope:plan` — count + cap ──
+//     at the one unskippable provisioning seam.
+//
+// `prepare_review scope:plan` is the ONLY server action an agent must call to
+// obtain a fresh-context adversarial plan-review, so it is where the revision
+// loop is bounded by construction. Each call records a counted
+// `workflow.plan-review-dispatched` event (ordinal 0 = the initial review =
+// revision 0; ordinal N = the N-th re-dispatch = revision N); the projection
+// folds the MAX ordinal into `planReview.revisionCount` — the field the
+// `revisionsExhausted` guard reads. Over-cap re-dispatches are refused at the
+// seam with a park-at-`blocked` envelope.
+describe('plan-review bound at the provisioning seam (WLM-6 DR-2, task 004)', () => {
+  const DISPATCH_EVENT = 'workflow.plan-review-dispatched';
+
+  /** The folded `planReview.revisionCount` — the exact value the guard reads. */
+  async function revisionCount(featureId: string): Promise<number | undefined> {
+    const resolved = await resolveWorkflowState({ featureId, eventStore });
+    if ('error' in resolved) throw new Error('state did not resolve');
+    const planReview = resolved.state.planReview as { revisionCount?: number } | undefined;
+    return planReview?.revisionCount;
+  }
+
+  const planArgs = (featureId: string): PrepareReviewArgs => ({
+    featureId,
+    scope: 'plan',
+    artifact: 'docs/specs/2026-07-03-feat.md',
+  });
+
+  it('PrepareReviewPlan_InitialDispatch_EmitsNoCounter', async () => {
+    // The initial review consumes NO revision: revisionCount stays 0. An
+    // ordinal-0 dispatch marker IS recorded (a traceless initial is
+    // indistinguishable from the first re-dispatch on a pure event-sourced
+    // stream), but the projection folds ordinal 0 → revisionCount 0, so the
+    // counter does not increment.
+    const featureId = 'dr2-initial';
+    const result = await callPrepareReview(planArgs(featureId));
+    expect(result.success).toBe(true);
+    expect((result.data as { mode: string }).mode).toBe('plan-review');
+
+    const events = await eventStore.query(featureId, { type: DISPATCH_EVENT });
+    expect(events).toHaveLength(1);
+    expect((events[0].data as { ordinal: number }).ordinal).toBe(0);
+    // The load-bearing contract: the initial did not increment the counter.
+    expect(await revisionCount(featureId)).toBe(0);
+  });
+
+  it('PrepareReviewPlan_ReDispatch_EmitsCountedEvent', async () => {
+    // A re-dispatch (a second provisioning) records a counted event that folds
+    // to revisionCount 1 — the value the `revisionsExhausted` guard reads.
+    const featureId = 'dr2-redispatch';
+    await callPrepareReview(planArgs(featureId)); // initial (ordinal 0)
+    const result = await callPrepareReview(planArgs(featureId)); // re-dispatch (ordinal 1)
+    expect(result.success).toBe(true);
+
+    const events = await eventStore.query(featureId, { type: DISPATCH_EVENT });
+    expect(events).toHaveLength(2);
+    expect((events[1].data as { ordinal: number }).ordinal).toBe(1);
+    expect(await revisionCount(featureId)).toBe(1);
+  });
+
+  it('PrepareReviewPlan_PastCap_RefusesWithBlockedAffordance', async () => {
+    // Error-handling AC: with the default cap (maxPlanRevisions = 1, no repoRoot),
+    // the initial + one re-dispatch consume the single revision; the NEXT
+    // re-dispatch is refused at the seam with a structured park-at-`blocked`
+    // envelope that NAMES the count and the cap and carries the resume affordance
+    // (INV-5b/INV-12) — and provisions nothing further.
+    const featureId = 'dr2-cap';
+    await callPrepareReview(planArgs(featureId)); // ordinal 0 (revision 0)
+    await callPrepareReview(planArgs(featureId)); // ordinal 1 (revision 1)
+    expect(await revisionCount(featureId)).toBe(1);
+
+    const refused = await callPrepareReview(planArgs(featureId)); // over cap
+    expect(refused.success).toBe(false);
+    expect(refused.error?.code).toBe('PLAN_REVISIONS_EXHAUSTED');
+    // Names both the consumed count and the cap.
+    expect(refused.error?.message).toContain('1/1');
+    // INV-5b: a valid target + a suggested-fix transition to `blocked`.
+    expect(refused.error?.validTargets).toContain('blocked');
+    expect(refused.error?.suggestedFix?.params).toMatchObject({ to: 'blocked' });
+    // INV-12: a `next_actions` affordance to park at `blocked`.
+    const nextActions = refused.next_actions as { verb: string; validTargets?: string[] }[];
+    expect(nextActions?.some((a) => a.verb === 'blocked')).toBe(true);
+
+    // Provisions nothing: no third dispatch event, revisionCount unchanged.
+    const events = await eventStore.query(featureId, { type: DISPATCH_EVENT });
+    expect(events).toHaveLength(2);
+    expect(await revisionCount(featureId)).toBe(1);
+  });
+
+  it('PrepareReviewPlan_CrashRetrySameOrdinal_IdempotentByKey', async () => {
+    // INV-8: the dispatch event carries a deterministic idempotency key
+    // (`${featureId}:plan-review-dispatch:${ordinal}`), so a same-ordinal
+    // crash-retry re-provision collapses at the storage layer rather than
+    // double-counting.
+    const featureId = 'dr2-idempotent';
+    await callPrepareReview(planArgs(featureId)); // ordinal 0
+    await callPrepareReview(planArgs(featureId)); // ordinal 1
+    const before = await eventStore.query(featureId, { type: DISPATCH_EVENT });
+    expect(before).toHaveLength(2);
+    // The handler used the deterministic key for ordinal 1.
+    expect(before[1].idempotencyKey).toBe(`${featureId}:plan-review-dispatch:1`);
+
+    // Re-append the SAME-ordinal event (the crash-retry) with the same key.
+    await eventStore.append(
+      featureId,
+      { type: DISPATCH_EVENT, data: { featureId, ordinal: 1 } },
+      { idempotencyKey: `${featureId}:plan-review-dispatch:1` },
+    );
+
+    // Collapsed at the storage layer — no duplicate, count unchanged.
+    const after = await eventStore.query(featureId, { type: DISPATCH_EVENT });
+    expect(after).toHaveLength(2);
+    expect(await revisionCount(featureId)).toBe(1);
+  });
+
+  it('PrepareReviewPlan_MissingArtifact_RefusesBeforeAnyEmission', async () => {
+    // The artifact validation still fires FIRST — a bad request never records a
+    // dispatch marker (no state mutation on an invalid input).
+    const featureId = 'dr2-noartifact';
+    const result = await callPrepareReview({ featureId, scope: 'plan' });
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(await eventStore.query(featureId, { type: DISPATCH_EVENT })).toHaveLength(0);
   });
 });

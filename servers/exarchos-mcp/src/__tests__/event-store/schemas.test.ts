@@ -519,7 +519,11 @@ describe('EventTypes', () => {
     // WorktreeManager around a `prune_worktrees` GC pass (INV-10), folded by
     // `worktrees@v1` into `inFlightPrunes` so an in-flight prune is `ps`/`wait`-
     // visible.
-    expect(EventTypes).toHaveLength(145);
+    // WLM-6 (DR-2): bumped 145 → 146 to include `workflow.plan-review-dispatched`,
+    // the counted plan-review dispatch emitted by the `prepare_review scope:plan`
+    // provisioning seam (folded into `state.planReview.revisionCount` to bound the
+    // plan-review loop at its unskippable server action).
+    expect(EventTypes).toHaveLength(146);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');

@@ -6,10 +6,12 @@
 // ──────────────────────────────────────────────────────────────────────────────
 
 import type { ToolResult } from '../format.js';
+import type { NextAction } from '../next-action.js';
 import type { EventStore } from '../event-store/store.js';
 import { QUALITY_CHECK_CATALOG } from '../review/check-catalog.js';
 import { loadProjectConfig } from '../config/yaml-loader.js';
 import { resolveConfig, DEFAULTS } from '../config/resolve.js';
+import { DEFAULT_MAX_PLAN_REVISIONS } from '../workflow/guards.js';
 import { resolvePlanReviewDepth, type PlanReviewRung } from '../workflow/phase-kind.js';
 import type { DesignDepth } from '../workflow/plan-depth-policy.js';
 import { changedFilesAgainstBase, deriveIntent, persistIntent } from './extract-intent.js';
@@ -173,7 +175,91 @@ export interface PlanReviewProvisioning {
   readonly verdictFormat: string;
 }
 
-function buildPlanReviewProvisioning(args: PrepareReviewArgs): ToolResult {
+// ─── DR-2 (WLM-6): the stateful count+cap at the provisioning seam ─────────────
+
+/**
+ * The counted event the provisioning seam appends per plan-review dispatch. The
+ * projection folds the MAX `ordinal` into `planReview.revisionCount` — the field
+ * the `revisionsExhausted` guard reads — so the two agree on the bound.
+ */
+const PLAN_REVIEW_DISPATCHED_EVENT = 'workflow.plan-review-dispatched';
+
+/** Deterministic idempotency key so a same-ordinal crash-retry collapses (INV-8). */
+function planReviewDispatchKey(featureId: string, ordinal: number): string {
+  return `${featureId}:plan-review-dispatch:${ordinal}`;
+}
+
+/**
+ * Resolve the plan-revision cap AT THE SEAM (DR-2). The seam cannot see the
+ * transition-handler's `_maxPlanRevisions` state injection (`tools.ts`), so it
+ * re-resolves from `.exarchos.yml` via the SAME resolver the guard's default
+ * traces to: `resolveConfig(...).workflow.maxPlanRevisions`, which itself
+ * defaults to `DEFAULT_MAX_PLAN_REVISIONS` (guards.ts) when unset. When no
+ * `repoRoot` is supplied the seam falls back to that same constant directly, so
+ * the seam and the `revisionsExhausted` backstop always read the identical cap.
+ */
+function resolveMaxPlanRevisions(repoRoot: string | undefined): number {
+  if (!repoRoot) return DEFAULT_MAX_PLAN_REVISIONS;
+  return resolveConfig(loadProjectConfig(repoRoot)).workflow.maxPlanRevisions;
+}
+
+/** The pure provisioning payload — the fresh-context adversarial contract (DR-10). */
+function assemblePlanReviewProvisioning(args: PrepareReviewArgs): PlanReviewProvisioning {
+  // Depth-scaled adversarial rung — the second consumer of the frozen
+  // designDepth (DR-10). thin → light (1 voter); deep → multi-voter panel.
+  const rung = resolvePlanReviewDepth(args.designDepth);
+  return {
+    mode: 'plan-review',
+    posture: 'read-only',
+    adversarial: true,
+    instruction: PLAN_REVIEW_INSTRUCTION,
+    rung,
+    provisionedContext: {
+      artifact: args.artifact as string,
+      // In the collapsed world the artifact carries its own design-rationale §;
+      // when no distinct spec ref is supplied the unified doc IS the spec.
+      spec: args.spec ?? (args.artifact as string),
+      // Structural guarantee — the dispatched reviewer is fresh-context and
+      // never receives the authoring transcript (DR-10 / INV-11).
+      authoringTranscriptIncluded: false,
+    },
+    verdictFormat: PLAN_REVIEW_VERDICT_FORMAT,
+  };
+}
+
+/**
+ * Stateful plan-review provisioning (DR-2, WLM-6). `prepare_review scope:plan`
+ * is the ONE server action an agent MUST call to obtain a fresh-context
+ * adversarial plan-review, so it is the seam that bounds the revision loop by
+ * construction — closing the skippable-edge bypass (an agent could sit in
+ * `plan-review`, re-provision + apply fixes + re-dispatch forever WITHOUT ever
+ * traversing the counted `plan-review → plan` HSM edge, leaving `revisionCount`
+ * at 0 and the `revisionsExhausted` guard permanently un-fed).
+ *
+ * On every call the seam reads the prior `workflow.plan-review-dispatched`
+ * events for this feature to derive the dispatch `ordinal` (0-based) and the
+ * folded `revisionCount` (= max prior ordinal = number of re-dispatches so far):
+ *
+ *   - INITIAL review (`ordinal 0`, no prior dispatch): append the ordinal-0
+ *     marker and provision. The projection folds ordinal 0 → `revisionCount 0`,
+ *     so the initial consumes NO revision. The marker is required: a traceless
+ *     initial is indistinguishable from the first re-dispatch on a pure
+ *     event-sourced stream, so it could not otherwise be told apart.
+ *   - AT/OVER cap (`revisionCount >= maxPlanRevisions`): REFUSE at the seam with
+ *     a structured park-at-`blocked` envelope (INV-5b/INV-12 — names the count
+ *     and the cap, carries `validTargets`/`suggestedFix` + a `next_actions`
+ *     affordance to transition to `blocked`) and provision NOTHING.
+ *   - RE-DISPATCH under cap: append exactly one ordinal-N event (+1 revision)
+ *     and provision.
+ *
+ * The append carries a deterministic idempotency key
+ * (`${featureId}:plan-review-dispatch:${ordinal}`, INV-8) so a same-ordinal
+ * crash-retry collapses at the storage layer rather than double-counting.
+ */
+async function buildPlanReviewProvisioning(
+  args: PrepareReviewArgs,
+  eventStore: EventStore,
+): Promise<ToolResult> {
   if (!args.artifact) {
     return {
       success: false,
@@ -184,29 +270,60 @@ function buildPlanReviewProvisioning(args: PrepareReviewArgs): ToolResult {
     };
   }
 
-  // Depth-scaled adversarial rung — the second consumer of the frozen
-  // designDepth (DR-10). thin → light (1 voter); deep → multi-voter panel.
-  const rung = resolvePlanReviewDepth(args.designDepth);
+  const maxPlanRevisions = resolveMaxPlanRevisions(args.repoRoot);
 
-  const provisioning: PlanReviewProvisioning = {
-    mode: 'plan-review',
-    posture: 'read-only',
-    adversarial: true,
-    instruction: PLAN_REVIEW_INSTRUCTION,
-    rung,
-    provisionedContext: {
-      artifact: args.artifact,
-      // In the collapsed world the artifact carries its own design-rationale §;
-      // when no distinct spec ref is supplied the unified doc IS the spec.
-      spec: args.spec ?? args.artifact,
-      // Structural guarantee — the dispatched reviewer is fresh-context and
-      // never receives the authoring transcript (DR-10 / INV-11).
-      authoringTranscriptIncluded: false,
+  // Count prior dispatches for this feature. `ordinal` is the 0-based index of
+  // THIS dispatch; the folded `revisionCount` (the value the guard reads) is the
+  // max PRIOR ordinal = `priorDispatches - 1`, floored at 0 (0 when this is the
+  // initial). The seam owns this counter, so we derive it from the durable
+  // dispatch events directly rather than materializing the whole projection.
+  const priorDispatches = await eventStore.query(args.featureId, {
+    type: PLAN_REVIEW_DISPATCHED_EVENT,
+  });
+  const ordinal = priorDispatches.length;
+  const revisionCount = Math.max(0, ordinal - 1);
+
+  // Over-cap refusal — only reachable on a re-dispatch (the initial's
+  // `revisionCount` is 0 and `maxPlanRevisions >= 1`, so it never parks).
+  if (ordinal > 0 && revisionCount >= maxPlanRevisions) {
+    const message =
+      `plan-review revision cap reached: ${revisionCount}/${maxPlanRevisions} ` +
+      `revisions consumed. No further adversarial plan-review will be provisioned — ` +
+      `transition to "blocked" and escalate to a human to resolve the outstanding gaps ` +
+      `(or raise workflow.maxPlanRevisions in .exarchos.yml).`;
+    const nextActions: NextAction[] = [
+      {
+        verb: 'blocked',
+        reason: `plan-review revisions exhausted (${revisionCount}/${maxPlanRevisions}); park for human resolution`,
+        validTargets: ['blocked'],
+        hint: 'exarchos_workflow transition → "blocked"',
+      },
+    ];
+    return {
+      success: false,
+      error: {
+        code: 'PLAN_REVISIONS_EXHAUSTED',
+        message,
+        validTargets: ['blocked'],
+        suggestedFix: { tool: 'exarchos_workflow', params: { action: 'transition', to: 'blocked' } },
+      },
+      next_actions: nextActions,
+    };
+  }
+
+  // Provision: append the counted dispatch marker (idempotent by ordinal key),
+  // THEN return the provisioning contract. The initial (ordinal 0) folds to
+  // revision 0; each re-dispatch (ordinal N) folds to revision N.
+  await eventStore.append(
+    args.featureId,
+    {
+      type: PLAN_REVIEW_DISPATCHED_EVENT,
+      data: { featureId: args.featureId, ordinal },
     },
-    verdictFormat: PLAN_REVIEW_VERDICT_FORMAT,
-  };
+    { idempotencyKey: planReviewDispatchKey(args.featureId, ordinal) },
+  );
 
-  return { success: true, data: provisioning };
+  return { success: true, data: assemblePlanReviewProvisioning(args) };
 }
 
 // ─── Handler ────────────────────────────────────────────────────────────────
@@ -227,9 +344,12 @@ export async function handlePrepareReview(
   // 1a. DR-10 — front-of-pipeline plan-review provisioning. A dispatched,
   // fresh-context, adversarial pass over the unified artifact; distinct from the
   // back-of-pipeline code-review catalog served below. The plan-review path is
-  // deliberately transcript-free — NO intent extraction happens here.
+  // deliberately transcript-free — NO intent extraction happens here. DR-2
+  // (WLM-6): this is also the stateful count+cap seam that bounds the plan-review
+  // revision loop (it appends the counted `workflow.plan-review-dispatched`
+  // event via the `eventStore` and refuses over-cap re-dispatches).
   if (args.scope && PLAN_REVIEW_SCOPES.has(args.scope)) {
-    return buildPlanReviewProvisioning(args);
+    return buildPlanReviewProvisioning(args, eventStore);
   }
 
   // 1b. Validate `dimensions` BEFORE any state mutation. An unknown dimension is

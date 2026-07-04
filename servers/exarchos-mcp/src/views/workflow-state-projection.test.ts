@@ -1319,3 +1319,84 @@ describe('WorkflowStateProjection plan-revision count (DR-1)', () => {
     expect(replayed.planReview).toEqual(live.planReview);
   });
 });
+
+// ─── Plan-review dispatch count (WLM-6 DR-2) ─────────────────────────────────
+
+describe('WorkflowStateProjection plan-review-dispatch count (WLM-6 DR-2)', () => {
+  type View = ReturnType<typeof workflowStateProjection.init>;
+  function revisionCountOf(state: View): number | undefined {
+    const planReview = state.planReview as { revisionCount?: number } | undefined;
+    return planReview?.revisionCount;
+  }
+  const dispatched = (ordinal: number): WorkflowEvent =>
+    makeEvent('workflow.plan-review-dispatched', { featureId: 'f', ordinal });
+
+  it('RevisionCount_FoldsFromDispatchEvent_NotStandardEdge', () => {
+    // WLM-6 (DR-2): `planReview.revisionCount` (the field `revisionsExhausted`
+    // reads) folds from the `prepare_review scope:plan` provisioning seam's
+    // `workflow.plan-review-dispatched` events — NOT the retired standard-edge
+    // `workflow.plan-revision`. The ordinal-0 initial review is revision 0 (no
+    // counter increment); each re-dispatch (ordinal N) is revision N.
+    let state = workflowStateProjection.init();
+    expect(revisionCountOf(state)).toBeUndefined();
+
+    // Initial review — ordinal 0 folds to revisionCount 0 (NOT +1).
+    state = workflowStateProjection.apply(state, dispatched(0));
+    expect(revisionCountOf(state)).toBe(0);
+    expect(state.revisionCount).toBeUndefined(); // never a top-level field
+
+    // First re-dispatch — ordinal 1 → revision 1.
+    state = workflowStateProjection.apply(state, dispatched(1));
+    expect(revisionCountOf(state)).toBe(1);
+
+    // Second re-dispatch — ordinal 2 → revision 2.
+    state = workflowStateProjection.apply(state, dispatched(2));
+    expect(revisionCountOf(state)).toBe(2);
+  });
+
+  it('Apply_PlanReviewDispatch_FoldsMaxOrdinal_IdempotentUnderDuplicate', () => {
+    // The fold is `max(current, ordinal)`, not `+1 per event` — so a duplicate
+    // ordinal (e.g. one that slipped past the storage-layer idempotency key) does
+    // NOT double-count. This keeps revisionCount = number of RE-DISPATCHES, which
+    // is what makes the guard's `revisionCount >= cap` semantics correct.
+    let state = workflowStateProjection.init();
+    state = workflowStateProjection.apply(state, dispatched(0));
+    state = workflowStateProjection.apply(state, dispatched(1));
+    state = workflowStateProjection.apply(state, dispatched(1)); // duplicate ordinal
+    expect(revisionCountOf(state)).toBe(1);
+  });
+
+  it('Apply_PlanReviewDispatch_PreservesOtherPlanReviewFields', () => {
+    // The fold spreads the prior planReview, so an `approved` written via
+    // state.patched survives the revision-count fold (mirrors the DR-1 fold).
+    let state = workflowStateProjection.init();
+    state = workflowStateProjection.apply(
+      state,
+      makeEvent('state.patched', { patch: { 'planReview.approved': true } }),
+    );
+    state = workflowStateProjection.apply(state, dispatched(0));
+    state = workflowStateProjection.apply(state, dispatched(1));
+    const planReview = state.planReview as { approved?: boolean; revisionCount?: number };
+    expect(planReview.approved).toBe(true);
+    expect(planReview.revisionCount).toBe(1);
+  });
+
+  it('Apply_PlanReviewDispatch_CountIsEventDerivedAndSurvivesReplay', () => {
+    const events: WorkflowEvent[] = [
+      makeEvent('workflow.started', { featureId: 'f', workflowType: 'feature' }),
+      dispatched(0),
+      dispatched(1),
+      dispatched(2),
+    ];
+    const foldAll = (): View =>
+      events.reduce(
+        (s, e) => workflowStateProjection.apply(s, e),
+        workflowStateProjection.init(),
+      );
+    const live = foldAll();
+    const replayed = foldAll();
+    expect(revisionCountOf(live)).toBe(2);
+    expect(revisionCountOf(replayed)).toBe(2);
+    expect(replayed.planReview).toEqual(live.planReview);
+  });
+});
