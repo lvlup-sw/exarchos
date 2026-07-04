@@ -816,3 +816,61 @@ describe('Overhaul HSM plan-review bound (DR-1 parity — RVC-R8)', () => {
     expect(result.events.filter((e) => e.type === 'plan-revision')).toHaveLength(1);
   });
 });
+
+// ─── WLM-6 (DR-2) task 005: the retirement is edge-scoped — other loops intact ──
+//
+// The DR-2 emission retirement is scoped to the ONE standard `plan-review → plan`
+// edge. These regressions prove the two OTHER loops that share machinery are
+// untouched, so the Sentry-regression class (an un-fed counter → unbounded loop)
+// cannot recur on either the delegate-code-review track or the overhaul track.
+describe('plan-review bound retirement is edge-scoped (WLM-6 DR-2, task 005)', () => {
+  it('Overhaul_EdgeBound_StillFires', () => {
+    // The overhaul-plan-review loop is a HUMAN CHECKPOINT that never dispatches
+    // through `prepare_review`, so its edge-based `plan-revision` counter is
+    // PRESERVED (not converged onto the seam). Traversing the real refactor
+    // `overhaul-plan-review → overhaul-plan` revise edge still emits exactly one
+    // counted `plan-revision` event — the bound still fires on that track.
+    const hsm = createRefactorHSM();
+    const state = {
+      phase: 'overhaul-plan-review',
+      planReview: { gapsFound: true, revisionCount: 0 },
+      _events: [],
+    };
+    const result = executeTransition(hsm, state, 'overhaul-plan');
+    expect(result.success).toBe(true);
+    expect(result.events.filter((e) => e.type === 'plan-revision')).toHaveLength(1);
+    // And the standard feature edge does NOT emit — the two are decoupled.
+    const feature = getHSMDefinition('feature');
+    const featureRevise = executeTransition(
+      feature,
+      { phase: 'plan-review', planReview: { gapsFound: true, revisionCount: 0 }, _events: [] },
+      'plan',
+    );
+    expect(featureRevise.events.filter((e) => e.type === 'plan-revision')).toHaveLength(0);
+  });
+
+  it('Delegate_FixCycleLoop_Unchanged', () => {
+    // The delegate code-review loop self-bounds at its own seam and is NOT
+    // modified by DR-2 (which only scopes `isRevision` emission). The feature
+    // `review → delegate` fix-cycle edge still carries its counter effect AND
+    // still emits a `fix-cycle` event on traversal — the isRevision retirement
+    // did not touch the isFixCycle path.
+    const hsm = getHSMDefinition('feature');
+    const reviewToDelegate = hsm.transitions.find(
+      (t) => t.from === 'review' && t.to === 'delegate',
+    );
+    expect(reviewToDelegate?.isFixCycle).toBe(true);
+    expect(reviewToDelegate?.effects).toEqual(['increment-fix-cycle']);
+
+    const result = executeTransition(
+      hsm,
+      { phase: 'review', reviews: { 'reviewer-a': { status: 'failed' } }, _events: [] },
+      'delegate',
+    );
+    expect(result.success).toBe(true);
+    expect(result.events.filter((e) => e.type === 'fix-cycle')).toHaveLength(1);
+    // The delegate fix-cycle edge is NOT a plan-revision — the two counters stay
+    // distinct (the delegate loop was never converged onto the plan-review seam).
+    expect(result.events.filter((e) => e.type === 'plan-revision')).toHaveLength(0);
+  });
+});

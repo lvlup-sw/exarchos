@@ -462,3 +462,93 @@ describe('plan-review bound at the provisioning seam (WLM-6 DR-2, task 004)', ()
     expect(await eventStore.query(featureId, { type: DISPATCH_EVENT })).toHaveLength(0);
   });
 });
+
+// ─── DR-2 (WLM-6) task 005: bypass-closure + off-by-one + zero-on-survive ──────
+//     regression suite. These prove the property the old edge counter lacked:
+//     the bound holds even when the agent NEVER traverses `plan-review → plan`.
+describe('plan-review bound regressions (WLM-6 DR-2, task 005)', () => {
+  const DISPATCH_EVENT = 'workflow.plan-review-dispatched';
+
+  async function revisionCount(featureId: string): Promise<number | undefined> {
+    const resolved = await resolveWorkflowState({ featureId, eventStore });
+    if ('error' in resolved) throw new Error('state did not resolve');
+    const planReview = resolved.state.planReview as { revisionCount?: number } | undefined;
+    return planReview?.revisionCount;
+  }
+
+  const planArgs = (featureId: string, repoRoot?: string): PrepareReviewArgs => ({
+    featureId,
+    scope: 'plan',
+    artifact: 'docs/specs/2026-07-03-feat.md',
+    ...(repoRoot ? { repoRoot } : {}),
+  });
+
+  it('PlanReview_ReprovisionWithoutTransition_StillCountedAndCapped', async () => {
+    // THE EXACT BYPASS, CLOSED. Re-provision repeatedly through the seam WITHOUT
+    // ever traversing the `plan-review → plan` HSM edge (the seam involves no
+    // transition at all — every call is "without transition" by construction).
+    // The count still rises and the over-cap call is refused. Default cap = 1.
+    const featureId = 'dr2-bypass';
+
+    await callPrepareReview(planArgs(featureId)); // initial (revision 0)
+    expect(await revisionCount(featureId)).toBe(0);
+
+    await callPrepareReview(planArgs(featureId)); // re-dispatch (revision 1) — no transition
+    expect(await revisionCount(featureId)).toBe(1); // count ROSE despite no edge traversal
+
+    const refused = await callPrepareReview(planArgs(featureId)); // over cap — no transition
+    expect(refused.success).toBe(false);
+    expect(refused.error?.code).toBe('PLAN_REVISIONS_EXHAUSTED');
+
+    // The loop is bounded: no third dispatch, count pinned at the cap.
+    expect(await eventStore.query(featureId, { type: DISPATCH_EVENT })).toHaveLength(2);
+    expect(await revisionCount(featureId)).toBe(1);
+  });
+
+  it('PlanReview_OffByOne_PermitsExactlyNCycles', async () => {
+    // `max-plan-revisions: N` permits EXACTLY N revise-and-re-review cycles; the
+    // initial review is NOT a revision. With N=3: the initial + 3 re-dispatches
+    // are provisioned (calls 1..4), the 4th re-dispatch (call 5) is refused.
+    const N = 3;
+    const repo = mkdtempSync(join(tmpdir(), 'dr2-offbyone-'));
+    try {
+      writeFileSync(join(repo, '.exarchos.yml'), `workflow:\n  max-plan-revisions: ${N}\n`);
+      const featureId = 'dr2-offbyone';
+
+      // Initial (revision 0) + N re-dispatches (revisions 1..N) all succeed.
+      for (let i = 0; i <= N; i++) {
+        const r = await callPrepareReview(planArgs(featureId, repo));
+        expect(r.success, `call ${i} (revision ${Math.max(0, i)}) should provision`).toBe(true);
+      }
+      expect(await revisionCount(featureId)).toBe(N);
+
+      // The (N+1)-th re-dispatch is refused at the seam.
+      const refused = await callPrepareReview(planArgs(featureId, repo));
+      expect(refused.success).toBe(false);
+      expect(refused.error?.code).toBe('PLAN_REVISIONS_EXHAUSTED');
+      expect(refused.error?.message).toContain(`${N}/${N}`);
+
+      // Exactly N+1 dispatch markers persisted (1 initial + N revisions); the
+      // refused call added none.
+      expect(await eventStore.query(featureId, { type: DISPATCH_EVENT })).toHaveLength(N + 1);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('PlanReview_SurvivesVerdict_ConsumesZero', async () => {
+    // A "survives" verdict yields no re-dispatch (the agent does not call the
+    // seam again), so it consumes ZERO revisions: revisionCount stays 0 and only
+    // the initial ordinal-0 marker exists. Contrast a gaps verdict, which drives
+    // a counted re-dispatch.
+    const featureId = 'dr2-survives';
+    const r = await callPrepareReview(planArgs(featureId)); // initial review — survives
+    expect(r.success).toBe(true);
+
+    // No re-dispatch → zero revisions consumed.
+    const events = await eventStore.query(featureId, { type: DISPATCH_EVENT });
+    expect(events).toHaveLength(1);
+    expect((events[0].data as { ordinal: number }).ordinal).toBe(0);
+    expect(await revisionCount(featureId)).toBe(0);
+  });
+});
