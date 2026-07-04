@@ -194,20 +194,12 @@ export async function handleAcquireWorktree(
       repoRoot: 'string',
     });
   }
-  const rawWorktreeId = optionalString(args.worktreeId);
-  if (!rawWorktreeId) {
+  const worktreeId = optionalString(args.worktreeId);
+  if (!worktreeId) {
     return invalidInput('acquire_worktree requires worktreeId: string', {
       worktreeId: 'string',
     });
   }
-  // Canonicalize the incoming worktreeId to the SAME projection key the manager's
-  // adopt fold and the worktrees@v1 reducer derive (path.resolve → realpath →
-  // toPosix, via the injected resolver). A caller-supplied path is NOT guaranteed
-  // canonical — a win32 drive-relative or forward-slash path resolves differently
-  // — so without this the mutable-gate `.find` and the reserve key would MISS the
-  // adopt-tracked entry on Windows: the hard gate would silently skip and a stale
-  // worktree could still reserve (#1642 / DR-1). No-op on POSIX for absolute paths.
-  const worktreeId = canonicalWorktreeId(rawWorktreeId, deps?.realpath ?? defaultRealpath);
   const manager = buildManager(ctx, deps);
   const processSource = deps?.processSource ?? defaultProcessSource;
 
@@ -222,7 +214,24 @@ export async function handleAcquireWorktree(
   // newly-pushed files) or `head-unresolved` worktree. The gate fires only when
   // the adopt pass actually observed the target on disk (a report exists); a
   // worktree not yet on disk carries no staleness evidence and reserves as before.
-  const adoptReport = adoptResult.worktrees.find((w) => w.worktreeId === worktreeId);
+  //
+  // adopt stamps CANONICAL worktreeIds (path.resolve → realpath → toPosix); the
+  // caller's arg is NOT guaranteed canonical (a win32 drive-relative / forward-
+  // slash path resolves differently), so canonicalize it the SAME way ONLY for
+  // this lookup — otherwise the `.find` misses adopt's entry on Windows and the
+  // hard gate silently skips, letting a stale worktree reserve (#1642 / DR-1).
+  // The reservation below still keys on the caller's `worktreeId` as-passed, so
+  // release / view (which use that raw key) stay consistent with acquire.
+  // Canonicalize lazily — only when adopt actually observed worktrees on disk —
+  // so the common "nothing adopted" path never pays a realpath() call.
+  const canonicalIdForGate =
+    adoptResult.worktrees.length > 0
+      ? canonicalWorktreeId(worktreeId, deps?.realpath ?? defaultRealpath)
+      : undefined;
+  const adoptReport =
+    canonicalIdForGate === undefined
+      ? undefined
+      : adoptResult.worktrees.find((w) => w.worktreeId === canonicalIdForGate);
   if (adoptReport !== undefined && !adoptReport.verification.mutable) {
     return {
       success: false,
