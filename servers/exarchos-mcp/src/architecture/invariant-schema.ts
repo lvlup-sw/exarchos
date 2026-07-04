@@ -145,7 +145,11 @@ export type Enforcement = z.infer<typeof EnforcementSchema>;
 // ─── InvariantEntryV3 (catalog entry) ───────────────────────────────────────
 
 const PHASE_VALUES = ['plan', 'delegate', 'review', 'synthesize'] as const;
-const WORKFLOW_VALUES = ['feature', 'debug', 'refactor', 'discover', 'oneshot'] as const;
+// Canonical workflow-type tokens (aligned to `BUILT_IN_TYPES` in
+// `workflow/state-machine.ts`). DR-4: the token is `'discovery'`; the pre-DR-4
+// `'discover'` never matched a real workflow type, so `workflow-affinity:
+// [discovery]` both validates here AND matches at projection time.
+const WORKFLOW_VALUES = ['feature', 'debug', 'refactor', 'discovery', 'oneshot'] as const;
 const SEVERITY_VALUES = ['blocking', 'advisory'] as const;
 const INTEGRITY_CLASS_VALUES = ['substrate', 'sdlc', 'authoring', 'user'] as const;
 

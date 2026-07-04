@@ -12,7 +12,7 @@
  *   - `phase-affinity` absent ⇒ all phases; present ⇒ include only if it
  *     contains the requested phase.
  *   - `workflow-affinity` absent ⇒ all workflow types; present ⇒ include only
- *     if it contains the requested type. For `discover`, code-axis invariants
+ *     if it contains the requested type. For `discovery`, code-axis invariants
  *     (`axis: 'substrate'`) are additionally excluded so the review gate does
  *     not fire on code dimensions.
  *   - `touched-files` (delegate phase only): include an invariant only if its
@@ -26,7 +26,7 @@ import { globToRegExp } from './glob-to-regexp.js';
 export interface ProjectCatalogKey {
   /** SDLC phase — e.g. `'ideate' | 'plan' | 'delegate' | 'review' | 'synthesize'`. */
   phase: string;
-  /** Workflow kind — e.g. `'feature' | 'debug' | 'refactor' | 'discover' | 'oneshot'`. */
+  /** Workflow kind — e.g. `'feature' | 'debug' | 'refactor' | 'discovery' | 'oneshot'`. */
   workflowType: string;
   /**
    * Files the current task touches (delegate phase). When provided and the
@@ -65,9 +65,11 @@ export function projectCatalog(
       return false;
     }
 
-    // For `discover`, code-axis (substrate) invariants are excluded so the
-    // review gate does not fire on code dimensions.
-    if (key.workflowType === 'discover' && entry.axis === 'substrate') {
+    // For `discovery`, code-axis (substrate) invariants are excluded so the
+    // review gate does not fire on code dimensions. The canonical workflow-type
+    // token is `'discovery'` (`workflow/state-machine.ts`); the pre-DR-4 branch
+    // compared against `'discover'` and was therefore DEAD (never matched).
+    if (key.workflowType === 'discovery' && entry.axis === 'substrate') {
       return false;
     }
 

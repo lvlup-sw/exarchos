@@ -3332,7 +3332,7 @@ const viewActions: readonly ToolAction[] = [
       phase: z.string().describe('SDLC phase to project for (e.g. ideate, plan, delegate)'),
       workflowType: z
         .string()
-        .describe('Workflow kind to project for (e.g. feature, debug, discover)'),
+        .describe('Workflow kind to project for (e.g. feature, debug, discovery)'),
       repoRoot: z
         .string()
         .optional()
