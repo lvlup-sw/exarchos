@@ -28,6 +28,7 @@ import {
   resolveStartedAt,
   type ProcessSource,
 } from './pure/process-identity.js';
+import { canonicalWorktreeId, defaultRealpath } from './pure/path-containment.js';
 import {
   serializeMerge,
   type SerializeMergeInput,
@@ -193,12 +194,20 @@ export async function handleAcquireWorktree(
       repoRoot: 'string',
     });
   }
-  const worktreeId = optionalString(args.worktreeId);
-  if (!worktreeId) {
+  const rawWorktreeId = optionalString(args.worktreeId);
+  if (!rawWorktreeId) {
     return invalidInput('acquire_worktree requires worktreeId: string', {
       worktreeId: 'string',
     });
   }
+  // Canonicalize the incoming worktreeId to the SAME projection key the manager's
+  // adopt fold and the worktrees@v1 reducer derive (path.resolve → realpath →
+  // toPosix, via the injected resolver). A caller-supplied path is NOT guaranteed
+  // canonical — a win32 drive-relative or forward-slash path resolves differently
+  // — so without this the mutable-gate `.find` and the reserve key would MISS the
+  // adopt-tracked entry on Windows: the hard gate would silently skip and a stale
+  // worktree could still reserve (#1642 / DR-1). No-op on POSIX for absolute paths.
+  const worktreeId = canonicalWorktreeId(rawWorktreeId, deps?.realpath ?? defaultRealpath);
   const manager = buildManager(ctx, deps);
   const processSource = deps?.processSource ?? defaultProcessSource;
 

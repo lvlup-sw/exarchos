@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { handlePrepareReview, type PrepareReviewArgs } from './prepare-review.js';
 import { QUALITY_CHECK_CATALOG } from '../review/check-catalog.js';
 import { EventStore } from '../event-store/store.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 import { resolveWorkflowState } from './resolve-state.js';
 import type { ToolResult } from '../format.js';
 
@@ -54,8 +55,12 @@ beforeEach(async () => {
   await eventStore.initialize();
 });
 
-afterEach(() => {
-  rmSync(stateDir, { recursive: true, force: true });
+afterEach(async () => {
+  // Release the SQLite handles before removing the dir — on Windows an open
+  // exarchos.db/-wal/-shm handle makes the rm fail (EBUSY/EPERM). rmrfAsync
+  // also retries, covering the handle-close race. (store.ts close() contract.)
+  eventStore.close();
+  await rmrfAsync(stateDir);
 });
 
 /** Thread the per-test real EventStore + stateDir into the 3-arg handler. */
@@ -122,8 +127,8 @@ describe('handlePrepareReview', () => {
       tempDir = mkdtempSync(join(tmpdir(), 'prepare-review-'));
     });
 
-    afterEach(() => {
-      rmSync(tempDir, { recursive: true, force: true });
+    afterEach(async () => {
+      await rmrfAsync(tempDir);
     });
 
     it('HandlePrepareReview_RepoRootWithConfig_ReadsPluginStatus', async () => {
@@ -313,7 +318,7 @@ describe('handlePrepareReview', () => {
         // The catalog is still served alongside the grounding.
         expect(data.catalog.dimensions.length).toBe(QUALITY_CHECK_CATALOG.dimensions.length);
       } finally {
-        rmSync(repo, { recursive: true, force: true });
+        await rmrfAsync(repo);
       }
     });
 
@@ -331,7 +336,7 @@ describe('handlePrepareReview', () => {
         // The catalog is returned unchanged.
         expect(data.catalog.dimensions.length).toBe(QUALITY_CHECK_CATALOG.dimensions.length);
       } finally {
-        rmSync(emptyDir, { recursive: true, force: true });
+        await rmrfAsync(emptyDir);
       }
     });
   });
@@ -532,7 +537,7 @@ describe('plan-review bound regressions (WLM-6 DR-2, task 005)', () => {
       // refused call added none.
       expect(await eventStore.query(featureId, { type: DISPATCH_EVENT })).toHaveLength(N + 1);
     } finally {
-      rmSync(repo, { recursive: true, force: true });
+      await rmrfAsync(repo);
     }
   });
 

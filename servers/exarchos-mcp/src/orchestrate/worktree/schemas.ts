@@ -217,9 +217,11 @@ export const WorktreesOutputSchema = EnvelopeSchema(WorktreesData);
 
 /**
  * Does a `surface: 'worktree'` action's `outputSchema` advertise a TYPED
- * `data` payload (i.e. NOT `EnvelopeSchema(z.unknown())`)? Extracts the
- * success branch of the `success`-discriminated envelope union and inspects
- * its `data` field: a typed schema is anything other than `z.unknown()`.
+ * `data` payload (i.e. NOT `EnvelopeSchema(z.unknown())` or `EnvelopeSchema(z.any())`)?
+ * Extracts the success branch of the `success`-discriminated envelope union and
+ * inspects its `data` field: a typed schema is anything other than the two
+ * structural escape hatches `z.unknown()` and `z.any()` — BOTH accept an
+ * arbitrary payload, so either one would defeat the typed-output conformance guard.
  *
  * Robust to Zod v4's union internals — the success option is located by the
  * presence of a `data` key in its object shape (the error branch has none).
@@ -227,7 +229,7 @@ export const WorktreesOutputSchema = EnvelopeSchema(WorktreesData);
 export function envelopeDataSchemaIsTyped(outputSchema: z.ZodType): boolean {
   const dataSchema = extractEnvelopeDataSchema(outputSchema);
   if (dataSchema === undefined) return false;
-  return !(dataSchema instanceof z.ZodUnknown);
+  return !(dataSchema instanceof z.ZodUnknown) && !(dataSchema instanceof z.ZodAny);
 }
 
 /**

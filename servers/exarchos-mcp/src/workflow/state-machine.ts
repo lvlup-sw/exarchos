@@ -884,8 +884,12 @@ export function executeTransition(
   // `isRevision` flag from the definition (hsm-definitions.ts) — so the flag
   // stays a truthful "this is a revise edge" marker and any other `isRevision`
   // edge (incl. the overhaul edge and the test mechanism HSMs) still emits.
+  // Gated on `hsm.id === 'feature'` so the retirement binds ONLY the standard
+  // feature HSM: a custom/test HSM that happens to name phases `plan-review`/
+  // `plan` (and never routes through the `prepare_review` seam) keeps its edge
+  // counter instead of silently losing its `plan-revision` cap feed.
   const isStandardPlanReviseEdge =
-    currentPhase === 'plan-review' && targetPhase === 'plan';
+    hsm.id === 'feature' && currentPhase === 'plan-review' && targetPhase === 'plan';
   if (transition.isRevision && !isStandardPlanReviseEdge) {
     const parent = getParentCompound(hsm, currentPhase);
     transitionEvents.push({
