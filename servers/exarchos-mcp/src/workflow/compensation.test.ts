@@ -24,6 +24,7 @@ import { rmrfAsync } from '../test-helpers/temp-dir.js';
 import { WORKTREES_STREAM, defaultGitRunner } from '../orchestrate/worktree/manager.js';
 import { createWorktreesReducer } from '../orchestrate/worktree/projections/worktrees.js';
 import type { RealpathResolver } from '../orchestrate/worktree/pure/path-containment.js';
+import { canonicalWorktreeId } from '../orchestrate/worktree/pure/path-containment.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 
 const mockedExecFile = vi.mocked(execFile);
@@ -1228,7 +1229,7 @@ describe('Task 009: worktree.remove unified onto the `worktrees` stream (DR-3/DR
   it('Compensation_WorktreeRemove_AdoptsThenEmitsPairOnWorktreesStream_ViewDropsEntry', async () => {
     const featureId = 'task009-adopt-feature';
     const worktreePath = '/tmp/wt-adopt-drop';
-    const worktreeId = path.resolve(worktreePath); // identityRealpath → toPosix(resolve)
+    const worktreeId = canonicalWorktreeId(worktreePath, identityRealpath);
     stubWorktreeRegistered(worktreePath);
 
     const state = makeState({
@@ -1278,7 +1279,7 @@ describe('Task 009: worktree.remove unified onto the `worktrees` stream (DR-3/DR
   it('Compensation_CrashBetweenRequestedAndExecuted_ResumesIdempotently', async () => {
     const featureId = 'task009-crash-feature';
     const worktreePath = '/tmp/wt-crash-resume';
-    const worktreeId = path.resolve(worktreePath);
+    const worktreeId = canonicalWorktreeId(worktreePath, identityRealpath);
     const crashedOperationId = 'aaaaaaaa-1111-2222-3333-444444444444';
     stubWorktreeRegistered(worktreePath);
 
@@ -1338,7 +1339,7 @@ describe('Task 009: worktree.remove unified onto the `worktrees` stream (DR-3/DR
   it('Compensation_PreDeployCrashLegacyFeatureStreamRequested_ResumedUnderOriginalOperationId', async () => {
     const featureId = 'task009-legacy-feature';
     const worktreePath = '/tmp/wt-legacy-resume';
-    const worktreeId = path.resolve(worktreePath);
+    const worktreeId = canonicalWorktreeId(worktreePath, identityRealpath);
     const legacyOperationId = 'bbbbbbbb-5555-6666-7777-888888888888';
     stubWorktreeRegistered(worktreePath);
 
