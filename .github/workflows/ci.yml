@@ -444,6 +444,12 @@ jobs:
       - name: Windows-portability gate self-test (#1623)
         run: bash scripts/check-windows-portability.test.sh
 
+      - name: WLM wiring gate — DR-1 retry adapter + DR-2 skills reroute (task-004)
+        run: node scripts/check-wlm-wiring.mjs
+
+      - name: WLM wiring gate self-test (task-004)
+        run: bash scripts/check-wlm-wiring.test.sh
+
       - name: npm-ci-retry helper tests
         run: bash scripts/npm-ci-retry.test.sh
 
