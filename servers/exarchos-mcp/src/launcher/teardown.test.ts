@@ -14,7 +14,7 @@
 //     protected-ancestry), so teardown never refuses over its own cwd;
 //   - a non-git target / unreachable origin fails CLOSED with a structured error.
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { existsSync, realpathSync, writeFileSync } from 'node:fs';
@@ -56,6 +56,8 @@ import {
   teardownLaunch,
   makeLifecycleTeardown,
   recoverCrashedLaunch,
+  defaultOriginReachable,
+  ORIGIN_PROBE_TIMEOUT_MS,
   type TeardownOutcome,
 } from './teardown.js';
 import {
@@ -611,12 +613,15 @@ describe('teardownLaunch — launcher teardown safety + recovery (DR-6)', () => 
       settled = true;
     });
 
-    // Yield the event loop repeatedly until the async origin probe STARTS. The
-    // guaranteed-terminal emit that precedes the gate is itself async (a real
-    // SQLite append), so teardown reaches the origin gate after a few ticks — a
-    // blocking sync `ls-remote` (the reverted path) would NEVER start this seam,
-    // so this loop would exhaust and the assertion below would fail.
-    for (let i = 0; i < 200 && !probeStarted; i += 1) {
+    // Yield the event loop until the async origin probe STARTS *or* teardown
+    // settles — whichever first, bounded only by this test's own timeout, never
+    // a fixed tick budget. The guaranteed-terminal emit that precedes the origin
+    // gate is itself async (a real SQLite append); under a loaded CI runner that
+    // append can take more ticks than any fixed cap, which is exactly what made
+    // the old `for (i < 200)` budget flake. A blocking sync `ls-remote` (the
+    // reverted path) would settle `pending` WITHOUT ever starting the probe, so
+    // the `probeStarted` assertion below still catches that regression.
+    while (!probeStarted && !settled) {
       await new Promise((r) => setImmediate(r));
     }
     // The probe is in flight and unresolved → teardown YIELDED to the loop (the
@@ -631,6 +636,43 @@ describe('teardownLaunch — launcher teardown safety + recovery (DR-6)', () => 
     expect(outcome.released).toBe(true);
     expect(terminalsFor(store, 'wt-nonblock')).toHaveLength(1);
   }, 20_000);
+
+  // ── DefaultOriginReachable_HungRemote_FailsClosedOnTimeout ──────────────────
+  //
+  // The default probe spawns `git ls-remote origin`; an unreachable/hung remote
+  // may never emit `close`, so WITHOUT a bound the promise stays pending forever
+  // and teardownLaunch (which awaits it) wedges on shutdown. Assert the bound:
+  // once ORIGIN_PROBE_TIMEOUT_MS elapses, the stalled child is SIGTERM'd and the
+  // verdict fails CLOSED (`false` → origin-unreachable), never a silent hang.
+  it('DefaultOriginReachable_HungRemote_FailsClosedOnTimeout', async () => {
+    vi.useFakeTimers();
+    try {
+      let killSignal: NodeJS.Signals | number | undefined;
+      // A child that NEVER emits `close`/`error` — models a hung `ls-remote`.
+      const hungChild = {
+        on() {
+          return this;
+        },
+        kill(sig?: NodeJS.Signals | number) {
+          killSignal = sig;
+          return true;
+        },
+      };
+      const spawnFn = (() => hungChild) as unknown as typeof import('node:child_process').spawn;
+
+      const probe = defaultOriginReachable('/some/worktree', {
+        spawnFn,
+        timeoutMs: ORIGIN_PROBE_TIMEOUT_MS,
+      });
+      // Nothing settles until the bound elapses …
+      await vi.advanceTimersByTimeAsync(ORIGIN_PROBE_TIMEOUT_MS);
+      // … then the stalled probe is reaped and the verdict fails closed.
+      await expect(probe).resolves.toBe(false);
+      expect(killSignal).toBe('SIGTERM');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   // ── Teardown_ChildExitsDuringSignalPath_ReservationReleasedNotLingering (#1634) ─
   //

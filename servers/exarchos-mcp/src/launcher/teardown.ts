@@ -389,21 +389,60 @@ async function probeOriginSafety(
 }
 
 /**
+ * Bound (ms) for the single origin-reachability network round-trip on teardown.
+ * `git ls-remote` against an unreachable or hung remote can otherwise never
+ * emit `close`, leaving {@link defaultOriginReachable}'s promise pending forever
+ * — and `teardownLaunch` AWAITS it on the shutdown path, so the whole teardown
+ * would wedge. On expiry the probe is killed and the verdict fails CLOSED
+ * (`origin-unreachable`), exactly as a non-zero exit does.
+ */
+export const ORIGIN_PROBE_TIMEOUT_MS = 5_000;
+
+/**
+ * Injected seams for {@link defaultOriginReachable}: the real `spawn` and the
+ * {@link ORIGIN_PROBE_TIMEOUT_MS} bound by default, overridden in tests to drive
+ * the timeout path deterministically without a real hung remote.
+ */
+export interface OriginReachableDeps {
+  readonly spawnFn?: typeof spawn;
+  readonly timeoutMs?: number;
+}
+
+/**
  * Default async origin-reachability probe: spawn `git ls-remote origin` WITHOUT
  * blocking the event loop (DR-6). Resolves `true` iff git exits 0 (origin
- * reachable); any non-zero exit OR spawn error (git missing, bad cwd) resolves
- * `false`, so the teardown fails CLOSED as `origin-unreachable` rather than
- * proceeding on an unverifiable origin. `git` is a real binary (never a win32
- * `.cmd` shim), so a bare `spawn` is portable and shell-injection-free.
+ * reachable); any non-zero exit, spawn error (git missing, bad cwd), OR a probe
+ * that exceeds {@link ORIGIN_PROBE_TIMEOUT_MS} resolves `false`, so the teardown
+ * fails CLOSED as `origin-unreachable` rather than proceeding on — or hanging
+ * on — an unverifiable origin. `git` is a real binary (never a win32 `.cmd`
+ * shim), so a bare `spawn` is portable and shell-injection-free.
  */
-function defaultOriginReachable(worktreePath: string): Promise<boolean> {
+export function defaultOriginReachable(
+  worktreePath: string,
+  deps: OriginReachableDeps = {},
+): Promise<boolean> {
+  const spawnFn = deps.spawnFn ?? spawn;
+  const timeoutMs = deps.timeoutMs ?? ORIGIN_PROBE_TIMEOUT_MS;
   return new Promise((resolve) => {
-    const child = spawn('git', ['ls-remote', 'origin'], {
+    const child = spawnFn('git', ['ls-remote', 'origin'], {
       cwd: worktreePath,
       stdio: 'ignore',
     });
-    child.on('error', () => resolve(false));
-    child.on('close', (code) => resolve(code === 0));
+    let settled = false;
+    const finish = (reachable: boolean): void => {
+      if (settled) return; // first outcome wins — timer vs. close/error race.
+      settled = true;
+      clearTimeout(timer);
+      resolve(reachable);
+    };
+    // Bound the one network round-trip: a hung remote must never wedge teardown.
+    const timer = setTimeout(() => {
+      child.kill('SIGTERM'); // reap the stalled probe, then fail closed.
+      finish(false);
+    }, timeoutMs);
+    timer.unref?.(); // a pending probe timer must not keep the loop alive.
+    child.on('error', () => finish(false));
+    child.on('close', (code) => finish(code === 0));
   });
 }
 
