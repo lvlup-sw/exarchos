@@ -627,6 +627,16 @@ jobs:
             echo "::error::Windows unit tests: ${{ needs.test-windows.result }}"
             exit 1
           fi
+          # DR-5 (WLM slice 3): the windows lane is REQUIRED for any MCP change.
+          # The aggregator treats generic skips as OK (non-MCP PRs legitimately
+          # skip test-windows via `changes.outputs.mcp`). But if MCP code DID
+          # change and the lane was skipped, that's a path-filter/matrix
+          # regression dropping our only Windows coverage — fail closed.
+          if [[ "${{ needs.changes.outputs.mcp }}" == 'true' \
+             && "${{ needs.test-windows.result }}" == 'skipped' ]]; then
+            echo "::error::Windows lane skipped on an MCP-touching PR (path-filter/matrix regression dropped required Windows coverage)"
+            exit 1
+          fi
           if [[ "${{ needs.validate-no-legacy.result }}" =~ ^(failure|cancelled)$ ]]; then
             echo "::error::Validate no legacy: ${{ needs.validate-no-legacy.result }}"
             exit 1
