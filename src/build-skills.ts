@@ -32,7 +32,7 @@ import {
 import { dirname, join, relative, resolve } from 'node:path';
 import { loadAllRuntimes } from './runtimes/load.js';
 import { emitCommandAliases } from './build-command-aliases.js';
-import type { RuntimeMap, SupportedCapabilityName } from './runtimes/types.js';
+import type { RuntimeMap, RuntimeTokenName, SupportedCapabilityName } from './runtimes/types.js';
 import { RuntimeTokenKey, SupportedCapabilityKey } from './runtimes/types.js';
 import { resolveMainDeps, type MainDeps } from './cli-helpers.js';
 import { lintPlaceholders } from './placeholder-lint.js';
@@ -952,6 +952,166 @@ function findMatchingCloseIdx(body: string, searchStart: number): number {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Skill classification: procedural vs orchestration (DR-1 / DR-2)
+// ---------------------------------------------------------------------------
+
+/**
+ * The class of a skill, derived from the placeholder tokens its source
+ * references.
+ *
+ *   - `procedural`    — references only prefix tokens (or no canonical tokens
+ *     at all). Its per-runtime output forks *only* on the leading MCP/command
+ *     prefix, so it can collapse to a single canonical render (DR-1).
+ *   - `orchestration` — references at least one orchestration token. These
+ *     tokens (the Task tool, chain, spawn call, and the `SUBAGENT_*` family)
+ *     genuinely diverge per harness, so the skill keeps per-runtime rendering
+ *     (DR-2).
+ */
+export type SkillClass = 'procedural' | 'orchestration';
+
+/**
+ * Prefix tokens — declared by every runtime YAML. They differ per harness
+ * only in the leading MCP/command-prefix string, so a source that references
+ * *only* these still renders identically-shaped prose on every runtime and
+ * stays procedural. Prefix tokens are explicitly NOT orchestration tokens.
+ */
+export const PREFIX_TOKENS: ReadonlySet<RuntimeTokenName> = new Set<RuntimeTokenName>([
+  'MCP_PREFIX',
+  'COMMAND_PREFIX',
+]);
+
+/**
+ * Orchestration tokens — the agent-spawning primitives whose values genuinely
+ * fork per harness: `TASK_TOOL`, `CHAIN`, `SPAWN_AGENT_CALL`, and the
+ * `SUBAGENT_*` family (`SUBAGENT_COMPLETION_HOOK`, `SUBAGENT_RESULT_API`).
+ * Derived as `RuntimeTokenKey` minus `PREFIX_TOKENS` so a new canonical token
+ * added to the vocabulary is classified as orchestration automatically unless
+ * it is also declared a prefix token — the classification never drifts from
+ * the canonical vocabulary in `src/runtimes/types.ts`.
+ */
+export const ORCHESTRATION_TOKENS: ReadonlySet<RuntimeTokenName> =
+  new Set<RuntimeTokenName>(
+    RuntimeTokenKey.filter((token) => !PREFIX_TOKENS.has(token)),
+  );
+
+/** O(1) membership set of the canonical `RuntimeTokenKey` names. */
+const RUNTIME_TOKEN_SET: ReadonlySet<string> = new Set<string>(RuntimeTokenKey);
+
+/** Narrow an arbitrary `{{...}}` identifier to a canonical `RuntimeTokenName`. */
+function isRuntimeToken(name: string): name is RuntimeTokenName {
+  return RUNTIME_TOKEN_SET.has(name);
+}
+
+/** True when `body` contains any `<!-- requires:* -->` capability guard. */
+function hasRequiresGuard(body: string): boolean {
+  // Fresh instance — REQUIRES_OPEN_REGEX is a stateful /g singleton.
+  return new RegExp(REQUIRES_OPEN_REGEX.source).test(body);
+}
+
+/**
+ * The renderer's per-skill model. Surfaces the token-derived classification
+ * plus the evidence behind it (which canonical tokens the source references,
+ * which of those are orchestration tokens, and whether the source carries a
+ * capability guard) so the build-time assertion and future consumers can act
+ * on the exact surface a source declares without re-scanning it.
+ */
+export interface SkillModel {
+  /** Canonical `RuntimeTokenKey` tokens the source references. */
+  readonly tokensUsed: ReadonlySet<RuntimeTokenName>;
+  /** Subset of `tokensUsed` that are orchestration tokens. */
+  readonly orchestrationTokensUsed: ReadonlySet<RuntimeTokenName>;
+  /** Whether the source contains any `<!-- requires:* -->` capability guard. */
+  readonly hasCapabilityGuard: boolean;
+  /** Derived class: `orchestration` iff any orchestration token is referenced. */
+  readonly skillClass: SkillClass;
+}
+
+/**
+ * Classify a skill source body by the placeholder tokens it references.
+ *
+ * A source that references only prefix tokens (or no canonical tokens at all)
+ * is `procedural`; a source that references any orchestration token is
+ * `orchestration`. Only canonical `RuntimeTokenKey` identifiers participate —
+ * CALL-macro args, handlebar template literals (e.g. `{{next}}`,
+ * `{{#each hints}}`), and unknown `{{...}}` identifiers are ignored because
+ * they are not part of the per-harness forking surface.
+ *
+ * The returned model also records whether the source carries a
+ * `<!-- requires:* -->` capability guard. Guards are an orchestration-only
+ * construct that the build-time assertion (`assertProceduralSkill`) rejects in
+ * procedural sources, but they are not placeholder tokens and therefore do not
+ * themselves drive classification (which is derived from token usage only).
+ *
+ * @param body - Raw skill source body (SKILL.md or a Markdown reference).
+ * @returns The derived `SkillModel`.
+ */
+export function classifySkill(body: string): SkillModel {
+  const tokensUsed = new Set<RuntimeTokenName>();
+  const orchestrationTokensUsed = new Set<RuntimeTokenName>();
+
+  // Fresh instance — PLACEHOLDER_REGEX is a stateful /g singleton.
+  const regex = new RegExp(PLACEHOLDER_REGEX.source, 'g');
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(body)) !== null) {
+    const name = match[1];
+    if (!isRuntimeToken(name)) continue;
+    tokensUsed.add(name);
+    if (ORCHESTRATION_TOKENS.has(name)) orchestrationTokensUsed.add(name);
+  }
+
+  const skillClass: SkillClass =
+    orchestrationTokensUsed.size > 0 ? 'orchestration' : 'procedural';
+
+  return {
+    tokensUsed,
+    orchestrationTokensUsed,
+    hasCapabilityGuard: hasRequiresGuard(body),
+    skillClass,
+  };
+}
+
+/**
+ * Build-time assertion: a source authored as a *procedural* skill must NOT
+ * reference any orchestration token or carry a `<!-- requires:* -->` capability
+ * guard. Both are orchestration-only surfaces — a procedural skill collapses to
+ * a single canonical render (DR-1), so either construct means the source has
+ * been mis-authored as procedural and would silently lose its per-harness
+ * divergence at collapse time (DR-2).
+ *
+ * Throws a diagnostic naming the offending source and construct. Callers that
+ * legitimately author an orchestration skill route around this by classifying
+ * first (`classifySkill(body).skillClass === 'orchestration'`) and skipping the
+ * assertion.
+ *
+ * @param body - Raw skill source body being validated as procedural.
+ * @param sourcePath - Origin path for the diagnostic message.
+ * @throws When the body references an orchestration token or a requires-guard.
+ */
+export function assertProceduralSkill(body: string, sourcePath: string): void {
+  const model = classifySkill(body);
+
+  if (model.orchestrationTokensUsed.size > 0) {
+    const offenders = [...model.orchestrationTokensUsed].sort();
+    throw new Error(
+      `[build:skills] procedural skill ${sourcePath} references orchestration ` +
+        `token(s) {{${offenders.join('}}, {{')}}}. Procedural skills collapse to a ` +
+        `single canonical render and must not use orchestration tokens ` +
+        `[${[...ORCHESTRATION_TOKENS].sort().join(', ')}]. Move this skill to the ` +
+        `orchestration residual, or remove the token.`,
+    );
+  }
+
+  if (model.hasCapabilityGuard) {
+    throw new Error(
+      `[build:skills] procedural skill ${sourcePath} contains a ` +
+        `<!-- requires:* --> capability guard. Capability gating is an ` +
+        `orchestration-only construct; procedural skills render once for all ` +
+        `runtimes. Move this skill to the orchestration residual, or remove the guard.`,
+    );
+  }
+}
+
 /**
  * Scan a rendered string for any residual `{{...}}` tokens and throw with
  * the same diagnostic format as `render()` if any are found. Intended as
@@ -1160,10 +1320,14 @@ export function buildAllSkills(opts: {
   // runtime happens to iterate first. Implements DR-3 (lint path).
   //
   // Vocabulary is derived from the union of placeholder keys across
-  // every loaded runtime map. In production the union collapses to
-  // the canonical five tokens defined in `runtimes/*.yaml`
-  // (MCP_PREFIX, COMMAND_PREFIX, TASK_TOOL, CHAIN, SPAWN_AGENT_CALL);
-  // in tests that use synthetic fixtures the union is whatever the
+  // every loaded runtime map. In production the union collapses to the
+  // canonical `RuntimeTokenKey` vocabulary declared in `runtimes/*.yaml`:
+  // the two PREFIX tokens (MCP_PREFIX, COMMAND_PREFIX), which are NOT
+  // orchestration tokens, plus the five ORCHESTRATION tokens (TASK_TOOL,
+  // CHAIN, SPAWN_AGENT_CALL, SUBAGENT_COMPLETION_HOOK, SUBAGENT_RESULT_API).
+  // Only the orchestration tokens genuinely fork per harness; see
+  // `classifySkill` / `PREFIX_TOKENS` / `ORCHESTRATION_TOKENS` above.
+  // In tests that use synthetic fixtures the union is whatever the
   // fixtures declare — the lint self-adjusts so tests never need to
   // carry a duplicate "allowed tokens" list.
   const vocabulary = unionPlaceholderKeys(runtimes);

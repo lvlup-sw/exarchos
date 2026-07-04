@@ -20,6 +20,10 @@ import {
   parseCallMacro,
   renderCallMacros,
   clearRegistryLookup,
+  classifySkill,
+  assertProceduralSkill,
+  ORCHESTRATION_TOKENS,
+  PREFIX_TOKENS,
   CALL_MACRO_REGEX,
   type CallMacroAst,
 } from './build-skills.js';
@@ -2286,5 +2290,129 @@ describe('buildAllSkills — Wave C: reference rendering + lint', () => {
         runtimesDir: REPO_RUNTIMES_DIR_C,
       }),
     ).not.toThrow();
+  });
+});
+
+// -----------------------------------------------------------------------------
+// Task 001 (conform-and-shrink): skill classification (procedural vs
+// orchestration) + build-time procedural-purity assertion.
+//
+// `classifySkill` derives a skill's class purely from the placeholder tokens
+// its source references: prefix-only (or token-free) sources are procedural;
+// any orchestration token (TASK_TOOL / CHAIN / SPAWN_AGENT_CALL / SUBAGENT_*)
+// makes the skill orchestration. `assertProceduralSkill` is the build-time gate
+// that fails when a source authored as procedural smuggles in an orchestration
+// token or a `<!-- requires:* -->` capability guard — both orchestration-only
+// surfaces that would be lost when a procedural skill collapses to a single
+// canonical render (DR-1/DR-2).
+// -----------------------------------------------------------------------------
+
+describe('classifySkill — task 001: procedural vs orchestration', () => {
+  it('classifySkill_PrefixOnlySource_ClassifiedProcedural', () => {
+    const body = [
+      '# Foo',
+      'Invoke it via {{MCP_PREFIX}}exarchos_workflow and {{COMMAND_PREFIX}}plan.',
+      'Also a handlebar literal {{next}} and a non-canonical {{AGENT_LABEL}}.',
+    ].join('\n');
+
+    const model = classifySkill(body);
+
+    expect(model.skillClass).toBe('procedural');
+    // Only the two canonical prefix tokens are recorded; the handlebar
+    // literal and the non-canonical identifier are ignored.
+    expect([...model.tokensUsed].sort()).toEqual(['COMMAND_PREFIX', 'MCP_PREFIX']);
+    expect(model.orchestrationTokensUsed.size).toBe(0);
+    expect(model.hasCapabilityGuard).toBe(false);
+  });
+
+  it('classifySkill_NoTokens_ClassifiedProcedural', () => {
+    // A token-free body is procedural — no per-harness forking surface at all.
+    const model = classifySkill('# Plain\nNo placeholders here.');
+    expect(model.skillClass).toBe('procedural');
+    expect(model.tokensUsed.size).toBe(0);
+  });
+
+  it('classifySkill_OrchestrationToken_ClassifiedOrchestration', () => {
+    // A single orchestration token flips the class; prefix tokens alongside
+    // it do not dilute that.
+    const body =
+      'Spawn with {{SPAWN_AGENT_CALL agent="foo"}} and chain {{CHAIN next="plan"}}; prefix {{MCP_PREFIX}}.';
+    const model = classifySkill(body);
+    expect(model.skillClass).toBe('orchestration');
+    expect([...model.orchestrationTokensUsed].sort()).toEqual([
+      'CHAIN',
+      'SPAWN_AGENT_CALL',
+    ]);
+  });
+
+  it('classifySkill_ProceduralSourceWithOrchestrationToken_FailsBuild', () => {
+    // A source authored as procedural (prefix tokens) that smuggles in an
+    // orchestration token must fail the build-time assertion.
+    const body =
+      'Prefix {{MCP_PREFIX}}exarchos_workflow, but also {{TASK_TOOL}} for spawning.';
+    let err: Error | undefined;
+    try {
+      assertProceduralSkill(body, 'skills-src/foo/SKILL.md');
+    } catch (e) {
+      err = e as Error;
+    }
+    expect(err).toBeDefined();
+    expect(err!.message).toMatch(/orchestration token/i);
+    expect(err!.message).toContain('TASK_TOOL');
+    expect(err!.message).toContain('skills-src/foo/SKILL.md');
+  });
+
+  it('classifySkill_RequiresBlockInProceduralSource_FailsBuild', () => {
+    // A `<!-- requires:* -->` capability guard is orchestration-only. A
+    // procedural source (no orchestration token) that carries one must fail
+    // the build-time assertion even though the guard is not a placeholder
+    // token and therefore does not change the derived class.
+    const body = [
+      'intro',
+      '<!-- requires:team:agent-teams -->',
+      'agent-teams-only content',
+      '<!-- /requires -->',
+      'outro',
+    ].join('\n');
+
+    // The guard does not itself flip classification (tokens only).
+    expect(classifySkill(body).skillClass).toBe('procedural');
+    expect(classifySkill(body).hasCapabilityGuard).toBe(true);
+
+    let err: Error | undefined;
+    try {
+      assertProceduralSkill(body, 'skills-src/bar/SKILL.md');
+    } catch (e) {
+      err = e as Error;
+    }
+    expect(err).toBeDefined();
+    expect(err!.message).toMatch(/requires|capability guard/i);
+    expect(err!.message).toContain('skills-src/bar/SKILL.md');
+  });
+
+  it('assertProceduralSkill_CleanProceduralSource_DoesNotThrow', () => {
+    // Prefix-only, guard-free source is a valid procedural skill.
+    const body = 'Use {{MCP_PREFIX}}exarchos_view and {{COMMAND_PREFIX}}review.';
+    expect(() =>
+      assertProceduralSkill(body, 'skills-src/ok/SKILL.md'),
+    ).not.toThrow();
+  });
+
+  it('ORCHESTRATION_TOKENS_ExcludePrefixTokens', () => {
+    // The classification split: prefix tokens are NOT orchestration tokens,
+    // and the five orchestration tokens are all present.
+    expect(ORCHESTRATION_TOKENS.has('MCP_PREFIX')).toBe(false);
+    expect(ORCHESTRATION_TOKENS.has('COMMAND_PREFIX')).toBe(false);
+    for (const t of [
+      'TASK_TOOL',
+      'CHAIN',
+      'SPAWN_AGENT_CALL',
+      'SUBAGENT_COMPLETION_HOOK',
+      'SUBAGENT_RESULT_API',
+    ] as const) {
+      expect(ORCHESTRATION_TOKENS.has(t)).toBe(true);
+    }
+    expect(PREFIX_TOKENS.has('MCP_PREFIX')).toBe(true);
+    expect(PREFIX_TOKENS.has('COMMAND_PREFIX')).toBe(true);
   });
 });
