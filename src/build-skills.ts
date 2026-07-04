@@ -1796,8 +1796,14 @@ function renderLinkedReferences(
  * mistake; this check catches it before any rendering happens.
  *
  * Throws with a sorted (runtime, token) listing for determinism.
+ *
+ * Exported so the collapsed-vocabulary work (harness conform-and-shrink) can
+ * pin, in a unit test, that the prefix tokens (`MCP_PREFIX`/`COMMAND_PREFIX`)
+ * stay in the required-coverage set for as long as they are still consumed —
+ * they are only retired from `skills-src/` in a later rewrite task, so dropping
+ * them from `RuntimeTokenKey` early would silently un-cover every runtime YAML.
  */
-function assertRuntimeTokenCoverage(runtimes: RuntimeMap[]): void {
+export function assertRuntimeTokenCoverage(runtimes: RuntimeMap[]): void {
   const missing: Array<{ runtime: string; token: string }> = [];
   for (const rt of runtimes) {
     for (const token of RuntimeTokenKey) {

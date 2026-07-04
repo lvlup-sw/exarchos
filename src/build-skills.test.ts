@@ -22,12 +22,14 @@ import {
   clearRegistryLookup,
   classifySkill,
   assertProceduralSkill,
+  assertRuntimeTokenCoverage,
   ORCHESTRATION_TOKENS,
   PREFIX_TOKENS,
   CALL_MACRO_REGEX,
   type CallMacroAst,
 } from './build-skills.js';
 import { loadRuntime } from './runtimes/load.js';
+import { RuntimeTokenKey } from './runtimes/types.js';
 import type { RuntimeMap, PreferredFacade } from './runtimes/types.js';
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync, statSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -2414,5 +2416,61 @@ describe('classifySkill — task 001: procedural vs orchestration', () => {
     }
     expect(PREFIX_TOKENS.has('MCP_PREFIX')).toBe(true);
     expect(PREFIX_TOKENS.has('COMMAND_PREFIX')).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 002: prefix tokens stay in the required-coverage set.
+//
+// The collapsed-vocabulary rewrite retires `MCP_PREFIX`/`COMMAND_PREFIX` from
+// procedural `skills-src/` sources in a *later* task. Until then the renderer
+// still consumes them, so `assertRuntimeTokenCoverage` must keep requiring
+// every runtime YAML to declare them — dropping them from `RuntimeTokenKey`
+// early would silently un-cover every runtime map.
+// ---------------------------------------------------------------------------
+describe('assertRuntimeTokenCoverage — task 002 (prefix retention)', () => {
+  function makeCoverageRuntime(
+    placeholders: Record<string, string>,
+  ): RuntimeMap {
+    return {
+      name: 'coverage-test',
+      preferredFacade: 'mcp',
+      capabilities: {
+        hasSubagents: true,
+        hasSlashCommands: true,
+        hasSkillChaining: true,
+        mcpPrefix: 'mcp__test__',
+      },
+      skillsInstallPath: '~/.test/skills',
+      detection: { binaries: ['test'], envVars: ['TEST'] },
+      placeholders,
+    };
+  }
+
+  it('assertRuntimeTokenCoverage_PrefixTokensStillConsumed_Required', () => {
+    // Full coverage of every canonical token passes.
+    const full: Record<string, string> = {};
+    for (const token of RuntimeTokenKey) full[token] = 'x';
+    expect(() =>
+      assertRuntimeTokenCoverage([makeCoverageRuntime(full)]),
+    ).not.toThrow();
+
+    // Dropping ONLY the two prefix tokens must still fail coverage — proving
+    // they remain in the required set — and the diagnostic must name both.
+    const missingPrefixes: Record<string, string> = {};
+    for (const token of RuntimeTokenKey) {
+      if (token === 'MCP_PREFIX' || token === 'COMMAND_PREFIX') continue;
+      missingPrefixes[token] = 'x';
+    }
+    let err: unknown;
+    try {
+      assertRuntimeTokenCoverage([makeCoverageRuntime(missingPrefixes)]);
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(Error);
+    const message = (err as Error).message;
+    expect(message).toContain('MCP_PREFIX');
+    expect(message).toContain('COMMAND_PREFIX');
   });
 });

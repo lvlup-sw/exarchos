@@ -30,7 +30,14 @@ import {
   statSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { PLACEHOLDER_REGEX, CALL_MACRO_REGEX } from './build-skills.js';
+import {
+  PLACEHOLDER_REGEX,
+  CALL_MACRO_REGEX,
+  classifySkill,
+  PREFIX_TOKENS,
+  ORCHESTRATION_TOKENS,
+  type SkillClass,
+} from './build-skills.js';
 
 /**
  * Canonical vocabulary of placeholder tokens that `skills-src/` sources
@@ -97,8 +104,37 @@ export interface DeprecationWarning {
 }
 
 /**
+ * A single collapsed-vocabulary finding: a canonical token that a source
+ * references in violation of its derived skill class.
+ *
+ * Two rules produce these (both keyed on the source's `classifySkill` class):
+ *
+ *   - `prefix`        — a prefix token (`MCP_PREFIX`/`COMMAND_PREFIX`) appears
+ *     in a *procedural* skill. In the collapsed vocabulary a procedural skill
+ *     renders once for every runtime from logical prose, so it must not carry
+ *     a per-harness prefix token.
+ *   - `orchestration` — an orchestration token appears in a *procedural* skill.
+ *     Orchestration tokens are valid ONLY in an orchestration-classified skill.
+ *     (Because `classifySkill` derives `orchestration` from the presence of an
+ *     orchestration token, a procedural source never carries one in practice;
+ *     the rule is checked explicitly so the contract is literal and any future
+ *     decoupling of classification still enforces it.)
+ *
+ * `skillClass` records the derived class of the offending source and `kind`
+ * records which rule fired, so diagnostics can explain the violation precisely.
+ */
+export interface CollapsedVocabularyViolation {
+  token: string;
+  file: string;
+  line: number;
+  skillClass: SkillClass;
+  kind: 'prefix' | 'orchestration';
+}
+
+/**
  * Result of a lint run. `passed === true` iff `unknownTokens` is empty
- * *and* (when `EXARCHOS_LINT_STRICT=1`) `deprecationWarnings` is empty.
+ * *and* `collapsedVocabularyViolations` is empty *and* (when
+ * `EXARCHOS_LINT_STRICT=1`) `deprecationWarnings` is empty.
  * `message` is always populated so callers can log a human-readable
  * summary regardless of outcome (a clean run reports "no unknown
  * placeholders found"; a dirty run aggregates every offender plus the
@@ -114,6 +150,7 @@ export interface PlaceholderLintResult {
   passed: boolean;
   unknownTokens: UnknownTokenFinding[];
   deprecationWarnings: DeprecationWarning[];
+  collapsedVocabularyViolations: CollapsedVocabularyViolation[];
   message: string;
 }
 
@@ -125,6 +162,17 @@ export interface PlaceholderLintResult {
 export interface LintPlaceholdersOptions {
   sourcesDir: string;
   vocabulary?: readonly string[];
+  /**
+   * Opt-in switch for the collapsed-vocabulary rules (prefix token in a
+   * procedural skill, orchestration token in a procedural skill). Defaults to
+   * `false` so the current build stays green while `skills-src/` procedural
+   * skills still carry `MCP_PREFIX`/`COMMAND_PREFIX` tokens — those are only
+   * rewritten to logical prose in a later task, which flips this flag on. When
+   * `false` the collapsed-vocabulary pass does not run at all, so the result is
+   * byte-for-byte identical to the pre-collapse lint (empty
+   * `collapsedVocabularyViolations`, unchanged `passed`).
+   */
+  enforceCollapsedVocabulary?: boolean;
 }
 
 /**
@@ -155,20 +203,41 @@ export interface LintPlaceholdersOptions {
  *   the responsibility of `buildAllSkills`, not the lint).
  * @param opts.vocabulary - Set of allowed token names. Defaults to
  *   `DEFAULT_PLACEHOLDER_VOCABULARY`.
+ * @param opts.enforceCollapsedVocabulary - Opt-in switch for the
+ *   collapsed-vocabulary rules. `false` (default) keeps the current build green
+ *   while procedural sources still carry prefix tokens; a later rewrite task
+ *   flips it on. See {@link LintPlaceholdersOptions.enforceCollapsedVocabulary}.
  */
 export function lintPlaceholders(
   opts: LintPlaceholdersOptions,
 ): PlaceholderLintResult {
   const vocabulary = opts.vocabulary ?? DEFAULT_PLACEHOLDER_VOCABULARY;
   const vocabSet = new Set(vocabulary);
+  const enforceCollapsed = opts.enforceCollapsedVocabulary === true;
+
+  // Widen the canonical token sets to `ReadonlySet<string>` so raw `{{...}}`
+  // identifiers (strings) can be membership-tested without narrowing each one
+  // to `RuntimeTokenName` first. These are the single source of the prefix /
+  // orchestration split — never re-listed here (imported from build-skills.ts).
+  const prefixSet: ReadonlySet<string> = PREFIX_TOKENS;
+  const orchestrationSet: ReadonlySet<string> = ORCHESTRATION_TOKENS;
 
   const findings: UnknownTokenFinding[] = [];
   const deprecationWarnings: DeprecationWarning[] = [];
+  const collapsedVocabularyViolations: CollapsedVocabularyViolation[] = [];
 
   if (existsSync(opts.sourcesDir)) {
     const skillFiles = collectSkillFiles(opts.sourcesDir);
     for (const file of skillFiles) {
       const body = readFileSync(file, 'utf8');
+
+      // Collapsed-vocabulary pass is opt-in. When enabled, derive the skill's
+      // class once per file from the single source of truth (`classifySkill`);
+      // a source is `orchestration` iff it references an orchestration token,
+      // `procedural` otherwise. The per-token checks below key off this class.
+      const skillClass: SkillClass | undefined = enforceCollapsed
+        ? classifySkill(body).skillClass
+        : undefined;
 
       // Collect the byte-ranges occupied by CALL macros so we can skip
       // placeholder hits that fall inside a macro. CALL macros are
@@ -201,6 +270,39 @@ export function lintPlaceholders(
             line: lineOf(body, match.index),
           });
         }
+
+        // Collapsed-vocabulary rules (opt-in). Both fire only for a
+        // *procedural* skill: in the collapsed vocabulary a procedural skill
+        // renders once for every runtime from logical prose and must not carry
+        // any canonical fork token.
+        //   - Rule 1: a prefix token in a procedural skill is a violation.
+        //   - Rule 2: an orchestration token is valid ONLY in an
+        //     orchestration-classified skill; in a procedural skill it is a
+        //     violation. (Because `classifySkill` derives `orchestration` from
+        //     an orchestration token's presence, this branch is inert for
+        //     `classifySkill`-derived classes but is checked so the rule holds
+        //     literally regardless of how the class was obtained.)
+        // Orchestration skills legitimately reference both kinds, so no
+        // violation is raised for them.
+        if (enforceCollapsed && skillClass === 'procedural') {
+          if (prefixSet.has(token)) {
+            collapsedVocabularyViolations.push({
+              token,
+              file,
+              line: lineOf(body, match.index),
+              skillClass,
+              kind: 'prefix',
+            });
+          } else if (orchestrationSet.has(token)) {
+            collapsedVocabularyViolations.push({
+              token,
+              file,
+              line: lineOf(body, match.index),
+              skillClass,
+              kind: 'orchestration',
+            });
+          }
+        }
       }
       PLACEHOLDER_REGEX.lastIndex = 0;
 
@@ -222,21 +324,32 @@ export function lintPlaceholders(
     }
   }
 
-  // Unknown placeholders are always hard failures. Deprecation warnings
-  // are informational by default; `EXARCHOS_LINT_STRICT=1` promotes
-  // them to failures once the migration transition window closes.
+  // Unknown placeholders and collapsed-vocabulary violations are always hard
+  // failures. Deprecation warnings are informational by default;
+  // `EXARCHOS_LINT_STRICT=1` promotes them to failures once the migration
+  // transition window closes. (Collapsed-vocabulary violations are only ever
+  // produced when `enforceCollapsedVocabulary` is on, so the default build is
+  // unaffected.)
   const strict = process.env.EXARCHOS_LINT_STRICT === '1';
   const passed =
     findings.length === 0 &&
+    collapsedVocabularyViolations.length === 0 &&
     (!strict || deprecationWarnings.length === 0);
   const message = formatMessage(
     findings,
     deprecationWarnings,
+    collapsedVocabularyViolations,
     vocabulary,
     strict,
   );
 
-  return { passed, unknownTokens: findings, deprecationWarnings, message };
+  return {
+    passed,
+    unknownTokens: findings,
+    deprecationWarnings,
+    collapsedVocabularyViolations,
+    message,
+  };
 }
 
 /**
@@ -313,9 +426,13 @@ function lineOf(source: string, offset: number): number {
  *      pattern and `file:line`, and points authors at the `{{CALL}}`
  *      macro migration path.
  *
- * A clean run (no unknowns, no deprecations) yields a single "all
- * clear" line so callers that always print `result.message` do
- * something sensible on success.
+ *   3. Collapsed-vocabulary violations — always hard failures, but only ever
+ *      produced when `enforceCollapsedVocabulary` is on. Each entry names the
+ *      offending canonical `{{token}}` with its `file:line` and the derived
+ *      skill class, and points authors at the logical-prose remediation.
+ *
+ * A clean run (no findings of any kind) yields a single "all clear" line so
+ * callers that always print `result.message` do something sensible on success.
  *
  * The vocabulary list is sorted so the message is deterministic even
  * if a future caller passes an unsorted array.
@@ -323,10 +440,15 @@ function lineOf(source: string, offset: number): number {
 function formatMessage(
   findings: UnknownTokenFinding[],
   deprecationWarnings: DeprecationWarning[],
+  collapsedVocabularyViolations: CollapsedVocabularyViolation[],
   vocabulary: readonly string[],
   strict: boolean,
 ): string {
-  if (findings.length === 0 && deprecationWarnings.length === 0) {
+  if (
+    findings.length === 0 &&
+    deprecationWarnings.length === 0 &&
+    collapsedVocabularyViolations.length === 0
+  ) {
     return '[placeholder-lint] no unknown placeholders found';
   }
 
@@ -365,6 +487,26 @@ function formatMessage(
         'Set EXARCHOS_LINT_STRICT=1 to promote these warnings to errors once migration is complete.',
       );
     }
+  }
+
+  if (collapsedVocabularyViolations.length > 0) {
+    if (lines.length > 0) lines.push('');
+    lines.push(
+      `[placeholder-lint] found ${collapsedVocabularyViolations.length} collapsed-vocabulary violation(s):`,
+    );
+    for (const v of collapsedVocabularyViolations) {
+      const reason =
+        v.kind === 'prefix'
+          ? 'prefix token in a procedural skill'
+          : 'orchestration token in a procedural skill';
+      lines.push(`  - {{${v.token}}} at ${v.file}:${v.line} (${reason})`);
+    }
+    lines.push('');
+    lines.push(
+      'Procedural skills render once for all runtimes from logical prose and ' +
+        'must not reference canonical fork tokens. Rewrite the reference to ' +
+        'logical prose, or move the skill to the orchestration residual.',
+    );
   }
 
   return lines.join('\n');
