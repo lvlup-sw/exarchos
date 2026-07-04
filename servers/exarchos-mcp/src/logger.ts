@@ -21,3 +21,4 @@ export const syncLogger = logger.child({ subsystem: 'sync' });
 export const telemetryLogger = logger.child({ subsystem: 'telemetry' });
 export const orchestrateLogger = logger.child({ subsystem: 'orchestrate' });
 export const taskStoreLogger = logger.child({ subsystem: 'task-store' });
+export const launcherLogger = logger.child({ subsystem: 'launcher' });

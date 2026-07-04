@@ -36,6 +36,7 @@
 
 import type { EventStore } from '../event-store/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
+import { launcherLogger } from '../logger.js';
 import {
   makeLifecycleTeardown,
   recoverCrashedLaunch,
@@ -153,6 +154,8 @@ export function makeLauncherLifecycleDeps(
         child: sigCtx.child,
         teardown: sigCtx.teardown,
         emitTerminal: sigCtx.emitTerminal,
+        onError: (error: unknown, signal) =>
+          launcherLogger.error({ err: error, signal, holderPid }, 'signal-path teardown/terminal failed'),
         ...(overrides.signalRegistrar ? { signals: overrides.signalRegistrar } : {}),
         ...(overrides.killTimeoutMs !== undefined
           ? { killTimeoutMs: overrides.killTimeoutMs }
