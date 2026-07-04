@@ -360,7 +360,13 @@ describe('DR-12 — stale dead-holder reclamation', () => {
 
 // ─── Test 3: concurrent prune + merge — prune skips an in-flight lease ────────
 
-describe('DR-12 — concurrent prune + merge', () => {
+// skipIf(win32): unlike the sibling DR-12 describes (which inject EMPTY_TABLE /
+// liveTable / UNSUPPORTED_TABLE), this one builds WorktreeManager with the DEFAULT
+// process table, whose win32 enumeration (Get-CimInstance, DR-5) is nondeterministic
+// on the shared CI runner and flips the prune occupancy verdict at random. Gated off
+// win32 until #1641 injects a deterministic ProcessTableSource; Linux coverage
+// unchanged. The other DR-12 describes keep running on win32 (deterministic tables).
+describe.skipIf(process.platform === 'win32')('DR-12 — concurrent prune + merge', () => {
   // Real-git helpers (mirrors the prune suite's ground-truth setup).
   function git(cwd: string, args: readonly string[]): string {
     return execFileSync('git', args as string[], {

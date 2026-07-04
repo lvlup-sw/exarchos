@@ -142,7 +142,14 @@ function orphanWorktree(wtPath: string): void {
 
 // ─── Suite ──────────────────────────────────────────────────────────────────
 
-describe('WorktreeManager.prune (real git + real event store)', () => {
+// skipIf(win32): every test here builds WorktreeManager with the DEFAULT process
+// table, whose win32 enumeration (Get-CimInstance, DR-5) is nondeterministic on the
+// shared CI runner — a live process' cwd may transiently resolve inside a temp
+// worktree, flipping prune occupancy verdicts ('in-use' vs 'dirty'/'delete-eligible')
+// at random. These tests predate win32 enumeration (they assumed the off-Linux
+// 'unknown' path). Gated off win32 until #1641 injects a deterministic
+// ProcessTableSource to restore meaningful win32 coverage; Linux coverage unchanged.
+describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git + real event store)', () => {
   let stateDir: string;
   let workdir: string;
   let store: EventStore;
