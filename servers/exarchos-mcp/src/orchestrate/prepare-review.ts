@@ -184,7 +184,15 @@ export interface PlanReviewProvisioning {
  */
 const PLAN_REVIEW_DISPATCHED_EVENT = 'workflow.plan-review-dispatched';
 
-/** Deterministic idempotency key so a same-ordinal crash-retry collapses (INV-8). */
+/**
+ * Deterministic idempotency key (INV-8). SCOPE: it dedups a SAME-ordinal
+ * re-append at the storage layer (a store-internal append retry within one
+ * invocation), NOT a full handler re-invocation — a retry after a committed
+ * append recomputes a higher `ordinal` from the durable count, so it yields a
+ * different key and counts as a fresh re-dispatch. Bounding a genuine
+ * re-invocation would need a client-supplied token (an `operationId` schema
+ * field), which DR-2 deliberately does not add. Residual follow-up.
+ */
 function planReviewDispatchKey(featureId: string, ordinal: number): string {
   return `${featureId}:plan-review-dispatch:${ordinal}`;
 }
@@ -253,8 +261,14 @@ function assemblePlanReviewProvisioning(args: PrepareReviewArgs): PlanReviewProv
  *     and provision.
  *
  * The append carries a deterministic idempotency key
- * (`${featureId}:plan-review-dispatch:${ordinal}`, INV-8) so a same-ordinal
- * crash-retry collapses at the storage layer rather than double-counting.
+ * (`${featureId}:plan-review-dispatch:${ordinal}`, INV-8) that dedups a
+ * SAME-ordinal re-append at the storage layer (e.g. a store-internal append
+ * retry). It does NOT make a full handler re-invocation idempotent: a retry
+ * after a committed append recomputes a higher `ordinal` from the durable count
+ * (see `planReviewDispatchKey`) → new key → a fresh re-dispatch is counted.
+ * Genuine re-invocation idempotency would need a client token (out of DR-2
+ * scope); the exposure is a single miscount only on a crash between the commit
+ * and the response, noted as a follow-up.
  */
 async function buildPlanReviewProvisioning(
   args: PrepareReviewArgs,

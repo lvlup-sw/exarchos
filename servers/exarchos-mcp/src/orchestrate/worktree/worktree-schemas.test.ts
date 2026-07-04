@@ -157,8 +157,11 @@ describe('worktree surface — real handler output validates against schema (DR-
         result: await handleViewWait({ until: 'idle', timeoutMs: 1000 }, arm.ctx, DETERMINISTIC_DEPS),
       },
       {
-        // Slot is free → claim → composed (fake) merge → release. Injected git +
-        // process seams keep it deterministic and OS-free.
+        // DEFAULT dry-run (no `dryRun` arg → dry-run by default, Task 002): the
+        // PLANNED-effect shape. The lease is NOT claimed and the injected
+        // `mergeOrchestrate` is NOT called (only `readIntegrationHead` runs);
+        // the executed-merge shape (the `serializedMerge` lease annotation) is
+        // validated by the dedicated executed-path test below.
         name: 'serialize_merge',
         result: await handleSerializeMerge(
           {
@@ -193,6 +196,56 @@ describe('worktree surface — real handler output validates against schema (DR-
         }`,
       ).toBe(true);
     }
+  });
+
+  it('WorktreeActions_SerializeMergeExecuted_OutputSafeParsesAndAnnotatesLease — executed path (DR-1)', async () => {
+    const arm = await nextArm();
+
+    // `dryRun: false` drives the REAL branch — claim → composed (fake) merge →
+    // release — so the `serializedMerge`-annotated executed shape is the one
+    // validated against SerializeMergeOutputSchema (the riskier passthrough the
+    // adapters/mcp.ts:262 runtime-validation guard exists for). The default-
+    // dry-run case above cannot reach this branch.
+    const result = await handleSerializeMerge(
+      {
+        featureId: 'feat-x',
+        integrationRef: 'main',
+        sourceBranch: 'feat/x',
+        strategy: 'squash',
+        dryRun: false,
+      },
+      arm.ctx,
+      {
+        processSource: FIXED_SOURCE,
+        processTableSource: UNSUPPORTED_TABLE,
+        readIntegrationHead: () => 'deadbeef',
+        mergeOrchestrate: async () => ({
+          success: true,
+          data: { merged: true, mergeSha: 'cafef00d' },
+        }),
+      },
+    );
+
+    expect(result.success, 'executed serialize_merge should succeed').toBe(true);
+
+    // Prove the executed branch was ACTUALLY taken — not silently short-circuited
+    // to dry-run: the lease annotation is present and no `dryRun` marker is set.
+    // Without this, a regression that re-defaults the call to dry-run would leave
+    // the schema assertion below validating the wrong (planned-effect) shape.
+    const data = result.data as Record<string, unknown>;
+    expect(data.serializedMerge, 'executed path must carry the serializedMerge lease annotation').toBeDefined();
+    expect(data.dryRun, 'executed path must NOT report a dryRun planned effect').toBeUndefined();
+    expect((data.serializedMerge as Record<string, unknown>).operationId, 'lease annotation carries the operationId').toBeDefined();
+
+    // The executed-merge output shape validates against the typed schema.
+    const action = findSurfaceAction('serialize_merge');
+    const parsed = action.outputSchema.safeParse(toEnvelope(result));
+    expect(
+      parsed.success,
+      `executed serialize_merge output must safeParse against its schema: ${
+        parsed.success ? '' : JSON.stringify(parsed.error.issues)
+      }`,
+    ).toBe(true);
   });
 
   it('WorktreeActions_RealHandlerOutput_SafeParsesAgainstSchema — INV-5b error envelopes', async () => {
