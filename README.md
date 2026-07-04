@@ -14,6 +14,8 @@
 
 ---
 
+> A local, event-sourced governance engine for coding tasks.
+
 ## You already manage this by hand
 
 A `plan.md` per feature. `CLAUDE.md` rewritten between sessions. Summaries scrawled before `/clear` so the next session has something to start from. Phases enforced by you, reminding the agent. It works. It's also manual, and one long context window away from the agent ignoring all of it.
@@ -26,19 +28,9 @@ Come back to any suspended workflow with `/rehydrate`.
 ❯ /exarchos:rehydrate payments-v2-migration
 
 Workflow Rehydrated: payments-v2-migration
-
   Phase: implementing | Type: feature
-
-  Task Progress
-    4 of 7 complete · last commit on feature/payments-v2
-
-  Artifacts
-    Design: docs/designs/payments-v2.md
-    Plan:   docs/plans/payments-v2.md
-    PR:     not yet created
-
-  Next Action
-    Continue task 5 (gates pending). Run /delegate or pick up manually.
+  Task Progress: 4 of 7 complete · last commit on feature/payments-v2
+  Next Action: Continue task 5 (gates pending). Run /delegate or pick up manually.
 ```
 
 The state was never in your conversation. It lives in an append-only event log, and `/rehydrate` is just a projection that rebuilds the workflow document for a fresh context window. The whole thing fits in about 2,500 tokens.
@@ -107,11 +99,7 @@ One command drives the repo to a green `doctor`: it detects the runtimes and VCS
 | `--no-hooks` | Skip the SessionStart hook binding. |
 | `--runtime <id>` | Target an explicit runtime (`claude`, `codex`, `opencode`, `copilot`, `cursor`, `generic`); bypasses detection. |
 
-To re-check without writing, run `exarchos doctor`. To re-apply just the remediable diff, run `exarchos doctor --fix`.
-
-If a step fails (say, an offline skills or deps install), `onboard` exits non-zero and prints a forward-only advisory: already-applied steps are kept, because reconcile never rolls back. Fix the cause and re-run, and `onboard` picks up from the residual diff.
-
-> **Renamed in v2.10.2:** the old `init`, `install-skills`, and `new-project` verbs were folded into `onboard` (use `onboard --new` for greenfield). They survive one release as error stubs that print `renamed → use 'exarchos onboard'`, and are removed at v3.0.
+To re-check without writing, run `exarchos doctor`. To re-apply just the remediable diff, run `exarchos doctor --fix`. If a step fails, `onboard` exits non-zero and leaves already-applied steps in place — fix the cause and re-run to pick up the residual diff.
 
 ### Claude Code plugin
 
@@ -122,9 +110,18 @@ If a step fails (say, an offline skills or deps install), `onboard` exits non-ze
 
 Same binary underneath. The plugin adds Claude Code slash commands, hooks, and rendered skills.
 
-> **No SSH key?** Use the HTTPS URL: `https://github.com/lvlup-sw/.github.git`
-
 For the two-step flow (download, inspect, then run), channel selection, validation, update, and uninstall, see the [full install guide](https://lvlup-sw.github.io/exarchos/guide/installation).
+
+## Launching a harness
+
+```bash
+exarchos claude    # or codex, cursor, copilot, opencode
+exarchos claude --dry-run   # print the plan, spawn nothing
+```
+
+`exarchos <harness>` hands Exarchos the harness's process and worktree lifecycle end to end: it creates the worktree as event-sourced state, execs the harness into it, watches it stay alive through liveness events, and tears the worktree down on exit. No daemon sits in between — spawn, place, observe, teardown, and nothing else runs.
+
+What it deliberately doesn't do is stop the harness from writing outside that worktree. Filesystem-write confinement belongs to the harness itself, or, when you need it enforced no matter which harness is running, to a remote sandbox — that's a different problem than the one this launcher solves.
 
 ## What's different
 
@@ -139,9 +136,7 @@ Plenty of tools live near this problem. Most aren't competitors so much as answe
 | Workflow DAG engines | A general-purpose runner for any DAG you write | Custom orchestration across your own pipelines |
 | **Workflow harness (Exarchos)** | **Enforced SDLC + event log + rehydratable state** | **Solo and team SDLC work that needs to survive `/clear`** |
 
-A harness is opinionated about the shape of work; an engine isn't. Exarchos's shape is the SDLC, and the state outlives `/clear` because it sits in an event log instead of the context window.
-
-If your work is mostly one-file changes you finish in a single sitting, this is more machinery than you need — that's the "plan files, manual" row, and it's a perfectly good place to be. Exarchos starts earning its keep once a piece of work outlives the context window you started it in.
+A harness is opinionated about the shape of work; an engine isn't. Exarchos's shape is the SDLC, and the state outlives `/clear` because it sits in an event log instead of the context window. Skip it for one-file changes you'll finish in a sitting — plain plan files are the better tool there. It starts earning its keep once work outlives the context window you started it in.
 
 ## What you get
 
@@ -151,11 +146,11 @@ Review runs in two stages, both as code. First: does the diff match the design y
 
 Implementation goes to typed agents, each in its own git worktree. The implementer writes code test-first. The fixer picks up a failed task with the failure event already in context instead of starting cold. The reviewer is read-only and literally can't edit files. They don't step on each other, because they're not working in the same tree.
 
-Everything they do lands in the event log: every transition, gate result, and agent action. The audit trail is a side effect of how the system works, not a feature someone bolted on. And it stays cheap. Registering the MCP surface costs under 500 tokens, schemas load only when used, field projection trims a state query by roughly 90%, and review sends diffs rather than whole files.
+Everything they do lands in the event log: every transition, gate result, and agent action. The audit trail is a side effect of how the system works, not a feature someone bolted on. And it stays cheap — registering the MCP surface costs under 500 tokens, and review sends diffs rather than whole files.
 
 ### Agent-first architecture
 
-Exarchos ships as a single binary (`exarchos`) with an `mcp` subcommand. Claude Code spawns it as a stdio MCP server and talks to it in structured JSON. Four composite tools cover the whole surface:
+Exarchos ships as a single binary (`exarchos`) with an `mcp` subcommand; Claude Code spawns it as a stdio MCP server. Four composite tools cover the whole surface:
 
 | Tool | What it does |
 |------|-------------|
@@ -164,11 +159,7 @@ Exarchos ships as a single binary (`exarchos`) with an `mcp` subcommand. Claude 
 | `exarchos_orchestrate` | Team coordination: task dispatch, review triage, runbooks, agent specs |
 | `exarchos_view` | CQRS projections: pipeline status, task boards, stack health |
 
-All four load their schemas lazily through `describe`. At startup only the slim descriptions and action enums register; the full schemas arrive on demand.
-
-`exarchos_view`'s telemetry actions take correlation filters (`operationId`, `correlationId`, `causationId`) so an agent can scope telemetry to the active workflow. Inside an active dispatch the filter defaults to the chain anchor, and explicit args always win. See [`docs/runbooks/correlation-filters.md`](docs/runbooks/correlation-filters.md) for the surface.
-
-Every tool input is a Zod-validated discriminated union keyed on `action`. The same `dispatch()` function backs the MCP transport and the CLI, so `exarchos workflow get --featureId my-feature` from a terminal returns exactly what the agent gets. One binary, same behavior whether a person or an agent is driving it.
+Schemas load lazily through `describe`, so registering the surface at startup costs under 500 tokens. The same `dispatch()` function backs both the MCP transport and the CLI — `exarchos workflow get --featureId my-feature` from a terminal returns exactly what the agent gets.
 
 ### Works well alongside
 
@@ -196,14 +187,8 @@ Exarchos handles workflow structure and nothing else. It won't duplicate your co
 | `/review` | Run two-stage review (spec compliance + code quality) |
 | `/synthesize` | Create PR from feature branch |
 | `/shepherd` | Push PRs through CI and reviews to merge readiness |
-| `/cleanup` | Resolve merged workflow to completed state |
-| `/prune` | Interactively bulk-cancel stale non-terminal workflows |
-| `/checkpoint` | Save workflow state for later resumption |
-| `/rehydrate` | Restore workflow state after compaction or a session break |
-| `/reload` | Re-inject context after degradation |
-| `/autocompact` | Toggle autocompact or set threshold |
-| `/tag` | Attribute the current session to a feature or project |
-| `/tdd` | Plan implementation using strict Red-Green-Refactor |
+
+Plus `/checkpoint`, `/rehydrate`, `/reload`, and `/autocompact` for session continuity; `/cleanup` and `/prune` for workflow hygiene; `/tag` and `/tdd` for attribution and strict TDD. Full reference: [docs](https://lvlup-sw.github.io/exarchos/).
 
 ## Build & test
 

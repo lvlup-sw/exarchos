@@ -8,7 +8,7 @@ const README_PATH = resolve(__dirname, '..', 'README.md');
 
 /**
  * Slice the `## Install` section out of the README so context-window
- * checks operate on the install prose only. Matching the same `httpsUrl`
+ * checks operate on the install prose only. Matching an install token
  * elsewhere in the doc (a "Related projects" link, an example, etc.)
  * would let the test pass for the wrong reason. Throws if the heading is
  * absent so a future README reorg can't silently turn this into a
@@ -29,31 +29,14 @@ function readInstallSection(content: string): string {
 }
 
 describe('README validation', () => {
-  it('Readme_InstallSection_MentionsHttpsFallback', () => {
+  it('Readme_InstallSection_DocumentsPrimaryInstaller', () => {
     const installSection = readInstallSection(readFileSync(README_PATH, 'utf8'));
-    const httpsUrl = 'https://github.com/lvlup-sw/.github.git';
 
-    // The HTTPS fallback URL must appear in the Install section.
-    expect(installSection).toContain(httpsUrl);
-
-    // The context must clarify this is the HTTPS/SSH fallback by mentioning
-    // either "HTTPS" or "SSH" within 500 characters of the URL — but the
-    // URL itself contains "https://" which would match a naive /HTTPS/i.
-    // Slice the URL out of the window so the regex catches genuine
-    // explanatory prose, not the URL protocol.
-    const urlIndex = installSection.indexOf(httpsUrl);
-    const windowStart = Math.max(0, urlIndex - 500);
-    const windowEnd = Math.min(installSection.length, urlIndex + httpsUrl.length + 500);
-    const leftContext = installSection.slice(windowStart, urlIndex);
-    const rightContext = installSection.slice(urlIndex + httpsUrl.length, windowEnd);
-    const contextWithoutUrl = leftContext + rightContext;
-
-    const mentionsFallbackContext =
-      /\bHTTPS\b/i.test(contextWithoutUrl) || /\bSSH\b/i.test(contextWithoutUrl);
-
-    expect(
-      mentionsFallbackContext,
-      'Expected "HTTPS" or "SSH" within 500 chars of the HTTPS URL inside the Install section',
-    ).toBe(true);
+    // The Install section must document the canonical one-line installer for
+    // the standalone CLI. Sliced to the Install section (readInstallSection
+    // throws if the heading is gone) so an install token elsewhere in the
+    // README can't satisfy this for the wrong reason, and a reorg that drops
+    // the install command can't silently turn this into a vacuous pass.
+    expect(installSection).toContain('get-exarchos.sh');
   });
 });
