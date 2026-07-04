@@ -23,6 +23,25 @@ export interface StackPosition {
   prUrl?: string;
 }
 
+// ─── Measured-size summary variant (DR-3) ────────────────────────────────────
+
+/**
+ * The counts-by-group summary `handleViewPipeline` returns INSTEAD of per-item
+ * detail when the capped payload would still exceed the resolved output-token
+ * threshold (DR-3). Carries the full-inventory group counts (so the shape stays
+ * informative) plus a small first page of {@link PipelineViewState} rows.
+ */
+export interface PipelineSummary {
+  /** Total workflows in the filtered inventory (pre-cap). */
+  total: number;
+  /** Count of workflows per lifecycle phase across the whole inventory. */
+  byPhase: Record<string, number>;
+  /** Count of workflows per workflow type across the whole inventory. */
+  byWorkflowType: Record<string, number>;
+  /** A bounded first page of full detail rows so the summary is still actionable. */
+  firstPage: PipelineViewState[];
+}
+
 // ─── View State ────────────────────────────────────────────────────────────
 
 export interface PipelineViewState {

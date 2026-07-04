@@ -100,6 +100,10 @@ export async function handleView(
           rest as { limit?: number; offset?: number; includeCompleted?: boolean },
           stateDir,
           eventStore,
+          // DR-3 — thread the resolved `.exarchos.yml` so
+          // `qualityHints.outputTokenThreshold` drives the measured-size summary
+          // (same single-hop cast the `telemetry` arm uses).
+          ctx.config as QualityHintsConfig | undefined,
         ),
         startedAt,
       );

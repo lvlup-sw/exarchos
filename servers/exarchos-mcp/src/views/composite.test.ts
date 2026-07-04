@@ -84,6 +84,9 @@ describe('handleView', () => {
         { limit: 10, offset: 0 },
         STATE_DIR,
         CTX.eventStore,
+        // DR-3 — the composite now threads `ctx.config` (undefined here) so the
+        // measured-size summary can resolve `qualityHints.outputTokenThreshold`.
+        CTX.config,
       );
     });
   });

@@ -3354,8 +3354,14 @@ const viewActions: readonly ToolAction[] = [
     name: 'worktrees',
     surface: 'worktree',
     description:
-      'List the governed worktree set — the live worktrees@v1 projection (each entry: worktreeId, path, featureId, lifecycle state, owner pid/start-time). Read-only; emits no events. Use for: inspecting which worktrees are governed and their reservation/orphan state. Do NOT use for: claiming or freeing a worktree (use acquire_worktree / release_worktree); the in-flight merge/prune liveness set (use ps).',
-    schema: z.object({}),
+      'List the governed worktree set — the live worktrees@v1 projection (each entry: worktreeId, path, featureId, lifecycle state, owner pid/start-time). Read-only; emits no events. DR-3 bounded output: omitting limit caps the item count deterministically and, if the capped page would still blow the output-token budget, returns a counts-by-state summary + first page instead of per-item detail; narrow with limit/offset. Use for: inspecting which worktrees are governed and their reservation/orphan state. Do NOT use for: claiming or freeing a worktree (use acquire_worktree / release_worktree); the in-flight merge/prune liveness set (use ps).',
+    schema: z.object({
+      // Reuse pipeline's EXACT coerced base field types (coercedPositiveInt /
+      // coercedNonnegativeInt) so the MCP-registration flattener sees no divergent
+      // shape for the shared `limit` / `offset` field names (DR-3).
+      limit: coercedPositiveInt().optional(),
+      offset: coercedNonnegativeInt().optional(),
+    }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
     outputSchema: WorktreesOutputSchema,

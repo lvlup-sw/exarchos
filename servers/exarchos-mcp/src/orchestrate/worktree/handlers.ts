@@ -37,6 +37,15 @@ import {
 import type { SleepFn } from './git-retry.js';
 import type { InFlightMerge, InFlightPrune } from './projections/worktrees.js';
 import { reconcileLaunches } from '../../launcher/launch-reconcile.js';
+import {
+  DEFAULT_VIEW_ITEM_CAP,
+  SUMMARY_FIRST_PAGE_ITEMS,
+  estimateOutputTokens,
+  resolveOutputTokenThreshold,
+  countBy,
+  narrowAffordance,
+} from '../../views/output-cap.js';
+import type { QualityHintsConfig } from '../../capabilities/resolver.js';
 
 // ─── Shared helpers ──────────────────────────────────────────────────────────
 
@@ -86,6 +95,19 @@ function optionalString(value: unknown): string | undefined {
 
 function optionalBoolean(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined;
+}
+
+/** Parse a non-negative integer count from a number or numeric string (coerced flags). */
+function optionalNonNegInt(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isInteger(value) && value >= 0) return value;
+  if (typeof value === 'string' && /^\d+$/.test(value)) return Number(value);
+  return undefined;
+}
+
+/** Parse a positive integer count (>= 1) from a number or numeric string. */
+function optionalPosInt(value: unknown): number | undefined {
+  const n = optionalNonNegInt(value);
+  return n !== undefined && n >= 1 ? n : undefined;
 }
 
 /**
@@ -335,17 +357,62 @@ export async function handlePruneWorktrees(
  * Read the `worktrees@v1` projection: fold the `worktrees` stream and return
  * the live governed-worktree set. Pure read — no adopt, no git probe, no
  * append.
+ *
+ * DR-3 bounded output: a DETERMINISTIC item cap replaces the old unbounded dump
+ * when the caller omits `limit`, and a measured-size summary (counts by
+ * lifecycle state + a small first page) replaces per-item detail if the capped
+ * payload would still exceed the resolved `qualityHints.outputTokenThreshold`.
+ * Fail-open: an unresolvable threshold degrades to the item cap. Below cap AND
+ * threshold the payload is BYTE-IDENTICAL to the pre-DR-3 `{ worktrees, count }`.
  */
 export async function handleViewWorktrees(
-  _args: Record<string, unknown>,
+  args: Record<string, unknown>,
   ctx: DispatchContext,
   deps?: InjectableDeps,
 ): Promise<ToolResult> {
   const manager = buildManager(ctx, deps);
-  const worktrees = await manager.list();
+  const all = await manager.list();
+  const total = all.length;
+
+  const offset = optionalNonNegInt(args.offset) ?? 0;
+  const limitArg = optionalPosInt(args.limit);
+  const explicitLimit = limitArg !== undefined;
+  const pageSize = explicitLimit ? limitArg : DEFAULT_VIEW_ITEM_CAP;
+  const worktrees = all.slice(offset, offset + pageSize);
+  const capTruncated = !explicitLimit && total - offset > DEFAULT_VIEW_ITEM_CAP;
+
+  const config = ctx.config as QualityHintsConfig | undefined;
+  const narrowHint = 'exarchos vw worktrees --limit 20 --offset 0';
+
+  // Measured-size summary guard (same fail-open threshold path as pipeline).
+  const detailData = { worktrees, count: worktrees.length };
+  const threshold = resolveOutputTokenThreshold(config);
+  if (threshold !== null && estimateOutputTokens(detailData) > threshold) {
+    const firstPage = worktrees.slice(0, SUMMARY_FIRST_PAGE_ITEMS);
+    return {
+      success: true,
+      data: {
+        summary: { total, byState: countBy(all, (w) => w.state), firstPage },
+        total,
+        truncated: true,
+      },
+      next_actions: [narrowAffordance('worktrees', firstPage.length, total, narrowHint)],
+    };
+  }
+
+  // Default cap truncated the inventory → advertise narrowing + echo the total.
+  if (capTruncated) {
+    return {
+      success: true,
+      data: { worktrees, count: worktrees.length, total, truncated: true },
+      next_actions: [narrowAffordance('worktrees', worktrees.length, total, narrowHint)],
+    };
+  }
+
+  // Byte-identical to the pre-DR-3 payload below cap AND threshold.
   return {
     success: true,
-    data: { worktrees, count: worktrees.length },
+    data: detailData,
   };
 }
 
