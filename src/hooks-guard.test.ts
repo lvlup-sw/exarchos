@@ -106,9 +106,11 @@ function writeHooksSource(srcDir: string): void {
 
 function writeBindingSource(srcDir: string): void {
   mkdirSync(srcDir, { recursive: true });
+  // Runtime-neutral logical prose (DR-5): the block is placeholder-free, so the
+  // build renders it once into `binding/standard/block.md`.
   writeFileSync(
     join(srcDir, 'binding.md'),
-    'This project uses Exarchos. Route via `{{MCP_PREFIX}}exarchos_workflow`.\n',
+    'This project uses Exarchos. Route via `exarchos:exarchos_workflow`.\n',
   );
 }
 

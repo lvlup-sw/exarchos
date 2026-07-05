@@ -28,8 +28,8 @@ Unified MCP server for workflow orchestration, event sourcing, CQRS views, and t
 | `cleanup` | Resolve a merged workflow to completed. Verifies merge, backfills synthesis metadata, force-resolves reviews, transitions to completed. Requires `mergeVerified: true` — pass after verifying PRs are merged via GitHub API |
 
 **Resume + checkpoint (explicit verbs, no implicit hooks):**
-- **`{{COMMAND_PREFIX}}rehydrate <featureId>`** — Re-injects workflow state and phase-playbook guidance into the current context. Run this at the start of any session that resumes a workflow. Replaces the former auto-running SessionStart hook.
-- **`{{COMMAND_PREFIX}}checkpoint`** — Captures a structured handoff (state, next-steps, suggestions) into the event store. Run this before context exhaustion or session handoff. Replaces the former auto-running PreCompact hook.
+- **`rehydrate <featureId>`** — Re-injects workflow state and phase-playbook guidance into the current context. Run this at the start of any session that resumes a workflow. Replaces the former auto-running SessionStart hook.
+- **`checkpoint`** — Captures a structured handoff (state, next-steps, suggestions) into the event store. Run this before context exhaustion or session handoff. Replaces the former auto-running PreCompact hook.
 - Valid phase transitions are documented in `references/phase-transitions.md` (replaces former `workflow_transitions` tool). `INVALID_TRANSITION` errors include valid targets with guard descriptions.
 
 ### Event Tool Actions
@@ -85,6 +85,6 @@ A compound state's fix cycle limit was reached. Escalate to user or cancel the w
 | Don't | Do Instead |
 |-------|------------|
 | Manually edit workflow state JSON | Use `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "update"` |
-| Skip state reconciliation on resume | Run `{{COMMAND_PREFIX}}rehydrate <featureId>` — it folds events newer than the last snapshot via the rehydration projection |
+| Skip state reconciliation on resume | Run `rehydrate <featureId>` — it folds events newer than the last snapshot via the rehydration projection |
 
 > See companion documentation for additional tool anti-patterns (Serena, GitHub MCP, Context7). Install companions: `npx create-exarchos`.

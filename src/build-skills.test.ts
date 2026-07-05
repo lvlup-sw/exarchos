@@ -2515,11 +2515,12 @@ describe('buildAllSkills — task 003: classification-driven emission', () => {
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(join(srcDir, 'proc'), { recursive: true });
-    // Prefix-only source → procedural. References a linked reference file so
-    // we can also assert the reference is mirrored into the standard variant.
+    // Logical-prose source (no fork tokens) → procedural, and passes the
+    // collapsed-vocabulary enforcement. References a linked reference file so we
+    // can also assert the reference is mirrored into the standard variant.
     writeFileSync(
       join(srcDir, 'proc', 'SKILL.md'),
-      'Call {{MCP_PREFIX}}exarchos_workflow; then run {{COMMAND_PREFIX}}review — see [note](references/note.md).\n',
+      'Call exarchos:exarchos_workflow; then run review — see [note](references/note.md).\n',
     );
     mkdirSync(join(srcDir, 'proc', 'references'), { recursive: true });
     writeFileSync(join(srcDir, 'proc', 'references', 'note.md'), 'a shared reference');
@@ -2579,11 +2580,12 @@ describe('buildAllSkills — task 003: classification-driven emission', () => {
     const srcDir = join(root, 'skills-src');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
-    // Procedural skill → renders to `skills/standard/proc/`.
+    // Procedural skill (logical prose, no fork tokens) → renders to
+    // `skills/standard/proc/`.
     mkdirSync(join(srcDir, 'proc'), { recursive: true });
     writeFileSync(
       join(srcDir, 'proc', 'SKILL.md'),
-      'Use {{MCP_PREFIX}}exarchos_view and {{COMMAND_PREFIX}}review.\n',
+      'Use exarchos:exarchos_view and review.\n',
     );
     writeRuntimeFixtures(runtimesDir);
     buildAllSkills({ srcDir, outDir, runtimesDir });

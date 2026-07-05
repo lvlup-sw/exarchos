@@ -35,7 +35,7 @@ even when the score itself won't block.
 ## Triggers
 
 Activate this skill when:
-- `{{COMMAND_PREFIX}}review` reaches the quality stage on a **HIGH-tier** feature
+- `review` reaches the quality stage on a **HIGH-tier** feature
 - The review contract lists `mutation-adequacy` in the required reviews for this workflow
 - You need to assess whether the (possibly relaxed) test mix actually kills mutants
 
@@ -52,7 +52,7 @@ the toolchains SoT, never composed by hand), so the run completes in `< minutes`
 time budget.
 
 ```typescript
-{{MCP_PREFIX}}exarchos_orchestrate({
+exarchos:exarchos_orchestrate({
   action: "mutation-adequacy",
   featureId: "<featureId>",
   base: "<review/PR base ref>",      // e.g. "main" — reuse the same base the review diff uses
@@ -120,7 +120,7 @@ Record the dimension result on the review state. The review key MUST be the keba
 (it equals this skill's folder name):
 
 ```typescript
-{{MCP_PREFIX}}exarchos_workflow({ action: "update", featureId: "<id>", updates: {
+exarchos:exarchos_workflow({ action: "update", featureId: "<id>", updates: {
   reviews: { "mutation-adequacy": {
     status: "pass",            // advisory: "pass" even when score is sub-threshold, unless an override blocks
     summary: "mutationScore 0.62 (threshold 0.40); 3 survivors surfaced as kill-test follow-ups",

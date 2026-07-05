@@ -65,33 +65,71 @@ describe('oneLineDirective — shell-escape (#1485)', () => {
   });
 });
 
-describe('buildAllHooks — binding blocks (#1485 T4)', () => {
-  it('BuildBinding_EveryRuntime_EmitsBindingBlock', () => {
+describe('buildAllHooks — binding block (#1485 T4; neutralized DR-5)', () => {
+  it('BuildBinding_EmitsSingleNeutralBlock', () => {
+    // Post-collapse: ONE runtime-neutral block at `binding/standard/block.md`,
+    // not a per-runtime fork. The report reflects the single write.
     const { bindingOutDir, report } = build();
-    expect(report.bindingBlocksWritten).toBe(6);
+    expect(report.bindingBlocksWritten).toBe(1);
+
+    const block = join(bindingOutDir, 'standard', 'block.md');
+    expect(existsSync(block), 'standard binding block').toBe(true);
+    const body = readFileSync(block, 'utf8');
+    expect(body).toContain('<!-- exarchos:binding:start -->');
+    expect(body).toContain('<!-- exarchos:binding:end -->');
+    expect(body).toContain('Exarchos');
+
+    // No per-runtime binding files are emitted anymore.
     for (const [rt, file] of [
       ['claude', 'CLAUDE.md'],
       ['codex', 'AGENTS.md'],
-      ['opencode', 'AGENTS.md'],
-      ['cursor', 'AGENTS.md'],
-      ['copilot', 'AGENTS.md'],
       ['generic', 'AGENTS.md'],
     ] as const) {
-      const p = join(bindingOutDir, rt, file);
-      expect(existsSync(p), `${rt} binding block`).toBe(true);
-      const body = readFileSync(p, 'utf8');
-      expect(body).toContain('<!-- exarchos:binding:start -->');
-      expect(body).toContain('<!-- exarchos:binding:end -->');
-      expect(body).toContain('Exarchos');
+      expect(existsSync(join(bindingOutDir, rt, file)), `${rt} legacy binding`).toBe(
+        false,
+      );
     }
   });
 
-  it('BuildBinding_Block_CarriesRuntimeMcpPrefix', () => {
+  it('bindingStandardBlock_SameContentForAllRuntimes', () => {
+    // The single block is runtime-neutral: it carries the logical
+    // `exarchos:exarchos_*` `Server:tool` form and NONE of the per-harness MCP
+    // wire prefixes (`mcp__plugin_exarchos_exarchos__`, `mcp__exarchos__`) that
+    // the old per-runtime forks baked in — so the same bytes serve every harness.
     const { bindingOutDir } = build();
-    const claude = readFileSync(join(bindingOutDir, 'claude', 'CLAUDE.md'), 'utf8');
-    const codex = readFileSync(join(bindingOutDir, 'codex', 'AGENTS.md'), 'utf8');
-    expect(claude).toContain('mcp__plugin_exarchos_exarchos__exarchos_');
-    expect(codex).toContain('mcp__exarchos__exarchos_');
+    const block = readFileSync(
+      join(bindingOutDir, 'standard', 'block.md'),
+      'utf8',
+    );
+    expect(block).toContain('exarchos:exarchos_');
+    expect(block).not.toContain('mcp__');
+    expect(block).not.toContain('{{');
+  });
+});
+
+describe('buildAllHooks — neutral SessionStart directive (DR-5)', () => {
+  it('buildAllHooks_DirectiveUsesNeutralBlock', () => {
+    // The SessionStart `--directive` is rendered ONCE from the neutral block, so
+    // every injection-capable host carries byte-identical directive text using
+    // the logical `exarchos:exarchos_*` form (never a per-runtime `mcp__` wire
+    // prefix). Claude and Codex both declare `claude-json` + canInjectContext.
+    const { outDir } = build();
+    const directiveOf = (p: string): string => {
+      const cmd: string = JSON.parse(readFileSync(p, 'utf8')).hooks
+        .SessionStart[0].hooks[0].command;
+      const marker = "--directive '";
+      const start = cmd.indexOf(marker);
+      expect(start, `directive present in ${p}`).toBeGreaterThanOrEqual(0);
+      return cmd.slice(start + marker.length);
+    };
+
+    const claude = directiveOf(join(outDir, 'hooks.json'));
+    const codex = directiveOf(join(outDir, 'codex', 'hooks.json'));
+
+    expect(claude).toContain('exarchos:exarchos_');
+    expect(claude).not.toContain('mcp__');
+    // Same neutral payload on every harness.
+    expect(codex).toBe(claude);
   });
 });
 

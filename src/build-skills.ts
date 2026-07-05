@@ -1432,8 +1432,20 @@ export function buildAllSkills(opts: {
   // In tests that use synthetic fixtures the union is whatever the
   // fixtures declare — the lint self-adjusts so tests never need to
   // carry a duplicate "allowed tokens" list.
+  //
+  // `enforceCollapsedVocabulary: true` (Task 002 completion): now that the 16
+  // procedural sources render from logical prose (`exarchos:exarchos_*` /
+  // bare verbs) and carry no prefix tokens, the collapsed-vocabulary rules are
+  // enforced on the real tree — a prefix or orchestration token smuggled into a
+  // procedural skill is a hard build failure. Orchestration skills (which
+  // legitimately reference both kinds) are exempt because the rules key on the
+  // source's derived class.
   const vocabulary = unionPlaceholderKeys(runtimes);
-  const lintResult = lintPlaceholders({ sourcesDir: opts.srcDir, vocabulary });
+  const lintResult = lintPlaceholders({
+    sourcesDir: opts.srcDir,
+    vocabulary,
+    enforceCollapsedVocabulary: true,
+  });
   if (!lintResult.passed) {
     throw new Error(lintResult.message);
   }

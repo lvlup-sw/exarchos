@@ -1,15 +1,15 @@
 /**
  * Per-runtime binding + lifecycle-hook renderer (#1485, evolved from #1476 T8).
  *
- * A sibling to `buildAllSkills`. Renders two things per runtime from a single
- * source of truth each:
+ * A sibling to `buildAllSkills`. Renders two things from a single source of
+ * truth each:
  *
- *  1. **Binding block** (universal) — the orientation directive
- *     (`binding-src/binding.md`) rendered into every runtime's always-loaded
- *     instructions surface as a marker-fenced block: `CLAUDE.md` for Claude,
- *     `AGENTS.md` for everyone else (including Copilot/opencode/generic, whose
- *     hooks cannot inject context — AGENTS.md is the only universal binding
- *     surface). Output lands under `<bindingOutDir>/<runtime>/`.
+ *  1. **Binding block** (universal, runtime-neutral — DR-5) — the orientation
+ *     directive (`binding-src/binding.md`) is now placeholder-free logical
+ *     prose (`exarchos:exarchos_*`), so it collapses to ONE block that serves
+ *     every harness's always-loaded instructions surface. Output lands at a
+ *     single `<bindingOutDir>/standard/block.md` (no per-runtime fork); consumer
+ *     writers place it into `CLAUDE.md` (Claude) / `AGENTS.md` (everyone else).
  *
  *  2. **Active hook artifact** (where supported) — dispatched on the declared
  *     `capabilities.hooks.profile`, NEVER a runtime-name literal (INV-4):
@@ -40,7 +40,7 @@ import {
 import { join } from 'node:path';
 import { loadAllRuntimes } from './runtimes/load.js';
 import type { RuntimeMap, HooksProfile } from './runtimes/types.js';
-import { render } from './build-skills.js';
+import { render, STANDARD_TREE_NAME } from './build-skills.js';
 import { renderBindingBlock, BINDING_SOURCE_FILE } from './binding.js';
 import { resolveMainDeps, type MainDeps } from './cli-helpers.js';
 
@@ -52,7 +52,10 @@ export const OPENCODE_PLUGIN_SOURCE_FILE = 'opencode-plugin.ts.tmpl';
 
 /** Counts returned so callers (CLI, tests, guard) can report without rescanning. */
 export interface HooksBuildReport {
-  /** Runtimes that received an AGENTS.md/CLAUDE.md binding block (all of them). */
+  /**
+   * Runtime-neutral binding blocks written. Post-collapse (DR-5) this is
+   * always 1 — a single `binding/standard/block.md` serves every harness.
+   */
   bindingBlocksWritten: number;
   /** Runtimes that emitted an executable `hooks.json` (`claude-json` profile). */
   hooksJsonWritten: number;
@@ -112,6 +115,23 @@ export function buildAllHooks(opts: {
     notesWritten: 0,
   };
 
+  // The binding directive is runtime-neutral (DR-5): one block, one directive,
+  // rendered ONCE from placeholder-free logical prose and shared by every
+  // harness. `render(directiveBody, {})` (via the neutral helpers) guards
+  // against a stray `{{TOKEN}}` reintroduction — it throws rather than shipping
+  // a literal token in either surface.
+  const directiveOneLine = oneLineDirective(render(directiveBody, {}));
+
+  // ── Universal binding block (written once) ──────────────────────────────────
+  // Post-collapse there is no per-runtime fork: a single `binding/standard/block.md`
+  // serves every harness's always-loaded instructions surface.
+  writeArtifact(
+    join(opts.bindingOutDir, STANDARD_TREE_NAME, 'block.md'),
+    renderBindingBlock(directiveBody),
+    writtenBinding,
+  );
+  report.bindingBlocksWritten = 1;
+
   // Active-artifact strategy map keyed on the declared `hooks.profile` — never a
   // runtime-name literal (INV-4). Typing it `Record<HooksProfile, …>` gives
   // compile-time exhaustiveness: adding a profile to the union is a build error
@@ -126,9 +146,6 @@ export function buildAllHooks(opts: {
   };
   const renderers: Record<HooksProfile, (rt: RuntimeMap) => void> = {
     'claude-json': (rt) => {
-      const directiveOneLine = oneLineDirective(
-        render(directiveBody, rt.placeholders, { sourcePath: bindingSourcePath, runtimeName: rt.name }),
-      );
       const json = renderClaudeJsonHooks(rt, hooksTemplate, directiveOneLine);
       writeArtifact(hooksJsonPathFor(opts.outDir, rt.name), json, writtenHooks);
       report.hooksJsonWritten++;
@@ -148,28 +165,13 @@ export function buildAllHooks(opts: {
   };
 
   for (const rt of runtimes) {
-    // ── 1. Universal binding block ────────────────────────────────────────────
-    const bindingBlock = renderBindingBlock(directiveBody, rt.placeholders, {
-      sourcePath: bindingSourcePath,
-      runtimeName: rt.name,
-    });
-    writeArtifact(join(opts.bindingOutDir, rt.name, instructionsFileFor(rt)), bindingBlock, writtenBinding);
-    report.bindingBlocksWritten++;
-
-    // ── 2. Active hook artifact (dispatch on declared profile) ────────────────
+    // Active hook artifact (dispatch on declared profile). The binding block is
+    // no longer per-runtime — it was written once above.
     renderers[rt.capabilities.hooks?.profile ?? 'none'](rt);
   }
 
   cleanStaleArtifacts(opts.outDir, opts.bindingOutDir, runtimes, writtenHooks, writtenBinding);
   return report;
-}
-
-/** The always-loaded instructions filename for a runtime's binding block. */
-function instructionsFileFor(rt: RuntimeMap): string {
-  // CLAUDE.md is Claude Code's always-loaded file; every other harness reads the
-  // cross-agent AGENTS.md standard. This is the one documented harness fact the
-  // renderer keys on; everything else dispatches on declared capabilities.
-  return rt.name === 'claude' ? 'CLAUDE.md' : 'AGENTS.md';
 }
 
 /** Where a `claude-json` runtime's hooks.json lands (Claude → plugin path). */
@@ -231,8 +233,9 @@ function hooksNote(rt: RuntimeMap, profile: string): string {
     return `# Hooks — ${rt.name}
 
 This runtime has no lifecycle-hook system. The Exarchos binding is carried by the
-**AGENTS.md** orientation block (the universal always-loaded floor) — see
-\`binding/${rt.name}/AGENTS.md\`. No executable hook artifact is generated.
+**AGENTS.md** orientation block (the universal always-loaded floor) — the
+runtime-neutral block source is \`binding/standard/block.md\`. No executable hook
+artifact is generated.
 
 Regenerated by \`npm run build:hooks\`; do not hand-edit.
 `;
@@ -241,8 +244,8 @@ Regenerated by \`npm run build:hooks\`; do not hand-edit.
 
 This runtime **supports lifecycle hooks** (profile \`${profile}\`); Exarchos will
 render its native hook format in a future release (tracked follow-up). The
-Exarchos binding is already active via the **AGENTS.md** orientation block (see
-\`binding/${rt.name}/AGENTS.md\`).
+Exarchos binding is already active via the **AGENTS.md** orientation block (the
+runtime-neutral block source is \`binding/standard/block.md\`).
 
 To wire lifecycle telemetry manually in the meantime, invoke the
 \`exarchos session-start\` / \`exarchos session-end\` observer subcommands from
@@ -262,7 +265,11 @@ function writeArtifact(path: string, content: string, written: Set<string>): voi
 /**
  * Remove artifacts not written this run. Scope is narrow: the top-level Claude
  * hooks.json, per-runtime hook subtrees (hooks.json / HOOKS.md / plugin), and
- * per-runtime binding blocks — never unrelated files under the roots.
+ * the now-legacy per-runtime binding blocks — never unrelated files under the
+ * roots. Post-collapse (DR-5) no per-runtime binding block is written, so the
+ * `binding/<rt>/AGENTS.md`/`CLAUDE.md` sweep here deletes the stale committed
+ * forks; the single `binding/standard/block.md` is in `keepBinding` and is
+ * never a cleanup candidate.
  */
 function cleanStaleArtifacts(
   outDir: string,

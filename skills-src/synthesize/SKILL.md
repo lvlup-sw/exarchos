@@ -28,7 +28,7 @@ Submit stacked PRs after review phase completes. The `prepare_synthesis` composi
 - The integration branch already exists from delegation phase
 - Task branches present and pushed to remote
 
-Do NOT proceed if either review is incomplete or failed -- return to `{{COMMAND_PREFIX}}review` first.
+Do NOT proceed if either review is incomplete or failed -- return to `review` first.
 
 **Entry points:** Synthesis is normally reached from the `review` phase of
 feature / debug / refactor workflows. It is also reachable from `oneshot`
@@ -42,7 +42,7 @@ transitions the workflow to `synthesize`. See
 ## Triggers
 
 Activate this skill when:
-- User runs `{{COMMAND_PREFIX}}synthesize` command
+- User runs `synthesize` command
 - All reviews have passed successfully
 - Ready to submit PRs
 - Oneshot workflow resolved to `synthesize` via `finalize_oneshot`
@@ -58,7 +58,7 @@ Activate this skill when:
 Call the `prepare_synthesis` composite action to validate all preconditions in a single operation:
 
 ```typescript
-{{MCP_PREFIX}}exarchos_orchestrate({
+exarchos:exarchos_orchestrate({
   action: "prepare_synthesis",
   featureId: "<id>"
 })
@@ -77,7 +77,7 @@ For the full breakdown of individual checks the composite action performs, see `
 
 **On success:** All checks passed. The response includes a readiness summary with any quality hints to present to the user. Proceed to Step 2.
 
-**On failure:** The response identifies which check failed and provides remediation guidance. Follow the guidance -- typically returning to `{{COMMAND_PREFIX}}review` or `{{COMMAND_PREFIX}}delegate`.
+**On failure:** The response identifies which check failed and provides remediation guidance. Follow the guidance -- typically returning to `review` or `delegate`.
 
 If any quality hint has `confidenceLevel: 'actionable'`, present the `suggestedAction` to the user before proceeding.
 
@@ -108,7 +108,7 @@ EOF
 
 Validate **before** creating the PR:
 ```typescript
-{{MCP_PREFIX}}exarchos_orchestrate({
+exarchos:exarchos_orchestrate({
   action: "validate_pr_body",
   bodyFile: "/tmp/pr-body.md"
 })
@@ -144,7 +144,7 @@ After submission:
 3. **Update state:**
 
 ```typescript
-{{MCP_PREFIX}}exarchos_workflow({
+exarchos:exarchos_workflow({
   action: "update", featureId: "<id>", updates: {
     "artifacts": { "pr": ["<url1>", "<url2>"] },
     "synthesis": { "mergeOrder": ["<branch1>", ...], "prUrl": ["<url1>", ...], "prFeedback": [] }
@@ -156,16 +156,16 @@ For merge ordering strategy, see `references/merge-ordering.md`.
 
 **Human checkpoint:** Output "Stacked PRs enqueued: [URLs]. Waiting for CI/merge queue." then **PAUSE for user input**: "Merge stack? (yes/no/feedback)"
 
-- **'yes'** -- PRs merge; transition to completed via `{{COMMAND_PREFIX}}cleanup`
-- **'feedback'** -- Route to `{{COMMAND_PREFIX}}shepherd [PR_URL]` to address comments, then return here
-- **'no'** -- Pause workflow; resume later with `{{COMMAND_PREFIX}}rehydrate`
+- **'yes'** -- PRs merge; transition to completed via `cleanup`
+- **'feedback'** -- Route to `shepherd [PR_URL]` to address comments, then return here
+- **'no'** -- Pause workflow; resume later with `rehydrate`
 
 ### Event Emissions (REQUIRED)
 
 After PRs are created and auto-merge is enabled, emit the `stack.submitted` event:
 
 ```typescript
-{{MCP_PREFIX}}exarchos_event({ action: "append", stream: "<featureId>", event: {
+exarchos:exarchos_event({ action: "append", stream: "<featureId>", event: {
   type: "stack.submitted",
   data: {
     branches: ["task-001-branch", "task-002-branch"],
@@ -177,7 +177,7 @@ After PRs are created and auto-merge is enabled, emit the `stack.submitted` even
 During shepherd iterations (CI monitoring loop), emit after each assessment:
 
 ```typescript
-{{MCP_PREFIX}}exarchos_event({ action: "append", stream: "<featureId>", event: {
+exarchos:exarchos_event({ action: "append", stream: "<featureId>", event: {
   type: "shepherd.iteration",
   data: {
     iteration: 1,
@@ -194,7 +194,7 @@ These events are checked by `check-event-emissions` during workflow validation. 
 
 After PRs merge, invoke cleanup:
 ```typescript
-{{MCP_PREFIX}}exarchos_workflow({
+exarchos:exarchos_workflow({
   action: "cleanup", featureId: "<id>", mergeVerified: true,
   prUrl: ["<url>", ...], mergedBranches: ["<branch>", ...]
 })
@@ -209,8 +209,8 @@ Then sync: `git fetch --prune` and reclaim worktrees.
 > + reclaimable bytes, deletes nothing), then re-invoke with `dryRun: false` to
 > apply.
 > ```typescript
-> {{MCP_PREFIX}}exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>" })            // dry-run (default)
-> {{MCP_PREFIX}}exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>", dryRun: false }) // apply
+> exarchos:exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>" })            // dry-run (default)
+> exarchos:exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>", dryRun: false }) // apply
 > ```
 > The `next_actions` projection surfaces this same `prune_worktrees` dry-run
 > affordance once the workflow is parked in synthesis. The full apply flow lands
@@ -220,7 +220,7 @@ Then sync: `git fetch --prune` and reclaim worktrees.
 
 | Don't | Do Instead |
 |-------|------------|
-| Skip review phase | Always run `{{COMMAND_PREFIX}}review` first |
+| Skip review phase | Always run `review` first |
 | Force push stack branches | Use normal push |
 | Delete worktrees before merge | Wait for merge confirmation |
 | Create PR with failing tests | Ensure review phase passes first |

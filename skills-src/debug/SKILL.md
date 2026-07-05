@@ -28,17 +28,17 @@ Investigation-first workflow for debugging and regression fixes. Provides two tr
 ## Triggers
 
 Activate this skill when:
-- User runs `{{COMMAND_PREFIX}}debug` command
+- User runs `debug` command
 - User reports a bug or regression
 - User needs to investigate an error
 - User says "fix this bug" or similar
 
-**Disambiguation:** If the user says "fix" or "clean up" — use `{{COMMAND_PREFIX}}debug` when something is *broken* (error, crash, wrong behavior). Use `{{COMMAND_PREFIX}}refactor` when the code *works* but needs structural improvement.
+**Disambiguation:** If the user says "fix" or "clean up" — use `debug` when something is *broken* (error, crash, wrong behavior). Use `refactor` when the code *works* but needs structural improvement.
 
 ## Workflow Overview
 
 ```
-                              {{COMMAND_PREFIX}}debug
+                              debug
                                  │
                             ┌────┴────┐
                             │ Triage  │
@@ -50,7 +50,7 @@ Activate this skill when:
                │                 │                 │
                ▼                 ▼                 ▼
       ┌────────────────┐  ┌─────────────┐   ┌──────────┐
-      │  Hotfix Track  │  │   Thorough  │   │ {{COMMAND_PREFIX}}ideate  │
+      │  Hotfix Track  │  │   Thorough  │   │ ideate  │
       │                │  │    Track    │   │ handoff  │
       └────────────────┘  └─────────────┘   └──────────┘
 ```
@@ -61,26 +61,26 @@ Activate this skill when:
 
 ```bash
 # Default: thorough track
-{{COMMAND_PREFIX}}debug "Description of the bug"
+debug "Description of the bug"
 
 # Fast path: hotfix track
-{{COMMAND_PREFIX}}debug --hotfix "Production is down - users can't login"
+debug --hotfix "Production is down - users can't login"
 
 # Escalate to feature workflow
-{{COMMAND_PREFIX}}debug --escalate "This needs architectural changes"
+debug --escalate "This needs architectural changes"
 ```
 
 ### Mid-Workflow Commands
 
 ```bash
 # Switch from hotfix to thorough (during investigation)
-{{COMMAND_PREFIX}}debug --switch-thorough
+debug --switch-thorough
 
-# Escalate to {{COMMAND_PREFIX}}ideate (manual handoff)
-{{COMMAND_PREFIX}}debug --escalate "Reason for escalation"
+# Escalate to ideate (manual handoff)
+debug --escalate "Reason for escalation"
 
 # Resume after context compaction
-{{COMMAND_PREFIX}}rehydrate <featureId>
+rehydrate <featureId>
 ```
 
 ## Track Comparison
@@ -147,7 +147,7 @@ This is not required for the hotfix track — hotfixes prioritize speed over doc
 ### Track Switching
 
 - **Hotfix -> Thorough:** When investigation timer expires (15 min). All findings preserved.
-- **Thorough -> Escalate:** When fix requires architectural changes. Hand off to `{{COMMAND_PREFIX}}ideate`.
+- **Thorough -> Escalate:** When fix requires architectural changes. Hand off to `ideate`.
 
 For detailed switching logic, see `references/thorough-track.md`.
 
@@ -188,11 +188,11 @@ for phase transitions, guards, and playbook guidance.
 
 ## Integration Points
 
-### With {{COMMAND_PREFIX}}rehydrate
+### With rehydrate
 
 Debug workflows resume like feature workflows:
 ```bash
-{{COMMAND_PREFIX}}rehydrate <featureId>
+rehydrate <featureId>
 ```
 
 ### With Existing Skills
@@ -205,8 +205,8 @@ Debug workflows resume like feature workflows:
 
 Extended to support:
 - `workflowType: "debug"` field
-- Debug-specific phases surfaced by `{{COMMAND_PREFIX}}rehydrate <featureId>` (the rehydration document's `next_actions` envelope determines the next verb on resume)
-- Debug context surfaced via `{{COMMAND_PREFIX}}rehydrate <featureId>` at session start (no implicit hook)
+- Debug-specific phases surfaced by `rehydrate <featureId>` (the rehydration document's `next_actions` envelope determines the next verb on resume)
+- Debug context surfaced via `rehydrate <featureId>` at session start (no implicit hook)
 
 ## Completion Criteria
 

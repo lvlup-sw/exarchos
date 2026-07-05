@@ -1,6 +1,6 @@
 ---
 name: oneshot
-description: "Lightweight workflow for straightforward changes — plan → implement → optional PR. Direct-commit by default; synthesize is opt-in via synthesisPolicy or a runtime request_synthesize event. Use for trivial fixes, config tweaks, single-file changes, or exploratory work that doesn't warrant subagent dispatch or two-stage review. Triggers: 'oneshot', 'quick fix', 'small change', or {{COMMAND_PREFIX}}oneshot."
+description: "Lightweight workflow for straightforward changes — plan → implement → optional PR. Direct-commit by default; synthesize is opt-in via synthesisPolicy or a runtime request_synthesize event. Use for trivial fixes, config tweaks, single-file changes, or exploratory work that doesn't warrant subagent dispatch or two-stage review. Triggers: 'oneshot', 'quick fix', 'small change', or oneshot."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -56,7 +56,7 @@ Concrete examples that fit oneshot:
 ## When NOT to use oneshot
 
 Do not use oneshot for any of the following — use the full `feature`
-workflow instead (`{{COMMAND_PREFIX}}ideate`):
+workflow instead (`ideate`):
 
 - Cross-cutting refactors that touch many files or modules
 - Multi-file features that benefit from subagent decomposition
@@ -67,7 +67,7 @@ workflow instead (`{{COMMAND_PREFIX}}ideate`):
 - Anything where you'd want a written design doc to look back at
 
 If you start a oneshot and discover the change is bigger than expected, the
-right move is `{{COMMAND_PREFIX}}cancel` and restart with `{{COMMAND_PREFIX}}ideate`.
+right move is `cancel` and restart with `ideate`.
 Don't try to grow a oneshot into a feature workflow mid-stream; the
 playbooks have different shapes and you'll fight the state machine.
 
@@ -123,7 +123,7 @@ Call `exarchos_workflow` with `action: 'init'`, `workflowType: 'oneshot'`,
 and an optional `synthesisPolicy`:
 
 ```typescript
-{{MCP_PREFIX}}exarchos_workflow({
+exarchos:exarchos_workflow({
   action: "init",
   featureId: "fix-readme-typo",
   workflowType: "oneshot",
@@ -154,7 +154,7 @@ Persist the plan and transition to `implementing` in a single set call.
 `phase` is a top-level argument of `set`, not a field inside `updates`:
 
 ```typescript
-{{MCP_PREFIX}}exarchos_workflow({
+exarchos:exarchos_workflow({
   action: "update",
   featureId: "fix-readme-typo",
   phase: "implementing",
@@ -209,7 +209,7 @@ want a PR after all (policy is `on-request`, default), they can opt in
 by calling the `request_synthesize` orchestrate action:
 
 ```typescript
-{{MCP_PREFIX}}exarchos_orchestrate({
+exarchos:exarchos_orchestrate({
   action: "request_synthesize",
   featureId: "fix-readme-typo",
   reason: "user requested review of the parser changes"
@@ -250,7 +250,7 @@ When the implementing loop is done — tests pass, typecheck clean, all
 commits made — call `finalize_oneshot` to resolve the choice state:
 
 ```typescript
-{{MCP_PREFIX}}exarchos_orchestrate({
+exarchos:exarchos_orchestrate({
   action: "finalize_oneshot",
   featureId: "fix-readme-typo"
 })
@@ -300,8 +300,8 @@ workflow applies. After the PR merges, the workflow transitions
 `synthesize → completed` via the existing `mergeVerified` guard, same as
 every other workflow type.
 
-You do **not** need to run `{{COMMAND_PREFIX}}delegate` or
-`{{COMMAND_PREFIX}}review` for an opt-in oneshot synthesize. Those phases
+You do **not** need to run `delegate` or
+`review` for an opt-in oneshot synthesize. Those phases
 do not exist in the oneshot playbook. The PR review is the only review.
 
 ## Example invocations
@@ -389,7 +389,7 @@ Agent:
 Track oneshot-specific state under the `oneshot` key on the workflow state:
 
 ```typescript
-{{MCP_PREFIX}}exarchos_workflow({
+exarchos:exarchos_workflow({
   action: "update",
   featureId: "<id>",
   updates: {
@@ -469,8 +469,8 @@ full feature ceremony on a trivial edit.
 | Skip the plan phase ("it's obvious") | Write the four-line plan anyway — it's the artifact future-you reads |
 | Apply full red-green-refactor ceremony to a trivial one-liner | Match verification to risk: low-tier leans on static analysis; higher-blast changes add tests covering the changed behavior |
 | Skip verification entirely because "it's a oneshot" | Even low-tier must pass static analysis; higher-blast changes still need tests covering the changed behavior |
-| Use oneshot for multi-file refactors | Use `{{COMMAND_PREFIX}}ideate` and the full feature workflow |
-| Try to grow a oneshot into a feature workflow mid-stream | Cancel and restart with `{{COMMAND_PREFIX}}ideate` |
+| Use oneshot for multi-file refactors | Use `ideate` and the full feature workflow |
+| Try to grow a oneshot into a feature workflow mid-stream | Cancel and restart with `ideate` |
 | Call `request_synthesize` without listening for the user's intent | Wait for the user to ask for a PR, then call it |
 | Bundle unrelated changes into one commit "since it's a oneshot" | Keep commits atomic — there's no review phase to catch bundling |
 | Forget to call `finalize_oneshot` at the end | The workflow stays in `implementing` forever otherwise — call it explicitly |

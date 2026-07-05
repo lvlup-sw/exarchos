@@ -1,6 +1,6 @@
 ---
 name: discover
-description: "Research and discovery workflow for document deliverables — competitive analyses, architecture comparisons, ADR scaffolding, literature reviews, vendor evaluations. No TDD requirement. Phases: gathering → synthesizing → completed. Triggers: 'discover', 'research', 'explore topic', or {{COMMAND_PREFIX}}discover."
+description: "Research and discovery workflow for document deliverables — competitive analyses, architecture comparisons, ADR scaffolding, literature reviews, vendor evaluations. No TDD requirement. Phases: gathering → synthesizing → completed. Triggers: 'discover', 'research', 'explore topic', or discover."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -42,7 +42,7 @@ Collect sources, references, and raw material for the deliverable.
 3. Record sources in workflow state:
 
 ```typescript
-{{MCP_PREFIX}}exarchos_workflow({
+exarchos:exarchos_workflow({
   action: "update", featureId: "<id>",
   updates: { "artifacts.sources": ["<source1>", "<source2>", "..."] }
 })
@@ -61,7 +61,7 @@ Draft the deliverable document from gathered sources.
 3. Record the report path:
 
 ```typescript
-{{MCP_PREFIX}}exarchos_workflow({
+exarchos:exarchos_workflow({
   action: "update", featureId: "<id>",
   updates: { "artifacts.report": "<path-to-document>" }
 })
@@ -76,7 +76,7 @@ If discovery surfaces an implementation need:
 1. Note the finding in the report
 2. After completing the discovery workflow, start a new workflow:
    ```bash
-   {{COMMAND_PREFIX}}ideate <implementation-topic>
+   ideate <implementation-topic>
    ```
    Reference the discovery report as design input.
 
@@ -85,14 +85,14 @@ If discovery surfaces an implementation need:
 Optionally emit events at key moments for observability:
 
 ```typescript
-{{MCP_PREFIX}}exarchos_event({
+exarchos:exarchos_event({
   action: "append", stream: "<featureId>",
   event: { type: "discovery.sources_collected", data: { sourceCount: N } }
 })
 ```
 
 ```typescript
-{{MCP_PREFIX}}exarchos_event({
+exarchos:exarchos_event({
   action: "append", stream: "<featureId>",
   event: { type: "discovery.report_committed", data: { path: "<report-path>" } }
 })

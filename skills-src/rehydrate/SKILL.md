@@ -24,13 +24,13 @@ This skill owns the **read/restore** side of workflow state — reading current 
 ## Triggers
 
 Activate this skill when:
-- Restoring context after summarization (`{{COMMAND_PREFIX}}rehydrate <featureId>`)
+- Restoring context after summarization (`rehydrate <featureId>`)
 - The agent has drifted after context compaction (stopped emitting events or using tools proactively)
 - Returning to a workflow after a break
 
 ## State Location
 
-Workflow state lives in the **MCP event store**, not the filesystem. Use `{{MCP_PREFIX}}exarchos_workflow get` to read state and `exarchos_view pipeline` to discover active workflows. Do **not** scan `~/.claude/workflow-state/*.state.json` — that path is legacy and may be stale or empty.
+Workflow state lives in the **MCP event store**, not the filesystem. Use `exarchos:exarchos_workflow get` to read state and `exarchos_view pipeline` to discover active workflows. Do **not** scan `~/.claude/workflow-state/*.state.json` — that path is legacy and may be stale or empty.
 
 ## Source of Truth — does this workflow exist?
 
@@ -43,13 +43,13 @@ Workflow state lives in **two surfaces**, and conflating them causes wrong "untr
 
 ## Rehydrate the Workflow
 
-Use `{{MCP_PREFIX}}exarchos_workflow` with `action: "rehydrate"` and `featureId: "<id>"` — it returns an envelope containing the canonical rehydration document (`workflowState`, `taskProgress`, `artifacts`, `blockers`, phase playbook, next actions) in a single call. No multi-step `get fields=[...]` composition is needed.
+Use `exarchos:exarchos_workflow` with `action: "rehydrate"` and `featureId: "<id>"` — it returns an envelope containing the canonical rehydration document (`workflowState`, `taskProgress`, `artifacts`, `blockers`, phase playbook, next actions) in a single call. No multi-step `get fields=[...]` composition is needed.
 
 If the featureId is unknown or the user hasn't named one, fall back to `exarchos_view pipeline` to list active workflows and ask which to rehydrate, then re-invoke `rehydrate` with the selected `featureId`.
 
 ### Read State (targeted)
 
-For a targeted read rather than a full rehydration, use `{{MCP_PREFIX}}exarchos_workflow` with `action: "get"` and `featureId`:
+For a targeted read rather than a full rehydration, use `exarchos:exarchos_workflow` with `action: "get"` and `featureId`:
 
 - **Full state**: Call with just `featureId`
 - **Specific field**: Add `query` for dot-path lookup (e.g., `query: "phase"`, `query: "tasks"`)
@@ -63,7 +63,7 @@ For context restoration after summarization, prefer `action: "rehydrate"` (singl
 
 ## Reconcile State
 
-To verify state matches git reality, run `{{COMMAND_PREFIX}}rehydrate <featureId>` — the rehydration projection folds events newer than the last snapshot and surfaces drift in the returned envelope. For deeper manual verification, run the reconciliation script:
+To verify state matches git reality, run `rehydrate <featureId>` — the rehydration projection folds events newer than the last snapshot and surfaces drift in the returned envelope. For deeper manual verification, run the reconciliation script:
 
 ```typescript
 exarchos_orchestrate({
@@ -74,7 +74,7 @@ exarchos_orchestrate({
 ```
 
 **On `passed: true`:** State is consistent.
-**On `passed: false`:** Discrepancies found — review output and resolve via `{{MCP_PREFIX}}exarchos_workflow` with `action: "update"` (see `@skills/checkpoint/SKILL.md`).
+**On `passed: false`:** Discrepancies found — review output and resolve via `exarchos:exarchos_workflow` with `action: "update"` (see `@skills/checkpoint/SKILL.md`).
 
 ## Best Practices
 
@@ -87,26 +87,26 @@ exarchos_orchestrate({
 
 ### State Desync
 If workflow state doesn't match git reality:
-1. Run `{{COMMAND_PREFIX}}rehydrate <featureId>` — the rehydration projection folds in events newer than the last snapshot
+1. Run `rehydrate <featureId>` — the rehydration projection folds in events newer than the last snapshot
 2. If manual check still needed: compare the rehydration document's `workflowState` / `artifacts` with `git log` and branch state
-3. Update state via `{{MCP_PREFIX}}exarchos_workflow` with `action: "update"` to match git truth (see `@skills/checkpoint/SKILL.md`)
+3. Update state via `exarchos:exarchos_workflow` with `action: "update"` to match git truth (see `@skills/checkpoint/SKILL.md`)
 
 ### Resume Finds Stale State
 If state references branches or worktrees that no longer exist:
-1. Run `{{COMMAND_PREFIX}}rehydrate <featureId>` — the rehydration document surfaces stale references
+1. Run `rehydrate <featureId>` — the rehydration document surfaces stale references
 2. Compare against `git branch -a` / `git worktree list` to identify drift
 3. Update via `exarchos_workflow update` to match git truth
 
 ### Multiple Active Workflows
 If multiple workflow state files exist:
 1. The system uses the most recently updated active (non-completed) workflow
-2. Use `{{MCP_PREFIX}}exarchos_workflow` with `action: "cancel"` and `dryRun: true` on stale workflows to preview cleanup
+2. Use `exarchos:exarchos_workflow` with `action: "cancel"` and `dryRun: true` on stale workflows to preview cleanup
 3. Cancel stale workflows before starting new ones
 
 ## Example Workflow
 
-1. **Resume after context loss**: Use `{{MCP_PREFIX}}exarchos_workflow` with `action: "rehydrate"` and `featureId: "user-authentication"` to get context restoration output.
+1. **Resume after context loss**: Use `exarchos:exarchos_workflow` with `action: "rehydrate"` and `featureId: "user-authentication"` to get context restoration output.
 
-2. **Check state**: Use `{{MCP_PREFIX}}exarchos_workflow` with `action: "get"` and `featureId: "user-authentication"`.
+2. **Check state**: Use `exarchos:exarchos_workflow` with `action: "get"` and `featureId: "user-authentication"`.
 
 3. **Verify existence**: Read `_meta.workflowExists` from the rehydrate envelope — if `false`, the feature was never started as a workflow, so report that rather than declaring it "untracked" from a filesystem check.

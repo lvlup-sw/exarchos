@@ -46,7 +46,7 @@ Resumable: terminal phases (`completed` / `rolled-back` / `aborted`) short-circu
 Activate this skill when:
 
 - The operator runs `exarchos merge-orchestrate ...` (CLI).
-- `{{MCP_PREFIX}}exarchos_orchestrate({ action: "merge_orchestrate", ... })` is invoked directly.
+- `exarchos:exarchos_orchestrate({ action: "merge_orchestrate", ... })` is invoked directly.
 - An automated `next_actions` envelope surfaces the merge verb (idempotency key `<streamId>:merge_orchestrate:<taskId>`) for the `merge-pending` detour.
 
 > **Route shared-integration merges through `serialize_merge`.** When the trigger is a shared integration branch (the `merge-pending` detour is the common case), land it via `serialize_merge` per the single-writer entry point above — `serialize_merge` composes this action under a lease. A direct raw `merge_orchestrate` dispatch is for a non-integration or already-lease-held merge only; against a leased integration ref it fails closed (`MERGE_LEASE_HELD`).
@@ -57,7 +57,7 @@ Do **not** activate this skill:
 
 ## Process
 
-> **Schema:** discover the action's argument schema with `{{MCP_PREFIX}}exarchos_orchestrate({ action: "describe", actions: ["merge_orchestrate"] })`. Strategy is required (no schema-level default) — pick `squash` / `merge` / `rebase` deliberately.
+> **Schema:** discover the action's argument schema with `exarchos:exarchos_orchestrate({ action: "describe", actions: ["merge_orchestrate"] })`. Strategy is required (no schema-level default) — pick `squash` / `merge` / `rebase` deliberately.
 
 ### Step 1: Pick the merge strategy
 
@@ -76,7 +76,7 @@ Strategy is required at the schema layer (collision check + user-visible parity)
 Via MCP (illustrative — the canonical arg names come from `describe`):
 
 ```typescript
-{{MCP_PREFIX}}exarchos_orchestrate({
+exarchos:exarchos_orchestrate({
   action: "merge_orchestrate",
   // workflow-correlation identifier — name per the action's schema
   sourceBranch: "<subagent-branch>",
@@ -139,9 +139,9 @@ Events are emitted directly to the orchestrator's event stream (stream id is the
 
 > **Recovery vocabulary.** The canonical frame is database-transaction, not saga: a **recovery point** (the recorded HEAD SHA, persisted before the merge as a write-ahead-log marker) and a **recovery event** (`merge.recovered`). `merge.recovered` is the additive successor to `merge.rollback`; during the v2.11.x deprecation window the executor **dual-emits** both for the same logical recovery. The legacy `merge.rollback` / `merge.executed` events keep their `rollbackSha` / `rollbackError` wire fields until v2.12 removes the legacy emission; `merge.recovered` carries the resolved `recoveryPointSha` / `recoveryErrorDetail` names alongside the unchanged INV-14 `recoveryError` discriminator. The phase value `'rolled-back'` is intentionally retained.
 
-These events are auto-emitted by the handler — do **not** manually append them via `{{MCP_PREFIX}}exarchos_event` during normal operation. Manual emission is only sanctioned during the documented manual-recovery flow in [`recovery-runbook.md`](references/recovery-runbook.md) when a merge has been completed out-of-band (e.g., conflict resolution) and the event log must be brought back in sync — follow that runbook's event-first sequencing.
+These events are auto-emitted by the handler — do **not** manually append them via `exarchos:exarchos_event` during normal operation. Manual emission is only sanctioned during the documented manual-recovery flow in [`recovery-runbook.md`](references/recovery-runbook.md) when a merge has been completed out-of-band (e.g., conflict resolution) and the event log must be brought back in sync — follow that runbook's event-first sequencing.
 
-> Discover the event payload schemas via `{{MCP_PREFIX}}exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.requested", "merge.executed", "merge.rollback", "merge.recovered"] })`.
+> Discover the event payload schemas via `exarchos:exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.requested", "merge.executed", "merge.rollback", "merge.recovered"] })`.
 
 ## Disambiguation: `merge_orchestrate` vs `merge_pr`
 
@@ -212,7 +212,7 @@ Fail-closed: any individual git invocation that fails inside the debug helper de
 
 ## Schema Discovery
 
-For the argument schema, call `{{MCP_PREFIX}}exarchos_orchestrate({ action: "describe", actions: ["merge_orchestrate"] })`. Event payload shapes come from `{{MCP_PREFIX}}exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.requested", "merge.executed", "merge.rollback", "merge.recovered"] })`.
+For the argument schema, call `exarchos:exarchos_orchestrate({ action: "describe", actions: ["merge_orchestrate"] })`. Event payload shapes come from `exarchos:exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.requested", "merge.executed", "merge.rollback", "merge.recovered"] })`.
 
 `mergeOrchestrator.*` fields on workflow state are written by this skill and `mergeOrchestrator.phase` is read by gates; the underlying `phase` workflow field is immutable and must be changed via `transition`, not `update`. See the [Reserved fields](../checkpoint/SKILL.md#reserved-fields) section in the `checkpoint` skill for the full immutable-key list and the typed `RESERVED_FIELD` error envelope.
 

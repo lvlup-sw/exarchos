@@ -89,7 +89,7 @@ For merge conflicts (most common cause of `merge-failed`):
 3. Resolve conflicts manually
 4. `git add` the resolved files
 5. `git commit` to complete the merge
-6. **Do not** re-dispatch the merge (neither `serialize_merge` nor `merge_orchestrate`) — the merge is now done manually. Follow the repository's event-first commit-point invariant: emit the `merge.executed` event FIRST, then update `mergeOrchestrator.phase` to `completed` via `{{MCP_PREFIX}}exarchos_workflow update`. Reversing the order risks a state-file/event-stream divergence if the event append fails after the state write.
+6. **Do not** re-dispatch the merge (neither `serialize_merge` nor `merge_orchestrate`) — the merge is now done manually. Follow the repository's event-first commit-point invariant: emit the `merge.executed` event FIRST, then update `mergeOrchestrator.phase` to `completed` via `exarchos:exarchos_workflow update`. Reversing the order risks a state-file/event-stream divergence if the event append fails after the state write.
 
 ```typescript
 // Event first — the repository treats event append as the commit point.
@@ -97,7 +97,7 @@ For merge conflicts (most common cause of `merge-failed`):
 // projected state matches what the auto-emit path would have produced.
 // NOTE: the merge.executed EVENT keeps the legacy `rollbackSha` wire field
 // during the v2.11.x deprecation window — supply the recovery-point SHA there.
-{{MCP_PREFIX}}exarchos_event({ action: "append", stream: "<featureId>", event: {
+exarchos:exarchos_event({ action: "append", stream: "<featureId>", event: {
   type: "merge.executed",
   data: {
     taskId: "<task-id>",
@@ -113,7 +113,7 @@ For merge conflicts (most common cause of `merge-failed`):
 // The mergeOrchestrator STATE field is `recoveryPointSha` (renamed from
 // `rollbackSha` — the state file follows the canonical recovery frame
 // even while the legacy event wire field above does not yet).
-{{MCP_PREFIX}}exarchos_workflow({ action: "update", featureId: "<featureId>",
+exarchos:exarchos_workflow({ action: "update", featureId: "<featureId>",
   updates: { mergeOrchestrator: {
     phase: "completed",
     sourceBranch: "<source>", targetBranch: "<target>",
@@ -142,4 +142,4 @@ If the handler returned `completed` but the integration branch's HEAD doesn't ma
 
 The HSM `merge-pending → delegate` exit fires when `mergeOrchestrator.phase` enters a terminal value. After a recovery flow that updates state to `completed` manually (e.g., the conflict-resolution flow above), the workflow naturally exits `merge-pending`. The next worktree-bearing `task.completed` re-enters `merge-pending` for the next task.
 
-To force re-evaluation of the entry guard without waiting for a new `task.completed`, call `{{MCP_PREFIX}}exarchos_workflow reconcile` to rebuild state from the event log.
+To force re-evaluation of the entry guard without waiting for a new `task.completed`, call `exarchos:exarchos_workflow reconcile` to rebuild state from the event log.

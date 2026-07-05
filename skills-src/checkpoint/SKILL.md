@@ -24,9 +24,9 @@ State files store: task details, worktree locations, PR URLs, and review status.
 ## Triggers
 
 Activate this skill when:
-- Starting a new workflow (`{{COMMAND_PREFIX}}ideate`)
+- Starting a new workflow (`ideate`)
 - Transitioning between workflow phases
-- Saving progress for later continuation (`{{COMMAND_PREFIX}}checkpoint`)
+- Saving progress for later continuation (`checkpoint`)
 
 ## Phase Transitions
 
@@ -53,7 +53,7 @@ For full MCP tool signatures, error handling, and anti-patterns, see `references
 
 ### Initialize State
 
-At the start of `{{COMMAND_PREFIX}}ideate`, use `{{MCP_PREFIX}}exarchos_workflow` with `action: "init"` with:
+At the start of `ideate`, use `exarchos:exarchos_workflow` with `action: "init"` with:
 - `featureId`: the workflow identifier (e.g., `"user-authentication"`)
 - `workflowType`: one of `"feature"`, `"debug"`, `"refactor"`, `"oneshot"`
 - `synthesisPolicy` *(optional, oneshot only)*: one of `"always"`, `"never"`, `"on-request"` (default `"on-request"`) — silently ignored for non-oneshot types
@@ -77,7 +77,7 @@ See `@skills/oneshot/SKILL.md` for the lightweight variant's full prose, includi
 
 ### Update State (fields only)
 
-Use `{{MCP_PREFIX}}exarchos_workflow` with `action: "update"` with `featureId` and `updates`. This action mutates non-phase fields only — `phase`, `workflowType`, `featureId`, `createdAt`, and `version` are reserved (see "Reserved fields" below).
+Use `exarchos:exarchos_workflow` with `action: "update"` with `featureId` and `updates`. This action mutates non-phase fields only — `phase`, `workflowType`, `featureId`, `createdAt`, and `version` are reserved (see "Reserved fields" below).
 
 - **Set artifact path**: `updates: { "artifacts.spec": "docs/specs/2026-01-05-feature.md" }`
 - **Mark task complete (by index)**: `updates: { "tasks[0].status": "complete", "tasks[0].completedAt": "<timestamp>" }`
@@ -87,7 +87,7 @@ Worktree status values: `'active' | 'merged' | 'removed'`
 
 ### Transition Phase
 
-Use `{{MCP_PREFIX}}exarchos_workflow` with `action: "transition"` with `featureId` and `target`:
+Use `exarchos:exarchos_workflow` with `action: "transition"` with `featureId` and `target`:
 
 - **Advance phase**: `target: "delegate"`
 
@@ -136,7 +136,7 @@ The dot-path parser used by `set updates` recognizes only **numeric** array brac
 
 | Event | State Update |
 |-------|--------------|
-| `{{COMMAND_PREFIX}}ideate` starts | `init` the workflow (initial phase `plan`) |
+| `ideate` starts | `init` the workflow (initial phase `plan`) |
 | Design & Rationale authored | `update: { "artifacts.spec": "<path>" }` (no transition — `plan` is the initial phase) |
 | Decomposition added | `update: { "artifacts.plan": "<path>", "tasks": [...] }`, then `transition target: "plan-review"` |
 | Plan-review gaps found | `update: { "planReview.gaps": [...] }`, auto-loop to plan |
@@ -212,15 +212,15 @@ Key sections:
 
 ## Reserved fields
 
-`{{MCP_PREFIX}}exarchos_workflow` with `action: "update"` rejects two classes of paths with `RESERVED_FIELD`:
+`exarchos:exarchos_workflow` with `action: "update"` rejects two classes of paths with `RESERVED_FIELD`:
 
 1. **Top-level immutable keys** — `phase`, `workflowType`, `featureId`, `createdAt`, `version`. Set once at init; never mutated directly.
 2. **Underscore-prefixed paths** — any dot-path whose top-level key, or any segment, begins with `_` (e.g. `_version`, `_checkpoint.summary`, `_eventHints`). These are projection or event-store metadata.
 
 Alternate write paths:
 
-- `phase` → `{{MCP_PREFIX}}exarchos_workflow` with `action: "transition"` and `target: "<phase>"`. Transitions are HSM-validated and emit transition events.
-- Underscore-prefixed paths → emit a typed event via `{{MCP_PREFIX}}exarchos_event` with `action: "append"` (e.g. `checkpoint`, `state.patched`). The projection folds the event into the field on the next read.
+- `phase` → `exarchos:exarchos_workflow` with `action: "transition"` and `target: "<phase>"`. Transitions are HSM-validated and emit transition events.
+- Underscore-prefixed paths → emit a typed event via `exarchos:exarchos_event` with `action: "append"` (e.g. `checkpoint`, `state.patched`). The projection folds the event into the field on the next read.
 - `workflowType`, `featureId`, `createdAt`, `version` → not migratable. If you need a different workflow type, init a new workflow.
 
 A `RESERVED_FIELD` error envelope now carries a typed `data` block:
@@ -234,13 +234,13 @@ A `RESERVED_FIELD` error envelope now carries a typed `data` block:
     "data": {
       "rejectedPath": "phase",
       "rule": "`phase` is top-level immutable — set once at init, never directly mutated thereafter.",
-      "alternateWritePath": "Use `{{MCP_PREFIX}}exarchos_workflow` with `action: \"transition\"` and `target: \"<phase>\"` — phase changes are HSM-validated and emit transition events."
+      "alternateWritePath": "Use `exarchos:exarchos_workflow` with `action: \"transition\"` and `target: \"<phase>\"` — phase changes are HSM-validated and emit transition events."
     }
   }
 }
 ```
 
-Read the full descriptor — including the regex catch-all for underscore paths — via `{{MCP_PREFIX}}exarchos_workflow` with `action: "describe"` and `actions: ["update"]`. The returned `reservedFields` block is the single source of truth.
+Read the full descriptor — including the regex catch-all for underscore paths — via `exarchos:exarchos_workflow` with `action: "describe"` and `actions: ["update"]`. The returned `reservedFields` block is the single source of truth.
 
 ## Best Practices
 
@@ -255,21 +255,21 @@ Read the full descriptor — including the regex catch-all for underscore paths 
 ### MCP Tool Call Failed
 If an Exarchos MCP tool returns an error:
 1. Check the error message — it usually contains specific guidance
-2. Verify the workflow state exists: call `{{MCP_PREFIX}}exarchos_workflow` with `action: "get"` and the featureId
+2. Verify the workflow state exists: call `exarchos:exarchos_workflow` with `action: "get"` and the featureId
 3. If "version mismatch": another process updated state — retry the operation
-4. If state is corrupted: call `{{MCP_PREFIX}}exarchos_workflow` with `action: "cancel"` and `dryRun: true`
+4. If state is corrupted: call `exarchos:exarchos_workflow` with `action: "cancel"` and `dryRun: true`
 
 ### Checkpoint Missing
-If `{{COMMAND_PREFIX}}checkpoint` is invoked with no active workflow:
-1. Discovery first: call `{{MCP_PREFIX}}exarchos_workflow` with `action: "list"` to enumerate active workflows; if the list is empty the checkpoint command's "no active workflow" report is correct — exit cleanly
-2. If `list` returns a candidate, verify it: call `{{MCP_PREFIX}}exarchos_workflow` with `action: "get"` and that `featureId`
+If `checkpoint` is invoked with no active workflow:
+1. Discovery first: call `exarchos:exarchos_workflow` with `action: "list"` to enumerate active workflows; if the list is empty the checkpoint command's "no active workflow" report is correct — exit cleanly
+2. If `list` returns a candidate, verify it: call `exarchos:exarchos_workflow` with `action: "get"` and that `featureId`
 3. If a workflow exists but checkpoint fails: check disk space and permissions on the event store
 
 ## Example Workflow
 
-1. **Start new workflow**: Use `{{MCP_PREFIX}}exarchos_workflow` with `action: "init"` with `featureId: "user-authentication"`, `workflowType: "feature"`
+1. **Start new workflow**: Use `exarchos:exarchos_workflow` with `action: "init"` with `featureId: "user-authentication"`, `workflowType: "feature"`
 
 2. **After authoring the Design & Rationale section** (`plan` is already the initial phase — no transition):
    - `action: "update"`, `featureId: "user-authentication"`, `updates: { "artifacts.spec": "docs/specs/2026-01-05-user-auth.md" }`
 
-3. **Save progress before a break**: Use `{{COMMAND_PREFIX}}checkpoint` to capture a structured handoff; resume later with `{{COMMAND_PREFIX}}rehydrate` (see `@skills/rehydrate/SKILL.md`).
+3. **Save progress before a break**: Use `checkpoint` to capture a structured handoff; resume later with `rehydrate` (see `@skills/rehydrate/SKILL.md`).

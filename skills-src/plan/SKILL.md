@@ -20,17 +20,17 @@ For a complete worked example, see `references/worked-example.md`.
 ## Triggers
 
 Activate this skill when:
-- User runs `{{COMMAND_PREFIX}}plan` command
+- User runs `plan` command
 - User wants to break a spec into tasks
 - A unified `docs/specs/` artifact's Design & Rationale section needs decomposition
 - User says "plan the implementation" or similar
-- Auto-chained from `{{COMMAND_PREFIX}}ideate` after the Design & Rationale section is written
-- Run directly (no prior `{{COMMAND_PREFIX}}ideate`): at thin/standard depth, author the whole unified spec — light/standard Design & Rationale section **plus** Decomposition — in one pass
+- Auto-chained from `ideate` after the Design & Rationale section is written
+- Run directly (no prior `ideate`): at thin/standard depth, author the whole unified spec — light/standard Design & Rationale section **plus** Decomposition — in one pass
 - Auto-chained from plan-review with `--revise` flag (gaps found)
 
 ## Revision Mode (--revise flag)
 
-When invoked with `--revise`, plan-review found gaps. Read `.planReview.gaps` from state, re-read the design, add tasks to address each gap, update the plan file, then clear gaps via `{{MCP_PREFIX}}exarchos_workflow` `action: "update"`.
+When invoked with `--revise`, plan-review found gaps. Read `.planReview.gaps` from state, re-read the design, add tasks to address each gap, update the plan file, then clear gaps via `exarchos:exarchos_workflow` `action: "update"`.
 
 ### Revision Loop Guard
 
@@ -39,7 +39,7 @@ Max revisions: 3 per plan.
 After 3 failed revisions:
 1. Set `planReview.revisionsExhausted = true`
 2. Output: "Plan revision failed after 3 attempts. Design may be incomplete."
-3. Escalate: Suggest `{{COMMAND_PREFIX}}ideate --redesign` to revisit design
+3. Escalate: Suggest `ideate --redesign` to revisit design
 
 > **MANDATORY:** Before accepting any rationalization for skipping tests, planning, or TDD steps, consult `references/rationalization-refutation.md`. Every common excuse is catalogued with a counter-argument and the correct action.
 
@@ -79,7 +79,7 @@ exarchos_orchestrate({
 
 ### Step 1: Analyze the Design & Rationale section
 
-Read the unified spec's `## Design & Rationale` section thoroughly (if `{{COMMAND_PREFIX}}ideate` ran, it is already written; otherwise author it at thin/standard depth now, per `references/spec-template.md`). From it, extract:
+Read the unified spec's `## Design & Rationale` section thoroughly (if `ideate` ran, it is already written; otherwise author it at thin/standard depth now, per `references/spec-template.md`). From it, extract:
 - **Problem Statement** — Context (no tasks, but informs scope)
 - **Chosen Approach** — Architectural decisions to implement
 - **Requirements (DR-N)** — the provenance anchors every task must trace to
@@ -224,7 +224,7 @@ The ladder already prices in genuinely low-risk work — so these excuses apply 
 
 ## State Management
 
-On spec save, record the artifact and transition phase based on `workflowType`: feature → `plan-review`, refactor → `overhaul-plan-review`. Set `artifacts.plan` to the **unified `docs/specs/` path** — this is the key the `planArtifactExists` guard reads, and it points at the one unified doc (the same path `{{COMMAND_PREFIX}}ideate` recorded as `artifacts.spec`). Artifacts and phase are two separate calls — `update` is non-phase mutation only; phase changes go through the HSM-guarded `transition` action:
+On spec save, record the artifact and transition phase based on `workflowType`: feature → `plan-review`, refactor → `overhaul-plan-review`. Set `artifacts.plan` to the **unified `docs/specs/` path** — this is the key the `planArtifactExists` guard reads, and it points at the one unified doc (the same path `ideate` recorded as `artifacts.spec`). Artifacts and phase are two separate calls — `update` is non-phase mutation only; phase changes go through the HSM-guarded `transition` action:
 
 ```text
 action: "update", featureId: "<id>", updates: {
@@ -279,11 +279,11 @@ exarchos_orchestrate({
 ## Transition
 
 After decomposition completes, **auto-continue to plan-review**. Transition to the appropriate review phase (feature: `plan-review`, refactor: `overhaul-plan-review`). Plan-review is no longer an inline plan-vs-design delta (one artifact now) — it is a **dispatched, fresh-context, adversarial** read-only pass over the unified artifact (DR-10): a clean reviewer provisioned with only {artifact + spec} (never this authoring transcript), prompted to refute the plan, its adversarial depth scaled by the frozen `designDepth`. Provision it via `exarchos_orchestrate({ action: "prepare_review", scope: "plan", artifact: "docs/specs/<...>", designDepth: "<frozen>" })`.
-- Refuted (gaps): set `.planReview.gaps`, auto-loop back to `{{COMMAND_PREFIX}}plan --revise`
+- Refuted (gaps): set `.planReview.gaps`, auto-loop back to `plan --revise`
 - Survives: present to user for approval (the single human checkpoint)
-- On approval: set `.planReview.approved = true`, invoke `{{COMMAND_PREFIX}}delegate`
+- On approval: set `.planReview.approved = true`, invoke `delegate`
 
-**REQUIRED:** Run `exarchos_orchestrate({ action: "check_plan_coverage" })` over the unified artifact. If passed: false → auto-invoke `{{COMMAND_PREFIX}}plan --revise`. If passed: true → transition to the plan-review phase and only invoke `{{COMMAND_PREFIX}}delegate` after plan-review approval.
+**REQUIRED:** Run `exarchos_orchestrate({ action: "check_plan_coverage" })` over the unified artifact. If passed: false → auto-invoke `plan --revise`. If passed: true → transition to the plan-review phase and only invoke `delegate` after plan-review approval.
 
 ## Exarchos Integration
 
@@ -296,7 +296,7 @@ Phase transitions auto-emit `workflow.transition` events via `exarchos_workflow`
 | `check_plan_coverage` returns passed: false | Design sections not mapped to tasks | Add tasks for uncovered sections or add explicit deferral rationale |
 | `spec_coverage_check` passed: false | Planned test files missing or failing | Create missing test stubs, verify file paths in plan match actual paths |
 | `generate_traceability` passed: false | Design doc missing expected `##`/`###` headers | Verify design uses standard Markdown headings |
-| Revision loop (3+ attempts) | Persistent gaps between design and plan | Set `planReview.revisionsExhausted = true`, suggest `{{COMMAND_PREFIX}}ideate --redesign` |
+| Revision loop (3+ attempts) | Persistent gaps between design and plan | Set `planReview.revisionsExhausted = true`, suggest `ideate --redesign` |
 
 ## Performance Notes
 

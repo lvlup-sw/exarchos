@@ -1,6 +1,6 @@
 ---
 name: invariants
-description: "Guided authoring of an architectural invariant catalog entry through a 6-step interview (elicit, locate, weight, enforce, number, commit). Drives the invariants_scaffold and invariants_add orchestrate verbs — the agent supplies judgment and natural-language elicitation; the verbs own schema validation, file writing, and event emission. Defaults to mode: audit; mode: check is an advanced opt-in. Triggers: 'add an invariant', 'author an invariant', 'enforce an architectural rule', or {{COMMAND_PREFIX}}invariants. Do NOT use for: editing workflow state, running a review, or hand-writing YAML (the verbs write it — never emit catalog YAML yourself)."
+description: "Guided authoring of an architectural invariant catalog entry through a 6-step interview (elicit, locate, weight, enforce, number, commit). Drives the invariants_scaffold and invariants_add orchestrate verbs — the agent supplies judgment and natural-language elicitation; the verbs own schema validation, file writing, and event emission. Defaults to mode: audit; mode: check is an advanced opt-in. Triggers: 'add an invariant', 'author an invariant', 'enforce an architectural rule', or invariants. Do NOT use for: editing workflow state, running a review, or hand-writing YAML (the verbs write it — never emit catalog YAML yourself)."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -163,7 +163,7 @@ names the call), then resume at step 6.
 Scaffold a user catalog (idempotent; never overwrites):
 
 ```ts
-{{MCP_PREFIX}}exarchos_orchestrate({
+exarchos:exarchos_orchestrate({
   action: "invariants_scaffold",
   tier: "user",
   path: ".exarchos/invariants.md"
@@ -173,7 +173,7 @@ Scaffold a user catalog (idempotent; never overwrites):
 Dry-run preview (DEFAULT — writes nothing):
 
 ```ts
-{{MCP_PREFIX}}exarchos_orchestrate({
+exarchos:exarchos_orchestrate({
   action: "invariants_add",
   tier: "user",
   catalog: ".exarchos/invariants.md",
@@ -184,7 +184,7 @@ Dry-run preview (DEFAULT — writes nothing):
 Commit after explicit confirmation:
 
 ```ts
-{{MCP_PREFIX}}exarchos_orchestrate({
+exarchos:exarchos_orchestrate({
   action: "invariants_add",
   tier: "user",
   catalog: ".exarchos/invariants.md",
@@ -193,7 +193,7 @@ Commit after explicit confirmation:
 })
 ```
 
-Use `{{MCP_PREFIX}}exarchos_orchestrate({ action: "describe" })` (or the CLI
+Use `exarchos:exarchos_orchestrate({ action: "describe" })` (or the CLI
 `--help`) to discover the exact schema at runtime — flags auto-emit from each
 action's Zod schema (the CLI is schema-driven; do not assume hand-added flags).
 

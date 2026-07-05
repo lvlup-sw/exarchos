@@ -25,7 +25,7 @@ Iterative loop that shepherds published PRs through CI checks and code reviews t
 
 **Position in workflow:**
 ```text
-{{COMMAND_PREFIX}}synthesize → {{COMMAND_PREFIX}}shepherd (assess → fix → resubmit → loop) → {{COMMAND_PREFIX}}cleanup
+synthesize → shepherd (assess → fix → resubmit → loop) → cleanup
               ^^^^^^^^^ runs within synthesize phase
 ```
 
@@ -41,14 +41,14 @@ By default, shepherd seeks to **address every piece of feedback on the PR** — 
 
 ## Pipeline Hygiene
 
-When `{{MCP_PREFIX}}exarchos_view pipeline` accumulates stale workflows (inactive > 7 days), run `@skills/prune/SKILL.md` to bulk-cancel abandoned workflows before starting a new shepherd cycle. Safeguards skip workflows with open PRs or recent commits, so active shepherd targets are never touched. A clean pipeline makes shepherd iteration reporting easier to read and reduces noise in the stale-count view.
+When `exarchos:exarchos_view pipeline` accumulates stale workflows (inactive > 7 days), run `@skills/prune/SKILL.md` to bulk-cancel abandoned workflows before starting a new shepherd cycle. Safeguards skip workflows with open PRs or recent commits, so active shepherd targets are never touched. A clean pipeline makes shepherd iteration reporting easier to read and reduces noise in the stale-count view.
 
 ## Triggers
 
 Activate when:
-- User runs `{{COMMAND_PREFIX}}shepherd` or says "shepherd", "tend PRs", "check CI"
+- User runs `shepherd` or says "shepherd", "tend PRs", "check CI"
 - PRs are published and need monitoring through the CI/review gauntlet
-- After `{{COMMAND_PREFIX}}synthesize` completes and PRs are enqueued
+- After `synthesize` completes and PRs are enqueued
 
 ## Prerequisites
 
@@ -68,7 +68,7 @@ The shepherd loop repeats until all PRs are healthy or escalation criteria are m
 
 At the start of each iteration, query quality hints to inform the assessment:
 ```
-{{MCP_PREFIX}}exarchos_view({ action: "code_quality", workflowId: "<featureId>" })
+exarchos:exarchos_view({ action: "code_quality", workflowId: "<featureId>" })
 ```
 - If `regressions` is non-empty, include regression context in the status report
 - If any hint has `confidenceLevel: 'actionable'`, surface the `suggestedAction` in the iteration summary
@@ -80,7 +80,7 @@ This step ensures the agent acts on accumulated quality intelligence before poll
 
 Invoke the `assess_stack` composite action to check all PR dimensions at once:
 ```
-{{MCP_PREFIX}}exarchos_orchestrate({
+exarchos:exarchos_orchestrate({
   action: "assess_stack",
   featureId: "<id>",
   prNumbers: [123, 124, 125]
@@ -105,7 +105,7 @@ Review the returned `actionItems` and `recommendation`:
 
 ### Step 2 — Fix
 
-**Anchor every change to the invariant catalog (evaluation-time Constraints).** Before composing any code fix, load `.exarchos/invariants.md` (entries marked `cost-of-load: always-load`) and surface a **Constraints** section naming the invariants the fix must preserve, then probe each proposed change against them. This is the shepherd evaluation-time equivalent of `{{COMMAND_PREFIX}}ideate`'s Phase 0 and uses the **same single shared source of truth** for the selection rules and devCatalog gating: `@skills/ideate/references/constraint-anchoring.md`. **devCatalog-gated:** when `.exarchos.yml: invariants.devCatalog: enabled` is unset or `disabled`, surface no Constraints section and fix directly. This makes "when evaluating changes, apply `.exarchos/invariants.md`" the default — there is no need to request it per invocation.
+**Anchor every change to the invariant catalog (evaluation-time Constraints).** Before composing any code fix, load `.exarchos/invariants.md` (entries marked `cost-of-load: always-load`) and surface a **Constraints** section naming the invariants the fix must preserve, then probe each proposed change against them. This is the shepherd evaluation-time equivalent of `ideate`'s Phase 0 and uses the **same single shared source of truth** for the selection rules and devCatalog gating: `@skills/ideate/references/constraint-anchoring.md`. **devCatalog-gated:** when `.exarchos.yml: invariants.devCatalog: enabled` is unset or `disabled`, surface no Constraints section and fix directly. This makes "when evaluating changes, apply `.exarchos/invariants.md`" the default — there is no need to request it per invocation.
 
 Before iterating over individual action items, classify them so the loop
 knows which to fix inline vs. delegate. Call `classify_review_items` on
@@ -114,7 +114,7 @@ classifier groups by file; CI-fix and review-address items are passed
 through unchanged):
 
 ```typescript
-{{MCP_PREFIX}}exarchos_orchestrate({
+exarchos:exarchos_orchestrate({
   action: "classify_review_items",
   featureId: "<id>",
   actionItems: <actionItems from assess_stack>
@@ -132,7 +132,7 @@ detailed per-issue-type instructions.
 
 1. **BEFORE applying a fix**, emit `remediation.attempted`:
    ```typescript
-   {{MCP_PREFIX}}exarchos_event({
+   exarchos:exarchos_event({
      action: "append",
      stream: "<featureId>",
      event: {
@@ -146,7 +146,7 @@ detailed per-issue-type instructions.
 
 3. **AFTER the next assess confirms the fix resolved the gate**, emit `remediation.succeeded`:
    ```
-   {{MCP_PREFIX}}exarchos_event({
+   exarchos:exarchos_event({
      action: "append",
      stream: "<featureId>",
      event: {
@@ -193,7 +193,7 @@ When `assess_stack` returns `recommendation: 'request-approval'` (all checks gre
 > **Invariant-conformance pointer (devCatalog-gated, before merge):** When `.exarchos.yml: invariants.devCatalog: enabled`, run the review-phase-scoped `check_invariant_conformance` action over the PR diff before requesting approval / merge, so the merge-gate read of the architectural invariants matches the diff that is about to land. This is a **pointer/affordance, not a hard gate** — the action is non-blocking (`gate: { blocking: false }`); it surfaces conformance findings to fold into the review verdict, it does not stop the merge. It is **not** a design-time **Constraints** section (shepherd runs at synthesize/merge, not design-time) — Step 2's Constraints anchoring covers fix composition; this pointer covers the diff-vs-invariants read at the review/merge gate. When the flag is unset or `disabled`, skip this step.
 >
 > ```typescript
-> {{MCP_PREFIX}}exarchos_orchestrate({
+> exarchos:exarchos_orchestrate({
 >   action: "check_invariant_conformance",
 >   featureId: "<id>",
 >   phase: "review",
@@ -221,7 +221,7 @@ When `assess_stack` returns `recommendation: 'request-approval'` (all checks gre
    - #123: <url>
    - #124: <url>
 
-   Run `{{COMMAND_PREFIX}}cleanup` after merge completes.
+   Run `cleanup` after merge completes.
    ```
 
 ## State Management
@@ -230,7 +230,7 @@ Track shepherd progress via workflow state:
 
 **Initialize:**
 ```
-{{MCP_PREFIX}}exarchos_workflow({
+exarchos:exarchos_workflow({
   action: "update",
   featureId: "<id>",
   updates: {
@@ -306,4 +306,4 @@ This runbook provides structured criteria for deciding whether to keep iterating
 
 ## Transition
 
-After approval is granted and PRs merge, run `{{COMMAND_PREFIX}}cleanup` to resolve the workflow to completed state.
+After approval is granted and PRs merge, run `cleanup` to resolve the workflow to completed state.

@@ -370,3 +370,29 @@ describe('placeholder-lint — task 002 (collapsed-vocabulary rules)', () => {
     expect(result.passed).toBe(true);
   });
 });
+
+describe('placeholder-lint — Task 006 (real procedural tree rewritten to logical prose)', () => {
+  const SKILLS_SRC = join(__dirname, '..', 'skills-src');
+
+  it('lintPlaceholders_RewrittenProceduralTree_NoPrefixTokens', () => {
+    // After Task 006 the 16 procedural skills render once from logical prose
+    // (`exarchos:exarchos_*` / bare verbs) and carry NO prefix tokens. With
+    // collapsed-vocabulary enforcement ON, the REAL `skills-src/` tree lints
+    // clean: zero collapsed-vocabulary violations. The 3 orchestration skills
+    // (`ideate`/`delegate`/`refactor`) legitimately keep prefix tokens, but the
+    // rules key on the source's derived class so those raise no violation.
+    //
+    // Kill-probe: revert the procedural rewrite and a prefix token reappears in
+    // a procedural SKILL.md, flipping this to a non-empty `prefix` violation.
+    const result = lintPlaceholders({
+      sourcesDir: SKILLS_SRC,
+      enforceCollapsedVocabulary: true,
+    });
+
+    expect(result.collapsedVocabularyViolations).toEqual([]);
+    expect(
+      result.collapsedVocabularyViolations.filter((v) => v.kind === 'prefix'),
+    ).toEqual([]);
+    expect(result.passed).toBe(true);
+  });
+});

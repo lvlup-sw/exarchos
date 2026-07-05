@@ -7,8 +7,8 @@
 If tests fail during synthesis (they passed in review):
 
 1. Return to review phase to investigate
-2. Re-run `{{COMMAND_PREFIX}}review` to diagnose
-3. Dispatch fixes via `{{COMMAND_PREFIX}}delegate --fixes`
+2. Re-run `review` to diagnose
+3. Dispatch fixes via `delegate --fixes`
 4. Return to synthesis after review passes
 
 ### PR Checks Fail
@@ -75,7 +75,7 @@ If an Exarchos MCP tool returns an error:
 
 ## State Desync
 If workflow state doesn't match git reality:
-1. Run `{{COMMAND_PREFIX}}rehydrate <featureId>` — the rehydration projection folds events newer than the last snapshot
+1. Run `rehydrate <featureId>` — the rehydration projection folds events newer than the last snapshot
 2. If manual check still needed: compare the rehydration document's `workflowState` / `artifacts` with `git log` and branch state
 3. Update state via `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "update"` to match git truth
 

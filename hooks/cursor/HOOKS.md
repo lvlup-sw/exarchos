@@ -2,8 +2,8 @@
 
 This runtime **supports lifecycle hooks** (profile `cursor-json`); Exarchos will
 render its native hook format in a future release (tracked follow-up). The
-Exarchos binding is already active via the **AGENTS.md** orientation block (see
-`binding/cursor/AGENTS.md`).
+Exarchos binding is already active via the **AGENTS.md** orientation block (the
+runtime-neutral block source is `binding/standard/block.md`).
 
 To wire lifecycle telemetry manually in the meantime, invoke the
 `exarchos session-start` / `exarchos session-end` observer subcommands from

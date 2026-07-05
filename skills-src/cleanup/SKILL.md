@@ -30,7 +30,7 @@ For bulk cleanup of accumulated stale or abandoned workflows (as opposed to reso
 ## Triggers
 
 Activate this skill when:
-- User runs `{{COMMAND_PREFIX}}cleanup` command
+- User runs `cleanup` command
 - User says "cleanup", "resolve workflow", "mark as done"
 - PR stack has merged and workflow needs resolution
 - User wants to close out a completed feature
@@ -46,12 +46,12 @@ Activate this skill when:
 
 Read workflow state to get current phase and metadata:
 ```typescript
-{{MCP_PREFIX}}exarchos_workflow({ action: "get", featureId: "<id>" })
+exarchos:exarchos_workflow({ action: "get", featureId: "<id>" })
 ```
 
 If featureId not provided, use pipeline view to list active workflows:
 ```typescript
-{{MCP_PREFIX}}exarchos_view({ action: "pipeline" })
+exarchos:exarchos_view({ action: "pipeline" })
 ```
 
 ### 2. Verify Merge Status
@@ -92,7 +92,7 @@ This check is **advisory** — findings are reported but do not block cleanup. I
 
 Call the MCP cleanup action with collected data:
 ```typescript
-{{MCP_PREFIX}}exarchos_workflow({
+exarchos:exarchos_workflow({
   action: "cleanup",
   featureId: "<id>",
   mergeVerified: true,
@@ -126,10 +126,10 @@ nothing), then apply:
 
 ```typescript
 // Dry-run (default) — preview candidates, delete nothing
-{{MCP_PREFIX}}exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>" })
+exarchos:exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>" })
 
 // Apply — reclaim the delete-eligible candidates
-{{MCP_PREFIX}}exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>", dryRun: false })
+exarchos:exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>", dryRun: false })
 ```
 
 Handle gracefully if worktrees are already removed. If the GC skips a worktree
@@ -161,7 +161,7 @@ Output summary:
 
 Use `dryRun: true` to preview what cleanup would do without modifying state:
 ```typescript
-{{MCP_PREFIX}}exarchos_workflow({
+exarchos:exarchos_workflow({
   action: "cleanup",
   featureId: "<id>",
   mergeVerified: true,
@@ -184,7 +184,7 @@ Use `dryRun: true` to preview what cleanup would do without modifying state:
 |-------|------------|
 | Use cleanup as escape hatch during implementation | Only use after PRs are merged |
 | Skip merge verification | Always verify via GitHub API |
-| Manually navigate HSM guards post-merge | Use {{COMMAND_PREFIX}}cleanup |
+| Manually navigate HSM guards post-merge | Use cleanup |
 | Leave worktrees after cleanup | Include worktree removal in process |
 
 ## Exarchos Integration
