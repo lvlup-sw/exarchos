@@ -289,7 +289,17 @@ git push
 ```
 
 The workflow is now in `completed` and will not appear in the default
-pipeline view.
+pipeline view. Report completion:
+
+```markdown
+## Oneshot Complete (direct-commit)
+
+Workflow: <featureId>
+Plan: <one-line summary>
+Tests added: N
+Commits: <hash list>
+Path: direct-commit
+```
 
 ### Step 5b — Synthesize path
 
@@ -303,6 +313,16 @@ every other workflow type.
 You do **not** need to run `delegate` or
 `review` for an opt-in oneshot synthesize. Those phases
 do not exist in the oneshot playbook. The PR review is the only review.
+Report completion:
+
+```markdown
+## Oneshot Complete (synthesize)
+
+Workflow: <featureId>
+PR: <url>
+Tests: X pass | Build: 0 errors
+Path: synthesize → PR review → merge
+```
 
 ## Example invocations
 

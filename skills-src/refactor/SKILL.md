@@ -91,6 +91,20 @@ Activate this skill when:
 | Documentation | Mandatory update phase | Mandatory update phase |
 | Human Checkpoints | 0 | 1 (merge) |
 
+## When to use refactor vs debug
+
+| Signal | Use {{COMMAND_PREFIX}}refactor | Use {{COMMAND_PREFIX}}debug |
+|--------|--------------|-----------|
+| Code works but is messy/complex | Yes | No |
+| Something is broken or wrong | No | Yes |
+| "This should be reorganized" | Yes | No |
+| Users report a bug or regression | No | Yes |
+| Performance degradation | Switch to {{COMMAND_PREFIX}}refactor if structural | Start with {{COMMAND_PREFIX}}debug (investigate) |
+| SOLID violations in working code | Yes | No |
+| Error in production logs | No | Yes |
+
+**Rule of thumb:** if there is _dissatisfaction_ with working code (hard to read, violates SOLID, duplicated logic), use `{{COMMAND_PREFIX}}refactor`. If there is a _symptom_ (something that should work but doesn't), use `{{COMMAND_PREFIX}}debug`.
+
 ## Characterization Testing (Both Tracks)
 
 Before modifying any existing code behavior, capture current behavior as characterization tests. This is a mandatory pre-step for both tracks:

@@ -61,6 +61,41 @@ Field projection via `fields` returns only the requested top-level keys, reducin
 
 For context restoration after summarization, prefer `action: "rehydrate"` (single-call, includes the phase playbook and next actions). For a minimal read, `action: "get"` with `featureId` outputs a summary suitable for rebuilding orchestrator context.
 
+## Output Format
+
+Render the returned document as compact behavioral context (the same shape as post-compaction context) so the agent refreshes its awareness in one pass:
+
+```markdown
+## Workflow Rehydrated: <featureId>
+**Phase:** <phase> | **Type:** <workflowType>
+
+### House Rules (apply every action this turn forward)
+**Skill:** <phasePlaybook.skillRef or "(no playbook for this phase)">
+**Tools:** <phasePlaybook.tools rendered as bullets>
+**Required model-emitted events:** <phasePlaybook.events rendered as bullets — e.g. `task.progressed`, `phase.advanced`>
+**Auto-emitted events (runtime fires these):** <phasePlaybook.autoEmittedEvents rendered as bullets>
+**Transition:** <phasePlaybook.transitionCriteria> | Guard: <phasePlaybook.guardPrerequisites>
+**Validation scripts:** <phasePlaybook.validationScripts joined>
+
+### Event Emission Hints
+<_eventHints.missing rendered as bullets, or "(none — phase machinery satisfied)">
+
+### Task Progress
+<task table>
+
+### Artifacts
+- Design: <path or "not created">
+- Plan: <path or "not created">
+- PR: <url or "not created">
+
+### Next Action
+<suggested action, from the envelope's `next_actions`>
+
+> **Discipline reminder:** every task transition this turn forward MUST land on the workflow event stream via `exarchos_event.append` or `delegate` subagent emission. Direct `Edit` / `Bash` / `git` actions on task branches without corresponding events will desync the workflow tracker (see RCA `docs/rca/2026-05-08-rehydrate-behavioral-gap.md`).
+```
+
+Keep the output minimal — only essential state and behavioral guidance; full details stay in files, not the conversation.
+
 ## Reconcile State
 
 To verify state matches git reality, run `rehydrate <featureId>` — the rehydration projection folds events newer than the last snapshot and surfaces drift in the returned envelope. For deeper manual verification, run the reconciliation script:

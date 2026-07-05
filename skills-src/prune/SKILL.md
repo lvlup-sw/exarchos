@@ -190,6 +190,12 @@ A workflow without a `branchName` in state (e.g., abandoned at ideate/plan befor
 
 `force: true` bypasses both checks but does not bypass the audit -- the bypassed safeguard names are recorded in the `workflow.pruned` event payload.
 
+## Error Handling
+
+- **No state directory:** initialize an exarchos workflow first — there is nothing to prune.
+- **`gh` / `git` not available:** the safeguard checks short-circuit with errors. Verify no PRs are open manually, then re-run with `force: true`.
+- **All workflows clean:** report "No stale workflows to prune" and exit (see Example 3).
+
 ## Anti-Patterns
 
 | Don't | Do Instead |

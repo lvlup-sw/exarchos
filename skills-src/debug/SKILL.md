@@ -104,6 +104,19 @@ For investigation escalation criteria, query:
 
 These runbooks encode the structured decision trees for track selection. The agent reads the decision tree and follows the guidance — the platform does not execute branches.
 
+## When to use debug vs refactor
+
+| Signal | Use debug | Use refactor |
+|--------|-----------|--------------|
+| Something is broken or wrong | Yes | No |
+| Code works but is messy/complex | No | Yes |
+| Users report a bug or regression | Yes | No |
+| Performance degradation | Start with debug (investigate) | Escalate to refactor if structural |
+| "This should be reorganized" | No | Yes |
+| Error in production logs | Yes | No |
+
+**Rule of thumb:** if there is a _symptom_ (something that should work but doesn't), use `debug`. If there is _dissatisfaction_ with working code (hard to read, violates SOLID, duplicated logic), use `refactor`.
+
 ## Hotfix Track
 
 Fix production issues ASAP. Speed over ceremony.

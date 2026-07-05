@@ -242,6 +242,47 @@ A `RESERVED_FIELD` error envelope now carries a typed `data` block:
 
 Read the full descriptor — including the regex catch-all for underscore paths — via `exarchos:exarchos_workflow` with `action: "describe"` and `actions: ["update"]`. The returned `reservedFields` block is the single source of truth.
 
+## Structured Handoff Output
+
+When capturing a handoff (the `checkpoint` command surface), emit this structured summary so the agent that resumes sees the same contract you operated under before context clears. The `### House Rules` block mirrors the `rehydrate` output (see `@skills/rehydrate/SKILL.md`) for correctness-signal symmetry — an agent producing a checkpoint sees the same house rules an agent rehydrating would.
+
+```markdown
+## Checkpoint Saved
+
+**Feature:** <feature-id>
+**Phase:** <current-phase>
+### Progress
+- Tasks: X/Y complete
+- Current: <what's in progress>
+- Next: <suggested next action>
+
+### House Rules (apply every action this turn forward)
+**Skill:** <phasePlaybook.skillRef or "(no playbook for this phase)">
+**Tools:** <phasePlaybook.tools rendered as bullets>
+**Required model-emitted events:** <phasePlaybook.events rendered as bullets — e.g. `task.progressed`, `phase.advanced`>
+**Auto-emitted events (runtime fires these):** <phasePlaybook.autoEmittedEvents rendered as bullets>
+**Transition:** <phasePlaybook.transitionCriteria> | Guard: <phasePlaybook.guardPrerequisites>
+**Validation scripts:** <phasePlaybook.validationScripts joined>
+
+### Event Emission Hints
+<_eventHints.missing rendered as bullets, or "(none — phase machinery satisfied)">
+
+### Resume Instructions
+
+To continue this workflow in a new session, run `rehydrate` — or start the harness fresh, and the SessionStart hook will auto-discover active workflows.
+
+> **Discipline reminder:** every task transition this turn forward MUST land on the workflow event stream via `exarchos_event.append` or `delegate` subagent emission. Direct `Edit` / `Bash` / `git` actions on task branches without corresponding events will desync the workflow tracker (see RCA `docs/rca/2026-05-08-rehydrate-behavioral-gap.md`).
+```
+
+### Auto-Checkpoint Triggers
+
+Suggest a checkpoint when:
+
+1. **After `delegate` completes** — all tasks done, before review
+2. **After a PR is created** — in `synthesize`, before the feedback loop
+3. **After 3+ feedback iterations** — context-accumulation risk
+4. **When the user mentions context issues** — proactive save
+
 ## Best Practices
 
 1. **Update often** - State should reflect reality at all times
