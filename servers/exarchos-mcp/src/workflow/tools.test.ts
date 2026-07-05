@@ -479,7 +479,7 @@ describe('HandleCheckpoint_PhasePlaybook (T-23, rehydration-machinery-refactor)'
     const data = result.data as { phasePlaybook?: { skill?: string } | null };
     expect(data.phasePlaybook).not.toBeNull();
     expect(data.phasePlaybook).toBeDefined();
-    expect(data.phasePlaybook?.skill).toBe('delegation');
+    expect(data.phasePlaybook?.skill).toBe('delegate');
   });
 
   it('handleCheckpoint_unregisteredPhase_attachesPhasePlaybookNull', async () => {

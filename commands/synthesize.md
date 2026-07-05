@@ -17,7 +17,7 @@ This command is the **exit point** of the development workflow. After creating t
 
 ## Skill Reference
 
-Follow the synthesis skill: `@skills/synthesis/SKILL.md`
+Follow the synthesis skill: `@skills/synthesize/SKILL.md`
 
 ## Prerequisites
 
@@ -34,7 +34,7 @@ git log --oneline -5  # Confirm all task commits present
 
 ### Step 2: Submit Stacked PRs
 
-Follow `@skills/synthesis/references/pr-descriptions.md` for concise format.
+Follow `@skills/synthesize/references/pr-descriptions.md` for concise format.
 
 Create PRs for each branch in the stack (bottom-up) and enable auto-merge:
 ```bash

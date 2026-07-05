@@ -113,7 +113,7 @@ const SHAPE_TWO_DISCRIMINATOR_KEYS = ['workflowState'] as const;
  *
  * Pre-fix (#1208) only shape 1 was extracted, so rehydrate envelopes always
  * yielded `next_actions: []` even when a `merge_orchestrate` verb was
- * required by `skills-src/delegation/SKILL.md` § "Worktree-Bearing Tasks:
+ * required by `skills-src/delegate/SKILL.md` § "Worktree-Bearing Tasks:
  * Auto-Detour to merge-pending". Reading shape 2 lets the merge-pending
  * substate (set by the rehydration reducer when a worktree-bearing
  * task.completed is folded) drive `computeNextActions`'s

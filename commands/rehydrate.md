@@ -11,6 +11,10 @@ Restore full workflow awareness without starting a new session.
 - Mid-session when you notice behavioral drift (forgetting to use exarchos_event, skipping validation scripts)
 - Returning to a workflow after a break
 
+## Skill Reference
+
+- Workflow state (read/restore): `@skills/rehydrate/SKILL.md`
+
 ## Process
 1. Invoke the MCP tool `exarchos_workflow` with `action: "rehydrate"` and `featureId: "<id>"` — returns an envelope containing the canonical rehydration document (`workflowState`, `taskProgress`, `artifacts`, `blockers`, phase playbook, next actions).
 2. If the featureId is unknown or the user hasn't named one, fall back to `exarchos_view pipeline` to list active workflows and ask which to rehydrate, then re-invoke `exarchos_workflow action: "rehydrate" featureId: "<selected>"`.

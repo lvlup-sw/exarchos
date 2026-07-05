@@ -23,13 +23,13 @@ This command is the **entry point** of the development workflow. In the collapse
 
 ## Skill Reference
 
-Follow the brainstorming skill: `@skills/brainstorming/SKILL.md`. The unified artifact shape is owned by `@skills/implementation-planning/references/spec-template.md`.
+Follow the brainstorming skill: `@skills/ideate/SKILL.md`. The unified artifact shape is owned by `@skills/plan/references/spec-template.md`.
 
 ## Process
 
 ### Phase 0: Constraints (first turn)
 
-Before the clarifying questions, load the **core** invariants catalog at `.exarchos/invariants.md` (entries marked `cost-of-load: always-load`) and surface a **Constraints** section naming the invariants relevant to the proposal. The selection rules (`always-load` baseline vs `reference-only` on-demand vs `archivable` not-surfaced), the proposal-shape → anchor-invariant table, the emit format, and the devCatalog gating are the **single shared source of truth** for the design-time Constraints step — the same reference used by `/refactor` and `/debug`. See `@skills/brainstorming/references/constraint-anchoring.md`.
+Before the clarifying questions, load the **core** invariants catalog at `.exarchos/invariants.md` (entries marked `cost-of-load: always-load`) and surface a **Constraints** section naming the invariants relevant to the proposal. The selection rules (`always-load` baseline vs `reference-only` on-demand vs `archivable` not-surfaced), the proposal-shape → anchor-invariant table, the emit format, and the devCatalog gating are the **single shared source of truth** for the design-time Constraints step — the same reference used by `/refactor` and `/debug`. See `@skills/ideate/references/constraint-anchoring.md`.
 
 Emit the Constraints section *before* Phase 1 so the clarifying questions can probe the proposal against the load-bearing invariants instead of re-discovering them mid-design.
 

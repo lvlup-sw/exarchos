@@ -14,7 +14,7 @@ agent never hand-writes catalog YAML.
 
 ## Skill Reference
 
-Follow the authoring-invariants skill: `@skills/authoring-invariants/SKILL.md`
+Follow the authoring-invariants skill: `@skills/invariants/SKILL.md`
 
 ## What it does
 
@@ -25,13 +25,13 @@ Walks the 6-step interview:
 3. **Weight** it: `severity` (+ optional per-workflow downgrades), `integrity-class`.
 4. **Enforce** it: DEFAULT `mode: audit` (the agent drafts the `audit-prompt`);
    `mode: check` is an advanced declarative opt-in
-   (`@skills/authoring-invariants/references/check-mode.md`).
+   (`@skills/invariants/references/check-mode.md`).
 5. **Number** it: the verb auto-assigns the next free id (`U-N` user, `INV-N` dev).
 6. **Commit** it: `invariants_add` `dryRun: true` → show the rendered entry +
    diff → explicit confirmation → write → `doctor` → show the
    `invariants_effective` delta.
 
-See `@skills/authoring-invariants/references/worked-example.md` for one entry
+See `@skills/invariants/references/worked-example.md` for one entry
 authored end-to-end.
 
 ## When to Use

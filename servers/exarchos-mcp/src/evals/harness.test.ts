@@ -21,7 +21,7 @@ function makeValidSuiteConfig(overrides?: Partial<EvalSuiteConfig>): EvalSuiteCo
   return {
     description: 'Test suite',
     metadata: {
-      skill: 'delegation',
+      skill: 'delegate',
       phaseAffinity: 'delegate',
       version: '1.0.0',
     },
@@ -109,8 +109,8 @@ describe('discoverSuites', () => {
   it('DiscoverSuites_FilterBySkill_ReturnsOnlyMatching', async () => {
     // Arrange
     await createSuite(
-      'delegation',
-      makeValidSuiteConfig({ metadata: { skill: 'delegation', phaseAffinity: 'delegate', version: '1.0.0' } }),
+      'delegate',
+      makeValidSuiteConfig({ metadata: { skill: 'delegate', phaseAffinity: 'delegate', version: '1.0.0' } }),
       { main: [makeEvalCase('c-1')] },
     );
     await createSuite(
@@ -120,11 +120,11 @@ describe('discoverSuites', () => {
     );
 
     // Act
-    const suites = await discoverSuites(tmpDir, { skill: 'delegation' });
+    const suites = await discoverSuites(tmpDir, { skill: 'delegate' });
 
     // Assert
     expect(suites).toHaveLength(1);
-    expect(suites[0].config.metadata.skill).toBe('delegation');
+    expect(suites[0].config.metadata.skill).toBe('delegate');
   });
 
   it('DiscoverSuites_InvalidSuiteConfig_ThrowsWithPath', async () => {
@@ -280,8 +280,8 @@ describe('runAll', () => {
   it('RunAll_FilterBySkill_RunsOnlyMatchingSuites', async () => {
     // Arrange
     await createSuite(
-      'delegation',
-      makeValidSuiteConfig({ metadata: { skill: 'delegation', phaseAffinity: 'delegate', version: '1.0.0' } }),
+      'delegate',
+      makeValidSuiteConfig({ metadata: { skill: 'delegate', phaseAffinity: 'delegate', version: '1.0.0' } }),
       { main: [makeEvalCase('d-1')] },
     );
     await createSuite(
@@ -291,11 +291,11 @@ describe('runAll', () => {
     );
 
     // Act
-    const summaries = await runAll(tmpDir, { skill: 'delegation' });
+    const summaries = await runAll(tmpDir, { skill: 'delegate' });
 
     // Assert
     expect(summaries).toHaveLength(1);
-    expect(summaries[0].suiteId).toContain('delegation');
+    expect(summaries[0].suiteId).toContain('delegate');
   });
 });
 
@@ -304,20 +304,20 @@ describe('runAll', () => {
 describe('Integration — Real Eval Suites', () => {
   it('Integration_DelegationSuite_LoadsAndValidates', async () => {
     // Act
-    const suites = await discoverSuites(REPO_EVALS_DIR, { skill: 'delegation' });
+    const suites = await discoverSuites(REPO_EVALS_DIR, { skill: 'delegate' });
 
     // Assert
     expect(suites).toHaveLength(1);
-    expect(suites[0].config.metadata.skill).toBe('delegation');
+    expect(suites[0].config.metadata.skill).toBe('delegate');
     expect(suites[0].config.description).toBe('Delegation skill evaluation suite');
     expect(Object.keys(suites[0].config.datasets)).toContain('regression');
     expect(Object.keys(suites[0].config.datasets)).toContain('capability');
-    expect(suites[0].suiteDir).toContain('delegation');
+    expect(suites[0].suiteDir).toContain('delegate');
   });
 
   it.skipIf(!process.env.RUN_EVALS)('Integration_DelegationSuite_RunsWithoutError', { timeout: 120_000 }, async () => {
     // Arrange
-    const suites = await discoverSuites(REPO_EVALS_DIR, { skill: 'delegation' });
+    const suites = await discoverSuites(REPO_EVALS_DIR, { skill: 'delegate' });
     const { config, suiteDir } = suites[0];
     const reg = createDefaultRegistry();
 
@@ -326,7 +326,7 @@ describe('Integration — Real Eval Suites', () => {
 
     // Assert
     expect(summary.total).toBeGreaterThan(0);
-    expect(summary.suiteId).toBe('delegation');
+    expect(summary.suiteId).toBe('delegate');
     expect(summary.runId).toBeTruthy();
     expect(summary.passed + summary.failed).toBe(summary.total);
   });
@@ -390,7 +390,7 @@ describe('runSuite — event emission', () => {
     expect(startedCalls).toHaveLength(1);
     const startedEvent = startedCalls[0][1] as Record<string, unknown>;
     const data = startedEvent.data as Record<string, unknown>;
-    expect(data.suiteId).toBe('delegation');
+    expect(data.suiteId).toBe('delegate');
     expect(data.caseCount).toBe(1);
     expect(data.trigger).toBe('local');
   });
@@ -502,21 +502,21 @@ describe('runSuite — event emission', () => {
     mockStore.query.mockResolvedValue([
       {
         type: 'eval.case.completed',
-        data: { runId: previousRunId, caseId: 'c-1', suiteId: 'delegation', passed: true, score: 1.0 },
+        data: { runId: previousRunId, caseId: 'c-1', suiteId: 'delegate', passed: true, score: 1.0 },
         streamId: 'eval-stream',
         sequence: 1,
         timestamp: '2025-01-01T00:00:00.000Z',
       },
       {
         type: 'eval.case.completed',
-        data: { runId: previousRunId, caseId: 'c-2', suiteId: 'delegation', passed: true, score: 1.0 },
+        data: { runId: previousRunId, caseId: 'c-2', suiteId: 'delegate', passed: true, score: 1.0 },
         streamId: 'eval-stream',
         sequence: 2,
         timestamp: '2025-01-01T00:00:00.000Z',
       },
       {
         type: 'eval.run.completed',
-        data: { runId: previousRunId, suiteId: 'delegation', total: 2, passed: 2, failed: 0, avgScore: 1.0, duration: 100, regressions: [] },
+        data: { runId: previousRunId, suiteId: 'delegate', total: 2, passed: 2, failed: 0, avgScore: 1.0, duration: 100, regressions: [] },
         streamId: 'eval-stream',
         sequence: 3,
         timestamp: '2025-01-01T00:00:00.000Z',
@@ -579,21 +579,21 @@ describe('runSuite — event emission', () => {
     mockStore.query.mockResolvedValue([
       {
         type: 'eval.case.completed',
-        data: { runId: previousRunId, caseId: 'c-1', suiteId: 'delegation', passed: true, score: 1.0 },
+        data: { runId: previousRunId, caseId: 'c-1', suiteId: 'delegate', passed: true, score: 1.0 },
         streamId: 'eval-stream',
         sequence: 1,
         timestamp: '2025-01-01T00:00:00.000Z',
       },
       {
         type: 'eval.case.completed',
-        data: { runId: previousRunId, caseId: 'c-2', suiteId: 'delegation', passed: true, score: 1.0 },
+        data: { runId: previousRunId, caseId: 'c-2', suiteId: 'delegate', passed: true, score: 1.0 },
         streamId: 'eval-stream',
         sequence: 2,
         timestamp: '2025-01-01T00:00:00.000Z',
       },
       {
         type: 'eval.run.completed',
-        data: { runId: previousRunId, suiteId: 'delegation', total: 2, passed: 2, failed: 0, avgScore: 1.0, duration: 100, regressions: [] },
+        data: { runId: previousRunId, suiteId: 'delegate', total: 2, passed: 2, failed: 0, avgScore: 1.0, duration: 100, regressions: [] },
         streamId: 'eval-stream',
         sequence: 3,
         timestamp: '2025-01-01T00:00:00.000Z',
@@ -628,14 +628,14 @@ describe('runSuite — event emission', () => {
     mockStore.query.mockResolvedValue([
       {
         type: 'eval.case.completed',
-        data: { runId: previousRunId, caseId: 'c-1', suiteId: 'delegation', passed: false, score: 0.0 },
+        data: { runId: previousRunId, caseId: 'c-1', suiteId: 'delegate', passed: false, score: 0.0 },
         streamId: 'eval-stream',
         sequence: 1,
         timestamp: '2025-01-01T00:00:00.000Z',
       },
       {
         type: 'eval.run.completed',
-        data: { runId: previousRunId, suiteId: 'delegation', total: 1, passed: 0, failed: 1, avgScore: 0.0, duration: 100, regressions: [] },
+        data: { runId: previousRunId, suiteId: 'delegate', total: 1, passed: 0, failed: 1, avgScore: 0.0, duration: 100, regressions: [] },
         streamId: 'eval-stream',
         sequence: 2,
         timestamp: '2025-01-01T00:00:00.000Z',
@@ -682,24 +682,24 @@ describe('runSuite — event emission', () => {
 // ─── Discovery Tests for New Eval Suites ──────────────────────────────────────
 
 describe('discoverSuites_RealEvalSuites', () => {
-  it('DiscoverSuites_FindsBrainstormingSuite', async () => {
+  it('DiscoverSuites_FindsIdeateSuite', async () => {
     // Arrange — no setup required
 
     // Act
     const suites = await discoverSuites(REPO_EVALS_DIR);
-    const brainstorming = suites.find(s => s.config.metadata.skill === 'brainstorming');
+    const ideate = suites.find(s => s.config.metadata.skill === 'ideate');
 
     // Assert
-    expect(brainstorming).toBeDefined();
-    expect(brainstorming!.config.assertions).toHaveLength(4);
+    expect(ideate).toBeDefined();
+    expect(ideate!.config.assertions).toHaveLength(4);
   });
 
-  it('DiscoverSuites_FindsImplementationPlanningSuite', async () => {
+  it('DiscoverSuites_FindsPlanSuite', async () => {
     // Arrange — no setup required
 
     // Act
     const suites = await discoverSuites(REPO_EVALS_DIR);
-    const planning = suites.find(s => s.config.metadata.skill === 'implementation-planning');
+    const planning = suites.find(s => s.config.metadata.skill === 'plan');
 
     // Assert
     expect(planning).toBeDefined();
@@ -738,7 +738,7 @@ describe('discoverSuites_RealEvalSuites', () => {
     // Assert
     expect(suites.length).toBeGreaterThanOrEqual(7);
     expect(skills).toEqual(
-      expect.arrayContaining(['brainstorming', 'implementation-planning', 'refactor', 'debug']),
+      expect.arrayContaining(['ideate', 'plan', 'refactor', 'debug']),
     );
   });
 });

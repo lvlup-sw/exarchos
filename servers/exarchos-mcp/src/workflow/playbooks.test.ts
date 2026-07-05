@@ -73,7 +73,7 @@ describe('Feature workflow playbooks', () => {
 
   it('getPlaybook_FeaturePlan_HasPlanningSkill', () => {
     const playbook = getPlaybook('feature', 'plan')!;
-    expect(playbook.skill).toBe('implementation-planning');
+    expect(playbook.skill).toBe('plan');
   });
 
   it('getPlaybook_FeaturePlan_FoldsDesignAuthoringGuidance', () => {
@@ -86,7 +86,7 @@ describe('Feature workflow playbooks', () => {
     // design-authoring guidance is stranded under the unreachable `feature:ideate`
     // key. Regression lock for the review MED finding on the design-plan-collapse.
     const playbook = getPlaybook('feature', 'plan')!;
-    expect(playbook.compactGuidance).toContain('@skills/brainstorming/SKILL.md');
+    expect(playbook.compactGuidance).toContain('@skills/ideate/SKILL.md');
     expect(playbook.compactGuidance).toContain('Design & Rationale');
     // and it still carries the decomposition half
     expect(playbook.compactGuidance.toLowerCase()).toContain('parallelization');
@@ -247,12 +247,12 @@ describe('Refactor workflow playbooks', () => {
 
   it('getPlaybook_OverhaulPlan_HasPlanSkill', () => {
     const playbook = getPlaybook('refactor', 'overhaul-plan')!;
-    expect(playbook.skill).toBe('implementation-planning');
+    expect(playbook.skill).toBe('plan');
   });
 
   it('getPlaybook_OverhaulDelegate_HasDelegationSkill', () => {
     const playbook = getPlaybook('refactor', 'overhaul-delegate')!;
-    expect(playbook.skill).toBe('delegation');
+    expect(playbook.skill).toBe('delegate');
   });
 
   it('getPlaybook_OverhaulReview_HasReviewSkill', () => {
@@ -268,7 +268,7 @@ describe('Refactor workflow playbooks', () => {
 
   it('getPlaybook_RefactorSynthesize_HasSynthesisSkill', () => {
     const playbook = getPlaybook('refactor', 'synthesize')!;
-    expect(playbook.skill).toBe('synthesis');
+    expect(playbook.skill).toBe('synthesize');
   });
 
   it('getPlaybook_RefactorSynthesize_IsHumanCheckpoint', () => {
@@ -319,8 +319,8 @@ describe('serializePlaybooks', () => {
 
     // Verify structure of a representative phase (#1581: `plan` is the initial phase)
     const plan: SerializedPhasePlaybook = result.phases['plan'];
-    expect(plan.skill).toBe('implementation-planning');
-    expect(plan.skillRef).toBe('@skills/implementation-planning/SKILL.md');
+    expect(plan.skill).toBe('plan');
+    expect(plan.skillRef).toBe('@skills/plan/SKILL.md');
     expect(plan.tools.length).toBeGreaterThanOrEqual(1);
     expect(plan.transitionCriteria).toBeTruthy();
     expect(plan.humanCheckpoint).toBe(false);

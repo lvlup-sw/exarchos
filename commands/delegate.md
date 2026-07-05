@@ -28,15 +28,15 @@ Auto-invokes `/exarchos:review` after tasks complete (or `/exarchos:synthesize` 
 
 ## Skill References
 
-Follow the delegation skill for full process details: `@skills/delegation/SKILL.md`
+Follow the delegation skill for full process details: `@skills/delegate/SKILL.md`
 
 Supporting references:
 - Git worktrees: `@skills/git-worktrees/SKILL.md`
-- Implementer template: `@skills/delegation/references/implementer-prompt.md`
-- Fixer template: `@skills/delegation/references/fixer-prompt.md`
-- Fix mode: `@skills/delegation/references/fix-mode.md`
-- PR fixes mode: `@skills/delegation/references/pr-fixes-mode.md`
-- Parallel strategy: `@skills/delegation/references/parallel-strategy.md`
+- Implementer template: `@skills/delegate/references/implementer-prompt.md`
+- Fixer template: `@skills/delegate/references/fixer-prompt.md`
+- Fix mode: `@skills/delegate/references/fix-mode.md`
+- PR fixes mode: `@skills/delegate/references/pr-fixes-mode.md`
+- Parallel strategy: `@skills/delegate/references/parallel-strategy.md`
 
 ## Idempotency
 

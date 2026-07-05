@@ -41,7 +41,7 @@ By default, shepherd seeks to **address every piece of feedback on the PR** — 
 
 ## Pipeline Hygiene
 
-When `exarchos:exarchos_view pipeline` accumulates stale workflows (inactive > 7 days), run `@skills/prune-workflows/SKILL.md` to bulk-cancel abandoned workflows before starting a new shepherd cycle. Safeguards skip workflows with open PRs or recent commits, so active shepherd targets are never touched. A clean pipeline makes shepherd iteration reporting easier to read and reduces noise in the stale-count view.
+When `exarchos:exarchos_view pipeline` accumulates stale workflows (inactive > 7 days), run `@skills/prune/SKILL.md` to bulk-cancel abandoned workflows before starting a new shepherd cycle. Safeguards skip workflows with open PRs or recent commits, so active shepherd targets are never touched. A clean pipeline makes shepherd iteration reporting easier to read and reduces noise in the stale-count view.
 
 ## Triggers
 
@@ -105,7 +105,7 @@ Review the returned `actionItems` and `recommendation`:
 
 ### Step 2 — Fix
 
-**Anchor every change to the invariant catalog (evaluation-time Constraints).** Before composing any code fix, load `.exarchos/invariants.md` (entries marked `cost-of-load: always-load`) and surface a **Constraints** section naming the invariants the fix must preserve, then probe each proposed change against them. This is the shepherd evaluation-time equivalent of `ideate`'s Phase 0 and uses the **same single shared source of truth** for the selection rules and devCatalog gating: `@skills/brainstorming/references/constraint-anchoring.md`. **devCatalog-gated:** when `.exarchos.yml: invariants.devCatalog: enabled` is unset or `disabled`, surface no Constraints section and fix directly. This makes "when evaluating changes, apply `.exarchos/invariants.md`" the default — there is no need to request it per invocation.
+**Anchor every change to the invariant catalog (evaluation-time Constraints).** Before composing any code fix, load `.exarchos/invariants.md` (entries marked `cost-of-load: always-load`) and surface a **Constraints** section naming the invariants the fix must preserve, then probe each proposed change against them. This is the shepherd evaluation-time equivalent of `ideate`'s Phase 0 and uses the **same single shared source of truth** for the selection rules and devCatalog gating: `@skills/ideate/references/constraint-anchoring.md`. **devCatalog-gated:** when `.exarchos.yml: invariants.devCatalog: enabled` is unset or `disabled`, surface no Constraints section and fix directly. This makes "when evaluating changes, apply `.exarchos/invariants.md`" the default — there is no need to request it per invocation.
 
 Before iterating over individual action items, classify them so the loop
 knows which to fix inline vs. delegate. Call `classify_review_items` on
@@ -248,7 +248,7 @@ exarchos:exarchos_workflow({
 
 ### Phase Transitions and Guards
 
-For the full transition table, consult `@skills/workflow-state/references/phase-transitions.md`.
+For the full transition table, consult `@skills/checkpoint/references/phase-transitions.md`.
 
 The shepherd skill operates within the `synthesize` phase and does not drive phase transitions directly.
 

@@ -18,7 +18,7 @@ Author the Decomposition section for: "$ARGUMENTS"
 
 ## Skill Reference
 
-Follow the implementation-planning skill: `@skills/implementation-planning/SKILL.md`. The unified artifact shape is owned by `@skills/implementation-planning/references/spec-template.md`.
+Follow the implementation-planning skill: `@skills/plan/SKILL.md`. The unified artifact shape is owned by `@skills/plan/references/spec-template.md`.
 
 ## Verification Ladder
 
@@ -28,7 +28,7 @@ Verification depth scales with each task's **blast radius** — it is not a blan
 - **medium** — scoped tests + the `check_test_adequacy` kill-probe, judged test-after.
 - **high** — the medium set + the integration suite across the seam.
 
-See `@skills/_shared/references/verification.md` and the reframed `@skills/implementation-planning/SKILL.md`.
+See `@skills/_shared/references/verification.md` and the reframed `@skills/plan/SKILL.md`.
 
 ## Process
 

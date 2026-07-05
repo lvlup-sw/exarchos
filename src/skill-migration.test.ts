@@ -86,12 +86,12 @@ const ALLOWED_GH_REFERENCES = [
  * Skills that use VCS operations and should have a VCS preamble.
  */
 const SKILLS_REQUIRING_VCS_PREAMBLE = [
-  'synthesis',
+  'synthesize',
   'shepherd',
   'cleanup',
   'dogfood',
-  'prune-workflows',
-  'oneshot-workflow',
+  'prune',
+  'oneshot',
 ];
 
 describe('skill-migration — T34: gh to MCP action migration', () => {
@@ -280,11 +280,11 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
     const violations: Array<{ file: string; line: number; text: string }> = [];
 
     // Files that are allowed to keep gh pr list references:
-    // - prune-workflows references (safeguards use gh internally)
+    // - prune references (safeguards use gh internally)
     // - github-native-stacking.md (Graphite mapping table kept for reference)
     const ALLOWED_FILES = [
-      'prune-workflows/references/safeguards.md',
-      'prune-workflows/SKILL.md',
+      'prune/references/safeguards.md',
+      'prune/SKILL.md',
     ];
 
     for (const file of files) {
@@ -405,7 +405,7 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
    * Verify that MCP action references exist in skills that previously used gh commands.
    */
   it('McpActionReferences_PresentInMigratedSkills', () => {
-    const synthSkillPath = join(SKILLS_SRC_DIR, 'synthesis', 'SKILL.md');
+    const synthSkillPath = join(SKILLS_SRC_DIR, 'synthesize', 'SKILL.md');
     const content = readFileSync(synthSkillPath, 'utf8');
 
     // Should reference create_pr and merge_pr actions
@@ -414,7 +414,7 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
   });
 
   it('McpActionReferences_ListPrs_PresentInMigratedSkills', () => {
-    const synthSkillPath = join(SKILLS_SRC_DIR, 'synthesis', 'SKILL.md');
+    const synthSkillPath = join(SKILLS_SRC_DIR, 'synthesize', 'SKILL.md');
     const content = readFileSync(synthSkillPath, 'utf8');
 
     // Should reference list_prs action
@@ -432,7 +432,7 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
   it('McpActionReferences_CheckCi_PresentInTroubleshooting', () => {
     const troublePath = join(
       SKILLS_SRC_DIR,
-      'synthesis',
+      'synthesize',
       'references',
       'troubleshooting.md',
     );

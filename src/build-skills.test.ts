@@ -1128,7 +1128,7 @@ describe('buildAllSkills — task 009: render-time CALL macro failures', () => {
 //   - Render idempotency (back-to-back builds produce byte-identical output)
 //
 // Each test below uses synthetic fixtures so the assertions don't couple to
-// the real `skills-src/delegation/**` migration that lands in the source-
+// the real `skills-src/delegate/**` migration that lands in the source-
 // migration GREEN commit (commit 7 of the GREEN sequence).
 // -----------------------------------------------------------------------------
 

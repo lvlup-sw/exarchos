@@ -1742,7 +1742,7 @@ export async function handleCheckpoint(
   // (workflowType, phase) the checkpoint was recorded for. The helper
   // returns `null` for unregistered pairs (e.g. discovery/completed) and a
   // serialized `SerializedPhasePlaybook` for registered ones (e.g.
-  // feature/delegate → skill: 'delegation'). The v:3 envelope schema
+  // feature/delegate → skill: 'delegate'). The v:3 envelope schema
   // treats `phasePlaybook` as nullable, not optional, so we surface the
   // null explicitly rather than omitting the field — CLI/SDK renderers
   // spread the value without an `undefined` guard.

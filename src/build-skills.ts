@@ -1121,7 +1121,7 @@ export function assertProceduralSkill(body: string, sourcePath: string): void {
  * Output subtree name for the single, runtime-neutral render of every
  * procedural skill. Procedural skills collapse to `skills/standard/<skill>/`
  * (DR-1) instead of forking per-runtime; only the 3 orchestration skills
- * (`delegation`, `refactor`, `brainstorming`) keep the
+ * (`delegate`, `refactor`, `ideate`) keep the
  * `skills/<runtime>/<skill>/` residual.
  */
 export const STANDARD_TREE_NAME = 'standard';

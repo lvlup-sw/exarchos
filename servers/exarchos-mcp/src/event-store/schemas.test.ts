@@ -3099,7 +3099,7 @@ describe('CommandResolvedEventSchema', () => {
 // that callers couldn't tell whether `branch` was supported on
 // `task.assigned`; this test pins the contract so the catalog stays aligned
 // with `setup_worktree`'s branch-resolution priority (T-09) and with
-// `skills-src/delegation/SKILL.md`'s pre-emit example.
+// `skills-src/delegate/SKILL.md`'s pre-emit example.
 describe('TaskAssignedData hint catalog', () => {
   it('eventEmissionCatalog_TaskAssigned_OptionalBranchField', () => {
     // Schema must accept a payload that includes branch...

@@ -15,7 +15,7 @@ Use `/exarchos:prune` when:
 
 ## Skill Reference
 
-Follow the prune-workflows skill: `@skills/prune-workflows/SKILL.md`
+Follow the prune-workflows skill: `@skills/prune/SKILL.md`
 
 ## Process
 

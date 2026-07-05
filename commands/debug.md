@@ -85,7 +85,7 @@ Select track based on urgency and complexity.
 
 ### Step 2b: Constraints (rca + design phases, design-time)
 
-On the thorough track, the **rca** and **design** phases are the design-time surfaces. *Before* committing to a fix approach, load the invariants catalog at `.exarchos/invariants.md` (entries marked `cost-of-load: always-load`) and surface a **Constraints** section naming the invariants relevant to the fix. This is the debug design-time equivalent of `/ideate`'s Phase 0 and uses the **same single shared source of truth** for the selection rules and devCatalog gating: `@skills/brainstorming/references/constraint-anchoring.md`. **devCatalog-gated:** when `.exarchos.yml: invariants.devCatalog: enabled` is unset or `disabled`, surface no Constraints section and proceed directly. The hotfix track skips this step (speed over ceremony).
+On the thorough track, the **rca** and **design** phases are the design-time surfaces. *Before* committing to a fix approach, load the invariants catalog at `.exarchos/invariants.md` (entries marked `cost-of-load: always-load`) and surface a **Constraints** section naming the invariants relevant to the fix. This is the debug design-time equivalent of `/ideate`'s Phase 0 and uses the **same single shared source of truth** for the selection rules and devCatalog gating: `@skills/ideate/references/constraint-anchoring.md`. **devCatalog-gated:** when `.exarchos.yml: invariants.devCatalog: enabled` is unset or `disabled`, surface no Constraints section and proceed directly. The hotfix track skips this step (speed over ceremony).
 
 ### Step 3: Execute Track
 

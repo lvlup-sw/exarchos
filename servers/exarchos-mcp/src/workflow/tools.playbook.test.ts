@@ -59,7 +59,7 @@ describe('handleGet playbook field', () => {
     const playbook = (result.data as Record<string, unknown>).playbook;
     expect(playbook).not.toBeNull();
     expect((playbook as Record<string, unknown>).phase).toBe('delegate');
-    expect((playbook as Record<string, unknown>).skill).toBe('delegation');
+    expect((playbook as Record<string, unknown>).skill).toBe('delegate');
   });
 
   it('handleGet_PlaybookField_ReturnsPlaybookForInitialPhase', async () => {
@@ -79,7 +79,7 @@ describe('handleGet playbook field', () => {
     const playbook = (result.data as Record<string, unknown>).playbook;
     expect(playbook).not.toBeNull();
     expect((playbook as Record<string, unknown>).phase).toBe('plan');
-    expect((playbook as Record<string, unknown>).skill).toBe('implementation-planning');
+    expect((playbook as Record<string, unknown>).skill).toBe('plan');
     expect((playbook as Record<string, unknown>).workflowType).toBe('feature');
   });
 

@@ -69,7 +69,7 @@ Act on the `recommendation`:
 
 ### Step 2: Fix Issues
 
-**Constraints (evaluation-time).** Before composing any change, load `.exarchos/invariants.md` (entries marked `cost-of-load: always-load`) and surface a **Constraints** section naming the invariants the fix must preserve, then probe each change against them. This is the shepherd evaluation-time equivalent of `/exarchos:ideate`'s Phase 0 and uses the **same single shared source of truth** for the selection rules and devCatalog gating: `@skills/brainstorming/references/constraint-anchoring.md`. **devCatalog-gated:** when `.exarchos.yml: invariants.devCatalog: enabled` is unset or `disabled`, surface no Constraints section and fix directly.
+**Constraints (evaluation-time).** Before composing any change, load `.exarchos/invariants.md` (entries marked `cost-of-load: always-load`) and surface a **Constraints** section naming the invariants the fix must preserve, then probe each change against them. This is the shepherd evaluation-time equivalent of `/exarchos:ideate`'s Phase 0 and uses the **same single shared source of truth** for the selection rules and devCatalog gating: `@skills/ideate/references/constraint-anchoring.md`. **devCatalog-gated:** when `.exarchos.yml: invariants.devCatalog: enabled` is unset or `disabled`, surface no Constraints section and fix directly.
 
 Address each `actionItem` from the assessment (every inline comment — including minor — gets a fix and/or reply; see Default Objective):
 - `ci-fix` — Read CI logs, reproduce locally, fix, commit

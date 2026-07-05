@@ -214,7 +214,7 @@ Fail-closed: any individual git invocation that fails inside the debug helper de
 
 For the argument schema, call `{{MCP_PREFIX}}exarchos_orchestrate({ action: "describe", actions: ["merge_orchestrate"] })`. Event payload shapes come from `{{MCP_PREFIX}}exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.requested", "merge.executed", "merge.rollback", "merge.recovered"] })`.
 
-`mergeOrchestrator.*` fields on workflow state are written by this skill and `mergeOrchestrator.phase` is read by gates; the underlying `phase` workflow field is immutable and must be changed via `transition`, not `update`. See the [Reserved fields](../workflow-state/SKILL.md#reserved-fields) section in the `workflow-state` skill for the full immutable-key list and the typed `RESERVED_FIELD` error envelope.
+`mergeOrchestrator.*` fields on workflow state are written by this skill and `mergeOrchestrator.phase` is read by gates; the underlying `phase` workflow field is immutable and must be changed via `transition`, not `update`. See the [Reserved fields](../checkpoint/SKILL.md#reserved-fields) section in the `checkpoint` skill for the full immutable-key list and the typed `RESERVED_FIELD` error envelope.
 
 ## Completion Criteria
 

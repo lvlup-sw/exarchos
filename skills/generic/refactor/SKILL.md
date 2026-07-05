@@ -113,7 +113,7 @@ The test oracle may be **ADDED to** during a refactor (new characterization test
 
 ## Design-time Constraints (Both Tracks)
 
-At the **brief phase**, *before* committing to an approach, surface a **Constraints** section anchored to the architectural invariants relevant to the refactor. This is the refactor design-time equivalent of `/ideate`'s Phase 0 and uses the **same single shared source of truth** for the selection rules: see `@skills/brainstorming/references/constraint-anchoring.md`. Load `.exarchos/invariants.md` (`cost-of-load: always-load` entries) and emit the Constraints section. **devCatalog-gated:** when `.exarchos.yml: invariants.devCatalog: enabled` is unset or `disabled`, surface no Constraints section and proceed directly. See `@skills/refactor/references/brief-template.md` for the brief-phase placement.
+At the **brief phase**, *before* committing to an approach, surface a **Constraints** section anchored to the architectural invariants relevant to the refactor. This is the refactor design-time equivalent of `/ideate`'s Phase 0 and uses the **same single shared source of truth** for the selection rules: see `@skills/ideate/references/constraint-anchoring.md`. Load `.exarchos/invariants.md` (`cost-of-load: always-load` entries) and emit the Constraints section. **devCatalog-gated:** when `.exarchos.yml: invariants.devCatalog: enabled` is unset or `disabled`, surface no Constraints section and proceed directly. See `@skills/refactor/references/brief-template.md` for the brief-phase placement.
 
 ## Polish Track
 
@@ -144,7 +144,7 @@ Use `describe` to discover the full state schema at runtime: `exarchos_workflow(
 
 > **Sequential traversal required.** Every phase MUST be traversed in order — you cannot skip phases, even if you have all the data for a later phase ready. For example, `explore` must transition to `brief` before `overhaul-plan` — attempting `explore` → `overhaul-plan` directly will be rejected by the HSM. From `brief` you must go to `polish-implement` or `overhaul-plan`, not directly to `completed`. Each transition requires its guard to be satisfied via `updates` sent alongside the `phase` parameter in a single `set` call. See `@skills/refactor/references/polish-track.md` or `@skills/refactor/references/overhaul-track.md` for the exact tool call at each step.
 
-Every phase transition has a guard that must be satisfied. Before transitioning, consult `@skills/workflow-state/references/phase-transitions.md` for the exact prerequisite for each guard.
+Every phase transition has a guard that must be satisfied. Before transitioning, consult `@skills/checkpoint/references/phase-transitions.md` for the exact prerequisite for each guard.
 
 The pattern for every transition: send the guard prerequisite in `updates` and the target in `phase` in a single `set` call.
 

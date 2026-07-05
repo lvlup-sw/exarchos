@@ -16,7 +16,7 @@ Use `/exarchos:checkpoint` when:
 
 ## Skill Reference
 
-- Workflow state: `@skills/workflow-state/SKILL.md`
+- Workflow state: `@skills/checkpoint/SKILL.md`
 
 ## Process
 

@@ -6,4 +6,4 @@ description: Dispatch tasks to subagents
 
 Canonical alias for the Exarchos `/delegate` workflow command.
 
-Invoke `delegation`, then `git-worktrees` skills to handle: $ARGUMENTS
+Invoke `delegate`, then `git-worktrees` skills to handle: $ARGUMENTS

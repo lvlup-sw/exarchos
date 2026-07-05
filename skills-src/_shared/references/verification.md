@@ -60,8 +60,8 @@ When no `.exarchos.yml` is present and detection cannot resolve a command (e.g.,
 an npm project missing a `test:run` script), the relevant gate is skipped with
 remediation text rather than failed.
 
-For test code patterns and examples, see `@skills/delegation/references/testing-patterns.md`.
-For property-based testing templates, see `@skills/delegation/references/pbt-patterns.md`.
+For test code patterns and examples, see `@skills/delegate/references/testing-patterns.md`.
+For property-based testing templates, see `@skills/delegate/references/pbt-patterns.md`.
 
 Property tests are written alongside the example tests. They complement, not replace, example tests.
 

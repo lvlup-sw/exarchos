@@ -737,7 +737,7 @@ describe('rehydration reducer — state.patched.tasks fold (Fix 2 / #1179)', () 
 
 // ─── Worktree-bearing task.completed auto-detour (#1208 / DR-MO-1) ──────────
 //
-// `skills-src/delegation/SKILL.md` § "Worktree-Bearing Tasks: Auto-Detour to
+// `skills-src/delegate/SKILL.md` § "Worktree-Bearing Tasks: Auto-Detour to
 // merge-pending" specifies that a `task.completed` event carrying
 // `data.worktree` or `data.worktreePath` must drive the workflow into the
 // `merge-pending` substate so the rehydration envelope can surface a

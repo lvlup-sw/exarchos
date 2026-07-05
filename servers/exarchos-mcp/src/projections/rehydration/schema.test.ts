@@ -470,8 +470,8 @@ describe('RehydrationDocumentSchema version routing (T1, #1246 + T-01)', () => {
 
 describe('PhasePlaybookSchema (T-01, rehydration-machinery-refactor)', () => {
   const minimalPlaybook = {
-    skill: 'delegation',
-    skillRef: '@skills/delegation/SKILL.md',
+    skill: 'delegate',
+    skillRef: '@skills/delegate/SKILL.md',
     tools: [{ tool: 'exarchos_event', action: 'append', purpose: 'Emit task.assigned on dispatch' }],
     events: [{ type: 'task.assigned', when: 'On dispatch of each task', fields: ['taskId', 'title', 'worktree'] }],
     transitionCriteria: 'All tasks complete → review',
@@ -550,8 +550,8 @@ describe('RehydrationDocumentSchema v:3 envelope (T-01)', () => {
       blockers: [],
       recentHandoffs: [],
       phasePlaybook: {
-        skill: 'delegation',
-        skillRef: '@skills/delegation/SKILL.md',
+        skill: 'delegate',
+        skillRef: '@skills/delegate/SKILL.md',
         tools: [{ tool: 'exarchos_event', action: 'append', purpose: 'Emit task.assigned on dispatch' }],
         events: [{ type: 'task.assigned', when: 'On dispatch of each task', fields: ['taskId', 'title', 'worktree'] }],
         autoEmittedEvents: [
@@ -581,8 +581,8 @@ describe('RehydrationDocumentSchema v:3 envelope (T-01)', () => {
       v: 2,
       projectionSequence: 0,
       behavioralGuidance: {
-        skill: 'delegation',
-        skillRef: '@skills/delegation/SKILL.md',
+        skill: 'delegate',
+        skillRef: '@skills/delegate/SKILL.md',
       },
       workflowState: minimalWorkflowState,
       taskProgress: [],

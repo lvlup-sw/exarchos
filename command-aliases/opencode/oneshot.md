@@ -6,4 +6,4 @@ description: Run a lightweight oneshot workflow — plan + laddered (tier-scaled
 
 Canonical alias for the Exarchos `/oneshot` workflow command.
 
-Invoke `oneshot-workflow`, then `synthesis` skills to handle: $ARGUMENTS
+Invoke `oneshot`, then `synthesize` skills to handle: $ARGUMENTS

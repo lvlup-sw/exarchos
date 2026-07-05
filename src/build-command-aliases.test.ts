@@ -216,8 +216,8 @@ describe('buildCommandAliases — alias file shape', () => {
   it('body references the single mapped skill and passes $ARGUMENTS', () => {
     const aliasDir = emitOpencode();
     const ideate = readFileSync(join(aliasDir, 'ideate.md'), 'utf8');
-    // ideate → brainstorming
-    expect(ideate).toContain('brainstorming');
+    // ideate → ideate (identity-collapsed skill name)
+    expect(ideate).toContain('`ideate`');
     expect(ideate).toContain('$ARGUMENTS');
   });
 
@@ -237,11 +237,11 @@ describe('buildCommandAliases — alias file shape', () => {
   it('multi-skill commands name every mapped skill in order (delegate)', () => {
     const aliasDir = emitOpencode();
     const delegate = readFileSync(join(aliasDir, 'delegate.md'), 'utf8');
-    // delegate → [delegation, git-worktrees]
-    expect(delegate).toContain('delegation');
-    expect(delegate).toContain('git-worktrees');
-    expect(delegate.indexOf('delegation')).toBeLessThan(
-      delegate.indexOf('git-worktrees'),
+    // delegate → [delegate, git-worktrees] (identity-collapsed skill name)
+    expect(delegate).toContain('`delegate`');
+    expect(delegate).toContain('`git-worktrees`');
+    expect(delegate.indexOf('`delegate`')).toBeLessThan(
+      delegate.indexOf('`git-worktrees`'),
     );
   });
 

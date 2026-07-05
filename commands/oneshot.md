@@ -23,7 +23,7 @@ For anything cross-cutting, multi-file, or needing two-stage review, use
 
 ## Skill Reference
 
-Follow the oneshot workflow skill: `@skills/oneshot-workflow/SKILL.md`
+Follow the oneshot workflow skill: `@skills/oneshot/SKILL.md`
 
 ## Verification Ladder
 
@@ -141,7 +141,7 @@ Workflow is terminal — done.
 
 ### Step 6b: Synthesize path
 
-Hand off to the standard synthesis flow: `@skills/synthesis/SKILL.md`. The
+Hand off to the standard synthesis flow: `@skills/synthesize/SKILL.md`. The
 existing `prepare_synthesis` / `validate_pr_body` / `gh pr create` machinery
 applies. After PR merge, the workflow transitions `synthesize → completed`.
 

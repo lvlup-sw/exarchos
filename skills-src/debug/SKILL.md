@@ -131,7 +131,7 @@ For detailed phase instructions, see `references/thorough-track.md`. For systema
 
 ### Design-time Constraints (Thorough Track: rca + design phases)
 
-The `rca` and `design` phases are the thorough track's design-time surfaces. At these phases — *before* committing to a fix approach — surface a **Constraints** section anchored to the architectural invariants relevant to the fix. This is the debug design-time equivalent of `/ideate`'s Phase 0 and uses the **same single shared source of truth** for the selection rules and devCatalog gating: see `@skills/brainstorming/references/constraint-anchoring.md`. Load `.exarchos/invariants.md` (`cost-of-load: always-load` entries) and emit the Constraints section. **devCatalog-gated:** when `.exarchos.yml: invariants.devCatalog: enabled` is unset or `disabled`, surface no Constraints section and proceed directly. The hotfix track skips this step (speed over ceremony).
+The `rca` and `design` phases are the thorough track's design-time surfaces. At these phases — *before* committing to a fix approach — surface a **Constraints** section anchored to the architectural invariants relevant to the fix. This is the debug design-time equivalent of `/ideate`'s Phase 0 and uses the **same single shared source of truth** for the selection rules and devCatalog gating: see `@skills/ideate/references/constraint-anchoring.md`. Load `.exarchos/invariants.md` (`cost-of-load: always-load` entries) and emit the Constraints section. **devCatalog-gated:** when `.exarchos.yml: invariants.devCatalog: enabled` is unset or `disabled`, surface no Constraints section and proceed directly. The hotfix track skips this step (speed over ceremony).
 
 ### Characterization Testing (Thorough Track Only)
 
@@ -178,7 +178,7 @@ See `@skills/debug/references/state-schema.md` for full schema.
 
 ### Phase Transitions and Guards
 
-Every phase transition has a guard that must be satisfied. Before transitioning, consult `@skills/workflow-state/references/phase-transitions.md` for the exact prerequisite for each guard.
+Every phase transition has a guard that must be satisfied. Before transitioning, consult `@skills/checkpoint/references/phase-transitions.md` for the exact prerequisite for each guard.
 
 ### Schema Discovery
 

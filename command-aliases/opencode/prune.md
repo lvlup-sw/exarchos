@@ -6,4 +6,4 @@ description: Prune stale workflows from the pipeline (dry-run → confirm → ap
 
 Canonical alias for the Exarchos `/prune` workflow command.
 
-Invoke the `prune-workflows` skill to handle: $ARGUMENTS
+Invoke the `prune` skill to handle: $ARGUMENTS

@@ -136,7 +136,7 @@ describe('generate-legacy-skill-hashes (Task 023, DR-8)', () => {
       REPO_ROOT,
       'skills',
       'claude',
-      'brainstorming',
+      'ideate',
       'SKILL.md',
     );
     const original = readFileSync(tracked);

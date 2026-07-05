@@ -23,7 +23,7 @@ Resolve merged workflows to `completed` state in a single operation. Replaces th
 
 ## Batch Pruning for Stale Workflows
 
-For bulk cleanup of accumulated stale or abandoned workflows (as opposed to resolving a single merged workflow), use `@skills/prune-workflows/SKILL.md`. That skill invokes `exarchos_orchestrate prune_stale_workflows` in dry-run mode, displays candidates, and applies after user confirmation. Safeguards automatically skip workflows with open PRs or recent commits.
+For bulk cleanup of accumulated stale or abandoned workflows (as opposed to resolving a single merged workflow), use `@skills/prune/SKILL.md`. That skill invokes `exarchos_orchestrate prune_stale_workflows` in dry-run mode, displays candidates, and applies after user confirmation. Safeguards automatically skip workflows with open PRs or recent commits.
 
 **Rule of thumb:** cleanup is per-workflow (one merged feature → `completed`); prune is bulk (N inactive workflows → `cancelled`). They are complementary, not alternatives.
 

@@ -9,12 +9,12 @@
  * away from the machine-readable map without failing CI.
  *
  * A command file may reference MORE THAN ONE skill (e.g. `delegate.md` ->
- * `delegation` + `git-worktrees`; `review.md` -> `spec-review` + `quality-review`).
+ * `delegate` + `git-worktrees`; `review.md` -> `review` + `mutation-adequacy`).
  * Only `@skills/<dir>/SKILL.md` references count — `@skills/<dir>/references/*.md`
  * include paths are NOT skill entry points and must be ignored.
  *
- * Commands that delegate to no skill (`autocompact`, `rehydrate`, `tag`) are
- * declared in `COMMAND_ONLY` and must NOT appear in `COMMAND_TO_SKILL`.
+ * Commands that delegate to no skill (`autocompact`, `tag`) are declared in
+ * `COMMAND_ONLY` and must NOT appear in `COMMAND_TO_SKILL`.
  *
  * Scope: content-only validation of the markdown command templates against the
  * map. No runtime execution required.
