@@ -160,3 +160,60 @@ enforcement:
   (`claude-json`) and opencode (TS plugin); Cursor/Copilot active renderers are
   modeled-but-deferred. Consumer-project install of the block is owned by the v2.10.2
   `onboard` verb. Design: `docs/designs/2026-05-31-harness-binding-and-lifecycle-hooks.md`.
+
+## Addendum — #1607 / v2.12.0-preview.1 (2026-07-04): hook shrink completed; launcher is the lifecycle authority
+
+The harness **conform-and-shrink** bundle (#1601 Z2; #1602/#1605/#1607) completes
+the #1607 half of this ADR — retiring the residue the observe-only decision left
+behind — and hands session lifecycle to the launcher (#1603). The spine
+("observe, don't enforce at the hook layer") is unchanged; this addendum records
+the final hook surface. Design: [`docs/specs/2026-07-04-harness-conform-and-shrink.md`](../specs/2026-07-04-harness-conform-and-shrink.md) (DR-5 · DR-6 · DR-7).
+
+- **Hook surface after the shrink.** The Claude plugin bundle
+  ([`hooks/hooks.json`](../../hooks/hooks.json)) ships exactly `{SubagentStop, SessionStart}`:
+  - `SubagentStop` is the sole **token-attribution** seam — live-and-used, which
+    supersedes the #1485 addendum's "SubagentStop retired" note above.
+  - `SessionStart` is the **on-ramp**: it bakes the runtime-neutral binding block
+    (`binding/standard/block.md`, ≤ 4 KiB) as its `exarchos session-start
+    --directive` payload. It stays observe-only — no auto-resume (the T-40
+    coupling stays removed).
+  - `SessionEnd` / `session-end` is **dropped everywhere** as a hook registration:
+    a session-end signal is unreliable or absent on 3 of 5 hooked harnesses and
+    the MCP protocol has no session boundary. Per OQ3, the `session-start` /
+    `session-end` **CLI verbs are kept** — only the hook registration retires.
+- **codex / opencode lifecycle artifacts retired.** `build-hooks` no longer emits
+  the codex hooks artifact or the opencode lifecycle plugin
+  (`hooks-src/opencode-plugin.ts.tmpl` deleted). Each hookable-but-unrendered
+  runtime (codex, copilot, cursor, opencode) now carries a deferred
+  `hooks/<runtime>/HOOKS.md` note pointing at the AGENTS.md on-ramp and the
+  `session-start` / `session-end` observer verbs as the manual interim; `generic`
+  carries the no-hooks note.
+- **On-ramp is now consumer-side and runtime-neutral.** The per-harness
+  `SessionStart` directive that `onboard` used to install is replaced by a
+  consumer-side **managed block**: `insertManagedBlock` writes the Exarchos
+  on-ramp into the consumer's `AGENTS.md`, and a `CLAUDE.md` managed block carries
+  a one-line **own-line** `@AGENTS.md` import (the shim Claude's own docs
+  prescribe). Users own their files; Exarchos owns only its marker-fenced block.
+  The Claude **plugin** `SessionStart` on-ramp is the one carve-out retained this
+  cycle (plugin-marketplace consumers have no other on-ramp path); its full
+  retirement is a tracked follow-up gated on a plugin-flow managed-block pathway.
+- **Retired-hooks uninstall is provenance-gated and ordered.** `onboard` removes
+  the retired hooks only when they are command-marker provenance-matched
+  (user-authored hooks untouched, idempotent), and the removal step runs **after**
+  the managed-block write and consults its outcome — a failed block write keeps the
+  hooks, so no consumer transitions through hook-less **and** block-less.
+- **Launcher is the lifecycle authority (DR-7).** Session lifecycle is sourced from
+  the launcher's `launch.executing_started` / `launch.executed` pair. The
+  `exarchos_view` `ps` / `wait` liveness verbs answer a launcher-spawned session's
+  liveness from those `launch.*` events **alone** — a pure fold of `worktrees@v1`,
+  no process scan. Direct (non-launcher) launches answer lifecycle from
+  event-sourced reconciliation (WLM, INV-10, reconcile-on-next-entry — never a
+  daemon) and take the AGENTS.md managed block as their on-ramp floor. The
+  `generic` runtime's documented contract (OQ4) is exactly this:
+  reconciliation-only lifecycle, managed-block on-ramp.
+  - **Known limitation (tracked follow-up).** Spawn-time injection *degradation* is
+    computed on the launcher lifecycle result at the `launch.executing_started`
+    phase but is **not yet persisted** as a field on that event, so `ps` / `wait`
+    can answer launch *liveness* from events alone but cannot yet surface injection
+    *degradation* from events alone. The event-schema change is out of scope for
+    this bundle.
