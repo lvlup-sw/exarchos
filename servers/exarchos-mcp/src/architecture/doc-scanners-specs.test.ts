@@ -52,15 +52,35 @@ describe('doc scanners include docs/specs/ (DR-9, task 019)', () => {
   });
 
   it('LiveSurfaces_NoStalePlanPathRefs', () => {
-    // The feature-flow commands are fully on the unified artifact: they reference
-    // docs/specs/ and NEVER the docs/designs/ + docs/plans/ paths the collapsed
-    // flow will not produce (legacy/refactor surfaces are out of scope — they keep
-    // the two-artifact path until separately migrated).
-    for (const file of ['commands/ideate.md', 'commands/plan.md']) {
-      const body = readFileSync(join(REPO_ROOT, file), 'utf8');
-      expect(body, `${file} must reference docs/specs/`).toContain('docs/specs/');
-      expect(body, `${file} must not reference docs/designs/`).not.toContain('docs/designs/');
-      expect(body, `${file} must not reference docs/plans/`).not.toContain('docs/plans/');
+    // The feature-flow surfaces are fully on the unified artifact: they reference
+    // docs/specs/ and NEVER instruct the docs/designs/ + docs/plans/ paths the
+    // collapsed flow will not produce (legacy/refactor surfaces are out of scope
+    // — they keep the two-artifact path until separately migrated).
+    //
+    // DR-3 (harness conform-and-shrink, Task 007): the feature-flow commands
+    // collapsed into thin shims that delegate to `@skills/<verb>/SKILL.md`. The
+    // unified-artifact authoring guidance migrated into the skills, so the live
+    // surface is the shim + its skill: the shim must route to the skill and must
+    // never instruct a stale legacy path, and the skill — the folded home of the
+    // guidance — is where the docs/specs/ reference lives. The stale-path
+    // negative assertion is scoped to the shim body: the skills legitimately
+    // NAME docs/designs/ + docs/plans/ in "don't do this" / legacy-migration
+    // prose, which a blunt `not.toContain` would false-flag.
+    const liveSurfaces: ReadonlyArray<{ command: string; skill: string }> = [
+      { command: 'commands/ideate.md', skill: 'skills-src/ideate/SKILL.md' },
+      { command: 'commands/plan.md', skill: 'skills-src/plan/SKILL.md' },
+    ];
+    for (const { command, skill } of liveSurfaces) {
+      const cmdBody = readFileSync(join(REPO_ROOT, command), 'utf8');
+      const skillBody = readFileSync(join(REPO_ROOT, skill), 'utf8');
+
+      // The thin-shim command routes to its skill and instructs no stale path.
+      expect(cmdBody, `${command} must delegate to a skill`).toContain('@skills/');
+      expect(cmdBody, `${command} must not reference docs/designs/`).not.toContain('docs/designs/');
+      expect(cmdBody, `${command} must not reference docs/plans/`).not.toContain('docs/plans/');
+
+      // The skill — where the authoring guidance now lives — is on docs/specs/.
+      expect(skillBody, `${skill} must reference docs/specs/`).toContain('docs/specs/');
     }
 
     // The feature playbook guidance served to agents at runtime drives the

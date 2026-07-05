@@ -824,6 +824,20 @@ Activate this skill when:
 | Documentation | Mandatory update phase | Mandatory update phase |
 | Human Checkpoints | 0 | 1 (merge) |
 
+## When to use refactor vs debug
+
+| Signal | Use /exarchos:refactor | Use /exarchos:debug |
+|--------|--------------|-----------|
+| Code works but is messy/complex | Yes | No |
+| Something is broken or wrong | No | Yes |
+| "This should be reorganized" | Yes | No |
+| Users report a bug or regression | No | Yes |
+| Performance degradation | Switch to /exarchos:refactor if structural | Start with /exarchos:debug (investigate) |
+| SOLID violations in working code | Yes | No |
+| Error in production logs | No | Yes |
+
+**Rule of thumb:** if there is _dissatisfaction_ with working code (hard to read, violates SOLID, duplicated logic), use \`/exarchos:refactor\`. If there is a _symptom_ (something that should work but doesn't), use \`/exarchos:debug\`.
+
 ## Characterization Testing (Both Tracks)
 
 Before modifying any existing code behavior, capture current behavior as characterization tests. This is a mandatory pre-step for both tracks:
@@ -1701,6 +1715,20 @@ rehydrate
 | Documentation | Mandatory update phase | Mandatory update phase |
 | Human Checkpoints | 0 | 1 (merge) |
 
+## When to use refactor vs debug
+
+| Signal | Use refactor | Use debug |
+|--------|--------------|-----------|
+| Code works but is messy/complex | Yes | No |
+| Something is broken or wrong | No | Yes |
+| "This should be reorganized" | Yes | No |
+| Users report a bug or regression | No | Yes |
+| Performance degradation | Switch to refactor if structural | Start with debug (investigate) |
+| SOLID violations in working code | Yes | No |
+| Error in production logs | No | Yes |
+
+**Rule of thumb:** if there is _dissatisfaction_ with working code (hard to read, violates SOLID, duplicated logic), use \`refactor\`. If there is a _symptom_ (something that should work but doesn't), use \`debug\`.
+
 ## Characterization Testing (Both Tracks)
 
 Before modifying any existing code behavior, capture current behavior as characterization tests. This is a mandatory pre-step for both tracks:
@@ -2569,6 +2597,20 @@ Activate this skill when:
 | Delegation | No | Yes (full workflow) |
 | Documentation | Mandatory update phase | Mandatory update phase |
 | Human Checkpoints | 0 | 1 (merge) |
+
+## When to use refactor vs debug
+
+| Signal | Use /refactor | Use /debug |
+|--------|--------------|-----------|
+| Code works but is messy/complex | Yes | No |
+| Something is broken or wrong | No | Yes |
+| "This should be reorganized" | Yes | No |
+| Users report a bug or regression | No | Yes |
+| Performance degradation | Switch to /refactor if structural | Start with /debug (investigate) |
+| SOLID violations in working code | Yes | No |
+| Error in production logs | No | Yes |
+
+**Rule of thumb:** if there is _dissatisfaction_ with working code (hard to read, violates SOLID, duplicated logic), use \`/refactor\`. If there is a _symptom_ (something that should work but doesn't), use \`/debug\`.
 
 ## Characterization Testing (Both Tracks)
 
@@ -3449,6 +3491,20 @@ rehydrate
 | Documentation | Mandatory update phase | Mandatory update phase |
 | Human Checkpoints | 0 | 1 (merge) |
 
+## When to use refactor vs debug
+
+| Signal | Use refactor | Use debug |
+|--------|--------------|-----------|
+| Code works but is messy/complex | Yes | No |
+| Something is broken or wrong | No | Yes |
+| "This should be reorganized" | Yes | No |
+| Users report a bug or regression | No | Yes |
+| Performance degradation | Switch to refactor if structural | Start with debug (investigate) |
+| SOLID violations in working code | Yes | No |
+| Error in production logs | No | Yes |
+
+**Rule of thumb:** if there is _dissatisfaction_ with working code (hard to read, violates SOLID, duplicated logic), use \`refactor\`. If there is a _symptom_ (something that should work but doesn't), use \`debug\`.
+
 ## Characterization Testing (Both Tracks)
 
 Before modifying any existing code behavior, capture current behavior as characterization tests. This is a mandatory pre-step for both tracks:
@@ -4298,6 +4354,20 @@ rehydrate
 | Delegation | No | Yes (full workflow) |
 | Documentation | Mandatory update phase | Mandatory update phase |
 | Human Checkpoints | 0 | 1 (merge) |
+
+## When to use refactor vs debug
+
+| Signal | Use refactor | Use debug |
+|--------|--------------|-----------|
+| Code works but is messy/complex | Yes | No |
+| Something is broken or wrong | No | Yes |
+| "This should be reorganized" | Yes | No |
+| Users report a bug or regression | No | Yes |
+| Performance degradation | Switch to refactor if structural | Start with debug (investigate) |
+| SOLID violations in working code | Yes | No |
+| Error in production logs | No | Yes |
+
+**Rule of thumb:** if there is _dissatisfaction_ with working code (hard to read, violates SOLID, duplicated logic), use \`refactor\`. If there is a _symptom_ (something that should work but doesn't), use \`debug\`.
 
 ## Characterization Testing (Both Tracks)
 
@@ -5176,6 +5246,20 @@ Activate this skill when:
 | Documentation | Mandatory update phase | Mandatory update phase |
 | Human Checkpoints | 0 | 1 (merge) |
 
+## When to use refactor vs debug
+
+| Signal | Use /refactor | Use /debug |
+|--------|--------------|-----------|
+| Code works but is messy/complex | Yes | No |
+| Something is broken or wrong | No | Yes |
+| "This should be reorganized" | Yes | No |
+| Users report a bug or regression | No | Yes |
+| Performance degradation | Switch to /refactor if structural | Start with /debug (investigate) |
+| SOLID violations in working code | Yes | No |
+| Error in production logs | No | Yes |
+
+**Rule of thumb:** if there is _dissatisfaction_ with working code (hard to read, violates SOLID, duplicated logic), use \`/refactor\`. If there is a _symptom_ (something that should work but doesn't), use \`/debug\`.
+
 ## Characterization Testing (Both Tracks)
 
 Before modifying any existing code behavior, capture current behavior as characterization tests. This is a mandatory pre-step for both tracks:
@@ -5541,6 +5625,47 @@ A \`RESERVED_FIELD\` error envelope now carries a typed \`data\` block:
 
 Read the full descriptor — including the regex catch-all for underscore paths — via \`exarchos:exarchos_workflow\` with \`action: "describe"\` and \`actions: ["update"]\`. The returned \`reservedFields\` block is the single source of truth.
 
+## Structured Handoff Output
+
+When capturing a handoff (the \`checkpoint\` command surface), emit this structured summary so the agent that resumes sees the same contract you operated under before context clears. The \`### House Rules\` block mirrors the \`rehydrate\` output (see \`@skills/rehydrate/SKILL.md\`) for correctness-signal symmetry — an agent producing a checkpoint sees the same house rules an agent rehydrating would.
+
+\`\`\`markdown
+## Checkpoint Saved
+
+**Feature:** <feature-id>
+**Phase:** <current-phase>
+### Progress
+- Tasks: X/Y complete
+- Current: <what's in progress>
+- Next: <suggested next action>
+
+### House Rules (apply every action this turn forward)
+**Skill:** <phasePlaybook.skillRef or "(no playbook for this phase)">
+**Tools:** <phasePlaybook.tools rendered as bullets>
+**Required model-emitted events:** <phasePlaybook.events rendered as bullets — e.g. \`task.progressed\`, \`phase.advanced\`>
+**Auto-emitted events (runtime fires these):** <phasePlaybook.autoEmittedEvents rendered as bullets>
+**Transition:** <phasePlaybook.transitionCriteria> | Guard: <phasePlaybook.guardPrerequisites>
+**Validation scripts:** <phasePlaybook.validationScripts joined>
+
+### Event Emission Hints
+<_eventHints.missing rendered as bullets, or "(none — phase machinery satisfied)">
+
+### Resume Instructions
+
+To continue this workflow in a new session, run \`rehydrate\` — or start the harness fresh, and the SessionStart hook will auto-discover active workflows.
+
+> **Discipline reminder:** every task transition this turn forward MUST land on the workflow event stream via \`exarchos_event.append\` or \`delegate\` subagent emission. Direct \`Edit\` / \`Bash\` / \`git\` actions on task branches without corresponding events will desync the workflow tracker (see RCA \`docs/rca/2026-05-08-rehydrate-behavioral-gap.md\`).
+\`\`\`
+
+### Auto-Checkpoint Triggers
+
+Suggest a checkpoint when:
+
+1. **After \`delegate\` completes** — all tasks done, before review
+2. **After a PR is created** — in \`synthesize\`, before the feedback loop
+3. **After 3+ feedback iterations** — context-accumulation risk
+4. **When the user mentions context issues** — proactive save
+
 ## Best Practices
 
 1. **Update often** - State should reflect reality at all times
@@ -5878,6 +6003,19 @@ For investigation escalation criteria, query:
 \`exarchos_orchestrate({ action: "runbook", id: "investigation-decision" })\`
 
 These runbooks encode the structured decision trees for track selection. The agent reads the decision tree and follows the guidance — the platform does not execute branches.
+
+## When to use debug vs refactor
+
+| Signal | Use debug | Use refactor |
+|--------|-----------|--------------|
+| Something is broken or wrong | Yes | No |
+| Code works but is messy/complex | No | Yes |
+| Users report a bug or regression | Yes | No |
+| Performance degradation | Start with debug (investigate) | Escalate to refactor if structural |
+| "This should be reorganized" | No | Yes |
+| Error in production logs | Yes | No |
+
+**Rule of thumb:** if there is a _symptom_ (something that should work but doesn't), use \`debug\`. If there is _dissatisfaction_ with working code (hard to read, violates SOLID, duplicated logic), use \`refactor\`.
 
 ## Hotfix Track
 
@@ -7494,7 +7632,17 @@ git push
 \`\`\`
 
 The workflow is now in \`completed\` and will not appear in the default
-pipeline view.
+pipeline view. Report completion:
+
+\`\`\`markdown
+## Oneshot Complete (direct-commit)
+
+Workflow: <featureId>
+Plan: <one-line summary>
+Tests added: N
+Commits: <hash list>
+Path: direct-commit
+\`\`\`
 
 ### Step 5b — Synthesize path
 
@@ -7508,6 +7656,16 @@ every other workflow type.
 You do **not** need to run \`delegate\` or
 \`review\` for an opt-in oneshot synthesize. Those phases
 do not exist in the oneshot playbook. The PR review is the only review.
+Report completion:
+
+\`\`\`markdown
+## Oneshot Complete (synthesize)
+
+Workflow: <featureId>
+PR: <url>
+Tests: X pass | Build: 0 errors
+Path: synthesize → PR review → merge
+\`\`\`
 
 ## Example invocations
 
@@ -8194,6 +8352,12 @@ A workflow without a \`branchName\` in state (e.g., abandoned at ideate/plan bef
 
 \`force: true\` bypasses both checks but does not bypass the audit -- the bypassed safeguard names are recorded in the \`workflow.pruned\` event payload.
 
+## Error Handling
+
+- **No state directory:** initialize an exarchos workflow first — there is nothing to prune.
+- **\`gh\` / \`git\` not available:** the safeguard checks short-circuit with errors. Verify no PRs are open manually, then re-run with \`force: true\`.
+- **All workflows clean:** report "No stale workflows to prune" and exit (see Example 3).
+
 ## Anti-Patterns
 
 | Don't | Do Instead |
@@ -8364,6 +8528,41 @@ Field projection via \`fields\` returns only the requested top-level keys, reduc
 ### Get Summary
 
 For context restoration after summarization, prefer \`action: "rehydrate"\` (single-call, includes the phase playbook and next actions). For a minimal read, \`action: "get"\` with \`featureId\` outputs a summary suitable for rebuilding orchestrator context.
+
+## Output Format
+
+Render the returned document as compact behavioral context (the same shape as post-compaction context) so the agent refreshes its awareness in one pass:
+
+\`\`\`markdown
+## Workflow Rehydrated: <featureId>
+**Phase:** <phase> | **Type:** <workflowType>
+
+### House Rules (apply every action this turn forward)
+**Skill:** <phasePlaybook.skillRef or "(no playbook for this phase)">
+**Tools:** <phasePlaybook.tools rendered as bullets>
+**Required model-emitted events:** <phasePlaybook.events rendered as bullets — e.g. \`task.progressed\`, \`phase.advanced\`>
+**Auto-emitted events (runtime fires these):** <phasePlaybook.autoEmittedEvents rendered as bullets>
+**Transition:** <phasePlaybook.transitionCriteria> | Guard: <phasePlaybook.guardPrerequisites>
+**Validation scripts:** <phasePlaybook.validationScripts joined>
+
+### Event Emission Hints
+<_eventHints.missing rendered as bullets, or "(none — phase machinery satisfied)">
+
+### Task Progress
+<task table>
+
+### Artifacts
+- Design: <path or "not created">
+- Plan: <path or "not created">
+- PR: <url or "not created">
+
+### Next Action
+<suggested action, from the envelope's \`next_actions\`>
+
+> **Discipline reminder:** every task transition this turn forward MUST land on the workflow event stream via \`exarchos_event.append\` or \`delegate\` subagent emission. Direct \`Edit\` / \`Bash\` / \`git\` actions on task branches without corresponding events will desync the workflow tracker (see RCA \`docs/rca/2026-05-08-rehydrate-behavioral-gap.md\`).
+\`\`\`
+
+Keep the output minimal — only essential state and behavioral guidance; full details stay in files, not the conversation.
 
 ## Reconcile State
 
@@ -9110,6 +9309,33 @@ Then sync: \`git fetch --prune\` and reclaim worktrees.
 > The \`next_actions\` projection surfaces this same \`prune_worktrees\` dry-run
 > affordance once the workflow is parked in synthesis. The full apply flow lands
 > in \`@skills/cleanup/SKILL.md\`.
+
+## Idempotency
+
+\`create_pr\` is the **single authority** for "PR already exists" — do NOT pre-check \`synthesis.prUrl\` / \`artifacts.pr\` before deciding whether to create. Just call \`create_pr\`: it either returns the existing open PR for this \`(head, base)\` via its remote-recovery guard, or refuses with \`PR_ALREADY_OWNED\` when the workflow already owns a PR. Branch on that structured response instead of pre-checking.
+
+The post-merge cleanup case is distinct from create-time idempotency and is NOT governed by \`create_pr\`: if the PR is already **merged**, transition to \`completed\` via \`action: "transition"\`, \`target: "completed"\` (the runtime rejects \`updates.phase\`; the canonical \`transition\` action runs the HSM guard and emits \`workflow.transition\`). This \`completed\` transition is normally owned by \`cleanup\` via \`action: "cleanup"\`; the bare phase-only transition is a manual-cleanup escape hatch.
+
+## Direct Edits to Stack Branches
+
+You can make direct edits to stack branches at any time — edit files, then stage and amend (\`git add <files> && git commit --amend\`). Push with the **explicit-SHA** lease, never a bare \`--force-with-lease\`:
+
+\`\`\`bash
+git push --force-with-lease=<ref>:<expected-sha>
+\`\`\`
+
+A bare lease anchors to the (possibly stale) local remote-tracking ref and can clobber a concurrent push. \`<expected-sha>\` is the remote SHA the loop last observed via \`assess_stack\`, or read fresh with \`git ls-remote --heads origin <ref>\`.
+
+## Completion Output
+
+When the PR is created and checks pass, report:
+
+\`\`\`markdown
+## Synthesis Complete
+
+PR: [URL]
+Tests: X pass | Build: 0 errors
+\`\`\`
 
 ## Anti-Patterns
 

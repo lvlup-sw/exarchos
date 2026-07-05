@@ -18,9 +18,12 @@ describe('ideate first-turn invariant surfacing (#1260)', () => {
     const ideate = fs.readFileSync(IDEATE_COMMAND, 'utf8');
     const skill = fs.readFileSync(IDEATE_SKILL, 'utf8');
 
-    // The /ideate command itself must reference .exarchos/invariants.md
-    // so the agent knows to consult the invariants catalog on first turn.
-    expect(ideate).toContain('.exarchos/invariants.md');
+    // DR-3 (harness conform-and-shrink, Task 007): `commands/ideate.md` collapsed
+    // into a thin shim, and the first-turn invariant-surfacing prose migrated
+    // into the ideate skill. The command's obligation is now to route the agent
+    // to that skill (the shim `@skills/ideate/SKILL.md` reference); the skill is
+    // where the `.exarchos/invariants.md` contract is pinned.
+    expect(ideate).toContain('@skills/ideate/SKILL.md');
 
     // The ideate skill body must guide surfacing of relevant invariants
     // (and reference the invariants doc explicitly).
