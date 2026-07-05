@@ -1,5 +1,5 @@
 /**
- * handleDoctor — composes the 13 per-check modules into a single MCP
+ * handleDoctor — composes the 15 per-check modules into a single MCP
  * action.
  *
  * Design notes:
@@ -48,6 +48,8 @@ import { vcsGitAvailable } from './checks/vcs-git-available.js';
 import { agentConfigValid } from './checks/agent-config-valid.js';
 import { agentMcpRegistered } from './checks/agent-mcp-registered.js';
 import { sessionStartHook } from './checks/session-start-hook.js';
+import { onrampBlockDrift } from './checks/onramp-block-drift.js';
+import { retiredHooksPresent } from './checks/retired-hooks-present.js';
 import { pluginSkillHashSync } from './checks/plugin-skill-hash-sync.js';
 import { pluginVersionMatch } from './checks/plugin-version-match.js';
 import { remoteMcpStub } from './checks/remote-mcp-stub.js';
@@ -56,11 +58,16 @@ import { verificationToolchain } from './checks/verification-toolchain.js';
 
 // ─── Canonical check list ──────────────────────────────────────────────────
 
-/** All 13 checks. Order is preserved in the output — callers can scan
+/** All 15 checks. Order is preserved in the output — callers can scan
  * top-to-bottom for the first Fail. DR-8 added `session-start-hook` (#1485):
  * the SessionStart binding presence check that lands the default-on hook step.
- * Task 009 (design §4.6) added `verification-toolchain` (13th): the read-only
- * check reporting whether the verification ladder's runtime resolves. */
+ * Task 009 (design §4.6) added `verification-toolchain`: the read-only check
+ * reporting whether the verification ladder's runtime resolves. DR-5/DR-7 (Task
+ * 017) added `onramp-block-drift` (the Task 013 drift finding, previously
+ * unregistered) and `retired-hooks-present` (the uninstall-reachability check),
+ * placed together in the `agent` block. `onramp-block-drift` precedes
+ * `retired-hooks-present` so its `generate` block-write step lands before the
+ * `hook` removal step (the reconciler also enforces this ordering explicitly). */
 export const ALL_CHECKS: ReadonlyArray<CheckFn> = [
   runtimeNodeVersion,
   storageStateDir,
@@ -70,6 +77,8 @@ export const ALL_CHECKS: ReadonlyArray<CheckFn> = [
   agentConfigValid,
   agentMcpRegistered,
   sessionStartHook,
+  onrampBlockDrift,
+  retiredHooksPresent,
   pluginSkillHashSync,
   pluginVersionMatch,
   remoteMcpStub,

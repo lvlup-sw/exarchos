@@ -26,6 +26,8 @@ import * as path from 'node:path';
 
 import { resolveVerificationRuntime } from '../../config/test-runtime-resolver.js';
 import { loadExarchosConfig } from '../../config/load-exarchos-config.js';
+import { BLOCK_DRIFT_CHECK_NAME } from '../../orchestrate/onboard/block-drift.js';
+import { RETIRED_HOOKS_CHECK_NAME } from '../../orchestrate/onboard/hooks.js';
 import {
   detectAgentEnvironments,
   type AgentRuntimeName,
@@ -245,6 +247,14 @@ const CHECK_CLASSIFICATION: Readonly<Record<string, StepClassification>> = {
   'agent-mcp-registered': { kind: 'generate', surface: 'any' },
   // agent (DR-8) — the SessionStart binding is a hook step.
   'session-start-hook': { kind: 'hook', surface: 'any' },
+  // agent (DR-5, Task 013/017) — the on-ramp block write is a `generate` step
+  // (the ClaudeCodeWriter's on-ramp phase writes AGENTS.md + the CLAUDE.md shim).
+  // ORDERED before the retired-hooks removal step below so a failed block write
+  // keeps the hooks (see `orderBlockWriteBeforeHookRemoval` + apply's gate).
+  [BLOCK_DRIFT_CHECK_NAME]: { kind: 'generate', surface: 'any' },
+  // agent (DR-7, Task 017) — removing the launcher-superseded retired lifecycle
+  // hooks is a `hook` step; `apply` routes it to `removeRetiredHooks`.
+  [RETIRED_HOOKS_CHECK_NAME]: { kind: 'hook', surface: 'any' },
   // plugin — skills-bundle regen / plugin reinstall are install actions (cli-only).
   'plugin-skill-hash-sync': { kind: 'install', surface: 'cli-only' },
   'plugin-version-match': { kind: 'install', surface: 'cli-only' },
@@ -392,6 +402,37 @@ function verificationCommandSteps(
 }
 
 /**
+ * DR-7 plan-step ordering: the on-ramp managed-block WRITE
+ * ({@link BLOCK_DRIFT_CHECK_NAME}, a `generate` step) MUST precede the retired-hooks
+ * REMOVAL ({@link RETIRED_HOOKS_CHECK_NAME}, a `hook` step). Combined with apply's
+ * cross-step gate (a failed block write ⇒ hooks kept), this guarantees no consumer
+ * ever transitions through the hook-less + block-less window: the replacement
+ * on-ramp is written before the superseded hooks are removed.
+ *
+ * The pass is a minimal, order-preserving reorder — it moves the block-write step
+ * to immediately before the removal step ONLY when both are present and currently
+ * out of order, leaving every other step's relative position untouched (so it can
+ * safely run over the full plan without disturbing unrelated steps). Roster order
+ * already emits them in the right order; this pass makes the guarantee robust to
+ * any future reordering or a caller that hands checks in a different order.
+ */
+function orderBlockWriteBeforeHookRemoval(steps: readonly PlanStep[]): PlanStep[] {
+  const removalIdx = steps.findIndex((s) => s.key === RETIRED_HOOKS_CHECK_NAME);
+  const blockIdx = steps.findIndex((s) => s.key === BLOCK_DRIFT_CHECK_NAME);
+  // Nothing to do when either step is absent, or the block write already precedes
+  // the removal (the common, roster-ordered case).
+  if (removalIdx === -1 || blockIdx === -1 || blockIdx < removalIdx) {
+    return [...steps];
+  }
+  // Block write currently AFTER removal — lift it to just before the removal step.
+  const reordered = [...steps];
+  const [blockStep] = reordered.splice(blockIdx, 1);
+  const newRemovalIdx = reordered.findIndex((s) => s.key === RETIRED_HOOKS_CHECK_NAME);
+  reordered.splice(newRemovalIdx, 0, blockStep);
+  return reordered;
+}
+
+/**
  * `diff(desired, actual, declared?)` — the structured `doctor` diff (DR-1 / DR-4).
  *
  * Turns the doctor check results into an EXECUTABLE {@link ReconcilePlan}: each
@@ -423,7 +464,9 @@ export function diff(
 ): ReconcilePlan {
   const checkSteps = actual.filter(isRemediable).map(toPlanStep);
   const seedSteps = verificationCommandSteps(desired, declared);
-  return { steps: [...checkSteps, ...seedSteps] };
+  // DR-7 ordering: the on-ramp block WRITE must precede the retired-hook REMOVAL.
+  const ordered = orderBlockWriteBeforeHookRemoval([...checkSteps, ...seedSteps]);
+  return { steps: ordered };
 }
 
 // ─── apply (DR-1 / DR-10) ─────────────────────────────────────────────────────
@@ -508,6 +551,19 @@ interface ResultAcc {
    * distinguish the two — see its body.
    */
   configSeededThisRun: boolean;
+  /**
+   * DR-7 cross-step gate: did the on-ramp managed-block WRITE step
+   * ({@link BLOCK_DRIFT_CHECK_NAME}) run in this plan AND fail to converge
+   * (residual)? The retired-hooks REMOVAL step consults this — a failed block
+   * write ⇒ KEEP the hooks (never strand the consumer with neither the on-ramp
+   * block nor the superseded hooks). The plan ordering (block write before
+   * removal) is what makes this flag authoritative by the time removal runs.
+   *
+   * Note the polarity: `false` also means "no block-write step was in the plan",
+   * i.e. the on-ramp block already matched (its drift check Passed) — in which
+   * case the block is present and removal is safe to proceed.
+   */
+  blockWriteFailed: boolean;
 }
 
 /**
@@ -602,6 +658,8 @@ async function applyGenerateStep(
   const writers = ctx.writers ?? [];
   if (writers.length === 0) {
     acc.residual.push(step);
+    // A block-write generate step with no writers can't have written the block.
+    if (step.key === BLOCK_DRIFT_CHECK_NAME) acc.blockWriteFailed = true;
     return;
   }
 
@@ -625,8 +683,14 @@ async function applyGenerateStep(
     }
   }
 
-  if (allConverged) acc.applied.push(step);
-  else acc.residual.push(step);
+  if (allConverged) {
+    acc.applied.push(step);
+  } else {
+    acc.residual.push(step);
+    // DR-7 gate input: a non-converged on-ramp block write means the replacement
+    // on-ramp is NOT in place, so the retired-hooks removal step must be deferred.
+    if (step.key === BLOCK_DRIFT_CHECK_NAME) acc.blockWriteFailed = true;
+  }
 }
 
 /**
@@ -698,6 +762,24 @@ async function applyHookStep(
   ctx: ApplyCtx,
   acc: ResultAcc,
 ): Promise<void> {
+  // DR-7 cross-step gate: the retired-hooks REMOVAL step consults the on-ramp
+  // block-write outcome. If the block write (ordered before this step) failed,
+  // KEEP the retired hooks — removing them now would strand the consumer with
+  // neither the replacement on-ramp block nor the superseded hooks. The removal
+  // stays residual so the VERIFY re-diff resurfaces it and a re-run (once the
+  // block write succeeds) completes the uninstall.
+  if (step.key === RETIRED_HOOKS_CHECK_NAME && acc.blockWriteFailed) {
+    acc.residual.push(step);
+    acc.advisories.push({
+      surface: step.surface,
+      message:
+        `${step.description} was deferred: the on-ramp block write did not succeed, ` +
+        `so the retired lifecycle hooks were KEPT to avoid leaving this consumer with ` +
+        `neither the on-ramp block nor the hooks. Re-run once the block write succeeds.`,
+    });
+    return;
+  }
+
   const installHook = ctx.installHook ?? (async () => undefined);
   try {
     await installHook(step, ctx);
@@ -746,6 +828,7 @@ export async function apply(plan: ReconcilePlan, ctx: ApplyCtx): Promise<Reconci
     residual: [],
     advisories: [],
     configSeededThisRun: false,
+    blockWriteFailed: false,
   };
 
   for (const step of plan.steps) {

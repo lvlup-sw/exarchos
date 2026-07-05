@@ -53,6 +53,8 @@ import {
   surfaceOnboardCliAdvisory,
 } from '../../adapters/mcp.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
+import { BLOCK_DRIFT_CHECK_NAME } from './block-drift.js';
+import { RETIRED_HOOKS_CHECK_NAME } from './hooks.js';
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -122,6 +124,26 @@ const GREEN: CheckResult = {
   name: 'state-dir',
   status: 'Pass',
   message: 'state dir present',
+  durationMs: 0,
+};
+
+/** On-ramp block drift → a `generate` block-write PlanStep (DR-5). */
+const BLOCK_WRITE_DRIFT: CheckResult = {
+  category: 'agent',
+  name: BLOCK_DRIFT_CHECK_NAME,
+  status: 'Warning',
+  message: 'AGENTS.md on-ramp block drifted',
+  fix: 'run exarchos onboard to re-write the on-ramp block',
+  durationMs: 0,
+};
+
+/** Retired hooks present → a `hook` removal PlanStep (DR-7). */
+const RETIRED_HOOKS_DRIFT: CheckResult = {
+  category: 'agent',
+  name: RETIRED_HOOKS_CHECK_NAME,
+  status: 'Warning',
+  message: 'retired lifecycle hooks still installed',
+  fix: 'run exarchos onboard to remove the retired lifecycle hooks',
   durationMs: 0,
 };
 
@@ -285,6 +307,48 @@ describe('exarchos onboard CLI/MCP parity (DR-6)', () => {
       expect(verbs).toContain('onboard');
       const onboardHint = (mcpResult.next_actions ?? []).find((a) => a.verb === 'onboard');
       expect((onboardHint?.hint ?? '') + (onboardHint?.reason ?? '')).toContain('CLI');
+    } finally {
+      await cleanup(cliFx);
+      await cleanup(mcpFx);
+    }
+  });
+
+  it('Parity_RetiredHookRemovalOrdering_IdenticalAcrossSurfaces', async () => {
+    // DR-7 surface parity: the on-ramp block-write step is ordered before the
+    // retired-hooks removal step, and the whole reconcile result is byte-identical
+    // across the CLI and MCP surfaces (the ordering lives in the pure core `diff`,
+    // not in an adapter branch). `writers: []` makes the block-write step residual,
+    // so apply's gate DEFERS the removal (hooks kept) — identically on both arms.
+    const cliFx = await createFixture('onboard-retired-cli-');
+    const mcpFx = await createFixture('onboard-retired-mcp-');
+    try {
+      const before = [BLOCK_WRITE_DRIFT, RETIRED_HOOKS_DRIFT];
+      const cliInstall = vi.fn().mockResolvedValue(undefined);
+      const mcpInstall = vi.fn().mockResolvedValue(undefined);
+      const cliDeps = makeDeps(cliFx, twoPhaseChecks(before, [GREEN]), cliInstall);
+      const mcpDeps = makeDeps(mcpFx, twoPhaseChecks(before, [GREEN]), mcpInstall);
+
+      const cliResult = await handleOnboard(
+        { surface: 'cli', format: 'json' },
+        cliFx.ctx,
+        cliDeps,
+      );
+      const mcpArgs = stampOnboardSurface({ format: 'json' }) as HandleOnboardArgs;
+      const mcpResult = await handleOnboard(mcpArgs, mcpFx.ctx, mcpDeps);
+
+      expect(cliResult.success).toBe(true);
+      expect(mcpResult.success).toBe(true);
+
+      // Byte-equal reconcile surface across the two arms.
+      expect(normalize(cliResult)).toEqual(normalize(mcpResult));
+
+      // The block-write step precedes the retired-hooks removal step in the plan.
+      const cliData = cliResult.data as { plan: { steps: { key: string }[] } };
+      const keys = cliData.plan.steps.map((s) => s.key);
+      expect(keys.indexOf(BLOCK_DRIFT_CHECK_NAME)).toBeGreaterThanOrEqual(0);
+      expect(keys.indexOf(BLOCK_DRIFT_CHECK_NAME)).toBeLessThan(
+        keys.indexOf(RETIRED_HOOKS_CHECK_NAME),
+      );
     } finally {
       await cleanup(cliFx);
       await cleanup(mcpFx);

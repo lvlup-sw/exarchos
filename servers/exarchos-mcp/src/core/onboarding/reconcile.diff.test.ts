@@ -19,6 +19,8 @@ import { diff } from './reconcile.js';
 import type { DesiredState } from './types.js';
 import { ReconcilePlanSchema } from './types.js';
 import type { CheckResult } from '../../orchestrate/doctor/schema.js';
+import { BLOCK_DRIFT_CHECK_NAME } from '../../orchestrate/onboard/block-drift.js';
+import { RETIRED_HOOKS_CHECK_NAME } from '../../orchestrate/onboard/hooks.js';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -262,6 +264,69 @@ describe('diff', () => {
       const keys = plan.steps.map((s) => s.key);
       expect(keys).toContain('verification-command-mutation');
       expect(keys).toContain('verification-command-lint');
+    });
+  });
+
+  // ─── DR-7 plan-step ordering (Task 017) ────────────────────────────────────
+  //
+  // The on-ramp managed-block WRITE (`onramp-block-drift`, a `generate` step) must
+  // precede the retired-hooks REMOVAL (`retired-hooks-present`, a `hook` step) so a
+  // consumer never transitions through hook-less + block-less (apply's cross-step
+  // gate then keeps the hooks if the block write fails).
+
+  describe('DR-7 block-write-before-hook-removal ordering', () => {
+    it('reconcile_BlockWriteOrderedBeforeHookRemoval', () => {
+      // Feed the removal check BEFORE the block-write check — the ordering pass
+      // must still emit the block-write step first, regardless of input order.
+      const actual: CheckResult[] = [
+        remediable('agent', RETIRED_HOOKS_CHECK_NAME),
+        remediable('agent', BLOCK_DRIFT_CHECK_NAME),
+      ];
+
+      const plan = diff(DESIRED, actual);
+      const keys = plan.steps.map((s) => s.key);
+
+      const blockIdx = keys.indexOf(BLOCK_DRIFT_CHECK_NAME);
+      const removalIdx = keys.indexOf(RETIRED_HOOKS_CHECK_NAME);
+      expect(blockIdx).toBeGreaterThanOrEqual(0);
+      expect(removalIdx).toBeGreaterThanOrEqual(0);
+      expect(blockIdx).toBeLessThan(removalIdx);
+
+      // The steps carry their classified kinds: generate (block write) + hook.
+      const byKey = new Map(plan.steps.map((s) => [s.key, s]));
+      expect(byKey.get(BLOCK_DRIFT_CHECK_NAME)!.kind).toBe('generate');
+      expect(byKey.get(RETIRED_HOOKS_CHECK_NAME)!.kind).toBe('hook');
+    });
+
+    it('Reconcile_AlreadyOrdered_PreservesOtherStepOrder', () => {
+      // When block-write already precedes removal (the roster-ordered case), the
+      // pass is a no-op AND unrelated steps keep their relative order.
+      const actual: CheckResult[] = [
+        remediable('storage', 'state-dir'), // config
+        remediable('agent', BLOCK_DRIFT_CHECK_NAME), // generate (block write)
+        remediable('agent', RETIRED_HOOKS_CHECK_NAME), // hook (removal)
+        remediable('plugin', 'plugin-skill-hash-sync'), // install
+      ];
+
+      const plan = diff(DESIRED, actual);
+      const keys = plan.steps.map((s) => s.key);
+
+      expect(keys).toEqual([
+        'state-dir',
+        BLOCK_DRIFT_CHECK_NAME,
+        RETIRED_HOOKS_CHECK_NAME,
+        'plugin-skill-hash-sync',
+      ]);
+    });
+
+    it('Reconcile_RemovalWithoutBlockWrite_LeavesRemovalStep', () => {
+      // A removal step with NO block-write step (the block already matched) is a
+      // valid plan — the ordering pass leaves it untouched.
+      const actual: CheckResult[] = [remediable('agent', RETIRED_HOOKS_CHECK_NAME)];
+
+      const plan = diff(DESIRED, actual);
+      const keys = plan.steps.map((s) => s.key);
+      expect(keys).toEqual([RETIRED_HOOKS_CHECK_NAME]);
     });
   });
 });
