@@ -85,6 +85,7 @@ const PINNED_CHECKS: ReadonlyArray<{
   { category: 'agent', name: 'session-start-hook' },
   { category: 'agent', name: 'onramp-block-drift' },
   { category: 'agent', name: 'retired-hooks-present' },
+  { category: 'plugin', name: 'stale-skill-dirs' },
   { category: 'plugin', name: 'plugin-skill-hash-sync' },
   { category: 'plugin', name: 'plugin-version-match' },
   { category: 'remote', name: 'remote-mcp' },
@@ -150,11 +151,11 @@ describe('doctor characterization (DR-9 baseline)', () => {
     const output: DoctorOutput = DoctorOutputSchema.parse(result.data);
     const { checks, summary } = output;
 
-    // ── 1. The fifteen checks, pinned by (category, name) and order ─────────
-    // (13 → 15 updated deliberately by Task 017: onramp-block-drift +
-    // retired-hooks-present.)
-    expect(ALL_CHECKS).toHaveLength(15);
-    expect(checks).toHaveLength(15);
+    // ── 1. The sixteen checks, pinned by (category, name) and order ─────────
+    // (13 → 15 updated by Task 017: onramp-block-drift + retired-hooks-present;
+    // 15 → 16 by Task 011: stale-skill-dirs.)
+    expect(ALL_CHECKS).toHaveLength(16);
+    expect(checks).toHaveLength(16);
 
     const observedIdentity = checks.map((c) => ({
       category: c.category,
@@ -164,7 +165,7 @@ describe('doctor characterization (DR-9 baseline)', () => {
 
     // The name set is exactly the pinned set (no dupes, no strays).
     const observedNames = new Set(checks.map((c) => c.name));
-    expect(observedNames.size).toBe(15);
+    expect(observedNames.size).toBe(16);
     for (const { name } of PINNED_CHECKS) {
       expect(observedNames.has(name)).toBe(true);
     }
@@ -234,7 +235,7 @@ describe('doctor characterization (DR-9 baseline)', () => {
 
     // Pinned cross-field invariants between the event and the doctor output.
     expect(payload.checkCount).toBe(checks.length);
-    expect(payload.checkCount).toBe(15);
+    expect(payload.checkCount).toBe(16);
     expect(payload.summary).toEqual(summary);
     expect(payload.failedCheckNames).toEqual(
       checks.filter((c) => c.status === 'Fail').map((c) => c.name),

@@ -21,9 +21,21 @@ import {
   registerExarchosInClaudeJson,
   detectLayoutDrift,
   resolveSkillsManifestPath,
+  hashSkillMdContent,
+  hashSkillMdFile,
+  hashSkillDirContent,
+  indexLegacyHashesBySkill,
+  loadLegacyHashIndex,
+  findLegacyHashManifestPath,
+  installManifestVouchesForDir,
   type SkillsProvenanceManifest,
+  type LegacySkillRenderManifest,
   type SpawnResult,
 } from './install-skills.js';
+// Boundary check (Task 011): the migration's newline-normalized SKILL.md hash
+// MUST equal the Task 023 generator's `normalizeAndHash`, so a CRLF-checkout
+// install hash-matches the committed legacy manifest.
+import { normalizeAndHash } from '../scripts/generate-legacy-skill-hashes.mjs';
 import { expandTilde } from './install-skills.js';
 
 /**
@@ -935,6 +947,114 @@ describe('installSkills canonical layout + provenance (Task 010, DR-4/DR-8)', ()
     } finally {
       src.dispose();
       fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
+// ─── Rename-migration provenance helpers (Task 011, DR-3/DR-8) ────────────────
+
+describe('legacy-render + install-manifest provenance helpers', () => {
+  it('hashSkillMdContent_MatchesLegacyGeneratorNormalizeAndHash', () => {
+    // The migration's SKILL.md hash is the load-bearing cross-format contract: it
+    // MUST be byte-identical to the Task 023 generator's `normalizeAndHash`, and
+    // CRLF must normalize to LF so a Windows-checkout install still matches.
+    const lf = '# ideate\n\nOrient the workflow.\n';
+    const crlf = lf.replace(/\n/g, '\r\n');
+
+    expect(hashSkillMdContent(lf)).toBe(normalizeAndHash(lf));
+    // CRLF and LF hash identically (newline-normalized) — the CRLF-install case.
+    expect(hashSkillMdContent(crlf)).toBe(hashSkillMdContent(lf));
+    expect(hashSkillMdContent(crlf)).toBe(normalizeAndHash(crlf));
+  });
+
+  it('hashSkillMdFile_ReadsSkillMd_NormalizesCrlf', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'skillmd-'));
+    try {
+      const lf = '# delegate\n\nDelegate to sub-agents.\n';
+      fs.mkdirSync(path.join(dir, 'delegation'), { recursive: true });
+      // Write CRLF bytes on disk — the reader must newline-normalize before hashing.
+      fs.writeFileSync(
+        path.join(dir, 'delegation', 'SKILL.md'),
+        lf.replace(/\n/g, '\r\n'),
+        'utf8',
+      );
+      expect(hashSkillMdFile(path.join(dir, 'delegation'))).toBe(hashSkillMdContent(lf));
+      // A dir with no SKILL.md → undefined (not a skill dir).
+      fs.mkdirSync(path.join(dir, 'empty'), { recursive: true });
+      expect(hashSkillMdFile(path.join(dir, 'empty'))).toBeUndefined();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('indexLegacyHashesBySkill_UnionsHashesAcrossRuntimesAndReleases', () => {
+    const manifest: LegacySkillRenderManifest = {
+      algorithm: 'sha256',
+      normalization: 'crlf-to-lf',
+      scope: 'all-skill-renders',
+      source: 'git-history',
+      minRelease: 'v2.9.0',
+      releases: ['v2.9.0', 'v2.10.0'],
+      entries: [
+        { release: 'v2.9.0', runtime: 'claude', skill: 'brainstorming', path: 'p1', hash: 'h1' },
+        { release: 'v2.9.0', runtime: 'codex', skill: 'brainstorming', path: 'p2', hash: 'h2' },
+        { release: 'v2.10.0', runtime: 'claude', skill: 'brainstorming', path: 'p3', hash: 'h3' },
+        { release: 'v2.9.0', runtime: 'claude', skill: 'delegation', path: 'p4', hash: 'h4' },
+      ],
+    };
+    const index = indexLegacyHashesBySkill(manifest);
+    // "matches ANY release" ⇒ the per-skill set unions every historical hash.
+    expect(index.get('brainstorming')).toEqual(new Set(['h1', 'h2', 'h3']));
+    expect(index.get('delegation')).toEqual(new Set(['h4']));
+    expect(index.get('nonexistent')).toBeUndefined();
+  });
+
+  it('loadLegacyHashIndex_ParsesRealCommittedManifest', () => {
+    // Consume the REAL committed Task 023 manifest (no invented parallel format):
+    // it resolves on disk, parses, and indexes renamed-away skills.
+    const manifestPath = findLegacyHashManifestPath();
+    expect(manifestPath).toBeDefined();
+
+    const index = loadLegacyHashIndex();
+    expect(index).toBeDefined();
+    // The renamed-away skills the migration targets are all covered historically.
+    expect((index!.get('brainstorming')?.size ?? 0)).toBeGreaterThan(0);
+    expect((index!.get('delegation')?.size ?? 0)).toBeGreaterThan(0);
+    expect((index!.get('workflow-state')?.size ?? 0)).toBeGreaterThan(0);
+
+    // Every hash in a set is a full 64-hex sha256 digest (the generator's shape).
+    const someHash = [...index!.get('brainstorming')!][0];
+    expect(someHash).toMatch(/^[0-9a-f]{64}$/);
+
+    // Absent manifest path ⇒ undefined (the conservative PRESERVE default).
+    expect(loadLegacyHashIndex({ manifestPath: path.join(os.tmpdir(), 'nope.json') })).toBeUndefined();
+  });
+
+  it('installManifestVouchesForDir_MatchesRecordedWholeDirHash', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'provdir-'));
+    try {
+      fs.mkdirSync(path.join(dir, 'synthesis'), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'synthesis', 'SKILL.md'), '# synthesis\n', 'utf8');
+      const dirHash = hashSkillDirContent(path.join(dir, 'synthesis'));
+
+      const manifest: SkillsProvenanceManifest = {
+        schema: 'exarchos-skills-provenance/v1',
+        version: '2.11.0',
+        scope: 'user',
+        generatedAt: new Date().toISOString(),
+        skills: ['synthesis'],
+        placements: [
+          { harness: 'claude', kind: 'native', path: dir, hashes: { synthesis: dirHash } },
+        ],
+      };
+
+      expect(installManifestVouchesForDir([manifest], 'synthesis', dirHash)).toBe(true);
+      // A different content hash for the same skill does NOT vouch (modified dir).
+      expect(installManifestVouchesForDir([manifest], 'synthesis', 'deadbeef')).toBe(false);
+      // A skill the manifest never recorded is not vouched for.
+      expect(installManifestVouchesForDir([manifest], 'discovery', dirHash)).toBe(false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 });

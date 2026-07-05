@@ -394,13 +394,14 @@ describe('handleDoctor — verification-toolchain roster (task 009)', () => {
       () => benignProbes(),
     );
 
-    // Assert — the roster ships exactly 15 checks now (Task 017 added
-    // onramp-block-drift + retired-hooks-present), and verification-toolchain is
-    // present (by category + name) in the dispatched output, not just the export.
-    expect(ALL_CHECKS).toHaveLength(15);
+    // Assert — the roster ships exactly 16 checks now (Task 017 added
+    // onramp-block-drift + retired-hooks-present; Task 011 added stale-skill-dirs),
+    // and verification-toolchain is present (by category + name) in the dispatched
+    // output, not just the export.
+    expect(ALL_CHECKS).toHaveLength(16);
     expect(result.success).toBe(true);
     const data = result.data as { checks: CheckResult[] };
-    expect(data.checks).toHaveLength(15);
+    expect(data.checks).toHaveLength(16);
 
     const vt = data.checks.find((c) => c.name === 'verification-toolchain');
     expect(vt).toBeDefined();

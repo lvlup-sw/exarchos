@@ -982,6 +982,195 @@ export function detectLayoutDrift(
   return findings;
 }
 
+// ─── Multi-release legacy-render hash provenance (DR-8, Task 023 consumer) ────
+//
+// The onboard rename migration (Task 011, DR-3/DR-8) deletes a stale OLD-NAME
+// skill dir from a consumer install ONLY when it can prove the dir came from us.
+// Two provenance sources establish that (either suffices):
+//   (a) the Task 010 install provenance manifest (`.exarchos-skills.json`),
+//       whose per-placement `hashes[skill]` are whole-dir digests
+//       ({@link hashSkillDirContent}); and
+//   (b) the Task 023 multi-release legacy-render hash manifest
+//       (`migrations/legacy-skill-render-hashes.json`), whose entries are the
+//       newline-normalized (CRLF→LF) sha256 of every per-runtime `SKILL.md`
+//       render ACROSS historical release tags — so a pre-existing install of any
+//       prior release, even a CRLF checkout, still hash-matches.
+//
+// These helpers are the single format-consumers for both provenance sources; the
+// onboard migration (server package, isolated by the MCP server's tsc
+// `rootDir: "./src"`) mirrors the two hashers and is drift-guarded against these
+// by a co-located cross-package test.
+
+/** Filename of the committed multi-release legacy-render hash manifest (Task 023). */
+export const LEGACY_HASH_MANIFEST_FILENAME = 'legacy-skill-render-hashes.json';
+
+/** One historical per-runtime render hash in the Task 023 manifest. */
+export interface LegacySkillRenderEntry {
+  release: string;
+  runtime: string;
+  skill: string;
+  path: string;
+  hash: string;
+}
+
+/** The committed Task 023 legacy-render hash manifest (real on-disk shape). */
+export interface LegacySkillRenderManifest {
+  algorithm: string;
+  normalization: string;
+  scope: string;
+  source: string;
+  minRelease: string;
+  releases: string[];
+  entries: LegacySkillRenderEntry[];
+}
+
+/**
+ * Newline-normalized (CRLF→LF) sha256 hex of a single `SKILL.md` render's
+ * content. MUST stay byte-identical to the Task 023 generator's `normalizeAndHash`
+ * (`scripts/generate-legacy-skill-hashes.mjs`) so a consumer file that differs
+ * only in line endings still hash-matches the manifest — the cross-format
+ * equality is pinned by `install-skills.test.ts`.
+ */
+export function hashSkillMdContent(content: string): string {
+  return createHash('sha256').update(normalizeNewlines(content), 'utf8').digest('hex');
+}
+
+/**
+ * Hash the `SKILL.md` inside `skillDir` for legacy-render provenance. Reads
+ * THROUGH symlinks (so a symlinked install hashes to its target's render).
+ * Returns `undefined` when the dir carries no `SKILL.md` (not a skill dir).
+ */
+export function hashSkillMdFile(
+  skillDir: string,
+  readFile: (p: string) => string = (p) => fs.readFileSync(p, 'utf8'),
+): string | undefined {
+  try {
+    return hashSkillMdContent(readFile(path.join(skillDir, 'SKILL.md')));
+  } catch {
+    return undefined;
+  }
+}
+
+/** Type guard for a parsed value shaped like the Task 023 legacy-render manifest. */
+export function isLegacySkillRenderManifest(v: unknown): v is LegacySkillRenderManifest {
+  if (v === null || typeof v !== 'object') return false;
+  const m = v as Record<string, unknown>;
+  return Array.isArray(m.entries) && Array.isArray(m.releases);
+}
+
+/**
+ * Index a Task 023 manifest by skill name → the set of every historical render
+ * hash for that skill (across all runtimes and releases). A stale old-name dir is
+ * legacy-provenance-matched when its `SKILL.md` hash is a member of its skill's
+ * set, for ANY release — the union is exactly the "matches any release" contract.
+ */
+export function indexLegacyHashesBySkill(
+  manifest: LegacySkillRenderManifest,
+): Map<string, Set<string>> {
+  const index = new Map<string, Set<string>>();
+  for (const entry of manifest.entries) {
+    let set = index.get(entry.skill);
+    if (!set) {
+      set = new Set<string>();
+      index.set(entry.skill, set);
+    }
+    set.add(entry.hash);
+  }
+  return index;
+}
+
+/**
+ * Resolve the committed legacy-render hash manifest on disk. Mirrors
+ * {@link findSkillsSourceDir}'s candidate order (cwd, compiled-binary
+ * `dist/bin/../..`, src-relative dev path) but rooted at `migrations/`. Returns
+ * the first existing candidate, or `undefined` when none exist (the migration
+ * then simply has no legacy provenance to match against — the conservative
+ * PRESERVE default, never a spurious deletion).
+ */
+export function findLegacyHashManifestPath(): string | undefined {
+  const candidates: string[] = [
+    path.join(process.cwd(), 'migrations', LEGACY_HASH_MANIFEST_FILENAME),
+  ];
+  if (typeof process.execPath === 'string' && process.execPath.length > 0) {
+    candidates.push(
+      path.resolve(
+        path.dirname(process.execPath),
+        '..',
+        '..',
+        'migrations',
+        LEGACY_HASH_MANIFEST_FILENAME,
+      ),
+    );
+  }
+  try {
+    if (typeof import.meta.url === 'string' && import.meta.url.startsWith('file:')) {
+      const here = path.dirname(fileURLToPath(import.meta.url));
+      candidates.push(path.resolve(here, '..', 'migrations', LEGACY_HASH_MANIFEST_FILENAME));
+    }
+  } catch (err) {
+    if (!isIgnorablePathProbeError(err)) throw err;
+  }
+  for (const c of candidates) {
+    try {
+      if (fs.statSync(c).isFile()) return c;
+    } catch (err) {
+      if (!isIgnorablePathProbeError(err)) throw err;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Load + index the legacy-render hash manifest for provenance matching. Resolves
+ * the manifest path via {@link findLegacyHashManifestPath} (overridable), parses
+ * it, and returns the by-skill hash index. Returns `undefined` when the manifest
+ * is absent or unparseable — provenance (b) is then simply unavailable (PRESERVE).
+ */
+export function loadLegacyHashIndex(
+  opts: {
+    manifestPath?: string;
+    readFile?: (p: string) => string;
+  } = {},
+): Map<string, Set<string>> | undefined {
+  const manifestPath = opts.manifestPath ?? findLegacyHashManifestPath();
+  if (manifestPath === undefined) return undefined;
+  const readFile = opts.readFile ?? ((p: string) => fs.readFileSync(p, 'utf8'));
+  try {
+    const parsed: unknown = JSON.parse(readFile(manifestPath));
+    if (!isLegacySkillRenderManifest(parsed)) return undefined;
+    return indexLegacyHashesBySkill(parsed);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Does any placement in the supplied install provenance manifests (Task 010
+ * format) vouch for a skill dir whose whole-dir content hash is `dirHash`? A
+ * manifest records `placements[].hashes[skill]` as the newline-normalized
+ * whole-dir digest at install time; a match proves the on-disk dir is an
+ * unmodified copy of exactly what we placed. Skill-name keys are folded
+ * case-insensitively when `caseInsensitive` is set (matching the manifest's own
+ * dedup semantics).
+ */
+export function installManifestVouchesForDir(
+  manifests: readonly SkillsProvenanceManifest[],
+  skillName: string,
+  dirHash: string,
+  caseInsensitive = false,
+): boolean {
+  const wanted = caseInsensitive ? skillName.toLowerCase() : skillName;
+  for (const manifest of manifests) {
+    for (const placement of manifest.placements) {
+      for (const [recordedSkill, recordedHash] of Object.entries(placement.hashes)) {
+        const key = caseInsensitive ? recordedSkill.toLowerCase() : recordedSkill;
+        if (key === wanted && recordedHash === dirHash) return true;
+      }
+    }
+  }
+  return false;
+}
+
 /**
  * Resolve the exarchos version recorded in the provenance manifest. Reads the
  * root `package.json` `version` (the single source of truth) relative to this

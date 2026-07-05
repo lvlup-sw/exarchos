@@ -67,6 +67,7 @@ const PINNED_ROSTER: ReadonlyArray<{
   { category: 'agent', name: 'session-start-hook' },
   { category: 'agent', name: 'onramp-block-drift' },
   { category: 'agent', name: 'retired-hooks-present' },
+  { category: 'plugin', name: 'stale-skill-dirs' },
   { category: 'plugin', name: 'plugin-skill-hash-sync' },
   { category: 'plugin', name: 'plugin-version-match' },
   { category: 'remote', name: 'remote-mcp' },
@@ -153,14 +154,15 @@ async function runRoster(): Promise<readonly CheckResult[]> {
 // ─── Characterization ────────────────────────────────────────────────────────
 
 describe('doctor roster characterization (T0 baseline)', () => {
-  it('DoctorRoster_CurrentBuild_ExactlyFifteenChecksWithStableNames', async () => {
-    // The static export ships exactly fifteen checks, in pinned order. (13 → 15
-    // updated deliberately by Task 017: onramp-block-drift + retired-hooks-present.)
-    expect(ALL_CHECKS).toHaveLength(15);
-    expect(PINNED_ROSTER).toHaveLength(15);
+  it('DoctorRoster_CurrentBuild_ExactlySixteenChecksWithStableNames', async () => {
+    // The static export ships exactly sixteen checks, in pinned order. (13 → 15
+    // by Task 017: onramp-block-drift + retired-hooks-present; 15 → 16 by
+    // Task 011: stale-skill-dirs.)
+    expect(ALL_CHECKS).toHaveLength(16);
+    expect(PINNED_ROSTER).toHaveLength(16);
 
     const results = await runRoster();
-    expect(results).toHaveLength(15);
+    expect(results).toHaveLength(16);
 
     // Each check, run through the REAL ALL_CHECKS, stamps its own identity —
     // we read (category, name) off the returned result rather than transcribing.
@@ -172,7 +174,7 @@ describe('doctor roster characterization (T0 baseline)', () => {
 
     // The name set is exactly the pinned set: no duplicates, no strays.
     const observedNames = new Set(results.map((r) => r.name));
-    expect(observedNames.size).toBe(15);
+    expect(observedNames.size).toBe(16);
     for (const { name } of PINNED_ROSTER) {
       expect(observedNames.has(name)).toBe(true);
     }

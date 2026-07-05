@@ -34,7 +34,10 @@
  */
 
 import { spawn as nodeSpawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import * as fs from 'node:fs';
 import { homedir } from 'node:os';
+import * as path from 'node:path';
 
 import type { ApplyCtx } from '../../core/onboarding/reconcile.js';
 import type { PlanStep } from '../../core/onboarding/types.js';
@@ -136,6 +139,14 @@ export interface InstallStepDeps {
    * `spawn` / `resolveSkillsSource` which thread through to the real seam.
    */
   readonly runSkillsInstall?: (opts: SkillsInstallOpts) => Promise<void>;
+  /**
+   * The DR-3/DR-8 onboard rename migration hook (Task 011), run BEFORE the skills
+   * install so a consumer never sees both the old-name residue and the new names
+   * mid-pass. Defaults to {@link defaultRunMigrate} (disk-loaded provenance →
+   * {@link onboardMigrate}). Tests inject a spy / no-op to isolate the install
+   * side effects, or drive {@link onboardMigrate} directly.
+   */
+  readonly runMigrate?: (ctx: ApplyCtx) => void;
 }
 
 /**
@@ -287,6 +298,481 @@ const NOOP_REGISTER_MCP = (_home: string): void => {
   /* MCP registration is owned by GENERATE — the install step never registers. */
 };
 
+// ─── Onboard rename migration (Task 011, DR-3/DR-8) ───────────────────────────
+//
+// The atomic rename wave (Task 004) renamed 9 skills (skill name == verb == dir).
+// Prior-release installs therefore carry STALE OLD-NAME skill dirs on disk. The
+// onboard reconciler removes those across BOTH install scopes (project + user)
+// AND every per-harness `skillsInstallPath` — but ONLY when provenance is
+// established via the Task 010 install manifest OR the Task 023 multi-release
+// legacy-render hash manifest. Modified / unmatched dirs are PRESERVED with a
+// warning + a `doctor` finding; symlinked installs have the LINK removed only
+// (never the target); the pass is idempotent (byte-stable after the first run).
+//
+// This module lives in the MCP server package (tsc `rootDir: "./src"`), so it
+// cannot import the root `src/install-skills.ts` provenance helpers directly. The
+// two hashers below MIRROR those (`hashSkillDirContent` / `hashSkillMdContent`)
+// and are drift-guarded against them by a co-located cross-package test — the
+// same "own-constants + cross-package equality guard" idiom DR-5 uses for the
+// managed-block fences.
+
+/**
+ * The 9 skills the DR-3 atomic rename wave renamed away. A dir bearing one of
+ * these names in a consumer install is a prior-release residue (the new names —
+ * `ideate`, `plan`, `delegate`, `synthesize`, `discover`, `oneshot`, `prune`,
+ * `invariants`, and the `rehydrate`/`checkpoint` split — are the live set and are
+ * NEVER in this list, so the migration can only ever delete a genuinely-retired
+ * directory).
+ */
+export const RENAMED_AWAY_SKILL_DIRS: readonly string[] = [
+  'brainstorming', // → ideate
+  'implementation-planning', // → plan
+  'delegation', // → delegate
+  'synthesis', // → synthesize
+  'discovery', // → discover
+  'oneshot-workflow', // → oneshot
+  'prune-workflows', // → prune
+  'authoring-invariants', // → invariants
+  'workflow-state', // → rehydrate + checkpoint
+];
+
+/** Install scope for the canonical `.agents/skills` convention path. */
+export type SkillsScope = 'user' | 'project';
+
+/** The subset of a runtime map the migration reads (its native skills dir). */
+export interface RuntimeSkillsTarget {
+  readonly name: string;
+  readonly skillsInstallPath: string;
+}
+
+/** One placement record from a Task 010 install provenance manifest (real shape). */
+export interface ProvenancePlacement {
+  readonly path: string;
+  readonly hashes: Record<string, string>;
+}
+
+/** A Task 010 install provenance manifest (the subset the migration reads). */
+export interface ProvenanceManifest {
+  readonly placements: readonly ProvenancePlacement[];
+}
+
+/** One stale dir the migration acted on (removed) or declined to act on (preserved). */
+export interface StaleDirOutcome {
+  /** Absolute path of the old-name skill dir. */
+  readonly path: string;
+  /** The install scope / harness the dir belonged to (for reporting). */
+  readonly location: string;
+  /** Whether the on-disk entry was a symlink (link removed, target untouched). */
+  readonly symlink: boolean;
+}
+
+/** A preserved dir, with the reason it was NOT removed. */
+export interface PreservedDirOutcome extends StaleDirOutcome {
+  readonly reason: 'no-provenance-match';
+}
+
+/** A removed dir, with which provenance source vouched for it. */
+export interface RemovedDirOutcome extends StaleDirOutcome {
+  readonly via: 'install-manifest' | 'legacy-hash';
+}
+
+export interface OnboardMigrateResult {
+  readonly removed: RemovedDirOutcome[];
+  readonly preserved: PreservedDirOutcome[];
+  readonly warnings: string[];
+}
+
+/** Injected filesystem seam so the migration is unit-testable without real I/O. */
+export interface MigrateFsSeam {
+  /** List directory entries (name + isDirectory/isSymbolicLink) — non-throwing on absent. */
+  readonly readdir: (dir: string) => Array<{ name: string; isDirectory: boolean; isSymbolicLink: boolean }>;
+  /** lstat a path (does NOT follow symlinks). */
+  readonly lstat: (p: string) => { isSymbolicLink: boolean };
+  /** Whole-dir content hash (follows symlinks) — install-manifest provenance. */
+  readonly hashDir: (dir: string) => string;
+  /** SKILL.md content hash (follows symlinks), or undefined — legacy provenance. */
+  readonly hashSkillMd: (dir: string) => string | undefined;
+  /** Remove a real directory recursively. */
+  readonly removeDir: (dir: string) => void;
+  /** Remove a symlink (the LINK only, never its target). */
+  readonly removeLink: (link: string) => void;
+}
+
+export interface OnboardMigrateOptions {
+  /** Per-harness native skills dirs to scan. */
+  readonly runtimes?: readonly RuntimeSkillsTarget[];
+  /** Resolve the user's home (tilde/`$HOME` expansion + user-scope canonical dir). */
+  readonly homeDir: () => string;
+  /** Project root for the project-scope canonical `.agents/skills` dir. */
+  readonly projectRoot: string;
+  /** Install manifests (Task 010) — one per scope — the migration reads for provenance (a). */
+  readonly installManifests?: readonly ProvenanceManifest[];
+  /** Legacy-render hash index (Task 023) by skill name — provenance (b). */
+  readonly legacyHashesBySkill?: ReadonlyMap<string, ReadonlySet<string>>;
+  /** Fold skill-name keys case-insensitively (case-insensitive filesystems). */
+  readonly caseInsensitive?: boolean;
+  /** Filesystem seam (defaults to real `node:fs`). */
+  readonly fsSeam?: MigrateFsSeam;
+  /** Warning sink for preserved dirs (defaults to silent — onboard owns the summary). */
+  readonly warn?: (msg: string) => void;
+}
+
+/** Expand a leading `~` / `$HOME` marker (mirrors install-skills' `expandTilde`). */
+function expandHome(p: string, home: string): string {
+  if (p === '~') return home;
+  if (p.startsWith('~/')) return `${home}${p.slice(1)}`;
+  if (p === '$HOME') return home;
+  if (p.startsWith('$HOME/')) return `${home}${p.slice('$HOME'.length)}`;
+  return p;
+}
+
+/** POSIX-normalize a path for stable dedup keys (mirrors install-skills). */
+function toPosix(p: string): string {
+  return p.replace(/\\/g, '/');
+}
+
+/**
+ * Whole-dir content hash — MIRRORS `hashSkillDirContent` in
+ * `src/install-skills.ts` byte-for-byte (sorted POSIX rel-paths, each
+ * newline-normalized, `rel\0content\0`). Reads THROUGH symlinks (stat, not
+ * lstat) so a symlinked install hashes to its target. Drift-guarded by the
+ * cross-package test in `install.test.ts`.
+ */
+export function hashInstalledSkillDir(skillDir: string): string {
+  const rels: string[] = [];
+  const walk = (dir: string, rel: string): void => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const childRel = rel ? `${rel}/${e.name}` : e.name;
+      const abs = path.join(dir, e.name);
+      const st = fs.statSync(abs);
+      if (st.isDirectory()) walk(abs, childRel);
+      else if (st.isFile()) rels.push(childRel);
+    }
+  };
+  walk(skillDir, '');
+  rels.sort();
+  const h = createHash('sha256');
+  for (const rel of rels) {
+    const content = fs.readFileSync(path.join(skillDir, rel)).toString('utf8');
+    h.update(rel);
+    h.update('\0');
+    h.update(content.replace(/\r\n/g, '\n'));
+    h.update('\0');
+  }
+  return h.digest('hex');
+}
+
+/**
+ * SKILL.md-only content hash (CRLF→LF + sha256) — MIRRORS `hashSkillMdContent`
+ * in `src/install-skills.ts` and the Task 023 generator's `normalizeAndHash`, so
+ * a CRLF-checkout install still legacy-hash-matches. Reads through symlinks;
+ * `undefined` when the dir carries no `SKILL.md`.
+ */
+export function hashInstalledSkillMd(
+  skillDir: string,
+  readFile: (p: string) => string = (p) => fs.readFileSync(p, 'utf8'),
+): string | undefined {
+  try {
+    return createHash('sha256')
+      .update(readFile(path.join(skillDir, 'SKILL.md')).replace(/\r\n/g, '\n'), 'utf8')
+      .digest('hex');
+  } catch {
+    return undefined;
+  }
+}
+
+/** The real `node:fs`-backed migration filesystem seam. */
+function defaultMigrateFsSeam(): MigrateFsSeam {
+  return {
+    readdir: (dir) => {
+      let entries: fs.Dirent[];
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return [];
+      }
+      return entries.map((e) => ({
+        name: e.name,
+        isDirectory: e.isDirectory(),
+        isSymbolicLink: e.isSymbolicLink(),
+      }));
+    },
+    lstat: (p) => ({ isSymbolicLink: fs.lstatSync(p).isSymbolicLink() }),
+    hashDir: (dir) => hashInstalledSkillDir(dir),
+    hashSkillMd: (dir) => hashInstalledSkillMd(dir),
+    removeDir: (dir) => fs.rmSync(dir, { recursive: true, force: true }),
+    removeLink: (link) => fs.unlinkSync(link),
+  };
+}
+
+/**
+ * Resolve every directory the migration scans for stale old-name skill dirs: the
+ * canonical `.agents/skills` convention dir for BOTH scopes plus each harness's
+ * native `skillsInstallPath`. Deduped by POSIX-resolved path (the `generic`
+ * runtime's native dir IS the user canonical dir, so it collapses to one).
+ */
+export function resolveMigrationScanLocations(
+  opts: Pick<OnboardMigrateOptions, 'runtimes' | 'homeDir' | 'projectRoot'>,
+): string[] {
+  const home = opts.homeDir();
+  const raw: string[] = [
+    expandHome('~/.agents/skills', home), // user-scope canonical
+    path.join(opts.projectRoot, '.agents', 'skills'), // project-scope canonical
+  ];
+  for (const rt of opts.runtimes ?? []) {
+    raw.push(expandHome(rt.skillsInstallPath, home));
+  }
+  const seen = new Set<string>();
+  const locations: string[] = [];
+  for (const loc of raw) {
+    const key = toPosix(path.resolve(loc));
+    if (seen.has(key)) continue;
+    seen.add(key);
+    locations.push(loc);
+  }
+  return locations;
+}
+
+/**
+ * Reconcile stale OLD-NAME skill dirs across every install scope + per-harness
+ * native dir (Task 011, DR-3/DR-8).
+ *
+ * For each scanned location, every top-level dir whose name is a
+ * {@link RENAMED_AWAY_SKILL_DIRS} entry is evaluated:
+ *   - provenance (a): the on-disk whole-dir hash matches a Task 010 install
+ *     manifest placement's recorded hash for that skill; OR
+ *   - provenance (b): the on-disk `SKILL.md` newline-normalized hash matches ANY
+ *     release's Task 023 legacy-render hash for that skill.
+ * A provenance-matched dir is REMOVED (symlink ⇒ the link only, never the target;
+ * real dir ⇒ recursive delete). A dir matching neither manifest is PRESERVED,
+ * a warning is emitted, and the read-only `doctor` `stale-skill-dirs` check
+ * surfaces it for manual review. Idempotent: removed dirs are gone on the next
+ * run, and preserved dirs re-preserve with no filesystem write (byte-stable).
+ */
+export function onboardMigrate(opts: OnboardMigrateOptions): OnboardMigrateResult {
+  const seam = opts.fsSeam ?? defaultMigrateFsSeam();
+  const warn = opts.warn ?? ((_msg: string) => {});
+  const manifests = opts.installManifests ?? [];
+  const legacy = opts.legacyHashesBySkill;
+  const caseInsensitive = opts.caseInsensitive ?? false;
+  const stale = new Set(
+    RENAMED_AWAY_SKILL_DIRS.map((n) => (caseInsensitive ? n.toLowerCase() : n)),
+  );
+
+  const removed: RemovedDirOutcome[] = [];
+  const preserved: PreservedDirOutcome[] = [];
+  const warnings: string[] = [];
+
+  const locations = resolveMigrationScanLocations(opts);
+  for (const location of locations) {
+    for (const entry of seam.readdir(location)) {
+      const nameKey = caseInsensitive ? entry.name.toLowerCase() : entry.name;
+      if (!entry.isDirectory && !entry.isSymbolicLink) continue;
+      if (!stale.has(nameKey)) continue;
+
+      const skillDir = path.join(location, entry.name);
+      const symlink = entry.isSymbolicLink || (() => {
+        try {
+          return seam.lstat(skillDir).isSymbolicLink;
+        } catch {
+          return false;
+        }
+      })();
+
+      // Provenance (a): whole-dir hash vouched by an install manifest placement.
+      let via: RemovedDirOutcome['via'] | undefined;
+      let dirHash: string | undefined;
+      try {
+        dirHash = seam.hashDir(skillDir);
+      } catch {
+        dirHash = undefined;
+      }
+      if (dirHash !== undefined && manifestVouches(manifests, entry.name, dirHash, caseInsensitive)) {
+        via = 'install-manifest';
+      }
+
+      // Provenance (b): SKILL.md hash matches any historical legacy render.
+      if (via === undefined && legacy !== undefined) {
+        const mdHash = seam.hashSkillMd(skillDir);
+        const set = legacy.get(entry.name);
+        if (mdHash !== undefined && set !== undefined && set.has(mdHash)) {
+          via = 'legacy-hash';
+        }
+      }
+
+      if (via !== undefined) {
+        // Symlinked install ⇒ unlink the LINK only (never follow to the target).
+        if (symlink) seam.removeLink(skillDir);
+        else seam.removeDir(skillDir);
+        removed.push({ path: skillDir, location, symlink, via });
+      } else {
+        const msg =
+          `Preserved stale skill directory "${skillDir}" — it matches no Exarchos ` +
+          `install manifest or legacy render hash (modified or unrecognized). Review ` +
+          `and remove it by hand if it is safe to delete.`;
+        preserved.push({ path: skillDir, location, symlink, reason: 'no-provenance-match' });
+        warnings.push(msg);
+        warn(msg);
+      }
+    }
+  }
+
+  return { removed, preserved, warnings };
+}
+
+/** Does any install manifest placement vouch for `skillName` at content `dirHash`? */
+function manifestVouches(
+  manifests: readonly ProvenanceManifest[],
+  skillName: string,
+  dirHash: string,
+  caseInsensitive: boolean,
+): boolean {
+  const wanted = caseInsensitive ? skillName.toLowerCase() : skillName;
+  for (const manifest of manifests) {
+    for (const placement of manifest.placements) {
+      for (const [recordedSkill, recordedHash] of Object.entries(placement.hashes)) {
+        const key = caseInsensitive ? recordedSkill.toLowerCase() : recordedSkill;
+        if (key === wanted && recordedHash === dirHash) return true;
+      }
+    }
+  }
+  return false;
+}
+
+// ─── Provenance loading (production defaults) ─────────────────────────────────
+//
+// The disk shapes these loaders parse are single-sourced in
+// `src/install-skills.ts` (Task 010 `.exarchos-skills.json`) and
+// `scripts/generate-legacy-skill-hashes.mjs` / `migrations/` (Task 023). The
+// server package cannot import those (tsc `rootDir: "./src"`), so the filename
+// literals and shape checks are mirrored here and pinned by `install.test.ts`.
+
+/** Task 010 per-scope provenance manifest filename (mirrors `SKILLS_MANIFEST_FILENAME`). */
+const SKILLS_MANIFEST_FILENAME = '.exarchos-skills.json';
+/** Task 023 committed legacy-render hash manifest filename. */
+const LEGACY_HASH_MANIFEST_FILENAME = 'legacy-skill-render-hashes.json';
+
+/** Read + shape-check one Task 010 install manifest; `undefined` when absent/malformed. */
+export function loadInstallManifest(manifestPath: string): ProvenanceManifest | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  } catch {
+    return undefined;
+  }
+  if (parsed === null || typeof parsed !== 'object') return undefined;
+  const placements = (parsed as { placements?: unknown }).placements;
+  if (!Array.isArray(placements)) return undefined;
+  return parsed as ProvenanceManifest;
+}
+
+/** Both-scope install manifests for `home` (user) + `projectRoot` (project). */
+function loadInstallManifests(home: string, projectRoot: string): ProvenanceManifest[] {
+  const candidates = [
+    path.join(expandHome('~/.agents', home), SKILLS_MANIFEST_FILENAME),
+    path.join(projectRoot, '.agents', SKILLS_MANIFEST_FILENAME),
+  ];
+  const manifests: ProvenanceManifest[] = [];
+  for (const c of candidates) {
+    const m = loadInstallManifest(c);
+    if (m) manifests.push(m);
+  }
+  return manifests;
+}
+
+/** Resolve the committed Task 023 legacy-render hash manifest on disk. */
+function findLegacyHashManifestPath(): string | undefined {
+  const candidates = [path.join(process.cwd(), 'migrations', LEGACY_HASH_MANIFEST_FILENAME)];
+  if (typeof process.execPath === 'string' && process.execPath.length > 0) {
+    candidates.push(
+      path.resolve(
+        path.dirname(process.execPath),
+        '..',
+        '..',
+        'migrations',
+        LEGACY_HASH_MANIFEST_FILENAME,
+      ),
+    );
+  }
+  for (const c of candidates) {
+    try {
+      if (fs.statSync(c).isFile()) return c;
+    } catch {
+      // try next
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Load + index the Task 023 legacy-render hash manifest by skill name.
+ * `undefined` when the manifest is absent or unparseable — provenance (b) is then
+ * simply unavailable (the conservative PRESERVE default, never a false delete).
+ */
+export function loadLegacyHashIndexFromDisk(
+  manifestPath: string | undefined = findLegacyHashManifestPath(),
+): Map<string, Set<string>> | undefined {
+  if (manifestPath === undefined) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  } catch {
+    return undefined;
+  }
+  const entries = (parsed as { entries?: unknown } | null)?.entries;
+  if (!Array.isArray(entries)) return undefined;
+  const index = new Map<string, Set<string>>();
+  for (const e of entries as Array<{ skill?: unknown; hash?: unknown }>) {
+    if (typeof e?.skill !== 'string' || typeof e?.hash !== 'string') continue;
+    let set = index.get(e.skill);
+    if (!set) {
+      set = new Set<string>();
+      index.set(e.skill, set);
+    }
+    set.add(e.hash);
+  }
+  return index;
+}
+
+/** Case-insensitive-filesystem heuristic (mirrors install-skills' `defaultCaseInsensitiveFs`). */
+function migrateCaseInsensitiveFs(platform: NodeJS.Platform): boolean {
+  return platform === 'win32' || platform === 'darwin';
+}
+
+/**
+ * The production migration hook wired into {@link makeInstallStep}: loads both-
+ * scope install manifests + the legacy-render hash index from disk and runs
+ * {@link onboardMigrate} across the resolved scan locations. Defensive by design
+ * — a missing manifest / absent dir simply contributes no removal (PRESERVE), and
+ * the whole hook never throws (a migration fault must not block the skills
+ * install that follows it, forward-only DR-10).
+ */
+function defaultRunMigrate(deps: InstallStepDeps): (ctx: ApplyCtx) => void {
+  return (ctx: ApplyCtx): void => {
+    try {
+      const home = (deps.homeDir ?? (() => homedir()))();
+      const projectRoot = deps.projectRoot ?? ctx.repoRoot;
+      const platform = deps.platform ?? process.platform;
+      onboardMigrate({
+        ...(deps.runtimes
+          ? { runtimes: deps.runtimes as readonly RuntimeSkillsTarget[] }
+          : {}),
+        homeDir: () => home,
+        projectRoot,
+        installManifests: loadInstallManifests(home, projectRoot),
+        ...((): { legacyHashesBySkill?: ReadonlyMap<string, ReadonlySet<string>> } => {
+          const legacy = loadLegacyHashIndexFromDisk();
+          return legacy ? { legacyHashesBySkill: legacy } : {};
+        })(),
+        caseInsensitive: migrateCaseInsensitiveFs(platform),
+        warn: deps.errLog ?? ((msg: string) => console.error(msg)),
+      });
+    } catch {
+      // Forward-only: a migration fault never blocks the ensuing skills install.
+    }
+  };
+}
+
 // ─── Installer ────────────────────────────────────────────────────────────────
 
 /**
@@ -305,9 +791,16 @@ export function makeInstallStep(
     const resolveInstallCommand = deps.resolveInstallCommand ?? defaultResolveInstallCommand;
     const runCommand = deps.runCommand ?? defaultRunCommand;
     const homeDir = deps.homeDir ?? (() => homedir());
+    const runMigrate = deps.runMigrate ?? defaultRunMigrate(deps);
     // DR-5: default to a no-op so MCP registration happens ONCE (in GENERATE),
     // never a second time here. Injected `registerMcp` overrides (tests only).
     const registerMcp = deps.registerMcp ?? NOOP_REGISTER_MCP;
+
+    // ── 0. Rename migration (Task 011, DR-3/DR-8) ──
+    // Remove provenance-matched stale OLD-NAME skill dirs across every scope +
+    // per-harness dir BEFORE installing the new names, so the two never coexist.
+    // Modified / unmatched dirs are preserved with a warning + a `doctor` finding.
+    runMigrate(ctx);
 
     // ── 1. Skills bundle (local-copy fast path + npx fallback) ──
     // The bridge resolves source trees by default; we only OVERRIDE them when a

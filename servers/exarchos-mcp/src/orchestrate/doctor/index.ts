@@ -50,6 +50,7 @@ import { agentMcpRegistered } from './checks/agent-mcp-registered.js';
 import { sessionStartHook } from './checks/session-start-hook.js';
 import { onrampBlockDrift } from './checks/onramp-block-drift.js';
 import { retiredHooksPresent } from './checks/retired-hooks-present.js';
+import { staleSkillDirs } from './checks/stale-skill-dirs.js';
 import { pluginSkillHashSync } from './checks/plugin-skill-hash-sync.js';
 import { pluginVersionMatch } from './checks/plugin-version-match.js';
 import { remoteMcpStub } from './checks/remote-mcp-stub.js';
@@ -58,7 +59,7 @@ import { verificationToolchain } from './checks/verification-toolchain.js';
 
 // ─── Canonical check list ──────────────────────────────────────────────────
 
-/** All 15 checks. Order is preserved in the output — callers can scan
+/** All 16 checks. Order is preserved in the output — callers can scan
  * top-to-bottom for the first Fail. DR-8 added `session-start-hook` (#1485):
  * the SessionStart binding presence check that lands the default-on hook step.
  * Task 009 (design §4.6) added `verification-toolchain`: the read-only check
@@ -67,7 +68,10 @@ import { verificationToolchain } from './checks/verification-toolchain.js';
  * unregistered) and `retired-hooks-present` (the uninstall-reachability check),
  * placed together in the `agent` block. `onramp-block-drift` precedes
  * `retired-hooks-present` so its `generate` block-write step lands before the
- * `hook` removal step (the reconciler also enforces this ordering explicitly). */
+ * `hook` removal step (the reconciler also enforces this ordering explicitly).
+ * DR-3/DR-8 (Task 011) added `stale-skill-dirs`: the read-only residue finding
+ * for the onboard rename migration, in the `plugin` block so its remediation
+ * degrades to the cli-only install step (the migration itself). */
 export const ALL_CHECKS: ReadonlyArray<CheckFn> = [
   runtimeNodeVersion,
   storageStateDir,
@@ -79,6 +83,7 @@ export const ALL_CHECKS: ReadonlyArray<CheckFn> = [
   sessionStartHook,
   onrampBlockDrift,
   retiredHooksPresent,
+  staleSkillDirs,
   pluginSkillHashSync,
   pluginVersionMatch,
   remoteMcpStub,
