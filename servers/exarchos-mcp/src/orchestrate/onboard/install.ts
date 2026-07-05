@@ -101,6 +101,24 @@ export interface InstallStepDeps {
   /** Error logging sink. Default `console.error`. */
   readonly errLog?: (msg: string) => void;
   /**
+   * Install scope for the canonical `.agents/skills` convention path + the DR-4
+   * provenance manifest. Onboard operates on a project, so it defaults to
+   * `'project'` with `projectRoot` = the apply `ctx.repoRoot`, so a project-scoped
+   * manifest lands under `<repoRoot>/.agents/` and `doctor` can flag layout drift
+   * per project. The standalone `install-skills` CLI uses the user scope
+   * (`~/.agents/skills`). The per-harness native dirs are scope-independent.
+   */
+  readonly scope?: 'user' | 'project';
+  /** Project root for `scope: 'project'`. Defaults to the apply `ctx.repoRoot`. */
+  readonly projectRoot?: string;
+  /**
+   * Host platform threaded to the skills-install seam: `win32` ⇒ the canonical
+   * placement is a file copy, never a symlink (INV-16). Default `process.platform`.
+   */
+  readonly platform?: NodeJS.Platform;
+  /** Exarchos version recorded in the provenance manifest. Default: root package.json. */
+  readonly version?: string;
+  /**
    * Resolve the project's install command for `repoRoot` (Bundle B / INV-6).
    * Defaults to `resolveTestRuntime(repoRoot).install`. Returns `null` when no
    * known toolchain is present (deps install is then a no-op).
@@ -149,6 +167,14 @@ export interface SkillsInstallOpts {
   readonly registerMcp?: (home: string) => void;
   readonly log?: (msg: string) => void;
   readonly errLog?: (msg: string) => void;
+  /** Canonical-layout install scope (DR-4). See {@link InstallStepDeps.scope}. */
+  readonly scope?: 'user' | 'project';
+  /** Project root for `scope: 'project'` canonical/manifest paths. */
+  readonly projectRoot?: string;
+  /** Host platform (win32 ⇒ canonical copy-mode, INV-16). */
+  readonly platform?: NodeJS.Platform;
+  /** Exarchos version recorded in the provenance manifest. */
+  readonly version?: string;
 }
 
 // ─── Defaults ─────────────────────────────────────────────────────────────────
@@ -230,6 +256,12 @@ async function defaultRunSkillsInstall(opts: SkillsInstallOpts): Promise<void> {
     ...(opts.registerMcp ? { registerMcp: opts.registerMcp } : {}),
     ...(opts.log ? { log: opts.log } : {}),
     ...(opts.errLog ? { errLog: opts.errLog } : {}),
+    // DR-4 canonical-layout controls threaded through to the reused
+    // `installSkills` seam (the bridge spreads these into the real call).
+    ...(opts.scope ? { scope: opts.scope } : {}),
+    ...(opts.projectRoot ? { projectRoot: opts.projectRoot } : {}),
+    ...(opts.platform ? { platform: opts.platform } : {}),
+    ...(opts.version ? { version: opts.version } : {}),
   };
 
   await bridge.runInstallSkills(
@@ -299,6 +331,12 @@ export function makeInstallStep(
       registerMcp,
       ...(deps.log ? { log: deps.log } : {}),
       ...(deps.errLog ? { errLog: deps.errLog } : {}),
+      // DR-4: onboard installs at PROJECT scope (canonical + manifest under
+      // `<repoRoot>/.agents/`) so `doctor` can detect layout drift per project.
+      scope: deps.scope ?? 'project',
+      projectRoot: deps.projectRoot ?? ctx.repoRoot,
+      ...(deps.platform ? { platform: deps.platform } : {}),
+      ...(deps.version ? { version: deps.version } : {}),
     });
 
     // ── 2. Project deps (Bundle B resolved command — INV-6) ──

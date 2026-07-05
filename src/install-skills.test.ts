@@ -19,6 +19,9 @@ import {
   installSkills,
   mapRuntimeToSkillsCliAgent,
   registerExarchosInClaudeJson,
+  detectLayoutDrift,
+  resolveSkillsManifestPath,
+  type SkillsProvenanceManifest,
   type SpawnResult,
 } from './install-skills.js';
 import { expandTilde } from './install-skills.js';
@@ -715,6 +718,222 @@ describe('installSkills command aliases (T3, #1471/#1472)', () => {
       expect(joined.toLowerCase()).toContain('restart');
     } finally {
       fx.dispose();
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
+// ─── Task 010 — canonical `.agents/skills` layout + copy-mode + provenance ────
+// (DR-4, DR-8). The canonical set = procedural skills (`skills/standard/`) +
+// the runtime's orchestration skills (`skills/<runtime>/`). It lands both at the
+// cross-client convention path (`~/.agents/skills` user scope) AND the harness's
+// native dir. On `win32` the convention copy is a file copy, never a symlink
+// (INV-16). Every install writes/updates a per-scope provenance manifest, and
+// `detectLayoutDrift` reports a stale/modified canonical copy read-only.
+
+describe('installSkills canonical layout + provenance (Task 010, DR-4/DR-8)', () => {
+  const IS_WIN = process.platform === 'win32';
+
+  /**
+   * Build a real `skills/` source tree with `standard/<proc>/SKILL.md`
+   * procedural skills plus per-runtime `<runtime>/<orch>/SKILL.md` orchestration
+   * skills. Real disk so the placement + hashing exercise the filesystem boundary.
+   */
+  function makeSkillsTree(spec: {
+    standard: string[];
+    runtimes: Record<string, string[]>;
+  }): { skillsSource: string; dispose: () => void } {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-canon-src-'));
+    const skillsSource = path.join(tmp, 'skills');
+    const writeSkill = (parent: string, name: string): void => {
+      const dir = path.join(skillsSource, parent, name);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'SKILL.md'), `# ${name}\n`, 'utf8');
+    };
+    for (const p of spec.standard) writeSkill('standard', p);
+    for (const [rt, skills] of Object.entries(spec.runtimes)) {
+      for (const s of skills) writeSkill(rt, s);
+    }
+    return { skillsSource, dispose: () => fs.rmSync(tmp, { recursive: true, force: true }) };
+  }
+
+  function makeTmpHome(): string {
+    return fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-canon-home-'));
+  }
+
+  it('installSkills_CanonicalLayout_PlacesAgentsSkillsDir', async () => {
+    const src = makeSkillsTree({ standard: ['plan'], runtimes: { claude: ['ideate'] } });
+    const home = makeTmpHome();
+    try {
+      await installSkills({
+        agent: 'claude',
+        runtimes: [CLAUDE],
+        spawn: fakeSpawn().fn,
+        log: () => {},
+        errLog: () => {},
+        homeDir: () => home,
+        skillsSource: src.skillsSource,
+        registerMcp: () => {},
+        version: 'test-1.0.0',
+      });
+
+      // Per-harness native dir got both the procedural + orchestration skill.
+      const nativeDir = expandTilde('~/.claude/skills', home);
+      expect(fs.existsSync(path.join(nativeDir, 'plan', 'SKILL.md'))).toBe(true);
+      expect(fs.existsSync(path.join(nativeDir, 'ideate', 'SKILL.md'))).toBe(true);
+
+      // Cross-client canonical convention path got the same set (resolving
+      // through the POSIX symlink to the native copy).
+      const canonicalDir = expandTilde('~/.agents/skills', home);
+      expect(fs.existsSync(path.join(canonicalDir, 'plan', 'SKILL.md'))).toBe(true);
+      expect(fs.existsSync(path.join(canonicalDir, 'ideate', 'SKILL.md'))).toBe(true);
+
+      // On POSIX the canonical entries are symlinks (dedup to the native copy);
+      // on win32 they would be real copies (asserted separately).
+      if (!IS_WIN) {
+        expect(fs.lstatSync(path.join(canonicalDir, 'plan')).isSymbolicLink()).toBe(true);
+        expect(fs.lstatSync(path.join(canonicalDir, 'ideate')).isSymbolicLink()).toBe(true);
+      }
+    } finally {
+      src.dispose();
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('installSkills_Win32_UsesCopyNotSymlink', async () => {
+    // Inject platform='win32': the canonical placement MUST copy, never symlink
+    // (INV-16). copyDir/symlink recorders capture which primitive ran.
+    const src = makeSkillsTree({ standard: ['plan'], runtimes: { claude: ['ideate'] } });
+    const home = makeTmpHome();
+    const copyCalls: Array<{ src: string; dest: string }> = [];
+    const symlinkCalls: Array<{ target: string; link: string }> = [];
+    try {
+      await installSkills({
+        agent: 'claude',
+        runtimes: [CLAUDE],
+        spawn: fakeSpawn().fn,
+        log: () => {},
+        errLog: () => {},
+        homeDir: () => home,
+        skillsSource: src.skillsSource,
+        registerMcp: () => {},
+        version: 'test-1.0.0',
+        platform: 'win32',
+        copyDir: (s, d) => copyCalls.push({ src: s, dest: d }),
+        symlink: (t, l) => symlinkCalls.push({ target: t, link: l }),
+      });
+
+      // No symlink was ever created on win32.
+      expect(symlinkCalls).toHaveLength(0);
+      // The canonical `.agents/skills` copy went through copyDir (file copy).
+      const canonicalDir = expandTilde('~/.agents/skills', home);
+      const copiedIntoCanonical = copyCalls.some((c) => c.dest.startsWith(canonicalDir));
+      expect(copiedIntoCanonical).toBe(true);
+      // ...and the native dir was likewise a copy.
+      const nativeDir = expandTilde('~/.claude/skills', home);
+      const copiedIntoNative = copyCalls.some((c) => c.dest.startsWith(nativeDir));
+      expect(copiedIntoNative).toBe(true);
+    } finally {
+      src.dispose();
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('installSkills_EveryInstall_WritesScopedProvenanceManifest', async () => {
+    const src = makeSkillsTree({
+      standard: ['plan'],
+      runtimes: { claude: ['ideate'], codex: ['refactor'] },
+    });
+    const home = makeTmpHome();
+    try {
+      await installSkills({
+        agent: 'claude',
+        runtimes: [CLAUDE, CODEX],
+        spawn: fakeSpawn().fn,
+        log: () => {},
+        errLog: () => {},
+        homeDir: () => home,
+        skillsSource: src.skillsSource,
+        registerMcp: () => {},
+        version: 'test-9.9.9',
+      });
+
+      const manifestPath = resolveSkillsManifestPath('user', home, home);
+      expect(fs.existsSync(manifestPath)).toBe(true);
+      const m1 = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as SkillsProvenanceManifest;
+
+      expect(m1.schema).toBe('exarchos-skills-provenance/v1');
+      expect(m1.version).toBe('test-9.9.9');
+      expect(m1.scope).toBe('user');
+      expect(m1.skills).toEqual(expect.arrayContaining(['ideate', 'plan']));
+
+      // The manifest enumerates the per-harness placement paths (canonical +
+      // native) with newline-normalized content hashes per skill.
+      const claudeNative = m1.placements.find(
+        (p) => p.harness === 'claude' && p.kind === 'native',
+      );
+      expect(claudeNative).toBeDefined();
+      expect(Object.keys(claudeNative!.hashes).sort()).toEqual(['ideate', 'plan']);
+      expect(m1.placements.some((p) => p.harness === 'claude' && p.kind === 'canonical')).toBe(
+        true,
+      );
+
+      // A SECOND install into the same scope UPDATES (merges into) the manifest
+      // rather than clobbering it — both harnesses' native placements survive.
+      await installSkills({
+        agent: 'codex',
+        runtimes: [CLAUDE, CODEX],
+        spawn: fakeSpawn().fn,
+        log: () => {},
+        errLog: () => {},
+        homeDir: () => home,
+        skillsSource: src.skillsSource,
+        registerMcp: () => {},
+        version: 'test-9.9.9',
+      });
+
+      const m2 = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as SkillsProvenanceManifest;
+      const nativeHarnesses = m2.placements
+        .filter((p) => p.kind === 'native')
+        .map((p) => p.harness);
+      expect(nativeHarnesses).toEqual(expect.arrayContaining(['claude', 'codex']));
+      expect(m2.skills).toEqual(expect.arrayContaining(['ideate', 'plan', 'refactor']));
+    } finally {
+      src.dispose();
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('doctor_CanonicalCopyStale_ReportsDrift', async () => {
+    const src = makeSkillsTree({ standard: ['plan'], runtimes: { claude: ['ideate'] } });
+    const home = makeTmpHome();
+    try {
+      await installSkills({
+        agent: 'claude',
+        runtimes: [CLAUDE],
+        spawn: fakeSpawn().fn,
+        log: () => {},
+        errLog: () => {},
+        homeDir: () => home,
+        skillsSource: src.skillsSource,
+        registerMcp: () => {},
+        version: 'test-1.0.0',
+      });
+
+      // Freshly installed: the on-disk copies match the recorded provenance
+      // hashes, so `doctor` reports NO drift.
+      expect(detectLayoutDrift({ scope: 'user', home, projectRoot: home })).toEqual([]);
+
+      // Mutate a skill file at the canonical path (on POSIX this writes through
+      // the symlink to the native copy) → the recorded hash no longer matches.
+      const canonicalSkill = path.join(expandTilde('~/.agents/skills', home), 'plan', 'SKILL.md');
+      fs.appendFileSync(canonicalSkill, '\nlocally edited\n', 'utf8');
+
+      const findings = detectLayoutDrift({ scope: 'user', home, projectRoot: home });
+      expect(findings.length).toBeGreaterThan(0);
+      expect(findings.some((f) => f.skill === 'plan' && f.drift === 'modified')).toBe(true);
+    } finally {
+      src.dispose();
       fs.rmSync(home, { recursive: true, force: true });
     }
   });
