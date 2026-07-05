@@ -27,7 +27,16 @@
 // seam output into the placed spawn descriptor; nothing here wires it live.
 // ────────────────────────────────────────────────────────────────────────────
 
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { AsyncSpawnRequest } from '../utils/process.js';
+import type {
+  EnvInjectionCandidate,
+  FlagInjectionCandidate,
+  InjectionCandidate,
+} from './harness-registry.js';
 
 /**
  * Injection channel discriminant. Authority is a *property of the channel*, not
@@ -158,4 +167,215 @@ export function injectOrientation(
       [ORIENTATION_AUTHORITY_ENV_KEY]: NON_AUTHORITATIVE,
     },
   };
+}
+
+// ─── Resolved native injection channel (DR-6) + its spawn-descriptor applier ──
+//
+// The spawn-time probe (`lifecycle-core#resolveInjectionChannel`) narrows a
+// harness's declarative candidate list to ONE {@link ResolvedInjectionChannel};
+// {@link applyOrientationChannel} maps that resolved channel onto the placed
+// spawn descriptor. Per-channel-KIND branching (`flag` / `env` / `none`) is a
+// harness-AGNOSTIC dispatch on the candidate discriminant — never on a harness
+// name — so the single-abstraction guard stays green.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The concrete native orientation channel the spawn-time probe selected for a
+ * launch — a `flag`/`env` candidate the live CLI supports, or `none` (the CLI
+ * exposes no channel / the probe failed). Carries the resolved candidate so the
+ * applier maps the payload onto the exact flag/env the registry declared.
+ */
+export type ResolvedInjectionChannel =
+  | { readonly kind: 'flag'; readonly candidate: FlagInjectionCandidate }
+  | { readonly kind: 'env'; readonly candidate: EnvInjectionCandidate }
+  | { readonly kind: 'none'; readonly reason: string };
+
+/**
+ * A short, log/preview-safe label for a resolved channel — `flag:<flag>`,
+ * `env:<var>`, or `none`. Used by the lifecycle result and the `--dry-run`
+ * preview so the resolved channel is observable without leaking payload content.
+ */
+export function describeChannel(channel: ResolvedInjectionChannel): string {
+  switch (channel.kind) {
+    case 'flag':
+      return `flag:${channel.candidate.flag}`;
+    case 'env':
+      return `env:${channel.candidate.envVar}`;
+    case 'none':
+      return 'none';
+  }
+}
+
+/**
+ * Injectable filesystem seams for the native-channel applier. The `file` flag
+ * form (Claude Code `--append-system-prompt-file`) and the `dir` env form
+ * (Copilot `COPILOT_CUSTOM_INSTRUCTIONS_DIRS`) materialize the payload into an
+ * ephemeral temp path; injecting these lets a test drive the construction path —
+ * and force a construction FAILURE (DR-8 fail-open) — deterministically.
+ */
+export interface ChannelApplyDeps {
+  /** Materialize orientation content into an ephemeral temp file; returns its path. Throws on failure. */
+  readonly writeTempFile?: (content: string) => string;
+  /** Materialize orientation content into an ephemeral temp dir (synthetic AGENTS.md); returns the dir. Throws on failure. */
+  readonly writeTempDir?: (content: string) => string;
+}
+
+/** Default `file`-form materializer: an ephemeral temp file holding the orientation. */
+function defaultWriteTempFile(content: string): string {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'exarchos-orient-'));
+  const file = path.join(dir, 'orientation.md');
+  writeFileSync(file, content, 'utf8');
+  return file;
+}
+
+/** Default `dir`-form materializer: an ephemeral temp dir holding a synthetic `AGENTS.md`. */
+function defaultWriteTempDir(content: string): string {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'exarchos-orient-dir-'));
+  writeFileSync(path.join(dir, 'AGENTS.md'), content, 'utf8');
+  return dir;
+}
+
+/**
+ * Apply a resolved native orientation channel to a placed spawn descriptor
+ * (DR-6). Returns a NEW request; the base is never mutated and
+ * {@link DIRECTIVE_ENV_KEY} is NEVER written (orientation cannot masquerade as a
+ * directive — the refusal property {@link injectOrientation} owns is preserved
+ * across every channel).
+ *
+ * For a `flag`/`env` channel the payload rides BOTH (a) the harness's native
+ * channel (the flag args / env var the CLI itself consumes) and (b) the
+ * file-free tagged {@link ORIENTATION_ENV_KEY} layer via {@link injectOrientation}
+ * — this is the first production wiring of that seam, a uniform
+ * non-authoritative marker regardless of the native channel. A `none` channel
+ * applies nothing (the base is returned unchanged; the launch proceeds without
+ * orientation — DR-8 fail-open).
+ *
+ * A `file`/`dir` construction failure THROWS (the caller fails open + records a
+ * degradation); the pure `string`/`assignment`/`config-json` forms never do.
+ */
+export function applyOrientationChannel(
+  base: AsyncSpawnRequest,
+  channel: ResolvedInjectionChannel,
+  content: string,
+  deps: ChannelApplyDeps = {},
+): AsyncSpawnRequest {
+  switch (channel.kind) {
+    case 'flag':
+      return applyFlagChannel(
+        injectOrientation(base, orientationPayload(content)),
+        channel.candidate,
+        content,
+        deps,
+      );
+    case 'env':
+      return applyEnvChannel(
+        injectOrientation(base, orientationPayload(content)),
+        channel.candidate,
+        content,
+        deps,
+      );
+    case 'none':
+      return base;
+  }
+}
+
+/** Append the resolved flag + its payload-derived value to the spawn args. */
+function applyFlagChannel(
+  base: AsyncSpawnRequest,
+  candidate: FlagInjectionCandidate,
+  content: string,
+  deps: ChannelApplyDeps,
+): AsyncSpawnRequest {
+  const value = flagValue(candidate, content, deps);
+  return { ...base, args: [...base.args, candidate.flag, value] };
+}
+
+/** Derive the flag's argument from the payload per the candidate's `valueForm`. */
+function flagValue(
+  candidate: FlagInjectionCandidate,
+  content: string,
+  deps: ChannelApplyDeps,
+): string {
+  switch (candidate.valueForm) {
+    case 'string':
+      return content;
+    case 'assignment':
+      return `${candidate.assignmentKey}=${content}`;
+    case 'file':
+      return (deps.writeTempFile ?? defaultWriteTempFile)(content);
+  }
+}
+
+/** Place the resolved env channel's payload-derived value on the spawn env. */
+function applyEnvChannel(
+  base: AsyncSpawnRequest,
+  candidate: EnvInjectionCandidate,
+  content: string,
+  deps: ChannelApplyDeps,
+): AsyncSpawnRequest {
+  const value =
+    candidate.payload === 'dir'
+      ? (deps.writeTempDir ?? defaultWriteTempDir)(content)
+      : content;
+  return { ...base, env: { ...base.env, [candidate.envVar]: value } };
+}
+
+// ─── Orientation payload source: `binding/standard/block.md` (DR-6) ───────────
+
+/** Repo-relative location of the runtime-neutral orientation block (one content source). */
+const STANDARD_BLOCK_REL = path.join('binding', 'standard', 'block.md');
+
+/**
+ * Best-effort load of the runtime-neutral orientation payload from
+ * `binding/standard/block.md` (DR-6's single content source). Walks up a bounded
+ * number of ancestors from the module dir AND `process.cwd()`, returning the
+ * first hit. Returns `undefined` on any failure — the fail-open signal the caller
+ * turns into a no-orientation launch + degradation (never a throw).
+ */
+export function loadStandardBlockContent(searchRoots?: readonly string[]): string | undefined {
+  for (const root of searchRoots ?? defaultBlockSearchRoots()) {
+    let dir = root;
+    for (let depth = 0; depth < 8; depth++) {
+      try {
+        return readFileSync(path.join(dir, STANDARD_BLOCK_REL), 'utf8');
+      } catch {
+        /* not at this ancestor — keep walking up. */
+      }
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  }
+  return undefined;
+}
+
+/** Search roots for {@link loadStandardBlockContent}: the module dir, then `process.cwd()`. */
+function defaultBlockSearchRoots(): string[] {
+  const roots: string[] = [];
+  try {
+    roots.push(path.dirname(fileURLToPath(import.meta.url)));
+  } catch {
+    /* import.meta.url unavailable (bundled edge) — fall through to cwd. */
+  }
+  roots.push(process.cwd());
+  return roots;
+}
+
+/**
+ * Preview (probe-free) the channel a real launch WOULD resolve to for a
+ * candidate list — the FIRST (most-preferred) declared candidate, labelled like
+ * {@link describeChannel}. Used by `--dry-run`, which must NOT spawn a help probe
+ * (no side effects); the live spawn path re-resolves via the actual probe.
+ */
+export function previewInjectionChannel(candidates: readonly InjectionCandidate[]): string {
+  const primary = candidates[0];
+  if (primary === undefined) return 'none';
+  switch (primary.kind) {
+    case 'flag':
+      return `flag:${primary.flag}`;
+    case 'env':
+      return `env:${primary.envVar}`;
+    case 'none':
+      return 'none';
+  }
 }

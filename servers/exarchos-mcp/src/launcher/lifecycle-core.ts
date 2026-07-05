@@ -54,15 +54,24 @@ import {
   resolveHarness,
   type HarnessResolution,
   type HarnessTarget,
+  type InjectionCandidate,
   type RuntimeId,
 } from './harness-registry.js';
 import {
+  spawnCommandSync,
   spawnHarnessChild,
   SpawnError,
   type AsyncSpawnRequest,
   type ChildHandle,
   type SpawnDeps,
 } from '../utils/process.js';
+import {
+  applyOrientationChannel,
+  describeChannel,
+  loadStandardBlockContent,
+  type ChannelApplyDeps,
+  type ResolvedInjectionChannel,
+} from './injection-seam.js';
 import { LauncherWlm, createLauncherWlm } from './wlm-compose.js';
 import {
   emitLaunchExecutingStarted,
@@ -178,6 +187,215 @@ function noopUninstall(): void {
 }
 
 // ============================================================
+// Spawn-time injection-channel probe (DR-6) — cached per process
+// ============================================================
+
+/**
+ * Injectable help-probe seam: run `<command> --help` and return the combined
+ * help text, or `null` when the CLI is absent / unspawnable (the fail-open
+ * signal). Injected in tests so the probe path is deterministic without a real
+ * CLI on the host.
+ */
+export type HelpProbe = (command: string) => string | null;
+
+/** Per-process cache of help-probe OUTPUT keyed by command — the DR-6 "cached-per-process" store. */
+const helpProbeCache = new Map<string, string | null>();
+
+/** Clear the per-process help-probe cache. Test seam only (hermetic per-file isolation). */
+export function clearHelpProbeCache(): void {
+  helpProbeCache.clear();
+}
+
+/**
+ * Default win32-safe help probe. Runs `<command> --help` through the
+ * `.cmd`-shim-safe {@link spawnCommandSync} (the non-throwing sibling of
+ * `runCommandSync`) — NEVER a raw `execFileSync`/`spawnSync` of a shim, which
+ * breaks on win32 for `.cmd` shims (#1623). Returns combined stdout+stderr, or
+ * `null` when the CLI is absent/unspawnable (a set `.error`, e.g. `ENOENT`).
+ */
+function defaultHelpProbe(command: string): string | null {
+  const result = spawnCommandSync(command, ['--help'], {
+    encoding: 'utf-8',
+    timeout: 5_000,
+  });
+  if (result.error) return null;
+  return `${result.stdout ?? ''}${result.stderr ?? ''}`;
+}
+
+/** Run (or cache-hit) the help probe for `command`; caches null (missing CLI) too. */
+function cachedHelpProbe(command: string, probe: HelpProbe): string | null {
+  if (helpProbeCache.has(command)) return helpProbeCache.get(command) ?? null;
+  const output = probe(command);
+  helpProbeCache.set(command, output);
+  return output;
+}
+
+/**
+ * Whether a CLI's help text advertises `flag` as a WHOLE token — a boundary match
+ * so `--append-system-prompt` does NOT falsely match inside
+ * `--append-system-prompt-file` (the char after the flag must not continue a flag
+ * name). Order-independent, so the preference-ordered walk is robust either way.
+ */
+function helpMentionsFlag(helpText: string, flag: string): boolean {
+  const escaped = flag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`${escaped}(?![A-Za-z0-9-])`).test(helpText);
+}
+
+/** Outcome of the spawn-time channel probe. */
+export interface ChannelResolution {
+  /** The resolved native channel (a supported `flag`/`env`, or `none`). */
+  readonly channel: ResolvedInjectionChannel;
+  /** True when the launch will proceed WITHOUT native orientation (DR-8 fail-open). */
+  readonly degraded: boolean;
+  /** Human/log-safe degradation reason — present iff {@link degraded}. */
+  readonly degradation?: string;
+}
+
+/** Injectable seams for {@link resolveInjectionChannel}. */
+export interface ResolveInjectionChannelDeps {
+  /** Help-probe seam; defaults to the win32-safe `<command> --help` probe. */
+  readonly helpProbe?: HelpProbe;
+}
+
+/**
+ * Resolve the injection channel AT SPAWN TIME (DR-6). Walks the descriptor's
+ * preference-ordered candidate list front-to-back:
+ *   - a `flag` candidate is selected iff the live CLI's `--help` output advertises
+ *     its flag token (help probed once, cached per process);
+ *   - an `env` candidate is a contract channel the harness auto-loads — selected
+ *     directly (no help probe);
+ *   - a `none` candidate is the documented out-of-band fallback — resolved to
+ *     `none` WITHOUT degradation (it is declared, not a failure).
+ *
+ * CLI absent / probe failure (all flag candidates unverifiable), or a present CLI
+ * advertising none of the declared flags, ⇒ `none` + a degradation (composes with
+ * DR-8 fail-open). Never throws.
+ */
+export function resolveInjectionChannel(
+  candidates: readonly InjectionCandidate[],
+  command: string,
+  deps: ResolveInjectionChannelDeps = {},
+): ChannelResolution {
+  const probe = deps.helpProbe ?? defaultHelpProbe;
+  let help: string | null | undefined; // probed lazily only when a flag candidate needs it
+  let probeFailed = false;
+
+  for (const candidate of candidates) {
+    switch (candidate.kind) {
+      case 'env':
+        return { channel: { kind: 'env', candidate }, degraded: false };
+      case 'none':
+        return { channel: { kind: 'none', reason: candidate.note }, degraded: false };
+      case 'flag': {
+        if (help === undefined) help = cachedHelpProbe(command, probe);
+        if (help === null) {
+          probeFailed = true;
+          continue;
+        }
+        if (helpMentionsFlag(help, candidate.flag)) {
+          return { channel: { kind: 'flag', candidate }, degraded: false };
+        }
+        continue;
+      }
+    }
+  }
+
+  const reason = probeFailed
+    ? `injection channel probe failed: '${command}' CLI not spawnable`
+    : `no declared injection flag advertised by '${command} --help'`;
+  return { channel: { kind: 'none', reason }, degraded: true, degradation: reason };
+}
+
+// ============================================================
+// Orientation injection wiring (DR-6 / DR-8) — fail-open
+// ============================================================
+
+/**
+ * Injectable dependencies controlling spawn-time orientation injection. All
+ * default to the live path (block-content loader + win32-safe probe + native
+ * applier), so PRODUCTION injects by default — this is the first live wiring of
+ * the injection seam. Tests inject deterministic seams (or `disabled`) to stay
+ * hermetic.
+ */
+export interface OrientationInjectionDeps {
+  /** Skip orientation injection entirely (deterministic launches that don't exercise it). */
+  readonly disabled?: boolean;
+  /** Explicit orientation content; overrides {@link loadContent}. */
+  readonly content?: string;
+  /** Content loader; defaults to reading `binding/standard/block.md` best-effort. */
+  readonly loadContent?: () => string | undefined;
+  /** Help-probe seam threaded to {@link resolveInjectionChannel}. */
+  readonly helpProbe?: HelpProbe;
+  /** Resolved-channel applier; defaults to {@link applyOrientationChannel}. */
+  readonly apply?: (
+    base: AsyncSpawnRequest,
+    channel: ResolvedInjectionChannel,
+    content: string,
+  ) => AsyncSpawnRequest;
+  /** Filesystem seams for the native `file`/`dir` applier forms. */
+  readonly applyDeps?: ChannelApplyDeps;
+}
+
+/** The injection outcome threaded onto the spawn descriptor + the lifecycle result. */
+interface InjectionOutcome {
+  /** The (possibly orientation-augmented) descriptor to spawn. */
+  readonly descriptor: AsyncSpawnRequest;
+  /** The resolved-channel label surfaced on the result (`flag:…`/`env:…`/`none`/`disabled`). */
+  readonly channel: string;
+  /** True when the launch proceeds WITHOUT native orientation (DR-8 fail-open). */
+  readonly degraded: boolean;
+  /** Degradation reason — present iff {@link degraded}. */
+  readonly degradation?: string;
+}
+
+/**
+ * Resolve + apply spawn-time orientation for the placed descriptor (DR-6),
+ * failing OPEN at every edge (DR-8): missing content, a `none`/failed channel, or
+ * a construction throw all yield the UNMODIFIED descriptor + a degradation — the
+ * launch always proceeds. Never throws.
+ */
+function resolveOrientationInjection(
+  placed: AsyncSpawnRequest,
+  candidates: readonly InjectionCandidate[],
+  deps: OrientationInjectionDeps | undefined,
+): InjectionOutcome {
+  const o = deps ?? {};
+  if (o.disabled) return { descriptor: placed, channel: 'disabled', degraded: false };
+
+  const content = o.content ?? (o.loadContent ?? loadStandardBlockContent)();
+  if (content === undefined || content.length === 0) {
+    const degradation = 'orientation content unavailable (binding/standard/block.md not found)';
+    return { descriptor: placed, channel: 'none', degraded: true, degradation };
+  }
+
+  const resolution = resolveInjectionChannel(
+    candidates,
+    placed.command,
+    o.helpProbe ? { helpProbe: o.helpProbe } : {},
+  );
+  if (resolution.channel.kind === 'none') {
+    return {
+      descriptor: placed,
+      channel: 'none',
+      degraded: resolution.degraded,
+      ...(resolution.degradation ? { degradation: resolution.degradation } : {}),
+    };
+  }
+
+  try {
+    const apply =
+      o.apply ?? ((b, c, ct) => applyOrientationChannel(b, c, ct, o.applyDeps ?? {}));
+    const descriptor = apply(placed, resolution.channel, content);
+    return { descriptor, channel: describeChannel(resolution.channel), degraded: false };
+  } catch (err) {
+    const degradation = `orientation injection construction failed: ${
+      err instanceof Error ? err.message : String(err)
+    }`;
+    return { descriptor: placed, channel: 'none', degraded: true, degradation };
+  }
+}
+
+// ============================================================
 // Lifecycle deps + result
 // ============================================================
 
@@ -236,6 +454,28 @@ export interface RunLifecycleDeps {
    * {@link holderStartedAt}); anything here overrides.
    */
   readonly createDeps?: CreateLauncherWorktreeDeps;
+  /**
+   * Spawn-time orientation-injection seams (DR-6). Absent → the live default
+   * path (block-content loader + win32-safe help probe + native applier), so a
+   * production launch injects orientation into the resolved native channel and
+   * records a degradation on any fail-open edge. Tests inject deterministic
+   * seams (or `{ disabled: true }`).
+   */
+  readonly orientation?: OrientationInjectionDeps;
+}
+
+/**
+ * The spawn-time orientation-injection record surfaced on a completed launch
+ * (DR-6 / DR-8). Carries the resolved channel and, when the launch fell open,
+ * the degradation reason — recorded at the `launch.executing_started` phase.
+ */
+export interface LaunchInjectionInfo {
+  /** Resolved-channel label — `flag:<flag>` / `env:<var>` / `none` / `disabled`. */
+  readonly channel: string;
+  /** True when the launch proceeded WITHOUT native orientation (fail-open). */
+  readonly degraded: boolean;
+  /** Degradation reason — present iff {@link degraded}. */
+  readonly degradation?: string;
 }
 
 /** Structured success payload of a completed launch. */
@@ -250,6 +490,8 @@ export interface LifecycleResultData {
   readonly childPid: number | undefined;
   /** The child's exit code, or `null` when terminated by signal / not captured. */
   readonly exitCode: number | null;
+  /** Spawn-time orientation-injection record (resolved channel + any fail-open degradation). */
+  readonly injection: LaunchInjectionInfo;
 }
 
 // ============================================================
@@ -314,7 +556,18 @@ export async function runLifecycle(
   const { worktreeId, worktreePath } = created;
 
   // ── (3) Place: overlay the descriptor cwd so the child runs IN the worktree. ─
-  const descriptor: AsyncSpawnRequest = { ...resolution.descriptor, cwd: worktreePath };
+  const placed: AsyncSpawnRequest = { ...resolution.descriptor, cwd: worktreePath };
+
+  // ── (3b) Resolve + apply spawn-time orientation (DR-6), failing OPEN (DR-8). ─
+  // The channel is probed at spawn time (cached per process) and applied via the
+  // injection seam. Any edge — missing content, none/failed channel, construction
+  // throw — yields the unmodified descriptor + a degradation; the launch proceeds.
+  const injection = resolveOrientationInjection(
+    placed,
+    resolution.descriptor.injection,
+    deps.orientation,
+  );
+  const descriptor = injection.descriptor;
 
   // The guaranteed-terminal-once teardown: memoized so the normal-exit path and
   // the defensive `finally` collapse to a single teardown body invocation.
@@ -376,6 +629,11 @@ export async function runLifecycle(
       worktreePath,
       childPid,
       exitCode,
+      injection: {
+        channel: injection.channel,
+        degraded: injection.degraded,
+        ...(injection.degradation ? { degradation: injection.degradation } : {}),
+      },
     };
     return { success: true, data };
   } finally {

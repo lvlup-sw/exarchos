@@ -33,6 +33,7 @@ import {
 } from './harness-registry.js';
 import { deriveWorktreePath } from './topology.js';
 import { makeLifecycleRunner, type RunLifecycleDeps } from './lifecycle-core.js';
+import { loadStandardBlockContent, previewInjectionChannel } from './injection-seam.js';
 import type { ToolResult } from '../format.js';
 
 // ============================================================
@@ -179,6 +180,22 @@ export interface DryRunPlan {
   readonly worktreePath: string;
   /** The ordered events a real launch would emit (none emitted in dry-run). */
   readonly eventPlan: readonly LaunchEventType[];
+  /** Spawn-time orientation-injection preview (probe-free — no help spawn on dry-run). */
+  readonly injection: DryRunInjection;
+}
+
+/**
+ * The `--dry-run` orientation-injection preview (DR-6). Both fields are derived
+ * WITHOUT side effects: the channel from the harness's declared preference-ordered
+ * candidate list (no help probe), the payload from `binding/standard/block.md`
+ * (a read, not a spawn). The live launch re-resolves the channel via the actual
+ * spawn-time probe.
+ */
+export interface DryRunInjection {
+  /** The channel a real launch would resolve to — the declared primary candidate. */
+  readonly channel: string;
+  /** The orientation payload preview, or `null` when the block content is unavailable. */
+  readonly payload: string | null;
 }
 
 // ============================================================
@@ -228,6 +245,12 @@ export interface LauncherVerbDeps {
    * the non-dry-run path returns a structured `NOT_WIRED`.
    */
   readonly lifecycleDeps?: RunLifecycleDeps;
+  /**
+   * Explicit orientation payload for the `--dry-run` injection preview; overrides
+   * the default best-effort `binding/standard/block.md` load. Injected in tests so
+   * the payload preview is deterministic without the repo file on disk.
+   */
+  readonly orientationContent?: string;
 }
 
 // ============================================================
@@ -308,8 +331,11 @@ export async function runLauncherVerb(
     );
   }
 
-  // (3) Dry-run: preview only — no worktree, no spawn.
+  // (3) Dry-run: preview only — no worktree, no spawn, no help probe.
   if (dryRun) {
+    // Probe-free channel + payload preview (a file read, never a spawn), so the
+    // dry-run has zero side effects; the live launch re-resolves via the probe.
+    const rawPayload = deps.orientationContent ?? loadStandardBlockContent();
     const plan: DryRunPlan = {
       harness,
       runtimeId: resolution.runtimeId,
@@ -318,6 +344,11 @@ export async function runLauncherVerb(
       worktreeId,
       worktreePath,
       eventPlan: LAUNCH_EVENT_PLAN,
+      injection: {
+        channel: previewInjectionChannel(resolution.descriptor.injection),
+        // Empty/absent content is unavailable → null (renders the graceful note).
+        payload: rawPayload && rawPayload.length > 0 ? rawPayload : null,
+      },
     };
     return { success: true, data: plan };
   }
@@ -369,6 +400,15 @@ export function renderDryRunPlan(plan: DryRunPlan): string {
   if (plan.feature) lines.push(`  feature:       ${plan.feature}`);
   lines.push(`  base:          ${plan.base}`);
   lines.push(`  worktree path: ${plan.worktreePath}`);
+  lines.push(`  orientation channel: ${plan.injection.channel}`);
+  if (plan.injection.payload !== null) {
+    lines.push('  orientation payload (would inject at spawn; none injected in dry-run):');
+    for (const payloadLine of plan.injection.payload.split('\n')) {
+      lines.push(`    │ ${payloadLine}`);
+    }
+  } else {
+    lines.push('  orientation payload: (unavailable — launch would proceed without orientation)');
+  }
   lines.push('  event plan (would emit; none emitted in dry-run):');
   plan.eventPlan.forEach((event, index) => {
     lines.push(`    ${index + 1}. ${event}`);
