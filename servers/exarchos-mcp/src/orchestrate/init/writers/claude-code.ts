@@ -12,10 +12,12 @@
  */
 
 import { join, dirname } from 'node:path';
+import { existsSync as fsExistsSync } from 'node:fs';
 import { toPosix } from '../../../utils/paths.js';
 import type { WriterDeps, WriterFs } from '../probes.js';
 import type { ConfigWriteResult } from '../schema.js';
 import type { RuntimeConfigWriter, WriteOptions } from './writer.js';
+import { deployOnrampBlocks } from './onramp-block.js';
 
 /** MCP server entry shape in ~/.claude.json */
 interface McpServerEntry {
@@ -211,11 +213,37 @@ async function deploySkills(
   return true;
 }
 
+// ─── Phase: on-ramp block (DR-5) ───────────────────────────────────────────
+
+/**
+ * The DR-5 on-ramp seam: write the runtime-neutral `AGENTS.md` block plus the
+ * `CLAUDE.md` `@AGENTS.md` shim into the consumer project. Injected so tests can
+ * steer or stub it; the default writes real files (via `insertManagedBlock`).
+ */
+export interface OnrampSeam {
+  (projectRoot: string): { readonly wrote: boolean; readonly warnings: readonly string[] };
+}
+
+/**
+ * The production on-ramp seam. Only writes into a project directory that
+ * actually exists — the on-ramp files are consumer-owned project files, so a
+ * synthetic/absent `projectRoot` (as unit tests use) no-ops rather than
+ * attempting a doomed write. The canonical block content is loaded from
+ * `binding/standard/block.md`; a missing asset fails open (advisory only).
+ */
+export const defaultOnrampSeam: OnrampSeam = (projectRoot) => {
+  if (!projectRoot || !fsExistsSync(projectRoot)) {
+    return { wrote: false, warnings: [] };
+  }
+  return deployOnrampBlocks({ projectRoot });
+};
+
 // ─── Compositor ──────────────────────────────────────────────────────────
 
-async function writeClaudeCode(
+export async function writeClaudeCode(
   deps: WriterDeps,
   options: WriteOptions,
+  onramp: OnrampSeam = defaultOnrampSeam,
 ): Promise<ConfigWriteResult> {
   const home = deps.home();
   const configPath = toPosix(join(home, '.claude.json'));
@@ -251,6 +279,14 @@ async function writeClaudeCode(
     componentsWritten.push('skills');
   }
 
+  // Phase 4: On-ramp block (DR-5) — the runtime-neutral AGENTS.md block plus
+  // the CLAUDE.md @AGENTS.md shim. Advisory-only warnings never fail the write.
+  const onrampResult = onramp(options.projectRoot);
+  if (onrampResult.wrote) {
+    componentsWritten.push('onramp');
+  }
+  warnings.push(...onrampResult.warnings);
+
   // Determine overall status
   if (componentsWritten.length === 0) {
     return {
@@ -278,11 +314,16 @@ export const claudeCodeWriter: RuntimeConfigWriter = {
 
 /**
  * Class wrapper used by init compositor — `new ClaudeCodeWriter()`.
- * Delegates to the same `writeClaudeCode` implementation.
+ * Delegates to the same `writeClaudeCode` implementation. The optional
+ * `onramp` seam is injectable for tests; production uses {@link defaultOnrampSeam}.
  */
 export class ClaudeCodeWriter implements RuntimeConfigWriter {
   readonly runtime = 'claude-code' as const;
+  private readonly onramp: OnrampSeam;
+  constructor(onramp: OnrampSeam = defaultOnrampSeam) {
+    this.onramp = onramp;
+  }
   write(deps: WriterDeps, options: WriteOptions): Promise<ConfigWriteResult> {
-    return writeClaudeCode(deps, options);
+    return writeClaudeCode(deps, options, this.onramp);
   }
 }
