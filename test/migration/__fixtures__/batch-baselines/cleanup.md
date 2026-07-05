@@ -23,14 +23,14 @@ Resolve merged workflows to `completed` state in a single operation. Replaces th
 
 ## Batch Pruning for Stale Workflows
 
-For bulk cleanup of accumulated stale or abandoned workflows (as opposed to resolving a single merged workflow), use `@skills/prune-workflows/SKILL.md`. That skill invokes `exarchos_orchestrate prune_stale_workflows` in dry-run mode, displays candidates, and applies after user confirmation. Safeguards automatically skip workflows with open PRs or recent commits.
+For bulk cleanup of accumulated stale or abandoned workflows (as opposed to resolving a single merged workflow), use `@skills/prune/SKILL.md`. That skill invokes `exarchos_orchestrate prune_stale_workflows` in dry-run mode, displays candidates, and applies after user confirmation. Safeguards automatically skip workflows with open PRs or recent commits.
 
 **Rule of thumb:** cleanup is per-workflow (one merged feature → `completed`); prune is bulk (N inactive workflows → `cancelled`). They are complementary, not alternatives.
 
 ## Triggers
 
 Activate this skill when:
-- User runs `/exarchos:cleanup` command
+- User runs `cleanup` command
 - User says "cleanup", "resolve workflow", "mark as done"
 - PR stack has merged and workflow needs resolution
 - User wants to close out a completed feature
@@ -46,12 +46,12 @@ Activate this skill when:
 
 Read workflow state to get current phase and metadata:
 ```typescript
-mcp__plugin_exarchos_exarchos__exarchos_workflow({ action: "get", featureId: "<id>" })
+exarchos:exarchos_workflow({ action: "get", featureId: "<id>" })
 ```
 
 If featureId not provided, use pipeline view to list active workflows:
 ```typescript
-mcp__plugin_exarchos_exarchos__exarchos_view({ action: "pipeline" })
+exarchos:exarchos_view({ action: "pipeline" })
 ```
 
 ### 2. Verify Merge Status
@@ -92,7 +92,7 @@ This check is **advisory** — findings are reported but do not block cleanup. I
 
 Call the MCP cleanup action with collected data:
 ```typescript
-mcp__plugin_exarchos_exarchos__exarchos_workflow({
+exarchos:exarchos_workflow({
   action: "cleanup",
   featureId: "<id>",
   mergeVerified: true,
@@ -126,10 +126,10 @@ nothing), then apply:
 
 ```typescript
 // Dry-run (default) — preview candidates, delete nothing
-mcp__plugin_exarchos_exarchos__exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>" })
+exarchos:exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>" })
 
 // Apply — reclaim the delete-eligible candidates
-mcp__plugin_exarchos_exarchos__exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>", dryRun: false })
+exarchos:exarchos_orchestrate({ action: "prune_worktrees", repoRoot: "<repo-root>", dryRun: false })
 ```
 
 Handle gracefully if worktrees are already removed. If the GC skips a worktree
@@ -161,7 +161,7 @@ Output summary:
 
 Use `dryRun: true` to preview what cleanup would do without modifying state:
 ```typescript
-mcp__plugin_exarchos_exarchos__exarchos_workflow({
+exarchos:exarchos_workflow({
   action: "cleanup",
   featureId: "<id>",
   mergeVerified: true,
@@ -184,7 +184,7 @@ mcp__plugin_exarchos_exarchos__exarchos_workflow({
 |-------|------------|
 | Use cleanup as escape hatch during implementation | Only use after PRs are merged |
 | Skip merge verification | Always verify via GitHub API |
-| Manually navigate HSM guards post-merge | Use /exarchos:cleanup |
+| Manually navigate HSM guards post-merge | Use cleanup |
 | Leave worktrees after cleanup | Include worktree removal in process |
 
 ## Exarchos Integration

@@ -4,9 +4,10 @@
  *
  * The manifest (`migrations/legacy-skill-render-hashes.json`) records the
  * newline-normalized content hash of every per-runtime skill render across
- * historical release tags (>= v2.9.0) plus HEAD, so a later `cleanStaleFiles`
- * pass can prove a consumer's on-disk skill file provably came from us before
- * deleting it. Two properties are load-bearing and pinned here:
+ * immutable release tags (>= v2.9.0) — release tags ONLY, never a drifting
+ * HEAD pseudo-release — so a later `cleanStaleFiles` pass can prove a
+ * consumer's on-disk skill file provably came from us before deleting it.
+ * Two properties are load-bearing and pinned here:
  *
  *   1. The hash is newline-normalized (CRLF and LF content hash identically),
  *      so a consumer whose install differs only by line endings still matches.
@@ -61,12 +62,13 @@ describe('generate-legacy-skill-hashes (Task 023, DR-8)', () => {
     // coverage against a freshly-built manifest.
     const refs = enumerateReleaseRefs() as string[];
 
-    // Sanity: enumeration honors the >= v2.9.0 floor and includes the HEAD
-    // pseudo-release, and every non-HEAD ref is a qualifying v2.* tag.
-    expect(refs).toContain('HEAD');
-    const tags = refs.filter((r) => r !== 'HEAD');
-    expect(tags.length).toBeGreaterThan(0);
-    for (const t of tags) {
+    // Sanity: enumeration is release tags ONLY — no HEAD pseudo-release —
+    // and honors the >= v2.9.0 floor, so every ref is a qualifying v2.* tag.
+    // (A HEAD entry would drift on every tree change and churn the committed
+    // manifest, which is why the owner decision dropped it.)
+    expect(refs).not.toContain('HEAD');
+    expect(refs.length).toBeGreaterThan(0);
+    for (const t of refs) {
       expect(baseAtLeastMin(t), `${t} should be >= v2.9.0`).toBe(true);
     }
 

@@ -33,7 +33,7 @@ Per `docs/designs/2026-03-09-platform-agnosticity.md`: the MCP server is the sel
 ## Triggers
 
 Activate this skill when:
-- User runs `/dogfood` or `/exarchos:dogfood`
+- User runs `/dogfood` or `dogfood`
 - User asks "what went wrong this session" or "review the failures"
 - User wants to triage errors from a workflow run
 - End of a workflow session to capture learnings

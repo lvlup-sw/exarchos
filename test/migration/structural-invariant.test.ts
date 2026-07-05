@@ -2,13 +2,20 @@
  * Task 018 — Post-migration structural invariants.
  *
  * The platform-agnostic skills migration is complete only when the
- * filesystem reflects the new layout:
+ * filesystem reflects the post-collapse layout:
  *
  *   - `skills-src/<name>/SKILL.md` — single source of truth per skill.
- *   - `skills/<runtime>/<name>/SKILL.md` — one rendered variant per
- *     runtime, 6 runtimes × 13 skills = 78 variants total.
+ *   - Procedural skills render ONCE to `skills/standard/<name>/SKILL.md`
+ *     (runtime-neutral; the collapse dropped their redundant per-runtime
+ *     copies). There are 16 procedural skills, including the
+ *     `workflow-state` → `rehydrate` + `checkpoint` split.
+ *   - Orchestration skills (`ideate`, `delegate`, `refactor`) still render
+ *     per-runtime to `skills/<runtime>/<name>/SKILL.md`, one variant per
+ *     runtime × 6 runtimes = 18 variants.
+ *   - Total: 16 standard + 18 per-runtime = 34 rendered `SKILL.md` files.
  *   - No top-level `skills/<name>/SKILL.md` legacy sources — those have
- *     been moved into `skills-src/` by tasks 015/016/017.
+ *     been moved into `skills-src/` and rendered under `skills/standard/`
+ *     or `skills/<runtime>/`.
  *   - No stray `skills-src/<runtime>/` subdirectories — the generated
  *     tree lives only under `skills/`, and `skills-src/` is source-only.
  *
@@ -44,28 +51,42 @@ const RUNTIME_NAMES = [
   'cursor',
 ];
 
-// The 13 migrated skills — brainstorming + 11 batch + delegation.
-// `rehydrate` and `tdd` from the original plan are commands, not skills.
-const MIGRATED_SKILLS = [
-  'brainstorming',
+// The canonical post-collapse skill verbs (skill name == verb == directory).
+// 16 procedural (rendered once to `skills/standard/<verb>/`) + 3
+// orchestration (`ideate`, `delegate`, `refactor`, rendered per-runtime).
+// A legacy top-level `skills/<verb>/` directory for ANY of these is a
+// regression signal. The old names (`brainstorming`, `delegation`,
+// `implementation-planning`, `synthesis`, `workflow-state`) collapsed into
+// these verbs — `workflow-state` split into `rehydrate` + `checkpoint`.
+const CANONICAL_SKILLS = [
+  // procedural (skills/standard/)
+  'checkpoint',
   'cleanup',
   'debug',
-  'delegation',
+  'discover',
   'dogfood',
   'git-worktrees',
-  'implementation-planning',
-  'refactor',
+  'invariants',
+  'merge-orchestrator',
+  'mutation-adequacy',
+  'oneshot',
+  'plan',
+  'prune',
+  'rehydrate',
   'review',
   'shepherd',
-  'synthesis',
-  'workflow-state',
+  'synthesize',
+  // orchestration (skills/<runtime>/)
+  'delegate',
+  'ideate',
+  'refactor',
 ];
 
 /**
  * Walk a directory tree and return every file path (absolute) whose
  * basename is `SKILL.md`, optionally excluding paths that contain any
- * of the given substrings. Used to enforce the 78-file structural
- * count after migration.
+ * of the given substrings. Used to enforce the 34-file structural
+ * count after the collapse (16 standard + 18 per-runtime).
  */
 function findAllSkillMdFiles(root: string, excludeFragments: string[] = []): string[] {
   const out: string[] = [];
@@ -101,15 +122,19 @@ function findAllSkillMdFiles(root: string, excludeFragments: string[] = []): str
 
 describe('task 018 — post-migration structural invariants', () => {
   it('PostMigration_SkillsTree_ContainsExpectedSkillMdFiles', () => {
-    // 18 skills × 6 runtimes = 108 SKILL.md files under `skills/`.
-    // v2.9.0 added merge-orchestrator; v2.10.0 added authoring-invariants;
-    // v2.11.0 added mutation-adequacy, then collapsed spec-review + quality-review
-    // into one `review` skill (19 → 18 skills).
+    // Post-collapse count: 34 rendered SKILL.md files under `skills/`.
+    //   - 16 procedural skills render ONCE to `skills/standard/<verb>/`
+    //     (the collapse dropped their redundant per-runtime copies; the
+    //     `workflow-state` skill split into `rehydrate` + `checkpoint`).
+    //   - 3 orchestration skills (`ideate`, `delegate`, `refactor`) render
+    //     per-runtime across 6 runtimes = 18 variants.
+    // 16 + 18 = 34. The `skills/test-fixtures/` tree is validator
+    // scaffolding, not a render, and is excluded.
     const files = findAllSkillMdFiles(SKILLS_DIR, ['/test-fixtures/']);
     expect(
       files.length,
-      `expected 108 SKILL.md files under skills/ (18 skills × 6 runtimes), found ${files.length}`,
-    ).toBe(108);
+      `expected 34 SKILL.md files under skills/ (16 standard + 18 per-runtime), found ${files.length}`,
+    ).toBe(34);
   });
 
   it('PostMigration_SkillsSrcTree_ContainsNoCommittedGeneratedFiles', () => {
@@ -127,14 +152,15 @@ describe('task 018 — post-migration structural invariants', () => {
   });
 
   it('PostMigration_LegacyTopLevelSkillsGone_NotPresent', () => {
-    // For every migrated skill, neither `skills/<name>/SKILL.md` nor
-    // the entire `skills/<name>/` legacy directory may remain. The
-    // skill's home is now `skills-src/<name>/SKILL.md` with runtime
-    // variants under `skills/<runtime>/<name>/SKILL.md`. Any leftover
-    // top-level directory (even if it only contains stale `.test.sh`
-    // fixture files) is a signal that the cutover pass missed one.
+    // For every canonical skill verb, no top-level `skills/<verb>/`
+    // legacy directory may remain. The skill's home is now
+    // `skills-src/<verb>/SKILL.md`, rendered to `skills/standard/<verb>/`
+    // (procedural) or `skills/<runtime>/<verb>/` (orchestration). Any
+    // leftover top-level directory (even if it only contains stale
+    // `.test.sh` fixture files) is a signal that the cutover pass missed
+    // one.
     const leftovers: string[] = [];
-    for (const skill of MIGRATED_SKILLS) {
+    for (const skill of CANONICAL_SKILLS) {
       const legacyDir = join(SKILLS_DIR, skill);
       if (existsSync(legacyDir)) {
         leftovers.push(legacyDir);

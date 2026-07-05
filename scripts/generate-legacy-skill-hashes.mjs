@@ -39,8 +39,14 @@
  * those whose numeric (major, minor, patch) is >= (2, 9, 0). A pre-release
  * tag whose base version qualifies (e.g. `v2.9.0-rc.1`, `v2.10.0-preview.2`)
  * is INCLUDED — installs were published from those pre-releases, and covering
- * them is the same provenance-safe superset. The current HEAD is appended as a
- * pseudo-release so the release being cut is always covered.
+ * them is the same provenance-safe superset.
+ *
+ * The manifest enumerates ONLY immutable release tags — never a `HEAD`
+ * pseudo-release. A HEAD entry drifts on every tree change (each commit
+ * re-hashes the working renders), which makes the committed manifest churn on
+ * unrelated changes and false-fails coverage assertions. No install is ever
+ * published from an un-tagged HEAD, so the release being cut is covered once
+ * its tag exists — regenerate the manifest as part of the release, not before.
  *
  * DETERMINISM
  * -----------
@@ -170,7 +176,9 @@ export function compareVersionTags(tagA, tagB) {
 /**
  * Enumerate the release refs the manifest covers: every `v2.*` tag whose base
  * version is >= MIN_RELEASE (pre-releases of a qualifying base included),
- * sorted ascending, with the current HEAD appended as a pseudo-release.
+ * sorted ascending. Only immutable release tags are enumerated — the current
+ * HEAD is deliberately NOT appended, so the manifest is stable across working-
+ * tree changes and only grows when a new release is tagged.
  *
  * @param {{ cwd?: string }} [opts]
  * @returns {string[]}
@@ -186,7 +194,7 @@ export function enumerateReleaseRefs(opts = {}) {
       return v !== null && compareBase(v.base, MIN_RELEASE) >= 0;
     })
     .sort(compareVersionTags);
-  return [...tags, 'HEAD'];
+  return tags;
 }
 
 /**
