@@ -11,7 +11,14 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { runHooksGuard } from './hooks-guard.js';
 import { buildAllHooks } from './build-hooks.js';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import {
+  mkdtempSync,
+  writeFileSync,
+  mkdirSync,
+  rmSync,
+  readFileSync,
+  existsSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execSync } from 'node:child_process';
@@ -144,6 +151,131 @@ function provisionProject(): string {
   return root;
 }
 
+const shrunkPlaceholders = [
+  'placeholders:',
+  '  MCP_PREFIX: "mcp__plugin_exarchos_exarchos__"',
+  '  COMMAND_PREFIX: "/"',
+  '  TASK_TOOL: "Task"',
+  '  CHAIN: "[chain]"',
+  '  SPAWN_AGENT_CALL: "spawn"',
+  '  SUBAGENT_COMPLETION_HOOK: "completion"',
+  '  SUBAGENT_RESULT_API: "result"',
+  '',
+].join('\n');
+
+function shrunkRuntimeYaml(name: string, hooksLines: string[]): string {
+  return [
+    `name: ${name}`,
+    'preferredFacade: mcp',
+    'capabilities:',
+    '  hasSubagents: true',
+    '  hasSlashCommands: true',
+    ...hooksLines,
+    '  hasSkillChaining: true',
+    `  mcpPrefix: "mcp__${name}__"`,
+    `skillsInstallPath: "~/.${name}/skills"`,
+    'detection:',
+    '  binaries: []',
+    '  envVars: []',
+    shrunkPlaceholders,
+  ].join('\n');
+}
+
+/**
+ * Provision a temp project shaped like the post-shrink (DR-7) world: a hooks.json
+ * source with SessionStart + SubagentStop (no SessionEnd), and runtimes exercising
+ * every post-shrink dispatch branch — claude (`claude-json` → the sole active
+ * hooks.json), codex (`claude-json` non-Claude → note), opencode (`opencode-plugin`
+ * → note; a plugin template is present so a *reverted* renderer would still build
+ * and emit the retired plugin, making the shape assertions the drift detector).
+ */
+function provisionShrunkProject(): { root: string; outDir: string } {
+  const root = makeTempDir();
+  const srcDir = join(root, 'hooks-src');
+  mkdirSync(srcDir, { recursive: true });
+  writeFileSync(
+    join(srcDir, 'hooks.json'),
+    JSON.stringify(
+      {
+        hooks: {
+          SessionStart: [
+            { matcher: 'startup|resume', hooks: [{ type: 'command', command: 'exarchos session-start', timeout: 10 }] },
+          ],
+          SubagentStop: [
+            { matcher: '*', hooks: [{ type: 'command', command: 'exarchos subagent-stop', timeout: 30 }] },
+          ],
+        },
+      },
+      null,
+      2,
+    ) + '\n',
+  );
+  // Present only so a reverted (pre-shrink) renderer can still build; the current
+  // renderer never reads it (opencode falls through to a note).
+  writeFileSync(join(srcDir, 'opencode-plugin.ts.tmpl'), 'export const X = 1;\n');
+
+  writeBindingSource(join(root, 'binding-src'));
+
+  const runtimesDir = join(root, 'runtimes');
+  mkdirSync(runtimesDir, { recursive: true });
+  writeFileSync(
+    join(runtimesDir, 'claude.yaml'),
+    shrunkRuntimeYaml('claude', [
+      '  hooks:',
+      '    profile: claude-json',
+      '    canInjectContext: true',
+      '    sessionStartEvent: SessionStart',
+      '    sessionEndEvent: SessionEnd',
+      '    subagentStopEvent: SubagentStop',
+    ]),
+  );
+  writeFileSync(
+    join(runtimesDir, 'codex.yaml'),
+    shrunkRuntimeYaml('codex', [
+      '  hooks:',
+      '    profile: claude-json',
+      '    canInjectContext: true',
+      '    sessionStartEvent: SessionStart',
+      '    sessionEndEvent: Stop',
+    ]),
+  );
+  writeFileSync(
+    join(runtimesDir, 'opencode.yaml'),
+    shrunkRuntimeYaml('opencode', [
+      '  hooks:',
+      '    profile: opencode-plugin',
+      '    canInjectContext: false',
+      '    sessionStartEvent: session.created',
+      '    sessionEndEvent: session.idle',
+    ]),
+  );
+  for (const name of ['generic', 'copilot', 'cursor']) {
+    writeFileSync(
+      join(runtimesDir, `${name}.yaml`),
+      shrunkRuntimeYaml(name, [
+        '  hooks:',
+        '    profile: none',
+        '    canInjectContext: false',
+        '    sessionStartEvent: null',
+        '    sessionEndEvent: null',
+      ]),
+    );
+  }
+
+  const outDir = join(root, 'hooks');
+  buildAllHooks({
+    srcDir,
+    bindingSrcDir: join(root, 'binding-src'),
+    outDir,
+    bindingOutDir: join(root, 'binding'),
+    runtimesDir,
+  });
+  execSync('git init -q -b main', { cwd: root, env: gitEnv });
+  execSync('git add -A', { cwd: root, env: gitEnv });
+  execSync('git commit -q -m "seed"', { cwd: root, env: gitEnv });
+  return { root, outDir };
+}
+
 describe('runHooksGuard — #1476 T10', () => {
   it('HooksGuard_InSyncTree_ReturnsOk', () => {
     const root = provisionProject();
@@ -189,5 +321,27 @@ describe('runHooksGuard — #1476 T10', () => {
     const result = runHooksGuard({ cwd: root });
     expect(result.ok).toBe(false);
     expect(result.exitCode).toBe(1);
+  });
+});
+
+describe('runHooksGuard — shrunk hook tree (DR-7)', () => {
+  it('hooksGuard_ShrunkTree_Passes', () => {
+    const { root, outDir } = provisionShrunkProject();
+
+    // The freshly built + committed shrunk tree round-trips with no drift.
+    const result = runHooksGuard({ cwd: root });
+    expect(result.ok, result.message).toBe(true);
+    expect(result.exitCode).toBe(0);
+
+    // Tie the guard-pass to the actual shrink so a reverted renderer is caught:
+    // the sole active artifact is the Claude plugin hooks.json (SubagentStop, no
+    // SessionEnd), and neither codex nor opencode emit a lifecycle artifact.
+    const claude = JSON.parse(readFileSync(join(outDir, 'hooks.json'), 'utf8'));
+    expect(Object.keys(claude.hooks)).toContain('SubagentStop');
+    expect(Object.keys(claude.hooks)).not.toContain('SessionEnd');
+    expect(existsSync(join(outDir, 'codex', 'hooks.json'))).toBe(false);
+    expect(
+      existsSync(join(outDir, 'opencode', 'plugin', 'exarchos-lifecycle.ts')),
+    ).toBe(false);
   });
 });
