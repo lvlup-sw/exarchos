@@ -117,7 +117,11 @@ describe('versioned packaging (Task 022, DR-4)', () => {
       if (!top.isDirectory() || excludedTopDirs.has(top.name)) continue;
       const runtimeDir = join(skillsDir, top.name);
       for (const skill of readdirSync(runtimeDir, { withFileTypes: true })) {
-        if (!skill.isDirectory()) continue;
+        // Skip transient `__…__` probe dirs (e.g. `__wt_probe__`, written into
+        // the real skills tree by generate-legacy-skill-hashes.test.ts) that can
+        // race this scan under parallel test execution. Real skill dirs are
+        // kebab-case verbs and never start with `__`.
+        if (!skill.isDirectory() || skill.name.startsWith('__')) continue;
         const skillMd = join(runtimeDir, skill.name, 'SKILL.md');
         if (existsSync(skillMd)) skillFiles.push(skillMd);
       }
