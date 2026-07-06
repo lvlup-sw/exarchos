@@ -44,7 +44,8 @@ function collectCommands(config: HooksConfig): Array<{ hookType: string; command
 const ENFORCEMENT_HOOK_TYPES = ['PreToolUse', 'TaskCompleted', 'TeammateIdle', 'SubagentStart'];
 const ENFORCEMENT_SUBCOMMANDS = ['guard', 'task-gate', 'teammate-gate', 'subagent-context'];
 // #1525 W2 Half 1: SubagentStop restored as an observe-only token-telemetry hook.
-const OBSERVER_HOOK_TYPES = ['SessionStart', 'SessionEnd', 'SubagentStop'];
+// DR-7 (Task 016): SessionEnd dropped everywhere; SessionStart + SubagentStop remain.
+const OBSERVER_HOOK_TYPES = ['SessionStart', 'SubagentStop'];
 
 describe('hooks/hooks.json — observe-only (#1476)', () => {
   const hooksPath = join(repoRoot, 'hooks', 'hooks.json');
@@ -91,7 +92,7 @@ describe('hooks/hooks.json — observe-only (#1476)', () => {
     const config: HooksConfig = JSON.parse(readFileSync(hooksPath, 'utf-8'));
     const commands = collectCommands(config);
 
-    // Observer set: SessionStart + SessionEnd → at least 2 commands.
+    // Observer set: SessionStart + SubagentStop → at least 2 commands.
     expect(commands.length).toBeGreaterThanOrEqual(2);
 
     for (const { hookType, command } of commands) {
@@ -109,7 +110,7 @@ describe('hooks/hooks.json — observe-only (#1476)', () => {
 
     const expectedSubcommand: Record<string, string> = {
       SessionStart: 'session-start',
-      SessionEnd: 'session-end',
+      SubagentStop: 'subagent-stop',
     };
 
     for (const [hookType, subcommand] of Object.entries(expectedSubcommand)) {
@@ -128,10 +129,10 @@ describe('hooks/hooks.json — observe-only (#1476)', () => {
     const config: HooksConfig = JSON.parse(readFileSync(hooksPath, 'utf-8'));
 
     expect(config.hooks.SessionStart[0].matcher).toBe('startup|resume');
-    expect(config.hooks.SessionEnd[0].matcher).toBe('auto');
+    expect(config.hooks.SubagentStop[0].matcher).toBe('*');
 
     expect(config.hooks.SessionStart[0].hooks[0].timeout).toBe(10);
-    expect(config.hooks.SessionEnd[0].hooks[0].timeout).toBe(30);
+    expect(config.hooks.SubagentStop[0].hooks[0].timeout).toBe(30);
   });
 
   it('HooksJson_EveryHookEntry_IsCommandType', () => {

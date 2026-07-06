@@ -39,6 +39,8 @@ import * as fs from 'node:fs';
 import { homedir } from 'node:os';
 import * as path from 'node:path';
 
+import { orchestrateLogger } from '../../logger.js';
+
 import type { ApplyCtx } from '../../core/onboarding/reconcile.js';
 import type { PlanStep } from '../../core/onboarding/types.js';
 import {
@@ -765,7 +767,7 @@ function defaultRunMigrate(deps: InstallStepDeps): (ctx: ApplyCtx) => void {
           return legacy ? { legacyHashesBySkill: legacy } : {};
         })(),
         caseInsensitive: migrateCaseInsensitiveFs(platform),
-        warn: deps.errLog ?? ((msg: string) => console.error(msg)),
+        warn: deps.errLog ?? ((msg: string) => orchestrateLogger.warn(msg)),
       });
     } catch {
       // Forward-only: a migration fault never blocks the ensuing skills install.
