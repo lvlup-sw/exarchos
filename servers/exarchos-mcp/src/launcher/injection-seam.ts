@@ -235,17 +235,27 @@ function assertInlineSize(content: string): void {
   }
 }
 
-/** Default `file`-form materializer: an ephemeral temp file holding the orientation. */
-function defaultWriteTempFile(content: string): string {
+/**
+ * Default `file`-form materializer: an ephemeral temp file holding the
+ * orientation. `onCreated` fires right after `mkdtempSync`, BEFORE the
+ * write that can fail (disk full, permissions) — so the caller can still
+ * schedule the dir's removal even when the write itself throws, rather
+ * than only on a fully successful materialization.
+ */
+function defaultWriteTempFile(content: string, onCreated?: (path: string) => void): string {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'exarchos-orient-'));
+  onCreated?.(dir);
   const file = path.join(dir, 'orientation.md');
   writeFileSync(file, content, 'utf8');
   return file;
 }
 
-/** Default `dir`-form materializer: an ephemeral temp dir holding a synthetic `AGENTS.md`. */
-function defaultWriteTempDir(content: string): string {
+/** Default `dir`-form materializer: an ephemeral temp dir holding a synthetic
+ * `AGENTS.md`. `onCreated` fires before the write, for the same reason as
+ * {@link defaultWriteTempFile}. */
+function defaultWriteTempDir(content: string, onCreated?: (path: string) => void): string {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'exarchos-orient-dir-'));
+  onCreated?.(dir);
   writeFileSync(path.join(dir, 'AGENTS.md'), content, 'utf8');
   return dir;
 }
@@ -319,14 +329,16 @@ function flagValue(
       assertInlineSize(content);
       return `${candidate.assignmentKey}=${content}`;
     case 'file': {
-      // The default materializer's temp FILE lives inside its own fresh
-      // mkdtempSync dir — report the containing dir so cleanup removes the
-      // whole ephemeral dir, not just the file inside it. A caller-supplied
-      // writeTempFile owns its own path shape, so it is reported as-is.
-      const usingDefault = deps.writeTempFile === undefined;
-      const filePath = (deps.writeTempFile ?? defaultWriteTempFile)(content);
-      deps.onTempPathCreated?.(usingDefault ? path.dirname(filePath) : filePath);
-      return filePath;
+      // A caller-supplied writeTempFile owns its own path shape and failure
+      // contract, so it is reported as-is, after it returns. The default
+      // materializer instead reports its containing mkdtempSync dir BEFORE
+      // the write that can fail, via onCreated — see defaultWriteTempFile.
+      if (deps.writeTempFile) {
+        const filePath = deps.writeTempFile(content);
+        deps.onTempPathCreated?.(filePath);
+        return filePath;
+      }
+      return defaultWriteTempFile(content, deps.onTempPathCreated);
     }
   }
 }
@@ -338,12 +350,29 @@ function applyEnvChannel(
   content: string,
   deps: ChannelApplyDeps,
 ): AsyncSpawnRequest {
-  if (candidate.payload !== 'dir') {
-    assertInlineSize(content);
-    return { ...base, env: { ...base.env, [candidate.envVar]: content } };
+  if (candidate.payload === 'config-json') {
+    // The harness parses this var as ITS OWN config JSON, not a free-text
+    // field — raw orientation prose is invalid content here. Materialize
+    // orientation into a temp instruction file and reference it via the
+    // harness's own instruction-file config key (see the
+    // EnvInjectionCandidate.payload docstring — e.g. OpenCode's
+    // `instructions: string[]`), so the var always carries valid JSON.
+    let filePath: string;
+    if (deps.writeTempFile) {
+      filePath = deps.writeTempFile(content);
+      deps.onTempPathCreated?.(filePath);
+    } else {
+      filePath = defaultWriteTempFile(content, deps.onTempPathCreated);
+    }
+    const configJson = JSON.stringify({ instructions: [filePath] });
+    return { ...base, env: { ...base.env, [candidate.envVar]: configJson } };
   }
-  const dirPath = (deps.writeTempDir ?? defaultWriteTempDir)(content);
-  deps.onTempPathCreated?.(dirPath);
+  if (deps.writeTempDir) {
+    const dirPath = deps.writeTempDir(content);
+    deps.onTempPathCreated?.(dirPath);
+    return { ...base, env: { ...base.env, [candidate.envVar]: dirPath } };
+  }
+  const dirPath = defaultWriteTempDir(content, deps.onTempPathCreated);
   return { ...base, env: { ...base.env, [candidate.envVar]: dirPath } };
 }
 

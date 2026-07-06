@@ -232,11 +232,16 @@ describe('applyOrientationChannel — resolved native-channel applier (DR-6)', (
     );
   });
 
-  it('applyEnvChannel_ConfigJsonForm_ThrowsOverInlineSizeGuard', () => {
+  it('applyEnvChannel_ConfigJsonForm_NoSizeGuard_ContentWritesToDiskRegardlessOfSize', () => {
+    // The size guard only bounds INLINE argv/env placement (E2BIG risk).
+    // config-json materializes to a temp file, same as the dir form, so
+    // oversized content is never placed inline and never throws here.
     const oversized = 'x'.repeat(33 * 1024);
-    expect(() => applyOrientationChannel(BASE, envChannel(OPENCODE_ENV), oversized)).toThrow(
-      /orientation content too large/,
-    );
+    expect(() =>
+      applyOrientationChannel(BASE, envChannel(OPENCODE_ENV), oversized, {
+        writeTempFile: () => '/tmp/orient-abc/orientation.md',
+      }),
+    ).not.toThrow();
   });
 
   it('applyEnvChannel_DirForm_NoSizeGuard_ContentWritesToDiskRegardlessOfSize', () => {
@@ -277,9 +282,29 @@ describe('applyOrientationChannel — resolved native-channel applier (DR-6)', (
     expect(result.args).toEqual(['--pre']);
   });
 
-  it('applyEnvChannel_ConfigJsonForm_PlacesContentOnVar', () => {
-    const result = applyOrientationChannel(BASE, envChannel(OPENCODE_ENV), 'JSON-BODY');
-    expect(result.env?.OPENCODE_CONFIG_CONTENT).toBe('JSON-BODY');
+  it('applyEnvChannel_ConfigJsonForm_WritesTempFileAndReferencesItInInstructionsJson', () => {
+    // OpenCode parses OPENCODE_CONFIG_CONTENT as ITS OWN config JSON —
+    // raw orientation prose is invalid content there. The applier must
+    // materialize orientation to a file and reference it via the
+    // harness's `instructions: string[]` config key instead of placing
+    // the prose directly on the var.
+    const result = applyOrientationChannel(BASE, envChannel(OPENCODE_ENV), 'JSON-BODY', {
+      writeTempFile: () => '/tmp/orient-abc/orientation.md',
+    });
+    expect(result.env?.OPENCODE_CONFIG_CONTENT).toBe(
+      JSON.stringify({ instructions: ['/tmp/orient-abc/orientation.md'] }),
+    );
+    // Sanity: the emitted var is itself valid, parseable JSON.
+    expect(() => JSON.parse(result.env?.OPENCODE_CONFIG_CONTENT ?? '')).not.toThrow();
+  });
+
+  it('applyEnvChannel_ConfigJsonForm_NotifiesOnTempPathCreated', () => {
+    const notified: string[] = [];
+    applyOrientationChannel(BASE, envChannel(OPENCODE_ENV), 'JSON-BODY', {
+      writeTempFile: () => '/tmp/orient-abc/orientation.md',
+      onTempPathCreated: (p) => notified.push(p),
+    });
+    expect(notified).toEqual(['/tmp/orient-abc/orientation.md']);
   });
 
   it('applyOrientationChannel_None_ReturnsBaseUnchanged', () => {

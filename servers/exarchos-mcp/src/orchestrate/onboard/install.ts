@@ -422,9 +422,9 @@ export interface OnboardMigrateOptions {
 /** Expand a leading `~` / `$HOME` marker (mirrors install-skills' `expandTilde`). */
 function expandHome(p: string, home: string): string {
   if (p === '~') return home;
-  if (p.startsWith('~/')) return `${home}${p.slice(1)}`;
+  if (p.startsWith('~/')) return path.join(home, p.slice(2));
   if (p === '$HOME') return home;
-  if (p.startsWith('$HOME/')) return `${home}${p.slice('$HOME'.length)}`;
+  if (p.startsWith('$HOME/')) return path.join(home, p.slice('$HOME/'.length));
   return p;
 }
 

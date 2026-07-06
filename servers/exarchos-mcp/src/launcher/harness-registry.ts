@@ -74,8 +74,15 @@ export interface FlagInjectionCandidate {
  *                     the harness auto-loads (e.g. Copilot
  *                     `COPILOT_CUSTOM_INSTRUCTIONS_DIRS` → a dir with a synthetic
  *                     `AGENTS.md`).
- *   - `config-json` — inline JSON config content the harness parses
- *                     (e.g. OpenCode `OPENCODE_CONFIG_CONTENT`).
+ *   - `config-json` — the harness parses this var as ITS OWN config JSON
+ *                     (not a free-text field), so raw orientation prose is
+ *                     invalid content. The applier materializes orientation
+ *                     into a temp `.md` file and references it from the
+ *                     harness's own instruction-file config key, e.g.
+ *                     OpenCode `OPENCODE_CONFIG_CONTENT` = `{"instructions":
+ *                     ["<tmp-file>"]}` (OpenCode's `instructions` config
+ *                     field is an array of file paths/globs, per
+ *                     opencode.ai/docs/config — never inline text).
  *
  * Pure data: no field is (or nests) a function.
  */
@@ -235,7 +242,7 @@ export const HARNESS_DESCRIPTORS: Readonly<Record<HarnessTarget, HarnessDescript
         kind: 'env',
         envVar: 'OPENCODE_CONFIG_CONTENT',
         payload: 'config-json',
-        note: 'OpenCode reads inline JSON config from this var. The launcher supplies orientation as config-json content. Provenance: OpenCode config-content env var. Fallback: none native; degrade to no orientation if unsupported.',
+        note: "OpenCode reads inline JSON config from this var and merges it over opencode.json (config#precedence-order); its `instructions` field is an array of instruction-file paths, not inline text. The launcher writes orientation to a temp file and sets this var to `{\"instructions\":[<tmp-file>]}`. Provenance: OpenCode config-content env var + `instructions` config key. Fallback: none native; degrade to no orientation if unsupported.",
       },
     ],
   },
