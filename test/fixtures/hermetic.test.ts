@@ -82,6 +82,11 @@ describe('withHermeticEnv', () => {
   });
 
   it('WithHermeticEnv_ConcurrentCallers_GetNonOverlappingTmpDirsAndIsolatedProcessState', async () => {
+    // 100 iterations, each spawning a real `git init` + touching the
+    // filesystem, fully serialized by the module-level mutex — Windows
+    // process-spawn + NTFS/AV-scanned churn is several times slower than
+    // Linux for this shape, so the vitest default 5000ms timeout is too
+    // tight there even though the logic itself is not slow.
     // The helper holds a module-level FIFO mutex around its env-mutation /
     // callback / cleanup region, so even when scheduled with Promise.all
     // each callback observes a process state that matches the env it was
@@ -118,7 +123,7 @@ describe('withHermeticEnv', () => {
     expect(ids.length).toBe(COUNT);
     expect(new Set(ids).size).toBe(COUNT);
     expect(new Set(homeDirs).size).toBe(COUNT);
-  });
+  }, 20_000);
 
   it('WithHermeticEnv_EnvVarsSet_HomeAndStateDirMatchTmp', async () => {
     await withHermeticEnv(async (env) => {

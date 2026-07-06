@@ -111,7 +111,8 @@ function findAllSkillMdFiles(root: string, excludeFragments: string[] = []): str
       if (st.isDirectory()) {
         stack.push(full);
       } else if (st.isFile() && entry === 'SKILL.md') {
-        if (!excludeFragments.some((frag) => full.includes(frag))) {
+        const posixFull = full.split(/[\\/]/).join('/');
+        if (!excludeFragments.some((frag) => posixFull.includes(frag))) {
           out.push(full);
         }
       }

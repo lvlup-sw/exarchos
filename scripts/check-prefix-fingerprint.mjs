@@ -63,23 +63,34 @@ const CLI_ENTRY = path.join(
  *
  * @returns {string | null} absolute path to a tsx binary, or null if none.
  */
+/**
+ * Resolve how to invoke `tsx`, returning `{ command, args }` for
+ * `spawnSync`. Prefers the actual JS CLI entrypoint
+ * (`tsx/dist/cli.mjs`) run via `process.execPath` over the
+ * `node_modules/.bin/tsx` shim — the shim is a POSIX shebang script with
+ * no `.exe`/`.cmd` extension, so Win32's executable resolution can't
+ * launch it directly (no `shell: true` here). Invoking the `.mjs` CLI
+ * with `node` sidesteps shim resolution entirely and works identically
+ * on every platform.
+ */
 function resolveTsx() {
   const candidates = [
-    path.join(REPO_ROOT, 'node_modules', '.bin', 'tsx'),
+    path.join(REPO_ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs'),
     path.join(
       REPO_ROOT,
       'servers',
       'exarchos-mcp',
       'node_modules',
-      '.bin',
       'tsx',
+      'dist',
+      'cli.mjs',
     ),
   ];
   for (const candidate of candidates) {
-    if (existsSync(candidate)) return candidate;
+    if (existsSync(candidate)) return { command: process.execPath, args: [candidate] };
   }
-  // PATH fallback — let spawnSync resolve it.
-  return 'tsx';
+  // PATH fallback — let spawnSync resolve the `tsx` shim itself.
+  return { command: 'tsx', args: [] };
 }
 
 /**
@@ -137,8 +148,8 @@ function printHelp() {
  * hash). Exits 2 on spawn failure with a clear diagnostic.
  */
 function computeHashViaTsx() {
-  const tsx = resolveTsx();
-  const result = spawnSync(tsx, [CLI_ENTRY], {
+  const { command, args } = resolveTsx();
+  const result = spawnSync(command, [...args, CLI_ENTRY], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
     env: { ...process.env },
@@ -146,14 +157,14 @@ function computeHashViaTsx() {
 
   if (result.error) {
     process.stderr.write(
-      `check-prefix-fingerprint: failed to spawn tsx (${tsx}): ${result.error.message}\n`,
+      `check-prefix-fingerprint: failed to spawn tsx (${command}): ${result.error.message}\n`,
     );
     process.exit(2);
   }
   if (result.status !== 0) {
     process.stderr.write(
       'check-prefix-fingerprint: fingerprint computation failed\n' +
-        `  tsx:    ${tsx}\n` +
+        `  tsx:    ${command} ${args.join(' ')}\n` +
         `  entry:  ${CLI_ENTRY}\n` +
         `  status: ${result.status}\n` +
         `  stderr: ${result.stderr ?? ''}\n`,

@@ -48,7 +48,10 @@ export async function compile(solutionPath: string, language?: string): Promise<
     mkdirSync(tmpDir, { recursive: true });
 
     const baseName = basename(solutionPath, extname(solutionPath));
-    const outputPath = join(tmpDir, baseName);
+    // MinGW g++ on Windows auto-appends `.exe` to the linker output whenever
+    // the `-o` target has no dot in its name, so the produced file diverges
+    // from an extensionless outputPath unless we account for it here.
+    const outputPath = join(tmpDir, baseName) + (process.platform === 'win32' ? '.exe' : '');
 
     return new Promise<CompileResult>((resolve) => {
       execFile(

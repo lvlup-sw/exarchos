@@ -29,6 +29,7 @@ import { join } from 'node:path';
 import type { CheckFn } from './__shared__/make-stub-probes.js';
 import type { CheckResult } from '../schema.js';
 import { RENAMED_AWAY_SKILL_DIRS } from '../../onboard/install.js';
+import { toPosix } from '../../../utils/paths.js';
 
 /** The stable doctor-check name (its identity in the doctor output). */
 export const STALE_SKILL_DIRS_CHECK_NAME = 'stale-skill-dirs';
@@ -58,8 +59,8 @@ function defaultListDirs(dir: string): string[] {
 /** Resolve the canonical `.agents/skills` scope dirs (user + project). */
 function scopeDirs(deps: StaleSkillDirsDeps): string[] {
   const dirs: string[] = [];
-  if (deps.home) dirs.push(join(deps.home, '.agents', 'skills'));
-  dirs.push(join(deps.projectRoot ?? process.cwd(), '.agents', 'skills'));
+  if (deps.home) dirs.push(toPosix(join(deps.home, '.agents', 'skills')));
+  dirs.push(toPosix(join(deps.projectRoot ?? process.cwd(), '.agents', 'skills')));
   return dirs;
 }
 
@@ -77,7 +78,7 @@ export function checkStaleSkillDirs(deps: StaleSkillDirsDeps = {}): CheckResult 
   const found: string[] = [];
   for (const dir of scopeDirs(deps)) {
     for (const name of listDirs(dir)) {
-      if (stale.has(name)) found.push(join(dir, name));
+      if (stale.has(name)) found.push(toPosix(join(dir, name)));
     }
   }
 

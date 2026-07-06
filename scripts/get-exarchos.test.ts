@@ -8,18 +8,26 @@
 // The wrapper streams the full shell test output on failure so CI
 // logs tell you exactly which scenario failed without re-running the
 // shell harness by hand.
+//
+// win32-skipped: `get-exarchos.sh` targets Linux/macOS/WSL, not native
+// git-bash — its Windows counterpart (`get-exarchos.ps1`) has its own
+// cross-platform Pester-backed suite in `get-exarchos.ps1.test.ts`, which
+// already runs on `windows-latest`. Running the POSIX shell suite through
+// git-bash's MSYS environment is testing an untargeted platform, not a
+// real gap.
 import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import process from 'node:process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const REPO_ROOT = resolve(__dirname, '..');
 const SHELL_TEST = join(REPO_ROOT, 'scripts', 'get-exarchos.test.sh');
 
-describe('scripts/get-exarchos.sh (shell harness)', () => {
+describe.skipIf(process.platform === 'win32')('scripts/get-exarchos.sh (shell harness)', () => {
   it('passes the full scripts/get-exarchos.test.sh suite', () => {
     expect(existsSync(SHELL_TEST)).toBe(true);
 

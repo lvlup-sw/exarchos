@@ -37,6 +37,12 @@ import process from 'node:process';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
+
+/** Forward-slash-normalize a path for display — matching/allowlisting still
+ * uses the native-separator form (`path.sep`-split, `path.join`-built). */
+function toPosix(p) {
+  return p.split(path.sep).join('/');
+}
 const DEFAULT_SRC_ROOT = path.join(
   REPO_ROOT,
   'servers',
@@ -177,7 +183,7 @@ function findViolations(srcRoot) {
       const offset = match.index;
       const lineIdx = stripped.slice(0, offset).split('\n').length - 1;
       violations.push({
-        path: relPath,
+        path: toPosix(relPath),
         line: lineIdx + 1,
         excerpt: lines[lineIdx]?.trim() ?? '<line not recoverable>',
       });
