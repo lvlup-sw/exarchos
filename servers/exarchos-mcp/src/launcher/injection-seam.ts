@@ -218,6 +218,21 @@ export interface ChannelApplyDeps {
   readonly writeTempFile?: (content: string) => string;
   /** Materialize orientation content into an ephemeral temp dir (synthetic AGENTS.md); returns the dir. Throws on failure. */
   readonly writeTempDir?: (content: string) => string;
+  /** Invoked with the ephemeral file/dir path once created, so the caller can schedule its removal. */
+  readonly onTempPathCreated?: (path: string) => void;
+}
+
+/** Conservative headroom under typical ARG_MAX/env-size ceilings for inline injection. */
+const MAX_INLINE_ORIENTATION_BYTES = 32 * 1024;
+
+/** Throws if `content` is too large to place inline on argv/env (DR-8 fail-open trigger). */
+function assertInlineSize(content: string): void {
+  const bytes = Buffer.byteLength(content, 'utf8');
+  if (bytes > MAX_INLINE_ORIENTATION_BYTES) {
+    throw new Error(
+      `orientation content too large (${bytes} bytes) for inline flag/env injection`,
+    );
+  }
 }
 
 /** Default `file`-form materializer: an ephemeral temp file holding the orientation. */
@@ -298,11 +313,21 @@ function flagValue(
 ): string {
   switch (candidate.valueForm) {
     case 'string':
+      assertInlineSize(content);
       return content;
     case 'assignment':
+      assertInlineSize(content);
       return `${candidate.assignmentKey}=${content}`;
-    case 'file':
-      return (deps.writeTempFile ?? defaultWriteTempFile)(content);
+    case 'file': {
+      // The default materializer's temp FILE lives inside its own fresh
+      // mkdtempSync dir — report the containing dir so cleanup removes the
+      // whole ephemeral dir, not just the file inside it. A caller-supplied
+      // writeTempFile owns its own path shape, so it is reported as-is.
+      const usingDefault = deps.writeTempFile === undefined;
+      const filePath = (deps.writeTempFile ?? defaultWriteTempFile)(content);
+      deps.onTempPathCreated?.(usingDefault ? path.dirname(filePath) : filePath);
+      return filePath;
+    }
   }
 }
 
@@ -313,11 +338,13 @@ function applyEnvChannel(
   content: string,
   deps: ChannelApplyDeps,
 ): AsyncSpawnRequest {
-  const value =
-    candidate.payload === 'dir'
-      ? (deps.writeTempDir ?? defaultWriteTempDir)(content)
-      : content;
-  return { ...base, env: { ...base.env, [candidate.envVar]: value } };
+  if (candidate.payload !== 'dir') {
+    assertInlineSize(content);
+    return { ...base, env: { ...base.env, [candidate.envVar]: content } };
+  }
+  const dirPath = (deps.writeTempDir ?? defaultWriteTempDir)(content);
+  deps.onTempPathCreated?.(dirPath);
+  return { ...base, env: { ...base.env, [candidate.envVar]: dirPath } };
 }
 
 // ─── Orientation payload source: `binding/standard/block.md` (DR-6) ───────────

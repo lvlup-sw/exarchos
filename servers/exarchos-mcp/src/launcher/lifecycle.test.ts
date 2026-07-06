@@ -569,6 +569,40 @@ describe('runLifecycle — launcher lifecycle integrator (real git + real event 
     expect(fake.calls[0].env?.EXARCHOS_ORIENTATION).toBe('ORIENTATION-BLOCK');
   }, 20_000);
 
+  // ── A materialized `file`-form temp path is removed once the launch is done ─
+  //
+  // The `file` channel writes orientation content to a REAL ephemeral temp file
+  // (DR-7's `defaultWriteTempFile`). Nothing previously removed it — an orphaned
+  // temp file/dir on every launch. Verify the lifecycle now cleans it up as part
+  // of the guaranteed-terminal teardown path.
+  it('runLifecycle_FileFormOrientation_RemovesTempPathAfterTeardown', async () => {
+    const fake = makeFakeSpawn({ code: 0, signal: null });
+    let createdPath: string | undefined;
+
+    const result = await runLifecycle(makeParams(), {
+      ctx,
+      spawnChild: fake.fn,
+      newBranch: 'launch-inject-cleanup',
+      repoRoot: repo,
+      ...HOLDER,
+      orientation: {
+        content: 'ORIENTATION-BLOCK',
+        helpProbe: () => 'Usage: claude\n  --append-system-prompt-file FILE',
+        // No writeTempFile override — exercise the REAL default materializer so
+        // this test proves an actual on-disk path is created AND removed.
+      },
+    });
+
+    expect(result.success).toBe(true);
+    const data = result.data as LifecycleResultData;
+    expect(data.injection.channel).toBe('flag:--append-system-prompt-file');
+    createdPath = fake.calls[0].args[1];
+    expect(createdPath).toBeDefined();
+    expect(existsSync(createdPath as string)).toBe(false);
+    // The parent ephemeral dir is gone too (recursive removal), not just the file.
+    expect(existsSync(path.dirname(createdPath as string))).toBe(false);
+  }, 20_000);
+
   // ── The existing lifecycle tests stay hermetic: injection disabled by seam ──
   it('runLifecycle_OrientationDisabled_NoInjectionApplied', async () => {
     const fake = makeFakeSpawn({ code: 0, signal: null });

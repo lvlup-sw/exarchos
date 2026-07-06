@@ -26,6 +26,7 @@ import * as fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 
+import { toPosix } from '../../../utils/paths.js';
 import {
   insertManagedBlock,
   BINDING_MARKER_START,
@@ -206,7 +207,7 @@ export function writeAgentsMdBlock(
   opts: { readonly projectRoot: string; readonly canonicalBody: string },
   deps: InsertManagedBlockDeps = {},
 ): OnrampBlockResult {
-  const filePath = join(opts.projectRoot, AGENTS_MD_FILENAME);
+  const filePath = toPosix(join(opts.projectRoot, AGENTS_MD_FILENAME));
 
   if (containsAtImport(opts.canonicalBody)) {
     return {
@@ -245,7 +246,7 @@ export function writeClaudeMdShim(
   opts: { readonly projectRoot: string },
   deps: InsertManagedBlockDeps = {},
 ): OnrampBlockResult {
-  const filePath = join(opts.projectRoot, CLAUDE_MD_FILENAME);
+  const filePath = toPosix(join(opts.projectRoot, CLAUDE_MD_FILENAME));
   const content = CLAUDE_MD_IMPORT_LINE;
 
   const result = insertManagedBlock(

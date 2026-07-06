@@ -129,7 +129,7 @@ function listGeneratedSkillFiles(): Array<{
         runtime,
         skill,
         absolutePath: skillFile,
-        relativePath: relative(REPO_ROOT, skillFile),
+        relativePath: relative(REPO_ROOT, skillFile).split(/[\\/]/).join('/'),
       });
     }
   }

@@ -357,6 +357,18 @@ export function renderCallMacros(body: string, runtime: RuntimeMap): string {
  * @param runtime - Runtime providing the MCP prefix.
  * @returns The rendered MCP tool_use string with remediation comment.
  */
+/**
+ * Normalize a path to forward slashes. Diagnostic messages built from
+ * `sourcePath` (vocabulary-lint, chain-target, placeholder errors) embed it
+ * verbatim; a native `path.join` on win32 produces backslashes, which then
+ * fail cross-platform test assertions that match a `/`-separated fragment.
+ * Node's fs APIs accept forward-slash paths on every platform, so applying
+ * this at construction keeps `sourcePath` valid for both I/O and diagnostics.
+ */
+function toPosix(p: string): string {
+  return p.replace(/\\/g, '/');
+}
+
 function renderMcpCall(ast: CallMacroAst, runtime: RuntimeMap): string {
   const prefix = runtime.capabilities.mcpPrefix;
   const fullArgs: Record<string, unknown> = { action: ast.action, ...ast.args };
@@ -1487,7 +1499,7 @@ export function buildAllSkills(opts: {
 
   for (const skillDir of skillDirs) {
     const skillRel = relative(opts.srcDir, skillDir);
-    const sourcePath = join(skillDir, 'SKILL.md');
+    const sourcePath = toPosix(join(skillDir, 'SKILL.md'));
     const body = readFileSync(sourcePath, 'utf8');
 
     // Fail the build on a CHAIN whose target skill does not exist — a dead
@@ -1520,7 +1532,7 @@ export function buildAllSkills(opts: {
 
       // Escape hatch: runtime-specific override file wins for this
       // runtime only, and is written verbatim with no rendering.
-      const overridePath = join(skillDir, `SKILL.${rt.name}.md`);
+      const overridePath = toPosix(join(skillDir, `SKILL.${rt.name}.md`));
       if (existsSync(overridePath)) {
         const overrideBody = readFileSync(overridePath, 'utf8');
         writeFileSync(outSkillFile, overrideBody);
@@ -1873,7 +1885,7 @@ function renderLinkedReferences(
   mkdirSync(destRefs, { recursive: true });
 
   for (const rel of linked) {
-    const srcFile = join(srcRefs, rel);
+    const srcFile = toPosix(join(srcRefs, rel));
     if (!existsSync(srcFile)) continue;
     const srcStat = statSync(srcFile);
     if (!srcStat.isFile()) continue;

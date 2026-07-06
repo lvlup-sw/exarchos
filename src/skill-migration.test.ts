@@ -11,7 +11,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 
@@ -120,7 +120,7 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
             false;
           if (!isAllowed) {
             violations.push({
-              file: file.replace(SKILLS_SRC_DIR + '/', ''),
+              file: file.replace(SKILLS_SRC_DIR + sep, ''),
               line: i + 1,
               text: line.trim(),
             });
@@ -150,7 +150,7 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
           const isAllowed = /\|.*gh pr merge.*\|/.test(line);
           if (!isAllowed) {
             violations.push({
-              file: file.replace(SKILLS_SRC_DIR + '/', ''),
+              file: file.replace(SKILLS_SRC_DIR + sep, ''),
               line: i + 1,
               text: line.trim(),
             });
@@ -177,7 +177,7 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
         const line = lines[i];
         if (/\bgh issue create\b/.test(line)) {
           violations.push({
-            file: file.replace(SKILLS_SRC_DIR + '/', ''),
+            file: file.replace(SKILLS_SRC_DIR + sep, ''),
             line: i + 1,
             text: line.trim(),
           });
@@ -203,7 +203,7 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
         const line = lines[i];
         if (/\bgh pr checks\b/.test(line)) {
           violations.push({
-            file: file.replace(SKILLS_SRC_DIR + '/', ''),
+            file: file.replace(SKILLS_SRC_DIR + sep, ''),
             line: i + 1,
             text: line.trim(),
           });
@@ -230,7 +230,7 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
         // Match gh pr view <num> --json reviews,comments or similar
         if (/\bgh pr view\s+\S+\s+--json\s+(?:reviews|comments|reviews,comments)\b/.test(line)) {
           violations.push({
-            file: file.replace(SKILLS_SRC_DIR + '/', ''),
+            file: file.replace(SKILLS_SRC_DIR + sep, ''),
             line: i + 1,
             text: line.trim(),
           });
@@ -256,7 +256,7 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
         const line = lines[i];
         if (/\bgh pr comment\b/.test(line)) {
           violations.push({
-            file: file.replace(SKILLS_SRC_DIR + '/', ''),
+            file: file.replace(SKILLS_SRC_DIR + sep, ''),
             line: i + 1,
             text: line.trim(),
           });
@@ -288,7 +288,7 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
     ];
 
     for (const file of files) {
-      const relPath = file.replace(SKILLS_SRC_DIR + '/', '');
+      const relPath = file.replace(SKILLS_SRC_DIR + sep, '');
       if (ALLOWED_FILES.some((allowed) => relPath === allowed)) continue;
 
       const content = readFileSync(file, 'utf8');
@@ -324,7 +324,7 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
     const violations: Array<{ file: string; line: number; text: string }> = [];
 
     for (const file of files) {
-      const relPath = file.replace(SKILLS_SRC_DIR + '/', '');
+      const relPath = file.replace(SKILLS_SRC_DIR + sep, '');
       const content = readFileSync(file, 'utf8');
       const lines = content.split('\n');
 
@@ -357,7 +357,7 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
     const violations: Array<{ file: string; line: number; text: string }> = [];
 
     for (const file of files) {
-      const relPath = file.replace(SKILLS_SRC_DIR + '/', '');
+      const relPath = file.replace(SKILLS_SRC_DIR + sep, '');
       const content = readFileSync(file, 'utf8');
       const lines = content.split('\n');
 

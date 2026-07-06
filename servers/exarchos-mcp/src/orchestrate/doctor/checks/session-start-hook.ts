@@ -1,27 +1,32 @@
 /**
- * session-start-hook — is the #1485 SessionStart cross-harness binding hook
- * installed in the agent-host settings (DR-8)?
+ * session-start-hook — the default-on binding-install trigger (DR-8, #1485;
+ * repurposed under DR-7). Historically this probed for the SessionStart
+ * binding and re-added it whenever absent. DR-7 retires the onboard-installed
+ * SessionStart directive (and SessionEnd observer) — the launcher is now the
+ * lifecycle authority — while `SubagentStop` (the token-attribution seam, see
+ * `subagent.tokens_used`) is explicitly RETAINED. Re-triggering an install on
+ * SessionStart's absence would fight `retired-hooks-present`'s removal every
+ * other doctor run (an infinite install↔remove toggle — the DR-8 idempotency
+ * regression this fix closes), so this check now probes `SubagentStop`
+ * instead: the one binding of `installBindings`'s three-binding bundle this
+ * PR still wants installed and kept installed.
  *
- * Reads `<home>/.claude/settings.json` and inspects `hooks.SessionStart[]` for a
- * `command` hook whose command references `exarchos session-start` (the stable
- * binding marker the installer writes — see `orchestrate/onboard/hooks.ts`).
+ * `installHook` (`orchestrate/onboard/hooks.ts`) writes all three bindings in
+ * one idempotent pass when triggered, so a fresh consumer still gets
+ * SessionStart+SessionEnd once on first onboard — `retired-hooks-present`
+ * removes them on the very next doctor pass and this check never asks for them
+ * again once SubagentStop exists, so the system converges instead of
+ * oscillating.
  *
- *   - present + parseable        ⇒ Pass
- *   - settings absent / no entry ⇒ Warning (the binding is the default-on
- *                                  posture; its absence degrades orientation but
- *                                  does NOT break workflow correctness — the
- *                                  `exarchos_*` MCP tools still function. A
- *                                  remediable drift, not a hard Fail and not a
- *                                  silent Skip.)
- *   - settings present but unparseable / shape-corrupt ⇒ Warning (the host owns
- *                                  the file; we advise repair without claiming a
- *                                  hard Fail on a file we cannot fully read)
+ *   - SubagentStop present         ⇒ Pass
+ *   - settings/home unresolvable,
+ *     or SubagentStop absent       ⇒ Warning + `fix` (routes to `installHook`
+ *                                     via `CHECK_CLASSIFICATION`'s `kind:'hook'`)
  *
- * Both non-green branches carry a `fix` so the DR-4 `diff` turns this check into
- * a `session-start-hook` PlanStep (CHECK_CLASSIFICATION → `kind:'hook'`), which
- * `apply` routes to the real installer. CRITICAL: the `name` MUST be exactly
- * `'session-start-hook'` — that string is the key the classification table maps
- * to the hook step; renaming it silently drops the default-on binding step.
+ * CRITICAL: the `name` MUST stay exactly `'session-start-hook'` — that string
+ * is pinned in `doctor-roster.characterization.test.ts` and is the key
+ * `CHECK_CLASSIFICATION` maps to the `hook` PlanStep kind; changing it silently
+ * drops the default-on binding-install trigger.
  */
 
 import { join } from 'node:path';
@@ -31,8 +36,8 @@ import type { CheckResult } from '../schema.js';
 const BASE = { category: 'agent' as const, name: 'session-start-hook' };
 
 const FIX_HINT =
-  'run `exarchos onboard` (or `exarchos doctor --fix`) to install the #1485 ' +
-  'SessionStart binding into ~/.claude/settings.json';
+  'run `exarchos onboard` (or `exarchos doctor --fix`) to install the ' +
+  'SubagentStop token-attribution binding into ~/.claude/settings.json';
 
 interface CommandHook {
   readonly command?: unknown;
@@ -41,18 +46,18 @@ interface HookGroup {
   readonly hooks?: unknown;
 }
 
-/** Scan a parsed settings object for an exarchos SessionStart binding. */
-function hasExarchosBinding(settings: unknown): boolean {
+/** Scan a parsed settings object for an exarchos SubagentStop binding. */
+function hasSubagentStopBinding(settings: unknown): boolean {
   if (typeof settings !== 'object' || settings === null) return false;
   const hooks = (settings as { hooks?: unknown }).hooks;
   if (typeof hooks !== 'object' || hooks === null) return false;
-  const sessionStart = (hooks as { SessionStart?: unknown }).SessionStart;
-  if (!Array.isArray(sessionStart)) return false;
-  for (const group of sessionStart as HookGroup[]) {
+  const subagentStop = (hooks as { SubagentStop?: unknown }).SubagentStop;
+  if (!Array.isArray(subagentStop)) return false;
+  for (const group of subagentStop as HookGroup[]) {
     const inner = group?.hooks;
     if (!Array.isArray(inner)) continue;
     for (const h of inner as CommandHook[]) {
-      if (typeof h?.command === 'string' && h.command.includes('exarchos session-start')) {
+      if (typeof h?.command === 'string' && h.command.includes('exarchos subagent-stop')) {
         return true;
       }
     }
@@ -65,8 +70,6 @@ export const sessionStartHook: CheckFn = async (probes): Promise<CheckResult> =>
   const home = probes.env.HOME ?? probes.env.USERPROFILE;
 
   if (!home) {
-    // No resolvable home → cannot locate the settings file. Advise rather than
-    // hard-fail (the environment, not the binding, is the unknown here).
     return {
       ...BASE,
       status: 'Warning',
@@ -82,13 +85,10 @@ export const sessionStartHook: CheckFn = async (probes): Promise<CheckResult> =>
   try {
     raw = await probes.fs.readFile(settingsPath);
   } catch {
-    // No settings.json (or unreadable) → the binding is not installed. Warning,
-    // not Fail: the absent soft-binding degrades orientation but the MCP tools
-    // still work. Carries a `fix` so the diff lands a remediable hook step.
     return {
       ...BASE,
       status: 'Warning',
-      message: `SessionStart binding (#1485) is not installed (${settingsPath} missing)`,
+      message: `SubagentStop binding is not installed (${settingsPath} missing)`,
       fix: FIX_HINT,
       durationMs: Date.now() - start,
     };
@@ -98,21 +98,20 @@ export const sessionStartHook: CheckFn = async (probes): Promise<CheckResult> =>
   try {
     parsed = JSON.parse(raw);
   } catch {
-    // The host owns this file; a parse failure is a repairable advisory.
     return {
       ...BASE,
       status: 'Warning',
-      message: `Agent-host settings at ${settingsPath} is not valid JSON; cannot verify the SessionStart binding`,
+      message: `Agent-host settings at ${settingsPath} is not valid JSON; cannot verify the SubagentStop binding`,
       fix: FIX_HINT,
       durationMs: Date.now() - start,
     };
   }
 
-  if (hasExarchosBinding(parsed)) {
+  if (hasSubagentStopBinding(parsed)) {
     return {
       ...BASE,
       status: 'Pass',
-      message: 'SessionStart binding (#1485) is installed',
+      message: 'SubagentStop binding is installed',
       durationMs: Date.now() - start,
     };
   }
@@ -120,7 +119,7 @@ export const sessionStartHook: CheckFn = async (probes): Promise<CheckResult> =>
   return {
     ...BASE,
     status: 'Warning',
-    message: `SessionStart binding (#1485) not found in ${settingsPath}`,
+    message: `SubagentStop binding not found in ${settingsPath}`,
     fix: FIX_HINT,
     durationMs: Date.now() - start,
   };

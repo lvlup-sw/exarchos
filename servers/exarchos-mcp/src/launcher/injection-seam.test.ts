@@ -203,6 +203,51 @@ describe('applyOrientationChannel — resolved native-channel applier (DR-6)', (
     expect(result.env?.KEEP).toBe('1');
   });
 
+  it('applyFlagChannel_FileForm_NotifiesOnTempPathCreated', () => {
+    const notified: string[] = [];
+    const result = applyOrientationChannel(BASE, flagChannel(CLAUDE_FILE), 'BODY', {
+      writeTempFile: () => '/tmp/orient-abc/orientation.md',
+      onTempPathCreated: (p) => notified.push(p),
+    });
+    expect(notified).toEqual(['/tmp/orient-abc/orientation.md']);
+    expect(result.args).toContain('/tmp/orient-abc/orientation.md');
+  });
+
+  it('applyEnvChannel_DirForm_NotifiesOnTempPathCreated', () => {
+    const notified: string[] = [];
+    applyOrientationChannel(BASE, envChannel(COPILOT_ENV), 'DIR-BODY', {
+      writeTempDir: () => '/tmp/orient-dir',
+      onTempPathCreated: (p) => notified.push(p),
+    });
+    expect(notified).toEqual(['/tmp/orient-dir']);
+  });
+
+  it('flagValue_StringOrAssignmentForm_ThrowsOverInlineSizeGuard', () => {
+    const oversized = 'x'.repeat(33 * 1024);
+    expect(() => applyOrientationChannel(BASE, flagChannel(CLAUDE_STRING), oversized)).toThrow(
+      /orientation content too large/,
+    );
+    expect(() => applyOrientationChannel(BASE, flagChannel(CODEX_ASSIGN), oversized)).toThrow(
+      /orientation content too large/,
+    );
+  });
+
+  it('applyEnvChannel_ConfigJsonForm_ThrowsOverInlineSizeGuard', () => {
+    const oversized = 'x'.repeat(33 * 1024);
+    expect(() => applyOrientationChannel(BASE, envChannel(OPENCODE_ENV), oversized)).toThrow(
+      /orientation content too large/,
+    );
+  });
+
+  it('applyEnvChannel_DirForm_NoSizeGuard_ContentWritesToDiskRegardlessOfSize', () => {
+    const oversized = 'x'.repeat(33 * 1024);
+    expect(() =>
+      applyOrientationChannel(BASE, envChannel(COPILOT_ENV), oversized, {
+        writeTempDir: () => '/tmp/orient-dir',
+      }),
+    ).not.toThrow();
+  });
+
   it('applyFlagChannel_StringForm_InlinesContentNoTempFile', () => {
     let wrote = false;
     const result = applyOrientationChannel(BASE, flagChannel(CLAUDE_STRING), 'INLINE-BODY', {

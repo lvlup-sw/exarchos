@@ -39,7 +39,7 @@ import { ALL_CHECKS } from './index.js';
 // ─── Pinned roster identity ──────────────────────────────────────────────────
 
 /**
- * The FIFTEEN checks shipped today, pinned by `(category, name)` and ORDER.
+ * The SIXTEEN checks shipped today, pinned by `(category, name)` and ORDER.
  * `ALL_CHECKS` order is part of the observable contract: the composer preserves
  * it so callers scan top-to-bottom for the first Fail. A task adding a check
  * must update this list (and the count) deliberately — that edit is the signal
@@ -52,6 +52,8 @@ import { ALL_CHECKS } from './index.js';
  * uninstall-reachability check) were added together in the `agent` block, in that
  * order (block-write step before hook-removal step); the count is updated
  * 13 → 15 on purpose.
+ * DELIBERATE PIN UPDATE (Task 011): `stale-skill-dirs` (category `plugin`) was
+ * added as a further CONSCIOUS act, updating the count 15 → 16.
  */
 const PINNED_ROSTER: ReadonlyArray<{
   category: CheckResult['category'];

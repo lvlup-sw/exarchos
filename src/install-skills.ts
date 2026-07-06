@@ -238,9 +238,9 @@ export interface InstallSkillsError extends Error {
  */
 export function expandTilde(p: string, home: string): string {
   if (p === '~') return home;
-  if (p.startsWith('~/')) return `${home}${p.slice(1)}`;
+  if (p.startsWith('~/')) return path.join(home, p.slice(2));
   if (p === '$HOME') return home;
-  if (p.startsWith('$HOME/')) return `${home}${p.slice('$HOME'.length)}`;
+  if (p.startsWith('$HOME/')) return path.join(home, p.slice('$HOME/'.length));
   return p;
 }
 
@@ -866,11 +866,20 @@ export function writeSkillsProvenanceManifest(args: {
     args;
 
   let existing: SkillsProvenanceManifest | undefined;
+  let raw: string | undefined;
   try {
-    const parsed: unknown = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-    if (isProvenanceManifest(parsed)) existing = parsed;
-  } catch {
-    // ENOENT or malformed → start fresh.
+    raw = fs.readFileSync(manifestPath, 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') throw err;
+    // ENOENT → no manifest yet, start fresh.
+  }
+  if (raw !== undefined) {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (isProvenanceManifest(parsed)) existing = parsed;
+    } catch {
+      // Malformed JSON → start fresh.
+    }
   }
 
   const newPlacements: SkillPlacementRecord[] = [

@@ -13,14 +13,20 @@
 // under an isolated HOME + repo (no mocks at the test boundary):
 //
 //   - `onboard` drives a fresh repo to a green doctor and EXITS 0 (DR-2).
-//   - It installs exactly one #1485 SessionStart binding under
-//     `<home>/.claude/settings.json` (DR-8).
-//   - Re-running is idempotent: a second invocation still exits 0 and leaves
-//     exactly one binding (DR-8 acceptance).
+//   - A first run installs exactly one SubagentStop binding (DR-7's retained
+//     token-attribution seam) under `<home>/.claude/settings.json`; the same
+//     pass also writes the #1485 SessionStart directive (installBindings'
+//     single idempotent pass writes all three bindings together), but that
+//     binding is retired going forward.
+//   - Re-running is idempotent AND completes the DR-7 retirement: a second
+//     invocation still exits 0, the SessionStart binding is gone (removed by
+//     `retired-hooks-present` — the launcher is now the lifecycle authority),
+//     and the SubagentStop binding still numbers exactly one (DR-8
+//     acceptance, now scoped to the binding DR-7 retains).
 //
 // The precise set of reconcile steps onboard *applies* depends on the host's
 // doctor state, so the assertions intentionally pin the STABLE guarantees
-// (exit code + binding count), not the volatile applied-step list.
+// (exit code + binding counts), not the volatile applied-step list.
 
 import { describe, it, expect } from 'vitest';
 import { withTmpHome } from './_helpers/tmp-home.js';
@@ -87,18 +93,18 @@ function runOnboard(home: string, cwd: string): OnboardRun {
   }
 }
 
-/** Count the #1485 SessionStart bindings in `<home>/.claude/settings.json`. */
-function sessionStartBindingCount(home: string): number {
+/** Count bindings for a given hook `event` in `<home>/.claude/settings.json`. */
+function bindingCount(home: string, event: string, marker: string): number {
   const settingsPath = path.join(home, '.claude', 'settings.json');
   if (!fs.existsSync(settingsPath)) return 0;
   const parsed = JSON.parse(fs.readFileSync(settingsPath, 'utf8')) as {
-    hooks?: { SessionStart?: { hooks?: { command?: string }[] }[] };
+    hooks?: Record<string, { hooks?: { command?: string }[] }[]>;
   };
-  const groups = parsed.hooks?.SessionStart ?? [];
+  const groups = parsed.hooks?.[event] ?? [];
   let count = 0;
   for (const group of groups) {
     for (const hook of group.hooks ?? []) {
-      if (typeof hook.command === 'string' && hook.command.includes('exarchos session-start')) {
+      if (typeof hook.command === 'string' && hook.command.includes(marker)) {
         count += 1;
       }
     }
@@ -106,8 +112,13 @@ function sessionStartBindingCount(home: string): number {
   return count;
 }
 
+const sessionStartBindingCount = (home: string): number =>
+  bindingCount(home, 'SessionStart', 'exarchos session-start');
+const subagentStopBindingCount = (home: string): number =>
+  bindingCount(home, 'SubagentStop', 'exarchos subagent-stop');
+
 describe('onboard outcome', () => {
-  it('Onboard_claude_DrivesRepoGreenAndInstallsSessionStartHook', async () => {
+  it('Onboard_claude_DrivesRepoGreenAndInstallsSubagentStopHook', async () => {
     await withTmpHome(async (home) => {
       const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-onboard-repo-'));
       try {
@@ -119,11 +130,12 @@ describe('onboard outcome', () => {
           `onboard should exit 0 (drive the repo green); stderr=${first.stderr.slice(0, 800)}`,
         ).toBe(0);
         expect(
-          sessionStartBindingCount(home),
-          'onboard should install exactly one #1485 SessionStart binding (DR-8).',
+          subagentStopBindingCount(home),
+          'onboard should install exactly one SubagentStop binding (DR-7/DR-8).',
         ).toBe(1);
 
-        // Idempotence: a second run converges and leaves exactly one binding.
+        // Idempotence: a second run converges — SessionStart is retired (removed)
+        // and SubagentStop still numbers exactly one.
         const second = runOnboard(home, repo);
         expect(
           second.status,
@@ -131,7 +143,11 @@ describe('onboard outcome', () => {
         ).toBe(0);
         expect(
           sessionStartBindingCount(home),
-          'idempotent re-run must leave exactly one SessionStart binding (DR-8).',
+          'a second onboard must complete the DR-7 retirement — SessionStart is removed, not re-added.',
+        ).toBe(0);
+        expect(
+          subagentStopBindingCount(home),
+          'idempotent re-run must leave exactly one SubagentStop binding (DR-8).',
         ).toBe(1);
       } finally {
         fs.rmSync(repo, { recursive: true, force: true });

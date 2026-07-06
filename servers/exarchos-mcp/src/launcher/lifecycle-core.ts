@@ -47,6 +47,7 @@
  * around these seams; none of those concerns live here.
  */
 
+import { rmSync } from 'node:fs';
 import type { EventStore } from '../event-store/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import type { ToolResult } from '../format.js';
@@ -346,6 +347,8 @@ interface InjectionOutcome {
   readonly degraded: boolean;
   /** Degradation reason — present iff {@link degraded}. */
   readonly degradation?: string;
+  /** Ephemeral temp file/dir materialized for a `file`/`dir` channel, if any — the caller removes it on teardown. */
+  readonly tempPath?: string;
 }
 
 /**
@@ -383,10 +386,24 @@ function resolveOrientationInjection(
   }
 
   try {
+    let tempPath: string | undefined;
     const apply =
-      o.apply ?? ((b, c, ct) => applyOrientationChannel(b, c, ct, o.applyDeps ?? {}));
+      o.apply ??
+      ((b, c, ct) =>
+        applyOrientationChannel(b, c, ct, {
+          ...(o.applyDeps ?? {}),
+          onTempPathCreated: (p) => {
+            tempPath = p;
+            o.applyDeps?.onTempPathCreated?.(p);
+          },
+        }));
     const descriptor = apply(placed, resolution.channel, content);
-    return { descriptor, channel: describeChannel(resolution.channel), degraded: false };
+    return {
+      descriptor,
+      channel: describeChannel(resolution.channel),
+      degraded: false,
+      ...(tempPath !== undefined ? { tempPath } : {}),
+    };
   } catch (err) {
     const degradation = `orientation injection construction failed: ${
       err instanceof Error ? err.message : String(err)
@@ -650,6 +667,16 @@ export async function runLifecycle(
     // THEN guarantee the terminal-once even if a throw slipped between claim and
     // observe (idempotent; a no-op if the try body or signal path already fired).
     await teardownOnce(exitCode);
+    // Remove the ephemeral orientation temp file/dir (if a `file`/`dir` channel
+    // materialized one) now that the child is done with it — best-effort, since a
+    // launch must never fail on cleanup of a scratch path.
+    if (injection.tempPath !== undefined) {
+      try {
+        rmSync(injection.tempPath, { recursive: true, force: true });
+      } catch {
+        /* best-effort — an orphaned temp path is a disk-space nit, not a launch failure. */
+      }
+    }
   }
 }
 
