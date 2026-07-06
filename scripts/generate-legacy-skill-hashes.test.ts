@@ -21,9 +21,12 @@ import {
   readFileSync,
   writeFileSync,
   mkdirSync,
+  mkdtempSync,
   rmSync,
   existsSync,
 } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -34,6 +37,7 @@ import {
   serializeManifest,
   MANIFEST_PATH,
   MIN_RELEASE,
+  MAX_RELEASE_EXCLUSIVE,
   parseVersionTag,
   compareVersionTags,
   // The generator is ESM `.mjs`; vitest resolves it fine from a `.ts` test.
@@ -165,6 +169,53 @@ describe('generate-legacy-skill-hashes (Task 023, DR-8)', () => {
     // Belt-and-suspenders: the restored tracked file matches the committed
     // blob, proving the finally block left the tree clean.
     expect(readFileSync(tracked).equals(original)).toBe(true);
+  });
+
+  it('legacyHashManifest_ExcludesReleasesAtOrAboveMaxBound', () => {
+    // The legacy window is frozen at [MIN_RELEASE, MAX_RELEASE_EXCLUSIVE): the
+    // rename release (v2.12.0) and everything after carry no old-name per-runtime
+    // renders, and — critically — an unbounded set makes a fresh buildManifest()
+    // diverge from the committed manifest the instant a v2.12.x tag exists, so a
+    // future release (or any CI run after it) would red the byte-equality check.
+    // Enumerate against a synthetic tag set spanning both bounds; only in-window
+    // tags survive (lightweight tags need no trees — enumeration is `git tag` only).
+    const repo = mkdtempSync(path.join(tmpdir(), 'legacy-hash-bound-'));
+    const g = (...args: string[]) =>
+      execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
+    try {
+      g('init', '-q');
+      g('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'seed');
+      for (const t of [
+        'v2.8.9', // below MIN — excluded
+        'v2.11.0-rc.1', // in-window prerelease
+        'v2.11.0', // in-window release
+        'v2.12.0-preview.1', // == MAX base — excluded (the rename release)
+        'v2.13.5', // above MAX — excluded
+      ]) {
+        g('tag', t);
+      }
+
+      const refs = enumerateReleaseRefs({ cwd: repo }) as string[];
+
+      // Ascending, prerelease before release, bounded on BOTH sides.
+      expect(refs).toEqual(['v2.11.0-rc.1', 'v2.11.0']);
+      expect(refs).not.toContain('v2.8.9');
+      expect(refs).not.toContain('v2.12.0-preview.1');
+      expect(refs).not.toContain('v2.13.5');
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('MAX_RELEASE_EXCLUSIVE_IsTheRenameBoundaryAboveMin', () => {
+    // Guards the constants themselves: the window is non-empty and the upper bound
+    // is the rename release the spec ships (v2.12.0).
+    expect(MAX_RELEASE_EXCLUSIVE).toEqual([2, 12, 0]);
+    expect(
+      MAX_RELEASE_EXCLUSIVE[0] > MIN_RELEASE[0] ||
+        (MAX_RELEASE_EXCLUSIVE[0] === MIN_RELEASE[0] &&
+          MAX_RELEASE_EXCLUSIVE[1] > MIN_RELEASE[1]),
+    ).toBe(true);
   });
 
   it('release enumeration is version-ordered with prereleases before release', () => {

@@ -313,8 +313,11 @@ export function deployOnrampBlocks(
   warnings.push(...shim.warnings);
   if (shim.error) warnings.push(shim.error);
 
-  // The AGENTS.md block is the load-bearing on-ramp (every Tier-1 harness reads it
-  // natively; the CLAUDE.md shim only imports it). `failed` tracks that surface so a
-  // written shim can never mask a failed AGENTS.md write (DR-7 anti-stranding).
-  return { wrote: agents.ok || shim.ok, failed: !agents.ok, warnings };
+  // DR-7 anti-stranding: `failed` is true if EITHER on-ramp surface did not land.
+  // The AGENTS.md block is read natively by the non-Claude Tier-1 harnesses, but
+  // Claude Code reaches it ONLY through the CLAUDE.md `@AGENTS.md` shim (the spec
+  // rejects a symlink in favour of the import) — so a written AGENTS.md block with a
+  // failed shim still leaves Claude Code with no reachable on-ramp. Either failure
+  // must keep the retired SessionStart hooks in place, so both gate `failed`.
+  return { wrote: agents.ok || shim.ok, failed: !agents.ok || !shim.ok, warnings };
 }

@@ -12,6 +12,7 @@ import {
   CLAUDE_MD_IMPORT_LINE,
   CODEX_WARN_BYTES,
   containsAtImport,
+  deployOnrampBlocks,
   loadCanonicalBlockBody,
   resolveCanonicalBlockPath,
   stripBindingFences,
@@ -147,6 +148,47 @@ describe('onramp-block writers (Task 013, DR-5)', () => {
 
     // The shim block's payload is exactly the import (self-contained shim).
     expect(stripBindingFences(written)).toBe(CLAUDE_MD_IMPORT_LINE);
+  });
+
+  it('deployOnrampBlocks_ShimWriteFailsAgentsOk_ReportsFailed', () => {
+    // DR-7: Claude Code reaches AGENTS.md ONLY via the CLAUDE.md @AGENTS.md shim
+    // (the spec rejects a symlink in favour of the import). So an AGENTS.md block
+    // that lands while the CLAUDE.md shim write fails still leaves Claude Code with
+    // no reachable on-ramp — `failed` must be true so the onboard gate keeps the
+    // retired SessionStart hooks in place. `failed` tracks BOTH surfaces, not just
+    // AGENTS.md.
+    const { deps } = memFs();
+    // AGENTS.md write succeeds; the CLAUDE.md shim write throws (e.g. read-only file).
+    const shimFailingDeps: InsertManagedBlockDeps = {
+      ...deps,
+      writeFileAtomic: (p, content) => {
+        if (p.endsWith(CLAUDE_MD_FILENAME)) {
+          throw new Error(`EACCES: read-only ${p}`);
+        }
+        deps.writeFileAtomic!(p, content);
+      },
+    };
+
+    const result = deployOnrampBlocks(
+      { projectRoot: '/proj', canonicalBody: 'Use Exarchos for SDLC.\n' },
+      shimFailingDeps,
+    );
+
+    // The AGENTS.md block DID write (wrote is true), but the shim failure makes the
+    // composed on-ramp incomplete → failed.
+    expect(result.wrote).toBe(true);
+    expect(result.failed).toBe(true);
+    expect(result.warnings.join(' ')).toMatch(/CLAUDE\.md|EACCES|managed block/i);
+  });
+
+  it('deployOnrampBlocks_BothSurfacesWrite_NotFailed', () => {
+    const { deps } = memFs();
+    const result = deployOnrampBlocks(
+      { projectRoot: '/proj', canonicalBody: 'Use Exarchos for SDLC.\n' },
+      deps,
+    );
+    expect(result.wrote).toBe(true);
+    expect(result.failed).toBe(false);
   });
 
   it('writeAgentsMdBlock_UnwritableTarget_FailsOpenNoThrow', () => {

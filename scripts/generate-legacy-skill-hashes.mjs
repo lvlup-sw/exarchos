@@ -75,6 +75,18 @@ export const MANIFEST_PATH = path.join(
 /** Lowest release line covered by the manifest (inclusive). */
 export const MIN_RELEASE = [2, 9, 0];
 
+/**
+ * First release line NOT covered by the manifest (exclusive upper bound) — the
+ * rename release (`v2.12.0`) and everything after it. The manifest is a *legacy*
+ * record of the PRE-RENAME per-runtime renders (the old-name `skills/<runtime>/…`
+ * trees) so pre-rename installs hash-match during migration; releases from the
+ * rename onward no longer carry those renders. An UNBOUNDED set would also make
+ * the committed manifest diverge from a fresh `buildManifest()` the instant a new
+ * `v2.12.x` tag exists — reddening every CI/release run of the DR-8 test — so the
+ * legacy window is frozen at `[MIN_RELEASE, MAX_RELEASE_EXCLUSIVE)`.
+ */
+export const MAX_RELEASE_EXCLUSIVE = [2, 12, 0];
+
 /** Top-level `skills/` directories that never ship to a consumer install. */
 const EXCLUDED_RUNTIME_DIRS = new Set(['test-fixtures']);
 
@@ -175,10 +187,14 @@ export function compareVersionTags(tagA, tagB) {
 
 /**
  * Enumerate the release refs the manifest covers: every `v2.*` tag whose base
- * version is >= MIN_RELEASE (pre-releases of a qualifying base included),
- * sorted ascending. Only immutable release tags are enumerated — the current
- * HEAD is deliberately NOT appended, so the manifest is stable across working-
- * tree changes and only grows when a new release is tagged.
+ * version is in the frozen legacy window `[MIN_RELEASE, MAX_RELEASE_EXCLUSIVE)`
+ * (pre-releases of a qualifying base included), sorted ascending. Only immutable
+ * release tags are enumerated — the current HEAD is deliberately NOT appended,
+ * so the manifest is stable across working-tree changes. The window is bounded
+ * ABOVE as well as below (see {@link MAX_RELEASE_EXCLUSIVE}): a fresh
+ * `buildManifest()` must equal the committed manifest regardless of which future
+ * release tags exist in the checkout, so a `v2.12.x`+ tag (from this rename
+ * onward) is excluded rather than silently added.
  *
  * @param {{ cwd?: string }} [opts]
  * @returns {string[]}
@@ -191,7 +207,11 @@ export function enumerateReleaseRefs(opts = {}) {
     .filter(Boolean)
     .filter((t) => {
       const v = parseVersionTag(t);
-      return v !== null && compareBase(v.base, MIN_RELEASE) >= 0;
+      return (
+        v !== null &&
+        compareBase(v.base, MIN_RELEASE) >= 0 &&
+        compareBase(v.base, MAX_RELEASE_EXCLUSIVE) < 0
+      );
     })
     .sort(compareVersionTags);
   return tags;
