@@ -745,7 +745,7 @@ describe('handleRehydrate — phasePlaybook composition (T-20)', () => {
     if (playbook === null) {
       throw new Error('expected phasePlaybook to be non-null');
     }
-    expect(playbook.skill).toBe('delegation');
+    expect(playbook.skill).toBe('delegate');
     expect(playbook.events.length).toBeGreaterThan(0);
 
     // The composed document still validates under v:3.

@@ -28,17 +28,17 @@ Investigation-first workflow for debugging and regression fixes. Provides two tr
 ## Triggers
 
 Activate this skill when:
-- User runs `/exarchos:debug` command
+- User runs `debug` command
 - User reports a bug or regression
 - User needs to investigate an error
 - User says "fix this bug" or similar
 
-**Disambiguation:** If the user says "fix" or "clean up" — use `/exarchos:debug` when something is *broken* (error, crash, wrong behavior). Use `/exarchos:refactor` when the code *works* but needs structural improvement.
+**Disambiguation:** If the user says "fix" or "clean up" — use `debug` when something is *broken* (error, crash, wrong behavior). Use `refactor` when the code *works* but needs structural improvement.
 
 ## Workflow Overview
 
 ```
-                              /exarchos:debug
+                              debug
                                  │
                             ┌────┴────┐
                             │ Triage  │
@@ -50,7 +50,7 @@ Activate this skill when:
                │                 │                 │
                ▼                 ▼                 ▼
       ┌────────────────┐  ┌─────────────┐   ┌──────────┐
-      │  Hotfix Track  │  │   Thorough  │   │ /exarchos:ideate  │
+      │  Hotfix Track  │  │   Thorough  │   │ ideate  │
       │                │  │    Track    │   │ handoff  │
       └────────────────┘  └─────────────┘   └──────────┘
 ```
@@ -61,26 +61,26 @@ Activate this skill when:
 
 ```bash
 # Default: thorough track
-/exarchos:debug "Description of the bug"
+debug "Description of the bug"
 
 # Fast path: hotfix track
-/exarchos:debug --hotfix "Production is down - users can't login"
+debug --hotfix "Production is down - users can't login"
 
 # Escalate to feature workflow
-/exarchos:debug --escalate "This needs architectural changes"
+debug --escalate "This needs architectural changes"
 ```
 
 ### Mid-Workflow Commands
 
 ```bash
 # Switch from hotfix to thorough (during investigation)
-/exarchos:debug --switch-thorough
+debug --switch-thorough
 
-# Escalate to /exarchos:ideate (manual handoff)
-/exarchos:debug --escalate "Reason for escalation"
+# Escalate to ideate (manual handoff)
+debug --escalate "Reason for escalation"
 
 # Resume after context compaction
-/exarchos:rehydrate <featureId>
+rehydrate <featureId>
 ```
 
 ## Track Comparison
@@ -103,6 +103,19 @@ For investigation escalation criteria, query:
 `exarchos_orchestrate({ action: "runbook", id: "investigation-decision" })`
 
 These runbooks encode the structured decision trees for track selection. The agent reads the decision tree and follows the guidance — the platform does not execute branches.
+
+## When to use debug vs refactor
+
+| Signal | Use debug | Use refactor |
+|--------|-----------|--------------|
+| Something is broken or wrong | Yes | No |
+| Code works but is messy/complex | No | Yes |
+| Users report a bug or regression | Yes | No |
+| Performance degradation | Start with debug (investigate) | Escalate to refactor if structural |
+| "This should be reorganized" | No | Yes |
+| Error in production logs | Yes | No |
+
+**Rule of thumb:** if there is a _symptom_ (something that should work but doesn't), use `debug`. If there is _dissatisfaction_ with working code (hard to read, violates SOLID, duplicated logic), use `refactor`.
 
 ## Hotfix Track
 
@@ -131,7 +144,7 @@ For detailed phase instructions, see `references/thorough-track.md`. For systema
 
 ### Design-time Constraints (Thorough Track: rca + design phases)
 
-The `rca` and `design` phases are the thorough track's design-time surfaces. At these phases — *before* committing to a fix approach — surface a **Constraints** section anchored to the architectural invariants relevant to the fix. This is the debug design-time equivalent of `/ideate`'s Phase 0 and uses the **same single shared source of truth** for the selection rules and devCatalog gating: see `@skills/brainstorming/references/constraint-anchoring.md`. Load `.exarchos/invariants.md` (`cost-of-load: always-load` entries) and emit the Constraints section. **devCatalog-gated:** when `.exarchos.yml: invariants.devCatalog: enabled` is unset or `disabled`, surface no Constraints section and proceed directly. The hotfix track skips this step (speed over ceremony).
+The `rca` and `design` phases are the thorough track's design-time surfaces. At these phases — *before* committing to a fix approach — surface a **Constraints** section anchored to the architectural invariants relevant to the fix. This is the debug design-time equivalent of `/ideate`'s Phase 0 and uses the **same single shared source of truth** for the selection rules and devCatalog gating: see `@skills/ideate/references/constraint-anchoring.md`. Load `.exarchos/invariants.md` (`cost-of-load: always-load` entries) and emit the Constraints section. **devCatalog-gated:** when `.exarchos.yml: invariants.devCatalog: enabled` is unset or `disabled`, surface no Constraints section and proceed directly. The hotfix track skips this step (speed over ceremony).
 
 ### Characterization Testing (Thorough Track Only)
 
@@ -147,7 +160,7 @@ This is not required for the hotfix track — hotfixes prioritize speed over doc
 ### Track Switching
 
 - **Hotfix -> Thorough:** When investigation timer expires (15 min). All findings preserved.
-- **Thorough -> Escalate:** When fix requires architectural changes. Hand off to `/exarchos:ideate`.
+- **Thorough -> Escalate:** When fix requires architectural changes. Hand off to `ideate`.
 
 For detailed switching logic, see `references/thorough-track.md`.
 
@@ -178,7 +191,7 @@ See `@skills/debug/references/state-schema.md` for full schema.
 
 ### Phase Transitions and Guards
 
-Every phase transition has a guard that must be satisfied. Before transitioning, consult `@skills/workflow-state/references/phase-transitions.md` for the exact prerequisite for each guard.
+Every phase transition has a guard that must be satisfied. Before transitioning, consult `@skills/checkpoint/references/phase-transitions.md` for the exact prerequisite for each guard.
 
 ### Schema Discovery
 
@@ -188,11 +201,11 @@ for phase transitions, guards, and playbook guidance.
 
 ## Integration Points
 
-### With /exarchos:rehydrate
+### With rehydrate
 
 Debug workflows resume like feature workflows:
 ```bash
-/exarchos:rehydrate <featureId>
+rehydrate <featureId>
 ```
 
 ### With Existing Skills
@@ -205,8 +218,8 @@ Debug workflows resume like feature workflows:
 
 Extended to support:
 - `workflowType: "debug"` field
-- Debug-specific phases surfaced by `/exarchos:rehydrate <featureId>` (the rehydration document's `next_actions` envelope determines the next verb on resume)
-- Debug context surfaced via `/exarchos:rehydrate <featureId>` at session start (no implicit hook)
+- Debug-specific phases surfaced by `rehydrate <featureId>` (the rehydration document's `next_actions` envelope determines the next verb on resume)
+- Debug context surfaced via `rehydrate <featureId>` at session start (no implicit hook)
 
 ## Completion Criteria
 

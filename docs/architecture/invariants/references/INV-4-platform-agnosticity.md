@@ -31,6 +31,8 @@ Skills, rules, and workflows must not couple to any single harness. The skills r
 
 If a token cannot be defined sensibly for one runtime, **do not add it**. Use a guard at the call site instead.
 
+> **v2.12.0-preview.1 (conform-and-shrink, #1602):** the ~13 *procedural* skills now render **once** to `skills/standard/<verb>/` using the qualified logical tool form (`exarchos:<tool>`) with **no** `MCP_PREFIX` / `COMMAND_PREFIX` — one artifact every Tier-1 harness reads natively (Agent Skills), so the placeholder-lint now *rejects* prefix tokens in procedural sources. The token table above therefore applies **only** to the 3 *orchestration* skills (`delegate`, `refactor`, `ideate`) whose `TASK_TOOL` / `SPAWN_AGENT_CALL` / `CHAIN` / `SUBAGENT_*` genuinely fork per harness and keep the per-runtime render. The consumer on-ramp is likewise runtime-neutral: one `binding/standard/block.md` served to every harness (no per-runtime prefix baking), inserted into the consumer's `AGENTS.md` as a managed block with a `CLAUDE.md` → own-line `@AGENTS.md` shim. Skill name = directory name = canonical verb across all six runtimes. See [`docs/specs/2026-07-04-harness-conform-and-shrink.md`](../../../specs/2026-07-04-harness-conform-and-shrink.md) (DR-1 · DR-2 · DR-3 · DR-5).
+
 ## Guard syntax
 
 ```markdown

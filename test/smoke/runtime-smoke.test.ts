@@ -21,11 +21,11 @@
  *   3. Asserts no unsubstituted `{{TOKEN}}` placeholders leaked through
  *      the renderer.
  *   4. Asserts runtime-specific native-syntax substrings are present in
- *      the rendered delegation skill body — the smoke proof that the
+ *      the rendered delegate skill body — the smoke proof that the
  *      per-runtime `SPAWN_AGENT_CALL` substitution actually fired.
  *
  * The Cursor test additionally asserts the sequential-fallback warning
- * text is present in the rendered delegation body (the one-line
+ * text is present in the rendered delegate.body (the one-line
  * behavioral assertion the plan called out).
  *
  * Non-Claude runtimes are gated behind `SMOKE=1` because in future we
@@ -250,17 +250,17 @@ function assertNoUnsubstitutedPlaceholders(s: ParsedSkill): void {
 }
 
 /**
- * Return the `delegation` skill from a loaded runtime set. This is
+ * Return the `delegate` skill from a loaded runtime set. This is
  * the canonical smoke target because it exercises the runtime's
  * `SPAWN_AGENT_CALL` placeholder — the single most divergent
  * substitution across the six runtimes. Throws with a helpful
- * message if delegation is missing from the set.
+ * message if the delegate skill is missing from the set.
  */
-function findDelegationSkill(skills: ParsedSkill[]): ParsedSkill {
-  const hit = skills.find((s) => s.skill === 'delegation');
+function findDelegateSkill(skills: ParsedSkill[]): ParsedSkill {
+  const hit = skills.find((s) => s.skill === 'delegate');
   if (hit === undefined) {
     throw new Error(
-      `[smoke] no 'delegation' skill found in loaded set of ` +
+      `[smoke] no 'delegate' skill found in loaded set of ` +
         `${skills.length} skill(s)`,
     );
   }
@@ -283,12 +283,12 @@ describe('task 026 — tier-1 runtime smoke tests', () => {
     }
     // Claude-specific: `Task({ ... })` with `subagent_type` + the
     // `run_in_background: true` flag must appear in the rendered
-    // delegation body. That is the proof that claude.yaml's
+    // delegate.body. That is the proof that claude.yaml's
     // `SPAWN_AGENT_CALL` substituted correctly.
-    const delegation = findDelegationSkill(skills);
-    expect(delegation.body).toContain('Task({');
-    expect(delegation.body).toContain('subagent_type: "exarchos-implementer"');
-    expect(delegation.body).toContain('run_in_background: true');
+    const delegate = findDelegateSkill(skills);
+    expect(delegate.body).toContain('Task({');
+    expect(delegate.body).toContain('subagent_type: "exarchos-implementer"');
+    expect(delegate.body).toContain('run_in_background: true');
   });
 
   it.skipIf(!smokeAll)(
@@ -302,9 +302,9 @@ describe('task 026 — tier-1 runtime smoke tests', () => {
       }
       // OpenCode mirrors Claude's `Task({ ... })` shape minus
       // `run_in_background` (no hooks / background fanout).
-      const delegation = findDelegationSkill(skills);
-      expect(delegation.body).toContain('Task({');
-      expect(delegation.body).toContain(
+      const delegate = findDelegateSkill(skills);
+      expect(delegate.body).toContain('Task({');
+      expect(delegate.body).toContain(
         'subagent_type: "exarchos-implementer"',
       );
     },
@@ -321,9 +321,9 @@ describe('task 026 — tier-1 runtime smoke tests', () => {
       }
       // Codex uses the literal OpenAI-style function call
       // `spawn_agent({ ... })` with `agent_type: "default"`.
-      const delegation = findDelegationSkill(skills);
-      expect(delegation.body).toContain('spawn_agent({');
-      expect(delegation.body).toContain('agent_type: "default"');
+      const delegate = findDelegateSkill(skills);
+      expect(delegate.body).toContain('spawn_agent({');
+      expect(delegate.body).toContain('agent_type: "default"');
     },
   );
 
@@ -337,8 +337,8 @@ describe('task 026 — tier-1 runtime smoke tests', () => {
         assertNoUnsubstitutedPlaceholders(s);
       }
       // Copilot uses the `/delegate "..."` slash-command form.
-      const delegation = findDelegationSkill(skills);
-      expect(delegation.body).toContain('/delegate "');
+      const delegate = findDelegateSkill(skills);
+      expect(delegate.body).toContain('/delegate "');
     },
   );
 
@@ -351,23 +351,23 @@ describe('task 026 — tier-1 runtime smoke tests', () => {
         assertFrontmatterValid(s);
         assertNoUnsubstitutedPlaceholders(s);
       }
-      // Cursor has no subagent primitive: the rendered delegation body
+      // Cursor has no subagent primitive: the rendered delegate.body
       // must contain the sequential-fallback warning and must not
       // contain a `Task({` or `spawn_agent({` call (those would indicate
       // a runtime-map crosswire). The warning text is whatever
       // runtimes/cursor.yaml's `SPAWN_AGENT_CALL` emits — asserted as
       // three stable substrings rather than a full-line match so
       // wrapping/indent changes in the renderer don't flake the test.
-      const delegation = findDelegationSkill(skills);
-      expect(delegation.body).toContain(
+      const delegate = findDelegateSkill(skills);
+      expect(delegate.body).toContain(
         'Cursor CLI has no in-session subagent primitive',
       );
-      expect(delegation.body).toContain('Execute each task sequentially');
-      expect(delegation.body).toContain(
+      expect(delegate.body).toContain('Execute each task sequentially');
+      expect(delegate.body).toContain(
         'Emit a single warning',
       );
-      expect(delegation.body).not.toContain('Task({');
-      expect(delegation.body).not.toContain('spawn_agent({');
+      expect(delegate.body).not.toContain('Task({');
+      expect(delegate.body).not.toContain('spawn_agent({');
     },
   );
 });

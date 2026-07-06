@@ -2,9 +2,26 @@ import { describe, it, expect } from 'vitest';
 import {
   TIER1_HARNESSES,
   HARNESS_RUNTIME_ID,
+  HARNESS_DESCRIPTORS,
   resolveHarness,
   type HarnessTarget,
+  type InjectionCandidate,
 } from './harness-registry.js';
+
+/**
+ * `true` iff `value` is, or (recursively) contains, a function — the runtime
+ * mirror of the compile-time `HasFunctionDeep` pin in
+ * `harness-registry.type-test.ts`. Guards against a behavior hook smuggled into
+ * a descriptor's injection candidate list.
+ */
+function containsFunctionDeep(value: unknown): boolean {
+  if (typeof value === 'function') return true;
+  if (Array.isArray(value)) return value.some(containsFunctionDeep);
+  if (value !== null && typeof value === 'object') {
+    return Object.values(value).some(containsFunctionDeep);
+  }
+  return false;
+}
 
 describe('harness-registry (DR-1, DR-4)', () => {
   it('Registry_FiveTier1_ResolveDescriptor', () => {
@@ -98,5 +115,113 @@ describe('harness-registry (DR-1, DR-4)', () => {
     // A valid value in the set still resolves.
     const valid: HarnessTarget = 'opencode';
     expect(resolveHarness(valid).success).toBe(true);
+  });
+});
+
+describe('harness-registry injection channels (DR-6, Task 014)', () => {
+  /** Convenience: the injection candidate list for a harness, via the registry map. */
+  function injectionOf(target: HarnessTarget): readonly InjectionCandidate[] {
+    return HARNESS_DESCRIPTORS[target].injection;
+  }
+
+  it('harnessRegistry_EveryHarness_DeclaresInjectionCandidates', () => {
+    for (const target of TIER1_HARNESSES) {
+      const result = resolveHarness(target);
+      expect(result.success).toBe(true);
+      if (!result.success) continue; // narrow for the type checker
+
+      const { injection } = result.descriptor;
+      // Every harness declares a non-empty, preference-ordered candidate list.
+      expect(Array.isArray(injection)).toBe(true);
+      expect(injection.length).toBeGreaterThan(0);
+
+      for (const candidate of injection) {
+        // Discriminant is one of the three declared kinds.
+        expect(['flag', 'env', 'none']).toContain(candidate.kind);
+        // Every candidate documents provenance + fallback.
+        expect(typeof candidate.note).toBe('string');
+        expect(candidate.note.length).toBeGreaterThan(0);
+
+        if (candidate.kind === 'flag') {
+          expect(candidate.flag.length).toBeGreaterThan(0);
+          expect(['file', 'string', 'assignment']).toContain(candidate.valueForm);
+          expect(typeof candidate.assignmentKey).toBe('string');
+          // The assignment form carries a non-empty config key; other forms don't need one.
+          if (candidate.valueForm === 'assignment') {
+            expect(candidate.assignmentKey.length).toBeGreaterThan(0);
+          }
+        } else if (candidate.kind === 'env') {
+          expect(candidate.envVar.length).toBeGreaterThan(0);
+          expect(['dir', 'config-json']).toContain(candidate.payload);
+        }
+      }
+    }
+
+    // Pin the load-bearing DR-6 candidates per harness (channel + provenance data).
+    const claude = injectionOf('claude-code');
+    expect(claude.map((c) => (c.kind === 'flag' ? c.flag : c.kind))).toEqual([
+      '--append-system-prompt-file',
+      '--append-system-prompt',
+    ]);
+    expect(claude[0]).toMatchObject({ kind: 'flag', valueForm: 'file' });
+    expect(claude[1]).toMatchObject({ kind: 'flag', valueForm: 'string' });
+
+    const codex = injectionOf('codex');
+    expect(codex).toHaveLength(1);
+    expect(codex[0]).toMatchObject({
+      kind: 'flag',
+      flag: '-c',
+      valueForm: 'assignment',
+      assignmentKey: 'developer_instructions',
+    });
+
+    const copilot = injectionOf('copilot');
+    expect(copilot).toHaveLength(1);
+    expect(copilot[0]).toMatchObject({
+      kind: 'env',
+      envVar: 'COPILOT_CUSTOM_INSTRUCTIONS_DIRS',
+      payload: 'dir',
+    });
+
+    const opencode = injectionOf('opencode');
+    expect(opencode).toHaveLength(1);
+    expect(opencode[0]).toMatchObject({
+      kind: 'env',
+      envVar: 'OPENCODE_CONFIG_CONTENT',
+      payload: 'config-json',
+    });
+  });
+
+  it('injectionChannel_Cursor_IsNone', () => {
+    const cursor = injectionOf('cursor');
+    // Cursor exposes no native channel: a single `none` candidate.
+    expect(cursor).toHaveLength(1);
+    expect(cursor[0].kind).toBe('none');
+    // …documenting the managed-block fallback.
+    expect(cursor[0].note.toLowerCase()).toContain('managed-block');
+
+    // Cursor is the ONLY `none` harness — every other harness has a real channel.
+    for (const target of TIER1_HARNESSES) {
+      if (target === 'cursor') continue;
+      expect(injectionOf(target).every((c) => c.kind !== 'none')).toBe(true);
+    }
+  });
+
+  it('harnessRegistry_RemainsPureData', () => {
+    // Runtime mirror of the compile-time HasFunctionDeep pin: no descriptor field
+    // — including the new injection candidate lists — is or nests a function.
+    for (const target of TIER1_HARNESSES) {
+      const descriptor = HARNESS_DESCRIPTORS[target];
+      expect(containsFunctionDeep(descriptor)).toBe(false);
+      // Explicitly cover the injection list (the field Task 014 adds).
+      expect(containsFunctionDeep(descriptor.injection)).toBe(false);
+    }
+
+    // Detector self-test (kill-probe): a no-op containsFunctionDeep can't
+    // rubber-stamp — it MUST pass a pure shape and flag a smuggled function.
+    expect(containsFunctionDeep({ a: 1, b: [{ c: 'x' }] })).toBe(false);
+    expect(
+      containsFunctionDeep({ injection: [{ kind: 'flag', build: () => 'x' }] }),
+    ).toBe(true);
   });
 });

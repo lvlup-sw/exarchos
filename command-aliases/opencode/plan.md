@@ -6,4 +6,4 @@ description: Decompose the unified docs/specs/ artifact into verification-ladder
 
 Canonical alias for the Exarchos `/plan` workflow command.
 
-Invoke the `implementation-planning` skill to handle: $ARGUMENTS
+Invoke the `plan` skill to handle: $ARGUMENTS

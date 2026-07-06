@@ -382,7 +382,7 @@ function benignProbes(): DoctorProbes {
 }
 
 describe('handleDoctor — verification-toolchain roster (task 009)', () => {
-  it('HandleDoctorWithChecks_RosterIncludesVerificationToolchain_ThirteenChecks', async () => {
+  it('HandleDoctorWithChecks_RosterIncludesVerificationToolchain_FifteenChecks', async () => {
     // Arrange — dispatch the REAL ALL_CHECKS through the composer.
     const ctx = fakeContext();
 
@@ -394,13 +394,14 @@ describe('handleDoctor — verification-toolchain roster (task 009)', () => {
       () => benignProbes(),
     );
 
-    // Assert — the roster ships exactly 13 checks now, and the new one is
-    // present (by category + name) in the dispatched output, not just the
-    // static export.
-    expect(ALL_CHECKS).toHaveLength(13);
+    // Assert — the roster ships exactly 16 checks now (Task 017 added
+    // onramp-block-drift + retired-hooks-present; Task 011 added stale-skill-dirs),
+    // and verification-toolchain is present (by category + name) in the dispatched
+    // output, not just the export.
+    expect(ALL_CHECKS).toHaveLength(16);
     expect(result.success).toBe(true);
     const data = result.data as { checks: CheckResult[] };
-    expect(data.checks).toHaveLength(13);
+    expect(data.checks).toHaveLength(16);
 
     const vt = data.checks.find((c) => c.name === 'verification-toolchain');
     expect(vt).toBeDefined();
@@ -409,5 +410,35 @@ describe('handleDoctor — verification-toolchain roster (task 009)', () => {
     // and the six policy cells survive the DoctorOutputSchema.parse round-trip.
     expect(vt!.status).toBe('Pass');
     expect(vt!.policyCells).toHaveLength(6);
+  });
+
+  // ── Fold-in (Task 017): the DR-5 drift finding is REGISTERED in the roster ──
+  it('HandleDoctorWithChecks_RosterIncludesBlockDriftAndRetiredHooks', async () => {
+    // The Task 013 drift check (`checkBlockDrift`) was implemented + tested but
+    // left UNREGISTERED, so DR-5's finding never fired in production. This pins
+    // that BOTH the drift check and the retired-hooks uninstall-reachability check
+    // reach the dispatched output through the composer (not just the static list).
+    const ctx = fakeContext();
+    const result = await handleDoctorWithChecks(
+      { timeoutMs: 5000 },
+      ctx,
+      ALL_CHECKS,
+      () => benignProbes(),
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as { checks: CheckResult[] };
+    const names = data.checks.map((c) => c.name);
+    expect(names).toContain('onramp-block-drift');
+    expect(names).toContain('retired-hooks-present');
+
+    // The drift check keys off the `agent` category (its diff step is `generate`).
+    const drift = data.checks.find((c) => c.name === 'onramp-block-drift');
+    expect(drift!.category).toBe('agent');
+    // And it appears BEFORE the retired-hooks removal check, so the block-write
+    // step is ordered before the hook-removal step in any derived plan.
+    expect(names.indexOf('onramp-block-drift')).toBeLessThan(
+      names.indexOf('retired-hooks-present'),
+    );
   });
 });

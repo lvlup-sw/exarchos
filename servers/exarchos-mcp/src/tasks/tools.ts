@@ -275,7 +275,7 @@ export async function handleTaskComplete(
     // `mergePendingEntry` guard reads `data.worktree` / `data.worktreePath`
     // on the latest task.completed). Pre-fix these fields were silently
     // dropped here, so the auto-detour documented in
-    // `skills-src/delegation/SKILL.md` § "Worktree-Bearing Tasks" never
+    // `skills-src/delegate/SKILL.md` § "Worktree-Bearing Tasks" never
     // triggered.
     if (typeof args.result.worktree === 'string' && args.result.worktree.length > 0) {
       data.worktree = args.result.worktree;

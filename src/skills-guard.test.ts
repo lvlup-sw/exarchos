@@ -116,9 +116,13 @@ function provisionProject(): string {
   const root = makeTempDir();
 
   mkdirSync(join(root, 'skills-src', 'foo'), { recursive: true });
+  // `foo` carries an orchestration token ({{TASK_TOOL}}) so it classifies as
+  // an orchestration skill and renders per-runtime under `skills/<runtime>/foo/`
+  // (DR-2). The skills-guard drift tests below assert against those per-runtime
+  // paths; a procedural skill would collapse to `skills/standard/foo/` instead.
   writeFileSync(
     join(root, 'skills-src', 'foo', 'SKILL.md'),
-    'Hello {{AGENT_LABEL}}\n',
+    'Hello {{AGENT_LABEL}} {{TASK_TOOL}}\n',
   );
   writeRuntimeFixtures(join(root, 'runtimes'));
 
@@ -174,7 +178,10 @@ function provisionProjectWithCallMacro(): string {
   writeFileSync(
     join(root, 'skills-src', 'foo', 'SKILL.md'),
     [
-      'Hello {{AGENT_LABEL}}',
+      // {{TASK_TOOL}} makes `foo` an orchestration skill so it renders
+      // per-runtime; the determinism assertions below target the claude
+      // per-runtime render's expanded MCP call.
+      'Hello {{AGENT_LABEL}} {{TASK_TOOL}}',
       '',
       'Invoke the workflow:',
       '',
@@ -549,9 +556,11 @@ function provisionProjectWithAliases(): string {
   const root = makeTempDir();
 
   mkdirSync(join(root, 'skills-src', 'foo'), { recursive: true });
+  // Orchestration token keeps `foo` on the per-runtime path (see
+  // `provisionProject`); the alias tree is what these tests actually diff.
   writeFileSync(
     join(root, 'skills-src', 'foo', 'SKILL.md'),
-    'Hello {{AGENT_LABEL}}\n',
+    'Hello {{AGENT_LABEL}} {{TASK_TOOL}}\n',
   );
   writeAliasRuntimeFixtures(join(root, 'runtimes'));
 

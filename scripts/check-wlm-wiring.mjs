@@ -273,8 +273,8 @@ const EXPECTED_SKILLS_SCOPE_FILES = [
   'merge-orchestrator/SKILL.md',
   'merge-orchestrator/references/recovery-runbook.md',
   'merge-orchestrator/references/local-git-semantics.md',
-  'delegation/SKILL.md',
-  'synthesis/SKILL.md',
+  'delegate/SKILL.md',
+  'synthesize/SKILL.md',
   'shepherd/SKILL.md',
   'git-worktrees/SKILL.md',
 ];

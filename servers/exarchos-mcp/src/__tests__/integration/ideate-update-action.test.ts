@@ -1,7 +1,7 @@
 // ─── Wave 5 / Task 5.5 (#1341): ideate flow E2E using canonical update ───
 //
 // This test mirrors the agent-facing sequence documented in
-// `commands/ideate.md` and `skills-src/brainstorming/SKILL.md` after the
+// `commands/ideate.md` and `skills-src/ideate/SKILL.md` after the
 // Wave 5 markdown migration:
 //
 //   1. exarchos_workflow.init({featureId, workflowType: 'feature'})

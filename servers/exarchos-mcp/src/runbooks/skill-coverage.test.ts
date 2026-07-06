@@ -29,12 +29,12 @@ function assertRunbookReference(content: string, runbookId: string): void {
 
 describe('Skill coverage — runbook references', () => {
   it('SkillCoverage_DelegationSkill_ReferencesTaskCompletionRunbook', () => {
-    const content = readSkillFile('delegation/SKILL.md');
+    const content = readSkillFile('delegate/SKILL.md');
     assertRunbookReference(content, 'task-completion');
   });
 
   it('SkillCoverage_DelegationSkill_ReferencesAgentTeamsSagaRunbook', () => {
-    const content = readSkillFile('delegation/references/agent-teams-saga.md');
+    const content = readSkillFile('delegate/references/agent-teams-saga.md');
     assertRunbookReference(content, 'agent-teams-saga');
   });
 
@@ -44,7 +44,7 @@ describe('Skill coverage — runbook references', () => {
   });
 
   it('SkillCoverage_SynthesisSkill_ReferencesSynthesisFlowRunbook', () => {
-    const content = readSkillFile('synthesis/SKILL.md');
+    const content = readSkillFile('synthesize/SKILL.md');
     assertRunbookReference(content, 'synthesis-flow');
   });
 
@@ -71,7 +71,7 @@ describe('Skill coverage — runbook references', () => {
   });
 
   it('SkillCoverage_DelegationSkill_ReferencesDispatchDecisionRunbook', () => {
-    const content = readSkillFile('delegation/SKILL.md');
+    const content = readSkillFile('delegate/SKILL.md');
     assertRunbookReference(content, 'dispatch-decision');
   });
 
@@ -88,7 +88,7 @@ describe('Skill coverage — runbook references', () => {
   // ─── Schema Discovery Runbook References (DR-9, DR-11) ──────────────
 
   it('SkillCoverage_DelegationSkill_ReferencesTaskClassificationRunbook', () => {
-    const content = readSkillFile('delegation/SKILL.md');
+    const content = readSkillFile('delegate/SKILL.md');
     assertRunbookReference(content, 'task-classification');
   });
 

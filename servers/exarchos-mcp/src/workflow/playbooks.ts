@@ -338,8 +338,8 @@ function delegateAutoEmittedEvents(
 register({
   phase: 'plan',
   workflowType: 'feature',
-  skill: 'implementation-planning',
-  skillRef: '@skills/implementation-planning/SKILL.md',
+  skill: 'plan',
+  skillRef: '@skills/plan/SKILL.md',
   tools: [
     {
       tool: 'exarchos_workflow',
@@ -353,14 +353,14 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'Unified `plan` phase (#1581, no separate design phase): author ONE docs/specs/ artifact via exarchos_workflow update, then → plan-review. FIRST the `## Design & Rationale` section (per @skills/brainstorming/SKILL.md): Problem Statement + DR-1..DR-N requirements + acceptance criteria (one for error handling), depth-scaled by frozen designDepth (2-3-approach divergent loop only at `deep` rung; else one pass, reasoning first then formatting); record artifacts.spec. THEN the Decomposition section (per @skills/implementation-planning/SKILL.md): tasks tracing to DR-N in the SAME doc; three-stage: (1) logical units, (2) concrete tasks, (3) parallelization plan; each 2-5 min, riskTier + Implements: DR-N. Record artifacts.plan (docs/specs/ path, planArtifactExists guard key) → plan-review. Use phase-compression runbook for self-contained per-task context packages. Anti-pattern: separate docs/designs/ or docs/plans/ file; monolith tasks. Escalate: ambiguous requirements block decomposition.',
+    'Unified `plan` phase (#1581, no separate design phase): author ONE docs/specs/ artifact via exarchos_workflow update, then → plan-review. FIRST the `## Design & Rationale` section (per @skills/ideate/SKILL.md): Problem Statement + DR-1..DR-N requirements + acceptance criteria (one for error handling), depth-scaled by frozen designDepth (2-3-approach divergent loop only at `deep` rung; else one pass, reasoning first then formatting); record artifacts.spec. THEN the Decomposition section (per @skills/plan/SKILL.md): tasks tracing to DR-N in the SAME doc; three-stage: (1) logical units, (2) concrete tasks, (3) parallelization plan; each 2-5 min, riskTier + Implements: DR-N. Record artifacts.plan (docs/specs/ path, planArtifactExists guard key) → plan-review. Use phase-compression runbook for self-contained per-task context packages. Anti-pattern: separate docs/designs/ or docs/plans/ file; monolith tasks. Escalate: ambiguous requirements block decomposition.',
 });
 
 register({
   phase: 'plan-review',
   workflowType: 'feature',
-  skill: 'implementation-planning',
-  skillRef: '@skills/implementation-planning/SKILL.md',
+  skill: 'plan',
+  skillRef: '@skills/plan/SKILL.md',
   tools: [
     {
       tool: 'exarchos_workflow',
@@ -380,8 +380,8 @@ register({
 register({
   phase: 'delegate',
   workflowType: 'feature',
-  skill: 'delegation',
-  skillRef: '@skills/delegation/SKILL.md',
+  skill: 'delegate',
+  skillRef: '@skills/delegate/SKILL.md',
   tools: [
     {
       tool: 'exarchos_workflow',
@@ -523,8 +523,8 @@ register({
 register({
   phase: 'synthesize',
   workflowType: 'feature',
-  skill: 'synthesis',
-  skillRef: '@skills/synthesis/SKILL.md',
+  skill: 'synthesize',
+  skillRef: '@skills/synthesize/SKILL.md',
   tools: [
     {
       tool: 'exarchos_workflow',
@@ -687,7 +687,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are designing the fix based on the RCA. Before committing to a fix approach, surface a design-time Constraints section anchored to .exarchos/invariants.md (always-load entries, devCatalog-gated via .exarchos.yml invariants.devCatalog) per @skills/brainstorming/references/constraint-anchoring.md — the same shared source /ideate Phase 0 uses. Use exarchos_workflow update to record the fix design. Transition to debug-implement when the design is complete. Key decision: minimal targeted fix vs defensive fix with additional guards and validation. Anti-pattern: scope creep beyond the bug fix — resist adding unrelated improvements. Escalate: fix requires architectural change that cannot be contained to a targeted patch.',
+    'You are designing the fix based on the RCA. Before committing to a fix approach, surface a design-time Constraints section anchored to .exarchos/invariants.md (always-load entries, devCatalog-gated via .exarchos.yml invariants.devCatalog) per @skills/ideate/references/constraint-anchoring.md — the same shared source /ideate Phase 0 uses. Use exarchos_workflow update to record the fix design. Transition to debug-implement when the design is complete. Key decision: minimal targeted fix vs defensive fix with additional guards and validation. Anti-pattern: scope creep beyond the bug fix — resist adding unrelated improvements. Escalate: fix requires architectural change that cannot be contained to a targeted patch.',
 });
 
 register({
@@ -799,8 +799,8 @@ register({
 register({
   phase: 'synthesize',
   workflowType: 'debug',
-  skill: 'synthesis',
-  skillRef: '@skills/synthesis/SKILL.md',
+  skill: 'synthesize',
+  skillRef: '@skills/synthesize/SKILL.md',
   tools: [
     {
       tool: 'exarchos_workflow',
@@ -914,7 +914,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are writing the refactoring brief. Before committing to an approach, surface a design-time Constraints section anchored to .exarchos/invariants.md (always-load entries, devCatalog-gated via .exarchos.yml invariants.devCatalog) per @skills/brainstorming/references/constraint-anchoring.md — the same shared source /ideate Phase 0 uses. Use exarchos_workflow update to record the brief and select polish (small) or overhaul (large) track. Transition based on track selection. Key decision: polish track (<=5 files, cosmetic/DRY) vs overhaul track (>5 files, structural changes). Anti-pattern: choosing polish for structural changes that actually need the overhaul track. Escalate: scope is unclear after exploration, revisit explore phase.',
+    'You are writing the refactoring brief. Before committing to an approach, surface a design-time Constraints section anchored to .exarchos/invariants.md (always-load entries, devCatalog-gated via .exarchos.yml invariants.devCatalog) per @skills/ideate/references/constraint-anchoring.md — the same shared source /ideate Phase 0 uses. Use exarchos_workflow update to record the brief and select polish (small) or overhaul (large) track. Transition based on track selection. Key decision: polish track (<=5 files, cosmetic/DRY) vs overhaul track (>5 files, structural changes). Anti-pattern: choosing polish for structural changes that actually need the overhaul track. Escalate: scope is unclear after exploration, revisit explore phase.',
 });
 
 register({
@@ -983,8 +983,8 @@ register({
 register({
   phase: 'overhaul-plan',
   workflowType: 'refactor',
-  skill: 'implementation-planning',
-  skillRef: '@skills/implementation-planning/SKILL.md',
+  skill: 'plan',
+  skillRef: '@skills/plan/SKILL.md',
   tools: [
     {
       tool: 'exarchos_workflow',
@@ -1004,8 +1004,8 @@ register({
 register({
   phase: 'overhaul-plan-review',
   workflowType: 'refactor',
-  skill: 'implementation-planning',
-  skillRef: '@skills/implementation-planning/SKILL.md',
+  skill: 'plan',
+  skillRef: '@skills/plan/SKILL.md',
   tools: [
     {
       tool: 'exarchos_workflow',
@@ -1025,8 +1025,8 @@ register({
 register({
   phase: 'overhaul-delegate',
   workflowType: 'refactor',
-  skill: 'delegation',
-  skillRef: '@skills/delegation/SKILL.md',
+  skill: 'delegate',
+  skillRef: '@skills/delegate/SKILL.md',
   tools: [
     {
       tool: 'exarchos_workflow',
@@ -1120,8 +1120,8 @@ register({
 register({
   phase: 'synthesize',
   workflowType: 'refactor',
-  skill: 'synthesis',
-  skillRef: '@skills/synthesis/SKILL.md',
+  skill: 'synthesize',
+  skillRef: '@skills/synthesize/SKILL.md',
   tools: [
     {
       tool: 'exarchos_workflow',
@@ -1209,7 +1209,7 @@ register({
 // over (synthesisPolicy, synthesize.requested events). See T8 / T11 for the
 // guard implementations and HSM transitions.
 //
-// The `plan` and `implementing` playbooks reference the `oneshot-workflow`
+// The `plan` and `implementing` playbooks reference the `oneshot`
 // skill which is authored in T17 — the skillRef is declared here so that
 // the skill-ref check in compactGuidance drift tests skips min-length /
 // tool-keyword assertions for these in-session phases whose guidance is
@@ -1219,8 +1219,8 @@ export const oneshotPlaybook: readonly PhasePlaybook[] = [
   {
     phase: 'plan',
     workflowType: 'oneshot',
-    skill: 'oneshot-workflow',
-    skillRef: '@skills/oneshot-workflow/SKILL.md',
+    skill: 'oneshot',
+    skillRef: '@skills/oneshot/SKILL.md',
     tools: [
       {
         tool: 'exarchos_workflow',
@@ -1235,13 +1235,13 @@ export const oneshotPlaybook: readonly PhasePlaybook[] = [
     validationScripts: [],
     humanCheckpoint: false,
     compactGuidance:
-      'Lightweight in-session planning for a oneshot workflow. Capture a one-page plan (goal, approach, files to touch, tests to add) via exarchos_workflow update using updates: { "artifacts.plan": "..." }. Optionally also set oneshot.planSummary for a one-line pipeline-view label, but artifacts.plan is the guard-required artifact. No design doc required; no subagent dispatch. Transition to implementing once the plan artifact is recorded. Follow the oneshot-workflow skill for the full procedure.',
+      'Lightweight in-session planning for a oneshot workflow. Capture a one-page plan (goal, approach, files to touch, tests to add) via exarchos_workflow update using updates: { "artifacts.plan": "..." }. Optionally also set oneshot.planSummary for a one-line pipeline-view label, but artifacts.plan is the guard-required artifact. No design doc required; no subagent dispatch. Transition to implementing once the plan artifact is recorded. Follow the oneshot skill for the full procedure.',
   },
   {
     phase: 'implementing',
     workflowType: 'oneshot',
-    skill: 'oneshot-workflow',
-    skillRef: '@skills/oneshot-workflow/SKILL.md',
+    skill: 'oneshot',
+    skillRef: '@skills/oneshot/SKILL.md',
     tools: [
       {
         tool: 'exarchos_workflow',
@@ -1268,13 +1268,13 @@ export const oneshotPlaybook: readonly PhasePlaybook[] = [
     validationScripts: [],
     humanCheckpoint: false,
     compactGuidance:
-      'In-session implementation for a oneshot workflow. Verification is risk-proportional — apply the gate ladder resolved for this phase (advisory severity for oneshot), sized to the risk of the change. After the resolved checks pass, the main agent resolves the choice state using pure guards over (synthesisPolicy, synthesize.requested events). If opting into the synthesize path at runtime, append a synthesize.requested event via exarchos_event append. The HSM evaluates the choice state on the next transition attempt. Follow the oneshot-workflow skill for the full procedure.',
+      'In-session implementation for a oneshot workflow. Verification is risk-proportional — apply the gate ladder resolved for this phase (advisory severity for oneshot), sized to the risk of the change. After the resolved checks pass, the main agent resolves the choice state using pure guards over (synthesisPolicy, synthesize.requested events). If opting into the synthesize path at runtime, append a synthesize.requested event via exarchos_event append. The HSM evaluates the choice state on the next transition attempt. Follow the oneshot skill for the full procedure.',
   },
   {
     phase: 'synthesize',
     workflowType: 'oneshot',
-    skill: 'synthesis',
-    skillRef: '@skills/synthesis/SKILL.md',
+    skill: 'synthesize',
+    skillRef: '@skills/synthesize/SKILL.md',
     tools: [
       {
         tool: 'exarchos_workflow',
@@ -1325,8 +1325,8 @@ for (const pb of oneshotPlaybook) {
 register({
   phase: 'gathering',
   workflowType: 'discovery',
-  skill: 'discovery',
-  skillRef: '@skills/discovery/SKILL.md',
+  skill: 'discover',
+  skillRef: '@skills/discover/SKILL.md',
   tools: [
     {
       tool: 'exarchos_workflow',
@@ -1346,8 +1346,8 @@ register({
 register({
   phase: 'synthesizing',
   workflowType: 'discovery',
-  skill: 'discovery',
-  skillRef: '@skills/discovery/SKILL.md',
+  skill: 'discover',
+  skillRef: '@skills/discover/SKILL.md',
   tools: [
     {
       tool: 'exarchos_workflow',

@@ -4,6 +4,7 @@
 // individual MCP tools with a single `exarchos_view` entry point.
 
 import { wrap, wrapWithPassthrough, type ToolResult } from '../format.js';
+import type { NextAction } from '../next-action.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { handleDescribe } from '../describe/handler.js';
 import { TOOL_REGISTRY } from '../registry.js';
@@ -72,6 +73,39 @@ function envelopeWrap(result: ToolResult, startedAt: number): ToolResult {
   const handlerActions = result.next_actions ?? [];
   const nextActions = [...handlerActions, ...hsmActions];
   return wrapWithPassthrough(result, wrap(result.data, meta, perf, nextActions));
+}
+
+/**
+ * DR-7 (Task 018) — launcher-session liveness affordance for the `ps` surface.
+ *
+ * The `ps` launch column answers a launcher-spawned session's liveness from the
+ * `launch.executing_started` / `launch.executed` event pair ALONE: an entry is
+ * in-flight while the CLAIM has no paired terminal, and the fold clears it the
+ * moment the terminal lands — no live process scan is consulted (that is only
+ * the opt-in `probe: true` reclaim path). When one or more launcher sessions are
+ * in flight, surface that guarantee to the agent as a single `next_actions`
+ * hint so the event-sourced liveness is discoverable rather than implicit.
+ *
+ * Pure annotation: the WLM fold's `launches` / `launchCount` payload is returned
+ * untouched; only the `next_actions` channel is appended to. Errors and the
+ * probe/no-launch cases pass through unchanged.
+ *
+ * Known limitation (documented follow-up, out of scope here): injection
+ * *degradation* is computed on the launcher lifecycle result at the
+ * `launch.executing_started` phase but is NOT yet persisted as a field on the
+ * event, so `ps` can answer launch *liveness* from events alone but cannot yet
+ * surface *degradation* from events alone.
+ */
+function withLaunchLivenessAffordance(result: ToolResult): ToolResult {
+  if (!result.success) return result;
+  const launchCount = (result.data as { launchCount?: number } | undefined)?.launchCount ?? 0;
+  if (launchCount < 1) return result;
+  const affordance: NextAction = {
+    verb: 'ps',
+    reason: `${launchCount} launcher session${launchCount === 1 ? '' : 's'} in flight — liveness is answered from launch.* events alone (no process scan); the column clears as each launch.executed terminal folds, so re-running ps refreshes it.`,
+  };
+  const existing = result.next_actions ?? [];
+  return { ...result, next_actions: [...existing, affordance] };
 }
 
 /**
@@ -393,7 +427,16 @@ export async function handleView(
       // pulls the DR-5 process probe and emits worktree.released /
       // worktree.orphan_detected (the deferred orphan emitter — the sole write
       // path on this view surface). `rest`/`deps` thread every field/mode.
-      return envelopeWrap(await handleViewPs(rest, ctx, deps), startedAt);
+      //
+      // DR-7 (Task 018) — for launcher-spawned sessions the launch column
+      // answers liveness from the `launch.*` event pair ALONE;
+      // `withLaunchLivenessAffordance` surfaces that guarantee as an agent-first
+      // `next_actions` hint when any launcher session is in flight (pure
+      // annotation — the WLM fold's `launches` data is untouched).
+      return envelopeWrap(
+        withLaunchLivenessAffordance(await handleViewPs(rest, ctx, deps)),
+        startedAt,
+      );
 
     case 'wait':
       // WLM operational core (DR-4/DR-3) — caller-bounded poll. Default

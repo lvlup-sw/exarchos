@@ -43,6 +43,7 @@ import { deriveWorktreePath } from './topology.js';
 import { runLauncherVerb } from './verb.js';
 import type { ResolvedLaunch } from './verb.js';
 import {
+  clearHelpProbeCache,
   runLifecycle,
   type LifecycleResultData,
   type LifecycleTeardown,
@@ -137,9 +138,14 @@ function makeFakeSpawn(exit: SpawnExit, pid = 44444): FakeSpawn {
 }
 
 // Explicit, non-empty holder identity so every launch is deterministic + probe-free.
+// `orientation: { disabled: true }` keeps these integrator tests HERMETIC — the
+// default spawn-time channel probe (DR-6) would otherwise reach for a real CLI on
+// the host. Orientation injection is exercised independently, with deterministic
+// seams, in the dedicated tests below + `channel-probe`/`injection-*` suites.
 const HOLDER = {
   holderPid: process.pid,
   holderStartedAt: 'lifecycle-boot-fingerprint',
+  orientation: { disabled: true },
 } as const;
 
 // ─── Suite ────────────────────────────────────────────────────────────────────
@@ -153,6 +159,7 @@ describe('runLifecycle — launcher lifecycle integrator (real git + real event 
   let base: string;
 
   beforeEach(async () => {
+    clearHelpProbeCache();
     stateDir = await mkdtemp(path.join(tmpdir(), 'launcher-lifecycle-state-'));
     workdir = await mkdtemp(path.join(tmpdir(), 'launcher-lifecycle-work-'));
     store = new EventStore(stateDir);
@@ -470,6 +477,7 @@ describe('runLifecycle — launcher lifecycle integrator (real git + real event 
       processSource: unresolvable,
       newBranch: 'launch-nullstart',
       repoRoot: repo,
+      orientation: { disabled: true }, // hermetic: no default host probe
       // holderStartedAt intentionally OMITTED → force the resolver path.
     });
     expect(result.success).toBe(true);
@@ -489,5 +497,131 @@ describe('runLifecycle — launcher lifecycle integrator (real git + real event 
     expect(() =>
       LaunchExecutingStartedData.parse({ ...claims[0].data, holderStartedAt: '' }),
     ).toThrow();
+  }, 20_000);
+
+  // ── runLifecycle_InjectionConstructionFails_... (DR-6 / DR-8 fail-open) ──────
+  //
+  // A native-channel construction failure (here: the `file`-form temp-file write
+  // throws) must NOT abort the launch. The launch PROCEEDS — spawn happens, the
+  // guaranteed terminal is emitted — and a degradation is RECORDED on the result
+  // (surfaced at the launch.executing_started phase), the descriptor spawned
+  // WITHOUT the failed native orientation.
+  it('runLifecycle_InjectionConstructionFails_LaunchProceedsWithDegradationRecorded', async () => {
+    const fake = makeFakeSpawn({ code: 0, signal: null });
+
+    const result = await runLifecycle(makeParams(), {
+      ctx,
+      spawnChild: fake.fn,
+      newBranch: 'launch-inject-fail',
+      repoRoot: repo,
+      ...HOLDER,
+      orientation: {
+        // Content is available and a channel resolves (claude's file flag)…
+        content: 'ORIENTATION-BLOCK',
+        helpProbe: () => 'Usage: claude\n  --append-system-prompt-file FILE',
+        // …but materializing the temp file THROWS — the construction-failure edge.
+        applyDeps: {
+          writeTempFile: () => {
+            throw new Error('disk full: cannot write orientation temp file');
+          },
+        },
+      },
+    });
+
+    // The launch still succeeded end-to-end…
+    expect(result.success).toBe(true);
+    const data = result.data as LifecycleResultData;
+    // …with the degradation RECORDED (fail-open), channel reported as none…
+    expect(data.injection.degraded).toBe(true);
+    expect(data.injection.channel).toBe('none');
+    expect(data.injection.degradation).toContain('construction failed');
+    // …the child was actually spawned WITHOUT the failed native flag args…
+    expect(fake.calls).toHaveLength(1);
+    expect(fake.calls[0].args).not.toContain('--append-system-prompt-file');
+    // …and the launch ran to its guaranteed terminal.
+    expect(eventsOfType(store, LAUNCH_EXECUTED)).toHaveLength(1);
+  }, 20_000);
+
+  // ── A resolved channel is APPLIED to the spawned descriptor (happy path) ────
+  it('runLifecycle_ChannelResolves_AppliesNativeFlagToSpawnedDescriptor', async () => {
+    const fake = makeFakeSpawn({ code: 0, signal: null });
+
+    const result = await runLifecycle(makeParams(), {
+      ctx,
+      spawnChild: fake.fn,
+      newBranch: 'launch-inject-ok',
+      repoRoot: repo,
+      ...HOLDER,
+      orientation: {
+        content: 'ORIENTATION-BLOCK',
+        helpProbe: () => 'Usage: claude\n  --append-system-prompt-file FILE',
+        applyDeps: { writeTempFile: () => '/tmp/orient/orientation.md' },
+      },
+    });
+
+    expect(result.success).toBe(true);
+    const data = result.data as LifecycleResultData;
+    expect(data.injection.degraded).toBe(false);
+    expect(data.injection.channel).toBe('flag:--append-system-prompt-file');
+    // The resolved native flag + temp-file path rode the SPAWNED descriptor…
+    expect(fake.calls[0].args).toEqual(['--append-system-prompt-file', '/tmp/orient/orientation.md']);
+    // …and the file-free orientation tag rode its env alongside.
+    expect(fake.calls[0].env?.EXARCHOS_ORIENTATION).toBe('ORIENTATION-BLOCK');
+  }, 20_000);
+
+  // ── A materialized `file`-form temp path is removed once the launch is done ─
+  //
+  // The `file` channel writes orientation content to a REAL ephemeral temp file
+  // (DR-7's `defaultWriteTempFile`). Nothing previously removed it — an orphaned
+  // temp file/dir on every launch. Verify the lifecycle now cleans it up as part
+  // of the guaranteed-terminal teardown path.
+  it('runLifecycle_FileFormOrientation_RemovesTempPathAfterTeardown', async () => {
+    const fake = makeFakeSpawn({ code: 0, signal: null });
+    let createdPath: string | undefined;
+
+    const result = await runLifecycle(makeParams(), {
+      ctx,
+      spawnChild: fake.fn,
+      newBranch: 'launch-inject-cleanup',
+      repoRoot: repo,
+      ...HOLDER,
+      orientation: {
+        content: 'ORIENTATION-BLOCK',
+        helpProbe: () => 'Usage: claude\n  --append-system-prompt-file FILE',
+        // No writeTempFile override — exercise the REAL default materializer so
+        // this test proves an actual on-disk path is created AND removed.
+      },
+    });
+
+    expect(result.success).toBe(true);
+    const data = result.data as LifecycleResultData;
+    expect(data.injection.channel).toBe('flag:--append-system-prompt-file');
+    createdPath = fake.calls[0].args[1];
+    expect(createdPath).toBeDefined();
+    expect(existsSync(createdPath as string)).toBe(false);
+    // The parent ephemeral dir is gone too (recursive removal), not just the file.
+    expect(existsSync(path.dirname(createdPath as string))).toBe(false);
+  }, 20_000);
+
+  // ── The existing lifecycle tests stay hermetic: injection disabled by seam ──
+  it('runLifecycle_OrientationDisabled_NoInjectionApplied', async () => {
+    const fake = makeFakeSpawn({ code: 0, signal: null });
+
+    const result = await runLifecycle(makeParams(), {
+      ctx,
+      spawnChild: fake.fn,
+      newBranch: 'launch-inject-off',
+      repoRoot: repo,
+      ...HOLDER,
+      orientation: { disabled: true },
+    });
+
+    expect(result.success).toBe(true);
+    const data = result.data as LifecycleResultData;
+    expect(data.injection.channel).toBe('disabled');
+    expect(data.injection.degraded).toBe(false);
+    // No orientation env, no native flag args — the descriptor is untouched.
+    expect(fake.calls[0].args).toEqual([]);
+    expect(fake.calls[0].env?.EXARCHOS_ORIENTATION).toBeUndefined();
   }, 20_000);
 });

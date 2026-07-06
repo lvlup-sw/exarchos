@@ -179,11 +179,33 @@ export function runSkillsGuard(opts: SkillsGuardOptions): SkillsGuardResult {
     failures.push(`[skills:guard] build failed: ${detail}\n${REMEDIATION}`);
   }
 
-  // Step 1b: diff `skills/` vs HEAD. Skip only if the build itself
-  // failed (no point reporting drift against a half-rendered tree).
+  // Step 1b: diff the generated skills tree vs HEAD. Skip only if the build
+  // itself failed (no point reporting drift against a half-rendered tree).
+  //
+  // Since the renderer split (DR-1), `skills/` spans two logical trees that
+  // are diffed as separate, non-overlapping checks so a failure attributes to
+  // the right one:
+  //   - `skills/standard/`         the single procedural render (DR-1)
+  //   - `skills/` minus standard   the per-runtime orchestration residual (DR-2)
+  // Drift in EITHER fails the guard. The residual check uses a git pathspec
+  // exclusion so a standard-only drift is reported once (by the standard
+  // check), not twice.
   if (!skillsBuildFailed) {
-    const skillsDiff = checkGitDiff(cwd, 'skills/', REMEDIATION, 'skills');
-    if (skillsDiff !== null) failures.push(skillsDiff);
+    const standardDiff = checkGitDiff(
+      cwd,
+      'skills/standard/',
+      REMEDIATION,
+      'skills/standard',
+    );
+    if (standardDiff !== null) failures.push(standardDiff);
+
+    const residualDiff = checkGitDiff(
+      cwd,
+      ['skills/', ':(exclude)skills/standard/'],
+      REMEDIATION,
+      'skills (orchestration residual)',
+    );
+    if (residualDiff !== null) failures.push(residualDiff);
   }
 
   // ─── Command-aliases check (T4, #1472) ────────────────────────────

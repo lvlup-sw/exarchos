@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { fileURLToPath } from 'node:url';
 import type {
   Manifest,
   CoreComponent,
@@ -270,7 +271,7 @@ describe('Manifest Loader (A2)', () => {
 // ─── E5: Real manifest.json tests ────────────────────────────────────────────
 
 describe('Real Manifest File (E5)', () => {
-  const repoRoot = path.join(path.dirname(new URL(import.meta.url).pathname), '..', '..');
+  const repoRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
   const manifestPath = path.join(repoRoot, 'manifest.json');
   const pkgPath = path.join(repoRoot, 'package.json');
 

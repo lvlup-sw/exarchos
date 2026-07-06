@@ -73,7 +73,14 @@ function writeRuntimeFixtures(runtimesDir: string): void {
 /** Build a standard happy-path fixture tree rooted at `root`. */
 function writeHappyFixture(root: string): void {
   mkdirSync(join(root, 'skills-src', 'foo'), { recursive: true });
-  writeFileSync(join(root, 'skills-src', 'foo', 'SKILL.md'), 'Hello {{AGENT_LABEL}}');
+  // {{TASK_TOOL}} classifies `foo` as an orchestration skill (DR-2) so it
+  // renders once per runtime (6 variants) under `skills/<runtime>/foo/`. The
+  // CLI tests below assert the per-runtime path and the 6-variant count; a
+  // procedural skill would collapse to a single `skills/standard/foo/` render.
+  writeFileSync(
+    join(root, 'skills-src', 'foo', 'SKILL.md'),
+    'Hello {{AGENT_LABEL}} {{TASK_TOOL}}',
+  );
   writeRuntimeFixtures(join(root, 'runtimes'));
 }
 

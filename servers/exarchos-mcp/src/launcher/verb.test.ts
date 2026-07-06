@@ -124,6 +124,50 @@ describe('exarchos <harness> launcher verb (DR-1)', () => {
     expect(planB.worktreePath).toBe('/repo/exarchos-opencode');
   });
 
+  it('launcherVerb_DryRun_PrintsResolvedChannelAndPayload', async () => {
+    // Deterministic payload injected so the preview is hermetic (no reliance on
+    // the repo `binding/standard/block.md` being on disk under the test cwd).
+    const payload = 'ORIENT-BLOCK-CONTENT: route workflow ops through Exarchos.';
+
+    const result = await runLauncherVerb(
+      { harness: 'claude-code', dryRun: true },
+      { base: POSIX_BASE, orientationContent: payload },
+    );
+
+    expect(result.success).toBe(true);
+    const plan = result.data as DryRunPlan;
+
+    // The resolved channel is the PROBE-FREE preview: claude's primary candidate.
+    expect(plan.injection.channel).toBe('flag:--append-system-prompt-file');
+    expect(plan.injection.payload).toBe(payload);
+
+    const rendered = renderDryRunPlan(plan);
+    // The render prints BOTH the resolved channel and the payload.
+    expect(rendered).toContain('orientation channel: flag:--append-system-prompt-file');
+    expect(rendered).toContain(payload);
+
+    // Cursor has NO native channel — the preview reports `none`.
+    const cursor = await runLauncherVerb(
+      { harness: 'cursor', dryRun: true },
+      { base: POSIX_BASE, orientationContent: payload },
+    );
+    const cursorPlan = cursor.data as DryRunPlan;
+    expect(cursorPlan.injection.channel).toBe('none');
+    expect(renderDryRunPlan(cursorPlan)).toContain('orientation channel: none');
+  });
+
+  it('launcherVerb_DryRun_PayloadUnavailable_RendersGracefully', async () => {
+    const result = await runLauncherVerb(
+      { harness: 'opencode', dryRun: true },
+      { base: POSIX_BASE, orientationContent: '' },
+    );
+    const plan = result.data as DryRunPlan;
+    // Empty string is treated as unavailable → null payload, graceful render.
+    expect(plan.injection.payload).toBeNull();
+    expect(plan.injection.channel).toBe('env:OPENCODE_CONFIG_CONTENT');
+    expect(renderDryRunPlan(plan)).toContain('orientation payload: (unavailable');
+  });
+
   it('Verb_Unknown_ReturnsValidTargets', async () => {
     const result = await runLauncherVerb({ harness: 'jetbrains', dryRun: true });
     expect(result.success).toBe(false);

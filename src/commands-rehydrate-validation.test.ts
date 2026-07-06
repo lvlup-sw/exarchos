@@ -1,7 +1,12 @@
 /**
- * T043 (DR-5) — `/exarchos:rehydrate` slash command must invoke the
- * first-class `exarchos_workflow.rehydrate` MCP action (registered in T033)
- * rather than the legacy CLI/pipeline-based flow.
+ * T043 (DR-5) — the rehydrate **skill** must invoke the first-class
+ * `exarchos_workflow.rehydrate` MCP action (registered in T033) rather than
+ * the legacy CLI/pipeline-based flow.
+ *
+ * DR-3 (harness conform-and-shrink, Task 007): the fat `commands/rehydrate.md`
+ * body was collapsed into a thin shim and its invocation + Output Format
+ * content migrated into `skills-src/rehydrate/SKILL.md`. This suite now pins
+ * that contract in its new home — the skill source.
  *
  * Prior legacy invocation:
  *   1. `exarchos_view pipeline` to discover active workflows
@@ -12,9 +17,8 @@
  * containing the rehydration document (workflowState, taskProgress,
  * artifacts, blockers, etc.) in a single call.
  *
- * Scope: content-only validation of the command template markdown. No
- * runtime execution required — the command file is consumed by Claude Code
- * as a prompt, not parsed by our TS code.
+ * Scope: content-only validation of the skill source markdown. No runtime
+ * execution required — the skill is consumed by the agent as a prompt.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -23,10 +27,10 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
-const commandPath = join(repoRoot, 'commands', 'rehydrate.md');
+const skillPath = join(repoRoot, 'skills-src', 'rehydrate', 'SKILL.md');
 
-describe('RehydrateCommand_InvocationReturnsDocument (T043, DR-5)', () => {
-  const body = readFileSync(commandPath, 'utf-8');
+describe('RehydrateSkill_InvocationReturnsDocument (T043, DR-5; DR-3 fold-in)', () => {
+  const body = readFileSync(skillPath, 'utf-8');
 
   it('references the exarchos_workflow MCP tool', () => {
     expect(body).toContain('exarchos_workflow');
@@ -49,8 +53,8 @@ describe('RehydrateCommand_InvocationReturnsDocument (T043, DR-5)', () => {
   it('does NOT invoke the legacy `exarchos_workflow get` fields-array flow', () => {
     // The legacy flow called `exarchos_workflow get` with a `fields` array
     // to assemble the rehydration document client-side. T043 collapses that
-    // into a single `rehydrate` action call — so the template must no
-    // longer steer the agent toward the legacy multi-call composition.
+    // into a single `rehydrate` action call — so the skill must no longer
+    // steer the agent toward the legacy multi-call composition.
     expect(body).not.toMatch(/exarchos_workflow\s+get[\s\S]{0,100}fields\s*=\s*\[/);
     expect(body).not.toMatch(/fields\s*=\s*\[\s*["']playbook["']/);
   });
@@ -59,25 +63,24 @@ describe('RehydrateCommand_InvocationReturnsDocument (T043, DR-5)', () => {
     // Legacy step 1 was: `exarchos_view pipeline` then ask user which
     // workflow to rehydrate. The `rehydrate` action now takes featureId
     // directly; discovery (if needed) is a fallback, not the canonical
-    // primary step — the command body must not frame pipeline-discovery
+    // primary step — the skill body must not frame pipeline-discovery
     // as the canonical first call.
     expect(body).not.toMatch(/1\.\s*Discover\s+active\s+workflow\(s\)\s+via\s+MCP:\s*`exarchos_view\s+pipeline`/i);
   });
 });
 
 /**
- * T-30 (rehydration-machinery-refactor) — `commands/rehydrate.md` Output
- * Format must render the §5.4 brief sketch: a `### House Rules` block
- * (skill / tools / required + auto-emitted events / transition / validation
- * scripts), an `### Event Emission Hints` block with a missing-events
- * fallback, a phase-with-no-playbook fallback, and a verbatim discipline
- * reminder that names the workflow event stream and the delegate path.
+ * T-30 (rehydration-machinery-refactor) — the rehydrate skill Output Format
+ * must render the §5.4 brief sketch: a `### House Rules` block (skill / tools
+ * / required + auto-emitted events / transition / validation scripts), an
+ * `### Event Emission Hints` block with a missing-events fallback, a
+ * phase-with-no-playbook fallback, and a verbatim discipline reminder that
+ * names the workflow event stream and the delegate path.
  *
- * Scope: content-only validation of the command template. The slash-command
- * markdown is consumed by Claude Code as a prompt; no runtime execution.
+ * Scope: content-only validation of the skill source. No runtime execution.
  */
-describe('RehydrateCommand_HouseRulesBlock (T-30, P3)', () => {
-  const body = readFileSync(commandPath, 'utf-8');
+describe('RehydrateSkill_HouseRulesBlock (T-30, P3; DR-3 fold-in)', () => {
+  const body = readFileSync(skillPath, 'utf-8');
 
   it('renders an `### House Rules` heading', () => {
     expect(body).toContain('### House Rules');
@@ -103,9 +106,10 @@ describe('RehydrateCommand_HouseRulesBlock (T-30, P3)', () => {
     // Verbatim sketch from
     // docs/research/2026-05-08-rehydrate-machinery-reinit.md:183 (mirrored
     // in the brief). Any reword desyncs against the RCA reference and
-    // must be caught here.
+    // must be caught here. Post-DR-3 the collapsed vocabulary uses the bare
+    // verb `delegate` (the neutral render carries no `/exarchos:` prefix).
     const disciplineReminder =
-      '> **Discipline reminder:** every task transition this turn forward MUST land on the workflow event stream via `exarchos_event.append` or `/exarchos:delegate` subagent emission. Direct `Edit` / `Bash` / `git` actions on task branches without corresponding events will desync the workflow tracker (see RCA `docs/rca/2026-05-08-rehydrate-behavioral-gap.md`).';
+      '> **Discipline reminder:** every task transition this turn forward MUST land on the workflow event stream via `exarchos_event.append` or `delegate` subagent emission. Direct `Edit` / `Bash` / `git` actions on task branches without corresponding events will desync the workflow tracker (see RCA `docs/rca/2026-05-08-rehydrate-behavioral-gap.md`).';
     expect(body).toContain(disciplineReminder);
   });
 

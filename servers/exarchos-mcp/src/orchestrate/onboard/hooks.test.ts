@@ -34,7 +34,12 @@ import type { WriterDeps } from '../init/probes.js';
 import { makeStubProbes } from '../doctor/checks/__shared__/make-stub-probes.js';
 
 import { handleOnboard, type HandleOnboardArgs, type OnboardDeps } from './index.js';
-import { installHook, SESSION_START_SETTINGS_PATH } from './hooks.js';
+import {
+  installHook,
+  removeRetiredHooks,
+  RETIRED_HOOKS_CHECK_NAME,
+  SESSION_START_SETTINGS_PATH,
+} from './hooks.js';
 import { sessionStartHook } from '../doctor/checks/session-start-hook.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
@@ -432,6 +437,189 @@ describe('onboard hook symmetry — SessionEnd + SubagentStop (#1572 Gap-1)', ()
       expect(bindingCount(settings, 'SessionStart', 'exarchos session-start')).toBe(1);
       expect(bindingCount(settings, 'SessionEnd', 'exarchos session-end')).toBe(1);
       expect(bindingCount(settings, 'SubagentStop', 'exarchos subagent-stop')).toBe(1);
+    } finally {
+      await cleanup(fx);
+    }
+  });
+});
+
+// ─── DR-7 retired-hook uninstall (Task 017) ──────────────────────────────────
+
+/** A minimal ApplyCtx for driving the hook seam directly against the fixture. */
+function hookCtx(fx: Fixture) {
+  return {
+    repoRoot: fx.repoRoot,
+    surface: 'cli' as const,
+    writerDeps: fixtureWriterDeps(fx),
+  };
+}
+
+/** The retired-hooks removal PlanStep (routes installHook → removeRetiredHooks). */
+const REMOVE_STEP = {
+  kind: 'hook' as const,
+  surface: 'any' as const,
+  key: RETIRED_HOOKS_CHECK_NAME,
+  description: 'remove the retired Exarchos lifecycle hooks',
+};
+
+/** Seed the fixture home's settings.json with `settings`. */
+async function seedSettings(fx: Fixture, settings: unknown): Promise<void> {
+  const sp = settingsPath(fx);
+  await mkdir(path.dirname(sp), { recursive: true });
+  await writeFile(sp, JSON.stringify(settings, null, 2), 'utf8');
+}
+
+describe('DR-7 retired-hook uninstall (removeRetiredHooks, Task 017)', () => {
+  it('removeRetiredHooks_MixedSettings_RemovesOnlyOurs', async () => {
+    // The fixture-matrix "mixed" case: our retired hooks (SessionStart directive +
+    // SessionEnd) alongside a USER hook and the RETAINED SubagentStop binding.
+    const fx = await createFixture();
+    try {
+      await seedSettings(fx, {
+        model: 'opus',
+        hooks: {
+          SessionStart: [
+            {
+              matcher: 'startup|resume',
+              hooks: [{ type: 'command', command: "exarchos session-start --directive 'x'" }],
+            },
+          ],
+          SessionEnd: [
+            { matcher: 'auto', hooks: [{ type: 'command', command: 'exarchos session-end' }] },
+          ],
+          SubagentStop: [
+            { matcher: '*', hooks: [{ type: 'command', command: 'exarchos subagent-stop' }] },
+          ],
+          PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'my-own-linter' }] }],
+        },
+      });
+
+      await removeRetiredHooks(REMOVE_STEP, hookCtx(fx));
+
+      const settings = await readSettings(fx);
+      // OUR retired hooks are gone.
+      expect(bindingCount(settings, 'SessionStart', 'exarchos session-start')).toBe(0);
+      expect(bindingCount(settings, 'SessionEnd', 'exarchos session-end')).toBe(0);
+      // RETAINED SubagentStop (token attribution) is untouched.
+      expect(bindingCount(settings, 'SubagentStop', 'exarchos subagent-stop')).toBe(1);
+      // USER hook is untouched.
+      expect(bindingCount(settings, 'PreToolUse', 'my-own-linter')).toBe(1);
+      // Other top-level keys are preserved verbatim.
+      expect(settings?.model).toBe('opus');
+    } finally {
+      await cleanup(fx);
+    }
+  });
+
+  it('removeRetiredHooks_UserOnly_LeavesUserHooksUntouched', async () => {
+    // The "user-only" matrix case: no Exarchos hooks at all — nothing removed,
+    // user hooks preserved exactly.
+    const fx = await createFixture();
+    try {
+      await seedSettings(fx, {
+        hooks: {
+          PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'my-own-linter' }] }],
+        },
+      });
+
+      await removeRetiredHooks(REMOVE_STEP, hookCtx(fx));
+
+      const settings = await readSettings(fx);
+      expect(bindingCount(settings, 'PreToolUse', 'my-own-linter')).toBe(1);
+    } finally {
+      await cleanup(fx);
+    }
+  });
+
+  it('removeRetiredHooks_AlreadyClean_NoWrite_Idempotent', async () => {
+    // The "already-clean" matrix case: no settings file at all. Removal is a
+    // no-op — it must NOT create a settings file just to write `{}`.
+    const fx = await createFixture();
+    try {
+      await removeRetiredHooks(REMOVE_STEP, hookCtx(fx));
+      // No file was created.
+      const settings = await readSettings(fx);
+      expect(settings).toBeUndefined();
+    } finally {
+      await cleanup(fx);
+    }
+  });
+
+  it('removeRetiredHooks_RepeatedRuns_Idempotent', async () => {
+    // The "ours-only" matrix case run TWICE: first run removes, second run is a
+    // no-op over already-clean settings — the file content is stable.
+    const fx = await createFixture();
+    try {
+      await seedSettings(fx, {
+        hooks: {
+          SessionStart: [
+            {
+              matcher: 'startup|resume',
+              hooks: [{ type: 'command', command: 'exarchos session-start --directive x' }],
+            },
+          ],
+          SessionEnd: [
+            { matcher: 'auto', hooks: [{ type: 'command', command: 'exarchos session-end' }] },
+          ],
+        },
+      });
+
+      await removeRetiredHooks(REMOVE_STEP, hookCtx(fx));
+      const afterFirst = await readFile(settingsPath(fx), 'utf8');
+
+      await removeRetiredHooks(REMOVE_STEP, hookCtx(fx));
+      const afterSecond = await readFile(settingsPath(fx), 'utf8');
+
+      // Retired hooks gone after the first run.
+      const settings = JSON.parse(afterFirst) as Record<string, unknown>;
+      expect(bindingCount(settings, 'SessionStart', 'exarchos session-start')).toBe(0);
+      expect(bindingCount(settings, 'SessionEnd', 'exarchos session-end')).toBe(0);
+      // Second run changed nothing (byte-stable).
+      expect(afterSecond).toBe(afterFirst);
+    } finally {
+      await cleanup(fx);
+    }
+  });
+
+  it('removeRetiredHooks_ViaInstallHookDispatch_RemovesRetired', async () => {
+    // The single `hook` seam dispatches the retired-hooks key to the remover —
+    // this is how `apply` reaches removal without a second seam.
+    const fx = await createFixture();
+    try {
+      await seedSettings(fx, {
+        hooks: {
+          SessionStart: [
+            {
+              matcher: 'startup|resume',
+              hooks: [{ type: 'command', command: 'exarchos session-start --directive x' }],
+            },
+          ],
+        },
+      });
+
+      await installHook(REMOVE_STEP, hookCtx(fx));
+
+      const settings = await readSettings(fx);
+      expect(bindingCount(settings, 'SessionStart', 'exarchos session-start')).toBe(0);
+    } finally {
+      await cleanup(fx);
+    }
+  });
+
+  it('removeRetiredHooks_MalformedSettings_RefusesAndPreservesFile', async () => {
+    // A present-but-malformed settings.json the remover must NOT clobber (INV-14).
+    const fx = await createFixture();
+    try {
+      const sp = settingsPath(fx);
+      await mkdir(path.dirname(sp), { recursive: true });
+      const malformed = '{ "hooks": not-json';
+      await writeFile(sp, malformed, 'utf8');
+
+      await expect(removeRetiredHooks(REMOVE_STEP, hookCtx(fx))).rejects.toThrow();
+
+      // The user's file is preserved byte-for-byte.
+      const after = await readFile(sp, 'utf8');
+      expect(after).toBe(malformed);
     } finally {
       await cleanup(fx);
     }

@@ -32,7 +32,8 @@ import {
 import { dirname, join, relative, resolve } from 'node:path';
 import { loadAllRuntimes } from './runtimes/load.js';
 import { emitCommandAliases } from './build-command-aliases.js';
-import type { RuntimeMap, SupportedCapabilityName } from './runtimes/types.js';
+import { canonicalCommandSet } from './config/canonical-skills.js';
+import type { RuntimeMap, RuntimeTokenName, SupportedCapabilityName } from './runtimes/types.js';
 import { RuntimeTokenKey, SupportedCapabilityKey } from './runtimes/types.js';
 import { resolveMainDeps, type MainDeps } from './cli-helpers.js';
 import { lintPlaceholders } from './placeholder-lint.js';
@@ -356,6 +357,18 @@ export function renderCallMacros(body: string, runtime: RuntimeMap): string {
  * @param runtime - Runtime providing the MCP prefix.
  * @returns The rendered MCP tool_use string with remediation comment.
  */
+/**
+ * Normalize a path to forward slashes. Diagnostic messages built from
+ * `sourcePath` (vocabulary-lint, chain-target, placeholder errors) embed it
+ * verbatim; a native `path.join` on win32 produces backslashes, which then
+ * fail cross-platform test assertions that match a `/`-separated fragment.
+ * Node's fs APIs accept forward-slash paths on every platform, so applying
+ * this at construction keeps `sourcePath` valid for both I/O and diagnostics.
+ */
+function toPosix(p: string): string {
+  return p.replace(/\\/g, '/');
+}
+
 function renderMcpCall(ast: CallMacroAst, runtime: RuntimeMap): string {
   const prefix = runtime.capabilities.mcpPrefix;
   const fullArgs: Record<string, unknown> = { action: ast.action, ...ast.args };
@@ -952,6 +965,267 @@ function findMatchingCloseIdx(body: string, searchStart: number): number {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Skill classification: procedural vs orchestration (DR-1 / DR-2)
+// ---------------------------------------------------------------------------
+
+/**
+ * The class of a skill, derived from the placeholder tokens its source
+ * references.
+ *
+ *   - `procedural`    — references only prefix tokens (or no canonical tokens
+ *     at all). Its per-runtime output forks *only* on the leading MCP/command
+ *     prefix, so it can collapse to a single canonical render (DR-1).
+ *   - `orchestration` — references at least one orchestration token. These
+ *     tokens (the Task tool, chain, spawn call, and the `SUBAGENT_*` family)
+ *     genuinely diverge per harness, so the skill keeps per-runtime rendering
+ *     (DR-2).
+ */
+export type SkillClass = 'procedural' | 'orchestration';
+
+/**
+ * Prefix tokens — declared by every runtime YAML. They differ per harness
+ * only in the leading MCP/command-prefix string, so a source that references
+ * *only* these still renders identically-shaped prose on every runtime and
+ * stays procedural. Prefix tokens are explicitly NOT orchestration tokens.
+ */
+export const PREFIX_TOKENS: ReadonlySet<RuntimeTokenName> = new Set<RuntimeTokenName>([
+  'MCP_PREFIX',
+  'COMMAND_PREFIX',
+]);
+
+/**
+ * Orchestration tokens — the agent-spawning primitives whose values genuinely
+ * fork per harness: `TASK_TOOL`, `CHAIN`, `SPAWN_AGENT_CALL`, and the
+ * `SUBAGENT_*` family (`SUBAGENT_COMPLETION_HOOK`, `SUBAGENT_RESULT_API`).
+ * Derived as `RuntimeTokenKey` minus `PREFIX_TOKENS` so a new canonical token
+ * added to the vocabulary is classified as orchestration automatically unless
+ * it is also declared a prefix token — the classification never drifts from
+ * the canonical vocabulary in `src/runtimes/types.ts`.
+ */
+export const ORCHESTRATION_TOKENS: ReadonlySet<RuntimeTokenName> =
+  new Set<RuntimeTokenName>(
+    RuntimeTokenKey.filter((token) => !PREFIX_TOKENS.has(token)),
+  );
+
+/** O(1) membership set of the canonical `RuntimeTokenKey` names. */
+const RUNTIME_TOKEN_SET: ReadonlySet<string> = new Set<string>(RuntimeTokenKey);
+
+/** Narrow an arbitrary `{{...}}` identifier to a canonical `RuntimeTokenName`. */
+function isRuntimeToken(name: string): name is RuntimeTokenName {
+  return RUNTIME_TOKEN_SET.has(name);
+}
+
+/** True when `body` contains any `<!-- requires:* -->` capability guard. */
+function hasRequiresGuard(body: string): boolean {
+  // Fresh instance — REQUIRES_OPEN_REGEX is a stateful /g singleton.
+  return new RegExp(REQUIRES_OPEN_REGEX.source).test(body);
+}
+
+/**
+ * The renderer's per-skill model. Surfaces the token-derived classification
+ * plus the evidence behind it (which canonical tokens the source references,
+ * which of those are orchestration tokens, and whether the source carries a
+ * capability guard) so the build-time assertion and future consumers can act
+ * on the exact surface a source declares without re-scanning it.
+ */
+export interface SkillModel {
+  /** Canonical `RuntimeTokenKey` tokens the source references. */
+  readonly tokensUsed: ReadonlySet<RuntimeTokenName>;
+  /** Subset of `tokensUsed` that are orchestration tokens. */
+  readonly orchestrationTokensUsed: ReadonlySet<RuntimeTokenName>;
+  /** Whether the source contains any `<!-- requires:* -->` capability guard. */
+  readonly hasCapabilityGuard: boolean;
+  /** Derived class: `orchestration` iff any orchestration token is referenced. */
+  readonly skillClass: SkillClass;
+}
+
+/**
+ * Classify a skill source body by the placeholder tokens it references.
+ *
+ * A source that references only prefix tokens (or no canonical tokens at all)
+ * is `procedural`; a source that references any orchestration token is
+ * `orchestration`. Only canonical `RuntimeTokenKey` identifiers participate —
+ * CALL-macro args, handlebar template literals (e.g. `{{next}}`,
+ * `{{#each hints}}`), and unknown `{{...}}` identifiers are ignored because
+ * they are not part of the per-harness forking surface.
+ *
+ * The returned model also records whether the source carries a
+ * `<!-- requires:* -->` capability guard. Guards are an orchestration-only
+ * construct that the build-time assertion (`assertProceduralSkill`) rejects in
+ * procedural sources, but they are not placeholder tokens and therefore do not
+ * themselves drive classification (which is derived from token usage only).
+ *
+ * @param body - Raw skill source body (SKILL.md or a Markdown reference).
+ * @returns The derived `SkillModel`.
+ */
+export function classifySkill(body: string): SkillModel {
+  const tokensUsed = new Set<RuntimeTokenName>();
+  const orchestrationTokensUsed = new Set<RuntimeTokenName>();
+
+  // Fresh instance — PLACEHOLDER_REGEX is a stateful /g singleton.
+  const regex = new RegExp(PLACEHOLDER_REGEX.source, 'g');
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(body)) !== null) {
+    const name = match[1];
+    if (!isRuntimeToken(name)) continue;
+    tokensUsed.add(name);
+    if (ORCHESTRATION_TOKENS.has(name)) orchestrationTokensUsed.add(name);
+  }
+
+  const skillClass: SkillClass =
+    orchestrationTokensUsed.size > 0 ? 'orchestration' : 'procedural';
+
+  return {
+    tokensUsed,
+    orchestrationTokensUsed,
+    hasCapabilityGuard: hasRequiresGuard(body),
+    skillClass,
+  };
+}
+
+/**
+ * Build-time assertion: a source authored as a *procedural* skill must NOT
+ * reference any orchestration token or carry a `<!-- requires:* -->` capability
+ * guard. Both are orchestration-only surfaces — a procedural skill collapses to
+ * a single canonical render (DR-1), so either construct means the source has
+ * been mis-authored as procedural and would silently lose its per-harness
+ * divergence at collapse time (DR-2).
+ *
+ * Throws a diagnostic naming the offending source and construct. Callers that
+ * legitimately author an orchestration skill route around this by classifying
+ * first (`classifySkill(body).skillClass === 'orchestration'`) and skipping the
+ * assertion.
+ *
+ * @param body - Raw skill source body being validated as procedural.
+ * @param sourcePath - Origin path for the diagnostic message.
+ * @throws When the body references an orchestration token or a requires-guard.
+ */
+export function assertProceduralSkill(body: string, sourcePath: string): void {
+  const model = classifySkill(body);
+
+  if (model.orchestrationTokensUsed.size > 0) {
+    const offenders = [...model.orchestrationTokensUsed].sort();
+    throw new Error(
+      `[build:skills] procedural skill ${sourcePath} references orchestration ` +
+        `token(s) {{${offenders.join('}}, {{')}}}. Procedural skills collapse to a ` +
+        `single canonical render and must not use orchestration tokens ` +
+        `[${[...ORCHESTRATION_TOKENS].sort().join(', ')}]. Move this skill to the ` +
+        `orchestration residual, or remove the token.`,
+    );
+  }
+
+  if (model.hasCapabilityGuard) {
+    throw new Error(
+      `[build:skills] procedural skill ${sourcePath} contains a ` +
+        `<!-- requires:* --> capability guard. Capability gating is an ` +
+        `orchestration-only construct; procedural skills render once for all ` +
+        `runtimes. Move this skill to the orchestration residual, or remove the guard.`,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Standard (single-render) variant for procedural skills (DR-1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Output subtree name for the single, runtime-neutral render of every
+ * procedural skill. Procedural skills collapse to `skills/standard/<skill>/`
+ * (DR-1) instead of forking per-runtime; only the 3 orchestration skills
+ * (`delegate`, `refactor`, `ideate`) keep the
+ * `skills/<runtime>/<skill>/` residual.
+ */
+export const STANDARD_TREE_NAME = 'standard';
+
+/**
+ * Logical MCP prefix baked into the standard render: `{{MCP_PREFIX}}exarchos_workflow`
+ * resolves to `exarchos:exarchos_workflow`. This is Anthropic's documented
+ * harness-neutral qualified `Server:tool` convention — it resolves on every
+ * Tier-1 harness because each keeps the raw tool name (`exarchos_workflow`) as the
+ * suffix of its model-visible MCP name. It is the exact form Task 006 will bake
+ * directly into the sources, so the standard tree stays byte-stable across 003→006.
+ */
+const STANDARD_MCP_PREFIX = 'exarchos:';
+
+/**
+ * Logical command prefix baked into the standard render: the empty string, so
+ * `{{COMMAND_PREFIX}}review` resolves to the bare canonical verb `review`.
+ * DR-3 frames the verb as one concept surfaced per-harness as `/exarchos:review`,
+ * `$review`, or the `review` skill; the harness-neutral logical form is the bare
+ * verb, matching the "canonical verbs" form Task 006 will bake into the sources
+ * (tools get the `exarchos:` qualifier; verbs do not).
+ */
+const STANDARD_COMMAND_PREFIX = '';
+
+/**
+ * Synthetic runtime driving the single procedural render. It is NOT a target
+ * harness — it is a runtime-neutral placeholder map that resolves the two prefix
+ * tokens to their logical qualified form. It declares no `supportedCapabilities`,
+ * so the post-render vocabulary lint treats it as a non-Claude surface and any
+ * leaked Claude-only term still fails the build. Reuses the existing
+ * `render()`/`substitute()` machinery unchanged — the collapse is a change of
+ * *which* placeholder map and output tree, not a fork of the renderer.
+ */
+const STANDARD_RUNTIME: RuntimeMap = {
+  name: STANDARD_TREE_NAME,
+  preferredFacade: 'mcp',
+  capabilities: {
+    hasSubagents: false,
+    hasSlashCommands: false,
+    hasSkillChaining: false,
+    mcpPrefix: STANDARD_MCP_PREFIX,
+  },
+  skillsInstallPath: '.agents/skills',
+  detection: { binaries: [], envVars: [] },
+  placeholders: {
+    MCP_PREFIX: STANDARD_MCP_PREFIX,
+    COMMAND_PREFIX: STANDARD_COMMAND_PREFIX,
+  },
+};
+
+/**
+ * Validate every `{{CHAIN next="<verb>"}}` token in `body`: its `next` target
+ * must name a skill that exists — a canonical workflow verb or an on-disk skill
+ * directory. A CHAIN to an unknown target renders a dead `Skill(...)` chain
+ * invocation that no-ops at runtime, so we fail the build instead of shipping it.
+ *
+ * Only the `next` arg participates — `args` is opaque chain payload. Tokens
+ * without a `next` arg are skipped (a bare `{{CHAIN}}` is a placeholder-lint
+ * concern, not a target concern). Runs against the raw source body so a broken
+ * target is caught regardless of the skill's class.
+ *
+ * @param body - Raw skill source body.
+ * @param sourcePath - Origin path for the diagnostic message.
+ * @param validTargets - Known skill/verb names a CHAIN may point at.
+ * @throws When a CHAIN `next` target is not in `validTargets`.
+ */
+export function validateChainTargets(
+  body: string,
+  sourcePath: string,
+  validTargets: ReadonlySet<string>,
+): void {
+  // Fresh instance — PLACEHOLDER_REGEX is a stateful /g singleton.
+  const regex = new RegExp(PLACEHOLDER_REGEX.source, 'g');
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(body)) !== null) {
+    if (match[1] !== 'CHAIN') continue;
+    const argString = match[2];
+    if (argString === undefined || argString.trim().length === 0) continue;
+    const next = parseTokenArgs(argString).next;
+    if (next === undefined || next.length === 0) continue;
+    if (!validTargets.has(next)) {
+      const line = lineOf(body, match.index);
+      throw new Error(
+        `[build:skills] CHAIN target skill "${next}" does not exist ` +
+          `(referenced in ${sourcePath}:${line}). Known skills/verbs: ` +
+          `[${[...validTargets].sort().join(', ')}]. Fix the {{CHAIN next="..."}} ` +
+          `target or add the skill.`,
+      );
+    }
+  }
+}
+
 /**
  * Scan a rendered string for any residual `{{...}}` tokens and throw with
  * the same diagnostic format as `render()` if any are found. Intended as
@@ -1160,23 +1434,58 @@ export function buildAllSkills(opts: {
   // runtime happens to iterate first. Implements DR-3 (lint path).
   //
   // Vocabulary is derived from the union of placeholder keys across
-  // every loaded runtime map. In production the union collapses to
-  // the canonical five tokens defined in `runtimes/*.yaml`
-  // (MCP_PREFIX, COMMAND_PREFIX, TASK_TOOL, CHAIN, SPAWN_AGENT_CALL);
-  // in tests that use synthetic fixtures the union is whatever the
+  // every loaded runtime map. In production the union collapses to the
+  // canonical `RuntimeTokenKey` vocabulary declared in `runtimes/*.yaml`:
+  // the two PREFIX tokens (MCP_PREFIX, COMMAND_PREFIX), which are NOT
+  // orchestration tokens, plus the five ORCHESTRATION tokens (TASK_TOOL,
+  // CHAIN, SPAWN_AGENT_CALL, SUBAGENT_COMPLETION_HOOK, SUBAGENT_RESULT_API).
+  // Only the orchestration tokens genuinely fork per harness; see
+  // `classifySkill` / `PREFIX_TOKENS` / `ORCHESTRATION_TOKENS` above.
+  // In tests that use synthetic fixtures the union is whatever the
   // fixtures declare — the lint self-adjusts so tests never need to
   // carry a duplicate "allowed tokens" list.
+  //
+  // `enforceCollapsedVocabulary: true` (Task 002 completion): now that the 16
+  // procedural sources render from logical prose (`exarchos:exarchos_*` /
+  // bare verbs) and carry no prefix tokens, the collapsed-vocabulary rules are
+  // enforced on the real tree — a prefix or orchestration token smuggled into a
+  // procedural skill is a hard build failure. Orchestration skills (which
+  // legitimately reference both kinds) are exempt because the rules key on the
+  // source's derived class.
   const vocabulary = unionPlaceholderKeys(runtimes);
-  const lintResult = lintPlaceholders({ sourcesDir: opts.srcDir, vocabulary });
+  const lintResult = lintPlaceholders({
+    sourcesDir: opts.srcDir,
+    vocabulary,
+    enforceCollapsedVocabulary: true,
+  });
   if (!lintResult.passed) {
     throw new Error(lintResult.message);
   }
 
-  // Per-runtime set of file paths we produced this run. Used by the
-  // stale-cleanup pass at the end so we only delete orphans, never
-  // files that the current run legitimately wrote.
+  // Per-output-tree set of file paths we produced this run. Used by the
+  // stale-cleanup pass at the end so we only delete orphans, never files
+  // that the current run legitimately wrote. Keyed by output subtree name:
+  // one entry per loaded runtime (the orchestration residual) plus the
+  // `standard` tree (the single procedural render). Because procedural skills
+  // no longer write under `skills/<runtime>/`, their previously rendered
+  // per-runtime dirs become orphans and the cleanup pass deletes them (DR-1 —
+  // the ~90 stale renders are removed here).
   const writtenByRuntime = new Map<string, Set<string>>();
   for (const rt of runtimes) writtenByRuntime.set(rt.name, new Set());
+  writtenByRuntime.set(STANDARD_TREE_NAME, new Set());
+
+  // Valid `{{CHAIN next="..."}}` targets: the canonical workflow verbs plus
+  // every on-disk skill directory name. Chain targets in the sources use the
+  // canonical verb (e.g. `plan`, `delegate`), which may not yet match the
+  // pre-rename directory name, so the canonical set is authoritative; the
+  // directory names are unioned in for forward-compatibility with the rename.
+  const validChainTargets = new Set<string>(canonicalCommandSet());
+  for (const skillDir of skillDirs) {
+    const rel = relative(opts.srcDir, skillDir).replace(/\\/g, '/');
+    validChainTargets.add(rel);
+    const base = rel.split('/').pop();
+    if (base) validChainTargets.add(base);
+  }
 
   const overridesUsed: string[] = [];
   const warnings: string[] = [];
@@ -1190,10 +1499,32 @@ export function buildAllSkills(opts: {
 
   for (const skillDir of skillDirs) {
     const skillRel = relative(opts.srcDir, skillDir);
-    const sourcePath = join(skillDir, 'SKILL.md');
+    const sourcePath = toPosix(join(skillDir, 'SKILL.md'));
     const body = readFileSync(sourcePath, 'utf8');
 
-    for (const rt of runtimes) {
+    // Fail the build on a CHAIN whose target skill does not exist — a dead
+    // chain would otherwise render a `Skill(...)` invocation that no-ops at
+    // runtime. Runs for every skill; procedural sources carry no CHAIN so it
+    // is a no-op there.
+    validateChainTargets(body, sourcePath, validChainTargets);
+
+    // Classification drives emission (DR-1/DR-2): a procedural skill collapses
+    // to a single runtime-neutral render under `skills/standard/`; an
+    // orchestration skill keeps the per-runtime pipeline. `assertProceduralSkill`
+    // is the build-time gate that a source authored as procedural has not
+    // smuggled in an orchestration token or a `<!-- requires:* -->` guard —
+    // either would be silently lost in the collapse.
+    const skillClass = classifySkill(body).skillClass;
+    if (skillClass === 'procedural') {
+      assertProceduralSkill(body, sourcePath);
+    }
+    // Procedural → the single synthetic `standard` runtime; orchestration →
+    // the loaded per-runtime set. The loop body below is identical for both;
+    // only the set it iterates and the resolved placeholder map differ.
+    const targetRuntimes: RuntimeMap[] =
+      skillClass === 'procedural' ? [STANDARD_RUNTIME] : runtimes;
+
+    for (const rt of targetRuntimes) {
       const written = writtenByRuntime.get(rt.name)!;
       const outSkillDir = join(opts.outDir, rt.name, skillRel);
       const outSkillFile = join(outSkillDir, 'SKILL.md');
@@ -1201,7 +1532,7 @@ export function buildAllSkills(opts: {
 
       // Escape hatch: runtime-specific override file wins for this
       // runtime only, and is written verbatim with no rendering.
-      const overridePath = join(skillDir, `SKILL.${rt.name}.md`);
+      const overridePath = toPosix(join(skillDir, `SKILL.${rt.name}.md`));
       if (existsSync(overridePath)) {
         const overrideBody = readFileSync(overridePath, 'utf8');
         writeFileSync(outSkillFile, overrideBody);
@@ -1316,15 +1647,17 @@ export function buildAllSkills(opts: {
     throw new Error(formatVocabularyLintMessage(vocabularyFindings));
   }
 
-  // Stale cleanup: any file under `outDir/<runtime>/` not written this
-  // run is deleted. We intentionally scope this to the per-runtime
-  // subtree so we can never touch unrelated files that happen to sit
-  // under `outDir` for other reasons.
-  for (const rt of runtimes) {
-    const runtimeRoot = join(opts.outDir, rt.name);
-    if (!existsSync(runtimeRoot)) continue;
-    const written = writtenByRuntime.get(rt.name)!;
-    cleanStaleFiles(runtimeRoot, written);
+  // Stale cleanup: any file under an emitted subtree (`outDir/standard/` or
+  // `outDir/<runtime>/`) not written this run is deleted. Scoped to each
+  // emitted subtree so we never touch unrelated files that happen to sit
+  // under `outDir` for other reasons. This is the pass that removes the
+  // per-runtime procedural renders now that procedural skills emit only to
+  // `standard/` — their old `outDir/<runtime>/<skill>/` dirs are unwritten
+  // this run and get pruned (DR-1).
+  for (const [treeName, written] of writtenByRuntime) {
+    const treeRoot = join(opts.outDir, treeName);
+    if (!existsSync(treeRoot)) continue;
+    cleanStaleFiles(treeRoot, written);
   }
 
   return { variantsWritten, referencesCopied, overridesUsed, warnings };
@@ -1552,7 +1885,7 @@ function renderLinkedReferences(
   mkdirSync(destRefs, { recursive: true });
 
   for (const rel of linked) {
-    const srcFile = join(srcRefs, rel);
+    const srcFile = toPosix(join(srcRefs, rel));
     if (!existsSync(srcFile)) continue;
     const srcStat = statSync(srcFile);
     if (!srcStat.isFile()) continue;
@@ -1632,8 +1965,14 @@ function renderLinkedReferences(
  * mistake; this check catches it before any rendering happens.
  *
  * Throws with a sorted (runtime, token) listing for determinism.
+ *
+ * Exported so the collapsed-vocabulary work (harness conform-and-shrink) can
+ * pin, in a unit test, that the prefix tokens (`MCP_PREFIX`/`COMMAND_PREFIX`)
+ * stay in the required-coverage set for as long as they are still consumed —
+ * they are only retired from `skills-src/` in a later rewrite task, so dropping
+ * them from `RuntimeTokenKey` early would silently un-cover every runtime YAML.
  */
-function assertRuntimeTokenCoverage(runtimes: RuntimeMap[]): void {
+export function assertRuntimeTokenCoverage(runtimes: RuntimeMap[]): void {
   const missing: Array<{ runtime: string; token: string }> = [];
   for (const rt of runtimes) {
     for (const token of RuntimeTokenKey) {

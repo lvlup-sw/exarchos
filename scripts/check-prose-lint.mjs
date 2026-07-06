@@ -62,23 +62,34 @@ const CLI_ENTRY = path.join(
  * @returns {string} absolute path to a tsx binary, or the literal `tsx`
  *   for PATH fallback.
  */
+/**
+ * Resolve how to invoke `tsx`, returning `{ command, args }` for
+ * `spawnSync`. Prefers the actual JS CLI entrypoint
+ * (`tsx/dist/cli.mjs`) run via `process.execPath` over the
+ * `node_modules/.bin/tsx` shim — the shim is a POSIX shebang script with
+ * no `.exe`/`.cmd` extension, so Win32's executable resolution can't
+ * launch it directly (no `shell: true` here). Invoking the `.mjs` CLI
+ * with `node` sidesteps shim resolution entirely and works identically
+ * on every platform.
+ */
 function resolveTsx() {
   const candidates = [
-    path.join(REPO_ROOT, 'node_modules', '.bin', 'tsx'),
+    path.join(REPO_ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs'),
     path.join(
       REPO_ROOT,
       'servers',
       'exarchos-mcp',
       'node_modules',
-      '.bin',
       'tsx',
+      'dist',
+      'cli.mjs',
     ),
   ];
   for (const candidate of candidates) {
-    if (existsSync(candidate)) return candidate;
+    if (existsSync(candidate)) return { command: process.execPath, args: [candidate] };
   }
-  // PATH fallback — let spawnSync resolve it.
-  return 'tsx';
+  // PATH fallback — let spawnSync resolve the `tsx` shim itself.
+  return { command: 'tsx', args: [] };
 }
 
 /**
@@ -138,13 +149,13 @@ function printHelp() {
 function main() {
   const { templateSource } = parseArgs(process.argv.slice(2));
 
-  const tsx = resolveTsx();
-  const tsxArgs = [CLI_ENTRY];
+  const { command, args } = resolveTsx();
+  const tsxArgs = [...args, CLI_ENTRY];
   if (templateSource !== null) {
     tsxArgs.push('--template-source', templateSource);
   }
 
-  const result = spawnSync(tsx, tsxArgs, {
+  const result = spawnSync(command, tsxArgs, {
     cwd: REPO_ROOT,
     encoding: 'utf8',
     env: { ...process.env },
@@ -152,7 +163,7 @@ function main() {
 
   if (result.error) {
     process.stderr.write(
-      `check-prose-lint: failed to spawn tsx (${tsx}): ${result.error.message}\n`,
+      `check-prose-lint: failed to spawn tsx (${command}): ${result.error.message}\n`,
     );
     process.exit(2);
   }

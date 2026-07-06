@@ -6,4 +6,4 @@ description: Create pull request from feature branch
 
 Canonical alias for the Exarchos `/synthesize` workflow command.
 
-Invoke the `synthesis` skill to handle: $ARGUMENTS
+Invoke the `synthesize` skill to handle: $ARGUMENTS

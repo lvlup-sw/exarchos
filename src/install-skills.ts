@@ -35,6 +35,7 @@
 
 import { spawn as nodeSpawn, type SpawnOptions } from 'node:child_process';
 import { homedir } from 'node:os';
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -175,6 +176,44 @@ export interface InstallSkillsOpts {
    * command-alias copy runs (see `aliasesSource`).
    */
   copyFile?: (src: string, dest: string) => void;
+  /**
+   * Host platform, used only to fork the canonical-layout placement between
+   * symlink (POSIX) and file copy (`win32`) — INV-16. Defaults to
+   * `process.platform`. Injected by tests to exercise the win32 copy-mode
+   * branch on a non-Windows CI runner without a real Windows host (Task 010;
+   * the real Windows lane is Task 021).
+   */
+  platform?: NodeJS.Platform;
+  /**
+   * Injectable directory symlink used by the canonical-layout placement on
+   * POSIX (`fs.symlinkSync(target, linkPath)`). Never invoked on `win32`
+   * (INV-16: Windows copies). Tests inject a recorder to assert copy-not-symlink.
+   */
+  symlink?: (target: string, linkPath: string) => void;
+  /**
+   * Install scope for the canonical `.agents/skills` convention path + the
+   * provenance manifest. `user` (default) → `~/.agents/skills` (global, the
+   * `-g` model the runtime maps use); `project` → `<projectRoot>/.agents/skills`
+   * (onboard threads this so `doctor` can detect drift per project). The
+   * per-harness native dirs (`runtime.skillsInstallPath`) are scope-independent.
+   */
+  scope?: SkillsInstallScope;
+  /**
+   * Project root for `scope: 'project'` canonical/manifest paths. Defaults to
+   * `process.cwd()`. Ignored for `scope: 'user'`.
+   */
+  projectRoot?: string;
+  /**
+   * Exarchos version recorded in the provenance manifest. Defaults to the root
+   * `package.json` `version` (the single source of truth; Task 022 bumps it),
+   * or `'unknown'` when unreadable. Tests inject a literal for determinism.
+   */
+  version?: string;
+  /**
+   * Override case-insensitive-filesystem detection for manifest directory-name
+   * key folding. Defaults to a platform heuristic (see {@link defaultCaseInsensitiveFs}).
+   */
+  caseInsensitiveFs?: boolean;
 }
 
 /**
@@ -199,9 +238,9 @@ export interface InstallSkillsError extends Error {
  */
 export function expandTilde(p: string, home: string): string {
   if (p === '~') return home;
-  if (p.startsWith('~/')) return `${home}${p.slice(1)}`;
+  if (p.startsWith('~/')) return path.join(home, p.slice(2));
   if (p === '$HOME') return home;
-  if (p.startsWith('$HOME/')) return `${home}${p.slice('$HOME'.length)}`;
+  if (p.startsWith('$HOME/')) return path.join(home, p.slice('$HOME/'.length));
   return p;
 }
 
@@ -532,6 +571,638 @@ export function mapRuntimeToSkillsCliAgent(runtimeName: string): string {
   }
 }
 
+// ─── Canonical layout + provenance manifest (DR-4, DR-8) ─────────────────────
+//
+// DR-4 aligns installs to the cross-client `.agents/skills/` convention: the
+// canonical skill set (procedural skills rendered once to `skills/standard/`
+// plus the per-runtime orchestration skills under `skills/<runtime>/`) is
+// placed BOTH at the convention path (`~/.agents/skills` user / `.agents/skills`
+// project) AND at each harness's native dir (`runtime.skillsInstallPath`). Every
+// such install writes/updates a provenance manifest — one per scope — enumerating
+// the per-harness placement paths, the installed skill names, the exarchos
+// version, and newline-normalized (CRLF→LF) content hashes so `doctor` can flag
+// a stale/modified canonical copy read-only.
+
+/** Install scope for the canonical convention path + provenance manifest. */
+export type SkillsInstallScope = 'user' | 'project';
+
+/** Which placement a manifest record describes. */
+export type SkillPlacementKind = 'canonical' | 'native';
+
+/** Filename of the per-scope provenance manifest, at the `.agents/` root. */
+export const SKILLS_MANIFEST_FILENAME = '.exarchos-skills.json';
+
+/** Schema tag stamped into every manifest so future readers can version-gate. */
+export const SKILLS_MANIFEST_SCHEMA = 'exarchos-skills-provenance/v1';
+
+/**
+ * One placed skill tree for a single harness. `path` is the POSIX-normalized
+ * destination directory (containing `<skill>/…` children). `hashes` maps each
+ * installed skill name to the newline-normalized content digest of the SOURCE
+ * bytes at install time — the provenance baseline `doctor` compares the on-disk
+ * copy against.
+ */
+export interface SkillPlacementRecord {
+  harness: string;
+  kind: SkillPlacementKind;
+  path: string;
+  hashes: Record<string, string>;
+}
+
+/**
+ * The per-scope provenance manifest. Directory-name keys (placement `path`s and
+ * skill names) are folded case-insensitively when merging/deduping on a
+ * case-insensitive filesystem (macOS/Windows) — see {@link foldDirKey} — so a
+ * re-install that differs only in path casing updates the existing record
+ * instead of appending a phantom duplicate.
+ */
+export interface SkillsProvenanceManifest {
+  schema: string;
+  version: string;
+  scope: SkillsInstallScope;
+  generatedAt: string;
+  skills: string[];
+  placements: SkillPlacementRecord[];
+}
+
+/** POSIX-normalize a path (backslashes → forward slashes) for stable manifest keys. */
+function toPosixPath(p: string): string {
+  return p.replace(/\\/g, '/');
+}
+
+/**
+ * Normalize CRLF → LF before hashing so a Windows checkout (or a `.gitattributes`
+ * autocrlf copy) hashes identically to a POSIX one — the manifest is
+ * newline-agnostic by construction (INV-16).
+ */
+function normalizeNewlines(content: string): string {
+  return content.replace(/\r\n/g, '\n');
+}
+
+/**
+ * Whether directory-name keys should be folded to lowercase for manifest
+ * dedup/merge. Heuristic: `win32` and `darwin` default to case-insensitive
+ * filesystems (NTFS / APFS-insensitive). Callers may override via
+ * `opts.caseInsensitiveFs` when they know the real filesystem semantics.
+ */
+export function defaultCaseInsensitiveFs(platform: NodeJS.Platform): boolean {
+  return platform === 'win32' || platform === 'darwin';
+}
+
+/** Fold a directory-name key for case-insensitive comparison when applicable. */
+function foldDirKey(name: string, caseInsensitive: boolean): string {
+  const posix = toPosixPath(name);
+  return caseInsensitive ? posix.toLowerCase() : posix;
+}
+
+/** Default directory symlink: wraps `fs.symlinkSync`. Never called on `win32`. */
+function defaultSymlink(target: string, linkPath: string): void {
+  fs.symlinkSync(target, linkPath);
+}
+
+/**
+ * List the skill directory names directly under `parentDir` — a directory is a
+ * skill iff it contains a top-level `SKILL.md`. Missing `parentDir` → `[]` (a
+ * source tree that lacks `skills/standard/` or `skills/<runtime>/` simply
+ * contributes nothing).
+ */
+function listSkillDirs(parentDir: string): string[] {
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(parentDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  return entries
+    .filter((e) => e.isDirectory())
+    .filter((e) => {
+      try {
+        return fs.statSync(path.join(parentDir, e.name, 'SKILL.md')).isFile();
+      } catch {
+        return false;
+      }
+    })
+    .map((e) => e.name);
+}
+
+/**
+ * The canonical skill set for `runtimeName`: procedural skills from
+ * `<skillsSource>/standard/` unioned with the runtime's orchestration skills
+ * from `<skillsSource>/<runtimeName>/`. Deduped by folded name (the two trees
+ * are disjoint after the DR-1 collapse; a collision keeps the first — procedural).
+ * Returns `{ name, dir }` for each skill so callers can copy/hash the SOURCE.
+ */
+export function collectCanonicalSkillSet(
+  skillsSource: string,
+  runtimeName: string,
+  caseInsensitive = false,
+): Array<{ name: string; dir: string }> {
+  const set: Array<{ name: string; dir: string }> = [];
+  const seen = new Set<string>();
+  const add = (parent: string, name: string): void => {
+    const key = foldDirKey(name, caseInsensitive);
+    if (seen.has(key)) return;
+    seen.add(key);
+    set.push({ name, dir: path.join(parent, name) });
+  };
+  const standardDir = path.join(skillsSource, 'standard');
+  for (const name of listSkillDirs(standardDir)) add(standardDir, name);
+  const runtimeDir = path.join(skillsSource, runtimeName);
+  for (const name of listSkillDirs(runtimeDir)) add(runtimeDir, name);
+  return set;
+}
+
+/** Resolve the canonical `.agents/skills` convention directory for a scope. */
+function resolveCanonicalSkillsDir(
+  scope: SkillsInstallScope,
+  home: string,
+  projectRoot: string,
+): string {
+  return scope === 'user'
+    ? expandTilde('~/.agents/skills', home)
+    : path.join(projectRoot, '.agents', 'skills');
+}
+
+/** Resolve the per-scope provenance manifest path (`<.agents-root>/.exarchos-skills.json`). */
+export function resolveSkillsManifestPath(
+  scope: SkillsInstallScope,
+  home: string,
+  projectRoot: string,
+): string {
+  const agentsRoot =
+    scope === 'user' ? expandTilde('~/.agents', home) : path.join(projectRoot, '.agents');
+  return path.join(agentsRoot, SKILLS_MANIFEST_FILENAME);
+}
+
+/**
+ * Hash a skill directory's content: a stable digest over every file under
+ * `skillDir` (sorted by POSIX relative path), each newline-normalized before
+ * hashing. Reads THROUGH symlinks (so a canonical entry symlinked at its native
+ * copy hashes to the same value). Throws if `skillDir` is absent — callers that
+ * probe on-disk placements guard for that (a missing dir is `drift: 'missing'`).
+ */
+export function hashSkillDirContent(skillDir: string): string {
+  const rels: string[] = [];
+  const walk = (dir: string, rel: string): void => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const childRel = rel ? `${rel}/${e.name}` : e.name;
+      const abs = path.join(dir, e.name);
+      // stat (not lstat) so symlinked children resolve to their target kind.
+      const st = fs.statSync(abs);
+      if (st.isDirectory()) walk(abs, childRel);
+      else if (st.isFile()) rels.push(childRel);
+    }
+  };
+  walk(skillDir, '');
+  rels.sort();
+  const h = createHash('sha256');
+  for (const rel of rels) {
+    const content = fs.readFileSync(path.join(skillDir, rel)).toString('utf8');
+    h.update(rel);
+    h.update('\0');
+    h.update(normalizeNewlines(content));
+    h.update('\0');
+  }
+  return h.digest('hex');
+}
+
+/**
+ * Copy each skill in `set` into `destDir` (real bytes), replacing any prior copy
+ * so the install is byte-stable across runs. Used for the per-harness NATIVE dir
+ * (always a real copy — its content is what the harness loads) and for the
+ * canonical dir on `win32` (INV-16: Windows copies, never symlinks).
+ */
+function copySkillSetToDir(
+  set: Array<{ name: string; dir: string }>,
+  destDir: string,
+  copyDir: (src: string, dest: string) => void,
+): void {
+  fs.mkdirSync(destDir, { recursive: true });
+  for (const s of set) {
+    const dest = path.join(destDir, s.name);
+    fs.rmSync(dest, { recursive: true, force: true });
+    copyDir(s.dir, dest);
+  }
+}
+
+/**
+ * Place the canonical `.agents/skills` convention copy. On POSIX each entry is a
+ * symlink pointing at the harness's real native copy (the cross-client dir
+ * dedups to one content source); on `win32` each entry is a full file copy from
+ * the SOURCE (INV-16 — Windows symlinks need elevated privileges / Developer
+ * Mode and break copy-based distribution). No-ops when the canonical dir IS the
+ * native dir (e.g. the `generic` runtime whose native path already is
+ * `~/.agents/skills`) — the native copy already satisfies the convention.
+ */
+function placeCanonicalSkillSet(
+  set: Array<{ name: string; dir: string }>,
+  canonicalDir: string,
+  nativeDir: string,
+  platform: NodeJS.Platform,
+  copyDir: (src: string, dest: string) => void,
+  symlink: (target: string, linkPath: string) => void,
+): void {
+  if (toPosixPath(path.resolve(canonicalDir)) === toPosixPath(path.resolve(nativeDir))) {
+    return;
+  }
+  if (platform === 'win32') {
+    copySkillSetToDir(set, canonicalDir, copyDir);
+    return;
+  }
+  fs.mkdirSync(canonicalDir, { recursive: true });
+  for (const s of set) {
+    const link = path.join(canonicalDir, s.name);
+    const target = path.join(nativeDir, s.name);
+    fs.rmSync(link, { recursive: true, force: true });
+    symlink(target, link);
+  }
+}
+
+/** Build the provenance record for one placement — hashes come from the SOURCE. */
+function buildPlacementRecord(
+  harness: string,
+  kind: SkillPlacementKind,
+  dirPath: string,
+  set: Array<{ name: string; dir: string }>,
+): SkillPlacementRecord {
+  const hashes: Record<string, string> = {};
+  for (const s of set) hashes[s.name] = hashSkillDirContent(s.dir);
+  return { harness, kind, path: toPosixPath(dirPath), hashes };
+}
+
+/** Atomically write JSON: temp file in the target dir, then rename over target. */
+function atomicWriteJson(target: string, obj: unknown): void {
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  const tmp = `${target}.tmp-${process.pid}-${Date.now()}`;
+  fs.writeFileSync(tmp, `${JSON.stringify(obj, null, 2)}\n`, 'utf8');
+  fs.renameSync(tmp, target);
+}
+
+/** Type guard: does a parsed value look like a provenance manifest we can merge into? */
+function isProvenanceManifest(v: unknown): v is SkillsProvenanceManifest {
+  if (v === null || typeof v !== 'object') return false;
+  const m = v as Record<string, unknown>;
+  return Array.isArray(m.placements) && Array.isArray(m.skills);
+}
+
+/**
+ * Read-modify-write the per-scope provenance manifest, atomically. This install's
+ * placements (canonical + native, unless they coincide) replace any prior record
+ * for the same folded path; a second harness installing to the same scope merges
+ * its placements in rather than clobbering the file. Skill names are unioned
+ * (folded dedup, original casing preserved, sorted). INV-16: atomic temp+rename.
+ */
+export function writeSkillsProvenanceManifest(args: {
+  scope: SkillsInstallScope;
+  manifestPath: string;
+  harness: string;
+  canonicalDir: string;
+  nativeDir: string;
+  set: Array<{ name: string; dir: string }>;
+  version: string;
+  caseInsensitive: boolean;
+}): void {
+  const { scope, manifestPath, harness, canonicalDir, nativeDir, set, version, caseInsensitive } =
+    args;
+
+  let existing: SkillsProvenanceManifest | undefined;
+  let raw: string | undefined;
+  try {
+    raw = fs.readFileSync(manifestPath, 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') throw err;
+    // ENOENT → no manifest yet, start fresh.
+  }
+  if (raw !== undefined) {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (isProvenanceManifest(parsed)) existing = parsed;
+    } catch {
+      // Malformed JSON → start fresh.
+    }
+  }
+
+  const newPlacements: SkillPlacementRecord[] = [
+    buildPlacementRecord(harness, 'canonical', canonicalDir, set),
+  ];
+  // Native == canonical (e.g. `generic`) → one placement suffices.
+  if (toPosixPath(path.resolve(nativeDir)) !== toPosixPath(path.resolve(canonicalDir))) {
+    newPlacements.push(buildPlacementRecord(harness, 'native', nativeDir, set));
+  }
+
+  const newKeys = new Set(newPlacements.map((p) => foldDirKey(p.path, caseInsensitive)));
+  const kept = (existing?.placements ?? []).filter(
+    (p) => !newKeys.has(foldDirKey(p.path, caseInsensitive)),
+  );
+
+  const skills: string[] = [];
+  const skillSeen = new Set<string>();
+  for (const name of [...(existing?.skills ?? []), ...set.map((s) => s.name)]) {
+    const key = foldDirKey(name, caseInsensitive);
+    if (skillSeen.has(key)) continue;
+    skillSeen.add(key);
+    skills.push(name);
+  }
+  skills.sort();
+
+  const manifest: SkillsProvenanceManifest = {
+    schema: SKILLS_MANIFEST_SCHEMA,
+    version,
+    scope,
+    generatedAt: new Date().toISOString(),
+    skills,
+    placements: [...kept, ...newPlacements],
+  };
+  atomicWriteJson(manifestPath, manifest);
+}
+
+/** A single layout-drift finding produced by {@link detectLayoutDrift}. */
+export interface LayoutDriftFinding {
+  scope: SkillsInstallScope;
+  harness: string;
+  kind: SkillPlacementKind;
+  placementPath: string;
+  skill: string;
+  drift: 'missing' | 'modified';
+  detail: string;
+}
+
+/**
+ * Read-only layout-drift detector (the `doctor` DR-4 surface): re-hash every
+ * placement recorded in the scope manifest and compare against the recorded
+ * provenance hash. A missing skill dir → `missing`; a content-hash mismatch →
+ * `modified`. Absent/malformed manifest → `[]` (nothing to check). Performs NO
+ * writes — safe to run from `doctor`.
+ */
+export function detectLayoutDrift(
+  opts: {
+    scope?: SkillsInstallScope;
+    home?: string;
+    projectRoot?: string;
+  } = {},
+): LayoutDriftFinding[] {
+  const scope = opts.scope ?? 'user';
+  const home = opts.home ?? homedir();
+  const projectRoot = opts.projectRoot ?? process.cwd();
+  const manifestPath = resolveSkillsManifestPath(scope, home, projectRoot);
+
+  let manifest: SkillsProvenanceManifest;
+  try {
+    const parsed: unknown = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    if (!isProvenanceManifest(parsed)) return [];
+    manifest = parsed;
+  } catch {
+    return [];
+  }
+
+  const findings: LayoutDriftFinding[] = [];
+  for (const placement of manifest.placements) {
+    for (const [skill, recordedHash] of Object.entries(placement.hashes)) {
+      const skillDir = path.join(placement.path, skill);
+      let actual: string | undefined;
+      try {
+        actual = hashSkillDirContent(skillDir);
+      } catch {
+        actual = undefined;
+      }
+      if (actual === undefined) {
+        findings.push({
+          scope,
+          harness: placement.harness,
+          kind: placement.kind,
+          placementPath: placement.path,
+          skill,
+          drift: 'missing',
+          detail: `skill "${skill}" is absent at ${placement.path}`,
+        });
+      } else if (actual !== recordedHash) {
+        findings.push({
+          scope,
+          harness: placement.harness,
+          kind: placement.kind,
+          placementPath: placement.path,
+          skill,
+          drift: 'modified',
+          detail: `content hash mismatch for skill "${skill}" at ${placement.path}`,
+        });
+      }
+    }
+  }
+  return findings;
+}
+
+// ─── Multi-release legacy-render hash provenance (DR-8, Task 023 consumer) ────
+//
+// The onboard rename migration (Task 011, DR-3/DR-8) deletes a stale OLD-NAME
+// skill dir from a consumer install ONLY when it can prove the dir came from us.
+// Two provenance sources establish that (either suffices):
+//   (a) the Task 010 install provenance manifest (`.exarchos-skills.json`),
+//       whose per-placement `hashes[skill]` are whole-dir digests
+//       ({@link hashSkillDirContent}); and
+//   (b) the Task 023 multi-release legacy-render hash manifest
+//       (`migrations/legacy-skill-render-hashes.json`), whose entries are the
+//       newline-normalized (CRLF→LF) sha256 of every per-runtime `SKILL.md`
+//       render ACROSS historical release tags — so a pre-existing install of any
+//       prior release, even a CRLF checkout, still hash-matches.
+//
+// These helpers are the single format-consumers for both provenance sources; the
+// onboard migration (server package, isolated by the MCP server's tsc
+// `rootDir: "./src"`) mirrors the two hashers and is drift-guarded against these
+// by a co-located cross-package test.
+
+/** Filename of the committed multi-release legacy-render hash manifest (Task 023). */
+export const LEGACY_HASH_MANIFEST_FILENAME = 'legacy-skill-render-hashes.json';
+
+/** One historical per-runtime render hash in the Task 023 manifest. */
+export interface LegacySkillRenderEntry {
+  release: string;
+  runtime: string;
+  skill: string;
+  path: string;
+  hash: string;
+}
+
+/** The committed Task 023 legacy-render hash manifest (real on-disk shape). */
+export interface LegacySkillRenderManifest {
+  algorithm: string;
+  normalization: string;
+  scope: string;
+  source: string;
+  minRelease: string;
+  releases: string[];
+  entries: LegacySkillRenderEntry[];
+}
+
+/**
+ * Newline-normalized (CRLF→LF) sha256 hex of a single `SKILL.md` render's
+ * content. MUST stay byte-identical to the Task 023 generator's `normalizeAndHash`
+ * (`scripts/generate-legacy-skill-hashes.mjs`) so a consumer file that differs
+ * only in line endings still hash-matches the manifest — the cross-format
+ * equality is pinned by `install-skills.test.ts`.
+ */
+export function hashSkillMdContent(content: string): string {
+  return createHash('sha256').update(normalizeNewlines(content), 'utf8').digest('hex');
+}
+
+/**
+ * Hash the `SKILL.md` inside `skillDir` for legacy-render provenance. Reads
+ * THROUGH symlinks (so a symlinked install hashes to its target's render).
+ * Returns `undefined` when the dir carries no `SKILL.md` (not a skill dir).
+ */
+export function hashSkillMdFile(
+  skillDir: string,
+  readFile: (p: string) => string = (p) => fs.readFileSync(p, 'utf8'),
+): string | undefined {
+  try {
+    return hashSkillMdContent(readFile(path.join(skillDir, 'SKILL.md')));
+  } catch {
+    return undefined;
+  }
+}
+
+/** Type guard for a parsed value shaped like the Task 023 legacy-render manifest. */
+export function isLegacySkillRenderManifest(v: unknown): v is LegacySkillRenderManifest {
+  if (v === null || typeof v !== 'object') return false;
+  const m = v as Record<string, unknown>;
+  return Array.isArray(m.entries) && Array.isArray(m.releases);
+}
+
+/**
+ * Index a Task 023 manifest by skill name → the set of every historical render
+ * hash for that skill (across all runtimes and releases). A stale old-name dir is
+ * legacy-provenance-matched when its `SKILL.md` hash is a member of its skill's
+ * set, for ANY release — the union is exactly the "matches any release" contract.
+ */
+export function indexLegacyHashesBySkill(
+  manifest: LegacySkillRenderManifest,
+): Map<string, Set<string>> {
+  const index = new Map<string, Set<string>>();
+  for (const entry of manifest.entries) {
+    let set = index.get(entry.skill);
+    if (!set) {
+      set = new Set<string>();
+      index.set(entry.skill, set);
+    }
+    set.add(entry.hash);
+  }
+  return index;
+}
+
+/**
+ * Resolve the committed legacy-render hash manifest on disk. Mirrors
+ * {@link findSkillsSourceDir}'s candidate order (cwd, compiled-binary
+ * `dist/bin/../..`, src-relative dev path) but rooted at `migrations/`. Returns
+ * the first existing candidate, or `undefined` when none exist (the migration
+ * then simply has no legacy provenance to match against — the conservative
+ * PRESERVE default, never a spurious deletion).
+ */
+export function findLegacyHashManifestPath(): string | undefined {
+  const candidates: string[] = [
+    path.join(process.cwd(), 'migrations', LEGACY_HASH_MANIFEST_FILENAME),
+  ];
+  if (typeof process.execPath === 'string' && process.execPath.length > 0) {
+    candidates.push(
+      path.resolve(
+        path.dirname(process.execPath),
+        '..',
+        '..',
+        'migrations',
+        LEGACY_HASH_MANIFEST_FILENAME,
+      ),
+    );
+  }
+  try {
+    if (typeof import.meta.url === 'string' && import.meta.url.startsWith('file:')) {
+      const here = path.dirname(fileURLToPath(import.meta.url));
+      candidates.push(path.resolve(here, '..', 'migrations', LEGACY_HASH_MANIFEST_FILENAME));
+    }
+  } catch (err) {
+    if (!isIgnorablePathProbeError(err)) throw err;
+  }
+  for (const c of candidates) {
+    try {
+      if (fs.statSync(c).isFile()) return c;
+    } catch (err) {
+      if (!isIgnorablePathProbeError(err)) throw err;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Load + index the legacy-render hash manifest for provenance matching. Resolves
+ * the manifest path via {@link findLegacyHashManifestPath} (overridable), parses
+ * it, and returns the by-skill hash index. Returns `undefined` when the manifest
+ * is absent or unparseable — provenance (b) is then simply unavailable (PRESERVE).
+ */
+export function loadLegacyHashIndex(
+  opts: {
+    manifestPath?: string;
+    readFile?: (p: string) => string;
+  } = {},
+): Map<string, Set<string>> | undefined {
+  const manifestPath = opts.manifestPath ?? findLegacyHashManifestPath();
+  if (manifestPath === undefined) return undefined;
+  const readFile = opts.readFile ?? ((p: string) => fs.readFileSync(p, 'utf8'));
+  try {
+    const parsed: unknown = JSON.parse(readFile(manifestPath));
+    if (!isLegacySkillRenderManifest(parsed)) return undefined;
+    return indexLegacyHashesBySkill(parsed);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Does any placement in the supplied install provenance manifests (Task 010
+ * format) vouch for a skill dir whose whole-dir content hash is `dirHash`? A
+ * manifest records `placements[].hashes[skill]` as the newline-normalized
+ * whole-dir digest at install time; a match proves the on-disk dir is an
+ * unmodified copy of exactly what we placed. Skill-name keys are folded
+ * case-insensitively when `caseInsensitive` is set (matching the manifest's own
+ * dedup semantics).
+ */
+export function installManifestVouchesForDir(
+  manifests: readonly SkillsProvenanceManifest[],
+  skillName: string,
+  dirHash: string,
+  caseInsensitive = false,
+): boolean {
+  const wanted = caseInsensitive ? skillName.toLowerCase() : skillName;
+  for (const manifest of manifests) {
+    for (const placement of manifest.placements) {
+      for (const [recordedSkill, recordedHash] of Object.entries(placement.hashes)) {
+        const key = caseInsensitive ? recordedSkill.toLowerCase() : recordedSkill;
+        if (key === wanted && recordedHash === dirHash) return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Resolve the exarchos version recorded in the provenance manifest. Reads the
+ * root `package.json` `version` (the single source of truth) relative to this
+ * module; falls back to `'unknown'` when the file cannot be read (e.g. a bundled
+ * binary whose `package.json` is not on disk). Cached after first resolution.
+ */
+let cachedExarchosVersion: string | undefined;
+export function readDefaultExarchosVersion(): string {
+  if (cachedExarchosVersion !== undefined) return cachedExarchosVersion;
+  cachedExarchosVersion = 'unknown';
+  try {
+    if (import.meta.url.startsWith('file:')) {
+      const here = path.dirname(fileURLToPath(import.meta.url));
+      const raw = fs.readFileSync(path.resolve(here, '..', 'package.json'), 'utf8');
+      const parsed = JSON.parse(raw) as { version?: unknown };
+      if (typeof parsed.version === 'string') cachedExarchosVersion = parsed.version;
+    }
+  } catch {
+    // Keep the 'unknown' fallback.
+  }
+  return cachedExarchosVersion;
+}
+
 /**
  * Install skills for a specific agent runtime.
  *
@@ -638,22 +1309,46 @@ export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
   // regress those unit tests every time they ran from REPO_ROOT.
   const skillsSource = opts.skillsSource;
   if (skillsSource) {
-    const runtimeSourceDir = path.join(skillsSource, runtime.name);
-    let sourceIsViable = false;
-    try {
-      sourceIsViable = fs.statSync(runtimeSourceDir).isDirectory();
-    } catch {
-      sourceIsViable = false;
-    }
-    if (sourceIsViable) {
+    const platform = opts.platform ?? process.platform;
+    const caseInsensitive =
+      opts.caseInsensitiveFs ?? defaultCaseInsensitiveFs(platform);
+    // The canonical set = procedural (`skills/standard/`) + this runtime's
+    // orchestration skills (`skills/<runtime>/`). Empty ⇒ no local tree ⇒ fall
+    // through to the upstream `npx skills add` shell-out.
+    const set = collectCanonicalSkillSet(skillsSource, runtime.name, caseInsensitive);
+    if (set.length > 0) {
       const home = homeDirFn();
-      const destDir = expandTilde(runtime.skillsInstallPath, home);
+      const scope = opts.scope ?? 'user';
+      const projectRoot = opts.projectRoot ?? process.cwd();
+      const version = opts.version ?? readDefaultExarchosVersion();
       const copyDir = opts.copyDir ?? defaultCopyDir;
-      log(
-        `Installing skills locally from ${runtimeSourceDir} → ${destDir}`,
-      );
-      const installed = copyLocalSkills(runtimeSourceDir, destDir, copyDir);
-      log(`Installed ${installed.length} skill${installed.length === 1 ? '' : 's'}: ${installed.join(', ')}`);
+      const symlink = opts.symlink ?? defaultSymlink;
+
+      // Per-harness NATIVE dir: always a real copy (its bytes are what the
+      // harness loads). This preserves the pre-DR-4 copy contract.
+      const nativeDir = expandTilde(runtime.skillsInstallPath, home);
+      // Cross-client CANONICAL dir: `.agents/skills` (scope-resolved).
+      const canonicalDir = resolveCanonicalSkillsDir(scope, home, projectRoot);
+
+      log(`Installing ${set.length} skill${set.length === 1 ? '' : 's'} → ${nativeDir}`);
+      copySkillSetToDir(set, nativeDir, copyDir);
+      // Convention path: POSIX symlinks to the native copy; win32 copies
+      // (INV-16). No-op when canonicalDir === nativeDir (e.g. `generic`).
+      placeCanonicalSkillSet(set, canonicalDir, nativeDir, platform, copyDir, symlink);
+      log(`Installed: ${set.map((s) => s.name).join(', ')}`);
+
+      // Provenance manifest — one per scope, atomic write, enumerating the
+      // canonical + native placement paths with newline-normalized hashes.
+      writeSkillsProvenanceManifest({
+        scope,
+        manifestPath: resolveSkillsManifestPath(scope, home, projectRoot),
+        harness: runtime.name,
+        canonicalDir,
+        nativeDir,
+        set,
+        version,
+        caseInsensitive,
+      });
 
       // Install canonical command aliases (T3, #1471/#1472) — gated on the
       // runtime declaring `commandsInstallPath` + a viable alias source tree,
@@ -676,7 +1371,7 @@ export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
         }
       }
 
-      printInstallSummary(log, destDir, commandsDest, runtime.name);
+      printInstallSummary(log, nativeDir, commandsDest, runtime.name);
       return;
     }
   }

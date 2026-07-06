@@ -41,7 +41,16 @@ jobs:
     # feedback_self_hosted_runner_npm_ci_stall.
     runs-on: ubuntu-latest
     steps:
+      # fetch-depth: 0 — this job runs the root `npm run test:run`, which includes
+      # the DR-8 legacy-hash manifest test. That test rebuilds the manifest from the
+      # historical release-tag trees via `git show`/`git ls-tree`, so it needs the
+      # tags AND their objects; a tag-triggered shallow checkout has neither and
+      # would red the release before `npm publish`. The manifest's frozen upper
+      # bound (MAX_RELEASE_EXCLUSIVE) keeps the just-pushed release tag out of the
+      # rebuilt set, so the byte-equality holds.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v6
         with:

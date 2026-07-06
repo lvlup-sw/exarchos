@@ -116,7 +116,7 @@ describe('dev-catalog v3 content — CR-2 mode:check enforcement', () => {
   it('inv4_editingGeneratedSkillsRuntimeFile_fires', () => {
     const e = entry('INV-4');
     expect(e.enforcement?.mode).toBe('check');
-    const violating = diffFor('skills/claude-code/brainstorming/SKILL.md', [
+    const violating = diffFor('skills/claude-code/ideate/SKILL.md', [
       'direct edit to generated output',
     ]);
     const findings = evaluateTree(
@@ -128,7 +128,7 @@ describe('dev-catalog v3 content — CR-2 mode:check enforcement', () => {
 
   it('inv4_editingSkillsSrcOnly_producesNoFinding', () => {
     const e = entry('INV-4');
-    const clean = diffFor('skills-src/brainstorming/SKILL.md', [
+    const clean = diffFor('skills-src/ideate/SKILL.md', [
       'edit to source-of-truth is fine',
     ]);
     const findings = evaluateTree(
@@ -225,7 +225,7 @@ describe('dev-catalog v3 content — CR-5 end-to-end gate bite', () => {
   it('seededGeneratedSkillsEdit_inv4Fires_NeedsFixesWithGateEvent', async () => {
     const { stateDir, eventStore } = await arm();
     try {
-      const violating = diffFor('skills/claude-code/brainstorming/SKILL.md', [
+      const violating = diffFor('skills/claude-code/ideate/SKILL.md', [
         'a direct edit to generated output',
       ]);
       const result = await handleCheckInvariantConformance(

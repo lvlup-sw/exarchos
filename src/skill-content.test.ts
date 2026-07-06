@@ -4,10 +4,10 @@
  * Greps `skills-src/<name>/SKILL.md` for required sections introduced by
  * the `RESERVED_FIELD` discoverability work:
  *
- *   - `workflow-state` must document the reserved-field boundary so
+ *   - `checkpoint` must document the reserved-field boundary so
  *     agents discover the rule without trial-and-error against the
  *     error envelope.
- *   - `merge-orchestrator` must cross-link the workflow-state Reserved
+ *   - `merge-orchestrator` must cross-link the checkpoint Reserved
  *     fields anchor so callers landing on the merge skill find the
  *     immutable-phase guidance one hop away.
  *
@@ -24,8 +24,8 @@ import { join } from 'node:path';
 const SKILLS_SRC = join(process.cwd(), 'skills-src');
 
 describe('skill content lint (#1360)', () => {
-  it('Skill_WorkflowState_ContainsReservedFieldsSection', () => {
-    const skillPath = join(SKILLS_SRC, 'workflow-state', 'SKILL.md');
+  it('Skill_Checkpoint_ContainsReservedFieldsSection', () => {
+    const skillPath = join(SKILLS_SRC, 'checkpoint', 'SKILL.md');
     const content = readFileSync(skillPath, 'utf8');
     expect(content).toMatch(/^## Reserved fields$/m);
   });
@@ -33,9 +33,9 @@ describe('skill content lint (#1360)', () => {
   it('Skill_MergeOrchestrator_CrossLinksReservedFields', () => {
     const skillPath = join(SKILLS_SRC, 'merge-orchestrator', 'SKILL.md');
     const content = readFileSync(skillPath, 'utf8');
-    // Cross-link to the workflow-state Reserved fields anchor. The exact
+    // Cross-link to the checkpoint Reserved fields anchor. The exact
     // form is flexible (relative path or anchor reference) — just require
-    // the workflow-state SKILL plus the `reserved-fields` anchor.
-    expect(content).toMatch(/workflow-state\/SKILL\.md#reserved-fields/);
+    // the checkpoint SKILL plus the `reserved-fields` anchor.
+    expect(content).toMatch(/checkpoint\/SKILL\.md#reserved-fields/);
   });
 });

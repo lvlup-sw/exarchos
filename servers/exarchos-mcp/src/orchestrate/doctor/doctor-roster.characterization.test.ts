@@ -39,16 +39,21 @@ import { ALL_CHECKS } from './index.js';
 // ─── Pinned roster identity ──────────────────────────────────────────────────
 
 /**
- * The THIRTEEN checks shipped today, pinned by `(category, name)` and ORDER.
+ * The SIXTEEN checks shipped today, pinned by `(category, name)` and ORDER.
  * `ALL_CHECKS` order is part of the observable contract: the composer preserves
  * it so callers scan top-to-bottom for the first Fail. A task adding a check
  * must update this list (and the count) deliberately — that edit is the signal
  * this guard exists to force.
  *
- * DELIBERATE PIN UPDATE (task 009, design §4.6): the 13th entry
- * `verification-toolchain` (category `verification`) was added as a CONSCIOUS
- * act. This guard pinned EXACTLY 12 precisely so the addition could not slip in
- * unnoticed; the count and roster below are updated 12 → 13 on purpose.
+ * DELIBERATE PIN UPDATE (task 009, design §4.6): the `verification-toolchain`
+ * entry (category `verification`) was added as a CONSCIOUS act (12 → 13).
+ * DELIBERATE PIN UPDATE (Task 017, DR-5/DR-7): `onramp-block-drift` (the Task 013
+ * drift finding, previously unregistered) and `retired-hooks-present` (the
+ * uninstall-reachability check) were added together in the `agent` block, in that
+ * order (block-write step before hook-removal step); the count is updated
+ * 13 → 15 on purpose.
+ * DELIBERATE PIN UPDATE (Task 011): `stale-skill-dirs` (category `plugin`) was
+ * added as a further CONSCIOUS act, updating the count 15 → 16.
  */
 const PINNED_ROSTER: ReadonlyArray<{
   category: CheckResult['category'];
@@ -62,6 +67,9 @@ const PINNED_ROSTER: ReadonlyArray<{
   { category: 'agent', name: 'agent-config-valid' },
   { category: 'agent', name: 'agent-mcp-registered' },
   { category: 'agent', name: 'session-start-hook' },
+  { category: 'agent', name: 'onramp-block-drift' },
+  { category: 'agent', name: 'retired-hooks-present' },
+  { category: 'plugin', name: 'stale-skill-dirs' },
   { category: 'plugin', name: 'plugin-skill-hash-sync' },
   { category: 'plugin', name: 'plugin-version-match' },
   { category: 'remote', name: 'remote-mcp' },
@@ -148,14 +156,15 @@ async function runRoster(): Promise<readonly CheckResult[]> {
 // ─── Characterization ────────────────────────────────────────────────────────
 
 describe('doctor roster characterization (T0 baseline)', () => {
-  it('DoctorRoster_CurrentBuild_ExactlyThirteenChecksWithStableNames', async () => {
-    // The static export ships exactly thirteen checks, in pinned order. (12 → 13
-    // updated deliberately by task 009: the verification-toolchain check.)
-    expect(ALL_CHECKS).toHaveLength(13);
-    expect(PINNED_ROSTER).toHaveLength(13);
+  it('DoctorRoster_CurrentBuild_ExactlySixteenChecksWithStableNames', async () => {
+    // The static export ships exactly sixteen checks, in pinned order. (13 → 15
+    // by Task 017: onramp-block-drift + retired-hooks-present; 15 → 16 by
+    // Task 011: stale-skill-dirs.)
+    expect(ALL_CHECKS).toHaveLength(16);
+    expect(PINNED_ROSTER).toHaveLength(16);
 
     const results = await runRoster();
-    expect(results).toHaveLength(13);
+    expect(results).toHaveLength(16);
 
     // Each check, run through the REAL ALL_CHECKS, stamps its own identity —
     // we read (category, name) off the returned result rather than transcribing.
@@ -167,7 +176,7 @@ describe('doctor roster characterization (T0 baseline)', () => {
 
     // The name set is exactly the pinned set: no duplicates, no strays.
     const observedNames = new Set(results.map((r) => r.name));
-    expect(observedNames.size).toBe(13);
+    expect(observedNames.size).toBe(16);
     for (const { name } of PINNED_ROSTER) {
       expect(observedNames.has(name)).toBe(true);
     }

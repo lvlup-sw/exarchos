@@ -282,3 +282,117 @@ describe('placeholder-lint — task 010 (DR-2/DR-8 mcp__ deprecation)', () => {
     );
   });
 });
+
+describe('placeholder-lint — task 002 (collapsed-vocabulary rules)', () => {
+  it('lintPlaceholders_PrefixTokenInProceduralSkill_Rejected', () => {
+    // A *procedural* skill (no orchestration tokens → classifySkill:
+    // procedural) that references prefix tokens must be flagged once the
+    // collapsed-vocabulary rules are enforced: in the collapsed vocabulary a
+    // procedural skill renders once for every runtime from logical prose and
+    // must not carry a per-harness prefix token.
+    const sourcesDir = makeTempDir();
+    mkdirSync(join(sourcesDir, 'proc'), { recursive: true });
+    writeFileSync(
+      join(sourcesDir, 'proc', 'SKILL.md'),
+      [
+        'Run `{{COMMAND_PREFIX}}plan` to start.',
+        '',
+        'Then call {{MCP_PREFIX}}workflow_start.',
+        '',
+      ].join('\n'),
+    );
+
+    const result = lintPlaceholders({
+      sourcesDir,
+      enforceCollapsedVocabulary: true,
+    });
+
+    expect(result.passed).toBe(false);
+    const violations = result.collapsedVocabularyViolations;
+    const tokens = violations.map((v) => v.token).sort();
+    expect(tokens).toEqual(['COMMAND_PREFIX', 'MCP_PREFIX']);
+    for (const v of violations) {
+      expect(v.kind).toBe('prefix');
+      expect(v.skillClass).toBe('procedural');
+      expect(v.file).toMatch(/proc[\\/]SKILL\.md$/);
+    }
+    // Line numbers are 1-indexed and accurate.
+    const byToken = new Map(violations.map((v) => [v.token, v]));
+    expect(byToken.get('COMMAND_PREFIX')!.line).toBe(1);
+    expect(byToken.get('MCP_PREFIX')!.line).toBe(3);
+    // The aggregated message names every offender so CI logs are actionable.
+    expect(result.message).toContain('MCP_PREFIX');
+    expect(result.message).toContain('COMMAND_PREFIX');
+  });
+
+  it('lintPlaceholders_OrchestrationTokenInOrchestrationSkill_Allowed', () => {
+    // A source referencing an orchestration token is classified
+    // `orchestration` — the one place orchestration tokens are valid. Prefix
+    // tokens are also legitimate there (only *procedural* skills reject them),
+    // so an orchestration skill using both raises no collapsed-vocabulary
+    // violation even with enforcement on.
+    const sourcesDir = makeTempDir();
+    mkdirSync(join(sourcesDir, 'orch'), { recursive: true });
+    writeFileSync(
+      join(sourcesDir, 'orch', 'SKILL.md'),
+      [
+        'Delegate the wave with {{TASK_TOOL}}.',
+        '',
+        'Then call {{MCP_PREFIX}}workflow_start to record it.',
+        '',
+      ].join('\n'),
+    );
+
+    const result = lintPlaceholders({
+      sourcesDir,
+      enforceCollapsedVocabulary: true,
+    });
+
+    expect(result.collapsedVocabularyViolations).toEqual([]);
+    expect(result.passed).toBe(true);
+  });
+
+  it('lintPlaceholders_PrefixTokenInProceduralSkill_NotEnforcedByDefault', () => {
+    // Gate check: with enforcement OFF (the default), the collapsed-vocabulary
+    // pass does not run, so the current un-rewritten procedural tree — which
+    // still carries prefix tokens — stays green. The rewrite task flips
+    // `enforceCollapsedVocabulary` on once those tokens are gone.
+    const sourcesDir = makeTempDir();
+    mkdirSync(join(sourcesDir, 'proc'), { recursive: true });
+    writeFileSync(
+      join(sourcesDir, 'proc', 'SKILL.md'),
+      'Then call {{MCP_PREFIX}}workflow_start.\n',
+    );
+
+    const result = lintPlaceholders({ sourcesDir });
+
+    expect(result.collapsedVocabularyViolations).toEqual([]);
+    expect(result.passed).toBe(true);
+  });
+});
+
+describe('placeholder-lint — Task 006 (real procedural tree rewritten to logical prose)', () => {
+  const SKILLS_SRC = join(__dirname, '..', 'skills-src');
+
+  it('lintPlaceholders_RewrittenProceduralTree_NoPrefixTokens', () => {
+    // After Task 006 the 16 procedural skills render once from logical prose
+    // (`exarchos:exarchos_*` / bare verbs) and carry NO prefix tokens. With
+    // collapsed-vocabulary enforcement ON, the REAL `skills-src/` tree lints
+    // clean: zero collapsed-vocabulary violations. The 3 orchestration skills
+    // (`ideate`/`delegate`/`refactor`) legitimately keep prefix tokens, but the
+    // rules key on the source's derived class so those raise no violation.
+    //
+    // Kill-probe: revert the procedural rewrite and a prefix token reappears in
+    // a procedural SKILL.md, flipping this to a non-empty `prefix` violation.
+    const result = lintPlaceholders({
+      sourcesDir: SKILLS_SRC,
+      enforceCollapsedVocabulary: true,
+    });
+
+    expect(result.collapsedVocabularyViolations).toEqual([]);
+    expect(
+      result.collapsedVocabularyViolations.filter((v) => v.kind === 'prefix'),
+    ).toEqual([]);
+    expect(result.passed).toBe(true);
+  });
+});

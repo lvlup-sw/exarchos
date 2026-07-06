@@ -71,20 +71,20 @@ describe('assertExarchosVersion', () => {
     }
     expect(caught).toBeInstanceOf(Error);
     const message = (caught as Error).message;
-    expect(message).toContain('2.11');
+    expect(message).toContain('2.12');
     expect(message).toContain('2.8.3');
   });
 
   it('AssertExarchosVersion_MatchingMajorMinor_DoesNotThrow', async () => {
-    const stub = async () => '2.11.7';
+    const stub = async () => '2.12.7';
     await expect(
       assertExarchosVersion({ resolveVersion: stub }),
     ).resolves.toBeUndefined();
   });
 
   it('AssertExarchosVersion_PrereleaseSuffix_DoesNotThrow', async () => {
-    // Pre-release tags (e.g. `2.11.0-rc.3`) must compare on major.minor only.
-    const stub = async () => '2.11.0-rc.3';
+    // Pre-release tags (e.g. `2.12.0-rc.3`) must compare on major.minor only.
+    const stub = async () => '2.12.0-rc.3';
     await expect(
       assertExarchosVersion({ resolveVersion: stub }),
     ).resolves.toBeUndefined();

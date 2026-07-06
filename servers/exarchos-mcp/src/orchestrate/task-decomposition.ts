@@ -196,8 +196,8 @@ export function parseTaskBlocks(content: string): TaskBlock[] {
  *   Before T-02 the heading line was skipped wholesale and `**Phase:**`
  *   terminated the scan, so these template-verbatim tasks scored
  *   `Description: 0 words` and hard-FAILED the gate (`needsRework`). See
- *   `skills-src/implementation-planning/references/task-template.md`.
- * - Standard implementation-planning shape (`**Goal:**` + paragraph followed
+ *   `skills-src/plan/references/task-template.md`.
+ * - Standard plan shape (`**Goal:**` + paragraph followed
  *   by `**Files:**`, `**Tests:**`, etc.) — Goal prose counts as description.
  * - Legacy explicit `**Description:**` shape — Description prose counts.
  * - Naked-prose shape (no field-headers at all) — full body counts.
@@ -361,7 +361,7 @@ export function validateTaskStructure(block: string): TaskStructureResult {
  * Matches a real risk-tier stamp — the key, then a colon, then the tier word —
  * tolerating both spellings planners actually use: the camelCase `**riskTier:**
  * high` (used by existing plans) and the title-case `**Risk Tier:** high` that
- * the task template (`@skills/implementation-planning/references/task-template.md`)
+ * the task template (`@skills/plan/references/task-template.md`)
  * literally prescribes — plus the markdown bold around either. The optional space
  * in `risk\s*tier` is load-bearing: without it a plan authored to the canonical
  * template reads as unstamped and a low-tier task wrongly fails (#1544).

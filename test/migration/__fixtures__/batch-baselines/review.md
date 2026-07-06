@@ -128,7 +128,7 @@ exarchos_workflow({ action: "update", featureId: "<id>", updates: {
 }})
 exarchos_workflow({ action: "transition", featureId: "<id>", target: "synthesize" })
 ```
-Then invoke `/exarchos:synthesize`.
+Then invoke `synthesize`.
 
 **NEEDS_FIXES:**
 ```
@@ -136,7 +136,7 @@ exarchos_workflow({ action: "update", featureId: "<id>", updates: {
   reviews: { "review": { status: "fail", summary: "...", issues: [{ severity: "HIGH", file: "...", description: "..." }] } }
 }})
 ```
-Then invoke `/exarchos:delegate --fixes`.
+Then invoke `delegate --fixes`.
 
 > **Guard:** `review → synthesize` requires `all-reviews-passed` — every required dimension's `reviews.{name}.status` must be a passing value (`pass | passed | approved | fixes-applied`, case-insensitive). The feature roster is `review` (+ `mutation-adequacy` at HIGH tier). `review → delegate` fires on `any-review-failed`.
 

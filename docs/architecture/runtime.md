@@ -121,6 +121,8 @@ Four visible: `exarchos_workflow`, `exarchos_event`, `exarchos_orchestrate`, `ex
 
 `ps`, `describe`, `wait`, `export`. Generic queries over the event log: `ps` lists in-flight workflows by reading liveness-start events without corresponding terminal events; `wait --workflow=<id> --phase=<target> --timeout=<ms>` blocks until the projection reaches the target. Every long-running operation (merge, shepherd, TDD swarm) emits `<surface>.executing_started` so these verbs work without per-feature code.
 
+Launcher-spawned sessions ride the same convention (v2.12.0-preview.1, DR-7): `ps` / `wait` answer a launch's liveness from the `launch.executing_started` / `launch.executed` pair **alone** — a pure fold of `worktrees@v1`, no process scan (the opt-in `ps --probe` reclaim path is the only thing that consults the live process table). The launcher is the lifecycle authority; direct (non-launcher) launches answer lifecycle from event-sourced reconciliation (INV-10, reconcile-on-next-entry — never a daemon), which is also the documented `generic`-runtime contract. Known follow-up: spawn-time injection *degradation* is recorded on the launcher lifecycle result but not yet on the `launch.executing_started` event, so these verbs surface launch *liveness* — not injection *degradation* — from events alone.
+
 ### L8 — Adapters
 
 `cli.ts` parses argv, maps exit codes, renders for humans. `mcp.ts` translates MCP tool calls and uses `structuredContent` (post-#1287) as the spec-native carrier. Both call dispatch core. Neither carries behavior — verified by parity harness.
@@ -286,5 +288,5 @@ If you had to compress the architecture to one paragraph: Exarchos is a single S
 - [`docs/designs/2026-05-11-marten-followups.md`](../designs/2026-05-11-marten-followups.md) — PID lock demotion + Marten leverage follow-ups (#1343, #1342)
 - [`docs/designs/2026-04-18-strategic-framing-exarchos-basileus.md`](../designs/2026-04-18-strategic-framing-exarchos-basileus.md) — local vs remote tiers
 - [`docs/research/2026-05-08-1119-merge-orchestrator-audit.md`](../research/2026-05-08-1119-merge-orchestrator-audit.md) — audit that surfaced the runtime-guarantee framing
-- [`docs/architecture/invariants.md`](invariants.md) — INV-1..INV-15 catalog; audit behavior is performed by the `check_invariant_conformance` gate (the `design-invariants` skill was retired in T-23)
+- [`.exarchos/invariants.md`](../../.exarchos/invariants.md) — INV-1..INV-15 catalog (relocated from `docs/architecture/invariants.md` in T-19); audit behavior is performed by the `check_invariant_conformance` gate (the `design-invariants` skill was retired in T-23)
 - Issues: #1109 (cross-cutting invariants), #1118 (codify principles), #1119 (merge orchestrator), #1259 (substrate spike), #1284 (EventSourcedTaskStore), #1302 (audit follow-up epic), #1343 (PID lock demotion), #1342 (Marten leverage epic)

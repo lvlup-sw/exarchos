@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { DispatchContext } from '../core/dispatch.js';
 import { EventStore } from '../event-store/store.js';
 
@@ -52,6 +52,25 @@ import {
 } from './tools.js';
 import { handleStackStatus, handleStackPlace } from '../stack/tools.js';
 import { handleViewTelemetry } from '../telemetry/tools.js';
+
+// Real (un-mocked) surfaces for the DR-7 launcher-liveness `ps` test: the
+// `ps`/`wait` view actions route to the REAL worktree handlers (only `./tools.js`,
+// `../stack/tools.js`, `../telemetry/tools.js` are mocked above), so `handleView`
+// exercises the genuine `worktrees@v1` fold over a real EventStore.
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import * as nodePath from 'node:path';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
+import { WORKTREES_STREAM } from '../orchestrate/worktree/manager.js';
+import {
+  emitLaunchExecutingStarted,
+  emitLaunchExecuted,
+} from '../launcher/liveness.js';
+import type { WorktreeEntry } from '../orchestrate/worktree/projections/worktrees.js';
+import type {
+  ProcessRecord,
+  ProcessTableSource,
+} from '../orchestrate/worktree/pure/probe.js';
 
 const STATE_DIR = '/tmp/test-state';
 
@@ -929,5 +948,119 @@ describe('handleView', () => {
         ).not.toContain('causationId');
       }
     });
+  });
+});
+
+// ─── DR-7 (Task 018) — launcher-session liveness answered from launch.* events ─
+//
+// The `ps` view action routes through `views/composite.ts` to the real WLM
+// worktree handler (only the `tools.js` / `stack` / `telemetry` modules are
+// mocked at the top of this file). This pins the DR-7 contract at the composite
+// surface: a launcher-spawned session's liveness is answered from the
+// `launch.executing_started` / `launch.executed` event pair ALONE — a pure fold
+// of `worktrees@v1`, with NO live process scan — and the composite layer
+// surfaces that guarantee as an agent-first `next_actions` affordance.
+describe('ps — launcher-session liveness (DR-7, Task 018)', () => {
+  const dirs: string[] = [];
+
+  async function makeLiveCtx(): Promise<DispatchContext> {
+    const stateDir = await mkdtemp(nodePath.join(tmpdir(), 'composite-ps-'));
+    dirs.push(stateDir);
+    const eventStore = new EventStore(stateDir);
+    await eventStore.initialize();
+    return { stateDir, eventStore, enableTelemetry: false };
+  }
+
+  afterEach(async () => {
+    while (dirs.length > 0) {
+      const d = dirs.pop();
+      if (d) await rmrfAsync(d);
+    }
+  });
+
+  /** The launcher reserves its top-level worktree FIRST, then the child starts. */
+  async function seedReserved(ctx: DispatchContext, worktreeId: string): Promise<void> {
+    await ctx.eventStore.append(
+      WORKTREES_STREAM,
+      {
+        type: 'worktree.reserved',
+        data: {
+          worktreeId,
+          path: worktreeId,
+          featureId: null,
+          ownerPid: 4242,
+          ownerStartedAt: 'boot-4242',
+          operationId: 'op-launch-018',
+        },
+      },
+      { idempotencyKey: 'worktree.reserved:op-launch-018' },
+    );
+  }
+
+  it('psView_LauncherSpawnedSession_AnswersFromLaunchEventsAlone', async () => {
+    const ctx = await makeLiveCtx();
+    const worktreeId = '/wlm/launch-018-wt';
+
+    // Launcher lifecycle: reserve the top-level worktree, then the child's
+    // CLAIM lands via `launch.executing_started` — NOTHING else is written.
+    await seedReserved(ctx, worktreeId);
+    await emitLaunchExecutingStarted(ctx.eventStore, {
+      worktreeId,
+      holderPid: 7777,
+      holderStartedAt: 'boot-7777',
+    });
+
+    // The process table is a spy: without `probe`, `ps` must answer from the
+    // folded `launch.*` events ALONE and NEVER enumerate live processes.
+    const listSpy = vi.fn((): readonly ProcessRecord[] => []);
+    const table: ProcessTableSource = { list: listSpy };
+
+    const inFlight = await handleView({ action: 'ps' }, ctx, {
+      processTableSource: table,
+      realpath: (p) => p,
+    });
+
+    // Envelope success, launch column surfaced straight from the event pair.
+    expect(inFlight.success).toBe(true);
+    const inFlightData = inFlight.data as {
+      launches: WorktreeEntry[];
+      launchCount: number;
+    };
+    expect(inFlightData.launchCount).toBe(1);
+    expect(inFlightData.launches[0].worktreeId).toBe(worktreeId);
+    expect(inFlightData.launches[0].launch).toEqual({
+      holderPid: 7777,
+      holderStartedAt: 'boot-7777',
+    });
+    // Answered from events ALONE — the ground-truth process table was untouched.
+    expect(listSpy).not.toHaveBeenCalled();
+
+    // The composite surfaces the DR-7 liveness guarantee as an agent-first hint.
+    const affordances = (inFlight.next_actions ?? []) as ReadonlyArray<{
+      verb?: string;
+      reason?: string;
+    }>;
+    const launchHint = affordances.find(
+      (a) => a.verb === 'ps' && /launch\.\* events alone/i.test(a.reason ?? ''),
+    );
+    expect(launchHint, 'ps must surface the launcher-liveness affordance').toBeDefined();
+
+    // The terminal folds → the launch column (and its affordance) clear
+    // deterministically, again from events alone (no permanent phantom).
+    await emitLaunchExecuted(ctx.eventStore, { worktreeId, exitCode: 0 });
+    const cleared = await handleView({ action: 'ps' }, ctx, { realpath: (p) => p });
+    const clearedData = cleared.data as {
+      launches: WorktreeEntry[];
+      launchCount: number;
+    };
+    expect(clearedData.launchCount).toBe(0);
+    expect(clearedData.launches).toEqual([]);
+    const clearedAffordances = (cleared.next_actions ?? []) as ReadonlyArray<{
+      verb?: string;
+      reason?: string;
+    }>;
+    expect(
+      clearedAffordances.some((a) => /launch\.\* events alone/i.test(a.reason ?? '')),
+    ).toBe(false);
   });
 });

@@ -24,8 +24,8 @@
   "blockers": [],
   "recentHandoffs": [],
   "phasePlaybook": {
-    "skill": "implementation-planning",
-    "skillRef": "@skills/implementation-planning/SKILL.md",
+    "skill": "plan",
+    "skillRef": "@skills/plan/SKILL.md",
     "tools": [
       {
         "tool": "exarchos_workflow",

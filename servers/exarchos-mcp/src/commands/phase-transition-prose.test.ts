@@ -1,5 +1,6 @@
-// PR-2 Task F2 (#1370): every command that changes `state.phase` must use
-// `action: "transition"`, not `action: "update"` with `updates: { phase: ... }`.
+// PR-2 Task F2 (#1370): every surface that changes `state.phase` must use the
+// canonical phase-mutation mechanism, never `action: "update"` with
+// `updates: { phase: ... }`.
 //
 // The runtime rejects `updates.phase` with INVALID_INPUT
 // (`servers/exarchos-mcp/src/workflow/tools.update.test.ts:49 —
@@ -8,9 +9,21 @@
 // phase-mutation surface that emits `workflow.transition` and runs the HSM
 // guard (`servers/exarchos-mcp/src/registry.ts:1031,1067`).
 //
-// This suite is prose-level: it reads `commands/*.md` and asserts the
-// canonical pattern is present, so future edits to these commands cannot
-// silently regress to the broken `update + phase` form.
+// DR-3 (harness conform-and-shrink, Task 007): the fat `commands/*.md` bodies
+// collapsed into thin shims that delegate to `@skills/<verb>/SKILL.md`; the
+// phase-transition prose migrated into the skill sources in logical,
+// prefix-free form. This suite therefore pins the canonical pattern in its new
+// home — the skill sources — so a command→skill fold cannot silently regress
+// the transition discipline. Each skill's canonical phase-change mechanism is
+// the `transition` action, EXCEPT `oneshot`, whose plan→implementing and
+// implementing→{completed,synthesize} moves are HSM-automatic via
+// `finalize_oneshot` (a UML choice state), so its mechanism marker is that verb.
+//
+// The skills express transition TARGETS as phase names in prose (the collapsed
+// logical form uses `target: "<phase-placeholder>"` in call sketches plus
+// prose phase references), not the command-era literal `target: "plan-review"`,
+// so the per-target assertion pins that the skill still names each downstream
+// phase — a dropped transition target still fails.
 //
 // Audit source of truth:
 // `docs/research/2026-05-18-phase-transition-invariant-audit.md` (per-command
@@ -25,17 +38,25 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 
-const COMMANDS_WITH_PHASE_TRANSITIONS = [
-  // #1581 (design+plan collapse): `/ideate` is NO LONGER a phase-transitioning
-  // command. The `ideate`/GATHER phase was removed (task 007 — `plan` is the
-  // feature workflow's initial phase), so `/ideate` authors the Design &
+const SKILLS_WITH_PHASE_TRANSITIONS: ReadonlyArray<{
+  name: string;
+  file: string;
+  /** The canonical phase-change mechanism marker the skill must contain. */
+  mechanism: RegExp;
+  expectedTargets: readonly string[];
+}> = [
+  // #1581 (design+plan collapse): `ideate` is NO LONGER a phase-transitioning
+  // surface. The `ideate`/GATHER phase was removed (Task 007 — `plan` is the
+  // feature workflow's initial phase), so `ideate` authors the Design &
   // Rationale section of the unified docs/specs/ artifact WITHIN the `plan`
-  // phase, records `artifacts.spec`, and chains to `/plan` without a transition.
-  // `/plan` owns the `plan → plan-review` transition. (Was: ideate → plan.)
-  { name: 'plan', file: 'commands/plan.md', expectedTargets: ['plan-review', 'delegate'] },
-  { name: 'oneshot', file: 'commands/oneshot.md', expectedTargets: ['implementing'] },
-  { name: 'review', file: 'commands/review.md', expectedTargets: ['synthesize', 'delegate', 'blocked'] },
-  { name: 'synthesize', file: 'commands/synthesize.md', expectedTargets: ['completed'] },
+  // phase, records `artifacts.spec`, and chains to `plan` without a transition.
+  // `plan` owns the `plan → plan-review` transition. (Was: ideate → plan.)
+  { name: 'plan', file: 'skills-src/plan/SKILL.md', mechanism: /action:\s*["']transition["']/, expectedTargets: ['plan-review', 'delegate'] },
+  // `oneshot` transitions are HSM-automatic (choice state at finalize), not a
+  // model-emitted `transition` call — its canonical marker is `finalize_oneshot`.
+  { name: 'oneshot', file: 'skills-src/oneshot/SKILL.md', mechanism: /finalize_oneshot/, expectedTargets: ['implementing'] },
+  { name: 'review', file: 'skills-src/review/SKILL.md', mechanism: /action:\s*["']transition["']/, expectedTargets: ['synthesize', 'delegate', 'blocked'] },
+  { name: 'synthesize', file: 'skills-src/synthesize/SKILL.md', mechanism: /action:\s*["']transition["']/, expectedTargets: ['completed'] },
 ];
 
 /** Escape regex metacharacters so dynamic target strings are matched literally. */
@@ -43,28 +64,33 @@ function escapeRegex(literal: string): string {
   return literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-describe('command phase-transition canonical pattern (#1370 PR-2 F2)', () => {
-  for (const cmd of COMMANDS_WITH_PHASE_TRANSITIONS) {
+describe('command phase-transition canonical pattern (#1370 PR-2 F2; DR-3 fold-in)', () => {
+  for (const cmd of SKILLS_WITH_PHASE_TRANSITIONS) {
     it(`${cmd.name}_PhaseChange_UsesTransitionActionNotUpdatesPhase`, () => {
       const body = fs.readFileSync(path.join(REPO_ROOT, cmd.file), 'utf8');
 
-      // Anti-pattern: `updates: { ... phase: "X" ... }`.
-      // The runtime rejects this with INVALID_INPUT per
-      // `tools.update.test.ts:49`; the command prose must not instruct it.
-      // The `[\s\S]*?` allows the phase key to appear anywhere inside the
-      // updates object literal (lazy, single object scope).
+      // Anti-pattern: `updates: { ... phase: "X" ... }` — the `phase` key
+      // INSIDE the `updates` object literal. The runtime rejects this with
+      // INVALID_INPUT per `tools.update.test.ts:49`; the skill prose must not
+      // instruct it. `[^}]*` scopes the match to a single object literal (it
+      // cannot cross a closing brace) — the same form `delegate-prose.test.ts`
+      // uses. This matters against a full skill body (vs the old short command
+      // body): a lazy `[\s\S]*?` would bridge an unrelated `updates: {` to a
+      // `phase:` in a later, separate code block (e.g. oneshot's `set` sketch
+      // that teaches `phase` as a TOP-LEVEL argument, explicitly NOT inside
+      // `updates`), a false positive.
       expect(
         body,
         `${cmd.name}: must not instruct \`updates: { phase: ... }\` pattern (runtime rejects with INVALID_INPUT)`,
-      ).not.toMatch(/updates\s*:\s*\{[\s\S]*?\bphase\s*:/);
+      ).not.toMatch(/updates\s*:\s*\{[^}]*\bphase\s*:/);
     });
 
     it(`${cmd.name}_PhaseChange_NamesTransitionAction`, () => {
       const body = fs.readFileSync(path.join(REPO_ROOT, cmd.file), 'utf8');
       expect(
         body,
-        `${cmd.name}: must include explicit \`action: "transition"\` for phase changes`,
-      ).toMatch(/action:\s*["']transition["']/);
+        `${cmd.name}: must document the canonical phase-change mechanism (${cmd.mechanism})`,
+      ).toMatch(cmd.mechanism);
     });
 
     for (const target of cmd.expectedTargets) {
@@ -72,8 +98,8 @@ describe('command phase-transition canonical pattern (#1370 PR-2 F2)', () => {
         const body = fs.readFileSync(path.join(REPO_ROOT, cmd.file), 'utf8');
         expect(
           body,
-          `${cmd.name}: must document \`target: "${target}"\` transition`,
-        ).toMatch(new RegExp(`target:\\s*["']${escapeRegex(target)}["']`));
+          `${cmd.name}: must document the transition target phase "${target}"`,
+        ).toMatch(new RegExp(`\\b${escapeRegex(target)}\\b`));
       });
     }
   }

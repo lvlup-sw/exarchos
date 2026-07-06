@@ -9,10 +9,11 @@
  * lives.
  *
  * Derived from the "Skill Reference" prose in each command file — specifically
- * every `@skills/<dir>/SKILL.md` entry-point reference. A command may reference
- * more than one skill:
- *   - `delegate`  → `delegation` + `git-worktrees`
- *   - `oneshot`   → `oneshot-workflow` + `synthesis`
+ * every `@skills/<dir>/SKILL.md` entry-point reference. Post the atomic rename
+ * wave (DR-3) the map collapses toward identity — the command verb equals the
+ * skill directory name — but a command may still reference more than one skill:
+ *   - `delegate`  → `delegate` + `git-worktrees`
+ *   - `oneshot`   → `oneshot` + `synthesize`
  *   - `review`    → `review` + `mutation-adequacy`
  *
  * `@skills/<dir>/references/*.md` include paths are NOT skill entry points and
@@ -29,21 +30,22 @@
  * Skill dirs are sorted to give a stable, comparable shape for the drift guard.
  */
 export const COMMAND_TO_SKILL: Readonly<Record<string, readonly string[]>> = {
-  checkpoint: ['workflow-state'],
+  checkpoint: ['checkpoint'],
   cleanup: ['cleanup'],
   debug: ['debug'],
-  delegate: ['delegation', 'git-worktrees'],
-  discover: ['discovery'],
+  delegate: ['delegate', 'git-worktrees'],
+  discover: ['discover'],
   dogfood: ['dogfood'],
-  ideate: ['brainstorming'],
-  invariants: ['authoring-invariants'],
-  oneshot: ['oneshot-workflow', 'synthesis'],
-  plan: ['implementation-planning'],
-  prune: ['prune-workflows'],
+  ideate: ['ideate'],
+  invariants: ['invariants'],
+  oneshot: ['oneshot', 'synthesize'],
+  plan: ['plan'],
+  prune: ['prune'],
   refactor: ['refactor'],
+  rehydrate: ['rehydrate'],
   review: ['mutation-adequacy', 'review'],
   shepherd: ['shepherd'],
-  synthesize: ['synthesis'],
+  synthesize: ['synthesize'],
 } as const;
 
 /**
@@ -52,7 +54,6 @@ export const COMMAND_TO_SKILL: Readonly<Record<string, readonly string[]>> = {
  */
 export const COMMAND_ONLY: ReadonlySet<string> = new Set<string>([
   'autocompact',
-  'rehydrate',
   'tag',
 ]);
 

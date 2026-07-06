@@ -140,6 +140,15 @@ describe('install-skills characterization (DR-9, task 003)', () => {
         skillsSource,
         copyDir,
         registerMcp,
+        // Pin the exercised branch independent of the CI runner's actual OS:
+        // this test is about the per-runtime copy/register contract, not the
+        // win32-vs-POSIX canonical-dir placement strategy (INV-16, covered by
+        // its own `installSkills_Win32_UsesCopyNotSymlink` test). A `symlink`
+        // no-op keeps the non-win32 canonical placement branch from invoking
+        // the real `fs.symlinkSync` (which needs elevated privileges on an
+        // actual Windows host, irrespective of this override).
+        platform: 'linux',
+        symlink: () => {},
       });
     } finally {
       dispose();
@@ -205,6 +214,10 @@ describe('install-skills characterization (DR-9, task 003)', () => {
         skillsSource,
         copyDir,
         registerMcp,
+        // See the pinned-writes test above: pin the exercised branch
+        // independent of the CI runner's actual OS.
+        platform: 'linux',
+        symlink: () => {},
       });
     } finally {
       dispose();
@@ -230,7 +243,10 @@ describe('install-skills characterization (DR-9, task 003)', () => {
     try {
       registerExarchosInClaudeJson(home);
       const raw = fs.readFileSync(path.join(home, '.claude.json'), 'utf8');
-      const normalized = raw.split(home).join('<HOME>');
+      // `raw` is JSON TEXT: any backslash in `home` (a native Windows path) is
+      // doubled by JSON.stringify, so a plain `raw.split(home)` never matches
+      // on win32 — escape `home` to its JSON-serialized form before splitting.
+      const normalized = raw.split(home.replace(/\\/g, '\\\\')).join('<HOME>');
 
       // PINNED: the full serialized file content (2-space indent + trailing \n).
       const expected =

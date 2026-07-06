@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { claudeCodeWriter } from './claude-code.js';
+import { claudeCodeWriter, writeClaudeCode, ClaudeCodeWriter, type OnrampSeam } from './claude-code.js';
 import { atomicWriteJson } from './claude-code.js';
 import { makeStubWriterDeps } from '../probes.js';
 import type { WriterFs } from '../probes.js';
@@ -431,5 +431,93 @@ describe('claudeCodeWriter', () => {
 
     expect(result.status).toBe('skipped');
     expect(result.componentsWritten).toEqual([]);
+  });
+
+  it('ClaudeCodeWriter_NonexistentProjectRoot_SkipsOnramp', async () => {
+    // Default seam no-ops on a synthetic/absent projectRoot — the existing
+    // in-memory tests never touch disk for the on-ramp phase.
+    const fs = makeMemFs();
+    const deps = makeStubWriterDeps({
+      fs,
+      home: () => '/home/user',
+      cwd: () => '/project',
+    });
+
+    const result = await claudeCodeWriter.write(deps, defaultOptions());
+
+    expect(result.componentsWritten).not.toContain('onramp');
+  });
+});
+
+describe('claudeCodeWriter on-ramp phase (DR-5)', () => {
+  it('ClaudeCodeWriter_OnrampWrote_AddsOnrampComponent', async () => {
+    const fs = makeMemFs();
+    const deps = makeStubWriterDeps({
+      fs,
+      home: () => '/home/user',
+      cwd: () => '/project',
+    });
+    const onramp: OnrampSeam = () => ({ wrote: true, failed: false, warnings: [] });
+
+    const result = await writeClaudeCode(deps, defaultOptions(), onramp);
+
+    expect(result.status).toBe('written');
+    expect(result.componentsWritten).toContain('onramp');
+    expect(result.onrampFailed).toBeUndefined();
+  });
+
+  it('ClaudeCodeWriter_OnrampFailed_SurfacesOnrampFailedButStaysWritten', async () => {
+    // DR-7: a failed AGENTS.md on-ramp write is advisory for the OVERALL status
+    // (MCP/commands/skills stand alone → still 'written') but MUST be surfaced via
+    // `onrampFailed` so the onboard reconcile gate keeps retired hooks in place.
+    const fs = makeMemFs();
+    const deps = makeStubWriterDeps({
+      fs,
+      home: () => '/home/user',
+      cwd: () => '/project',
+    });
+    const onramp: OnrampSeam = () => ({
+      wrote: false,
+      failed: true,
+      warnings: ['Failed to write the Exarchos managed block to /project/AGENTS.md.'],
+    });
+
+    const result = await writeClaudeCode(deps, defaultOptions(), onramp);
+
+    expect(result.status).toBe('written');
+    expect(result.componentsWritten).not.toContain('onramp');
+    expect(result.onrampFailed).toBe(true);
+  });
+
+  it('ClaudeCodeWriter_OnrampWarnings_SurfaceInResult', async () => {
+    const fs = makeMemFs();
+    const deps = makeStubWriterDeps({
+      fs,
+      home: () => '/home/user',
+      cwd: () => '/project',
+    });
+    const onramp: OnrampSeam = () => ({
+      wrote: true,
+      failed: false,
+      warnings: ['AGENTS.md is near the Codex 32 KiB cap'],
+    });
+
+    const result = await writeClaudeCode(deps, defaultOptions(), onramp);
+
+    expect(result.warnings?.some((w) => /Codex/.test(w))).toBe(true);
+  });
+
+  it('ClaudeCodeWriter_ClassSeamInjection_ThreadsThrough', async () => {
+    const fs = makeMemFs();
+    const deps = makeStubWriterDeps({
+      fs,
+      home: () => '/home/user',
+      cwd: () => '/project',
+    });
+    const writer = new ClaudeCodeWriter(() => ({ wrote: true, failed: false, warnings: [] }));
+
+    const result = await writer.write(deps, defaultOptions());
+
+    expect(result.componentsWritten).toContain('onramp');
   });
 });

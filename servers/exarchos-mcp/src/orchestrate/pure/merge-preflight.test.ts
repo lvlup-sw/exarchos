@@ -319,7 +319,7 @@ describe('mergePreflight — failure paths (T07)', () => {
     // target), the preflight must surface a remediation hint that
     // (a) instructs the operator to run `git rebase`, and
     // (b) links to the runbook section
-    //     `skills-src/delegation/SKILL.md#when-integration-advances-mid-wave`
+    //     `skills-src/delegate/SKILL.md#when-integration-advances-mid-wave`
     //     so the operator can find the manual rebase + rollback procedure
     //     without consulting external docs.
     //
@@ -362,10 +362,10 @@ describe('mergePreflight — failure paths (T07)', () => {
     expect(hint).toContain('main');
 
     // (b) Link to the runbook section. The anchor must match the heading
-    // added to skills-src/delegation/SKILL.md (## When integration advances
+    // added to skills-src/delegate/SKILL.md (## When integration advances
     // mid-wave → #when-integration-advances-mid-wave).
     expect(hint).toContain(
-      'skills-src/delegation/SKILL.md#when-integration-advances-mid-wave',
+      'skills-src/delegate/SKILL.md#when-integration-advances-mid-wave',
     );
   });
 

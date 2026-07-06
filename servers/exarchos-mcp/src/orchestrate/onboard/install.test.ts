@@ -25,6 +25,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { mkdtemp, writeFile, mkdir, readdir, readFile } from 'node:fs/promises';
+import * as nodeFs from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -43,6 +44,22 @@ import {
   defaultOnboardDeps,
 } from './index.js';
 import { makeInstallStep, type InstallStepDeps } from './install.js';
+import {
+  onboardMigrate,
+  hashInstalledSkillDir,
+  hashInstalledSkillMd,
+  RENAMED_AWAY_SKILL_DIRS,
+  type ProvenanceManifest,
+  type RuntimeSkillsTarget,
+} from './install.js';
+// Test-only reach into the root install-skills provenance source of truth (this
+// test file is excluded from the server tsc `rootDir`, so the cross-package
+// import is legal here — the same lever `command-shim-emitter.test.ts` uses). The
+// migration MIRRORS these two hashers; the drift-guard test below pins parity.
+import {
+  hashSkillDirContent,
+  hashSkillMdContent,
+} from '../../../../../src/install-skills.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
@@ -359,6 +376,279 @@ describe('installStep (DR-2/DR-6 — skills + deps install)', () => {
       expect(advisorySurfaces).toContain('cli-only');
     } finally {
       await cleanup(fx);
+    }
+  });
+});
+
+// ─── Onboard rename migration (Task 011, DR-3/DR-8) ───────────────────────────
+
+describe('onboardMigrate (DR-3/DR-8 — stale old-name skill dir reconcile)', () => {
+  interface MigrateFixture {
+    readonly base: string;
+    readonly home: string;
+    readonly projectRoot: string;
+    /** A per-harness native skills dir the migration scans. */
+    readonly loc: string;
+    readonly runtimes: readonly RuntimeSkillsTarget[];
+  }
+
+  function makeMigrateFixture(): MigrateFixture {
+    const base = nodeFs.mkdtempSync(path.join(tmpdir(), 'onboard-migrate-'));
+    const home = path.join(base, 'home');
+    const projectRoot = path.join(base, 'project');
+    const loc = path.join(base, 'claude-skills');
+    nodeFs.mkdirSync(home, { recursive: true });
+    nodeFs.mkdirSync(projectRoot, { recursive: true });
+    nodeFs.mkdirSync(loc, { recursive: true });
+    return {
+      base,
+      home,
+      projectRoot,
+      loc,
+      runtimes: [{ name: 'claude', skillsInstallPath: loc }],
+    };
+  }
+
+  /** Place a skill dir `<parent>/<name>/SKILL.md` with `content`; returns its path. */
+  function placeSkillDir(parent: string, name: string, content: string): string {
+    const dir = path.join(parent, name);
+    nodeFs.mkdirSync(dir, { recursive: true });
+    nodeFs.writeFileSync(path.join(dir, 'SKILL.md'), content, 'utf8');
+    return dir;
+  }
+
+  it('onboardMigrate_ManifestProvenance_Removed', () => {
+    const fx = makeMigrateFixture();
+    try {
+      const content = '# brainstorming\n\nOrient the ideation workflow.\n';
+      const staleDir = placeSkillDir(fx.loc, 'brainstorming', content);
+      // Task 010 install-manifest provenance: the recorded whole-dir hash matches.
+      const manifest: ProvenanceManifest = {
+        placements: [
+          { path: fx.loc, hashes: { brainstorming: hashSkillDirContent(staleDir) } },
+        ],
+      };
+
+      const result = onboardMigrate({
+        runtimes: fx.runtimes,
+        homeDir: () => fx.home,
+        projectRoot: fx.projectRoot,
+        installManifests: [manifest],
+      });
+
+      expect(result.removed.map((r) => r.path)).toContain(staleDir);
+      expect(result.removed.find((r) => r.path === staleDir)?.via).toBe('install-manifest');
+      expect(result.preserved).toEqual([]);
+      // The stale dir is gone from disk.
+      expect(nodeFs.existsSync(staleDir)).toBe(false);
+    } finally {
+      nodeFs.rmSync(fx.base, { recursive: true, force: true });
+    }
+  });
+
+  it('onboardMigrate_LegacyHashMatchAnyRelease_Removed', () => {
+    const fx = makeMigrateFixture();
+    try {
+      const content = '# delegation\n\nDelegate to sub-agents.\n';
+      const staleDir = placeSkillDir(fx.loc, 'delegation', content);
+      // Task 023 legacy provenance: the SKILL.md hash matches SOME historical
+      // release's render (modeled here as a set with the matching hash + a decoy).
+      const legacy = new Map<string, Set<string>>([
+        ['delegation', new Set([hashSkillMdContent(content), 'a-different-release-hash'])],
+      ]);
+
+      const result = onboardMigrate({
+        runtimes: fx.runtimes,
+        homeDir: () => fx.home,
+        projectRoot: fx.projectRoot,
+        legacyHashesBySkill: legacy,
+      });
+
+      expect(result.removed.map((r) => r.path)).toContain(staleDir);
+      expect(result.removed.find((r) => r.path === staleDir)?.via).toBe('legacy-hash');
+      expect(nodeFs.existsSync(staleDir)).toBe(false);
+    } finally {
+      nodeFs.rmSync(fx.base, { recursive: true, force: true });
+    }
+  });
+
+  it('onboardMigrate_CrlfInstalledCopy_StillMatches', () => {
+    const fx = makeMigrateFixture();
+    try {
+      const lf = '# synthesis\n\nSynthesize the workflow outputs.\n';
+      // The legacy hash is computed over the LF (git-checkout) render, but the
+      // installed copy on disk has CRLF line endings — newline normalization must
+      // make them hash-match anyway.
+      const legacyHash = hashSkillMdContent(lf);
+      const staleDir = placeSkillDir(fx.loc, 'synthesis', lf.replace(/\n/g, '\r\n'));
+      const legacy = new Map<string, Set<string>>([['synthesis', new Set([legacyHash])]]);
+
+      const result = onboardMigrate({
+        runtimes: fx.runtimes,
+        homeDir: () => fx.home,
+        projectRoot: fx.projectRoot,
+        legacyHashesBySkill: legacy,
+      });
+
+      expect(result.removed.map((r) => r.path)).toContain(staleDir);
+      expect(result.removed.find((r) => r.path === staleDir)?.via).toBe('legacy-hash');
+      expect(nodeFs.existsSync(staleDir)).toBe(false);
+    } finally {
+      nodeFs.rmSync(fx.base, { recursive: true, force: true });
+    }
+  });
+
+  it('onboardMigrate_SymlinkedInstall_RemovesLinkOnly', () => {
+    const fx = makeMigrateFixture();
+    try {
+      const content = '# discovery\n\nDiscover prior workflows.\n';
+      // The symlink TARGET lives OUTSIDE the scanned location.
+      const targetParent = path.join(fx.base, 'shared-target');
+      const targetDir = placeSkillDir(targetParent, 'discovery', content);
+      // The install location holds a SYMLINK to the shared target.
+      const link = path.join(fx.loc, 'discovery');
+      nodeFs.symlinkSync(targetDir, link);
+
+      const legacy = new Map<string, Set<string>>([
+        ['discovery', new Set([hashSkillMdContent(content)])],
+      ]);
+
+      const result = onboardMigrate({
+        runtimes: fx.runtimes,
+        homeDir: () => fx.home,
+        projectRoot: fx.projectRoot,
+        legacyHashesBySkill: legacy,
+      });
+
+      const removed = result.removed.find((r) => r.path === link);
+      expect(removed).toBeDefined();
+      expect(removed?.symlink).toBe(true);
+      // The LINK is gone…
+      expect(nodeFs.existsSync(link)).toBe(false);
+      // …but the symlink TARGET (never followed for removal) survives intact.
+      expect(nodeFs.existsSync(path.join(targetDir, 'SKILL.md'))).toBe(true);
+    } finally {
+      nodeFs.rmSync(fx.base, { recursive: true, force: true });
+    }
+  });
+
+  it('onboardMigrate_UserModifiedDir_PreservedWithWarning', () => {
+    const fx = makeMigrateFixture();
+    try {
+      // A stale old-name dir whose content matches NEITHER manifest (user-edited
+      // or from an unknown source) — the migration must never delete it.
+      const staleDir = placeSkillDir(
+        fx.loc,
+        'oneshot-workflow',
+        '# oneshot-workflow\n\nHand-edited by the user.\n',
+      );
+      const warn = vi.fn();
+
+      const result = onboardMigrate({
+        runtimes: fx.runtimes,
+        homeDir: () => fx.home,
+        projectRoot: fx.projectRoot,
+        installManifests: [{ placements: [] }],
+        legacyHashesBySkill: new Map(),
+        warn,
+      });
+
+      expect(result.removed).toEqual([]);
+      expect(result.preserved.map((p) => p.path)).toContain(staleDir);
+      expect(result.preserved[0]?.reason).toBe('no-provenance-match');
+      // Preserved on disk, warned once, and surfaced for the doctor finding.
+      expect(nodeFs.existsSync(path.join(staleDir, 'SKILL.md'))).toBe(true);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(result.warnings).toHaveLength(1);
+      expect(result.warnings[0]).toContain(staleDir);
+    } finally {
+      nodeFs.rmSync(fx.base, { recursive: true, force: true });
+    }
+  });
+
+  it('onboardMigrate_RepeatedRuns_Idempotent', () => {
+    const fx = makeMigrateFixture();
+    try {
+      const matchedContent = '# prune-workflows\n\nPrune stale workflows.\n';
+      const matchedDir = placeSkillDir(fx.loc, 'prune-workflows', matchedContent);
+      const modifiedDir = placeSkillDir(
+        fx.loc,
+        'authoring-invariants',
+        '# authoring-invariants\n\nHand-edited.\n',
+      );
+      const legacy = new Map<string, Set<string>>([
+        ['prune-workflows', new Set([hashSkillMdContent(matchedContent)])],
+      ]);
+      const run = (): ReturnType<typeof onboardMigrate> =>
+        onboardMigrate({
+          runtimes: fx.runtimes,
+          homeDir: () => fx.home,
+          projectRoot: fx.projectRoot,
+          legacyHashesBySkill: legacy,
+        });
+
+      // ── First run: matched dir removed, modified dir preserved. ──
+      const first = run();
+      expect(first.removed.map((r) => r.path)).toEqual([matchedDir]);
+      expect(first.preserved.map((p) => p.path)).toEqual([modifiedDir]);
+      expect(nodeFs.existsSync(matchedDir)).toBe(false);
+      expect(nodeFs.existsSync(modifiedDir)).toBe(true);
+      const modifiedBytes = nodeFs.readFileSync(path.join(modifiedDir, 'SKILL.md'));
+
+      // ── Second run: byte-stable no-op — nothing new removed, dir untouched. ──
+      const second = run();
+      expect(second.removed).toEqual([]); // idempotent: the matched dir is already gone
+      expect(second.preserved.map((p) => p.path)).toEqual([modifiedDir]);
+      expect(nodeFs.existsSync(matchedDir)).toBe(false);
+      expect(nodeFs.readFileSync(path.join(modifiedDir, 'SKILL.md'))).toEqual(modifiedBytes);
+    } finally {
+      nodeFs.rmSync(fx.base, { recursive: true, force: true });
+    }
+  });
+
+  it('onboardMigrate_NewAndLiveSkillNames_NeverTargeted', () => {
+    // The migration can only ever act on RENAMED-AWAY names. A LIVE (renamed-to)
+    // skill dir sharing the location must never be removed or flagged, even with a
+    // vouching manifest — the stale set is closed over the 9 old names only.
+    const fx = makeMigrateFixture();
+    try {
+      const liveDir = placeSkillDir(fx.loc, 'ideate', '# ideate\n');
+      expect(RENAMED_AWAY_SKILL_DIRS).not.toContain('ideate');
+      const manifest: ProvenanceManifest = {
+        placements: [{ path: fx.loc, hashes: { ideate: hashSkillDirContent(liveDir) } }],
+      };
+
+      const result = onboardMigrate({
+        runtimes: fx.runtimes,
+        homeDir: () => fx.home,
+        projectRoot: fx.projectRoot,
+        installManifests: [manifest],
+      });
+
+      expect(result.removed).toEqual([]);
+      expect(result.preserved).toEqual([]);
+      expect(nodeFs.existsSync(liveDir)).toBe(true);
+    } finally {
+      nodeFs.rmSync(fx.base, { recursive: true, force: true });
+    }
+  });
+
+  it('migrationHashers_MirrorInstallSkillsSourceOfTruth', () => {
+    // Drift guard: the server-package hashers MIRROR the root install-skills
+    // provenance source of truth (they cannot import it under the MCP server's
+    // tsc rootDir). Pin byte-for-byte parity so a future edit to either cannot
+    // silently break provenance matching.
+    const base = nodeFs.mkdtempSync(path.join(tmpdir(), 'migrate-hashguard-'));
+    try {
+      const dir = path.join(base, 'delegation');
+      nodeFs.mkdirSync(path.join(dir, 'references'), { recursive: true });
+      nodeFs.writeFileSync(path.join(dir, 'SKILL.md'), '# delegation\r\nline\r\n', 'utf8');
+      nodeFs.writeFileSync(path.join(dir, 'references', 'r.md'), 'ref\nbody\n', 'utf8');
+
+      expect(hashInstalledSkillDir(dir)).toBe(hashSkillDirContent(dir));
+      expect(hashInstalledSkillMd(dir)).toBe(hashSkillMdContent('# delegation\r\nline\r\n'));
+    } finally {
+      nodeFs.rmSync(base, { recursive: true, force: true });
     }
   });
 });

@@ -182,7 +182,7 @@ const DR_LINE_PATTERN = /(?:^[-*]\s+(DR-\d+):|^#{1,}\s+(DR-\d+):)/i;
  * `scripts/check-design-completeness.sh` (line ~149):
  *   grep -qiE '^\*\*[Aa]cceptance [Cc]riteri|^#+\s*[Aa]cceptance [Cc]riteri|^-\s*\*\*[Aa]cceptance'
  *
- * The template (skills-src/brainstorming/references/design-template.md, lines 51/87)
+ * The template (skills-src/ideate/references/design-template.md, lines 51/87)
  * mandates the standalone bold `**Acceptance criteria:**` header, so we MUST accept
  * it. We also keep the pre-existing bullet-prefixed form (`- Acceptance Criteria:`)
  * that the TS parser historically recognized.

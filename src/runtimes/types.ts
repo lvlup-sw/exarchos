@@ -47,6 +47,17 @@ const HooksDescriptorSchema = z
       'opencode-plugin',
       'none',
     ]),
+    /**
+     * @deprecated (DR-7, harness conform-and-shrink) — its only renderer
+     * consumption (gating whether `build-hooks` bakes the SessionStart
+     * `--directive`) is retired: the Claude plugin on-ramp is now
+     * claude-template-hardcoded and always bakes the directive, and every other
+     * runtime's active hook artifact is retired in favour of the launcher's
+     * `launch.*` lifecycle. The field is retained only as a `none`-profile
+     * consistency constraint (see the `.refine` below) and for the descriptor
+     * type-tests; no rendering logic reads it. Removing it entirely would touch
+     * every `runtimes/*.yaml` + `embedded.ts` and is out of this task's scope.
+     */
     canInjectContext: z.boolean(),
     sessionStartEvent: z.string().nullable(),
     sessionEndEvent: z.string().nullable(),

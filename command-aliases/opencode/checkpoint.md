@@ -6,4 +6,4 @@ description: Save workflow state and prepare for session handoff
 
 Canonical alias for the Exarchos `/checkpoint` workflow command.
 
-Invoke the `workflow-state` skill to handle: $ARGUMENTS
+Invoke the `checkpoint` skill to handle: $ARGUMENTS

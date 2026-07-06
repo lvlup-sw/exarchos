@@ -16,16 +16,24 @@
 //
 //   1. `onboard` exits 0 — it drives the repo to a green doctor and converges
 //      (DR-2: a residual *blocking* check is the only non-zero path).
-//   2. It installs exactly ONE #1485 SessionStart binding under
-//      `<home>/.claude/settings.json` (DR-8 — the default-on hook step, the one
-//      side effect onboard reliably performs in a fresh environment).
-//   3. Re-running is idempotent — a second invocation still exits 0 and leaves
-//      exactly one binding (DR-8 acceptance: "exactly one hook registration").
+//   2. A first run installs exactly ONE SubagentStop binding (the
+//      token-attribution seam DR-7 retains) under
+//      `<home>/.claude/settings.json` — the default-on hook step's one durable
+//      side effect in a fresh environment. The same pass also installs the
+//      #1485 SessionStart directive (DR-7: still written by
+//      `installBindings`'s single idempotent pass), but that binding is
+//      retired going forward — see (3).
+//   3. Re-running is idempotent AND completes the DR-7 retirement: a second
+//      invocation still exits 0, the SessionStart binding is gone (removed by
+//      `retired-hooks-present`, the launcher is now the lifecycle authority),
+//      and the SubagentStop binding still numbers exactly one (DR-8
+//      acceptance: "exactly one hook registration", now scoped to the
+//      binding DR-7 retains rather than the one it retires).
 //
 // Environment note: the exact set of *applied* reconcile steps varies with the
 // host's doctor state (e.g. whether MCP is already registered), so this smoke
-// deliberately asserts the STABLE guarantees (exit code + the SessionStart
-// binding count) rather than the volatile `applied` step list.
+// deliberately asserts the STABLE guarantees (exit code + binding counts)
+// rather than the volatile `applied` step list.
 //
 // Hermeticity: every test wraps its work in `withHermeticEnv`, which sets `HOME`
 // to a per-test tmp dir and provides an isolated, git-init'd `gitDir` we run
@@ -68,12 +76,11 @@ async function runOnboard(homeDir: string, cwd: string): Promise<OnboardProbeRes
 }
 
 /**
- * Count the #1485 SessionStart bindings in `<home>/.claude/settings.json`. The
- * binding is identified by the stable `exarchos session-start` command marker
- * (the same marker the installer keys idempotence on). Returns 0 when the file
- * is absent or carries no binding.
+ * Count bindings for a given hook `event` in `<home>/.claude/settings.json`
+ * whose command carries `marker`. Returns 0 when the file is absent or carries
+ * no matching binding.
  */
-async function sessionStartBindingCount(homeDir: string): Promise<number> {
+async function bindingCount(homeDir: string, event: string, marker: string): Promise<number> {
   const settingsPath = path.join(homeDir, '.claude', 'settings.json');
   let raw: string;
   try {
@@ -82,13 +89,13 @@ async function sessionStartBindingCount(homeDir: string): Promise<number> {
     return 0;
   }
   const parsed = JSON.parse(raw) as {
-    hooks?: { SessionStart?: { hooks?: { command?: string }[] }[] };
+    hooks?: Record<string, { hooks?: { command?: string }[] }[]>;
   };
-  const groups = parsed.hooks?.SessionStart ?? [];
+  const groups = parsed.hooks?.[event] ?? [];
   let count = 0;
   for (const group of groups) {
     for (const hook of group.hooks ?? []) {
-      if (typeof hook.command === 'string' && hook.command.includes('exarchos session-start')) {
+      if (typeof hook.command === 'string' && hook.command.includes(marker)) {
         count += 1;
       }
     }
@@ -96,9 +103,14 @@ async function sessionStartBindingCount(homeDir: string): Promise<number> {
   return count;
 }
 
+const sessionStartBindingCount = (homeDir: string): Promise<number> =>
+  bindingCount(homeDir, 'SessionStart', 'exarchos session-start');
+const subagentStopBindingCount = (homeDir: string): Promise<number> =>
+  bindingCount(homeDir, 'SubagentStop', 'exarchos subagent-stop');
+
 describe('exarchos onboard --runtime claude (process-fidelity smoke)', () => {
   it(
-    'onboard_runtimeClaude_exitsZeroAndInstallsSessionStartHook',
+    'onboard_runtimeClaude_exitsZeroAndInstallsSubagentStopHook',
     async () => {
       await withHermeticEnv(async (env) => {
         const result = await runOnboard(env.homeDir, env.gitDir);
@@ -108,12 +120,12 @@ describe('exarchos onboard --runtime claude (process-fidelity smoke)', () => {
           `onboard should exit 0 (drive the repo green); stderr=${result.stderr.slice(0, 800)}`,
         ).toBe(0);
 
-        const bindings = await sessionStartBindingCount(env.homeDir);
+        const bindings = await subagentStopBindingCount(env.homeDir);
         expect(
           bindings,
           [
-            'Expected exactly one #1485 SessionStart binding under',
-            `${path.join(env.homeDir, '.claude', 'settings.json')} after onboard (DR-8).`,
+            'Expected exactly one SubagentStop binding under',
+            `${path.join(env.homeDir, '.claude', 'settings.json')} after onboard (DR-7/DR-8).`,
             `onboard stdout (head):\n${result.stdout.slice(0, 600)}`,
           ].join('\n'),
         ).toBe(1);
@@ -123,7 +135,7 @@ describe('exarchos onboard --runtime claude (process-fidelity smoke)', () => {
   );
 
   it(
-    'onboard_idempotent_secondRunLeavesExactlyOneBinding',
+    'onboard_idempotent_secondRunRetiresSessionStartAndKeepsSubagentStop',
     async () => {
       await withHermeticEnv(async (env) => {
         const first = await runOnboard(env.homeDir, env.gitDir);
@@ -138,10 +150,19 @@ describe('exarchos onboard --runtime claude (process-fidelity smoke)', () => {
           `second onboard should exit 0; stderr=${second.stderr.slice(0, 800)}`,
         ).toBe(0);
 
-        const bindings = await sessionStartBindingCount(env.homeDir);
+        const sessionStart = await sessionStartBindingCount(env.homeDir);
         expect(
-          bindings,
-          'A second onboard must be idempotent — exactly one SessionStart binding survives (DR-8).',
+          sessionStart,
+          'A second onboard must complete the DR-7 retirement — the SessionStart ' +
+            'directive is removed by `retired-hooks-present` (the launcher is now ' +
+            'the lifecycle authority), not re-added.',
+        ).toBe(0);
+
+        const subagentStop = await subagentStopBindingCount(env.homeDir);
+        expect(
+          subagentStop,
+          'A second onboard must be idempotent — exactly one SubagentStop ' +
+            'binding survives (DR-8), since DR-7 retains it for token attribution.',
         ).toBe(1);
       });
     },

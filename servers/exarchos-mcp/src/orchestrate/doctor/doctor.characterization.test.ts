@@ -7,9 +7,10 @@
  * alters the doctor contract, this file is the canary.
  *
  * What is pinned (the stable contract — NOT environment-dependent noise):
- *   1. The exact set of 12 checks returned as `CheckResult[]`, identified by
- *      their `(category, name)` pair and stable order. (DR-8 added the 12th —
- *      `session-start-hook`, the #1485 SessionStart binding presence check.)
+ *   1. The exact set of 15 checks returned as `CheckResult[]`, identified by
+ *      their `(category, name)` pair and stable order. (DR-8 added
+ *      `session-start-hook`; task 009 added `verification-toolchain`; Task 017
+ *      added `onramp-block-drift` + `retired-hooks-present`.)
  *   2. The per-check shape invariants from the Zod contract (schema.ts):
  *        - every result carries category/name/status/message/durationMs
  *        - status === 'Skipped'  ⇒ non-empty `reason`
@@ -52,7 +53,7 @@ import { handleDoctor, ALL_CHECKS } from './index.js';
 // ─── Pinned canonical check identity ────────────────────────────────────────
 
 /**
- * The thirteen checks, pinned by `(category, name)` and ORDER. `handleDoctor`
+ * The fifteen checks, pinned by `(category, name)` and ORDER. `handleDoctor`
  * preserves `ALL_CHECKS` order in its output (callers scan top-to-bottom for
  * the first Fail), so the order is part of the observable contract.
  *
@@ -60,12 +61,15 @@ import { handleDoctor, ALL_CHECKS } from './index.js';
  * check — placed with the other `agent`-category checks so its `diff` `hook`
  * PlanStep lands when the binding is missing.
  *
- * DELIBERATE PIN UPDATE (task 009, design §4.6): the 13th entry
- * `verification-toolchain` (category `verification`) was added consciously —
- * the read-only check reporting whether the verification ladder's runtime
- * resolves. The count + diagnostic.executed `checkCount` invariant below are
- * updated 12 → 13 on purpose; this and the roster pin are the intended contract
- * change of the task.
+ * DELIBERATE PIN UPDATE (task 009, design §4.6): the `verification-toolchain`
+ * entry (category `verification`) was added consciously — the read-only check
+ * reporting whether the verification ladder's runtime resolves (12 → 13).
+ *
+ * DELIBERATE PIN UPDATE (Task 017, DR-5/DR-7): `onramp-block-drift` (the Task 013
+ * drift finding, previously unregistered) and `retired-hooks-present` (the
+ * uninstall-reachability check) were added to the `agent` block, in that order.
+ * The count + diagnostic.executed `checkCount` invariant below are updated
+ * 13 → 15 on purpose; this and the roster pin are the intended contract change.
  */
 const PINNED_CHECKS: ReadonlyArray<{
   category: CheckResult['category'];
@@ -79,6 +83,9 @@ const PINNED_CHECKS: ReadonlyArray<{
   { category: 'agent', name: 'agent-config-valid' },
   { category: 'agent', name: 'agent-mcp-registered' },
   { category: 'agent', name: 'session-start-hook' },
+  { category: 'agent', name: 'onramp-block-drift' },
+  { category: 'agent', name: 'retired-hooks-present' },
+  { category: 'plugin', name: 'stale-skill-dirs' },
   { category: 'plugin', name: 'plugin-skill-hash-sync' },
   { category: 'plugin', name: 'plugin-version-match' },
   { category: 'remote', name: 'remote-mcp' },
@@ -126,7 +133,7 @@ async function flushMicrotasks(): Promise<void> {
 // ─── Characterization ───────────────────────────────────────────────────────
 
 describe('doctor characterization (DR-9 baseline)', () => {
-  it('Doctor_ThirteenChecks_PinnedShape', async () => {
+  it('Doctor_FifteenChecks_PinnedShape', async () => {
     // Arrange
     const { ctx, appendSpy } = fixtureContext();
 
@@ -144,10 +151,11 @@ describe('doctor characterization (DR-9 baseline)', () => {
     const output: DoctorOutput = DoctorOutputSchema.parse(result.data);
     const { checks, summary } = output;
 
-    // ── 1. The thirteen checks, pinned by (category, name) and order ────────
-    // (12 → 13 updated deliberately by task 009: verification-toolchain.)
-    expect(ALL_CHECKS).toHaveLength(13);
-    expect(checks).toHaveLength(13);
+    // ── 1. The sixteen checks, pinned by (category, name) and order ─────────
+    // (13 → 15 updated by Task 017: onramp-block-drift + retired-hooks-present;
+    // 15 → 16 by Task 011: stale-skill-dirs.)
+    expect(ALL_CHECKS).toHaveLength(16);
+    expect(checks).toHaveLength(16);
 
     const observedIdentity = checks.map((c) => ({
       category: c.category,
@@ -157,7 +165,7 @@ describe('doctor characterization (DR-9 baseline)', () => {
 
     // The name set is exactly the pinned set (no dupes, no strays).
     const observedNames = new Set(checks.map((c) => c.name));
-    expect(observedNames.size).toBe(13);
+    expect(observedNames.size).toBe(16);
     for (const { name } of PINNED_CHECKS) {
       expect(observedNames.has(name)).toBe(true);
     }
@@ -227,7 +235,7 @@ describe('doctor characterization (DR-9 baseline)', () => {
 
     // Pinned cross-field invariants between the event and the doctor output.
     expect(payload.checkCount).toBe(checks.length);
-    expect(payload.checkCount).toBe(13);
+    expect(payload.checkCount).toBe(16);
     expect(payload.summary).toEqual(summary);
     expect(payload.failedCheckNames).toEqual(
       checks.filter((c) => c.status === 'Fail').map((c) => c.name),

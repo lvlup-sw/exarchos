@@ -18,7 +18,7 @@
  * cursor/generic (no command surface) declare nothing and receive zero
  * files. Adding a future runtime is a pure data change in its YAML.
  *
- * `COMMAND_ONLY` commands (`autocompact`, `rehydrate`, `tag`) are skill-less
+ * `COMMAND_ONLY` commands (`autocompact`, `tag`) are skill-less
  * and intentionally excluded here — they are tracked as a known gap in T5.
  *
  * The generated tree `command-aliases/<runtime>/<canonical>.md` is a build

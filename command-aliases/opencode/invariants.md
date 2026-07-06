@@ -6,4 +6,4 @@ description: Author an architectural invariant catalog entry through a guided in
 
 Canonical alias for the Exarchos `/invariants` workflow command.
 
-Invoke the `authoring-invariants` skill to handle: $ARGUMENTS
+Invoke the `invariants` skill to handle: $ARGUMENTS

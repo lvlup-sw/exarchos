@@ -105,14 +105,15 @@ describe('Core Plugin Structure', () => {
       const hooks = JSON.parse(raw);
 
       const hookTypes = Object.keys(hooks.hooks);
-      // Three observe-only hooks: SessionStart + SessionEnd + SubagentStop.
-      expect(hookTypes).toHaveLength(3);
+      // Two observe-only hooks: SessionStart + SubagentStop. SessionEnd was
+      // dropped everywhere in DR-7 (Task 016 hook-surface shrink).
+      expect(hookTypes).toHaveLength(2);
 
-      // Observer hooks (#1485: SessionStart binding + SessionEnd provenance;
-      // #1525: SubagentStop token telemetry).
+      // Observer hooks (#1485: SessionStart binding; #1525: SubagentStop token
+      // telemetry). SessionEnd provenance retired in DR-7.
       expect(hookTypes).toContain('SessionStart');
-      expect(hookTypes).toContain('SessionEnd');
       expect(hookTypes).toContain('SubagentStop');
+      expect(hookTypes).not.toContain('SessionEnd');
 
       // Retired enforcement/control hooks must not be present.
       expect(hookTypes).not.toContain('PreToolUse');
@@ -132,7 +133,7 @@ describe('Core Plugin Structure', () => {
       const hooks = JSON.parse(readFileSync(hooksPath, 'utf-8'));
 
       expect(hooks.hooks.SessionStart[0].matcher).toBe('startup|resume');
-      expect(hooks.hooks.SessionEnd[0].matcher).toBe('auto');
+      expect(hooks.hooks.SubagentStop[0].matcher).toBe('*');
     });
   });
 

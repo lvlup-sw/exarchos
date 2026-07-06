@@ -25,7 +25,7 @@ This eliminates trial-and-error discovery. One `describe` call costs fewer token
 
 ## Quick Reference — `exarchos_workflow`
 
-Before calling, consult `@skills/workflow-state/references/mcp-tool-reference.md` for full action signatures, error handling, and anti-patterns.
+Before calling, consult `@skills/checkpoint/references/mcp-tool-reference.md` for full action signatures, error handling, and anti-patterns.
 
 | Action | Key Parameters |
 |--------|---------------|

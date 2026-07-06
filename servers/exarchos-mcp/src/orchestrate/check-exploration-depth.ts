@@ -3,7 +3,7 @@
 // Verifies that a `deep`-`designDepth` spec carries the template-required
 // `### Exploration` section citing a `/exarchos:discover` research pass — a
 // report PATH and a `correlationId` (the "deep only" section in
-// `skills-src/implementation-planning/references/spec-template.md`). When the
+// `skills-src/plan/references/spec-template.md`). When the
 // section is absent (or present but not citing the discover pass) the gate
 // FAILS (`data.passed: false`, the advisory-carrier blocking signal the
 // verification-ladder gates use).

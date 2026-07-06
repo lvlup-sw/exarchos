@@ -1,21 +1,30 @@
 /**
- * Task 025 — Per-runtime snapshot tests.
+ * Task 025 — Skill render snapshot tests.
  *
- * Captures the full contents of every generated `skills/<runtime>/<skill>/
- * SKILL.md` file as a vitest snapshot so any renderer change that affects
- * output becomes visible as a PR diff. Two tests:
+ * Captures the full contents of every generated `SKILL.md` render as a
+ * vitest snapshot so any renderer change that affects output becomes
+ * visible as a PR diff. Post-collapse the tree has two render surfaces:
+ *
+ *   - Procedural skills render ONCE to `skills/standard/<skill>/SKILL.md`
+ *     (runtime-neutral) — snapshotted once under the `standard` group.
+ *   - Orchestration skills (`ideate`, `delegate`, `refactor`) render
+ *     per-runtime to `skills/<runtime>/<skill>/SKILL.md` — snapshotted
+ *     once per runtime.
+ *
+ * Two tests:
  *
  *   1. `Snapshots_AllSkillsAllRuntimes_MatchBaseline` — walks the
  *      committed tree and calls `toMatchSnapshot()` once per SKILL.md,
- *      grouped by runtime via `describe()` blocks for readability.
+ *      grouped by render dir (`standard` + each runtime) via `describe()`
+ *      blocks for readability.
  *
  *   2. `Snapshots_RegenerationPath_Deterministic` — rebuilds the entire
  *      skills tree into a fresh tmpdir via `buildAllSkills()` and
  *      asserts byte-for-byte equality against the committed
- *      `skills/<runtime>/<skill>/SKILL.md` files. This catches
- *      non-determinism in the renderer that would otherwise slip past
- *      snapshot matching (snapshots only flag drift relative to a prior
- *      run, not drift between two runs of the same source).
+ *      `skills/<dir>/<skill>/SKILL.md` files (standard + every runtime).
+ *      This catches non-determinism in the renderer that would otherwise
+ *      slip past snapshot matching (snapshots only flag drift relative to
+ *      a prior run, not drift between two runs of the same source).
  *
  * On the very first run the snapshot baseline does not yet exist, so the
  * top-level `Snapshots_BaselineFile_Present` check fails (and `-u` must
@@ -60,6 +69,13 @@ const RUNTIME_NAMES = [
   'generic',
   'opencode',
 ] as const;
+
+// Render directories under `skills/` that hold generated SKILL.md files.
+// Procedural skills collapse to a single `standard/` render; orchestration
+// skills render per-runtime. Snapshots cover both surfaces so drift in
+// either is visible in the PR diff. `standard` is listed first so its group
+// sorts ahead of the per-runtime groups in the snapshot file.
+const RENDER_DIRS = ['standard', ...RUNTIME_NAMES] as const;
 
 /** Subdirectories under `skills/` that are NOT runtime outputs. */
 const NON_RUNTIME_DIRS = new Set(['test-fixtures', 'trigger-tests']);
@@ -113,7 +129,7 @@ function listGeneratedSkillFiles(): Array<{
         runtime,
         skill,
         absolutePath: skillFile,
-        relativePath: relative(REPO_ROOT, skillFile),
+        relativePath: relative(REPO_ROOT, skillFile).split(/[\\/]/).join('/'),
       });
     }
   }
@@ -188,28 +204,32 @@ describe('task 025 — per-runtime snapshot baselines', () => {
   // Group files by runtime so the snapshot output is easy to scan and
   // per-runtime drift is visually isolated in a failing PR diff.
   const byRuntime = new Map<string, typeof allFiles>();
-  for (const rt of RUNTIME_NAMES) byRuntime.set(rt, []);
+  for (const rt of RENDER_DIRS) byRuntime.set(rt, []);
   for (const f of allFiles) {
     if (!byRuntime.has(f.runtime)) byRuntime.set(f.runtime, []);
     byRuntime.get(f.runtime)!.push(f);
   }
 
   it('Snapshots_AllSkillsAllRuntimes_SetCardinality', () => {
-    // Guard against silent drift in the total count. The plan originally
-    // assumed 16 × 6 = 96, the initial migration landed with 13 × 6 = 78,
-    // the 2026-04-11 #1010 feature added prune-workflows and
-    // oneshot-workflow (15 × 6 = 90), v2.8.0 added discovery (16 × 6 = 96),
-    // v2.9.0 added merge-orchestrator per #1193 / #1194 (17 × 6 = 102),
-    // v2.10.0 added authoring-invariants per #1487 (18 × 6 = 108), and
-    // v2.11.0 added mutation-adequacy per #1520 (19 × 6 = 114), then collapsed
-    // spec-review + quality-review into one `review` skill (18 × 6 = 108).
-    expect(allFiles.length).toBe(108);
+    // Guard against silent drift in the total count. History: the plan
+    // assumed 16 × 6 = 96; the initial migration landed 13 × 6 = 78; #1010
+    // added prune + oneshot (15 × 6 = 90); v2.8.0 added discovery (16 × 6);
+    // v2.9.0 added merge-orchestrator (17 × 6 = 102); v2.10.0 added
+    // authoring-invariants (18 × 6 = 108); v2.11.0 added mutation-adequacy
+    // (19 × 6 = 114), then collapsed spec-review + quality-review into one
+    // `review` (18 × 6 = 108).
+    //
+    // The harness conform-and-shrink collapse then split rendering by class:
+    // 16 procedural skills render ONCE to `skills/standard/` (the
+    // `workflow-state` skill split into `rehydrate` + `checkpoint`), and 3
+    // orchestration skills render per-runtime (3 × 6 = 18). 16 + 18 = 34.
+    expect(allFiles.length).toBe(34);
   });
 
-  for (const runtime of RUNTIME_NAMES) {
+  for (const runtime of RENDER_DIRS) {
     const runtimeFiles = byRuntime.get(runtime) ?? [];
 
-    describe(`runtime: ${runtime}`, () => {
+    describe(`render dir: ${runtime}`, () => {
       for (const file of runtimeFiles) {
         it(`Snapshots_AllSkillsAllRuntimes_MatchBaseline: ${file.relativePath}`, () => {
           const contents = readFileSync(file.absolutePath, 'utf8');
@@ -229,11 +249,11 @@ describe('task 025 — per-runtime snapshot baselines', () => {
 describe('task 025 — deterministic regeneration', () => {
   it('Snapshots_RegenerationPath_Deterministic', () => {
     // Rebuild the entire skills tree into a throwaway tmpdir and
-    // assert that every runtime-scoped subtree is byte-identical to
-    // the committed `skills/<runtime>/` subtree. This catches
-    // non-determinism in the renderer (e.g. a Map iteration order
-    // leak or a `Date.now()` reference) that snapshot matching alone
-    // would miss after the first `-u` seed.
+    // assert that every render-dir subtree (`standard/` plus each
+    // runtime) is byte-identical to the committed `skills/<dir>/`
+    // subtree. This catches non-determinism in the renderer (e.g. a
+    // Map iteration order leak or a `Date.now()` reference) that
+    // snapshot matching alone would miss after the first `-u` seed.
     const tmpRoot = mkdtempSync(join(tmpdir(), 'exarchos-snap-det-'));
     try {
       buildAllSkills({
@@ -242,7 +262,7 @@ describe('task 025 — deterministic regeneration', () => {
         runtimesDir: RUNTIMES_DIR,
       });
 
-      for (const runtime of RUNTIME_NAMES) {
+      for (const runtime of RENDER_DIRS) {
         const committed = snapshotTreeContents(join(SKILLS_DIR, runtime));
         const rebuilt = snapshotTreeContents(join(tmpRoot, runtime));
 

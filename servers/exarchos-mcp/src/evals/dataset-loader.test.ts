@@ -168,7 +168,7 @@ describe('loadDataset_RealDatasets', () => {
 
   it('LoadDataset_BrainstormingGolden_ParsesWithoutErrors', async () => {
     // Arrange
-    const datasetPath = path.join(REPO_EVALS_DIR, 'brainstorming', 'datasets', 'golden.jsonl');
+    const datasetPath = path.join(REPO_EVALS_DIR, 'ideate', 'datasets', 'golden.jsonl');
 
     // Act
     const cases = await loadDataset(datasetPath);
@@ -179,7 +179,7 @@ describe('loadDataset_RealDatasets', () => {
 
   it('LoadDataset_ImplementationPlanningGolden_ParsesWithoutErrors', async () => {
     // Arrange
-    const datasetPath = path.join(REPO_EVALS_DIR, 'implementation-planning', 'datasets', 'golden.jsonl');
+    const datasetPath = path.join(REPO_EVALS_DIR, 'plan', 'datasets', 'golden.jsonl');
 
     // Act
     const cases = await loadDataset(datasetPath);
