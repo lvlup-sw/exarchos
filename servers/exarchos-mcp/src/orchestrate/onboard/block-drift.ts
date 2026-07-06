@@ -16,6 +16,7 @@ import * as fs from 'node:fs';
 import { join } from 'node:path';
 
 import type { CheckResult } from '../doctor/schema.js';
+import { toPosix } from '../../utils/paths.js';
 import {
   AGENTS_MD_FILENAME,
   loadCanonicalBlockBody,
@@ -77,7 +78,7 @@ export function checkBlockDrift(projectRoot: string, deps: BlockDriftDeps = {}):
     };
   }
 
-  const agentsPath = join(projectRoot, AGENTS_MD_FILENAME);
+  const agentsPath = toPosix(join(projectRoot, AGENTS_MD_FILENAME));
   if (!existsSync(agentsPath)) {
     return {
       ...base,

@@ -11,13 +11,20 @@
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
-import { join, resolve, sep } from 'node:path';
+import { join, resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const SKILLS_SRC_DIR = resolve(__dirname, '..', 'skills-src');
+
+/** Path relative to `SKILLS_SRC_DIR`, forward-slash-normalized so it is
+ * platform-stable for both display and equality checks against literal
+ * posix-style allowlists. */
+function relToSkillsSrc(file: string): string {
+  return relative(SKILLS_SRC_DIR, file).split(/[\\/]/).join('/');
+}
 
 /**
  * Recursively collect all .md files in a directory.
@@ -120,7 +127,7 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
             false;
           if (!isAllowed) {
             violations.push({
-              file: file.replace(SKILLS_SRC_DIR + sep, ''),
+              file: relToSkillsSrc(file),
               line: i + 1,
               text: line.trim(),
             });
@@ -150,7 +157,7 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
           const isAllowed = /\|.*gh pr merge.*\|/.test(line);
           if (!isAllowed) {
             violations.push({
-              file: file.replace(SKILLS_SRC_DIR + sep, ''),
+              file: relToSkillsSrc(file),
               line: i + 1,
               text: line.trim(),
             });
@@ -177,7 +184,7 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
         const line = lines[i];
         if (/\bgh issue create\b/.test(line)) {
           violations.push({
-            file: file.replace(SKILLS_SRC_DIR + sep, ''),
+            file: relToSkillsSrc(file),
             line: i + 1,
             text: line.trim(),
           });
@@ -203,7 +210,7 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
         const line = lines[i];
         if (/\bgh pr checks\b/.test(line)) {
           violations.push({
-            file: file.replace(SKILLS_SRC_DIR + sep, ''),
+            file: relToSkillsSrc(file),
             line: i + 1,
             text: line.trim(),
           });
@@ -230,7 +237,7 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
         // Match gh pr view <num> --json reviews,comments or similar
         if (/\bgh pr view\s+\S+\s+--json\s+(?:reviews|comments|reviews,comments)\b/.test(line)) {
           violations.push({
-            file: file.replace(SKILLS_SRC_DIR + sep, ''),
+            file: relToSkillsSrc(file),
             line: i + 1,
             text: line.trim(),
           });
@@ -256,7 +263,7 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
         const line = lines[i];
         if (/\bgh pr comment\b/.test(line)) {
           violations.push({
-            file: file.replace(SKILLS_SRC_DIR + sep, ''),
+            file: relToSkillsSrc(file),
             line: i + 1,
             text: line.trim(),
           });
@@ -288,7 +295,7 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
     ];
 
     for (const file of files) {
-      const relPath = file.replace(SKILLS_SRC_DIR + sep, '');
+      const relPath = relToSkillsSrc(file);
       if (ALLOWED_FILES.some((allowed) => relPath === allowed)) continue;
 
       const content = readFileSync(file, 'utf8');
@@ -324,7 +331,7 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
     const violations: Array<{ file: string; line: number; text: string }> = [];
 
     for (const file of files) {
-      const relPath = file.replace(SKILLS_SRC_DIR + sep, '');
+      const relPath = relToSkillsSrc(file);
       const content = readFileSync(file, 'utf8');
       const lines = content.split('\n');
 
@@ -357,7 +364,7 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
     const violations: Array<{ file: string; line: number; text: string }> = [];
 
     for (const file of files) {
-      const relPath = file.replace(SKILLS_SRC_DIR + sep, '');
+      const relPath = relToSkillsSrc(file);
       const content = readFileSync(file, 'utf8');
       const lines = content.split('\n');
 
