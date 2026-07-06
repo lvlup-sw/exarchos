@@ -76,6 +76,41 @@ describe('insertManagedBlock', () => {
     expect(written).toContain('Use Exarchos for SDLC.');
   });
 
+  it('insertManagedBlock_SecondInsertOnMalformedFile_IdempotentNoAccumulation', () => {
+    const filePath = freshPath();
+    // A broken pair (stray START) beside consumer content — the malformed path.
+    const original = `# Consumer notes\n${BINDING_MARKER_START}\nleftover fragment\n`;
+    fs.writeFileSync(filePath, original, 'utf8');
+
+    const first = insertManagedBlock({ filePath, content: 'Use Exarchos for SDLC.', provenance: 'binding.md' });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect(first.action).toBe('created');
+    const afterFirst = fs.readFileSync(filePath, 'utf8');
+    // First append leaves the file STILL malformed (stray START + our clean block).
+    expect(occurrences(afterFirst, BINDING_MARKER_START)).toBe(2);
+    expect(occurrences(afterFirst, BINDING_MARKER_END)).toBe(1);
+
+    // Second insert with the SAME content must NOT stack another block (the
+    // pre-fix bug: each run re-appends because locateBlock still sees 'malformed').
+    let writes = 0;
+    const second = insertManagedBlock(
+      { filePath, content: 'Use Exarchos for SDLC.', provenance: 'binding.md' },
+      { writeFileAtomic: () => { writes += 1; } },
+    );
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.action).toBe('unchanged'); // no-op: our block is already present
+    expect(writes).toBe(0); // no write at all
+    // No spurious "concurrent writer" round-trip warning on the no-op path.
+    expect(second.warnings.join(' ')).not.toMatch(/concurrent writer/i);
+
+    const afterSecond = fs.readFileSync(filePath, 'utf8');
+    expect(afterSecond).toBe(afterFirst); // byte-identical — nothing accumulated
+    // Still exactly ONE managed block (the stray START is unchanged; our block once).
+    expect(occurrences(afterSecond, BINDING_MARKER_END)).toBe(1);
+  });
+
   it('insertManagedBlock_IdenticalContent_NoWriteNoBackup', () => {
     const filePath = freshPath();
     // Seed a real block via a first (default-deps) insert.

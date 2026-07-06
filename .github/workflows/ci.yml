@@ -63,7 +63,15 @@ jobs:
     if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && needs.changes.outputs.root == 'true'
     runs-on: ubuntu-latest
     steps:
+      # fetch-depth: 0 — the DR-8 legacy-hash manifest test
+      # (scripts/generate-legacy-skill-hashes.test.ts, part of the root unit suite)
+      # derives render hashes from release tags via `git show <tag>:<path>`. The
+      # default shallow, tagless checkout makes `git tag --list 'v2.*'` empty →
+      # enumerateReleaseRefs() returns [] → the suite reds. Full history brings the
+      # tags AND their tree objects.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v6
         with:
@@ -303,7 +311,12 @@ jobs:
     env:
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
     steps:
+      # fetch-depth: 0 — this lane also runs the root unit suite, which includes the
+      # DR-8 legacy-hash manifest test that reads release-tag trees via `git show`.
+      # A shallow, tagless checkout would red it (see test-root above).
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v6
         with:

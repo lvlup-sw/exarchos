@@ -677,6 +677,13 @@ async function applyGenerateStep(
       // written by an earlier generate step in this same plan, or not applicable
       // to this repo). Both are convergence. 'failed'/'stub' are not.
       if (res.status !== 'written' && res.status !== 'skipped') allConverged = false;
+      // DR-7: a writer can converge overall (its MCP/commands/skills phases wrote)
+      // while its consumer-side on-ramp block (AGENTS.md) write FAILED — surfaced
+      // as `onrampFailed`, never a status change. For the on-ramp block-write step
+      // that means the replacement on-ramp is NOT in place, so it must NOT count as
+      // converged (else the retired-hooks removal below runs and strands the
+      // consumer with neither the on-ramp block nor the hooks).
+      if (step.key === BLOCK_DRIFT_CHECK_NAME && res.onrampFailed) allConverged = false;
     } catch {
       // forward-only: a writer failure does not abort apply (DR-10).
       allConverged = false;

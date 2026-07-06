@@ -19,6 +19,14 @@ export const ConfigWriteResultSchema = z
     componentsWritten: z.array(z.string()),
     warnings: z.array(z.string()).optional(),
     error: z.string().optional(),
+    /**
+     * DR-7: the writer converged overall (status 'written'/'skipped') but its
+     * consumer-side on-ramp block write (AGENTS.md) FAILED — an advisory-only
+     * failure that must NOT be conflated with success. The onboard reconcile gate
+     * reads this to keep retired lifecycle hooks in place when the replacement
+     * on-ramp block is not actually written (no hook-less + block-less window).
+     */
+    onrampFailed: z.boolean().optional(),
   })
   .refine(
     (r) => r.status !== 'failed' || (r.error !== undefined && r.error.length > 0),

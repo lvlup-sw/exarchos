@@ -221,7 +221,17 @@ async function deploySkills(
  * steer or stub it; the default writes real files (via `insertManagedBlock`).
  */
 export interface OnrampSeam {
-  (projectRoot: string): { readonly wrote: boolean; readonly warnings: readonly string[] };
+  (projectRoot: string): {
+    readonly wrote: boolean;
+    /**
+     * DR-7: the AGENTS.md on-ramp block was NOT put in place (a write error or a
+     * missing canonical source) — distinct from a legitimate no-op (`wrote:false,
+     * failed:false`, e.g. a synthetic/absent project root). Propagated to the
+     * writer's `onrampFailed` so the onboard gate keeps retired hooks in place.
+     */
+    readonly failed: boolean;
+    readonly warnings: readonly string[];
+  };
 }
 
 /**
@@ -232,8 +242,10 @@ export interface OnrampSeam {
  * `binding/standard/block.md`; a missing asset fails open (advisory only).
  */
 export const defaultOnrampSeam: OnrampSeam = (projectRoot) => {
+  // Absent/synthetic project root → a legitimate no-op, NOT a failure: there is no
+  // consumer file to strand, so retired-hook removal (if any) is not gated by it.
   if (!projectRoot || !fsExistsSync(projectRoot)) {
-    return { wrote: false, warnings: [] };
+    return { wrote: false, failed: false, warnings: [] };
   }
   return deployOnrampBlocks({ projectRoot });
 };
@@ -280,12 +292,16 @@ export async function writeClaudeCode(
   }
 
   // Phase 4: On-ramp block (DR-5) — the runtime-neutral AGENTS.md block plus
-  // the CLAUDE.md @AGENTS.md shim. Advisory-only warnings never fail the write.
+  // the CLAUDE.md @AGENTS.md shim. Advisory-only warnings never fail the OVERALL
+  // write (MCP/commands/skills stand on their own), but a failed AGENTS.md write
+  // is surfaced via `onrampFailed` so the onboard gate (DR-7) keeps retired hooks
+  // in place — a written-but-onramp-failed result must not read as full success.
   const onrampResult = onramp(options.projectRoot);
   if (onrampResult.wrote) {
     componentsWritten.push('onramp');
   }
   warnings.push(...onrampResult.warnings);
+  const onrampFailedField = onrampResult.failed ? { onrampFailed: true as const } : {};
 
   // Determine overall status
   if (componentsWritten.length === 0) {
@@ -294,6 +310,7 @@ export async function writeClaudeCode(
       path: configPath,
       status: 'skipped',
       componentsWritten: [],
+      ...onrampFailedField,
       ...(warnings.length > 0 ? { warnings } : {}),
     };
   }
@@ -303,6 +320,7 @@ export async function writeClaudeCode(
     path: configPath,
     status: 'written',
     componentsWritten,
+    ...onrampFailedField,
     ...(warnings.length > 0 ? { warnings } : {}),
   };
 }

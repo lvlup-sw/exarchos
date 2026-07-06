@@ -270,6 +270,14 @@ export function writeClaudeMdShim(
 /** The composed on-ramp deploy result (AGENTS.md block + CLAUDE.md shim). */
 export interface DeployOnrampResult {
   readonly wrote: boolean;
+  /**
+   * DR-7: the AGENTS.md on-ramp block — the load-bearing replacement on-ramp — was
+   * NOT put in place (a write error, a self-contained-block violation, or a missing
+   * canonical source). Distinct from `wrote`, which is `true` when *either* surface
+   * wrote and so cannot express a failed AGENTS.md write alongside a written shim.
+   * The onboard reconcile gate keeps retired hooks in place while this is `true`.
+   */
+  readonly failed: boolean;
   readonly warnings: readonly string[];
 }
 
@@ -286,8 +294,10 @@ export function deployOnrampBlocks(
 ): DeployOnrampResult {
   const canonicalBody = opts.canonicalBody ?? loadCanonicalBlockBody(deps);
   if (canonicalBody == null) {
+    // The replacement on-ramp block cannot be written at all — DR-7 failure.
     return {
       wrote: false,
+      failed: true,
       warnings: [
         `Exarchos on-ramp skipped: canonical ${AGENTS_MD_FILENAME} block source (binding/standard/block.md) not found.`,
       ],
@@ -303,5 +313,8 @@ export function deployOnrampBlocks(
   warnings.push(...shim.warnings);
   if (shim.error) warnings.push(shim.error);
 
-  return { wrote: agents.ok || shim.ok, warnings };
+  // The AGENTS.md block is the load-bearing on-ramp (every Tier-1 harness reads it
+  // natively; the CLAUDE.md shim only imports it). `failed` tracks that surface so a
+  // written shim can never mask a failed AGENTS.md write (DR-7 anti-stranding).
+  return { wrote: agents.ok || shim.ok, failed: !agents.ok, warnings };
 }

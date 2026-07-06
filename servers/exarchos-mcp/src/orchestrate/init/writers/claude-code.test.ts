@@ -457,12 +457,36 @@ describe('claudeCodeWriter on-ramp phase (DR-5)', () => {
       home: () => '/home/user',
       cwd: () => '/project',
     });
-    const onramp: OnrampSeam = () => ({ wrote: true, warnings: [] });
+    const onramp: OnrampSeam = () => ({ wrote: true, failed: false, warnings: [] });
 
     const result = await writeClaudeCode(deps, defaultOptions(), onramp);
 
     expect(result.status).toBe('written');
     expect(result.componentsWritten).toContain('onramp');
+    expect(result.onrampFailed).toBeUndefined();
+  });
+
+  it('ClaudeCodeWriter_OnrampFailed_SurfacesOnrampFailedButStaysWritten', async () => {
+    // DR-7: a failed AGENTS.md on-ramp write is advisory for the OVERALL status
+    // (MCP/commands/skills stand alone → still 'written') but MUST be surfaced via
+    // `onrampFailed` so the onboard reconcile gate keeps retired hooks in place.
+    const fs = makeMemFs();
+    const deps = makeStubWriterDeps({
+      fs,
+      home: () => '/home/user',
+      cwd: () => '/project',
+    });
+    const onramp: OnrampSeam = () => ({
+      wrote: false,
+      failed: true,
+      warnings: ['Failed to write the Exarchos managed block to /project/AGENTS.md.'],
+    });
+
+    const result = await writeClaudeCode(deps, defaultOptions(), onramp);
+
+    expect(result.status).toBe('written');
+    expect(result.componentsWritten).not.toContain('onramp');
+    expect(result.onrampFailed).toBe(true);
   });
 
   it('ClaudeCodeWriter_OnrampWarnings_SurfaceInResult', async () => {
@@ -474,6 +498,7 @@ describe('claudeCodeWriter on-ramp phase (DR-5)', () => {
     });
     const onramp: OnrampSeam = () => ({
       wrote: true,
+      failed: false,
       warnings: ['AGENTS.md is near the Codex 32 KiB cap'],
     });
 
@@ -489,7 +514,7 @@ describe('claudeCodeWriter on-ramp phase (DR-5)', () => {
       home: () => '/home/user',
       cwd: () => '/project',
     });
-    const writer = new ClaudeCodeWriter(() => ({ wrote: true, warnings: [] }));
+    const writer = new ClaudeCodeWriter(() => ({ wrote: true, failed: false, warnings: [] }));
 
     const result = await writer.write(deps, defaultOptions());
 

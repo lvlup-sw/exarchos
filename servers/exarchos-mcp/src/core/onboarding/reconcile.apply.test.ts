@@ -484,6 +484,49 @@ describe('apply', () => {
     }
   });
 
+  /**
+   * A writer that CONVERGES overall ('written') because its MCP/commands/skills
+   * phases wrote, but whose AGENTS.md on-ramp block write FAILED — surfaced via
+   * `onrampFailed: true` (the real ClaudeCodeWriter reports on-ramp failure as an
+   * advisory, not a status change). This is the production path the empty-writers
+   * simulation cannot reach.
+   */
+  const ONRAMP_FAILED_WRITER: RuntimeConfigWriter = {
+    runtime: 'claude-code',
+    write: vi.fn().mockResolvedValue({
+      runtime: 'claude-code',
+      status: 'written' as const,
+      componentsWritten: ['skills'],
+      onrampFailed: true,
+    }),
+  };
+
+  it('onboard_BlockWriteConvergesButOnrampFailed_RetiredHooksKept', async () => {
+    // DR-7 regression: a writer may return status 'written' overall while the
+    // AGENTS.md on-ramp block write FAILED (advisory-only in the writer). The
+    // block-write step must NOT count as converged — the replacement on-ramp is
+    // not in place — so the retired-hooks removal is DEFERRED (hooks kept). Guards
+    // the exact hook-less+block-less stranding window that `writers: []` cannot
+    // exercise (that path fails via absence, not via a converged-but-failed write).
+    const fx = await createFixture();
+    try {
+      const hookSpy = vi.fn().mockResolvedValue(undefined);
+      const ctx = makeCtx(fx, { writers: [ONRAMP_FAILED_WRITER], installHook: hookSpy });
+      const plan: ReconcilePlan = { steps: [blockWriteStep(), removalStep()] };
+
+      const result = await apply(plan, ctx);
+
+      // The uninstall never reached its seam — the hooks are KEPT.
+      expect(hookSpy).not.toHaveBeenCalled();
+      expect(result.residual.map((s) => s.key)).toContain(RETIRED_HOOKS_CHECK_NAME);
+      expect(result.applied.map((s) => s.key)).not.toContain(RETIRED_HOOKS_CHECK_NAME);
+      const advisory = result.advisories.find((a) => /deferred|kept|block/i.test(a.message));
+      expect(advisory).toBeDefined();
+    } finally {
+      await cleanup(fx);
+    }
+  });
+
   it('onboard_BlockWriteSucceeds_RetiredHooksRemoved', async () => {
     // Block write converges before the removal step → the removal proceeds (the
     // replacement on-ramp block is in place, so removing the hooks is safe).

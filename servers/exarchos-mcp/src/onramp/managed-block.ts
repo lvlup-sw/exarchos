@@ -301,13 +301,28 @@ export function insertManagedBlock(
   }
 
   // ── Absent or malformed → append a fresh block (never claim foreign markers) ──
+  const block = renderBlock(options.content, provenance, newHash, eol);
+
+  // Append-path idempotency: when the markers are malformed we append rather than
+  // claim foreign content (DR-5) — but a prior malformed-path append leaves the file
+  // STILL malformed (a stray marker beside our clean block), so a naive re-append
+  // would stack a duplicate block on every onboard/doctor run (unbounded growth). If
+  // our EXACT block is already present, do nothing — the block is in place.
+  if (existing.includes(block)) {
+    if (location.kind === 'malformed') {
+      warnings.push(
+        'Stray or duplicated Exarchos marker(s) detected alongside the managed block — the block is already present and was left unchanged. Remove the stray marker(s) to restore in-place updates.',
+      );
+    }
+    return { ok: true, action: 'unchanged', filePath, lineEnding, warnings };
+  }
+
   if (location.kind === 'malformed') {
     warnings.push(
       'Incomplete or duplicated Exarchos marker pair detected — treating the managed block as absent and appending a fresh block. Remove the stray marker(s) to restore in-place updates.',
     );
   }
 
-  const block = renderBlock(options.content, provenance, newHash, eol);
   const separator = existing.trim().length > 0 ? `${eol}${eol}` : '';
   const nextText = `${existing}${separator}${block}${eol}`;
   try {
@@ -315,7 +330,11 @@ export function insertManagedBlock(
   } catch (err) {
     return writeError(filePath, err);
   }
-  verifyRoundTrip(filePath, newHash, readFileSync, warnings);
+  // Verify by PRESENCE of the appended block, not by "one clean pair": on the
+  // malformed path the file is still malformed by construction after the append, so
+  // a single-clean-pair check (verifyRoundTrip) would emit a spurious concurrent-
+  // writer warning. The block round-trips iff it is present verbatim.
+  verifyAppendedBlock(filePath, block, readFileSync, warnings);
   return { ok: true, action: 'created', filePath, lineEnding, warnings };
 }
 
@@ -346,5 +365,32 @@ function verifyRoundTrip(
   const observed = parseEmbeddedHash(reread.slice(location.startIdx, location.blockEnd));
   if (observed !== expectedHash) {
     warnings.push('Post-write verification found a different block hash than written — a concurrent writer may have overwritten the block.');
+  }
+}
+
+/**
+ * Verify an APPENDED block round-trips by confirming the exact rendered block is
+ * present verbatim in the re-read file. Unlike {@link verifyRoundTrip} (the
+ * in-place replace path), this does NOT require the whole file to hold exactly one
+ * clean marker pair: the append path may deliberately leave pre-existing malformed
+ * markers untouched (DR-5 — never claim foreign content), so a single-pair check
+ * would false-positive as a concurrent write. A racing writer that clobbered our
+ * append is caught by the block's absence. Mutates `warnings` in place.
+ */
+function verifyAppendedBlock(
+  filePath: string,
+  expectedBlock: string,
+  readFileSync: (p: string) => string,
+  warnings: string[],
+): void {
+  let reread: string;
+  try {
+    reread = readFileSync(filePath);
+  } catch {
+    warnings.push('Post-write verification could not re-read the file — the write succeeded but the block was not re-read.');
+    return;
+  }
+  if (!reread.includes(expectedBlock)) {
+    warnings.push('Post-write verification did not find the appended managed block — a concurrent writer may have overwritten it.');
   }
 }
