@@ -1,7 +1,7 @@
 # Spec: Process Lifecycle Verbs — generic ps / describe / wait / export over the event log
 
-**Date:** 2026-07-07 · **Feature:** `lifecycle-verbs` · **Depth:** deep
-**Inputs:** #1316 (design spike, this spec closes it) · #1090 (epic; children #1103–#1106 absorbed here) · #1315 (subscription primitive — contract defined here) · #1599 roadmap (Z2 critical path, coordination rules 2–4) · `docs/specs/2026-07-03-wlm-6-surface-and-workflow-fixes.md` · `docs/specs/2026-06-26-wlm-operational-core.md` · `docs/architecture/runtime.md` §L7/§6 · `.exarchos/invariants.md` (INV-1/2/5a–d/6/7/8/10/12/15/16)
+**Date:** 2026-07-07 (rev. 1: 2026-07-08) · **Feature:** `lifecycle-verbs` · **Depth:** deep
+**Inputs:** #1316 (design spike, this spec closes it) · #1090 (epic; children #1103–#1106 absorbed here) · #1315 (subscription primitive — contract defined here) · #1599 roadmap (Z2 critical path, coordination rules 2–4) · `docs/specs/2026-07-03-wlm-6-surface-and-workflow-fixes.md` · `docs/specs/2026-06-26-wlm-operational-core.md` · `docs/architecture/runtime.md` §L7/§6 · `.exarchos/invariants.md` (INV-1/2/5a–d/6/7/8/10/12/13/15/16)
 
 > One unified artifact: `## Design & Rationale` is the DR-N source; `## Decomposition` maps tasks → DR-N within this same document.
 
@@ -16,7 +16,7 @@ Epic #1090 promises generic workflow-lifecycle verbs — `ps` (list), `describe`
 - **`export` is absent.**
 - **The #1315 subscription primitive is absent** — every waiter re-folds a projection on a sleep loop.
 - **INV-10 is aspirational**: four surfaces emit `<surface>.executing_started`/terminal pairs (merge, launch, mutation, prune) as ad-hoc per-surface schemas with no shared base and no generic consumer; `mutation` is observable by nothing.
-- **Audit S-6 (stuck-`executing` recovery) remains open**: no generic way to wait out or inspect a crashed long-running operation.
+- **Audit S-6 (stuck-`executing` recovery) remains open**: no generic way to wait out or inspect a crashed long-running operation. Note: the original #1090/#1316 sketch (`wait <id> --phase delegate` resolving merge stalls) is **semantically unsound** against shipped reducer behavior — `merge.recovered` folds into the `mergeOrchestrator` sub-view and never produces a phase transition, and merges run while the workflow is already *in* `delegate`. S-6 closure requires an operation-level predicate (DR-5), not a phase predicate.
 
 Without one design, the four implementation issues (#1103–#1106) would diverge on subscription handling, predicate language, output schemas, and postures — exactly what #1316 was filed to prevent.
 
@@ -24,8 +24,8 @@ Without one design, the four implementation issues (#1103–#1106) would diverge
 
 **Unify under generic verbs on the two-tier subscription substrate** (Exploration, Option 2 — decided with the owner 2026-07-07):
 
-1. **One subscription primitive (DR-1)** — in-process post-commit notification plus a `PRAGMA data_version` cross-process poll floor — serves `wait`, `describe --follow`, and every future waiter. Subscriptions are ephemeral (per-dispatch), so INV-15's no-daemon frame holds by construction.
-2. **One liveness contract (DR-2)** — `ExecutingStartedBase` + a liveness-pair registry — turns INV-10 from convention into checkable contract, and gives `ps` its generic operations fold (adopted from Exploration Option 3, without its row-shape conflation).
+1. **One subscription primitive (DR-1)** — a **cursor-pump**: each subscription holds a sequence cursor and delivery is always a cursor-driven drain; an in-process post-commit hook and a `PRAGMA data_version` cross-process poll floor are merely *wake signals*. Exactly-once, globally sequence-ordered delivery holds by construction. Subscriptions are ephemeral (per-dispatch), so INV-15's no-daemon frame holds by construction.
+2. **One liveness contract (DR-2)** — `ExecutingStartedBase` + a liveness-pair registry — turns INV-10 from convention into checkable contract, and gives `ps` its generic operations fold and `wait` its operation predicate (adopted from Exploration Option 3, without its row-shape conflation).
 3. **The verbs are pure consumers** — `ps`/`inspect`/`wait` are projections or subscriptions (no writes; `wait` emits no events, revising #1316 Q7); `export` is the one emitter and follows INV-13's two-event split.
 4. **CLI promotion (DR-7)** hoists the verbs to `exarchos ps|describe|wait|export` through a registry-driven mechanism, keeping INV-2 parity.
 
@@ -35,20 +35,23 @@ Compatibility posture: **break-in-preview** — the WLM-6 `ps`/`wait` schemas ar
 
 The DR-N identifiers below are the single source the decomposition traces against.
 
-#### DR-1: Two-tier subscription primitive (#1315)
+#### DR-1: Cursor-pump subscription primitive with two wake tiers (#1315)
 
-The event store exposes `subscribe(filter, onEvent): SubscriptionHandle` where `filter` is `{ streamId?, eventTypes?[] }`. Tier 1 (in-process): after a successful append commits, matching listeners fire synchronously, post-commit — a listener failure is isolated and never affects the append result (at-most-once; mirrors INV-7's two-tier split). Tier 2 (cross-process): a bounded poll floor re-checks `PRAGMA data_version` (near-free) and re-reads only when another connection has committed, delivering matching events in sequence order. Subscriptions are ephemeral: registered by a dispatch, disposed when it returns — nothing outlives the verb (INV-15).
+The event store exposes `subscribe(filter, onEvent, { fromSequence?, floorMs? }): SubscriptionHandle` where `filter` is `{ streamId?, eventTypes?[] }`. Each subscription holds a **sequence cursor** (initialized to the current head, or `fromSequence`); delivery is always a **cursor-driven drain** — read matching events after the cursor, deliver in global sequence order, advance the cursor. Two wake signals trigger drains: **Tier 1** (in-process): a post-commit hook fires after the append transaction commits **and after the per-stream mutex releases** (never inside the lock — the appender's per-stream Promise mutex is non-reentrant, so a listener that itself appends must not deadlock). **Tier 2** (cross-process): a bounded poll floor re-checks `dataVersion()` (near-free) and drains only when a foreign connection has committed. Because both tiers converge on the same cursor drain, a Tier-1 wake at sequence N+1 delivers a not-yet-seen foreign event at sequence N first — no gaps, no double delivery. Listener failures are isolated (never affect an append result or sibling listeners). INV-8 idempotency cache-hits commit nothing and do **not** wake subscriptions. Subscriptions are ephemeral: registered by a dispatch, disposed when it returns (INV-15). `dataVersion(): number` joins the `StorageBackend` interface — SQLite via `PRAGMA data_version`, memory backend via a monotonic append counter — so Tier-2 behavior is defined on every backend.
 
 **Acceptance criteria:**
-- Given a subscription on stream S for type T, when a matching event is appended in-process, then `onEvent` fires after commit without waiting any poll interval.
-- Given an append from a second process (test: second connection), when `data_version` changes, then matching events are delivered in sequence order within one floor interval (default documented; configurable per call).
-- Given a listener that throws, when the append commits, then the append result is unchanged and remaining listeners still fire.
+- Given a subscription with cursor at sequence N, when matching events N+1…N+k are appended in-process, then the drain delivers them post-commit in order; a listener that throws on N+1 does not affect the append result, sibling listeners, or delivery of N+2…N+k.
+- Given interleaved appends from a second connection (sequence N, undrained) and the own process (sequence N+1), then delivery order is N, N+1 — exactly once each (gap-detection property, injectable clock).
+- Given a listener that appends to the same stream during delivery, then no deadlock occurs (hook fires outside the per-stream mutex) and the new event arrives in a subsequent drain.
+- Given an INV-8 idempotency cache-hit (duplicate append, no new commit), then no wake fires and nothing is re-delivered.
 - Given a dispatch that registered subscriptions, when it returns (success or error), then all its handles are disposed — a leak test asserts the registry count returns to zero.
-- With zero subscribers, the append hot path executes no listener-related work beyond a single guard check (benchmarked: no measurable regression in the append benchmark).
+- With zero subscribers, the append hot path executes no listener-related work beyond a single guard check (append benchmark: p99 regression < 5% vs baseline).
+- The floor interval has a documented default, honored per-call `floorMs` override (test), and is driven by an injectable clock so floor tests are deterministic (no wall-clock sleeps).
+- `MemoryBackend.dataVersion()` increases on every committed append and is stable otherwise (contract test shared across backends).
 
 #### DR-2: `ExecutingStartedBase` and the liveness-pair registry (INV-10 made checkable)
 
-Extract a shared Zod base `{ surface, instanceId, startedAt, expectedDurationMs? }`; the four existing schemas (`merge`/`launch`/`mutation`/`prune` `.executing_started`) retrofit via `.extend(...)` with **byte-identical event data** (no migration). A liveness-pair registry — one table mapping each `<surface>.executing_started` to its terminal event types — becomes the single source `ps`'s operations fold and `wait`'s terminal detection consume. Adding a surface to the lifecycle plane = one registry entry, zero verb code.
+Extract a shared Zod base `{ surface, instanceId, startedAt, expectedDurationMs? }`; the four existing schemas (`merge`/`launch`/`mutation`/`prune` `.executing_started`) retrofit via `.extend(...)` with **byte-identical event data** (no migration). A liveness-pair registry — one table mapping each `<surface>.executing_started` to its terminal event types — becomes the single source consumed by `ps`'s operations fold and `wait`'s operation predicate. Adding a surface to the lifecycle plane = one registry entry, zero verb code.
 
 **Acceptance criteria:**
 - All four existing `*.executing_started` schemas extend the base; snapshot tests prove emitted event data is unchanged.
@@ -57,7 +60,7 @@ Extract a shared Zod base `{ surface, instanceId, startedAt, expectedDurationMs?
 
 #### DR-3: Generic `ps` — scope-parameterized process listing
 
-`exarchos_view { action: 'ps', scope: 'workflow' | 'worktree' | 'all' }` (default `all`). Output has two honestly-shaped sections, never conflated rows: `workflows` (fold of `workflow_state` joined with `streams.workflow_type`: featureId, workflowType, phase, status, ageMs) and `operations` (generic fold over the DR-2 registry: any `executing_started` without its terminal — including `mutation`, which today nothing surfaces). Filters: `workflowType` (indexed pushdown via `streams.workflow_type`), `status`, `phase`, `all` (include completed/cancelled; default excludes them). The WLM-6 worktree fold (in-flight merges/launches/prunes + `probe` reconciliation) is preserved under `scope: 'worktree' | 'all'`; `probe: true` remains a conditional writer with its existing `LOCAL_MUTATION_IDEMPOTENT` annotation.
+`exarchos_view { action: 'ps', scope: 'workflow' | 'worktree' | 'all' }` (default `all`). Output has two honestly-shaped sections, never conflated rows: `workflows` (fold of `workflow_state` joined with `streams.workflow_type`: featureId, workflowType, phase, status, ageMs) and `operations` (generic fold over the DR-2 registry: any `executing_started` without its terminal — including `mutation`, which today nothing surfaces). Filters: `workflowType` (indexed pushdown via `streams.workflow_type`), `status`, `phase`, `all` (include completed/cancelled; default excludes them). The WLM-6 worktree fold (in-flight merges/launches/prunes + `probe` reconciliation) is preserved under `scope: 'worktree' | 'all'`; `probe: true` remains a conditional writer with its existing `LOCAL_MUTATION_IDEMPOTENT` annotation. All new/redesigned action fields come from the shared lifecycle field-shape module (DR-8) so cross-action base types cannot collide.
 
 **Acceptance criteria:**
 - Given workflows of mixed types and phases, when `ps --workflow-type feature`, then only `feature` rows return, and the query uses the indexed `streams.workflow_type` column.
@@ -68,36 +71,47 @@ Extract a shared Zod base `{ surface, instanceId, startedAt, expectedDurationMs?
 
 #### DR-4: `inspect` — the workflow-projection describe
 
-New `exarchos_view` action `inspect(featureId, follow?, limit?)`: composite projection returning workflow state (via the canonical `resolveWorkflowState`/rehydration path — never `.state.json` presence), recent events (with `operationId`/`correlationId`/`causationId`), artifacts, and task progress. Existence signal is `_meta.workflowExists`; a cold probe of an unknown featureId is side-effect-free. `--follow` consumes DR-1 and streams through two carriers per #1316 Q3: NDJSON frames on the CLI (existing encoder/heartbeat), MCP Tasks (SEP-1686) on the MCP path — one contract, two presentations (INV-5b). The MCP action name avoids the GA'd schema-`describe` (no rename, no Zod-union overload — a known CLI-parity hazard); DR-7 maps the CLI top-level verb `exarchos describe <id>` onto it.
+New `exarchos_view` action `inspect(featureId, follow?, limit?)`: composite projection returning workflow state (via the canonical `resolveWorkflowState`/rehydration path — never `.state.json` presence), recent events (with `operationId`/`correlationId`/`causationId`), artifacts, and task progress. Existence signal is `_meta.workflowExists`; a cold probe of an unknown featureId is side-effect-free. `--follow` consumes DR-1 and streams through two carriers per #1316 Q3: NDJSON frames on the CLI (existing encoder/heartbeat, heartbeats on the injectable timer), MCP Tasks (SEP-1686) on the MCP path — one contract, two presentations (INV-5b). Follow disposal is `AbortSignal`-based (SIGINT wired to abort on POSIX and Windows alike — no POSIX-only signal semantics). The MCP action name avoids the GA'd schema-`describe` (no rename, no Zod-union overload — a known CLI-parity hazard); DR-7 maps the CLI top-level verb `exarchos describe <id>` onto it.
 
 **Acceptance criteria:**
 - Given an unknown featureId, when `inspect` runs, then `_meta.workflowExists: false` with `expectedShape` in the error envelope, and no event is appended.
-- Given `--follow`, when events append to the feature's stream (in-process or cross-process), then they appear as NDJSON `event` frames deduplicated by sequence; heartbeat frames cover silent gaps.
+- Given `--follow`, when events append to the feature's stream (in-process or cross-process), then they appear as NDJSON `event` frames deduplicated by sequence; heartbeat frames cover silent gaps (injected timer).
 - The MCP path exposes follow via Tasks (`tasks/get`/`tasks/result`), sharing the DR-1 subscription with the CLI carrier.
+- Given abort (CLI SIGINT→AbortSignal, MCP task cancel), the follow loop exits and its subscription handle is disposed.
 - Schema-introspection `describe` on all four composite tools is byte-unchanged.
 
-#### DR-5: Generic `wait` — event-driven phase gate, no self-journaling
+#### DR-5: Generic `wait` — event-driven gate with phase, status, and operation predicates; no self-journaling
 
-`wait(featureId, phase?, status?, until?, integrationRef?, timeoutMs)`: phase targets use **reached-or-passed** semantics — the projection is checked first, returning immediately if the target phase was already reached (idempotent re-runs, #1316 Q2); otherwise a DR-1 subscription on `workflow.transition` + registry terminal events resolves it. `status` supports terminal waits (`completed`/`failed`/`cancelled`). The WLM-6 worktree predicates (`until: merge|idle` + `integrationRef`) are retained as the worktree scope of the same action. `wait` emits **no events** (revises #1316 Q7): posture read-only, `readOnlyHint: true`, `idempotentHint: true` — the log records domain facts, not observations of them. Timeout/failure return structured `WAIT_TIMEOUT` / `WAIT_FAILED` envelopes; the CLI adapter maps them to exit codes 17/18 as pure presentation (a generic errorCode→exitCode map, INV-2-safe).
+`wait(featureId, phase?, status?, operation?, until?, integrationRef?, timeoutMs)`:
+
+- **`phase`** — reached-or-passed semantics: the projection is checked first, returning immediately if the target phase was already reached (idempotent re-runs, #1316 Q2); otherwise a DR-1 subscription on `workflow.transition` resolves it.
+- **`status`** — terminal waits (`completed` / `failed` / `cancelled`).
+- **`operation <surface>`** — the **S-6 predicate**: resolves when the feature's unpaired `<surface>.executing_started` gains a terminal event per the DR-2 registry; resolves immediately if no such operation is in flight. This — not `--phase` — is how a stuck merge is waited out: `merge.recovered` never transitions the workflow phase (it folds into the `mergeOrchestrator` sub-view), so the original epic sketch is explicitly corrected here.
+- **`until: merge|idle` + `integrationRef`** — the WLM-6 worktree predicates, retained as the worktree scope of the same action.
+
+`wait` emits **no events** (revises #1316 Q7): posture read-only, `readOnlyHint: true`, `idempotentHint: true` — the log records domain facts, not observations of them. Timeout/failure return structured `WAIT_TIMEOUT` / `WAIT_FAILED` envelopes; the CLI adapter maps them to exit codes 17/18 as pure presentation (a generic errorCode→exitCode map, INV-2-safe).
 
 **Acceptance criteria:**
 - Given a workflow already past `--phase plan-review`, when `wait --phase plan-review` runs, then it returns success immediately (exit 0) without subscribing.
-- Given no matching transition within `timeoutMs`, then `WAIT_TIMEOUT` is returned and the CLI exits 17.
+- Given an in-process `workflow.transition` to the target phase, then `wait` resolves on the Tier-1 wake (injected clock; no floor tick consumed).
+- Given no matching event within `timeoutMs`, then `WAIT_TIMEOUT` is returned and the CLI exits 17.
 - Given the workflow enters `failed`/`cancelled` while waiting on a phase, then `WAIT_FAILED` is returned and the CLI exits 18.
-- Given an in-process `workflow.transition` to the target phase, then `wait` resolves without waiting a poll interval (Tier-1 path test).
-- **S-6 closure walkthrough:** given `merge.executing_started` with no terminal (simulated crash), `wait <id> --phase delegate --timeout 10m` resolves when `merge.recovered` lands, or exits 17 on timeout; `inspect` shows the unpaired `executing_started`; no merge-specific code exists in `wait` (grep-asserted).
-- `wait` appends zero events across all paths (asserted by event-count invariance in tests).
+- Given an unpaired `merge.executing_started`, when `wait --operation merge` runs, then it resolves when any registry terminal for `merge` lands (e.g. `merge.recovered`, `merge.executed`); given none in flight, it returns immediately; given no terminal within `timeoutMs`, exit 17.
+- Worktree retention: `Wait_WorktreeScope_PreservesWlm6Capabilities` — `until: merge` (with `integrationRef`) and `until: idle` behave per the WLM-6 contract under the redesigned schema.
+- **S-6 closure walkthrough:** given `merge.executing_started` with no terminal (simulated crash), `wait <id> --operation merge --timeout 10m` resolves when `merge.recovered` lands, or exits 17 on timeout; `inspect` shows the unpaired `executing_started`; no merge-specific code exists in `wait.ts` or `operations-fold.ts` (grep-asserted; behavioral assertions carry the adequacy).
+- `wait` appends zero events across all paths (event-count invariance in tests).
 
 #### DR-6: `export` — event-log bundle with the INV-13 two-event split
 
-`export(featureId, output?)`: writes a zip containing `events.jsonl` (full stream extract), `state.json` (projection snapshot), `metadata.json` (version, eventCount, phase, exportedAt), and `artifacts/` (referenced artifact files that exist on disk). Writing outside `.exarchos/` is a non-idempotent external side effect, so export follows INV-13: `export.requested` (intent + resolved path) before the write, `export.executed` (result + content hash) after. Crash between the two → the next invocation runs an idempotent precheck (zip exists + hash matches manifest) to re-emit or skip. Posture `task-isolated`, `openWorldHint: true`. Default output `./<featureId>-export.zip`; invalid paths return `suggestedFix` with the default.
+`export(featureId, output?)`: writes a zip containing `events.jsonl` (full stream extract), `state.json` (projection snapshot), `metadata.json` (version, eventCount, phase, exportedAt), and `artifacts/` (referenced artifact files that exist on disk; missing references tolerated and listed in metadata). Zip writing uses **`yazl`** (pure-JS, pinned) — no zip capability exists in the repo today, and a hand-rolled binary format is riskier than a small mature dependency; the single-file bun bundle must still build and export must work from it. Writing outside `.exarchos/` is a non-idempotent external side effect, so export follows INV-13: `export.requested` (intent + resolved path) before the write, `export.executed` (result + content hash) after. Crash between the two → the next invocation runs an idempotent precheck (zip exists + hash matches manifest) to re-emit or skip. Posture `task-isolated`, `openWorldHint: true`. Default output `./<featureId>-export.zip`; invalid paths return `suggestedFix` with the default.
 
 **Acceptance criteria:**
 - Given an exported bundle, when `events.jsonl` is replayed through the reducers, then the result equals `state.json` (round-trip test) — the event log **is** the export.
-- Every successful export appends exactly the `export.requested`/`export.executed` pair, idempotency-keyed per INV-8.
+- `Export_Success_AppendsExactlyRequestedExecutedPair` — every successful export appends exactly one `export.requested`/`export.executed` pair, idempotency-keyed per INV-8; re-running export produces a new pair for the new zip, never a duplicate of a prior intent.
 - Given a crash simulated between the pair, when export re-runs, then the precheck detects the existing/partial zip and completes without duplicating the `requested` intent.
+- Given referenced artifacts where some paths are missing on disk, then existing ones are bundled under `artifacts/` and missing ones are listed in `metadata.json` without failing the export.
 - Given an invalid `--output` path, then a structured error with `suggestedFix` (default location) returns and no events are appended.
-- Zip paths are built with `path.join` / POSIX-normalized entries; tests close SQLite handles before temp-dir removal (INV-16).
+- Zip entry paths are POSIX-normalized and built with `path.join`; tests close SQLite handles before temp-dir removal (INV-16); `npm run build` still produces a working single-file bundle containing the zip writer.
 
 #### DR-7: Registry-driven CLI top-level promotion
 
@@ -105,47 +119,50 @@ New `exarchos_view` action `inspect(featureId, follow?, limit?)`: composite proj
 
 **Acceptance criteria:**
 - `exarchos ps|describe <id>|wait <id>|export <id>` all resolve and dispatch.
-- Parity fixtures assert byte-identical `ToolResult` across the three invocation paths: top-level CLI, `view <action>` subcommand, and MCP `exarchos_view` — for each promoted verb.
+- Parity fixtures assert byte-identical `ToolResult` across the three invocation paths — top-level CLI, `view <action>` subcommand, MCP `exarchos_view` — for each promoted verb, with volatile fields (`_perf`, timestamps, `ageMs`) normalized per the existing parity-harness conventions (injected clock where needed).
 - A registry entry with a colliding `topLevel` name fails the build/registration test, not runtime.
-- Visible MCP tool count is unchanged (still 4 composite tools, INV-5d).
+- `Registry_VisibleCompositeCount_RemainsFour` — the visible MCP tool count stays 4 (INV-5d); extend/cite the existing visible-count fence in `registry.test.ts`.
 
 #### DR-8: Error handling, failure modes, and edge cases
 
 Cross-cutting failure contract for the verb surface.
 
 **Acceptance criteria:**
-- Given `wait --phase <invalid>`, then the error envelope's `validTargets` is populated from the HSM topology **for that workflow's type**.
+- Given `wait --phase <invalid>`, then the error envelope's `validTargets` is populated from the HSM topology **for that workflow's type**; given `--operation <unknown-surface>`, `validTargets` lists the registry's surfaces.
 - Given an unknown featureId on `inspect`/`wait`/`export`, then a side-effect-free error with `expectedShape` returns (cold-probe rule; no stream registration, no events).
-- Given a subscription whose consumer disconnects mid-follow (CLI SIGINT, MCP task cancel), then the handle is disposed and the leak test passes.
-- Cross-process wait latency is bounded: ≤ one floor interval + one projection fold; the floor default is documented in the subscription contract and surfaced in `_perf`.
+- Given a subscription whose consumer disconnects mid-follow (CLI abort, MCP task cancel), then the handle is disposed and the leak test passes.
 - Given concurrent `wait`s on the same stream from two dispatches, then both resolve independently (no shared-handle interference).
-- All new paths run on Windows CI (INV-16): no separator string-concat, handles closed before temp-dir removal, `resolveExecutable` for any spawns.
+- Cross-process wait latency is bounded by one floor interval + one drain: verified deterministically with the injected clock (advance one floor tick → foreign event delivered); the floor default is documented and surfaced in `_perf`.
+- **Registration integrity:** the composed `exarchos_view` registration schema — including every new/redesigned lifecycle field — constructs without `buildRegistrationSchema` throwing (the documented same-field-name/different-base-type THROW class). All lifecycle actions source shared field names from one field-shape module; a construction test guards the composed registry.
+- **Windows (INV-16), owned by Task 017:** the win32 CI lane runs every new path green with **no new `skipIf(win32)` entries**; the poll floor holds no open SQLite statement across ticks (handle-close class, #1620); two-connection tests set an explicit `busy_timeout` posture; follow disposal is AbortSignal-based (no POSIX-only signal semantics); all timing tests use the injectable clock (no wall-clock sleeps — the #1641 nondeterminism class).
 
 ### Technical Design
 
-**New substrate:** `servers/exarchos-mcp/src/event-store/subscriptions.ts` — the listener registry + `SubscriptionHandle`; a post-commit hook point in the append path (`store.ts`/`atomic-appender.ts`) guarded to zero-cost when empty; `data_version` floor helper in `storage/sqlite-backend.ts`.
+**New substrate:** `servers/exarchos-mcp/src/event-store/subscriptions.ts` — subscription registry, `SubscriptionHandle`, the **cursor pump** (per-subscription `lastDeliveredSeq`; wake → drain matching events after cursor in global order → advance), and the Tier-2 floor loop on an **injectable clock**. The Tier-1 hook point lands in the append path (`store.ts`/`atomic-appender.ts`) and fires **after commit and after the per-stream mutex releases** — listener-initiated appends re-enter the normal append path without deadlock; the hook is a single guard check when no subscribers exist. INV-8 cache-hit short-circuits (pre-transaction, no commit) never wake. `dataVersion()` joins `StorageBackend` (`storage/backend.ts`): SQLite = `PRAGMA data_version`; memory = monotonic append counter.
 
-**Liveness contract:** base schema + pair registry live beside the event schemas (`event-store/schemas.ts`); the generic "in-flight operations" fold becomes a small reusable projection consumed by `ps` — not a new stored projection table.
+**Liveness contract:** base schema + pair registry live beside the event schemas (`event-store/schemas.ts`, `event-store/liveness-registry.ts`); the generic "in-flight operations" fold is a small reusable module consumed by `ps` and by `wait --operation` — not a new stored projection table.
 
-**Verbs:** new handlers under `src/views/lifecycle/` (ps/inspect/wait/export), routed via `views/composite.ts`; the WLM-6 worktree fold (`orchestrate/worktree/handlers.ts`) is called by the `ps` worktree scope rather than duplicated. `wait` composes: projection precheck → DR-1 subscribe → registry-terminal detection. Registry entries stamp postures, `outputSchema`, annotations, and `cli.topLevel` per DR-7 (#1316 Q7/Q8 land as registration facts, not prose).
+**Verbs:** new handlers under `src/views/lifecycle/` (ps/inspect/wait/export), routed via `views/composite.ts`; the WLM-6 worktree fold (`orchestrate/worktree/handlers.ts`) is called by the `ps` worktree scope rather than duplicated; the WLM-6 wait kernel is absorbed by generic `wait`. All lifecycle action schemas import field definitions from `src/views/lifecycle/schema-fields.ts` (one canonical Zod shape per field name — `scope`, `status`, `phase`, `workflowType`, `all`, `follow`, `limit`, `output`, `operation`) so `buildRegistrationSchema`'s same-name/different-base-type THROW is unrepresentable; a registry-construction test enforces it. Registry entries stamp postures, `outputSchema`, annotations, and `cli.topLevel` (#1316 Q7/Q8 land as registration facts, not prose).
 
-**CLI:** promotion loop + errorCode→exitCode map in `adapters/cli.ts`; follow carriers reuse `src/ndjson/` (CLI) and `src/mcp/tasks-methods.ts` (MCP), both fed by DR-1.
+**CLI:** promotion loop + errorCode→exitCode map in `adapters/cli.ts`; follow carriers reuse `src/ndjson/` (CLI) and `src/mcp/tasks-methods.ts` (MCP), both fed by DR-1; follow lifecycle is AbortSignal-driven.
 
-**SDK-lowering mapping (#1599 rule 3):** `wait --phase` lowers as the IR's `awaitPhase(featureId, phase)` combinator; the subscription primitive is the runtime service IR await-nodes bind to; `ps`/`inspect`/`export` are read-side projections with no IR footprint. No edits to `hsm-definitions.ts`/`playbooks.ts`.
+**SDK-lowering mapping (#1599 rule 3):** `wait --phase` lowers as the IR's `awaitPhase(featureId, phase)` combinator and `wait --operation` as `awaitOperationIdle(featureId, surface)`; the subscription primitive is the runtime service IR await-nodes bind to; `ps`/`inspect`/`export` are read-side projections with no IR footprint. No edits to `hsm-definitions.ts`/`playbooks.ts`.
 
 **Q11 alignment:** INV-1 (all verbs are folds/subscriptions/emitters — no side stores); INV-2 (parity fixtures per verb); INV-6 (verbs read topology/projections generically — no workflow-type branching); INV-12 (`wait` complements `next_actions`: affordances say what *can* run, `wait` observes what *did*).
 
 ### Integration Points
 
-- `servers/exarchos-mcp/src/event-store/store.ts` + `atomic-appender.ts` — post-commit notification hook (guarded, zero-cost empty path)
-- `servers/exarchos-mcp/src/event-store/subscriptions.ts` — **new**: registry, handle lifecycle, data_version floor
-- `servers/exarchos-mcp/src/event-store/schemas.ts` — `ExecutingStartedBase` + liveness-pair registry; four schema retrofits
+- `servers/exarchos-mcp/src/event-store/store.ts` + `atomic-appender.ts` — post-commit notification hook (outside the per-stream mutex; guarded, zero-cost empty path; no wake on idempotency cache-hits)
+- `servers/exarchos-mcp/src/event-store/subscriptions.ts` — **new**: registry, cursor pump, handle lifecycle, injectable-clock floor
+- `servers/exarchos-mcp/src/storage/backend.ts` + `sqlite-backend.ts` + `memory-backend.ts` — `dataVersion()` contract
+- `servers/exarchos-mcp/src/event-store/schemas.ts` + `liveness-registry.ts` — `ExecutingStartedBase`; four schema retrofits; pair registry; `export.*` events
 - `servers/exarchos-mcp/src/views/composite.ts` — route `ps`(redesigned)/`inspect`(new)/`wait`(redesigned)/`export`(new)
-- `servers/exarchos-mcp/src/views/lifecycle/` — **new**: verb handlers
-- `servers/exarchos-mcp/src/orchestrate/worktree/handlers.ts` — worktree fold consumed as `ps` scope; WLM-6 wait kernel absorbed into generic `wait`
+- `servers/exarchos-mcp/src/views/lifecycle/` — **new**: verb handlers + `schema-fields.ts` shared shapes
+- `servers/exarchos-mcp/src/orchestrate/worktree/handlers.ts` — worktree fold consumed as `ps` scope; WLM-6 wait kernel absorbed
 - `servers/exarchos-mcp/src/registry.ts` — action defs, postures, outputSchemas, `CliActionHints.topLevel`
 - `servers/exarchos-mcp/src/adapters/cli.ts` — top-level promotion, exit-code map, follow carrier wiring
 - `servers/exarchos-mcp/src/ndjson/` + `src/mcp/tasks-methods.ts` — carriers over the DR-1 contract
+- `servers/exarchos-mcp/package.json` — `yazl` (pinned) for DR-6
 - `docs/architecture/runtime.md` §6/§L7 — liveness convention + verb docs
 
 ### Exploration
@@ -158,6 +175,8 @@ Divergent loop run 2026-07-07 (deep rung; `correlationId: c3c85d7a-8abf-48e4-912
 
 Owner decisions converged in one iteration: unify (vs coexist) · full pickup (spec through implementation) · break-in-preview (no shims) · build CLI promotion · Option 2 · `wait` emits no events · MCP `inspect` / CLI `describe`.
 
+**Plan-review revision 1 (2026-07-08).** A 3-voter fresh-context adversarial panel (coverage / feasibility / adequacy) refuted rev. 0 unanimously. Design-level corrections absorbed: (a) DR-1 re-specified as a **cursor-pump** — the naive "synchronous notify" wording could not jointly satisfy exactly-once and global order across two connections, and left the listener-vs-per-stream-mutex re-entrancy contract undefined; (b) DR-5 gained the **`operation` predicate** after the panel proved the epic's phase-based S-6 walkthrough unsound against shipped reducer semantics (`merge.recovered` never transitions phase); (c) DR-6 pinned the zip dependency (`yazl` — none exists in-repo); (d) DR-8 gained the registration-integrity and Windows/INV-16 criteria with owning tasks (019/017). Decomposition re-waved to eliminate three same-file wave collisions; six tiers raised to match the mechanical derivation.
+
 ### Alternatives considered
 
 - **Coexist (freeze WLM-6 verbs, add new names)** — rejected: permanently splits the lifecycle surface and squats the #1090 names on worktree semantics.
@@ -166,10 +185,12 @@ Owner decisions converged in one iteration: unify (vs coexist) · full pickup (s
 - **Zod-union overload of `describe`** — rejected: known `coerceFlags` CLI-parity break on unions; agent-facing schema ambiguity (INV-5a).
 - **Renaming schema-`describe` to free the name** — rejected: breaks a GA'd discovery surface all agents use.
 - **OS-level notification (fs-watch on the SQLite WAL, LISTEN/NOTIFY-style IPC)** — rejected: imports watcher/daemon primitives from outside the INV-15 frame; `data_version` polling floor achieves the cross-process bound within it.
+- **Hand-rolled STORE-method zip writer** — rejected in rev. 1: a bespoke binary format is higher-risk than a pinned, tiny, pure-JS `yazl`; bundle-size impact verified in Task 013.
+- **Phase-based S-6 recovery (`wait --phase delegate`)** — rejected in rev. 1 (see DR-5): unsound against reducer semantics; replaced by the operation predicate.
 
 ### Open Questions
 
-- **Rich `wait` predicates (JSONPath over projection state, any-of/all-of):** deferred — phase/status/until covers S-6 and the v2.12 consumers; file a follow-up when a concrete consumer needs more (per #1316 Q2's own recommendation).
+- **Rich `wait` predicates (JSONPath over projection state, any-of/all-of):** deferred — phase/status/operation/until covers S-6 and the v2.12 consumers; file a follow-up when a concrete consumer needs more (per #1316 Q2's own recommendation).
 - **MCP `resources/subscribe` exposure of DR-1:** deferred to the #1604 MCP-migration tranche (Z3) — the primitive is transport-agnostic; exposing it remotely is a harness-boundary question (#1599 rule 5).
 - **Import/replay tooling for export bundles:** deferred; the round-trip test (DR-6) guarantees replayability, tooling lands with a concrete diagnostic consumer.
 - **`shepherd`/`tdd-swarm` liveness conformance:** out of scope per #1316; the DR-2 registry makes each a one-entry addition tracked on their own issues.
@@ -187,55 +208,59 @@ The decomposition maps every task to one or more DR-N from the section above.
 
 | DR | Requirement | Tasks |
 |----|-------------|-------|
-| DR-1 | Two-tier subscription primitive (#1315) | 001, 002, 017, 018 |
+| DR-1 | Cursor-pump subscription primitive (#1315) | 001, 002, 017, 018 |
 | DR-2 | ExecutingStartedBase + liveness-pair registry | 003, 004, 018 |
 | DR-3 | Generic `ps` (scope-parameterized) | 005, 006, 007 |
 | DR-4 | `inspect` workflow-projection describe | 008, 009 |
-| DR-5 | Generic `wait` (event-driven gate, no self-journaling) | 010, 011 |
+| DR-5 | Generic `wait` (phase/status/operation predicates) | 010, 011 |
 | DR-6 | `export` with INV-13 two-event split | 012, 013 |
 | DR-7 | Registry-driven CLI top-level promotion | 014, 015 |
-| DR-8 | Error handling, failure modes, edge cases | 011, 016, 017 |
+| DR-8 | Error handling, failure modes, edge cases | 011, 016, 017, 019 |
 
 ### Tasks
 
-#### Task 001: Subscription registry + post-commit notification hook (Tier 1)
+#### Task 001: Subscription registry + cursor pump + post-commit wake (Tier 1)
 
 **Risk Tier:** high
 **Boundary Touching:** true
 **Test Layer:** integration
+**Acceptance Test Ref:** 011
 **Implements:** DR-1
 
 **Files:**
-- `servers/exarchos-mcp/src/event-store/subscriptions.ts` (new — registry, `SubscriptionHandle`, filter matching)
+- `servers/exarchos-mcp/src/event-store/subscriptions.ts` (new — registry, `SubscriptionHandle`, cursor pump, filter matching, injectable clock seam)
 - `servers/exarchos-mcp/src/event-store/subscriptions.test.ts` (new)
-- `servers/exarchos-mcp/src/event-store/store.ts` (post-commit hook point, guarded zero-cost when empty)
-- `servers/exarchos-mcp/src/event-store/atomic-appender.ts` (fire-after-commit ordering)
+- `servers/exarchos-mcp/src/event-store/store.ts` (post-commit hook point — guarded zero-cost when empty)
+- `servers/exarchos-mcp/src/event-store/atomic-appender.ts` (wake fired after commit AND after per-stream mutex release; no wake on INV-8 cache-hits)
 
-**Verification:** scoped tests + `check_test_adequacy` + integration suite. Tests: `Subscribe_InProcessAppend_FiresPostCommitWithoutPoll`, `Subscribe_ListenerThrows_AppendUnaffectedAndSiblingsFire`, `Subscribe_DispatchReturns_HandleDisposed`, `Append_ZeroSubscribers_NoListenerWork`.
-**testingStrategy:** `propertyTests: true` (property: events delivered to a matching subscriber are exactly the appended events, in sequence order, for arbitrary interleavings of matching/non-matching appends); `benchmarks: true` (SLA: append p99 regression < 5% with zero subscribers vs baseline); `characterizationRequired: true` (append path is existing code).
+**Verification:** scoped tests + `check_test_adequacy` + integration suite. Tests: `Subscribe_InProcessAppend_CursorDrainDeliversPostCommitInOrder`, `Subscribe_ListenerThrows_AppendUnaffectedSiblingsAndLaterEventsDelivered`, `Subscribe_ListenerAppendsSameStream_NoDeadlockDeliveredNextDrain`, `Subscribe_IdempotencyCacheHit_NoWakeNoRedelivery`, `Subscribe_DispatchReturns_HandleDisposedRegistryZero`, `Append_ZeroSubscribers_GuardCheckOnly`. INV-16: no wall-clock sleeps (injectable clock); SQLite handles closed before temp-dir removal.
+**testingStrategy:** `propertyTests: true` (property: for arbitrary interleavings of matching/non-matching appends and wakes, each subscriber receives exactly its matches, exactly once, in global sequence order — concurrency category); `benchmarks: true` (SLA: append p99 regression < 5% with zero subscribers vs baseline; boundary/offline cadence, not the inner vitest loop); `characterizationRequired: true` (append path is existing code).
 **Dependencies:** None
 **Parallelizable:** Yes
 
-#### Task 002: Cross-process poll floor via `PRAGMA data_version` (Tier 2)
+#### Task 002: Tier-2 poll floor — `dataVersion()` backend contract + gap-free drain
 
 **Risk Tier:** high
 **Boundary Touching:** true
 **Test Layer:** integration
+**Acceptance Test Ref:** 011
 **Implements:** DR-1
 
 **Files:**
-- `servers/exarchos-mcp/src/storage/sqlite-backend.ts` (`dataVersion()` accessor)
-- `servers/exarchos-mcp/src/event-store/subscriptions.ts` (floor loop: re-check data_version, re-read + deliver by sequence only on change)
+- `servers/exarchos-mcp/src/storage/backend.ts` (`dataVersion(): number` joins the interface)
+- `servers/exarchos-mcp/src/storage/sqlite-backend.ts` (`PRAGMA data_version`)
+- `servers/exarchos-mcp/src/storage/memory-backend.ts` (monotonic append counter)
+- `servers/exarchos-mcp/src/event-store/subscriptions.ts` (floor loop on the injectable clock; drain only on version change; no open statement held across ticks)
 - `servers/exarchos-mcp/src/event-store/subscriptions.test.ts`
 
-**Verification:** scoped tests + `check_test_adequacy` + integration suite. Tests: `Floor_SecondConnectionAppend_DeliveredInSequenceOrderWithinOneInterval`, `Floor_NoForeignCommit_NoReRead`, `Floor_DefaultInterval_SurfacedInPerf`.
-**testingStrategy:** `propertyTests: true` (property: for any split of appends across two connections, the subscriber observes every matching event exactly once, in global sequence order); `benchmarks: false`; `characterizationRequired: false`.
+**Verification:** scoped tests + `check_test_adequacy` + integration suite. Tests: `Floor_ForeignCommit_DrainedInGlobalOrderNextTick` (injected clock), `Floor_ForeignThenOwnAppend_NoGapNoDoubleDelivery` (foreign seq N + own seq N+1 → delivered N, N+1), `Floor_NoForeignCommit_NoReRead`, `Floor_PerCallIntervalOverride_Honored`, `Floor_DefaultInterval_SurfacedInPerf`, `DataVersion_MemoryBackend_MonotonicOnAppend` (shared backend-contract test). Two-connection tests set explicit `busy_timeout` (INV-16 / SQLITE_BUSY posture).
+**testingStrategy:** `propertyTests: true` (property: for any split of appends across two connections and any wake/tick schedule, the subscriber observes every matching event exactly once in global sequence order); `benchmarks: false`; `characterizationRequired: false`.
 **Dependencies:** 001
 **Parallelizable:** No (extends 001's module)
 
 #### Task 003: `ExecutingStartedBase` schema + retrofit of the four surfaces
 
-**Risk Tier:** medium
+**Risk Tier:** high
 **Boundary Touching:** true
 **Test Layer:** integration
 **Implements:** DR-2
@@ -244,7 +269,7 @@ The decomposition maps every task to one or more DR-N from the section above.
 - `servers/exarchos-mcp/src/event-store/schemas.ts` (base + `merge`/`launch`/`mutation`/`prune` `.executing_started` retrofit via `.extend`)
 - `servers/exarchos-mcp/src/event-store/schemas.test.ts` (byte-identity snapshots)
 
-**Verification:** scoped tests + `check_test_adequacy`. Tests: `ExecutingStartedSchemas_Retrofit_EmittedDataByteIdentical` (snapshot per surface), `ExecutingStartedBase_RequiredFields_Validated`.
+**Verification:** scoped tests + `check_test_adequacy` + integration suite (shared-contract surface — schema glob classifies this high mechanically). Tests: `ExecutingStartedSchemas_Retrofit_EmittedDataByteIdentical` (snapshot per surface), `ExecutingStartedBase_RequiredFields_Validated`.
 **testingStrategy:** `propertyTests: true` (property: schema compliance — every payload accepted by a retrofit schema is accepted by the base's field contract; serialization category); `benchmarks: false`; `characterizationRequired: true` (modifies existing schemas).
 **Dependencies:** None
 **Parallelizable:** Yes
@@ -252,7 +277,7 @@ The decomposition maps every task to one or more DR-N from the section above.
 #### Task 004: Liveness-pair registry + conformance test
 
 **Risk Tier:** medium
-**Boundary Touching:** false
+**Boundary Touching:** true
 **Test Layer:** integration
 **Implements:** DR-2
 
@@ -260,15 +285,15 @@ The decomposition maps every task to one or more DR-N from the section above.
 - `servers/exarchos-mcp/src/event-store/liveness-registry.ts` (new — `{ startType, terminalTypes[] }` per surface)
 - `servers/exarchos-mcp/src/event-store/liveness-registry.test.ts` (new)
 
-**Verification:** scoped tests + `check_test_adequacy`. Tests: `LivenessRegistry_EveryExecutingStartedInCatalog_HasEntryWithTerminal` (conformance — fails on unregistered `*.executing_started`), `LivenessRegistry_AddSurface_OneEntryNoVerbCode`.
-**testingStrategy:** `propertyTests: false` (registry is a static table; the conformance test is the guarantee); `benchmarks: false`; `characterizationRequired: false`.
+**Verification:** scoped tests + `check_test_adequacy` + `check_contract_drift` (this registry is the contract `ps` and `wait --operation` consume). Tests: `LivenessRegistry_EveryExecutingStartedInCatalog_HasEntryWithTerminal` (conformance — fails on unregistered `*.executing_started`), `LivenessRegistry_Lookup_ReturnsTerminalTypesForSurface`. (The "adding a surface needs zero verb code" property is proven by 006's generic-fold test and 011's grep — not assertable here before verbs exist.)
+**testingStrategy:** `propertyTests: false` (static table; the conformance test is the guarantee); `benchmarks: false`; `characterizationRequired: false`.
 **Dependencies:** 003
-**Parallelizable:** No (follows 003's schema names)
+**Parallelizable:** Yes (within wave 2 — disjoint files)
 
 #### Task 005: `ps` workflows fold (workflow_state ⋈ streams.workflow_type + filters)
 
 **Risk Tier:** medium
-**Boundary Touching:** false
+**Boundary Touching:** true
 **Test Layer:** integration
 **Implements:** DR-3
 
@@ -277,14 +302,14 @@ The decomposition maps every task to one or more DR-N from the section above.
 - `servers/exarchos-mcp/src/views/lifecycle/workflow-fold.test.ts` (new)
 
 **Verification:** scoped tests + `check_test_adequacy`. Tests: `WorkflowFold_TypeFilter_UsesIndexedStreamsColumn`, `WorkflowFold_Default_ExcludesTerminalStates`, `WorkflowFold_AllFlag_IncludesCompleted`.
-**testingStrategy:** `propertyTests: true` (properties: filter idempotence `filter(filter(rows)) === filter(rows)`; filtered set ⊆ unfiltered set; collections category); `benchmarks: false`; `characterizationRequired: false`.
+**testingStrategy:** `propertyTests: true` (properties: filter idempotence `filter(filter(rows)) === filter(rows)`; filtered set ⊆ unfiltered set; collections category); `benchmarks: true` (view-materialization category — projection-fold events/sec SLA at boundary/offline cadence); `characterizationRequired: false`.
 **Dependencies:** None
 **Parallelizable:** Yes
 
 #### Task 006: `ps` operations fold (generic in-flight over the liveness registry)
 
 **Risk Tier:** medium
-**Boundary Touching:** false
+**Boundary Touching:** true
 **Test Layer:** integration
 **Implements:** DR-3
 
@@ -293,9 +318,9 @@ The decomposition maps every task to one or more DR-N from the section above.
 - `servers/exarchos-mcp/src/views/lifecycle/operations-fold.test.ts` (new)
 
 **Verification:** scoped tests + `check_test_adequacy`. Tests: `OperationsFold_StartedWithoutTerminal_ListedInFlight`, `OperationsFold_MutationSurface_ListedGenerically` (DR-3 AC: no mutation-specific code), `OperationsFold_TerminalPresent_Excluded`.
-**testingStrategy:** `propertyTests: true` (property: for any event sequence, an operation is listed iff its start event has no later matching terminal — state-machine category); `benchmarks: false`; `characterizationRequired: false`.
+**testingStrategy:** `propertyTests: true` (property: for any event sequence, an operation is listed iff its start event has no later matching terminal — state-machine category); `benchmarks: true` (view-materialization category — fold throughput SLA at boundary/offline cadence); `characterizationRequired: false`.
 **Dependencies:** 004
-**Parallelizable:** Yes (after 004)
+**Parallelizable:** Yes (wave 3 — disjoint files)
 
 #### Task 007: `ps` handler redesign — scope parameter, composition, probe gating
 
@@ -305,7 +330,7 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Implements:** DR-3
 
 **Files:**
-- `servers/exarchos-mcp/src/views/lifecycle/ps.ts` (new — composes 005 + 006 + the WLM-6 worktree fold)
+- `servers/exarchos-mcp/src/views/lifecycle/ps.ts` (new — composes 005 + 006 + the WLM-6 worktree fold; fields from `schema-fields.ts`)
 - `servers/exarchos-mcp/src/views/lifecycle/ps.test.ts` (new)
 - `servers/exarchos-mcp/src/views/composite.ts` (route redesigned `ps`)
 - `servers/exarchos-mcp/src/registry.ts` (redesigned schema: `scope`, filters; `outputSchema`; annotations)
@@ -313,26 +338,27 @@ The decomposition maps every task to one or more DR-N from the section above.
 
 **Verification:** scoped tests + `check_test_adequacy` + integration suite (redesigns a shipped preview surface; parity baselines updated). Tests: `Ps_DefaultScope_All_ReturnsWorkflowsAndOperationsSections`, `Ps_WorkflowScopeWithProbe_RejectedInvalidInput`, `Ps_WorktreeScope_PreservesWlm6Capabilities`.
 **testingStrategy:** `propertyTests: false` (composition wiring; folds carry the PBT in 005/006); `benchmarks: false`; `characterizationRequired: true` (WLM-6 worktree behavior pinned before redesign).
-**Dependencies:** 005, 006
-**Parallelizable:** No
+**Dependencies:** 005, 006, 010, 019
+**Parallelizable:** No (serialized on `registry.ts`/`composite.ts`/`handlers.ts` after 010)
 
 #### Task 008: `inspect` handler — composite workflow projection
 
-**Risk Tier:** medium
+**Risk Tier:** high
 **Boundary Touching:** true
 **Test Layer:** integration
+**Acceptance Test Ref:** 011
 **Implements:** DR-4
 
 **Files:**
-- `servers/exarchos-mcp/src/views/lifecycle/inspect.ts` (new — state via `resolveWorkflowState`/rehydration, recent events + correlation tuple, artifacts, task progress)
+- `servers/exarchos-mcp/src/views/lifecycle/inspect.ts` (new — state via `resolveWorkflowState`/rehydration, recent events + correlation tuple, artifacts, task progress; fields from `schema-fields.ts`)
 - `servers/exarchos-mcp/src/views/lifecycle/inspect.test.ts` (new)
 - `servers/exarchos-mcp/src/views/composite.ts` (route `inspect`)
 - `servers/exarchos-mcp/src/registry.ts` (action def + `outputSchema` + `readOnlyHint`)
 
-**Verification:** scoped tests + `check_test_adequacy`. Tests: `Inspect_UnknownFeatureId_WorkflowExistsFalseNoSideEffect` (event-count invariance), `Inspect_KnownWorkflow_ReturnsStateEventsArtifacts`, `Inspect_SchemaDescribe_ByteUnchanged`.
+**Verification:** scoped tests + `check_test_adequacy` + integration suite (cold-probe side-effect-free invariant is the 2026-05-30 state-source-integrity RCA class). Tests: `Inspect_UnknownFeatureId_WorkflowExistsFalseNoSideEffect` (event-count invariance), `Inspect_KnownWorkflow_ReturnsStateEventsArtifacts`, `Inspect_SchemaDescribe_ByteUnchanged`.
 **testingStrategy:** `propertyTests: false` (projection composition; no transformation core); `benchmarks: false`; `characterizationRequired: false`.
-**Dependencies:** None
-**Parallelizable:** Yes
+**Dependencies:** 014, 019
+**Parallelizable:** Yes (wave 2 — disjoint files within the wave)
 
 #### Task 009: `--follow` carriers — NDJSON (CLI) + Tasks (MCP) over the subscription
 
@@ -343,33 +369,34 @@ The decomposition maps every task to one or more DR-N from the section above.
 
 **Files:**
 - `servers/exarchos-mcp/src/adapters/cli.ts` (`inspect` joins the follow set; carrier wiring)
-- `servers/exarchos-mcp/src/cli/follow-loop.ts` (subscription-fed source replacing pure poll for `inspect`)
-- `servers/exarchos-mcp/src/mcp/tasks-methods.ts` (Tasks arm over the same DR-1 contract)
+- `servers/exarchos-mcp/src/cli/follow-loop.ts` (subscription-fed source for `inspect`; AbortSignal-based disposal — SIGINT wired to abort, no POSIX-only semantics)
+- `servers/exarchos-mcp/src/mcp/tasks-methods.ts` (Tasks arm over the same DR-1 contract; cancel → dispose)
 - `servers/exarchos-mcp/src/views/lifecycle/inspect.follow.test.ts` (new)
 
-**Verification:** scoped tests + `check_test_adequacy` + integration suite across the CLI/MCP seam. Tests: `InspectFollow_AppendedEvents_NdjsonFramesDedupedBySequence`, `InspectFollow_SilentGap_HeartbeatFrames`, `InspectFollow_McpTasks_SharesSubscriptionContract`.
-**testingStrategy:** `propertyTests: true` (property: NDJSON frame stream contains each event sequence exactly once, monotonically — dedup roundtrip; data-transformation category); `benchmarks: false`; `characterizationRequired: true` (follow-loop is existing code).
+**Verification:** scoped tests + `check_test_adequacy` + integration suite across the CLI/MCP seam. Tests: `InspectFollow_AppendedEvents_NdjsonFramesDedupedBySequence`, `InspectFollow_SilentGap_HeartbeatFramesOnInjectedTimer`, `InspectFollow_McpTasks_SharesSubscriptionContract`, `InspectFollow_Abort_SubscriptionDisposed`. INV-16: heartbeats/timing on the injected timer; abort path exercised without process signals.
+**testingStrategy:** `propertyTests: true` (property: the NDJSON frame stream contains each event sequence exactly once, monotonically — dedup roundtrip; data-transformation category); `benchmarks: false`; `characterizationRequired: true` (follow-loop is existing code).
 **Dependencies:** 001, 002, 008
-**Parallelizable:** No
+**Parallelizable:** Yes (wave 3 — disjoint files within the wave)
 
-#### Task 010: Generic `wait` — reached-or-passed precheck + subscription resolution
+#### Task 010: Generic `wait` — phase/status/operation predicates + subscription resolution
 
 **Risk Tier:** high
 **Boundary Touching:** true
 **Test Layer:** integration
+**Acceptance Test Ref:** 011
 **Implements:** DR-5
 
 **Files:**
-- `servers/exarchos-mcp/src/views/lifecycle/wait.ts` (new — projection precheck; DR-1 subscribe on `workflow.transition` + registry terminals; `phase`/`status`/worktree `until` predicates; structured `WAIT_TIMEOUT`/`WAIT_FAILED`)
+- `servers/exarchos-mcp/src/views/lifecycle/wait.ts` (new — projection precheck; DR-1 subscription on `workflow.transition` + registry terminals; `phase`/`status`/`operation`/worktree `until` predicates; structured `WAIT_TIMEOUT`/`WAIT_FAILED`; fields from `schema-fields.ts`)
 - `servers/exarchos-mcp/src/views/lifecycle/wait.test.ts` (new)
 - `servers/exarchos-mcp/src/views/composite.ts` (route redesigned `wait`)
 - `servers/exarchos-mcp/src/registry.ts` (redesigned schema + `readOnlyHint`/`idempotentHint`)
 - `servers/exarchos-mcp/src/orchestrate/worktree/handlers.ts` (WLM-6 wait kernel absorbed)
 
-**Verification:** scoped tests + `check_test_adequacy` + integration suite. Tests: `Wait_PhaseAlreadyPassed_ReturnsImmediatelyWithoutSubscribing`, `Wait_InProcessTransition_ResolvesWithoutPollInterval`, `Wait_Timeout_StructuredWaitTimeout`, `Wait_WorkflowCancelledMidWait_WaitFailed`, `Wait_AllPaths_AppendZeroEvents` (event-count invariance).
-**testingStrategy:** `propertyTests: true` (property: for any transition sequence, `wait --phase P` resolves iff P appears at-or-before now or arrives before timeout — state-machine category); `benchmarks: false`; `characterizationRequired: true` (absorbs shipped worktree kernel).
-**Dependencies:** 001, 002, 004
-**Parallelizable:** No
+**Verification:** scoped tests + `check_test_adequacy` + integration suite. Tests: `Wait_PhaseAlreadyPassed_ReturnsImmediatelyWithoutSubscribing`, `Wait_InProcessTransition_ResolvesOnTier1Wake` (injected clock), `Wait_Timeout_StructuredWaitTimeout`, `Wait_WorkflowCancelledMidWait_WaitFailed`, `Wait_OperationPredicate_ResolvesOnRegistryTerminal`, `Wait_OperationPredicate_NoInFlight_ReturnsImmediately`, `Wait_WorktreeScope_PreservesWlm6Capabilities` (until: merge + integrationRef; until: idle), `Wait_AllPaths_AppendZeroEvents` (event-count invariance).
+**testingStrategy:** `propertyTests: true` (property: for any transition/liveness event sequence, `wait` resolves iff its predicate is satisfied at precheck or becomes satisfied before timeout — state-machine category); `benchmarks: false`; `characterizationRequired: true` (absorbs shipped worktree kernel).
+**Dependencies:** 001, 002, 004, 008, 019
+**Parallelizable:** Yes (wave 3 — disjoint files within the wave)
 
 #### Task 011: S-6 stuck-executing recovery — acceptance north-star
 
@@ -381,50 +408,54 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Files:**
 - `servers/exarchos-mcp/src/views/lifecycle/s6-recovery.acceptance.test.ts` (new — real store, real handlers, no mocks)
 
-**Verification:** the acceptance walkthrough from DR-5: seed `merge.executing_started` with no terminal (simulated crash); `wait <id> --phase delegate --timeout` resolves on `merge.recovered` and times out (17) without it; `inspect` shows the unpaired start; grep-assert no merge-specific code in `wait.ts`/`operations-fold.ts`.
+**Verification:** the corrected acceptance walkthrough from DR-5: seed `merge.executing_started` with no terminal (simulated crash); `wait <id> --operation merge --timeout` resolves when `merge.recovered` is appended, and returns `WAIT_TIMEOUT` (CLI exit 17) without it; `inspect` shows the unpaired start in flight; grep-assert no merge-specific code in `wait.ts`/`operations-fold.ts` (behavioral assertions carry the adequacy — the grep is a fence, not the proof).
 **testingStrategy:** `propertyTests: false`; `benchmarks: false`; `characterizationRequired: false`.
 **Dependencies:** 008, 010
-**Parallelizable:** No
+**Parallelizable:** Yes (wave 4 — disjoint files within the wave)
 
 #### Task 012: `export.requested` / `export.executed` event schemas
 
-**Risk Tier:** medium
+**Risk Tier:** high
 **Boundary Touching:** true
 **Test Layer:** integration
+**Acceptance Test Ref:** 015
 **Implements:** DR-6
 
 **Files:**
 - `servers/exarchos-mcp/src/event-store/schemas.ts` (two event types + emission-registry entries, idempotency-keyed per INV-8)
 - `servers/exarchos-mcp/src/event-store/schemas.test.ts`
 
-**Verification:** scoped tests + `check_test_adequacy`. Tests: `ExportEventSchemas_RequestedExecutedPair_RegisteredWithEmissionSource`, `ExportRequested_CarriesResolvedPathIntent`.
+**Verification:** scoped tests + `check_test_adequacy` + integration suite (schema surface — mechanically high). Tests: `ExportEventSchemas_RequestedExecutedPair_RegisteredWithEmissionSource`, `ExportRequested_CarriesResolvedPathIntent`.
 **testingStrategy:** `propertyTests: true` (schema-compliance property; serialization category); `benchmarks: false`; `characterizationRequired: false`.
-**Dependencies:** None
-**Parallelizable:** Yes
+**Dependencies:** 003
+**Parallelizable:** Yes (wave 2 — disjoint files within the wave)
 
-#### Task 013: `export` handler — zip bundle + INV-13 precheck + replay round-trip
+#### Task 013: `export` handler — yazl zip bundle + INV-13 precheck + replay round-trip
 
 **Risk Tier:** high
 **Boundary Touching:** true
 **Test Layer:** integration
+**Acceptance Test Ref:** 015
 **Implements:** DR-6
 
 **Files:**
-- `servers/exarchos-mcp/src/views/lifecycle/export.ts` (new — events.jsonl / state.json / metadata.json / artifacts/; requested→write→executed; crash precheck)
+- `servers/exarchos-mcp/src/views/lifecycle/export.ts` (new — events.jsonl / state.json / metadata.json / artifacts/; requested→write→executed; crash precheck; fields from `schema-fields.ts`)
 - `servers/exarchos-mcp/src/views/lifecycle/export.test.ts` (new)
 - `servers/exarchos-mcp/src/views/composite.ts` (route `export`)
 - `servers/exarchos-mcp/src/registry.ts` (action def, `task-isolated` posture, `openWorldHint: true`)
+- `servers/exarchos-mcp/package.json` (pin `yazl`)
 
-**Verification:** scoped tests + `check_test_adequacy` + integration suite. Tests: `Export_Bundle_ReplayEventsJsonlEqualsStateJson` (round-trip), `Export_CrashBetweenPair_PrecheckCompletesWithoutDuplicateIntent`, `Export_InvalidOutputPath_SuggestedFixNoEvents`, `Export_UnknownFeatureId_ExpectedShapeNoZip`. Windows: POSIX zip entries, handles closed before temp-dir removal (INV-16).
+**Verification:** scoped tests + `check_test_adequacy` + integration suite. Tests: `Export_Bundle_ReplayEventsJsonlEqualsStateJson` (round-trip), `Export_Success_AppendsExactlyRequestedExecutedPair` (idempotency-keyed; re-run creates a new pair, never duplicates a prior intent), `Export_CrashBetweenPair_PrecheckCompletesWithoutDuplicateIntent`, `Export_ArtifactsDir_IncludedAndMissingRefsListedInMetadata`, `Export_InvalidOutputPath_SuggestedFixNoEvents`, `Export_UnknownFeatureId_ExpectedShapeNoZip`. Windows: POSIX zip entries via `path.posix`, handles closed before temp-dir removal (INV-16). Build: `npm run build` single-file bundle includes yazl and export runs from it.
 **testingStrategy:** `propertyTests: true` (property: `replay(export(store)) === projection(store)` for arbitrary event sequences — data-transformation round-trip); `benchmarks: false`; `characterizationRequired: false`.
-**Dependencies:** 012
-**Parallelizable:** No
+**Dependencies:** 007, 012, 019
+**Parallelizable:** Yes (wave 5 — disjoint files within the wave)
 
 #### Task 014: CLI top-level promotion mechanism (`CliActionHints.topLevel`)
 
 **Risk Tier:** high
 **Boundary Touching:** true
 **Test Layer:** integration
+**Acceptance Test Ref:** 015
 **Implements:** DR-7
 
 **Files:**
@@ -437,11 +468,11 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Dependencies:** None
 **Parallelizable:** Yes
 
-#### Task 015: Stamp promotions + exit-code map + three-path parity fixtures
+#### Task 015: Promotion stamps + exit-code map + three-path parity — acceptance north-star for the CLI surface
 
-**Risk Tier:** medium
+**Risk Tier:** high
 **Boundary Touching:** true
-**Test Layer:** integration
+**Test Layer:** acceptance
 **Implements:** DR-7
 
 **Files:**
@@ -449,43 +480,43 @@ The decomposition maps every task to one or more DR-N from the section above.
 - `servers/exarchos-mcp/src/adapters/cli.ts` (generic errorCode→exitCode map: `WAIT_TIMEOUT`→17, `WAIT_FAILED`→18 — presentation only)
 - `servers/exarchos-mcp/src/parity/lifecycle-verbs.parity.test.ts` (new)
 
-**Verification:** scoped tests + `check_test_adequacy`. Tests: `Parity_EachPromotedVerb_ByteIdenticalToolResultAcrossThreePaths`, `ExitCodeMap_WaitTimeout_17`, `ExitCodeMap_WaitFailed_18`, `ExitCodeMap_Success_0`.
+**Verification:** scoped tests + `check_test_adequacy` + integration suite (this task is the DR-7/INV-2 contract check that 014 defers to). Tests: `Parity_EachPromotedVerb_ByteIdenticalToolResultAcrossThreePaths` (volatile fields — `_perf`, timestamps, `ageMs` — normalized per existing parity-harness conventions, injected clock where needed), `ExitCodeMap_WaitTimeout_17`, `ExitCodeMap_WaitFailed_18`, `ExitCodeMap_Success_0`, `Registry_VisibleCompositeCount_RemainsFour` (extend/cite the existing visible-count fence in `registry.test.ts`).
 **testingStrategy:** `propertyTests: false`; `benchmarks: false`; `characterizationRequired: false`.
 **Dependencies:** 007, 008, 010, 013, 014
-**Parallelizable:** No
+**Parallelizable:** Yes (wave 6 — disjoint files within the wave)
 
 #### Task 016: Error-envelope edge cases across the verb surface
 
-**Risk Tier:** medium
-**Boundary Touching:** false
+**Risk Tier:** high
+**Boundary Touching:** true
 **Test Layer:** integration
 **Implements:** DR-8
 
 **Files:**
-- `servers/exarchos-mcp/src/views/lifecycle/wait.ts` (`validTargets` from HSM topology for the workflow's type)
+- `servers/exarchos-mcp/src/views/lifecycle/wait.ts` (`validTargets` from HSM topology for the workflow's type; registry surfaces for `--operation`)
 - `servers/exarchos-mcp/src/views/lifecycle/errors.test.ts` (new — consolidated edge-case suite)
 
-**Verification:** scoped tests + `check_test_adequacy`. Tests: `Wait_InvalidPhase_ValidTargetsFromTopologyForWorkflowType`, `Verbs_UnknownFeatureId_SideEffectFreeExpectedShape` (inspect/wait/export; event-count invariance), `Ps_ProbeOutsideWorktreeScope_InvalidInputWithSuggestedFix`.
+**Verification:** scoped tests + `check_test_adequacy` + integration suite (edits `wait.ts`, a high-tier surface) + `check_contract_drift` (error-envelope contract). Tests: `Wait_InvalidPhase_ValidTargetsFromTopologyForWorkflowType`, `Wait_UnknownOperationSurface_ValidTargetsFromRegistry`, `Verbs_UnknownFeatureId_SideEffectFreeExpectedShape` (inspect/wait/export; event-count invariance), `Ps_ProbeOutsideWorktreeScope_InvalidInputWithSuggestedFix`.
 **testingStrategy:** `propertyTests: false`; `benchmarks: false`; `characterizationRequired: false`.
 **Dependencies:** 007, 008, 010, 013
-**Parallelizable:** Yes (after deps)
+**Parallelizable:** Yes (wave 6 — disjoint files within the wave)
 
-#### Task 017: Subscription lifecycle hardening — disposal, cancellation, concurrency
+#### Task 017: Subscription lifecycle + portability hardening (owns the DR-8 Windows AC)
 
-**Risk Tier:** medium
+**Risk Tier:** high
 **Boundary Touching:** true
 **Test Layer:** integration
 **Implements:** DR-1, DR-8
 
 **Files:**
-- `servers/exarchos-mcp/src/event-store/subscriptions.test.ts` (leak + concurrency suites)
-- `servers/exarchos-mcp/src/cli/follow-loop.ts` (SIGINT disposal)
-- `servers/exarchos-mcp/src/mcp/tasks-methods.ts` (task-cancel disposal)
+- `servers/exarchos-mcp/src/event-store/subscriptions.test.ts` (leak + concurrency + win32 suites)
+- `servers/exarchos-mcp/src/cli/follow-loop.ts` (AbortSignal disposal audit)
+- `servers/exarchos-mcp/src/mcp/tasks-methods.ts` (task-cancel disposal audit)
 
-**Verification:** scoped tests + `check_test_adequacy`. Tests: `Follow_ConsumerDisconnect_HandleDisposedRegistryZero`, `TasksCancel_MidFollow_HandleDisposed`, `Wait_ConcurrentSameStream_BothResolveIndependently`.
+**Verification:** scoped tests + `check_test_adequacy` + integration suite. Tests: `Follow_ConsumerDisconnect_HandleDisposedRegistryZero`, `TasksCancel_MidFollow_HandleDisposed`, `Wait_ConcurrentSameStream_BothResolveIndependently`. **Windows/INV-16 ownership:** assert the poll floor holds no open SQLite statement across ticks (handle-close class, #1620); audit every new lifecycle test for wall-clock timing and convert to the injected clock (**zero new `skipIf(win32)` entries** — grep-asserted against the diff); confirm two-connection tests carry the `busy_timeout` posture; the `test-windows` CI lane must be green on the integration branch before this task completes.
 **testingStrategy:** `propertyTests: true` (concurrency category — property: any interleaving of N concurrent subscribe/dispose/append operations leaves the registry consistent and delivers each subscriber only its matches); `benchmarks: false`; `characterizationRequired: false`.
 **Dependencies:** 009, 010
-**Parallelizable:** Yes (after deps)
+**Parallelizable:** Yes (wave 5 — disjoint files within the wave)
 
 #### Task 018: Documentation — liveness convention + subscription contract + verb surface
 
@@ -495,31 +526,49 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Implements:** DR-1, DR-2
 
 **Files:**
-- `docs/architecture/runtime.md` (§6 liveness convention: base schema + pairing rule + registry as enforcement; §L7 verbs updated to the shipped shape)
+- `docs/architecture/runtime.md` (§6 liveness convention: base schema + pairing rule + registry as enforcement; §L7 verbs updated to the shipped shape, including the operation predicate and the corrected S-6 story)
 
 **Verification:** static analysis + `verify_doc_links`. The #1315 subscription contract is this spec's DR-1; runtime.md links here.
 **testingStrategy:** `propertyTests: false`; `benchmarks: false`; `characterizationRequired: false`.
 **Dependencies:** 010
-**Parallelizable:** Yes (after 010)
+**Parallelizable:** Yes (wave 4 — disjoint files within the wave)
+
+#### Task 019: Shared lifecycle field shapes + registration-construction guard
+
+**Risk Tier:** medium
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-8
+
+**Files:**
+- `servers/exarchos-mcp/src/views/lifecycle/schema-fields.ts` (new — one canonical Zod definition per lifecycle field name: `scope`, `status`, `phase`, `workflowType`, `all`, `follow`, `limit`, `output`, `operation`; base types checked against existing view-action fields)
+- `servers/exarchos-mcp/src/registry.construction.test.ts` (new — composes the current `exarchos_view` registration plus a probe action built from every shared shape and asserts `buildRegistrationSchema` does not throw)
+
+**Verification:** scoped tests + `check_test_adequacy` + `check_contract_drift`. Tests: `RegistryConstruction_WithAllLifecycleFieldShapes_DoesNotThrow`, `SchemaFields_BaseTypes_MatchExistingViewFieldsWhereNamesCollide`. Tasks 007/008/010/013 MUST import from this module (grep-asserted in 015's parity suite setup).
+**testingStrategy:** `propertyTests: false`; `benchmarks: false`; `characterizationRequired: false`.
+**Dependencies:** None
+**Parallelizable:** Yes
 
 ### Parallelization
 
-**Critical path:** 001 → 002 → 010 → 011 (S-6 acceptance) and 010 → 015 (parity closure).
+**Critical path:** 001 → 002 → 010 → 007 → 013 → 015/016 (the `registry.ts`/`composite.ts` serialization chain).
 
-| Wave | Tasks (parallel within wave) |
+| Wave | Tasks (parallel within wave; all same-file edits serialized across waves) |
 |---|---|
-| 1 | 001, 003, 005, 008, 012, 014 |
-| 2 | 002, 004, 013 |
-| 3 | 006, 007 (after 005+006), 009, 010 |
-| 4 | 011, 015, 016, 017, 018 |
+| 1 | 001, 003, 005, 014, 019 |
+| 2 | 002, 004, 008, 012 |
+| 3 | 006, 009, 010 |
+| 4 | 007, 011, 018 |
+| 5 | 013, 017 |
+| 6 | 015, 016 |
 
-No two parallel tasks in the same wave modify the same file (`registry.ts`/`composite.ts`/`cli.ts` touches are serialized across waves 3–4 via dependencies; wave-1 tasks touch disjoint modules).
+**Same-file serialization (total orders across waves):** `registry.ts`: 014 → 008 → 010 → 007 → 013 → 015. `composite.ts`: 008 → 010 → 007 → 013. `worktree/handlers.ts`: 010 → 007. `adapters/cli.ts`: 014 → 009 → 015. `event-store/schemas.ts`: 003 → 012. `subscriptions.ts(.test)`: 001 → 002 → 017. `follow-loop.ts`/`tasks-methods.ts`: 009 → 017. `wait.ts`: 010 → 016. No two tasks within any wave share a file.
 
 ### Completion checklist
 
 - [x] Every DR-N in `## Design & Rationale` maps to at least one task in the matrix
 - [x] Every task `Implements:` a DR-N that exists in this document
-- [x] Every task carries a `riskTier` stamp
+- [x] Every task carries a `riskTier` stamp (six raised to match the mechanical derivation in rev. 1; remaining medium stamps — 004/005/006/019 — are single-new-module tasks the derivation itself classifies medium; `boundaryTouching: true` stamped wherever `testLayer: integration` would derive it)
 - [x] Medium/high-tier tasks carry adequacy-judged tests (test-after); low-tier tasks lean on static analysis
 - [x] Open questions are resolved OR explicitly deferred with rationale
 - [ ] Ready for `plan-review`
