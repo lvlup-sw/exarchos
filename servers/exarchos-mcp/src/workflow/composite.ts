@@ -9,6 +9,7 @@ import { applyCacheHints, wrap, wrapWithPassthrough, type Envelope, type ToolRes
 import type { DispatchContext } from '../core/dispatch.js';
 import { nextActionsFromResult } from '../next-actions-from-result.js';
 import type { CapabilityResolver } from '../capabilities/resolver.js';
+import { deriveRepoKey } from '../utils/paths.js';
 import { workflowLogger } from '../logger.js';
 
 const workflowActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow')!.actions;
@@ -88,8 +89,20 @@ export async function handleWorkflow(
   const { action, ...rest } = args;
 
   switch (action) {
-    case 'init':
-      return envelopeWrap(await handleInit(rest as Parameters<typeof handleInit>[0], stateDir, eventStore), startedAt);
+    case 'init': {
+      // DR-5: the composite layer owns caller identity — compute the memoized
+      // repo key from the serving process's directory (`ctx.cwd` defaults to
+      // `process.cwd()` per core/dispatch.ts) and thread it into `handleInit`
+      // so `workflow.started` records `repoRoot`. deriveRepoKey collapses the
+      // main checkout and every worktree to one key and memoizes, so this costs
+      // a map lookup after the first init. This is the production wiring that
+      // closes the built-but-unwired gap (a direct handleInit call omits it).
+      const repoKey = deriveRepoKey(ctx.cwd ?? process.cwd());
+      return envelopeWrap(
+        await handleInit(rest as Parameters<typeof handleInit>[0], stateDir, eventStore, repoKey),
+        startedAt,
+      );
+    }
     case 'get':
       return envelopeWrap(await handleGet(rest as Parameters<typeof handleGet>[0], stateDir, eventStore), startedAt);
     case 'transition': {

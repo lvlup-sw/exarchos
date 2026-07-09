@@ -128,11 +128,19 @@ function resolveWorkflowRiskTier(state: Record<string, unknown>): string | undef
  * If the event append fails, no state file is written and an error is
  * returned. When no event store is configured, the state file is created
  * with `_eventSequence = 0` for graceful degradation.
+ *
+ * **Repo identity (DR-5):** an optional `repoKey` — supplied by the composite
+ * layer (`deriveRepoKey(ctx.cwd ?? process.cwd())`) — is stamped onto the
+ * `workflow.started` event data as `repoRoot`. Absent ⇒ the event carries no
+ * `repoRoot`, exactly today's shape (direct handler calls stay unscoped by
+ * construction). The parameter is threaded, never read from `process.cwd()`
+ * here, so identity is adapter-independent.
  */
 export async function handleInit(
   input: InitInput,
   stateDir: string,
   eventStore: EventStore | null,
+  repoKey?: string,
 ): Promise<ToolResult> {
   try {
     // Marten R-1 (#1313): handler-boundary input validation. The MCP
@@ -195,6 +203,9 @@ export async function handleInit(
             featureId: input.featureId,
             workflowType: input.workflowType,
             ...(isOneshotWithPolicy ? { synthesisPolicy: input.synthesisPolicy } : {}),
+            // DR-5: repo identity, present only when the composite supplied it.
+            // Absent ⇒ exactly today's event shape (unscoped legacy behavior).
+            ...(repoKey !== undefined ? { repoRoot: repoKey } : {}),
           },
         });
         const event = await eventStore.appendValidated(input.featureId, validatedEvent, {
