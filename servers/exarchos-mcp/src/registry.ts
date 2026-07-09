@@ -3010,11 +3010,14 @@ const orchestrateActions: readonly ToolAction[] = [
 const viewActions: readonly ToolAction[] = [
   {
     name: 'pipeline',
-    description: 'Aggregated view of active workflows with stack positions (excludes completed/cancelled unless includeCompleted=true)',
+    description: 'Aggregated view of active workflows with stack positions (excludes completed/cancelled unless includeCompleted=true). Entries are compact by default; pass detail=true for the full per-task map.',
     schema: z.object({
       limit: coercedPositiveInt().optional(),
       offset: coercedNonnegativeInt().optional(),
       includeCompleted: z.boolean().optional(),
+      // DR-1 — schema-level flag so the CLI flag auto-emits. Default entries
+      // omit the per-task `tasksById` map; `detail: true` restores it.
+      detail: z.boolean().optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,

@@ -25,7 +25,7 @@ import {
   pipelineProjection,
   PIPELINE_VIEW,
 } from './pipeline-view.js';
-import type { PipelineViewState, PipelineSummary } from './pipeline-view.js';
+import type { PipelineViewState } from './pipeline-view.js';
 import {
   DEFAULT_VIEW_ITEM_CAP,
   SUMMARY_FIRST_PAGE_ITEMS,
@@ -528,8 +528,64 @@ export async function handleViewTasks(
 
 // ─── View Pipeline Handler ─────────────────────────────────────────────────
 
+// DR-1 — compact pipeline entry. Default pipeline rows omit the unbounded
+// per-task `tasksById` map (redundant with the counters beside it) and carry
+// only summary fields. The per-entry `hasMore` here is the stack-position
+// EVICTION flag (unrelated to page-level paging) and is deliberately retained.
+// `detail: true` restores the full {@link PipelineViewState} row. The type is
+// declared locally in `views/tools.ts` on purpose — the exported
+// `PipelineViewState`/`PipelineSummary` declarations stay in
+// `views/pipeline-view.ts` (chain-A territory).
+interface CompactPipelineEntry {
+  featureId: string;
+  workflowType: string;
+  phase: string;
+  taskCount: number;
+  completedCount: number;
+  failedCount: number;
+  stackPositions: PipelineViewState['stackPositions'];
+  hasMore: boolean;
+  _asOf: string;
+  repoRoot?: string;
+}
+
+/**
+ * Compacted counterpart of `PipelineSummary`: identical group-count rollups,
+ * but its `firstPage` rows are compacted the same way the detail branch
+ * compacts entries (DR-1). Local so chain A's exported `PipelineSummary` shape
+ * is untouched.
+ */
+interface CompactPipelineSummary {
+  total: number;
+  byPhase: Record<string, number>;
+  byWorkflowType: Record<string, number>;
+  firstPage: CompactPipelineEntry[];
+}
+
+/**
+ * Strip a full projection row down to the DR-1 compact entry. `repoRoot` is
+ * read defensively (`w as { repoRoot? }`) so this stays forward-compatible with
+ * chain A adding `repoRoot` to `PipelineViewState` (task 003) — the field flows
+ * through with no merge conflict on this helper once it exists.
+ */
+function toCompactEntry(w: PipelineViewState): CompactPipelineEntry {
+  const repoRoot = (w as { repoRoot?: string }).repoRoot;
+  return {
+    featureId: w.featureId,
+    workflowType: w.workflowType,
+    phase: w.phase,
+    taskCount: w.taskCount,
+    completedCount: w.completedCount,
+    failedCount: w.failedCount,
+    stackPositions: w.stackPositions,
+    hasMore: w.hasMore,
+    _asOf: w._asOf,
+    ...(repoRoot !== undefined ? { repoRoot } : {}),
+  };
+}
+
 export async function handleViewPipeline(
-  args: { limit?: number; offset?: number; includeCompleted?: boolean },
+  args: { limit?: number; offset?: number; includeCompleted?: boolean; detail?: boolean },
   stateDir: string,
   eventStore: EventStore,
   // DR-3 — the resolved `.exarchos.yml` slice threaded from `views/composite.ts`
@@ -596,7 +652,12 @@ export async function handleViewPipeline(
     const explicitLimit = args.limit !== undefined;
     const pageSize = explicitLimit ? (args.limit as number) : DEFAULT_VIEW_ITEM_CAP;
     const end = start + pageSize;
-    const workflows = filtered.slice(start, end);
+    const windowed = filtered.slice(start, end);
+    // DR-1 — default rows are compacted (unbounded `tasksById` stripped);
+    // `detail: true` returns the full projection rows verbatim.
+    const workflows: Array<PipelineViewState | CompactPipelineEntry> = args.detail
+      ? windowed
+      : windowed.map(toCompactEntry);
     // The default cap actually truncated the inventory (only advertised when the
     // caller did NOT set an explicit limit — an explicit page keeps today's
     // no-affordance envelope, and a fully-shown inventory needs no narrowing).
@@ -636,11 +697,14 @@ export async function handleViewPipeline(
     const threshold = resolveOutputTokenThreshold(config);
     const narrowHint = 'exarchos vw ls --limit 20 --offset 0';
     if (threshold !== null && estimateOutputTokens(detailData) > threshold) {
-      const summary: PipelineSummary = {
+      // DR-1 — the summary's `firstPage` rows are compacted identically to the
+      // detail branch, regardless of `detail:true` (a summary fallback exists
+      // precisely because the payload was too large — never re-inline tasksById).
+      const summary: CompactPipelineSummary = {
         total,
         byPhase: countBy(filtered, (w) => w.phase),
         byWorkflowType: countBy(filtered, (w) => w.workflowType),
-        firstPage: workflows.slice(0, SUMMARY_FIRST_PAGE_ITEMS),
+        firstPage: windowed.slice(0, SUMMARY_FIRST_PAGE_ITEMS).map(toCompactEntry),
       };
       return {
         success: true,
