@@ -27,7 +27,7 @@ import {
 } from './pipeline-view.js';
 import type { PipelineViewState } from './pipeline-view.js';
 import {
-  DEFAULT_VIEW_ITEM_CAP,
+  PIPELINE_DEFAULT_ITEM_CAP,
   SUMMARY_FIRST_PAGE_ITEMS,
   estimateOutputTokens,
   resolveOutputTokenThreshold,
@@ -584,6 +584,19 @@ function toCompactEntry(w: PipelineViewState): CompactPipelineEntry {
   };
 }
 
+/**
+ * DR-3 deterministic pipeline order: `_asOf` DESCENDING (most-recent activity
+ * first), ties broken by `featureId` ASCENDING. A total order (no equal-rank
+ * ambiguity for distinct featureIds) so two consecutive offset windows always
+ * partition ONE stable sequence. `_asOf` is an ISO-8601 string, so lexical
+ * comparison is chronological.
+ */
+function comparePipelineRows(a: PipelineViewState, b: PipelineViewState): number {
+  if (a._asOf !== b._asOf) return a._asOf < b._asOf ? 1 : -1;
+  if (a.featureId !== b.featureId) return a.featureId < b.featureId ? -1 : 1;
+  return 0;
+}
+
 export async function handleViewPipeline(
   args: { limit?: number; offset?: number; includeCompleted?: boolean; detail?: boolean },
   stateDir: string,
@@ -643,25 +656,49 @@ export async function handleViewPipeline(
       ? real
       : real.filter((w) => !(TERMINAL_PHASES as readonly string[]).includes(w.phase));
 
-    // Paginate the filtered results. DR-3: when the caller omits `limit`, apply
-    // the DETERMINISTIC item cap instead of the old unbounded `slice(start,
-    // undefined)`, so a large inventory never dumps every row. An explicit
-    // `limit` is honored verbatim (the caller chose their page size).
-    const total = filtered.length;
+    // DR-7 seam — `unscopedTotal` is the post-phantom, post-terminal-filter,
+    // PRE-scope-filter count. Pinned here so the scope escape hatch (chain A /
+    // task 007) can never mis-attribute `includeCompleted`-hidden rows to repo
+    // scoping.
+    const unscopedTotal = filtered.length;
+
+    // Scope-filter seam — chain A / task 007 owns the repo-scope predicate and
+    // slots it in RIGHT HERE (between `unscopedTotal` and `page.total`). Until
+    // then this is the identity set, so `scoped === filtered` and
+    // `page.total === unscopedTotal`.
+    const scoped = filtered;
+
+    // DR-3 — deterministic order so consecutive offset windows partition ONE
+    // stable sequence: `_asOf` descending, ties broken by `featureId` ascending.
+    const sorted = [...scoped].sort(comparePipelineRows);
+
+    // DR-3 — `page.total` reflects the filtered, scoped set.
+    const total = sorted.length;
+
+    // DR-2 — pipeline-specific SMALL default window. When the caller omits
+    // `limit`, cap at PIPELINE_DEFAULT_ITEM_CAP (10) — deliberately NOT the
+    // shared DEFAULT_VIEW_ITEM_CAP (50), which the worktrees view keeps. An
+    // explicit `limit` is honored verbatim.
     const start = args.offset ?? 0;
     const explicitLimit = args.limit !== undefined;
-    const pageSize = explicitLimit ? (args.limit as number) : DEFAULT_VIEW_ITEM_CAP;
-    const end = start + pageSize;
-    const windowed = filtered.slice(start, end);
+    const effectiveLimit = explicitLimit ? (args.limit as number) : PIPELINE_DEFAULT_ITEM_CAP;
+    const end = start + effectiveLimit;
+    const windowed = sorted.slice(start, end);
     // DR-1 — default rows are compacted (unbounded `tasksById` stripped);
     // `detail: true` returns the full projection rows verbatim.
     const workflows: Array<PipelineViewState | CompactPipelineEntry> = args.detail
       ? windowed
       : windowed.map(toCompactEntry);
-    // The default cap actually truncated the inventory (only advertised when the
-    // caller did NOT set an explicit limit — an explicit page keeps today's
-    // no-affordance envelope, and a fully-shown inventory needs no narrowing).
-    const capTruncated = !explicitLimit && total - start > DEFAULT_VIEW_ITEM_CAP;
+
+    // DR-3 — explicit paging metadata, namespaced under `page` so `page.hasMore`
+    // never collides with the per-entry stack-eviction `hasMore` on each row.
+    // Detail-branch semantics: more rows exist beyond this window.
+    const page = {
+      total,
+      offset: start,
+      limit: effectiveLimit,
+      hasMore: start + windowed.length < total,
+    };
 
     // #1359 / PR4 T14 + T15 — derive `projectionAsOf` from the maximum
     // `_asOf` timestamp across the materialized workflows (the most
@@ -693,35 +730,48 @@ export async function handleViewPipeline(
     // summary + a small first page INSTEAD of per-item detail. Fail-open: an
     // unresolvable threshold (`null`) degrades to the plain capped detail — never
     // an unbounded dump nor an inventory-hiding error.
-    const detailData = { workflows, total };
+    // DR-3 — `data.total` is retained as a LEGACY ALIAS of `page.total` for one
+    // release; new consumers should read `data.page`.
+    const detailData = { workflows, total, unscopedTotal, page };
     const threshold = resolveOutputTokenThreshold(config);
     const narrowHint = 'exarchos vw ls --limit 20 --offset 0';
     if (threshold !== null && estimateOutputTokens(detailData) > threshold) {
       // DR-1 — the summary's `firstPage` rows are compacted identically to the
       // detail branch, regardless of `detail:true` (a summary fallback exists
       // precisely because the payload was too large — never re-inline tasksById).
+      const firstPage = windowed.slice(0, SUMMARY_FIRST_PAGE_ITEMS).map(toCompactEntry);
       const summary: CompactPipelineSummary = {
         total,
-        byPhase: countBy(filtered, (w) => w.phase),
-        byWorkflowType: countBy(filtered, (w) => w.workflowType),
-        firstPage: windowed.slice(0, SUMMARY_FIRST_PAGE_ITEMS).map(toCompactEntry),
+        byPhase: countBy(sorted, (w) => w.phase),
+        byWorkflowType: countBy(sorted, (w) => w.workflowType),
+        firstPage,
+      };
+      // DR-3 — the SUMMARY branch carries the SAME `page` object, but its
+      // `hasMore` derives from the first-page length vs the total (there is no
+      // per-item window here). Namespaced identically so it never collides with
+      // the per-entry eviction `hasMore`.
+      const summaryPage = {
+        total,
+        offset: start,
+        limit: effectiveLimit,
+        hasMore: total > firstPage.length,
       };
       return {
         success: true,
-        data: { summary, total, truncated: true },
-        next_actions: [narrowAffordance('pipeline', summary.firstPage.length, total, narrowHint)],
+        data: { summary, total, unscopedTotal, page: summaryPage, truncated: true },
+        next_actions: [narrowAffordance('pipeline', firstPage.length, total, narrowHint)],
         ...(meta ? { _meta: meta } : {}),
       };
     }
 
-    // Per-item detail. Byte-identical to the pre-DR-3 payload below cap AND
-    // threshold; the narrow affordance rides `next_actions` ONLY when the
-    // default cap truncated the inventory.
+    // Per-item detail. The narrow paging affordance rides `next_actions`
+    // whenever `page.hasMore` — i.e. more rows exist beyond the current window
+    // (default small cap OR an explicit `limit`/`offset` short of the tail).
     return {
       success: true,
       data: detailData,
-      ...(capTruncated
-        ? { next_actions: [narrowAffordance('pipeline', workflows.length, total, narrowHint)] }
+      ...(page.hasMore
+        ? { next_actions: [narrowAffordance('pipeline', windowed.length, total, narrowHint)] }
         : {}),
       ...(meta ? { _meta: meta } : {}),
     };
