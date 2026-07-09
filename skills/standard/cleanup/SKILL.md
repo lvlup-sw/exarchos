@@ -53,6 +53,7 @@ If featureId not provided, use pipeline view to list active workflows:
 ```typescript
 exarchos:exarchos_view({ action: "pipeline" })
 ```
+The pipeline view is **repo-scoped by default** — only the caller's repo. A workflow started in another repo won't appear; when the response reports `unscopedTotal` greater than `page.total`, re-query with `scope: "all"` to reveal the hidden rows.
 
 ### 2. Verify Merge Status
 
@@ -173,7 +174,7 @@ exarchos:exarchos_workflow({
 
 | Error | Cause | Resolution |
 |-------|-------|------------|
-| STATE_NOT_FOUND | Invalid featureId | Check pipeline view for active workflows |
+| STATE_NOT_FOUND | Invalid featureId | Check pipeline view for active workflows (repo-scoped by default; add `scope: "all"` if the workflow may live in another repo) |
 | ALREADY_COMPLETED | Workflow already done | No action needed |
 | INVALID_TRANSITION | Workflow is cancelled | Cannot cleanup cancelled workflows |
 | GUARD_FAILED | mergeVerified is false | Verify PRs are merged before cleanup |

@@ -41,7 +41,7 @@ By default, shepherd seeks to **address every piece of feedback on the PR** — 
 
 ## Pipeline Hygiene
 
-When `exarchos:exarchos_view pipeline` accumulates stale workflows (inactive > 7 days), run `@skills/prune/SKILL.md` to bulk-cancel abandoned workflows before starting a new shepherd cycle. Safeguards skip workflows with open PRs or recent commits, so active shepherd targets are never touched. A clean pipeline makes shepherd iteration reporting easier to read and reduces noise in the stale-count view.
+When the pipeline accumulates stale workflows (inactive > 7 days), run `@skills/prune/SKILL.md` to bulk-cancel abandoned workflows before starting a new shepherd cycle. Discover the stale set with `exarchos:exarchos_view({ action: "pipeline", scope: "all" })` — the default view is repo-scoped to the caller's repo and hides *legacy* rows (workflows started before repo identity was recorded), which are exactly the stale ones this cleanup targets. Safeguards skip workflows with open PRs or recent commits, so active shepherd targets are never touched. A clean pipeline makes shepherd iteration reporting easier to read and reduces noise in the stale-count view.
 
 ## Triggers
 
