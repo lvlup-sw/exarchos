@@ -145,11 +145,15 @@ describe('pipeline — DR-3 item cap + measured-size summary', () => {
     // the payload now also carries the explicit `page` object and `unscopedTotal`
     // (legacy `total` retained as an alias). `page.hasMore` is false — the whole
     // inventory fits the window.
+    // ORACLE CHANGE (DR-7, task 007): every response additionally carries
+    // `data.scope` (the effective scope mode). This direct handler call supplies
+    // no caller key and no explicit scope, so it is unscoped ⇒ `scope === 'all'`.
     const data = result.data as Record<string, unknown>;
-    expect(Object.keys(data).sort()).toEqual(['page', 'total', 'unscopedTotal', 'workflows']);
+    expect(Object.keys(data).sort()).toEqual(['page', 'scope', 'total', 'unscopedTotal', 'workflows']);
     expect((data.workflows as unknown[]).length).toBe(3);
     expect(data.total).toBe(3);
     expect(data.unscopedTotal).toBe(3);
+    expect(data.scope).toBe('all');
     expect(data.page).toEqual({ total: 3, offset: 0, limit: PIPELINE_DEFAULT_ITEM_CAP, hasMore: false });
     expect(result.next_actions).toBeUndefined();
   });

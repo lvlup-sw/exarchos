@@ -9,11 +9,16 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
+import fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 import { EventStore } from '../event-store/store.js';
 import { handleViewPipeline, resetMaterializerCache } from './tools.js';
+import { handleView } from './composite.js';
+import { deriveRepoKey } from '../utils/paths.js';
+import type { DispatchContext } from '../core/dispatch.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 import type { QualityHintsConfig } from '../capabilities/resolver.js';
 
@@ -333,5 +338,241 @@ describe('handleViewPipeline — DR-1 compact entries + detail flag (task 005)',
       expect('tasksById' in row).toBe(false);
       expect(typeof row.taskCount).toBe('number');
     }
+  });
+});
+
+// ─── DR-6 / DR-7 (task 007): repo-scoped default view + perceivability ───────
+//
+// Scope resolution precedence (pinned): scope:'all' → unfiltered; explicit
+// repoRoot → filter to deriveRepoKey(repoRoot); else composite-supplied caller
+// key → filter to it; else (direct call, no key) → unscoped; scope:'repo' with
+// no resolvable key → structured error. `data.scope`/`data.unscopedTotal` ride
+// every response; the scope-all escape hatch fires whenever `unscopedTotal >
+// page.total`. Git-spawning cases carry ≥15s per-test timeouts per the vitest
+// spawn-flake memory.
+describe('handleViewPipeline — DR-6/DR-7 repo scoping + perceivability (task 007)', () => {
+  type Row = { featureId: string };
+  interface ScopeData {
+    workflows: Row[];
+    total: number;
+    unscopedTotal: number;
+    scope: 'repo' | 'all';
+  }
+
+  async function seedStarted(
+    featureId: string,
+    opts?: { repoRoot?: string; terminal?: boolean },
+  ): Promise<void> {
+    await store.append(featureId, {
+      type: 'workflow.started',
+      data: {
+        featureId,
+        workflowType: 'feature',
+        ...(opts?.repoRoot !== undefined ? { repoRoot: opts.repoRoot } : {}),
+      },
+    });
+    if (opts?.terminal) {
+      // Drive the row to a terminal phase ('completed') so the terminal filter
+      // (includeCompleted=false) elides it — used by the ordering-guard test.
+      await store.append(featureId, {
+        type: 'workflow.transition',
+        data: { featureId, from: 'started', to: 'completed' },
+      });
+    }
+  }
+
+  it('Pipeline_CompositeDispatch_FiltersToCallerRepo', async () => {
+    // The composite computes the caller key from `ctx.cwd` and threads it — a
+    // workflow started in another repo must NOT appear in the caller's default.
+    const callerKey = deriveRepoKey(stateDir);
+    await seedStarted('here-1', { repoRoot: callerKey });
+    await seedStarted('there-1', { repoRoot: '/some/other/repo' });
+
+    const ctx: DispatchContext = {
+      stateDir,
+      eventStore: store,
+      enableTelemetry: false,
+      cwd: stateDir,
+    };
+    const result = await handleView({ action: 'pipeline', includeCompleted: true }, ctx);
+
+    expect(result.success).toBe(true);
+    const data = result.data as ScopeData;
+    expect(data.scope).toBe('repo');
+    const ids = data.workflows.map((w) => w.featureId);
+    expect(ids).toContain('here-1');
+    expect(ids).not.toContain('there-1');
+  }, 20000);
+
+  it('Pipeline_DirectHandlerNoKey_Unscoped', async () => {
+    // A direct handler call with no caller key and no explicit scope stays
+    // UNSCOPED by construction — this is what preserves the existing suites'
+    // semantics without per-test edits.
+    await seedStarted('a', { repoRoot: '/repo/a' });
+    await seedStarted('b', { repoRoot: '/repo/b' });
+
+    const result = await handleViewPipeline({ includeCompleted: true }, stateDir, store);
+
+    expect(result.success).toBe(true);
+    const data = result.data as ScopeData;
+    expect(data.scope).toBe('all');
+    expect(data.total).toBe(2);
+    const ids = data.workflows.map((w) => w.featureId);
+    expect(ids).toEqual(expect.arrayContaining(['a', 'b']));
+  });
+
+  it('Pipeline_ScopeRepoWithoutKey_ReturnsStructuredError', async () => {
+    // scope:'repo' explicitly requested but no repoRoot arg and no caller key —
+    // never a silent unscoped result; a structured, self-correcting error.
+    await seedStarted('x', { repoRoot: '/repo/x' });
+
+    const result = await handleViewPipeline(
+      { scope: 'repo', includeCompleted: true },
+      stateDir,
+      store,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('SCOPE_UNRESOLVABLE');
+    expect(result.error?.suggestedFix).toBeDefined();
+    expect(result.error?.suggestedFix?.params).toMatchObject({
+      action: 'pipeline',
+      scope: 'all',
+    });
+  });
+
+  it('Pipeline_ScopeAll_IncludesLegacyUnscopedRows', async () => {
+    // scope:'all' reproduces the full cross-repo inventory INCLUDING legacy rows
+    // that carry no `repoRoot` (undefined) — those match only unscoped/'all'.
+    await seedStarted('legacy'); // no repoRoot
+    await seedStarted('scoped', { repoRoot: '/repo/s' });
+
+    const result = await handleViewPipeline(
+      { scope: 'all', includeCompleted: true },
+      stateDir,
+      store,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as ScopeData;
+    expect(data.scope).toBe('all');
+    const ids = data.workflows.map((w) => w.featureId);
+    expect(ids).toEqual(expect.arrayContaining(['legacy', 'scoped']));
+  });
+
+  it('Pipeline_ExplicitRepoRoot_NormalizedBeforeMatch', async () => {
+    // ── Worktree-form: a linked-worktree path input matches a row seeded with
+    //    the MAIN-checkout key (deriveRepoKey collapses worktrees to one key),
+    //    and a legacy (no-repoRoot) row is excluded from the scoped result. ──
+    const mainRoot = fs.mkdtempSync(path.join(tmpdir(), 'pipe-drk-main-'));
+    const wtParent = fs.mkdtempSync(path.join(tmpdir(), 'pipe-drk-wt-'));
+    const wtPath = path.join(wtParent, 'linked');
+    const git = (args: string[]) =>
+      execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    try {
+      git(['init', '-q', mainRoot]);
+      git(['-C', mainRoot, 'config', 'user.email', 'test@example.com']);
+      git(['-C', mainRoot, 'config', 'user.name', 'Test']);
+      git(['-C', mainRoot, 'commit', '-q', '--allow-empty', '-m', 'init']);
+      git(['-C', mainRoot, 'worktree', 'add', '-q', wtPath]);
+
+      const mainKey = deriveRepoKey(mainRoot);
+      await seedStarted('wt-scoped', { repoRoot: mainKey });
+      await seedStarted('wt-legacy'); // no repoRoot — must not appear under repo scope
+
+      // Called with the WORKTREE path; the handler derives the SAME key.
+      const result = await handleViewPipeline(
+        { repoRoot: wtPath, includeCompleted: true },
+        stateDir,
+        store,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as ScopeData;
+      expect(data.scope).toBe('repo');
+      const ids = data.workflows.map((w) => w.featureId);
+      expect(ids).toContain('wt-scoped');
+      expect(ids).not.toContain('wt-legacy');
+    } finally {
+      fs.rmSync(mainRoot, { recursive: true, force: true });
+      fs.rmSync(wtParent, { recursive: true, force: true });
+    }
+
+    // ── Windows-form: a backslash `C:\…` input normalizes to the POSIX key
+    //    form before comparison (#1620), so it matches a POSIX-seeded row. ──
+    await seedStarted('win-scoped', { repoRoot: 'C:/Users/dev/win-repo' });
+    const winResult = await handleViewPipeline(
+      { repoRoot: 'C:\\Users\\dev\\win-repo', includeCompleted: true },
+      stateDir,
+      store,
+    );
+
+    expect(winResult.success).toBe(true);
+    const winData = winResult.data as ScopeData;
+    expect(winData.workflows.map((w) => w.featureId)).toContain('win-scoped');
+  }, 20000);
+
+  it('Pipeline_MixedState_EmitsScopeAllHintWithHiddenCount', async () => {
+    // Scoped-NONEMPTY with additional hidden other-repo rows: the escape-hatch
+    // hint still fires (mixed steady state) and reports the exact hidden count.
+    const key = deriveRepoKey(stateDir);
+    await seedStarted('mine-1', { repoRoot: key });
+    await seedStarted('mine-2', { repoRoot: key });
+    await seedStarted('other-1', { repoRoot: '/repo/other-1' });
+    await seedStarted('other-2', { repoRoot: '/repo/other-2' });
+    await seedStarted('other-3', { repoRoot: '/repo/other-3' });
+
+    const result = await handleViewPipeline(
+      { repoRoot: stateDir, includeCompleted: true },
+      stateDir,
+      store,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as ScopeData;
+    expect(data.scope).toBe('repo');
+    expect(data.total).toBe(2);
+    expect(data.unscopedTotal).toBe(5);
+    const hint = (result.next_actions ?? []).find((a) => a.hint?.includes('--scope all'));
+    expect(hint).toBeDefined();
+    // Hidden count = unscopedTotal - page.total = 5 - 2 = 3.
+    expect(hint!.reason).toContain('3');
+  }, 20000);
+
+  it('Pipeline_ScopeAll_NoEscapeHatchHint', async () => {
+    // scope:'all' hides nothing, so no escape hatch. Crucially, seed COMPLETED
+    // (terminal) rows: because `unscopedTotal` is computed POST-terminal-filter,
+    // those rows are NOT counted and must NOT be mis-attributed as repo-hidden
+    // (the ordering guard — a pre-terminal `unscopedTotal` would falsely fire).
+    await seedStarted('active-1', { repoRoot: '/r/1' });
+    await seedStarted('active-2', { repoRoot: '/r/2' });
+    await seedStarted('done-1', { repoRoot: '/r/3', terminal: true });
+    await seedStarted('done-2', { repoRoot: '/r/4', terminal: true });
+    await seedStarted('done-3', { repoRoot: '/r/5', terminal: true });
+
+    const result = await handleViewPipeline({ scope: 'all' }, stateDir, store);
+
+    expect(result.success).toBe(true);
+    const data = result.data as ScopeData;
+    expect(data.scope).toBe('all');
+    // Terminal rows dropped from BOTH counts (post-terminal-filter ordering).
+    expect(data.total).toBe(2);
+    expect(data.unscopedTotal).toBe(2);
+    const hint = (result.next_actions ?? []).find((a) => a.hint?.includes('--scope all'));
+    expect(hint).toBeUndefined();
+  });
+
+  it('Pipeline_Data_CarriesScopeAndUnscopedTotal', async () => {
+    // Every response reports `data.scope` (effective mode) and
+    // `data.unscopedTotal` (pre-scope count) — always-on perceivability.
+    await seedStarted('d1', { repoRoot: '/r/1' });
+    await seedStarted('d2', { repoRoot: '/r/2' });
+
+    const result = await handleViewPipeline({ includeCompleted: true }, stateDir, store);
+
+    expect(result.success).toBe(true);
+    const data = result.data as ScopeData;
+    expect(data.scope).toBe('all'); // direct call, no key → unscoped/all
+    expect(data.unscopedTotal).toBe(2);
   });
 });

@@ -7,6 +7,10 @@ import { logger } from '../logger.js';
 import { TERMINAL_PHASES } from '../workflow/terminal-phases.js';
 import { isFeatureStream } from '../core/infra-streams.js';
 import { getDispatchContext } from '../dispatch/dispatch-context.js';
+// DR-6 — explicit-`repoRoot` normalization routes through the same memoized
+// key derivation the composite layer uses for the caller key.
+import { deriveRepoKey } from '../utils/paths.js';
+import type { NextAction } from '../next-action.js';
 import { ViewMaterializer } from './materializer.js';
 import { SnapshotStore, isSnapshotSafeId } from './snapshot-store.js';
 // #1555 — shared `asOf` bounded-fold seam (dispatch-core, INV-2).
@@ -608,8 +612,36 @@ function comparePipelineRows(a: PipelineViewState, b: PipelineViewState): number
   return 0;
 }
 
+/**
+ * DR-7 always-on perceivability: the scope-all escape-hatch affordance. Surfaced
+ * on `next_actions` whenever repo scoping hid rows (`unscopedTotal > page.total`)
+ * — scoped-empty AND mixed steady state alike. Carries the exact `hiddenCount`
+ * (`unscopedTotal - page.total`) so the agent can perceive precisely how many
+ * workflows the default repo scope elided, and the `--scope all` CLI hint that
+ * reveals them. In `scope: "all"` mode nothing is hidden (`unscopedTotal ===
+ * page.total`), so this never fires there. Verb is the view's own name so it
+ * validates against the catch-all `NextActionSchema`.
+ */
+function scopeAllAffordance(hiddenCount: number): NextAction {
+  return {
+    verb: 'pipeline',
+    reason: `${hiddenCount} workflow${hiddenCount === 1 ? '' : 's'} in other repos ${hiddenCount === 1 ? 'is' : 'are'} hidden by the default repo scope — use scope: "all" to include ${hiddenCount === 1 ? 'it' : 'them'}.`,
+    hint: 'exarchos vw ls --scope all',
+  };
+}
+
 export async function handleViewPipeline(
-  args: { limit?: number; offset?: number; includeCompleted?: boolean; detail?: boolean },
+  args: {
+    limit?: number;
+    offset?: number;
+    includeCompleted?: boolean;
+    detail?: boolean;
+    // DR-6 — explicit scope inputs (schema-declared in `registry.ts` so the CLI
+    // flags auto-emit). `repoRoot` scopes to an arbitrary repo (normalized before
+    // compare); `scope` forces `"all"` (unfiltered) or `"repo"` (requires a key).
+    repoRoot?: string;
+    scope?: 'repo' | 'all';
+  },
   stateDir: string,
   eventStore: EventStore,
   // DR-3 — the resolved `.exarchos.yml` slice threaded from `views/composite.ts`
@@ -617,6 +649,12 @@ export async function handleViewPipeline(
   // Optional so existing internal callers (and tests) that omit it keep the
   // item-cap-only behavior (fail-open: no config ⇒ default threshold).
   config?: QualityHintsConfig,
+  // DR-6 — the memoized CALLER repo key, computed once per server process and
+  // threaded by `views/composite.ts` (`deriveRepoKey(ctx.cwd ?? process.cwd())`).
+  // Absent for direct handler calls (tests/internal), which therefore stay
+  // UNSCOPED by construction — preserving today's semantics without a per-suite
+  // edit. See the pinned scope-resolution precedence below.
+  callerRepoKey?: string,
 ): Promise<ToolResult> {
   try {
     const store = eventStore;
@@ -673,11 +711,56 @@ export async function handleViewPipeline(
     // scoping.
     const unscopedTotal = filtered.length;
 
-    // Scope-filter seam — chain A / task 007 owns the repo-scope predicate and
-    // slots it in RIGHT HERE (between `unscopedTotal` and `page.total`). Until
-    // then this is the identity set, so `scoped === filtered` and
-    // `page.total === unscopedTotal`.
-    const scoped = filtered;
+    // DR-6 — repo-scope resolution seam (between `unscopedTotal` and
+    // `page.total`). PINNED precedence:
+    //   1. explicit scope:'all'            → unfiltered              (effective 'all')
+    //   2. explicit repoRoot arg           → filter to deriveRepoKey(repoRoot),
+    //                                         normalized before compare (effective 'repo')
+    //   3. composite-supplied caller key   → filter to it            (effective 'repo')
+    //   4. explicit scope:'repo' w/ no key → STRUCTURED ERROR (never silent unscoped)
+    //   5. else (direct call, no key)      → unscoped                (effective 'all')
+    // Legacy rows (`repoRoot === undefined`) match ONLY the unscoped/'all' modes,
+    // because an explicit/caller key is always a defined string and `undefined`
+    // never equals it.
+    let scoped: PipelineViewState[];
+    let effectiveScope: 'repo' | 'all';
+    if (args.scope === 'all') {
+      scoped = filtered;
+      effectiveScope = 'all';
+    } else if (args.repoRoot !== undefined) {
+      // Normalize the caller-supplied path through the SAME derivation as the
+      // recorded key so worktree- and Windows-form inputs match by construction.
+      const key = deriveRepoKey(args.repoRoot);
+      scoped = filtered.filter((w) => w.repoRoot === key);
+      effectiveScope = 'repo';
+    } else if (callerRepoKey !== undefined) {
+      scoped = filtered.filter((w) => w.repoRoot === callerRepoKey);
+      effectiveScope = 'repo';
+    } else if (args.scope === 'repo') {
+      // scope:'repo' explicitly requested but no repoRoot arg and no caller key —
+      // there is no repo identity to filter against. Fail with a structured,
+      // self-correcting error rather than silently returning an unscoped result.
+      return {
+        success: false,
+        error: {
+          code: 'SCOPE_UNRESOLVABLE',
+          message:
+            'scope: "repo" requested but no repo identity is resolvable ' +
+            '(no explicit repoRoot argument and no caller repo key). Pass an ' +
+            'explicit repoRoot, or use scope: "all" to view the full ' +
+            'cross-repo inventory.',
+          suggestedFix: {
+            tool: 'exarchos_view',
+            params: { action: 'pipeline', scope: 'all' },
+          },
+        },
+      };
+    } else {
+      // Direct handler call with no key and no explicit scope — UNSCOPED by
+      // construction so existing direct-call suites keep today's semantics.
+      scoped = filtered;
+      effectiveScope = 'all';
+    }
 
     // DR-3 — deterministic order so consecutive offset windows partition ONE
     // stable sequence: `_asOf` descending, ties broken by `featureId` ascending.
@@ -743,7 +826,10 @@ export async function handleViewPipeline(
     // an unbounded dump nor an inventory-hiding error.
     // DR-3 — `data.total` is retained as a LEGACY ALIAS of `page.total` for one
     // release; new consumers should read `data.page`.
-    const detailData = { workflows, total, unscopedTotal, page };
+    // DR-7 — `data.scope` reports the EFFECTIVE mode ('repo' | 'all') and
+    // `data.unscopedTotal` the pre-scope count, on EVERY response, so hidden
+    // rows are always perceivable.
+    const detailData = { workflows, total, unscopedTotal, page, scope: effectiveScope };
     const threshold = resolveOutputTokenThreshold(config);
     const narrowHint = 'exarchos vw ls --limit 20 --offset 0';
     if (threshold !== null && estimateOutputTokens(detailData) > threshold) {
@@ -767,23 +853,40 @@ export async function handleViewPipeline(
         limit: effectiveLimit,
         hasMore: total > firstPage.length,
       };
+      // DR-7 — the scope-all escape hatch rides alongside the narrow affordance
+      // whenever repo scoping hid rows, so the summary branch is perceivable too.
+      const summaryNextActions: NextAction[] = [
+        narrowAffordance('pipeline', firstPage.length, total, narrowHint),
+      ];
+      if (unscopedTotal > total) {
+        summaryNextActions.push(scopeAllAffordance(unscopedTotal - total));
+      }
       return {
         success: true,
-        data: { summary, total, unscopedTotal, page: summaryPage, truncated: true },
-        next_actions: [narrowAffordance('pipeline', firstPage.length, total, narrowHint)],
+        data: { summary, total, unscopedTotal, page: summaryPage, scope: effectiveScope, truncated: true },
+        next_actions: summaryNextActions,
         ...(meta ? { _meta: meta } : {}),
       };
     }
 
-    // Per-item detail. The narrow paging affordance rides `next_actions`
-    // whenever `page.hasMore` — i.e. more rows exist beyond the current window
-    // (default small cap OR an explicit `limit`/`offset` short of the tail).
+    // Per-item detail. Two independent affordances ride `next_actions`:
+    //   • the narrow paging affordance whenever `page.hasMore` (more rows exist
+    //     beyond the current window — default small cap OR explicit limit/offset
+    //     short of the tail);
+    //   • DR-7 — the scope-all escape hatch whenever repo scoping hid rows
+    //     (`unscopedTotal > total`), independent of paging, so a single-page
+    //     scoped result with hidden other-repo rows is still perceivable.
+    const nextActions: NextAction[] = [];
+    if (page.hasMore) {
+      nextActions.push(narrowAffordance('pipeline', windowed.length, total, narrowHint));
+    }
+    if (unscopedTotal > total) {
+      nextActions.push(scopeAllAffordance(unscopedTotal - total));
+    }
     return {
       success: true,
       data: detailData,
-      ...(page.hasMore
-        ? { next_actions: [narrowAffordance('pipeline', windowed.length, total, narrowHint)] }
-        : {}),
+      ...(nextActions.length > 0 ? { next_actions: nextActions } : {}),
       ...(meta ? { _meta: meta } : {}),
     };
   } catch (err) {

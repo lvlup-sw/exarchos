@@ -3010,7 +3010,7 @@ const orchestrateActions: readonly ToolAction[] = [
 const viewActions: readonly ToolAction[] = [
   {
     name: 'pipeline',
-    description: 'Aggregated view of active workflows with stack positions (excludes completed/cancelled unless includeCompleted=true). Entries are compact by default; pass detail=true for the full per-task map.',
+    description: "Aggregated view of active workflows with stack positions, repo-scoped by default to the caller's repo (excludes completed/cancelled unless includeCompleted=true). Returns ≤ 10 compact entries; data.page carries {total, offset, limit, hasMore} and data.scope/data.unscopedTotal report the effective scope and the pre-scope count so hidden rows are perceivable. Pass scope='all' to span every repo, an explicit repoRoot to scope to another repo, or detail=true for the full per-task map.",
     schema: z.object({
       limit: coercedPositiveInt().optional(),
       offset: coercedNonnegativeInt().optional(),
@@ -3018,6 +3018,11 @@ const viewActions: readonly ToolAction[] = [
       // DR-1 — schema-level flag so the CLI flag auto-emits. Default entries
       // omit the per-task `tasksById` map; `detail: true` restores it.
       detail: z.boolean().optional(),
+      // DR-6 — repo-scope inputs, schema-declared so the CLI flags auto-emit.
+      // `repoRoot` scopes to an arbitrary repo (normalized before compare);
+      // `scope` forces 'all' (unfiltered) or 'repo' (requires a resolvable key).
+      repoRoot: z.string().optional(),
+      scope: z.enum(['repo', 'all']).optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { DispatchContext } from '../core/dispatch.js';
 import { EventStore } from '../event-store/store.js';
+import { deriveRepoKey } from '../utils/paths.js';
 
 // Mock the view tools module
 vi.mock('./tools.js', () => ({
@@ -99,15 +100,20 @@ describe('handleView', () => {
       expect(result.success).toBe(true);
       expect(result.data).toEqual({ workflows: [], total: 0 });
       expect((result as Record<string, unknown>).next_actions).toEqual([]);
+      // DR-6 oracle update (intentional): the composite now threads a 5th arg —
+      // the memoized caller repo key `deriveRepoKey(ctx.cwd ?? process.cwd())`.
+      // CTX carries no `cwd`, so it resolves the serving process's repo key
+      // (mirrors `workflow/composite.ts` threading the same key into handleInit).
       expect(handleViewPipeline).toHaveBeenCalledWith(
         { limit: 10, offset: 0 },
         STATE_DIR,
         CTX.eventStore,
-        // DR-3 — the composite now threads `ctx.config` (undefined here) so the
+        // DR-3 — the composite threads `ctx.config` (undefined here) so the
         // measured-size summary can resolve `qualityHints.outputTokenThreshold`.
         CTX.config,
+        deriveRepoKey(process.cwd()),
       );
-    });
+    }, 20000);
   });
 
   describe('tasks', () => {
