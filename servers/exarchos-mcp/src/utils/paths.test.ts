@@ -216,7 +216,10 @@ describe('deriveRepoKey', () => {
       // the whole point of keying on --git-common-dir rather than the worktree
       // root. Both are absolute, POSIX-separated.
       expect(worktreeKey).toBe(mainKey);
-      expect(worktreeKey.startsWith('/')).toBe(true);
+      // Absolute + POSIX-separated on either host: a leading `/` on POSIX, or a
+      // drive-letter root (`C:/…`) on Windows (cf. DeriveRepoKey_WindowsSeparators,
+      // whose key is `C:/Users/…`). `startsWith('/')` was a POSIX-only assumption.
+      expect(worktreeKey).toMatch(/^(\/|[A-Za-z]:\/)/);
       expect(worktreeKey).not.toContain('\\');
     } finally {
       fs.rmSync(mainRoot, { recursive: true, force: true });

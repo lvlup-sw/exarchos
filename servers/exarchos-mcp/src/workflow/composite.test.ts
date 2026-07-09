@@ -298,27 +298,33 @@ describe('HandleWorkflow_InitDispatch_EmitsWorkflowStartedWithRepoRoot (DR-5)', 
     const { deriveRepoKey: freshDeriveRepoKey } = await import('../utils/paths.js');
 
     const store = new FreshEventStore(tempDir);
-    const featureId = 'wf-composite-reporoot';
-    const dispatchCtx: DispatchContext = {
-      stateDir: tempDir,
-      eventStore: store,
-      enableTelemetry: false,
-    };
+    try {
+      const featureId = 'wf-composite-reporoot';
+      const dispatchCtx: DispatchContext = {
+        stateDir: tempDir,
+        eventStore: store,
+        enableTelemetry: false,
+      };
 
-    const result = await handleWorkflow(
-      { action: 'init', featureId, workflowType: 'feature' },
-      dispatchCtx,
-    );
-    expect(result.success).toBe(true);
+      const result = await handleWorkflow(
+        { action: 'init', featureId, workflowType: 'feature' },
+        dispatchCtx,
+      );
+      expect(result.success).toBe(true);
 
-    const events = await store.query(featureId, { type: 'workflow.started' });
-    expect(events.length).toBe(1);
-    const data = events[0]!.data as { repoRoot?: string; featureId?: string };
+      const events = await store.query(featureId, { type: 'workflow.started' });
+      expect(events.length).toBe(1);
+      const data = events[0]!.data as { repoRoot?: string; featureId?: string };
 
-    // The composite threads `deriveRepoKey(ctx.cwd ?? process.cwd())` — no cwd on
-    // ctx, so the serving process's repo key — and handleInit stamps it. A
-    // reverted implementation (no threading / no stamp) leaves repoRoot absent.
-    expect(typeof data.repoRoot).toBe('string');
-    expect(data.repoRoot).toBe(freshDeriveRepoKey(process.cwd()));
+      // The composite threads `deriveRepoKey(ctx.cwd ?? process.cwd())` — no cwd on
+      // ctx, so the serving process's repo key — and handleInit stamps it. A
+      // reverted implementation (no threading / no stamp) leaves repoRoot absent.
+      expect(typeof data.repoRoot).toBe('string');
+      expect(data.repoRoot).toBe(freshDeriveRepoKey(process.cwd()));
+    } finally {
+      // Release the SQLite handle before afterEach rmrf's tempDir — an open WAL
+      // handle makes the unlink EBUSY on Windows (EventStore.close() contract).
+      store.close();
+    }
   }, 20000);
 });
