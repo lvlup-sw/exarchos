@@ -1,6 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import * as path from 'node:path';
 import type { DispatchContext } from '../core/dispatch.js';
 import { EventStore } from '../event-store/store.js';
+import { deriveRepoKey } from '../utils/paths.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 vi.mock('./tools.js', () => ({
   handleInit: vi.fn().mockResolvedValue({ success: true, data: { phase: 'init-result' } }),
@@ -58,16 +63,20 @@ describe('handleWorkflow', () => {
 
       const result = await handleWorkflow(args, ctx);
 
+      // DR-5 oracle update (intentional): the composite now threads a 4th arg —
+      // the memoized caller repo key `deriveRepoKey(ctx.cwd ?? process.cwd())`.
+      // ctx carries no `cwd`, so it resolves the serving process's repo key.
       expect(handleInit).toHaveBeenCalledWith(
         { featureId: 'test', workflowType: 'feature' },
         stateDir,
         ctx.eventStore,
+        deriveRepoKey(process.cwd()),
       );
       // T036: successful responses are wrapped in Envelope<T>
       expect(result.success).toBe(true);
       expect(result.data).toEqual({ phase: 'init-result' });
       expect((result as Record<string, unknown>).next_actions).toEqual([]);
-    });
+    }, 20000);
   });
 
   describe('get action', () => {
@@ -260,4 +269,56 @@ describe('handleWorkflow', () => {
       }
     });
   });
+});
+
+// ─── DR-5: composite init dispatch stamps repoRoot (production path) ──────────
+//
+// The file-level `vi.mock('./tools.js')` above stubs `handleInit` for
+// envelope-conformance assertions. This suite UN-mocks it so the composite arm
+// runs the REAL `handleInit` end-to-end against a real event store — proving
+// the production path (not a direct handler call) stamps `repoRoot` on
+// `workflow.started`, closing the built-but-unwired gap (DR-5).
+
+describe('HandleWorkflow_InitDispatch_EmitsWorkflowStartedWithRepoRoot (DR-5)', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    vi.doUnmock('./tools.js');
+    vi.resetModules();
+    tempDir = await mkdtemp(path.join(tmpdir(), 'composite-init-reporoot-'));
+  });
+
+  afterEach(async () => {
+    await rmrfAsync(tempDir);
+  });
+
+  it('composite init dispatch stamps the caller repo key on workflow.started', async () => {
+    const { handleWorkflow } = await import('./composite.js');
+    const { EventStore: FreshEventStore } = await import('../event-store/store.js');
+    const { deriveRepoKey: freshDeriveRepoKey } = await import('../utils/paths.js');
+
+    const store = new FreshEventStore(tempDir);
+    const featureId = 'wf-composite-reporoot';
+    const dispatchCtx: DispatchContext = {
+      stateDir: tempDir,
+      eventStore: store,
+      enableTelemetry: false,
+    };
+
+    const result = await handleWorkflow(
+      { action: 'init', featureId, workflowType: 'feature' },
+      dispatchCtx,
+    );
+    expect(result.success).toBe(true);
+
+    const events = await store.query(featureId, { type: 'workflow.started' });
+    expect(events.length).toBe(1);
+    const data = events[0]!.data as { repoRoot?: string; featureId?: string };
+
+    // The composite threads `deriveRepoKey(ctx.cwd ?? process.cwd())` — no cwd on
+    // ctx, so the serving process's repo key — and handleInit stamps it. A
+    // reverted implementation (no threading / no stamp) leaves repoRoot absent.
+    expect(typeof data.repoRoot).toBe('string');
+    expect(data.repoRoot).toBe(freshDeriveRepoKey(process.cwd()));
+  }, 20000);
 });

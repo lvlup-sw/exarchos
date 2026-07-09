@@ -753,3 +753,65 @@ describe('HandleCheckpoint_HandoffLint (#1244)', () => {
     expect(events.length).toBe(0);
   });
 });
+
+// ─── DR-5: handleInit repo-key parameter ─────────────────────────────────────
+
+describe('HandleInit_RepoKeyParameter (DR-5)', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    // Un-mock `./tools.js` so this suite hits the real `handleInit`; the
+    // file-level mock stubs it for envelope-conformance assertions only.
+    vi.doUnmock('./tools.js');
+    vi.resetModules();
+    tempDir = await mkdtemp(path.join(tmpdir(), 'init-reporoot-'));
+  });
+
+  afterEach(async () => {
+    await rmrfAsync(tempDir);
+  });
+
+  it('HandleInit_WithRepoKeyParam_EmitsRepoRoot', async () => {
+    const { handleInit } = await import('./tools.js');
+    const store = new EventStore(tempDir);
+    const featureId = 'wf-init-reporoot-present';
+    const repoKey = '/home/dev/exarchos';
+
+    const init = await handleInit(
+      { featureId, workflowType: 'feature' },
+      tempDir,
+      store,
+      repoKey,
+    );
+    expect(init.success).toBe(true);
+
+    const events = await store.query(featureId, { type: 'workflow.started' });
+    expect(events.length).toBe(1);
+    const data = events[0]!.data as { repoRoot?: string; featureId?: string };
+    // The supplied key is stamped verbatim (the composite normalizes upstream).
+    expect(data.repoRoot).toBe(repoKey);
+  });
+
+  it('HandleInit_NoRepoKey_EmitsLegacyShape', async () => {
+    const { handleInit } = await import('./tools.js');
+    const store = new EventStore(tempDir);
+    const featureId = 'wf-init-reporoot-absent';
+
+    const init = await handleInit(
+      { featureId, workflowType: 'feature' },
+      tempDir,
+      store,
+      // no repoKey — exactly today's call shape
+    );
+    expect(init.success).toBe(true);
+
+    const events = await store.query(featureId, { type: 'workflow.started' });
+    expect(events.length).toBe(1);
+    const data = events[0]!.data as { repoRoot?: string; featureId?: string };
+    // Legacy shape: repoRoot is absent and idempotency behavior is unchanged.
+    expect(data.repoRoot).toBeUndefined();
+    expect(data.featureId).toBe(featureId);
+    const key = (events[0] as unknown as { idempotencyKey?: string }).idempotencyKey;
+    expect(key).toBe(`${featureId}:workflow.started`);
+  });
+});

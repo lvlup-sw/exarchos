@@ -6,6 +6,7 @@ import {
   AGENT_EVENT_TYPES,
   EventTypes,
   WorkflowEventBase,
+  WorkflowStartedData,
   TaskAssignedData,
   TeamSpawnedData,
   TeamTaskAssignedData,
@@ -941,6 +942,33 @@ describe('QualityHintGeneratedData', () => {
 describe('EventTypes', () => {
   it('EventTypes_IncludesQualityHintGenerated', () => {
     expect(EventTypes).toContain('quality.hint.generated');
+  });
+});
+
+// ─── DR-5: WorkflowStartedData repo identity ─────────────────────────────────
+
+describe('WorkflowStartedData repoRoot (DR-5)', () => {
+  it('WorkflowStartedData_WithRepoRoot_Parses', () => {
+    const result = WorkflowStartedData.safeParse({
+      featureId: 'f1',
+      workflowType: 'feature',
+      repoRoot: '/home/user/exarchos',
+    });
+    expect(result.success).toBe(true);
+    // The value must survive parsing — a schema WITHOUT the field would strip
+    // the unknown key (z.object is non-strict), so this assertion is what makes
+    // the test fail if `repoRoot` is removed from the schema.
+    if (result.success) expect(result.data.repoRoot).toBe('/home/user/exarchos');
+  });
+
+  it('WorkflowStartedData_WithoutRepoRoot_StillParses', () => {
+    // Legacy events carry no repoRoot and MUST remain valid (optional field).
+    const result = WorkflowStartedData.safeParse({
+      featureId: 'f1',
+      workflowType: 'feature',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.repoRoot).toBeUndefined();
   });
 });
 
