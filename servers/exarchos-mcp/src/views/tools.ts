@@ -24,6 +24,7 @@ import type { TaskDetailViewState, TaskDetail } from './task-detail-view.js';
 import {
   pipelineProjection,
   PIPELINE_VIEW,
+  PIPELINE_SNAPSHOT_NAME,
 } from './pipeline-view.js';
 import type { PipelineViewState, PipelineSummary } from './pipeline-view.js';
 import {
@@ -102,7 +103,13 @@ import { PROJECTION_LAG_THRESHOLD_MS } from '../projections/index.js';
 // ─── Helper: create a materializer with all projections registered ─────────
 
 function createMaterializer(stateDir: string): ViewMaterializer {
-  const snapshotStore = new SnapshotStore(stateDir);
+  // DR-5/DR-6 snapshot-lineage registration: the pipeline view's snapshots move
+  // to a versioned filename (`pipeline-v2`) so pre-upgrade v1 snapshots are
+  // ignored and the stream re-folds to pick up `repoRoot`. The projection is
+  // still registered under `PIPELINE_VIEW` below — only the on-disk lineage moves.
+  const snapshotStore = new SnapshotStore(stateDir, {
+    [PIPELINE_VIEW]: PIPELINE_SNAPSHOT_NAME,
+  });
   const materializer = new ViewMaterializer({ snapshotStore });
   materializer.register(WORKFLOW_STATUS_VIEW, workflowStatusProjection);
   materializer.register(TASK_DETAIL_VIEW, taskDetailProjection);

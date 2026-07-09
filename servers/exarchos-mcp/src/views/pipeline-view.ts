@@ -10,6 +10,21 @@ import {
 
 export const PIPELINE_VIEW = 'pipeline';
 
+/**
+ * Versioned on-disk snapshot lineage for the pipeline view (DR-5/DR-6).
+ *
+ * The projection *registration* name stays `PIPELINE_VIEW` ('pipeline') — the
+ * materializer lookup, `BUILTIN_VIEW_NAMES`, telemetry, and benchmarks are all
+ * keyed on it and MUST NOT move. Only the persisted snapshot FILENAME is
+ * versioned, via the SnapshotStore namespace map wired at the registration seam
+ * (`views/tools.ts`), so new servers read/write `<streamId>.pipeline-v2.snapshot.json`
+ * and simply ignore pre-upgrade `<streamId>.pipeline.snapshot.json` files — the
+ * stream re-folds once and picks up `repoRoot`. This deliberately avoids
+ * bumping `EVENT_SCHEMA_VERSION` (which drives event-migration, not view
+ * snapshots) and avoids mixed-version servers thrashing a shared snapshot file.
+ */
+export const PIPELINE_SNAPSHOT_NAME = 'pipeline-v2';
+
 // ─── Bounds ─────────────────────────────────────────────────────────────────
 
 export const MAX_STACK_POSITIONS = 100;
@@ -64,6 +79,13 @@ export interface PipelineViewState {
   stackPositions: StackPosition[];
   hasMore: boolean;
   /**
+   * Repo identity (DR-5). Copied from `workflow.started` event data during the
+   * fold; `undefined` for legacy streams whose `workflow.started` carried no
+   * `repoRoot` (treated as unscoped by the repo-scoping filter). Purely folded —
+   * the projection performs NO lookup to populate it.
+   */
+  repoRoot?: string;
+  /**
    * ISO timestamp of the last folded event — used by handlers to expose
    * `projectionAsOf` and `_meta.projectionLag` on the response envelope
    * (#1359 / PR4 T14 + T15). Empty string when no event has been folded.
@@ -100,6 +122,7 @@ export const pipelineProjection: ViewProjection<PipelineViewState> = {
     tasksById: {},
     stackPositions: [],
     hasMore: false,
+    repoRoot: undefined,
     _asOf: '',
   }),
 
@@ -111,12 +134,19 @@ export const pipelineProjection: ViewProjection<PipelineViewState> = {
 
     switch (event.type) {
       case 'workflow.started': {
-        const data = event.data as { featureId?: string; workflowType?: string } | undefined;
+        const data = event.data as {
+          featureId?: string;
+          workflowType?: string;
+          repoRoot?: string;
+        } | undefined;
         return {
           ...view,
           featureId: data?.featureId ?? view.featureId,
           workflowType: data?.workflowType ?? view.workflowType,
           phase: 'started',
+          // DR-5: pure fold of repo identity — copied from the event, never
+          // looked up. Absent on legacy events ⇒ stays `undefined` (unscoped).
+          repoRoot: data?.repoRoot ?? view.repoRoot,
           _asOf: nextAsOf,
         };
       }
