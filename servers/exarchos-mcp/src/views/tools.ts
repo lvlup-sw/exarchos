@@ -572,10 +572,20 @@ export async function handleViewPipeline(
       allWorkflows.push(view);
     }
 
+    // DR-4 — phantom exclusion. A discovered feature stream that folded no
+    // `workflow.started` event yields a degenerate row (empty featureId, no
+    // phase, no timestamp). Exclude these BEFORE the terminal filter and BEFORE
+    // any total is computed, so a phantom never appears in the page and never
+    // inflates `page.total`/`unscopedTotal` — in any scope mode. Infra streams
+    // are already dropped at discovery (isFeatureStream); this closes the gap
+    // for feature-named streams that carry events but never a `workflow.started`
+    // foundation (#1187 covered only the reserved infra ids).
+    const real = allWorkflows.filter((w) => w.featureId !== '');
+
     // Filter out terminal-state workflows unless explicitly requested
     const filtered = args.includeCompleted
-      ? allWorkflows
-      : allWorkflows.filter((w) => !(TERMINAL_PHASES as readonly string[]).includes(w.phase));
+      ? real
+      : real.filter((w) => !(TERMINAL_PHASES as readonly string[]).includes(w.phase));
 
     // Paginate the filtered results. DR-3: when the caller omits `limit`, apply
     // the DETERMINISTIC item cap instead of the old unbounded `slice(start,

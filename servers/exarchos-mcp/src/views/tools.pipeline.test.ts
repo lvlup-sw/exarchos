@@ -127,3 +127,72 @@ describe('handleViewPipeline — projectionAsOf + projectionLag (#1359 / PR4)', 
     }
   });
 });
+
+// ─── DR-4 (task 004): phantom exclusion from page AND totals ─────────────────
+//
+// A feature-named stream that carries events but never a `workflow.started`
+// event folds to a degenerate row (empty featureId). Such a row must never
+// appear in the page and must never be counted in `page.total`/`unscopedTotal`,
+// in any scope mode. `includeCompleted: true` is used to isolate the phantom
+// filter from the terminal-phase filter (a phantom's phase is '' — non-terminal
+// — so without the DR-4 filter it would otherwise leak through regardless).
+describe('handleViewPipeline — DR-4 phantom exclusion (task 004)', () => {
+  it('Pipeline_StreamWithoutStarted_ExcludedFromPageAndTotals', async () => {
+    // A stream with a task event but NO workflow.started foundation.
+    await store.append('phantom-stream', {
+      type: 'task.assigned',
+      data: { taskId: 'T1' },
+    });
+
+    const result = await handleViewPipeline(
+      { includeCompleted: true },
+      stateDir,
+      store,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      workflows?: ReadonlyArray<{ featureId: string }>;
+      total?: number;
+    };
+    // No empty-featureId row surfaces …
+    expect((data.workflows ?? []).some((w) => w.featureId === '')).toBe(false);
+    expect(data.workflows ?? []).toHaveLength(0);
+    // … and the total does not count it.
+    expect(data.total).toBe(0);
+  });
+
+  it('Pipeline_PhantomAndReal_TotalsCountOnlyReal', async () => {
+    // One genuine workflow (has workflow.started) …
+    await store.append('real-feature', {
+      type: 'workflow.started',
+      data: { featureId: 'real-feature', workflowType: 'feature' },
+    });
+    // … alongside a phantom (events, but no workflow.started foundation).
+    await store.append('phantom-a', {
+      type: 'task.assigned',
+      data: { taskId: 'T1' },
+    });
+    await store.append('phantom-b', {
+      type: 'state.patched',
+      data: { fields: ['tasks'], patch: { tasks: [{ id: 'X', status: 'pending' }] } },
+    });
+
+    const result = await handleViewPipeline(
+      { includeCompleted: true },
+      stateDir,
+      store,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      workflows: ReadonlyArray<{ featureId: string }>;
+      total: number;
+    };
+    // Only the real workflow appears; the total counts it alone.
+    expect(data.workflows).toHaveLength(1);
+    expect(data.workflows[0]?.featureId).toBe('real-feature');
+    expect(data.workflows.every((w) => w.featureId !== '')).toBe(true);
+    expect(data.total).toBe(1);
+  });
+});
