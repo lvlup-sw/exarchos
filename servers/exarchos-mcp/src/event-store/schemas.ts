@@ -802,6 +802,12 @@ export const WorkflowStartedData = z.object({
   // (`on-request`) after `handleInit` → rehydrate round-trips. Silently
   // accepted for non-oneshot workflow types but never populated by them.
   synthesisPolicy: z.enum(['always', 'never', 'on-request']).optional(),
+  // Repo identity (DR-5). OPTIONAL: populated by the composite layer at init
+  // from the serving process's working directory via `deriveRepoKey`
+  // (utils/paths.ts). Legacy events without it MUST still parse — the pipeline
+  // projection treats an absent `repoRoot` as unscoped. The field enters the
+  // model strictly as event data; no historical event is rewritten.
+  repoRoot: z.string().optional(),
 });
 
 export const TaskAssignedData = z.object({

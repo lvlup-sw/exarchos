@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import os from 'node:os';
-import { expandTilde, isClaudeCodePlugin, resolveStateDir, resolveTeamsDir, resolveTasksDir } from './paths.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { expandTilde, isClaudeCodePlugin, resolveStateDir, resolveTeamsDir, resolveTasksDir, deriveRepoKey } from './paths.js';
 
 describe('expandTilde', () => {
   afterEach(() => {
@@ -184,6 +187,91 @@ describe('resolveTasksDir', () => {
 
   it('returns default fallback when no env vars set', () => {
     expect(resolveTasksDir()).toBe('/home/testuser/.exarchos/tasks');
+  });
+});
+
+// ─── deriveRepoKey (DR-5) ────────────────────────────────────────────────────
+//
+// Git-spawning cases carry an explicit ≥15s per-test timeout — vitest's 5s
+// default flakes for subprocess-spawning tests under CI load (repo memory).
+
+describe('deriveRepoKey', () => {
+  it('DeriveRepoKey_WorktreePath_MatchesMainCheckoutKey', () => {
+    const mainRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'drk-main-'));
+    const wtParent = fs.mkdtempSync(path.join(os.tmpdir(), 'drk-wt-'));
+    const wtPath = path.join(wtParent, 'linked');
+    const git = (args: string[]) =>
+      execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    try {
+      git(['init', '-q', mainRoot]);
+      git(['-C', mainRoot, 'config', 'user.email', 'test@example.com']);
+      git(['-C', mainRoot, 'config', 'user.name', 'Test']);
+      git(['-C', mainRoot, 'commit', '-q', '--allow-empty', '-m', 'init']);
+      git(['-C', mainRoot, 'worktree', 'add', '-q', wtPath]);
+
+      const mainKey = deriveRepoKey(mainRoot);
+      const worktreeKey = deriveRepoKey(wtPath);
+
+      // A linked worktree resolves to the SAME identity as the main checkout —
+      // the whole point of keying on --git-common-dir rather than the worktree
+      // root. Both are absolute, POSIX-separated.
+      expect(worktreeKey).toBe(mainKey);
+      expect(worktreeKey.startsWith('/')).toBe(true);
+      expect(worktreeKey).not.toContain('\\');
+    } finally {
+      fs.rmSync(mainRoot, { recursive: true, force: true });
+      fs.rmSync(wtParent, { recursive: true, force: true });
+    }
+  }, 20000);
+
+  it('DeriveRepoKey_NonGitPath_FallsBackToNormalizedPath', () => {
+    // A temp dir outside any git repository: the git spawn exits non-zero, so we
+    // fall back to the canonicalized input path.
+    const nonGit = fs.mkdtempSync(path.join(os.tmpdir(), 'drk-nongit-'));
+    try {
+      const key = deriveRepoKey(nonGit);
+      // Equals the realpath'd input (canonicalized: macOS /var → /private/var,
+      // no-op on Linux), POSIX-separated, never mangled to a git root.
+      expect(key).toBe(fs.realpathSync.native(nonGit).replace(/\\/g, '/'));
+      expect(key).not.toContain('\\');
+    } finally {
+      fs.rmSync(nonGit, { recursive: true, force: true });
+    }
+  }, 20000);
+
+  it('DeriveRepoKey_WindowsSeparators_ReturnsPosix', () => {
+    // A win32-form input on the POSIX CI host: force the non-git fallback and an
+    // identity realpath so the assertion is deterministic off Windows. The key
+    // MUST come back separator-normalized to POSIX (#1620).
+    const key = deriveRepoKey('C:\\Users\\dev\\my-repo', {
+      gitCommonDir: () => {
+        throw new Error('not a git repo');
+      },
+      realpath: (p) => p,
+    });
+    expect(key).toBe('C:/Users/dev/my-repo');
+    expect(key).not.toContain('\\');
+  });
+
+  it('DeriveRepoKey_RepeatedCall_UsesMemo', () => {
+    // The git subprocess is invoked at most ONCE across repeated calls for one
+    // input path — steady-state pipeline calls pay a map lookup, not a spawn.
+    let spawnCount = 0;
+    const uniquePath = `/tmp/drk-memo-probe-${Math.random().toString(36).slice(2)}`;
+    const deps = {
+      gitCommonDir: (_cwd: string) => {
+        spawnCount += 1;
+        return '/canonical/repo/.git';
+      },
+      realpath: (p: string) => p,
+    };
+
+    const first = deriveRepoKey(uniquePath, deps);
+    const second = deriveRepoKey(uniquePath, deps);
+
+    expect(spawnCount).toBe(1);
+    expect(first).toBe('/canonical/repo');
+    expect(second).toBe(first);
   });
 });
 
