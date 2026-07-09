@@ -1,7 +1,7 @@
 # Spec: Pipeline View Economy & Repo Scoping
 
-**Date:** 2026-07-09 · **Feature:** `refactor-pipeline-view-economy` · **Depth:** standard · **Revision:** 2
-**Inputs:** refactor brief in workflow state (`refactor-pipeline-view-economy`); live-probe evidence 2026-07-09; adversarial plan-review rounds 1 + 2 (2 voters each, refuted — all gaps addressed below); gate-audit spin-offs #1656/#1657/#1658 (out of scope here)
+**Date:** 2026-07-09 · **Feature:** `refactor-pipeline-view-economy` · **Depth:** standard · **Revision:** 3
+**Inputs:** refactor brief in workflow state (`refactor-pipeline-view-economy`); live-probe evidence 2026-07-09; adversarial plan-review rounds 1 + 2 (2 voters each, refuted — all gaps addressed below); gate-audit spin-offs #1656/#1657/#1658 (out of scope here); delegate-time dispatch-guard defect found on resume and folded in per operator direction (DR-10 / Task 011)
 
 > One unified artifact: `## Requirements` is the DR-N source; `## Tasks` maps tasks → DR-N within this same document.
 > Heading levels here intentionally diverge from `spec-template.md` (h2 Requirements / h3 tasks) — the live `check_plan_coverage` / `check_provenance_chain` parsers reject the template's h3/h4 shape; see issue #1657.
@@ -39,6 +39,10 @@ Both round-2 voters refuted revision 1, converging on one root cause plus enumer
 - **Description budget owned (LOW):** the registry description update in Task 008 must stay inside the 280-token per-action budget enforced by `architecture/description-budget.test.ts` — listed in its verification.
 - **Enumeration honesty (LOW):** `src/__tests__/views/pipeline-view.test.ts` and `views/composite.envelope.test.ts` were inspected and survive (non-strict equality / mocked handlers); they are listed as verified-surviving rather than claiming the enumeration was already complete. One round-2 claim was checked and discarded: `src/parity/readonly-cap-parity.test.ts` does exist at the listed path.
 
+### Revision 3 changes (delegate-time defect fold-in)
+
+Resuming into `overhaul-delegate`, the first dispatch (`prepare_delegation`, `nativeIsolation: true`) was refused with `blocked: current-branch-protected` — a defect not anticipated by the approved plan. Root cause, confirmed in code (not hypothesized): `prepare-delegation.ts` builds its `gitExec` with no `cwd`, so `getCurrentBranch` reads HEAD from the **MCP server process's launch directory — the main checkout**, which sits on `main` because the feature branch is checked out in the orchestrator worktree (git forbids the same branch in two worktrees). `assertCurrentBranchNotProtected` then fires **unconditionally**, even though the DR-2 worktree-location guard directly beside it is already gated behind `!nativeIsolation`. The handler accepts no `cwd`/`repoRoot`, so the interrupt-handoff's proposed "retry with cwd" recovery cannot work. Under native isolation each subagent worktree is materialized off the pinned base (`worktree.baseRef: head`, enforced by the DR-2b baseRef guard), so the orchestrator's HEAD is never inherited and the guard is a guaranteed false positive. Per operator direction this fix is folded into scope rather than filed as a tangential spin-off (contrast #1656/#1657/#1658). New **DR-10 + Task 011**: gate the protected-branch guard behind `!nativeIsolation`, mirroring the existing worktree-location skip. Because the defect blocks the very dispatch path that would carry it, Task 011 is applied on the integration branch as a dispatch-unblocking prerequisite — it cannot be dispatched through the path it repairs.
+
 ### Technical Design
 
 **Identity source (stated honestly).** Production adapters do not populate `DispatchContext.cwd`; per `core/dispatch.ts` it defaults to `process.cwd()` of the long-lived server process. For a project-scoped server (the normal plugin/CLI arrangement) that is the repo the server was launched in, and `deriveRepoKey` collapses main checkout and all worktrees to one key, so write-time and read-time identities agree by construction. A future client that does thread a real `ctx.cwd` (e.g. via MCP roots) gets more precise identity through the same seam with no further change. This is the deliberate, documented v1 semantics — not an accident.
@@ -69,6 +73,7 @@ Both round-2 voters refuted revision 1, converging on one root cause plus enumer
 - `servers/exarchos-mcp/src/registry.ts` — pipeline input schema + description.
 - `servers/exarchos-mcp/src/views/output-cap.ts` — pipeline-specific default window constant.
 - `skills-src/shepherd/SKILL.md`, `skills-src/rehydrate/SKILL.md`, `skills-src/cleanup/SKILL.md`, `skills-src/checkpoint/SKILL.md`, `skills-src/dogfood/SKILL.md`, `skills-src/prune/SKILL.md`, `skills-src/checkpoint/references/mcp-tool-reference.md` — pipeline-discovery flows learn the scoping contract.
+- `servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts` — DR-10: `!nativeIsolation` gate on the protected-branch preflight guard (delegate-time fold-in).
 
 ### Alternatives considered
 
@@ -173,6 +178,15 @@ The skill flows that discover workflows through the pipeline view learn the new 
 - `skills-src/shepherd/SKILL.md`, `skills-src/rehydrate/SKILL.md`, `skills-src/cleanup/SKILL.md`, `skills-src/checkpoint/SKILL.md`, `skills-src/dogfood/SKILL.md`, `skills-src/prune/SKILL.md`, `skills-src/checkpoint/references/mcp-tool-reference.md` updated; `npm run build:skills` output committed; `npm run skills:guard` green.
 - Skill-snapshot baselines updated per the dual-baseline procedure.
 
+### DR-10: Dispatch preflight honors native isolation for branch protection
+
+Under `nativeIsolation: true`, `prepare_delegation`'s protected-branch guard (`assertCurrentBranchNotProtected`) is skipped — mirroring the DR-2 worktree-location guard, which is already `!nativeIsolation`-gated. Native isolation delegates base safety to the host, which materializes each subagent worktree off the pinned base (`worktree.baseRef: head` → the integration tip); the DR-2b baseRef guard is the applicable base-safety check on that path. The orchestrator's HEAD is read by the server from its own launch cwd (the main checkout, which cannot hold the feature branch and so sits on `main`), so the guard is a false positive under worktree orchestration. The non-native (shared-checkout) path is unchanged — dispatching from `main` there still blocks.
+
+**Acceptance criteria:**
+- `prepare_delegation` with `nativeIsolation: true` proceeds to readiness even when the server-observed HEAD is `main`, and `assertCurrentBranchNotProtected` is never consulted (structural skip).
+- `prepare_delegation` without `nativeIsolation` on `main` still returns `blocked: current-branch-protected` (regression pinned by the existing guard test, retained green).
+- The `dispatch.preflight` telemetry shape is unchanged: the `protectedBranch` slot follows the same skipped-guard convention as `worktree` (`passed: true` = no failure observed).
+
 ## Decomposition
 
 The decomposition maps every task to one or more DR-N from the section above.
@@ -195,6 +209,7 @@ The decomposition maps every task to one or more DR-N from the section above.
 | DR-7 | Always-on scope perceivability | 007 |
 | DR-8 | Contract conformance preserved | 008, 009 |
 | DR-9 | Skill flows updated for scoped discovery | 010 |
+| DR-10 | Dispatch preflight honors native isolation for branch protection | 011 |
 
 ## Tasks
 
@@ -346,6 +361,19 @@ Tests are judged **test-after by adequacy** — the failing-test-first ordering 
 **Verification:** medium — shepherd's stale-workflow discovery AND prune's candidate observation switch to `scope: "all"` (stale legacy rows are exactly the hidden ones; prune exists to drain them); rehydrate/cleanup/checkpoint/dogfood discovery prose documents default repo scoping + `unscopedTotal`; the checkpoint tool-reference documents the new parameters and payload fields. Run `npm run build:skills`, commit regenerated `skills/` + `command-aliases/`, `npm run skills:guard` green, and update skill-snapshot baselines per the dual-baseline procedure.
 **Dependencies:** 007
 **Parallelizable:** Yes (with 008/009)
+
+### Task 011: Gate the protected-branch dispatch guard behind nativeIsolation
+
+**Risk Tier:** medium
+**Boundary Touching:** true
+**Test Layer:** unit
+**Implements:** DR-10
+**Files:**
+- `servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts`
+- `servers/exarchos-mcp/src/orchestrate/prepare-delegation.test.ts`
+**Verification:** medium — scoped tests + kill-probe. Tests: `handlePrepareDelegation_NativeIsolationOnProtectedBranch_SkipsGuardAndProceeds` (guard never consulted, dispatch proceeds to readiness) and the retained `handlePrepareDelegation_OnProtectedBranch_ReturnsBlockedAndEmitsPreflightBlocked` (non-native regression). The new test uses `mockReturnValueOnce` for the `getCurrentBranch` override and queues nothing on `assertCurrentBranchNotProtected` — `beforeEach` clears calls but not implementations, so a persistent override would leak into every downstream test (caught during implementation via a baseline diff). Whole-file `prepare-delegation.test.ts` + `.integration.test.ts` + `dispatch-guard.test.ts` green.
+**Dependencies:** None — dispatch-unblocking prerequisite. Applied on the integration branch directly rather than dispatched, since it repairs the very `prepare_delegation` path a normal dispatch would traverse (chicken-and-egg). Takes effect only after an MCP-server rebuild + restart.
+**Parallelizable:** N/A (lands before the wave)
 
 ### Parallelization
 
