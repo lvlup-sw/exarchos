@@ -1,7 +1,7 @@
 # Spec: Pipeline View Economy & Repo Scoping
 
-**Date:** 2026-07-09 · **Feature:** `refactor-pipeline-view-economy` · **Depth:** standard · **Revision:** 1
-**Inputs:** refactor brief in workflow state (`refactor-pipeline-view-economy`); live-probe evidence 2026-07-09; adversarial plan-review round 1 (2 voters, refuted — all gaps addressed below); gate-audit spin-offs #1656/#1657/#1658 (out of scope here)
+**Date:** 2026-07-09 · **Feature:** `refactor-pipeline-view-economy` · **Depth:** standard · **Revision:** 2
+**Inputs:** refactor brief in workflow state (`refactor-pipeline-view-economy`); live-probe evidence 2026-07-09; adversarial plan-review rounds 1 + 2 (2 voters each, refuted — all gaps addressed below); gate-audit spin-offs #1656/#1657/#1658 (out of scope here)
 
 > One unified artifact: `## Requirements` is the DR-N source; `## Tasks` maps tasks → DR-N within this same document.
 > Heading levels here intentionally diverge from `spec-template.md` (h2 Requirements / h3 tasks) — the live `check_plan_coverage` / `check_provenance_chain` parsers reject the template's h3/h4 shape; see issue #1657.
@@ -28,6 +28,17 @@ Both adversarial voters refuted revision 0. Every gap is resolved in this revisi
 - **Hot-path git spawn (MEDIUM):** `deriveRepoKey` memoizes per input path (module-level map); the read side computes the key once per dispatch via the composite layer, so steady-state pipeline calls pay a map lookup, not a subprocess.
 - **Explicit `repoRoot` normalization, token-budget test, spawn timeouts, ordering (LOW):** the explicit `repoRoot` argument passes through `deriveRepoKey` before comparison (worktree/Windows-form inputs match); a `estimateOutputTokens(...) < 1000` assertion operationalizes the economy criterion; git-spawning tests carry explicit per-test timeouts (repo memory: vitest 5s default flakes under load); page ordering is deterministic — `_asOf` descending, ties by `featureId` ascending.
 
+### Revision 2 changes (plan-review round 2)
+
+Both round-2 voters refuted revision 1, converging on one root cause plus enumeration gaps:
+
+- **Snapshot mechanism replaced (HIGH, both voters):** revision 1 bumped the global `EVENT_SCHEMA_VERSION` to force snapshot re-folds. That constant is the *event payload* schema version driving the read-time upcasting/migration seam — events are stamped `'1.0'` by `event-factory.ts` and the Zod default in `event-store/schemas.ts`, a pinned test asserts the constant is `'1.0'`, and a bump either hollows the migration guard (all events below "current" with no registered path) or destroys the identity fast path. Worse, in the shared global store, servers on mixed plugin versions would *perpetually* invalidate each other's snapshots. Replaced with a **pipeline-view-scoped snapshot lineage**: the pipeline projection's snapshots move to a versioned snapshot name (v2), so pre-upgrade snapshot files are simply ignored by new servers and old servers keep their own lineage — no shared-file contention, no event-migration involvement, `EVENT_SCHEMA_VERSION` stays `'1.0'` (a test pins that it is untouched).
+- **Skill-flow enumeration completed (MEDIUM, both voters):** checkpoint, dogfood, and prune skills also discover workflows via the pipeline view, and the checkpoint tool-reference documents the action's contract — all added to DR-9/Task 010. Prune's candidate observation switches to `scope: "all"` (stale legacy rows are exactly what default scoping hides, and prune exists to drain them).
+- **CLI render snapshot owned (MEDIUM):** `__tests__/integration/cli-table-tree-regression.test.ts` snapshots the full `vw ls` output and its tree-vs-JSON branch inference flips on the new nested `page` object — added to DR-8 and Task 008.
+- **`scope: "repo"` without a key pinned (LOW):** a direct handler call requesting `scope: "repo"` with neither an explicit `repoRoot` nor a composite-supplied key now returns a structured error (`suggestedFix`: pass `repoRoot` or use `scope: "all"`) instead of silently returning unscoped results.
+- **Description budget owned (LOW):** the registry description update in Task 008 must stay inside the 280-token per-action budget enforced by `architecture/description-budget.test.ts` — listed in its verification.
+- **Enumeration honesty (LOW):** `src/__tests__/views/pipeline-view.test.ts` and `views/composite.envelope.test.ts` were inspected and survive (non-strict equality / mocked handlers); they are listed as verified-surviving rather than claiming the enumeration was already complete. One round-2 claim was checked and discarded: `src/parity/readonly-cap-parity.test.ts` does exist at the listed path.
+
 ### Technical Design
 
 **Identity source (stated honestly).** Production adapters do not populate `DispatchContext.cwd`; per `core/dispatch.ts` it defaults to `process.cwd()` of the long-lived server process. For a project-scoped server (the normal plugin/CLI arrangement) that is the repo the server was launched in, and `deriveRepoKey` collapses main checkout and all worktrees to one key, so write-time and read-time identities agree by construction. A future client that does thread a real `ctx.cwd` (e.g. via MCP roots) gets more precise identity through the same seam with no further change. This is the deliberate, documented v1 semantics — not an accident.
@@ -36,18 +47,20 @@ Both adversarial voters refuted revision 0. Every gap is resolved in this revisi
 
 **Repo key derivation.** New `deriveRepoKey(path)` in `servers/exarchos-mcp/src/utils/paths.ts` (beside `toPosix`): resolve the git common root (`git rev-parse --path-format=absolute --git-common-dir`, dirname of it) so main checkout and every worktree share one identity; fall back to the canonicalized input path outside a git repo; normalize with `toPosix` + native canonicalization (Windows 8.3 expansion precedent). **Memoized** per input path in a module-level map (the server process's key is computed once). Spawns go through the existing command-runner (`runCommandSync`-family) per the Windows dynamic-spawn rule; tests that exercise the git path stamp explicit per-test timeouts.
 
-**Event flow.** `handleInit` (`workflow/tools.ts`) accepts an optional repo key and, when present, adds `repoRoot` to `workflow.started` data. `WorkflowStartedData` (`event-store/schemas.ts`) gains the optional field. The pipeline projection (`views/pipeline-view.ts`) copies it onto `PipelineViewState` during the `workflow.started` fold — the projection remains a pure left-fold; unknown stays `undefined`. `EVENT_SCHEMA_VERSION` (`event-store/event-migration.ts`) bumps `'1.0' → '1.1'` so pre-upgrade snapshots (which cache folds without the field) invalidate and re-fold once on first post-upgrade read.
+**Event flow.** `handleInit` (`workflow/tools.ts`) accepts an optional repo key and, when present, adds `repoRoot` to `workflow.started` data. `WorkflowStartedData` (`event-store/schemas.ts`) gains the optional field. The pipeline projection (`views/pipeline-view.ts`) copies it onto `PipelineViewState` during the `workflow.started` fold — the projection remains a pure left-fold; unknown stays `undefined`.
+
+**Snapshot lineage (projection versioning, view-scoped).** Pre-upgrade on-disk snapshots cache pipeline folds *without* `repoRoot`, and the materializer folds only delta events past the snapshot high-water mark — so without intervention the new field never reaches materialized state for old streams. Fix: the pipeline projection's snapshot identity moves to a **versioned name** (v2) at its registration seam, so new servers read/write `<streamId>.<pipeline-v2-name>.snapshot.json` and simply ignore the old files; old servers keep their own lineage untouched. This avoids the two failure modes of a version-*check* change: (a) the event-migration machinery (`EVENT_SCHEMA_VERSION`, event stamps, `assertMigrationCoverage`, the identity fast path) is completely untouched — a test pins `EVENT_SCHEMA_VERSION === '1.0'` stays as-is; (b) mixed-version servers sharing the global store cannot thrash each other's snapshots, because the two lineages use different filenames. Orphaned v1 pipeline snapshot files are inert JSON; opportunistic cleanup is deferred. First post-upgrade read pays one full re-fold per stream for this view only.
 
 **View pipeline order.** Fold → phantom filter → `unscopedTotal` computed → scope filter (see semantics below) → `page.total` computed → deterministic sort (`_asOf` desc, ties `featureId` asc) → offset/limit window (pipeline-specific default 10; `DEFAULT_VIEW_ITEM_CAP` stays 50 for other views) → entry compaction (strip `tasksById` unless `detail: true`; per-entry `hasMore` eviction flag retained) → `data.page` + `data.scope` + `data.unscopedTotal` + affordances. Summary branch computes its rollups from the same filtered, sorted set and compacts `firstPage` identically.
 
-**Scope semantics (pinned).** Effective scope resolution inside the handler: explicit `scope: "all"` ⇒ no filter; explicit `repoRoot` ⇒ filter to `deriveRepoKey(repoRoot)`; else caller key supplied by composite ⇒ filter to it; else (direct call, no key) ⇒ **unscoped**. Legacy rows (`repoRoot === undefined`) match only the unscoped/`"all"` modes. `data.scope` reports which mode was effective (`"repo"` or `"all"`).
+**Scope semantics (pinned).** Effective scope resolution inside the handler: explicit `scope: "all"` ⇒ no filter; explicit `repoRoot` ⇒ filter to `deriveRepoKey(repoRoot)`; else caller key supplied by composite ⇒ filter to it; else (direct call, no key, no explicit scope) ⇒ **unscoped**. Explicit `scope: "repo"` with neither an explicit `repoRoot` nor a caller key is a **structured error** (`suggestedFix`: supply `repoRoot` or use `scope: "all"`) — never a silent unscoped result. Legacy rows (`repoRoot === undefined`) match only the unscoped/`"all"` modes. `data.scope` reports which mode was effective (`"repo"` or `"all"`).
 
 **Invariants preserved.** Event log stays append-only source of truth (identity enters as event data); CLI/MCP equivalence via the single handler + composite + parity suite; inputs constrained at schema level; envelope carrier fixed; affordances via `next_actions`; behavior identical for every workflow type; paths POSIX-normalized for Windows.
 
 ### Integration Points
 
 - `servers/exarchos-mcp/src/event-store/schemas.ts` — `WorkflowStartedData` + optional `repoRoot`.
-- `servers/exarchos-mcp/src/event-store/event-migration.ts` — `EVENT_SCHEMA_VERSION` bump for snapshot re-fold.
+- `servers/exarchos-mcp/src/views/snapshot-store.ts` (or the projection-registration seam in `views/tools.ts`) — versioned snapshot lineage for the pipeline view.
 - `servers/exarchos-mcp/src/workflow/tools.ts` + `servers/exarchos-mcp/src/workflow/composite.ts` — init emission wiring (composite computes + threads the key).
 - `servers/exarchos-mcp/src/utils/paths.ts` — memoized `deriveRepoKey` helper.
 - `servers/exarchos-mcp/src/views/pipeline-view.ts` — projection carries `repoRoot`.
@@ -55,7 +68,7 @@ Both adversarial voters refuted revision 0. Every gap is resolved in this revisi
 - `servers/exarchos-mcp/src/views/composite.ts` — thread memoized caller key.
 - `servers/exarchos-mcp/src/registry.ts` — pipeline input schema + description.
 - `servers/exarchos-mcp/src/views/output-cap.ts` — pipeline-specific default window constant.
-- `skills-src/shepherd/SKILL.md`, `skills-src/rehydrate/SKILL.md`, `skills-src/cleanup/SKILL.md` — pipeline-discovery flows learn the scoping contract.
+- `skills-src/shepherd/SKILL.md`, `skills-src/rehydrate/SKILL.md`, `skills-src/cleanup/SKILL.md`, `skills-src/checkpoint/SKILL.md`, `skills-src/dogfood/SKILL.md`, `skills-src/prune/SKILL.md`, `skills-src/checkpoint/references/mcp-tool-reference.md` — pipeline-discovery flows learn the scoping contract.
 
 ### Alternatives considered
 
@@ -113,14 +126,14 @@ Fold results lacking a `workflow.started` foundation (empty `featureId`) never a
 
 ### DR-5: Repo identity recorded at init
 
-`workflow.started` event data gains an **optional** `repoRoot` field, populated when the composite layer supplies a repo key: `workflow/composite.ts` computes `deriveRepoKey(ctx.cwd ?? process.cwd())` (the documented `DispatchContext.cwd` default — the serving process's directory; see Technical Design identity-source statement) and threads it into `handleInit` as a new optional parameter. `deriveRepoKey` uses the git common root so all worktrees of one repo share identity, falls back to the canonicalized path outside git, is POSIX-normalized, and is memoized. Historical events remain valid; no existing event is modified. The projection-snapshot layer re-folds after upgrade via the `EVENT_SCHEMA_VERSION` bump so the new field reaches materialized state.
+`workflow.started` event data gains an **optional** `repoRoot` field, populated when the composite layer supplies a repo key: `workflow/composite.ts` computes `deriveRepoKey(ctx.cwd ?? process.cwd())` (the documented `DispatchContext.cwd` default — the serving process's directory; see Technical Design identity-source statement) and threads it into `handleInit` as a new optional parameter. `deriveRepoKey` uses the git common root so all worktrees of one repo share identity, falls back to the canonicalized path outside git, is POSIX-normalized, and is memoized. Historical events remain valid; no existing event is modified. The pipeline view's materialized state picks the field up via the versioned snapshot lineage (v2 snapshot name); the event-migration machinery and `EVENT_SCHEMA_VERSION` stay untouched.
 
 **Acceptance criteria:**
 - Production path proven end-to-end: a composite-level `init` dispatch (not a direct `handleInit` call) emits `workflow.started` with `repoRoot` — a test exercises the composite arm.
 - Direct `handleInit` calls without the new parameter emit exactly today's event shape.
 - Events without `repoRoot` still parse (optional field); reducers treat them as unscoped.
 - Identity is stable across git worktrees of the same repository and across Windows/POSIX path forms.
-- A snapshot written under the old schema version is discarded and re-folded (stale-snapshot test).
+- A pre-upgrade pipeline snapshot (v1 lineage) is ignored and the stream fully re-folded under the v2 lineage (stale-snapshot test); `EVENT_SCHEMA_VERSION` remains `'1.0'` (pinned test untouched) and no event-migration code changes.
 
 ### DR-6: Repo-scoped default view
 
@@ -130,7 +143,8 @@ Scope resolution in the shared handler, pinned: explicit `scope: "all"` ⇒ unfi
 - A workflow started in repo A does not appear in repo B's default (composite-dispatched) pipeline view.
 - `scope: "all"` reproduces the full cross-repo inventory (minus phantoms).
 - An explicit `repoRoot` given as a worktree path or Windows-form path still matches (normalization test).
-- Direct handler calls without a caller key return unscoped results (existing suites' semantics preserved by construction).
+- Direct handler calls without a caller key and without explicit scope return unscoped results (existing suites' semantics preserved by construction).
+- Explicit `scope: "repo"` with no resolvable key returns a structured error with a `suggestedFix`, never silent unscoped results.
 - Both parameters are schema-declared (CLI flags auto-emit).
 
 ### DR-7: Always-on scope perceivability
@@ -144,19 +158,19 @@ Every pipeline response reports `data.scope` (effective mode) and `data.unscoped
 
 ### DR-8: Contract conformance preserved
 
-CLI/MCP parity, envelope shape, pinned oracles, and registry documentation stay conformant. The full set of existing suites that pin current pipeline behavior is owned by tasks, not discovered during review: `views/output-cap.test.ts`, `views/tools.pipeline.test.ts`, `views/pipeline-view.test.ts`, `views/composite.test.ts` (pins the `handleViewPipeline` call signature), `views/handlers.test.ts`, `src/__tests__/views/handlers.test.ts`, `views/materializer.sentinel-skip.test.ts`, `views/parity.test.ts`, `parity/readonly-cap-parity.test.ts`, `cli/envelope-parity.test.ts`, `__tests__/integration/perf-validation.test.ts` (105-call median budget — verifies the memoized key adds no per-call spawn).
+CLI/MCP parity, envelope shape, pinned oracles, and registry documentation stay conformant. The known pinned suites — verified across two adversarial review rounds — are owned by tasks: `views/output-cap.test.ts`, `views/tools.pipeline.test.ts`, `views/pipeline-view.test.ts`, `views/composite.test.ts` (pins the `handleViewPipeline` call signature), `views/handlers.test.ts`, `src/__tests__/views/handlers.test.ts`, `views/materializer.sentinel-skip.test.ts`, `views/parity.test.ts`, `parity/readonly-cap-parity.test.ts`, `cli/envelope-parity.test.ts`, `__tests__/integration/perf-validation.test.ts` (105-call median budget — verifies the memoized key adds no per-call spawn), `__tests__/integration/cli-table-tree-regression.test.ts` + its `.snap` (full `vw ls` render snapshot whose tree-vs-JSON inference flips on the nested `page` object). Verified-surviving without edits: `src/__tests__/views/pipeline-view.test.ts` (non-strict equality), `views/composite.envelope.test.ts` (mocked handlers).
 
 **Acceptance criteria:**
 - All suites above green post-change; parity byte-identical between CLI and MCP.
-- Registry `pipeline` action description documents paging + scoping; affordance hint strings match the new defaults.
+- Registry `pipeline` action description documents paging + scoping within the 280-token per-action budget enforced by `architecture/description-budget.test.ts`; affordance hint strings match the new defaults.
 - Intentional oracle changes are enumerated in the PR body (oracle-integrity note), never silent.
 
 ### DR-9: Skill flows updated for scoped discovery
 
-The skill flows that discover workflows through the pipeline view learn the new contract: shepherd's stale-workflow discovery (which must see *legacy* rows — precisely the hidden ones) uses `scope: "all"`; rehydrate and cleanup discovery prose documents default repo scoping and the `unscopedTotal` signal. Skills are edited at `skills-src/` and re-rendered per runtime.
+The skill flows that discover workflows through the pipeline view learn the new contract: shepherd's stale-workflow discovery and prune's candidate observation (both of which must see *legacy* rows — precisely the hidden ones) use `scope: "all"`; rehydrate, cleanup, checkpoint, and dogfood discovery prose documents default repo scoping and the `unscopedTotal` signal; the checkpoint tool-reference documents the action's new parameters and `page`/`scope` payload fields.
 
 **Acceptance criteria:**
-- `skills-src/shepherd/SKILL.md`, `skills-src/rehydrate/SKILL.md`, `skills-src/cleanup/SKILL.md` updated; `npm run build:skills` output committed; `npm run skills:guard` green.
+- `skills-src/shepherd/SKILL.md`, `skills-src/rehydrate/SKILL.md`, `skills-src/cleanup/SKILL.md`, `skills-src/checkpoint/SKILL.md`, `skills-src/dogfood/SKILL.md`, `skills-src/prune/SKILL.md`, `skills-src/checkpoint/references/mcp-tool-reference.md` updated; `npm run build:skills` output committed; `npm run skills:guard` green.
 - Skill-snapshot baselines updated per the dual-baseline procedure.
 
 ## Decomposition
@@ -216,17 +230,18 @@ Tests are judged **test-after by adequacy** — the failing-test-first ordering 
 **Dependencies:** 001
 **Parallelizable:** No (chain A)
 
-### Task 003: Pipeline projection carries repoRoot + snapshot re-fold via schema-version bump
+### Task 003: Pipeline projection carries repoRoot + versioned snapshot lineage for re-fold
 
 **Risk Tier:** medium
 **Test Layer:** unit
 **Implements:** DR-5, DR-6
 **Files:**
 - `servers/exarchos-mcp/src/views/pipeline-view.ts`
-- `servers/exarchos-mcp/src/event-store/event-migration.ts`
+- `servers/exarchos-mcp/src/views/tools.ts`
+- `servers/exarchos-mcp/src/views/snapshot-store.ts`
 - `servers/exarchos-mcp/src/views/pipeline-view.test.ts`
 - `servers/exarchos-mcp/src/views/snapshot-store.test.ts`
-**Verification:** medium — scoped tests + kill-probe. Tests: `PipelineProjection_StartedWithRepoRoot_StateCarriesIt`, `PipelineProjection_StartedWithoutRepoRoot_StateUndefined`, `SnapshotStore_OldSchemaVersion_DiscardedAndRefolded`. Projection stays a pure fold (no lookups).
+**Verification:** medium — scoped tests + kill-probe. Tests: `PipelineProjection_StartedWithRepoRoot_StateCarriesIt`, `PipelineProjection_StartedWithoutRepoRoot_StateUndefined`, `PipelineSnapshot_V1LineageFile_IgnoredAndFullyRefolded`, `PipelineSnapshot_WritesV2LineageName`, `EventSchemaVersion_Untouched_Remains1_0` (guards against the round-2 refuted mechanism). Implementation constraint: version the pipeline view's snapshot *name* at the registration seam (smallest of: registration string, or an optional snapshot-namespace parameter on the snapshot store); do NOT touch `event-store/event-migration.ts`, event stamps, or the global schema-version check. Projection stays a pure fold (no lookups).
 **Dependencies:** 002
 **Parallelizable:** No (chain A)
 
@@ -284,7 +299,7 @@ Tests are judged **test-after by adequacy** — the failing-test-first ordering 
 - `servers/exarchos-mcp/src/views/handlers.test.ts`
 - `servers/exarchos-mcp/src/__tests__/views/handlers.test.ts`
 - `servers/exarchos-mcp/src/views/materializer.sentinel-skip.test.ts`
-**Verification:** high — scoped tests + kill-probe + integration suite. Tests: `Pipeline_CompositeDispatch_FiltersToCallerRepo`, `Pipeline_DirectHandlerNoKey_Unscoped` (pins the by-construction test-compat semantics), `Pipeline_ScopeAll_IncludesLegacyUnscopedRows`, `Pipeline_ExplicitRepoRoot_NormalizedBeforeMatch` (worktree + Windows-form inputs), `Pipeline_MixedState_EmitsScopeAllHintWithHiddenCount`, `Pipeline_ScopeAll_NoEscapeHatchHint`, `Pipeline_Data_CarriesScopeAndUnscopedTotal`. Update the enumerated pinned oracles (composite call-signature pin, handlers suites, sentinel-skip) as intentional changes.
+**Verification:** high — scoped tests + kill-probe + integration suite. Tests: `Pipeline_CompositeDispatch_FiltersToCallerRepo`, `Pipeline_DirectHandlerNoKey_Unscoped` (pins the by-construction test-compat semantics), `Pipeline_ScopeRepoWithoutKey_ReturnsStructuredError` (never silent unscoped), `Pipeline_ScopeAll_IncludesLegacyUnscopedRows`, `Pipeline_ExplicitRepoRoot_NormalizedBeforeMatch` (worktree + Windows-form inputs), `Pipeline_MixedState_EmitsScopeAllHintWithHiddenCount`, `Pipeline_ScopeAll_NoEscapeHatchHint`, `Pipeline_Data_CarriesScopeAndUnscopedTotal`. Update the enumerated pinned oracles (composite call-signature pin, handlers suites, sentinel-skip) as intentional changes.
 **Dependencies:** 003, 006
 **Parallelizable:** No (join point)
 
@@ -299,7 +314,8 @@ Tests are judged **test-after by adequacy** — the failing-test-first ordering 
 - `servers/exarchos-mcp/src/parity/readonly-cap-parity.test.ts`
 - `servers/exarchos-mcp/src/cli/envelope-parity.test.ts`
 - `servers/exarchos-mcp/src/__tests__/integration/perf-validation.test.ts`
-**Verification:** medium — run all five suites; adjust parity fixtures for the scoped default (seed rows with the caller's repo key or pass `scope: "all"` explicitly so cap assertions stay meaningful); verify the 105-call median stays under budget (memoization proof); update the pipeline action description + affordance hint strings; fix any parity drift inside the shared core (never in adapters).
+- `servers/exarchos-mcp/src/__tests__/integration/cli-table-tree-regression.test.ts`
+**Verification:** medium — run all six suites plus `architecture/description-budget.test.ts`; adjust parity fixtures for the scoped default (seed rows with the caller's repo key or pass `scope: "all"` explicitly so cap assertions stay meaningful); regenerate the `vw ls` render snapshot and confirm the intended tree-vs-JSON branch for the new nested `page` shape; verify the 105-call median stays under budget (memoization proof); update the pipeline action description + affordance hint strings within the 280-token action budget; fix any parity drift inside the shared core (never in adapters).
 **Dependencies:** 007
 **Parallelizable:** No
 
@@ -323,13 +339,17 @@ Tests are judged **test-after by adequacy** — the failing-test-first ordering 
 - `skills-src/shepherd/SKILL.md`
 - `skills-src/rehydrate/SKILL.md`
 - `skills-src/cleanup/SKILL.md`
-**Verification:** medium — shepherd's stale-workflow discovery switches to `scope: "all"` (stale legacy rows are exactly the hidden ones); rehydrate/cleanup discovery prose documents default repo scoping + `unscopedTotal`. Run `npm run build:skills`, commit regenerated `skills/` + `command-aliases/`, `npm run skills:guard` green, and update skill-snapshot baselines per the dual-baseline procedure.
+- `skills-src/checkpoint/SKILL.md`
+- `skills-src/dogfood/SKILL.md`
+- `skills-src/prune/SKILL.md`
+- `skills-src/checkpoint/references/mcp-tool-reference.md`
+**Verification:** medium — shepherd's stale-workflow discovery AND prune's candidate observation switch to `scope: "all"` (stale legacy rows are exactly the hidden ones; prune exists to drain them); rehydrate/cleanup/checkpoint/dogfood discovery prose documents default repo scoping + `unscopedTotal`; the checkpoint tool-reference documents the new parameters and payload fields. Run `npm run build:skills`, commit regenerated `skills/` + `command-aliases/`, `npm run skills:guard` green, and update skill-snapshot baselines per the dual-baseline procedure.
 **Dependencies:** 007
 **Parallelizable:** Yes (with 008/009)
 
 ### Parallelization
 
-Critical path: 001 → 002 → 003 → 007 → 008. Chain A (001→002→003, identity plumbing) and chain B (004→005→006, view economy) run in parallel worktrees; they touch disjoint files until the join at 007. 008, 009, and 010 run in parallel after the join.
+Critical path: 001 → 002 → 003 → 007 → 008. Chain A (001→002→003, identity plumbing) and chain B (004→005→006, view economy) run in parallel worktrees. One known overlap: Task 003's snapshot-lineage registration touches `views/tools.ts` (the registration line only), which chain B also edits — the orchestrator merges chain B before chain A's 003, or resolves the one-line registration conflict at the 007 join. 008, 009, and 010 run in parallel after the join.
 
 ### Completion checklist
 
