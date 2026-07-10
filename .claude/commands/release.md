@@ -63,6 +63,16 @@ npm run version:check                       # confirms zero drift across the 7 s
 
 `--check` exits 1 with a `MISMATCH:` line per drifted site if anything is out of sync — never short-circuits, so one run reports every problem. Add a sink by extending the `ts_sites` registry in `scripts/sync-versions.sh` (single registration point — see DIM-1 in `axiom:backend-quality`).
 
+> **Also bump `PREVIEW_VERSION` (NOT covered by `version:sync`).** `src/packaging-consistency.test.ts` pins a `PREVIEW_VERSION` constant as the deliberate release-tag/version coordination gate. `version:sync` does **not** touch it (it's a test, not a sink), so a version bump leaves `main`'s own `npm run test:run` **red** until you hand-edit it:
+>
+> ```bash
+> # bump the constant + its header comment to the new version
+> sed -i "s/2\.12\.0-preview\.1/${VERSION}/g" src/packaging-consistency.test.ts
+> npx vitest run src/packaging-consistency.test.ts   # must pass
+> ```
+>
+> This is intentional friction — it forces a conscious preview→next handoff — but it MUST be done in the same commit as the bump, or the tag's Release workflow (`Publish Release` runs `npm run test:run`) fails and npm publish is skipped. (Missed on the `v2.12.0-preview.2` cut; this note is the fix.)
+
 ### 4. Validate locally
 
 ```bash
