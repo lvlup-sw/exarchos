@@ -87,9 +87,12 @@ exarchos_event({
 exarchos_orchestrate({
   action: "prepare_delegation",
   featureId: "<featureId>",
+  planPath: "docs/specs/<the-decomposition-spec>.md",
   tasks: [{ id: "task-001", title: "...", modules: [...] }, ...]
 })
 ```
+
+**Pass `planPath`.** It points `prepare_delegation` at the decomposition markdown so it lifts each task's `**Risk Tier:**` / `**Boundary Touching:**` stamp automatically (deterministic parse — no hand-transcription). The stamp is what selects the per-task verification depth below; without `planPath` (and without an explicit `riskTier`/`boundaryTouching` on a task) every task falls back to a keyword/glob heuristic that under-provisions planner-`high`/boundary tasks (#1636). You may still set `riskTier`/`boundaryTouching` explicitly on a `tasks[]` entry to override the plan for one task; an explicit value always wins.
 
 The composite action performs:
 1. **Worktree creation** — creates `.worktrees/task-<id>` with `git worktree add`, runs `npm install`
@@ -110,6 +113,7 @@ The composite action performs:
 
 From the implementation plan, extract for each task:
 - Full task description (paste inline; never reference external files)
+- The `**Risk Tier:**` / `**Boundary Touching:**` stamps are lifted automatically when you pass `planPath` (above) — you do NOT need to re-transcribe them into `tasks[]`; pass them explicitly only to override the plan for a specific task
 - Files to create/modify as **worktree-relative paths rooted inside the worktree** (e.g. `src/foo.ts`) — never an absolute parent-repo path, and never a `..` sequence that escapes the worktree root. Either form resolves outside the agent's worktree cwd and silently writes into the main worktree. This is the platform-agnostic line of defense — it must hold on every runtime.
 - Test file paths (worktree-relative) and expected test names
 - Dependencies on other tasks (for sequencing)
@@ -147,7 +151,7 @@ For each task:
 
 ### Tier-selected verification note — dispatch the rendered prompt
 
-`prepare_delegation` resolves each task's risk tier and returns a **per-task rendered prompt** on its classification: `taskClassifications[i].implementerPrompt`. This is the implementer system prompt with the verification note already selected for that task's `riskTier`/`boundaryTouching` — a low-tier task carries a terse static-analysis steer, a high-tier task carries the test-after + integration-suite rung.
+`prepare_delegation` resolves each task's risk tier — from the plan stamp when you passed `planPath` (the planner's authored value wins over the heuristic; a divergence is surfaced as a `stamp:` advisory in `warnings`) — and returns a **per-task rendered prompt** on its classification: `taskClassifications[i].implementerPrompt`. This is the implementer system prompt with the verification note already selected for that task's `riskTier`/`boundaryTouching` — a low-tier task carries a terse static-analysis steer, a high-tier task carries the test-after + integration-suite rung.
 
 **Dispatch THAT prompt — not the static agent default.** The shipped `agents/implementer.md` bakes a fixed medium-tier note (a self-contained fallback for runtimes that pre-bind a named agent). Use it verbatim only when no classification exists (e.g. a fixer dispatch). Otherwise, the orchestrator's dispatch payload must be built from `taskClassifications[i].implementerPrompt`, then fill its `taskDescription` / `requirements` / `filePaths` placeholders (the same template slots in `references/implementer-prompt.md`) with the task-specific context above. Dispatching the static default instead re-imposes medium-RGR ceremony on every task regardless of tier — the exact gap this seam closes. The tier is pure data from the classification stamp; no workflow-type branching is involved.
 

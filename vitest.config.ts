@@ -1,5 +1,12 @@
-import { defineConfig } from 'vitest/config';
+import { defineConfig, configDefaults } from 'vitest/config';
 import { fileURLToPath } from 'node:url';
+
+// Captured eval ARTIFACTS under `docs/evals/` include agent-authored `*.test.ts`
+// files that are verbatim records, not project tests (they use a module-load
+// harness, not describe/it). They are already outside every `include` allow-list
+// below; this explicit exclude makes that intent durable so a future glob change
+// can never collect them (and their `process.exit` can never reach a worker).
+const EXCLUDE = [...configDefaults.exclude, 'docs/**'];
 
 export default defineConfig({
   test: {
@@ -29,12 +36,14 @@ export default defineConfig({
             'test/smoke/**/*.test.ts',
             'test/e2e/**/*.test.ts',
           ],
+          exclude: EXCLUDE,
         },
       },
       {
         test: {
           name: 'process',
           include: ['test/process/**/*.test.ts'],
+          exclude: EXCLUDE,
           testTimeout: 15000,
           setupFiles: ['./test/setup/global.ts'],
         },
@@ -62,6 +71,7 @@ export default defineConfig({
         test: {
           name: 'outcome',
           include: ['tests/outcome/**/*.test.ts'],
+          exclude: EXCLUDE,
           testTimeout: 30000,
           fileParallelism: false,
           passWithNoTests: true,
