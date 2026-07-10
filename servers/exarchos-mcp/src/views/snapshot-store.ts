@@ -85,7 +85,7 @@ export class SnapshotStore {
   private getSnapshotPath(streamId: string, viewName: string): string {
     assertSafeId(streamId, 'streamId');
     const snapshotName = this.resolveSnapshotName(viewName);
-    assertSafeId(snapshotName, 'viewName');
+    assertSafeId(snapshotName, 'snapshotName');
 
     const resolved = path.resolve(
       this.stateDir,

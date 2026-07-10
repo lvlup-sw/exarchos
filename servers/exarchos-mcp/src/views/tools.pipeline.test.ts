@@ -339,6 +339,53 @@ describe('handleViewPipeline — DR-1 compact entries + detail flag (task 005)',
       expect(typeof row.taskCount).toBe('number');
     }
   });
+
+  it('PipelineSummary_LastPageOffset_HasMoreFalse', async () => {
+    // Regression (shepherd / Seer + CodeRabbit): the summary-fallback
+    // `page.hasMore` must account for the paging `offset`. With 5 rows and
+    // offset 3, the window is the final 2 rows — `hasMore` must be false. The
+    // prior formula (`total > firstPage.length`) ignored the offset and returned
+    // true, telling a caller already on the last page that more rows remained.
+    for (let i = 0; i < 5; i++) {
+      await seedWithTasks(`page-${i}`, ['complete', 'pending', 'failed']);
+    }
+
+    const result = await handleViewPipeline(
+      { includeCompleted: true, offset: 3, limit: 10 },
+      stateDir,
+      store,
+      TINY_THRESHOLD,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      summary?: unknown;
+      page?: { total: number; offset: number; hasMore: boolean };
+    };
+    // Summary fallback fired (tiny threshold) …
+    expect(data.summary).toBeDefined();
+    // … and the final-window page reports no further rows.
+    expect(data.page).toMatchObject({ total: 5, offset: 3, hasMore: false });
+  });
+
+  it('PipelineSummary_MidPage_HasMoreTrue', async () => {
+    // Complement: a non-final window still advertises more rows, so the
+    // offset-aware fix does not suppress a legitimate `hasMore`.
+    for (let i = 0; i < 5; i++) {
+      await seedWithTasks(`more-${i}`, ['complete', 'pending', 'failed']);
+    }
+
+    const result = await handleViewPipeline(
+      { includeCompleted: true, offset: 0, limit: 2 },
+      stateDir,
+      store,
+      TINY_THRESHOLD,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as { page?: { hasMore: boolean } };
+    expect(data.page?.hasMore).toBe(true);
+  });
 });
 
 // ─── DR-6 / DR-7 (task 007): repo-scoped default view + perceivability ───────

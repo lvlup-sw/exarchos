@@ -45,8 +45,33 @@ export interface DeriveRepoKeyDeps {
  * every steady-state pipeline call thereafter pays a map lookup, never a
  * subprocess. Keyed by the RAW input path (distinct worktree paths of one repo
  * are separate entries that each spawn once and resolve to the same key).
+ *
+ * Bounded FIFO (cap {@link REPO_KEY_MEMO_MAX}): `deriveRepoKey(args.repoRoot)`
+ * is reachable from a client-supplied `repoRoot` (see `handleViewPipeline`), so
+ * an unbounded map would grow for the process lifetime under many distinct
+ * inputs. Eviction is oldest-first — the process cwd is derived first and thus
+ * evicted last, keeping the steady-state hot path a lookup.
  */
+const REPO_KEY_MEMO_MAX = 500;
 const repoKeyMemo = new Map<string, string>();
+
+/** Insert a memo entry, evicting the oldest key once the cap is exceeded. */
+function memoSet(inputPath: string, key: string): void {
+  repoKeyMemo.set(inputPath, key);
+  if (repoKeyMemo.size > REPO_KEY_MEMO_MAX) {
+    const oldest = repoKeyMemo.keys().next().value;
+    if (oldest !== undefined) repoKeyMemo.delete(oldest);
+  }
+}
+
+/**
+ * Cap the synchronous git spawn (ms). `deriveRepoKey` is reachable with a
+ * client-supplied `repoRoot`, so an unbounded blocking spawn on a hung/slow
+ * filesystem (network mount, lock contention) would stall the event loop for
+ * every concurrent request. On timeout `execFileSync` throws → `deriveRepoKey`
+ * degrades to the input-path fallback, exactly as for a non-git directory.
+ */
+const GIT_COMMON_DIR_TIMEOUT_MS = 5000;
 
 /** Default git-common-dir resolver — routed through the shared command-runner. */
 function defaultGitCommonDir(cwd: string): string {
@@ -57,7 +82,11 @@ function defaultGitCommonDir(cwd: string): string {
   const out = runCommandSync(
     'git',
     ['-C', cwd, 'rev-parse', '--path-format=absolute', '--git-common-dir'],
-    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+    {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: GIT_COMMON_DIR_TIMEOUT_MS,
+    },
   );
   return String(out).trim();
 }
@@ -127,7 +156,7 @@ export function deriveRepoKey(inputPath: string, deps: DeriveRepoKeyDeps = {}): 
     key = normalizeRepoPath(inputPath, realpath);
   }
 
-  repoKeyMemo.set(inputPath, key);
+  memoSet(inputPath, key);
   return key;
 }
 

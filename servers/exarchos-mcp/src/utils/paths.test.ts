@@ -276,5 +276,36 @@ describe('deriveRepoKey', () => {
     expect(first).toBe('/canonical/repo');
     expect(second).toBe(first);
   });
+
+  it('DeriveRepoKey_MemoBounded_EvictsOldestBeyondCap', () => {
+    // Regression (shepherd / CodeRabbit "unbounded memo"): `deriveRepoKey` is
+    // reachable with a client-supplied `repoRoot`, so the per-input memo is a
+    // bounded FIFO (cap REPO_KEY_MEMO_MAX = 500). Inserting more than the cap of
+    // distinct keys must evict the OLDEST and keep the NEWEST. A private spawn
+    // counter isolates this from any entries earlier tests left in the memo.
+    const MEMO_CAP = 500; // mirrors REPO_KEY_MEMO_MAX in paths.ts
+    let spawns = 0;
+    const deps = {
+      gitCommonDir: (_cwd: string) => {
+        spawns += 1;
+        return '/canonical/repo/.git';
+      },
+      realpath: (p: string) => p,
+    };
+    // Namespaced so these keys never collide with other tests' memo entries.
+    const key = (i: number) => `/tmp/drk-evict-${process.pid}-${i}`;
+
+    // Insert cap+1 distinct keys: 0 is the oldest of ours, `MEMO_CAP` the newest.
+    for (let i = 0; i <= MEMO_CAP; i++) deriveRepoKey(key(i), deps);
+    expect(spawns).toBe(MEMO_CAP + 1); // one spawn per distinct key
+
+    // Newest key is still memoized — no additional spawn.
+    deriveRepoKey(key(MEMO_CAP), deps);
+    expect(spawns).toBe(MEMO_CAP + 1);
+
+    // Oldest key was evicted — re-deriving it spawns again.
+    deriveRepoKey(key(0), deps);
+    expect(spawns).toBe(MEMO_CAP + 2);
+  });
 });
 

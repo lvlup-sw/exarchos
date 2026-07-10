@@ -552,16 +552,16 @@ export async function handleViewTasks(
 // `PipelineViewState`/`PipelineSummary` declarations stay in
 // `views/pipeline-view.ts` (chain-A territory).
 interface CompactPipelineEntry {
-  featureId: string;
-  workflowType: string;
-  phase: string;
-  taskCount: number;
-  completedCount: number;
-  failedCount: number;
-  stackPositions: PipelineViewState['stackPositions'];
-  hasMore: boolean;
-  _asOf: string;
-  repoRoot?: string;
+  readonly featureId: string;
+  readonly workflowType: string;
+  readonly phase: string;
+  readonly taskCount: number;
+  readonly completedCount: number;
+  readonly failedCount: number;
+  readonly stackPositions: PipelineViewState['stackPositions'];
+  readonly hasMore: boolean;
+  readonly _asOf: string;
+  readonly repoRoot?: string;
 }
 
 /**
@@ -571,10 +571,10 @@ interface CompactPipelineEntry {
  * is untouched.
  */
 interface CompactPipelineSummary {
-  total: number;
-  byPhase: Record<string, number>;
-  byWorkflowType: Record<string, number>;
-  firstPage: CompactPipelineEntry[];
+  readonly total: number;
+  readonly byPhase: Record<string, number>;
+  readonly byWorkflowType: Record<string, number>;
+  readonly firstPage: CompactPipelineEntry[];
 }
 
 /**
@@ -597,6 +597,24 @@ function toCompactEntry(w: PipelineViewState): CompactPipelineEntry {
     _asOf: w._asOf,
     ...(repoRoot !== undefined ? { repoRoot } : {}),
   };
+}
+
+/** Paging metadata shared by the detail and summary-fallback branches (DR-3). */
+interface PipelinePage {
+  readonly total: number;
+  readonly offset: number;
+  readonly limit: number;
+  readonly hasMore: boolean;
+}
+
+/**
+ * Build the DR-3 `page` envelope. Both branches derive `hasMore` from the same
+ * offset-aware invariant — `offset + shownRows < total` — so a caller paged to
+ * the last window never sees a spurious "more rows" signal (the summary branch
+ * previously compared `total > firstPage.length`, ignoring `offset`).
+ */
+function buildPage(total: number, offset: number, limit: number, shownRows: number): PipelinePage {
+  return { total, offset, limit, hasMore: offset + shownRows < total };
 }
 
 /**
@@ -787,12 +805,7 @@ export async function handleViewPipeline(
     // DR-3 — explicit paging metadata, namespaced under `page` so `page.hasMore`
     // never collides with the per-entry stack-eviction `hasMore` on each row.
     // Detail-branch semantics: more rows exist beyond this window.
-    const page = {
-      total,
-      offset: start,
-      limit: effectiveLimit,
-      hasMore: start + windowed.length < total,
-    };
+    const page = buildPage(total, start, effectiveLimit, windowed.length);
 
     // #1359 / PR4 T14 + T15 — derive `projectionAsOf` from the maximum
     // `_asOf` timestamp across the materialized workflows (the most
@@ -843,16 +856,12 @@ export async function handleViewPipeline(
         byWorkflowType: countBy(sorted, (w) => w.workflowType),
         firstPage,
       };
-      // DR-3 — the SUMMARY branch carries the SAME `page` object, but its
-      // `hasMore` derives from the first-page length vs the total (there is no
-      // per-item window here). Namespaced identically so it never collides with
-      // the per-entry eviction `hasMore`.
-      const summaryPage = {
-        total,
-        offset: start,
-        limit: effectiveLimit,
-        hasMore: total > firstPage.length,
-      };
+      // DR-3 — the SUMMARY branch carries the SAME `page` shape, derived through
+      // the shared `buildPage` helper so its `hasMore` is offset-aware: a caller
+      // already paged to the final window (`start + firstPage.length === total`)
+      // gets `hasMore: false`, matching the detail branch. Namespaced identically
+      // so it never collides with the per-entry eviction `hasMore`.
+      const summaryPage = buildPage(total, start, effectiveLimit, firstPage.length);
       // DR-7 — the scope-all escape hatch rides alongside the narrow affordance
       // whenever repo scoping hid rows, so the summary branch is perceivable too.
       const summaryNextActions: NextAction[] = [
