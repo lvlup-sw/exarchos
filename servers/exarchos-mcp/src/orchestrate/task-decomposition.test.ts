@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // Mock dependencies before importing the module under test
 vi.mock('./gate-utils.js', () => ({
@@ -145,6 +148,149 @@ describe('parseTaskBlocks', () => {
     expect(blocks[1].id).toBe('2');
     expect(blocks[0].content).toContain('widget rendering component');
     expect(blocks[1].content).toContain('HTTP client wrapper');
+  });
+});
+
+// ─── #1670 (DR-5): parse the majority-4-hash `docs/specs/` corpus ─────────────
+//
+// The gate-path `parseTaskBlocks`/`extractTaskRiskTier` matched only `### Task`
+// (three hashes). But the real corpus is majority `#### Task` (four hashes) —
+// 7 of 11 specs are 4-hash-only — so `extractTaskRiskTier` silently dropped
+// tiers on MOST live specs. The parser now accepts BOTH `###` and `####` and the
+// broader id token used by the SoT dispatch parser (`parse-task-stamps.ts`),
+// WITHOUT regressing the legacy `### Task NNN` / `T-NN` form.
+//
+// REPO_ROOT resolution mirrors template-roundtrip.test.ts: `__dirname` is
+// undefined under NodeNext/ESM, so resolve from this file's URL. This file lives
+// at servers/exarchos-mcp/src/orchestrate/<this> → ../../../../ is the repo root.
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
+
+describe('parseTaskBlocks — #1670 majority-4-hash corpus (DR-5)', () => {
+  it('ParseTaskBlocks_FourHashCorpusSpec_ExtractsTiers', () => {
+    // Parse a REAL 4-hash-only corpus spec off disk. The OLD three-hash-only
+    // pattern matched NONE of its `#### Task` headers (0 blocks → 0 tiers); the
+    // fixed parser finds every task and extracts its `**Risk Tier:**` stamp.
+    const specPath = resolve(REPO_ROOT, 'docs/specs/2026-07-03-wlm-reconcile-enforce.md');
+    const content = readFileSync(specPath, 'utf-8');
+
+    // Contrast oracle: the pre-#1670 header pattern found zero headers here.
+    const OLD_PATTERN = /^###\s+Task\s+(T-[0-9]+|[0-9]+)/;
+    const oldHeaderMatches = content.split('\n').filter((l) => OLD_PATTERN.test(l));
+    expect(oldHeaderMatches).toHaveLength(0);
+
+    // Self-referential count so the assertion survives future edits to the spec.
+    const fourHashHeaderCount = content
+      .split('\n')
+      .filter((l) => /^####\s+Task\s/.test(l)).length;
+    expect(fourHashHeaderCount).toBeGreaterThanOrEqual(20); // this spec is 4-hash-only
+
+    const blocks = parseTaskBlocks(content);
+    expect(blocks.length).toBe(fourHashHeaderCount); // fixed parser finds them all (old: 0)
+
+    // Every task in this spec carries a `**Risk Tier:**` stamp; extraction now
+    // reaches all of them where the old parser reached none.
+    const tiered = blocks.filter(
+      (b) => validateTaskStructure(b.content).riskTier !== undefined,
+    );
+    expect(tiered.length).toBe(blocks.length);
+    expect(tiered.length).toBeGreaterThan(0);
+  });
+
+  it('ParseTaskBlocks_ThreeHashLegacyId_StillParses', () => {
+    // Characterization: the legacy 3-hash `### Task` form (both `T-NN` and bare
+    // numeric ids) parses exactly as before — ids preserved, tiers extracted.
+    // The #1670 change must not regress it.
+    const plan = [
+      '### Task T-01: Legacy hyphen id form kept intact',
+      '',
+      '**Risk Tier:** medium',
+      '',
+      '**Files:**',
+      '- `src/a.ts`',
+      '',
+      '### Task 2: Legacy bare-numeric id form kept intact',
+      '',
+      '**Risk Tier:** high',
+      '',
+      '**Files:**',
+      '- `src/b.ts`',
+      '',
+    ].join('\n');
+
+    const blocks = parseTaskBlocks(plan);
+    expect(blocks.map((b) => b.id)).toEqual(['T-01', '2']);
+    expect(validateTaskStructure(blocks[0].content).riskTier).toBe('medium');
+    expect(validateTaskStructure(blocks[1].content).riskTier).toBe('high');
+  });
+
+  // Property/matrix: heading depth ∈ {3,4} × id ∈ {`T-NN`, `NN`} — all four
+  // combinations parse to exactly one block with the id preserved and the tier
+  // extracted. Binds directly to the header-pattern fix: three of the four rows
+  // (every `####` row, plus the broadened-id contract) were unreachable before.
+  it.each([
+    ['###', 'T-07'],
+    ['###', '07'],
+    ['####', 'T-07'],
+    ['####', '07'],
+  ] as const)(
+    'ParseTaskBlocks_Depth-%s_Id-%s_ParsesWithTier',
+    (depth, id) => {
+      const plan = [
+        `${depth} Task ${id}: Do the bounded thing that must be verified`,
+        '',
+        '**Risk Tier:** high',
+        '',
+        '**Files:**',
+        '- `src/x.ts`',
+        '',
+      ].join('\n');
+
+      const blocks = parseTaskBlocks(plan);
+      expect(blocks).toHaveLength(1);
+      expect(blocks[0].id).toBe(id);
+      expect(validateTaskStructure(blocks[0].content).riskTier).toBe('high');
+    },
+  );
+
+  it('ValidateTaskStructure_FourHashHeading_DoesNotCountHeadingPrefixAsDescription', () => {
+    // #1670: for a `####` heading the `#### Task NNN:` prefix must be stripped
+    // before the tail counts as description. The OLD 3-hash-only span parser
+    // left the prefix in, inflating the count by three tokens (`####`, `Task`,
+    // `NNN:`) and mis-crediting the heading. Here the genuine tail is 9 words
+    // (< the 10-word threshold): the fixed parser reports 9 / no-description
+    // and reads the tier; the old parser reported 12 / has-description.
+    const block = [
+      '#### Task 007: Author the streaming validator that rejects malformed rows early',
+      '**Risk Tier:** medium',
+    ].join('\n');
+
+    const result = validateTaskStructure(block);
+    expect(result.descriptionWordCount).toBe(9);
+    expect(result.hasDescription).toBe(false);
+    expect(result.riskTier).toBe('medium');
+  });
+
+  it('ValidateTaskStructure_FourHashTemplateShape_CreditsHeadingDescription', () => {
+    // Symmetry with the 3-hash `ValidateTaskStructure_TemplateShapedTask_...`
+    // contract (T-02/#1486): a 4-hash template-shaped task whose brief
+    // description lives in the heading and whose body opens with a
+    // non-introducer field is credited via the stripped heading tail.
+    const block = [
+      '#### Task 001: Wrap the prune-executor remove path with a bounded index-lock retry adapter so transient contention never aborts a prune',
+      '**Risk Tier:** high · **Boundary Touching:** true',
+      '**Files:**',
+      '- `src/manager.ts`',
+      '- `src/manager.test.ts`',
+      '**Verification:** high ladder. Tests: `Prune_Contention_Retries`.',
+    ].join('\n');
+
+    const result = validateTaskStructure(block);
+    expect(result.hasDescription).toBe(true);
+    expect(result.descriptionWordCount).toBeGreaterThan(10);
+    expect(result.hasFiles).toBe(true);
+    expect(result.hasTests).toBe(true);
+    expect(result.riskTier).toBe('high');
+    expect(result.status).toBe('PASS');
   });
 });
 
