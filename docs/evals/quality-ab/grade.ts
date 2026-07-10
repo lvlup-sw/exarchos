@@ -134,6 +134,8 @@ lines.push('# Quality A/B — pilot results (#1636 Phase 2)');
 lines.push('');
 lines.push('Same task, same env, same model. The only variable is the verification regime: **E** = the production `renderImplementerPrompt` tier-selected verification note; **N** = none (bare "implement it"). `impl.ts` graded against a HIDDEN oracle the agent never saw, plus strict `tsc`.');
 lines.push('');
+lines.push('> ⚠️ **PROVISIONAL — does not run exarchos (#1670).** The verification note was pasted into a generic subagent; the exarchos binary/pipeline was never executed, and all tasks are fully specified (so both arms tie at 100% by implementing-to-spec). Directional only — the executed test + under-specified tasks live in #1670.');
+lines.push('');
 lines.push('## Per-run');
 lines.push('');
 lines.push('| run | oracle | typecheck | wrote tests | key failures |');

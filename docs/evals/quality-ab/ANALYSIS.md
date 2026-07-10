@@ -1,5 +1,13 @@
 # Does the verification pipeline improve generated-code quality? (empirical, #1636)
 
+> ⚠️ **PROVISIONAL — do not treat these as validated conclusions. Superseded by #1670.**
+> This A/B **never ran exarchos**: it pasted the production verification note into a
+> generic subagent, so it measures the *note's* effect, not the pipeline/binary. All
+> tasks are **fully specified**, so both arms tie at 100% simply by implementing to
+> spec — the correctness null cannot discriminate here. The properly-executed test
+> (real binary before/after, a *measured* native baseline via headless Claude Code, and
+> under-specified tasks) is tracked in **#1670**. Read the below as directional.
+
 Companion to the deterministic corpus benchmark (`../2026-07-09-1636-plan-format-corpus.md`).
 This is the **live A/B** that the deterministic arm cannot speak to: it actually
 generates code under two regimes and measures the result.

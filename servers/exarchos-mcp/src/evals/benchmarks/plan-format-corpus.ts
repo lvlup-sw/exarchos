@@ -223,6 +223,14 @@ function main(): void {
       `**H1** (heuristic ceiling, files+testLayer but no stamp) · **N** (native flat model).`,
   );
   out.push('');
+  out.push(
+    '> ⚠️ **PROVISIONAL — models the decision, does not run the binary (#1670).** This calls the ' +
+      'pure `classifyTask` directly; it does NOT go through the MCP schema/CLI/binary, and the E-arm ' +
+      'numbers do NOT depend on the #1636 fix (`deriveRiskTier` already honored an explicit tier — the ' +
+      'bug was that stamps never *reached* it). The `N` "native flat opus" model is an unvalidated ' +
+      'assumption, not measured native behavior. Treat as directional pending the executed test in #1670.',
+  );
+  out.push('');
   out.push('## Corpus');
   out.push('');
   out.push(`- Stamped specs: **${specPaths.length}**`);
