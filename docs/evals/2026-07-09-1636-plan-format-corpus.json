@@ -1,0 +1,2289 @@
+{
+  "corpus": {
+    "specs": [
+      "2026-06-23-v2.11.0-rc.1-build.md",
+      "2026-06-25-rc1-closeout.md",
+      "2026-06-25-wlm-foundation.md",
+      "2026-06-26-wlm-operational-core.md",
+      "2026-06-29-risk-verification-closeout.md",
+      "2026-07-02-harness-launcher.md",
+      "2026-07-03-wlm-6-surface-and-workflow-fixes.md",
+      "2026-07-03-wlm-reconcile-enforce.md",
+      "2026-07-04-harness-conform-and-shrink.md"
+    ],
+    "tasks": 100,
+    "stamped": 100
+  },
+  "dimension1_model": {
+    "agentDist": {
+      "implementer": 99,
+      "scaffolder": 1
+    },
+    "modelDist": {
+      "opus": 99,
+      "haiku": 1
+    },
+    "modelByTier": {
+      "low": {
+        "opus": 6
+      },
+      "medium": {
+        "opus": 49
+      },
+      "high": {
+        "opus": 44,
+        "haiku": 1
+      }
+    },
+    "highTierCheapModel": 1,
+    "lowTierExpensiveModel": 6,
+    "cheaperThanNative": 1
+  },
+  "dimension2_verification": {
+    "vsTrueProduction_H0": {
+      "tierMatch": 49,
+      "tierUnder": 45,
+      "tierOver": 6,
+      "integrationRungLost": 45,
+      "boundaryLost": 51
+    },
+    "vsHeuristicCeiling_H1": {
+      "tierMatch": 51,
+      "tierUnder": 8,
+      "tierOver": 41,
+      "integrationRungLost": 7,
+      "boundaryLost": 49,
+      "boundaryPhantom": 0,
+      "confusion": {
+        "medium→medium": 12,
+        "low→medium": 4,
+        "medium→high": 36,
+        "high→high": 38,
+        "medium→low": 1,
+        "high→medium": 7,
+        "low→high": 1,
+        "low→low": 1
+      }
+    }
+  },
+  "rows": [
+    {
+      "spec": "2026-06-25-rc1-closeout.md",
+      "id": "001",
+      "title": "Fix `github.createPr` — drop `--json`, capture URL from stdout",
+      "fileCount": 2,
+      "planTier": "medium",
+      "heuristicTier": "medium",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ]
+    },
+    {
+      "spec": "2026-06-25-rc1-closeout.md",
+      "id": "002",
+      "title": "Fix `gitlab.createPr` — drop the latent `--json` sibling",
+      "fileCount": 2,
+      "planTier": "medium",
+      "heuristicTier": "medium",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ]
+    },
+    {
+      "spec": "2026-06-25-rc1-closeout.md",
+      "id": "003",
+      "title": "Verify ADO `createPr` `--output json` validity + lock the class",
+      "fileCount": 2,
+      "planTier": "low",
+      "heuristicTier": "medium",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ]
+    },
+    {
+      "spec": "2026-06-25-rc1-closeout.md",
+      "id": "004",
+      "title": "Add `canonicalCommandSet()` accessor to the SoT",
+      "fileCount": 2,
+      "planTier": "low",
+      "heuristicTier": "medium",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ]
+    },
+    {
+      "spec": "2026-06-25-rc1-closeout.md",
+      "id": "005",
+      "title": "Collapse `CANONICAL_COMMANDS` to a description map + reconcile drift",
+      "fileCount": 2,
+      "planTier": "medium",
+      "heuristicTier": "medium",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ]
+    },
+    {
+      "spec": "2026-06-25-rc1-closeout.md",
+      "id": "006",
+      "title": "Coupling guard — shim command set == canonical SoT",
+      "fileCount": 1,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-06-25-rc1-closeout.md",
+      "id": "007",
+      "title": "Implement `GitLabProvider.getPrComments` (two-source `PrComment` parity)",
+      "fileCount": 2,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-06-25-rc1-closeout.md",
+      "id": "008",
+      "title": "Implement `AzureDevOpsProvider.getPrComments` (two-source `PrComment` parity)",
+      "fileCount": 2,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-06-25-rc1-closeout.md",
+      "id": "010",
+      "title": "Narrow the `requiresGitHub` gate in `assess_stack` to enable GitLab/ADO",
+      "fileCount": 2,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-06-25-rc1-closeout.md",
+      "id": "009",
+      "title": "Integration — GitLab/ADO comments surface via `assess_stack` (harvest loop branch-free, INV-6)",
+      "fileCount": 1,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-06-25-wlm-foundation.md",
+      "id": "001",
+      "title": "Reconcile the `worktree.*` event family + per-invocation idempotency keys",
+      "fileCount": 2,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-06-25-wlm-foundation.md",
+      "id": "002",
+      "title": "`worktrees@v1` projection reducer",
+      "fileCount": 4,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-06-25-wlm-foundation.md",
+      "id": "003",
+      "title": "Portable process-identity + symlink-resolved path-containment primitives",
+      "fileCount": 4,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-06-25-wlm-foundation.md",
+      "id": "004",
+      "title": "Crash-safe ownership reservation + heal-as-reconcile-fold",
+      "fileCount": 4,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-06-25-wlm-foundation.md",
+      "id": "005",
+      "title": "Adopt harness-created worktrees (no pool) + stale-after-push re-verify",
+      "fileCount": 2,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-06-25-wlm-foundation.md",
+      "id": "006",
+      "title": "GC safety-ladder (pure)",
+      "fileCount": 2,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-06-25-wlm-foundation.md",
+      "id": "007",
+      "title": "`prune_worktrees` handler — adopt-gate, TOCTOU-safe, two-event deletion",
+      "fileCount": 2,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-06-25-wlm-foundation.md",
+      "id": "008",
+      "title": "Register + **dispatch-wire** composite actions (registry + handlers) + parity",
+      "fileCount": 4,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-06-25-wlm-foundation.md",
+      "id": "009",
+      "title": "Windows CI lane for the worktree suite",
+      "fileCount": 1,
+      "planTier": "medium",
+      "heuristicTier": "low",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis"
+      ]
+    },
+    {
+      "spec": "2026-06-26-wlm-operational-core.md",
+      "id": "001",
+      "title": "Add `worktree.merge_requested`/`worktree.merge_executed` to the event-store union",
+      "fileCount": 4,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-06-26-wlm-operational-core.md",
+      "id": "002",
+      "title": "Protected-ancestry process probe (`pure/probe.ts`)",
+      "fileCount": 2,
+      "planTier": "medium",
+      "heuristicTier": "medium",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ]
+    },
+    {
+      "spec": "2026-06-26-wlm-operational-core.md",
+      "id": "003",
+      "title": "Fold merge pair into `inFlightMerges` + probe emissions in `worktrees@v1`; orphan emitter",
+      "fileCount": 2,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-06-26-wlm-operational-core.md",
+      "id": "004",
+      "title": "Liveness emission + `exarchos_view{ps|wait|worktrees}` read path **through `handleView`**",
+      "fileCount": 4,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-06-26-wlm-operational-core.md",
+      "id": "005",
+      "title": "Injectable backoff/jitter/sleep seam + `index.lock` retry wrapper",
+      "fileCount": 2,
+      "planTier": "medium",
+      "heuristicTier": "medium",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ]
+    },
+    {
+      "spec": "2026-06-26-wlm-operational-core.md",
+      "id": "006",
+      "title": "`serialize_merge` optimistic-lease funnel **through `handleOrchestrate`** (composes `merge_orchestrate`)",
+      "fileCount": 4,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-06-26-wlm-operational-core.md",
+      "id": "007",
+      "title": "Register `serialize_merge`/`ps`/`wait` (outputSchema + annotations) + close the view-side parity hole",
+      "fileCount": 3,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-06-26-wlm-operational-core.md",
+      "id": "008",
+      "title": "Error handling & failure modes (crash-resume, stale-lease, concurrent prune+merge, retry exhaustion)",
+      "fileCount": 2,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-06-29-risk-verification-closeout.md",
+      "id": "001",
+      "title": "`isRevision` flag + counted `plan-revision` event + projection fold",
+      "fileCount": 3,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-06-29-risk-verification-closeout.md",
+      "id": "002",
+      "title": "HSM revise flag + precedence + `.exarchos.yml` cap (default 1)",
+      "fileCount": 7,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-06-29-risk-verification-closeout.md",
+      "id": "003",
+      "title": "Re-plumb `commands/plan.md` auto-loop through `transition`",
+      "fileCount": 2,
+      "planTier": "low",
+      "heuristicTier": "medium",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ]
+    },
+    {
+      "spec": "2026-06-29-risk-verification-closeout.md",
+      "id": "004",
+      "title": "Derive + persist workflow `riskTier` (max-of-tiers)",
+      "fileCount": 3,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-06-29-risk-verification-closeout.md",
+      "id": "005",
+      "title": "Project mutation dimension + no-toolchain skip-pass (dead-lock fix)",
+      "fileCount": 3,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-06-29-risk-verification-closeout.md",
+      "id": "006",
+      "title": "Score enforcement at `review → synthesize` (pre-resolved + injected)",
+      "fileCount": 4,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-06-29-risk-verification-closeout.md",
+      "id": "007",
+      "title": "`check_exploration_depth` gate handler + action",
+      "fileCount": 3,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-06-29-risk-verification-closeout.md",
+      "id": "008",
+      "title": "`composeScopedCommand` diff seam + PIT + mutmut scoping",
+      "fileCount": 3,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-06-29-risk-verification-closeout.md",
+      "id": "009",
+      "title": "Full-scope mutation execution behind an offline gate",
+      "fileCount": 2,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-06-29-risk-verification-closeout.md",
+      "id": "010",
+      "title": "Route review enforcement through `resolveGateSet`; delete stale comments",
+      "fileCount": 3,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-06-29-risk-verification-closeout.md",
+      "id": "011",
+      "title": "Chart verification data-flow + phase transitions in system-design.html",
+      "fileCount": 0,
+      "planTier": "low",
+      "heuristicTier": "medium",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ]
+    },
+    {
+      "spec": "2026-07-02-harness-launcher.md",
+      "id": "001",
+      "title": "Event schema — shared-stem create pair + launch liveness (task-less, on the `worktrees` stream)",
+      "fileCount": 3,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-02-harness-launcher.md",
+      "id": "002",
+      "title": "Harness registry — declarative spawn descriptors + enum→runtime-id map",
+      "fileCount": 3,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-02-harness-launcher.md",
+      "id": "003",
+      "title": "Cross-OS async spawn primitive (one interface)",
+      "fileCount": 2,
+      "planTier": "high",
+      "heuristicTier": "medium",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "scaffolder",
+      "model": "haiku",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ]
+    },
+    {
+      "spec": "2026-07-02-harness-launcher.md",
+      "id": "004",
+      "title": "`exarchos <harness>` verb — schema + CLI adapter + `--dry-run`",
+      "fileCount": 3,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": true,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ]
+    },
+    {
+      "spec": "2026-07-02-harness-launcher.md",
+      "id": "005",
+      "title": "Worktree creation — reserve → `create.requested` → `git worktree add` → `create.executed`",
+      "fileCount": 2,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-02-harness-launcher.md",
+      "id": "006",
+      "title": "Launch liveness emission + `ps`/`worktrees` projection wiring",
+      "fileCount": 5,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-02-harness-launcher.md",
+      "id": "007",
+      "title": "WLM composition — producer wiring + retain adopt/reconcile + serialize merges",
+      "fileCount": 2,
+      "planTier": "high",
+      "heuristicTier": "medium",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ]
+    },
+    {
+      "spec": "2026-07-02-harness-launcher.md",
+      "id": "008",
+      "title": "Single-abstraction guard — pure-data descriptor + no per-harness branching",
+      "fileCount": 1,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-02-harness-launcher.md",
+      "id": "009",
+      "title": "Sibling worktree path derivation + nesting guard (pure, cross-OS)",
+      "fileCount": 2,
+      "planTier": "high",
+      "heuristicTier": "medium",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ]
+    },
+    {
+      "spec": "2026-07-02-harness-launcher.md",
+      "id": "010",
+      "title": "Launcher lifecycle orchestration — spawn→place→observe→teardown + real verb binding",
+      "fileCount": 3,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-02-harness-launcher.md",
+      "id": "011",
+      "title": "Signal handling + orphan prevention",
+      "fileCount": 2,
+      "planTier": "high",
+      "heuristicTier": "medium",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ]
+    },
+    {
+      "spec": "2026-07-02-harness-launcher.md",
+      "id": "012",
+      "title": "Teardown safety + recovery/crash/cwd-drift/origin edges",
+      "fileCount": 2,
+      "planTier": "high",
+      "heuristicTier": "medium",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ]
+    },
+    {
+      "spec": "2026-07-02-harness-launcher.md",
+      "id": "013",
+      "title": "Authority-bounded ephemeral orientation-injection seam",
+      "fileCount": 2,
+      "planTier": "high",
+      "heuristicTier": "medium",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ]
+    },
+    {
+      "spec": "2026-07-02-harness-launcher.md",
+      "id": "014",
+      "title": "Per-harness on-ramps (5) + `runtimes/*.yaml` lifecycle semantics",
+      "fileCount": 3,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-02-harness-launcher.md",
+      "id": "015",
+      "title": "Verb conformance + INV-5 + Windows CI lane (named, required)",
+      "fileCount": 3,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-02-harness-launcher.md",
+      "id": "016",
+      "title": "Phantom-launch reconciler — on-demand probe extension for uncatchable death",
+      "fileCount": 3,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-03-wlm-6-surface-and-workflow-fixes.md",
+      "id": "001",
+      "title": "`surface` marker + typed `outputSchema`s (real-output validated) + \"do NOT use for\" guidance",
+      "fileCount": 5,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-03-wlm-6-surface-and-workflow-fixes.md",
+      "id": "002",
+      "title": "`serialize_merge` lease-aware `dryRun` (default, handler short-circuit) + `mutable`-as-hard-gate",
+      "fileCount": 4,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-03-wlm-6-surface-and-workflow-fixes.md",
+      "id": "003",
+      "title": "Registry-driven conformance rewrite of the worktree parity harness",
+      "fileCount": 1,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-03-wlm-6-surface-and-workflow-fixes.md",
+      "id": "004",
+      "title": "Stateful `prepare_review scope:plan` — count + cap at the provisioning seam",
+      "fileCount": 5,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-03-wlm-6-surface-and-workflow-fixes.md",
+      "id": "005",
+      "title": "Bypass-closure + off-by-one + delegate-untouched + overhaul-mirror regression",
+      "fileCount": 3,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-03-wlm-6-surface-and-workflow-fixes.md",
+      "id": "006",
+      "title": "Item-count cap + measured-size summary for `pipeline` + `worktrees`",
+      "fileCount": 8,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-03-wlm-6-surface-and-workflow-fixes.md",
+      "id": "007",
+      "title": "Discovery workflow-type token alignment to canonical `'discovery'`",
+      "fileCount": 10,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-03-wlm-reconcile-enforce.md",
+      "id": "001",
+      "title": "Wrap the prune-executor remove path with `withIndexLockRetry`",
+      "fileCount": 2,
+      "planTier": "high",
+      "heuristicTier": "medium",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ]
+    },
+    {
+      "spec": "2026-07-03-wlm-reconcile-enforce.md",
+      "id": "002",
+      "title": "Retry adapters + wrap the default GitExec composition; correct the false retry-seam comment",
+      "fileCount": 4,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-03-wlm-reconcile-enforce.md",
+      "id": "003",
+      "title": "Burst stagger at the worktree-creation seam",
+      "fileCount": 2,
+      "planTier": "medium",
+      "heuristicTier": "medium",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ]
+    },
+    {
+      "spec": "2026-07-03-wlm-reconcile-enforce.md",
+      "id": "004",
+      "title": "CI wiring grep-gate (two rules)",
+      "fileCount": 3,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-03-wlm-reconcile-enforce.md",
+      "id": "005",
+      "title": "Lease-guard preflight + lease threading (ATOMIC — guard and threading ship together)",
+      "fileCount": 5,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-03-wlm-reconcile-enforce.md",
+      "id": "007",
+      "title": "Reroute skill surfaces to `serialize_merge` + GC cadence guidance",
+      "fileCount": 8,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-03-wlm-reconcile-enforce.md",
+      "id": "008",
+      "title": "`next_actions` prune-cadence affordance after synthesize",
+      "fileCount": 1,
+      "planTier": "medium",
+      "heuristicTier": "medium",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ]
+    },
+    {
+      "spec": "2026-07-03-wlm-reconcile-enforce.md",
+      "id": "009",
+      "title": "Unify compensation `worktree.remove.*` onto the `worktrees` stream (+ retry wrap)",
+      "fileCount": 3,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-03-wlm-reconcile-enforce.md",
+      "id": "010",
+      "title": "Compensation teardown dirty-guard (INV-14)",
+      "fileCount": 2,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-03-wlm-reconcile-enforce.md",
+      "id": "011",
+      "title": "Prune INV-10 liveness pair — events, reducer, manager emission",
+      "fileCount": 3,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-03-wlm-reconcile-enforce.md",
+      "id": "021",
+      "title": "`ps`/`wait` surface the prune pair — idle mode + schema",
+      "fileCount": 4,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-03-wlm-reconcile-enforce.md",
+      "id": "012",
+      "title": "`shared-mutating` posture + resolver gate for worktree verbs",
+      "fileCount": 2,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-03-wlm-reconcile-enforce.md",
+      "id": "013",
+      "title": "#1301-shape regression audit/pin",
+      "fileCount": 1,
+      "planTier": "medium",
+      "heuristicTier": "medium",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ]
+    },
+    {
+      "spec": "2026-07-03-wlm-reconcile-enforce.md",
+      "id": "014",
+      "title": "Null-ready `ownerStartedAt` threading (#1633a)",
+      "fileCount": 3,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-03-wlm-reconcile-enforce.md",
+      "id": "015",
+      "title": "win32 process source (cwd + create-time) behind the shim",
+      "fileCount": 2,
+      "planTier": "medium",
+      "heuristicTier": "medium",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ]
+    },
+    {
+      "spec": "2026-07-03-wlm-reconcile-enforce.md",
+      "id": "016",
+      "title": "win32 path containment (8.3 + symlink canonicalization)",
+      "fileCount": 3,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-03-wlm-reconcile-enforce.md",
+      "id": "017",
+      "title": "Mark `test-windows` lane required",
+      "fileCount": 0,
+      "planTier": "low",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-03-wlm-reconcile-enforce.md",
+      "id": "018",
+      "title": "#1634 — teardown occupancy probe race",
+      "fileCount": 2,
+      "planTier": "medium",
+      "heuristicTier": "medium",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ]
+    },
+    {
+      "spec": "2026-07-03-wlm-reconcile-enforce.md",
+      "id": "020",
+      "title": "Wire or excise `resumeCrashedMerge`",
+      "fileCount": 2,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-03-wlm-reconcile-enforce.md",
+      "id": "019",
+      "title": "#1635 — async origin probe in teardown + launcher `holderStartedAt`",
+      "fileCount": 0,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-04-harness-conform-and-shrink.md",
+      "id": "001",
+      "title": "Renderer skill classification (procedural vs orchestration) with build-time assertion",
+      "fileCount": 2,
+      "planTier": "medium",
+      "heuristicTier": "medium",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ]
+    },
+    {
+      "spec": "2026-07-04-harness-conform-and-shrink.md",
+      "id": "002",
+      "title": "Placeholder-lint rules for the collapsed vocabulary",
+      "fileCount": 3,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-04-harness-conform-and-shrink.md",
+      "id": "003",
+      "title": "`skills/standard/` single-render emission + guard + CHAIN validation (stale renders deleted here)",
+      "fileCount": 3,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-04-harness-conform-and-shrink.md",
+      "id": "023",
+      "title": "Multi-release legacy-render hash manifest (git-history-derived)",
+      "fileCount": 2,
+      "planTier": "medium",
+      "heuristicTier": "medium",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ]
+    },
+    {
+      "spec": "2026-07-04-harness-conform-and-shrink.md",
+      "id": "004",
+      "title": "Atomic rename wave — one PR, every rename surface",
+      "fileCount": 12,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-04-harness-conform-and-shrink.md",
+      "id": "006",
+      "title": "Procedural rewrite to logical names + binding neutralization with its consumer",
+      "fileCount": 4,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-04-harness-conform-and-shrink.md",
+      "id": "007",
+      "title": "Collapse fat `commands/*.md` bodies into skills; thin shims",
+      "fileCount": 17,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-04-harness-conform-and-shrink.md",
+      "id": "021",
+      "title": "Root-package Windows CI lane",
+      "fileCount": 1,
+      "planTier": "low",
+      "heuristicTier": "low",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis"
+      ],
+      "hGates": [
+        "check_static_analysis"
+      ]
+    },
+    {
+      "spec": "2026-07-04-harness-conform-and-shrink.md",
+      "id": "010",
+      "title": "Install layout — `.agents/skills/` + copy-mode + provenance manifest",
+      "fileCount": 3,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-04-harness-conform-and-shrink.md",
+      "id": "009",
+      "title": "Consistency sweep — idempotence, golden fixture, full integration",
+      "fileCount": 1,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-04-harness-conform-and-shrink.md",
+      "id": "011",
+      "title": "Onboard rename migration — provenance-gated, multi-release bootstrap",
+      "fileCount": 2,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-04-harness-conform-and-shrink.md",
+      "id": "012",
+      "title": "`insertManagedBlock` — consumer-side writer (server package)",
+      "fileCount": 2,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-04-harness-conform-and-shrink.md",
+      "id": "013",
+      "title": "Onboard writers — AGENTS.md block + CLAUDE.md shim + doctor drift",
+      "fileCount": 1,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-04-harness-conform-and-shrink.md",
+      "id": "014",
+      "title": "Injection-channel candidate lists on the harness registry",
+      "fileCount": 2,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-04-harness-conform-and-shrink.md",
+      "id": "015",
+      "title": "Spawn-time channel probe + `injectOrientation` wiring (fail-open, dry-run-visible)",
+      "fileCount": 3,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-04-harness-conform-and-shrink.md",
+      "id": "016",
+      "title": "Hook-surface shrink (specified plugin carve-out)",
+      "fileCount": 4,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-04-harness-conform-and-shrink.md",
+      "id": "017",
+      "title": "Onboard retired-hooks plumbing — check, ordering, uninstall, parity",
+      "fileCount": 3,
+      "planTier": "high",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    },
+    {
+      "spec": "2026-07-04-harness-conform-and-shrink.md",
+      "id": "022",
+      "title": "Versioned packaging via the sync pipeline",
+      "fileCount": 7,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": true,
+      "heuristicBoundary": true,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite",
+        "check_contract_drift",
+        "check_mock_boundary"
+      ]
+    },
+    {
+      "spec": "2026-07-04-harness-conform-and-shrink.md",
+      "id": "018",
+      "title": "Liveness-verb coverage + docs truth-up + ADR addendum",
+      "fileCount": 2,
+      "planTier": "medium",
+      "heuristicTier": "high",
+      "planBoundary": false,
+      "heuristicBoundary": false,
+      "agent": "implementer",
+      "model": "opus",
+      "eGates": [
+        "check_static_analysis",
+        "check_test_adequacy"
+      ],
+      "hGates": [
+        "check_static_analysis",
+        "check_test_adequacy",
+        "check_integration_suite"
+      ]
+    }
+  ]
+}
