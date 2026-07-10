@@ -38,6 +38,12 @@ import {
 import type { Provenance } from '../../../servers/exarchos-mcp/src/evals/provenance.js';
 
 const SUBPROCESS_TIMEOUT = 120_000;
+// The grading path spawns `tsx`/`git` subprocesses (oracle run + diff-scoped
+// mutation gate). These dev-only eval harnesses are Linux-oriented; the npm
+// `.cmd` bin shims + tmpdir semantics don't spawn cleanly on win32, so the
+// subprocess-grading blocks are skipped there (the pure parser/prompt/CSV blocks
+// still run everywhere). Coverage is exercised on the Linux lane.
+const WIN32 = process.platform === 'win32';
 
 const TOKEN_BUCKET = TASKS.find((t) => t.name === 'token-bucket')!;
 const PARSE_DURATION = TASKS.find((t) => t.name === 'parse-duration')!;
@@ -204,7 +210,7 @@ const GENUINE_TEST = `import assert from 'node:assert/strict';\nimport { add } f
 // VACUOUS test: imports impl but asserts nothing about add → stays green.
 const VACUOUS_TEST = `import assert from 'node:assert/strict';\nimport './impl.ts';\nassert.equal(1 + 1, 2);\nconsole.log('ok');\n`;
 
-describe('captureCell — mechanical per-cell aggregation (oracle · tsc · mutation)', () => {
+describe.skipIf(WIN32)('captureCell — mechanical per-cell aggregation (oracle · tsc · mutation)', () => {
   let fixtureRoot: string;
   let tasksDir: string;
   let runsDir: string;

@@ -604,7 +604,11 @@ export const spawnClaude: ClaudeRunner = (args) =>
     execFile(
       'claude',
       [...args],
-      { maxBuffer: 64 * 1024 * 1024, encoding: 'utf-8' },
+      // `timeout` bounds a hung `claude -p` (network stall / unexpected prompt):
+      // on timeout execFile kills the child and calls back with an error, which
+      // degrades to a non-zero exitCode → a BLOCKED record, preserving fail-honest
+      // (a hang never wedges the run with no measured OR blocked outcome).
+      { maxBuffer: 64 * 1024 * 1024, encoding: 'utf-8', timeout: 300_000 },
       (err, stdout, stderr) => {
         const code =
           err && typeof (err as NodeJS.ErrnoException & { code?: number }).code === 'number'

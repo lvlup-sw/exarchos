@@ -27,6 +27,11 @@ const QAB = __dirname; // docs/evals/quality-ab
 // Generous per-test timeout: each case spawns git + tsx subprocesses (avoids the
 // vitest 5s default spawn-timeout flake on process-spawning tests).
 const SUBPROCESS_TIMEOUT = 120_000;
+// gradeAdequacy/gradeRun spawn `tsx`/`git` (oracle run + diff-scoped mutation
+// gate). Dev-only Linux-oriented eval tooling — the npm `.cmd` shims don't spawn
+// cleanly on win32 — so these subprocess suites are skipped there and covered on
+// the Linux lane.
+const WIN32 = process.platform === 'win32';
 
 // ── fixture sources for the discrimination test ──────────────────────────────
 const STUB = `export function add(a: number, b: number): number {\n  throw new Error('not implemented');\n}\n`;
@@ -37,7 +42,7 @@ const GENUINE_TEST = `import assert from 'node:assert/strict';\nimport { add } f
 // the revert (the classic non-binding suite the kill-probe must catch).
 const VACUOUS_TEST = `import assert from 'node:assert/strict';\nimport './impl.ts';\nassert.equal(1 + 1, 2);\nconsole.log('ok');\n`;
 
-describe('gradeAdequacy — mechanical diff-scoped kill-probe (DR-4/DR-7)', () => {
+describe.skipIf(WIN32)('gradeAdequacy — mechanical diff-scoped kill-probe (DR-4/DR-7)', () => {
   let fixtureRoot: string;
   let tasksDir: string;
   let genuineRunDir: string;
@@ -119,7 +124,7 @@ describe('gradeAdequacy — mechanical diff-scoped kill-probe (DR-4/DR-7)', () =
   );
 });
 
-describe('gradeRun — characterization: adequacy is additive, existing cells unchanged', () => {
+describe.skipIf(WIN32)('gradeRun — characterization: adequacy is additive, existing cells unchanged', () => {
   // Deterministic probe seam so this test pins the EXISTING metrics (oracle /
   // typecheck / wroteTests) without depending on the real kill-probe's timing;
   // the real gate's correctness is covered by the discrimination suite above.

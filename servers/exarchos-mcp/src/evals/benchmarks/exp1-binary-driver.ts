@@ -34,6 +34,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import { z } from 'zod';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { parseTaskStamps } from '../../orchestrate/parse-task-stamps.js';
@@ -405,24 +406,53 @@ export type SpecRunResult =
   | { readonly ok: true; readonly classifications: ClassificationSnapshot[] }
   | { readonly ok: false; readonly blocked: { readonly reason: string; readonly detail: string } };
 
-interface EnvelopeShape {
-  success?: boolean;
-  error?: { code?: string; message?: string };
-  data?: {
-    ready?: boolean;
-    blockers?: string[];
-    taskClassifications?: Array<{
-      taskId: string;
-      riskTier?: string;
-      boundaryTouching?: boolean;
-      verificationSequence?: string[];
-    }>;
-  };
-}
+/**
+ * Runtime schema for the MCP tool envelope. This is the boundary where the driver
+ * crosses into the REAL binary (the whole point of Exp 1), so the payload is
+ * validated with Zod rather than cast — a malformed or differently-shaped response
+ * from the binary is caught here, not silently propagated as wrong types into the
+ * diff/CSV.
+ */
+const EnvelopeSchema = z.object({
+  success: z.boolean().optional(),
+  error: z.object({ code: z.string().optional(), message: z.string().optional() }).optional(),
+  data: z
+    .object({
+      ready: z.boolean().optional(),
+      blockers: z.array(z.unknown()).optional(),
+      taskClassifications: z
+        .array(
+          z.object({
+            taskId: z.string(),
+            riskTier: z.string().optional(),
+            boundaryTouching: z.boolean().optional(),
+            verificationSequence: z.array(z.string()).optional(),
+          }),
+        )
+        .optional(),
+    })
+    .optional(),
+});
+type EnvelopeShape = z.infer<typeof EnvelopeSchema>;
 
-function parseEnvelope(res: { content?: Array<{ type: string; text?: string }> }): EnvelopeShape {
+/** Parse + validate the tool envelope. Fail-honest: a non-JSON or off-schema
+ *  payload returns a reason string (caller records a `blocked` result) rather than
+ *  throwing and crashing the whole run. */
+function parseEnvelope(
+  res: { content?: Array<{ type: string; text?: string }> },
+): { ok: true; env: EnvelopeShape } | { ok: false; reason: string } {
   const text = res.content?.find((c) => c.type === 'text')?.text ?? '{}';
-  return JSON.parse(text) as EnvelopeShape;
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch (err) {
+    return { ok: false, reason: `malformed JSON from binary: ${err instanceof Error ? err.message : String(err)}` };
+  }
+  const parsed = EnvelopeSchema.safeParse(json);
+  if (!parsed.success) {
+    return { ok: false, reason: `envelope failed schema: ${parsed.error.issues[0]?.message ?? 'invalid shape'}` };
+  }
+  return { ok: true, env: parsed.data };
 }
 
 function toSnapshots(env: EnvelopeShape): ClassificationSnapshot[] {
@@ -457,10 +487,12 @@ export async function runArmOverCorpus(
     env: { ...process.env, WORKFLOW_STATE_DIR: stateDir },
   });
   const client = new Client({ name: 'exp1-driver', version: '0.0.0' }, { capabilities: {} });
-  await client.connect(transport);
 
   const results = new Map<string, SpecRunResult>();
   try {
+    // Inside the try so a handshake failure is still torn down (client.close +
+    // stateDir removal) rather than orphaning the spawned `mcp` process.
+    await client.connect(transport);
     for (const spec of corpus) {
       // The event store requires streamId to match /^[a-z0-9-]+$/ — lowercase,
       // fold every other character (dots, underscores, uppercase) to a hyphen,
@@ -494,7 +526,15 @@ export async function runArmOverCorpus(
       if (ref.arm === 'after') args['planPath'] = spec.specPath;
 
       const res = await client.callTool({ name: 'exarchos_orchestrate', arguments: args });
-      const env = parseEnvelope(res as { content?: Array<{ type: string; text?: string }> });
+      const parsed = parseEnvelope(res as { content?: Array<{ type: string; text?: string }> });
+      if (!parsed.ok) {
+        results.set(spec.specId, {
+          ok: false,
+          blocked: { reason: 'ENVELOPE_PARSE_FAILED', detail: parsed.reason },
+        });
+        continue;
+      }
+      const env = parsed.env;
 
       if (env.success !== true) {
         results.set(spec.specId, {
@@ -520,6 +560,9 @@ export async function runArmOverCorpus(
     }
   } finally {
     await client.close();
+    // Remove the per-binary temp state dir so repeated runs (e.g. CI) don't
+    // accumulate orphaned directories.
+    fs.rmSync(stateDir, { recursive: true, force: true });
   }
   return results;
 }

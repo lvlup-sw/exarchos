@@ -88,7 +88,10 @@ function buildCsv(): string {
     }
     const r = record as MeasuredNativeBaseline;
     const dist = r.modelDistribution;
-    const cost = r.sessionModelUsage[r.subagents[0]?.model ?? '']?.costUSD;
+    // Sum costUSD across every model in the session (not just the first
+    // subagent's), so a mixed-model transcript reports the true session cost
+    // rather than silently under-reporting. Single-model sessions are unchanged.
+    const cost = Object.values(r.sessionModelUsage).reduce((sum, m) => sum + (m.costUSD ?? 0), 0);
     for (const s of r.subagents) {
       // Stamp through the Task-001 helper: throws unless every pin is present.
       const { provenance } = stampProvenance({ run, subagent: s.toolUseId }, PROVENANCE);
