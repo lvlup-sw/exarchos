@@ -20,7 +20,7 @@
  *     skills.
  *
  * Release-tag / version coordination (preview tag): the git release tag for this
- * bundle is cut as `v2.12.0-preview.1`, matching the root `package.json` version
+ * bundle is cut as `v2.12.0-preview.2`, matching the root `package.json` version
  * exactly. `PREVIEW_VERSION` below pins that coordination point — it must be
  * updated in lockstep with the next `package.json` bump (and its release tag),
  * which is the deliberate forcing function for the preview → next-version
@@ -38,7 +38,7 @@ import { load as yamlLoad } from 'js-yaml';
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 /** The preview release tag this bundle coordinates with (see file header). */
-const PREVIEW_VERSION = '2.12.0-preview.1';
+const PREVIEW_VERSION = '2.12.0-preview.2';
 
 const readJson = (rel: string): Record<string, unknown> =>
   JSON.parse(readFileSync(join(repoRoot, rel), 'utf-8')) as Record<string, unknown>;
