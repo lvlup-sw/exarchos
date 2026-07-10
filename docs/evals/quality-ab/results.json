@@ -1,0 +1,196 @@
+{
+  "results": [
+    {
+      "run": "csv-line__E__r1",
+      "task": "csv-line",
+      "arm": "E",
+      "rep": "1",
+      "oraclePassed": 21,
+      "oracleTotal": 21,
+      "oracleFailures": [],
+      "typecheckOk": true,
+      "wroteTests": true
+    },
+    {
+      "run": "csv-line__E__r2",
+      "task": "csv-line",
+      "arm": "E",
+      "rep": "2",
+      "oraclePassed": 21,
+      "oracleTotal": 21,
+      "oracleFailures": [],
+      "typecheckOk": true,
+      "wroteTests": true
+    },
+    {
+      "run": "csv-line__E__r3",
+      "task": "csv-line",
+      "arm": "E",
+      "rep": "3",
+      "oraclePassed": 21,
+      "oracleTotal": 21,
+      "oracleFailures": [],
+      "typecheckOk": true,
+      "wroteTests": true
+    },
+    {
+      "run": "csv-line__N__r1",
+      "task": "csv-line",
+      "arm": "N",
+      "rep": "1",
+      "oraclePassed": 21,
+      "oracleTotal": 21,
+      "oracleFailures": [],
+      "typecheckOk": true,
+      "wroteTests": false
+    },
+    {
+      "run": "csv-line__N__r2",
+      "task": "csv-line",
+      "arm": "N",
+      "rep": "2",
+      "oraclePassed": 21,
+      "oracleTotal": 21,
+      "oracleFailures": [],
+      "typecheckOk": true,
+      "wroteTests": false
+    },
+    {
+      "run": "csv-line__N__r3",
+      "task": "csv-line",
+      "arm": "N",
+      "rep": "3",
+      "oraclePassed": 21,
+      "oracleTotal": 21,
+      "oracleFailures": [],
+      "typecheckOk": true,
+      "wroteTests": false
+    },
+    {
+      "run": "parse-duration__E__r1",
+      "task": "parse-duration",
+      "arm": "E",
+      "rep": "1",
+      "oraclePassed": 21,
+      "oracleTotal": 21,
+      "oracleFailures": [],
+      "typecheckOk": true,
+      "wroteTests": true
+    },
+    {
+      "run": "parse-duration__E__r2",
+      "task": "parse-duration",
+      "arm": "E",
+      "rep": "2",
+      "oraclePassed": 21,
+      "oracleTotal": 21,
+      "oracleFailures": [],
+      "typecheckOk": true,
+      "wroteTests": true
+    },
+    {
+      "run": "parse-duration__N__r1",
+      "task": "parse-duration",
+      "arm": "N",
+      "rep": "1",
+      "oraclePassed": 21,
+      "oracleTotal": 21,
+      "oracleFailures": [],
+      "typecheckOk": true,
+      "wroteTests": false
+    },
+    {
+      "run": "parse-duration__N__r2",
+      "task": "parse-duration",
+      "arm": "N",
+      "rep": "2",
+      "oraclePassed": 21,
+      "oracleTotal": 21,
+      "oracleFailures": [],
+      "typecheckOk": true,
+      "wroteTests": false
+    },
+    {
+      "run": "token-bucket__E__r1",
+      "task": "token-bucket",
+      "arm": "E",
+      "rep": "1",
+      "oraclePassed": 9,
+      "oracleTotal": 9,
+      "oracleFailures": [],
+      "typecheckOk": true,
+      "wroteTests": true
+    },
+    {
+      "run": "token-bucket__E__r2",
+      "task": "token-bucket",
+      "arm": "E",
+      "rep": "2",
+      "oraclePassed": 9,
+      "oracleTotal": 9,
+      "oracleFailures": [],
+      "typecheckOk": true,
+      "wroteTests": true
+    },
+    {
+      "run": "token-bucket__N__r1",
+      "task": "token-bucket",
+      "arm": "N",
+      "rep": "1",
+      "oraclePassed": 9,
+      "oracleTotal": 9,
+      "oracleFailures": [],
+      "typecheckOk": true,
+      "wroteTests": false
+    },
+    {
+      "run": "token-bucket__N__r2",
+      "task": "token-bucket",
+      "arm": "N",
+      "rep": "2",
+      "oraclePassed": 9,
+      "oracleTotal": 9,
+      "oracleFailures": [],
+      "typecheckOk": true,
+      "wroteTests": false
+    }
+  ],
+  "agg": {
+    "csv-line::E": {
+      "runs": 3,
+      "oracleRate": 3,
+      "typecheckOk": 3,
+      "wroteTests": 3
+    },
+    "csv-line::N": {
+      "runs": 3,
+      "oracleRate": 3,
+      "typecheckOk": 3,
+      "wroteTests": 0
+    },
+    "parse-duration::E": {
+      "runs": 2,
+      "oracleRate": 2,
+      "typecheckOk": 2,
+      "wroteTests": 2
+    },
+    "parse-duration::N": {
+      "runs": 2,
+      "oracleRate": 2,
+      "typecheckOk": 2,
+      "wroteTests": 0
+    },
+    "token-bucket::E": {
+      "runs": 2,
+      "oracleRate": 2,
+      "typecheckOk": 2,
+      "wroteTests": 2
+    },
+    "token-bucket::N": {
+      "runs": 2,
+      "oracleRate": 2,
+      "typecheckOk": 2,
+      "wroteTests": 0
+    }
+  }
+}

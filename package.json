@@ -36,6 +36,7 @@
     "hooks:guard": "node dist/hooks-guard.js",
     "prepare": "tsc",
     "bench": "cd servers/exarchos-mcp && npx vitest bench",
+    "bench:plan-format": "tsx servers/exarchos-mcp/src/evals/benchmarks/plan-format-corpus.ts",
     "test": "vitest",
     "test:unit": "vitest run --project unit --project integration",
     "test:process": "vitest run --project process --passWithNoTests",

@@ -42,6 +42,8 @@ import { generateQualityHints } from '../quality/hints.js';
 import type { QualityHint } from '../quality/hints.js';
 import { emitGateEvent } from './gate-utils.js';
 import { canonicaliseTaskId } from './task-decomposition.js';
+import { parseTaskStamps, stampForTask } from './parse-task-stamps.js';
+import { readFile } from 'node:fs/promises';
 import { queryTelemetryState } from '../telemetry/telemetry-queries.js';
 import type { TelemetryViewState } from '../telemetry/telemetry-projection.js';
 import {
@@ -584,6 +586,69 @@ export function classifyTasksFailClosed(
   }
 }
 
+// ─── Plan-Stamp Lift (#1636) ────────────────────────────────────────────────
+
+/**
+ * Merge the planner's parsed per-task stamps onto the caller's task inputs.
+ *
+ * Precedence (highest first): an explicit field ALREADY on the `tasks[]` entry →
+ * the parsed plan stamp → the classifier heuristic (applied later by
+ * `deriveRiskTier`/`deriveBoundaryTouching` when neither supplied a value). Only
+ * a MISSING field is filled from the stamp, so a caller that hand-supplies a
+ * value is never overridden.
+ *
+ * Also emits a DISAGREEMENT advisory (informational — never blocks) when the
+ * resolved `riskTier` differs from what the pure heuristic would have derived, so
+ * an operator can see that a plan stamp overrode a divergent heuristic rather
+ * than the override happening silently (issue #1636, proposed fix §3).
+ *
+ * Pure: no I/O (the caller reads the plan file and passes parsed stamps).
+ */
+export function applyPlanStamps(
+  tasks: readonly TaskInput[],
+  stamps: ReturnType<typeof parseTaskStamps>,
+): { readonly tasks: TaskInput[]; readonly advisories: string[] } {
+  const advisories: string[] = [];
+  const merged = tasks.map((t) => {
+    const stamp = stampForTask(stamps, t.id);
+    if (!stamp) return t;
+    const hasFiles = t.files !== undefined && t.files.length > 0;
+    const hasDeps = t.blockedBy !== undefined && t.blockedBy.length > 0;
+    const resolved: TaskInput = {
+      ...t,
+      ...(t.riskTier === undefined && stamp.riskTier !== undefined
+        ? { riskTier: stamp.riskTier }
+        : {}),
+      ...(t.boundaryTouching === undefined && stamp.boundaryTouching !== undefined
+        ? { boundaryTouching: stamp.boundaryTouching }
+        : {}),
+      ...(t.testLayer === undefined && stamp.testLayer !== undefined
+        ? { testLayer: stamp.testLayer }
+        : {}),
+      ...(!hasFiles && stamp.files.length > 0 ? { files: stamp.files } : {}),
+      ...(!hasDeps && stamp.blockedBy.length > 0 ? { blockedBy: stamp.blockedBy } : {}),
+    };
+    // Emit the advisory ONLY when the applied tier actually CAME FROM the plan
+    // stamp — a caller-supplied `riskTier` wins over the stamp and is not a "plan
+    // stamp override", so attributing it to the stamp would misdiagnose the source
+    // (CodeRabbit/Sentry). Compare against the heuristic derived from the ORIGINAL
+    // task `t` (no stamp-provided files/testLayer/deps) so it is genuinely PURE —
+    // deriving from `resolved` would fold the stamp's own context back in and could
+    // suppress a real divergence.
+    const riskTierFromStamp = t.riskTier === undefined && stamp.riskTier !== undefined;
+    if (riskTierFromStamp) {
+      const heuristicTier = deriveRiskTier(t);
+      if (heuristicTier !== stamp.riskTier) {
+        advisories.push(
+          `task ${t.id}: plan stamp riskTier="${stamp.riskTier}" overrode heuristic "${heuristicTier}"`,
+        );
+      }
+    }
+    return resolved;
+  });
+  return { tasks: merged, advisories };
+}
+
 // ─── Worktree Blocker Patterns ──────────────────────────────────────────────
 
 const WORKTREE_BLOCKER_PATTERNS = [
@@ -810,6 +875,13 @@ export async function handlePrepareDelegation(
   args: {
     featureId: string;
     tasks?: TaskInput[];
+    /**
+     * #1636: path to the decomposition markdown. When present, the planner's
+     * per-task `**Risk Tier:**` / `**Boundary Touching:**` stamps are lifted onto
+     * the matching `tasks[]` entries (an explicit field on the entry still wins;
+     * the parsed stamp wins over the heuristic). Absent, behavior is unchanged.
+     */
+    planPath?: string;
     nativeIsolation?: boolean;
     /**
      * task 004 (DR-2): an explicit workflow-level risk-tier override. When
@@ -1335,14 +1407,35 @@ export async function handlePrepareDelegation(
     const agentConfig = ctx?.projectConfig?.agents ?? DEFAULTS.agents;
     const projectConfig = ctx?.projectConfig;
 
+    // ─── #1636: lift planner stamps from the decomposition markdown ──────────
+    // When `planPath` is supplied, parse its per-task `**Risk Tier:**` /
+    // `**Boundary Touching:**` stamps and merge them onto the caller's tasks so
+    // the classifier's "planner value wins" branch is reachable. Best-effort: an
+    // unreadable plan leaves tasks unchanged (heuristic still applies) and only
+    // surfaces an advisory — the readiness dispatch path must not hard-depend on
+    // a plan read.
+    let effectiveTasks = args.tasks;
+    if (args.tasks && args.planPath) {
+      try {
+        const planMarkdown = await readFile(args.planPath, 'utf-8');
+        const lifted = applyPlanStamps(args.tasks, parseTaskStamps(planMarkdown));
+        effectiveTasks = lifted.tasks;
+        for (const advisory of lifted.advisories) warnings.push(`stamp: ${advisory}`);
+      } catch (err) {
+        warnings.push(
+          `planPath unreadable (${args.planPath}) — proceeding with heuristic tiers: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
     // DR-7: classify the wave through the fail-closed boundary. A resolver
     // throw (e.g. a deferred-kind 'not-yet-wired' fault) no longer propagates
     // and fails the dispatch OPEN; instead the boundary records `phase.blocked`
     // and refuses to proceed (no task classifications stamped).
     let taskClassifications: TaskClassification[] | undefined;
-    if (args.tasks) {
+    if (effectiveTasks) {
       const classified = classifyTasksFailClosed(
-        args.tasks,
+        effectiveTasks,
         agentConfig,
         projectConfig,
         workflowState.phase ?? 'delegate',
