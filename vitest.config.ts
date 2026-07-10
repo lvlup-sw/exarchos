@@ -1,12 +1,15 @@
 import { defineConfig, configDefaults } from 'vitest/config';
 import { fileURLToPath } from 'node:url';
 
-// Captured eval ARTIFACTS under `docs/evals/` include agent-authored `*.test.ts`
-// files that are verbatim records, not project tests (they use a module-load
-// harness, not describe/it). They are already outside every `include` allow-list
-// below; this explicit exclude makes that intent durable so a future glob change
-// can never collect them (and their `process.exit` can never reach a worker).
-const EXCLUDE = [...configDefaults.exclude, 'docs/**'];
+// Captured eval ARTIFACTS live under a run dir (`docs/evals/**/runs/<task>__<arm>__r<rep>/`)
+// and include agent-authored `*.test.ts` / `test.ts` files that are verbatim records,
+// not project tests (they use a module-load harness with `process.exit`, not
+// describe/it). Excluding the RUN dirs keeps that intent durable so no future glob
+// change can collect them (and their `process.exit` can never reach a worker). The
+// eval GRADERS themselves (e.g. `docs/evals/quality-ab/grade.ts`) do ship genuine
+// vitest tests directly beside the grader (never under `runs/`); those are collected
+// by the `unit` project's explicit `docs/evals/**/*.test.ts` include below.
+const EXCLUDE = [...configDefaults.exclude, 'docs/**/runs/**'];
 
 export default defineConfig({
   test: {
@@ -35,6 +38,10 @@ export default defineConfig({
             'test/migration/**/*.test.ts',
             'test/smoke/**/*.test.ts',
             'test/e2e/**/*.test.ts',
+            // Eval GRADER tests (the harness that scores an eval), directly beside
+            // the grader — NOT the captured run artifacts (those stay under
+            // `runs/`, excluded above). e.g. `docs/evals/quality-ab/grade.test.ts`.
+            'docs/evals/**/*.test.ts',
           ],
           exclude: EXCLUDE,
         },
