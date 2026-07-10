@@ -85,7 +85,10 @@ export class SnapshotStore {
   private getSnapshotPath(streamId: string, viewName: string): string {
     assertSafeId(streamId, 'streamId');
     const snapshotName = this.resolveSnapshotName(viewName);
-    assertSafeId(snapshotName, 'snapshotName');
+    // Labeled `viewName` (the caller-facing input): the namespace-mapped branch
+    // only ever carries dev-controlled safe values, so this assert throws solely
+    // for a caller-supplied unsafe `viewName`, where `snapshotName === viewName`.
+    assertSafeId(snapshotName, 'viewName');
 
     const resolved = path.resolve(
       this.stateDir,
