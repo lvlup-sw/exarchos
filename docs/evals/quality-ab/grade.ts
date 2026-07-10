@@ -46,7 +46,8 @@ interface RunResult {
 
 function gradeOracle(runDir: string, task: string): Pick<RunResult, 'oraclePassed' | 'oracleTotal' | 'oracleFailures' | 'error'> {
   const oracleSrc = path.join(tasksDir, task, 'oracle.ts');
-  fs.copyFileSync(oracleSrc, path.join(runDir, 'oracle.ts'));
+  const oracleDst = path.join(runDir, 'oracle.ts');
+  fs.copyFileSync(oracleSrc, oracleDst);
   try {
     const out = execFileSync(TSX, ['oracle.ts'], { cwd: runDir, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
     const line = out.trim().split('\n').filter(Boolean).pop() ?? '{}';
@@ -57,6 +58,9 @@ function gradeOracle(runDir: string, task: string): Pick<RunResult, 'oraclePasse
     const total = countOracleChecks(oracleSrc);
     const msg = err instanceof Error ? (err as Error & { stderr?: string }).stderr ?? err.message : String(err);
     return { oraclePassed: 0, oracleTotal: total, oracleFailures: ['oracle could not run against impl'], error: String(msg).split('\n').slice(0, 3).join(' ') };
+  } finally {
+    // Don't leave the hidden oracle behind in the run dir.
+    fs.rmSync(oracleDst, { force: true });
   }
 }
 

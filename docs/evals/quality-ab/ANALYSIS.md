@@ -15,42 +15,50 @@ verification regime the agent is dispatched under:
   hermetic fixtures."
 - **Arm N (native):** no verification steer — "implement it."
 
-Two self-contained tasks, each with a spec + stub shown to the agent and a
-**hidden oracle** (a comprehensive edge-case suite the agent never sees), used
-only at grade time:
+Three self-contained tasks, each with a spec + stub shown to the agent and a
+**hidden oracle** (a comprehensive edge-case suite the agent never sees, each
+validated against a correct reference), used only at grade time:
 
-| task | tier | why it's a good probe |
-|---|---|---|
-| `TokenBucket` | high · boundary | injected-clock seam; lazy proportional refill, cap, all-or-nothing consume, no-partial-on-failure, fractional accrual across reads |
-| `parseDuration` | medium | the `ms`-vs-`m` trap, multi-segment sums, strict rejection of malformed input |
+| task | tier | model | why it's a good probe |
+|---|---|---|---|
+| `TokenBucket` | high · boundary | opus | injected-clock seam; lazy proportional refill, cap, all-or-nothing consume, no-partial-on-failure, fractional accrual across reads |
+| `parseDuration` | medium | opus | the `ms`-vs-`m` trap, multi-segment sums, strict rejection of malformed input |
+| `csvParseLine` | high · boundary | **sonnet** | RFC-4180 quoting/escaping traps (commas-in-quotes, `""` escaping, junk-after-quote errors); a *discriminating* round — a harder task on a **weaker model**, the condition under which a verification-correctness delta should appear if one exists |
 
-2 replicates per (task, arm) = **8 live agent runs**. Graded on: hidden-oracle
-pass rate (correctness / spec-conformance), strict `tsc` (type errors), and
-whether the agent produced durable tests (behavioral). See `RESULTS.md` /
-`results.json`; produced code is under `runs/`.
+**14 live agent runs** total (2–3 replicates per task×arm). Graded on: hidden-oracle
+pass rate (correctness / spec-conformance), strict `tsc` (type errors, `es2022`
+lib), and whether the agent produced durable tests (behavioral). See `RESULTS.md`
+/ `results.json`; produced code is under `runs/`.
 
 ## Results
 
-| task | arm | mean oracle pass rate | typecheck ok | durable tests |
-|---|---|---|---|---|
-| parse-duration | E | **100%** | 2/2 | **2/2** |
-| parse-duration | N | **100%** | 2/2 | 0/2 |
-| token-bucket | E | **100%** | 2/2 | **2/2** |
-| token-bucket | N | **100%** | 2/2 | 0/2 |
+| task | model | arm | mean oracle pass rate | typecheck ok | durable tests |
+|---|---|---|---|---|---|
+| token-bucket | opus | E | **100%** | 2/2 | **2/2** |
+| token-bucket | opus | N | **100%** | 2/2 | 0/2 |
+| parse-duration | opus | E | **100%** | 2/2 | **2/2** |
+| parse-duration | opus | N | **100%** | 2/2 | 0/2 |
+| csv-line | sonnet | E | **100%** | 3/3 | **3/3** |
+| csv-line | sonnet | N | **100%** | 3/3 | 0/3 |
 
-Two clear signals:
+Two clear signals, robust across **2 models × 3 tasks × 14 runs**:
 
-1. **Correctness: no delta.** Every run — both arms, both tasks — passed 100% of
-   the hidden oracle and typechecked clean. On well-specified tasks, a strong
-   model (opus) produced fully correct code *with or without* the verification
-   steer. The edge cases these tasks turn on (the `ms`/`m` distinction,
-   no-partial-consume, fractional refill) were handled unprompted.
+1. **Correctness: no delta.** Every run — both arms, all three tasks — passed 100%
+   of the hidden oracle and typechecked clean. This holds even in the
+   *discriminating* round: the weaker model (sonnet) on the trickiest task
+   (CSV quoting/escaping) still produced fully correct code in **both** arms. The
+   traps these tasks turn on (the `ms`/`m` distinction, no-partial-consume,
+   fractional refill, commas-inside-quotes, `""` escaping, junk-after-quote) were
+   handled unprompted — every Arm-N agent wrote a proper single-pass parser, not
+   the naive `split(',')` failure mode.
 
-2. **Process: a large, consistent delta.** Every Arm-E run produced a **durable
-   test file** and ran an explicit **kill-probe / mutation check** (from the agent
-   reports: *"all 27 tests fail against a constant-42 stub"*, *"an always-true
-   mutant fails 23 of them"*). No Arm-N run left a durable test behind; where N
-   agents tested at all it was ephemeral scratch they deleted. 4/4 vs 0/4.
+2. **Process: a large, consistent delta.** Every Arm-E run (7/7) produced a
+   **durable test file** and ran an explicit **kill-probe / mutation check** (from
+   the agent reports: *"all 27 tests fail against a constant-42 stub"*, *"an
+   always-true mutant fails 23 of them"*, *"three explicit kill-probes asserting
+   the output is not the naive/stub result"*). No Arm-N run (0/7) left a durable
+   test behind; where N agents tested at all it was ephemeral scratch they
+   deleted. **7/7 vs 0/7.**
 
 ## Interpretation — where the pipeline's value actually is (and isn't)
 
@@ -79,21 +87,29 @@ optimizer. The theoretical basis (tier-scaled verification) holds in the sense
 that E agents did more/deeper verification; the practical payoff shows up as test
 durability, and did not (here) change whether the code was right the first time.
 
-## Limitations (this is a pilot, read it as directional)
+## Limitations & what the null does / doesn't establish
 
-- **n is small:** 2 tasks × 2 arms × 2 replicates. Not statistically powered.
-- **Correctness ceiling:** both tasks were well-specified enough that N scored
-  100%, so they cannot *discriminate* on correctness — a 100/100 tie is consistent
-  with "no effect" AND with "tasks too easy." The informative next step is
-  **under-specified / adversarial tasks** (ambiguous specs, non-obvious edge cases,
-  hostile inputs) where a hasty impl plausibly misses cases the "cover the edge
-  cases" steer would catch — that is the condition under which a correctness delta,
-  if it exists, would appear.
-- **Single model (opus).** A weaker/cheaper model may depend on the steer more —
-  worth a model-crossed run, which also directly tests the Phase-0 model-routing
-  question (does haiku-on-scaffolding hold quality?).
-- The kill-probe was *self-reported* by the E agents, not independently run by the
-  grader. A stronger harness would run the diff-scoped mutation gate on each impl.
+- **n is small:** 14 runs, 2–3 replicates per cell. Directional, not statistically
+  powered — but the correctness result is a *unanimous* 14/14, not a narrow margin.
+- **Two candidate explanations for the correctness null were tested and rejected:**
+  "tasks too easy" (the CSV round is a genuinely trap-laden parser) and "model too
+  strong" (sonnet is materially weaker than opus). Both still tied at 100/100. So
+  the null is not simply an artifact of easy tasks or a strong model.
+- **The remaining untested discriminator is spec COMPLETENESS, not difficulty.**
+  All three specs *fully enumerate* their edge cases (rules + worked examples), so
+  both arms had only to *implement to spec* — and a competent model does that
+  without a verification steer. The steer says "cover the edge cases / write tests
+  that can fail"; that has correctness value only when the edge cases must be
+  **discovered**, i.e. on **under-specified** tasks (ambiguous or silent on the
+  corners). That is the one condition this study did not probe and the natural
+  next experiment.
+- **The kill-probe was self-reported** by the E agents, not independently run by
+  the grader. A stronger harness would run the diff-scoped mutation gate on each
+  produced impl to score test adequacy mechanically.
+- **Durable-tests is a proxy** for "the pipeline's verification actually happened":
+  N agents did test (ephemerally) but discarded it, so the metric captures
+  *durable coverage left behind*, which is the thing with regression value — but it
+  under-counts N's transient testing.
 
 ## Reproduce
 
