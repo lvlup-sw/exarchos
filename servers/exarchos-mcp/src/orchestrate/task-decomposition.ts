@@ -137,21 +137,61 @@ const FILE_PATH_PATTERN_SOURCE = `\`([a-zA-Z0-9_./-]+\\.(?:${FILE_EXTENSION_ALLO
 // ─── Parse Task Blocks ──────────────────────────────────────────────────
 
 /**
+ * A task-header id token: an optional `T`/`T-` prefix, then a **leading digit**,
+ * then further id characters (digits, letters, dots, hyphens). Requiring the
+ * token to start at a digit (behind the optional `T`) is what keeps non-task
+ * `###`/`####` section headers like `### Task Structure` from being misread as a
+ * task, while still accepting every id the real corpus uses — `001`, `1`,
+ * `T-01`, `T01`, and the dotted `1.1` sub-numbering some legacy plans carry.
+ *
+ * This mirrors the broader id token in the SoT dispatch parser
+ * (`parse-task-stamps.ts`), which documents this exact `###`-vs-`####` corpus
+ * mismatch. The two parsers are kept in lockstep so the plan-coverage GATE and
+ * the delegation DISPATCH path read the same corpus.
+ */
+const TASK_ID_TOKEN_SOURCE = String.raw`(?:T-?)?[0-9][0-9A-Za-z.\-]*`;
+
+/**
+ * A task header at heading depth **3 (`###`, legacy plans) OR 4 (`####`, the
+ * majority of the real `docs/specs/` corpus)**. `Task\s+` (whitespace required
+ * after `Task`) means the section header `### Tasks` never matches. The id is
+ * captured as group 1.
+ *
+ * Before #1670 this matched `/^###\s+Task\s+(T-[0-9]+|[0-9]+)/` — three hashes
+ * only — so `extractTaskRiskTier` silently dropped tiers on the ~7 of 11 specs
+ * authored entirely with `#### Task` headers (a corpus-wide gate failure).
+ */
+const TASK_HEADER_PATTERN = new RegExp(
+  String.raw`^#{3,4}\s+Task\s+(${TASK_ID_TOKEN_SOURCE})`,
+);
+
+/** Matches a task heading line at either depth (id ignored). */
+const TASK_HEADING_LINE = new RegExp(String.raw`^#{3,4}\s+Task\s+`);
+
+/** Strips the `### Task <id>:` / `#### Task <id>:` prefix off a heading line. */
+const TASK_HEADING_PREFIX = new RegExp(
+  String.raw`^#{3,4}\s+Task\s+(?:${TASK_ID_TOKEN_SOURCE}):?\s*`,
+);
+
+/** Any markdown heading at task depth — terminates a description span. */
+const TASK_DEPTH_HEADING = /^#{3,4}\s/;
+
+/**
  * Extract task blocks from plan markdown content.
  *
- * Each task starts with `### Task T-XX:` or `### Task N:` and ends at the
- * next `### Task` header or EOF.
+ * Each task starts with `### Task <id>:` or `#### Task <id>:` (id may be
+ * `T-XX`, `TXX`, a bare number, or dotted `N.M`) and ends at the next task
+ * header (of either depth) or EOF.
  */
 export function parseTaskBlocks(content: string): TaskBlock[] {
   const lines = content.split('\n');
   const blocks: TaskBlock[] = [];
-  const headerPattern = /^###\s+Task\s+(T-[0-9]+|[0-9]+)/;
 
   let currentId: string | null = null;
   let currentLines: string[] = [];
 
   for (const line of lines) {
-    const match = headerPattern.exec(line);
+    const match = TASK_HEADER_PATTERN.exec(line);
     if (match) {
       // Save previous block
       if (currentId !== null) {
@@ -215,9 +255,13 @@ export function extractDescriptionSpan(lines: readonly string[]): string[] {
   // empty for template-verbatim tasks. We do NOT count backtick-quoted file
   // paths here (template headings are prose, not file lists), so this does
   // not reopen the F20/#1213 hole guarded against below.
-  const start = lines.length > 0 && /^###\s+Task\s+/.test(lines[0]) ? 1 : 0;
+  //
+  // #1670: recognise both `###` and `####` task headings so the heading-tail
+  // description is credited on the majority-4-hash corpus, not just legacy
+  // 3-hash plans.
+  const start = lines.length > 0 && TASK_HEADING_LINE.test(lines[0]) ? 1 : 0;
   if (start === 1) {
-    const headingTail = lines[0].replace(/^###\s+Task\s+(?:T-[0-9]+|[0-9]+):?\s*/, '');
+    const headingTail = lines[0].replace(TASK_HEADING_PREFIX, '');
     // Strip backtick-quoted spans (file paths like `src/a.ts`) before counting
     // the tail as description — a heading that is nothing but a file list must
     // NOT satisfy the description threshold (the F20/#1213 hole this comment
@@ -230,7 +274,10 @@ export function extractDescriptionSpan(lines: readonly string[]): string[] {
 
   for (let i = start; i < lines.length; i++) {
     const line = lines[i];
-    if (/^###\s/.test(line)) {
+    // #1670: terminate the span at the next task-depth (`###`/`####`) heading —
+    // previously only `###` broke the scan, so a 4-hash sub-heading leaked into
+    // the description on the majority-4-hash corpus.
+    if (TASK_DEPTH_HEADING.test(line)) {
       break;
     }
     // F20 (#1213): capture the LABEL inside `**...:**` separately so we
@@ -780,7 +827,7 @@ export async function handleTaskDecomposition(
       success: false,
       error: {
         code: 'SCRIPT_ERROR',
-        message: `No '### Task' headers found in plan file: ${args.planPath}`,
+        message: `No '### Task' / '#### Task' headers found in plan file: ${args.planPath}`,
       },
     };
   }

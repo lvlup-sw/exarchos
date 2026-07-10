@@ -4,6 +4,8 @@
 
 Each task follows this structure. The verification fields lead: `riskTier` selects how deeply the task is verified (see the ladder in `@skills/_shared/references/verification.md`). Tests are judged by **outcome, test-after** — the failing-test-first ordering ceremony is not required.
 
+The task header is `### Task <id>:` (**h3**) — the single depth every plan-authoring gate requires (`check_plan_coverage`, `check_provenance_chain`, `check_task_decomposition`). The `id` may be `T-NN`, `TNN`, or a bare number (`001`). The `check_task_decomposition` gate additionally tolerates a legacy `#### Task` (h4) depth so older 4-hash specs still extract their tiers, but **new** specs and plans author at h3.
+
 ```markdown
 ### Task [N]: [Brief Description]
 

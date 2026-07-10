@@ -99,7 +99,10 @@ Each task carries a `riskTier` stamp that selects its verification depth (see th
 Tests are judged **test-after by adequacy** — the failing-test-first ordering ceremony is not required.
 Full task fields are in [`task-template.md`](./task-template.md).
 
-#### Task 001: [brief description]
+Task headers are `### Task <id>:` (**h3**) — the single depth every plan-authoring gate requires (`check_plan_coverage`, `check_provenance_chain`, `check_task_decomposition`).
+Ids may be `T-NN`, `TNN`, or a bare number (`001`); the `### Tasks` grouping header above carries no id and is not itself a task.
+
+### Task 001: [brief description]
 
 **Risk Tier:** [low | medium | high]
 **Boundary Touching:** [true | false — optional]
@@ -111,7 +114,7 @@ Full task fields are in [`task-template.md`](./task-template.md).
 **Dependencies:** [Task IDs, or None]
 **Parallelizable:** [Yes/No]
 
-#### Task 002: [brief description]
+### Task 002: [brief description]
 
 […repeat per task…]
 
