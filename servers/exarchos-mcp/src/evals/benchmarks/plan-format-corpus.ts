@@ -2,12 +2,12 @@
 //
 // Deterministic benchmark: run the REAL production classifiers over the corpus
 // of stamped plan-format specs in `docs/specs/`, and measure how the delegation
-// DECISION diverges across three arms:
+// DECISION diverges across arms:
 //
-//   E  (exarchos, plan-honoring) — classifyTask WITH the planner's stamp
-//   H  (heuristic-only)          — classifyTask with the stamp STRIPPED (the
-//                                  current #1636 behavior: stamp dropped at the
-//                                  MCP boundary, tier re-derived by heuristic)
+//   E  (exarchos, plan-honoring) — classifyTask WITH the planner's stamp (the fix)
+//   H0 (true production)         — classifyTask({id,title}) — everything else is
+//                                  stripped at the MCP boundary today (#1636)
+//   H1 (heuristic ceiling)       — stamp stripped but files/testLayer retained
 //   N  (native flat model)       — no per-task routing; one flat model (opus)
 //
 // Dimensions measured (no live agents — this is the deterministic backbone):
@@ -26,115 +26,21 @@ import {
   type TaskClassification,
   type RiskTier,
 } from '../../orchestrate/prepare-delegation.js';
+import { parseTaskStamps, type TaskStamp } from '../../orchestrate/parse-task-stamps.js';
 
 // ─── Corpus parsing ──────────────────────────────────────────────────────────
+//
+// The corpus is parsed by the PRODUCTION stamp parser (`parseTaskStamps`) — the
+// same code that lifts stamps onto `prepare_delegation` — so the benchmark and
+// the dispatch path can never drift.
 
-interface ParsedTask {
-  readonly spec: string;
-  readonly id: string;
-  readonly title: string;
-  readonly riskTier?: RiskTier;
-  readonly boundaryTouching?: boolean;
-  readonly testLayer?: TaskInput['testLayer'];
-  readonly files: string[];
-  readonly blockedBy: string[];
-}
-
-const TASK_HEADER = /^#{3,4}\s+Task\s+([0-9A-Za-z.\-]+)\s*[:—-]\s*(.+?)\s*$/;
-const SECTION_HEADER = /^#{1,2}\s+\S/; // a top-level section ends a task block
-const RISK_TIER = /risk\s*tier\*{0,2}\s*:\s*\*{0,2}\s*(low|medium|high)(?![\w-])/i;
-const BOUNDARY = /boundary\s*touching\*{0,2}\s*:\s*\*{0,2}\s*(true|false)(?![\w-])/i;
-const TEST_LAYER = /test\s*layer\*{0,2}\s*:\s*\*{0,2}\s*(acceptance|integration|unit|property)/i;
-const FILE_EXT = /\.(ts|tsx|js|mjs|cjs|md|json|ya?ml|proto|graphql|d\.ts|sh|ps1)$/;
-
-function parseFiles(block: string): string[] {
-  const files = new Set<string>();
-  const lines = block.split('\n');
-  const collect = (line: string): void => {
-    for (const tok of line.match(/`([^`]+)`/g) ?? []) {
-      const p = tok.replace(/`/g, '').trim();
-      // Reject prose-in-backticks: a real path token has no spaces and a known ext.
-      if (!/\s/.test(p) && FILE_EXT.test(p)) files.add(p);
-    }
-  };
-  for (let i = 0; i < lines.length; i++) {
-    if (!/\*\*Files?:\*\*/i.test(lines[i])) continue;
-    collect(lines[i]); // inline form: `**Files:** `a`, `b``
-    // Bullet-list form: consume following `- `/`* ` lines until the next
-    // bold field, a blockquote, or a blank line.
-    for (let j = i + 1; j < lines.length; j++) {
-      const l = lines[j];
-      if (/^\s*[-*]\s/.test(l)) {
-        collect(l);
-        continue;
-      }
-      break; // non-bullet line ends the file list
-    }
-  }
-  return [...files];
-}
-
-function parseBlockedBy(block: string): string[] {
-  for (const line of block.split('\n')) {
-    const m = /\*\*Dependencies:\*\*\s*(.+?)(?:·|$)/i.exec(line);
-    if (!m) continue;
-    const raw = m[1].trim();
-    if (/^none$/i.test(raw)) return [];
-    return raw
-      .split(/[,\s]+/)
-      .map((s) => s.replace(/[^0-9A-Za-z.\-]/g, ''))
-      .filter((s) => s.length > 0 && !/^none$/i.test(s));
-  }
-  return [];
-}
-
-function parseSpec(specPath: string): ParsedTask[] {
-  const content = fs.readFileSync(specPath, 'utf-8');
-  const lines = content.split('\n');
-  const spec = path.basename(specPath);
-  const tasks: ParsedTask[] = [];
-
-  // Locate task-header line indices.
-  const headers: Array<{ idx: number; id: string; title: string }> = [];
-  lines.forEach((line, idx) => {
-    const m = TASK_HEADER.exec(line);
-    if (m) headers.push({ idx, id: m[1], title: m[2] });
-  });
-
-  for (let h = 0; h < headers.length; h++) {
-    const start = headers[h].idx;
-    // Block ends at the next task header OR the next top-level section header.
-    let end = h + 1 < headers.length ? headers[h + 1].idx : lines.length;
-    for (let i = start + 1; i < end; i++) {
-      if (SECTION_HEADER.test(lines[i])) {
-        end = i;
-        break;
-      }
-    }
-    const block = lines.slice(start, end).join('\n');
-    const riskMatch = RISK_TIER.exec(block);
-    const boundaryMatch = BOUNDARY.exec(block);
-    const testLayerMatch = TEST_LAYER.exec(block);
-    tasks.push({
-      spec,
-      id: headers[h].id,
-      title: headers[h].title,
-      ...(riskMatch ? { riskTier: riskMatch[1].toLowerCase() as RiskTier } : {}),
-      ...(boundaryMatch ? { boundaryTouching: boundaryMatch[1].toLowerCase() === 'true' } : {}),
-      ...(testLayerMatch
-        ? { testLayer: testLayerMatch[1].toLowerCase() as TaskInput['testLayer'] }
-        : {}),
-      files: parseFiles(block),
-      blockedBy: parseBlockedBy(block),
-    });
-  }
-  return tasks;
-}
+/** A parsed corpus task = a plan stamp plus the spec it came from. */
+type CorpusTask = TaskStamp & { readonly spec: string };
 
 // ─── Arms ────────────────────────────────────────────────────────────────────
 
 /** Build the TaskInput for the plan-honoring arm (E): includes the stamp. */
-function stampedInput(t: ParsedTask): TaskInput {
+function stampedInput(t: CorpusTask): TaskInput {
   return {
     id: t.id,
     title: t.title,
@@ -152,7 +58,7 @@ function stampedInput(t: ParsedTask): TaskInput {
  * orchestrator forwarded task context (which the current registry schema does
  * NOT accept). Isolates "heuristic vs plan" holding context constant.
  */
-function strippedInput(t: ParsedTask): TaskInput {
+function strippedInput(t: CorpusTask): TaskInput {
   return {
     id: t.id,
     title: t.title,
@@ -170,7 +76,7 @@ function strippedInput(t: ParsedTask): TaskInput {
  * AND the planner stamp before the handler runs, and the delegate skill only
  * sends `{id, title, modules}`. This is the real #1636 dispatched behavior.
  */
-function trueProductionInput(t: ParsedTask): TaskInput {
+function trueProductionInput(t: CorpusTask): TaskInput {
   return { id: t.id, title: t.title };
 }
 
@@ -194,12 +100,22 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../../../../');
 const SPECS_DIR = path.join(REPO_ROOT, 'docs/specs');
 
-function specsWithStamps(): string[] {
-  return fs
+/** Load every spec, parse via the production parser, keep those with a stamp. */
+function loadCorpus(): { specPaths: string[]; tasks: CorpusTask[] } {
+  const all = fs
     .readdirSync(SPECS_DIR)
     .filter((f) => f.endsWith('.md'))
-    .map((f) => path.join(SPECS_DIR, f))
-    .filter((p) => RISK_TIER.test(fs.readFileSync(p, 'utf-8')));
+    .map((f) => path.join(SPECS_DIR, f));
+  const specPaths: string[] = [];
+  const tasks: CorpusTask[] = [];
+  for (const p of all) {
+    const parsed = parseTaskStamps(fs.readFileSync(p, 'utf-8'));
+    const stamped = parsed.filter((t) => t.riskTier !== undefined);
+    if (stamped.length === 0) continue;
+    specPaths.push(p);
+    for (const t of parsed) tasks.push({ ...t, spec: path.basename(p) });
+  }
+  return { specPaths, tasks };
 }
 
 function pct(n: number, d: number): string {
@@ -207,8 +123,7 @@ function pct(n: number, d: number): string {
 }
 
 function main(): void {
-  const specPaths = specsWithStamps();
-  const parsed = specPaths.flatMap(parseSpec);
+  const { specPaths, tasks: parsed } = loadCorpus();
   const rows: Row[] = parsed.map((t) => ({
     spec: t.spec,
     id: t.id,

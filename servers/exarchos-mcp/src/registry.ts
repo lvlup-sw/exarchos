@@ -1438,7 +1438,27 @@ const orchestrateActions: readonly ToolAction[] = [
     description: 'Query delegation readiness and prepare quality hints for subagent dispatch',
     schema: z.object({
       featureId: z.string().min(1),
-      tasks: z.array(z.object({ id: z.string(), title: z.string() })).optional(),
+      // #1636: the per-task object accepts the planner's verification-routing
+      // stamps. Previously `z.object({ id, title })` default-stripped them, so
+      // `deriveRiskTier`/`deriveBoundaryTouching`'s "planner value wins" branch
+      // was structurally unreachable via MCP and every task fell through to the
+      // keyword/glob heuristic. `files`/`blockedBy`/`testLayer` feed the heuristic
+      // fallback for UNstamped tasks. Base types match the top-level `riskTier`
+      // override to stay clear of the joint-schema collision guard.
+      tasks: z.array(z.object({
+        id: z.string(),
+        title: z.string(),
+        riskTier: z.enum(['low', 'medium', 'high']).optional(),
+        boundaryTouching: z.boolean().optional(),
+        files: z.array(z.string()).optional(),
+        blockedBy: z.array(z.string()).optional(),
+        testLayer: z.enum(['acceptance', 'integration', 'unit', 'property']).optional(),
+      })).optional(),
+      // #1636: point at the decomposition markdown to have the per-task stamps
+      // lifted automatically (deterministic parse — no LLM). An explicit field on
+      // a `tasks[]` entry still wins over the parsed stamp; the parsed stamp wins
+      // over the heuristic. Absent, behavior is unchanged.
+      planPath: z.string().optional().describe('Decomposition markdown path; lifts per-task **Risk Tier:**/**Boundary Touching:** stamps onto tasks'),
       nativeIsolation: z.boolean().default(false).describe('When true, skip worktree-related blockers (the host platform handles isolation natively)'),
       // DR-2: explicit workflow-level risk-tier override. Absent, prepare_delegation
       // derives state.riskTier as the max-of-tiers over the classified wave; when

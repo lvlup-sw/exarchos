@@ -1,7 +1,6 @@
 {
   "corpus": {
     "specs": [
-      "2026-06-23-v2.11.0-rc.1-build.md",
       "2026-06-25-rc1-closeout.md",
       "2026-06-25-wlm-foundation.md",
       "2026-06-26-wlm-operational-core.md",
@@ -48,20 +47,19 @@
       "boundaryLost": 51
     },
     "vsHeuristicCeiling_H1": {
-      "tierMatch": 51,
-      "tierUnder": 8,
-      "tierOver": 41,
-      "integrationRungLost": 7,
+      "tierMatch": 48,
+      "tierUnder": 25,
+      "tierOver": 27,
+      "integrationRungLost": 24,
       "boundaryLost": 49,
       "boundaryPhantom": 0,
       "confusion": {
-        "medium→medium": 12,
-        "low→medium": 4,
-        "medium→high": 36,
-        "high→high": 38,
+        "medium→medium": 26,
+        "low→medium": 5,
+        "high→medium": 24,
+        "medium→high": 22,
+        "high→high": 21,
         "medium→low": 1,
-        "high→medium": 7,
-        "low→high": 1,
         "low→low": 1
       }
     }
@@ -177,7 +175,7 @@
       "title": "Coupling guard — shim command set == canonical SoT",
       "fileCount": 1,
       "planTier": "medium",
-      "heuristicTier": "high",
+      "heuristicTier": "medium",
       "planBoundary": false,
       "heuristicBoundary": false,
       "agent": "implementer",
@@ -188,8 +186,7 @@
       ],
       "hGates": [
         "check_static_analysis",
-        "check_test_adequacy",
-        "check_integration_suite"
+        "check_test_adequacy"
       ]
     },
     {
@@ -198,7 +195,7 @@
       "title": "Implement `GitLabProvider.getPrComments` (two-source `PrComment` parity)",
       "fileCount": 2,
       "planTier": "high",
-      "heuristicTier": "high",
+      "heuristicTier": "medium",
       "planBoundary": true,
       "heuristicBoundary": false,
       "agent": "implementer",
@@ -212,8 +209,7 @@
       ],
       "hGates": [
         "check_static_analysis",
-        "check_test_adequacy",
-        "check_integration_suite"
+        "check_test_adequacy"
       ]
     },
     {
@@ -222,7 +218,7 @@
       "title": "Implement `AzureDevOpsProvider.getPrComments` (two-source `PrComment` parity)",
       "fileCount": 2,
       "planTier": "high",
-      "heuristicTier": "high",
+      "heuristicTier": "medium",
       "planBoundary": true,
       "heuristicBoundary": false,
       "agent": "implementer",
@@ -236,8 +232,7 @@
       ],
       "hGates": [
         "check_static_analysis",
-        "check_test_adequacy",
-        "check_integration_suite"
+        "check_test_adequacy"
       ]
     },
     {
@@ -246,7 +241,7 @@
       "title": "Narrow the `requiresGitHub` gate in `assess_stack` to enable GitLab/ADO",
       "fileCount": 2,
       "planTier": "medium",
-      "heuristicTier": "high",
+      "heuristicTier": "medium",
       "planBoundary": true,
       "heuristicBoundary": false,
       "agent": "implementer",
@@ -259,8 +254,7 @@
       ],
       "hGates": [
         "check_static_analysis",
-        "check_test_adequacy",
-        "check_integration_suite"
+        "check_test_adequacy"
       ]
     },
     {
@@ -269,7 +263,7 @@
       "title": "Integration — GitLab/ADO comments surface via `assess_stack` (harvest loop branch-free, INV-6)",
       "fileCount": 1,
       "planTier": "medium",
-      "heuristicTier": "high",
+      "heuristicTier": "medium",
       "planBoundary": false,
       "heuristicBoundary": false,
       "agent": "implementer",
@@ -280,8 +274,7 @@
       ],
       "hGates": [
         "check_static_analysis",
-        "check_test_adequacy",
-        "check_integration_suite"
+        "check_test_adequacy"
       ]
     },
     {
@@ -381,7 +374,7 @@
       "title": "Adopt harness-created worktrees (no pool) + stale-after-push re-verify",
       "fileCount": 2,
       "planTier": "high",
-      "heuristicTier": "high",
+      "heuristicTier": "medium",
       "planBoundary": true,
       "heuristicBoundary": false,
       "agent": "implementer",
@@ -395,8 +388,7 @@
       ],
       "hGates": [
         "check_static_analysis",
-        "check_test_adequacy",
-        "check_integration_suite"
+        "check_test_adequacy"
       ]
     },
     {
@@ -405,7 +397,7 @@
       "title": "GC safety-ladder (pure)",
       "fileCount": 2,
       "planTier": "medium",
-      "heuristicTier": "high",
+      "heuristicTier": "medium",
       "planBoundary": false,
       "heuristicBoundary": false,
       "agent": "implementer",
@@ -416,8 +408,7 @@
       ],
       "hGates": [
         "check_static_analysis",
-        "check_test_adequacy",
-        "check_integration_suite"
+        "check_test_adequacy"
       ]
     },
     {
@@ -426,7 +417,7 @@
       "title": "`prune_worktrees` handler — adopt-gate, TOCTOU-safe, two-event deletion",
       "fileCount": 2,
       "planTier": "high",
-      "heuristicTier": "high",
+      "heuristicTier": "medium",
       "planBoundary": true,
       "heuristicBoundary": false,
       "agent": "implementer",
@@ -440,8 +431,7 @@
       ],
       "hGates": [
         "check_static_analysis",
-        "check_test_adequacy",
-        "check_integration_suite"
+        "check_test_adequacy"
       ]
     },
     {
@@ -536,7 +526,7 @@
       "title": "Fold merge pair into `inFlightMerges` + probe emissions in `worktrees@v1`; orphan emitter",
       "fileCount": 2,
       "planTier": "high",
-      "heuristicTier": "high",
+      "heuristicTier": "medium",
       "planBoundary": false,
       "heuristicBoundary": false,
       "agent": "implementer",
@@ -548,8 +538,7 @@
       ],
       "hGates": [
         "check_static_analysis",
-        "check_test_adequacy",
-        "check_integration_suite"
+        "check_test_adequacy"
       ]
     },
     {
@@ -643,7 +632,7 @@
       "title": "Error handling & failure modes (crash-resume, stale-lease, concurrent prune+merge, retry exhaustion)",
       "fileCount": 2,
       "planTier": "high",
-      "heuristicTier": "high",
+      "heuristicTier": "medium",
       "planBoundary": false,
       "heuristicBoundary": false,
       "agent": "implementer",
@@ -655,17 +644,16 @@
       ],
       "hGates": [
         "check_static_analysis",
-        "check_test_adequacy",
-        "check_integration_suite"
+        "check_test_adequacy"
       ]
     },
     {
       "spec": "2026-06-29-risk-verification-closeout.md",
       "id": "001",
       "title": "`isRevision` flag + counted `plan-revision` event + projection fold",
-      "fileCount": 3,
+      "fileCount": 2,
       "planTier": "high",
-      "heuristicTier": "high",
+      "heuristicTier": "medium",
       "planBoundary": true,
       "heuristicBoundary": false,
       "agent": "implementer",
@@ -679,15 +667,14 @@
       ],
       "hGates": [
         "check_static_analysis",
-        "check_test_adequacy",
-        "check_integration_suite"
+        "check_test_adequacy"
       ]
     },
     {
       "spec": "2026-06-29-risk-verification-closeout.md",
       "id": "002",
       "title": "HSM revise flag + precedence + `.exarchos.yml` cap (default 1)",
-      "fileCount": 7,
+      "fileCount": 6,
       "planTier": "high",
       "heuristicTier": "high",
       "planBoundary": true,
@@ -730,9 +717,9 @@
       "spec": "2026-06-29-risk-verification-closeout.md",
       "id": "004",
       "title": "Derive + persist workflow `riskTier` (max-of-tiers)",
-      "fileCount": 3,
+      "fileCount": 2,
       "planTier": "high",
-      "heuristicTier": "high",
+      "heuristicTier": "medium",
       "planBoundary": true,
       "heuristicBoundary": false,
       "agent": "implementer",
@@ -746,17 +733,16 @@
       ],
       "hGates": [
         "check_static_analysis",
-        "check_test_adequacy",
-        "check_integration_suite"
+        "check_test_adequacy"
       ]
     },
     {
       "spec": "2026-06-29-risk-verification-closeout.md",
       "id": "005",
       "title": "Project mutation dimension + no-toolchain skip-pass (dead-lock fix)",
-      "fileCount": 3,
+      "fileCount": 2,
       "planTier": "high",
-      "heuristicTier": "high",
+      "heuristicTier": "medium",
       "planBoundary": true,
       "heuristicBoundary": false,
       "agent": "implementer",
@@ -770,15 +756,14 @@
       ],
       "hGates": [
         "check_static_analysis",
-        "check_test_adequacy",
-        "check_integration_suite"
+        "check_test_adequacy"
       ]
     },
     {
       "spec": "2026-06-29-risk-verification-closeout.md",
       "id": "006",
       "title": "Score enforcement at `review → synthesize` (pre-resolved + injected)",
-      "fileCount": 4,
+      "fileCount": 3,
       "planTier": "high",
       "heuristicTier": "high",
       "planBoundary": true,
@@ -802,9 +787,9 @@
       "spec": "2026-06-29-risk-verification-closeout.md",
       "id": "007",
       "title": "`check_exploration_depth` gate handler + action",
-      "fileCount": 3,
+      "fileCount": 2,
       "planTier": "medium",
-      "heuristicTier": "high",
+      "heuristicTier": "medium",
       "planBoundary": false,
       "heuristicBoundary": false,
       "agent": "implementer",
@@ -815,17 +800,16 @@
       ],
       "hGates": [
         "check_static_analysis",
-        "check_test_adequacy",
-        "check_integration_suite"
+        "check_test_adequacy"
       ]
     },
     {
       "spec": "2026-06-29-risk-verification-closeout.md",
       "id": "008",
       "title": "`composeScopedCommand` diff seam + PIT + mutmut scoping",
-      "fileCount": 3,
+      "fileCount": 2,
       "planTier": "medium",
-      "heuristicTier": "high",
+      "heuristicTier": "medium",
       "planBoundary": false,
       "heuristicBoundary": false,
       "agent": "implementer",
@@ -836,17 +820,16 @@
       ],
       "hGates": [
         "check_static_analysis",
-        "check_test_adequacy",
-        "check_integration_suite"
+        "check_test_adequacy"
       ]
     },
     {
       "spec": "2026-06-29-risk-verification-closeout.md",
       "id": "009",
       "title": "Full-scope mutation execution behind an offline gate",
-      "fileCount": 2,
+      "fileCount": 1,
       "planTier": "medium",
-      "heuristicTier": "high",
+      "heuristicTier": "medium",
       "planBoundary": false,
       "heuristicBoundary": false,
       "agent": "implementer",
@@ -857,17 +840,16 @@
       ],
       "hGates": [
         "check_static_analysis",
-        "check_test_adequacy",
-        "check_integration_suite"
+        "check_test_adequacy"
       ]
     },
     {
       "spec": "2026-06-29-risk-verification-closeout.md",
       "id": "010",
       "title": "Route review enforcement through `resolveGateSet`; delete stale comments",
-      "fileCount": 3,
+      "fileCount": 2,
       "planTier": "high",
-      "heuristicTier": "high",
+      "heuristicTier": "medium",
       "planBoundary": true,
       "heuristicBoundary": false,
       "agent": "implementer",
@@ -881,8 +863,7 @@
       ],
       "hGates": [
         "check_static_analysis",
-        "check_test_adequacy",
-        "check_integration_suite"
+        "check_test_adequacy"
       ]
     },
     {
@@ -1000,7 +981,7 @@
       "title": "Worktree creation — reserve → `create.requested` → `git worktree add` → `create.executed`",
       "fileCount": 2,
       "planTier": "high",
-      "heuristicTier": "high",
+      "heuristicTier": "medium",
       "planBoundary": true,
       "heuristicBoundary": false,
       "agent": "implementer",
@@ -1014,8 +995,7 @@
       ],
       "hGates": [
         "check_static_analysis",
-        "check_test_adequacy",
-        "check_integration_suite"
+        "check_test_adequacy"
       ]
     },
     {
@@ -1069,7 +1049,7 @@
       "title": "Single-abstraction guard — pure-data descriptor + no per-harness branching",
       "fileCount": 1,
       "planTier": "medium",
-      "heuristicTier": "high",
+      "heuristicTier": "medium",
       "planBoundary": false,
       "heuristicBoundary": false,
       "agent": "implementer",
@@ -1080,8 +1060,7 @@
       ],
       "hGates": [
         "check_static_analysis",
-        "check_test_adequacy",
-        "check_integration_suite"
+        "check_test_adequacy"
       ]
     },
     {
@@ -1204,9 +1183,9 @@
       "spec": "2026-07-02-harness-launcher.md",
       "id": "014",
       "title": "Per-harness on-ramps (5) + `runtimes/*.yaml` lifecycle semantics",
-      "fileCount": 3,
+      "fileCount": 1,
       "planTier": "high",
-      "heuristicTier": "high",
+      "heuristicTier": "medium",
       "planBoundary": true,
       "heuristicBoundary": false,
       "agent": "implementer",
@@ -1220,8 +1199,7 @@
       ],
       "hGates": [
         "check_static_analysis",
-        "check_test_adequacy",
-        "check_integration_suite"
+        "check_test_adequacy"
       ]
     },
     {
@@ -1295,7 +1273,7 @@
       "spec": "2026-07-03-wlm-6-surface-and-workflow-fixes.md",
       "id": "002",
       "title": "`serialize_merge` lease-aware `dryRun` (default, handler short-circuit) + `mutable`-as-hard-gate",
-      "fileCount": 4,
+      "fileCount": 3,
       "planTier": "high",
       "heuristicTier": "high",
       "planBoundary": true,
@@ -1321,7 +1299,7 @@
       "title": "Registry-driven conformance rewrite of the worktree parity harness",
       "fileCount": 1,
       "planTier": "medium",
-      "heuristicTier": "high",
+      "heuristicTier": "medium",
       "planBoundary": false,
       "heuristicBoundary": false,
       "agent": "implementer",
@@ -1332,8 +1310,7 @@
       ],
       "hGates": [
         "check_static_analysis",
-        "check_test_adequacy",
-        "check_integration_suite"
+        "check_test_adequacy"
       ]
     },
     {
@@ -1613,7 +1590,7 @@
       "title": "Compensation teardown dirty-guard (INV-14)",
       "fileCount": 2,
       "planTier": "high",
-      "heuristicTier": "high",
+      "heuristicTier": "medium",
       "planBoundary": true,
       "heuristicBoundary": false,
       "agent": "implementer",
@@ -1627,8 +1604,7 @@
       ],
       "hGates": [
         "check_static_analysis",
-        "check_test_adequacy",
-        "check_integration_suite"
+        "check_test_adequacy"
       ]
     },
     {
@@ -1685,7 +1661,7 @@
       "title": "`shared-mutating` posture + resolver gate for worktree verbs",
       "fileCount": 2,
       "planTier": "high",
-      "heuristicTier": "high",
+      "heuristicTier": "medium",
       "planBoundary": true,
       "heuristicBoundary": false,
       "agent": "implementer",
@@ -1699,8 +1675,7 @@
       ],
       "hGates": [
         "check_static_analysis",
-        "check_test_adequacy",
-        "check_integration_suite"
+        "check_test_adequacy"
       ]
     },
     {
@@ -1791,7 +1766,7 @@
       "title": "Mark `test-windows` lane required",
       "fileCount": 0,
       "planTier": "low",
-      "heuristicTier": "high",
+      "heuristicTier": "medium",
       "planBoundary": false,
       "heuristicBoundary": false,
       "agent": "implementer",
@@ -1801,8 +1776,7 @@
       ],
       "hGates": [
         "check_static_analysis",
-        "check_test_adequacy",
-        "check_integration_suite"
+        "check_test_adequacy"
       ]
     },
     {
@@ -1831,7 +1805,7 @@
       "title": "Wire or excise `resumeCrashedMerge`",
       "fileCount": 2,
       "planTier": "high",
-      "heuristicTier": "high",
+      "heuristicTier": "medium",
       "planBoundary": true,
       "heuristicBoundary": false,
       "agent": "implementer",
@@ -1845,8 +1819,7 @@
       ],
       "hGates": [
         "check_static_analysis",
-        "check_test_adequacy",
-        "check_integration_suite"
+        "check_test_adequacy"
       ]
     },
     {
@@ -1855,7 +1828,7 @@
       "title": "#1635 — async origin probe in teardown + launcher `holderStartedAt`",
       "fileCount": 0,
       "planTier": "medium",
-      "heuristicTier": "high",
+      "heuristicTier": "medium",
       "planBoundary": false,
       "heuristicBoundary": false,
       "agent": "implementer",
@@ -1866,8 +1839,7 @@
       ],
       "hGates": [
         "check_static_analysis",
-        "check_test_adequacy",
-        "check_integration_suite"
+        "check_test_adequacy"
       ]
     },
     {
@@ -1956,7 +1928,7 @@
       "spec": "2026-07-04-harness-conform-and-shrink.md",
       "id": "004",
       "title": "Atomic rename wave — one PR, every rename surface",
-      "fileCount": 12,
+      "fileCount": 11,
       "planTier": "high",
       "heuristicTier": "high",
       "planBoundary": false,
@@ -1978,7 +1950,7 @@
       "spec": "2026-07-04-harness-conform-and-shrink.md",
       "id": "006",
       "title": "Procedural rewrite to logical names + binding neutralization with its consumer",
-      "fileCount": 4,
+      "fileCount": 3,
       "planTier": "medium",
       "heuristicTier": "high",
       "planBoundary": false,
@@ -1999,7 +1971,7 @@
       "spec": "2026-07-04-harness-conform-and-shrink.md",
       "id": "007",
       "title": "Collapse fat `commands/*.md` bodies into skills; thin shims",
-      "fileCount": 17,
+      "fileCount": 16,
       "planTier": "medium",
       "heuristicTier": "high",
       "planBoundary": false,
@@ -2061,9 +2033,9 @@
       "spec": "2026-07-04-harness-conform-and-shrink.md",
       "id": "009",
       "title": "Consistency sweep — idempotence, golden fixture, full integration",
-      "fileCount": 1,
+      "fileCount": 0,
       "planTier": "high",
-      "heuristicTier": "high",
+      "heuristicTier": "medium",
       "planBoundary": false,
       "heuristicBoundary": false,
       "agent": "implementer",
@@ -2075,8 +2047,7 @@
       ],
       "hGates": [
         "check_static_analysis",
-        "check_test_adequacy",
-        "check_integration_suite"
+        "check_test_adequacy"
       ]
     },
     {
@@ -2085,7 +2056,7 @@
       "title": "Onboard rename migration — provenance-gated, multi-release bootstrap",
       "fileCount": 2,
       "planTier": "medium",
-      "heuristicTier": "high",
+      "heuristicTier": "medium",
       "planBoundary": true,
       "heuristicBoundary": false,
       "agent": "implementer",
@@ -2098,8 +2069,7 @@
       ],
       "hGates": [
         "check_static_analysis",
-        "check_test_adequacy",
-        "check_integration_suite"
+        "check_test_adequacy"
       ]
     },
     {
@@ -2108,7 +2078,7 @@
       "title": "`insertManagedBlock` — consumer-side writer (server package)",
       "fileCount": 2,
       "planTier": "high",
-      "heuristicTier": "high",
+      "heuristicTier": "medium",
       "planBoundary": true,
       "heuristicBoundary": false,
       "agent": "implementer",
@@ -2122,17 +2092,16 @@
       ],
       "hGates": [
         "check_static_analysis",
-        "check_test_adequacy",
-        "check_integration_suite"
+        "check_test_adequacy"
       ]
     },
     {
       "spec": "2026-07-04-harness-conform-and-shrink.md",
       "id": "013",
       "title": "Onboard writers — AGENTS.md block + CLAUDE.md shim + doctor drift",
-      "fileCount": 1,
+      "fileCount": 0,
       "planTier": "medium",
-      "heuristicTier": "high",
+      "heuristicTier": "medium",
       "planBoundary": true,
       "heuristicBoundary": false,
       "agent": "implementer",
@@ -2145,17 +2114,16 @@
       ],
       "hGates": [
         "check_static_analysis",
-        "check_test_adequacy",
-        "check_integration_suite"
+        "check_test_adequacy"
       ]
     },
     {
       "spec": "2026-07-04-harness-conform-and-shrink.md",
       "id": "014",
       "title": "Injection-channel candidate lists on the harness registry",
-      "fileCount": 2,
+      "fileCount": 1,
       "planTier": "medium",
-      "heuristicTier": "high",
+      "heuristicTier": "medium",
       "planBoundary": false,
       "heuristicBoundary": false,
       "agent": "implementer",
@@ -2166,8 +2134,7 @@
       ],
       "hGates": [
         "check_static_analysis",
-        "check_test_adequacy",
-        "check_integration_suite"
+        "check_test_adequacy"
       ]
     },
     {
@@ -2270,7 +2237,7 @@
       "title": "Liveness-verb coverage + docs truth-up + ADR addendum",
       "fileCount": 2,
       "planTier": "medium",
-      "heuristicTier": "high",
+      "heuristicTier": "medium",
       "planBoundary": false,
       "heuristicBoundary": false,
       "agent": "implementer",
@@ -2281,8 +2248,7 @@
       ],
       "hGates": [
         "check_static_analysis",
-        "check_test_adequacy",
-        "check_integration_suite"
+        "check_test_adequacy"
       ]
     }
   ]
