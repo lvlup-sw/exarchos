@@ -1,62 +1,60 @@
 /** Parse ONE CSV record (a single line) into its fields (RFC 4180 style). */
 export function csvParseLine(line: string): string[] {
   const fields: string[] = [];
-  const length = line.length;
-  let index = 0;
+  const n = line.length;
+  let i = 0;
 
-  // Each iteration consumes exactly one field (plus its trailing comma, if any).
-  // The loop always runs at least once, so an empty input yields a single empty
-  // field (`[""]`), matching the "one empty field per empty record" convention.
-  for (;;) {
-    let value = '';
+  // Parse exactly one field per outer iteration. A trailing comma therefore
+  // produces a final empty field (e.g. "a," -> ["a", ""]), matching CSV semantics.
+  while (true) {
+    let field = '';
 
-    if (index < length && line[index] === '"') {
-      // Quoted field: consume the opening quote, then read until the closing
-      // (unescaped) quote. A doubled quote (`""`) is an escaped literal `"`.
-      index += 1;
+    // A field is quoted iff its FIRST character is a double quote.
+    if (i < n && line[i] === '"') {
+      i++; // consume the opening quote (removed from the value)
 
-      while (index < length) {
-        const char = line[index];
-
-        if (char === '"') {
-          if (index + 1 < length && line[index + 1] === '"') {
-            value += '"';
-            index += 2;
+      while (i < n) {
+        const ch = line[i];
+        if (ch === '"') {
+          // A doubled quote inside a quoted field is a literal single quote.
+          if (i + 1 < n && line[i + 1] === '"') {
+            field += '"';
+            i += 2;
           } else {
-            // Closing quote: consume it and stop reading the quoted body.
-            index += 1;
+            // Unescaped quote -> closing quote; the quoted region ends here.
+            i++;
             break;
           }
         } else {
-          value += char;
-          index += 1;
+          // Commas (and everything else) are part of the value while quoted.
+          field += ch;
+          i++;
         }
       }
 
-      // Lenient handling of any characters between the closing quote and the
-      // next comma (or end of line): append them literally rather than dropping
-      // data. (Well-formed RFC 4180 input has none.)
-      while (index < length && line[index] !== ',') {
-        value += line[index];
-        index += 1;
+      // Any characters between the closing quote and the next comma (or EOL)
+      // are appended literally. This is a tolerant handling of otherwise
+      // malformed input like `"a"b` -> `ab`.
+      while (i < n && line[i] !== ',') {
+        field += line[i];
+        i++;
       }
     } else {
-      // Unquoted field: taken literally up to the next comma (or end of line),
-      // including whitespace and any interior double quotes.
-      while (index < length && line[index] !== ',') {
-        value += line[index];
-        index += 1;
+      // Unquoted field: taken literally until the next comma (or EOL),
+      // including whitespace and any non-leading double quotes.
+      while (i < n && line[i] !== ',') {
+        field += line[i];
+        i++;
       }
     }
 
-    fields.push(value);
+    fields.push(field);
 
-    if (index < length && line[index] === ',') {
-      // Consume the separator and continue with the next field.
-      index += 1;
-    } else {
-      break;
+    if (i < n && line[i] === ',') {
+      i++; // consume the separator and parse the next field
+      continue;
     }
+    break;
   }
 
   return fields;

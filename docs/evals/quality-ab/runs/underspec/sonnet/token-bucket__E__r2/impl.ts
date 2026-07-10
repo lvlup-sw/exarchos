@@ -4,10 +4,9 @@ export interface Clock {
 }
 
 export class TokenBucket {
-  /** Current token count (may hold fractional tokens between calls). */
+  /** Current token count (fractional; refilled lazily). */
   private tokens: number;
-
-  /** Clock reading at which `tokens` was last brought up to date. */
+  /** Clock time (ms) at which `tokens` was last brought up to date. */
   private lastRefillMs: number;
 
   /**
@@ -20,32 +19,27 @@ export class TokenBucket {
     private readonly refillPerSec: number,
     private readonly clock: Clock,
   ) {
-    if (!(capacity > 0)) {
-      throw new RangeError(
-        `TokenBucket: capacity must be > 0, got ${capacity}`,
-      );
+    if (!Number.isFinite(capacity) || capacity <= 0) {
+      throw new RangeError(`capacity must be a finite number > 0, got ${capacity}`);
     }
-    if (!(refillPerSec > 0)) {
-      throw new RangeError(
-        `TokenBucket: refillPerSec must be > 0, got ${refillPerSec}`,
-      );
+    if (!Number.isFinite(refillPerSec) || refillPerSec <= 0) {
+      throw new RangeError(`refillPerSec must be a finite number > 0, got ${refillPerSec}`);
     }
 
-    // The bucket starts full.
+    // Bucket starts full.
     this.tokens = capacity;
-    this.lastRefillMs = clock.now();
+    this.lastRefillMs = this.clock.now();
   }
 
   /**
    * Attempt to remove `count` tokens (default 1, a positive integer).
    * Returns true and consumes them if enough are available; otherwise returns
-   * false.
+   * false. Refill for elapsed time is applied first, on every call, whether
+   * or not the removal ultimately succeeds.
    */
   tryRemove(count = 1): boolean {
     if (!Number.isInteger(count) || count <= 0) {
-      throw new RangeError(
-        `TokenBucket.tryRemove: count must be a positive integer, got ${count}`,
-      );
+      throw new RangeError(`count must be a positive integer, got ${count}`);
     }
 
     this.refill();
@@ -58,23 +52,24 @@ export class TokenBucket {
   }
 
   /**
-   * Lazily bring `tokens` up to date by adding whatever has accrued
-   * proportionally to elapsed clock time since the last update, capped at
-   * `capacity`.
+   * Lazily credit tokens for elapsed clock time since the last update,
+   * capped at capacity. Always advances `lastRefillMs` when time has moved
+   * forward, so the same interval is never credited twice (including on a
+   * failed `tryRemove`, since the refill already happened before the check).
    */
   private refill(): void {
     const now = this.clock.now();
     const elapsedMs = now - this.lastRefillMs;
 
-    // Guard against a clock that hasn't advanced (or, defensively, one that
-    // ever reports a value that doesn't move forward): only add tokens and
-    // move the watermark when real forward progress happened, so a
-    // same-timestamp or backward reading can never grant phantom tokens or
-    // corrupt the elapsed-time baseline.
-    if (elapsedMs > 0) {
-      const added = (this.refillPerSec * elapsedMs) / 1000;
-      this.tokens = Math.min(this.capacity, this.tokens + added);
-      this.lastRefillMs = now;
+    if (elapsedMs <= 0) {
+      // Nothing elapsed (or the clock defied its non-decreasing contract).
+      // Defensively skip crediting rather than adding negative tokens, and
+      // leave lastRefillMs alone so no time window is silently dropped.
+      return;
     }
+
+    const added = (this.refillPerSec * elapsedMs) / 1000;
+    this.tokens = Math.min(this.capacity, this.tokens + added);
+    this.lastRefillMs = now;
   }
 }

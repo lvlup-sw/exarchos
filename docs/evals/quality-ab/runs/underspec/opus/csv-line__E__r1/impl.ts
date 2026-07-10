@@ -4,25 +4,23 @@ export function csvParseLine(line: string): string[] {
   const n = line.length;
   let i = 0;
 
-  // Parse exactly one field per loop iteration; each iteration either
-  // consumes a trailing comma (and continues) or hits end-of-line (and breaks).
-  // A lone empty line therefore yields a single empty field: [''].
-  while (true) {
+  // A record always has at least one field (an empty line -> [""]).
+  // We parse field-by-field, consuming a separating comma between fields.
+  for (;;) {
     let value = '';
 
-    if (i < n && line[i] === '"') {
-      // Quoted field: a field is quoted iff its first char is a double quote.
-      i++; // consume the opening quote (removed from the returned value)
-
+    if (line[i] === '"') {
+      // Quoted field: first char is a double quote.
+      i++; // consume the opening quote
       while (i < n) {
         const ch = line[i];
         if (ch === '"') {
-          if (i + 1 < n && line[i + 1] === '"') {
-            // Escaped quote: "" -> literal "
+          if (line[i + 1] === '"') {
+            // Escaped quote ("") -> literal single quote.
             value += '"';
             i += 2;
           } else {
-            // Unescaped quote: the quoted field ends here.
+            // Unescaped quote terminates the quoted section.
             i++; // consume the closing quote
             break;
           }
@@ -31,17 +29,16 @@ export function csvParseLine(line: string): string[] {
           i++;
         }
       }
-
-      // Lenient handling of any characters between the closing quote and the
-      // next comma / end-of-line (e.g. `"a"b` -> `ab`): append them literally.
-      // (An unterminated quote simply consumed the rest of the line above.)
+      // Lenient handling of any stray characters after the closing quote
+      // (before the next comma / end of line): treat them literally so we
+      // never lose data on malformed input.
       while (i < n && line[i] !== ',') {
         value += line[i];
         i++;
       }
     } else {
-      // Unquoted field: taken literally, including whitespace and any
-      // double quotes that are not at the very start (`a"b` -> `a"b`).
+      // Unquoted field: taken literally up to the next comma / end of line.
+      // Whitespace and non-leading double quotes are preserved verbatim.
       while (i < n && line[i] !== ',') {
         value += line[i];
         i++;
@@ -51,10 +48,10 @@ export function csvParseLine(line: string): string[] {
     fields.push(value);
 
     if (i < n && line[i] === ',') {
-      i++; // consume separator, parse the next field
+      i++; // consume the field separator and continue with the next field
       continue;
     }
-    break; // end of line
+    break;
   }
 
   return fields;

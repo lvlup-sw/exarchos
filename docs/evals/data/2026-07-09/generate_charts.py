@@ -322,10 +322,10 @@ def figure_exp3():
     arm_color = {"E": ORANGE, "N": BLUE}
     W, H = 940, 430
     lines = svg_open(W, H, "Correctness vs process under under-specification, E vs N")
-    lines.append(text(W / 2, 26, "Exp 3 · Under-specified tasks — E (verification steer) vs N (bare)",
+    lines.append(text(W / 2, 26, "Exp 3 · Under-specified tasks — E (verification steer) vs N (bare), symmetric prompts",
                       size=15, weight="600"))
     lines.append(text(W / 2, 45,
-                      "correctness ties (clean null); the steer's value is process — durable, mutation-adequate tests",
+                      "with both arms asked to implement AND test, E = N on everything — no correctness or test-adequacy gap",
                       size=12, fill=FG))
 
     # Panel A: hidden-oracle mean pass rate (all ≈ tie)
@@ -368,7 +368,13 @@ def figure_exp3():
             lines.append(rect(cx, y0 - hh, gw, hh, color))
             lines.append(text(cx + gw / 2, y0 - hh - 5, f"{v}/6", size=10))
         lines.append(text(cx + gw / 2, y0 + 16, labels[k], size=10))
-    lines.append(text((b_x0 + b_x1) / 2, y0 + 36, "E: 12/12   ·   N: opus 3/6, sonnet 0/6", size=12, fill=ORANGE, weight="600"))
+    e_tot = sum(d[k]["adequate"] for k in order if k[1] == "E")
+    n_tot = sum(d[k]["adequate"] for k in order if k[1] == "N")
+    e_den = sum(d[k]["n"] for k in order if k[1] == "E")
+    n_den = sum(d[k]["n"] for k in order if k[1] == "N")
+    tie = "  (tie — steer adds nothing here)" if e_tot == n_tot else ""
+    lines.append(text((b_x0 + b_x1) / 2, y0 + 36,
+                      f"E: {e_tot}/{e_den}   ·   N: {n_tot}/{n_den}{tie}", size=12, fill=GREEN, weight="600"))
 
     save(lines, "chart-exp3-correctness-vs-process.svg")
 

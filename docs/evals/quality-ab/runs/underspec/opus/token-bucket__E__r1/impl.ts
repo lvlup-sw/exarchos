@@ -6,20 +6,20 @@ export interface Clock {
 /**
  * Continuous (proportional) token-bucket rate limiter.
  *
- * The bucket starts full and refills lazily: elapsed time is only converted to
- * tokens when {@link TokenBucket.tryRemove} is called. All time comes from the
- * injected {@link Clock} — this class never reads the wall clock directly, so
- * behavior is fully deterministic under test.
+ * The bucket starts full and refills lazily: the elapsed time since the last
+ * update is converted to fractional tokens only when {@link TokenBucket.tryRemove}
+ * is called. Time is read exclusively through the injected {@link Clock} seam so
+ * the limiter is fully deterministic under test.
  */
 export class TokenBucket {
-  /** Current token level; always within `[0, capacity]`. */
+  /** Current (possibly fractional) token count, always in [0, capacity]. */
   private tokens: number;
 
   /**
-   * The clock timestamp (ms) that {@link tokens} is accurate as of. Only ever
-   * moves forward; a non-increasing clock reading yields no refill.
+   * High-water mark of the clock reading used for the last refill. Never moves
+   * backwards, so a misbehaving (non-monotonic) clock cannot mint tokens.
    */
-  private lastNow: number;
+  private lastRefillMs: number;
 
   /**
    * @param capacity      max tokens the bucket holds (> 0, finite)
@@ -32,35 +32,30 @@ export class TokenBucket {
     private readonly clock: Clock,
   ) {
     if (!Number.isFinite(capacity) || capacity <= 0) {
-      throw new RangeError(
-        `capacity must be a positive finite number, got ${capacity}`,
-      );
+      throw new RangeError(`capacity must be a finite number > 0, got ${capacity}`);
     }
     if (!Number.isFinite(refillPerSec) || refillPerSec <= 0) {
-      throw new RangeError(
-        `refillPerSec must be a positive finite number, got ${refillPerSec}`,
-      );
+      throw new RangeError(`refillPerSec must be a finite number > 0, got ${refillPerSec}`);
     }
 
-    // Starts full, timestamped against the injected clock so no "startup
-    // windfall" of tokens accrues before the first call.
     this.tokens = capacity;
-    this.lastNow = clock.now();
+    this.lastRefillMs = clock.now();
   }
 
   /**
-   * Attempt to remove `count` tokens (default 1, must be a positive integer).
+   * Attempt to remove `count` tokens (default 1, a positive integer).
+   * Applies the lazy refill first, then consumes if enough tokens are present.
    *
-   * Refill for the elapsed time is applied first; then if the bucket holds at
-   * least `count` tokens they are consumed and `true` is returned. Otherwise
-   * the bucket is left untouched (aside from the refill) and `false` returned.
+   * @returns `true` (and consumes `count`) if enough tokens are available;
+   *          otherwise `false` (and consumes nothing).
    */
   tryRemove(count = 1): boolean {
     if (!Number.isInteger(count) || count <= 0) {
       throw new RangeError(`count must be a positive integer, got ${count}`);
     }
 
-    this.refill();
+    const now = this.clock.now();
+    this.refill(now);
 
     if (this.tokens >= count) {
       this.tokens -= count;
@@ -69,24 +64,17 @@ export class TokenBucket {
     return false;
   }
 
-  /**
-   * Lazily credit tokens for the time elapsed since {@link lastNow}, capped at
-   * {@link capacity}. Advancing {@link lastNow} here is what prevents the same
-   * interval from being counted twice on subsequent calls.
-   */
-  private refill(): void {
-    const now = this.clock.now();
-
-    // Clock is contractually monotonic non-decreasing; guard defensively so a
-    // stale/equal reading never subtracts tokens or rewinds our baseline.
-    if (now <= this.lastNow) {
+  /** Add tokens proportional to the elapsed time since the last refill. */
+  private refill(now: number): void {
+    // Guard against a non-monotonic clock: only advance on forward progress,
+    // and never lower the high-water mark (which would inflate a later delta).
+    const elapsedMs = now - this.lastRefillMs;
+    if (elapsedMs <= 0) {
       return;
     }
 
-    const elapsedMs = now - this.lastNow;
-    this.lastNow = now;
-
     const added = (this.refillPerSec * elapsedMs) / 1000;
     this.tokens = Math.min(this.capacity, this.tokens + added);
+    this.lastRefillMs = now;
   }
 }

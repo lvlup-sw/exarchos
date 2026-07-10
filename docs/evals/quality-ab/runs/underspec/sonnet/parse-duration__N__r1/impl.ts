@@ -1,41 +1,52 @@
 /** Parse a human duration string into a total number of milliseconds. */
+
+const UNIT_MS: Record<string, number> = {
+  ms: 1,
+  s: 1000,
+  m: 60 * 1000,
+  h: 60 * 60 * 1000,
+  d: 24 * 60 * 60 * 1000,
+};
+
+// Order matters: "ms" must be tried before "m" and "s" so it isn't
+// shadowed by the shorter single-character alternatives.
+const SEGMENT_RE = /(\d+)(ms|s|m|h|d)/g;
+
 export function parseDuration(input: string): number {
   if (typeof input !== 'string' || input.length === 0) {
     throw new Error(`Invalid duration string: ${JSON.stringify(input)}`);
   }
 
-  const unitToMs: Record<string, number> = {
-    ms: 1,
-    s: 1000,
-    m: 60 * 1000,
-    h: 60 * 60 * 1000,
-    d: 24 * 60 * 60 * 1000,
-  };
+  let totalMs = 0;
+  let matchedLength = 0;
+  let expectedIndex = 0;
 
-  // Sticky regex: matches a "<digits><unit>" segment starting exactly at lastIndex.
-  const segmentRegex = /(\d+)(ms|s|m|h|d)/y;
-
-  let total = 0;
-  let index = 0;
-  let matchedAny = false;
-
-  while (index < input.length) {
-    segmentRegex.lastIndex = index;
-    const match = segmentRegex.exec(input);
-    if (!match) {
+  SEGMENT_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = SEGMENT_RE.exec(input)) !== null) {
+    // Segments must be contiguous: no gaps, no invalid characters between them.
+    if (match.index !== expectedIndex) {
       throw new Error(`Invalid duration string: ${JSON.stringify(input)}`);
     }
 
     const [full, amountStr, unit] = match;
     const amount = Number(amountStr);
-    total += amount * unitToMs[unit];
-    index += full.length;
-    matchedAny = true;
+    const unitMs = UNIT_MS[unit];
+
+    totalMs += amount * unitMs;
+    matchedLength += full.length;
+    expectedIndex = match.index + full.length;
+
+    // Guard against zero-length matches causing an infinite loop.
+    if (full.length === 0) {
+      SEGMENT_RE.lastIndex++;
+    }
   }
 
-  if (!matchedAny) {
+  // The whole input must be consumed by at least one segment.
+  if (matchedLength === 0 || matchedLength !== input.length) {
     throw new Error(`Invalid duration string: ${JSON.stringify(input)}`);
   }
 
-  return total;
+  return totalMs;
 }

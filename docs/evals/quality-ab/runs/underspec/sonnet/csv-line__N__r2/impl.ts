@@ -4,55 +4,54 @@ export function csvParseLine(line: string): string[] {
   const n = line.length;
   let i = 0;
 
-  for (;;) {
+  while (true) {
+    let value: string;
+
     if (line[i] === '"') {
-      // Quoted field: consume the opening quote, then read until an
-      // unescaped closing quote. A doubled quote ("") unescapes to a
-      // single literal quote.
-      i++;
-      let value = '';
+      // Quoted field: a field is quoted iff its first character is `"`.
+      i++; // consume opening quote
+      let out = '';
       while (i < n) {
-        if (line[i] === '"') {
+        const ch = line[i];
+        if (ch === '"') {
           if (line[i + 1] === '"') {
-            value += '"';
+            // `""` inside a quoted field unescapes to a single `"`.
+            out += '"';
             i += 2;
           } else {
-            // Unescaped quote: end of the quoted field.
+            // Unescaped `"` closes the quoted field.
             i++;
             break;
           }
         } else {
-          value += line[i];
+          out += ch;
           i++;
         }
       }
-      // Lenient handling of any trailing characters between the closing
-      // quote and the next separator/end-of-line (not valid per RFC 4180,
-      // but we skip them rather than throwing).
+      value = out;
+
+      // Lenient handling: skip any stray characters between the closing
+      // quote and the next delimiter (malformed trailing content), so a
+      // single bad quote can't swallow the rest of the record.
       while (i < n && line[i] !== ',') {
         i++;
       }
-      fields.push(value);
     } else {
       // Unquoted field: taken literally up to the next comma (or end of
-      // line), including any whitespace or embedded quotes.
+      // line), including whitespace and any embedded double quotes.
       const start = i;
       while (i < n && line[i] !== ',') {
         i++;
       }
-      fields.push(line.slice(start, i));
+      value = line.slice(start, i);
     }
+
+    fields.push(value);
 
     if (i < n && line[i] === ',') {
       i++;
-      if (i === n) {
-        // Trailing comma implies one more, empty, final field.
-        fields.push('');
-        break;
-      }
       continue;
     }
-
     break;
   }
 

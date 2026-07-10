@@ -5,7 +5,7 @@ export interface Clock {
 
 export class TokenBucket {
   private tokens: number;
-  private lastRefillMs: number;
+  private lastUpdateMs: number;
 
   /**
    * @param capacity      max tokens the bucket holds (> 0)
@@ -17,22 +17,25 @@ export class TokenBucket {
     private readonly refillPerSec: number,
     private readonly clock: Clock,
   ) {
-    if (!(capacity > 0)) {
-      throw new RangeError(`capacity must be a positive number, got ${capacity}`);
+    if (!Number.isFinite(capacity) || capacity <= 0) {
+      throw new RangeError(
+        `capacity must be a positive finite number, got ${capacity}`,
+      );
     }
-    if (!(refillPerSec > 0)) {
-      throw new RangeError(`refillPerSec must be a positive number, got ${refillPerSec}`);
+    if (!Number.isFinite(refillPerSec) || refillPerSec <= 0) {
+      throw new RangeError(
+        `refillPerSec must be a positive finite number, got ${refillPerSec}`,
+      );
     }
 
-    // Bucket starts full.
     this.tokens = capacity;
-    this.lastRefillMs = clock.now();
+    this.lastUpdateMs = this.clock.now();
   }
 
   /**
    * Attempt to remove `count` tokens (default 1, a positive integer).
-   * Returns true and consumes them if enough are available; otherwise returns
-   * false and leaves the bucket untouched.
+   * Returns true and consumes them if enough are available; otherwise
+   * returns false and consumes nothing (all-or-nothing).
    */
   tryRemove(count = 1): boolean {
     if (!Number.isInteger(count) || count <= 0) {
@@ -41,29 +44,26 @@ export class TokenBucket {
 
     this.refill();
 
-    if (this.tokens < count) {
-      return false;
+    if (this.tokens >= count) {
+      this.tokens -= count;
+      return true;
     }
 
-    this.tokens -= count;
-    return true;
+    return false;
   }
 
-  /** Lazily apply refill proportional to elapsed clock time since the last update. */
+  /** Lazily top up tokens based on elapsed clock time since the last update. */
   private refill(): void {
     const now = this.clock.now();
-    const elapsedMs = now - this.lastRefillMs;
-    this.lastRefillMs = now;
+    // Defensively clamp in case the injected clock ever violates the
+    // "monotonic, non-decreasing" contract — never let elapsed go negative.
+    const elapsedMs = Math.max(0, now - this.lastUpdateMs);
 
-    if (elapsedMs <= 0) {
-      // Non-positive elapsed time (no time passed, or a non-monotonic clock
-      // reading) adds nothing; the baseline above is still advanced so a
-      // later, larger reading measures elapsed time from `now`, not further
-      // back than that.
-      return;
+    if (elapsedMs > 0) {
+      const added = (this.refillPerSec * elapsedMs) / 1000;
+      this.tokens = Math.min(this.capacity, this.tokens + added);
     }
 
-    const added = (this.refillPerSec * elapsedMs) / 1000;
-    this.tokens = Math.min(this.capacity, this.tokens + added);
+    this.lastUpdateMs = now;
   }
 }

@@ -1,50 +1,12 @@
 import { TokenBucket, type Clock } from './impl.ts';
 
-interface TestResult {
-  name: string;
-  pass: boolean;
-  error?: string;
-}
-
-const results: TestResult[] = [];
-
-function assert(cond: boolean, msg: string): void {
-  if (!cond) {
-    throw new Error(msg);
-  }
-}
-
-function assertThrows(fn: () => void, msg: string): void {
-  let threw = false;
-  try {
-    fn();
-  } catch {
-    threw = true;
-  }
-  assert(threw, msg);
-}
-
-function record(name: string, fn: () => void): void {
-  try {
-    fn();
-    results.push({ name, pass: true });
-  } catch (err) {
-    results.push({ name, pass: false, error: err instanceof Error ? err.message : String(err) });
-  }
-}
-
-async function recordAsync(name: string, fn: () => Promise<void>): Promise<void> {
-  try {
-    await fn();
-    results.push({ name, pass: true });
-  } catch (err) {
-    results.push({ name, pass: false, error: err instanceof Error ? err.message : String(err) });
-  }
-}
-
-/** Deterministic, manually-advanced clock — this is the seam we own. */
+/** A deterministic, manually-driven Clock — the seam this module contracts against. */
 class FakeClock implements Clock {
-  private t = 0;
+  private t: number;
+
+  constructor(start = 0) {
+    this.t = start;
+  }
 
   now(): number {
     return this.t;
@@ -55,145 +17,148 @@ class FakeClock implements Clock {
   }
 }
 
-async function main(): Promise<void> {
-  record('starts full and allows draining exactly capacity, then denies more', () => {
-    const clock = new FakeClock();
-    const bucket = new TokenBucket(5, 1, clock);
-    assert(bucket.tryRemove(5) === true, 'expected full bucket to allow removing exactly capacity tokens');
-    assert(bucket.tryRemove(1) === false, 'expected empty bucket to deny removal with no elapsed time');
-  });
+let passed = 0;
+let failed = 0;
+const failures: string[] = [];
 
-  record('tryRemove defaults to removing a single token', () => {
-    const clock = new FakeClock();
-    const bucket = new TokenBucket(1, 1, clock);
-    assert(bucket.tryRemove() === true, 'default call should remove 1 token from a full bucket');
-    assert(bucket.tryRemove() === false, 'no tokens left, default remove of 1 should fail');
-  });
-
-  record('constructor rejects non-positive capacity', () => {
-    const clock = new FakeClock();
-    assertThrows(() => new TokenBucket(0, 1, clock), 'capacity=0 should throw');
-    assertThrows(() => new TokenBucket(-5, 1, clock), 'negative capacity should throw');
-    assertThrows(() => new TokenBucket(Number.NaN, 1, clock), 'NaN capacity should throw');
-  });
-
-  record('constructor rejects non-positive refillPerSec', () => {
-    const clock = new FakeClock();
-    assertThrows(() => new TokenBucket(5, 0, clock), 'refillPerSec=0 should throw');
-    assertThrows(() => new TokenBucket(5, -1, clock), 'negative refillPerSec should throw');
-    assertThrows(() => new TokenBucket(5, Number.NaN, clock), 'NaN refillPerSec should throw');
-  });
-
-  record('tryRemove rejects invalid count', () => {
-    const clock = new FakeClock();
-    const bucket = new TokenBucket(5, 1, clock);
-    assertThrows(() => bucket.tryRemove(0), 'count=0 should throw');
-    assertThrows(() => bucket.tryRemove(-1), 'negative count should throw');
-    assertThrows(() => bucket.tryRemove(1.5), 'non-integer count should throw');
-    assertThrows(() => bucket.tryRemove(Number.NaN), 'NaN count should throw');
-  });
-
-  record('a denied tryRemove does not consume any tokens', () => {
-    const clock = new FakeClock();
-    const bucket = new TokenBucket(3, 1, clock);
-    assert(bucket.tryRemove(2) === true, 'should remove 2 of 3 available tokens');
-    // 1 token remains; a request for 2 must fail without touching the 1 that remains.
-    assert(bucket.tryRemove(2) === false, 'insufficient tokens for a request of 2');
-    assert(bucket.tryRemove(1) === true, 'the 1 remaining token must still be available');
-  });
-
-  record('refill is proportional to elapsed time and accumulates lazily across calls', () => {
-    const clock = new FakeClock();
-    // capacity=1, refillPerSec=2 => 1 token every 500ms.
-    const bucket = new TokenBucket(1, 2, clock);
-
-    assert(bucket.tryRemove(1) === true, 'drain the initial full token');
-
-    clock.advance(200); // adds 2 * 0.2 = 0.4 tokens
-    assert(bucket.tryRemove(1) === false, '0.4 tokens is not enough to remove 1');
-
-    clock.advance(300); // adds 2 * 0.3 = 0.6 tokens; total now 0.4 + 0.6 = 1.0
-    assert(bucket.tryRemove(1) === true, '0.4 + 0.6 accumulated across two lazy refills should reach 1.0');
-  });
-
-  record('refill never exceeds capacity even after a very long elapsed time', () => {
-    const clock = new FakeClock();
-    const bucket = new TokenBucket(3, 100, clock);
-
-    assert(bucket.tryRemove(3) === true, 'drain the full bucket');
-    clock.advance(100_000); // would be 10,000 tokens uncapped; must cap at capacity=3
-    assert(bucket.tryRemove(3) === true, 'bucket should refill up to (but not past) capacity');
-    assert(bucket.tryRemove(1) === false, 'no tokens should remain beyond the capacity cap');
-  });
-
-  record('sequential drain/refill/drain cycles behave as an ongoing rate limiter', () => {
-    const clock = new FakeClock();
-    const bucket = new TokenBucket(10, 5, clock); // 5 tokens/sec
-
-    assert(bucket.tryRemove(10) === true, 'drain the initial full bucket');
-
-    clock.advance(1000); // +5 tokens
-    assert(bucket.tryRemove(5) === true, 'exactly 5 tokens available after 1s at 5/sec');
-    assert(bucket.tryRemove(1) === false, 'nothing left immediately after draining the refill');
-
-    clock.advance(200); // +1 token
-    assert(bucket.tryRemove(1) === true, '0.2s at 5/sec yields exactly 1 token');
-    assert(bucket.tryRemove(1) === false, 'no tokens left after consuming the single refilled token');
-  });
-
-  // --- High-tier integration coverage: exercise the real wall-clock collaborator, ---
-  // --- not just the deterministic fake we author for unit isolation.             ---
-
-  await recordAsync('exercises the real system clock as the Clock collaborator', async () => {
-    const realClock: Clock = { now: () => Date.now() };
-    const bucket = new TokenBucket(2, 10, realClock); // 10 tokens/sec => 100ms per token
-
-    assert(bucket.tryRemove(2) === true, 'expected full bucket to drain at start');
-    assert(bucket.tryRemove(1) === false, 'expected empty bucket to deny immediately after drain');
-
-    await new Promise((resolve) => setTimeout(resolve, 150));
-
-    assert(
-      bucket.tryRemove(1) === true,
-      'expected >=1 token to have refilled after a real 150ms wait at 10 tokens/sec',
-    );
-    assert(
-      bucket.tryRemove(2) === false,
-      'expected capacity(2) not to be exceeded after a single short real-time wait',
-    );
-  });
-
-  await recordAsync('real clock: refill caps at capacity even after a longer real wait', async () => {
-    const realClock: Clock = { now: () => Date.now() };
-    const bucket = new TokenBucket(1, 20, realClock); // 20 tokens/sec, capacity 1
-
-    assert(bucket.tryRemove(1) === true, 'drain the single starting token');
-
-    await new Promise((resolve) => setTimeout(resolve, 200)); // would be ~4 tokens uncapped
-
-    assert(bucket.tryRemove(1) === true, 'one token should be available after the real wait');
-    assert(
-      bucket.tryRemove(1) === false,
-      'no more than capacity(1) should be available even after a generous real wait',
-    );
-  });
-
-  // --- Summary ---
-
-  for (const r of results) {
-    const line = `${r.pass ? 'PASS' : 'FAIL'} - ${r.name}`;
-    console.log(r.error ? `${line}\n       ${r.error}` : line);
-  }
-
-  const failed = results.filter((r) => !r.pass);
-  console.log(`\n${results.length - failed.length}/${results.length} tests passed`);
-
-  if (failed.length > 0) {
-    process.exit(1);
+function check(name: string, cond: boolean): void {
+  if (cond) {
+    passed++;
+  } else {
+    failed++;
+    failures.push(name);
+    console.error(`FAIL: ${name}`);
   }
 }
 
-main().catch((err) => {
-  console.error('Unexpected error running test suite:', err);
+function expectThrows(name: string, fn: () => void): void {
+  try {
+    fn();
+    failed++;
+    failures.push(`${name} (expected throw, none occurred)`);
+    console.error(`FAIL: ${name} (expected throw, none occurred)`);
+  } catch {
+    passed++;
+  }
+}
+
+// --- 1. Bucket starts full ---
+{
+  const clock = new FakeClock(0);
+  const bucket = new TokenBucket(5, 1, clock);
+  check('starts full: can remove all capacity tokens at once', bucket.tryRemove(5));
+  check('starts full: empty after removing capacity', !bucket.tryRemove(1));
+}
+
+// --- 2. Default count is 1 ---
+{
+  const clock = new FakeClock(0);
+  const bucket = new TokenBucket(3, 1, clock);
+  check('default count removes 1 token (1st)', bucket.tryRemove());
+  check('default count removes 1 token (2nd)', bucket.tryRemove());
+  check('default count removes 1 token (3rd)', bucket.tryRemove());
+  check('default count: empty on 4th', !bucket.tryRemove());
+}
+
+// --- 3. All-or-nothing: a failed attempt does not partially consume ---
+{
+  const clock = new FakeClock(0);
+  const bucket = new TokenBucket(5, 1, clock);
+  check('over-request fails without consuming', !bucket.tryRemove(6));
+  check('all 5 tokens still present after failed over-request', bucket.tryRemove(5));
+}
+
+// --- 4. Proportional continuous refill ---
+{
+  const clock = new FakeClock(0);
+  // 10 tokens/sec => 1 token per 100ms
+  const bucket = new TokenBucket(10, 10, clock);
+  check('drain to empty', bucket.tryRemove(10));
+  clock.advance(500); // worth 5 tokens
+  check('over-request after partial refill fails', !bucket.tryRemove(6));
+  check('exact partial refill amount succeeds', bucket.tryRemove(5));
+  check('drained again after consuming exact refill', !bucket.tryRemove(1));
+}
+
+// --- 5. Refill caps at capacity (no overflow) ---
+{
+  const clock = new FakeClock(0);
+  const bucket = new TokenBucket(3, 100, clock); // fast refill rate
+  check('remove 1 leaving 2', bucket.tryRemove(1));
+  clock.advance(1_000_000); // huge elapsed time — refill must cap at capacity
+  check('cannot remove more than capacity even after huge elapsed time', !bucket.tryRemove(4));
+  check('can remove exactly capacity after cap-clamped refill', bucket.tryRemove(3));
+  check('empty immediately after removing capped capacity', !bucket.tryRemove(1));
+}
+
+// --- 6. Zero elapsed time adds no tokens ---
+{
+  const clock = new FakeClock(1000);
+  const bucket = new TokenBucket(2, 1, clock);
+  check('drain bucket', bucket.tryRemove(2));
+  check('no refill without elapsed time', !bucket.tryRemove(1));
+}
+
+// --- 7. Lazy refill accumulates fractional tokens across failed + successful calls ---
+{
+  const clock = new FakeClock(0);
+  const bucket = new TokenBucket(1, 1, clock); // 1 token/sec
+  check('drain the single token', bucket.tryRemove(1));
+  clock.advance(500);
+  check('half a token is not enough', !bucket.tryRemove(1)); // refill still applies on a failed call
+  clock.advance(500);
+  check('accumulated fractional refill reaches 1 full token', bucket.tryRemove(1));
+}
+
+// --- 8. Constructor validation (guard clauses) ---
+expectThrows('capacity = 0 throws', () => new TokenBucket(0, 1, new FakeClock()));
+expectThrows('capacity negative throws', () => new TokenBucket(-1, 1, new FakeClock()));
+expectThrows('capacity NaN throws', () => new TokenBucket(NaN, 1, new FakeClock()));
+expectThrows('refillPerSec = 0 throws', () => new TokenBucket(1, 0, new FakeClock()));
+expectThrows('refillPerSec negative throws', () => new TokenBucket(1, -5, new FakeClock()));
+expectThrows('refillPerSec Infinity throws', () => new TokenBucket(1, Infinity, new FakeClock()));
+
+// --- 9. tryRemove count validation ---
+{
+  const bucket = new TokenBucket(5, 1, new FakeClock());
+  expectThrows('count = 0 throws', () => bucket.tryRemove(0));
+  expectThrows('count negative throws', () => bucket.tryRemove(-1));
+  expectThrows('count non-integer throws', () => bucket.tryRemove(1.5));
+}
+
+// --- 10. Exactly `capacity` single-token removes succeed with a static clock ---
+{
+  const clock = new FakeClock(0);
+  const bucket = new TokenBucket(4, 1, clock);
+  let removed = 0;
+  for (let i = 0; i < 10; i++) {
+    if (bucket.tryRemove(1)) removed++;
+  }
+  check('exactly `capacity` single-token removes succeed, no more', removed === 4);
+}
+
+// --- 11. Integration: real system clock across real elapsed wall-clock time ---
+async function realClockIntegrationTest(): Promise<void> {
+  const realClock: Clock = { now: () => Date.now() };
+  // 20 tokens/sec => 1 token per 50ms
+  const bucket = new TokenBucket(1, 20, realClock);
+
+  check('real-clock: drain initial token', bucket.tryRemove(1));
+  check('real-clock: immediately empty', !bucket.tryRemove(1));
+
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  check(
+    'real-clock: token refilled (capped at capacity) after real elapsed time',
+    bucket.tryRemove(1),
+  );
+  check('real-clock: empty again right after', !bucket.tryRemove(1));
+}
+
+await realClockIntegrationTest();
+
+console.log(`\n${passed} passed, ${failed} failed`);
+if (failed > 0) {
+  console.error(`\nFailed checks:\n${failures.map((f) => ` - ${f}`).join('\n')}`);
   process.exit(1);
-});
+}

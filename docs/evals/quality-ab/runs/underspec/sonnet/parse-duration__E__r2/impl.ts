@@ -1,47 +1,52 @@
 /** Parse a human duration string into a total number of milliseconds. */
-
-/** Milliseconds represented by one unit of each supported duration suffix. */
-const UNIT_TO_MS: Readonly<Record<string, number>> = {
-  ms: 1,
-  s: 1000,
-  m: 60 * 1000,
-  h: 60 * 60 * 1000,
-  d: 24 * 60 * 60 * 1000,
-};
-
-// Order matters: "ms" must be tried before "m" and "s" so the two-letter
-// unit is preferred over accidentally matching a lone "m" or "s".
-const SEGMENT_RE = /(\d+)(ms|s|m|h|d)/g;
-
 export function parseDuration(input: string): number {
   if (typeof input !== 'string' || input.length === 0) {
-    throw new Error(`Invalid duration string: ${JSON.stringify(input)}`);
+    throw new Error(`parseDuration: input must be a non-empty string, got ${JSON.stringify(input)}`);
   }
 
-  SEGMENT_RE.lastIndex = 0;
+  const UNIT_MS: Record<string, number> = {
+    ms: 1,
+    s: 1000,
+    m: 60 * 1000,
+    h: 60 * 60 * 1000,
+    d: 24 * 60 * 60 * 1000,
+  };
+
+  // Match one or more <digits><unit> segments. Order units longest-first so
+  // "ms" is preferred over "m" + trailing "s".
+  const segmentPattern = /(\d+)(ms|s|m|h|d)/g;
 
   let totalMs = 0;
-  let cursor = 0;
-  let matchedAny = false;
+  let matchedLength = 0;
+  let sawSegment = false;
   let match: RegExpExecArray | null;
 
-  while ((match = SEGMENT_RE.exec(input)) !== null) {
-    // A gap between the end of the previous segment and the start of this
-    // match means there were unparseable characters in between (or, on the
-    // first iteration, leading garbage) — reject the whole input.
-    if (match.index !== cursor) {
-      throw new Error(`Invalid duration string: ${JSON.stringify(input)}`);
+  while ((match = segmentPattern.exec(input)) !== null) {
+    // Ensure segments are contiguous (no gaps / invalid characters between them).
+    if (match.index !== matchedLength) {
+      throw new Error(
+        `parseDuration: invalid duration string ${JSON.stringify(input)} (unexpected characters at position ${matchedLength})`
+      );
     }
 
-    const [fullMatch, amountStr, unit] = match;
+    const [full, amountStr, unit] = match;
     const amount = Number(amountStr);
-    totalMs += amount * UNIT_TO_MS[unit];
-    cursor = match.index + fullMatch.length;
-    matchedAny = true;
+    if (!Number.isSafeInteger(amount) || amount < 0) {
+      throw new Error(`parseDuration: invalid amount "${amountStr}" in ${JSON.stringify(input)}`);
+    }
+
+    const unitMs = UNIT_MS[unit];
+    if (unitMs === undefined) {
+      throw new Error(`parseDuration: unknown unit "${unit}" in ${JSON.stringify(input)}`);
+    }
+
+    totalMs += amount * unitMs;
+    matchedLength += full.length;
+    sawSegment = true;
   }
 
-  if (!matchedAny || cursor !== input.length) {
-    throw new Error(`Invalid duration string: ${JSON.stringify(input)}`);
+  if (!sawSegment || matchedLength !== input.length) {
+    throw new Error(`parseDuration: invalid duration string ${JSON.stringify(input)}`);
   }
 
   return totalMs;

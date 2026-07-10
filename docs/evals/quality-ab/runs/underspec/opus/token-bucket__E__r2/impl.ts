@@ -6,23 +6,34 @@ export interface Clock {
 /**
  * Continuous (proportional) token-bucket rate limiter.
  *
- * The bucket starts full. Tokens refill lazily and continuously: whenever
- * `tryRemove` runs it first credits `refillPerSec * Δms / 1000` tokens for the
- * time elapsed on the injected {@link Clock} since the last update (capped at
- * `capacity`), then attempts the removal.
- *
- * Time is read exclusively through the injected `Clock` seam — never the
- * wall-clock — so behavior is fully deterministic under test.
+ * The bucket starts full and refills lazily: on every {@link TokenBucket.tryRemove}
+ * call we first credit `refillPerSec * elapsedMs / 1000` tokens for the time that
+ * has passed on the injected {@link Clock} (capped at `capacity`), then attempt the
+ * removal. Time is read *only* through the injected clock — never the wall clock —
+ * so the class is fully deterministic and testable across that seam.
  */
 export class TokenBucket {
-  /** Current (possibly fractional) token count; always in [0, capacity]. */
+  /**
+   * Floating-point slack for the "enough tokens?" comparison.
+   *
+   * Continuous refill accumulates rounding error (e.g. summing 0.1 tokens ten
+   * times yields 0.9999999999999999, not 1.0). Without slack a caller that has
+   * genuinely waited long enough would be spuriously rejected at integer
+   * boundaries. The tolerance is ~1e9× smaller than any meaningful token delta,
+   * and every granted epsilon is subtracted back out (the bucket may dip a hair
+   * below zero), so it never permits net over-consumption.
+   */
+  private static readonly EPSILON = 1e-9;
+
+  /** Current token level; may transiently dip a sub-epsilon amount below 0. */
   private tokens: number;
-  /** Clock timestamp (ms) at which `tokens` was last brought up to date. */
-  private lastRefill: number;
+
+  /** Clock timestamp (ms) at which {@link tokens} was last recomputed. */
+  private lastRefillMs: number;
 
   /**
-   * @param capacity      max tokens the bucket holds (> 0)
-   * @param refillPerSec  tokens added per second (> 0), continuous/proportional
+   * @param capacity      max tokens the bucket holds (> 0, finite)
+   * @param refillPerSec  tokens added per second (> 0, finite), continuous/proportional
    * @param clock         injected time source (do NOT read wall-clock directly)
    */
   constructor(
@@ -32,59 +43,60 @@ export class TokenBucket {
   ) {
     if (!Number.isFinite(capacity) || capacity <= 0) {
       throw new RangeError(
-        `capacity must be a finite number > 0 (got ${String(capacity)})`,
+        `capacity must be a positive finite number, got ${capacity}`,
       );
     }
     if (!Number.isFinite(refillPerSec) || refillPerSec <= 0) {
       throw new RangeError(
-        `refillPerSec must be a finite number > 0 (got ${String(refillPerSec)})`,
+        `refillPerSec must be a positive finite number, got ${refillPerSec}`,
       );
     }
-
-    // Bucket starts full.
-    this.tokens = capacity;
-    this.lastRefill = clock.now();
-  }
-
-  /**
-   * Bring `tokens` up to date for the time elapsed since `lastRefill`.
-   *
-   * Refill is continuous and proportional. The clock is contractually
-   * monotonic; we defensively clamp any non-positive delta to 0 so a
-   * misbehaving clock can never *drain* the bucket, and we only advance
-   * `lastRefill` forward.
-   */
-  private refill(): void {
-    const now = this.clock.now();
-    const elapsedMs = now - this.lastRefill;
-
-    if (elapsedMs > 0) {
-      const added = (this.refillPerSec * elapsedMs) / 1000;
-      this.tokens = Math.min(this.capacity, this.tokens + added);
-      this.lastRefill = now;
+    if (clock == null || typeof clock.now !== 'function') {
+      throw new TypeError('clock must provide a now(): number method');
     }
+
+    this.tokens = capacity;
+    this.lastRefillMs = clock.now();
   }
 
   /**
-   * Attempt to remove `count` tokens (default 1, must be a positive integer).
+   * Attempt to remove `count` tokens (default 1, a positive integer).
    *
-   * Applies pending refill first, then consumes and returns `true` if at least
-   * `count` tokens are available; otherwise leaves the bucket untouched and
-   * returns `false`.
+   * Refill for the elapsed clock time is applied first; then, if the bucket holds
+   * at least `count` tokens, they are consumed and `true` is returned. Otherwise
+   * nothing is consumed and `false` is returned (this includes `count > capacity`,
+   * which can never be satisfied).
+   *
+   * @throws RangeError if `count` is not a positive integer.
    */
   tryRemove(count = 1): boolean {
     if (!Number.isInteger(count) || count <= 0) {
-      throw new RangeError(
-        `count must be a positive integer (got ${String(count)})`,
-      );
+      throw new RangeError(`count must be a positive integer, got ${count}`);
     }
 
-    this.refill();
+    this.refill(this.clock.now());
 
-    if (this.tokens >= count) {
+    if (this.tokens + TokenBucket.EPSILON >= count) {
       this.tokens -= count;
       return true;
     }
     return false;
+  }
+
+  /**
+   * Credit tokens for the time elapsed since the last update and advance the
+   * refill marker. Non-positive elapsed time (equal timestamps, or a
+   * misbehaving non-monotonic clock) is a no-op so the marker never moves
+   * backwards and no phantom tokens are minted.
+   */
+  private refill(nowMs: number): void {
+    const elapsedMs = nowMs - this.lastRefillMs;
+    if (elapsedMs <= 0) {
+      return;
+    }
+
+    const added = (this.refillPerSec * elapsedMs) / 1000;
+    this.tokens = Math.min(this.capacity, this.tokens + added);
+    this.lastRefillMs = nowMs;
   }
 }

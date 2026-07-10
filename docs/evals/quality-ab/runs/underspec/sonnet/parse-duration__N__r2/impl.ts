@@ -1,10 +1,6 @@
 /** Parse a human duration string into a total number of milliseconds. */
 export function parseDuration(input: string): number {
-  if (typeof input !== 'string' || input.length === 0) {
-    throw new Error(`Invalid duration string: ${JSON.stringify(input)}`);
-  }
-
-  const unitToMs: Record<string, number> = {
+  const UNIT_MS: Record<string, number> = {
     ms: 1,
     s: 1000,
     m: 60 * 1000,
@@ -12,33 +8,36 @@ export function parseDuration(input: string): number {
     d: 24 * 60 * 60 * 1000,
   };
 
-  // Sticky regex so each match must start exactly where the previous one ended.
-  // "ms" is listed before "s"/"m" so it is preferred over the single-letter units.
-  const segmentRegex = /(\d+)(ms|s|m|h|d)/y;
+  if (typeof input !== 'string' || input.length === 0) {
+    throw new Error(`Invalid duration string: ${JSON.stringify(input)}`);
+  }
 
-  let total = 0;
-  let index = 0;
-  let matchedAny = false;
+  // NOTE: "ms" must be tried before "m" and "s" so the longer unit wins.
+  const segmentRegex = /(\d+)(ms|s|m|h|d)/g;
 
-  while (index < input.length) {
-    segmentRegex.lastIndex = index;
-    const match = segmentRegex.exec(input);
+  let totalMs = 0;
+  let lastIndex = 0;
+  let matchCount = 0;
+  let match: RegExpExecArray | null;
 
-    if (!match || match.index !== index) {
+  while ((match = segmentRegex.exec(input)) !== null) {
+    // A valid duration string is a *contiguous* run of segments starting at
+    // index 0 with no gaps (extra chars, whitespace, out-of-order units).
+    if (match.index !== lastIndex) {
       throw new Error(`Invalid duration string: ${JSON.stringify(input)}`);
     }
 
     const amount = Number(match[1]);
     const unit = match[2];
-    total += amount * unitToMs[unit];
+    totalMs += amount * UNIT_MS[unit];
 
-    index += match[0].length;
-    matchedAny = true;
+    lastIndex = segmentRegex.lastIndex;
+    matchCount++;
   }
 
-  if (!matchedAny) {
+  if (matchCount === 0 || lastIndex !== input.length) {
     throw new Error(`Invalid duration string: ${JSON.stringify(input)}`);
   }
 
-  return total;
+  return totalMs;
 }

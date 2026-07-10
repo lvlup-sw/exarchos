@@ -1,15 +1,15 @@
 # Does the verification pipeline improve generated-code quality? (empirical, #1636)
 
-> ✅ **Executed and confirmed by [#1670](../2026-07-09-1670-delegation-pipeline-empirical.md).**
-> Both findings below now hold on measured ground: the **process delta** (durable tests)
-> reproduces under a **mechanically-run** mutation gate (E 12/12 vs opus-N 3/6, sonnet-N
-> 0/6 — replacing the self-reported kill-probe), and the **correctness null extends to
-> under-specified tasks** (E = N on the hidden oracle even when the edge cases must be
-> *discovered*) — the one discriminator this study flagged as untested. Exp 2 also
-> re-grounds the model-selection reading on a *measured* native baseline.
-> **Scope of this study (unchanged, and not what #1670 re-executes):** it isolates the
-> **verification steer note** on a generic subagent (not an end-to-end binary dispatch),
-> on **fully-specified** tasks, at small n — so its 100% is a fully-specified result.
+> ⚠️ **Partly superseded by [#1670](../2026-07-09-1670-delegation-pipeline-empirical.md) — the process-delta claim does NOT survive.**
+> What holds: the **correctness null**, now extended to *under-specified* tasks (E = N on
+> the hidden oracle even when edge cases must be discovered). What FAILS: the **process
+> delta** below (durable tests, "7/7 vs 0/7"). That gap was an artifact of prompt
+> asymmetry — only the E arm was asked to write a test. #1670 re-ran with **symmetric
+> prompts** (both arms asked to implement AND test, only the steer's content varying) and
+> mechanical mutation grading: both arms wrote tests **12/12** and both were mutation-
+> adequate **12/12**. So the verification steer's *content* shows no measured benefit on
+> this corpus once "was asked to test" is held constant. Read the "process delta" section
+> below as **refuted**, not confirmed. Model selection (Exp 2) is deferred — see #1670.
 
 Companion to the deterministic corpus benchmark (`../2026-07-09-1636-plan-format-corpus.md`).
 This is the **live A/B** that the deterministic arm cannot speak to: it actually
@@ -112,11 +112,14 @@ durability, and did not (here) change whether the code was right the first time.
   A/B on **under-specified** variants (edge cases stripped, oracle unchanged) on opus +
   sonnet, the condition under which a correctness delta *should* appear if one exists.
   It did not: E and N tie on the oracle even when the corners must be discovered — a
-  **clean null**. The steer's value stays on the process axis, not correctness.
-- **The self-reported kill-probe is now run mechanically ([#1670](../2026-07-09-1670-delegation-pipeline-empirical.md) · Exp 3).**
-  #1670's grader runs the diff-scoped mutation gate on each produced impl and scores
-  test adequacy mechanically (E 12/12 killed vs opus-N 3/6, sonnet-N 0/6), so the
-  process delta no longer rests on the agents' own reports.
+  **clean null** — and, under symmetric prompts, they also tie on test adequacy (see the
+  next bullet), so no steer benefit survives on either axis for this corpus.
+- **The self-reported kill-probe is now run mechanically — and it REFUTES the process delta ([#1670](../2026-07-09-1670-delegation-pipeline-empirical.md) · Exp 3).**
+  #1670's grader runs the diff-scoped mutation gate on each produced impl. Under the
+  corrected **symmetric** design (both arms asked to test), both arms score **12/12**
+  mutation-adequate — the "7/7 vs 0/7 durable-test" gap here was the prompt asymmetry
+  (only E was asked to test), not the steer's content. The steer shows no measured
+  test-adequacy benefit on this corpus.
 - **Durable-tests is a proxy** for "the pipeline's verification actually happened":
   N agents did test (ephemerally) but discarded it, so the metric captures
   *durable coverage left behind*, which is the thing with regression value — but it

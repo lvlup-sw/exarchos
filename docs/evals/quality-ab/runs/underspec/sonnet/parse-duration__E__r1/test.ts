@@ -1,82 +1,65 @@
 import { parseDuration } from './impl.ts';
 
-type Case = { input: string; expected: number };
+type Check = () => void;
 
-const passingCases: Case[] = [
-  { input: '500ms', expected: 500 },
-  { input: '1s', expected: 1000 },
-  { input: '5m', expected: 300000 },
-  { input: '1h', expected: 3600000 },
-  { input: '1d', expected: 86400000 },
-  { input: '1h30m', expected: 5400000 },
-  { input: '1h30m15s', expected: 5415000 },
-  { input: '90m', expected: 5400000 },
-  { input: '2d', expected: 172800000 },
-  { input: '0s', expected: 0 },
-  { input: '0ms', expected: 0 },
-  { input: '1000ms', expected: 1000 },
-  { input: '1d1h1m1s1ms', expected: 86400000 + 3600000 + 60000 + 1000 + 1 },
-  { input: '007s', expected: 7000 },
-];
+const failures: string[] = [];
+let checkCount = 0;
 
-const invalidCases: string[] = [
-  '',
-  '1',
-  'h',
-  '1x',
-  '1H',
-  '1.5s',
-  ' 1s',
-  '1s ',
-  '1s1',
-  '1s-1m',
-  '-1s',
-  '1ss',
-];
-
-let failures = 0;
-
-for (const { input, expected } of passingCases) {
-  try {
-    const actual = parseDuration(input);
-    if (actual !== expected) {
-      console.error(
-        `FAIL parseDuration(${JSON.stringify(input)}) = ${actual}, expected ${expected}`
-      );
-      failures++;
-    } else {
-      console.log(`PASS parseDuration(${JSON.stringify(input)}) = ${actual}`);
-    }
-  } catch (e) {
-    console.error(
-      `FAIL parseDuration(${JSON.stringify(input)}) threw unexpectedly: ${(e as Error).message}`
-    );
-    failures++;
+function assertEqual(actual: unknown, expected: unknown, label: string): void {
+  checkCount++;
+  if (actual !== expected) {
+    failures.push(`${label}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
   }
 }
 
-for (const input of invalidCases) {
-  let threw = false;
-  let result: number | undefined;
+function assertThrows(fn: Check, label: string): void {
+  checkCount++;
   try {
-    result = parseDuration(input);
+    fn();
+    failures.push(`${label}: expected to throw, but did not`);
   } catch {
-    threw = true;
-  }
-
-  if (threw) {
-    console.log(`PASS parseDuration(${JSON.stringify(input)}) threw as expected`);
-  } else {
-    console.error(
-      `FAIL parseDuration(${JSON.stringify(input)}) should have thrown, got ${result}`
-    );
-    failures++;
+    // expected
   }
 }
 
-if (failures > 0) {
-  console.error(`\n${failures} check(s) failed.`);
+// --- Spec examples ---
+assertEqual(parseDuration('500ms'), 500, 'parseDuration("500ms")');
+assertEqual(parseDuration('1s'), 1000, 'parseDuration("1s")');
+assertEqual(parseDuration('5m'), 300000, 'parseDuration("5m")');
+assertEqual(parseDuration('1h'), 3600000, 'parseDuration("1h")');
+assertEqual(parseDuration('1d'), 86400000, 'parseDuration("1d")');
+assertEqual(parseDuration('1h30m'), 5400000, 'parseDuration("1h30m")');
+assertEqual(parseDuration('1h30m15s'), 5415000, 'parseDuration("1h30m15s")');
+
+// --- Additional valid combinations ---
+assertEqual(parseDuration('90m'), 5400000, 'parseDuration("90m")');
+assertEqual(parseDuration('2d'), 172800000, 'parseDuration("2d")');
+assertEqual(parseDuration('1d1h1m1s1ms'), 90061001, 'parseDuration("1d1h1m1s1ms")');
+assertEqual(parseDuration('0s'), 0, 'parseDuration("0s")');
+assertEqual(parseDuration('0ms'), 0, 'parseDuration("0ms")');
+assertEqual(parseDuration('007s'), 7000, 'parseDuration("007s") (leading zeros)');
+assertEqual(parseDuration('100ms100ms'), 200, 'parseDuration("100ms100ms") (repeated unit)');
+assertEqual(parseDuration('1m1m'), 120000, 'parseDuration("1m1m") (repeated same unit sums)');
+
+// --- Invalid inputs must throw ---
+assertThrows(() => parseDuration(''), 'parseDuration("") should throw');
+assertThrows(() => parseDuration('abc'), 'parseDuration("abc") should throw');
+assertThrows(() => parseDuration('5'), 'parseDuration("5") (no unit) should throw');
+assertThrows(() => parseDuration('h'), 'parseDuration("h") (no amount) should throw');
+assertThrows(() => parseDuration('5x'), 'parseDuration("5x") (bad unit) should throw');
+assertThrows(() => parseDuration('1h x30m'), 'parseDuration("1h x30m") (gap) should throw');
+assertThrows(() => parseDuration('1h30m garbage'), 'parseDuration("1h30m garbage") (trailing garbage) should throw');
+assertThrows(() => parseDuration('-5m'), 'parseDuration("-5m") (negative) should throw');
+assertThrows(() => parseDuration('5.5m'), 'parseDuration("5.5m") (decimal) should throw');
+assertThrows(() => parseDuration('5M'), 'parseDuration("5M") (uppercase unit) should throw');
+assertThrows(() => parseDuration(' 5m'), 'parseDuration(" 5m") (leading space) should throw');
+
+if (failures.length > 0) {
+  console.error(`FAIL: ${failures.length}/${checkCount} checks failed`);
+  for (const failure of failures) {
+    console.error(`  - ${failure}`);
+  }
   process.exit(1);
 } else {
-  console.log(`\nAll checks passed.`);
+  console.log(`PASS: all ${checkCount} checks passed`);
 }

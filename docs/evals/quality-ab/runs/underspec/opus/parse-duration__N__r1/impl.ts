@@ -1,4 +1,4 @@
-/** Milliseconds represented by one of each supported unit. */
+/** Milliseconds per unit. `ms` is the only two-character unit. */
 const UNIT_TO_MS: Readonly<Record<string, number>> = {
   ms: 1,
   s: 1_000,
@@ -8,36 +8,41 @@ const UNIT_TO_MS: Readonly<Record<string, number>> = {
 };
 
 /**
- * A single `<amount><unit>` segment, matched with the sticky flag so segments
- * must be contiguous. The `ms` alternative precedes `m` so that `"500ms"` is
- * read as milliseconds rather than `500` minutes followed by a stray `s`.
+ * Matches a single `<amount><unit>` segment.
+ *
+ * Sticky (`y`) so we can walk the string segment-by-segment and guarantee the
+ * entire input is consumed — any gap or trailing garbage yields a null match.
+ * `ms` precedes the single-char units in the alternation so it is preferred
+ * before `m`/`s` are considered.
  */
 const SEGMENT = /(\d+)(ms|s|m|h|d)/y;
 
 /** Parse a human duration string into a total number of milliseconds. */
 export function parseDuration(input: string): number {
   if (typeof input !== 'string') {
-    throw new TypeError(
-      `parseDuration expected a string, received ${typeof input}`,
-    );
+    throw new TypeError('parseDuration: input must be a string');
+  }
+  if (input.length === 0) {
+    throw new SyntaxError('parseDuration: input must contain at least one segment');
   }
 
-  SEGMENT.lastIndex = 0;
+  let index = 0;
   let total = 0;
-  let consumed = 0;
-  let segments = 0;
-  let match: RegExpExecArray | null;
 
-  while ((match = SEGMENT.exec(input)) !== null) {
+  while (index < input.length) {
+    SEGMENT.lastIndex = index;
+    const match = SEGMENT.exec(input);
+    if (match === null) {
+      throw new SyntaxError(
+        `parseDuration: invalid duration segment at index ${index} in "${input}"`,
+      );
+    }
+
     const amount = Number(match[1]);
     const unit = match[2];
     total += amount * UNIT_TO_MS[unit];
-    consumed = SEGMENT.lastIndex;
-    segments += 1;
-  }
 
-  if (segments === 0 || consumed !== input.length) {
-    throw new SyntaxError(`Invalid duration string: ${JSON.stringify(input)}`);
+    index = SEGMENT.lastIndex;
   }
 
   return total;

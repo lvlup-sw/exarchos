@@ -1,76 +1,102 @@
 import { csvParseLine } from './impl.ts';
 
-type TestCase = {
-  name: string;
-  input: string;
-  expected: string[];
-};
+type Check = { name: string; pass: boolean; details?: string };
 
-const cases: TestCase[] = [
-  { name: 'simple unquoted fields', input: 'a,b,c', expected: ['a', 'b', 'c'] },
-  { name: 'quoted field containing a comma', input: '"a,b",c', expected: ['a,b', 'c'] },
-  { name: 'escaped double quote inside quoted field', input: '"a""b"', expected: ['a"b'] },
-  { name: 'unquoted field with embedded quote (not at start)', input: 'a"b', expected: ['a"b'] },
-  { name: 'empty line yields a single empty field', input: '', expected: [''] },
-  { name: 'trailing comma yields trailing empty field', input: 'a,', expected: ['a', ''] },
-  { name: 'leading comma yields leading empty field', input: ',a', expected: ['', 'a'] },
-  { name: 'empty quoted field', input: '""', expected: [''] },
-  { name: 'two empty quoted fields', input: '"",""', expected: ['', ''] },
-  { name: 'quoted field with multiple commas', input: '"a,b,c"', expected: ['a,b,c'] },
-  {
-    name: 'multiple escaped quotes with surrounding text',
-    input: '"say ""hi"" now"',
-    expected: ['say "hi" now'],
-  },
-  { name: 'mixed quoted and unquoted fields', input: 'a,"b,c",d', expected: ['a', 'b,c', 'd'] },
-  { name: 'single quoted field, no special chars', input: '"a"', expected: ['a'] },
-  {
-    name: 'quoted field with two escaped quotes back-to-back',
-    input: 'a,b,"c""d""e"',
-    expected: ['a', 'b', 'c"d"e'],
-  },
-  {
-    name: 'field starting with quote but only that char',
-    input: '"',
-    expected: [''],
-  },
-  {
-    name: 'whitespace preserved in unquoted field',
-    input: '  a  ,b',
-    expected: ['  a  ', 'b'],
-  },
-];
+const checks: Check[] = [];
 
-let failures = 0;
-
-for (const { name, input, expected } of cases) {
-  let actual: string[];
-  try {
-    actual = csvParseLine(input);
-  } catch (err) {
-    console.error(`FAIL [${name}]: csvParseLine(${JSON.stringify(input)}) threw: ${String(err)}`);
-    failures++;
-    continue;
-  }
-
-  const pass =
-    Array.isArray(actual) &&
-    actual.length === expected.length &&
-    actual.every((v, idx) => v === expected[idx]);
-
-  if (pass) {
-    console.log(`PASS [${name}]: csvParseLine(${JSON.stringify(input)}) -> ${JSON.stringify(actual)}`);
-  } else {
-    console.error(
-      `FAIL [${name}]: csvParseLine(${JSON.stringify(input)}) -> ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`
-    );
-    failures++;
-  }
+function assertEqual(name: string, actual: unknown, expected: unknown): void {
+  const a = JSON.stringify(actual);
+  const e = JSON.stringify(expected);
+  const pass = a === e;
+  checks.push({
+    name,
+    pass,
+    details: pass ? undefined : `expected ${e}, got ${a}`,
+  });
 }
 
-if (failures > 0) {
-  console.error(`\n${failures} of ${cases.length} test(s) failed.`);
+// --- Basic unquoted fields ---
+assertEqual('simple unquoted', csvParseLine('a,b,c'), ['a', 'b', 'c']);
+assertEqual('single field', csvParseLine('a'), ['a']);
+assertEqual('empty line -> one empty field', csvParseLine(''), ['']);
+assertEqual(
+  'whitespace preserved in unquoted field',
+  csvParseLine(' a , b '),
+  [' a ', ' b '],
+);
+
+// --- Empty fields via commas ---
+assertEqual('trailing comma yields empty field', csvParseLine('a,'), ['a', '']);
+assertEqual('leading comma yields empty field', csvParseLine(',a'), ['', 'a']);
+assertEqual('only a comma', csvParseLine(','), ['', '']);
+assertEqual('multiple empty fields', csvParseLine(',,'), ['', '', '']);
+
+// --- Quoted fields ---
+assertEqual('quoted field with comma', csvParseLine('"a,b",c'), ['a,b', 'c']);
+assertEqual('quoted field with escaped quote', csvParseLine('"a""b"'), ['a"b']);
+assertEqual(
+  'quoted field with only escaped quotes',
+  csvParseLine('"""quoted"""'),
+  ['"quoted"'],
+);
+assertEqual('empty quoted field', csvParseLine('""'), ['']);
+assertEqual('two empty quoted fields', csvParseLine('"",""'), ['', '']);
+assertEqual(
+  'quoted field then unquoted field',
+  csvParseLine('"quoted with, comma","another"'),
+  ['quoted with, comma', 'another'],
+);
+assertEqual(
+  'quoted field followed by unquoted plain field',
+  csvParseLine('"a",b'),
+  ['a', 'b'],
+);
+assertEqual(
+  'multiple quoted fields with escapes',
+  csvParseLine('"a""b","c""""d"'),
+  ['a"b', 'c""d'],
+);
+
+// --- Unquoted fields containing quotes NOT at the start ---
+assertEqual('quote not at start is literal', csvParseLine('a"b'), ['a"b']);
+assertEqual(
+  'quote in middle across fields',
+  csvParseLine('a"b,c"d'),
+  ['a"b', 'c"d'],
+);
+
+// --- Mixed quoted/unquoted with surrounding empties ---
+assertEqual(
+  'quoted field at start, empty after',
+  csvParseLine('"a",'),
+  ['a', ''],
+);
+assertEqual(
+  'empty first, quoted second',
+  csvParseLine(',"b"'),
+  ['', 'b'],
+);
+
+// --- Adjacency: quote immediately followed by comma, no content ---
+assertEqual(
+  'three quoted fields including comma-embedded',
+  csvParseLine('"1","2,2","3"'),
+  ['1', '2,2', '3'],
+);
+
+// --- Report ---
+const failed = checks.filter((c) => !c.pass);
+for (const c of checks) {
+  const status = c.pass ? 'PASS' : 'FAIL';
+  const suffix = c.pass ? '' : ` — ${c.details}`;
+  console.log(`[${status}] ${c.name}${suffix}`);
+}
+
+console.log(
+  `\n${checks.length - failed.length}/${checks.length} checks passed.`,
+);
+
+if (failed.length > 0) {
+  console.error(`${failed.length} check(s) FAILED.`);
   process.exit(1);
-} else {
-  console.log(`\nAll ${cases.length} tests passed.`);
 }

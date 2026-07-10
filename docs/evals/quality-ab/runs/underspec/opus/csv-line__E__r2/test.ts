@@ -4,7 +4,7 @@ let passed = 0;
 let failed = 0;
 const failures: string[] = [];
 
-function arraysEqual(a: string[], b: string[]): boolean {
+function arrEq(a: readonly string[], b: readonly string[]): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {
     if (a[i] !== b[i]) return false;
@@ -18,77 +18,69 @@ function check(name: string, input: string, expected: string[]): void {
     actual = csvParseLine(input);
   } catch (err) {
     failed++;
-    failures.push(`${name}: unexpectedly threw ${String(err)}`);
+    failures.push(
+      `${name}: threw ${err instanceof Error ? err.message : String(err)}`,
+    );
     return;
   }
-  if (arraysEqual(actual, expected)) {
+  if (arrEq(actual, expected)) {
     passed++;
   } else {
     failed++;
     failures.push(
-      `${name}: csvParseLine(${JSON.stringify(input)})\n` +
-        `    expected ${JSON.stringify(expected)}\n` +
-        `    actual   ${JSON.stringify(actual)}`,
+      `${name}: input=${JSON.stringify(input)} ` +
+        `expected=${JSON.stringify(expected)} ` +
+        `actual=${JSON.stringify(actual)}`,
     );
   }
 }
 
-// --- Spec examples (these pin the primary contract) ---
-check('example: simple unquoted', 'a,b,c', ['a', 'b', 'c']);
-check('example: quoted field with comma', '"a,b",c', ['a,b', 'c']);
-check('example: escaped quote inside quotes', '"a""b"', ['a"b']);
-check('example: quote in middle of unquoted field', 'a"b', ['a"b']);
+// --- Spec examples ---------------------------------------------------------
+check('simple triple', 'a,b,c', ['a', 'b', 'c']);
+check('quoted with comma', '"a,b",c', ['a,b', 'c']);
+check('escaped quote inside quoted', '"a""b"', ['a"b']);
+check('unquoted with interior quote', 'a"b', ['a"b']);
 
-// --- Quoting / escaping edge cases ---
-check('quoted: entirely quoted with commas', '"a,b,c"', ['a,b,c']);
-check('quoted: empty quoted field', '"",a', ['', 'a']);
-check('quoted: two adjacent escaped quotes', '"a""""b"', ['a""b']);
-check('quoted: escaped quote at start', '"""x"', ['"x']);
-check('quoted: escaped quote at end', '"x"""', ['x"']);
-check('quoted: only an escaped quote', '""""', ['"']);
-check('quoted: surrounding quotes are stripped', '"hello"', ['hello']);
-check('quoted: field with leading/trailing spaces kept', '" x "', [' x ']);
-check('quoted: multiple quoted fields', '"a","b","c"', ['a', 'b', 'c']);
-check('quoted: mix quoted and unquoted', 'a,"b,c",d', ['a', 'b,c', 'd']);
+// --- Empty / boundary fields ----------------------------------------------
+check('empty line -> single empty field', '', ['']);
+check('single field', 'abc', ['abc']);
+check('trailing empty field', 'a,', ['a', '']);
+check('leading empty field', ',a', ['', 'a']);
+check('two empty fields', ',', ['', '']);
+check('three empty fields', ',,', ['', '', '']);
+check('empty quoted field', '""', ['']);
+check('quoted then empty', '"a",', ['a', '']);
 
-// --- Unquoted literal semantics ---
-check('unquoted: quote not at start is literal', 'a"b,c', ['a"b', 'c']);
-check('unquoted: whitespace preserved', '  a , b  ', ['  a ', ' b  ']);
-check('unquoted: quote-heavy literal', 'a""b', ['a""b']);
+// --- Quoting / escaping edge cases ----------------------------------------
+check('only escaped quote', '""""', ['"']);
+check('escaped quotes around text', '"""x"""', ['"x"']);
+check('quoted comma-only', '","', [',']);
+check('quoted with multiple commas', '"a,b,c"', ['a,b,c']);
+check('mixed quoted and unquoted', '"a,b",c,"d""e"', ['a,b', 'c', 'd"e']);
+check('two quoted fields', '"x","y"', ['x', 'y']);
 
-// --- Empty / boundary fields ---
-check('boundary: empty line is one empty field', '', ['']);
-check('boundary: single comma -> two empty fields', ',', ['', '']);
-check('boundary: leading empty field', ',a', ['', 'a']);
-check('boundary: trailing empty field', 'a,', ['a', '']);
-check('boundary: trailing empty after quoted', '"a",', ['a', '']);
-check('boundary: multiple empties', ',,', ['', '', '']);
+// --- Whitespace handling ---------------------------------------------------
+check('unquoted preserves spaces', ' a , b ', [' a ', ' b ']);
+check('quoted preserves interior spaces', '" a "', [' a ']);
+check('quoted leading space (quote is first char)', '"  "', ['  ']);
 
-// --- Lenient malformed-input handling (well-defined by this impl) ---
-check('malformed: unterminated quote keeps content', '"abc', ['abc']);
-check('malformed: trailing chars after close quote', '"a"b', ['ab']);
+// --- Non-leading quotes in unquoted fields --------------------------------
+check('quote at end of unquoted', 'ab"', ['ab"']);
+check('multiple interior quotes', 'a"b"c', ['a"b"c']);
 
-// --- Guard: make sure the harness itself can fail (self-check) ---
-{
-  const control = arraysEqual(csvParseLine('a,b'), ['a', 'b']);
-  const negativeControl = arraysEqual(csvParseLine('a,b'), ['a', 'b', 'c']);
-  if (!control || negativeControl) {
-    failed++;
-    failures.push('self-check: equality helper is broken');
-  } else {
-    passed++;
-  }
-}
+// --- Documented extension behavior (RFC-undefined territory) --------------
+// Characters after the closing quote and before a comma are appended.
+check('trailing text after closing quote', '"a"b', ['ab']);
+check('trailing text after closing quote, then field', '"a"b,c', ['ab', 'c']);
+// Unterminated quote consumes the rest of the line as the value.
+check('unterminated quote', '"abc', ['abc']);
 
+// --- Summary ---------------------------------------------------------------
 const total = passed + failed;
-console.log(`\ncsvParseLine tests: ${passed}/${total} passed, ${failed} failed`);
-
 if (failed > 0) {
-  console.error('\nFailures:');
-  for (const f of failures) {
-    console.error(`  - ${f}`);
-  }
+  console.error(`\ncsvParseLine: ${passed}/${total} passed, ${failed} FAILED`);
+  for (const f of failures) console.error(`  ✗ ${f}`);
   process.exit(1);
+} else {
+  console.log(`csvParseLine: ${passed}/${total} passed — all green ✓`);
 }
-
-console.log('All checks passed.');

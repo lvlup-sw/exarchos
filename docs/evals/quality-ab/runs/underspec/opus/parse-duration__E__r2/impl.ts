@@ -4,42 +4,52 @@ export function parseDuration(input: string): number {
     throw new TypeError('parseDuration: input must be a string');
   }
   if (input.length === 0) {
-    throw new Error('parseDuration: input must not be empty');
+    throw new Error('parseDuration: empty input');
   }
 
-  // Milliseconds per unit. Order in the alternation below matters:
-  // `ms` must be tried before `m` so "500ms" is not read as "500m" + "s".
-  const UNIT_MS: Record<string, number> = {
+  // Milliseconds per unit. `ms` must precede `s`/`m` in the alternation below
+  // so that "500ms" is not mis-tokenised as "500m" + "s".
+  const UNIT_MS = {
     ms: 1,
     s: 1_000,
     m: 60_000,
     h: 3_600_000,
     d: 86_400_000,
-  };
+  } as const;
 
-  // Sticky regex: each match must start exactly where the previous one ended,
-  // guaranteeing the whole string is a run of <amount><unit> segments with
-  // no gaps, stray characters, or trailing junk.
-  const segment = /(\d+)(ms|s|m|h|d)/y;
+  type Unit = keyof typeof UNIT_MS;
+
+  const segmentRe = /(\d+)(ms|s|m|h|d)/g;
 
   let total = 0;
-  let matched = false;
-  let endIndex = 0;
+  let expectedIndex = 0;
+  let sawSegment = false;
+  let match: RegExpExecArray | null;
 
-  segment.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = segment.exec(input)) !== null) {
-    matched = true;
-    const amount = Number(m[1]);
-    const unit = m[2];
+  while ((match = segmentRe.exec(input)) !== null) {
+    // Enforce that segments are contiguous from the start — reject leading or
+    // interior junk (e.g. " 1h", "1h x2m").
+    if (match.index !== expectedIndex) {
+      throw new Error(`parseDuration: invalid duration "${input}"`);
+    }
+
+    const amount = Number(match[1]);
+    if (!Number.isSafeInteger(amount)) {
+      throw new Error(
+        `parseDuration: amount "${match[1]}" is out of safe integer range`,
+      );
+    }
+
+    const unit = match[2] as Unit;
     total += amount * UNIT_MS[unit];
-    endIndex = segment.lastIndex;
+
+    sawSegment = true;
+    expectedIndex = segmentRe.lastIndex;
   }
 
-  if (!matched || endIndex !== input.length) {
-    throw new Error(
-      `parseDuration: invalid duration string: ${JSON.stringify(input)}`,
-    );
+  // Reject empty matches or trailing junk (e.g. "1", "1h ", "1hfoo").
+  if (!sawSegment || expectedIndex !== input.length) {
+    throw new Error(`parseDuration: invalid duration "${input}"`);
   }
 
   return total;

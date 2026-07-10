@@ -1,56 +1,53 @@
-/** Milliseconds per recognized unit. */
-const UNIT_MS = {
+/** Parse a human duration string into a total number of milliseconds. */
+
+/** Milliseconds represented by a single unit of each supported suffix. */
+const UNIT_MS: Readonly<Record<string, number>> = Object.freeze({
   ms: 1,
   s: 1_000,
   m: 60_000,
   h: 3_600_000,
   d: 86_400_000,
-} as const;
+});
 
 /**
- * Matches a single `<amount><unit>` segment.
- * The unit alternation lists `ms` before `s`/`m` so the two-character unit is
- * preferred over the single-character ones (e.g. `500ms` is milliseconds, not
- * `500m` + `s`).
+ * Sticky matcher for a single `<amount><unit>` segment.
+ *
+ * The `ms` alternative precedes `m`/`s` so that a `500ms` segment is parsed as
+ * "500 milliseconds" rather than "500 minutes" followed by a stray `s`.
+ * The `y` (sticky) flag anchors each match at `lastIndex`, which lets us prove
+ * the entire input is consumed with no gaps or trailing garbage.
  */
-const SEGMENT = /(\d+)(ms|s|m|h|d)/g;
+const SEGMENT = /(\d+)(ms|s|m|h|d)/y;
 
 /** Parse a human duration string into a total number of milliseconds. */
 export function parseDuration(input: string): number {
   if (typeof input !== 'string') {
-    throw new TypeError('parseDuration: input must be a string');
+    throw new TypeError(
+      `parseDuration expected a string, received ${typeof input}`,
+    );
+  }
+  if (input.length === 0) {
+    throw new Error('parseDuration: input must not be empty');
   }
 
-  // Reset the shared regex's lastIndex; it carries state across calls.
-  SEGMENT.lastIndex = 0;
-
   let total = 0;
-  let cursor = 0;
-  let sawSegment = false;
-  let match: RegExpExecArray | null;
+  let index = 0;
 
-  while ((match = SEGMENT.exec(input)) !== null) {
-    // Reject any gap between the previous segment and this one, which would
-    // mean the input contained an unrecognized token.
-    if (match.index !== cursor) {
-      throw new SyntaxError(
-        `parseDuration: unexpected token at index ${cursor} in ${JSON.stringify(input)}`,
+  while (index < input.length) {
+    SEGMENT.lastIndex = index;
+    const match = SEGMENT.exec(input);
+    if (match === null) {
+      throw new Error(
+        `parseDuration: invalid duration segment at position ${index} in "${input}"`,
       );
     }
 
     const amount = Number(match[1]);
-    const unit = match[2] as keyof typeof UNIT_MS;
-
+    const unit = match[2];
+    // Unit is guaranteed to be a known key by the regex alternation.
     total += amount * UNIT_MS[unit];
-    cursor = SEGMENT.lastIndex;
-    sawSegment = true;
-  }
 
-  // Require at least one segment and full consumption of the input.
-  if (!sawSegment || cursor !== input.length) {
-    throw new SyntaxError(
-      `parseDuration: invalid duration string ${JSON.stringify(input)}`,
-    );
+    index = SEGMENT.lastIndex;
   }
 
   return total;
