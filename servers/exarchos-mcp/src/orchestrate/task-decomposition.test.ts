@@ -887,6 +887,26 @@ through the projection so downstream consumers see the change without polling.
     expect(files).not.toContain('imageProvenance.isFirstParty');
   });
 
+  it('extractFiles_FourHashSubHeaderTerminatesScan_NoLeak', () => {
+    // Regression (#1670 shepherd / Sentry): the Files scan must terminate at the
+    // next section header at EITHER depth. On the majority-`####` corpus a
+    // `#### <Sub>` header after **Files:** must END the section — before the fix
+    // `/^###\s/` didn't match `####`, so a backtick path in a later sub-section
+    // was swept into the file list (same 3-hash-only bug DR-5 fixed for
+    // parseTaskBlocks; extractFiles was the sibling it missed).
+    const block = `#### Task 05: example
+
+**Files:**
+- \`src/real.ts\`
+
+#### Acceptance criteria
+- The change must not scrape \`src/leaked.ts\` from this sub-section.`;
+
+    const files = extractFiles(block);
+    expect(files).toContain('src/real.ts');
+    expect(files).not.toContain('src/leaked.ts');
+  });
+
   it('extractFiles_KnownExtension_Matched', () => {
     // Sanity: the allowlist MUST cover the canonical project extensions
     // used in real plans (TypeScript source, JSON config, Markdown docs).

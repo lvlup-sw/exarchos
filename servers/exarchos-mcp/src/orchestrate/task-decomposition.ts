@@ -721,7 +721,7 @@ function isParallelizable(block: string): boolean {
 export function extractFiles(block: string): string[] {
   // Prefer files declared under an explicit `**Files:**` section when
   // present. Capture lines from the `**Files:**` header until the next
-  // field-header (`**Word:**`) or section header (`### `).
+  // field-header (`**Word:**`) or section header (`###`/`####`).
   const lines = block.split('\n');
   const filesSectionLines: string[] = [];
   let inFilesSection = false;
@@ -748,7 +748,12 @@ export function extractFiles(block: string): string[] {
       continue;
     }
     if (inFilesSection) {
-      if (/^###\s/.test(line) || /^\*\*\w[\w\s]*:\*\*/.test(line)) {
+      // Terminate at the next section header at EITHER depth (`###`/`####`, via
+      // TASK_DEPTH_HEADING) or field-header — a 4-hash sub-section on the
+      // majority-`####` corpus must end the Files scan, not be swept into it
+      // (same 3-hash-only bug DR-5 fixed for parseTaskBlocks; extractFiles was
+      // the sibling it missed).
+      if (TASK_DEPTH_HEADING.test(line) || /^\*\*\w[\w\s]*:\*\*/.test(line)) {
         inFilesSection = false;
         continue;
       }
