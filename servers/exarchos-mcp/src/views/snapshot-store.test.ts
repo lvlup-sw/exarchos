@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { PIPELINE_VIEW, PIPELINE_SNAPSHOT_NAME } from './pipeline-view.js';
+import { EVENT_SCHEMA_VERSION } from '../event-store/event-migration.js';
 
 // Track writeFile and rename calls from inside snapshot-store
 const writeFileCalls: { path: string; data: string }[] = [];
@@ -82,5 +84,64 @@ describe('SnapshotStore atomic writes', () => {
     const lastWrite = writeFileCalls[writeFileCalls.length - 1];
     expect(lastWrite.path).not.toBe(filePath);
     expect(lastWrite.path).toContain('.tmp');
+  });
+});
+
+// ─── DR-5/DR-6: versioned pipeline snapshot lineage ──────────────────────────
+
+describe('SnapshotStore pipeline v2 lineage', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'snapshot-lineage-test-'));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('PipelineSnapshot_V1LineageFile_IgnoredAndFullyRefolded', async () => {
+    const streamId = 'feat-lineage';
+
+    // A pre-upgrade server persisted a v1 pipeline snapshot under the
+    // un-namespaced projection name (no repoRoot on the cached view).
+    const v1Store = new SnapshotStore(tempDir);
+    await v1Store.save(streamId, PIPELINE_VIEW, { featureId: streamId, stale: true }, 7);
+    const v1Path = path.join(tempDir, `${streamId}.${PIPELINE_VIEW}.snapshot.json`);
+    await expect(readFile(v1Path, 'utf-8')).resolves.toContain('stale');
+
+    // A new server reads the pipeline view through the v2 namespace map.
+    const v2Store = new SnapshotStore(tempDir, { [PIPELINE_VIEW]: PIPELINE_SNAPSHOT_NAME });
+    const loaded = await v2Store.load(streamId, PIPELINE_VIEW);
+
+    // The stale v1 snapshot is NOT consulted — load misses, so the materializer
+    // re-folds the stream from init (picking up repoRoot) instead of resuming a
+    // pre-upgrade fold that lacks it.
+    expect(loaded).toBeUndefined();
+  });
+
+  it('PipelineSnapshot_WritesV2LineageName', async () => {
+    const streamId = 'feat-writes-v2';
+
+    const v2Store = new SnapshotStore(tempDir, { [PIPELINE_VIEW]: PIPELINE_SNAPSHOT_NAME });
+    await v2Store.save(streamId, PIPELINE_VIEW, { featureId: streamId, repoRoot: '/r' }, 3);
+
+    const files = await readdir(tempDir);
+    // Snapshots land under the versioned filename, never the legacy one.
+    expect(files).toContain(`${streamId}.${PIPELINE_SNAPSHOT_NAME}.snapshot.json`);
+    expect(files).not.toContain(`${streamId}.${PIPELINE_VIEW}.snapshot.json`);
+
+    // Round-trips through the same namespaced store.
+    const loaded = await v2Store.load(streamId, PIPELINE_VIEW);
+    expect(loaded?.view).toEqual({ featureId: streamId, repoRoot: '/r' });
+  });
+
+  it('EventSchemaVersion_Untouched_Remains1_0', () => {
+    // The round-2 refuted mechanism bumped EVENT_SCHEMA_VERSION to force
+    // snapshot re-folds. The v2 snapshot lineage replaces that entirely: this
+    // constant drives event migration / upcasting, NOT view snapshots, and MUST
+    // stay put. (The primary pin lives in event-migration.test.ts; this guards
+    // the constant from the view-side change specifically.)
+    expect(EVENT_SCHEMA_VERSION).toBe('1.0');
   });
 });

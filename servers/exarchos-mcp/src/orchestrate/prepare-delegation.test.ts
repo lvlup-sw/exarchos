@@ -1324,6 +1324,47 @@ describe('handlePrepareDelegation', () => {
     expect(eventData.reason).toBe('current-branch-protected');
   });
 
+  // ─── DR-10: nativeIsolation skips the protected-branch guard ────────────
+  // (refactor-pipeline-view-economy) The server reads HEAD from its own
+  // launch cwd — the main checkout, which sits on `main` because the feature
+  // branch is checked out in the orchestrator worktree — so the protected-
+  // branch guard is a guaranteed false positive under worktree orchestration.
+  // Under nativeIsolation the host owns base safety (baseRef guard), so this
+  // guard must be skipped, mirroring the DR-2 worktree-location skip.
+  it('handlePrepareDelegation_NativeIsolationOnProtectedBranch_SkipsGuardAndProceeds', async () => {
+    // Arrange: HEAD (as the server reads it, from the main checkout) is on
+    // main — the guard WOULD block on the non-native path. Use
+    // `mockReturnValueOnce` so the override cannot leak into later tests
+    // (beforeEach only clears call history, not implementations); the
+    // guard itself is skipped under nativeIsolation, so we do NOT queue a
+    // value on `assertCurrentBranchNotProtected` — it must never be called.
+    const state = readyWorkflowState();
+    setupMaterializer(state);
+    vi.mocked(generateQualityHints).mockReturnValue([]);
+    vi.mocked(getCurrentBranch).mockReturnValueOnce('main');
+    const args = { featureId: 'test-feature', nativeIsolation: true };
+
+    // Act
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+    // Assert: the protected-branch guard was skipped structurally (never
+    // consulted) and dispatch proceeded to readiness instead of blocking.
+    expect(vi.mocked(assertCurrentBranchNotProtected)).not.toHaveBeenCalled();
+    expect(result.success).toBe(true);
+    const data = result.data as { blocked?: boolean; reason?: string; ready?: boolean };
+    expect(data.reason).not.toBe('current-branch-protected');
+    expect(data.ready).toBe(true);
+
+    // No preflight.blocked(current-branch-protected) event was emitted.
+    const protectedBlocked = mockStore.append.mock.calls.find(
+      (call: unknown[]) =>
+        (call[1] as { type: string }).type === 'preflight.blocked' &&
+        (call[1] as { data?: { reason?: string } }).data?.reason ===
+          'current-branch-protected',
+    );
+    expect(protectedBlocked).toBeUndefined();
+  });
+
   // ─── #1129 D: integrationBranch fallback safety ─────────────────────────
   it('handlePrepareDelegation_IntegrationBranchUnset_UsesCurrentBranchNotFeatureId', async () => {
     // Arrange: synthesis.integrationBranch unset; current branch known

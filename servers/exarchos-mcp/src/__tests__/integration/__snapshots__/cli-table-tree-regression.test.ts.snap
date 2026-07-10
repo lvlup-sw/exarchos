@@ -5,6 +5,13 @@ exports[`F.7 — CLI table/tree pretty-print regression (Wave 0 §7) > CliRender
   "stderr": "<<perf>>",
   "stdout": "workflows:
 total: 0
+unscopedTotal: 0
+page:
+  total: 0
+  offset: 0
+  limit: 10
+  hasMore: false
+scope: repo
 ",
 }
 `;

@@ -37,6 +37,7 @@ import {
 import { handleStackStatus, handleStackPlace } from '../stack/tools.js';
 import { handleViewTelemetry } from '../telemetry/tools.js';
 import type { QualityHintsConfig } from '../capabilities/resolver.js';
+import { deriveRepoKey } from '../utils/paths.js';
 
 const viewActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_view')!.actions;
 
@@ -131,13 +132,30 @@ export async function handleView(
     case 'pipeline':
       return envelopeWrap(
         await handleViewPipeline(
-          rest as { limit?: number; offset?: number; includeCompleted?: boolean },
+          rest as {
+            limit?: number;
+            offset?: number;
+            includeCompleted?: boolean;
+            detail?: boolean;
+            // DR-6 — explicit scope inputs ride through `rest` from the CLI/MCP
+            // args; the handler resolves them against the caller key below.
+            repoRoot?: string;
+            scope?: 'repo' | 'all';
+          },
           stateDir,
           eventStore,
           // DR-3 — thread the resolved `.exarchos.yml` so
           // `qualityHints.outputTokenThreshold` drives the measured-size summary
           // (same single-hop cast the `telemetry` arm uses).
           ctx.config as QualityHintsConfig | undefined,
+          // DR-6 — the composite layer OWNS caller identity: compute the memoized
+          // repo key from the serving process's directory (`ctx.cwd` defaults to
+          // `process.cwd()` per core/dispatch.ts) and thread it so the pipeline
+          // view scopes to the caller's repo by default. `deriveRepoKey` collapses
+          // the main checkout and every worktree to one key and memoizes, so this
+          // is a map lookup after the first call. Mirrors `workflow/composite.ts`
+          // threading the same key into `handleInit`.
+          deriveRepoKey(ctx.cwd ?? process.cwd()),
         ),
         startedAt,
       );
