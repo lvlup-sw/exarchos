@@ -70,7 +70,14 @@ function countOracleChecks(oraclePath: string): number {
 
 function gradeTypecheck(runDir: string): boolean {
   try {
-    execFileSync(TSC, ['--noEmit', '--strict', '--skipLibCheck', 'impl.ts'], { cwd: runDir, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+    // Realistic target/lib (es2022) matching the repo — a bare `tsc` defaults to
+    // an ES5 lib and rejects modern-but-valid TS (private fields, sticky regex,
+    // etc.), which would be a grader artifact rather than an impl defect.
+    execFileSync(
+      TSC,
+      ['--noEmit', '--strict', '--skipLibCheck', '--target', 'es2022', '--lib', 'es2022', 'impl.ts'],
+      { cwd: runDir, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
+    );
     return true;
   } catch {
     return false;
