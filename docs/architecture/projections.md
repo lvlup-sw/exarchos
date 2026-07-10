@@ -18,6 +18,7 @@ function. This document captures the architectural contracts for:
 4. Failure-mode conventions and the `buildDegradedResponse` helper
 5. Snapshot store, snapshot cadence, and cold rebuild
 6. Cross-references to the design doc and related tasks
+7. Pipeline-view specifics: folded repo identity, repo scoping, paging metadata, and the versioned (v2) snapshot lineage
 
 The `rehydration@v1` projection (T022–T026, T029, T031) is the first concrete
 implementation and the proving ground for this architecture.
@@ -493,6 +494,107 @@ try {
   );
 }
 ```
+
+---
+
+## 7. Pipeline View: Repo Scoping, Paging & Snapshot Lineage
+
+**Design reference:** [docs/specs/2026-07-09-refactor-pipeline-view-economy.md](../specs/2026-07-09-refactor-pipeline-view-economy.md) (DR-4 through DR-8)  
+**Sources:** `servers/exarchos-mcp/src/views/pipeline-view.ts` (projection + state), `servers/exarchos-mcp/src/views/tools.ts` (`handleViewPipeline`), `servers/exarchos-mcp/src/views/composite.ts` (caller-identity threading), `servers/exarchos-mcp/src/utils/paths.ts` (`deriveRepoKey`)
+
+The pipeline view belongs to the `views/` **materializer** subsystem, not the `projections/` reducer subsystem the six sections above describe.
+Its projections implement `ViewProjection<T>` (`init()` / `apply(view, event)`, `views/materializer.ts`) rather than `ProjectionReducer<State, Event>`, and its snapshots are file-based via `SnapshotStore` (`<streamId>.<name>.snapshot.json`) rather than the SQLite `projection_snapshots` table.
+The contracts below are specific to the `pipelineProjection` and the shared `handleViewPipeline` dispatch-core handler that serves both the CLI (`vw ls`) and MCP (`exarchos_view` `action: "pipeline"`) surfaces through the same code path.
+
+### 7a. `repoRoot` — folded repo identity on the view state
+
+`PipelineViewState` carries an optional `repoRoot` field.
+It is copied from `workflow.started` event data during that event's fold (`repoRoot: data?.repoRoot ?? view.repoRoot`) — a **pure fold**: the projection performs no lookup, no filesystem read, and no git spawn to populate it.
+Streams whose `workflow.started` carried no `repoRoot` (legacy inventory, or any init that supplied no key) leave the field `undefined`, which the scope filter treats as unscoped.
+`WorkflowStartedData` (`event-store/schemas.ts`) gains `repoRoot: z.string().optional()`, so historical events without the field still parse and no historical event is ever rewritten — identity enters the model strictly as forward event data.
+
+### 7b. Identity source — `deriveRepoKey` (server-process cwd, worktree-collapsing)
+
+Repo identity is derived by `deriveRepoKey(inputPath)` in `utils/paths.ts`:
+
+- It resolves the git **common** root (`git rev-parse --path-format=absolute --git-common-dir`, then its `dirname`) so the main checkout and every linked worktree of one repository collapse to a **single** key.
+- Outside a git repository (or when git is unavailable) it falls back to the canonicalized input path, so a non-git working directory still gets a stable identity.
+- The result is POSIX-normalized (`toPosix` + `fs.realpathSync.native`, so Windows 8.3 short-names expand and separator forms match) and **memoized** per input path in a module-level map.
+
+The **composite layer owns caller identity**: `views/composite.ts` threads `deriveRepoKey(ctx.cwd ?? process.cwd())` into `handleViewPipeline` as the caller key (mirroring `workflow/composite.ts`, which threads the same key into `handleInit` at write time).
+Per `core/dispatch.ts`, `DispatchContext.cwd` defaults to the long-lived **server process's** working directory; production adapters do not populate it.
+For a project-scoped server (the normal plugin/CLI arrangement) that is the repository the server was launched in, so write-time (init) and read-time (pipeline) identities agree by construction.
+A future client that threads a real `ctx.cwd` (for example via MCP roots) gets more precise identity through the same seam with no code change — this is the deliberate, documented v1 semantics, not an accident.
+Because the server derives its own cwd key once and memoizes, every steady-state pipeline call thereafter pays a map lookup rather than a git subprocess.
+
+### 7c. Paging metadata & deterministic order
+
+The `data` payload carries a `page` object — `{ total, offset, limit, hasMore }` — on **both** the per-item detail branch and the measured-size summary branch.
+It is namespaced under `page` precisely so `page.hasMore` never collides with the per-entry `hasMore` field, which is the unrelated stack-position **eviction** flag retained on each row.
+
+- `page.total` is the count of the filtered, scoped set.
+- Detail branch: `page.hasMore === offset + window.length < total`.
+- Summary branch: `page.hasMore === total > firstPage.length`.
+- Default window (DR-2): when `limit` is omitted the pipeline caps at `PIPELINE_DEFAULT_ITEM_CAP` (**10**) — deliberately smaller than the shared `DEFAULT_VIEW_ITEM_CAP` (**50**) that the other inventory views (e.g. `worktrees`) keep. An explicit `limit` is honored verbatim.
+- Deterministic order (`comparePipelineRows`, DR-3): `_asOf` **descending** (most-recent activity first), ties broken by `featureId` **ascending**. A total order over distinct feature ids, so two consecutive offset windows (`offset: 0` then `offset: 10`) partition one stable sequence.
+- `data.total` is retained as a **legacy alias** of `page.total` for one release; new consumers should read `data.page`.
+
+### 7d. View pipeline order (where `unscopedTotal` is pinned)
+
+`handleViewPipeline` applies its stages in a fixed order:
+
+```
+fold → phantom filter (drop empty-featureId rows, DR-4)
+     → terminal-phase filter (includeCompleted)
+     → unscopedTotal computed        ← post-phantom, post-terminal, PRE-scope
+     → scope filter (see 7e)
+     → page.total computed
+     → deterministic sort (_asOf desc, featureId asc)
+     → offset/limit window (pipeline default 10)
+     → entry compaction (strip tasksById unless detail:true)
+     → data.page + data.scope + data.unscopedTotal + affordances
+```
+
+Pinning `unscopedTotal` **before** the scope filter but **after** the terminal-phase filter is load-bearing: the scope escape hatch (7f) can then never mis-attribute a row hidden by `includeCompleted` to repo scoping.
+
+### 7e. Scope semantics (pinned precedence)
+
+Effective scope resolution inside `handleViewPipeline`, in precedence order:
+
+1. explicit `scope: "all"` → unfiltered (effective scope `"all"`).
+2. explicit `repoRoot` argument → filter to `deriveRepoKey(repoRoot)`, normalized through the same derivation as the recorded key so worktree- and Windows-form inputs match (effective scope `"repo"`).
+3. composite-supplied caller key → filter to it (effective scope `"repo"`).
+4. explicit `scope: "repo"` with neither a `repoRoot` argument nor a caller key → a **structured error** (`code: "SCOPE_UNRESOLVABLE"`, with a `suggestedFix` to pass `repoRoot` or use `scope: "all"`) — never a silent unscoped result.
+5. else (direct handler call, no key, no explicit scope) → **unscoped** (effective scope `"all"`).
+
+Default repo scoping is therefore a **composite-layer contract** shared identically by CLI and MCP, because both dispatch through `views/composite.ts` which supplies the caller key.
+Direct handler calls (internal callers, tests) omit the caller key and so stay unscoped by construction, preserving today's semantics without a per-suite edit.
+Legacy rows (`repoRoot === undefined`) match **only** the unscoped/`"all"` modes — an explicit or caller key is always a defined string, and `undefined` never equals it.
+`data.scope` reports which mode was effective (`"repo"` or `"all"`).
+
+### 7f. Always-on perceivability — `unscopedTotal` + the scope-all escape hatch
+
+Every pipeline response carries `data.unscopedTotal` — the **post-phantom, post-terminal-filter, pre-scope-filter** count (see 7d) — alongside `data.scope`, so hidden rows are always perceivable and `includeCompleted`-hidden rows are never attributed to scoping.
+Whenever `unscopedTotal > page.total` — scoped-empty **and** mixed steady state alike — `next_actions` carries the scope-all escape-hatch affordance (`scopeAllAffordance`) with the exact hidden count (`unscopedTotal - page.total`) and the `exarchos vw ls --scope all` hint.
+This fires independently of the narrow paging affordance and rides on both the detail and summary branches.
+In `scope: "all"` mode nothing is hidden (`unscopedTotal === page.total`), so the escape-hatch hint never fires there.
+
+### 7g. Versioned (v2) snapshot lineage
+
+Pre-upgrade on-disk snapshots cache pipeline folds **without** `repoRoot`, and the materializer folds only delta events past the snapshot high-water mark — so without intervention the new field would never reach materialized state for old streams.
+The fix moves the pipeline projection's snapshots to a **versioned filename** via the `SnapshotStore` namespace map, wired at the registration seam in `views/tools.ts`:
+
+```ts
+const snapshotStore = new SnapshotStore(stateDir, {
+  [PIPELINE_VIEW]: PIPELINE_SNAPSHOT_NAME, // 'pipeline' → 'pipeline-v2'
+});
+```
+
+New servers read/write `<streamId>.pipeline-v2.snapshot.json` and simply **ignore** pre-upgrade `<streamId>.pipeline.snapshot.json` files, so each stream re-folds once after upgrade and picks up `repoRoot`.
+Only the persisted snapshot **filename** is versioned: the projection *registration* name stays `PIPELINE_VIEW` (`'pipeline'`), so the materializer lookup, `BUILTIN_VIEW_NAMES`, telemetry, and benchmarks are all keyed on the unchanged name and stay untouched by construction.
+`EVENT_SCHEMA_VERSION` (`event-store/event-migration.ts`) stays `'1.0'` and the event-migration machinery, event stamps, and identity fast path are all untouched — the v2 lineage is a **view-snapshot** concern only.
+It is deliberately **not** an event-payload schema bump, which would drive read-time upcasting and, in the shared global store, thrash mixed-version servers' snapshots against each other (the two lineages use different filenames, so they cannot contend).
+Orphaned v1 snapshot files are inert JSON; opportunistic cleanup is deferred, and the first post-upgrade read pays one full re-fold per stream for this view only.
 
 ---
 

@@ -46,7 +46,7 @@ Query the MCP server's own self-service capabilities to build a ground-truth dia
 
 #### 1a. Identify Active Workflows
 
-Use `exarchos_view` with `action: "pipeline"` to get an aggregated view of active workflows with their phases and task counts.
+Use `exarchos_view` with `action: "pipeline"` to get an aggregated view of active workflows with their phases and task counts. The view is **repo-scoped by default** (the caller's repo only); when the response reports `unscopedTotal` greater than `page.total`, workflows in other repos are hidden — re-query with `scope: "all"` to inspect the full cross-repo inventory.
 
 If `$ARGUMENTS` specifies a workflow or feature ID, scope to that workflow. Otherwise, inspect all non-terminal workflows.
 

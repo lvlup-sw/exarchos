@@ -983,29 +983,44 @@ export async function handlePrepareDelegation(
     // Runs before ancestry because 'integrationBranch descends from main'
     // trivially passes when HEAD is on main — that case must be caught
     // at HEAD inspection, not ancestry.
-    const protectionResult = assertCurrentBranchNotProtected(currentBranch);
-    if (protectionResult.blocked) {
-      guardOutcomes.protectedBranch.passed = false;
-      await emitAuditEvent(store, streamId, {
-        type: 'preflight.blocked',
-        data: {
-          reason: protectionResult.reason,
-          details: {
-            currentBranch: protectionResult.currentBranch,
+    //
+    // DR-10 (refactor-pipeline-view-economy): skipped under nativeIsolation,
+    // mirroring the DR-2 worktree-location guard below. The host materializes
+    // each subagent worktree off the pinned base (`worktree.baseRef: head` →
+    // the integration tip, enforced by the DR-2b baseRef guard), so the
+    // orchestrator's HEAD is never inherited by dispatched agents. Crucially,
+    // the server reads HEAD via `createGitExec()` from its own launch cwd —
+    // the main checkout, which cannot hold the feature branch (already checked
+    // out in the orchestrator worktree) and so sits on `main` — not the
+    // orchestrator's worktree. This guard is therefore a guaranteed false
+    // positive whenever the orchestrator drives from a worktree while the
+    // server runs from the main checkout. Under native isolation the baseRef
+    // guard is the applicable base-safety check, not this one.
+    if (!args.nativeIsolation) {
+      const protectionResult = assertCurrentBranchNotProtected(currentBranch);
+      if (protectionResult.blocked) {
+        guardOutcomes.protectedBranch.passed = false;
+        await emitAuditEvent(store, streamId, {
+          type: 'preflight.blocked',
+          data: {
+            reason: protectionResult.reason,
+            details: {
+              currentBranch: protectionResult.currentBranch,
+            },
           },
-        },
-      });
-      await emitDispatchPreflight();
+        });
+        await emitDispatchPreflight();
 
-      return {
-        success: true,
-        data: {
-          blocked: true,
-          reason: protectionResult.reason,
-          currentBranch: protectionResult.currentBranch,
-          ...(protectionResult.hint ? { hint: protectionResult.hint } : {}),
-        },
-      };
+        return {
+          success: true,
+          data: {
+            blocked: true,
+            reason: protectionResult.reason,
+            currentBranch: protectionResult.currentBranch,
+            ...(protectionResult.hint ? { hint: protectionResult.hint } : {}),
+          },
+        };
+      }
     }
 
     // #1129 D: derive integration branch from workflow state, falling
@@ -1113,9 +1128,13 @@ export async function handlePrepareDelegation(
       }
     }
 
+    // Audit trail must name every guard actually executed on this path. Under
+    // native isolation the protected-branch + worktree-location guards are
+    // skipped (DR-10 / DR-2) and baseRef applies; otherwise protectedBranch runs
+    // first (see above), then ancestry, then worktree.
     const checksRun = args.nativeIsolation
       ? ['ancestry', 'baseRef']
-      : ['ancestry', 'worktree'];
+      : ['protectedBranch', 'ancestry', 'worktree'];
     await emitAuditEvent(store, streamId, {
       type: 'preflight.executed',
       data: {

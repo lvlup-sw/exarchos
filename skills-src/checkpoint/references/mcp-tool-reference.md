@@ -51,7 +51,7 @@ Unified MCP server for workflow orchestration, event sourcing, CQRS views, and t
 
 | Action | When to Use |
 |--------|-------------|
-| `pipeline` | Aggregated view of all workflows with stack positions. Use `limit`/`offset` for pagination |
+| `pipeline` | Aggregated view of active workflows with stack positions, **repo-scoped to the caller's repo by default**. Params: `limit`/`offset` (paging), `detail: true` (restore the per-task `tasksById` map, omitted by default for economy), `scope: "all"` (span every repo) or `repoRoot` (scope to another repo). Payload carries `page` `{total, offset, limit, hasMore}`, `scope` (the effective mode — `"repo"` or `"all"`), and `unscopedTotal` (the pre-scope count); when `unscopedTotal` exceeds `page.total`, rows are hidden by repo scoping and a `scope: "all"` escape-hatch affordance is surfaced on `next_actions` |
 | `tasks` | Task detail view with filtering and projection. Use `workflowId` to scope, `filter` for property matching, `fields` for projection (e.g., `fields: ["taskId", "status", "title"]`), `limit`/`offset` for pagination |
 | `workflow_status` | Workflow phase, task counts, and metadata. Use `workflowId` to scope |
 | `stack_status` | Get current stack positions from events. Use `streamId` to scope |

@@ -94,12 +94,15 @@ describe('F.7 — CLI table/tree pretty-print regression (Wave 0 §7)', () => {
   });
 
   it('CliRender_VwLs_TreeOrJsonPath_StableSnapshot', async () => {
-    // `vw ls` with an empty state directory returns
-    // `{ workflows: [], total: 0 }` — `isTreeLike` is false for that
-    // shape (no nested object values), so prettyPrint falls through to
-    // JSON. The point of the snapshot is "this command's pretty output
-    // is stable post-carrier-swap"; the inference outcome is part of the
-    // contract pin, not a separate axiom.
+    // `vw ls` with an empty state directory returns the scoped pipeline
+    // shape `{ workflows: [], total: 0, unscopedTotal: 0, page: { total,
+    // offset, limit, hasMore }, scope: 'repo' }`. `isTreeLike` is TRUE for
+    // that shape — the `page` object (and the `workflows` array) are
+    // non-null object values — so prettyPrint takes the TREE path:
+    // `page:` renders as an indented child block, NOT flattened to JSON
+    // or a table. The nested `page` object is what pins the branch to
+    // tree; the inference outcome is part of the contract pin, not a
+    // separate axiom.
     const { stdout, stderr } = await captureCli(ctx, ['vw', 'ls']);
     expect({ stdout, stderr: stripPerfFooter(stderr) }).toMatchSnapshot();
   });
