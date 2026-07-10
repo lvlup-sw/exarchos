@@ -2,7 +2,7 @@
 
 Runs the production `classifyTask` / `renderImplementerPrompt` over every stamped plan-format spec in `docs/specs/`. Arms: **E** (exarchos, plan-honoring — the fix) · **H0** (true production, `{id,title}` only — the current #1636 dispatched behavior) · **H1** (heuristic ceiling, files+testLayer but no stamp) · **N** (native flat model).
 
-> ⚠️ **PROVISIONAL — models the decision, does not run the binary (#1670).** This calls the pure `classifyTask` directly; it does NOT go through the MCP schema/CLI/binary, and the E-arm numbers do NOT depend on the #1636 fix (`deriveRiskTier` already honored an explicit tier — the bug was that stamps never *reached* it). The `N` "native flat opus" model is an unvalidated assumption, not measured native behavior. Treat as directional pending the executed test in #1670.
+> 📊 **Modeled deterministic arm — superseded by the executed [#1670 benchmark](2026-07-09-1670-delegation-pipeline-empirical.md).** This calls the pure `classifyTask` directly (not the MCP schema/CLI/binary). Its two headline conclusions are now **executed** there and should be read from that document: **verification depth** (Dimension 2, E-vs-H0) — measured through the real spawned binary, **90/124** corpus tasks corrected, with #1669 the sole cause (the causal pair equals the released pair, so #1659 is neutral); and the **native baseline** (Dimension 1) — now *measured*, not assumed: native **inherits the session model** flat, retiring the `NATIVE_FLAT_MODEL='opus'` guess. **Still modeled (not re-executed) — read as directional:** the **H1 heuristic-ceiling** comparison below and the **model × risk-tier cross-tab** (retained here for that detail only).
 
 ## Corpus
 
@@ -19,6 +19,8 @@ Exarchos routes model via `classifyTaskCore` (scaffolding-keyword / testLayer / 
 - Model mix: {"opus":99,"haiku":1}
 - **vs native flat `opus`:** 1/100 tasks (1%) routed to the cheaper `haiku` — the cost saving from per-task routing.
 
+> **Executed update ([#1670](2026-07-09-1670-delegation-pipeline-empirical.md) · Exp 2):** the native baseline is now **measured**, not assumed. Native inherits the **session model** flat (6/6 subagents on the session model across 2 real `claude -p` runs), so "native flat `opus`" is retired — pin native to the run's session model. The routing differentiation stays ≈1%, now on measured ground.
+
 Model × risk-tier cross-tab (does the model track blast radius?):
 
 | risk tier | haiku | sonnet | opus |
@@ -32,6 +34,8 @@ Model × risk-tier cross-tab (does the model track blast radius?):
 
 ## Dimension 2 — verification depth
 
+> **Executed update ([#1670](2026-07-09-1670-delegation-pipeline-empirical.md) · Exp 1):** this E-vs-H0 comparison is now run **through the real binary**. The pre-fix binary has no `planPath` support, so its before-arm is the honest heuristic (all tasks flat `medium`); the fixed binary lifts the plan stamps. Result: **90/124** tasks change tier or verification (49 regain the integration rung, 66 the boundary steers), and the causal pair equals the released pair (#1659 neutral). Read the executed numbers there; the modeled ones below are directional.
+
 ### E (plan-honoring) vs H0 (true production — `{id,title}` only) — the actual #1636 harm
 
 `registry.ts:1441` registers `tasks: z.array(z.object({ id, title }))`, so today every task reaches the classifier as `{id, title}` — no stamp, no files, no testLayer. This is what actually ships.
@@ -43,6 +47,8 @@ Model × risk-tier cross-tab (does the model track blast radius?):
 - **Boundary mock-steer lost**: **51/100** (51%)
 
 ### E (plan-honoring) vs H1 (heuristic ceiling — files+testLayer, no stamp)
+
+> ⚠️ **Still modeled — NOT re-executed by #1670.** Exp 1 drove the real binary for E-vs-H0 (true production) only; the H1 "what if the orchestrator forwarded files+testLayer" ceiling has no real-binary path (the pre-fix binary accepts no such context), so the numbers in this subsection remain a pure-function model. Read as directional.
 
 Isolates the heuristic quality itself: even IF the orchestrator forwarded full task context (which the registry schema forbids), how well does the keyword/glob heuristic recover the plan tier?
 
