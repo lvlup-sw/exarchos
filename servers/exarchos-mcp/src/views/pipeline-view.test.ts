@@ -133,3 +133,37 @@ describe('pipelineProjection — state.patched fold (#1359 / PR4 T13)', () => {
     expect(view.failedCount).toBe(1);
   });
 });
+
+// ─── DR-5: repoRoot carried by the projection fold ───────────────────────────
+
+describe('pipelineProjection — repoRoot fold (DR-5)', () => {
+  it('PipelineProjection_StartedWithRepoRoot_StateCarriesIt', () => {
+    const initial = pipelineProjection.init();
+    const started = makeEvent(
+      'workflow.started',
+      { featureId: 'feat-repo', workflowType: 'feature', repoRoot: '/home/dev/exarchos' },
+      1,
+    );
+
+    const view = pipelineProjection.apply(initial, started);
+
+    // Pure fold: the identity is copied from the event data verbatim.
+    expect(view.repoRoot).toBe('/home/dev/exarchos');
+    expect(view.featureId).toBe('feat-repo');
+  });
+
+  it('PipelineProjection_StartedWithoutRepoRoot_StateUndefined', () => {
+    const initial = pipelineProjection.init();
+    const started = makeEvent(
+      'workflow.started',
+      { featureId: 'feat-legacy', workflowType: 'feature' },
+      1,
+    );
+
+    const view = pipelineProjection.apply(initial, started);
+
+    // Legacy stream (no repoRoot on the event) stays unscoped — never looked up.
+    expect(view.repoRoot).toBeUndefined();
+    expect(view.featureId).toBe('feat-legacy');
+  });
+});

@@ -56,20 +56,43 @@ async function unlinkIfExists(filePath: string): Promise<void> {
 // ─── Snapshot Store ────────────────────────────────────────────────────────
 
 export class SnapshotStore {
-  constructor(private readonly stateDir: string) {}
+  /**
+   * Optional per-view snapshot-namespace overrides (DR-5/DR-6): maps a
+   * registered `viewName` to the filename segment its snapshots use on disk,
+   * decoupling the persisted snapshot *lineage* from the projection's
+   * registration name. A view listed here reads/writes
+   * `<streamId>.<override>.snapshot.json` instead of `<streamId>.<viewName>...`,
+   * so the pipeline view can move to a versioned (`pipeline-v2`) lineage while
+   * the materializer, cache keys, and `BUILTIN_VIEW_NAMES` keep using
+   * `'pipeline'`. Pre-upgrade files under the un-namespaced name are simply
+   * never read → the stream re-folds. Views absent from the map are unaffected.
+   */
+  constructor(
+    private readonly stateDir: string,
+    private readonly snapshotNamespaces: Readonly<Record<string, string>> = {},
+  ) {}
+
+  /** Resolve the on-disk filename segment for a view (honoring the namespace map). */
+  private resolveSnapshotName(viewName: string): string {
+    return this.snapshotNamespaces[viewName] ?? viewName;
+  }
 
   /**
    * Get the file path for a snapshot.
-   * Validates streamId and viewName against a safe pattern and asserts
-   * the resolved path stays inside stateDir to prevent path traversal.
+   * Validates streamId and the resolved snapshot name against a safe pattern
+   * and asserts the resolved path stays inside stateDir to prevent path traversal.
    */
   private getSnapshotPath(streamId: string, viewName: string): string {
     assertSafeId(streamId, 'streamId');
-    assertSafeId(viewName, 'viewName');
+    const snapshotName = this.resolveSnapshotName(viewName);
+    // Labeled `viewName` (the caller-facing input): the namespace-mapped branch
+    // only ever carries dev-controlled safe values, so this assert throws solely
+    // for a caller-supplied unsafe `viewName`, where `snapshotName === viewName`.
+    assertSafeId(snapshotName, 'viewName');
 
     const resolved = path.resolve(
       this.stateDir,
-      `${streamId}.${viewName}.snapshot.json`,
+      `${streamId}.${snapshotName}.snapshot.json`,
     );
     const normalizedBase = path.resolve(this.stateDir);
 

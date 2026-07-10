@@ -45,7 +45,7 @@ for event data schemas.
 
 ## State Location
 
-Workflow state lives in the **MCP event store**, not the filesystem. Use `exarchos_workflow get` to read state and `exarchos_view pipeline` to discover active workflows. Do **not** scan `~/.claude/workflow-state/*.state.json` — that path is legacy and may be stale or empty.
+Workflow state lives in the **MCP event store**, not the filesystem. Use `exarchos_workflow get` to read state and `exarchos_view pipeline` to discover active workflows. The pipeline view is **repo-scoped by default** — only the caller's repo; when the response reports `unscopedTotal` greater than `page.total`, workflows in other repos are hidden — re-query with `scope: "all"` to reveal them. Do **not** scan `~/.claude/workflow-state/*.state.json` — that path is legacy and may be stale or empty.
 
 ## State Operations
 

@@ -45,7 +45,7 @@ Workflow state lives in **two surfaces**, and conflating them causes wrong "untr
 
 Use `exarchos:exarchos_workflow` with `action: "rehydrate"` and `featureId: "<id>"` — it returns an envelope containing the canonical rehydration document (`workflowState`, `taskProgress`, `artifacts`, `blockers`, phase playbook, next actions) in a single call. No multi-step `get fields=[...]` composition is needed.
 
-If the featureId is unknown or the user hasn't named one, fall back to `exarchos_view pipeline` to list active workflows and ask which to rehydrate, then re-invoke `rehydrate` with the selected `featureId`.
+If the featureId is unknown or the user hasn't named one, fall back to `exarchos_view pipeline` to list active workflows and ask which to rehydrate, then re-invoke `rehydrate` with the selected `featureId`. The pipeline view is **repo-scoped by default** — it lists only the caller's repo, so a workflow started in another repo won't appear. Every response reports `unscopedTotal` (the pre-scope count); when `unscopedTotal` exceeds `page.total`, the hidden rows live in other repos (or are legacy rows without recorded identity) — re-query with `scope: "all"` (or an explicit `repoRoot`) to reveal them.
 
 ### Read State (targeted)
 

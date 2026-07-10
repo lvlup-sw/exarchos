@@ -23,6 +23,14 @@ import type { NextAction } from '../next-action.js';
 /** Deterministic default item cap applied when the caller omits `limit`. */
 export const DEFAULT_VIEW_ITEM_CAP = 50;
 
+/**
+ * DR-2 — pipeline-specific default window. The `pipeline` view is the highest-
+ * traffic inventory read and its entries are token-heavy, so its no-`limit`
+ * default is much smaller than the shared {@link DEFAULT_VIEW_ITEM_CAP} (which
+ * the worktrees view keeps). An explicit `limit` overrides this.
+ */
+export const PIPELINE_DEFAULT_ITEM_CAP = 10;
+
 /** How many detail rows the measured-size summary keeps as its first page. */
 export const SUMMARY_FIRST_PAGE_ITEMS = 10;
 

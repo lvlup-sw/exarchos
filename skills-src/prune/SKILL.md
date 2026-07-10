@@ -27,7 +27,7 @@ Pruning is a maintenance operation -- not a workflow phase. It produces `workflo
 Activate this skill when:
 - User runs `prune` command
 - User says "prune workflows", "clean stale workflows", "pipeline cleanup"
-- `exarchos:exarchos_view({ action: "pipeline" })` shows many inactive workflows the user wants to clear in bulk
+- `exarchos:exarchos_view({ action: "pipeline", scope: "all" })` shows many inactive workflows the user wants to clear in bulk. Prune observes candidates with `scope: "all"` because the default view is repo-scoped and hides the *legacy* rows (workflows started before repo identity was recorded) that prune exists to drain — a repo-scoped observation would miss the very inventory it targets.
 
 ## Prerequisites
 
