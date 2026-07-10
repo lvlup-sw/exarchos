@@ -12,6 +12,15 @@
 //   - wroteTests      — did the agent leave its own test file? (behavioral)
 //
 // Run: tsx docs/evals/quality-ab/grade.ts <baseRunsDir> [tasksDir]
+//
+// ⚠️ ORACLE ISOLATION (eval integrity). The hidden oracles under `tasks/*/oracle.ts`
+// are the answer key. They are committed for GRADE-TIME reproducibility only — an
+// agent under test MUST run in a workspace that does NOT contain them, or it can
+// read the answers. This harness enforces that by construction: run dirs are seeded
+// with ONLY `SPEC.md` + the `impl.ts` stub, and the oracle is copied in (and removed
+// again) here at grade time. NEVER dispatch an agent from the repo checkout or any
+// dir that includes `tasks/*/oracle.ts`. CI-only / out-of-repo oracle storage is the
+// durable hardening — tracked in #1670.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import * as fs from 'node:fs';

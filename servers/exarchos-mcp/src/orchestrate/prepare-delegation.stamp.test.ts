@@ -94,8 +94,11 @@ describe('#1636 applyPlanStamps lifts markdown stamps onto bare tasks', () => {
 
   it('ApplyPlanStamps_ExplicitCallerField_WinsOverStamp', () => {
     const stamps = parseTaskStamps('#### Task 001: x\n**Risk Tier:** high');
-    const { tasks } = applyPlanStamps([{ id: '001', title: 'x', riskTier: 'low' }], stamps);
+    const { tasks, advisories } = applyPlanStamps([{ id: '001', title: 'x', riskTier: 'low' }], stamps);
     expect(tasks[0].riskTier).toBe('low'); // caller-supplied value is never overridden
+    // The caller's own value must NOT be misattributed to the plan stamp — the
+    // advisory only fires for a stamp-sourced tier (CodeRabbit/Sentry).
+    expect(advisories).toHaveLength(0);
   });
 
   it('ApplyPlanStamps_HeuristicDisagreesWithStamp_EmitsAdvisory', () => {

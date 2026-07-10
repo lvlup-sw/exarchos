@@ -628,18 +628,19 @@ export function applyPlanStamps(
       ...(!hasFiles && stamp.files.length > 0 ? { files: stamp.files } : {}),
       ...(!hasDeps && stamp.blockedBy.length > 0 ? { blockedBy: stamp.blockedBy } : {}),
     };
-    if (resolved.riskTier !== undefined) {
-      // Recompute the PURE heuristic (no riskTier override) to detect divergence.
-      const heuristicTier = deriveRiskTier({
-        id: resolved.id,
-        title: resolved.title,
-        files: resolved.files,
-        blockedBy: resolved.blockedBy,
-        testLayer: resolved.testLayer,
-      });
-      if (heuristicTier !== resolved.riskTier) {
+    // Emit the advisory ONLY when the applied tier actually CAME FROM the plan
+    // stamp — a caller-supplied `riskTier` wins over the stamp and is not a "plan
+    // stamp override", so attributing it to the stamp would misdiagnose the source
+    // (CodeRabbit/Sentry). Compare against the heuristic derived from the ORIGINAL
+    // task `t` (no stamp-provided files/testLayer/deps) so it is genuinely PURE —
+    // deriving from `resolved` would fold the stamp's own context back in and could
+    // suppress a real divergence.
+    const riskTierFromStamp = t.riskTier === undefined && stamp.riskTier !== undefined;
+    if (riskTierFromStamp) {
+      const heuristicTier = deriveRiskTier(t);
+      if (heuristicTier !== stamp.riskTier) {
         advisories.push(
-          `task ${t.id}: plan stamp riskTier="${resolved.riskTier}" overrode heuristic "${heuristicTier}"`,
+          `task ${t.id}: plan stamp riskTier="${stamp.riskTier}" overrode heuristic "${heuristicTier}"`,
         );
       }
     }
