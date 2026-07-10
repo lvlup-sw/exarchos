@@ -3,7 +3,7 @@ import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { expandTilde, isClaudeCodePlugin, resolveStateDir, resolveTeamsDir, resolveTasksDir, deriveRepoKey } from './paths.js';
+import { expandTilde, isClaudeCodePlugin, resolveStateDir, resolveTeamsDir, resolveTasksDir, deriveRepoKey, resetRepoKeyMemo } from './paths.js';
 
 describe('expandTilde', () => {
   afterEach(() => {
@@ -196,6 +196,11 @@ describe('resolveTasksDir', () => {
 // default flakes for subprocess-spawning tests under CI load (repo memory).
 
 describe('deriveRepoKey', () => {
+  // Isolate the module-level memo between cases: it is keyed by `inputPath`
+  // alone, so a path reused across tests with different injected `deps` would
+  // otherwise return a stale cross-test cache hit (Sentry finding).
+  beforeEach(() => resetRepoKeyMemo());
+
   it('DeriveRepoKey_WorktreePath_MatchesMainCheckoutKey', () => {
     const mainRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'drk-main-'));
     const wtParent = fs.mkdtempSync(path.join(os.tmpdir(), 'drk-wt-'));
@@ -254,6 +259,27 @@ describe('deriveRepoKey', () => {
     });
     expect(key).toBe('C:/Users/dev/my-repo');
     expect(key).not.toContain('\\');
+  });
+
+  it('DeriveRepoKey_NonBareRepo_UsesDirnameOfDotGit', () => {
+    // A non-bare repo's `--git-common-dir` ends in `.git`, so the key is its
+    // dirname (the shared repo root).
+    const key = deriveRepoKey('/whatever', {
+      gitCommonDir: () => '/home/dev/my-repo/.git',
+      realpath: (p) => p,
+    });
+    expect(key).toBe('/home/dev/my-repo');
+  });
+
+  it('DeriveRepoKey_BareRepo_UsesCommonDirVerbatim', () => {
+    // Regression (Sentry): a BARE repo reports its own root (`<repo>.git`,
+    // basename ≠ `.git`). Applying `path.dirname` would wrongly climb to the
+    // parent, so the common dir is used verbatim as the identity key.
+    const key = deriveRepoKey('/whatever', {
+      gitCommonDir: () => '/srv/repos/thing.git',
+      realpath: (p) => p,
+    });
+    expect(key).toBe('/srv/repos/thing.git');
   });
 
   it('DeriveRepoKey_RepeatedCall_UsesMemo', () => {

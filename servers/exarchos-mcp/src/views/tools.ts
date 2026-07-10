@@ -856,12 +856,17 @@ export async function handleViewPipeline(
         byWorkflowType: countBy(sorted, (w) => w.workflowType),
         firstPage,
       };
-      // DR-3 — the SUMMARY branch carries the SAME `page` shape, derived through
-      // the shared `buildPage` helper so its `hasMore` is offset-aware: a caller
-      // already paged to the final window (`start + firstPage.length === total`)
-      // gets `hasMore: false`, matching the detail branch. Namespaced identically
-      // so it never collides with the per-entry eviction `hasMore`.
-      const summaryPage = buildPage(total, start, effectiveLimit, firstPage.length);
+      // DR-3 — the SUMMARY branch carries the SAME `page` shape as the detail
+      // branch, so `hasMore` is derived from the full offset/limit `windowed`
+      // slice — NOT the capped `firstPage` preview. `page.offset`/`page.limit`
+      // describe the window; `firstPage` is only a display truncation of it, so
+      // keying `hasMore` off `firstPage.length` would spuriously report more
+      // pages whenever the window holds more rows than the preview cap (e.g. 15
+      // rows, limit 25 → window covers all 15 but firstPage caps at 10).
+      // Using `windowed.length` makes summary and detail `page.hasMore` identical
+      // for the same query. Namespaced so it never collides with the per-entry
+      // eviction `hasMore`.
+      const summaryPage = buildPage(total, start, effectiveLimit, windowed.length);
       // DR-7 — the scope-all escape hatch rides alongside the narrow affordance
       // whenever repo scoping hid rows, so the summary branch is perceivable too.
       const summaryNextActions: NextAction[] = [

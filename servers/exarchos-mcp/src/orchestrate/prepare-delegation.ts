@@ -1128,9 +1128,13 @@ export async function handlePrepareDelegation(
       }
     }
 
+    // Audit trail must name every guard actually executed on this path. Under
+    // native isolation the protected-branch + worktree-location guards are
+    // skipped (DR-10 / DR-2) and baseRef applies; otherwise protectedBranch runs
+    // first (see above), then ancestry, then worktree.
     const checksRun = args.nativeIsolation
       ? ['ancestry', 'baseRef']
-      : ['ancestry', 'worktree'];
+      : ['protectedBranch', 'ancestry', 'worktree'];
     await emitAuditEvent(store, streamId, {
       type: 'preflight.executed',
       data: {

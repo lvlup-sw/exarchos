@@ -65,6 +65,17 @@ function memoSet(inputPath: string, key: string): void {
 }
 
 /**
+ * Clear the repo-key memo. Test-only isolation seam (mirrors the view layer's
+ * `resetMaterializerCache`): the memo is keyed by `inputPath` alone, so two
+ * tests reusing one path with *different* injected `deps` would otherwise see a
+ * stale cross-test cache hit. Production never varies `deps`, so this is never
+ * needed at runtime.
+ */
+export function resetRepoKeyMemo(): void {
+  repoKeyMemo.clear();
+}
+
+/**
  * Cap the synchronous git spawn (ms). `deriveRepoKey` is reachable with a
  * client-supplied `repoRoot`, so an unbounded blocking spawn on a hung/slow
  * filesystem (network mount, lock contention) would stall the event loop for
@@ -147,9 +158,14 @@ export function deriveRepoKey(inputPath: string, deps: DeriveRepoKeyDeps = {}): 
   let key: string;
   try {
     const commonDir = gitCommonDir(inputPath);
-    // dirname of `<repo>/.git` (the common dir a linked worktree also reports)
-    // → the shared repo root.
-    key = normalizeRepoPath(path.dirname(commonDir), realpath);
+    // A non-bare repo (and every linked worktree of it) reports `<repo>/.git`, so
+    // the shared repo root is its dirname. A BARE repo reports its own root
+    // (`<repo>.git`, basename ≠ `.git`); applying dirname there would wrongly
+    // climb to the parent, so use the common dir verbatim. Guarding on the
+    // `.git` basename handles both without a second git spawn.
+    const root =
+      path.basename(commonDir) === '.git' ? path.dirname(commonDir) : commonDir;
+    key = normalizeRepoPath(root, realpath);
   } catch {
     // Not a git repository (or git unavailable): fall back to the canonicalized
     // input path so a non-git working directory still gets a stable identity.

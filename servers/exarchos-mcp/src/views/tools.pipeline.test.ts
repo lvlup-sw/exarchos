@@ -386,6 +386,33 @@ describe('handleViewPipeline — DR-1 compact entries + detail flag (task 005)',
     const data = result.data as { page?: { hasMore: boolean } };
     expect(data.page?.hasMore).toBe(true);
   });
+
+  it('PipelineSummary_WindowExceedsPreviewCap_HasMoreFromWindow', async () => {
+    // Regression (Sentry): the summary `page.hasMore` must derive from the full
+    // offset/limit window, NOT the capped `firstPage` preview. With 15 rows and
+    // limit 25, the window covers all 15 but `firstPage` caps at 10 — so keying
+    // off `firstPage.length` (10 < 15) would spuriously report more pages. The
+    // window covers everything, so `hasMore` must be false (matching detail).
+    for (let i = 0; i < 15; i++) {
+      await seedWithTasks(`win-${i}`, ['complete', 'pending', 'failed']);
+    }
+
+    const result = await handleViewPipeline(
+      { includeCompleted: true, offset: 0, limit: 25 },
+      stateDir,
+      store,
+      TINY_THRESHOLD,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      summary?: unknown;
+      page?: { total: number; hasMore: boolean };
+    };
+    // Summary fallback fired, and the whole result set is within the window.
+    expect(data.summary).toBeDefined();
+    expect(data.page).toMatchObject({ total: 15, hasMore: false });
+  });
 });
 
 // ─── DR-6 / DR-7 (task 007): repo-scoped default view + perceivability ───────
