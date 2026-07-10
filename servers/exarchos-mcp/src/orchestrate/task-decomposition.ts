@@ -146,8 +146,12 @@ const FILE_PATH_PATTERN_SOURCE = `\`([a-zA-Z0-9_./-]+\\.(?:${FILE_EXTENSION_ALLO
  *
  * This mirrors the broader id token in the SoT dispatch parser
  * (`parse-task-stamps.ts`), which documents this exact `###`-vs-`####` corpus
- * mismatch. The two parsers are kept in lockstep so the plan-coverage GATE and
- * the delegation DISPATCH path read the same corpus.
+ * mismatch. The two parsers converge on the real **numeric-id** corpus (`001`,
+ * `1`, `T-01`, `1.1`) so the plan-coverage GATE and the delegation DISPATCH path
+ * read the same tasks; they intentionally differ on non-task-header rejection
+ * (this parser requires a leading digit; `parse-task-stamps.ts` requires a
+ * separator + title), so exotic letter-leading ids are handled differently — not
+ * a case the corpus exercises.
  */
 const TASK_ID_TOKEN_SOURCE = String.raw`(?:T-?)?[0-9][0-9A-Za-z.\-]*`;
 

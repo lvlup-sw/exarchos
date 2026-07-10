@@ -62,7 +62,9 @@ Because both sides consume the identical task set, the model-selection and verif
 | r1 | A — streamed | 3 | `{claude-sonnet-5: 3}` | 1 | **true** | per-subagent (direct) |
 | r2 | B — notification-only | 3 | `{claude-sonnet-5: 3}` | 1 | **true** | session-single |
 
-**Finding: native CC subagents INHERIT the session model; they are not assigned distinct per-subagent models by default.** The session was launched with `--model sonnet`, and every dispatched subagent ran on `claude-sonnet-5` — a *flat* model, not a mix.
+**Finding: native CC subagents INHERIT the session model; they were not assigned distinct per-subagent models.** The session was launched with `--model sonnet`, and every dispatched subagent ran on `claude-sonnet-5` — a *flat* model, not a mix.
+
+> **Scope of the finding (N=2 spike).** Both runs **pinned** `--model sonnet` over a trivial synthetic plan, so what is measured is that native did **not override the session model per-subagent** — not that native has no default routing on an *unpinned* session. Measuring native's default per-subagent routing (the stronger open question) would need an unpinned run; this spike establishes the flat-inheritance mechanic and retires the `opus` *value* of the assumption, not the general routing behavior.
 
 This corrects the prior benchmark on two counts:
 
@@ -84,6 +86,8 @@ The distribution is derived **only** from subagents actually observed in a real 
 ```
 tsx docs/evals/native-baseline/harness.ts <specPath> --model sonnet   # live run (spawns claude)
 npx vitest run docs/evals/native-baseline/harness.test.ts             # parser fidelity + fail-honest, vs the captured fixtures
+tsx docs/evals/native-baseline/emit-baseline-csv.ts                    # regenerate the CSV from the fixtures
+tsx docs/evals/native-baseline/emit-baseline-csv.ts --check           # CI: fail if the committed CSV drifts from the fixtures
 ```
 
-Every row in [`exp2-native-baseline.csv`](../data/2026-07-09/exp2-native-baseline.csv) is stamped with the Task-001 provenance shape (`source=measured`, `binaryTag`, `gitSha`, `date`, `modelIds`) so a reader can reproduce or invalidate it.
+[`exp2-native-baseline.csv`](../data/2026-07-09/exp2-native-baseline.csv) is **derived from the captured fixtures**, not hand-authored: [`emit-baseline-csv.ts`](./emit-baseline-csv.ts) reduces the transcripts through the same parser the tests pin and stamps every row through the Task-001 provenance helper (`stampProvenance`, which rejects an incomplete pin), so `source=measured` + `binaryTag`/`gitSha`/`date`/`modelIds` are guaranteed present and a reader can regenerate or invalidate the table.

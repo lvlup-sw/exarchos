@@ -7,7 +7,7 @@ The properly-executed re-run of the #1636 delegation benchmark. The prior study 
 Three findings, all now on measured ground:
 
 1. **Verification depth** — through the real binary, the #1669 stamp-lift fix corrects the verification depth of **90 of 124** corpus tasks (73%); the causal pair (the fix alone) and the released pair are **identical**, so the co-resident #1659 adds zero delta.
-2. **Model selection** — native Claude Code **inherits the session model flat** (measured: 6/6 subagents on `claude-sonnet-5`, one distinct model), retiring the assumed flat-`opus` baseline. Exarchos's per-task model routing is ≈ a no-op against that measured native baseline.
+2. **Model selection** — native Claude Code **did not assign distinct per-subagent models**: all 6 dispatched subagents (2 runs × 3) inherited the **session** model (`claude-sonnet-5`), the model each session was launched with. This retires the *assumed* flat-`opus` baseline — measured native is flat on the session model, not a fixed `opus`. **Caveat (N=2 spike):** both runs pinned `--model sonnet`, so this establishes that native did not *override* the pin per-subagent on a trivial plan; it does not measure native's default routing on an *unpinned* session (see Exp 2 below).
 3. **Correctness under under-specification** — a **clean null**: with edge cases that must be *discovered*, the verification steer (E) and the bare arm (N) tie exactly on the hidden oracle. The steer's measured value is **process** — durable, mutation-adequate tests (E 12/12 vs opus-N 3/6, sonnet-N 0/6), now graded by the mutation gate rather than self-reported.
 
 ## Environment
@@ -19,8 +19,8 @@ Three findings, all now on measured ground:
 | Exp 1 — released pair | `f70b1e82` (`v2.12.0-preview.1`, before) → `5501cce6` (`v2.12.0-preview.2`, after) — ships #1669 **and** the co-resident #1659 (`585c154c`) confound |
 | Exp 2 — native binary | `claude-code` CLI **2.1.206**, `claude -p --output-format stream-json`; harness at `b7dd0fce` |
 | Exp 2 — session model | `claude-sonnet-5` (`--model sonnet`); 2 real runs, 3 `general-purpose` subagents each |
-| Exp 3 — harness | `quality-ab` E-vs-N A/B over **under-specified** task variants; mechanical diff-scoped mutation grading |
-| Exp 3 — binary / models | `v2.12.0-preview.1` (`295c2523`); **opus** (`claude-opus-4-8`) + **sonnet** (`claude-sonnet-5`); 24 cells |
+| Exp 3 — harness | `quality-ab` E-vs-N A/B over **under-specified** task variants; mechanical diff-scoped mutation grading. Drives `claude -p` as a text generator with the production steer note — **no exarchos binary is executed** (the `v2.12.0-preview.1` tag below is the repo pin, not a spawned binary). |
+| Exp 3 — steer pin / models | `v2.12.0-preview.1` (`295c2523`, source of the steer note); **opus** (`claude-opus-4-8`) + **sonnet** (`claude-sonnet-5`); 24 cells |
 | Integrity (DR-7) | Fail-honest, pinned provenance, mechanical-only grading — no assumed/modeled number substituted for a measured one |
 | Raw data | [`data/2026-07-09/`](data/2026-07-09/) — [exp1 CSV](data/2026-07-09/exp1-before-after.csv), [exp2 CSV](data/2026-07-09/exp2-native-baseline.csv), [exp3 CSV](data/2026-07-09/exp3-underspec-ab.csv), [binaries provenance](data/2026-07-09/binaries.provenance.json) |
 
@@ -46,17 +46,21 @@ Charts regenerate from the committed raw CSV with [`generate_charts.py`](data/20
 
 Exp 1 supersedes the deterministic arm's *modeled* "45/100 under-provisioned." Through the real tool surface, the pre-fix binary — which has **no `planPath` support** (added by #1669) — classifies every corpus task by heuristic to a flat `medium`, so the plan's `high`/`boundary` stamps never reach dispatch. The fixed binary lifts them: **90/124** tasks change tier or verification, **49** regaining the integration rung and **66** the boundary contract/mock steers. Because the **causal pair and released pair are identical**, the effect is attributable to #1669 alone — #1659, though co-resident in the released window and touching the same `prepare-delegation.ts` path, moves nothing here.
 
-### 2. Model selection — ≈ a no-op against the *measured* native baseline
+### 2. Model selection — no per-subagent override observed; the assumed baseline retired
 
-Exp 2 re-grounds every "vs native" model claim. Native inherits a single session model per delegation; it does **not** route a per-subagent mix. Against that measured baseline, exarchos's routing (which sent 99/100 corpus tasks to `opus` and 1 to `haiku` in the deterministic arm) is ≈ undifferentiated — and the provisional worry that native might route a *mix* (making exarchos's flat routing *less* differentiated) is not borne out. The specific `NATIVE_FLAT_MODEL='opus'` literal is retired: pin "native" to the run's session model, not a constant. On this evidence the pipeline is **not** a model-cost optimizer.
+Exp 2 re-grounds the "vs native" model baseline. Across both runs native dispatched every subagent on the single session model — it did **not** route a per-subagent mix. That measured result retires the `NATIVE_FLAT_MODEL='opus'` literal: pin "native" to the run's session model, not a constant. Against this baseline, exarchos's routing (which the *deterministic arm* modeled as 99/100 corpus tasks to `opus`, 1 to `haiku`) is ≈ undifferentiated.
+
+**What this does and does not establish.** It is a spike (**N=2**, a trivial synthetic 3-task plan), and both runs **pinned `--model sonnet`** — so it shows native does not *override* an explicit session model per-subagent, not that native has *no* default routing on an unpinned session (the stronger question the spec posed remains open pending a default-model run). And the "≈ undifferentiated" comparison still leans on the *modeled* deterministic-arm routing, so read "the pipeline is not a model-cost optimizer" as **directional**, not as an executed result — the measured half is the native-side baseline, not the exarchos-side routing.
 
 ### 3. Correctness under under-specification — clean null; value is durable tests
 
-Exp 3 closes the discriminator the provisional study flagged as untested (spec *completeness*, not difficulty). Even when the corners must be **discovered**, the verification steer buys **no first-pass correctness** — E and N tie exactly on the hidden oracle on both a strong and a weak model. What the steer reliably buys is **durable, mutation-adequate regression tests**: 12/12 for E vs 3/6 (opus) and 0/6 (sonnet) for N, now graded mechanically. This confirms and hardens the provisional "process delta, not correctness delta" reading with a real mutation gate replacing the self-reported kill-probe.
+Exp 3 closes the discriminator the provisional study flagged as untested (spec *completeness*, not difficulty). Even when the corners must be **discovered**, the E regime buys **no first-pass correctness** — E and N tie exactly on the hidden oracle on both a strong and a weak model. What the E regime reliably buys is **durable, mutation-adequate regression tests**: 12/12 for E vs 3/6 (opus) and 0/6 (sonnet) for N, now graded mechanically (the diff-scoped mutation gate, not a self-reported kill-probe). This confirms and hardens the provisional "process delta, not correctness delta" reading.
+
+Two honesty notes on the durable-test delta. First, the E arm's prompt both carries the production steer note **and** explicitly asks for a `test.ts` file, whereas N ("implement it") is not asked for one — so the 12/12-vs-3/6/0/6 gap is an **E-regime** effect (steer + test request together), not proof that the note's *content* alone persuades a model to test. Second, what is unambiguously the steer's own contribution is the mechanical **adequacy** of the tests that E did write (every one killed its mutants), which the mutation gate scores independently of who was asked.
 
 ### Bottom line
 
-On measured ground, the delegation pipeline earns its keep as a **verification-depth and durable-test mechanism**, not a one-shot-correctness or model-cost optimizer. The #1669 stamp-lift is the load-bearing fix (it makes verification depth track the plan for 90/124 tasks); model routing is ≈ a no-op against measured native; and the correctness steer's payoff is regression protection that accrues over time, not a first-pass right-answer boost.
+On measured ground, the delegation pipeline earns its keep as a **verification-depth and durable-test mechanism**, not a one-shot-correctness optimizer. The #1669 stamp-lift is the load-bearing, *fully executed* fix (it makes verification depth track the plan for 90/124 tasks through the real binary); the correctness steer's measured payoff is durable, mutation-adequate regression tests, not a first-pass right-answer boost. The model-routing story is weaker evidence — the native baseline is now *measured* (flat on the session model) but the exarchos-side "≈ no-op" still rests on the modeled deterministic arm and a session-pinned spike, so treat "not a model-cost optimizer" as directional pending an unpinned native run.
 
 ## Integrity & provenance (DR-7)
 
