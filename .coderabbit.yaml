@@ -26,6 +26,7 @@ reviews:
     - "!.claude-plugin/plugin.json"                       # generated plugin manifest
     - "!test/migration/__snapshots__/**"                 # vitest snapshots
     - "!test/migration/__fixtures__/batch-baselines/**"  # canonical render baselines
+    - "!docs/evals/**/runs/**"                            # committed raw experiment output (model-GENERATED impl/test), graded as-is by the harness — not authored code
 
   path_instructions:
     - path: "**/*.ts"

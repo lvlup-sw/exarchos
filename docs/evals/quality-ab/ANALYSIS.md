@@ -1,12 +1,15 @@
 # Does the verification pipeline improve generated-code quality? (empirical, #1636)
 
-> ⚠️ **PROVISIONAL — do not treat these as validated conclusions. Superseded by #1670.**
-> This A/B **never ran exarchos**: it pasted the production verification note into a
-> generic subagent, so it measures the *note's* effect, not the pipeline/binary. All
-> tasks are **fully specified**, so both arms tie at 100% simply by implementing to
-> spec — the correctness null cannot discriminate here. The properly-executed test
-> (real binary before/after, a *measured* native baseline via headless Claude Code, and
-> under-specified tasks) is tracked in **#1670**. Read the below as directional.
+> ⚠️ **Partly superseded by [#1670](../2026-07-09-1670-delegation-pipeline-empirical.md) — the process-delta claim does NOT survive.**
+> What holds: the **correctness null**, now extended to *under-specified* tasks (E = N on
+> the hidden oracle even when edge cases must be discovered). What FAILS: the **process
+> delta** below (durable tests, "7/7 vs 0/7"). That gap was an artifact of prompt
+> asymmetry — only the E arm was asked to write a test. #1670 re-ran with **symmetric
+> prompts** (both arms asked to implement AND test, only the steer's content varying) and
+> mechanical mutation grading: both arms wrote tests **12/12** and both were mutation-
+> adequate **12/12**. So the verification steer's *content* shows no measured benefit on
+> this corpus once "was asked to test" is held constant. Read the "process delta" section
+> below as **refuted**, not confirmed. Model selection (Exp 2) is deferred — see #1670.
 
 Companion to the deterministic corpus benchmark (`../2026-07-09-1636-plan-format-corpus.md`).
 This is the **live A/B** that the deterministic arm cannot speak to: it actually
@@ -103,17 +106,20 @@ durability, and did not (here) change whether the code was right the first time.
   "tasks too easy" (the CSV round is a genuinely trap-laden parser) and "model too
   strong" (sonnet is materially weaker than opus). Both still tied at 100/100. So
   the null is not simply an artifact of easy tasks or a strong model.
-- **The remaining untested discriminator is spec COMPLETENESS, not difficulty.**
-  All three specs *fully enumerate* their edge cases (rules + worked examples), so
-  both arms had only to *implement to spec* — and a competent model does that
-  without a verification steer. The steer says "cover the edge cases / write tests
-  that can fail"; that has correctness value only when the edge cases must be
-  **discovered**, i.e. on **under-specified** tasks (ambiguous or silent on the
-  corners). That is the one condition this study did not probe and the natural
-  next experiment.
-- **The kill-probe was self-reported** by the E agents, not independently run by
-  the grader. A stronger harness would run the diff-scoped mutation gate on each
-  produced impl to score test adequacy mechanically.
+- **Spec COMPLETENESS — the untested discriminator — is now probed ([#1670](../2026-07-09-1670-delegation-pipeline-empirical.md) · Exp 3).**
+  All three specs here *fully enumerate* their edge cases, so both arms only had to
+  *implement to spec* — a competent model does that without a steer. #1670 re-ran the
+  A/B on **under-specified** variants (edge cases stripped, oracle unchanged) on opus +
+  sonnet, the condition under which a correctness delta *should* appear if one exists.
+  It did not: E and N tie on the oracle even when the corners must be discovered — a
+  **clean null** — and, under symmetric prompts, they also tie on test adequacy (see the
+  next bullet), so no steer benefit survives on either axis for this corpus.
+- **The self-reported kill-probe is now run mechanically — and it REFUTES the process delta ([#1670](../2026-07-09-1670-delegation-pipeline-empirical.md) · Exp 3).**
+  #1670's grader runs the diff-scoped mutation gate on each produced impl. Under the
+  corrected **symmetric** design (both arms asked to test), both arms score **12/12**
+  mutation-adequate — the "7/7 vs 0/7 durable-test" gap here was the prompt asymmetry
+  (only E was asked to test), not the steer's content. The steer shows no measured
+  test-adequacy benefit on this corpus.
 - **Durable-tests is a proxy** for "the pipeline's verification actually happened":
   N agents did test (ephemerally) but discarded it, so the metric captures
   *durable coverage left behind*, which is the thing with regression value — but it
