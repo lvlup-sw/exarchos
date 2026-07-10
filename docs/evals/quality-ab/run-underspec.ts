@@ -10,7 +10,10 @@
 //
 //   arms   : E = the production `buildVerificationNote` (the exarchos implementer
 //                verification steer, tier-selected per task);
-//            N = plain "implement it" (native, no steer).
+//            N = no steer. BOTH arms are told to implement AND write a durable
+//                test, so the ONLY cross-arm variable is the steer's CONTENT and
+//                the contrast is test ADEQUACY (mutation kills), not test PRESENCE.
+//                (Corrected from the first run, which asked only E to test.)
 //   tasks  : the UNDER-SPEC variants (`SPEC.underspec.md`) for token-bucket,
 //            parse-duration, csv-line — edge-case enumeration stripped, HIDDEN
 //            oracle unchanged.
@@ -88,17 +91,18 @@ export type Arm = 'E' | 'N';
 export const ARMS: readonly Arm[] = ['E', 'N'];
 
 /** Neutral system prompt — IDENTICAL across arms/models so the ONLY cross-arm
- *  variable is the verification note in the E-arm user prompt. Deliberately
- *  silent about testing so it never contaminates the N baseline. */
+ *  variable is the verification note in the E-arm user prompt. Silent about
+ *  testing (the test request lives symmetrically in BOTH arms' user prompts, so
+ *  it is held constant and never a cross-arm variable). */
 export const SYSTEM_PROMPT =
   'You are a senior TypeScript engineer implementing a small, self-contained module. Write correct, production-quality code.';
 
 // ─── Prompt construction ──────────────────────────────────────────────────────
 
 // The `===FILE:name===\n…\n===ENDFILE===` wrapper is shared harness plumbing (how
-// the run dir is materialized). The arms differ ONLY in the verification steer and
-// whether a durable test is requested — mirroring the prior study, where the N arm
-// was "implement it" (no tests written) and the E arm's note drove durable tests.
+// the run dir is materialized). BOTH arms are asked to implement AND write a
+// durable test — the ONLY cross-arm variable is the verification-steer CONTENT
+// (E carries `buildVerificationNote`, N does not). See buildUserPrompt.
 const IMPL_BLOCK = [
   '## Output format (STRICT)',
   'Wrap each file EXACTLY like this, with NO prose outside the markers:',
@@ -107,8 +111,10 @@ const IMPL_BLOCK = [
   '===ENDFILE===',
 ].join('\n');
 
-// E arm only: request a durable, runnable test alongside the impl. The contract
-// (self-executing, exits non-zero on failure) is what the kill-probe grades.
+// Requested from BOTH arms: a durable, runnable test alongside the impl. The
+// contract (self-executing, exits non-zero on failure) is what the kill-probe
+// grades. Symmetric across arms so "did a test get written" is held constant and
+// the measured contrast is test ADEQUACY, not test PRESENCE.
 const TEST_CONTRACT = [
   '',
   'Also emit a durable test file the SAME way, named `test.ts`:',
@@ -121,10 +127,19 @@ const TEST_CONTRACT = [
 ].join('\n');
 
 /**
- * Build the user prompt for a cell. The spec + stub are identical across arms.
- * The E arm carries the production verification note (the steer) AND is asked for
- * a durable test; the N arm carries only a bare "Implement it." and emits just
- * the impl. Pure — depends only on inputs.
+ * Build the user prompt for a cell. The spec + stub + the impl/test output
+ * contract are IDENTICAL across arms — both are told to implement and to write a
+ * durable `test.ts`. The E arm additionally carries the production verification
+ * note (the steer, tier-selected from the task's risk stamp); the N arm carries
+ * no steer. So the ONLY cross-arm variable is the steer's CONTENT, and the
+ * measured contrast is test ADEQUACY (mutation kills) — not test PRESENCE.
+ *
+ * (Corrected design, #1670 review: the first run asked ONLY the E arm for a test,
+ * which confounded "was steered" with "was told to test" and let the durable-test
+ * delta be read as the note's persuasion. Holding the test request constant
+ * isolates the steer's actual contribution.)
+ *
+ * Pure — depends only on inputs.
  */
 export function buildUserPrompt(task: TaskSpec, arm: Arm, specText: string, stubText: string): string {
   const parts: string[] = [
@@ -142,11 +157,9 @@ export function buildUserPrompt(task: TaskSpec, arm: Arm, specText: string, stub
   if (arm === 'E') {
     // The verbatim production steer, tier-selected from the task's risk stamp.
     parts.push(buildVerificationNote({ riskTier: task.riskTier, boundaryTouching: task.boundaryTouching }));
-    parts.push('', IMPL_BLOCK + TEST_CONTRACT);
-  } else {
-    parts.push('Implement it.');
-    parts.push('', IMPL_BLOCK);
+    parts.push('');
   }
+  parts.push(IMPL_BLOCK + TEST_CONTRACT);
   return parts.join('\n');
 }
 

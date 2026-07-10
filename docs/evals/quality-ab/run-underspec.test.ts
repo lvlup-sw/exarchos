@@ -82,7 +82,7 @@ describe('parseProducedFiles — model-output block parser', () => {
 
 // ── 2. PROMPT ─────────────────────────────────────────────────────────────────
 
-describe('buildUserPrompt — E carries the steer, N does not', () => {
+describe('buildUserPrompt — both arms implement+test; ONLY the steer varies', () => {
   const spec = '# Task: parseDuration\nImplement it well.';
   const stub = 'export function parseDuration(s: string): number { throw new Error("x"); }';
 
@@ -94,12 +94,19 @@ describe('buildUserPrompt — E carries the steer, N does not', () => {
     expect(p).toContain(spec.trim());
   });
 
-  it('N arm is a bare "Implement it." with NO steer and NO test request', () => {
+  it('N arm asks for the SAME durable test.ts but carries NO steer (symmetric test request)', () => {
     const p = buildUserPrompt(PARSE_DURATION, 'N', spec, stub);
-    expect(p).toContain('Implement it.');
-    expect(p).not.toContain('check_test_adequacy');
+    expect(p).toContain('===FILE:test.ts==='); // test request is held constant across arms
+    expect(p).not.toContain('check_test_adequacy'); // …but the verification STEER is absent
     expect(p).not.toContain('kill-probe');
-    expect(p).not.toContain('===FILE:test.ts==='); // N is impl-only
+  });
+
+  it('the test-request block is IDENTICAL across arms — the ONLY delta is the E steer', () => {
+    const e = buildUserPrompt(PARSE_DURATION, 'E', spec, stub);
+    const n = buildUserPrompt(PARSE_DURATION, 'N', spec, stub);
+    const contract = '===FILE:test.ts===';
+    // Both request the test; the E-only prefix is exactly the verification note.
+    expect(e.slice(e.indexOf(contract))).toBe(n.slice(n.indexOf(contract)));
   });
 
   it('the high/boundary task adds the boundary mock steer only in the E arm', () => {
@@ -254,9 +261,11 @@ describe('captureCell — mechanical per-cell aggregation (oracle · tsc · muta
   );
 
   it(
-    'N cell (no test): mutation UNMEASURABLE (score null), never a fabricated 0 — DR-7',
+    'cell with no test file: mutation UNMEASURABLE (score null), never a fabricated 0 — DR-7',
     { timeout: SUBPROCESS_TIMEOUT },
     async () => {
+      // Both arms are now asked to test, but a model can still fail to emit one —
+      // the grader must stay honest (null, not 0) on that branch.
       const cell = seedRun('sonnet', 'N', 1, ADD_IMPL);
       const dispatch = { status: 'ok' as const, runDir: cellRunDir(runsDir, cell), modelId: 'm', costUsd: 0.01, filesWritten: ['impl.ts'] };
       const row = await captureCell(runsDir, cell, dispatch, { tasksDir });
