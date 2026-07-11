@@ -1,0 +1,333 @@
+{
+  "gateClass": "dropped-edge-case",
+  "gate": null,
+  "branchPrefix": "seeded/dropped-edge-case",
+  "defects": [
+    {
+      "id": "dropped-edge-case/defect-01",
+      "defectMechanism": "dropped edge case: clamp() drops the lower-bound branch (below-min input escapes)",
+      "base": {
+        "src/clamp.mjs": "export const clamp = () => undefined;\n"
+      },
+      "head": {
+        "src/clamp.mjs": "export const clamp = (x, lo, hi) => (x > hi ? hi : x);\n"
+      },
+      "oracle": {
+        "module": "src/clamp.mjs",
+        "export": "clamp",
+        "cases": [
+          {
+            "args": [
+              -5,
+              0,
+              10
+            ],
+            "expected": 0
+          },
+          {
+            "args": [
+              15,
+              0,
+              10
+            ],
+            "expected": 10
+          },
+          {
+            "args": [
+              5,
+              0,
+              10
+            ],
+            "expected": 5
+          }
+        ]
+      }
+    },
+    {
+      "id": "dropped-edge-case/defect-02",
+      "defectMechanism": "dropped edge case: divide() drops the divide-by-zero guard (returns Infinity)",
+      "base": {
+        "src/divide.mjs": "export const divide = () => undefined;\n"
+      },
+      "head": {
+        "src/divide.mjs": "export const divide = (a, b) => a / b;\n"
+      },
+      "oracle": {
+        "module": "src/divide.mjs",
+        "export": "divide",
+        "cases": [
+          {
+            "args": [
+              6,
+              2
+            ],
+            "expected": 3
+          },
+          {
+            "args": [
+              1,
+              0
+            ],
+            "expected": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "dropped-edge-case/defect-03",
+      "defectMechanism": "dropped edge case: lastOf() drops the empty-array edge (undefined instead of null)",
+      "base": {
+        "src/lastOf.mjs": "export const lastOf = () => undefined;\n"
+      },
+      "head": {
+        "src/lastOf.mjs": "export const lastOf = (xs) => xs[xs.length - 1];\n"
+      },
+      "oracle": {
+        "module": "src/lastOf.mjs",
+        "export": "lastOf",
+        "cases": [
+          {
+            "args": [
+              [
+                1,
+                2,
+                3
+              ]
+            ],
+            "expected": 3
+          },
+          {
+            "args": [
+              []
+            ],
+            "expected": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "dropped-edge-case/defect-04",
+      "defectMechanism": "dropped edge case: slugify() drops the leading/trailing separator trim",
+      "base": {
+        "src/slugify.mjs": "export const slugify = () => undefined;\n"
+      },
+      "head": {
+        "src/slugify.mjs": "export const slugify = (s) => s.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');\n"
+      },
+      "oracle": {
+        "module": "src/slugify.mjs",
+        "export": "slugify",
+        "cases": [
+          {
+            "args": [
+              "Hello, World!"
+            ],
+            "expected": "hello-world"
+          },
+          {
+            "args": [
+              "Hi"
+            ],
+            "expected": "hi"
+          }
+        ]
+      }
+    },
+    {
+      "id": "dropped-edge-case/defect-05",
+      "defectMechanism": "dropped edge case: sum() drops the empty-input identity (throws on empty reduce)",
+      "base": {
+        "src/sum.mjs": "export const sum = () => undefined;\n"
+      },
+      "head": {
+        "src/sum.mjs": "export const sum = (xs) => xs.reduce((a, b) => a + b);\n"
+      },
+      "oracle": {
+        "module": "src/sum.mjs",
+        "export": "sum",
+        "cases": [
+          {
+            "args": [
+              [
+                1,
+                2,
+                3
+              ]
+            ],
+            "expected": 6
+          },
+          {
+            "args": [
+              []
+            ],
+            "expected": 0
+          }
+        ]
+      }
+    }
+  ],
+  "controls": [
+    {
+      "id": "dropped-edge-case/control-01",
+      "defectMechanism": "edge case handled: clamp() handles both bounds",
+      "base": {
+        "src/clamp.mjs": "export const clamp = () => undefined;\n"
+      },
+      "head": {
+        "src/clamp.mjs": "export const clamp = (x, lo, hi) => (x < lo ? lo : x > hi ? hi : x);\n"
+      },
+      "oracle": {
+        "module": "src/clamp.mjs",
+        "export": "clamp",
+        "cases": [
+          {
+            "args": [
+              -5,
+              0,
+              10
+            ],
+            "expected": 0
+          },
+          {
+            "args": [
+              15,
+              0,
+              10
+            ],
+            "expected": 10
+          },
+          {
+            "args": [
+              5,
+              0,
+              10
+            ],
+            "expected": 5
+          }
+        ]
+      }
+    },
+    {
+      "id": "dropped-edge-case/control-02",
+      "defectMechanism": "edge case handled: divide() guards divide-by-zero",
+      "base": {
+        "src/divide.mjs": "export const divide = () => undefined;\n"
+      },
+      "head": {
+        "src/divide.mjs": "export const divide = (a, b) => (b === 0 ? 0 : a / b);\n"
+      },
+      "oracle": {
+        "module": "src/divide.mjs",
+        "export": "divide",
+        "cases": [
+          {
+            "args": [
+              6,
+              2
+            ],
+            "expected": 3
+          },
+          {
+            "args": [
+              1,
+              0
+            ],
+            "expected": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "dropped-edge-case/control-03",
+      "defectMechanism": "edge case handled: lastOf() handles the empty array",
+      "base": {
+        "src/lastOf.mjs": "export const lastOf = () => undefined;\n"
+      },
+      "head": {
+        "src/lastOf.mjs": "export const lastOf = (xs) => (xs.length === 0 ? null : xs[xs.length - 1]);\n"
+      },
+      "oracle": {
+        "module": "src/lastOf.mjs",
+        "export": "lastOf",
+        "cases": [
+          {
+            "args": [
+              [
+                1,
+                2,
+                3
+              ]
+            ],
+            "expected": 3
+          },
+          {
+            "args": [
+              []
+            ],
+            "expected": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "dropped-edge-case/control-04",
+      "defectMechanism": "edge case handled: slugify() trims leading/trailing separators",
+      "base": {
+        "src/slugify.mjs": "export const slugify = () => undefined;\n"
+      },
+      "head": {
+        "src/slugify.mjs": "export const slugify = (s) => s.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');\n"
+      },
+      "oracle": {
+        "module": "src/slugify.mjs",
+        "export": "slugify",
+        "cases": [
+          {
+            "args": [
+              "Hello, World!"
+            ],
+            "expected": "hello-world"
+          },
+          {
+            "args": [
+              "Hi"
+            ],
+            "expected": "hi"
+          }
+        ]
+      }
+    },
+    {
+      "id": "dropped-edge-case/control-05",
+      "defectMechanism": "edge case handled: sum() returns the empty-input identity",
+      "base": {
+        "src/sum.mjs": "export const sum = () => undefined;\n"
+      },
+      "head": {
+        "src/sum.mjs": "export const sum = (xs) => xs.reduce((a, b) => a + b, 0);\n"
+      },
+      "oracle": {
+        "module": "src/sum.mjs",
+        "export": "sum",
+        "cases": [
+          {
+            "args": [
+              [
+                1,
+                2,
+                3
+              ]
+            ],
+            "expected": 6
+          },
+          {
+            "args": [
+              []
+            ],
+            "expected": 0
+          }
+        ]
+      }
+    }
+  ]
+}

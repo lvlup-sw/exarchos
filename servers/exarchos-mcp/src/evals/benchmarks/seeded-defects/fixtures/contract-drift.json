@@ -1,0 +1,169 @@
+{
+  "gateClass": "contract-drift",
+  "gate": "check_contract_drift",
+  "branchPrefix": "seeded/contract-drift",
+  "defects": [
+    {
+      "id": "contract-drift/defect-01",
+      "defectMechanism": "broken seam contract: removes required field 'email' from the schema",
+      "base": {
+        ".exarchos.yml": "contract:\n  diff: node contract-check.mjs\n",
+        "contract-check.mjs": "import { readFileSync } from 'node:fs';\nconst cur = JSON.parse(readFileSync('contracts/openapi.json', 'utf-8'));\nconst base = JSON.parse(readFileSync('contracts/openapi.baseline.json', 'utf-8'));\nconst breaks = [];\nfor (const [k, t] of Object.entries(base.fields || {})) {\n  if (!(k in (cur.fields || {}))) breaks.push(`required field '${k}' removed`);\n  else if (cur.fields[k] !== t) breaks.push(`field '${k}' type changed ${t} -> ${cur.fields[k]}`);\n}\nfor (const p of base.paths || []) {\n  if (!((cur.paths || []).includes(p))) breaks.push(`path '${p}' removed`);\n}\nif (breaks.length) {\n  for (const b of breaks) console.log('BREAKING: ' + b);\n  process.exit(1);\n}\nconsole.log('no breaking changes');\nprocess.exit(0);\n",
+        "contracts/openapi.baseline.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n",
+        "contracts/openapi.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n"
+      },
+      "head": {
+        ".exarchos.yml": "contract:\n  diff: node contract-check.mjs\n",
+        "contract-check.mjs": "import { readFileSync } from 'node:fs';\nconst cur = JSON.parse(readFileSync('contracts/openapi.json', 'utf-8'));\nconst base = JSON.parse(readFileSync('contracts/openapi.baseline.json', 'utf-8'));\nconst breaks = [];\nfor (const [k, t] of Object.entries(base.fields || {})) {\n  if (!(k in (cur.fields || {}))) breaks.push(`required field '${k}' removed`);\n  else if (cur.fields[k] !== t) breaks.push(`field '${k}' type changed ${t} -> ${cur.fields[k]}`);\n}\nfor (const p of base.paths || []) {\n  if (!((cur.paths || []).includes(p))) breaks.push(`path '${p}' removed`);\n}\nif (breaks.length) {\n  for (const b of breaks) console.log('BREAKING: ' + b);\n  process.exit(1);\n}\nconsole.log('no breaking changes');\nprocess.exit(0);\n",
+        "contracts/openapi.baseline.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n",
+        "contracts/openapi.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n"
+      }
+    },
+    {
+      "id": "contract-drift/defect-02",
+      "defectMechanism": "broken seam contract: renames required field 'name' -> 'fullName' (breaking)",
+      "base": {
+        ".exarchos.yml": "contract:\n  diff: node contract-check.mjs\n",
+        "contract-check.mjs": "import { readFileSync } from 'node:fs';\nconst cur = JSON.parse(readFileSync('contracts/openapi.json', 'utf-8'));\nconst base = JSON.parse(readFileSync('contracts/openapi.baseline.json', 'utf-8'));\nconst breaks = [];\nfor (const [k, t] of Object.entries(base.fields || {})) {\n  if (!(k in (cur.fields || {}))) breaks.push(`required field '${k}' removed`);\n  else if (cur.fields[k] !== t) breaks.push(`field '${k}' type changed ${t} -> ${cur.fields[k]}`);\n}\nfor (const p of base.paths || []) {\n  if (!((cur.paths || []).includes(p))) breaks.push(`path '${p}' removed`);\n}\nif (breaks.length) {\n  for (const b of breaks) console.log('BREAKING: ' + b);\n  process.exit(1);\n}\nconsole.log('no breaking changes');\nprocess.exit(0);\n",
+        "contracts/openapi.baseline.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n",
+        "contracts/openapi.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n"
+      },
+      "head": {
+        ".exarchos.yml": "contract:\n  diff: node contract-check.mjs\n",
+        "contract-check.mjs": "import { readFileSync } from 'node:fs';\nconst cur = JSON.parse(readFileSync('contracts/openapi.json', 'utf-8'));\nconst base = JSON.parse(readFileSync('contracts/openapi.baseline.json', 'utf-8'));\nconst breaks = [];\nfor (const [k, t] of Object.entries(base.fields || {})) {\n  if (!(k in (cur.fields || {}))) breaks.push(`required field '${k}' removed`);\n  else if (cur.fields[k] !== t) breaks.push(`field '${k}' type changed ${t} -> ${cur.fields[k]}`);\n}\nfor (const p of base.paths || []) {\n  if (!((cur.paths || []).includes(p))) breaks.push(`path '${p}' removed`);\n}\nif (breaks.length) {\n  for (const b of breaks) console.log('BREAKING: ' + b);\n  process.exit(1);\n}\nconsole.log('no breaking changes');\nprocess.exit(0);\n",
+        "contracts/openapi.baseline.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n",
+        "contracts/openapi.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"fullName\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n"
+      }
+    },
+    {
+      "id": "contract-drift/defect-03",
+      "defectMechanism": "broken seam contract: changes required field 'id' type string -> number",
+      "base": {
+        ".exarchos.yml": "contract:\n  diff: node contract-check.mjs\n",
+        "contract-check.mjs": "import { readFileSync } from 'node:fs';\nconst cur = JSON.parse(readFileSync('contracts/openapi.json', 'utf-8'));\nconst base = JSON.parse(readFileSync('contracts/openapi.baseline.json', 'utf-8'));\nconst breaks = [];\nfor (const [k, t] of Object.entries(base.fields || {})) {\n  if (!(k in (cur.fields || {}))) breaks.push(`required field '${k}' removed`);\n  else if (cur.fields[k] !== t) breaks.push(`field '${k}' type changed ${t} -> ${cur.fields[k]}`);\n}\nfor (const p of base.paths || []) {\n  if (!((cur.paths || []).includes(p))) breaks.push(`path '${p}' removed`);\n}\nif (breaks.length) {\n  for (const b of breaks) console.log('BREAKING: ' + b);\n  process.exit(1);\n}\nconsole.log('no breaking changes');\nprocess.exit(0);\n",
+        "contracts/openapi.baseline.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n",
+        "contracts/openapi.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n"
+      },
+      "head": {
+        ".exarchos.yml": "contract:\n  diff: node contract-check.mjs\n",
+        "contract-check.mjs": "import { readFileSync } from 'node:fs';\nconst cur = JSON.parse(readFileSync('contracts/openapi.json', 'utf-8'));\nconst base = JSON.parse(readFileSync('contracts/openapi.baseline.json', 'utf-8'));\nconst breaks = [];\nfor (const [k, t] of Object.entries(base.fields || {})) {\n  if (!(k in (cur.fields || {}))) breaks.push(`required field '${k}' removed`);\n  else if (cur.fields[k] !== t) breaks.push(`field '${k}' type changed ${t} -> ${cur.fields[k]}`);\n}\nfor (const p of base.paths || []) {\n  if (!((cur.paths || []).includes(p))) breaks.push(`path '${p}' removed`);\n}\nif (breaks.length) {\n  for (const b of breaks) console.log('BREAKING: ' + b);\n  process.exit(1);\n}\nconsole.log('no breaking changes');\nprocess.exit(0);\n",
+        "contracts/openapi.baseline.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n",
+        "contracts/openapi.json": "{\n  \"fields\": {\n    \"id\": \"number\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n"
+      }
+    },
+    {
+      "id": "contract-drift/defect-04",
+      "defectMechanism": "broken seam contract: removes endpoint '/users/{id}'",
+      "base": {
+        ".exarchos.yml": "contract:\n  diff: node contract-check.mjs\n",
+        "contract-check.mjs": "import { readFileSync } from 'node:fs';\nconst cur = JSON.parse(readFileSync('contracts/openapi.json', 'utf-8'));\nconst base = JSON.parse(readFileSync('contracts/openapi.baseline.json', 'utf-8'));\nconst breaks = [];\nfor (const [k, t] of Object.entries(base.fields || {})) {\n  if (!(k in (cur.fields || {}))) breaks.push(`required field '${k}' removed`);\n  else if (cur.fields[k] !== t) breaks.push(`field '${k}' type changed ${t} -> ${cur.fields[k]}`);\n}\nfor (const p of base.paths || []) {\n  if (!((cur.paths || []).includes(p))) breaks.push(`path '${p}' removed`);\n}\nif (breaks.length) {\n  for (const b of breaks) console.log('BREAKING: ' + b);\n  process.exit(1);\n}\nconsole.log('no breaking changes');\nprocess.exit(0);\n",
+        "contracts/openapi.baseline.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n",
+        "contracts/openapi.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n"
+      },
+      "head": {
+        ".exarchos.yml": "contract:\n  diff: node contract-check.mjs\n",
+        "contract-check.mjs": "import { readFileSync } from 'node:fs';\nconst cur = JSON.parse(readFileSync('contracts/openapi.json', 'utf-8'));\nconst base = JSON.parse(readFileSync('contracts/openapi.baseline.json', 'utf-8'));\nconst breaks = [];\nfor (const [k, t] of Object.entries(base.fields || {})) {\n  if (!(k in (cur.fields || {}))) breaks.push(`required field '${k}' removed`);\n  else if (cur.fields[k] !== t) breaks.push(`field '${k}' type changed ${t} -> ${cur.fields[k]}`);\n}\nfor (const p of base.paths || []) {\n  if (!((cur.paths || []).includes(p))) breaks.push(`path '${p}' removed`);\n}\nif (breaks.length) {\n  for (const b of breaks) console.log('BREAKING: ' + b);\n  process.exit(1);\n}\nconsole.log('no breaking changes');\nprocess.exit(0);\n",
+        "contracts/openapi.baseline.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n",
+        "contracts/openapi.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\"\n  ]\n}\n"
+      }
+    },
+    {
+      "id": "contract-drift/defect-05",
+      "defectMechanism": "broken seam contract: removes required field 'createdAt' and endpoint '/users/{id}'",
+      "base": {
+        ".exarchos.yml": "contract:\n  diff: node contract-check.mjs\n",
+        "contract-check.mjs": "import { readFileSync } from 'node:fs';\nconst cur = JSON.parse(readFileSync('contracts/openapi.json', 'utf-8'));\nconst base = JSON.parse(readFileSync('contracts/openapi.baseline.json', 'utf-8'));\nconst breaks = [];\nfor (const [k, t] of Object.entries(base.fields || {})) {\n  if (!(k in (cur.fields || {}))) breaks.push(`required field '${k}' removed`);\n  else if (cur.fields[k] !== t) breaks.push(`field '${k}' type changed ${t} -> ${cur.fields[k]}`);\n}\nfor (const p of base.paths || []) {\n  if (!((cur.paths || []).includes(p))) breaks.push(`path '${p}' removed`);\n}\nif (breaks.length) {\n  for (const b of breaks) console.log('BREAKING: ' + b);\n  process.exit(1);\n}\nconsole.log('no breaking changes');\nprocess.exit(0);\n",
+        "contracts/openapi.baseline.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n",
+        "contracts/openapi.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n"
+      },
+      "head": {
+        ".exarchos.yml": "contract:\n  diff: node contract-check.mjs\n",
+        "contract-check.mjs": "import { readFileSync } from 'node:fs';\nconst cur = JSON.parse(readFileSync('contracts/openapi.json', 'utf-8'));\nconst base = JSON.parse(readFileSync('contracts/openapi.baseline.json', 'utf-8'));\nconst breaks = [];\nfor (const [k, t] of Object.entries(base.fields || {})) {\n  if (!(k in (cur.fields || {}))) breaks.push(`required field '${k}' removed`);\n  else if (cur.fields[k] !== t) breaks.push(`field '${k}' type changed ${t} -> ${cur.fields[k]}`);\n}\nfor (const p of base.paths || []) {\n  if (!((cur.paths || []).includes(p))) breaks.push(`path '${p}' removed`);\n}\nif (breaks.length) {\n  for (const b of breaks) console.log('BREAKING: ' + b);\n  process.exit(1);\n}\nconsole.log('no breaking changes');\nprocess.exit(0);\n",
+        "contracts/openapi.baseline.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n",
+        "contracts/openapi.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\"\n  },\n  \"paths\": [\n    \"/users\"\n  ]\n}\n"
+      }
+    }
+  ],
+  "controls": [
+    {
+      "id": "contract-drift/control-01",
+      "defectMechanism": "compatible contract change: adds OPTIONAL field phone (non-breaking)",
+      "base": {
+        ".exarchos.yml": "contract:\n  diff: node contract-check.mjs\n",
+        "contract-check.mjs": "import { readFileSync } from 'node:fs';\nconst cur = JSON.parse(readFileSync('contracts/openapi.json', 'utf-8'));\nconst base = JSON.parse(readFileSync('contracts/openapi.baseline.json', 'utf-8'));\nconst breaks = [];\nfor (const [k, t] of Object.entries(base.fields || {})) {\n  if (!(k in (cur.fields || {}))) breaks.push(`required field '${k}' removed`);\n  else if (cur.fields[k] !== t) breaks.push(`field '${k}' type changed ${t} -> ${cur.fields[k]}`);\n}\nfor (const p of base.paths || []) {\n  if (!((cur.paths || []).includes(p))) breaks.push(`path '${p}' removed`);\n}\nif (breaks.length) {\n  for (const b of breaks) console.log('BREAKING: ' + b);\n  process.exit(1);\n}\nconsole.log('no breaking changes');\nprocess.exit(0);\n",
+        "contracts/openapi.baseline.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n",
+        "contracts/openapi.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n"
+      },
+      "head": {
+        ".exarchos.yml": "contract:\n  diff: node contract-check.mjs\n",
+        "contract-check.mjs": "import { readFileSync } from 'node:fs';\nconst cur = JSON.parse(readFileSync('contracts/openapi.json', 'utf-8'));\nconst base = JSON.parse(readFileSync('contracts/openapi.baseline.json', 'utf-8'));\nconst breaks = [];\nfor (const [k, t] of Object.entries(base.fields || {})) {\n  if (!(k in (cur.fields || {}))) breaks.push(`required field '${k}' removed`);\n  else if (cur.fields[k] !== t) breaks.push(`field '${k}' type changed ${t} -> ${cur.fields[k]}`);\n}\nfor (const p of base.paths || []) {\n  if (!((cur.paths || []).includes(p))) breaks.push(`path '${p}' removed`);\n}\nif (breaks.length) {\n  for (const b of breaks) console.log('BREAKING: ' + b);\n  process.exit(1);\n}\nconsole.log('no breaking changes');\nprocess.exit(0);\n",
+        "contracts/openapi.baseline.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n",
+        "contracts/openapi.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\",\n    \"phone\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n"
+      }
+    },
+    {
+      "id": "contract-drift/control-02",
+      "defectMechanism": "compatible contract change: adds new endpoint /users/{id}/roles (non-breaking)",
+      "base": {
+        ".exarchos.yml": "contract:\n  diff: node contract-check.mjs\n",
+        "contract-check.mjs": "import { readFileSync } from 'node:fs';\nconst cur = JSON.parse(readFileSync('contracts/openapi.json', 'utf-8'));\nconst base = JSON.parse(readFileSync('contracts/openapi.baseline.json', 'utf-8'));\nconst breaks = [];\nfor (const [k, t] of Object.entries(base.fields || {})) {\n  if (!(k in (cur.fields || {}))) breaks.push(`required field '${k}' removed`);\n  else if (cur.fields[k] !== t) breaks.push(`field '${k}' type changed ${t} -> ${cur.fields[k]}`);\n}\nfor (const p of base.paths || []) {\n  if (!((cur.paths || []).includes(p))) breaks.push(`path '${p}' removed`);\n}\nif (breaks.length) {\n  for (const b of breaks) console.log('BREAKING: ' + b);\n  process.exit(1);\n}\nconsole.log('no breaking changes');\nprocess.exit(0);\n",
+        "contracts/openapi.baseline.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n",
+        "contracts/openapi.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n"
+      },
+      "head": {
+        ".exarchos.yml": "contract:\n  diff: node contract-check.mjs\n",
+        "contract-check.mjs": "import { readFileSync } from 'node:fs';\nconst cur = JSON.parse(readFileSync('contracts/openapi.json', 'utf-8'));\nconst base = JSON.parse(readFileSync('contracts/openapi.baseline.json', 'utf-8'));\nconst breaks = [];\nfor (const [k, t] of Object.entries(base.fields || {})) {\n  if (!(k in (cur.fields || {}))) breaks.push(`required field '${k}' removed`);\n  else if (cur.fields[k] !== t) breaks.push(`field '${k}' type changed ${t} -> ${cur.fields[k]}`);\n}\nfor (const p of base.paths || []) {\n  if (!((cur.paths || []).includes(p))) breaks.push(`path '${p}' removed`);\n}\nif (breaks.length) {\n  for (const b of breaks) console.log('BREAKING: ' + b);\n  process.exit(1);\n}\nconsole.log('no breaking changes');\nprocess.exit(0);\n",
+        "contracts/openapi.baseline.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n",
+        "contracts/openapi.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\",\n    \"/users/{id}/roles\"\n  ]\n}\n"
+      }
+    },
+    {
+      "id": "contract-drift/control-03",
+      "defectMechanism": "compatible contract change: adds two optional fields (non-breaking)",
+      "base": {
+        ".exarchos.yml": "contract:\n  diff: node contract-check.mjs\n",
+        "contract-check.mjs": "import { readFileSync } from 'node:fs';\nconst cur = JSON.parse(readFileSync('contracts/openapi.json', 'utf-8'));\nconst base = JSON.parse(readFileSync('contracts/openapi.baseline.json', 'utf-8'));\nconst breaks = [];\nfor (const [k, t] of Object.entries(base.fields || {})) {\n  if (!(k in (cur.fields || {}))) breaks.push(`required field '${k}' removed`);\n  else if (cur.fields[k] !== t) breaks.push(`field '${k}' type changed ${t} -> ${cur.fields[k]}`);\n}\nfor (const p of base.paths || []) {\n  if (!((cur.paths || []).includes(p))) breaks.push(`path '${p}' removed`);\n}\nif (breaks.length) {\n  for (const b of breaks) console.log('BREAKING: ' + b);\n  process.exit(1);\n}\nconsole.log('no breaking changes');\nprocess.exit(0);\n",
+        "contracts/openapi.baseline.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n",
+        "contracts/openapi.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n"
+      },
+      "head": {
+        ".exarchos.yml": "contract:\n  diff: node contract-check.mjs\n",
+        "contract-check.mjs": "import { readFileSync } from 'node:fs';\nconst cur = JSON.parse(readFileSync('contracts/openapi.json', 'utf-8'));\nconst base = JSON.parse(readFileSync('contracts/openapi.baseline.json', 'utf-8'));\nconst breaks = [];\nfor (const [k, t] of Object.entries(base.fields || {})) {\n  if (!(k in (cur.fields || {}))) breaks.push(`required field '${k}' removed`);\n  else if (cur.fields[k] !== t) breaks.push(`field '${k}' type changed ${t} -> ${cur.fields[k]}`);\n}\nfor (const p of base.paths || []) {\n  if (!((cur.paths || []).includes(p))) breaks.push(`path '${p}' removed`);\n}\nif (breaks.length) {\n  for (const b of breaks) console.log('BREAKING: ' + b);\n  process.exit(1);\n}\nconsole.log('no breaking changes');\nprocess.exit(0);\n",
+        "contracts/openapi.baseline.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n",
+        "contracts/openapi.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\",\n    \"phone\": \"string\",\n    \"avatar\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n"
+      }
+    },
+    {
+      "id": "contract-drift/control-04",
+      "defectMechanism": "compatible contract change: reorders fields, same contract (non-breaking)",
+      "base": {
+        ".exarchos.yml": "contract:\n  diff: node contract-check.mjs\n",
+        "contract-check.mjs": "import { readFileSync } from 'node:fs';\nconst cur = JSON.parse(readFileSync('contracts/openapi.json', 'utf-8'));\nconst base = JSON.parse(readFileSync('contracts/openapi.baseline.json', 'utf-8'));\nconst breaks = [];\nfor (const [k, t] of Object.entries(base.fields || {})) {\n  if (!(k in (cur.fields || {}))) breaks.push(`required field '${k}' removed`);\n  else if (cur.fields[k] !== t) breaks.push(`field '${k}' type changed ${t} -> ${cur.fields[k]}`);\n}\nfor (const p of base.paths || []) {\n  if (!((cur.paths || []).includes(p))) breaks.push(`path '${p}' removed`);\n}\nif (breaks.length) {\n  for (const b of breaks) console.log('BREAKING: ' + b);\n  process.exit(1);\n}\nconsole.log('no breaking changes');\nprocess.exit(0);\n",
+        "contracts/openapi.baseline.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n",
+        "contracts/openapi.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n"
+      },
+      "head": {
+        ".exarchos.yml": "contract:\n  diff: node contract-check.mjs\n",
+        "contract-check.mjs": "import { readFileSync } from 'node:fs';\nconst cur = JSON.parse(readFileSync('contracts/openapi.json', 'utf-8'));\nconst base = JSON.parse(readFileSync('contracts/openapi.baseline.json', 'utf-8'));\nconst breaks = [];\nfor (const [k, t] of Object.entries(base.fields || {})) {\n  if (!(k in (cur.fields || {}))) breaks.push(`required field '${k}' removed`);\n  else if (cur.fields[k] !== t) breaks.push(`field '${k}' type changed ${t} -> ${cur.fields[k]}`);\n}\nfor (const p of base.paths || []) {\n  if (!((cur.paths || []).includes(p))) breaks.push(`path '${p}' removed`);\n}\nif (breaks.length) {\n  for (const b of breaks) console.log('BREAKING: ' + b);\n  process.exit(1);\n}\nconsole.log('no breaking changes');\nprocess.exit(0);\n",
+        "contracts/openapi.baseline.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n",
+        "contracts/openapi.json": "{\n  \"fields\": {\n    \"name\": \"string\",\n    \"id\": \"string\",\n    \"createdAt\": \"string\",\n    \"email\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n"
+      }
+    },
+    {
+      "id": "contract-drift/control-05",
+      "defectMechanism": "compatible contract change: adds endpoint + optional field (non-breaking)",
+      "base": {
+        ".exarchos.yml": "contract:\n  diff: node contract-check.mjs\n",
+        "contract-check.mjs": "import { readFileSync } from 'node:fs';\nconst cur = JSON.parse(readFileSync('contracts/openapi.json', 'utf-8'));\nconst base = JSON.parse(readFileSync('contracts/openapi.baseline.json', 'utf-8'));\nconst breaks = [];\nfor (const [k, t] of Object.entries(base.fields || {})) {\n  if (!(k in (cur.fields || {}))) breaks.push(`required field '${k}' removed`);\n  else if (cur.fields[k] !== t) breaks.push(`field '${k}' type changed ${t} -> ${cur.fields[k]}`);\n}\nfor (const p of base.paths || []) {\n  if (!((cur.paths || []).includes(p))) breaks.push(`path '${p}' removed`);\n}\nif (breaks.length) {\n  for (const b of breaks) console.log('BREAKING: ' + b);\n  process.exit(1);\n}\nconsole.log('no breaking changes');\nprocess.exit(0);\n",
+        "contracts/openapi.baseline.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n",
+        "contracts/openapi.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n"
+      },
+      "head": {
+        ".exarchos.yml": "contract:\n  diff: node contract-check.mjs\n",
+        "contract-check.mjs": "import { readFileSync } from 'node:fs';\nconst cur = JSON.parse(readFileSync('contracts/openapi.json', 'utf-8'));\nconst base = JSON.parse(readFileSync('contracts/openapi.baseline.json', 'utf-8'));\nconst breaks = [];\nfor (const [k, t] of Object.entries(base.fields || {})) {\n  if (!(k in (cur.fields || {}))) breaks.push(`required field '${k}' removed`);\n  else if (cur.fields[k] !== t) breaks.push(`field '${k}' type changed ${t} -> ${cur.fields[k]}`);\n}\nfor (const p of base.paths || []) {\n  if (!((cur.paths || []).includes(p))) breaks.push(`path '${p}' removed`);\n}\nif (breaks.length) {\n  for (const b of breaks) console.log('BREAKING: ' + b);\n  process.exit(1);\n}\nconsole.log('no breaking changes');\nprocess.exit(0);\n",
+        "contracts/openapi.baseline.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\"\n  ]\n}\n",
+        "contracts/openapi.json": "{\n  \"fields\": {\n    \"id\": \"string\",\n    \"name\": \"string\",\n    \"email\": \"string\",\n    \"createdAt\": \"string\",\n    \"updatedAt\": \"string\"\n  },\n  \"paths\": [\n    \"/users\",\n    \"/users/{id}\",\n    \"/health\"\n  ]\n}\n"
+      }
+    }
+  ]
+}

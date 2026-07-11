@@ -1,0 +1,139 @@
+{
+  "gateClass": "test-adequacy",
+  "gate": "check_test_adequacy",
+  "branchPrefix": "seeded/test-adequacy",
+  "defects": [
+    {
+      "id": "test-adequacy/defect-01",
+      "defectMechanism": "tautology assert(true) — asserts nothing about value()",
+      "base": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node --test\",\n    \"test\": \"node --test\"\n  }\n}\n",
+        "src/calc.js": "export function value() {\n  return 1;\n}\n"
+      },
+      "head": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node --test\",\n    \"test\": \"node --test\"\n  }\n}\n",
+        "src/calc.js": "export function value() {\n  return 2;\n}\n",
+        "src/calc.test.js": "import { test } from 'node:test';\nimport assert from 'node:assert';\nimport { value } from './calc.js';\n\ntest('value', () => {\n  assert.strictEqual(true, true);\n});\n"
+      }
+    },
+    {
+      "id": "test-adequacy/defect-02",
+      "defectMechanism": "constant-fold assert(1+1===2) — independent of the change",
+      "base": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node --test\",\n    \"test\": \"node --test\"\n  }\n}\n",
+        "src/calc.js": "export function value() {\n  return 3;\n}\n"
+      },
+      "head": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node --test\",\n    \"test\": \"node --test\"\n  }\n}\n",
+        "src/calc.js": "export function value() {\n  return 4;\n}\n",
+        "src/calc.test.js": "import { test } from 'node:test';\nimport assert from 'node:assert';\nimport { value } from './calc.js';\n\ntest('value', () => {\n  assert.ok(1 + 1 === 2);\n});\n"
+      }
+    },
+    {
+      "id": "test-adequacy/defect-03",
+      "defectMechanism": "typeof-only — value is still a function after revert",
+      "base": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node --test\",\n    \"test\": \"node --test\"\n  }\n}\n",
+        "src/calc.js": "export function value() {\n  return 7;\n}\n"
+      },
+      "head": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node --test\",\n    \"test\": \"node --test\"\n  }\n}\n",
+        "src/calc.js": "export function value() {\n  return 8;\n}\n",
+        "src/calc.test.js": "import { test } from 'node:test';\nimport assert from 'node:assert';\nimport { value } from './calc.js';\n\ntest('value', () => {\n  assert.strictEqual(typeof value, 'function');\n});\n"
+      }
+    },
+    {
+      "id": "test-adequacy/defect-04",
+      "defectMechanism": "truthiness-only — both old and new value() are truthy",
+      "base": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node --test\",\n    \"test\": \"node --test\"\n  }\n}\n",
+        "src/calc.js": "export function value() {\n  return 5;\n}\n"
+      },
+      "head": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node --test\",\n    \"test\": \"node --test\"\n  }\n}\n",
+        "src/calc.js": "export function value() {\n  return 6;\n}\n",
+        "src/calc.test.js": "import { test } from 'node:test';\nimport assert from 'node:assert';\nimport { value } from './calc.js';\n\ntest('value', () => {\n  assert.ok(value());\n});\n"
+      }
+    },
+    {
+      "id": "test-adequacy/defect-05",
+      "defectMechanism": "never-equal sentinel — value() is never 999 either way",
+      "base": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node --test\",\n    \"test\": \"node --test\"\n  }\n}\n",
+        "src/calc.js": "export function value() {\n  return 9;\n}\n"
+      },
+      "head": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node --test\",\n    \"test\": \"node --test\"\n  }\n}\n",
+        "src/calc.js": "export function value() {\n  return 10;\n}\n",
+        "src/calc.test.js": "import { test } from 'node:test';\nimport assert from 'node:assert';\nimport { value } from './calc.js';\n\ntest('value', () => {\n  assert.notStrictEqual(value(), 999);\n});\n"
+      }
+    }
+  ],
+  "controls": [
+    {
+      "id": "test-adequacy/control-01",
+      "defectMechanism": "genuine test pins value() === 201 (kills the source-revert)",
+      "base": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node --test\",\n    \"test\": \"node --test\"\n  }\n}\n",
+        "src/calc.js": "export function value() {\n  return 101;\n}\n"
+      },
+      "head": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node --test\",\n    \"test\": \"node --test\"\n  }\n}\n",
+        "src/calc.js": "export function value() {\n  return 201;\n}\n",
+        "src/calc.test.js": "import { test } from 'node:test';\nimport assert from 'node:assert';\nimport { value } from './calc.js';\n\ntest('value', () => {\n  assert.strictEqual(value(), 201);\n});\n"
+      }
+    },
+    {
+      "id": "test-adequacy/control-02",
+      "defectMechanism": "genuine test pins value() === 202 (kills the source-revert)",
+      "base": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node --test\",\n    \"test\": \"node --test\"\n  }\n}\n",
+        "src/calc.js": "export function value() {\n  return 102;\n}\n"
+      },
+      "head": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node --test\",\n    \"test\": \"node --test\"\n  }\n}\n",
+        "src/calc.js": "export function value() {\n  return 202;\n}\n",
+        "src/calc.test.js": "import { test } from 'node:test';\nimport assert from 'node:assert';\nimport { value } from './calc.js';\n\ntest('value', () => {\n  assert.strictEqual(value(), 202);\n});\n"
+      }
+    },
+    {
+      "id": "test-adequacy/control-03",
+      "defectMechanism": "genuine test pins value() === 203 (kills the source-revert)",
+      "base": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node --test\",\n    \"test\": \"node --test\"\n  }\n}\n",
+        "src/calc.js": "export function value() {\n  return 103;\n}\n"
+      },
+      "head": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node --test\",\n    \"test\": \"node --test\"\n  }\n}\n",
+        "src/calc.js": "export function value() {\n  return 203;\n}\n",
+        "src/calc.test.js": "import { test } from 'node:test';\nimport assert from 'node:assert';\nimport { value } from './calc.js';\n\ntest('value', () => {\n  assert.strictEqual(value(), 203);\n});\n"
+      }
+    },
+    {
+      "id": "test-adequacy/control-04",
+      "defectMechanism": "genuine test pins value() === 204 (kills the source-revert)",
+      "base": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node --test\",\n    \"test\": \"node --test\"\n  }\n}\n",
+        "src/calc.js": "export function value() {\n  return 104;\n}\n"
+      },
+      "head": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node --test\",\n    \"test\": \"node --test\"\n  }\n}\n",
+        "src/calc.js": "export function value() {\n  return 204;\n}\n",
+        "src/calc.test.js": "import { test } from 'node:test';\nimport assert from 'node:assert';\nimport { value } from './calc.js';\n\ntest('value', () => {\n  assert.strictEqual(value(), 204);\n});\n"
+      }
+    },
+    {
+      "id": "test-adequacy/control-05",
+      "defectMechanism": "genuine test pins value() === 205 (kills the source-revert)",
+      "base": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node --test\",\n    \"test\": \"node --test\"\n  }\n}\n",
+        "src/calc.js": "export function value() {\n  return 105;\n}\n"
+      },
+      "head": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node --test\",\n    \"test\": \"node --test\"\n  }\n}\n",
+        "src/calc.js": "export function value() {\n  return 205;\n}\n",
+        "src/calc.test.js": "import { test } from 'node:test';\nimport assert from 'node:assert';\nimport { value } from './calc.js';\n\ntest('value', () => {\n  assert.strictEqual(value(), 205);\n});\n"
+      }
+    }
+  ]
+}
