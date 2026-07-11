@@ -92,9 +92,17 @@ const WorkflowConfig = z.object({
 const AgentModelValue = z.enum(['opus', 'sonnet', 'haiku']);
 const AgentSpecIdKey = z.enum(['implementer', 'fixer', 'reviewer', 'scaffolder']);
 
+// DR-1 (#1672): tier→model policy keys. A partial record — an operator may
+// re-map a single tier and inherit the documented default for the rest. The
+// monotonicity + high-tier-floor guard runs at config-resolution time
+// (`resolve.ts:validateTierModels`), not here, so the structured error can name
+// the offending cell across the FULL merged table.
+const RiskTierKey = z.enum(['low', 'medium', 'high']);
+
 const AgentsConfig = z.object({
   'default-model': AgentModelValue.optional(),
   models: z.partialRecord(AgentSpecIdKey, AgentModelValue).optional(),
+  'tier-models': z.partialRecord(RiskTierKey, AgentModelValue).optional(),
 }).strict();
 
 // ─── Tools Configuration ───────────────────────────────────────────────────
