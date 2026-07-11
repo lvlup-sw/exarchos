@@ -48,11 +48,11 @@ Cost columns are means over each gate's 10 cells (snapshot of the measurement ho
 
 | gate | defects caught | controls flagged | mean payload tokens | mean wall-clock ms |
 |---|---|---|---|---|
-| `check_test_adequacy` | 5/5 | 0/5 | ~23 | ~132 |
-| `check_contract_drift` | 5/5 | 0/5 | ~64 | ~23 |
-| `check_mock_boundary` | 5/5 | 0/5 | ~69 | ~13 |
-| `check_static_analysis` | 5/5 | 0/5 | ~119 | ~78 |
-| `check_integration_suite` | 5/5 | 0/5 | ~96 | ~82 |
+| `check_test_adequacy` | 5/5 | 0/5 | ~23 | ~150 |
+| `check_contract_drift` | 5/5 | 0/5 | ~64 | ~36 |
+| `check_mock_boundary` | 5/5 | 0/5 | ~69 | ~12 |
+| `check_static_analysis` | 5/5 | 0/5 | ~119 | ~80 |
+| `check_integration_suite` | 5/5 | 0/5 | ~96 | ~79 |
 
 The seeded-defect mechanisms exercised are real and distinct within each class — e.g. `check_test_adequacy` defects are five different *vacuous* tests (pure tautology, constant fold, `typeof`-only, truthiness-only, never-equal sentinel) that each survive the kill-probe's source revert; `check_static_analysis` defects are five different parse/lint violations; `check_integration_suite` defects include the #1329 load-failure cascade (failed suites, zero failed tests) that per-task gates miss. Full mechanisms are in each fixture's `defectMechanism`.
 

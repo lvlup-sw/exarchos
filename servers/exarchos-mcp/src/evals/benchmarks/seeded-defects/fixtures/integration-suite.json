@@ -85,7 +85,7 @@
         "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
         ".npmrc": "loglevel=silent\n",
         "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
-        "report.json": "{\n  \"numFailedTestSuites\": 3,\n  \"numFailedTests\": 2,\n  \"numTotalTests\": 30,\n  \"testResults\": [\n    {\n      \"name\": \"src/x.test.js\",\n      \"status\": \"failed\",\n      \"assertionResults\": [\n        {},\n        {}\n      ]\n    },\n    {\n      \"name\": \"src/y.test.js\",\n      \"status\": \"failed\",\n      \"assertionResults\": []\n    }\n  ]\n}\n",
+        "report.json": "{\n  \"numFailedTestSuites\": 2,\n  \"numFailedTests\": 2,\n  \"numTotalTests\": 30,\n  \"testResults\": [\n    {\n      \"name\": \"src/x.test.js\",\n      \"status\": \"failed\",\n      \"assertionResults\": [\n        {},\n        {}\n      ]\n    },\n    {\n      \"name\": \"src/y.test.js\",\n      \"status\": \"failed\",\n      \"assertionResults\": []\n    }\n  ]\n}\n",
         "src/a.js": "export const feature11 = () => 11;\n",
         "src/b.js": "export const feature12 = () => 12;\n",
         "src/c.js": "export const feature13 = () => 13;\n"

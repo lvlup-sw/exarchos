@@ -53,6 +53,7 @@ import {
   MECHANICAL_GATE_CLASSES,
   type GateClass,
   type GitRun,
+  type MaterializedFixture,
   type SeededFixture,
 } from './corpus.js';
 
@@ -332,7 +333,24 @@ async function measureCell(fixture: SeededFixture, deps: CellDeps): Promise<Catc
   // Mechanical gate cell: materialize → dispatch the real handler → measure.
   const worktree = fs.mkdtempSync(path.join(deps.tmpRoot, `cr-${fixture.gateClass}-`));
   try {
-    const mat = materializeFixture(fixture, worktree, deps.git);
+    let mat: MaterializedFixture;
+    try {
+      mat = materializeFixture(fixture, worktree, deps.git);
+    } catch (err) {
+      // A git setup failure → an explicit invalid cell, never a verdict off a
+      // partial worktree (DR-8). Kept distinct from the handler-threw path.
+      const msg = err instanceof Error ? err.message : String(err);
+      return {
+        ...common,
+        verdict: 'invalid',
+        correct: false,
+        wallClockMs: 0,
+        payloadChars: 0,
+        payloadTokens: 0,
+        oracleDetected: '',
+        note: `materialize-failed:${msg}`,
+      };
+    }
     const args: GateArgs = {
       featureId: fixture.id,
       taskId: fixture.id,

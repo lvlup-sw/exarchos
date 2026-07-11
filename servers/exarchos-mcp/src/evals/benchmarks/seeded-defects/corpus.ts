@@ -281,6 +281,19 @@ export interface GitRun {
   (repoRoot: string, args: readonly string[]): { stdout: string; exitCode: number };
 }
 
+/**
+ * A git setup command failed while materializing a fixture. Thrown by
+ * {@link materializeFixture} so the caller records an explicit `invalid` cell
+ * (never a trustworthy-looking verdict off a partial worktree) — the DR-8
+ * fail-honest contract for the catch-rate driver.
+ */
+export class FixtureMaterializationError extends Error {
+  constructor(args: readonly string[], exitCode: number, stdout: string) {
+    super(`git ${args.join(' ')} exited ${exitCode}${stdout ? `: ${stdout.trim()}` : ''}`);
+    this.name = 'FixtureMaterializationError';
+  }
+}
+
 /** Result of materializing a fixture into a disposable worktree. */
 export interface MaterializedFixture {
   readonly repoRoot: string;
@@ -308,16 +321,25 @@ export function materializeFixture(
   repoRoot: string,
   git: GitRun,
 ): MaterializedFixture {
-  git(repoRoot, ['init', '--initial-branch=main', '-q']);
-  git(repoRoot, ['config', 'user.email', 'seeded-corpus@exarchos.local']);
-  git(repoRoot, ['config', 'user.name', 'exarchos-seeded-corpus']);
-  git(repoRoot, ['config', 'commit.gpgsign', 'false']);
+  // `git` is total (returns an exit code, never throws), so a failed setup step
+  // would otherwise proceed with a partial worktree and yield an untrustworthy
+  // verdict. Fail fast on any non-zero exit so the driver records an `invalid`
+  // cell instead (DR-8 fail-honest).
+  const run = (args: readonly string[]): void => {
+    const { exitCode, stdout } = git(repoRoot, args);
+    if (exitCode !== 0) throw new FixtureMaterializationError(args, exitCode, stdout);
+  };
+
+  run(['init', '--initial-branch=main', '-q']);
+  run(['config', 'user.email', 'seeded-corpus@exarchos.local']);
+  run(['config', 'user.name', 'exarchos-seeded-corpus']);
+  run(['config', 'commit.gpgsign', 'false']);
 
   writeFileMap(repoRoot, fixture.base);
-  git(repoRoot, ['add', '-A']);
-  git(repoRoot, ['commit', '-q', '-m', 'base: seeded-corpus merge-base']);
+  run(['add', '-A']);
+  run(['commit', '-q', '-m', 'base: seeded-corpus merge-base']);
 
-  git(repoRoot, ['checkout', '-q', '-b', fixture.branch]);
+  run(['checkout', '-q', '-b', fixture.branch]);
   // Remove any base-only paths, then lay down the full HEAD tree, so the diff is
   // accurate for adds, modifications, AND deletions.
   for (const rel of Object.keys(fixture.base)) {
@@ -326,8 +348,8 @@ export function materializeFixture(
     }
   }
   writeFileMap(repoRoot, fixture.head);
-  git(repoRoot, ['add', '-A']);
-  git(repoRoot, ['commit', '-q', '-m', `head: ${fixture.id}`]);
+  run(['add', '-A']);
+  run(['commit', '-q', '-m', `head: ${fixture.id}`]);
 
   return { repoRoot, branch: fixture.branch, baseBranch: fixture.baseBranch };
 }

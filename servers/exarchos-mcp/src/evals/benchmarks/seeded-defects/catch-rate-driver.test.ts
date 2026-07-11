@@ -140,11 +140,34 @@ describe('gate catch-rate driver', () => {
     expect(report.eventStoreDir.startsWith(REPO_ROOT)).toBe(false);
     // The store dir was actually created (events had somewhere ephemeral to go).
     expect(fs.existsSync(report.eventStoreDir)).toBe(true);
-    // No project-store artifact (`.exarchos`) was created inside the repo by the run.
-    // (The driver only ever writes under tmpRoot.)
-    expect(report.eventStoreDir.includes(path.join('.claude', 'worktrees')) &&
-      report.eventStoreDir.startsWith(REPO_ROOT)).toBe(false);
+    // The store never lands in an agent worktree inside the repo either.
+    // (The driver only ever writes under tmpRoot — asserted above.)
+    expect(report.eventStoreDir.includes(path.join('.claude', 'worktrees'))).toBe(false);
   });
+
+  it('CatchRateDriver_GitMaterializeFailure_EmitsInvalidRecordNotVerdict', async () => {
+    // A git setup failure during materialization must yield an explicit `invalid`
+    // cell, never a verdict off a partial worktree (DR-8 fail-honest). Distinct
+    // from the handler-threw path: the note is `materialize-failed`, not `threw`.
+    const failingGit: (root: string, args: readonly string[]) => { stdout: string; exitCode: number } =
+      (_root, args) => (args[0] === 'commit' ? { stdout: 'nothing to commit', exitCode: 1 } : { stdout: '', exitCode: 0 });
+    const matTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'catch-rate-mat-'));
+    try {
+      const oneDefect = loadSeededCorpus('static-analysis').filter((f) => f.kind === 'defect').slice(0, 1);
+      const out = await runCatchRate({ corpus: oneDefect, tmpRoot: matTmp, git: failingGit });
+      const row = out.rows[0];
+      expect(row.verdict).toBe('invalid');
+      expect(row.verdict).not.toBe('fail');
+      expect(row.verdict).not.toBe('pass');
+      expect(row.note).toContain('materialize-failed');
+      expect(row.correct).toBe(false);
+      const agg = out.aggregates.find((a) => a.gateClass === 'static-analysis');
+      expect(agg!.invalidCells).toBeGreaterThanOrEqual(1);
+      expect(agg!.defectsCaught).toBe(0);
+    } finally {
+      fs.rmSync(matTmp, { recursive: true, force: true });
+    }
+  }, 60_000);
 
   it('VerdictFromResult_MockBoundaryUsesFindingsNotPassed', () => {
     // Unit contract: mock-boundary is advisory (passed stays true) — a catch is

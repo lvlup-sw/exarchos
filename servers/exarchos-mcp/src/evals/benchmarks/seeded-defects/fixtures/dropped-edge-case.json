@@ -126,6 +126,12 @@
           },
           {
             "args": [
+              "!Hello"
+            ],
+            "expected": "hello"
+          },
+          {
+            "args": [
               "Hi"
             ],
             "expected": "hi"
@@ -287,6 +293,12 @@
               "Hello, World!"
             ],
             "expected": "hello-world"
+          },
+          {
+            "args": [
+              "!Hello"
+            ],
+            "expected": "hello"
           },
           {
             "args": [
