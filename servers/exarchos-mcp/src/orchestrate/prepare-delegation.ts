@@ -342,6 +342,14 @@ type CoreClassification = Omit<
 /**
  * Legacy agent/complexity/effort heuristic.
  *
+ * NOTE (DR-1, #1672): the `recommendedModel` set on each branch below is the
+ * legacy agent-keyed value and is a PLACEHOLDER only — {@link classifyTask}
+ * unconditionally overrides it with the tier-keyed {@link resolveModelForTask}
+ * (see line ~475). Do NOT consume `CoreClassification.recommendedModel` as the
+ * dispatched model: it is the pre-DR-1 agent-keyed value and reading it would
+ * reintroduce the flat-model collapse (#1670) this fix removed. The dispatched
+ * model is always the tier-keyed one on `TaskClassification`.
+ *
  * Priority order:
  *   0. testLayer: "acceptance" → high/implementer (highest priority)
  *   1. Title contains scaffolding keywords → low/scaffolder

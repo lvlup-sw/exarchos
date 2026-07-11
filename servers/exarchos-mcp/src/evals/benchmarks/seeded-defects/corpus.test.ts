@@ -117,6 +117,16 @@ describe('seeded-defect corpus', () => {
     const sample = deriveManifestTiers(['contracts/openapi.json']);
     expect(sample.riskTier).toBe('high');
     expect(sample.boundaryTouching).toBe(true);
+
+    // STRUCTURAL anti-pinning guarantee (stronger than the derivation-equality
+    // check above, which re-derives with the same functions and so cannot catch
+    // a hand-assignment regression): the raw fixture JSON assets carry NO tier
+    // fields at all, so a tier physically cannot be hand-typed into the corpus.
+    for (const file of fs.readdirSync(FIXTURES_DIR).filter((f) => f.endsWith('.json'))) {
+      const raw = fs.readFileSync(path.join(FIXTURES_DIR, file), 'utf8');
+      expect(raw, `${file} must not hand-assign riskTier`).not.toMatch(/"riskTier"/);
+      expect(raw, `${file} must not hand-assign boundaryTouching`).not.toMatch(/"boundaryTouching"/);
+    }
   });
 
   it('SeededCorpus_DefectClasses_SpanMultipleTiers', () => {
