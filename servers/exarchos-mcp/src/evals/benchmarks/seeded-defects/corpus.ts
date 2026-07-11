@@ -39,8 +39,8 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { spawnCommandSync } from '../../../utils/process.js';
 import {
   deriveRiskTier,
   deriveBoundaryTouching,
@@ -405,19 +405,21 @@ export function runDroppedEdgeOracle(
 }
 
 const defaultRunNode: NodeRunFn = (cwd, scriptFile) => {
-  try {
-    const stdout = execFileSync(process.execPath, [scriptFile], {
-      cwd,
-      encoding: 'utf-8',
-      timeout: 30_000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    return { stdout: stdout.toString(), exitCode: 0 };
-  } catch (err) {
-    const e = err as { status?: number; stdout?: string | Buffer; stderr?: string | Buffer };
-    const out =
-      (typeof e.stdout === 'string' ? e.stdout : e.stdout?.toString('utf-8') ?? '') +
-      (typeof e.stderr === 'string' ? e.stderr : e.stderr?.toString('utf-8') ?? '');
-    return { stdout: out, exitCode: e.status ?? 1 };
+  // Route the node spawn through the sanctioned win32-safe helper (#1623): the
+  // Windows-portability gate forbids a raw execFileSync of a resolved bin. For
+  // `process.execPath` (an absolute path, not a bare npm/npx shim) this is a
+  // thin pass-through to spawnSync, so POSIX behavior is unchanged. spawnSync
+  // does not throw on a non-zero exit — branch on `status` instead.
+  const res = spawnCommandSync(process.execPath, [scriptFile], {
+    cwd,
+    encoding: 'utf-8',
+    timeout: 30_000,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  if (res.status === 0 && res.error === undefined) {
+    return { stdout: res.stdout ?? '', exitCode: 0 };
   }
+  // Non-zero exit / timeout / spawn error → surface stdout+stderr so an
+  // unimportable module is reported, mirroring the previous catch branch.
+  return { stdout: (res.stdout ?? '') + (res.stderr ?? ''), exitCode: res.status ?? 1 };
 };
