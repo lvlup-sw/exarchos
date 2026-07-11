@@ -336,6 +336,91 @@ describe('resolveConfig', () => {
     });
   });
 
+  // ─── DR-1 (#1672): tier→model policy surface + monotonicity guard ──────────
+  describe('agents.tier-models resolution (DR-1)', () => {
+    it('ResolveConfig_TierModelsAbsent_UsesDocumentedDefaults', () => {
+      // No `agents.tier-models` block → the documented in-code default table:
+      // low → haiku, medium → sonnet, high → opus.
+      const resolved = resolveConfig({});
+      expect(resolved.agents.tierModels).toEqual({
+        low: 'haiku',
+        medium: 'sonnet',
+        high: 'opus',
+      });
+    });
+
+    it('ResolveConfig_TierModelsOverride_Honored', () => {
+      // A partial `.exarchos.yml` override re-maps only the named tiers and
+      // inherits the documented defaults for the rest. { medium: opus } is
+      // monotone (haiku ≤ opus ≤ opus) and high stays opus.
+      const resolved = resolveConfig({ agents: { 'tier-models': { medium: 'opus' } } });
+      expect(resolved.agents.tierModels).toEqual({
+        low: 'haiku',
+        medium: 'opus',
+        high: 'opus',
+      });
+    });
+
+    it('ResolveConfig_HighTierSonnet_Accepted', () => {
+      // Settled OQ2: high → sonnet is an ALLOWED operator opt-in (the high-tier
+      // floor is sonnet, not opus). Must resolve without throwing.
+      const resolved = resolveConfig({
+        agents: { 'tier-models': { low: 'haiku', medium: 'sonnet', high: 'sonnet' } },
+      });
+      expect(resolved.agents.tierModels.high).toBe('sonnet');
+    });
+
+    it('ResolveConfig_NonMonotoneTierModels_RejectsWithStructuredError', () => {
+      // low → sonnet but medium → haiku is NON-monotone (a weaker model at a
+      // higher tier). high stays opus so the high-floor rule is satisfied — this
+      // isolates the monotonicity rule. The structured error names the offending
+      // cell(s).
+      expect(() =>
+        resolveConfig({ agents: { 'tier-models': { low: 'sonnet', medium: 'haiku' } } }),
+      ).toThrow(/tier-models/);
+      expect(() =>
+        resolveConfig({ agents: { 'tier-models': { low: 'sonnet', medium: 'haiku' } } }),
+      ).toThrow(/monotone/i);
+      expect(() =>
+        resolveConfig({ agents: { 'tier-models': { low: 'sonnet', medium: 'haiku' } } }),
+      ).toThrow(/medium/);
+    });
+
+    it('ResolveConfig_HighTierHaiku_Rejected', () => {
+      // high → haiku is rejected outright — the high-tier floor is sonnet. The
+      // structured error names the high cell and haiku specifically.
+      expect(() =>
+        resolveConfig({ agents: { 'tier-models': { high: 'haiku' } } }),
+      ).toThrow(/agents\.tier-models\.high/);
+      expect(() =>
+        resolveConfig({ agents: { 'tier-models': { high: 'haiku' } } }),
+      ).toThrow(/haiku/);
+    });
+
+    it('ResolveConfig_AllHaikuTierModels_RejectedByHighFloor', () => {
+      // An all-haiku table is technically monotone (0 ≤ 0 ≤ 0) but still fails
+      // the high-tier floor — the high→haiku rule is checked first and names the
+      // specific cell.
+      expect(() =>
+        resolveConfig({ agents: { 'tier-models': { low: 'haiku', medium: 'haiku', high: 'haiku' } } }),
+      ).toThrow(/agents\.tier-models\.high/);
+    });
+
+    it('ResolveConfig_TierModels_Frozen', () => {
+      // The resolved tier table is deep-frozen alongside the rest of agents.
+      const resolved = resolveConfig({});
+      expect(Object.isFrozen(resolved.agents.tierModels)).toBe(true);
+    });
+
+    it('ResolveConfig_TierModels_DoesNotFreezeCallerOverride', () => {
+      // Mirrors resolveConfig_DoesNotFreezeCallerParams — deepFreeze must not
+      // reach into the caller-owned override object.
+      const override = { high: 'sonnet' as const };
+      resolveConfig({ agents: { 'tier-models': override } });
+      expect(Object.isFrozen(override)).toBe(false);
+    });
+  });
+
   describe('verification resolution', () => {
     it('ResolveConfig_NoVerificationBlock_DefaultsToEmptyOverlay', () => {
       // A config with no `verification:` block resolves to an empty override
