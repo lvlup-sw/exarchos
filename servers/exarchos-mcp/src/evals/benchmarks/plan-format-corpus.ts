@@ -242,7 +242,7 @@ function main(): void {
   out.push('');
   out.push('## Dimension 1 — model & agent selection (arm E)');
   out.push('');
-  out.push('Exarchos routes model via `classifyTaskCore` (scaffolding-keyword / testLayer / deps / file-count), **independent of `riskTier`**. Defaults: `scaffolder→haiku`, `implementer→opus`.');
+  out.push('Exarchos routes model via the tier policy (`resolveModelForTask` keyed on the resolved `riskTier`; planner stamps win per #1669), applied on top of `classifyTaskCore` (scaffolding-keyword / testLayer / deps / file-count), which still selects the agent lane. Defaults (`tierModels`): `low→haiku`, `medium→sonnet`, `high→opus` (#1672).');
   out.push('');
   out.push(`- Agent mix: ${JSON.stringify(agentDist)}`);
   out.push(`- Model mix: ${JSON.stringify(modelDist)}`);
