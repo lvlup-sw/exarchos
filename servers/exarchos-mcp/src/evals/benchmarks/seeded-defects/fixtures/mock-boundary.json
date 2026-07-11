@@ -90,7 +90,7 @@
       },
       "head": {
         "src/adapters/http.js": "export async function get(url) {\n  const r = await fetch(url);\n  return r.json();\n}\n",
-        "src/adapters/http.test.js": "import { test } from 'node:test';\nimport assert from 'node:assert';\n\nconst fakeServer = { json: () => ({ ok: 1 }) };\n\ntest('get', () => { assert.ok(true); });\n"
+        "src/adapters/http.test.js": "import { test } from 'node:test';\nimport assert from 'node:assert';\n\nconst inMemoryServer = { json: () => ({ ok: 1 }) };\n\ntest('get', () => { assert.ok(true); });\n"
       }
     },
     {
