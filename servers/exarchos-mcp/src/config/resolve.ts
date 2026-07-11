@@ -1,5 +1,9 @@
 import type { ProjectConfig, VerificationPolicyOverlay } from './yaml-schema.js';
 import { DEFAULT_MAX_ITERATIONS } from '../orchestrate/escalation-policy.js';
+import type { RiskTier } from '../workflow/verification-policy.js';
+
+/** The model-identity vocabulary shared by every model-selection surface. */
+export type ModelId = 'opus' | 'sonnet' | 'haiku';
 
 // ─── Resolved Types ─────────────────────────────────────────────────────────
 
@@ -22,6 +26,22 @@ export interface ResolvedProjectConfig {
   readonly agents: {
     readonly defaultModel: 'opus' | 'sonnet' | 'haiku';
     readonly models: Readonly<Record<string, 'opus' | 'sonnet' | 'haiku'>>;
+    /**
+     * DR-1 (#1672): tier-keyed model policy — the model floor applied to a
+     * task by its verification-ladder `riskTier`, INDEPENDENT of the
+     * scaffolder/implementer agent split. This is the surface that drives
+     * task-classification model choice (see `resolveModelForTask`); the
+     * per-agent `models` map above governs only the non-dispatch surfaces
+     * (reviewer/fixer dispatch, agent generation).
+     *
+     * Documented defaults: `low → haiku`, `medium → sonnet`, `high → opus`.
+     * Overridable via `.exarchos.yml agents.tier-models`. Validated at
+     * config-resolution time (see {@link validateTierModels}): model strength
+     * (haiku < sonnet < opus) must be monotone non-decreasing across
+     * `low → medium → high`, and `high → haiku` is rejected (the high-tier
+     * floor is `sonnet`; `high → sonnet` is an allowed operator opt-in).
+     */
+    readonly tierModels: Readonly<Record<RiskTier, ModelId>>;
   };
   readonly review: {
     readonly dimensions: Readonly<Record<'D1' | 'D2' | 'D3' | 'D4' | 'D5', ResolvedDimensionConfig>>;
@@ -136,6 +156,13 @@ export const DEFAULTS: ResolvedProjectConfig = deepFreeze({
       scaffolder: 'haiku',
       reviewer: 'sonnet',
     },
+    // DR-1 (#1672): documented tier→model floor. Model strength is monotone
+    // non-decreasing across low → medium → high, and high ≥ sonnet.
+    tierModels: {
+      low: 'haiku',
+      medium: 'sonnet',
+      high: 'opus',
+    },
   },
   review: {
     dimensions: {
@@ -233,6 +260,56 @@ export const DEFAULTS: ResolvedProjectConfig = deepFreeze({
   },
 });
 
+// ─── Tier→Model Policy Validation (DR-1, #1672) ─────────────────────────────
+
+/**
+ * Total order over model strength. `haiku < sonnet < opus`. Load-bearing for
+ * the monotonicity guard below: a stronger model must never sit at a lower tier
+ * than a weaker one.
+ */
+const MODEL_STRENGTH: Readonly<Record<ModelId, number>> = { haiku: 0, sonnet: 1, opus: 2 };
+
+/** Tier order, weakest→strongest, used for the monotonicity sweep. */
+const TIER_ORDER: readonly RiskTier[] = ['low', 'medium', 'high'];
+
+/**
+ * Validate a fully-resolved tier→model table (DR-1, settled OQ2). Two rules,
+ * checked in this order so the error names the most specific offending cell:
+ *
+ *   1. `high → haiku` is REJECTED — the high-tier model floor is `sonnet`.
+ *      (`high → sonnet` is an allowed operator opt-in; `high → opus` is the
+ *      default.) Checked first so an all-`haiku` table — which is technically
+ *      monotone — still fails with the specific high-floor diagnostic.
+ *   2. Model strength must be MONOTONE NON-DECREASING across low → medium →
+ *      high: a lower tier may never carry a stronger model than a higher tier.
+ *
+ * Throws a structured config error naming the offending cell, matching the
+ * `.exarchos.yml`-field-scoped envelope used elsewhere in the config layer
+ * (see `load-exarchos-config.ts`).
+ */
+function validateTierModels(tierModels: Record<RiskTier, ModelId>): void {
+  // Rule 1 — high-tier floor. `high → haiku` is never permitted.
+  if (tierModels.high === 'haiku') {
+    throw new Error(
+      "Invalid .exarchos.yml agents.tier-models.high: 'haiku' is not permitted for the " +
+        "high tier — the high-tier model floor is 'sonnet' (haiku < sonnet < opus)",
+    );
+  }
+
+  // Rule 2 — monotone non-decreasing model strength across the tier order.
+  for (let i = 1; i < TIER_ORDER.length; i++) {
+    const prevTier = TIER_ORDER[i - 1];
+    const tier = TIER_ORDER[i];
+    if (MODEL_STRENGTH[tierModels[tier]] < MODEL_STRENGTH[tierModels[prevTier]]) {
+      throw new Error(
+        `Invalid .exarchos.yml agents.tier-models: model strength must be monotone ` +
+          `non-decreasing across tiers (haiku < sonnet < opus), but '${tier}' → ` +
+          `${tierModels[tier]} is weaker than '${prevTier}' → ${tierModels[prevTier]}`,
+      );
+    }
+  }
+}
+
 // ─── Normalization ──────────────────────────────────────────────────────────
 
 /**
@@ -311,6 +388,15 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
     ...DEFAULTS.agents.models,
     ...(project.agents?.models as Record<string, 'opus' | 'sonnet' | 'haiku'> ?? {}),
   };
+  // DR-1 (#1672): tier→model policy. Layer any `.exarchos.yml agents.tier-models`
+  // partial override over the documented defaults, then validate the FULL merged
+  // table (monotonicity + high-tier floor). The override is partial — an operator
+  // may re-map a single tier and inherit the rest.
+  const tierModels: Record<RiskTier, ModelId> = {
+    ...DEFAULTS.agents.tierModels,
+    ...(project.agents?.['tier-models'] as Partial<Record<RiskTier, ModelId>> ?? {}),
+  };
+  validateTierModels(tierModels);
 
   // ── Review ──
   const dimensions = {} as Record<DimensionKey, ResolvedDimensionConfig>;
@@ -408,7 +494,7 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
     : structuredClone(DEFAULTS.verification.policy);
 
   const resolved: ResolvedProjectConfig = {
-    agents: { defaultModel: agentDefaultModel, models: agentModels },
+    agents: { defaultModel: agentDefaultModel, models: agentModels, tierModels },
     review: {
       dimensions,
       gates,
