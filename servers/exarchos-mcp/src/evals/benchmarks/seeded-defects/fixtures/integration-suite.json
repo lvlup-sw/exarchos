@@ -1,0 +1,229 @@
+{
+  "gateClass": "integration-suite",
+  "gate": "check_integration_suite",
+  "branchPrefix": "seeded/integration-suite",
+  "defects": [
+    {
+      "id": "integration-suite/defect-01",
+      "defectMechanism": "broad-blast regression: 3 tests regress across 2 suites (broad-blast)",
+      "base": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
+        ".npmrc": "loglevel=silent\n",
+        "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
+        "report.json": "{\n  \"numFailedTestSuites\": 0,\n  \"numFailedTests\": 0,\n  \"numTotalTests\": 42,\n  \"testResults\": []\n}\n",
+        "src/a.js": "export const feature1 = () => 1;\n",
+        "src/b.js": "export const feature2 = () => 2;\n",
+        "src/c.js": "export const feature3 = () => 3;\n"
+      },
+      "head": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
+        ".npmrc": "loglevel=silent\n",
+        "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
+        "report.json": "{\n  \"numFailedTestSuites\": 2,\n  \"numFailedTests\": 3,\n  \"numTotalTests\": 42,\n  \"testResults\": []\n}\n",
+        "src/a.js": "export const feature11 = () => 11;\n",
+        "src/b.js": "export const feature12 = () => 12;\n",
+        "src/c.js": "export const feature13 = () => 13;\n"
+      }
+    },
+    {
+      "id": "integration-suite/defect-02",
+      "defectMechanism": "broad-blast regression: load-failure cascade — 4 suites fail at import, 0 failed tests (#1329)",
+      "base": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
+        ".npmrc": "loglevel=silent\n",
+        "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
+        "report.json": "{\n  \"numFailedTestSuites\": 0,\n  \"numFailedTests\": 0,\n  \"numTotalTests\": 42,\n  \"testResults\": []\n}\n",
+        "src/a.js": "export const feature1 = () => 1;\n",
+        "src/b.js": "export const feature2 = () => 2;\n",
+        "src/c.js": "export const feature3 = () => 3;\n"
+      },
+      "head": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
+        ".npmrc": "loglevel=silent\n",
+        "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
+        "report.json": "{\n  \"numFailedTestSuites\": 4,\n  \"numFailedTests\": 0,\n  \"numTotalTests\": 0,\n  \"testResults\": [\n    {\n      \"name\": \"src/a.test.js\",\n      \"status\": \"failed\",\n      \"assertionResults\": []\n    },\n    {\n      \"name\": \"src/b.test.js\",\n      \"status\": \"failed\",\n      \"assertionResults\": []\n    },\n    {\n      \"name\": \"src/c.test.js\",\n      \"status\": \"failed\",\n      \"assertionResults\": []\n    },\n    {\n      \"name\": \"src/d.test.js\",\n      \"status\": \"failed\",\n      \"assertionResults\": []\n    }\n  ]\n}\n",
+        "src/a.js": "export const feature11 = () => 11;\n",
+        "src/b.js": "export const feature12 = () => 12;\n",
+        "src/c.js": "export const feature13 = () => 13;\n"
+      }
+    },
+    {
+      "id": "integration-suite/defect-03",
+      "defectMechanism": "broad-blast regression: 1 test regresses",
+      "base": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
+        ".npmrc": "loglevel=silent\n",
+        "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
+        "report.json": "{\n  \"numFailedTestSuites\": 0,\n  \"numFailedTests\": 0,\n  \"numTotalTests\": 42,\n  \"testResults\": []\n}\n",
+        "src/a.js": "export const feature1 = () => 1;\n",
+        "src/b.js": "export const feature2 = () => 2;\n",
+        "src/c.js": "export const feature3 = () => 3;\n"
+      },
+      "head": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
+        ".npmrc": "loglevel=silent\n",
+        "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
+        "report.json": "{\n  \"numFailedTestSuites\": 1,\n  \"numFailedTests\": 1,\n  \"numTotalTests\": 40,\n  \"testResults\": []\n}\n",
+        "src/a.js": "export const feature11 = () => 11;\n",
+        "src/b.js": "export const feature12 = () => 12;\n",
+        "src/c.js": "export const feature13 = () => 13;\n"
+      }
+    },
+    {
+      "id": "integration-suite/defect-04",
+      "defectMechanism": "broad-blast regression: mixed — 2 failed tests + 1 load failure",
+      "base": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
+        ".npmrc": "loglevel=silent\n",
+        "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
+        "report.json": "{\n  \"numFailedTestSuites\": 0,\n  \"numFailedTests\": 0,\n  \"numTotalTests\": 42,\n  \"testResults\": []\n}\n",
+        "src/a.js": "export const feature1 = () => 1;\n",
+        "src/b.js": "export const feature2 = () => 2;\n",
+        "src/c.js": "export const feature3 = () => 3;\n"
+      },
+      "head": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
+        ".npmrc": "loglevel=silent\n",
+        "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
+        "report.json": "{\n  \"numFailedTestSuites\": 3,\n  \"numFailedTests\": 2,\n  \"numTotalTests\": 30,\n  \"testResults\": [\n    {\n      \"name\": \"src/x.test.js\",\n      \"status\": \"failed\",\n      \"assertionResults\": [\n        {},\n        {}\n      ]\n    },\n    {\n      \"name\": \"src/y.test.js\",\n      \"status\": \"failed\",\n      \"assertionResults\": []\n    }\n  ]\n}\n",
+        "src/a.js": "export const feature11 = () => 11;\n",
+        "src/b.js": "export const feature12 = () => 12;\n",
+        "src/c.js": "export const feature13 = () => 13;\n"
+      }
+    },
+    {
+      "id": "integration-suite/defect-05",
+      "defectMechanism": "broad-blast regression: 9 tests regress (large blast radius)",
+      "base": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
+        ".npmrc": "loglevel=silent\n",
+        "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
+        "report.json": "{\n  \"numFailedTestSuites\": 0,\n  \"numFailedTests\": 0,\n  \"numTotalTests\": 42,\n  \"testResults\": []\n}\n",
+        "src/a.js": "export const feature1 = () => 1;\n",
+        "src/b.js": "export const feature2 = () => 2;\n",
+        "src/c.js": "export const feature3 = () => 3;\n"
+      },
+      "head": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
+        ".npmrc": "loglevel=silent\n",
+        "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
+        "report.json": "{\n  \"numFailedTestSuites\": 5,\n  \"numFailedTests\": 9,\n  \"numTotalTests\": 60,\n  \"testResults\": []\n}\n",
+        "src/a.js": "export const feature11 = () => 11;\n",
+        "src/b.js": "export const feature12 = () => 12;\n",
+        "src/c.js": "export const feature13 = () => 13;\n"
+      }
+    }
+  ],
+  "controls": [
+    {
+      "id": "integration-suite/control-01",
+      "defectMechanism": "clean suite — 42 tests pass, no load failures",
+      "base": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
+        ".npmrc": "loglevel=silent\n",
+        "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
+        "report.json": "{\n  \"numFailedTestSuites\": 0,\n  \"numFailedTests\": 0,\n  \"numTotalTests\": 42,\n  \"testResults\": []\n}\n",
+        "src/a.js": "export const feature1 = () => 1;\n",
+        "src/b.js": "export const feature2 = () => 2;\n",
+        "src/c.js": "export const feature3 = () => 3;\n"
+      },
+      "head": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
+        ".npmrc": "loglevel=silent\n",
+        "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
+        "report.json": "{\n  \"numFailedTestSuites\": 0,\n  \"numFailedTests\": 0,\n  \"numTotalTests\": 42,\n  \"testResults\": []\n}\n",
+        "src/a.js": "export const feature11 = () => 11;\n",
+        "src/b.js": "export const feature12 = () => 12;\n",
+        "src/c.js": "export const feature13 = () => 13;\n"
+      }
+    },
+    {
+      "id": "integration-suite/control-02",
+      "defectMechanism": "clean suite — 50 tests pass, no load failures",
+      "base": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
+        ".npmrc": "loglevel=silent\n",
+        "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
+        "report.json": "{\n  \"numFailedTestSuites\": 0,\n  \"numFailedTests\": 0,\n  \"numTotalTests\": 42,\n  \"testResults\": []\n}\n",
+        "src/a.js": "export const feature1 = () => 1;\n",
+        "src/b.js": "export const feature2 = () => 2;\n",
+        "src/c.js": "export const feature3 = () => 3;\n"
+      },
+      "head": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
+        ".npmrc": "loglevel=silent\n",
+        "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
+        "report.json": "{\n  \"numFailedTestSuites\": 0,\n  \"numFailedTests\": 0,\n  \"numTotalTests\": 50,\n  \"testResults\": []\n}\n",
+        "src/a.js": "export const feature11 = () => 11;\n",
+        "src/b.js": "export const feature12 = () => 12;\n",
+        "src/c.js": "export const feature13 = () => 13;\n"
+      }
+    },
+    {
+      "id": "integration-suite/control-03",
+      "defectMechanism": "clean suite — 7 tests pass, no load failures",
+      "base": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
+        ".npmrc": "loglevel=silent\n",
+        "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
+        "report.json": "{\n  \"numFailedTestSuites\": 0,\n  \"numFailedTests\": 0,\n  \"numTotalTests\": 42,\n  \"testResults\": []\n}\n",
+        "src/a.js": "export const feature1 = () => 1;\n",
+        "src/b.js": "export const feature2 = () => 2;\n",
+        "src/c.js": "export const feature3 = () => 3;\n"
+      },
+      "head": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
+        ".npmrc": "loglevel=silent\n",
+        "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
+        "report.json": "{\n  \"numFailedTestSuites\": 0,\n  \"numFailedTests\": 0,\n  \"numTotalTests\": 7,\n  \"testResults\": []\n}\n",
+        "src/a.js": "export const feature11 = () => 11;\n",
+        "src/b.js": "export const feature12 = () => 12;\n",
+        "src/c.js": "export const feature13 = () => 13;\n"
+      }
+    },
+    {
+      "id": "integration-suite/control-04",
+      "defectMechanism": "clean suite — 128 tests pass, no load failures",
+      "base": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
+        ".npmrc": "loglevel=silent\n",
+        "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
+        "report.json": "{\n  \"numFailedTestSuites\": 0,\n  \"numFailedTests\": 0,\n  \"numTotalTests\": 42,\n  \"testResults\": []\n}\n",
+        "src/a.js": "export const feature1 = () => 1;\n",
+        "src/b.js": "export const feature2 = () => 2;\n",
+        "src/c.js": "export const feature3 = () => 3;\n"
+      },
+      "head": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
+        ".npmrc": "loglevel=silent\n",
+        "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
+        "report.json": "{\n  \"numFailedTestSuites\": 0,\n  \"numFailedTests\": 0,\n  \"numTotalTests\": 128,\n  \"testResults\": []\n}\n",
+        "src/a.js": "export const feature11 = () => 11;\n",
+        "src/b.js": "export const feature12 = () => 12;\n",
+        "src/c.js": "export const feature13 = () => 13;\n"
+      }
+    },
+    {
+      "id": "integration-suite/control-05",
+      "defectMechanism": "clean suite — 33 tests pass, no load failures",
+      "base": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
+        ".npmrc": "loglevel=silent\n",
+        "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
+        "report.json": "{\n  \"numFailedTestSuites\": 0,\n  \"numFailedTests\": 0,\n  \"numTotalTests\": 42,\n  \"testResults\": []\n}\n",
+        "src/a.js": "export const feature1 = () => 1;\n",
+        "src/b.js": "export const feature2 = () => 2;\n",
+        "src/c.js": "export const feature3 = () => 3;\n"
+      },
+      "head": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
+        ".npmrc": "loglevel=silent\n",
+        "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
+        "report.json": "{\n  \"numFailedTestSuites\": 0,\n  \"numFailedTests\": 0,\n  \"numTotalTests\": 33,\n  \"testResults\": []\n}\n",
+        "src/a.js": "export const feature11 = () => 11;\n",
+        "src/b.js": "export const feature12 = () => 12;\n",
+        "src/c.js": "export const feature13 = () => 13;\n"
+      }
+    }
+  ]
+}

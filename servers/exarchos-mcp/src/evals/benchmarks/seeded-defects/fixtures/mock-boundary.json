@@ -1,0 +1,119 @@
+{
+  "gateClass": "mock-boundary",
+  "gate": "check_mock_boundary",
+  "branchPrefix": "seeded/mock-boundary",
+  "defects": [
+    {
+      "id": "mock-boundary/defect-01",
+      "defectMechanism": "over-mocked boundary: mocks unowned npm dep 'axios'",
+      "base": {
+        "src/adapters/http.js": "export async function get(url) {\n  const r = await fetch(url);\n  return r.json();\n}\n"
+      },
+      "head": {
+        "src/adapters/http.js": "export async function get(url) {\n  const r = await fetch(url);\n  return r.json();\n}\n",
+        "src/adapters/http.test.js": "import { test } from 'node:test';\nimport assert from 'node:assert';\n\nvi.mock('axios');\n\ntest('get', () => { assert.ok(true); });\n"
+      }
+    },
+    {
+      "id": "mock-boundary/defect-02",
+      "defectMechanism": "over-mocked boundary: mocks unowned npm dep 'node-fetch'",
+      "base": {
+        "src/adapters/http.js": "export async function get(url) {\n  const r = await fetch(url);\n  return r.json();\n}\n"
+      },
+      "head": {
+        "src/adapters/http.js": "export async function get(url) {\n  const r = await fetch(url);\n  return r.json();\n}\n",
+        "src/adapters/http.test.js": "import { test } from 'node:test';\nimport assert from 'node:assert';\n\njest.mock('node-fetch');\n\ntest('get', () => { assert.ok(true); });\n"
+      }
+    },
+    {
+      "id": "mock-boundary/defect-03",
+      "defectMechanism": "over-mocked boundary: mocks unowned driver 'pg'",
+      "base": {
+        "src/adapters/http.js": "export async function get(url) {\n  const r = await fetch(url);\n  return r.json();\n}\n"
+      },
+      "head": {
+        "src/adapters/http.js": "export async function get(url) {\n  const r = await fetch(url);\n  return r.json();\n}\n",
+        "src/adapters/http.test.js": "import { test } from 'node:test';\nimport assert from 'node:assert';\n\nvi.mock('pg');\n\ntest('get', () => { assert.ok(true); });\n"
+      }
+    },
+    {
+      "id": "mock-boundary/defect-04",
+      "defectMechanism": "over-mocked boundary: mocks unowned cloud SDK '@aws-sdk/client-s3'",
+      "base": {
+        "src/adapters/http.js": "export async function get(url) {\n  const r = await fetch(url);\n  return r.json();\n}\n"
+      },
+      "head": {
+        "src/adapters/http.js": "export async function get(url) {\n  const r = await fetch(url);\n  return r.json();\n}\n",
+        "src/adapters/http.test.js": "import { test } from 'node:test';\nimport assert from 'node:assert';\n\nvi.mock('@aws-sdk/client-s3');\n\ntest('get', () => { assert.ok(true); });\n"
+      }
+    },
+    {
+      "id": "mock-boundary/defect-05",
+      "defectMechanism": "over-mocked boundary: monkeypatches unowned lib 'requests'",
+      "base": {
+        "src/adapters/http.js": "export async function get(url) {\n  const r = await fetch(url);\n  return r.json();\n}\n"
+      },
+      "head": {
+        "src/adapters/http.js": "export async function get(url) {\n  const r = await fetch(url);\n  return r.json();\n}\n",
+        "src/adapters/http.test.js": "import { test } from 'node:test';\nimport assert from 'node:assert';\n\nmonkeypatch('requests');\n\ntest('get', () => { assert.ok(true); });\n"
+      }
+    }
+  ],
+  "controls": [
+    {
+      "id": "mock-boundary/control-01",
+      "defectMechanism": "mocks OWNED first-party module ./http.js",
+      "base": {
+        "src/adapters/http.js": "export async function get(url) {\n  const r = await fetch(url);\n  return r.json();\n}\n"
+      },
+      "head": {
+        "src/adapters/http.js": "export async function get(url) {\n  const r = await fetch(url);\n  return r.json();\n}\n",
+        "src/adapters/http.test.js": "import { test } from 'node:test';\nimport assert from 'node:assert';\n\nvi.mock('./http.js');\n\ntest('get', () => { assert.ok(true); });\n"
+      }
+    },
+    {
+      "id": "mock-boundary/control-02",
+      "defectMechanism": "mocks OWNED sibling ../adapters/http.js",
+      "base": {
+        "src/adapters/http.js": "export async function get(url) {\n  const r = await fetch(url);\n  return r.json();\n}\n"
+      },
+      "head": {
+        "src/adapters/http.js": "export async function get(url) {\n  const r = await fetch(url);\n  return r.json();\n}\n",
+        "src/adapters/http.test.js": "import { test } from 'node:test';\nimport assert from 'node:assert';\n\nvi.mock('../adapters/http.js');\n\ntest('get', () => { assert.ok(true); });\n"
+      }
+    },
+    {
+      "id": "mock-boundary/control-03",
+      "defectMechanism": "hermetic fixture — no mock at all",
+      "base": {
+        "src/adapters/http.js": "export async function get(url) {\n  const r = await fetch(url);\n  return r.json();\n}\n"
+      },
+      "head": {
+        "src/adapters/http.js": "export async function get(url) {\n  const r = await fetch(url);\n  return r.json();\n}\n",
+        "src/adapters/http.test.js": "import { test } from 'node:test';\nimport assert from 'node:assert';\n\nconst inMemoryServer = { json: () => ({ ok: 1 }) };\n\ntest('get', () => { assert.ok(true); });\n"
+      }
+    },
+    {
+      "id": "mock-boundary/control-04",
+      "defectMechanism": "real assertion against owned code — no mock",
+      "base": {
+        "src/adapters/http.js": "export async function get(url) {\n  const r = await fetch(url);\n  return r.json();\n}\n"
+      },
+      "head": {
+        "src/adapters/http.js": "export async function get(url) {\n  const r = await fetch(url);\n  return r.json();\n}\n",
+        "src/adapters/http.test.js": "import { test } from 'node:test';\nimport assert from 'node:assert';\n\nconst owned = 1;\n\ntest('get', () => { assert.ok(true); });\n"
+      }
+    },
+    {
+      "id": "mock-boundary/control-05",
+      "defectMechanism": "spies OWNED module ./http.js",
+      "base": {
+        "src/adapters/http.js": "export async function get(url) {\n  const r = await fetch(url);\n  return r.json();\n}\n"
+      },
+      "head": {
+        "src/adapters/http.js": "export async function get(url) {\n  const r = await fetch(url);\n  return r.json();\n}\n",
+        "src/adapters/http.test.js": "import { test } from 'node:test';\nimport assert from 'node:assert';\n\nvi.spyOn('./http.js');\n\ntest('get', () => { assert.ok(true); });\n"
+      }
+    }
+  ]
+}
