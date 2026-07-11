@@ -20,6 +20,7 @@
     "dist",
     "**/*.test.ts",
     "**/*.bench.ts",
-    "**/__tests__/**"
+    "**/__tests__/**",
+    "src/evals/benchmarks/seeded-defects/fixtures/**"
   ]
 }

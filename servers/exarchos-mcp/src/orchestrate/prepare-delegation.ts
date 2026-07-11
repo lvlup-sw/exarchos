@@ -289,12 +289,44 @@ export function deriveBoundaryTouching(task: TaskInput): boolean {
 /**
  * Resolves the recommended model for a given agent type from the agent config.
  * Falls back to `defaultModel` when no per-agent override exists.
+ *
+ * Legacy agent-keyed resolution. As of DR-1 (#1672) this NO LONGER drives
+ * task-classification model choice — {@link resolveModelForTask} (tier-keyed)
+ * does. `resolveModel` is retained for the non-dispatch surfaces (reviewer/fixer
+ * dispatch, agent generation) that still key the model off the agent role.
  */
 function resolveModel(
   agent: 'scaffolder' | 'implementer',
   agentConfig: ResolvedProjectConfig['agents'],
 ): 'opus' | 'sonnet' | 'haiku' {
   return agentConfig.models[agent] ?? agentConfig.defaultModel;
+}
+
+/**
+ * DR-1 (#1672 / #1670): resolve the dispatch model for a task from its
+ * verification-ladder `riskTier`, via the Task-001 `agents.tierModels` policy.
+ *
+ * This is the model that drives task classification, and it OVERRIDES the legacy
+ * agent-keyed {@link resolveModel}. The `agent` split (scaffolder/implementer) is
+ * resolved SEPARATELY by {@link classifyTaskCore} and is deliberately NOT
+ * consulted here: the tier is authoritative for the model. That is the #1670 fix
+ * — before this, every high-tier task that happened to carry a scaffolding
+ * keyword collapsed to `haiku` (scaffolder→haiku), under-powering the dispatch;
+ * now a high-tier scaffolding task keeps `agent=scaffolder` yet dispatches on the
+ * high-tier model.
+ *
+ * `agent` is accepted for call-site symmetry with {@link resolveModel} and to
+ * keep the classify-seam signature explicit. `tierModels` is always fully
+ * populated (`DEFAULTS.agents.tierModels`, validated at `resolveConfig` time),
+ * so this is a TOTAL lookup — never undefined.
+ */
+function resolveModelForTask(
+  agent: 'scaffolder' | 'implementer',
+  riskTier: RiskTier,
+  agentConfig: ResolvedProjectConfig['agents'],
+): 'opus' | 'sonnet' | 'haiku' {
+  void agent; // tier is authoritative; the agent split is owned by classifyTaskCore.
+  return agentConfig.tierModels[riskTier];
 }
 
 /**
@@ -309,6 +341,14 @@ type CoreClassification = Omit<
 
 /**
  * Legacy agent/complexity/effort heuristic.
+ *
+ * NOTE (DR-1, #1672): the `recommendedModel` set on each branch below is the
+ * legacy agent-keyed value and is a PLACEHOLDER only — {@link classifyTask}
+ * unconditionally overrides it with the tier-keyed {@link resolveModelForTask}
+ * (see line ~475). Do NOT consume `CoreClassification.recommendedModel` as the
+ * dispatched model: it is the pre-DR-1 agent-keyed value and reading it would
+ * reintroduce the flat-model collapse (#1670) this fix removed. The dispatched
+ * model is always the tier-keyed one on `TaskClassification`.
  *
  * Priority order:
  *   0. testLayer: "acceptance" → high/implementer (highest priority)
@@ -435,6 +475,12 @@ export function classifyTask(
   const boundaryTouching = deriveBoundaryTouching(task);
   return {
     ...core,
+    // DR-1 (#1672/#1670): the tier policy OVERRIDES the model that
+    // classifyTaskCore derived from the agent split. classifyTaskCore still owns
+    // agent/complexity/effort, but the dispatched model now tracks blast-radius
+    // `riskTier` (planner stamps win, resolved above) — so the corpus model mix
+    // tracks the tier distribution instead of collapsing to a single model.
+    recommendedModel: resolveModelForTask(core.recommendedAgent, riskTier, agentConfig),
     riskTier,
     boundaryTouching,
     verificationSequence: ladderGateNames(
