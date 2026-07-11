@@ -93,13 +93,14 @@ The DR-N identifiers below are the single source the decomposition traces agains
 
 ### DR-2: Seeded-defect corpus — the shared failure-tail substrate — #1675, Bundle A
 
-Build a corpus of inputs that *should* fail verification, with matched known-good controls — the failure tail #1670's corpus never produced. Six defect classes from #1675: vacuous/tautological tests targeting `check_test_adequacy`; a broken seam contract targeting `check_contract_drift`; an over-mocked boundary targeting `check_mock_boundary`; a type/lint violation targeting `check_static_analysis`; a broad-blast regression targeting `check_integration_suite`; and a dropped edge case. The dropped-edge-case class has **no production gate that could catch it** — it is detected only by a hidden oracle, an eval-side grading device — so it serves as the escaped-defect substrate for the gate-policy replay and the ratchet, not as a row in the gate catch-rate table. This is a **declared deviation** from #1675's six-row table, with the rationale that a catch rate is only meaningful for a mechanical gate that exists.
+Build a corpus of inputs that *should* fail verification, with matched known-good controls — the failure tail #1670's corpus never produced. Six defect classes from #1675: vacuous/tautological tests targeting `check_test_adequacy`; a broken seam contract targeting `check_contract_drift`; an over-mocked boundary targeting `check_mock_boundary`; a type/lint violation targeting `check_static_analysis`; a broad-blast regression targeting `check_integration_suite`; and a dropped edge case. The dropped-edge-case class has **no production gate that could catch it** — it is detected only by a hidden oracle, an eval-side grading device — so it serves as the escaped-defect substrate for the gate-policy replay, not as a row in the gate catch-rate table (the ratchet reuses the contract-break class, not this one). This is a **declared deviation** from #1675's six-row table, with the rationale that a catch rate is only meaningful for a mechanical gate that exists.
 
 **Acceptance criteria:**
 - At least 5 seeded defects and 5 matched good controls per class, each a deterministic fixture file-tree loadable without a live LLM call.
 - Each fixture manifest carries `{ gate, defectMechanism, expectedVerdict, riskTier, boundaryTouching }`, where `riskTier`/`boundaryTouching` are **derived by the production classifier** (`deriveRiskTier`/`deriveBoundaryTouching`) from the fixture's real file paths — never hand-assigned — so downstream policy replay measures the production ladder's own tiering.
 - The corpus is exposed through one loader API consumed by the catch-rate benchmark, the gate-policy replay, and the regression ratchet — single source, no per-pillar copies.
 - The dropped-edge-case class ships with its hidden-oracle detector; its exclusion from the gate catch-rate table is documented in the corpus and in the Bundle-A findings doc.
+- The honest-scope framing states that derived tiers are exogenous to the *replay* (which never reassigns them), not to corpus construction — the author's file-path choices steer tiers; the multi-tier-span test and per-tier escape breakdowns make that visible rather than eliminating it.
 
 ### DR-3: Mechanical-gate catch-rate benchmark — #1675, Bundle A
 
@@ -116,7 +117,7 @@ Drive the real gate handlers — the **five** mechanical `exarchos_orchestrate` 
 #1670 Exp 3 ruled out a *large* steer effect on an easy corpus whose adequacy gate saturated in every cell. Close the confirm-or-kill: a harder corpus (more/deeper edge cases, where a bare test is likely only partial) and a finer, non-saturating metric — mutation score as a continuous kill-fraction plus a discovered-edge-case count. Mutants come from **hand-authored, deterministic mutant sets committed with the corpus** — at least 4 per task variant (boundary flip, off-by-one, dropped guard/edge branch, wrong operator); kill-fraction = killed/authored. Same isolate-one-variable design: both arms implement + write a durable test; only `buildVerificationNote`'s content varies; opus + sonnet; ≥ 5 reps/cell.
 
 **Acceptance criteria:**
-- The adequacy metric is demonstrably non-saturating, with a concrete validity threshold: the run is **valid only if the bare arm's kill-fraction is below 1.0 in at least 25% of cells**; otherwise the run is marked invalid — structurally distinct from a null.
+- The adequacy metric is demonstrably non-saturating, with a concrete validity threshold: a **cell is one variant × model × rep grading unit**, and the run is **valid only if the bare arm's kill-fraction is below 1.0 in at least 25% of cells**; otherwise the run is marked invalid — structurally distinct from a null. The findings doc also reports the bare arm's full kill-fraction distribution so near-1.0 headroom is visible; the 25% threshold is the hard validity floor, not the whole story.
 - Mutant sets are committed, deterministic, and ≥ 4 per task variant; the kill-fraction is continuous (killed/authored), not pass/fail at 1.0.
 - A decision backed by data: either a measured steer effect with effect size + CI, or a confirmed null on a metric that could have shown one — in which case the steer prose is de-emphasized/retired in favor of the mechanical gates.
 
@@ -135,13 +136,14 @@ Once DR-1 lands, benchmark exarchos tier-keyed routing against native Claude Cod
 
 **Acceptance criteria:**
 - The native arm runs unpinned; the harness records the per-subagent model distribution native chose.
+- The exarchos arm's realized tier/model mix is reported alongside native's distribution, and a **pre-flight tier-mix check** over the shared corpus runs before any paid execution: if the classifier-derived tiers are degenerate (a single tier — likely for small single-file variants, which derive medium), the corpus is first augmented with variants spanning at least two tiers, or the comparison's scope is explicitly narrowed in the caveat ledger before spend.
 - Both arms share one corpus and one mechanical outcome grader (the DR-4 hidden oracles); the committed price table pins the dollar denominator.
 - Runs where native does not delegate yield explicit blocked records with no model distribution — never a fabricated one.
 - An outcome-per-dollar comparison between exarchos routing and native routing, with a caveat ledger stating what remains unmeasurable if native routing proves nondeterministic.
 
 ### DR-7: Pillar 4 — forcing-function durability and consistency — #1676, Bundle B
 
-Two measurements invisible to one-shot means. **Ratchet — a deterministic counterfactual ablation** of the enforced test's marginal protection: for each future-change scenario (reusing DR-2's contract-break class), measure (a) the enforced arm's catch rate — the gate-enforced committed test runs and may still miss, so this is a distribution, not an assumption — and (b) the baseline arm's **residual detection**: the enforced test is removed and the remaining surfaces (typecheck, the rest of the suite) run — both arms measured, nothing scored by fiat. The behavioral question the ablation deliberately does not answer — do un-gated agents retain tests at all — is measured by the variance arm, not assumed here. **Variance:** run task batches through the **identical exarchos pipeline** in both arms, differing in exactly one variable — the without-arm disables phase-gate enforcement and the pre-push hook via config — and measure the rate of unverified or regressing merges across ≥ 2 models, reported as a distribution/tail, never a mean.
+Two measurements invisible to one-shot means. **Ratchet — a deterministic counterfactual ablation** of the enforced test's marginal protection: for each future-change scenario (reusing DR-2's contract-break class), measure (a) the enforced arm's catch rate — the gate-enforced committed test runs and may still miss, so this is a distribution, not an assumption — and (b) the baseline arm's **residual detection**: the enforced test is removed and the remaining surfaces (typecheck, the rest of the suite) run — both arms measured, nothing scored by fiat. The behavioral question the ablation deliberately does not answer — do un-gated agents retain tests at all — is measured by the variance arm, not assumed here. **Variance:** run a **pinned, committed task batch** — the DR-4 harder-corpus variants, identical across arms — through the **identical exarchos pipeline** in both arms, differing in exactly one variable — the without-arm disables phase-gate enforcement and the pre-push hook via config — and measure the rate of unverified or regressing merges across ≥ 2 models, reported as a distribution/tail, never a mean. Run classification is mechanical: **regressing** if the variant's hidden oracle or its committed mutant-set suite fails post-merge; **unverified** if the merge landed without its gate-run verification evidence.
 
 **Acceptance criteria:**
 - Ratchet: catch-rate distribution for the enforced arm and residual-detection rate for the ablated baseline over at least 5 future-change scenarios; the findings doc states the ablation framing explicitly.
@@ -186,7 +188,7 @@ The decomposition maps every task to one or more DR-N from the `## Requirements`
 | DR-5 | Pillar 2 gate-selection Pareto | 004, 006, 010 |
 | DR-6 | Pillar 2 model-routing arm vs native unpinned | 011, 012 |
 | DR-7 | Pillar 4 ratchet ablation + variance | 013, 014, 016 |
-| DR-8 | Method integrity + fail-honest | 003, 004, 005, 006, 008, 009, 010, 011, 012, 013, 014, 015, 016 |
+| DR-8 | Method integrity + fail-honest | 003, 004, 005, 006, 007, 008, 009, 010, 011, 012, 013, 014, 015, 016 |
 | DR-9 | Verdict synthesis | 015 |
 
 ### Tasks
@@ -237,9 +239,9 @@ Add `resolveModelForTask(agent, riskTier, config)` and apply it in `classifyTask
 - `servers/exarchos-mcp/src/evals/benchmarks/seeded-defects/corpus.test.ts`
 - `servers/exarchos-mcp/src/evals/benchmarks/seeded-defects/fixtures/`
 
-Six defect classes per DR-2 — five targeting the mechanical gates (vacuous test, broken seam contract, over-mocked boundary, type/lint violation, broad-blast regression) plus the dropped-edge-case class with its hidden-oracle detector — each with at least 5 seeded defects and 5 matched good controls, generalizing the `grade.test.ts` vacuous-vs-genuine fixture. Fixtures are deterministic file trees loadable without any LLM call; each manifest carries `{ gate, defectMechanism, expectedVerdict, riskTier, boundaryTouching }` where the tier stamps are **derived by the production classifier** (`deriveRiskTier`/`deriveBoundaryTouching`) from the fixture's real file paths at corpus-build time — never hand-assigned (the anti-pinning contract). One loader API (`loadSeededCorpus(gateClass?)`) is the single source consumed by tasks 004, 006, and 013.
+Six defect classes per DR-2 — five targeting the mechanical gates (vacuous test, broken seam contract, over-mocked boundary, type/lint violation, broad-blast regression) plus the dropped-edge-case class with its hidden-oracle detector — each with at least 5 seeded defects and 5 matched good controls, generalizing the `grade.test.ts` vacuous-vs-genuine fixture. Fixtures are stored as **inert template assets** (JSON/plain-text file maps materialized into disposable worktrees at load time — never compiled TypeScript), and the fixtures directory is excluded from the MCP server's tsconfig/lint surfaces so intentionally type-broken or lint-violating fixture content cannot fail repo CI. Fixtures are deterministic and loadable without any LLM call; each manifest carries `{ gate, defectMechanism, expectedVerdict, riskTier, boundaryTouching }` where the tier stamps are **derived by the production classifier** (`deriveRiskTier`/`deriveBoundaryTouching`) from the fixture's real file paths at corpus-build time — never hand-assigned (the anti-pinning contract). One loader API (`loadSeededCorpus(gateClass?)`) is the single source consumed by tasks 004, 006, and 013.
 
-**Verification:** medium — scoped tests + kill-probe. Tests: SeededCorpus_EveryClass_HasFiveDefectsAndFiveControls; SeededCorpus_Load_DeterministicAndOffline; SeededCorpus_Manifest_DeclaresGateMechanismVerdict; SeededCorpus_TierStamps_MatchProductionClassifierDerivation; SeededCorpus_DefectClasses_SpanMultipleTiers.
+**Verification:** medium — scoped tests + kill-probe. Tests: SeededCorpus_EveryClass_HasFiveDefectsAndFiveControls; SeededCorpus_Load_DeterministicAndOffline; SeededCorpus_Manifest_DeclaresGateMechanismVerdict; SeededCorpus_TierStamps_MatchProductionClassifierDerivation; SeededCorpus_DefectClasses_SpanMultipleTiers; SeededCorpus_FixtureAssets_ExcludedFromTypecheckAndLint.
 **Dependencies:** None
 **Parallelizable:** Yes
 
@@ -270,7 +272,7 @@ Drive the five real mechanical gate handlers — `check_test_adequacy`, `check_s
 - `docs/evals/2026-07-10-1675-gate-catch-rate.md`
 - `docs/evals/data/2026-07-10/generate_charts.py`
 
-Executed findings doc to the #1670 standard: the per-gate catch-rate + false-positive table from Task 004's CSV, deterministic chart regeneration, a Reproduce block, pinned provenance, and an honest-scope section — including the declared dropped-edge-case deviation (no production gate exists for it) and its rationale. Verdict flags: any gate with a low catch rate or high false-positive rate is explicitly flagged for redesign or removal. If catch-rate CIs are too wide at N=5, raise N in Task 003 before finalizing (Open Question 1).
+Executed findings doc to the #1670 standard: the per-gate catch-rate + false-positive table from Task 004's CSV, deterministic chart regeneration, a Reproduce block, pinned provenance, and an honest-scope section covering: the declared dropped-edge-case deviation (no production gate exists for it) and its rationale; wall-clock cost as a machine-dependent snapshot (the doc records the measurement host — re-runs reproduce the table shape, not identical milliseconds); gate cost on small fixture trees understating production cost, especially for `check_integration_suite`; and derived tiers being exogenous to the replay, not to corpus construction. Verdict flags: any gate with a low catch rate or high false-positive rate is explicitly flagged for redesign or removal. If catch-rate CIs are too wide at N=5, raise N in Task 003 before finalizing (Open Question 1).
 
 **Verification:** low — static analysis; charts regenerate byte-identically from the committed CSV; links resolve within the changed docs only.
 **Dependencies:** 004
@@ -297,16 +299,16 @@ Replay the Task-003 corpus through three gate-selection policies — tier-scaled
 
 **Risk Tier:** medium
 **Test Layer:** unit
-**Implements:** DR-4
+**Implements:** DR-4, DR-8
 **Bundle:** B
 **Files:**
 - `docs/evals/quality-ab/tasks/`
 - `docs/evals/quality-ab/run-underspec.ts`
 - `docs/evals/quality-ab/run-underspec.test.ts`
 
-Author new task variants with more and deeper edge cases — chosen so a bare durable test is likely only partial — keeping the validated hidden-oracle pattern, and commit a deterministic mutant set per variant: at least 4 hand-authored mutants (boundary flip, off-by-one, dropped guard/edge branch, wrong operator). Extend the existing symmetric-prompt runner to the new corpus with resumable capture (a partial run extends, never re-buys). Both arms implement + test; only `buildVerificationNote`'s content varies — the isolate-one-variable contract is structural in the runner, not prose.
+Author new task variants with more and deeper edge cases — chosen so a bare durable test is likely only partial — keeping the validated hidden-oracle pattern, and commit a deterministic mutant set per variant: at least 4 hand-authored mutants (boundary flip, off-by-one, dropped guard/edge branch, wrong operator). Because this corpus is also the shared DR-6 comparison corpus and the DR-7 variance batch, its variants must span **at least two classifier-derived risk tiers** (include multi-file and boundary-glob variants; small single-file variants all derive medium) so the tier-keyed exarchos arm has routing variation to exercise. Extend the existing symmetric-prompt runner to the new corpus with resumable capture (a partial run extends, never re-buys). Both arms implement + test; only `buildVerificationNote`'s content varies — the isolate-one-variable contract is structural in the runner, not prose.
 
-**Verification:** medium — scoped tests + kill-probe. Tests: RunUnderspec_HarderCorpus_LoadsAllVariantsWithMutantSets; RunUnderspec_EveryVariant_HasAtLeastFourMutants; RunUnderspec_Arms_DifferOnlyInSteerContent; RunUnderspec_Resume_ExtendsPartialCapture.
+**Verification:** medium — scoped tests + kill-probe. Tests: RunUnderspec_HarderCorpus_LoadsAllVariantsWithMutantSets; RunUnderspec_EveryVariant_HasAtLeastFourMutants; RunUnderspec_Corpus_SpansAtLeastTwoDerivedTiers; RunUnderspec_Arms_DifferOnlyInSteerContent; RunUnderspec_Resume_ExtendsPartialCapture.
 **Dependencies:** None
 **Parallelizable:** Yes
 
@@ -351,7 +353,7 @@ Run the Task-007 harness with Task-008 grading: opus + sonnet, ≥ 5 reps/cell, 
 **Files:**
 - `docs/evals/2026-07-10-1674-gate-selection-pareto.md`
 
-Findings doc over Task 006's CSV: the safety-vs-cost table/curve for the three policies — cost from the measured wall-clock + payload-token columns — and the verdict on whether tier-scaled selection Pareto-dominates, with per-tier escape breakdowns shown. Honest-scope section: escaped-defect rate is measured on seeded defects, which bound the failure tail the corpus encodes, not all possible defects; mechanical gates consume no LLM tokens, so cost is wall-clock + context-injection, not model spend.
+Findings doc over Task 006's CSV: the safety-vs-cost table/curve for the three policies — cost from the measured wall-clock + payload-token columns — and the verdict on whether tier-scaled selection Pareto-dominates, with per-tier escape breakdowns shown. Honest-scope section: escaped-defect rate is measured on seeded defects, which bound the failure tail the corpus encodes, not all possible defects; mechanical gates consume no LLM tokens, so cost is wall-clock + context-injection, not model spend; and the wall-clock half of the cost axis is a machine-dependent snapshot measured on small fixture trees — comparable across policies on the same host, not portable as absolute values.
 
 **Verification:** low — static; numbers regenerate from the committed CSV.
 **Dependencies:** 006
@@ -368,9 +370,9 @@ Findings doc over Task 006's CSV: the safety-vs-cost table/curve for the three p
 - `docs/evals/native-baseline/harness.test.ts`
 - `docs/evals/native-baseline/MECHANICS.md`
 
-Rebuild the harness to observe native Claude Code's real routing: never pass `--model`; drive plan-mode / dynamic-workflow dispatch rather than a flat `--allowedTools Task` prompt; parse per-subagent model IDs and per-run token spend from the transcript stream. Add the exarchos-side arm driver: dispatch the same Task-007 corpus tasks headlessly honoring the post-Task-002 `recommendedModel` per task, capturing the same outcome + spend observables. Fail-honest is structural: a run where native does not delegate yields a blocked record with no model distribution. Harness fidelity is tested against captured fixtures, as the #1670 harness was.
+Rebuild the harness to observe native Claude Code's real routing: never pass `--model`; drive plan-mode / dynamic-workflow dispatch rather than a flat `--allowedTools Task` prompt; parse per-subagent model IDs and per-run token spend from the transcript stream. Add the exarchos-side arm driver: dispatch the same Task-007 corpus tasks headlessly honoring the post-Task-002 `recommendedModel` per task, capturing the same outcome + spend observables plus the arm's realized tier/model mix. Include the DR-6 **pre-flight tier-mix check**: before any paid run, assert the corpus's classifier-derived tiers are non-degenerate, blocking spend otherwise. Fail-honest is structural: a run where native does not delegate yields a blocked record with no model distribution. Harness fidelity is tested against captured fixtures, as the #1670 harness was.
 
-**Verification:** medium — scoped tests + kill-probe. Tests: NativeHarness_NeverPassesModelFlag; NativeHarness_TranscriptFixture_ExtractsPerSubagentModelsAndSpend; NativeHarness_NoDelegation_EmitsBlockedRecordWithoutDistribution; ExarchosArm_DispatchHonorsTierKeyedRecommendedModel.
+**Verification:** medium — scoped tests + kill-probe. Tests: NativeHarness_NeverPassesModelFlag; NativeHarness_TranscriptFixture_ExtractsPerSubagentModelsAndSpend; NativeHarness_NoDelegation_EmitsBlockedRecordWithoutDistribution; ExarchosArm_DispatchHonorsTierKeyedRecommendedModel; ExarchosArm_PreflightTierMixCheck_BlocksDegenerateCorpusSpend.
 **Dependencies:** 002, 007
 **Parallelizable:** Yes
 
@@ -385,7 +387,7 @@ Rebuild the harness to observe native Claude Code's real routing: never pass `--
 - `docs/evals/data/2026-07-10/model-prices.json`
 - `docs/evals/2026-07-10-1674-model-routing-vs-native.md`
 
-With DR-1 landed (exarchos differentiates) and the Task-011 harness (native measured unpinned; exarchos arm driver ready), run both arms over the shared Task-007 corpus, grade outcomes mechanically with the Task-008 hidden-oracle grader, and price measured token spend via the committed `model-prices.json`. Report outcome-per-dollar (oracle pass rate per dollar) per arm; report native's chosen distribution as observed — if nondeterministic across reps, report the distribution with the caveat ledger per DR-8. Blocked runs appear as blocked records. Findings doc includes honest-scope section.
+With DR-1 landed (exarchos differentiates) and the Task-011 harness (native measured unpinned; exarchos arm driver ready; pre-flight tier-mix check green), run both arms over the shared Task-007 corpus, grade outcomes mechanically with the Task-008 hidden-oracle grader, and price measured token spend via the committed `model-prices.json`. Report outcome-per-dollar (oracle pass rate per dollar) per arm, **both arms' realized model distributions** (native's chosen mix and exarchos's tier-keyed mix) — if native is nondeterministic across reps, report the distribution with the caveat ledger per DR-8; if the exarchos mix is degenerate despite the pre-flight check, the comparison's scope is narrowed explicitly in the same ledger. Blocked runs appear as blocked records. Findings doc includes honest-scope section.
 
 **Verification:** low — static; numbers regenerate from the committed CSV + price table; every record carries provenance stamps.
 **Dependencies:** 008, 011
@@ -418,10 +420,10 @@ A deterministic counterfactual ablation of the enforced test's marginal protecti
 - `docs/evals/forcing-function/variance.ts`
 - `docs/evals/forcing-function/variance.test.ts`
 
-Build the harness that runs task batches end-to-end through the **identical exarchos pipeline** in both arms, differing in exactly one variable: the without-arm disables phase-gate enforcement and the pre-push hook via config — same phase machine, same prompts, same scaffolding, enforcement off. Classify each completed run mechanically as verified / unverified / regressing merge. Resumable capture; partial captures reported as partial. This is the operationally heaviest harness in the suite (Open Question 4) — feasibility spikes and per-run cost measurement are part of this task, executed runs are not.
+Build the harness that runs the **pinned variance batch** — the Task-007 harder-corpus variants, identical across arms — end-to-end through the **identical exarchos pipeline** in both arms, differing in exactly one variable: the without-arm disables phase-gate enforcement and the pre-push hook via config — same phase machine, same prompts, same scaffolding, enforcement off. Classify each completed run mechanically: **regressing** if the variant's hidden oracle or its committed mutant-set suite fails post-merge; **unverified** if the merge landed without its gate-run verification evidence; verified otherwise. Resumable capture; partial captures reported as partial. This is the operationally heaviest harness in the suite (Open Question 4) — feasibility spikes and per-run cost measurement are part of this task, executed runs are not.
 
-**Verification:** medium — scoped tests + kill-probe. Tests: Variance_Arms_DifferOnlyInEnforcementConfig; Variance_EnforcementArm_BlocksUnverifiedMerge; Variance_RunClassifier_LabelsVerifiedUnverifiedRegressing; Variance_PartialCapture_ReportedAsPartial.
-**Dependencies:** None
+**Verification:** medium — scoped tests + kill-probe. Tests: Variance_Batch_PinnedAndIdenticalAcrossArms; Variance_Arms_DifferOnlyInEnforcementConfig; Variance_EnforcementArm_BlocksUnverifiedMerge; Variance_RunClassifier_UsesOracleAndCommittedSuite; Variance_PartialCapture_ReportedAsPartial.
+**Dependencies:** 007
 **Parallelizable:** Yes
 
 ### Task 015: Verdict synthesis — which pillars earn their keep
@@ -458,7 +460,7 @@ Execute the Task-014 harness: ≥ 5 runs per arm across ≥ 2 models, arms diffe
 ### Parallelization
 
 **Bundle A** (PR 1): 001 → 002 is the production-fix chain; 003 → 004 → 005 is the corpus chain; the two chains run in parallel worktrees. This parallelizes #1672 and #1675 *within one PR* — a deliberate, declared refinement of the epic's "#1672 first, then #1675" sequencing: nothing in #1675 consumes #1672, so the dependency intent is preserved while both land together.
-**Bundle B** (PR 2, branched after Bundle A merges): wave 1 in parallel — 006, 007, 013, 014; wave 2 — 008 (after 007), 010 (after 006), 011 (after 002 + 007); wave 3 — 009 (after 007 + 008), 012 (after 008 + 011), 016 (after 013 + 014); 015 last, consuming all findings docs. Critical path: 007 → 008 → 012 → 015.
+**Bundle B** (PR 2, branched after Bundle A merges): wave 1 in parallel — 006, 007, 013; wave 2 — 008 (after 007), 010 (after 006), 011 (after 002 + 007), 014 (after 007); wave 3 — 009 (after 007 + 008), 012 (after 008 + 011), 016 (after 013 + 014); 015 last, consuming all findings docs. Critical path: 007 → 008 → 012 → 015.
 Live-run tasks 009, 012, 016 are the compute spenders — confirm the budget at plan-review before they dispatch (Open Question 5).
 
 ### Completion checklist
