@@ -751,6 +751,7 @@ invariants:
     references:
       - servers/exarchos-mcp/src/registry.ts
       - servers/exarchos-mcp/src/core/dispatch.ts
+      - servers/exarchos-mcp/src/core/dispatch.economy-seam.ts
       - servers/exarchos-mcp/src/core/economy.ts
       - docs/specs/2026-07-12-tool-token-economy-remediation.md
     citations:
@@ -777,7 +778,13 @@ invariants:
         registry-enumeration budget snapshot test (pins every action's effective
         budget; an invalid budget fails the test) and the dispatch-core economy
         guard (caps only data, stamps _meta.truncated, fails open with
-        _meta.economyDegraded). Flag any new action shipping unbounded output
+        _meta.economyDegraded), plus the economy-seam no-bypass gate
+        (dispatch.economy-seam.test.ts — asserts, by source structure, that every
+        result-producing branch of dispatch() and the withTelemetry seam route the
+        raw handler payload through enforceResponseEconomy, so a new execution mode
+        cannot silently ship an un-capped branch; this is the Axis-2 /
+        enforcement-application backstop the coverage-axis snapshot tests do not
+        provide). Flag any new action shipping unbounded output
         without a declared budget or a schema-typed escape hatch, and any
         capped/summary response shape absent from the action's registered
         outputSchema.
