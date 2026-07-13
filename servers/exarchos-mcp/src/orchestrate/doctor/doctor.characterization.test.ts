@@ -70,6 +70,11 @@ import { handleDoctor, ALL_CHECKS } from './index.js';
  * uninstall-reachability check) were added to the `agent` block, in that order.
  * The count + diagnostic.executed `checkCount` invariant below are updated
  * 13 → 15 on purpose; this and the roster pin are the intended contract change.
+ * (Task 011 added `stale-skill-dirs`, 15 → 16.)
+ *
+ * DELIBERATE PIN UPDATE (Task 019, DR-11 B-5): `store-path-divergence` (category
+ * `storage`) was added in the storage block, after `storage-sqlite-health`, as a
+ * CONSCIOUS act. The count + `checkCount` invariants are updated 16 → 17.
  */
 const PINNED_CHECKS: ReadonlyArray<{
   category: CheckResult['category'];
@@ -78,6 +83,7 @@ const PINNED_CHECKS: ReadonlyArray<{
   { category: 'runtime', name: 'node-version' },
   { category: 'storage', name: 'state-dir' },
   { category: 'storage', name: 'storage-sqlite-health' },
+  { category: 'storage', name: 'store-path-divergence' },
   { category: 'env', name: 'variables' },
   { category: 'vcs', name: 'git-available' },
   { category: 'agent', name: 'agent-config-valid' },
@@ -133,7 +139,7 @@ async function flushMicrotasks(): Promise<void> {
 // ─── Characterization ───────────────────────────────────────────────────────
 
 describe('doctor characterization (DR-9 baseline)', () => {
-  it('Doctor_FifteenChecks_PinnedShape', async () => {
+  it('Doctor_SeventeenChecks_PinnedShape', async () => {
     // Arrange
     const { ctx, appendSpy } = fixtureContext();
 
@@ -151,11 +157,12 @@ describe('doctor characterization (DR-9 baseline)', () => {
     const output: DoctorOutput = DoctorOutputSchema.parse(result.data);
     const { checks, summary } = output;
 
-    // ── 1. The sixteen checks, pinned by (category, name) and order ─────────
+    // ── 1. The seventeen checks, pinned by (category, name) and order ──────
     // (13 → 15 updated by Task 017: onramp-block-drift + retired-hooks-present;
-    // 15 → 16 by Task 011: stale-skill-dirs.)
-    expect(ALL_CHECKS).toHaveLength(16);
-    expect(checks).toHaveLength(16);
+    // 15 → 16 by Task 011: stale-skill-dirs; 16 → 17 by Task 019:
+    // store-path-divergence.)
+    expect(ALL_CHECKS).toHaveLength(17);
+    expect(checks).toHaveLength(17);
 
     const observedIdentity = checks.map((c) => ({
       category: c.category,
@@ -165,7 +172,7 @@ describe('doctor characterization (DR-9 baseline)', () => {
 
     // The name set is exactly the pinned set (no dupes, no strays).
     const observedNames = new Set(checks.map((c) => c.name));
-    expect(observedNames.size).toBe(16);
+    expect(observedNames.size).toBe(17);
     for (const { name } of PINNED_CHECKS) {
       expect(observedNames.has(name)).toBe(true);
     }
@@ -235,7 +242,7 @@ describe('doctor characterization (DR-9 baseline)', () => {
 
     // Pinned cross-field invariants between the event and the doctor output.
     expect(payload.checkCount).toBe(checks.length);
-    expect(payload.checkCount).toBe(16);
+    expect(payload.checkCount).toBe(17);
     expect(payload.summary).toEqual(summary);
     expect(payload.failedCheckNames).toEqual(
       checks.filter((c) => c.status === 'Fail').map((c) => c.name),

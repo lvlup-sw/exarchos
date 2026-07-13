@@ -7,7 +7,7 @@ import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { logger } from './logger.js';
-import { resolveStateDir as resolveStateDirFromPaths } from './utils/paths.js';
+import { resolveStateDir as resolveStateDirFromPaths, STORE_DB_FILENAME } from './utils/paths.js';
 import { EventStore } from './event-store/store.js';
 import { SnapshotStore } from './views/snapshot-store.js';
 import {
@@ -129,7 +129,11 @@ export async function initializeBackend(
   stateDir: string,
   loadSqliteBackend: SqliteBackendLoader = defaultSqliteBackendLoader,
 ): Promise<StorageBackend> {
-  const dbPath = path.join(stateDir, 'exarchos.db');
+  // DR-11 B-5: the leaf DB name comes from the shared `STORE_DB_FILENAME`
+  // constant (utils/paths.ts) — the same one `resolveStorePath` and the
+  // event-store appender's lazily-constructed backend use — so the CLI/plugin
+  // backend init cannot drift from the other computations of the store path.
+  const dbPath = path.join(stateDir, STORE_DB_FILENAME);
 
   // Phase A: legacy-state-dir guard. Cheap top-level scan — do not
   // recurse. The presence of `*.events.jsonl` plus the absence of a
@@ -145,7 +149,7 @@ export async function initializeBackend(
   }
   const hasLegacyJsonl = stateEntries.some((name) => name.endsWith('.events.jsonl'));
   const hasSqliteDb = stateEntries.some(
-    (name) => name === 'exarchos.db' || name === 'events.db',
+    (name) => name === STORE_DB_FILENAME || name === 'events.db',
   );
   if (hasLegacyJsonl && !hasSqliteDb) {
     throw new Error(
