@@ -45,7 +45,7 @@ import {
   resolveOutputTokenThreshold,
   countBy,
   narrowAffordance,
-} from '../../views/output-cap.js';
+} from '../../core/economy.js';
 import type { QualityHintsConfig } from '../../capabilities/resolver.js';
 
 // ─── Shared helpers ──────────────────────────────────────────────────────────

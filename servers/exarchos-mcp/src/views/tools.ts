@@ -38,7 +38,7 @@ import {
   resolveOutputTokenThreshold,
   countBy,
   narrowAffordance,
-} from './output-cap.js';
+} from '../core/economy.js';
 import type { QualityHintsConfig } from '../capabilities/resolver.js';
 import {
   stackViewProjection,
