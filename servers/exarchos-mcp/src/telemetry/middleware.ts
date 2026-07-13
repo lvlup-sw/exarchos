@@ -1,5 +1,6 @@
 import { EventStore } from '../event-store/store.js';
 import type { ToolResult, PerfMetrics } from '../format.js';
+import { enforceResponseEconomy } from '../core/dispatch.js';
 import { telemetryLogger } from '../logger.js';
 import { TELEMETRY_STREAM, TOKEN_GATE_THRESHOLD } from './constants.js';
 import type { ToolMetrics } from './telemetry-projection.js';
@@ -114,8 +115,20 @@ export function withTelemetry(
     const start = performance.now();
 
     try {
-      const result = await handler(correctedArgs);
+      const rawResult = await handler(correctedArgs);
       const durationMs = Math.round(performance.now() - start);
+
+      // ─── Response-Economy Enforcement (DR-1, Task 003) ────────────────────
+      // Cap the handler's response against its registry-declared economy budget
+      // BEFORE the size is measured, so `_perf`, the `tool.completed` telemetry
+      // event, and the D3 catastrophic-overflow gate all report the FINAL,
+      // post-cap size — the guard and the measurement agree by construction.
+      // The cap decision lives in the shared dispatch core
+      // (`enforceResponseEconomy`); this seam only invokes it. On a
+      // fail-open / under-budget path the payload is returned untouched.
+      const economyAction =
+        typeof correctedArgs.action === 'string' ? correctedArgs.action : undefined;
+      const result = enforceResponseEconomy(rawResult, toolName, economyAction);
 
       // Serialize ToolResult to compute response size/token estimate
       let responseText: string;
