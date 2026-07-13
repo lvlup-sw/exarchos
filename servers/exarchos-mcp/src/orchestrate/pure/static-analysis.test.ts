@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { runStaticAnalysis } from './static-analysis.js';
+import { runStaticAnalysis, FAIL_DETAIL_MAX_LINES } from './static-analysis.js';
 import type { StaticAnalysisResult, RunCommandFn } from './static-analysis.js';
 
 describe('runStaticAnalysis', () => {
@@ -563,6 +563,90 @@ describe('runStaticAnalysis', () => {
       });
 
       expect(result.projectType).toBe('Node.js');
+    });
+  });
+
+  // ============================================================
+  // DR-7a — FAIL-detail cap (counts-not-transcripts)
+  // ============================================================
+
+  describe('DR-7a FAIL-detail cap', () => {
+    it('checkStaticAnalysis_FailWith500Lines_TruncatesWithCountAndSteering', () => {
+      const repoRoot = createPackageJson({
+        lint: 'eslint .',
+        typecheck: 'tsc --noEmit',
+      });
+
+      // 500 lines of transcript with no file tokens — isolates the head-cap +
+      // total-count + steering mechanism from the per-file breakdown.
+      const totalLines = 500;
+      const bigStderr = Array.from(
+        { length: totalLines },
+        (_, i) => `ESLint problem number ${i}`,
+      ).join('\n');
+
+      const result = runStaticAnalysis({
+        repoRoot,
+        runCommand: failingRunner({ lint: { stderr: bigStderr } }),
+      });
+
+      expect(result.status).toBe('fail');
+
+      // Head kept: the first line and the last kept line survive.
+      expect(result.output).toContain('ESLint problem number 0');
+      expect(result.output).toContain(
+        `ESLint problem number ${FAIL_DETAIL_MAX_LINES - 1}`,
+      );
+      // Tail elided: the first dropped line and a far-tail line are gone.
+      expect(result.output).not.toContain(
+        `ESLint problem number ${FAIL_DETAIL_MAX_LINES}`,
+      );
+      expect(result.output).not.toContain(`ESLint problem number ${totalLines - 1}`);
+
+      // Total count reported so the reader knows how much was elided.
+      expect(result.output).toContain(String(totalLines));
+      expect(result.output).toContain(`of ${totalLines} lines`);
+
+      // Steering suffix points at the escape hatch (re-run for full output).
+      expect(result.output).toContain('Re-run `npm run lint`');
+      expect(result.output).toContain('full output');
+    });
+
+    it('checkStaticAnalysis_CappedFailDetail_IncludesEveryFailingFile', () => {
+      const repoRoot = createPackageJson({
+        lint: 'eslint .',
+        typecheck: 'tsc --noEmit',
+      });
+
+      // 49 alpha lines + 1 beta line fill the 50-line head; 20 gamma lines then
+      // appear ONLY beyond the cap, so triage would miss gamma without the
+      // full-output per-file breakdown.
+      const lines: string[] = [];
+      for (let i = 1; i <= 49; i++) {
+        lines.push(`src/alpha.ts(${i},1): error TS2322: type error`);
+      }
+      lines.push('src/beta.ts(1,1): error TS2345: bad arg');
+      for (let i = 1; i <= 20; i++) {
+        lines.push(`src/gamma.ts(${i},1): error TS2531: possibly null`);
+      }
+      const stderr = lines.join('\n'); // 70 lines total, gamma all past the cap
+
+      const result = runStaticAnalysis({
+        repoRoot,
+        runCommand: failingRunner({ typecheck: { stderr } }),
+      });
+
+      expect(result.status).toBe('fail');
+
+      // gamma's raw transcript lines are dropped from the head…
+      expect(result.output).not.toContain('src/gamma.ts(1,1)');
+      // …yet gamma is still named with its complete count.
+      expect(result.output).toContain('src/gamma.ts: 20');
+      // In-head files carry per-file counts too.
+      expect(result.output).toContain('src/alpha.ts: 49');
+      expect(result.output).toContain('src/beta.ts: 1');
+      // The complete set of distinct failing files is enumerated.
+      expect(result.output).toContain('Failing files (3)');
     });
   });
 });
