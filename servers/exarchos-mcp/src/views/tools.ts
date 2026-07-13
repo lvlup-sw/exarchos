@@ -25,6 +25,8 @@ import {
   TASK_DETAIL_VIEW,
 } from './task-detail-view.js';
 import type { TaskDetailViewState, TaskDetail } from './task-detail-view.js';
+import type { TimelineTask } from './delegation-timeline-view.js';
+import type { TeammateMetrics } from './team-performance-view.js';
 import {
   pipelineProjection,
   PIPELINE_VIEW,
@@ -32,6 +34,7 @@ import {
 } from './pipeline-view.js';
 import type { PipelineViewState } from './pipeline-view.js';
 import {
+  DEFAULT_VIEW_ITEM_CAP,
   PIPELINE_DEFAULT_ITEM_CAP,
   SUMMARY_FIRST_PAGE_ITEMS,
   estimateOutputTokens,
@@ -359,7 +362,7 @@ async function readWorkflowStateJson(
 // ─── View Workflow Status Handler ──────────────────────────────────────────
 
 export async function handleViewWorkflowStatus(
-  args: { workflowId?: string; asOf?: AsOfParam },
+  args: { workflowId?: string; asOf?: AsOfParam; detail?: boolean },
   stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
@@ -410,13 +413,23 @@ export async function handleViewWorkflowStatus(
     // C4 (#1226) — strip projection-internal dedup bookkeeping from the
     // public envelope. The `_seen*TaskIds` arrays are needed for replay
     // correctness but must not leak into the response shape.
+    // DR-8 (Task 013) — also strip the internal `_taskStore` mirror. It is the
+    // largest part of the payload on a big workflow, is documented as
+    // "stripped before the view envelope is surfaced", and is restored only
+    // under `detail: true`. `workflow_status` is a single-object status (not
+    // list-shaped), so it carries no `page`.
     const {
       _seenAssignedTaskIds: _ignoredAssigned,
       _seenCompletedTaskIds: _ignoredCompleted,
+      _taskStore: internalTaskStore,
       ...publicView
     } = view;
 
-    return { success: true, data: { ...publicView, tasksTotal } };
+    const data = args.detail
+      ? { ...publicView, tasksTotal, _taskStore: internalTaskStore }
+      : { ...publicView, tasksTotal };
+
+    return { success: true, data };
   } catch (err) {
     return {
       success: false,
@@ -437,6 +450,9 @@ export async function handleViewTasks(
     limit?: number;
     offset?: number;
     fields?: string[];
+    // DR-8 (Task 013) — compact-by-default rows; `detail: true` restores the
+    // verbose/optional per-task fields (`artifacts`, `error`, `duration`, …).
+    detail?: boolean;
   },
   stateDir: string,
   eventStore: EventStore,
@@ -497,11 +513,18 @@ export async function handleViewTasks(
         };
       }
     }
-    let tasks: TaskDetail[] = Object.values(merged);
+    const allTasks: TaskDetail[] = Object.values(merged);
 
-    // Apply optional filter
+    // DR-8 P5 — `unscopedTotal` is the PRE-filter count so filter-hidden rows
+    // stay perceivable whenever a `filter` scopes the inventory.
+    const unscopedTotal = allTasks.length;
+    const filterActive =
+      args.filter !== undefined && Object.keys(args.filter).length > 0;
+
+    // Apply optional filter (the scope)
+    let filteredTasks = allTasks;
     if (args.filter) {
-      tasks = tasks.filter((task) => {
+      filteredTasks = allTasks.filter((task) => {
         for (const [key, value] of Object.entries(args.filter!)) {
           if ((task as unknown as Record<string, unknown>)[key] !== value) {
             return false;
@@ -510,26 +533,47 @@ export async function handleViewTasks(
         return true;
       });
     }
+    const total = filteredTasks.length;
 
-    // Apply optional offset (before limit)
-    if (args.offset !== undefined) {
-      tasks = tasks.slice(args.offset);
+    // DR-8 — deterministic window: honor an explicit `offset`/`limit`, else cap
+    // at DEFAULT_VIEW_ITEM_CAP so a large task list never dumps every row.
+    const { start, effectiveLimit } = resolveInventoryWindow(args);
+    const windowed = filteredTasks.slice(start, start + effectiveLimit);
+
+    // DR-8 — inventory metadata. The `tasks` view keeps its bare-array `data`
+    // contract (many in-repo consumers read `data` as an array; the full reshape
+    // to `data: { tasks, page }` is DR-12's consumer migration), so `page`,
+    // `scope`, and `unscopedTotal` ride `_meta` in the interim.
+    const page = buildPage(total, start, effectiveLimit, windowed.length);
+    const scope: 'filtered' | 'all' = filterActive ? 'filtered' : 'all';
+    const nextActions: NextAction[] = [];
+    if (page.hasMore) {
+      nextActions.push(
+        narrowAffordance('tasks', windowed.length, total, 'exarchos vw tasks --limit 20 --offset 0'),
+      );
     }
-
-    // Apply optional limit (after filter and offset)
-    if (args.limit !== undefined) {
-      tasks = tasks.slice(0, args.limit);
+    if (unscopedTotal > total) {
+      nextActions.push(scopeHiddenAffordance('tasks', unscopedTotal - total));
     }
+    const envelopeExtras = {
+      _meta: { page, scope, unscopedTotal },
+      ...(nextActions.length > 0 ? { next_actions: nextActions } : {}),
+    };
 
-    // Apply optional fields projection
+    // DR-8 — `fields` projection stays verbatim over FULL rows, so an explicit
+    // field list can name any field regardless of the compact default.
     if (args.fields) {
-      const projected = tasks.map(
+      const projected = windowed.map(
         (t) => pickFields(t as unknown as Record<string, unknown>, args.fields!),
       );
-      return { success: true, data: projected };
+      return { success: true, data: projected, ...envelopeExtras };
     }
 
-    return { success: true, data: tasks };
+    // DR-8 — compact by default (drop verbose/optional fields); `detail:true` full.
+    const rows: Array<TaskDetail | CompactTaskDetail> = args.detail
+      ? windowed
+      : windowed.map(compactTaskDetail);
+    return { success: true, data: rows, ...envelopeExtras };
   } catch (err) {
     return {
       success: false,
@@ -914,10 +958,76 @@ export async function handleViewPipeline(
   }
 }
 
+// ─── DR-8 (Task 013): generalized inventory-view contract helpers ────────────
+//
+// The `pipeline` and `worktrees` views were migrated first (#1659 + the shared
+// `core/economy.ts` kit). This batch generalizes the SAME contract to the
+// remaining list/inventory-shaped views in this file:
+//   • `page: {total, offset, limit, hasMore}` metadata when list-shaped;
+//   • `detail: true` honored — compact by default, full rows on request;
+//   • P5 scope perceivability — a scoped view reports `scope` + `unscopedTotal`
+//     so rows hidden by the scope (a filter, not just paging) stay perceivable.
+// Each migrated view rides Task 003's dispatch-core economy backstop and carries
+// a DR-2-style token-budget test. The `tasks` view keeps its bare-array `data`
+// contract for now (many in-repo consumers read `data` as an array); its page /
+// scope metadata rides `_meta` in the interim, and the full `data` reshape is
+// DR-12's consumer-migration work. The other list views carry the metadata in
+// `data` directly, matching the `pipeline` precedent.
+
+/**
+ * Resolve the deterministic paging window shared by the inventory views. When
+ * the caller omits `limit`, cap at `defaultCap` so a large inventory never dumps
+ * every row; an explicit `limit` is honored verbatim.
+ */
+function resolveInventoryWindow(
+  args: { limit?: number; offset?: number },
+  defaultCap: number = DEFAULT_VIEW_ITEM_CAP,
+): { start: number; effectiveLimit: number; explicitLimit: boolean } {
+  const start = args.offset ?? 0;
+  const explicitLimit = args.limit !== undefined;
+  const effectiveLimit = explicitLimit ? (args.limit as number) : defaultCap;
+  return { start, effectiveLimit, explicitLimit };
+}
+
+/**
+ * P5 escape-hatch affordance for a FILTER-scoped view (mirrors pipeline's
+ * `scopeAllAffordance` for repo scope). Fires whenever the active scope hid rows
+ * (`unscopedTotal > page.total`) so the elided rows are always perceivable. Verb
+ * is the view's own name so it validates against the catch-all `NextActionSchema`.
+ */
+function scopeHiddenAffordance(verb: string, hiddenCount: number): NextAction {
+  return {
+    verb,
+    reason: `${hiddenCount} row${hiddenCount === 1 ? '' : 's'} hidden by the active scope/filter — remove the filter (or widen the query) to include ${hiddenCount === 1 ? 'it' : 'them'}.`,
+    hint: `exarchos vw ${verb}`,
+  };
+}
+
+/** DR-8 compact `TimelineTask`: drop the verbose ISO timestamps; `detail:true` restores them. */
+type CompactTimelineTask = Omit<TimelineTask, 'assignedAt' | 'completedAt'>;
+function compactTimelineTask(t: TimelineTask): CompactTimelineTask {
+  const { assignedAt: _assignedAt, completedAt: _completedAt, ...rest } = t;
+  return rest;
+}
+
+/** DR-8 compact `TeammateMetrics`: drop the per-teammate module-expertise list; `detail:true` restores it. */
+type CompactTeammateMetrics = Omit<TeammateMetrics, 'moduleExpertise'>;
+function compactTeammate(m: TeammateMetrics): CompactTeammateMetrics {
+  const { moduleExpertise: _moduleExpertise, ...rest } = m;
+  return rest;
+}
+
+/** DR-8 compact `TaskDetail`: drop the verbose/optional fields; `detail:true` restores them. */
+type CompactTaskDetail = Omit<TaskDetail, 'artifacts' | 'error' | 'tddPhase' | 'duration'>;
+function compactTaskDetail(t: TaskDetail): CompactTaskDetail {
+  const { artifacts: _artifacts, error: _error, tddPhase: _tddPhase, duration: _duration, ...rest } = t;
+  return rest;
+}
+
 // ─── View Team Performance Handler ──────────────────────────────────────────
 
 export async function handleViewTeamPerformance(
-  args: { workflowId?: string },
+  args: { workflowId?: string; detail?: boolean },
   stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
@@ -933,7 +1043,19 @@ export async function handleViewTeamPerformance(
       events,
     );
 
-    return { success: true, data: view };
+    // DR-8 — `detail: true` returns the full projection (teammates + modules +
+    // sizing). The compact default keeps the per-teammate CORE metrics (the
+    // headline the agent reads) but strips the heavier `modules` / `teamSizing`
+    // roll-ups and each teammate's `moduleExpertise` list, which drive the bulk
+    // of the payload on a large team.
+    if (args.detail) {
+      return { success: true, data: view };
+    }
+    const teammates: Record<string, CompactTeammateMetrics> = {};
+    for (const [name, metrics] of Object.entries(view.teammates)) {
+      teammates[name] = compactTeammate(metrics);
+    }
+    return { success: true, data: { teammates } };
   } catch (err) {
     return {
       success: false,
@@ -950,6 +1072,10 @@ export async function handleViewTeamPerformance(
 export async function handleViewDelegationTimeline(
   args: {
     workflowId?: string;
+    // DR-8 (Task 013) — list/inventory paging + compact-by-default over `tasks[]`.
+    limit?: number;
+    offset?: number;
+    detail?: boolean;
     // Wave 5 (#1437) — correlation filters scope the projection fold.
     operationId?: string;
     correlationId?: string;
@@ -976,7 +1102,56 @@ export async function handleViewDelegationTimeline(
           events,
         );
 
-    return { success: true, data: view };
+    // DR-8 — the `tasks[]` list is the paged inventory; `total` is the scoped
+    // (possibly correlation-filtered) task count.
+    const scopedTasks = view.tasks;
+    const total = scopedTasks.length;
+
+    // DR-8 P5 — a correlation filter is this view's SCOPE. Report `scope` +
+    // `unscopedTotal` so rows hidden by the filter stay perceivable. The
+    // unfiltered count comes from a cached fold of the full stream: the
+    // correlation-filtered path bypasses the cache, so this fold neither reads
+    // from nor contaminates the filtered result — the same seam pipeline uses
+    // to derive its pre-scope count.
+    let scope: 'all' | 'correlation' = 'all';
+    let unscopedTotal = total;
+    if (filtered) {
+      scope = 'correlation';
+      const unfilteredEvents = await queryDeltaEvents(store, materializer, streamId, DELEGATION_TIMELINE_VIEW);
+      const unfilteredView = materializer.materialize<DelegationTimelineViewState>(
+        streamId,
+        DELEGATION_TIMELINE_VIEW,
+        unfilteredEvents,
+      );
+      unscopedTotal = unfilteredView.tasks.length;
+    }
+
+    // DR-8 — deterministic window (default item cap when `limit` omitted).
+    const { start, effectiveLimit } = resolveInventoryWindow(args);
+    const windowed = scopedTasks.slice(start, start + effectiveLimit);
+    // DR-8 — compact by default (drop per-task ISO timestamps); `detail:true` full.
+    const tasks: Array<TimelineTask | CompactTimelineTask> = args.detail
+      ? windowed
+      : windowed.map(compactTimelineTask);
+
+    // DR-8 — `page` is namespaced so `page.hasMore` never collides with the
+    // projection's own per-view eviction `hasMore` (mirrors the pipeline note).
+    const page = buildPage(total, start, effectiveLimit, windowed.length);
+    const nextActions: NextAction[] = [];
+    if (page.hasMore) {
+      nextActions.push(
+        narrowAffordance('delegation_timeline', windowed.length, total, 'exarchos vw delegation_timeline --limit 20 --offset 0'),
+      );
+    }
+    if (unscopedTotal > total) {
+      nextActions.push(scopeHiddenAffordance('delegation_timeline', unscopedTotal - total));
+    }
+
+    return {
+      success: true,
+      data: { ...view, tasks, page, scope, unscopedTotal },
+      ...(nextActions.length > 0 ? { next_actions: nextActions } : {}),
+    };
   } catch (err) {
     return {
       success: false,
