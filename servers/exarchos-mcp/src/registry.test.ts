@@ -27,6 +27,7 @@ import {
   RUNBOOK_ECONOMY_BUDGET_TOKENS,
 } from './registry.js';
 import type { ToolAction, CompositeTool, ActionAnnotations } from './registry.js';
+import { envelopeDataSchemaIsTyped } from './orchestrate/worktree/schemas.js';
 import { handleDescribe } from './describe/handler.js';
 import { wrap, wrapError } from './format.js';
 import { zodToJsonSchema } from './adapters/json-schema.js';
@@ -3091,5 +3092,222 @@ describe('registry economy budgets (DR-1)', () => {
     // The surfaced number is exactly what the resolver returns for the action.
     const taskClaim = orchestrate.actions.find((a) => a.name === 'task_claim')!;
     expect(data.task_claim.economyBudgetTokens).toBe(resolveEconomyBudget(taskClaim));
+  });
+});
+
+// ─── Task 022 (DR-1/DR-3/DR-8) — registry schema batch ───────────────────────
+//
+// Task 022 is the SOLE owner of the economy-work `registry.ts` schema edits:
+// (a) new INPUT params — `get_pr_comments` window/projection, `assess_stack`
+// comment paging, the coerced-int-array `prNumbers` swap, and `detail`+paging on
+// the DR-8 view batch — all schema-declared so they auto-emit to CLI flags via
+// schema-to-flags; and (b) the `{summary, counts, firstPage}` capped-shape union
+// into every action carrying a typed `data` outputSchema, so each such schema is
+// TOTAL over its emittable shapes (baseline + capped) — the D.5 totality the MCP
+// adapter enforces (adapters/mcp.ts:245) and the §05 output-codegen precondition.
+describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
+  function findAction(toolName: string, actionName: string): ToolAction {
+    const tool = TOOL_REGISTRY.find((t) => t.name === toolName);
+    const action = tool?.actions.find((a) => a.name === actionName);
+    if (action === undefined) throw new Error(`action '${toolName}.${actionName}' not registered`);
+    return action;
+  }
+
+  /** Every action across the registry whose success-branch `data` is typed. */
+  function typedOutputActions(): Array<{ tool: string; action: ToolAction }> {
+    const out: Array<{ tool: string; action: ToolAction }> = [];
+    for (const tool of TOOL_REGISTRY) {
+      for (const action of tool.actions) {
+        if (envelopeDataSchemaIsTyped(action.outputSchema)) {
+          out.push({ tool: tool.name, action });
+        }
+      }
+    }
+    return out;
+  }
+
+  // The generic capped-fallback `data` the dispatch-core economy seam (Task 003)
+  // emits — three sibling keys. Constructed literally (NOT imported from the
+  // schema under test) so the assertion pins the CONTRACT, not the definition.
+  const cappedData = {
+    summary: 'Response exceeded budget — showing counts + first page.',
+    counts: { pending: 12, done: 3 },
+    firstPage: [{ id: 'a' }, { id: 'b' }],
+  };
+  function cappedEnvelope(): Record<string, unknown> {
+    return {
+      success: true,
+      data: { ...cappedData },
+      next_actions: [],
+      _meta: { truncated: true },
+      _perf: { ms: 0, bytes: 0, tokens: 0 },
+    };
+  }
+
+  // A minimal VALID baseline `data` per typed-output action, shape-derived from
+  // the real handler returns (orchestrate/worktree/schemas.ts,
+  // TelemetryViewDataSchema). Keyed `tool.action`.
+  const baselineDataByAction: Record<string, Record<string, unknown>> = {
+    'exarchos_orchestrate.acquire_worktree': {
+      worktreeId: 'wt', path: '/tmp/wt', featureId: null, reserved: true, adopted: true,
+    },
+    'exarchos_orchestrate.release_worktree': { worktreeId: 'wt', released: true },
+    'exarchos_orchestrate.prune_worktrees': {
+      dryRun: true, candidates: [], deleted: [], reclaimableBytes: 0, skipsByReason: {},
+    },
+    'exarchos_orchestrate.serialize_merge': {
+      dryRun: true, integrationRef: 'main', sourceBranch: 'feat/x', strategy: 'squash',
+      featureId: 'f', integrationHead: null,
+    },
+    'exarchos_view.telemetry': {
+      session: { start: '2026-01-01T00:00:00Z', totalInvocations: 0, totalTokens: 0 },
+      tools: [], hints: [],
+    },
+    'exarchos_view.worktrees': { worktrees: [], count: 0 },
+    'exarchos_view.ps': {
+      inFlight: [], count: 0, launches: [], launchCount: 0, prunes: [], pruneCount: 0,
+    },
+    'exarchos_view.wait': { resolved: true, waitedMs: 5 },
+  };
+  function baselineEnvelope(data: Record<string, unknown>): Record<string, unknown> {
+    return {
+      success: true,
+      data,
+      next_actions: [],
+      _meta: {},
+      _perf: { ms: 0, bytes: 0, tokens: 0 },
+    };
+  }
+
+  describe('registrySchemas_EconomyParams_ValidateAndCoerce', () => {
+    it('get_pr_comments declares and coerces limit/offset/fields', () => {
+      const schema = findAction('exarchos_orchestrate', 'get_pr_comments').schema;
+      const parsed = schema.safeParse({
+        prId: '42',
+        limit: '20',        // numeric string → coerced int
+        offset: '5',        // numeric string → coerced int
+        fields: '["body","author"]', // JSON-array string → coerced string[]
+      });
+      expect(parsed.success).toBe(true);
+      if (!parsed.success) return;
+      const data = parsed.data as Record<string, unknown>;
+      expect(data.limit).toBe(20);
+      expect(data.offset).toBe(5);
+      expect(data.fields).toEqual(['body', 'author']);
+    });
+
+    it('assess_stack declares comment paging and coerces prNumbers as an int array', () => {
+      const schema = findAction('exarchos_orchestrate', 'assess_stack').schema;
+      // JSON-array string prNumbers + numeric-string paging.
+      const fromJsonString = schema.safeParse({
+        featureId: 'feat-x',
+        prNumbers: '[1660,1671]',
+        limit: '10',
+        offset: '2',
+      });
+      expect(fromJsonString.success).toBe(true);
+      if (fromJsonString.success) {
+        const data = fromJsonString.data as Record<string, unknown>;
+        expect(data.prNumbers).toEqual([1660, 1671]);
+        expect(data.limit).toBe(10);
+        expect(data.offset).toBe(2);
+      }
+      // Array of numeric strings → coerced element-wise to ints.
+      const fromStringElements = schema.safeParse({
+        featureId: 'feat-x',
+        prNumbers: ['1', '2', '3'],
+      });
+      expect(fromStringElements.success).toBe(true);
+      if (fromStringElements.success) {
+        expect((fromStringElements.data as Record<string, unknown>).prNumbers).toEqual([1, 2, 3]);
+      }
+    });
+
+    it('check_coderabbit prNumbers routes through the same coerced int-array', () => {
+      const schema = findAction('exarchos_orchestrate', 'check_coderabbit').schema;
+      const parsed = schema.safeParse({ owner: 'acme', repo: 'app', prNumbers: ['1', '2'] });
+      expect(parsed.success).toBe(true);
+      if (parsed.success) {
+        expect((parsed.data as Record<string, unknown>).prNumbers).toEqual([1, 2]);
+      }
+    });
+
+    it('DR-8 view batch declares detail + paging inputs', () => {
+      // A representative slice across the inventory (Task 013) and analytic
+      // (Task 024) view batches: each must RETAIN detail + paging after parse
+      // (a stripped/undeclared field would be dropped by z.object).
+      const cases: Array<[string, Record<string, unknown>, string[]]> = [
+        ['tasks', { detail: true, limit: '5', offset: '1' }, ['detail', 'limit', 'offset']],
+        ['workflow_status', { detail: true, limit: '5', offset: '1' }, ['detail', 'limit', 'offset']],
+        ['stack_status', { detail: true }, ['detail']],
+        ['team_performance', { detail: true, limit: '5', offset: '1' }, ['detail', 'limit', 'offset']],
+        ['delegation_timeline', { detail: true, limit: '5', offset: '1' }, ['detail', 'limit', 'offset']],
+        ['telemetry', { detail: true, offset: '1' }, ['detail', 'offset']],
+        ['code_quality', { detail: true, offset: '1' }, ['detail', 'offset']],
+        ['eval_results', { detail: true, offset: '1' }, ['detail', 'offset']],
+        ['quality_correlation', { detail: true, limit: '5', offset: '1' }, ['detail', 'limit', 'offset']],
+        ['quality_attribution', { detail: true, limit: '5', offset: '1' }, ['detail', 'limit', 'offset']],
+        ['convergence', { detail: true, limit: '5', offset: '1' }, ['detail', 'limit', 'offset']],
+      ];
+      for (const [name, input, expectedKeys] of cases) {
+        const schema = findAction('exarchos_view', name).schema;
+        const parsed = schema.safeParse(input);
+        expect(parsed.success, `${name} must accept detail + paging`).toBe(true);
+        if (!parsed.success) continue;
+        const data = parsed.data as Record<string, unknown>;
+        for (const key of expectedKeys) {
+          expect(data[key], `${name}.${key} must be declared (retained after parse)`).toBeDefined();
+        }
+        expect(data.detail).toBe(true);
+      }
+    });
+  });
+
+  describe('registrySchemas_TypedOutputActions_AcceptCappedShape', () => {
+    it('every typed-output action validates a {summary,counts,firstPage} capped envelope', () => {
+      const actions = typedOutputActions();
+      // Enumerated from code, not assumed — the spec claims 10; the post-002
+      // base carries 8 (the two exarchos_workflow LCD schemas wrap
+      // EnvelopeSchema(z.unknown()) and are NOT typed).
+      expect(actions.length).toBe(8);
+      for (const { tool, action } of actions) {
+        const parsed = action.outputSchema.safeParse(cappedEnvelope());
+        expect(
+          parsed.success,
+          `${tool}.${action.name} must accept the capped shape: ${
+            parsed.success ? '' : JSON.stringify(parsed.error.issues)
+          }`,
+        ).toBe(true);
+      }
+    });
+  });
+
+  describe('registrySchemas_TypedOutputActions_SchemaTotalOverEmittableShapes', () => {
+    it('every typed-output action admits BOTH its baseline and the capped shape', () => {
+      const actions = typedOutputActions();
+      for (const { tool, action } of actions) {
+        const key = `${tool}.${action.name}`;
+        const baseline = baselineDataByAction[key];
+        expect(baseline, `missing baseline fixture for ${key}`).toBeDefined();
+
+        // Baseline shape validates (the pre-cap emittable shape).
+        const baselineParsed = action.outputSchema.safeParse(baselineEnvelope(baseline));
+        expect(
+          baselineParsed.success,
+          `${key} must admit its baseline shape: ${
+            baselineParsed.success ? '' : JSON.stringify(baselineParsed.error.issues)
+          }`,
+        ).toBe(true);
+
+        // Capped shape validates (the post-cap emittable shape) — totality.
+        const cappedParsed = action.outputSchema.safeParse(cappedEnvelope());
+        expect(
+          cappedParsed.success,
+          `${key} must admit the capped shape: ${
+            cappedParsed.success ? '' : JSON.stringify(cappedParsed.error.issues)
+          }`,
+        ).toBe(true);
+      }
+    });
   });
 });
