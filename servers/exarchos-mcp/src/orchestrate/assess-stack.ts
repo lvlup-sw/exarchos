@@ -151,27 +151,40 @@ const COMMENT_BODY_LIMIT = 200;
 // body-carrying list deterministically so one comment-heavy PR cannot blow the
 // output-token budget; `commentPage.hasMore` steers the shepherd loop to page.
 const DEFAULT_COMMENT_PAGE_LIMIT = 20;
+// Upper bound on the per-PR comment window so a pathological explicit `--limit`
+// can't request an unbounded slice (DR-1/INV-17 economy applies to paging too).
+const MAX_COMMENT_PAGE_LIMIT = 100;
 
 function truncateBody(body: string): string {
   if (body.length <= COMMENT_BODY_LIMIT) return body;
   return body.slice(0, COMMENT_BODY_LIMIT) + '...';
 }
 
-interface CommentWindow {
+export interface CommentWindow {
   readonly limit: number;
   readonly offset: number;
 }
 
 // Resolve the per-PR comment window from the (optional, schema-declared) paging
-// inputs, clamping to sane defaults. A missing/non-positive `limit` falls back
-// to DEFAULT_COMMENT_PAGE_LIMIT; a missing/negative `offset` falls back to 0.
-function resolveCommentWindow(limit?: number, offset?: number): CommentWindow {
-  const l = typeof limit === 'number' && Number.isFinite(limit) && limit > 0
-    ? Math.floor(limit)
-    : DEFAULT_COMMENT_PAGE_LIMIT;
-  const o = typeof offset === 'number' && Number.isFinite(offset) && offset > 0
-    ? Math.floor(offset)
-    : 0;
+// inputs. Pagination values are floored FIRST, then validated, so a fractional
+// limit like `0.5` (which `Math.floor`s to 0 and would slice an EMPTY page,
+// hiding every comment) falls back to the default instead. A limit that floors
+// below 1 → DEFAULT_COMMENT_PAGE_LIMIT; a limit above the cap → clamped to
+// MAX_COMMENT_PAGE_LIMIT so a pathological `--limit 1e9` can't request an
+// unbounded window (DR-1/INV-17 economy applies to the paged surface too). An
+// offset that floors below 1 (missing, zero, negative, or fractional) → 0.
+export function resolveCommentWindow(limit?: number, offset?: number): CommentWindow {
+  const flooredLimit =
+    typeof limit === 'number' && Number.isFinite(limit) ? Math.floor(limit) : NaN;
+  const l =
+    flooredLimit >= 1
+      ? Math.min(flooredLimit, MAX_COMMENT_PAGE_LIMIT)
+      : DEFAULT_COMMENT_PAGE_LIMIT;
+
+  const flooredOffset =
+    typeof offset === 'number' && Number.isFinite(offset) ? Math.floor(offset) : NaN;
+  const o = flooredOffset >= 1 ? flooredOffset : 0;
+
   return { limit: l, offset: o };
 }
 

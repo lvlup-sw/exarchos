@@ -12,7 +12,7 @@ const mockAppend = vi.fn();
 const mockQuery = vi.fn();
 
 import type { EventStore } from '../event-store/store.js';
-import { handleAssessStack } from './assess-stack.js';
+import { handleAssessStack, resolveCommentWindow } from './assess-stack.js';
 
 const mockEventStore = {
   append: mockAppend,
@@ -1767,6 +1767,38 @@ describe('handleAssessStack', () => {
       const commentReply = data.actionItems.find((i) => i.type === 'comment-reply');
       expect(commentReply?.normalizedSeverity).toBe('HIGH');
       expect(commentReply?.reviewer).toBe('coderabbit');
+    });
+  });
+
+  describe('resolveCommentWindow — pagination edge cases', () => {
+    it('resolveCommentWindow_MissingInputs_DefaultsToFullFirstPage', () => {
+      expect(resolveCommentWindow(undefined, undefined)).toEqual({ limit: 20, offset: 0 });
+    });
+
+    it('resolveCommentWindow_ValidInts_PassThrough', () => {
+      expect(resolveCommentWindow(10, 5)).toEqual({ limit: 10, offset: 5 });
+    });
+
+    // Regression (CodeRabbit): a fractional limit floors to 0 and would slice an
+    // EMPTY page, hiding every comment. It must fall back to the default.
+    it('resolveCommentWindow_FractionalLimit_FallsBackToDefaultNotEmpty', () => {
+      expect(resolveCommentWindow(0.5).limit).toBe(20);
+      expect(resolveCommentWindow(0.9).limit).toBe(20);
+    });
+
+    it('resolveCommentWindow_ZeroOrNegativeLimit_FallsBackToDefault', () => {
+      expect(resolveCommentWindow(0).limit).toBe(20);
+      expect(resolveCommentWindow(-5).limit).toBe(20);
+    });
+
+    it('resolveCommentWindow_HugeLimit_ClampsToMax', () => {
+      expect(resolveCommentWindow(1_000_000).limit).toBe(100);
+    });
+
+    it('resolveCommentWindow_FractionalOrNegativeOffset_FloorsAtZero', () => {
+      expect(resolveCommentWindow(10, 0.5).offset).toBe(0);
+      expect(resolveCommentWindow(10, -3).offset).toBe(0);
+      expect(resolveCommentWindow(10, 2.9).offset).toBe(2);
     });
   });
 });

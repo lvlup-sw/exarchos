@@ -42,7 +42,25 @@ describe('economy-seam no-bypass gate (INV-17 Axis-2)', () => {
     expect(findings).toHaveLength(1);
     expect(findings[0].line).toBe(8);
     expect(findings[0].severity).toBe('HIGH');
-    expect(findings[0].message).toContain('without routing it');
+    expect(findings[0].message).toContain('outside the response-economy seam');
+  });
+
+  // Proximity is not proof (CodeRabbit 3568453403): an UNRELATED preceding
+  // enforceResponseEconomy call must NOT launder a bare coreHandler call.
+  it('EconomySeam_ProximityNotProof_Flagged', () => {
+    const source = [
+      'export async function dispatch() {',
+      '  const coreHandler = resolveHandler(tool);',
+      '  const cached = enforceResponseEconomy(previousResult, tool, action);',
+      '  return coreHandler(args);',
+      '}',
+    ].join('\n');
+
+    const findings = lintDispatchEconomyBypass(DISPATCH_PATH, source);
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0].line).toBe(4);
+    expect(findings[0].message).toContain('proximity');
   });
 
   // A guarded telemetry-OFF branch (the shipped fix) produces no finding.
@@ -64,7 +82,7 @@ describe('economy-seam no-bypass gate (INV-17 Axis-2)', () => {
     expect(lintDispatchEconomyBypass(DISPATCH_PATH, source)).toEqual([]);
   });
 
-  // Robust to a wrapped multi-line call: the seam sits on a preceding line.
+  // Robust to a wrapped multi-line call: the enclosing enforce spans lines.
   it('EconomySeam_MultiLineWrappedCall_Clean', () => {
     const source = [
       'export async function dispatch() {',
@@ -81,23 +99,41 @@ describe('economy-seam no-bypass gate (INV-17 Axis-2)', () => {
     expect(lintDispatchEconomyBypass(DISPATCH_PATH, source)).toEqual([]);
   });
 
-  // Axis B: if withTelemetry stops routing the raw result through the seam, the
-  // withTelemetry(coreHandler) sites become silent bypasses — flag it.
-  it('EconomySeam_MiddlewareDropsSeam_Flagged', () => {
+  // Axis B: if withTelemetry returns the raw result, flag it.
+  it('EconomySeam_MiddlewareReturnsRaw_Flagged', () => {
     const source = [
       'export function withTelemetry(handler, toolName, store) {',
       '  return async (args) => {',
       '    const rawResult = await handler(args);',
-      '    const result = rawResult; // seam removed',
+      '    const result = enforceResponseEconomy(rawResult, toolName, economyAction);',
       '    return result;',
       '  };',
       '}',
     ].join('\n');
 
+    // Missing JSON.stringify(result)/injectPerf(result) — derivation unproven.
     const findings = lintMiddlewareEconomySeam(MIDDLEWARE_PATH, source);
+    expect(findings.length).toBeGreaterThanOrEqual(1);
+    expect(findings.some((f) => f.message.includes('derived from'))).toBe(true);
+  });
 
-    expect(findings).toHaveLength(1);
-    expect(findings[0].message).toContain('enforceResponseEconomy');
+  // Axis B, sharper (CodeRabbit 3568453414): the cap is COMPUTED and measured,
+  // but the wrapper still returns the un-capped rawResult.
+  it('EconomySeam_MiddlewareComputesCapButReturnsRaw_Flagged', () => {
+    const source = [
+      'export function withTelemetry(handler, toolName, store) {',
+      '  return async (args) => {',
+      '    const rawResult = await handler(args);',
+      '    const result = enforceResponseEconomy(rawResult, toolName, economyAction);',
+      '    const responseText = JSON.stringify(result);',
+      '    const finalResult = injectPerf(result, { ms, bytes, tokens });',
+      '    return rawResult; // BUG: returns the uncapped payload',
+      '  };',
+      '}',
+    ].join('\n');
+
+    const findings = lintMiddlewareEconomySeam(MIDDLEWARE_PATH, source);
+    expect(findings.some((f) => f.message.includes('un-capped'))).toBe(true);
   });
 
   // Anchor liveness: a renamed coreHandler must fail loudly, not pass vacuously.
