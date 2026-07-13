@@ -72,13 +72,14 @@ describe('dev-catalog v3 content — CR-1 schema bump', () => {
     expect(loadCatalog().length).toBeGreaterThan(0);
   });
 
-  it('liveCatalog_hasExactly20Entries_noDimEntries', () => {
+  it('liveCatalog_hasExactly21Entries_noDimEntries', () => {
     // Axiom excision (#1477) removed the 8 DIM-* axiom-dimension entries and
     // the coverage-closure machinery that depended on `axiom_overlap`. The
-    // live catalog is now exactly 20 entries (19 INV-* — including INV-16
-    // os-portability added in #1623 — plus basileus-boundary), none DIM-*.
+    // live catalog is now exactly 21 entries (20 INV-* — including INV-16
+    // os-portability added in #1623 and INV-17 response-economy added by the
+    // tool-token-economy-remediation feature — plus basileus-boundary), none DIM-*.
     const cat = loadCatalog();
-    expect(cat.length).toBe(20);
+    expect(cat.length).toBe(21);
     expect(cat.filter((e) => e.id.startsWith('DIM-'))).toEqual([]);
   });
 

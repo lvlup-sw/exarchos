@@ -26,6 +26,13 @@ import type { NextAction } from '../next-action.js';
 
 const ViewTelemetryArgsSchema = z.object({
   compact: z.boolean().optional(),
+  // DR-8 / B-4 (Task 014) — compact-by-default is the telemetry contract, so
+  // the `--compact` flag was a no-op against the default (both stripped the
+  // heavy rolling-window arrays). `detail: true` is now the explicit restore
+  // path — matching the 013/024 view contract — so `compact: true` measurably
+  // reduces output relative to the `detail: true` full response. The legacy
+  // `compact: false` restore remains honored for backward compatibility.
+  detail: z.boolean().optional(),
   tool: z.string().optional(),
   sort: z.enum(['tokens', 'invocations', 'duration']).optional(),
   limit: z.number().int().positive().optional(),
@@ -124,9 +131,17 @@ export async function handleViewTelemetry(
       );
     }
 
+    // DR-8 / B-4 (Task 014) — compact-by-default; the full per-tool rolling
+    // window arrays (`durations`/`sizes`/`tokenEstimates`, capped at 1000 each
+    // and the heaviest secondary sub-structure) are restored only under an
+    // explicit `detail: true` (or the legacy `compact: false`). This makes the
+    // `--compact` flag measurably reduce output against the `detail: true`
+    // response instead of being a no-op against an already-compact default.
+    const wantFull = validated.detail === true || validated.compact === false;
+
     // Convert tools map to array of { tool, ...metrics } entries
     let toolEntries = Object.entries(view.tools).map(([name, metrics]) =>
-      toToolEntry(name, metrics, validated.compact !== false),
+      toToolEntry(name, metrics, !wantFull),
     );
 
     // Apply tool filter

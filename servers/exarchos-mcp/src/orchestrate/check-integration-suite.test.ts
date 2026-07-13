@@ -24,6 +24,7 @@ import {
   parseVitestResult,
   runIntegrationSuite,
   resolveIntegrationCommand,
+  LOAD_FAILURE_LIST_CAP,
 } from './pure/integration-suite.js';
 import type { Toolchain } from '../config/toolchains.js';
 
@@ -209,6 +210,70 @@ describe('handleCheckIntegrationSuite', () => {
     );
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
+  });
+
+  // ─── DR-7: counts-not-transcripts cap on the load-failure list ─────────────
+
+  it('checkIntegrationSuite_LoadFailureCascade_CapsListWithCount', async () => {
+    // Arrange — a load CASCADE: far more files fail to import than the fixed
+    // cap. Each is a suite that failed with zero assertion results (the #1329
+    // silent-load shape), so all count as load failures.
+    const total = LOAD_FAILURE_LIST_CAP + 30;
+    const cascadeJson = JSON.stringify({
+      numTotalTestSuites: total,
+      numPassedTestSuites: 0,
+      numFailedTestSuites: total,
+      numTotalTests: 0,
+      numPassedTests: 0,
+      numFailedTests: 0,
+      success: false,
+      testResults: Array.from({ length: total }, (_, i) => ({
+        name: `/repo/src/broken-${i}.test.ts`,
+        status: 'failed',
+        message: 'Error: Failed to load url ./missing.js',
+        assertionResults: [],
+      })),
+    });
+    const runner = stubRunnerReturning(cascadeJson);
+
+    // Act
+    const result = await handleCheckIntegrationSuite(
+      { featureId: 'feat-1', repoRoot: '/repo' },
+      STATE_DIR,
+      mockStore as unknown as EventStore,
+      runner,
+    );
+
+    // Assert — verdict logic is UNCHANGED: every load failure is still folded
+    // into the counts.
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      passed: boolean;
+      failCount: number;
+      loadFailures: number;
+      report: string;
+    };
+    expect(data.passed).toBe(false);
+    expect(data.loadFailures).toBe(total);
+    expect(data.failCount).toBe(total);
+
+    // The enumerated list is CAPPED: file-entry lines begin with "- `" (the
+    // steering line begins with "- …").
+    const enumerated = data.report
+      .split('\n')
+      .filter((l) => l.startsWith('- `'));
+    expect(enumerated).toHaveLength(LOAD_FAILURE_LIST_CAP);
+
+    // First N survive; the (N+1)th and a much later one are folded into the count.
+    expect(data.report).toContain('broken-0.test.ts');
+    expect(data.report).toContain(`broken-${LOAD_FAILURE_LIST_CAP - 1}.test.ts`);
+    expect(data.report).not.toContain(`broken-${LOAD_FAILURE_LIST_CAP}.test.ts`);
+    expect(data.report).not.toContain(`broken-${total - 1}.test.ts`);
+
+    // Total count is surfaced with a steer to the uncapped escape hatch.
+    const remaining = total - LOAD_FAILURE_LIST_CAP;
+    expect(data.report).toContain(`…and ${remaining} more (${total} load failures total)`);
+    expect(data.report.toLowerCase()).toContain('re-run the suite');
   });
 });
 

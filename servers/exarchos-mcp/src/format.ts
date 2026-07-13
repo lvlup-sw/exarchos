@@ -27,6 +27,41 @@ export interface CorrectionsPayload {
   readonly applied: readonly Correction[];
 }
 
+/**
+ * Economy-enforcement `_meta` conventions (DR-1, Task 003).
+ *
+ * The dispatch-core response-economy seam (`enforceResponseEconomy`,
+ * `core/dispatch.ts`) stamps exactly one of these markers on the envelope
+ * `_meta` after measuring `data` against the action's resolved budget
+ * (`resolveEconomyBudget`, `registry.ts`):
+ *
+ * - `truncated` — the response exceeded its budget and `data` was replaced
+ *   by the action's declared summarizer output, or the generic capped
+ *   fallback shaped as `{ summary, counts, firstPage }` (the shared
+ *   `CappedDataSchema` fragment). The envelope carrier fields
+ *   (`success`, `next_actions`, `_meta`, `_perf`, …) are never truncated —
+ *   budgets measure `data` only.
+ * - `economyDegraded` — fail-open marker: the budget resolved
+ *   non-finite / non-positive, OR the declared summarizer threw. The
+ *   UNCAPPED payload is returned untouched with this marker so the caller
+ *   still sees the full inventory — never an error, never a silent drop
+ *   (#1659 DR-3 precedent).
+ *
+ * The two markers are mutually exclusive on any single response: a capped
+ * response carries `truncated: true`; a fail-open response carries
+ * `economyDegraded: true`.
+ */
+export interface EconomyMeta {
+  readonly truncated?: boolean;
+  readonly economyDegraded?: boolean;
+}
+
+/** `_meta` key stamped on a successfully-capped (summarized) response. */
+export const ECONOMY_META_TRUNCATED = 'truncated' as const;
+
+/** `_meta` key stamped on a fail-open (uncapped, degraded) response. */
+export const ECONOMY_META_DEGRADED = 'economyDegraded' as const;
+
 
 export interface ToolResult {
   readonly success: boolean;

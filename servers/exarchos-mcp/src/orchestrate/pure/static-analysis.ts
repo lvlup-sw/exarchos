@@ -420,6 +420,95 @@ function readPackageJson(
 }
 
 // ============================================================
+// FAIL-DETAIL CAP (DR-7a — counts-not-transcripts)
+// ============================================================
+//
+// A failing lint/typecheck run can emit hundreds of lines of transcript. Echoing
+// the whole dump into the gate response is the O-3 unbounded-echo the token-
+// economy audit named (DR-7): the reviewer pays for a 500-line wall of text when
+// a first page + counts + a re-run hint is enough to triage. This caps the raw
+// detail to `FAIL_DETAIL_MAX_LINES`, then appends:
+//   (a) the total line count (so the reader knows how much was elided),
+//   (b) a per-file failure breakdown naming EVERY distinct failing file with its
+//       line count — computed over the FULL raw output, not just the kept head —
+//       so triage never has to re-run the uncapped path to answer "what failed",
+//   (c) a steering suffix pointing at the escape hatch (re-run for full output).
+//
+// Fidelity over brevity for the file list: the head is capped, but the complete
+// set of failing files is always named. Short details (≤ cap) pass through
+// byte-identically so existing single-line FAIL messages keep their exact shape.
+
+/** Maximum raw transcript lines kept in a FAIL detail before the cap engages. */
+export const FAIL_DETAIL_MAX_LINES = 50;
+
+/**
+ * Path-like token ending in a recognized source extension. Used to attribute
+ * each transcript line to a failing file. Matches tsc (`src/foo.ts(12,5):`),
+ * eslint stylish headers (`/abs/src/foo.ts`), eslint unix/compact
+ * (`src/foo.ts:12:5:`), and bare-root files (`foo.ts`). A leading `/`, `./`, or
+ * `../` is captured when present; intermediate directories are optional.
+ */
+const FILE_TOKEN_RE =
+  /(?:\.{0,2}\/)?(?:[\w.-]+\/)*[\w.-]+\.(?:tsx?|jsx?|mts|cts|mjs|cjs|cs|go|rs|py|json|vue|svelte)\b/;
+
+/** Extract the first file-path token on a transcript line, or null if none. */
+function extractFileToken(line: string): string | null {
+  const m = FILE_TOKEN_RE.exec(line);
+  return m ? m[0] : null;
+}
+
+/**
+ * Count transcript lines attributable to each distinct failing file, over the
+ * FULL raw output. Insertion order preserved for files with equal counts, so
+ * output is deterministic given the input.
+ */
+function fileFailureCounts(lines: readonly string[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const line of lines) {
+    const file = extractFileToken(line);
+    if (file) counts.set(file, (counts.get(file) ?? 0) + 1);
+  }
+  return counts;
+}
+
+/**
+ * Cap a verbose FAIL `detail` (raw lint/typecheck transcript) to the first
+ * `FAIL_DETAIL_MAX_LINES` lines plus a total count, a complete per-file failing
+ * breakdown, and a steering suffix. Returns the detail unchanged when it already
+ * fits within the cap (preserving the exact shape of short single-line messages).
+ *
+ * @param rawDetail    the full (already-trimmed) tool transcript
+ * @param rerunCommand the command the reviewer re-runs for the uncapped output
+ */
+export function capFailDetail(rawDetail: string, rerunCommand: string): string {
+  const lines = rawDetail.split('\n');
+  const total = lines.length;
+  if (total <= FAIL_DETAIL_MAX_LINES) {
+    return rawDetail;
+  }
+
+  const fileCounts = fileFailureCounts(lines);
+  const parts: string[] = lines.slice(0, FAIL_DETAIL_MAX_LINES);
+
+  parts.push('');
+  parts.push(
+    `… output capped at ${FAIL_DETAIL_MAX_LINES} of ${total} lines (${total - FAIL_DETAIL_MAX_LINES} more elided).`,
+  );
+
+  if (fileCounts.size > 0) {
+    // Highest line count first; ties broken by first-seen order (Map iteration).
+    const ordered = [...fileCounts.entries()].sort((a, b) => b[1] - a[1]);
+    parts.push(`Failing files (${fileCounts.size}):`);
+    for (const [file, count] of ordered) {
+      parts.push(`  ${file}: ${count}`);
+    }
+  }
+
+  parts.push(`Re-run \`${rerunCommand}\` for the full output.`);
+  return parts.join('\n');
+}
+
+// ============================================================
 // CHECK RUNNERS
 // ============================================================
 
@@ -444,10 +533,12 @@ function runNpmCheck(
     if (result.exitCode === 0) {
       return { name, status: 'PASS' };
     }
-    const detail =
+    const detail = capFailDetail(
       result.stderr.trim() ||
-      result.stdout.trim() ||
-      `npm run ${scriptName} failed`;
+        result.stdout.trim() ||
+        `npm run ${scriptName} failed`,
+      `npm run ${scriptName}`,
+    );
     return { name, status: 'FAIL', detail };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -516,7 +607,11 @@ function runGenericCheck(
     if (result.exitCode === 0) {
       return { name, status: 'PASS' };
     }
-    const detail = result.stderr.trim() || result.stdout.trim() || `${cmd} ${args.join(' ')} failed`;
+    const rerun = `${cmd} ${args.join(' ')}`;
+    const detail = capFailDetail(
+      result.stderr.trim() || result.stdout.trim() || `${rerun} failed`,
+      rerun,
+    );
     return { name, status: 'FAIL', detail };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

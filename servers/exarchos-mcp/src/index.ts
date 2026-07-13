@@ -7,7 +7,7 @@ import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { logger } from './logger.js';
-import { resolveStateDir as resolveStateDirFromPaths } from './utils/paths.js';
+import { resolveStateDir as resolveStateDirFromPaths, STORE_DB_FILENAME } from './utils/paths.js';
 import { EventStore } from './event-store/store.js';
 import { SnapshotStore } from './views/snapshot-store.js';
 import {
@@ -129,7 +129,11 @@ export async function initializeBackend(
   stateDir: string,
   loadSqliteBackend: SqliteBackendLoader = defaultSqliteBackendLoader,
 ): Promise<StorageBackend> {
-  const dbPath = path.join(stateDir, 'exarchos.db');
+  // DR-11 B-5: the leaf DB name comes from the shared `STORE_DB_FILENAME`
+  // constant (utils/paths.ts) — the same one `resolveStorePath` and the
+  // event-store appender's lazily-constructed backend use — so the CLI/plugin
+  // backend init cannot drift from the other computations of the store path.
+  const dbPath = path.join(stateDir, STORE_DB_FILENAME);
 
   // Phase A: legacy-state-dir guard. Cheap top-level scan — do not
   // recurse. The presence of `*.events.jsonl` plus the absence of a
@@ -145,7 +149,7 @@ export async function initializeBackend(
   }
   const hasLegacyJsonl = stateEntries.some((name) => name.endsWith('.events.jsonl'));
   const hasSqliteDb = stateEntries.some(
-    (name) => name === 'exarchos.db' || name === 'events.db',
+    (name) => name === STORE_DB_FILENAME || name === 'events.db',
   );
   if (hasLegacyJsonl && !hasSqliteDb) {
     throw new Error(
@@ -241,7 +245,16 @@ export async function createServer(
   // so consumers do not need to import `bun:sqlite` directly. The same
   // backend was already passed to `EventStore` above; surfacing it on
   // `DispatchContext` is what closes the DI gap.
-  const ctx: DispatchContext = { stateDir, eventStore, enableTelemetry, capabilityResolver, storage: backend };
+  //
+  // DR-6 (Task 015): slim `tools/list` registration is ON by default in the
+  // production dispatch context — every visible tool advertises its compact
+  // `slimDescription` (which points at the `describe` action, the on-demand
+  // full-detail path, per INV-5a) instead of the base blurb + every action
+  // signature. This is the one-line context flip that takes the always-loaded
+  // registration from ~7,851 tok/session to the slim ceiling. `describe`
+  // remains the bounded path for per-action schemas and negative-space
+  // ("Do NOT use for …") guidance.
+  const ctx: DispatchContext = { stateDir, eventStore, enableTelemetry, capabilityResolver, storage: backend, slimRegistration: true };
 
   // Lazy-load the MCP adapter so the CLI cold-start path doesn't incur the
   // MCP-SDK import cost. See module-level note on top of file.
@@ -382,10 +395,20 @@ async function main() {
   const backend = await initializeBackend(stateDir);
   registerBackendCleanup(backend);
 
-  const ctx = await initializeContext(stateDir, {
-    backend,
-    projectRoot: process.cwd(),
-  });
+  // DR-6 (Task 015): the shipped `exarchos mcp` server is dispatched from this
+  // context (buildCli → cli.ts `mcp` action → createMcpServer(ctx)), so the
+  // slim-registration flip must land here too — not only on the `createServer`
+  // library factory above. `slimRegistration` is read solely by
+  // `buildToolDescription` at tools/list registration (adapters/mcp.ts); CLI
+  // dispatch ignores it, so setting it on the ctx shared with `buildCli` is
+  // inert for every non-MCP subcommand.
+  const ctx: DispatchContext = {
+    ...(await initializeContext(stateDir, {
+      backend,
+      projectRoot: process.cwd(),
+    })),
+    slimRegistration: true,
+  };
 
   // Unified entry point — all routing via Commander CLI.
   // `exarchos mcp` starts the MCP server; other commands are CLI mode.

@@ -48,6 +48,7 @@ exports[`F.7 — CLI table/tree pretty-print regression (Wave 0 §7) > CliRender
   autoEmits:
     event: workflow.started
     condition: always
+  economyBudgetTokens: 2000
   outputSchema:
     $schema: https://json-schema.org/draft/2020-12/schema
     oneOf:
