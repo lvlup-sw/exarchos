@@ -34,7 +34,7 @@ On overflow: apply the declared summarizer if present, else a generic capped fal
 The `output-cap.ts` kit (`estimateOutputTokens`, `narrowAffordance`, summary fallback) generalizes out of `views/` into the shared core; `narrowAffordance`'s verb type widens from `'pipeline' | 'worktrees'` to any action name.
 
 **Acceptance criteria:**
-- A registry-enumeration test asserts every registered action resolves an effective budget (declared or default); adding an action with no resolvable budget fails CI.
+- A registry-enumeration snapshot test pins every action's effective budget (declared or default) as a golden table — any budget change or new action surfaces as a reviewed snapshot diff, and an invalid (non-finite/non-positive) declared budget fails the test.
 - Enforcement caps only `data`; envelope carrier fields (`success`, `next_actions`, `_meta`, `_perf`) are never truncated, and `_meta.truncated: true` marks capped responses (INV-5b intact).
 - Summary shapes are declared in the action's registered `outputSchema` (union or `_meta`-flagged capped shape) — no response can violate its own schema.
 - **Fail-open on presentation:** a budget that resolves non-finite/non-positive, or a summarizer that throws, degrades to the uncapped payload with a `_meta.economyDegraded` marker — never an error, never a silent drop (#1659 DR-3 precedent).
@@ -72,10 +72,11 @@ Return the rendered implementer prompt once per response (or behind `outputForma
 
 ### DR-5: `event query` default limit
 
-Default `limit` 25 newest + `page` metadata; unbounded only by explicit request.
+Default `limit` 20 newest + `page` metadata; unbounded only by explicit request.
+The registered schema already carries `limit`/`offset`/`fields` — this is a handler-default change with no registry edit.
 
 **Acceptance criteria:**
-- Default query on a 112-event stream returns ≤1,800 tokens (baseline: 5,755) with `page.hasMore: true`.
+- Default query on the audit's 112-event stream fixture returns ≤1,600 tokens (audit measured 1,490 at limit 20; baseline unbounded: 5,755) with `page.hasMore: true`.
 - Explicit `limit`/`offset` retains full history access; ordering is deterministic.
 
 ### DR-6: Flip slim registration
@@ -90,11 +91,13 @@ Set `slimRegistration: true` in production dispatch context; `describe` remains 
 ### DR-7: Gate-output truncation (counts-not-transcripts)
 
 `check_static_analysis` FAIL detail caps at first N lines + failure count with a steering suffix; `review_diff` returns stat-summary + capped hunks and never embeds the diff twice (today: full diff in `data.diff` **and** re-embedded in `data.report`).
+The same counts-not-transcripts shaping applies to the other unbounded gate echoes the audit named (O-3/O-4): `check_pr_comments` (one line per comment, unbounded count) and `check_integration_suite`'s load-failure list.
 
 **Acceptance criteria:**
 - A FAIL run with 500+ lines of lint/typecheck output returns the first N (~50) lines, a total count, and a "re-run with…" steering hint.
 - `review_diff` response contains at most one copy of any hunk; a large-diff fixture pins the budget.
 - Failure-mode fidelity: the capped FAIL detail always includes every distinct failing file (counts per file), so triage never requires the uncapped path for "what failed".
+- `check_pr_comments` and `check_integration_suite` failure lists cap at N entries plus total counts, with steering to the uncapped escape hatch.
 
 ### DR-8: Generalize the view contract
 
@@ -102,6 +105,7 @@ Apply compact-by-default + `page` + scope perceivability (#1659 P1–P5) to the 
 
 **Acceptance criteria:**
 - Every `exarchos_view` action returns `page` metadata when list-shaped and honors `detail: true`.
+- Scoped views report `scope` + `unscopedTotal` (P5 perceivability) so hidden rows are always perceivable.
 - `view telemetry --compact` measurably reduces output on a populated store (baseline: no-op at 85 tok).
 - Each migrated view carries a DR-2-style token-budget test.
 
@@ -111,6 +115,7 @@ Verify empirically how host clients (Claude Code plugin first, then the other Ti
 
 **Acceptance criteria:**
 - A written verification note (in-repo, linked from this spec's decomposition) records per-runtime injection behavior with reproduction steps.
+- **Decision rule (decidable):** implement only if the primary runtime (Claude Code) demonstrably injects `content` (not `structuredContent`) into model context AND a lean rendering reduces model-visible tokens ≥30% across ≥3 representative actions. Runtimes evidenced to inject `structuredContent` are no-loss by construction; any Tier-1 runtime whose injection behavior cannot be evidenced ⇒ defer (INV-4: the guarantee must exist on every runtime's path).
 - If implemented: `content` carries a compact rendering, `structuredContent` the full envelope; both facades produce identical `structuredContent` (INV-2); rendering is presentation-only in adapters.
 - If verification shows no model-token benefit: explicitly deferred with the evidence recorded — the task closes without code.
 
@@ -128,7 +133,7 @@ Author a dev-catalog entry via the `/exarchos:invariants` wizard verbs (`invaria
 Fix the audit's incidental defects; each is a real end-user breakage with its own regression test (B-4 is folded into DR-8).
 
 **Acceptance criteria:**
-- B-1: `view pipeline` no longer throws `VIEW_ERROR` on a store containing a legacy `__migration__` stream row (fixture-pinned regression test).
+- B-1: **verified already fixed at HEAD** — `views/tools.ts` filters non-feature streams generically (#1434) and `materializer.sentinel-skip.test.ts` pins the `__migration__` case; the audit's observation is attributed to plugin-deployment lag. No code change; the existing fixture-pinned tests remain the regression guard.
 - B-2: `check_ci` works against current `gh` (`conclusion` → `state` rename); **wave-1 priority — blocks shepherd CI checks today.**
 - B-3: `prNumbers` accepts CSV input (`1660,1671,1659`) through the flag-coercion layer, consistent with Zod-v4 `coerceFlags` object-classification.
 - B-5: CLI and plugin MCP server resolve the same default store path (or a documented precedence), and `doctor` detects and reports divergent store paths.
@@ -153,7 +158,10 @@ A small set of verbose-by-design actions (`describe`, `runbook` detail, `emissio
 **Enforcement seam:** dispatch core, post-handler, immediately before the telemetry middleware's `injectPerf` — the same place response bytes/tokens are already measured, so the guard and `_perf` agree by construction.
 Order: handler → economy check (measure `data`; if over budget → summarizer or generic fallback; stamp `_meta.truncated`) → `injectPerf` (final size).
 
-**outputSchema honesty:** actions with a summarizer declare the summary shape in their registered schema; the generic fallback's shape (`{summary, counts, firstPage}`) is a shared schema fragment unioned where used.
+**outputSchema honesty:** actions with a summarizer declare the summary shape in their registered schema; the generic fallback's shape (`{summary, counts, firstPage}`) is a shared schema fragment unioned into every action that carries a typed `data` outputSchema (11 today).
+This union is load-bearing, not cosmetic: the MCP adapter's D.5 validator replaces any envelope violating its registered outputSchema with an `INTERNAL_ERROR` envelope, so an un-unioned capped response would break the fail-open criterion on the MCP facade while the CLI facade (which has no D.5 pass) sailed through — an INV-2 parity break.
+The union is single-owned by a dedicated registry task and must land before enforcement activates.
+**Budget scope note (audit F-6):** budgets measure `data` only; the ~40–60-token envelope carrier floor is deliberately outside the budget and documented as such.
 
 **Kit relocation:** `views/output-cap.ts` → `core/economy.ts` (name illustrative); `pipeline`/`worktrees` become the first consumers of the generalized kit, unchanged in behavior.
 
@@ -203,6 +211,7 @@ Convergence (author-confirmed, 2026-07-12): depth `deep`; scope R-1..R-10 + B-1.
 - **DR-9 client injection behavior** — unknown by design; resolves via the verification task before any implementation, with explicit evidence-recorded deferral as a first-class outcome.
 - **Default budget value (2,000)** — initial value from the audit; relationship to the existing `qualityHints` `output_tokens` threshold (25,600 catastrophic backstop) is: DR-1 budgets are per-action economy ceilings, the qualityHints threshold remains the last-resort overflow guard; tune after dogfooding measurements.
 - **B-5 scope containment** — if unifying the CLI/plugin store path grows beyond a bounded fix (migration concerns for existing stores), it spins off as its own issue; the in-scope floor is `doctor` detection + documented precedence.
+- **`emitGateExecutedEvents` write amplification** (audit §5.2: one `gate.executed` event per check per PR per shepherd iteration) — explicitly deferred: it is event-store write cost, not response-economy; file a follow-up issue during implementation.
 
 ## Decomposition
 
@@ -217,17 +226,17 @@ The decomposition maps every task to one or more DR-N from the section above.
 
 | DR | Requirement | Tasks |
 |----|-------------|-------|
-| DR-1 | Registry-declared response-economy contract | 001, 002, 003 |
+| DR-1 | Registry-declared response-economy contract | 001, 002, 003, 022 |
 | DR-2 | assess_stack minimal types | 007 |
-| DR-3 | get_pr_comments window + projection | 006 |
+| DR-3 | get_pr_comments window + projection | 006, 022 |
 | DR-4 | prepare_delegation prompt dedupe | 008 |
 | DR-5 | event query default limit | 005 |
 | DR-6 | Flip slim registration | 015 |
-| DR-7 | Gate-output truncation | 011, 012 |
-| DR-8 | Generalize the view contract | 013, 014 |
+| DR-7 | Gate-output truncation | 011, 012, 023 |
+| DR-8 | Generalize the view contract | 013, 014, 022, 024 |
 | DR-9 | Envelope split — verification-gated | 016, 017 |
 | DR-10 | Codify INV-17 | 018 |
-| DR-11 | Incidental defect burn-down | 004, 009, 010, 019, 020 |
+| DR-11 | Incidental defect burn-down | 004, 010, 014, 019, 020 |
 | DR-12 | Economy-by-default consumer migration | 021 |
 
 ### Tasks
@@ -267,11 +276,11 @@ Relocate `estimateOutputTokens`, `narrowAffordance`, `countBy`, threshold resolu
 - `servers/exarchos-mcp/src/registry.ts`
 - `servers/exarchos-mcp/src/registry.test.ts`
 
-Add `economy?: { budgetTokens?: number; compactByDefault?: boolean; summarize?: (data: unknown) => unknown }` at the action-descriptor level (sibling to `cli`, `gate`, `dispatchHints`); registry-wide default 2,000; explicit higher budgets for verbose-by-design actions (`describe`, `runbook`, `emissionGuide` path); budgets surfaced via `describe`.
+Add `economy?: { budgetTokens?: number; compactByDefault?: boolean; summarize?: (data: unknown) => unknown }` at the action-descriptor level (sibling to `cli`, `gate`, `dispatchHints`); registry-wide default 2,000; explicit higher budgets for verbose-by-design actions (`describe`, `runbook` — event `describe`'s budget accounts for its `emissionGuide` param path, which is a param, not an action); budgets surfaced via `describe`.
 
 **Verification:**
-- `registryEconomy_EveryRegisteredAction_ResolvesEffectiveBudget`
-- `registryEconomy_VerboseByDesignAction_DeclaresExplicitHigherBudget`
+- `registryEconomy_BudgetSnapshot_PinsEffectiveBudgetPerAction`
+- `registryEconomy_VerboseByDesignAllowlist_DeclaresExplicitHigherBudget`
 - `describeAction_WithBudget_SurfacesBudgetTokens`
 - Typecheck across `servers/exarchos-mcp` — the descriptor type change is a shared contract surface
 
@@ -298,6 +307,7 @@ Post-handler, pre-`injectPerf`: measure `data`; over budget → declared summari
 - `dispatchEconomy_BudgetUnresolvable_FailsOpenWithDegradedMarker`
 - `dispatchEconomy_SummarizerThrows_ReturnsUncappedWithDegradedMarker`
 - `dispatchEconomy_CappedResponse_EnvelopeCarrierIntact` — property test: for arbitrary over-budget payloads, `success`/`next_actions`/`_meta`/`_perf` survive
+- `dispatchEconomy_CappedTypedOutputSchemaAction_SurvivesD5Validation` — a capped response for a typed-outputSchema action passes the MCP adapter's D.5 pass (never INTERNAL_ERROR)
 - `check_test_adequacy` kill-probe + integration suite across the dispatch seam (both facades, INV-2 parity)
 
 **Dependencies:** 001, 002
@@ -312,10 +322,11 @@ Post-handler, pre-`injectPerf`: measure `data`; over budget → declared summari
 **Testing Strategy:** propertyTests: false, characterizationRequired: true
 
 **Files:**
-- `servers/exarchos-mcp/src/orchestrate/check-ci.ts`
+- `servers/exarchos-mcp/src/vcs/github.ts`
+- `servers/exarchos-mcp/src/orchestrate/vcs/check-ci.ts`
 - co-located test
 
-Replace the removed `conclusion` JSON field with `state`; pin the parse against a recorded current-gh output fixture. **Wave-1 priority — blocks shepherd CI checks today.**
+Replace the removed `conclusion` JSON field with `state` at the true seam — `vcs/github.ts` (`mapConclusion` and the gh `--json` field list); the registered handler `orchestrate/vcs/check-ci.ts` is a thin pass-through. Pin the parse against a recorded current-gh output fixture. **Wave-1 priority — blocks shepherd CI checks today.**
 
 **Verification:**
 - `checkCi_CurrentGhStateField_ParsesRunStatus`
@@ -336,10 +347,10 @@ Replace the removed `conclusion` JSON field with `state`; pin the parse against 
 - `servers/exarchos-mcp/src/event-store/tools.ts`
 - co-located test
 
-Default `limit` 25 newest with `page:{total,offset,limit,hasMore}`; deterministic ordering; explicit `limit`/`offset` retains full access.
+Default `limit` 20 newest with `page:{total,offset,limit,hasMore}`; deterministic ordering; explicit `limit`/`offset` retains full access. Handler-only change — the registered schema already carries `limit`/`offset`/`fields`.
 
 **Verification:**
-- `eventQuery_NoLimit_Returns25NewestWithPageMetadata`
+- `eventQuery_NoLimit_Returns20NewestWithPageMetadata`
 - `eventQuery_OffsetPaging_CoversFullStreamDeterministically` — property test: paging partitions the stream, no gaps/duplicates
 - `check_test_adequacy` kill-probe
 
@@ -355,19 +366,23 @@ Default `limit` 25 newest with `page:{total,offset,limit,hasMore}`; deterministi
 **Testing Strategy:** propertyTests: false, characterizationRequired: true
 
 **Files:**
+- `servers/exarchos-mcp/src/vcs/github.ts`
+- `servers/exarchos-mcp/src/vcs/provider.ts`
 - `servers/exarchos-mcp/src/orchestrate/vcs/get-pr-comments.ts`
+- `servers/exarchos-mcp/src/orchestrate/vcs/list-prs.ts`
 - co-located test
 
-Default limit ~20 newest + `page` metadata + `fields` projection; truncation notice steers to narrower calls.
+Default limit ~20 newest + `page` metadata + `fields` projection; truncation notice steers to narrower calls. The window/projection lands in `vcs/github.ts` and the `VcsProvider` interface (the orchestrate files are thin shims); GitLab/ADO partial providers keep their throw-behavior. `list_prs` gains a default window in the same pass (its handler is `orchestrate/vcs/list-prs.ts`). Schema params ride Task 022.
 
 **Verification:**
 - `getPrComments_DefaultLimit_ReturnsPageWithHasMore`
 - `getPrComments_FieldsProjection_ReturnsOnlyRequestedKeys`
 - `getPrComments_ExplicitOffset_PagesDeterministically`
+- `listPrs_NoLimit_ReturnsDefaultWindow`
 - `check_test_adequacy` kill-probe
 
-**Dependencies:** None
-**Parallelizable:** Yes
+**Dependencies:** 004, 022
+**Parallelizable:** No
 
 ### Task 007: DR-2 — `assess_stack` minimal types
 
@@ -381,16 +396,17 @@ Default limit ~20 newest + `page` metadata + `fields` projection; truncation not
 - `servers/exarchos-mcp/src/orchestrate/assess-stack.ts`
 - co-located test
 
-Delete dead `fullBody`; collapse `actionItems[].raw` to a reference into `unresolvedComments`; cap comments per PR with `page` metadata; `checks[]` → counts + failing detail; give `list_prs` (same module) a default window.
+Delete dead `fullBody`; collapse `actionItems[].raw` to a reference into `unresolvedComments`; cap comments per PR with `page` metadata; `checks[]` → counts + failing detail. Schema params ride Task 022; `list_prs` windowing moved to Task 006 (its handler lives in `orchestrate/vcs/`).
+**Deadness precondition:** the code comment at the `fullBody` field claims a review-provider-adapter consumer — the audit found adapters consume raw comments upstream; verify before deleting and fix the stale comment narrative.
 
 **Verification:**
 - `assessStack_CommentHeavyStack_StaysUnderBudget` — comment-heavy fixture (≥25 unresolved on one PR), pins the data-dependent case
 - `assessStack_UnresolvedComments_EachCommentSerializedOnce`
 - `assessStack_PagedComments_EveryActionableReferenceReachable`
-- `listPrs_NoLimit_ReturnsDefaultWindow`
+- `assessStack_AdapterConsumption_UnaffectedByFullBodyRemoval` — characterization proving provider adapters parse comments upstream of the result build (the deadness precondition)
 - `check_test_adequacy` kill-probe + integration suite (shepherd-loop consumer contract)
 
-**Dependencies:** None
+**Dependencies:** 022
 **Parallelizable:** Yes
 
 ### Task 008: DR-4 — `prepare_delegation` prompt dedupe
@@ -415,26 +431,6 @@ Rendered implementer prompt returned once per response (or via `outputFormat: 'p
 **Dependencies:** None
 **Parallelizable:** Yes
 
-### Task 009: B-1 — `view pipeline` tolerates legacy `__migration__` stream row
-
-**Risk Tier:** medium
-**Test Layer:** integration
-**Implements:** DR-11
-**Testing Strategy:** propertyTests: false, characterizationRequired: true
-
-**Files:**
-- `servers/exarchos-mcp/src/views/tools.ts`
-- co-located test
-
-Exclude (don't throw on) stream rows failing the `^[a-z0-9-]+$` featureId regex; the view renders the remaining rows.
-
-**Verification:**
-- `pipelineView_LegacyMigrationStreamRow_ExcludedNotThrown` — fixture store with a `__migration__` row
-- `check_test_adequacy` kill-probe
-
-**Dependencies:** 001
-**Parallelizable:** No
-
 ### Task 010: B-3 — `prNumbers` CSV coercion
 
 **Risk Tier:** medium
@@ -446,7 +442,7 @@ Exclude (don't throw on) stream rows failing the `^[a-z0-9-]+$` featureId regex;
 - `servers/exarchos-mcp/src/coerce.ts`
 - `servers/exarchos-mcp/src/coerce.test.ts`
 
-Accept CSV (`1660,1671,1659`) for int-array flags through the coercion layer, consistent with the Zod-v4 `coerceFlags` object-classification design (JSON array input keeps working).
+Accept CSV (`1660,1671,1659`) for int-array flags through the coercion layer, consistent with the Zod-v4 `coerceFlags` object-classification design (JSON array input keeps working). A CSV-tolerant coerced int-array helper is new in `coerce.ts`; the `prNumbers` schema swap rides Task 022.
 
 **Verification:**
 - `coerceFlags_PrNumbersCsv_ParsesToIntArray`
@@ -454,7 +450,7 @@ Accept CSV (`1660,1671,1659`) for int-array flags through the coercion layer, co
 - `coerceFlags_CsvRoundTrip_EquivalentToJsonArray` — property test over int arrays
 - `check_test_adequacy` kill-probe
 
-**Dependencies:** None
+**Dependencies:** 022
 **Parallelizable:** Yes
 
 ### Task 011: DR-7a — `check_static_analysis` FAIL-output truncation
@@ -499,7 +495,7 @@ Stat-summary + capped hunks; the diff is never embedded twice (today: `data.diff
 **Dependencies:** None
 **Parallelizable:** Yes
 
-### Task 013: Generalize the view contract across the remaining twenty views
+### Task 013: Generalize the view contract: inventory views batch
 
 **Risk Tier:** high
 **Test Layer:** integration
@@ -510,14 +506,15 @@ Stat-summary + capped hunks; the diff is never embedded twice (today: `data.diff
 - `servers/exarchos-mcp/src/views/tools.ts`
 - `servers/exarchos-mcp/src/views/tools.test.ts`
 
-Every list-shaped `exarchos_view` action returns `page` metadata and honors `detail: true`; each migrated view gains a DR-2-style token-budget test; rides Task 003's backstop.
+First half of the view migration — the list/inventory-shaped views (`tasks`, `stack_status`, `workflow_status`, `delegation_timeline`, `team_performance`, …): `page` metadata, `detail: true`, `scope`/`unscopedTotal` perceivability, and a DR-2-style token-budget test per migrated view; rides Task 003's backstop. View schema params ride Task 022. Analytic views are Task 024.
 
 **Verification:**
 - `viewsContract_ListShaped_ReturnPageMetadataAndHonorDetail`
 - `viewsContract_MigratedView_StaysUnderEffectiveBudget`
-- `check_test_adequacy` kill-probe + integration suite (all views over a populated fixture store)
+- `viewsContract_ScopedView_ReportsUnscopedTotal`
+- `check_test_adequacy` kill-probe + integration suite (migrated views over a populated fixture store)
 
-**Dependencies:** 003 (and lands after 009 — same file)
+**Dependencies:** 003, 022
 **Parallelizable:** No
 
 ### Task 014: DR-8 — fix `view telemetry --compact` no-op (B-4)
@@ -537,7 +534,7 @@ Every list-shaped `exarchos_view` action returns `page` metadata and honors `det
 - `viewTelemetry_CompactFlag_ReducesMeasuredOutput`
 - `check_test_adequacy` kill-probe
 
-**Dependencies:** 013 (same file — serialize)
+**Dependencies:** 024
 **Parallelizable:** No
 
 ### Task 015: DR-6 — flip slim registration + eval validation
@@ -548,10 +545,11 @@ Every list-shaped `exarchos_view` action returns `page` metadata and honors `det
 **Testing Strategy:** propertyTests: false, characterizationRequired: true
 
 **Files:**
+- `servers/exarchos-mcp/src/index.ts`
 - `servers/exarchos-mcp/src/adapters/mcp.ts`
 - co-located test
 
-Set `slimRegistration: true` in production dispatch context; slim descriptions keep the "when NOT to use" clause per tool (INV-5a); run the eval suite for prompt-drift.
+Set `slimRegistration: true` where the production `DispatchContext` is constructed (`src/index.ts` — `adapters/mcp.ts` only reads the flag); slim descriptions keep the "when NOT to use" clause per tool (INV-5a); run the eval suite for prompt-drift.
 
 **Verification:**
 - `toolsList_SlimRegistration_MeasuresUnder3800Tokens`
@@ -559,8 +557,8 @@ Set `slimRegistration: true` in production dispatch context; slim descriptions k
 - Eval suite run recorded green (no shape/prompt-drift regressions)
 - `check_test_adequacy` kill-probe
 
-**Dependencies:** 002 (registry descriptor churn lands first)
-**Parallelizable:** Yes
+**Dependencies:** 002, 019
+**Parallelizable:** No
 
 ### Task 016: DR-9 — client-injection verification note
 
@@ -582,7 +580,7 @@ Empirically record how host clients (Claude Code plugin first, then Tier-1 runti
 
 ### Task 017: DR-9 — lean `content` rendering (conditional on Task 016)
 
-**Risk Tier:** medium
+**Risk Tier:** high
 **Boundary Touching:** true
 **Test Layer:** integration
 **Implements:** DR-9
@@ -592,12 +590,12 @@ Empirically record how host clients (Claude Code plugin first, then Tier-1 runti
 - `servers/exarchos-mcp/src/adapters/mcp.ts`
 - co-located test
 
-If 016 verifies benefit: `content` carries a compact rendering, `structuredContent` the full envelope; identical `structuredContent` across facades (INV-2); rendering stays presentation-only. If 016 shows no benefit: close without code, citing the note.
+If 016's decision rule verifies benefit: `content` carries a compact rendering, `structuredContent` the full envelope; identical `structuredContent` across facades (INV-2); rendering stays presentation-only. If the rule says defer: close without code, citing the note. High tier — this changes what every tool response injects into model context on the primary runtime.
 
 **Verification:**
 - `toMcpResult_LeanContent_StructuredContentCarriesFullEnvelope`
 - `toMcpResult_BothFacades_IdenticalStructuredContent`
-- `check_test_adequacy` kill-probe — or the recorded deferral evidence
+- `check_test_adequacy` kill-probe + integration suite across the adapter seam — or the recorded deferral evidence
 
 **Dependencies:** 015, 016
 **Parallelizable:** No
@@ -629,11 +627,12 @@ Author the response-economy entry through `invariants_scaffold`/`invariants_add`
 **Testing Strategy:** propertyTests: false, characterizationRequired: true
 
 **Files:**
-- `servers/exarchos-mcp/src/config/store-path.ts`
-- `servers/exarchos-mcp/src/orchestrate/doctor.ts`
+- `servers/exarchos-mcp/src/orchestrate/doctor/checks/store-path-divergence.ts` — new
+- `servers/exarchos-mcp/src/index.ts` — CLI store-path resolution
+- `servers/exarchos-mcp/src/storage/sqlite-backend.ts`
 - co-located tests
 
-CLI and plugin resolve the same default store path or a documented precedence; `doctor` detects and reports divergent store paths. In-scope floor is detection + documented precedence; a store migration spins off as its own issue if it grows.
+CLI and plugin resolve the same default store path or a documented precedence; a new `doctor` check detects and reports divergent store paths. In-scope floor is detection + documented precedence; a store migration spins off as its own issue if it grows.
 
 **Verification:**
 - `storePathResolution_CliAndPlugin_ResolveSameDefault`
@@ -660,7 +659,7 @@ CLI and plugin resolve the same default store path or a documented precedence; `
 - `registration_PluginVsCliActionList_NoDrift`
 - `check_test_adequacy` kill-probe
 
-**Dependencies:** 002
+**Dependencies:** 022
 **Parallelizable:** No
 
 ### Task 021: Economy-by-default consumer migration: regenerate fixtures, snapshots, skills prose, full-suite validation
@@ -671,7 +670,7 @@ CLI and plugin resolve the same default store path or a documented precedence; `
 **Testing Strategy:** propertyTests: false, characterizationRequired: true
 
 **Files:**
-- `servers/exarchos-mcp/src/rehydration/rehydrate-demo.expected-document.json`
+- `servers/exarchos-mcp/tests/fixtures/load-bearing/rehydrate-demo.expected-document.json`
 - `servers/exarchos-mcp/src/orchestrate/` parity baselines
 - `skills-src/` prose + regenerated `skills/` tree
 
@@ -684,20 +683,84 @@ Regenerate golden fixtures and parity snapshots; update `skills-src/` prose citi
 - Eval suite comparison recorded
 - Integration suite is the gate — this task is the cumulative-regression backstop
 
-**Dependencies:** 003, 005, 006, 007, 008, 011, 012, 013, 014, 015
+**Dependencies:** 003, 004, 005, 006, 007, 008, 010, 011, 012, 013, 014, 015, 017, 019, 020, 022, 023, 024
+**Parallelizable:** No
+
+### Task 022: Registry schema batch: economy params and capped-shape outputSchema unions
+
+**Risk Tier:** high
+**Test Layer:** integration
+**Implements:** DR-1, DR-3, DR-8
+**Testing Strategy:** propertyTests: false, characterizationRequired: true
+
+**Files:**
+- `servers/exarchos-mcp/src/registry.ts`
+- `servers/exarchos-mcp/src/registry.test.ts`
+
+Single owner of every `registry.ts` schema edit the economy work needs, so handler tasks never touch the file: new input params (`limit`/`offset`/`fields` for `get_pr_comments`; paging for `assess_stack`; the CSV-tolerant coerced int-array for `prNumbers`; `detail`/paging for view schemas) and the `{summary, counts, firstPage}` capped-shape union into every action with a typed `data` outputSchema (11 today), so the MCP adapter's D.5 validation never rejects a capped envelope.
+
+**Verification:**
+- `registrySchemas_EconomyParams_ValidateAndCoerce`
+- `registrySchemas_TypedOutputActions_AcceptCappedShape`
+- `check_test_adequacy` kill-probe + integration suite (registration schema is a shared contract surface)
+
+**Dependencies:** 002
+**Parallelizable:** No
+
+### Task 023: Gate-output truncation for check_pr_comments and integration-suite load failures
+
+**Risk Tier:** medium
+**Test Layer:** integration
+**Implements:** DR-7
+**Testing Strategy:** propertyTests: false, characterizationRequired: true
+
+**Files:**
+- `servers/exarchos-mcp/src/orchestrate/check-pr-comments.ts`
+- `servers/exarchos-mcp/src/orchestrate/check-integration-suite.ts`
+- co-located tests
+
+Counts-not-transcripts for the remaining unbounded gate echoes (audit O-3/O-4): `check_pr_comments` caps per-comment lines at N + total count; `check_integration_suite` caps its load-failure list at N + count; both steer to the uncapped escape hatch. Fixed caps — no new schema params.
+
+**Verification:**
+- `checkPrComments_ManyComments_CapsWithCountAndSteering`
+- `checkIntegrationSuite_LoadFailureCascade_CapsListWithCount`
+- `check_test_adequacy` kill-probe
+
+**Dependencies:** None
+**Parallelizable:** Yes
+
+### Task 024: Generalize the view contract: analytic views batch
+
+**Risk Tier:** high
+**Test Layer:** integration
+**Implements:** DR-8
+**Testing Strategy:** propertyTests: false, characterizationRequired: true
+
+**Files:**
+- `servers/exarchos-mcp/src/views/tools.ts`
+- `servers/exarchos-mcp/src/views/tools.test.ts`
+
+Second half of the view migration — the analytic/correlation views (`telemetry`, `code_quality`, `eval_results`, `quality_correlation`, `quality_attribution`, `convergence`, …) onto the same compact/`page`/`scope` contract with per-view budget tests. Serialized after Task 013 (same file).
+
+**Verification:**
+- `viewsContract_AnalyticViews_ReturnPageAndScopeMetadata`
+- `viewsContract_AnalyticView_StaysUnderEffectiveBudget`
+- `check_test_adequacy` kill-probe + integration suite
+
+**Dependencies:** 013
 **Parallelizable:** No
 
 ### Parallelization
 
-**Critical path:** 001/002 → 003 → 013 → 014 → 021.
+**Critical path:** 002 → 022 → 013 → 024 → 014 → 021.
 
-- **Wave 1 (parallel worktrees):** 001, 002, 004 (priority — unblocks shepherd CI), 005, 006, 007, 008, 010, 011, 012, 016, 019.
-- **Wave 2:** 003 (after 001+002), 009 (after 001), 015 + 020 (after 002), 017 (after 015+016).
-- **Wave 3:** 013 + 018 (after 003; 013 also serialized after 009 — same file).
-- **Wave 4:** 014 (after 013 — same file).
-- **Wave 5:** 021 (after all shape-changing tasks) — the integration closeout.
+- **Wave 1 (parallel worktrees):** 001, 002, 004 (priority — unblocks shepherd CI), 005, 008, 011, 012, 016, 019, 023.
+- **Wave 2:** 003 (after 001+002), 022 (after 002 — sole owner of `registry.ts` schema edits), 015 (after 002+019 — shared `src/index.ts`), 017 (after 015+016).
+- **Wave 3 (after 022):** 006 (also after 004 — shared `vcs/github.ts`), 007, 010, 013 (also after 003), 020; 018 (after 003).
+- **Wave 4:** 024 (after 013 — same file), then 014 (after 024 — same file).
+- **Wave 5:** 021 (blockedBy every implementation task) — the integration closeout.
 
-File-collision notes: 001/009/013/014 all touch `views/tools.ts` and 002/020 touch `registry.ts` — both chains strictly serialized via task dependencies. 015/017 touch `adapters/mcp.ts` — serialized via the 017→015 dependency.
+File-collision chains, each strictly serialized via task dependencies: `registry.ts` (002 → 022 → 020's parity test), `views/tools.ts` (013 → 024 → 014), `vcs/github.ts` (004 → 006), `adapters/mcp.ts` (015 → 017), `src/index.ts` (019 → 015). Handler tasks never edit `registry.ts` — Task 022 is its single owner for this feature.
 
 ### Completion checklist
 
