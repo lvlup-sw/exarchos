@@ -51,12 +51,13 @@ const REQUIRED_INVARIANT_IDS = [
 
 /**
  * The DIM-* axiom-dimension entries were excised in the axiom-excision
- * feature (#1477). The catalog now carries exactly 20 entries: 19 INV-*
- * (counting sub-disciplines INV-5a..d as four, and INV-16 os-portability
- * added in #1623) plus `basileus-boundary`. Zero DIM-* entries remain; zero
- * `axiom_overlap` fields remain.
+ * feature (#1477). The catalog now carries exactly 21 entries: 20 INV-*
+ * (counting sub-disciplines INV-5a..d as four, INV-16 os-portability, and
+ * INV-17 response-economy added by the tool-token-economy-remediation feature)
+ * plus `basileus-boundary`. Zero DIM-* entries remain; zero `axiom_overlap`
+ * fields remain.
  */
-const EXPECTED_CATALOG_SIZE = 20;
+const EXPECTED_CATALOG_SIZE = 21;
 
 /**
  * Most tests in this file exercise catalog *contents*, not the Wave B2
@@ -128,10 +129,10 @@ describe('invariants-loader', () => {
     }
   });
 
-  it('LoadInvariants_NoDimEntries_CatalogHas20', () => {
+  it('LoadInvariants_NoDimEntries_CatalogHas21', () => {
     // Axiom excision (#1477) removed all 8 DIM-* entries. The catalog is now
-    // exactly 20 entries: 19 INV-* (INV-5a..d counted individually) plus the
-    // single `basileus-boundary` cross-product entry.
+    // exactly 21 entries: 20 INV-* (INV-5a..d counted individually, plus INV-17
+    // response-economy) plus the single `basileus-boundary` cross-product entry.
     const entries = loadInvariants(INVARIANTS_DOC, { scope: 'all' }, ENABLED_CONFIG);
     expect(entries.length).toBe(EXPECTED_CATALOG_SIZE);
     expect(entries.filter((e) => e.id.startsWith('DIM-'))).toEqual([]);
