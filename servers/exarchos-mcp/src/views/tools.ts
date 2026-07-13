@@ -72,6 +72,8 @@ import {
 } from './eval-results-view.js';
 import type { EvalResultsViewState } from './eval-results-view.js';
 import { correlateQualityAndEvals } from '../quality/quality-correlation.js';
+import type { SkillCorrelation } from '../quality/quality-correlation.js';
+import type { QualityHint } from '../quality/hints.js';
 import {
   workflowStateProjection,
   WORKFLOW_STATE_VIEW,
@@ -90,7 +92,7 @@ import {
   shepherdStatusProjection,
   SHEPHERD_STATUS_VIEW,
 } from './shepherd-status-view.js';
-import type { ShepherdStatusState } from './shepherd-status-view.js';
+import type { ShepherdStatusState, PrStatus } from './shepherd-status-view.js';
 import {
   provenanceProjection,
   PROVENANCE_VIEW,
@@ -104,7 +106,7 @@ import type { ConvergenceViewState } from './convergence-view.js';
 import { detectRegressions, emitRegressionEvents } from '../quality/regression-detector.js';
 import type { FailureTracker } from '../quality/regression-detector.js';
 import { computeAttribution, isValidDimension } from '../quality/attribution.js';
-import type { AttributionDimension } from '../quality/attribution.js';
+import type { AttributionDimension, AttributionEntry } from '../quality/attribution.js';
 import { PROJECTION_LAG_THRESHOLD_MS } from '../projections/index.js';
 
 // ─── Helper: create a materializer with all projections registered ─────────
@@ -1024,6 +1026,81 @@ function compactTaskDetail(t: TaskDetail): CompactTaskDetail {
   return rest;
 }
 
+// ─── DR-8 (Task 024): generalized ANALYTIC / correlation-view contract ───────
+//
+// Task 013 migrated the inventory / list-shaped views. This batch generalizes
+// the SAME contract to the analytic + correlation views in this file
+// (`code_quality`, `eval_results`, `quality_hints`, `quality_correlation`,
+// `quality_attribution`, `session_provenance`, `delegation_readiness`,
+// `synthesis_readiness`, `shepherd_status`, `provenance`, `convergence`):
+//   • compact-by-default — each view strips its heaviest SECONDARY sub-structure
+//     by default and restores it under `detail: true` (the universal facet);
+//   • `page` metadata on the views whose dominant payload is a nested LIST
+//     (`quality_hints` hints, `quality_attribution` entries, `shepherd_status`
+//     prs, `provenance` requirements);
+//   • P5 scope perceivability (`scope` + `unscopedTotal`) on the FILTER-scoped
+//     views (`code_quality` / `eval_results` / `quality_hints`).
+// Each migrated view carries a DR-2-style token-budget test and rides Task 003's
+// dispatch-core backstop. Additive / backward-compatible: `detail: true` returns
+// today's full projection, so existing default-shape consumers keep reading the
+// same fields. `telemetry`'s handler lives in `telemetry/tools.ts` (out of this
+// file); its `--compact` reduction is Task 014.
+
+interface AnalyticScope {
+  readonly scope: 'filtered' | 'all';
+  readonly unscopedTotal: number;
+  readonly nextActions: NextAction[];
+}
+
+/**
+ * DR-8 P5 scope facet for a FILTER-scoped analytic view. `unscopedTotal` is the
+ * PRE-filter count of the dominant record/list; `scope` is `'filtered'` whenever
+ * a filter arg is active. Surfaces `scopeHiddenAffordance` on `next_actions`
+ * whenever the filter hid rows (`unscopedTotal > scopedTotal`) so the elided
+ * rows stay perceivable — the same escape hatch the inventory batch (Task 013)
+ * uses for its filter-scoped views.
+ */
+function analyticScope(
+  verb: string,
+  filterActive: boolean,
+  unscopedTotal: number,
+  scopedTotal: number,
+): AnalyticScope {
+  const scope: 'filtered' | 'all' = filterActive ? 'filtered' : 'all';
+  const nextActions: NextAction[] = [];
+  if (unscopedTotal > scopedTotal) {
+    nextActions.push(scopeHiddenAffordance(verb, unscopedTotal - scopedTotal));
+  }
+  return { scope, unscopedTotal, nextActions };
+}
+
+/** DR-8 compact `QualityHint`: drop the advisory calibration fields; `detail:true` restores them. */
+type CompactQualityHint = Omit<QualityHint, 'affectedPromptPaths' | 'confidenceLevel'>;
+function compactQualityHint(h: QualityHint): CompactQualityHint {
+  const { affectedPromptPaths: _paths, confidenceLevel: _conf, ...rest } = h;
+  return rest;
+}
+
+/** DR-8 compact `SkillCorrelation`: keep the headline (pass rate + eval score); `detail:true` restores the trends. */
+type CompactSkillCorrelation = Pick<SkillCorrelation, 'skill' | 'gatePassRate' | 'evalScore'>;
+function compactSkillCorrelation(c: SkillCorrelation): CompactSkillCorrelation {
+  return { skill: c.skill, gatePassRate: c.gatePassRate, evalScore: c.evalScore };
+}
+
+/** DR-8 compact `AttributionEntry`: drop the secondary roll-up counts; `detail:true` restores them. */
+type CompactAttributionEntry = Omit<AttributionEntry, 'selfCorrectionRate' | 'regressionCount' | 'sampleSize'>;
+function compactAttributionEntry(e: AttributionEntry): CompactAttributionEntry {
+  const { selfCorrectionRate: _self, regressionCount: _reg, sampleSize: _size, ...rest } = e;
+  return rest;
+}
+
+/** DR-8 compact `PrStatus`: drop the per-severity breakdown; `detail:true` restores it. */
+type CompactPrStatus = Omit<PrStatus, 'unresolvedBySeverity'>;
+function compactPrStatus(p: PrStatus): CompactPrStatus {
+  const { unresolvedBySeverity: _sev, ...rest } = p;
+  return rest;
+}
+
 // ─── View Team Performance Handler ──────────────────────────────────────────
 
 export async function handleViewTeamPerformance(
@@ -1171,6 +1248,9 @@ export async function handleViewCodeQuality(
     skill?: string;
     gate?: string;
     limit?: number;
+    // DR-8 (Task 024) — compact-by-default; `detail: true` restores the full
+    // projection (including the per-model roll-up stripped by default).
+    detail?: boolean;
     // Wave 5 (#1437) — correlation tuple filters scope the underlying
     // EventStore.query, so the projection folds only the slice that matches
     // the dispatch boundary. Threaded into queryDeltaEvents below.
@@ -1271,7 +1351,33 @@ export async function handleViewCodeQuality(
       };
     }
 
-    return { success: true, data: filtered };
+    // DR-8 (Task 024) P5 — a skill/gate filter scopes the skills+gates records,
+    // so report `scope` + `unscopedTotal` (the pre-filter record count) and
+    // surface the hidden-rows escape hatch when the filter elided records.
+    const filterActive = args.skill !== undefined || args.gate !== undefined;
+    const unscopedTotal =
+      Object.keys(view.skills).length + Object.keys(view.gates).length;
+    const scopedTotal =
+      Object.keys(filtered.skills).length + Object.keys(filtered.gates).length;
+    const s = analyticScope('code_quality', filterActive, unscopedTotal, scopedTotal);
+    const nextActions =
+      s.nextActions.length > 0 ? { next_actions: s.nextActions } : {};
+
+    // DR-8 compact-by-default — drop the per-model roll-up (`models`), the
+    // heaviest secondary record; `detail: true` restores the full projection.
+    if (args.detail) {
+      return {
+        success: true,
+        data: { ...filtered, scope: s.scope, unscopedTotal: s.unscopedTotal },
+        ...nextActions,
+      };
+    }
+    const { models: _models, ...compact } = filtered;
+    return {
+      success: true,
+      data: { ...compact, scope: s.scope, unscopedTotal: s.unscopedTotal },
+      ...nextActions,
+    };
   } catch (err) {
     return {
       success: false,
@@ -1290,6 +1396,9 @@ export async function handleViewEvalResults(
     workflowId?: string;
     skill?: string;
     limit?: number;
+    // DR-8 (Task 024) — compact-by-default; `detail: true` restores the full
+    // projection (including the `calibrations` array stripped by default).
+    detail?: boolean;
     // Wave 5 (#1437) — correlation filters scope the projection fold to
     // a single dispatch boundary.
     operationId?: string;
@@ -1336,7 +1445,30 @@ export async function handleViewEvalResults(
       };
     }
 
-    return { success: true, data: filtered };
+    // DR-8 (Task 024) P5 — a skill filter scopes the skills record, so report
+    // `scope` + `unscopedTotal` (the pre-filter skill count) + the escape hatch.
+    const filterActive = args.skill !== undefined;
+    const unscopedTotal = Object.keys(view.skills).length;
+    const scopedTotal = Object.keys(filtered.skills).length;
+    const s = analyticScope('eval_results', filterActive, unscopedTotal, scopedTotal);
+    const nextActions =
+      s.nextActions.length > 0 ? { next_actions: s.nextActions } : {};
+
+    // DR-8 compact-by-default — drop the `calibrations` array (secondary, and
+    // un-capped today); `detail: true` restores the full projection.
+    if (args.detail) {
+      return {
+        success: true,
+        data: { ...filtered, scope: s.scope, unscopedTotal: s.unscopedTotal },
+        ...nextActions,
+      };
+    }
+    const { calibrations: _calibrations, ...compact } = filtered;
+    return {
+      success: true,
+      data: { ...compact, scope: s.scope, unscopedTotal: s.unscopedTotal },
+      ...nextActions,
+    };
   } catch (err) {
     return {
       success: false,
@@ -1351,7 +1483,15 @@ export async function handleViewEvalResults(
 // ─── View Quality Hints Handler ─────────────────────────────────────────────
 
 export async function handleViewQualityHints(
-  args: { workflowId?: string; skill?: string },
+  args: {
+    workflowId?: string;
+    skill?: string;
+    // DR-8 (Task 024) — `hints` is a paged list; `detail: true` restores each
+    // hint's advisory calibration fields.
+    limit?: number;
+    offset?: number;
+    detail?: boolean;
+  },
   stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
@@ -1370,9 +1510,41 @@ export async function handleViewQualityHints(
     const { generateQualityHints } = await import('../quality/hints.js');
     const hints = generateQualityHints(view, args.skill);
 
+    // DR-8 (Task 024) — `hints` is this view's dominant LIST, so page it and
+    // report P5 scope for the skill filter. `unscopedTotal` re-generates the
+    // unfiltered hint set only when a skill filter is active (mirrors the
+    // inventory batch's filtered-only extra fold) so the elided hints stay
+    // perceivable. Compact-by-default drops each hint's advisory fields;
+    // `detail: true` restores them.
+    const filterActive = args.skill !== undefined;
+    const unscopedTotal = filterActive
+      ? generateQualityHints(view).length
+      : hints.length;
+    const { start, effectiveLimit } = resolveInventoryWindow(args);
+    const windowed = hints.slice(start, start + effectiveLimit);
+    const rows: Array<QualityHint | CompactQualityHint> = args.detail
+      ? windowed
+      : windowed.map(compactQualityHint);
+    const page = buildPage(hints.length, start, effectiveLimit, windowed.length);
+    const s = analyticScope('quality_hints', filterActive, unscopedTotal, hints.length);
+    const nextActions: NextAction[] = [];
+    if (page.hasMore) {
+      nextActions.push(
+        narrowAffordance('quality_hints', windowed.length, hints.length, 'exarchos vw quality_hints --limit 20 --offset 0'),
+      );
+    }
+    nextActions.push(...s.nextActions);
+
     return {
       success: true,
-      data: { hints, generatedAt: new Date().toISOString() },
+      data: {
+        hints: rows,
+        generatedAt: new Date().toISOString(),
+        page,
+        scope: s.scope,
+        unscopedTotal: s.unscopedTotal,
+      },
+      ...(nextActions.length > 0 ? { next_actions: nextActions } : {}),
     };
   } catch (err) {
     return {
@@ -1390,6 +1562,9 @@ export async function handleViewQualityHints(
 export async function handleViewQualityCorrelation(
   args: {
     workflowId?: string;
+    // DR-8 (Task 024) — compact-by-default per-skill; `detail: true` restores
+    // each skill's trend + regression-count detail.
+    detail?: boolean;
     // Wave 5 (#1437) — correlation filters scope both underlying projections
     // (CQ + ER) to the same dispatch boundary so the joined view stays
     // internally consistent.
@@ -1434,7 +1609,16 @@ export async function handleViewQualityCorrelation(
         );
 
     const correlation = correlateQualityAndEvals(cqView, erView);
-    return { success: true, data: correlation };
+    // DR-8 (Task 024) compact-by-default — keep each skill's headline (pass rate
+    // + eval score); `detail: true` restores the trend + regression-count detail.
+    if (args.detail) {
+      return { success: true, data: correlation };
+    }
+    const skills: Record<string, CompactSkillCorrelation> = {};
+    for (const [name, c] of Object.entries(correlation.skills)) {
+      skills[name] = compactSkillCorrelation(c);
+    }
+    return { success: true, data: { skills } };
   } catch (err) {
     return {
       success: false,
@@ -1454,6 +1638,12 @@ export async function handleViewQualityAttribution(
     dimension?: string;
     skill?: string;
     timeRange?: { start: string; end: string };
+    // DR-8 (Task 024) — `entries` is a paged list; compact-by-default drops the
+    // secondary roll-up counts per entry and the `correlations` matrix;
+    // `detail: true` restores the full attribution result.
+    limit?: number;
+    offset?: number;
+    detail?: boolean;
     // Wave 5 (#1437) — correlation filters scope both underlying projections
     // (CQ + ER) to the same dispatch boundary so the attribution roll-up
     // stays internally consistent.
@@ -1529,7 +1719,34 @@ export async function handleViewQualityAttribution(
       timeRange,
     };
     const attribution = computeAttribution(query, cqView, erView);
-    return { success: true, data: attribution };
+    // DR-8 (Task 024) — `entries` is the dominant list, so page it. Compact-by-
+    // default compacts each entry to its headline and drops the `correlations`
+    // matrix; `detail: true` restores the full attribution roll-up.
+    const { start, effectiveLimit } = resolveInventoryWindow(args);
+    const windowed = attribution.entries.slice(start, start + effectiveLimit);
+    const page = buildPage(attribution.entries.length, start, effectiveLimit, windowed.length);
+    const nextActions: NextAction[] = [];
+    if (page.hasMore) {
+      nextActions.push(
+        narrowAffordance('quality_attribution', windowed.length, attribution.entries.length, 'exarchos vw quality_attribution --limit 20 --offset 0'),
+      );
+    }
+    const nextActionsWrap =
+      nextActions.length > 0 ? { next_actions: nextActions } : {};
+    if (args.detail) {
+      return {
+        success: true,
+        data: { ...attribution, entries: windowed, page },
+        ...nextActionsWrap,
+      };
+    }
+    const entries = windowed.map(compactAttributionEntry);
+    const { correlations: _correlations, ...rest } = attribution;
+    return {
+      success: true,
+      data: { ...rest, entries, page },
+      ...nextActionsWrap,
+    };
   } catch (err) {
     return {
       success: false,
@@ -1544,7 +1761,14 @@ export async function handleViewQualityAttribution(
 // ─── View Session Provenance Handler ─────────────────────────────────────────
 
 export async function handleViewSessionProvenance(
-  args: { sessionId?: string; workflowId?: string; metric?: string },
+  args: {
+    sessionId?: string;
+    workflowId?: string;
+    metric?: string;
+    // DR-8 (Task 024) — compact-by-default drops the verbose per-file
+    // attribution + file list; `detail: true` restores them.
+    detail?: boolean;
+  },
   stateDir: string,
 ): Promise<ToolResult> {
   if (!args.sessionId && !args.workflowId) {
@@ -1581,7 +1805,14 @@ export async function handleViewSessionProvenance(
       workflowId: args.workflowId,
       metric,
     });
-    return { success: true, data: result };
+    // DR-8 (Task 024) compact-by-default — drop the verbose per-file
+    // attribution + raw file list; the headline metrics (tools / tokens / cost)
+    // stay. `detail: true` restores the full provenance result.
+    if (args.detail) {
+      return { success: true, data: result };
+    }
+    const { fileAttribution: _fileAttribution, files: _files, ...compact } = result;
+    return { success: true, data: compact };
   } catch (err) {
     return {
       success: false,
@@ -1596,7 +1827,12 @@ export async function handleViewSessionProvenance(
 // ─── View Delegation Readiness Handler ──────────────────────────────────────
 
 export async function handleViewDelegationReadiness(
-  args: { workflowId?: string },
+  args: {
+    workflowId?: string;
+    // DR-8 (Task 024) — compact-by-default drops the per-task ID tracking
+    // lists; `detail: true` restores them.
+    detail?: boolean;
+  },
   stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
@@ -1612,7 +1848,18 @@ export async function handleViewDelegationReadiness(
       events,
     );
 
-    return { success: true, data: view };
+    // DR-8 (Task 024) compact-by-default — drop the per-task ID tracking lists
+    // (`assignedTaskIds` / `readyTaskIds`); the derived `expected` / `ready`
+    // counts stay. `detail: true` restores the ID lists.
+    if (args.detail) {
+      return { success: true, data: view };
+    }
+    const {
+      assignedTaskIds: _assignedTaskIds,
+      readyTaskIds: _readyTaskIds,
+      ...worktrees
+    } = view.worktrees;
+    return { success: true, data: { ...view, worktrees } };
   } catch (err) {
     return {
       success: false,
@@ -1627,7 +1874,12 @@ export async function handleViewDelegationReadiness(
 // ─── View Synthesis Readiness Handler ────────────────────────────────────────
 
 export async function handleViewSynthesisReadiness(
-  args: { workflowId?: string },
+  args: {
+    workflowId?: string;
+    // DR-8 (Task 024) — compact-by-default drops the review's per-severity
+    // findings breakdown; `detail: true` restores it.
+    detail?: boolean;
+  },
   stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
@@ -1717,7 +1969,14 @@ export async function handleViewSynthesisReadiness(
       review: { ...view.review, reviewPassed },
     };
 
-    return { success: true, data };
+    // DR-8 (Task 024) compact-by-default — drop the review's per-severity
+    // findings breakdown; the `reviewPassed` headline + `blockers` stay.
+    // `detail: true` restores `findingsBySeverity`.
+    if (args.detail) {
+      return { success: true, data };
+    }
+    const { findingsBySeverity: _findingsBySeverity, ...compactReview } = data.review;
+    return { success: true, data: { ...data, review: compactReview } };
   } catch (err) {
     return {
       success: false,
@@ -1732,7 +1991,14 @@ export async function handleViewSynthesisReadiness(
 // ─── View Shepherd Status Handler ────────────────────────────────────────────
 
 export async function handleViewShepherdStatus(
-  args: { workflowId?: string },
+  args: {
+    workflowId?: string;
+    // DR-8 (Task 024) — `prs` is a paged list; compact-by-default drops the
+    // per-PR severity breakdown; `detail: true` restores it.
+    limit?: number;
+    offset?: number;
+    detail?: boolean;
+  },
   stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
@@ -1748,7 +2014,25 @@ export async function handleViewShepherdStatus(
       events,
     );
 
-    return { success: true, data: view };
+    // DR-8 (Task 024) — `prs` is the dominant list, so page it. Compact-by-
+    // default drops each PR's per-severity breakdown; `detail: true` restores it.
+    const { start, effectiveLimit } = resolveInventoryWindow(args);
+    const windowed = view.prs.slice(start, start + effectiveLimit);
+    const page = buildPage(view.prs.length, start, effectiveLimit, windowed.length);
+    const nextActions: NextAction[] = [];
+    if (page.hasMore) {
+      nextActions.push(
+        narrowAffordance('shepherd_status', windowed.length, view.prs.length, 'exarchos vw shepherd_status --limit 20 --offset 0'),
+      );
+    }
+    const prs: Array<PrStatus | CompactPrStatus> = args.detail
+      ? windowed
+      : windowed.map(compactPrStatus);
+    return {
+      success: true,
+      data: { ...view, prs, page },
+      ...(nextActions.length > 0 ? { next_actions: nextActions } : {}),
+    };
   } catch (err) {
     return {
       success: false,
@@ -1763,7 +2047,15 @@ export async function handleViewShepherdStatus(
 // ─── View Provenance Handler ──────────────────────────────────────────────
 
 export async function handleViewProvenance(
-  args: { workflowId?: string },
+  args: {
+    workflowId?: string;
+    // DR-8 (Task 024) — `requirements` is a paged list; compact-by-default
+    // strips the internal `_completedTaskIds` mirror; `detail: true` restores
+    // both.
+    limit?: number;
+    offset?: number;
+    detail?: boolean;
+  },
   stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
@@ -1779,7 +2071,33 @@ export async function handleViewProvenance(
       events,
     );
 
-    return { success: true, data: view };
+    // DR-8 (Task 024) — `requirements` is the dominant list, so page it. Strip
+    // the internal `_completedTaskIds` mirror by default (mirrors
+    // `workflow_status` stripping `_taskStore`); `detail: true` restores both.
+    const { start, effectiveLimit } = resolveInventoryWindow(args);
+    const windowed = view.requirements.slice(start, start + effectiveLimit);
+    const page = buildPage(view.requirements.length, start, effectiveLimit, windowed.length);
+    const nextActions: NextAction[] = [];
+    if (page.hasMore) {
+      nextActions.push(
+        narrowAffordance('provenance', windowed.length, view.requirements.length, 'exarchos vw provenance --limit 20 --offset 0'),
+      );
+    }
+    const nextActionsWrap =
+      nextActions.length > 0 ? { next_actions: nextActions } : {};
+    if (args.detail) {
+      return {
+        success: true,
+        data: { ...view, requirements: windowed, page },
+        ...nextActionsWrap,
+      };
+    }
+    const { _completedTaskIds: _ignoredCompletedTaskIds, ...publicView } = view;
+    return {
+      success: true,
+      data: { ...publicView, requirements: windowed, page },
+      ...nextActionsWrap,
+    };
   } catch (err) {
     return {
       success: false,
@@ -1794,7 +2112,12 @@ export async function handleViewProvenance(
 // ─── View Convergence Handler ──────────────────────────────────────────────
 
 export async function handleViewConvergence(
-  args: { workflowId?: string },
+  args: {
+    workflowId?: string;
+    // DR-8 (Task 024) — compact-by-default drops each dimension's per-gate
+    // `gateResults` array; `detail: true` restores the gate-level detail.
+    detail?: boolean;
+  },
   stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
@@ -1823,6 +2146,7 @@ export async function handleViewConvergence(
       reviews && typeof reviews === 'object' && !Array.isArray(reviews)
         ? (reviews as Record<string, unknown>)['findingsByDimension']
         : undefined;
+    let effectiveView: ConvergenceViewState = view;
     if (
       findingsByDimension &&
       typeof findingsByDimension === 'object' &&
@@ -1832,14 +2156,22 @@ export async function handleViewConvergence(
       const covered = new Set(Object.keys(findingsByDimension as Record<string, unknown>));
       const remaining = view.uncheckedDimensions.filter((d) => !covered.has(d));
       if (remaining.length !== view.uncheckedDimensions.length) {
-        return {
-          success: true,
-          data: { ...view, uncheckedDimensions: remaining },
-        };
+        effectiveView = { ...view, uncheckedDimensions: remaining };
       }
     }
 
-    return { success: true, data: view };
+    // DR-8 (Task 024) compact-by-default — drop each dimension's per-gate
+    // `gateResults` array; the `converged` / `lastChecked` headline +
+    // `uncheckedDimensions` stay. `detail: true` restores the gate-level detail.
+    if (args.detail) {
+      return { success: true, data: effectiveView };
+    }
+    const dimensions: Record<string, unknown> = {};
+    for (const [name, dim] of Object.entries(effectiveView.dimensions)) {
+      const { gateResults: _gateResults, ...rest } = dim;
+      dimensions[name] = rest;
+    }
+    return { success: true, data: { ...effectiveView, dimensions } };
   } catch (err) {
     return {
       success: false,
