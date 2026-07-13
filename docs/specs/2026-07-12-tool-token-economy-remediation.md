@@ -158,7 +158,7 @@ A small set of verbose-by-design actions (`describe`, `runbook` detail, `emissio
 **Enforcement seam:** dispatch core, post-handler, immediately before the telemetry middleware's `injectPerf` — the same place response bytes/tokens are already measured, so the guard and `_perf` agree by construction.
 Order: handler → economy check (measure `data`; if over budget → summarizer or generic fallback; stamp `_meta.truncated`) → `injectPerf` (final size).
 
-**outputSchema honesty:** actions with a summarizer declare the summary shape in their registered schema; the generic fallback's shape (`{summary, counts, firstPage}`) is a shared schema fragment unioned into every action that carries a typed `data` outputSchema (11 today).
+**outputSchema honesty:** actions with a summarizer declare the summary shape in their registered schema; the generic fallback's shape (`{summary, counts, firstPage}`) is a shared schema fragment unioned into every action that carries a typed `data` outputSchema (10 today).
 This union is load-bearing, not cosmetic: the MCP adapter's D.5 validator replaces any envelope violating its registered outputSchema with an `INTERNAL_ERROR` envelope, so an un-unioned capped response would break the fail-open criterion on the MCP facade while the CLI facade (which has no D.5 pass) sailed through — an INV-2 parity break.
 The union is single-owned by a dedicated registry task and must land before enforcement activates.
 **Budget scope note (audit F-6):** budgets measure `data` only; the ~40–60-token envelope carrier floor is deliberately outside the budget and documented as such.
@@ -310,7 +310,7 @@ Post-handler, pre-`injectPerf`: measure `data`; over budget → declared summari
 - `dispatchEconomy_CappedTypedOutputSchemaAction_SurvivesD5Validation` — a capped response for a typed-outputSchema action passes the MCP adapter's D.5 pass (never INTERNAL_ERROR)
 - `check_test_adequacy` kill-probe + integration suite across the dispatch seam (both facades, INV-2 parity)
 
-**Dependencies:** 001, 002
+**Dependencies:** 001, 002, 022
 **Parallelizable:** No
 
 ### Task 004: B-2 — fix `check_ci` against current gh CLI
@@ -683,7 +683,7 @@ Regenerate golden fixtures and parity snapshots; update `skills-src/` prose citi
 - Eval suite comparison recorded
 - Integration suite is the gate — this task is the cumulative-regression backstop
 
-**Dependencies:** 003, 004, 005, 006, 007, 008, 010, 011, 012, 013, 014, 015, 017, 019, 020, 022, 023, 024
+**Dependencies:** 003, 004, 005, 006, 007, 008, 010, 011, 012, 013, 014, 015, 017, 018, 019, 020, 022, 023, 024
 **Parallelizable:** No
 
 ### Task 022: Registry schema batch: economy params and capped-shape outputSchema unions
@@ -697,7 +697,7 @@ Regenerate golden fixtures and parity snapshots; update `skills-src/` prose citi
 - `servers/exarchos-mcp/src/registry.ts`
 - `servers/exarchos-mcp/src/registry.test.ts`
 
-Single owner of every `registry.ts` schema edit the economy work needs, so handler tasks never touch the file: new input params (`limit`/`offset`/`fields` for `get_pr_comments`; paging for `assess_stack`; the CSV-tolerant coerced int-array for `prNumbers`; `detail`/paging for view schemas) and the `{summary, counts, firstPage}` capped-shape union into every action with a typed `data` outputSchema (11 today), so the MCP adapter's D.5 validation never rejects a capped envelope.
+Single owner of every `registry.ts` schema edit the economy work needs, so handler tasks never touch the file: new input params (`limit`/`offset`/`fields` for `get_pr_comments`; paging for `assess_stack`; the CSV-tolerant coerced int-array for `prNumbers`; `detail`/paging for view schemas) and the `{summary, counts, firstPage}` capped-shape union into every action with a typed `data` outputSchema (10 today), so the MCP adapter's D.5 validation never rejects a capped envelope.
 
 **Verification:**
 - `registrySchemas_EconomyParams_ValidateAndCoerce`
@@ -752,11 +752,12 @@ Second half of the view migration — the analytic/correlation views (`telemetry
 
 ### Parallelization
 
-**Critical path:** 002 → 022 → 013 → 024 → 014 → 021.
+**Critical path:** 002 → 022 → 003 → 013 → 024 → 014 → 021.
 
 - **Wave 1 (parallel worktrees):** 001, 002, 004 (priority — unblocks shepherd CI), 005, 008, 011, 012, 016, 019, 023.
-- **Wave 2:** 003 (after 001+002), 022 (after 002 — sole owner of `registry.ts` schema edits), 015 (after 002+019 — shared `src/index.ts`), 017 (after 015+016).
-- **Wave 3 (after 022):** 006 (also after 004 — shared `vcs/github.ts`), 007, 010, 013 (also after 003), 020; 018 (after 003).
+- **Wave 2:** 022 (after 002 — sole owner of `registry.ts` schema edits), 015 (after 002+019 — shared `src/index.ts`), 017 (after 015+016).
+- **Wave 3 (after 022):** 003 (after 001+002+022 — enforcement activates only once the capped-shape unions exist), 006 (also after 004 — shared `vcs/github.ts`), 007, 010, 020.
+- **Wave 3b (after 003):** 013 (also after 022), 018.
 - **Wave 4:** 024 (after 013 — same file), then 014 (after 024 — same file).
 - **Wave 5:** 021 (blockedBy every implementation task) — the integration closeout.
 
