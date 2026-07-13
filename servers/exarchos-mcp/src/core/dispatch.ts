@@ -1,4 +1,8 @@
-import type { ToolResult } from '../format.js';
+import type { ToolResult, EconomyMeta } from '../format.js';
+import {
+  ECONOMY_META_TRUNCATED,
+  ECONOMY_META_DEGRADED,
+} from '../format.js';
 import { logger } from '../logger.js';
 import type { EventStore } from '../event-store/store.js';
 import type { ExarchosConfig } from '../config/define.js';
@@ -12,7 +16,12 @@ import { enforceSharedMutatingGate } from '../capabilities/resolver.js';
 import type { StorageBackend } from '../storage/backend.js';
 import type { RootsClient } from '../workspace/discovery.js';
 import type { ElicitationClient } from '../dispatch/elicitation-dispatch.js';
-import { hasCustomToolHandlers, getCustomToolActionHandler, getFullRegistry, findActionInRegistry } from '../registry.js';
+import { hasCustomToolHandlers, getCustomToolActionHandler, getFullRegistry, findActionInRegistry, resolveEconomyBudget } from '../registry.js';
+import {
+  estimateOutputTokens,
+  narrowAffordance,
+  SUMMARY_FIRST_PAGE_ITEMS,
+} from './economy.js';
 import type { NextAction } from '../next-action.js';
 import {
   formatValidationError,
@@ -456,6 +465,181 @@ async function loadCompositeHandler(tool: string): Promise<CompositeHandler | un
   COMPOSITE_HANDLERS[tool] = handler;
   return handler;
 }
+
+// ─── Response-Economy Enforcement (DR-1, Task 003) ──────────────────────────
+//
+// The registry-declared response-economy contract (DR-1) is DECLARED on each
+// action descriptor (`economy` block, `registry.ts`) and ENFORCED here, at the
+// shared dispatch core, so both facades (CLI + MCP) inherit the cap by
+// construction (INV-2). The guard runs post-handler, immediately BEFORE the
+// telemetry middleware's `injectPerf` (`telemetry/middleware.ts`) — the same
+// seam that already measures response bytes/tokens — so the cap and the
+// reported `_perf` size agree by construction: the middleware measures the
+// value THIS function returns.
+//
+// Discipline (design §"Presentation seam"): capping/economy logic lives in the
+// shared core, never in an adapter. Adapters only render. This function is the
+// single owner of the runtime cap decision.
+
+/**
+ * Envelope carrier fields the economy guard MUST NOT touch. Budgets measure
+ * `data` only; the carrier floor is deliberately outside the budget so a capped
+ * response never drops `success` / `next_actions` / `_meta` / `_perf` (and the
+ * other diagnostic side-channels). Only `data` is replaced and `_meta` /
+ * `next_actions` are AUGMENTED (never overwritten).
+ */
+const ECONOMY_CARRIER_KEYS: ReadonlySet<string> = new Set([
+  'success',
+  'error',
+  'warnings',
+  'next_actions',
+  '_meta',
+  '_perf',
+  '_eventHints',
+  '_corrections',
+  '_cacheHints',
+]);
+
+/**
+ * Best-effort item extraction for the generic capped fallback + the steering
+ * affordance's shown/total counts. An array `data` is itself the item list;
+ * an object `data` contributes its largest array-valued property (the common
+ * inventory shape: `{ items: [...] }`, `{ worktrees: [...] }`, …). Anything
+ * else yields an empty page (the summary text still records the overflow).
+ */
+function extractCappableItems(data: unknown): { items: readonly unknown[]; total: number } {
+  if (Array.isArray(data)) return { items: data, total: data.length };
+  if (data !== null && typeof data === 'object') {
+    let best: readonly unknown[] | undefined;
+    for (const value of Object.values(data as Record<string, unknown>)) {
+      if (Array.isArray(value) && (best === undefined || value.length > best.length)) {
+        best = value;
+      }
+    }
+    if (best !== undefined) return { items: best, total: best.length };
+  }
+  return { items: [], total: 0 };
+}
+
+/**
+ * Fail-open: return the UNCAPPED payload with `_meta.economyDegraded: true`.
+ * Used when the budget resolves non-finite / non-positive OR the declared
+ * summarizer throws — never an error, never a silent drop (#1659 DR-3). The
+ * carrier `_meta` is augmented non-destructively.
+ */
+function stampEconomyDegraded(result: ToolResult): ToolResult {
+  const existingMeta =
+    result._meta !== null && typeof result._meta === 'object'
+      ? (result._meta as Record<string, unknown>)
+      : {};
+  const meta: Record<string, unknown> & EconomyMeta = {
+    ...existingMeta,
+    [ECONOMY_META_DEGRADED]: true,
+  };
+  return { ...result, _meta: meta };
+}
+
+/**
+ * Enforce the action's registry-declared response-economy budget on a
+ * dispatched result (DR-1). Pure function — no I/O, no telemetry side-effects —
+ * so it is safe to call at the measurement seam and directly in tests.
+ *
+ * Contract:
+ * - Only successful responses that carry a `data` payload are subject to the
+ *   budget; failures carry `error`, not `data`, and are returned untouched.
+ * - `data` is measured with {@link estimateOutputTokens} (byte-identical to the
+ *   telemetry middleware). At or under budget → returned untouched.
+ * - Over budget → the action's declared `economy.summarize` is applied if
+ *   present, ELSE a generic capped fallback shaped EXACTLY as
+ *   `{ summary, counts, firstPage }` (the shared `CappedDataSchema` fragment,
+ *   `registry.ts`), so a capped typed-output response validates against the
+ *   registered `outputSchema` (passes D.5). `_meta.truncated` is stamped and a
+ *   {@link narrowAffordance} steering entry is PREPENDED to `next_actions`
+ *   (INV-12).
+ * - Fail-open (`_meta.economyDegraded`) on an unresolvable budget or a throwing
+ *   summarizer.
+ */
+export function enforceResponseEconomy(
+  result: ToolResult,
+  tool: string,
+  actionName: string | undefined,
+): ToolResult {
+  // Budgets govern the `data` payload of a successful response. A failure
+  // envelope (or a success with no `data`) has nothing to measure and its
+  // carrier must survive verbatim.
+  if (!result.success || result.data === undefined) return result;
+  if (actionName === undefined) return result;
+
+  const action = findActionInRegistry(tool, actionName);
+  if (action === undefined) return result;
+
+  const budget = resolveEconomyBudget(action);
+  if (!Number.isFinite(budget) || budget <= 0) {
+    // Fail-open: an unresolvable budget can neither pass nor cap — degrade
+    // visibly rather than dumping or dropping.
+    return stampEconomyDegraded(result);
+  }
+
+  const tokens = estimateOutputTokens(result.data);
+  if (tokens <= budget) return result; // under budget — untouched
+
+  const { items, total } = extractCappableItems(result.data);
+  let cappedData: unknown;
+  const summarize = action.economy?.summarize;
+  if (summarize !== undefined) {
+    try {
+      cappedData = summarize(result.data);
+    } catch {
+      // A throwing summarizer degrades to the uncapped payload.
+      return stampEconomyDegraded(result);
+    }
+  } else {
+    const firstPage = items.slice(0, SUMMARY_FIRST_PAGE_ITEMS);
+    cappedData = {
+      summary:
+        `Response exceeded the ${budget}-token economy budget ` +
+        `(~${tokens} estimated tokens); showing a counts summary and the ` +
+        `first ${firstPage.length} of ${total} item(s). Narrow with ` +
+        `limit / offset / fields to page the detail.`,
+      counts: { total, shown: firstPage.length },
+      firstPage,
+    };
+  }
+
+  // Steering affordance (INV-12), keyed on the action's own name. `shown` is
+  // derived from whatever list the capped `data` surfaced (the generic
+  // fallback's `firstPage`, or a summarizer's own list) so the affordance's
+  // "showing X of Y" tracks the capped shape.
+  const shown = extractCappableItems(cappedData).total;
+  const affordance = narrowAffordance(
+    actionName,
+    shown,
+    total,
+    `${actionName} --limit ${SUMMARY_FIRST_PAGE_ITEMS}`,
+  );
+  const existingNextActions: readonly NextAction[] = result.next_actions ?? [];
+
+  const existingMeta =
+    result._meta !== null && typeof result._meta === 'object'
+      ? (result._meta as Record<string, unknown>)
+      : {};
+  const meta: Record<string, unknown> & EconomyMeta = {
+    ...existingMeta,
+    [ECONOMY_META_TRUNCATED]: true,
+  };
+
+  return {
+    ...result,
+    data: cappedData,
+    _meta: meta,
+    next_actions: [affordance, ...existingNextActions],
+  };
+}
+
+// `ECONOMY_CARRIER_KEYS` documents (and, for the property test, pins) the set
+// of carrier fields the guard never truncates. Referenced by the invariant
+// test; exported so the contract stays discoverable at the seam.
+export { ECONOMY_CARRIER_KEYS };
 
 // ─── Dispatch Function ──────────────────────────────────────────────────────
 
