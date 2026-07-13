@@ -351,6 +351,53 @@ describe('createMcpServer', () => {
     expect(parsed.success).toBe(true);
   });
 
+  // ─── DR-9: renderContent presentation seam (Task 017) ────────────────────
+  //
+  // `toMcpResult` derives `content` through a single `renderContent` seam —
+  // the §05 presentation/contract split point between the canonical envelope
+  // (`structuredContent`) and its rendering (`content`). Task 016's decision
+  // rule returned DEFER (host content-injection un-evidenced across every
+  // Tier-1 runtime — INV-4), so the seam lands BYTE-IDENTICAL to the prior
+  // inline `[{ type: 'text', text: JSON.stringify(env) }]`. No lean rendering
+  // ships in this pass. This characterization pins that byte-identity so a
+  // future lean rendering is a deliberate, evidence-gated change — and so any
+  // accidental drift in the presentation seam is caught here.
+  // See docs/research/2026-07-DR9-content-injection-verification.md.
+
+  it('toMcpResult_RenderContentSeam_BytesIdenticalToInline', async () => {
+    // Arrange
+    const { toMcpResult } = await import('./mcp.js');
+    // Representative envelopes spanning the discriminated union: a populated
+    // success envelope (nested data + _perf) and an error envelope.
+    const successEnv = toEnvelope({
+      success: true,
+      data: { foo: 'bar', nested: { list: [1, 2, 3], flag: true } },
+      _meta: {},
+      _perf: { ms: 5, bytes: 100, tokens: 25 },
+    });
+    const errorEnv = toEnvelope({
+      success: false,
+      error: { code: 'X', message: 'y' },
+    });
+
+    for (const env of [successEnv, errorEnv]) {
+      // Act
+      const result = toMcpResult(env);
+
+      // Assert — the seam is byte-identical to the pre-refactor inline
+      // construction: content === [{ type: 'text', text: JSON.stringify(env) }].
+      // Exactly one text block; no lean/summary rendering added.
+      expect(result.content).toEqual([
+        { type: 'text', text: JSON.stringify(env) },
+      ]);
+      expect(result.content).toHaveLength(1);
+      expect(result.content[0].type).toBe('text');
+      expect(result.content[0].text).toBe(JSON.stringify(env));
+      // structuredContent stays the full envelope, unchanged (same reference).
+      expect(result.structuredContent).toBe(env);
+    }
+  });
+
   // ─── D.5 + D.7: Per-call validation + carrier cutover (Wave 0, #1287) ────
   //
   // The MCP handler must:
