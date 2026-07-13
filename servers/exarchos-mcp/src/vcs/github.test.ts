@@ -1,5 +1,21 @@
+import { readFileSync } from 'node:fs';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GitHubProvider } from './github.js';
+
+// Recorded `gh pr checks --json name,state,link,bucket,workflow` blobs captured
+// verbatim from `gh` v2.95.0 against real PRs, so the parse is pinned to the
+// current gh contract (which dropped `conclusion`/`detailsUrl` for `state`/
+// `link`) rather than a hand-mock that could drift. `checkCi` only requests
+// name,state,link, but the fixtures keep bucket/workflow too so they stay a
+// faithful copy of what gh emits.
+const RECORDED_PASS_SKIP = readFileSync(
+  new URL('./github.checkci-pass-skip.recorded.json', import.meta.url),
+  'utf-8',
+);
+const RECORDED_FAIL_MIX = readFileSync(
+  new URL('./github.checkci-fail-mix.recorded.json', import.meta.url),
+  'utf-8',
+);
 
 // Mock the shell execution helper
 vi.mock('./shell.js', () => ({
@@ -146,64 +162,95 @@ describe('GitHubProvider', () => {
     expect(result).toEqual({ number: 99, url: 'https://github.com/o/r/pull/99' });
   });
 
-  it('GitHubProvider_CheckCi_ParsesGhOutput', async () => {
-    mockExec.mockResolvedValue(
-      JSON.stringify([
-        { name: 'tests', conclusion: 'success', detailsUrl: 'https://ci/1' },
-        { name: 'lint', conclusion: 'failure', detailsUrl: 'https://ci/2' },
-      ])
-    );
+  it('checkCi_CurrentGhStateField_ParsesRunStatus', async () => {
+    // Recorded, all-green run (SUCCESS + SKIPPED). Pins that the current gh
+    // schema — `state` (not the removed `conclusion`) and `link` (not the
+    // removed `detailsUrl`) — parses into CiChecks with names, urls, and
+    // statuses, and requests the current field names.
+    mockExec.mockResolvedValue(RECORDED_PASS_SKIP);
 
     const result = await provider.checkCi('42');
-    expect(result.status).toBe('fail');
-    expect(result.checks).toHaveLength(2);
+
+    // The gh invocation must ask for the current field names, never the removed
+    // `conclusion`/`detailsUrl`.
+    expect(mockExec).toHaveBeenCalledWith('gh', [
+      'pr',
+      'checks',
+      '42',
+      '--json',
+      'name,state,link',
+    ]);
+
+    expect(result.checks).toHaveLength(5);
+    // `state` drove the classification and `link` populated the url.
     expect(result.checks[0]).toEqual({
-      name: 'tests',
+      name: 'CI Gate',
       status: 'pass',
-      url: 'https://ci/1',
+      url: 'https://github.com/lvlup-sw/exarchos/actions/runs/29168111043/job/86584820229',
     });
-    expect(result.checks[1]).toEqual({
-      name: 'lint',
-      status: 'fail',
-      url: 'https://ci/2',
-    });
-  });
-
-  it('GitHubProvider_CheckCi_AllPassing', async () => {
-    mockExec.mockResolvedValue(
-      JSON.stringify([
-        { name: 'tests', conclusion: 'success', detailsUrl: 'https://ci/1' },
-        { name: 'lint', conclusion: 'success', detailsUrl: 'https://ci/2' },
-      ])
-    );
-
-    const result = await provider.checkCi('42');
+    // SKIPPED → skipped; a run of passes + skips is overall pass.
+    expect(result.checks.find((c) => c.name === 'Windows Unit (Root)')?.status).toBe('skipped');
     expect(result.status).toBe('pass');
   });
 
-  it('GitHubProvider_CheckCi_PendingChecks', async () => {
+  it('checkCi_RecordedGhOutput_ClassifiesPassAndFail', async () => {
+    // Recorded mixed run (FAILURE + SKIPPED + SUCCESS) captured from a real PR.
+    // Pins the pass/fail/skip classification off `state` and the overall-fail
+    // rollup when any check is FAILURE.
+    mockExec.mockResolvedValue(RECORDED_FAIL_MIX);
+
+    const result = await provider.checkCi('42');
+
+    expect(result.checks.find((c) => c.name === 'Windows Unit (MCP)')?.status).toBe('fail');
+    expect(result.checks.find((c) => c.name === 'release')?.status).toBe('skipped');
+    expect(result.checks.find((c) => c.name === 'project-status-update')?.status).toBe('pass');
+    // Any failing check ⇒ overall fail.
+    expect(result.status).toBe('fail');
+  });
+
+  it('checkCi_InProgressState_MapsToPending', async () => {
+    // A non-terminal status state (recorded shape, gh's own enum value) buckets
+    // to pending, which makes the overall status pending.
     mockExec.mockResolvedValue(
       JSON.stringify([
-        { name: 'tests', conclusion: null, detailsUrl: 'https://ci/1' },
-        { name: 'lint', conclusion: 'success', detailsUrl: 'https://ci/2' },
-      ])
+        {
+          bucket: 'pending',
+          link: 'https://github.com/lvlup-sw/exarchos/actions/runs/1/job/1',
+          name: 'CI Gate',
+          state: 'IN_PROGRESS',
+          workflow: 'CI',
+        },
+        {
+          bucket: 'pass',
+          link: 'https://github.com/lvlup-sw/exarchos/actions/runs/1/job/2',
+          name: 'lint',
+          state: 'SUCCESS',
+          workflow: 'CI',
+        },
+      ]),
     );
 
     const result = await provider.checkCi('42');
-    expect(result.status).toBe('pending');
     expect(result.checks[0].status).toBe('pending');
+    expect(result.status).toBe('pending');
   });
 
-  it('GitHubProvider_CheckCi_SkippedChecks', async () => {
+  it('checkCi_SkippedOnlyRun_IsOverallPass', async () => {
     mockExec.mockResolvedValue(
       JSON.stringify([
-        { name: 'optional', conclusion: 'skipped', detailsUrl: 'https://ci/1' },
-      ])
+        {
+          bucket: 'skipping',
+          link: 'https://github.com/lvlup-sw/exarchos/actions/runs/1/job/1',
+          name: 'optional',
+          state: 'SKIPPED',
+          workflow: 'CI',
+        },
+      ]),
     );
 
     const result = await provider.checkCi('42');
     expect(result.checks[0].status).toBe('skipped');
-    // Skipped-only should be pass
+    // Skipped-only should be pass.
     expect(result.status).toBe('pass');
   });
 

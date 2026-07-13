@@ -1,0 +1,23 @@
+[
+  {
+    "bucket": "fail",
+    "link": "https://github.com/lvlup-sw/exarchos/actions/runs/28140633997/job/83337046088",
+    "name": "Windows Unit (MCP)",
+    "state": "FAILURE",
+    "workflow": "CI"
+  },
+  {
+    "bucket": "skipping",
+    "link": "https://github.com/lvlup-sw/exarchos/actions/runs/28141516947/job/83339718018",
+    "name": "release",
+    "state": "SKIPPED",
+    "workflow": "Project Automation"
+  },
+  {
+    "bucket": "pass",
+    "link": "https://github.com/lvlup-sw/exarchos/actions/runs/28141516947/job/83339706634",
+    "name": "project-status-update",
+    "state": "SUCCESS",
+    "workflow": "Project Automation"
+  }
+]
