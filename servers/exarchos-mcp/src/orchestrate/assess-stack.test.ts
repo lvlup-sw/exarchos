@@ -19,8 +19,33 @@ const mockEventStore = {
   query: mockQuery,
 } as unknown as EventStore;
 import type { ReviewAdapterRegistry, ProviderAdapter, ReviewerKind } from '../review/types.js';
+import { coderabbitAdapter } from '../review/providers/coderabbit.js';
 
 const STATE_DIR = '/tmp/test-assess-stack';
+
+// ─── DR-2 token-economy helpers ─────────────────────────────────────────────
+
+// Coarse token estimate (~4 chars/token) over the serialized result. The audit
+// measured assess_stack at 153,844 tokens on a 3-PR stack; DR-2's budget is
+// ≤5,000 tokens for a comment-heavy (≥25-comment) single-PR fixture.
+function estimateTokens(data: unknown): number {
+  return Math.ceil(JSON.stringify(data).length / 4);
+}
+
+// A realistically large review comment whose UNIQUE tail marker sits well beyond
+// COMMENT_BODY_LIMIT (200), so it survives ONLY in an undeduped full-body copy.
+function heavyComment(id: number): PrComment {
+  const head = `HEAD_${id}_`;
+  const filler = 'x'.repeat(2000);
+  const tail = `_TAIL_MARKER_${id}_`;
+  return {
+    id,
+    author: `human-reviewer-${id}`,
+    body: `${head}${filler}${tail}`,
+    createdAt: '2026-01-01T00:00:00Z',
+    source: 'issue-comment',
+  } as PrComment;
+}
 
 // ─── Mock VcsProvider Helper ────────────────────────────────────────────────
 
@@ -1072,8 +1097,11 @@ describe('handleAssessStack', () => {
     });
   });
 
-  describe('comment body retention', () => {
-    it('QueryPrComments_LongCommentBody_RetainsFullBody', async () => {
+  describe('comment body economy (DR-2)', () => {
+    it('QueryPrComments_LongCommentBody_TruncatedNoFullBodyCopy', async () => {
+      // DR-2: the untruncated body is no longer retained on the comment. Only
+      // the truncated `body` display copy survives — the dead `fullBody` field
+      // is gone.
       const longBody = 'A'.repeat(500);
       const provider = createMockProvider({
         checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
@@ -1091,12 +1119,14 @@ describe('handleAssessStack', () => {
 
       expect(result.success).toBe(true);
       const data = result.data as {
-        status: { prs: Array<{ unresolvedComments: Array<{ body: string; fullBody: string }> }> };
+        status: { prs: Array<{ unresolvedComments: Array<Record<string, unknown>> }> };
       };
       const comment = data.status.prs[0].unresolvedComments[0];
-      expect(comment.fullBody).toBe(longBody);
-      expect(comment.fullBody.length).toBe(500);
-      expect(comment.body.length).toBeLessThanOrEqual(204);
+      // The dead field must be absent — not merely undefined.
+      expect('fullBody' in comment).toBe(false);
+      expect((comment.body as string).length).toBeLessThanOrEqual(204);
+      // The untruncated 500-char body appears NOWHERE in the serialized result.
+      expect(JSON.stringify(result.data).includes(longBody)).toBe(false);
     });
   });
 
@@ -1561,6 +1591,182 @@ describe('handleAssessStack', () => {
       // Identical action items prove the harvest does not branch on provider.
       expect(gitlabItems).toHaveLength(2);
       expect(adoItems).toEqual(gitlabItems);
+    });
+  });
+
+  // ─── DR-2: minimal types / token economy ──────────────────────────────────
+
+  describe('DR-2 token economy', () => {
+    it('assessStack_CommentHeavyStack_StaysUnderBudget', async () => {
+      // The audit's #1 offender: a comment-heavy PR returned 153,844 tokens
+      // because each ~2KB comment body was serialized up to 4× (fullBody +
+      // two raw copies + truncated body). DR-2 caps + dedupes so a PR with 25
+      // large unresolved comments stays ≤5,000 tokens total.
+      const comments = Array.from({ length: 25 }, (_, i) => heavyComment(i + 1));
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: comments,
+      });
+
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        mockEventStore,
+        provider,
+      );
+
+      expect(result.success).toBe(true);
+      const tokens = estimateTokens(result.data);
+      expect(tokens).toBeLessThanOrEqual(5000);
+
+      // Perceivability: the default window caps the body-carrying list but the
+      // full count stays visible so nothing is silently dropped.
+      const data = result.data as {
+        status: { prs: Array<{ unresolvedComments: unknown[]; commentPage: { total: number; hasMore: boolean } }> };
+      };
+      expect(data.status.prs[0].commentPage.total).toBe(25);
+      expect(data.status.prs[0].commentPage.hasMore).toBe(true);
+      expect(data.status.prs[0].unresolvedComments.length).toBeLessThan(25);
+    });
+
+    it('assessStack_UnresolvedComments_EachCommentSerializedOnce', async () => {
+      // No comment body may be serialized more than once. Each fixture body has
+      // a unique tail marker BEYOND the 200-char truncation limit, so it can
+      // only appear via a full-body copy (the removed fullBody / raw fields).
+      const comments = [heavyComment(1), heavyComment(2), heavyComment(3)];
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: comments,
+      });
+
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        mockEventStore,
+        provider,
+      );
+
+      expect(result.success).toBe(true);
+      const serialized = JSON.stringify(result.data);
+      const data = result.data as {
+        status: { prs: Array<{ unresolvedComments: Array<{ body: string }> }> };
+      };
+      const rendered = data.status.prs[0].unresolvedComments;
+      expect(rendered).toHaveLength(3);
+
+      for (const c of comments) {
+        // The untruncated tail marker appears NOWHERE — no full-body copy exists.
+        expect(serialized.includes(`_TAIL_MARKER_${c.id}_`)).toBe(false);
+      }
+      // The single truncated display copy appears exactly once per comment.
+      for (const rc of rendered) {
+        const occurrences = serialized.split(rc.body).length - 1;
+        expect(occurrences).toBe(1);
+      }
+    });
+
+    it('assessStack_PagedComments_EveryActionableReferenceReachable', async () => {
+      // Shepherd-loop consumers page through the capped list and must reach
+      // every unresolved actionable comment reference across pages.
+      const comments = Array.from({ length: 25 }, (_, i) => heavyComment(i + 1));
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: comments,
+      });
+
+      type CommentRefLike = { pr: number; commentId: number };
+      type PagedData = {
+        actionItems: Array<{ type: string; raw?: unknown }>;
+        status: {
+          prs: Array<{
+            unresolvedComments: Array<{ id: number }>;
+            commentPage: { total: number; offset: number; limit: number; hasMore: boolean };
+          }>;
+        };
+      };
+
+      const pageAt = async (offset: number): Promise<PagedData> => {
+        const result = await handleAssessStack(
+          { featureId: 'test-feature', prNumbers: [42], limit: 10, offset },
+          STATE_DIR,
+          mockEventStore,
+          provider,
+        );
+        expect(result.success).toBe(true);
+        return result.data as PagedData;
+      };
+
+      const reached = new Set<number>();
+      const pages = [await pageAt(0), await pageAt(10), await pageAt(20)];
+
+      pages.forEach((page, idx) => {
+        const pr = page.status.prs[0];
+        expect(pr.commentPage.total).toBe(25);
+        expect(pr.commentPage.limit).toBe(10);
+        const expectedLen = idx < 2 ? 10 : 5;
+        expect(pr.unresolvedComments).toHaveLength(expectedLen);
+        expect(pr.commentPage.hasMore).toBe(idx < 2);
+
+        const idsOnPage = new Set(pr.unresolvedComments.map((c) => c.id));
+        const refs = page.actionItems
+          .filter((i) => i.type === 'comment-reply')
+          .map((i) => i.raw as CommentRefLike);
+        // Every actionable comment reference on this page resolves to a comment
+        // present on the SAME page's unresolvedComments — no dangling reference.
+        for (const ref of refs) {
+          expect(ref.pr).toBe(42);
+          expect(idsOnPage.has(ref.commentId)).toBe(true);
+          reached.add(ref.commentId);
+        }
+      });
+
+      // The union across all pages reaches every unresolved comment (1..25).
+      expect([...reached].sort((a, b) => a - b)).toEqual(
+        Array.from({ length: 25 }, (_, i) => i + 1),
+      );
+    });
+
+    it('assessStack_AdapterConsumption_UnaffectedByFullBodyRemoval', async () => {
+      // Deadness-precondition characterization: provider adapters parse the raw
+      // VcsPrComment UPSTREAM of the result build (reading `comment.body`, never
+      // a `fullBody` field — VcsPrComment has none). Removing the dead result
+      // `fullBody` therefore cannot affect classification.
+      const rawComment = {
+        id: 7,
+        author: 'coderabbitai[bot]',
+        body: '_:warning: Potential issue_\n\nNull dereference on line 5.',
+        createdAt: '2026-01-01T00:00:00Z',
+        source: 'review-inline' as const,
+        path: 'src/auth.ts',
+        line: 5,
+      };
+
+      // Direct upstream parse: the adapter derives everything from the raw body.
+      const parsed = coderabbitAdapter.parse(rawComment);
+      expect(parsed).not.toBeNull();
+      expect(parsed?.normalizedSeverity).toBe('HIGH');
+      expect(parsed?.description).toContain('Potential issue');
+      expect(parsed?.file).toBe('src/auth.ts');
+
+      // End-to-end: the same upstream parse flows into the top-level action item
+      // even though the result no longer carries a fullBody copy.
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: [rawComment],
+      });
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        mockEventStore,
+        provider,
+      );
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        actionItems: Array<{ type: string; normalizedSeverity?: string; reviewer?: string }>;
+      };
+      const commentReply = data.actionItems.find((i) => i.type === 'comment-reply');
+      expect(commentReply?.normalizedSeverity).toBe('HIGH');
+      expect(commentReply?.reviewer).toBe('coderabbit');
     });
   });
 });
