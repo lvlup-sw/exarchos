@@ -20,8 +20,14 @@ import {
   WorkflowSetOutputSchema,
   WorkflowTransitionOutputSchema,
   WorkflowUpdateOutputSchema,
+  resolveEconomyBudget,
+  DEFAULT_ECONOMY_BUDGET_TOKENS,
+  DESCRIBE_ECONOMY_BUDGET_TOKENS,
+  EVENT_DESCRIBE_ECONOMY_BUDGET_TOKENS,
+  RUNBOOK_ECONOMY_BUDGET_TOKENS,
 } from './registry.js';
 import type { ToolAction, CompositeTool, ActionAnnotations } from './registry.js';
+import { handleDescribe } from './describe/handler.js';
 import { wrap, wrapError } from './format.js';
 import { zodToJsonSchema } from './adapters/json-schema.js';
 import { ConcurrencyError } from './event-store/concurrency-error.js';
@@ -2838,5 +2844,252 @@ describe('harness-launcher verb conformance + Windows CI lane (task 015, DR-1/DR
       jobNamesBothTests.length,
       `a windows-latest lane must reference BOTH ${SPAWN_TEST} and ${PATH_TEST} by name`,
     ).toBeGreaterThan(0);
+  });
+});
+
+// ─── DR-1 / Task 002: economy descriptor block + default budgets ─────────────
+//
+// These tests pin the registry-declared response-economy contract: every
+// action resolves a concrete budget (declared `economy.budgetTokens` or the
+// registry-wide default), the verbose-by-design allowlist declares explicit
+// higher budgets, and `describe` surfaces the effective budget. Enforcement
+// (capping at the dispatch-core seam) is Task 003 and out of scope here.
+
+/**
+ * Golden table pinning EVERY action's effective response budget
+ * (`tool.action` → resolved tokens). This is the DR-1 economy contract made
+ * enumerable: a new action, a removed action, or any budget change surfaces
+ * as a diff against this table, forcing a deliberate economy decision per
+ * action. Keys are `${toolName}.${actionName}` because action names repeat
+ * across tools (`describe` is on every tool). If this table diffs, do not
+ * blindly update it — confirm the new/changed budget is intentional first.
+ */
+const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
+  'exarchos_workflow.init': 2000,
+  'exarchos_workflow.get': 2000,
+  'exarchos_workflow.transition': 2000,
+  'exarchos_workflow.update': 2000,
+  'exarchos_workflow.cancel': 2000,
+  'exarchos_workflow.cleanup': 2000,
+  'exarchos_workflow.reconcile': 2000,
+  'exarchos_workflow.rehydrate': 2000,
+  'exarchos_workflow.checkpoint': 2000,
+  'exarchos_workflow.feedback': 2000,
+  'exarchos_workflow.describe': 8000,
+  'exarchos_event.append': 2000,
+  'exarchos_event.query': 2000,
+  'exarchos_event.batch_append': 2000,
+  'exarchos_event.describe': 12000,
+  'exarchos_orchestrate.task_claim': 2000,
+  'exarchos_orchestrate.task_complete': 2000,
+  'exarchos_orchestrate.task_fail': 2000,
+  'exarchos_orchestrate.review_triage': 2000,
+  'exarchos_orchestrate.prepare_delegation': 2000,
+  'exarchos_orchestrate.prepare_synthesis': 2000,
+  'exarchos_orchestrate.assess_stack': 2000,
+  'exarchos_orchestrate.check_static_analysis': 2000,
+  'exarchos_orchestrate.check_integration_suite': 2000,
+  'exarchos_orchestrate.check_security_scan': 2000,
+  'exarchos_orchestrate.check_context_economy': 2000,
+  'exarchos_orchestrate.check_operational_resilience': 2000,
+  'exarchos_orchestrate.check_workflow_determinism': 2000,
+  'exarchos_orchestrate.check_review_verdict': 2000,
+  'exarchos_orchestrate.check_convergence': 2000,
+  'exarchos_orchestrate.check_provenance_chain': 2000,
+  'exarchos_orchestrate.check_design_completeness': 2000,
+  'exarchos_orchestrate.check_plan_coverage': 2000,
+  'exarchos_orchestrate.check_exploration_depth': 2000,
+  'exarchos_orchestrate.check_test_adequacy': 2000,
+  'exarchos_orchestrate.check_contract_drift': 2000,
+  'exarchos_orchestrate.check_mock_boundary': 2000,
+  'exarchos_orchestrate.mutation-adequacy': 2000,
+  'exarchos_orchestrate.check_post_merge': 2000,
+  'exarchos_orchestrate.merge_orchestrate': 2000,
+  'exarchos_orchestrate.check_task_decomposition': 2000,
+  'exarchos_orchestrate.check_event_emissions': 2000,
+  'exarchos_orchestrate.extract_task': 2000,
+  'exarchos_orchestrate.review_diff': 2000,
+  'exarchos_orchestrate.verify_worktree': 2000,
+  'exarchos_orchestrate.select_debug_track': 2000,
+  'exarchos_orchestrate.investigation_timer': 2000,
+  'exarchos_orchestrate.check_coverage_thresholds': 2000,
+  'exarchos_orchestrate.assess_refactor_scope': 2000,
+  'exarchos_orchestrate.check_pr_comments': 2000,
+  'exarchos_orchestrate.validate_pr_body': 2000,
+  'exarchos_orchestrate.validate_pr_stack': 2000,
+  'exarchos_orchestrate.debug_review_gate': 2000,
+  'exarchos_orchestrate.extract_fix_tasks': 2000,
+  'exarchos_orchestrate.classify_review_items': 2000,
+  'exarchos_orchestrate.generate_traceability': 2000,
+  'exarchos_orchestrate.spec_coverage_check': 2000,
+  'exarchos_orchestrate.verify_worktree_baseline': 2000,
+  'exarchos_orchestrate.setup_worktree': 2000,
+  'exarchos_orchestrate.verify_delegation_saga': 2000,
+  'exarchos_orchestrate.post_delegation_check': 2000,
+  'exarchos_orchestrate.reconcile_state': 2000,
+  'exarchos_orchestrate.pre_synthesis_check': 2000,
+  'exarchos_orchestrate.check_coderabbit': 2000,
+  'exarchos_orchestrate.check_polish_scope': 2000,
+  'exarchos_orchestrate.needs_schema_sync': 2000,
+  'exarchos_orchestrate.verify_doc_links': 2000,
+  'exarchos_orchestrate.verify_review_triage': 2000,
+  'exarchos_orchestrate.check_invariant_conformance': 2000,
+  'exarchos_orchestrate.prepare_review': 2000,
+  'exarchos_orchestrate.discover_bridge': 2000,
+  'exarchos_orchestrate.prune_stale_workflows': 2000,
+  'exarchos_orchestrate.request_synthesize': 2000,
+  'exarchos_orchestrate.finalize_oneshot': 2000,
+  'exarchos_orchestrate.runbook': 4000,
+  'exarchos_orchestrate.agent_spec': 2000,
+  'exarchos_orchestrate.doctor': 2000,
+  'exarchos_orchestrate.create_pr': 2000,
+  'exarchos_orchestrate.merge_pr': 2000,
+  'exarchos_orchestrate.check_ci': 2000,
+  'exarchos_orchestrate.list_prs': 2000,
+  'exarchos_orchestrate.get_pr_comments': 2000,
+  'exarchos_orchestrate.add_pr_comment': 2000,
+  'exarchos_orchestrate.create_issue': 2000,
+  'exarchos_orchestrate.onboard': 2000,
+  'exarchos_orchestrate.invariants_scaffold': 2000,
+  'exarchos_orchestrate.invariants_add': 2000,
+  'exarchos_orchestrate.acquire_worktree': 2000,
+  'exarchos_orchestrate.release_worktree': 2000,
+  'exarchos_orchestrate.prune_worktrees': 2000,
+  'exarchos_orchestrate.serialize_merge': 2000,
+  'exarchos_orchestrate.describe': 8000,
+  'exarchos_view.pipeline': 2000,
+  'exarchos_view.tasks': 2000,
+  'exarchos_view.workflow_status': 2000,
+  'exarchos_view.stack_status': 2000,
+  'exarchos_view.stack_place': 2000,
+  'exarchos_view.telemetry': 2000,
+  'exarchos_view.team_performance': 2000,
+  'exarchos_view.delegation_timeline': 2000,
+  'exarchos_view.code_quality': 2000,
+  'exarchos_view.eval_results': 2000,
+  'exarchos_view.quality_correlation': 2000,
+  'exarchos_view.quality_attribution': 2000,
+  'exarchos_view.delegation_readiness': 2000,
+  'exarchos_view.session_provenance': 2000,
+  'exarchos_view.provenance': 2000,
+  'exarchos_view.synthesis_readiness': 2000,
+  'exarchos_view.shepherd_status': 2000,
+  'exarchos_view.convergence': 2000,
+  'exarchos_view.quality_hints': 2000,
+  'exarchos_view.invariants_effective': 2000,
+  'exarchos_view.worktrees': 2000,
+  'exarchos_view.ps': 2000,
+  'exarchos_view.wait': 2000,
+  'exarchos_view.describe': 8000,
+  'exarchos_sync.now': 2000,
+};
+
+/** Effective-budget map built from the live registry, keyed `tool.action`. */
+function buildEffectiveBudgetMap(): Record<string, number> {
+  const map: Record<string, number> = {};
+  for (const tool of TOOL_REGISTRY) {
+    for (const action of tool.actions) {
+      map[`${tool.name}.${action.name}`] = resolveEconomyBudget(action);
+    }
+  }
+  return map;
+}
+
+describe('registry economy budgets (DR-1)', () => {
+  it('registryEconomy_BudgetSnapshot_PinsEffectiveBudgetPerAction', () => {
+    const actual = buildEffectiveBudgetMap();
+
+    // Golden pin: every action's effective budget matches the table. A new
+    // action, a removed action, or a budget change fails here as a diff.
+    expect(actual).toEqual(EXPECTED_EFFECTIVE_BUDGETS);
+
+    // Every resolved budget must be a finite, positive number — a declared
+    // `economy.budgetTokens` of Infinity, NaN, 0, or a negative value must
+    // FAIL this test (the runtime seam fails open on such values per DR-1,
+    // but the static registry must never ship one).
+    for (const [key, budget] of Object.entries(actual)) {
+      expect(
+        Number.isFinite(budget) && budget > 0,
+        `${key} resolved a non-finite / non-positive budget: ${budget}`,
+      ).toBe(true);
+    }
+  });
+
+  it('registryEconomy_VerboseByDesignAllowlist_DeclaresExplicitHigherBudget', () => {
+    const findAction = (tool: string, action: string): ToolAction => {
+      const found = TOOL_REGISTRY.find((t) => t.name === tool)?.actions.find(
+        (a) => a.name === action,
+      );
+      expect(found, `${tool}.${action} must exist`).toBeDefined();
+      return found as ToolAction;
+    };
+
+    // The verbose-by-design allowlist: every `describe` variant + `runbook`
+    // declares an explicit `economy.budgetTokens` strictly above the default.
+    const verbose: ReadonlyArray<{ tool: string; action: string; expected: number }> = [
+      { tool: 'exarchos_workflow', action: 'describe', expected: DESCRIBE_ECONOMY_BUDGET_TOKENS },
+      { tool: 'exarchos_orchestrate', action: 'describe', expected: DESCRIBE_ECONOMY_BUDGET_TOKENS },
+      { tool: 'exarchos_view', action: 'describe', expected: DESCRIBE_ECONOMY_BUDGET_TOKENS },
+      { tool: 'exarchos_event', action: 'describe', expected: EVENT_DESCRIBE_ECONOMY_BUDGET_TOKENS },
+      { tool: 'exarchos_orchestrate', action: 'runbook', expected: RUNBOOK_ECONOMY_BUDGET_TOKENS },
+    ];
+
+    for (const { tool, action, expected } of verbose) {
+      const a = findAction(tool, action);
+      expect(
+        a.economy?.budgetTokens,
+        `${tool}.${action} must declare an explicit economy.budgetTokens`,
+      ).toBe(expected);
+      expect(
+        resolveEconomyBudget(a),
+        `${tool}.${action} must resolve above the default`,
+      ).toBeGreaterThan(DEFAULT_ECONOMY_BUDGET_TOKENS);
+    }
+
+    // The event `describe` budget must sit strictly above the base describe
+    // budget because it additionally carries the `emissionGuide` param path
+    // (the full event catalog), which is a param of the one describe action,
+    // not a separate action.
+    expect(EVENT_DESCRIBE_ECONOMY_BUDGET_TOKENS).toBeGreaterThan(DESCRIBE_ECONOMY_BUDGET_TOKENS);
+
+    // Nothing outside the allowlist declares an economy block — a stray
+    // declaration would silently widen the budget surface.
+    const declared = TOOL_REGISTRY.flatMap((t) =>
+      t.actions
+        .filter((a) => a.economy !== undefined)
+        .map((a) => `${t.name}.${a.name}`),
+    ).sort();
+    expect(declared).toEqual(
+      [
+        'exarchos_event.describe',
+        'exarchos_orchestrate.describe',
+        'exarchos_orchestrate.runbook',
+        'exarchos_view.describe',
+        'exarchos_workflow.describe',
+      ].sort(),
+    );
+  });
+
+  it('describeAction_WithBudget_SurfacesBudgetTokens', async () => {
+    const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate')!;
+    const result = await handleDescribe(
+      { actions: ['describe', 'runbook', 'task_claim'] },
+      orchestrate.actions,
+    );
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    const data = result.data as Record<string, { economyBudgetTokens?: unknown }>;
+
+    // Verbose actions surface their declared budget; a default action
+    // surfaces the registry default. The slot is present on every entry
+    // (every action resolves a concrete budget), not only declared ones.
+    expect(data.describe.economyBudgetTokens).toBe(DESCRIBE_ECONOMY_BUDGET_TOKENS);
+    expect(data.runbook.economyBudgetTokens).toBe(RUNBOOK_ECONOMY_BUDGET_TOKENS);
+    expect(data.task_claim.economyBudgetTokens).toBe(DEFAULT_ECONOMY_BUDGET_TOKENS);
+
+    // The surfaced number is exactly what the resolver returns for the action.
+    const taskClaim = orchestrate.actions.find((a) => a.name === 'task_claim')!;
+    expect(data.task_claim.economyBudgetTokens).toBe(resolveEconomyBudget(taskClaim));
   });
 });

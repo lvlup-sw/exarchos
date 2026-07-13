@@ -1,4 +1,5 @@
 import { zodToJsonSchema } from '../adapters/json-schema.js';
+import { resolveEconomyBudget } from '../registry.js';
 import type { ToolAction } from '../registry.js';
 import type { ToolResult } from '../format.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
@@ -128,6 +129,14 @@ export async function handleDescribe(
         // entirely when the action does not declare it, mirroring the
         // `autoEmits` / `deprecated` optional-field pattern above.
         ...(action.dispatch ? { dispatch: action.dispatch } : {}),
+        // DR-1 / Task 002 (design §"The economy block"): surface the
+        // action's *effective* response budget — its declared
+        // `economy.budgetTokens` or the registry default. Surfaced
+        // unconditionally (not just when declared) because every action
+        // resolves a concrete budget, and it is resolved through the single
+        // `resolveEconomyBudget` so the number a client sees here matches
+        // exactly what the dispatch-core measurement seam enforces (Task 003).
+        economyBudgetTokens: resolveEconomyBudget(action),
         // Wave 0 / Task G.3 (#1287 + INV-5b, design §2.1 Approach C):
         // per-action `outputSchema` is surfaced as JSON Schema 2020-12
         // under `outputSchemaJson` so clients can introspect the precise

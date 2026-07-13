@@ -66,6 +66,87 @@ export interface DispatchHints {
   readonly taskTtlSuggestionMs?: number;
 }
 
+/**
+ * Action-descriptor-level response-economy metadata (DR-1, design
+ * §"The economy block").
+ *
+ * Lives at the action-descriptor level — sibling to `cli`, `gate`,
+ * `autoEmits`, `dispatch` — because a response budget is action-behavior
+ * metadata shared by both facades (INV-2), exactly the placement rationale
+ * documented on {@link DispatchHints}. Annotating under `cli.` would imply
+ * this is CLI-presentation metadata; a response token budget is not
+ * presentation, it is a property of what the action emits, so both the CLI
+ * and MCP surfaces inherit the same ceiling from one declaration.
+ *
+ * - `budgetTokens` — the per-action response ceiling in estimated output
+ *   tokens. Resolves via {@link resolveEconomyBudget}: declared value wins
+ *   over {@link DEFAULT_ECONOMY_BUDGET_TOKENS}, so every action resolves a
+ *   concrete number.
+ * - `compactByDefault` — advisory marker that this action's presentation
+ *   should default to its compact rendering (consumed by DR-8/DR-12).
+ * - `summarize` — optional per-action reducer applied on overflow (else a
+ *   generic capped fallback). Declared here so schemas stay honest.
+ *
+ * Enforcement lives at the dispatch-core measurement seam (Task 003); this
+ * block is the declaration, that seam is the guard. They agree by
+ * construction because both read {@link resolveEconomyBudget}.
+ */
+export interface EconomyHints {
+  readonly budgetTokens?: number;
+  readonly compactByDefault?: boolean;
+  readonly summarize?: (data: unknown) => unknown;
+}
+
+/**
+ * Registry-wide default response budget in estimated output tokens (DR-1,
+ * design §"The economy block"). An action's declared `economy.budgetTokens`
+ * wins over this default; every action therefore resolves to a concrete
+ * number via {@link resolveEconomyBudget}. Initial value from the
+ * token-economy audit (PR #1679); the qualityHints 25,600-token threshold
+ * remains the last-resort catastrophic backstop. Tune after dogfooding.
+ */
+export const DEFAULT_ECONOMY_BUDGET_TOKENS = 2000;
+
+// Verbose-by-design response budgets (DR-1). These actions are the
+// intentional detail paths, so they declare explicit higher budgets rather
+// than exemptions — everything still resolves a number. Values are grounded
+// in measured worst-case outputs (token-economy audit, PR #1679): a
+// `describe` of the ten largest orchestrate actions runs ~21k tokens
+// (full input + output JSON schemas per action), the event `describe`
+// emission catalog ~3.5k tokens on top of action schemas, and the largest
+// resolved runbook ~2k tokens. Budgets sit between typical usage and the
+// worst case so a normal detail call is uncapped while an extreme dump is
+// summarized by the dispatch-core seam (Task 003). Tune after dogfooding.
+
+/** `describe` (workflow / orchestrate / view) — full per-action schemas. */
+export const DESCRIBE_ECONOMY_BUDGET_TOKENS = 8000;
+
+/**
+ * Event `describe` — sized above {@link DESCRIBE_ECONOMY_BUDGET_TOKENS}
+ * because it carries the additional `emissionGuide` param path (the full
+ * event catalog grouped by source) on top of action schemas. The
+ * `emissionGuide` is a *param* of the one `describe` action, not a separate
+ * action, so its budget rides that single descriptor.
+ */
+export const EVENT_DESCRIBE_ECONOMY_BUDGET_TOKENS = 12000;
+
+/** `runbook` — a resolved runbook with step schemas. */
+export const RUNBOOK_ECONOMY_BUDGET_TOKENS = 4000;
+
+/**
+ * Resolve an action's effective response budget: its declared
+ * `economy.budgetTokens` when present, else {@link DEFAULT_ECONOMY_BUDGET_TOKENS}.
+ * Always returns a number so callers (the dispatch-core seam, `describe`
+ * surfacing) never branch on "declared vs default". The returned value's
+ * validity (finite, positive) is pinned at build time by the registry
+ * budget-snapshot test; the runtime seam (Task 003) fails open on a
+ * non-finite / non-positive budget per DR-1.
+ */
+export function resolveEconomyBudget(action: Pick<ToolAction, 'economy'>): number {
+  const declared = action.economy?.budgetTokens;
+  return declared !== undefined ? declared : DEFAULT_ECONOMY_BUDGET_TOKENS;
+}
+
 export interface GateMetadata {
   readonly blocking: boolean;
   readonly dimension?: string;
@@ -332,6 +413,18 @@ export interface ToolAction {
    * task-suitable actions.
    */
   readonly dispatch?: DispatchHints;
+  /**
+   * DR-1 (design §"The economy block") — response-economy metadata:
+   * per-action token budget (+ optional summarizer / compact-by-default
+   * markers). Sibling-level (not under `cli`) because the budget is
+   * action-behavior metadata shared by both facades (INV-2), mirroring
+   * `dispatch`. Undefined leaves the action on {@link DEFAULT_ECONOMY_BUDGET_TOKENS};
+   * every action resolves a number via {@link resolveEconomyBudget}. The
+   * effective budget is surfaced via `exarchos_view describe`
+   * (`economyBudgetTokens`); the binding cap lives at the dispatch-core
+   * measurement seam (Task 003).
+   */
+  readonly economy?: EconomyHints;
   /**
    * DR-5: When true, the action can take multiple seconds to complete and
    * the CLI adapter should emit stderr heartbeats under `--json` so a long
@@ -803,6 +896,8 @@ function makeDescribeAction(): ToolAction {
     schema: describeSchema,
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    // DR-1: verbose-by-design detail path — full per-action JSON schemas.
+    economy: { budgetTokens: DESCRIBE_ECONOMY_BUDGET_TOKENS },
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: READ_ONLY_LOCAL,
   };
@@ -832,6 +927,8 @@ function makeWorkflowDescribeAction(): ToolAction {
     schema: workflowDescribeSchema,
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    // DR-1: verbose-by-design detail path — schemas + topology/playbooks/config.
+    economy: { budgetTokens: DESCRIBE_ECONOMY_BUDGET_TOKENS },
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: READ_ONLY_LOCAL,
   };
@@ -856,6 +953,10 @@ function makeEventDescribeAction(): ToolAction {
     schema: eventDescribeSchema,
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    // DR-1: verbose-by-design detail path whose budget accounts for the
+    // `emissionGuide` param path (the full event catalog), which is a param
+    // of this one describe action — not a separate action.
+    economy: { budgetTokens: EVENT_DESCRIBE_ECONOMY_BUDGET_TOKENS },
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: READ_ONLY_LOCAL,
   };
@@ -2609,6 +2710,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    // DR-1: verbose-by-design detail path — a resolved runbook with step schemas.
+    economy: { budgetTokens: RUNBOOK_ECONOMY_BUDGET_TOKENS },
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: READ_ONLY_LOCAL,
   },
