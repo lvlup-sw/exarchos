@@ -245,7 +245,16 @@ export async function createServer(
   // so consumers do not need to import `bun:sqlite` directly. The same
   // backend was already passed to `EventStore` above; surfacing it on
   // `DispatchContext` is what closes the DI gap.
-  const ctx: DispatchContext = { stateDir, eventStore, enableTelemetry, capabilityResolver, storage: backend };
+  //
+  // DR-6 (Task 015): slim `tools/list` registration is ON by default in the
+  // production dispatch context — every visible tool advertises its compact
+  // `slimDescription` (which points at the `describe` action, the on-demand
+  // full-detail path, per INV-5a) instead of the base blurb + every action
+  // signature. This is the one-line context flip that takes the always-loaded
+  // registration from ~7,851 tok/session to the slim ceiling. `describe`
+  // remains the bounded path for per-action schemas and negative-space
+  // ("Do NOT use for …") guidance.
+  const ctx: DispatchContext = { stateDir, eventStore, enableTelemetry, capabilityResolver, storage: backend, slimRegistration: true };
 
   // Lazy-load the MCP adapter so the CLI cold-start path doesn't incur the
   // MCP-SDK import cost. See module-level note on top of file.
@@ -386,10 +395,20 @@ async function main() {
   const backend = await initializeBackend(stateDir);
   registerBackendCleanup(backend);
 
-  const ctx = await initializeContext(stateDir, {
-    backend,
-    projectRoot: process.cwd(),
-  });
+  // DR-6 (Task 015): the shipped `exarchos mcp` server is dispatched from this
+  // context (buildCli → cli.ts `mcp` action → createMcpServer(ctx)), so the
+  // slim-registration flip must land here too — not only on the `createServer`
+  // library factory above. `slimRegistration` is read solely by
+  // `buildToolDescription` at tools/list registration (adapters/mcp.ts); CLI
+  // dispatch ignores it, so setting it on the ctx shared with `buildCli` is
+  // inert for every non-MCP subcommand.
+  const ctx: DispatchContext = {
+    ...(await initializeContext(stateDir, {
+      backend,
+      projectRoot: process.cwd(),
+    })),
+    slimRegistration: true,
+  };
 
   // Unified entry point — all routing via Commander CLI.
   // `exarchos mcp` starts the MCP server; other commands are CLI mode.

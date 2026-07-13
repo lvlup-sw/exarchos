@@ -153,17 +153,29 @@ describe('MCP Server Entry Point', () => {
       }
     });
 
-    it('should include action signatures in descriptions', async () => {
+    it('should enumerate action names and point to describe (slim registration, DR-6/INV-5a)', async () => {
       await createServer('/tmp/test-state-dir');
 
+      // DR-6 (task 015): slim registration is the production default. The
+      // tools/list description enumerates action NAMES briefly and points at
+      // the `describe` action for per-action schemas/signatures — it does NOT
+      // inline the full `init(...)` signatures. INV-5a: per-action detail
+      // (schemas + negative-space "Do NOT use for …" guidance) lives behind
+      // `describe`, the on-demand full-detail path. Full-mode signature
+      // rendering by `buildToolDescription` is still unit-covered in
+      // registry.test.ts ('buildToolDescription dual mode').
       const workflow = toolRegistrations.get('exarchos_workflow')!;
       expect(workflow.description).toContain('Actions:');
-      expect(workflow.description).toContain('init(');
-      expect(workflow.description).toContain('get(');
+      expect(workflow.description).toContain('init');
+      expect(workflow.description).toContain('get');
       // T5a.1/DR-4 (#1259, v2.11): `set` removed; `transition` is the
       // canonical phase-mutation action and the natural successor here.
-      expect(workflow.description).toContain('transition(');
-      expect(workflow.description).toContain('cancel(');
+      expect(workflow.description).toContain('transition');
+      expect(workflow.description).toContain('cancel');
+      // The pointer to the on-demand full-detail alternative (INV-5a).
+      expect(workflow.description).toContain('describe');
+      // Slim: no inlined per-action signatures (the flip's whole point).
+      expect(workflow.description).not.toContain('init(');
     });
 
     it('should register tools with schemas containing action field', async () => {
