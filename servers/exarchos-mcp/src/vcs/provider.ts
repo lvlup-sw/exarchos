@@ -125,6 +125,134 @@ export function isResolvedKnown(comment: PrComment): boolean {
   return comment.resolved !== undefined;
 }
 
+// ─── DR-3: get_pr_comments window + projection ───────────────────────────────
+
+/**
+ * Default number of (newest-first) comments returned when the caller omits
+ * `limit`. Chosen to keep a default read well under the output-token budget: the
+ * audit measured an 85-comment PR at 37,613 tokens unbounded, and windowing to
+ * the newest ~20 collapses that to a fraction while the `page` metadata + steer
+ * notice keep the rest reachable. An explicit `limit` overrides it.
+ */
+export const DEFAULT_PR_COMMENTS_LIMIT = 20;
+
+/**
+ * Window + projection inputs for a paged {@link VcsProvider.getPrCommentsPage}
+ * read (DR-3). All optional: an omitted `limit` defaults to
+ * {@link DEFAULT_PR_COMMENTS_LIMIT}, an omitted/negative `offset` is `0`, and an
+ * omitted/empty `fields` returns every comment key.
+ */
+export interface GetPrCommentsOptions {
+  readonly limit?: number;
+  readonly offset?: number;
+  readonly fields?: readonly string[];
+}
+
+/**
+ * Pagination metadata attached to a windowed read: `total` is the full
+ * pre-window count, `offset`/`limit` are the effective window, and `hasMore`
+ * says whether comments remain past this page (so a client knows to advance
+ * `offset`). Provider-neutral — the same shape every provider returns.
+ */
+export interface PageMeta {
+  readonly total: number;
+  readonly offset: number;
+  readonly limit: number;
+  readonly hasMore: boolean;
+}
+
+/**
+ * Windowed + projected result of a PR-comments read (DR-3).
+ *
+ * `comments` is at most `page.limit` entries, newest-first. Each entry is a
+ * {@link PrComment} when no projection was requested, or a partial carrying ONLY
+ * the {@link GetPrCommentsOptions.fields} keys otherwise — hence
+ * `Partial<PrComment>`. `notice`, present only when `page.hasMore`, is a
+ * human-readable steer toward a narrower/paged call.
+ */
+export interface PrCommentsPage {
+  readonly comments: readonly Partial<PrComment>[];
+  readonly page: PageMeta;
+  readonly notice?: string;
+}
+
+/** Coerce an optional `limit` to a positive integer, defaulting when invalid. */
+function normalizePrCommentsLimit(limit?: number): number {
+  if (limit === undefined || !Number.isFinite(limit) || limit <= 0) {
+    return DEFAULT_PR_COMMENTS_LIMIT;
+  }
+  return Math.floor(limit);
+}
+
+/** Coerce an optional `offset` to a non-negative integer, defaulting to 0. */
+function normalizePrCommentsOffset(offset?: number): number {
+  if (offset === undefined || !Number.isFinite(offset) || offset < 0) {
+    return 0;
+  }
+  return Math.floor(offset);
+}
+
+/**
+ * Newest-first comparator. `createdAt` is ISO-8601, so a lexical compare is a
+ * chronological compare; ties break by `id` descending so paging is fully
+ * deterministic even when two comments share a timestamp.
+ */
+function compareNewestFirst(a: PrComment, b: PrComment): number {
+  if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? 1 : -1;
+  return b.id - a.id;
+}
+
+/** Project a comment to ONLY the requested keys (present, defined ones). */
+function projectComment(comment: PrComment, fields: readonly string[]): Partial<PrComment> {
+  const source = comment as unknown as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const field of fields) {
+    if (field in source && source[field] !== undefined) {
+      out[field] = source[field];
+    }
+  }
+  return out as Partial<PrComment>;
+}
+
+/**
+ * Window + project a provider's full comment list into a bounded {@link
+ * PrCommentsPage} (DR-3). Pure and provider-agnostic: EVERY provider funnels its
+ * raw {@link VcsProvider.getPrComments} result through this one helper, so the
+ * window/projection contract is identical across GitHub/GitLab/ADO and callers
+ * of providers that don't override {@link VcsProvider.getPrCommentsPage} get the
+ * same behavior via this function directly.
+ *
+ * Ordering is newest-first (see {@link compareNewestFirst}); the window is
+ * `[offset, offset+limit)`; `fields`, when non-empty, projects each entry to
+ * only those keys. A `notice` is attached iff the window truncated the set.
+ */
+export function windowPrComments(
+  comments: readonly PrComment[],
+  opts?: GetPrCommentsOptions,
+): PrCommentsPage {
+  const total = comments.length;
+  const offset = normalizePrCommentsOffset(opts?.offset);
+  const limit = normalizePrCommentsLimit(opts?.limit);
+
+  const ordered = [...comments].sort(compareNewestFirst);
+  const windowed = ordered.slice(offset, offset + limit);
+  const projected =
+    opts?.fields && opts.fields.length > 0
+      ? windowed.map((c) => projectComment(c, opts.fields as readonly string[]))
+      : windowed;
+
+  const hasMore = offset + windowed.length < total;
+  const page: PageMeta = { total, offset, limit, hasMore };
+
+  if (!hasMore) {
+    return { comments: projected, page };
+  }
+  const notice =
+    `Showing ${windowed.length} of ${total} comments (newest first). ` +
+    `Narrow with limit/offset to page, or fields=[...] to project keys.`;
+  return { comments: projected, page, notice };
+}
+
 export interface CreateIssueOpts {
   readonly title: string;
   readonly body: string;
@@ -199,6 +327,20 @@ export interface VcsProvider {
   getReviewStatus(prId: string): Promise<ReviewStatus>;
   listPrs(filter?: PrFilter): Promise<PrSummary[]>;
   getPrComments(prId: string): Promise<PrComment[]>;
+  /**
+   * DR-3 — windowed + projected read of PR comments. Returns the newest `limit`
+   * comments (default {@link DEFAULT_PR_COMMENTS_LIMIT}) starting at `offset`,
+   * projected to {@link GetPrCommentsOptions.fields} when given, plus `page`
+   * metadata and a truncation `notice`. Internal callers that need the FULL
+   * feed (e.g. the add-comment verify scan, assess-stack) keep using
+   * {@link getPrComments}; this is the bounded surface for the read-only tool.
+   *
+   * OPTIONAL by design: providers that don't override it are windowed by the
+   * caller via {@link windowPrComments} over their {@link getPrComments} result,
+   * so the GitLab/ADO partials keep their existing behavior unchanged — no new
+   * provider method to implement, no throw-behavior to alter.
+   */
+  getPrCommentsPage?(prId: string, opts?: GetPrCommentsOptions): Promise<PrCommentsPage>;
   getPrDiff(prId: string): Promise<string>;
   createIssue(opts: CreateIssueOpts): Promise<IssueResult>;
   /**
