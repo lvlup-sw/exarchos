@@ -257,7 +257,10 @@ function resolveDir(
 
   const xdgStateHome = env['XDG_STATE_HOME'];
   if (xdgStateHome) {
-    return toPosix(path.join(xdgStateHome, 'exarchos', exarchosSubdir));
+    // Expand a leading `~` here too — otherwise `XDG_STATE_HOME=~/state` opens
+    // the store at a cwd-relative path, diverging from the env-value branch
+    // above (which applies expandTilde) and from WORKFLOW_STATE_DIR.
+    return toPosix(path.join(expandTilde(xdgStateHome, home), 'exarchos', exarchosSubdir));
   }
 
   return toPosix(path.join(home, '.exarchos', exarchosSubdir));

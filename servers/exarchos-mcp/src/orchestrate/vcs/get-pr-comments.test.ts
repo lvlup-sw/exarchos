@@ -106,6 +106,28 @@ describe('handleGetPrComments', () => {
     // hasMore → a narrow affordance steering to the next page.
     expect(result.next_actions).toHaveLength(1);
     expect(result.next_actions?.[0]?.verb).toBe('get_pr_comments');
+    // The continuation command advances the offset AND preserves the projection
+    // — without --fields, page 2 would silently return full comments.
+    expect(result.next_actions?.[0]?.hint).toBe(
+      'get_pr_comments --pr 42 --offset 2 --limit 2 --fields id,author',
+    );
+  });
+
+  it('handleGetPrComments_NoFields_OmitsFieldsFromContinuation', async () => {
+    // No projection requested → the continuation command must not invent one.
+    const page = {
+      comments: [{ id: 5, author: 'z', body: 'b', createdAt: 't', source: 'issue-comment' }],
+      page: { total: 3, offset: 0, limit: 2, hasMore: true },
+    };
+    const getPrCommentsPage = vi.fn().mockResolvedValue(page);
+    mockProvider = makeMockProvider({ getPrCommentsPage });
+    vi.mocked(createVcsProvider).mockResolvedValue(mockProvider);
+
+    const result = await handleGetPrComments({ prId: '42', limit: 2 }, ctx);
+
+    expect(result.next_actions?.[0]?.hint).toBe(
+      'get_pr_comments --pr 42 --offset 2 --limit 2',
+    );
   });
 
   it('handleGetPrComments_ReadOnly_DoesNotEmitEvent', async () => {
