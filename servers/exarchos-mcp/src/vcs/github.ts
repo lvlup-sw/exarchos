@@ -23,10 +23,14 @@ import type {
 } from './provider.js';
 import { exec } from './shell.js';
 
+// `gh pr checks --json` fields. The `gh` CLI dropped the legacy `conclusion`
+// and `detailsUrl` fields; the current schema exposes `state` (the check's
+// state/conclusion enum) and `link` (the details URL). Requesting the removed
+// field names now makes `gh` exit non-zero ("Unknown JSON field").
 interface GhCheckEntry {
   readonly name: string;
-  readonly conclusion: string | null;
-  readonly detailsUrl?: string;
+  readonly state: string;
+  readonly link?: string;
 }
 
 interface GhReviewEntry {
@@ -92,15 +96,27 @@ interface GhReplyResponse {
   readonly id: number;
 }
 
-function mapConclusion(conclusion: string | null): CiCheck['status'] {
-  if (conclusion === null) return 'pending';
-  switch (conclusion) {
-    case 'success':
+// Maps a `gh pr checks --json state` value onto our CiCheck status. `gh`
+// replaced the removed `conclusion` field with `state`, whose values are gh's
+// own check-state enum (upper-case). This mirrors gh's own state→bucket
+// classification (cli/cli `pkg/cmd/pr/checks/aggregate.go`): SUCCESS→pass;
+// ERROR/FAILURE/TIMED_OUT/ACTION_REQUIRED→fail; SKIPPED/NEUTRAL→skipped;
+// everything else (EXPECTED, REQUESTED, WAITING, QUEUED, PENDING, IN_PROGRESS,
+// STALE, or empty) is not yet terminal → pending. CANCELLED is gh's own
+// `cancel` bucket; our status set has no cancel state, so a cancelled check is
+// folded into `fail` — it is terminal and not a pass, so it must block gating.
+function mapState(state: string): CiCheck['status'] {
+  switch (state.toUpperCase()) {
+    case 'SUCCESS':
       return 'pass';
-    case 'failure':
+    case 'ERROR':
+    case 'FAILURE':
+    case 'TIMED_OUT':
+    case 'ACTION_REQUIRED':
+    case 'CANCELLED':
       return 'fail';
-    case 'skipped':
-    case 'neutral':
+    case 'SKIPPED':
+    case 'NEUTRAL':
       return 'skipped';
     default:
       return 'pending';
@@ -203,14 +219,14 @@ export class GitHubProvider implements VcsProvider {
       'checks',
       prId,
       '--json',
-      'name,conclusion,detailsUrl',
+      'name,state,link',
     ]);
 
     const entries = JSON.parse(output) as readonly GhCheckEntry[];
     const checks: CiCheck[] = entries.map((entry) => ({
       name: entry.name,
-      status: mapConclusion(entry.conclusion),
-      url: entry.detailsUrl,
+      status: mapState(entry.state),
+      url: entry.link,
     }));
 
     return {
