@@ -4,7 +4,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { VcsProvider, PrComment, RepoInfo } from '../vcs/provider.js';
-import { handleCheckPrComments } from './check-pr-comments.js';
+import { handleCheckPrComments, UNADDRESSED_COMMENT_LIST_CAP } from './check-pr-comments.js';
 
 // ─── Mock VcsProvider Helper ────────────────────────────────────────────────
 
@@ -141,5 +141,56 @@ describe('handleCheckPrComments', () => {
     expect(data.report).toContain('PR #99');
     expect(data.report).toContain('Top-level comments:');
     expect(data.report).toContain('Unaddressed:');
+  });
+
+  // ─── DR-7: counts-not-transcripts cap on the unaddressed-comment list ──────
+
+  it('checkPrComments_ManyComments_CapsWithCountAndSteering', async () => {
+    // Arrange — far more open threads than the fixed cap. Each comment carries a
+    // unique body so we can tell which survived the cap and which were folded
+    // into the count.
+    const total = UNADDRESSED_COMMENT_LIST_CAP + 30;
+    const manyComments: PrComment[] = Array.from({ length: total }, (_, i) => ({
+      id: i + 1,
+      author: `reviewer-${i}`,
+      body: `comment-body-${i}`,
+      createdAt: '2026-01-01T00:00:00Z',
+      path: `src/file-${i}.ts`,
+      line: i + 1,
+    }));
+
+    const provider = createMockProvider({ prComments: manyComments });
+    const result = await handleCheckPrComments({ pr: 42, repo: 'owner/repo' }, provider);
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      passed: boolean;
+      totalComments: number;
+      unresolvedThreads: number;
+      report: string;
+    };
+
+    // Verdict logic is unchanged — every comment is still counted as unaddressed.
+    expect(data.passed).toBe(false);
+    expect(data.totalComments).toBe(total);
+    expect(data.unresolvedThreads).toBe(total);
+
+    // The enumerated list is CAPPED: only lines beginning with `- [` are comment
+    // entries (the steering line begins with `- …`).
+    const enumerated = data.report
+      .split('\n')
+      .filter((l) => l.startsWith('- ['));
+    expect(enumerated).toHaveLength(UNADDRESSED_COMMENT_LIST_CAP);
+
+    // The first N survive; the (N+1)th and a much later one are folded away.
+    expect(data.report).toContain('comment-body-0');
+    expect(data.report).toContain(`comment-body-${UNADDRESSED_COMMENT_LIST_CAP - 1}`);
+    expect(data.report).not.toContain(`comment-body-${UNADDRESSED_COMMENT_LIST_CAP}`);
+    expect(data.report).not.toContain(`comment-body-${total - 1}`);
+
+    // Total count is surfaced alongside a steer to the uncapped escape hatch.
+    const remaining = total - UNADDRESSED_COMMENT_LIST_CAP;
+    expect(data.report).toContain(`…and ${remaining} more (${total} unaddressed total)`);
+    expect(data.report).toContain('gh pr view 42 --comments');
   });
 });

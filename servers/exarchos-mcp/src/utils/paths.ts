@@ -181,20 +181,48 @@ export function deriveRepoKey(inputPath: string, deps: DeriveRepoKeyDeps = {}): 
  * Node.js `fs` does not perform shell-style tilde expansion,
  * so paths like `~/.claude/workflow-state` must be expanded manually.
  *
+ * `home` is injectable (default `os.homedir()`) so the DR-11 store-path
+ * resolvers can compute deterministic paths without touching the real home
+ * directory; production leaves it unset.
+ *
  * The expanded result is POSIX-normalized (see {@link toPosix}).
  */
-export function expandTilde(p: string): string {
-  if (p === '~') return toPosix(os.homedir());
-  if (p.startsWith('~/')) return toPosix(path.join(os.homedir(), p.slice(2)));
+export function expandTilde(p: string, home: string = os.homedir()): string {
+  if (p === '~') return toPosix(home);
+  if (p.startsWith('~/')) return toPosix(path.join(home, p.slice(2)));
   return p;
 }
 
 /**
  * Returns true if running as a Claude Code plugin (detected via
  * `CLAUDE_PLUGIN_ROOT` or `EXARCHOS_PLUGIN_ROOT` env vars).
+ *
+ * `env` is injectable (default live `process.env`) so the DR-11 divergence
+ * check can evaluate the plugin-mode signal over an explicit snapshot.
  */
-export function isClaudeCodePlugin(): boolean {
-  return !!(process.env['CLAUDE_PLUGIN_ROOT'] || process.env['EXARCHOS_PLUGIN_ROOT']);
+export function isClaudeCodePlugin(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): boolean {
+  return !!(env['CLAUDE_PLUGIN_ROOT'] || env['EXARCHOS_PLUGIN_ROOT']);
+}
+
+/**
+ * Injectable inputs steering state-dir / store-path resolution (DR-11 B-5).
+ *
+ * Production leaves every field unset — resolution reads the live
+ * `process.env`, the real home directory, and the live plugin-mode signal, so
+ * the CLI entry and the plugin MCP server share ONE resolver. The `doctor`
+ * divergence check (`store-path-divergence`) injects `env`/`pluginMode`/`homedir`
+ * to compute what the CLI surface and the plugin surface WOULD each resolve on
+ * this machine, deterministically and without mutating `process.env`.
+ */
+export interface StorePathResolutionInputs {
+  /** Environment snapshot. Default: live `process.env`. */
+  readonly env?: Readonly<Record<string, string | undefined>>;
+  /** Claude Code plugin mode. Default: {@link isClaudeCodePlugin} over `env`. */
+  readonly pluginMode?: boolean;
+  /** Home directory. Default: `os.homedir()`. */
+  readonly homedir?: string;
 }
 
 /**
@@ -204,32 +232,100 @@ export function isClaudeCodePlugin(): boolean {
  *   3. `XDG_STATE_HOME` → `$XDG_STATE_HOME/exarchos/<exarchosSubdir>`
  *   4. Universal default → `~/.exarchos/<exarchosSubdir>`
  *
- * `expandTilde()` is applied to explicit env var values.
+ * `expandTilde()` is applied to explicit env var values. `inputs` are the DR-11
+ * injectable seams (defaulting to live process state) so callers never diverge
+ * on the cascade — there is exactly one implementation of the precedence.
  */
-function resolveDir(envKey: string, claudeSubdir: string, exarchosSubdir: string): string {
-  const envValue = process.env[envKey];
+function resolveDir(
+  envKey: string,
+  claudeSubdir: string,
+  exarchosSubdir: string,
+  inputs: StorePathResolutionInputs = {},
+): string {
+  const env = inputs.env ?? process.env;
+  const home = inputs.homedir ?? os.homedir();
+  const pluginMode = inputs.pluginMode ?? isClaudeCodePlugin(env);
+
+  const envValue = env[envKey];
   if (envValue) {
-    return toPosix(expandTilde(envValue));
+    return toPosix(expandTilde(envValue, home));
   }
 
-  if (isClaudeCodePlugin()) {
-    return toPosix(path.join(os.homedir(), '.claude', claudeSubdir));
+  if (pluginMode) {
+    return toPosix(path.join(home, '.claude', claudeSubdir));
   }
 
-  const xdgStateHome = process.env['XDG_STATE_HOME'];
+  const xdgStateHome = env['XDG_STATE_HOME'];
   if (xdgStateHome) {
     return toPosix(path.join(xdgStateHome, 'exarchos', exarchosSubdir));
   }
 
-  return toPosix(path.join(os.homedir(), '.exarchos', exarchosSubdir));
+  return toPosix(path.join(home, '.exarchos', exarchosSubdir));
 }
 
 /**
  * Resolve the workflow state directory.
  * Env: `WORKFLOW_STATE_DIR` | Claude: `~/.claude/workflow-state` | Default: `~/.exarchos/state`
+ *
+ * `inputs` are the DR-11 injectable seams; production calls this zero-arg.
  */
-export function resolveStateDir(): string {
-  return resolveDir('WORKFLOW_STATE_DIR', 'workflow-state', 'state');
+export function resolveStateDir(inputs?: StorePathResolutionInputs): string {
+  return resolveDir('WORKFLOW_STATE_DIR', 'workflow-state', 'state', inputs);
+}
+
+/**
+ * Canonical event-store SQLite filename — the single source of truth for the
+ * leaf DB name (DR-11 B-5). Previously the string literal `'exarchos.db'` was
+ * duplicated in `index.ts:initializeBackend` and
+ * `atomic-appender.ts` (the lazily-constructed backend), kept in sync only by a
+ * hand-maintained code comment. Both now import this constant so the two
+ * computations cannot drift.
+ */
+export const STORE_DB_FILENAME = 'exarchos.db';
+
+/**
+ * Resolve the absolute event-store database path — the ONE resolver the CLI and
+ * plugin MCP surfaces share (DR-11 B-5). Composes the state-dir cascade
+ * ({@link resolveStateDir}) with {@link STORE_DB_FILENAME}, so a change to the
+ * directory precedence OR the filename lands in exactly one place.
+ *
+ * Documented precedence (identical on both surfaces): `WORKFLOW_STATE_DIR` env
+ * var > Claude-plugin default (`~/.claude/workflow-state`) > `XDG_STATE_HOME`
+ * (`$XDG_STATE_HOME/exarchos/state`) > universal default (`~/.exarchos/state`).
+ * Because the env var wins in BOTH plugin and non-plugin mode, setting it pins
+ * the CLI and the plugin to one store.
+ */
+export function resolveStorePath(inputs?: StorePathResolutionInputs): string {
+  return toPosix(path.join(resolveStateDir(inputs), STORE_DB_FILENAME));
+}
+
+/** The CLI-vs-plugin store-path comparison surfaced by the `store-path-divergence` doctor check (DR-11 B-5). */
+export interface StorePathDivergence {
+  /** Store path the CLI surface (non-plugin) resolves. */
+  readonly cliPath: string;
+  /** Store path the Claude Code plugin surface resolves. */
+  readonly pluginPath: string;
+  /** True when the two surfaces resolve DIFFERENT stores (state silently splits). */
+  readonly diverges: boolean;
+}
+
+/**
+ * Compute what the event store resolves to under the CLI surface (non-plugin)
+ * vs the Claude Code plugin surface, holding `env` + `homedir` fixed, and report
+ * whether they differ (DR-11 B-5).
+ *
+ * Both surfaces run the SAME {@link resolveStorePath}; they can only diverge on
+ * the `pluginMode` branch of the cascade. When they DO differ, workflow state
+ * written by one surface is invisible to the other — the defect the
+ * `store-path-divergence` doctor check reports. Setting `WORKFLOW_STATE_DIR`
+ * collapses the divergence (the env var wins in both modes).
+ */
+export function computeStorePathDivergence(
+  inputs?: Omit<StorePathResolutionInputs, 'pluginMode'>,
+): StorePathDivergence {
+  const cliPath = resolveStorePath({ ...inputs, pluginMode: false });
+  const pluginPath = resolveStorePath({ ...inputs, pluginMode: true });
+  return { cliPath, pluginPath, diverges: cliPath !== pluginPath };
 }
 
 /**

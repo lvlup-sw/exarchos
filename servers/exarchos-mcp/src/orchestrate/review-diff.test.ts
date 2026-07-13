@@ -12,7 +12,62 @@ vi.mock('node:fs', () => ({
   statSync: vi.fn(),
 }));
 
-import { handleReviewDiff } from './review-diff.js';
+import { handleReviewDiff, REVIEW_DIFF_CAPS } from './review-diff.js';
+
+/**
+ * Build a synthetic unified diff with `files` files × `hunksPerFile` hunks.
+ * When `uniqueMarkers` is true, each hunk's added line carries a globally
+ * unique marker (`HUNK_MARKER_<i>`) so a test can count how many times any
+ * single hunk's text appears across the whole response.
+ */
+function makeLargeDiff(
+  files: number,
+  hunksPerFile: number,
+  uniqueMarkers = false,
+): { diff: string; stat: string; nameOnly: string; markers: string[] } {
+  const fileNames: string[] = [];
+  const diffParts: string[] = [];
+  const statParts: string[] = [];
+  const markers: string[] = [];
+  let hunkIndex = 0;
+  for (let f = 0; f < files; f++) {
+    const file = `src/module${f}.ts`;
+    fileNames.push(file);
+    diffParts.push(`diff --git a/${file} b/${file}`, `--- a/${file}`, `+++ b/${file}`);
+    for (let h = 0; h < hunksPerFile; h++) {
+      const line = 1 + h * 20;
+      // Angle-bracket boundaries so `<HUNK_MARKER_1>` is not a substring of
+      // `<HUNK_MARKER_10>` — the occurrence-count assertion relies on this.
+      const marker = uniqueMarkers ? `<HUNK_MARKER_${hunkIndex}>` : `ADDED_${f}_${h}`;
+      markers.push(marker);
+      diffParts.push(
+        `@@ -${line},3 +${line},4 @@`,
+        ` ctx ${f}-${h}`,
+        `+${marker}`,
+        ` end ${f}-${h}`,
+      );
+      hunkIndex++;
+    }
+    statParts.push(` ${file} | ${hunksPerFile * 2} +`);
+  }
+  return {
+    diff: diffParts.join('\n') + '\n',
+    stat: statParts.join('\n') + `\n ${files} files changed\n`,
+    nameOnly: fileNames.join('\n') + '\n',
+    markers,
+  };
+}
+
+/** Wire up mocks for a successful review_diff over the given fixture. */
+function mockDiff(fixture: { diff: string; stat: string; nameOnly: string }): void {
+  vi.mocked(fs.statSync).mockReturnValue({ isDirectory: () => true } as unknown as fs.Stats);
+  vi.mocked(execFileSync)
+    .mockReturnValueOnce('.git\n') // rev-parse --git-dir
+    .mockReturnValueOnce('feature/big\n') // branch --show-current
+    .mockReturnValueOnce(fixture.stat) // diff --stat
+    .mockReturnValueOnce(fixture.nameOnly) // diff --name-only
+    .mockReturnValueOnce(fixture.diff); // diff --unified=3
+}
 
 describe('handleReviewDiff', () => {
   const stateDir = '/tmp/test-state';
@@ -52,9 +107,10 @@ describe('handleReviewDiff', () => {
     expect(data.report).toContain('### Files Modified');
     expect(data.report).toContain('- `src/foo.ts`');
     expect(data.report).toContain('- `src/bar.ts`');
-    expect(data.report).toContain('### Diff Content');
-    expect(data.report).toContain('```diff');
+    // The raw diff lives ONLY in data.diff — the report must not re-embed it.
     expect(data.diff).toContain('diff --git');
+    expect(data.report).not.toContain('added line');
+    expect(data.report).not.toContain('```diff');
   });
 
   it('handleReviewDiff_MissingWorktree_ReturnsError', async () => {
@@ -184,5 +240,66 @@ describe('handleReviewDiff', () => {
       expect.anything(),
       expect.objectContaining({ cwd: process.cwd() }),
     );
+  });
+
+  it('reviewDiff_LargeDiff_EmbedsEachHunkAtMostOnce', async () => {
+    // 60 hunks across 6 files, each with a globally-unique added-line marker.
+    const fixture = makeLargeDiff(6, 10, /* uniqueMarkers */ true);
+    mockDiff(fixture);
+
+    const result = await handleReviewDiff(
+      { worktreePath: '/big/worktree', baseBranch: 'main' },
+      stateDir,
+    );
+
+    expect(result.success).toBe(true);
+    const serialized = JSON.stringify(result);
+
+    // The double-embed is gone: no hunk's unique text appears more than once
+    // anywhere in the response (data.diff + data.report combined).
+    for (const marker of fixture.markers) {
+      const occurrences = serialized.split(marker).length - 1;
+      expect(occurrences, `marker ${marker} appeared ${occurrences} times`).toBeLessThanOrEqual(1);
+    }
+
+    // Sanity: the diff is actually embedded once (not simply dropped wholesale).
+    const data = result.data as { diff: string; hunksTotal: number };
+    expect(data.diff).toContain(fixture.markers[0]);
+    expect(data.hunksTotal).toBe(60);
+  });
+
+  it('reviewDiff_LargeDiffFixture_StaysUnderBudget', async () => {
+    // A very large diff: 20 files × 30 hunks = 600 hunks.
+    const fixture = makeLargeDiff(20, 30);
+    mockDiff(fixture);
+
+    const result = await handleReviewDiff(
+      { worktreePath: '/big/worktree', baseBranch: 'main' },
+      stateDir,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      diff: string;
+      truncated: boolean;
+      hunksTotal: number;
+      hunksReturned: number;
+      report: string;
+    };
+
+    // The embedded diff is capped to the contract's bounds.
+    expect(data.hunksTotal).toBe(600);
+    expect(data.truncated).toBe(true);
+    expect(data.hunksReturned).toBe(REVIEW_DIFF_CAPS.maxHunks);
+    expect(data.diff.length).toBeLessThanOrEqual(REVIEW_DIFF_CAPS.maxChars);
+
+    // Report carries a steering hint to the uncapped path, but not the diff.
+    expect(data.report).toContain('git diff main...HEAD');
+    expect(data.report).not.toContain('```diff');
+
+    // Whole-response budget: without capping + single-copy, a 600-hunk diff
+    // embedded twice blows well past this ceiling.
+    const serialized = JSON.stringify(result);
+    expect(serialized.length).toBeLessThan(REVIEW_DIFF_CAPS.maxChars + 10_000);
   });
 });

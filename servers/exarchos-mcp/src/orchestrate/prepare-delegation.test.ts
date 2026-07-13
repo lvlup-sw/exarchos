@@ -74,12 +74,23 @@ import {
   computeScopedWorktrees,
   deriveRiskTier,
   deriveBoundaryTouching,
+  verificationNoteKey,
   HIGH_RISK_GLOBS,
   LOW_RISK_GLOBS,
   BOUNDARY_GLOBS,
 } from './prepare-delegation.js';
 import type { TaskClassification, TaskInput } from './prepare-delegation.js';
-import { renderImplementerPrompt } from '../agents/definitions.js';
+import {
+  renderImplementerPrompt,
+  reconstructImplementerPrompt,
+  buildVerificationNote,
+  IMPLEMENTER_PROMPT_TEMPLATE,
+  VERIFICATION_NOTE_PLACEHOLDER,
+} from '../agents/definitions.js';
+import { estimateTokens } from '../architecture/description-budget.js';
+import * as fsp from 'node:fs/promises';
+import * as os from 'node:os';
+import * as nodePath from 'node:path';
 import * as fc from 'fast-check';
 import { delegationReadinessProjection } from '../views/delegation-readiness-view.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
@@ -2016,13 +2027,13 @@ describe('handlePrepareDelegation', () => {
     });
   });
 
-  // #1586 (root cause): classifyTask now renders the per-task implementer prompt
-  // via renderImplementerPrompt, so the orchestrator dispatches a TIER-SELECTED
-  // prompt instead of the static medium-RGR `agents/implementer.md` default.
-  // Before this, the tier-aware renderImplementerPrompt had ZERO production
-  // callers and every dispatch shipped the medium RED-GREEN-REFACTOR block
-  // regardless of the resolved tier (Layer 4 of the methodology drift audit).
-  describe('classifyTask — per-task implementer prompt rendering (#1586)', () => {
+  // #1586 (root cause) upheld under DR-4: classifyTask still TIER-SELECTS the
+  // implementer prompt (never the static medium-RGR default). DR-4 only changed
+  // WHERE the tier-selected note is carried: the default classification exposes a
+  // `verificationNoteKey` (the tier profile) and the full prompt is deduped into
+  // the response's shared template + note map, rendered inline per task only when
+  // the caller opts in via `{ includeImplementerPrompt: true }`.
+  describe('classifyTask — per-task implementer prompt rendering (#1586 / DR-4)', () => {
     it('ClassifyTask_LowTierTask_RendersStaticAnalysisNote_NotRGR', () => {
       const task: TaskInput = {
         id: 'T-LOW',
@@ -2031,8 +2042,11 @@ describe('handlePrepareDelegation', () => {
         boundaryTouching: false,
       };
 
-      const classification = classifyTask(task);
+      const classification = classifyTask(task, undefined, undefined, {
+        includeImplementerPrompt: true,
+      });
 
+      expect(classification.verificationNoteKey).toBe('low|false');
       expect(classification.implementerPrompt).toContain('static analysis suffices');
       // The uppercase RGR ceremony tokens must NOT leak onto a low-tier dispatch.
       expect(classification.implementerPrompt).not.toContain('RED');
@@ -2047,10 +2061,29 @@ describe('handlePrepareDelegation', () => {
         boundaryTouching: true,
       };
 
-      const classification = classifyTask(task);
+      const classification = classifyTask(task, undefined, undefined, {
+        includeImplementerPrompt: true,
+      });
 
+      expect(classification.verificationNoteKey).toBe('high|true');
       expect(classification.implementerPrompt).toContain('check_test_adequacy');
       expect(classification.implementerPrompt).toContain('check_integration_suite');
+    });
+
+    it('ClassifyTask_DefaultClassification_OmitsFullPrompt_CarriesNoteKey', () => {
+      // DR-4: the default (token-optimal) path carries only the tiny
+      // `verificationNoteKey`, never the ~1,560-token full prompt.
+      const task: TaskInput = {
+        id: 'T-MED',
+        title: 'Implement widget',
+        riskTier: 'medium',
+        boundaryTouching: false,
+      };
+
+      const classification = classifyTask(task);
+
+      expect(classification.verificationNoteKey).toBe('medium|false');
+      expect(classification.implementerPrompt).toBeUndefined();
     });
 
     it('ClassifyTask_ImplementerPrompt_ByteIdenticalToRenderForResolvedTier', () => {
@@ -2061,16 +2094,264 @@ describe('handlePrepareDelegation', () => {
         boundaryTouching: false,
       };
 
-      const classification = classifyTask(task);
+      const classification = classifyTask(task, undefined, undefined, {
+        includeImplementerPrompt: true,
+      });
 
-      // The stamp the orchestrator dispatches IS renderImplementerPrompt for the
-      // task's resolved tier — no static medium default in the path.
+      // The detail-path prompt IS renderImplementerPrompt for the task's resolved
+      // tier — no static medium default in the path (#1586 preserved).
       expect(classification.implementerPrompt).toBe(
         renderImplementerPrompt({
           riskTier: classification.riskTier,
           boundaryTouching: classification.boundaryTouching,
         }),
       );
+    });
+  });
+
+  // ─── DR-4: prepare_delegation prompt dedupe ──────────────────────────────
+  //
+  // Live confirmation this matters: a 10-task wave once returned a 71,000-char
+  // response because the FULL ~1,560-token implementer prompt was re-rendered
+  // once PER TASK (~95% identical). DR-4 returns the shared template ONCE, the
+  // distinct tier notes ONCE each, and a tiny per-task note key — losslessly
+  // reconstructible into the exact pre-DR-4 per-task prompt.
+  describe('DR-4 — prompt dedupe (template once + per-task note deltas)', () => {
+    // An 8-task wave whose tiers cluster (as real decompositions do). Native
+    // isolation filters worktree blockers so the whole wave reaches
+    // classification regardless of the fixture's readyTaskIds.
+    function eightTaskWave(): TaskInput[] {
+      return [
+        { id: 'task-1', title: 'Update the README', files: ['docs/a.md'] }, // low
+        { id: 'task-2', title: 'Update the guide', files: ['docs/b.md'] }, // low
+        { id: 'task-3', title: 'Implement widget A' }, // medium
+        { id: 'task-4', title: 'Implement widget B' }, // medium
+        { id: 'task-5', title: 'Implement widget C' }, // medium
+        { id: 'task-6', title: 'Implement widget D' }, // medium
+        { id: 'task-7', title: 'Reshape the schema', riskTier: 'high', boundaryTouching: true }, // high
+        { id: 'task-8', title: 'Rework the API contract', riskTier: 'high', boundaryTouching: true }, // high
+      ];
+    }
+
+    interface DedupeData {
+      ready: boolean;
+      taskClassifications: TaskClassification[];
+      implementerPromptTemplate?: string;
+      verificationNotes?: Record<string, string>;
+    }
+
+    it('prepareDelegation_EightTaskWave_ReturnsPromptTemplateOnce', async () => {
+      // Arrange
+      const state = readyWorkflowState();
+      setupMaterializer(state);
+      vi.mocked(generateQualityHints).mockReturnValue([]);
+      const args = {
+        featureId: 'test-feature',
+        nativeIsolation: true,
+        tasks: eightTaskWave(),
+      };
+
+      // Act
+      const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+      // Assert — 8 classifications, template shipped exactly ONCE.
+      expect(result.success).toBe(true);
+      const data = result.data as DedupeData;
+      expect(data.ready).toBe(true);
+      expect(data.taskClassifications).toHaveLength(8);
+
+      // The shared template is present once and is the real implementer template.
+      expect(typeof data.implementerPromptTemplate).toBe('string');
+      expect(data.implementerPromptTemplate).toBe(IMPLEMENTER_PROMPT_TEMPLATE);
+      expect(data.implementerPromptTemplate).toContain(VERIFICATION_NOTE_PLACEHOLDER);
+
+      // "Once, not 8×": the template's unique HEAD sentence appears exactly once
+      // across the entire serialized response.
+      const serialized = JSON.stringify(data);
+      const sentinel = 'You are an implementer agent on the verification ladder';
+      expect(serialized.split(sentinel).length - 1).toBe(1);
+
+      // No task carries the full prompt on the default path — only the note key.
+      for (const c of data.taskClassifications) {
+        expect(c.implementerPrompt).toBeUndefined();
+        expect(typeof c.verificationNoteKey).toBe('string');
+      }
+
+      // The distinct notes are deduped into the shared map (3 tier profiles here,
+      // far fewer than 8 full prompts).
+      expect(Object.keys(data.verificationNotes ?? {})).toHaveLength(3);
+
+      // DR-4 acceptance (≤2,500 tok for 8 tasks): DR-4 dedupes the PROMPT payload
+      // — the shared template (once), the distinct tier notes (once each), and
+      // the tiny per-task note keys. That is the surface that replaced the
+      // ~12,500-token 8×-full-prompt duplication (the advisory classification
+      // metadata — complexity/reason/verificationSequence — is a separate,
+      // pre-existing feature, not what DR-4 controls).
+      const promptPayloadTokens = estimateTokens(
+        JSON.stringify({
+          implementerPromptTemplate: data.implementerPromptTemplate,
+          verificationNotes: data.verificationNotes,
+          noteKeys: data.taskClassifications.map((c) => c.verificationNoteKey),
+        }),
+      );
+      expect(promptPayloadTokens).toBeLessThanOrEqual(2500);
+
+      // …and the WHOLE response is far smaller than the pre-DR-4 shape, which
+      // carried the full ~1,560-token prompt inline on every task.
+      const responseTokens = estimateTokens(serialized);
+      const preDr4PromptTokens = data.taskClassifications.reduce(
+        (sum, c) =>
+          sum +
+          estimateTokens(
+            renderImplementerPrompt({ riskTier: c.riskTier, boundaryTouching: c.boundaryTouching }),
+          ),
+        0,
+      );
+      // The pre-DR-4 response = this response minus the deduped prompt payload,
+      // plus one full prompt per task.
+      const preDr4ResponseTokens = responseTokens - promptPayloadTokens + preDr4PromptTokens;
+      expect(responseTokens).toBeLessThan(preDr4ResponseTokens / 3);
+    });
+
+    it('prepareDelegation_PerTaskDeltas_ReconstructExactPerTaskPrompt', async () => {
+      // Arrange
+      const state = readyWorkflowState();
+      setupMaterializer(state);
+      vi.mocked(generateQualityHints).mockReturnValue([]);
+      const args = {
+        featureId: 'test-feature',
+        nativeIsolation: true,
+        tasks: eightTaskWave(),
+      };
+
+      // Act
+      const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+      // Assert — LOSSLESS: template + per-task note delta reconstructs byte-for-byte
+      // what today's per-task `implementerPrompt` produced.
+      const data = result.data as DedupeData;
+      const template = data.implementerPromptTemplate as string;
+      const notes = data.verificationNotes as Record<string, string>;
+
+      for (const c of data.taskClassifications) {
+        // The note key indexes a note that exists in the shared map.
+        expect(notes[c.verificationNoteKey]).toBeDefined();
+
+        // Reconstruction === the pre-DR-4 full per-task prompt.
+        const reconstructed = template.replaceAll(
+          VERIFICATION_NOTE_PLACEHOLDER,
+          notes[c.verificationNoteKey],
+        );
+        const preDr4 = renderImplementerPrompt({
+          riskTier: c.riskTier,
+          boundaryTouching: c.boundaryTouching,
+        });
+        expect(reconstructed).toBe(preDr4);
+
+        // And the shared-helper path agrees byte-for-byte.
+        expect(
+          reconstructImplementerPrompt({ verificationNote: notes[c.verificationNoteKey] }),
+        ).toBe(preDr4);
+      }
+
+      // The map is keyed exactly as `verificationNoteKey` computes it.
+      for (const c of data.taskClassifications) {
+        expect(c.verificationNoteKey).toBe(
+          verificationNoteKey(c.riskTier, c.boundaryTouching),
+        );
+        expect(notes[c.verificationNoteKey]).toBe(
+          buildVerificationNote({ riskTier: c.riskTier, boundaryTouching: c.boundaryTouching }),
+        );
+      }
+    });
+
+    it('prepareDelegation_TierStamps_ThreadedEndToEnd', async () => {
+      // Characterization of #1636 UNCHANGED under DR-4: a high-tier stamp lifted
+      // from the plan markdown via `planPath` must still resolve end-to-end and
+      // drive the high-tier verification note in the deduped response.
+      const state = readyWorkflowState();
+      setupMaterializer(state);
+      vi.mocked(generateQualityHints).mockReturnValue([]);
+
+      // Write a real decomposition-markdown plan with a high+boundary stamp for
+      // the task, matched by canonical id (`Task 001` ↔ `task-1`).
+      const planDir = await fsp.mkdtemp(nodePath.join(os.tmpdir(), 'dr4-planpath-'));
+      const planPath = nodePath.join(planDir, 'plan.md');
+      await fsp.writeFile(
+        planPath,
+        '#### Task 001: Reshape the schema\n**Risk Tier:** high · **Boundary Touching:** true\n',
+        'utf-8',
+      );
+
+      try {
+        const args = {
+          featureId: 'test-feature',
+          tasks: [{ id: 'task-1', title: 'Reshape the schema' }],
+          planPath,
+        };
+
+        const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+        expect(result.success).toBe(true);
+        const data = result.data as DedupeData;
+        expect(data.taskClassifications).toHaveLength(1);
+        const c = data.taskClassifications[0];
+
+        // The plan stamp threaded through: high tier, boundary-touching.
+        expect(c.riskTier).toBe('high');
+        expect(c.boundaryTouching).toBe(true);
+        expect(c.verificationNoteKey).toBe('high|true');
+
+        // …and it drives the HIGH-tier note (integration-suite rung + boundary
+        // steer), reconstructed losslessly.
+        const note = (data.verificationNotes as Record<string, string>)[c.verificationNoteKey];
+        expect(note).toContain('check_integration_suite');
+        const reconstructed = (data.implementerPromptTemplate as string).replaceAll(
+          VERIFICATION_NOTE_PLACEHOLDER,
+          note,
+        );
+        expect(reconstructed).toBe(
+          renderImplementerPrompt({ riskTier: 'high', boundaryTouching: true }),
+        );
+      } finally {
+        await fsp.rm(planDir, { recursive: true, force: true });
+      }
+    });
+
+    it('prepareDelegation_DetailFlag_InlinesFullPerTaskPrompt', async () => {
+      // The `detail` escape hatch restores the pre-DR-4 inline full prompt for a
+      // caller that explicitly wants it — byte-identical to reconstruction.
+      const state = readyWorkflowState();
+      setupMaterializer(state);
+      vi.mocked(generateQualityHints).mockReturnValue([]);
+      const args = {
+        featureId: 'test-feature',
+        nativeIsolation: true,
+        detail: true,
+        tasks: [{ id: 'task-1', title: 'Reshape the schema', riskTier: 'high' as const, boundaryTouching: true }],
+      };
+
+      const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+      expect(result.success).toBe(true);
+      const data = result.data as DedupeData;
+      const c = data.taskClassifications[0];
+      expect(c.implementerPrompt).toBe(
+        renderImplementerPrompt({ riskTier: 'high', boundaryTouching: true }),
+      );
+    });
+
+    it('prepareDelegation_InvalidOutputFormat_ReturnsInvalidInput', async () => {
+      const args = {
+        featureId: 'test-feature',
+        outputFormat: 'verbose',
+      } as unknown as { featureId: string; outputFormat?: 'prompt-only' };
+
+      const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('INVALID_INPUT');
+      expect(result.error?.message).toContain('outputFormat');
     });
   });
 

@@ -9,10 +9,12 @@
 // The CLI subcommand path `exarchos event query --stream <id>` and the
 // MCP `exarchos_event` action `query` compose to the same logical
 // action key. On the wire both transports return the canonical result
-// envelope `{ success, data: [...events], next_actions, _meta, _perf }`,
-// so the contract enforces equality on `success`, `data` (the events
-// array), and `next_actions`. `_meta` and `_perf` are allowed to differ
-// because `_perf.ms`/`_perf.bytes` are non-deterministic per run.
+// envelope `{ success, data: { events: [...], page }, next_actions,
+// _meta, _perf }` (economy pagination migration, DR-8/DR-12), so the
+// contract enforces equality on `success`, `data` (the paginated
+// `{ events, page }` object), and `next_actions`. `_meta` and `_perf` are
+// allowed to differ because `_perf.ms`/`_perf.bytes` are non-deterministic
+// per run.
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
@@ -113,15 +115,18 @@ describe('parity: exarchos event query — CLI ↔ MCP', () => {
         });
         const mcpEnvelope = extractEnvelope(mcpRaw);
 
-        // Sanity check the saga actually persisted events. If the
-        // appends silently failed (validation error, etc.), the
-        // returned data array shrinks to just the workflow.started
-        // bootstrap event and the parity assertion below would still
-        // pass trivially — making this test useless as a regression
-        // signal. Guard against that explicitly.
-        const mcpData = (mcpEnvelope as { data?: unknown }).data;
-        expect(Array.isArray(mcpData)).toBe(true);
-        expect((mcpData as unknown[]).length).toBe(3);
+        // Sanity check the saga actually persisted events. The query
+        // envelope's `data` is the paginated shape `{ events, page }`
+        // (economy pagination migration, DR-8/DR-12), so the events live
+        // under `data.events`. If the appends silently failed (validation
+        // error, etc.), the events array shrinks to just the
+        // workflow.started bootstrap event and the parity assertion below
+        // would still pass trivially — making this test useless as a
+        // regression signal. Guard against that explicitly.
+        const mcpEvents = (mcpEnvelope as { data?: { events?: unknown } }).data
+          ?.events;
+        expect(Array.isArray(mcpEvents)).toBe(true);
+        expect((mcpEvents as unknown[]).length).toBe(3);
 
         // Terminate the MCP server BEFORE invoking the CLI. The
         // EventStore uses a per-PID lock (DR-5, see

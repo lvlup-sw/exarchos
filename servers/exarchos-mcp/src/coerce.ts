@@ -64,3 +64,42 @@ export function coercedStringArray() {
     z.array(z.string()),
   );
 }
+
+/** Splits a CSV string (`"1660,1671,1659"`) into trimmed, non-empty parts.
+ *  Blank fields (`"1660,,1671"`, trailing commas, whitespace-only) are dropped,
+ *  so `""` yields `[]` — matching the empty JSON array `"[]"`.
+ */
+function splitCsv(val: string): string[] {
+  return val
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/** z.array of positive integers that accepts either a JSON-stringified array
+ *  (`"[1660,1671]"`) OR a CSV string (`"1660,1671,1659"`) OR a native array.
+ *
+ *  CLI flag values arrive as raw strings; `coerceFlags` classifies this field as
+ *  `'array'` (the preprocess pipe unwraps to `z.array`), so both the CLI and the
+ *  direct-MCP path funnel a string in here. A JSON array is parsed to a native
+ *  array; anything else is treated as CSV and split into parts. Each element is
+ *  then coerced from a numeric string to an integer by {@link coercedPositiveInt},
+ *  so CSV and JSON forms of the same numbers land as the identical `number[]`.
+ *
+ *  Preprocessing directly into z.array keeps zodToJsonSchema emitting
+ *  {"type":"array"} so the CLI flag auto-emits with the right shape.
+ */
+export function coercedIntArray() {
+  return z.preprocess((val) => {
+    if (typeof val !== 'string') return val;
+    try {
+      const parsed = JSON.parse(val);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {
+      // Not a JSON array — fall through to CSV tolerance below.
+    }
+    // CSV (`"1660,1671,1659"`) or a bare scalar (`"1660"`): split on commas and
+    // let z.array(coercedPositiveInt()) coerce each numeric-string element.
+    return splitCsv(val);
+  }, z.array(coercedPositiveInt()));
+}

@@ -43,6 +43,42 @@ interface ToolResultEnvelope {
 }
 
 /**
+ * DR-5 (economy-by-default) reshaped `exarchos_event { action: 'query' }`:
+ * `data` is no longer a bare `events[]` array. It is now
+ * `{ events, page }` where `events` is ordered **newest-first** (descending by
+ * sequence) and defaults to the newest `page.limit` rows only. Replay fixtures
+ * need the *entire* stream in ascending (chronological) order, so this helper
+ * pages through every window (below) and reverses back to ascending.
+ */
+interface EventQueryPageShape {
+  total: number;
+  offset: number;
+  limit: number;
+  hasMore: boolean;
+}
+interface EventQueryData {
+  events: unknown[];
+  page: EventQueryPageShape;
+}
+function isEventQueryData(d: unknown): d is EventQueryData {
+  if (typeof d !== 'object' || d === null) return false;
+  const o = d as Record<string, unknown>;
+  if (!Array.isArray(o.events)) return false;
+  const p = o.page as Record<string, unknown> | undefined;
+  return (
+    typeof p === 'object' &&
+    p !== null &&
+    typeof p.total === 'number' &&
+    typeof p.hasMore === 'boolean'
+  );
+}
+
+// A page size comfortably larger than any saga fixture stream, so the common
+// case is a single round-trip while still paginating correctly if a fixture
+// ever grows past it.
+const REPLAY_QUERY_PAGE_LIMIT = 500;
+
+/**
  * Parse the MCP `callTool` response envelope into the inner `ToolResult` that
  * exarchos handlers return. The MCP wire format is
  * `{ content: [{ type: 'text', text: JSON.stringify(toolResult) }] }`
@@ -87,38 +123,60 @@ export async function snapshotEventStream(
   client: SpawnedMcpClient,
   featureId: string,
 ): Promise<EventSnapshot> {
-  const raw = await client.client.callTool({
-    name: 'exarchos_event',
-    arguments: { action: 'query', stream: featureId },
-  });
-  const envelope = unwrapToolResult(raw);
+  // Page through the whole stream. `handleEventQuery` returns `{ events, page }`
+  // (DR-5) with `events` newest-first; accumulating pages yields a newest-first
+  // list that we reverse to ascending (chronological) order below.
+  const descending: unknown[] = [];
+  let offset = 0;
+  for (;;) {
+    const raw = await client.client.callTool({
+      name: 'exarchos_event',
+      arguments: {
+        action: 'query',
+        stream: featureId,
+        offset,
+        limit: REPLAY_QUERY_PAGE_LIMIT,
+      },
+    });
+    const envelope = unwrapToolResult(raw);
 
-  if (envelope.success === false) {
-    // A query for a stream that has never been written returns an empty array,
-    // not an error — so any error here is a real failure to surface.
-    throw new Error(
-      `snapshotEventStream: event query for '${featureId}' failed: ${
-        envelope.error?.message ?? 'unknown error'
-      }`,
-    );
+    if (envelope.success === false) {
+      // A query for a stream that has never been written returns an empty
+      // page, not an error — so any error here is a real failure to surface.
+      throw new Error(
+        `snapshotEventStream: event query for '${featureId}' failed: ${
+          envelope.error?.message ?? 'unknown error'
+        }`,
+      );
+    }
+
+    const data = envelope.data;
+    // A fresh feature returns `{ events: [], page: {...} }`. Anything that is
+    // not the DR-5 `{ events, page }` envelope (undefined, bare array, string)
+    // is a contract regression on the wire format and must throw, otherwise
+    // replay-fixture consumers would conflate "broken response" with
+    // "genuinely empty stream" and silently mask test failures.
+    if (!isEventQueryData(data)) {
+      throw new Error(
+        `snapshotEventStream: event query for '${featureId}' returned non-{events,page} data; got ${typeof data} (${JSON.stringify(data)?.slice(0, 80) ?? 'undefined'})`,
+      );
+    }
+
+    descending.push(...data.events);
+
+    // Advance by the number of rows actually returned. Stop when the page
+    // reports no more matches (or, defensively, when a page returns nothing).
+    if (!data.page.hasMore || data.events.length === 0) break;
+    offset += data.events.length;
   }
 
-  const data = envelope.data;
-  // `handleEventQuery` returns `data: events[]`. A fresh feature returns
-  // `data: []` (a real empty array) — anything else (undefined, object,
-  // string) is a contract regression on the wire format and must throw,
-  // otherwise replay-fixture consumers would conflate "broken response" with
-  // "genuinely empty stream" and silently mask test failures.
-  if (!Array.isArray(data)) {
-    throw new Error(
-      `snapshotEventStream: event query for '${featureId}' returned non-array data; got ${typeof data} (${JSON.stringify(data)?.slice(0, 80) ?? 'undefined'})`,
-    );
-  }
-  const events: NormalizedEvent[] = data as NormalizedEvent[];
+  // Reverse newest-first → ascending (chronological) so replay applies events
+  // in the order they were originally written and prefix comparisons hold.
+  const ascending = descending.reverse() as NormalizedEvent[];
 
   // Normalize at the boundary so callers can assert structural equality
   // without snapshotting transient values (timestamps, sequences, UUIDs).
-  const normalizedEvents = events.map(
+  const normalizedEvents = ascending.map(
     (e) => normalize(e) as NormalizedEvent,
   );
 

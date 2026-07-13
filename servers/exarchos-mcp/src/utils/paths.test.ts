@@ -3,7 +3,7 @@ import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { expandTilde, isClaudeCodePlugin, resolveStateDir, resolveTeamsDir, resolveTasksDir, deriveRepoKey, resetRepoKeyMemo } from './paths.js';
+import { expandTilde, isClaudeCodePlugin, resolveStateDir, resolveTeamsDir, resolveTasksDir, deriveRepoKey, resetRepoKeyMemo, resolveStorePath, computeStorePathDivergence, STORE_DB_FILENAME } from './paths.js';
 
 describe('expandTilde', () => {
   afterEach(() => {
@@ -332,6 +332,67 @@ describe('deriveRepoKey', () => {
     // Oldest key was evicted — re-deriving it spawns again.
     deriveRepoKey(key(0), deps);
     expect(spawns).toBe(MEMO_CAP + 2);
+  });
+});
+
+// ─── Store-path resolution (DR-11 B-5) ───────────────────────────────────────
+//
+// The CLI entry (index.ts) and the plugin MCP server MUST resolve the same
+// event store through ONE shared resolver. These pins exercise the resolver via
+// injected inputs (env / homedir / pluginMode) so they are hermetic — no
+// process.env mutation, no dependence on the real HOME.
+
+describe('resolveStorePath (shared CLI/plugin resolver)', () => {
+  const HOME = '/home/testuser';
+
+  it('composes the state-dir cascade with the single-source-of-truth filename', () => {
+    // The leaf name is the shared constant, not a transcribed literal.
+    expect(STORE_DB_FILENAME).toBe('exarchos.db');
+    const p = resolveStorePath({ env: {}, homedir: HOME, pluginMode: false });
+    expect(p).toBe(`${HOME}/.exarchos/state/${STORE_DB_FILENAME}`);
+    // The store path is exactly stateDir + filename — one resolver, no drift.
+    expect(p).toBe(
+      `${resolveStateDir({ env: {}, homedir: HOME, pluginMode: false })}/${STORE_DB_FILENAME}`,
+    );
+  });
+
+  it('storePathResolution_CliAndPlugin_ResolveSameDefault', () => {
+    // DOCUMENTED PRECEDENCE: WORKFLOW_STATE_DIR wins in BOTH surfaces, so setting
+    // it pins the CLI (non-plugin) and the plugin (plugin-mode) to ONE store —
+    // this is the unification the B-5 fix guarantees.
+    const env = { WORKFLOW_STATE_DIR: '/srv/shared-state' };
+    const cli = resolveStorePath({ env, homedir: HOME, pluginMode: false });
+    const plugin = resolveStorePath({ env, homedir: HOME, pluginMode: true });
+    expect(cli).toBe(plugin);
+    expect(cli).toBe(`/srv/shared-state/${STORE_DB_FILENAME}`);
+
+    // Tilde in the pinned dir expands against the injected home in both modes.
+    const tildeEnv = { WORKFLOW_STATE_DIR: '~/shared-state' };
+    expect(resolveStorePath({ env: tildeEnv, homedir: HOME, pluginMode: false })).toBe(
+      resolveStorePath({ env: tildeEnv, homedir: HOME, pluginMode: true }),
+    );
+  });
+});
+
+describe('computeStorePathDivergence (DR-11 B-5 detection core)', () => {
+  const HOME = '/home/testuser';
+
+  it('reports divergence when no env override pins the two surfaces', () => {
+    // No WORKFLOW_STATE_DIR: the CLI defaults to ~/.exarchos/state while the
+    // plugin defaults to ~/.claude/workflow-state — a silent state split.
+    const d = computeStorePathDivergence({ env: {}, homedir: HOME });
+    expect(d.diverges).toBe(true);
+    expect(d.cliPath).toBe(`${HOME}/.exarchos/state/${STORE_DB_FILENAME}`);
+    expect(d.pluginPath).toBe(`${HOME}/.claude/workflow-state/${STORE_DB_FILENAME}`);
+  });
+
+  it('reports NO divergence when WORKFLOW_STATE_DIR unifies both surfaces', () => {
+    const d = computeStorePathDivergence({
+      env: { WORKFLOW_STATE_DIR: '/srv/shared-state' },
+      homedir: HOME,
+    });
+    expect(d.diverges).toBe(false);
+    expect(d.cliPath).toBe(d.pluginPath);
   });
 });
 

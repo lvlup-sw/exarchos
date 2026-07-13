@@ -43,6 +43,7 @@ import type { PlanStep } from '../../core/onboarding/types.js';
 import { runtimeNodeVersion } from './checks/runtime-node-version.js';
 import { storageStateDir } from './checks/storage-state-dir.js';
 import { storageSqliteHealth } from './checks/storage-sqlite-health.js';
+import { storePathDivergence } from './checks/store-path-divergence.js';
 import { envVariables } from './checks/env-variables.js';
 import { vcsGitAvailable } from './checks/vcs-git-available.js';
 import { agentConfigValid } from './checks/agent-config-valid.js';
@@ -59,8 +60,13 @@ import { verificationToolchain } from './checks/verification-toolchain.js';
 
 // ─── Canonical check list ──────────────────────────────────────────────────
 
-/** All 16 checks. Order is preserved in the output — callers can scan
- * top-to-bottom for the first Fail. DR-8 added `session-start-hook` (#1485):
+/** All 17 checks. Order is preserved in the output — callers can scan
+ * top-to-bottom for the first Fail. DR-11 B-5 (Task 019) added
+ * `store-path-divergence` in the `storage` block: the read-only check that
+ * fires when the CLI and Claude Code plugin surfaces resolve DIFFERENT event
+ * stores (state silently splits); its remediation is the documented
+ * `WORKFLOW_STATE_DIR` precedence, not a store migration.
+ * DR-8 added `session-start-hook` (#1485):
  * the SessionStart binding presence check that lands the default-on hook step.
  * Task 009 (design §4.6) added `verification-toolchain`: the read-only check
  * reporting whether the verification ladder's runtime resolves. DR-5/DR-7 (Task
@@ -76,6 +82,7 @@ export const ALL_CHECKS: ReadonlyArray<CheckFn> = [
   runtimeNodeVersion,
   storageStateDir,
   storageSqliteHealth,
+  storePathDivergence,
   envVariables,
   vcsGitAvailable,
   agentConfigValid,

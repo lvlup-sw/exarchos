@@ -301,6 +301,103 @@ describe('handleViewTelemetry', () => {
   });
 });
 
+// DR-8 / B-4 (Task 014) — the audit found `view telemetry --compact` was a
+// no-op: it measured ~85 tok whether or not `--compact` was passed, because the
+// telemetry handler was already compact-by-default and only the counter-
+// intuitive legacy `compact: false` restored the heavy rolling-window arrays.
+// The fix aligns the handler to the 013/024 view contract: `detail: true` is
+// the explicit full-restore path, so `compact: true` measurably reduces output
+// relative to the `detail: true` response on a populated store.
+describe('DR-8 / B-4 — telemetry --compact reduces output (Task 014)', () => {
+  let stateDir: string;
+
+  beforeEach(async () => {
+    stateDir = await createTempDir();
+    resetMaterializerCache();
+  });
+
+  afterEach(async () => {
+    await rmrfAsync(stateDir);
+  });
+
+  // Populate the store so the per-tool rolling-window arrays
+  // (durations/sizes/tokenEstimates) hold enough entries to make the full
+  // response measurably heavier than the compact one.
+  async function seedPopulated(): Promise<void> {
+    const tools = ['workflow_get', 'event_append', 'view_tasks'];
+    const events = [];
+    for (const tool of tools) {
+      for (let i = 0; i < 40; i++) {
+        events.push({
+          tool,
+          durationMs: 10 + i,
+          responseBytes: 200 + i * 7,
+          tokenEstimate: 50 + i,
+        });
+      }
+    }
+    await seedTelemetryEvents(stateDir, events);
+  }
+
+  function measureTokens(result: unknown): number {
+    return Math.ceil(Buffer.byteLength(JSON.stringify(result), 'utf-8') / 4);
+  }
+
+  it('viewTelemetry_CompactFlag_ReducesMeasuredOutput', async () => {
+    // Arrange
+    await seedPopulated();
+
+    // Act — the `detail: true` response is the full baseline; `compact: true`
+    // is the flag under test.
+    const full = await handleViewTelemetry(
+      { detail: true },
+      stateDir,
+      new EventStore(stateDir),
+    );
+    const compact = await handleViewTelemetry(
+      { compact: true },
+      stateDir,
+      new EventStore(stateDir),
+    );
+
+    // Assert — both succeed, and compact is strictly smaller (the no-op fixed).
+    expect(full.success).toBe(true);
+    expect(compact.success).toBe(true);
+    expect(measureTokens(compact)).toBeLessThan(measureTokens(full));
+
+    // The heavy rolling-window arrays are the sub-structure that shrinks:
+    // present under detail, stripped under compact.
+    const fullTools = (full.data as { tools: Array<Record<string, unknown>> }).tools;
+    const compactTools = (compact.data as { tools: Array<Record<string, unknown>> }).tools;
+    expect(fullTools[0]).toHaveProperty('durations');
+    expect(compactTools[0]).not.toHaveProperty('durations');
+
+    // Verdict/summary fields survive the compaction unchanged (only detail
+    // volume differs).
+    const fullSession = (full.data as { session: Record<string, unknown> }).session;
+    const compactSession = (compact.data as { session: Record<string, unknown> }).session;
+    expect(compactSession).toEqual(fullSession);
+  });
+
+  it('viewTelemetry_DefaultAndCompact_AreEquivalentCompactByDefault', async () => {
+    // Compact-by-default: passing no flag is the same lean shape as `compact: true`.
+    await seedPopulated();
+
+    const bare = await handleViewTelemetry({}, stateDir, new EventStore(stateDir));
+    const compact = await handleViewTelemetry(
+      { compact: true },
+      stateDir,
+      new EventStore(stateDir),
+    );
+
+    expect(bare.success).toBe(true);
+    expect(compact.success).toBe(true);
+    expect((bare.data as { tools: unknown[] }).tools).toEqual(
+      (compact.data as { tools: unknown[] }).tools,
+    );
+  });
+});
+
 // Sentry follow-up on PR #1393: the registered `TelemetryViewOutputSchema`
 // requires `actionErrors` (number) and `actionErrorBreakdown` (record) on
 // every tool entry, but the `toToolEntry` builder forgot to copy these

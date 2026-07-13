@@ -54,6 +54,9 @@ import { ALL_CHECKS } from './index.js';
  * 13 → 15 on purpose.
  * DELIBERATE PIN UPDATE (Task 011): `stale-skill-dirs` (category `plugin`) was
  * added as a further CONSCIOUS act, updating the count 15 → 16.
+ * DELIBERATE PIN UPDATE (Task 019, DR-11 B-5): `store-path-divergence` (category
+ * `storage`) was added in the storage block, after `storage-sqlite-health`, as a
+ * CONSCIOUS act, updating the count 16 → 17.
  */
 const PINNED_ROSTER: ReadonlyArray<{
   category: CheckResult['category'];
@@ -62,6 +65,7 @@ const PINNED_ROSTER: ReadonlyArray<{
   { category: 'runtime', name: 'node-version' },
   { category: 'storage', name: 'state-dir' },
   { category: 'storage', name: 'storage-sqlite-health' },
+  { category: 'storage', name: 'store-path-divergence' },
   { category: 'env', name: 'variables' },
   { category: 'vcs', name: 'git-available' },
   { category: 'agent', name: 'agent-config-valid' },
@@ -156,15 +160,15 @@ async function runRoster(): Promise<readonly CheckResult[]> {
 // ─── Characterization ────────────────────────────────────────────────────────
 
 describe('doctor roster characterization (T0 baseline)', () => {
-  it('DoctorRoster_CurrentBuild_ExactlySixteenChecksWithStableNames', async () => {
-    // The static export ships exactly sixteen checks, in pinned order. (13 → 15
+  it('DoctorRoster_CurrentBuild_ExactlySeventeenChecksWithStableNames', async () => {
+    // The static export ships exactly seventeen checks, in pinned order. (13 → 15
     // by Task 017: onramp-block-drift + retired-hooks-present; 15 → 16 by
-    // Task 011: stale-skill-dirs.)
-    expect(ALL_CHECKS).toHaveLength(16);
-    expect(PINNED_ROSTER).toHaveLength(16);
+    // Task 011: stale-skill-dirs; 16 → 17 by Task 019: store-path-divergence.)
+    expect(ALL_CHECKS).toHaveLength(17);
+    expect(PINNED_ROSTER).toHaveLength(17);
 
     const results = await runRoster();
-    expect(results).toHaveLength(16);
+    expect(results).toHaveLength(17);
 
     // Each check, run through the REAL ALL_CHECKS, stamps its own identity —
     // we read (category, name) off the returned result rather than transcribing.
@@ -176,7 +180,7 @@ describe('doctor roster characterization (T0 baseline)', () => {
 
     // The name set is exactly the pinned set: no duplicates, no strays.
     const observedNames = new Set(results.map((r) => r.name));
-    expect(observedNames.size).toBe(16);
+    expect(observedNames.size).toBe(17);
     for (const { name } of PINNED_ROSTER) {
       expect(observedNames.has(name)).toBe(true);
     }

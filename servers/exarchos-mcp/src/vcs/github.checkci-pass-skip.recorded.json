@@ -1,0 +1,37 @@
+[
+  {
+    "bucket": "pass",
+    "link": "https://github.com/lvlup-sw/exarchos/actions/runs/29168111043/job/86584820229",
+    "name": "CI Gate",
+    "state": "SUCCESS",
+    "workflow": "CI"
+  },
+  {
+    "bucket": "pass",
+    "link": "https://coderabbit.ai?utm_source=cr_app&utm_medium=github",
+    "name": "CodeRabbit",
+    "state": "SUCCESS",
+    "workflow": ""
+  },
+  {
+    "bucket": "pass",
+    "link": "https://github.com/lvlup-sw/exarchos/actions/runs/29168111043/job/86584660793",
+    "name": "Binary Matrix (linux-x64)",
+    "state": "SUCCESS",
+    "workflow": "CI"
+  },
+  {
+    "bucket": "skipping",
+    "link": "https://github.com/lvlup-sw/exarchos/actions/runs/29168111043/job/86584671842",
+    "name": "Windows Unit (Root)",
+    "state": "SKIPPED",
+    "workflow": "CI"
+  },
+  {
+    "bucket": "skipping",
+    "link": "https://github.com/lvlup-sw/exarchos/actions/runs/29168111063/job/86584661325",
+    "name": "release",
+    "state": "SKIPPED",
+    "workflow": "Project Automation"
+  }
+]

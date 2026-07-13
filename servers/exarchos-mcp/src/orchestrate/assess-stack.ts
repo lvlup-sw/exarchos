@@ -19,7 +19,16 @@ import {
   DEFAULT_MAX_ITERATIONS,
 } from './escalation-policy.js';
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// ─── Types (DR-2: minimal, single-copy comment shape) ───────────────────────
+//
+// The audit measured `assess_stack` returning 153,844 tokens on a 3-PR stack:
+// the same comment text was serialized up to 4× (`fullBody`, the embedded
+// `actionItem.raw` full-comment copy, the top-level `actionItems[].raw`
+// full-comment copy, and the truncated `body`), and every CI check was emitted
+// verbatim. DR-2 collapses this to ONE copy of each comment body (the truncated
+// `body` on `unresolvedComments`), replaces the dead `raw` copies with a
+// lightweight {@link CommentRef}, caps comments per PR with {@link CommentPage}
+// metadata, and reduces `checks` to counts + failing-check detail.
 
 export interface CiCheck {
   readonly name: string;
@@ -27,12 +36,44 @@ export interface CiCheck {
   readonly url?: string;
 }
 
-export interface PrStatus {
+/**
+ * DR-2 per-PR check roll-up. Passing/pending checks carry no actionable detail,
+ * so the RESULT surfaces only their counts; failing checks (the only ones a
+ * shepherd acts on) keep their full detail in {@link PrStatus.failingChecks}.
+ * This is a result-shape economy only — `emitGateExecutedEvents` still emits one
+ * `gate.executed` per check from the internal full set, so per-check event
+ * fidelity is unchanged.
+ */
+export interface CheckCounts {
+  readonly pass: number;
+  readonly fail: number;
+  readonly pending: number;
+}
+
+/**
+ * DR-2 per-PR comment-window descriptor. `assess_stack` caps the verbose,
+ * body-carrying `unresolvedComments` list to a page so a single comment-heavy PR
+ * cannot blow the output-token budget; `hasMore`/`offset`/`limit` steer the
+ * shepherd loop to page through the rest (see the paging test).
+ */
+export interface CommentPage {
+  readonly total: number;
+  readonly offset: number;
+  readonly limit: number;
+  readonly hasMore: boolean;
+}
+
+/**
+ * DR-2 reference from an action item back to the unresolved comment that
+ * produced it. Replaces the former `raw` full-comment copy: the comment body
+ * lives ONCE, in `status.prs[…].unresolvedComments[…]` (matched by `commentId`
+ * on the same PR). Consumers resolve the reference there instead of re-reading a
+ * duplicated body. Carried on `ActionItem.raw` (typed `unknown`), so no shared
+ * `ActionItem` shape change is needed.
+ */
+export interface CommentRef {
   readonly pr: number;
-  readonly checks: readonly CiCheck[];
-  readonly overallCi: 'pass' | 'fail' | 'pending';
-  readonly reviews: readonly PrReview[];
-  readonly unresolvedComments: readonly PrComment[];
+  readonly commentId: number;
 }
 
 interface PrReview {
@@ -41,16 +82,43 @@ interface PrReview {
 }
 
 interface PrComment {
-  readonly body: string;       // truncated for display
-  readonly fullBody: string;   // untruncated; consumed by review provider adapters (#1159)
+  readonly id: number;         // stable id; matches CommentRef.commentId for this PR
+  readonly body: string;       // truncated for display — the ONLY copy of the body
   readonly isResolved: boolean;
-  readonly actionItem?: ActionItem;  // populated by provider adapter dispatch (#1159)
+  // Adapter-parsed classification (#1159). Its `raw` full-comment copy is
+  // stripped (DR-2) — the top-level `actionItems[]` carries a {@link CommentRef}
+  // pointing back here instead of a second body copy.
+  readonly actionItem?: ActionItem;
   // Observability only — carried through from the unified PR-feedback feed so
   // callers can see which surface a comment came from and whether it threads a
   // reply. NOT a dispatch branch: the harvest loop treats every source the same
   // (INV-6). `source`/`parentId` are absent only when the provider omits them.
   readonly source?: VcsPrComment['source'];
   readonly parentId?: number;
+}
+
+export interface PrStatus {
+  readonly pr: number;
+  readonly checkCounts: CheckCounts;
+  readonly failingChecks: readonly CiCheck[];
+  readonly overallCi: 'pass' | 'fail' | 'pending';
+  readonly reviews: readonly PrReview[];
+  readonly unresolvedComments: readonly PrComment[];
+  readonly commentPage: CommentPage;
+}
+
+/**
+ * Internal per-PR working set (NOT serialized). Carries the FULL check and
+ * unresolved-comment lists so event emission, action-item classification, and
+ * the recommendation see everything; {@link buildPrStatus} projects it to the
+ * minimal, windowed {@link PrStatus} that ships in the result.
+ */
+interface PrAssessment {
+  readonly pr: number;
+  readonly checks: readonly CiCheck[];
+  readonly overallCi: 'pass' | 'fail' | 'pending';
+  readonly reviews: readonly PrReview[];
+  readonly comments: readonly PrComment[];
 }
 
 import type { Severity, ReviewerKind, ActionItem, ReviewAdapterRegistry } from '../review/types.js';
@@ -75,13 +143,70 @@ export interface AssessStackResult {
 // bound is resolved per-dispatch from config (DR-3, #1595), not read from here.
 const MAX_SHEPHERD_ITERATIONS = DEFAULT_MAX_ITERATIONS;
 
-// ─── Comment Truncation ─────────────────────────────────────────────────────
+// ─── Comment Truncation & Windowing (DR-2) ──────────────────────────────────
 
 const COMMENT_BODY_LIMIT = 200;
+
+// Default per-PR unresolved-comment page size. Omitting `limit` caps the
+// body-carrying list deterministically so one comment-heavy PR cannot blow the
+// output-token budget; `commentPage.hasMore` steers the shepherd loop to page.
+const DEFAULT_COMMENT_PAGE_LIMIT = 20;
+// Upper bound on the per-PR comment window so a pathological explicit `--limit`
+// can't request an unbounded slice (DR-1/INV-17 economy applies to paging too).
+const MAX_COMMENT_PAGE_LIMIT = 100;
 
 function truncateBody(body: string): string {
   if (body.length <= COMMENT_BODY_LIMIT) return body;
   return body.slice(0, COMMENT_BODY_LIMIT) + '...';
+}
+
+export interface CommentWindow {
+  readonly limit: number;
+  readonly offset: number;
+}
+
+// Resolve the per-PR comment window from the (optional, schema-declared) paging
+// inputs. Pagination values are floored FIRST, then validated, so a fractional
+// limit like `0.5` (which `Math.floor`s to 0 and would slice an EMPTY page,
+// hiding every comment) falls back to the default instead. A limit that floors
+// below 1 → DEFAULT_COMMENT_PAGE_LIMIT; a limit above the cap → clamped to
+// MAX_COMMENT_PAGE_LIMIT so a pathological `--limit 1e9` can't request an
+// unbounded window (DR-1/INV-17 economy applies to the paged surface too). An
+// offset that floors below 1 (missing, zero, negative, or fractional) → 0.
+export function resolveCommentWindow(limit?: number, offset?: number): CommentWindow {
+  const flooredLimit =
+    typeof limit === 'number' && Number.isFinite(limit) ? Math.floor(limit) : NaN;
+  const l =
+    flooredLimit >= 1
+      ? Math.min(flooredLimit, MAX_COMMENT_PAGE_LIMIT)
+      : DEFAULT_COMMENT_PAGE_LIMIT;
+
+  const flooredOffset =
+    typeof offset === 'number' && Number.isFinite(offset) ? Math.floor(offset) : NaN;
+  const o = flooredOffset >= 1 ? flooredOffset : 0;
+
+  return { limit: l, offset: o };
+}
+
+function countChecks(checks: readonly CiCheck[]): CheckCounts {
+  let pass = 0;
+  let fail = 0;
+  let pending = 0;
+  for (const c of checks) {
+    if (c.status === 'pass') pass += 1;
+    else if (c.status === 'fail') fail += 1;
+    else pending += 1;
+  }
+  return { pass, fail, pending };
+}
+
+// DR-2: drop the `raw` full-comment copy from an adapter-parsed action item.
+// Everything downstream reads only the classified fields (description,
+// normalizedSeverity, file, line, reviewer, threadId); the raw comment body is
+// dead weight. The top-level action item re-attaches a lightweight CommentRef.
+function withoutRaw(item: ActionItem): ActionItem {
+  const { raw: _raw, ...rest } = item;
+  return rest;
 }
 
 // ─── VcsProvider Query Helpers ──────────────────────────────────────────────
@@ -185,12 +310,13 @@ async function queryPrComments(
         });
       }
       results.push({
+        id: c.id,
         body: truncateBody(c.body),
-        fullBody: c.body,
         // Tri-state gate: resolved ONLY when the provider explicitly says so.
         // `resolved === false` and absent/unknown both stay unresolved.
         isResolved: c.resolved === true,
-        actionItem,
+        // DR-2: keep the classified fields but drop the raw full-comment copy.
+        ...(actionItem ? { actionItem: withoutRaw(actionItem) } : {}),
         source: c.source,
         ...(c.parentId !== undefined ? { parentId: c.parentId } : {}),
       });
@@ -210,39 +336,61 @@ function computeOverallCi(checks: readonly CiCheck[]): 'pass' | 'fail' | 'pendin
   return 'pass';
 }
 
-async function queryPrStatus(
+async function assessPr(
   provider: VcsProvider,
   prNumber: number,
   registry: ReviewAdapterRegistry,
   eventStore: EventStore,
   featureId: string,
-): Promise<PrStatus> {
+): Promise<PrAssessment> {
   const checks = await queryPrChecks(provider, prNumber);
   const reviews = await queryPrReviews(provider, prNumber);
   const allComments = await queryPrComments(provider, prNumber, registry, eventStore, featureId);
-  const unresolvedComments = allComments.filter(c => !c.isResolved);
+  const comments = allComments.filter(c => !c.isResolved);
 
   return {
     pr: prNumber,
     checks,
     overallCi: computeOverallCi(checks),
     reviews,
+    comments,
+  };
+}
+
+// DR-2: project the internal, full PrAssessment onto the minimal, windowed
+// PrStatus that ships in the result. Checks collapse to counts + failing detail;
+// the body-carrying unresolved-comment list is capped to the requested window
+// with `commentPage` metadata reporting the full total + `hasMore`.
+function buildPrStatus(a: PrAssessment, window: CommentWindow): PrStatus {
+  const unresolvedComments = a.comments.slice(window.offset, window.offset + window.limit);
+  return {
+    pr: a.pr,
+    checkCounts: countChecks(a.checks),
+    failingChecks: a.checks.filter(c => c.status === 'fail'),
+    overallCi: a.overallCi,
+    reviews: a.reviews,
     unresolvedComments,
+    commentPage: {
+      total: a.comments.length,
+      offset: window.offset,
+      limit: window.limit,
+      hasMore: window.offset + window.limit < a.comments.length,
+    },
   };
 }
 
 // ─── Action Item Classification ─────────────────────────────────────────────
 
-export function classifyActionItems(prStatuses: readonly PrStatus[]): ActionItem[] {
+export function classifyActionItems(assessments: readonly PrAssessment[]): ActionItem[] {
   const items: ActionItem[] = [];
 
-  for (const prStatus of prStatuses) {
+  for (const a of assessments) {
     // CI failures -> ci-fix items
-    for (const check of prStatus.checks) {
+    for (const check of a.checks) {
       if (check.status === 'fail') {
         items.push({
           type: 'ci-fix',
-          pr: prStatus.pr,
+          pr: a.pr,
           description: `CI check '${check.name}' is failing`,
           severity: 'critical',
           normalizedSeverity: 'HIGH',
@@ -251,13 +399,13 @@ export function classifyActionItems(prStatuses: readonly PrStatus[]): ActionItem
     }
 
     // Unresolved comments -> comment-reply items
-    for (const comment of prStatus.unresolvedComments) {
+    for (const comment of a.comments) {
       // Thread the adapter-parsed fields when present (#1159);
       // fall back to MEDIUM when no adapter ran (registry omitted, edge case).
       const adapterItem = comment.actionItem;
       items.push({
         type: 'comment-reply',
-        pr: prStatus.pr,
+        pr: a.pr,
         description: adapterItem?.description
           ?? `Unresolved comment: ${comment.body.slice(0, 100)}`,
         severity: 'major',
@@ -266,16 +414,18 @@ export function classifyActionItems(prStatuses: readonly PrStatus[]): ActionItem
         ...(adapterItem?.file ? { file: adapterItem.file } : {}),
         ...(adapterItem?.line !== undefined ? { line: adapterItem.line } : {}),
         ...(adapterItem?.threadId ? { threadId: adapterItem.threadId } : {}),
-        ...(adapterItem?.raw !== undefined ? { raw: adapterItem.raw } : {}),
+        // DR-2: reference into unresolvedComments (matched by pr + commentId)
+        // instead of a second full-comment copy on `raw`.
+        raw: { pr: a.pr, commentId: comment.id } satisfies CommentRef,
       });
     }
 
     // Review changes requested -> review-address items
-    for (const review of prStatus.reviews) {
+    for (const review of a.reviews) {
       if (review.state === 'CHANGES_REQUESTED') {
         items.push({
           type: 'review-address',
-          pr: prStatus.pr,
+          pr: a.pr,
           description: `Changes requested by ${review.author}`,
           severity: 'major',
           normalizedSeverity: 'HIGH',
@@ -292,7 +442,7 @@ export function classifyActionItems(prStatuses: readonly PrStatus[]): ActionItem
 export function computeRecommendation(
   actionItems: readonly ActionItem[],
   iterationCount: number,
-  prStatuses?: readonly PrStatus[],
+  prStatuses?: readonly Pick<PrAssessment, 'overallCi'>[],
   maxIterations: number = MAX_SHEPHERD_ITERATIONS,
 ): 'request-approval' | 'fix-and-resubmit' | 'wait' | 'escalate' {
   if (iterationCount >= maxIterations) {
@@ -330,7 +480,7 @@ function toCiStatusSchemaValue(
 async function emitCiStatusEvents(
   eventStore: EventStore,
   featureId: string,
-  prStatuses: readonly PrStatus[],
+  prStatuses: readonly PrAssessment[],
   iterationCount: number,
 ): Promise<void> {
   for (const prStatus of prStatuses) {
@@ -349,7 +499,7 @@ async function emitCiStatusEvents(
 async function emitGateExecutedEvents(
   eventStore: EventStore,
   featureId: string,
-  prStatuses: readonly PrStatus[],
+  prStatuses: readonly PrAssessment[],
   iterationCount: number,
 ): Promise<void> {
   for (const prStatus of prStatuses) {
@@ -484,7 +634,14 @@ async function emitShepherdCompleted(
 // ─── Handler ─────────────────────────────────────────────────────────────────
 
 export async function handleAssessStack(
-  args: { featureId: string; prNumbers: number[]; projectConfig?: ResolvedProjectConfig },
+  args: {
+    featureId: string;
+    prNumbers: number[];
+    // DR-2 per-PR comment paging (schema-declared in registry.ts, Task 022).
+    limit?: number;
+    offset?: number;
+    projectConfig?: ResolvedProjectConfig;
+  },
   _stateDir: string,
   injectedEventStore: EventStore,
   provider?: VcsProvider,
@@ -535,17 +692,20 @@ export async function handleAssessStack(
     await emitShepherdCompleted(eventStore, args.featureId, mergedPr);
   }
 
-  // Query status for each PR
-  const prStatuses = await Promise.all(
-    args.prNumbers.map(pr => queryPrStatus(vcs, pr, registry, eventStore, args.featureId)),
+  // Assess each PR (internal full working set — all checks, all unresolved
+  // comments). The serialized result is projected + windowed later.
+  const assessments = await Promise.all(
+    args.prNumbers.map(pr => assessPr(vcs, pr, registry, eventStore, args.featureId)),
   );
 
-  // Emit dual events
-  await emitCiStatusEvents(eventStore, args.featureId, prStatuses, iterationCount);
-  await emitGateExecutedEvents(eventStore, args.featureId, prStatuses, iterationCount);
+  // Emit dual events (one gate.executed per check, from the FULL set)
+  await emitCiStatusEvents(eventStore, args.featureId, assessments, iterationCount);
+  await emitGateExecutedEvents(eventStore, args.featureId, assessments, iterationCount);
 
-  // Classify action items
-  const actionItems = classifyActionItems(prStatuses);
+  // Classify action items over the FULL comment set — the recommendation and
+  // the shepherd's fix/escalate decision must see every unresolved comment, not
+  // just the first page.
+  const actionItems = classifyActionItems(assessments);
 
   // Resolve the auto-fix bound from the shared escalation policy (DR-3, #1595):
   // config-resolvable, falls back to the module default. The loop and the
@@ -555,11 +715,12 @@ export async function handleAssessStack(
     configMaxIterations: args.projectConfig?.escalation?.maxIterations,
   });
 
-  // Compute recommendation
+  // Compute recommendation from the FULL action-item set (a critical comment on
+  // a later page must still drive fix-and-resubmit on the first page).
   const recommendation = computeRecommendation(
     actionItems,
     iterationCount,
-    prStatuses,
+    assessments,
     maxIterations,
   );
 
@@ -588,15 +749,26 @@ export async function handleAssessStack(
     );
   }
 
-  // Build result
+  // DR-2: build the MINIMAL, windowed result. Per-PR unresolved comments are
+  // capped to the requested window with `commentPage` metadata; the serialized
+  // `actionItems` cover the SAME window so a shepherd paging by `offset` reaches
+  // every unresolved actionable comment reference across pages. Non-comment
+  // items (ci-fix, review-address) are bounded and appear on every page.
+  const window = resolveCommentWindow(args.limit, args.offset);
+  const windowedAssessments = assessments.map(a => ({
+    ...a,
+    comments: a.comments.slice(window.offset, window.offset + window.limit),
+  }));
+  const serializedActionItems = classifyActionItems(windowedAssessments);
+
   const status: ShepherdStatusState = {
-    prs: prStatuses,
+    prs: assessments.map(a => buildPrStatus(a, window)),
     iterationCount,
   };
 
   const result: AssessStackResult = {
     status,
-    actionItems,
+    actionItems: serializedActionItems,
     recommendation,
   };
 

@@ -1,13 +1,31 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { fc } from '@fast-check/vitest';
 import * as path from 'node:path';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { EventStore } from './store.js';
 import { AtomicAppender } from './atomic-appender.js';
-import { handleEventAppend, handleEventQuery, handleBatchAppend } from './tools.js';
-import type { EventAck } from '../format.js';
+import {
+  handleEventAppend,
+  handleEventQuery,
+  handleBatchAppend,
+  EVENT_QUERY_DEFAULT_LIMIT,
+  type EventQueryPage,
+} from './tools.js';
+import type { EventAck, ToolResult } from '../format.js';
 import { runWithDispatchContext } from '../dispatch/dispatch-context.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
+import { estimateOutputTokens } from '../core/economy.js';
+
+// DR-5: `event query` returns `{ events, page }`. These helpers unwrap that
+// envelope so a shape change surfaces in exactly one place per accessor.
+function queryEvents(result: ToolResult): Array<Record<string, unknown>> {
+  const data = result.data as { events?: unknown } | undefined;
+  return (data?.events ?? []) as Array<Record<string, unknown>>;
+}
+function queryPage(result: ToolResult): EventQueryPage {
+  return (result.data as { page: EventQueryPage }).page;
+}
 
 let tempDir: string;
 let eventStore: EventStore;
@@ -168,7 +186,7 @@ describe('handleEventQuery field projection', () => {
     );
 
     expect(result.success).toBe(true);
-    const projected = result.data as Record<string, unknown>[];
+    const projected = queryEvents(result);
     expect(projected).toHaveLength(1);
     expect(projected[0]).toHaveProperty('type', 'workflow.started');
     expect(projected[0]).toHaveProperty('sequence', 1);
@@ -186,7 +204,7 @@ describe('handleEventQuery field projection', () => {
     );
 
     expect(result.success).toBe(true);
-    const projected = result.data as Record<string, unknown>[];
+    const projected = queryEvents(result);
     expect(projected).toHaveLength(1);
     expect(projected[0]).toHaveProperty('type', 'workflow.started');
     expect(projected[0]).not.toHaveProperty('constructor');
@@ -203,7 +221,7 @@ describe('handleEventQuery field projection', () => {
     );
 
     expect(result.success).toBe(true);
-    const projected = result.data as Record<string, unknown>[];
+    const projected = queryEvents(result);
     expect(projected).toHaveLength(1);
     expect(projected[0]).toHaveProperty('type', 'workflow.started');
     expect(projected[0]).not.toHaveProperty('prototype');
@@ -220,7 +238,7 @@ describe('handleEventQuery field projection', () => {
     );
 
     expect(result.success).toBe(true);
-    const projected = result.data as Record<string, unknown>[];
+    const projected = queryEvents(result);
     expect(projected).toHaveLength(1);
     expect(Object.keys(projected[0])).toHaveLength(0);
   });
@@ -239,7 +257,7 @@ describe('handleEventQuery field projection', () => {
     );
 
     expect(result.success).toBe(true);
-    const projected = result.data as Record<string, unknown>[];
+    const projected = queryEvents(result);
     expect(projected).toHaveLength(1);
     expect(projected[0]).toHaveProperty('type');
     expect(projected[0]).toHaveProperty('sequence');
@@ -281,7 +299,7 @@ describe('handleBatchAppend', () => {
     // Verify all events exist in the stream
     const queryResult = await handleEventQuery({ stream: 'my-workflow' }, tempDir, store);
     expect(queryResult.success).toBe(true);
-    expect(queryResult.data).toHaveLength(4);
+    expect(queryEvents(queryResult)).toHaveLength(4);
   });
 
   it('batchAppend_EmptyArray_ReturnsError', async () => {
@@ -320,7 +338,7 @@ describe('handleBatchAppend', () => {
     // Verify only 1 event in stream
     const queryResult = await handleEventQuery({ stream: 'my-workflow' }, tempDir, eventStore);
     expect(queryResult.success).toBe(true);
-    expect(queryResult.data).toHaveLength(1);
+    expect(queryEvents(queryResult)).toHaveLength(1);
   });
 
   it('batchAppend_ValidationFailure_AtomicRollback', async () => {
@@ -349,7 +367,7 @@ describe('handleBatchAppend', () => {
     // Verify no new events were appended (only the seed event)
     const queryResult = await handleEventQuery({ stream: 'my-workflow' }, tempDir, store);
     expect(queryResult.success).toBe(true);
-    expect(queryResult.data).toHaveLength(1);
+    expect(queryEvents(queryResult)).toHaveLength(1);
   });
 
   // ─── Cache-hit out-of-bounds (Sentry comment 3205861163) ─────────────────
@@ -438,12 +456,14 @@ describe('handleBatchAppend', () => {
     // Total 6 events, with sequential sequence numbers (no gaps, no interleaving)
     const queryResult = await handleEventQuery({ stream: 'my-workflow' }, tempDir, eventStore);
     expect(queryResult.success).toBe(true);
-    const events = queryResult.data as Array<{ sequence: number; type: string }>;
+    const events = queryEvents(queryResult) as Array<{ sequence: number; type: string }>;
     expect(events).toHaveLength(6);
 
-    // Verify sequential numbering
-    for (let i = 0; i < events.length; i++) {
-      expect(events[i].sequence).toBe(i + 1);
+    // Verify sequential numbering (order-independent: DR-5 returns newest-first,
+    // so sort before asserting the 1..6 no-gap invariant this test pins).
+    const seqs = events.map((e) => e.sequence).sort((a, b) => a - b);
+    for (let i = 0; i < seqs.length; i++) {
+      expect(seqs[i]).toBe(i + 1);
     }
 
     // Verify no interleaving: events from each batch should be contiguous
@@ -503,7 +523,7 @@ describe('handleBatchAppend', () => {
       // No events landed in the stream.
       const queryResult = await handleEventQuery({ stream: 'failure-test' }, tempDir, eventStore);
       expect(queryResult.success).toBe(true);
-      expect(queryResult.data).toHaveLength(0);
+      expect(queryEvents(queryResult)).toHaveLength(0);
     } finally {
       appendSpy.mockRestore();
     }
@@ -548,7 +568,7 @@ describe('handleBatchAppend', () => {
     // Stream-level invariant: 2*N events, sequences 1..2*N exactly.
     const queryResult = await handleEventQuery({ stream: 'concurrent-test' }, tempDir, eventStore);
     expect(queryResult.success).toBe(true);
-    const events = queryResult.data as Array<{ sequence: number }>;
+    const events = queryEvents(queryResult) as Array<{ sequence: number }>;
     expect(events).toHaveLength(2 * N);
     const persistedSeqs = events.map(e => e.sequence).sort((a, b) => a - b);
     for (let i = 0; i < persistedSeqs.length; i++) {
@@ -598,7 +618,7 @@ describe('handleBatchAppend', () => {
       eventStore,
     );
     expect(queryResult.success).toBe(true);
-    expect(queryResult.data).toHaveLength(4);
+    expect(queryEvents(queryResult)).toHaveLength(4);
   });
 
   // ─── F2 regression (#1414): batchAppend cache-hit returns operationId ─────
@@ -648,7 +668,7 @@ describe('handleEventQuery dot-path field projection', () => {
     const result = await handleEventQuery({ stream: 'dot-path-test' }, tempDir, store);
 
     expect(result.success).toBe(true);
-    const events = result.data as Array<Record<string, unknown>>;
+    const events = queryEvents(result);
     expect(events).toHaveLength(1);
     const eventData = events[0].data as Record<string, unknown>;
     expect(eventData).toBeDefined();
@@ -671,7 +691,7 @@ describe('handleEventQuery dot-path field projection', () => {
     );
 
     expect(result.success).toBe(true);
-    const events = result.data as Array<Record<string, unknown>>;
+    const events = queryEvents(result);
     expect(events).toHaveLength(1);
     expect(events[0].type).toBe('task.completed');
     const eventData = events[0].data as Record<string, unknown>;
@@ -700,7 +720,7 @@ describe('tenant field passthrough', () => {
     expect(result.success).toBe(true);
 
     const query = await handleEventQuery({ stream: 'tenant-test' }, tempDir, eventStore);
-    const events = query.data as Array<Record<string, unknown>>;
+    const events = queryEvents(query);
     expect(events).toHaveLength(1);
     expect(events[0].tenantId).toBe('tenant-abc');
     expect(events[0].organizationId).toBe('org-xyz');
@@ -722,12 +742,173 @@ describe('tenant field passthrough', () => {
     expect(result.success).toBe(true);
 
     const query = await handleEventQuery({ stream: 'tenant-batch' }, tempDir, eventStore);
-    const events = query.data as Array<Record<string, unknown>>;
+    const events = queryEvents(query);
     expect(events).toHaveLength(2);
-    expect(events[0].tenantId).toBe('tenant-1');
-    expect(events[0].organizationId).toBe('org-1');
-    expect(events[1].tenantId).toBe('tenant-1');
-    expect(events[1].organizationId).toBeUndefined();
+    // Look up by taskId (order-independent: DR-5 returns newest-first).
+    const byTask = (id: string) =>
+      events.find((e) => (e.data as Record<string, unknown> | undefined)?.taskId === id)!;
+    expect(byTask('t1').tenantId).toBe('tenant-1');
+    expect(byTask('t1').organizationId).toBe('org-1');
+    expect(byTask('t2').tenantId).toBe('tenant-1');
+    expect(byTask('t2').organizationId).toBeUndefined();
+  });
+});
+
+// ─── DR-5: `event query` default limit + page metadata ──────────────────────
+//
+// Default queries cap at the 20 NEWEST events plus `page:{total,offset,limit,
+// hasMore}` so unbounded stream reads stop dominating the session token budget
+// (audit: 5,755 tokens unbounded vs 1,490 at limit 20 on a 112-event stream).
+// Explicit `limit`/`offset` retains full history access and pages through a
+// deterministic newest-first ordering with no gaps and no duplicates.
+
+describe('handleEventQuery DR-5 default limit + page metadata', () => {
+  let propStreamCounter = 0;
+
+  /** Seed sequences 1..count on `stream` in a single batch (fast + ordered). */
+  async function seed(stream: string, count: number): Promise<void> {
+    const events = Array.from({ length: count }, (_, i) => ({
+      type: 'task.assigned' as const,
+      data: { taskId: `t${i + 1}` },
+    }));
+    const result = await handleBatchAppend({ stream, events }, tempDir, eventStore);
+    expect(result.success).toBe(true);
+  }
+
+  it('eventQuery_DefaultLimitOn112EventStream_StaysUnderTokenBudget', async () => {
+    // DR-5 acceptance asserted DIRECTLY (review LOW): the default query on a
+    // 112-event stream stays within the ~1,600-token budget the acceptance
+    // criterion names — not merely inferred from the limit-20 mechanism — while
+    // `page.hasMore` keeps the hidden older history perceivable. Pins the token
+    // outcome the same way the DR-2 / DR-8 budget tests pin theirs.
+    await seed('dr5-budget', 112);
+    const result = await handleEventQuery({ stream: 'dr5-budget' }, tempDir, eventStore);
+    expect(result.success).toBe(true);
+    expect(estimateOutputTokens(result.data)).toBeLessThanOrEqual(1600);
+    expect(queryPage(result)).toMatchObject({ hasMore: true, total: 112 });
+  });
+
+  it('eventQuery_NoLimit_Returns20NewestWithPageMetadata', async () => {
+    const TOTAL = 25; // > EVENT_QUERY_DEFAULT_LIMIT so older history is hidden
+    await seed('dr5-default', TOTAL);
+
+    const result = await handleEventQuery({ stream: 'dr5-default' }, tempDir, eventStore);
+    expect(result.success).toBe(true);
+
+    const events = queryEvents(result) as Array<{ sequence: number }>;
+    const page = queryPage(result);
+
+    // Exactly the 20 newest, newest-first.
+    expect(events).toHaveLength(EVENT_QUERY_DEFAULT_LIMIT);
+    const seqs = events.map((e) => e.sequence);
+    expect(seqs[0]).toBe(TOTAL); // newest at index 0
+    expect(seqs[EVENT_QUERY_DEFAULT_LIMIT - 1]).toBe(TOTAL - EVENT_QUERY_DEFAULT_LIMIT + 1);
+    // Strictly descending (deterministic, stable ordering).
+    expect(seqs).toEqual([...seqs].sort((a, b) => b - a));
+    // The returned set is precisely sequences 6..25 (the 20 newest).
+    expect(new Set(seqs)).toEqual(
+      new Set(Array.from({ length: EVENT_QUERY_DEFAULT_LIMIT }, (_, i) => TOTAL - i)),
+    );
+
+    // Page metadata makes the hidden older history perceivable.
+    expect(page).toEqual({
+      total: TOTAL,
+      offset: 0,
+      limit: EVENT_QUERY_DEFAULT_LIMIT,
+      hasMore: true,
+    });
+  });
+
+  it('eventQuery_UnderDefault_ReturnsAllWithHasMoreFalse', async () => {
+    // A stream at/under the default returns everything, hasMore false — the
+    // boundary the token-economy default must not truncate.
+    await seed('dr5-small', 3);
+    const result = await handleEventQuery({ stream: 'dr5-small' }, tempDir, eventStore);
+    expect(result.success).toBe(true);
+    expect(queryEvents(result)).toHaveLength(3);
+    expect(queryPage(result)).toEqual({
+      total: 3,
+      offset: 0,
+      limit: EVENT_QUERY_DEFAULT_LIMIT,
+      hasMore: false,
+    });
+  });
+
+  it('eventQuery_ExplicitLimit_RetainsFullHistoryAccess', async () => {
+    // "Unbounded only by explicit request": a large explicit limit returns the
+    // entire stream even past the default cap.
+    await seed('dr5-full', 50);
+    const result = await handleEventQuery(
+      { stream: 'dr5-full', limit: 1000 },
+      tempDir,
+      eventStore,
+    );
+    expect(result.success).toBe(true);
+    expect(queryEvents(result)).toHaveLength(50);
+    expect(queryPage(result).hasMore).toBe(false);
+    expect(queryPage(result).total).toBe(50);
+  });
+
+  it('eventQuery_OffsetPaging_CoversFullStreamDeterministically', async () => {
+    // Property: paging with an explicit limit/offset partitions the full stream
+    // exactly once — no gaps, no duplicates — regardless of total and page size.
+    await fc.assert(
+      fc.asyncProperty(
+        fc.integer({ min: 1, max: 50 }), // total events in the stream
+        fc.integer({ min: 1, max: 12 }), // explicit page size
+        async (total, pageSize) => {
+          const stream = `dr5-prop-${propStreamCounter++}`;
+          await seed(stream, total);
+
+          const seen: number[] = [];
+          let offset = 0;
+          // Correct pager terminates in ceil(total/pageSize) steps; the guard is
+          // a defensive upper bound against a non-terminating (buggy) window.
+          for (let guard = 0; guard <= total + 1; guard++) {
+            const result = await handleEventQuery(
+              { stream, limit: pageSize, offset },
+              tempDir,
+              eventStore,
+            );
+            expect(result.success).toBe(true);
+            const events = queryEvents(result) as Array<{ sequence: number }>;
+            const page = queryPage(result);
+
+            // page.total is stable and echoes the paging inputs.
+            expect(page.total).toBe(total);
+            expect(page.limit).toBe(pageSize);
+            expect(page.offset).toBe(offset);
+            // hasMore is exactly "rows remain beyond this page".
+            expect(page.hasMore).toBe(offset + events.length < total);
+
+            for (const e of events) seen.push(e.sequence);
+
+            if (!page.hasMore) break;
+            // A non-final page must be full — no premature short page (would
+            // create a gap and break the partition).
+            expect(events).toHaveLength(pageSize);
+            offset += pageSize;
+          }
+
+          // Partition invariant: sequences 1..total each appear exactly once.
+          expect(seen).toHaveLength(total);
+          expect(new Set(seen).size).toBe(total);
+          expect([...seen].sort((a, b) => a - b)).toEqual(
+            Array.from({ length: total }, (_, i) => i + 1),
+          );
+        },
+      ),
+      { numRuns: 40 },
+    );
+  });
+
+  it('eventQuery_RepeatedPage_IsDeterministic', async () => {
+    // Same window queried twice yields byte-identical results (stable ordering).
+    await seed('dr5-stable', 30);
+    const a = await handleEventQuery({ stream: 'dr5-stable', limit: 7, offset: 10 }, tempDir, eventStore);
+    const b = await handleEventQuery({ stream: 'dr5-stable', limit: 7, offset: 10 }, tempDir, eventStore);
+    expect(queryEvents(a)).toEqual(queryEvents(b));
+    expect(queryPage(a)).toEqual(queryPage(b));
   });
 });
 
