@@ -11,7 +11,10 @@ vi.mock('./tools.js', () => ({
   } satisfies ToolResult),
   handleEventQuery: vi.fn().mockResolvedValue({
     success: true,
-    data: [{ streamId: 'test', sequence: 1, type: 'test.event' }],
+    data: {
+      events: [{ streamId: 'test', sequence: 1, type: 'test.event' }],
+      page: { total: 1, offset: 0, limit: 20, hasMore: false },
+    },
   } satisfies ToolResult),
   handleBatchAppend: vi.fn().mockResolvedValue({
     success: true,
@@ -98,7 +101,10 @@ describe('handleEvent', () => {
       );
       // T037: successful responses are wrapped in Envelope<T>
       expect(result.success).toBe(true);
-      expect(result.data).toEqual([{ streamId: 'test', sequence: 1, type: 'test.event' }]);
+      expect(result.data).toEqual({
+        events: [{ streamId: 'test', sequence: 1, type: 'test.event' }],
+        page: { total: 1, offset: 0, limit: 20, hasMore: false },
+      });
       expect((result as Record<string, unknown>).next_actions).toEqual([]);
     });
   });
