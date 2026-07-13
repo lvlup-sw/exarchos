@@ -580,6 +580,8 @@ Set `slimRegistration: true` where the production `DispatchContext` is construct
 
 Empirically record how host clients (Claude Code plugin first, then Tier-1 runtimes) inject `content` vs `structuredContent` into model context, with reproduction steps and a go/no-go recommendation for Task 017.
 
+The note: [`docs/research/2026-07-DR9-content-injection-verification.md`](../research/2026-07-DR9-content-injection-verification.md).
+
 **Verification:**
 - Static analysis only; the deliverable is the in-repo note with reproducible evidence
 
