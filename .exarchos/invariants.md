@@ -9,7 +9,7 @@ invariants:
   - id: INV-1
     dimension: event-sourcing-integrity
     integrity-class: substrate
-    phase-affinity: [review]
+    phase-affinity: [ review ]
     severity:
       default: blocking
       by-workflow:
@@ -17,9 +17,9 @@ invariants:
     enforcement:
       mode: audit
       audit-prompt: >
-        Does any read-model hold state across calls that is not a left-fold
-        over the event log? Flag in-place mutations, adapter-local mutable
-        caches, and side databases that bypass the append-only store.
+        Does any read-model hold state across calls that is not a left-fold over
+        the event log? Flag in-place mutations, adapter-local mutable caches,
+        and side databases that bypass the append-only store.
     axis: substrate
     cost-of-load: always-load
     applies-to:
@@ -30,13 +30,16 @@ invariants:
     summary: >
       The append-only event log is the source of truth. Every read-model is a
       left-fold over events; state mutations are events, not in-place updates.
-      Reducers must be pure, deterministic, and structurally share state.
-      Stores that hold derived state across calls must be projections over
-      events, never in-memory side databases.
+      Reducers must be pure, deterministic, and structurally share state. Stores
+      that hold derived state across calls must be projections over events,
+      never in-memory side databases.
     citations:
-      - "Fowler, *Event Sourcing* (2005): https://martinfowler.com/eaaDev/EventSourcing.html"
-      - "Greg Young, *CQRS Documents* (2010): https://cqrs.files.wordpress.com/2010/11/cqrs_documents.pdf"
-      - "Vaughn Vernon, *Implementing Domain-Driven Design* (Addison-Wesley 2013) — chapter on Event Sourcing"
+      - "Fowler, *Event Sourcing* (2005):
+        https://martinfowler.com/eaaDev/EventSourcing.html"
+      - "Greg Young, *CQRS Documents* (2010):
+        https://cqrs.files.wordpress.com/2010/11/cqrs_documents.pdf"
+      - "Vaughn Vernon, *Implementing Domain-Driven Design* (Addison-Wesley
+        2013) — chapter on Event Sourcing"
     references:
       - docs/architecture/invariants/references/INV-1-event-sourcing.md
       - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
@@ -52,20 +55,22 @@ invariants:
       - stream-lock-manager
     summary: >
       Concurrency is serialized in two tiers. Tier 1 (in-process): the
-      StreamLockManager runs concurrent same-stream appends sequentially
-      via a per-stream Promise-chain mutex. Tier 2 (cross-process): SQLite
-      WAL with BEGIN IMMEDIATE acquires the write lock up-front, and a
-      per-stream version gate assigns-and-checks the sequence atomically
-      INSIDE that transaction (the convergent event-store primitive — Marten
-      mt_streams, SQLStreamStore, EventStoreDB). The PRIMARY KEY
-      (streamId, sequence) is an integrity backstop, not the conflict
-      detector. Plain appends serialize transparently; only a genuine OCC
-      mismatch (a stale expectedSequence) surfaces a conflict, carrying
-      expected/actual directly. No process-level mutex, no PID lock, no
-      advisory file.
+      StreamLockManager runs concurrent same-stream appends sequentially via a
+      per-stream Promise-chain mutex. Tier 2 (cross-process): SQLite WAL with
+      BEGIN IMMEDIATE acquires the write lock up-front, and a per-stream version
+      gate assigns-and-checks the sequence atomically INSIDE that transaction
+      (the convergent event-store primitive — Marten mt_streams, SQLStreamStore,
+      EventStoreDB). The PRIMARY KEY (streamId, sequence) is an integrity
+      backstop, not the conflict detector. Plain appends serialize
+      transparently; only a genuine OCC mismatch (a stale expectedSequence)
+      surfaces a conflict, carrying expected/actual directly. No process-level
+      mutex, no PID lock, no advisory file.
     citations:
-      - "Mohan et al., *ARIES* (ACM TODS 1992): https://dl.acm.org/doi/10.1145/128765.128770"
-      - "Bernstein & Goodman, *Concurrency Control in Distributed Database Systems* (ACM Computing Surveys 1981): https://dl.acm.org/doi/10.1145/356842.356846"
+      - "Mohan et al., *ARIES* (ACM TODS 1992):
+        https://dl.acm.org/doi/10.1145/128765.128770"
+      - "Bernstein & Goodman, *Concurrency Control in Distributed Database
+        Systems* (ACM Computing Surveys 1981):
+        https://dl.acm.org/doi/10.1145/356842.356846"
       - "SQLite WAL documentation: https://sqlite.org/wal.html"
     references:
       - servers/exarchos-mcp/src/event-store/atomic-appender.ts
@@ -81,15 +86,18 @@ invariants:
       - dispatch-boundary
     summary: >
       Every append carries an idempotency key. The UNIQUE INDEX on
-      idempotency_key collapses duplicates at the storage layer. Handler
-      retries via withSession({operationId}) re-emit the requested event
-      as a no-op when the key matches; the external side effect runs at
-      most once across retries. INV-8 is the load-bearing prerequisite
-      for INV-13's process-manager two-event split.
+      idempotency_key collapses duplicates at the storage layer. Handler retries
+      via withSession({operationId}) re-emit the requested event as a no-op when
+      the key matches; the external side effect runs at most once across
+      retries. INV-8 is the load-bearing prerequisite for INV-13's
+      process-manager two-event split.
     citations:
-      - "Wolverine idempotency PR #1858: https://github.com/JasperFx/wolverine/pull/1858"
-      - "Akka persistence at-least-once delivery: https://doc.akka.io/docs/akka/snapshot/typed/persistence.html"
-      - "Greg Young, *Versioning in an Event Sourced System* (Leanpub): https://leanpub.com/esversioning"
+      - "Wolverine idempotency PR #1858:
+        https://github.com/JasperFx/wolverine/pull/1858"
+      - "Akka persistence at-least-once delivery:
+        https://doc.akka.io/docs/akka/snapshot/typed/persistence.html"
+      - "Greg Young, *Versioning in an Event Sourced System* (Leanpub):
+        https://leanpub.com/esversioning"
     references:
       - servers/exarchos-mcp/src/event-store/atomic-appender.ts
       - docs/architecture/runtime.md#§4
@@ -104,14 +112,18 @@ invariants:
       - phase-transitions
     summary: >
       Every workflow type ships a hierarchical state machine declared in
-      topology.yaml. Transitions are guarded; only workflow.transition is
-      a phase mutator (workflow.set-phase is deprecated). The HSM is the
-      sole authority for valid phase sequencing; next_actions is derived
-      from it.
+      topology.yaml. Transitions are guarded; only workflow.transition is a
+      phase mutator (workflow.set-phase is deprecated). The HSM is the sole
+      authority for valid phase sequencing; next_actions is derived from it.
     citations:
-      - "Harel, *Statecharts: A Visual Formalism for Complex Systems* (Science of Computer Programming 1987): https://www.sciencedirect.com/science/article/pii/0167642387900359"
-      - "Greg Young, *Versioning in an Event Sourced System* — Process Manager Versioning chapter (Leanpub)"
-      - "Wolverine [AggregateHandler] workflow (Miller 2023): https://jeremydmiller.com/2023/12/06/building-a-critter-stack-application-wolverines-aggregate-handler-workflow-ftw/"
+      - "Harel, *Statecharts: A Visual Formalism for Complex Systems* (Science
+        of Computer Programming 1987):
+        https://www.sciencedirect.com/science/article/pii/0167642387900359"
+      - "Greg Young, *Versioning in an Event Sourced System* — Process Manager
+        Versioning chapter (Leanpub)"
+      - "Wolverine [AggregateHandler] workflow (Miller 2023):
+        https://jeremydmiller.com/2023/12/06/building-a-critter-stack-applicati\
+        on-wolverines-aggregate-handler-workflow-ftw/"
     references:
       - servers/exarchos-mcp/src/topology/phase-contract.ts
       - servers/exarchos-mcp/src/workflow/hsm-definitions.ts
@@ -126,15 +138,22 @@ invariants:
       - lifecycle-verbs
       - observability
     summary: >
-      Every long-running operation emits <surface>.executing_started at
-      entry and a paired terminal event (success/failure) at exit. v2.12
-      lifecycle verbs (ps, describe, wait) query these events generically;
-      no per-feature lifecycle code is needed. The protocol replaces
-      active polling and heartbeat infrastructure.
+      Every long-running operation emits <surface>.executing_started at entry
+      and a paired terminal event (success/failure) at exit. v2.12 lifecycle
+      verbs (ps, describe, wait) query these events generically; no per-feature
+      lifecycle code is needed. The protocol replaces active polling and
+      heartbeat infrastructure.
     citations:
-      - "Conductor durable execution: https://conductor-oss.github.io/conductor/devguide/concepts/conductor.html"
-      - "AWP runtime liveness: https://github.com/veegee82/agent-workflow-protocol/blob/main/docs/runtime.md"
-      - "Microsoft Scheduler-Agent-Supervisor (negative reference — what this protocol replaces): https://learn.microsoft.com/en-us/azure/architecture/patterns/scheduler-agent-supervisor"
+      - "Conductor durable execution:
+        https://conductor-oss.github.io/conductor/devguide/concepts/conductor.h\
+        tml"
+      - "AWP runtime liveness:
+        https://github.com/veegee82/agent-workflow-protocol/blob/main/docs/runt\
+        ime.md"
+      - "Microsoft Scheduler-Agent-Supervisor (negative reference — what this
+        protocol replaces):
+        https://learn.microsoft.com/en-us/azure/architecture/patterns/scheduler\
+        -agent-supervisor"
     references:
       - servers/exarchos-mcp/src/orchestrate/merge-orchestrate.ts
       - docs/architecture/runtime.md#§6
@@ -142,15 +161,14 @@ invariants:
   - id: INV-11
     dimension: posture-declared-capabilities
     integrity-class: substrate
-    phase-affinity: [review]
+    phase-affinity: [ review ]
     enforcement:
       mode: audit
       audit-prompt: >
         Is each agent's authority bounded by construction rather than by
-        convention? A read-only agent must be unable to mutate the working
-        tree; a task-isolated agent must be unable to write outside its
-        worktree. Flag a posture asserted in prose but not enforced at the
-        capability boundary.
+        convention? A read-only agent must be unable to mutate the working tree;
+        a task-isolated agent must be unable to write outside its worktree. Flag
+        a posture asserted in prose but not enforced at the capability boundary.
     axis: substrate
     cost-of-load: always-load
     applies-to:
@@ -159,18 +177,22 @@ invariants:
       - handshake
       - sub-agent-dispatch
     summary: >
-      Every agent declares one of three postures in agent spec YAML:
-      read-only | task-isolated | shared-mutating. The MCP initialize
-      handshake declares the runtime half. The capability resolver merges
-      posture with handshake; mismatches resolve to the handshake (handshake-authoritative).
-      Postures are unrepresentable-by-construction — a read-only agent
-      cannot mutate the working tree; a task-isolated agent cannot write
-      outside its assigned worktree.
+      Every agent declares one of three postures in agent spec YAML: read-only |
+      task-isolated | shared-mutating. The MCP initialize handshake declares the
+      runtime half. The capability resolver merges posture with handshake;
+      mismatches resolve to the handshake (handshake-authoritative). Postures
+      are unrepresentable-by-construction — a read-only agent cannot mutate the
+      working tree; a task-isolated agent cannot write outside its assigned
+      worktree.
     citations:
-      - "Mark S. Miller, *Robust Composition* (PhD dissertation, JHU 2006): https://papers.agoric.com/papers/robust-composition/full-text"
-      - "Miller et al., *Paradigm Lost: Abstraction Mechanisms for Access Control* (JHU SRL 2003): https://srl.cs.jhu.edu/pubs/SRL2003-03.pdf"
-      - "POLA — Principle of Least Authority (erights.org): http://wiki.erights.org/wiki/POLA"
-      - "anip-protocol SPEC — posture and handshake (convergent design): https://github.com/anip-protocol/anip/blob/main/SPEC.md"
+      - "Mark S. Miller, *Robust Composition* (PhD dissertation, JHU 2006):
+        https://papers.agoric.com/papers/robust-composition/full-text"
+      - "Miller et al., *Paradigm Lost: Abstraction Mechanisms for Access
+        Control* (JHU SRL 2003): https://srl.cs.jhu.edu/pubs/SRL2003-03.pdf"
+      - "POLA — Principle of Least Authority (erights.org):
+        http://wiki.erights.org/wiki/POLA"
+      - "anip-protocol SPEC — posture and handshake (convergent design):
+        https://github.com/anip-protocol/anip/blob/main/SPEC.md"
     references:
       - servers/exarchos-mcp/src/capabilities/resolver.ts
       - servers/exarchos-mcp/src/agents/generate-agents.ts
@@ -185,18 +207,25 @@ invariants:
       - next-actions-computer
       - agent-cooperation
     summary: >
-      The next_actions field on ToolResult publishes runtime affordances —
-      valid transitions perceivable to consuming agents. Agents read
-      next_actions and dispatch the listed verbs; they do not poll.
-      Autonomy is a property of state + topology (which determines
-      next_actions), not of any handler's internal logic. Removing a
-      verb from next_actions removes the agent's path to invoking it,
-      but does not remove the underlying affordance — the topology still
-      permits it.
+      The next_actions field on ToolResult publishes runtime affordances — valid
+      transitions perceivable to consuming agents. Agents read next_actions and
+      dispatch the listed verbs; they do not poll. Autonomy is a property of
+      state + topology (which determines next_actions), not of any handler's
+      internal logic. Removing a verb from next_actions removes the agent's path
+      to invoking it, but does not remove the underlying affordance — the
+      topology still permits it.
     citations:
-      - "Donald Norman, *Affordance, Conventions, and Design* (ACM Interactions 1999): https://interactions.acm.org/archive/view/may-june-1999/affordance-conventions-and-design1"
-      - "McGrenere & Ho, *Affordances: Clarifying and Evolving a Concept* (Graphics Interface 2000): https://graphicsinterface.org/wp-content/uploads/gi2000-24.pdf"
-      - "James J. Gibson, *The Ecological Approach to Visual Perception* (1979) — cited via the HCI glossary: https://interaction-design.org/literature/book/the-glossary-of-human-computer-interaction/affordances"
+      - "Donald Norman, *Affordance, Conventions, and Design* (ACM Interactions
+        1999):
+        https://interactions.acm.org/archive/view/may-june-1999/affordance-conv\
+        entions-and-design1"
+      - "McGrenere & Ho, *Affordances: Clarifying and Evolving a Concept*
+        (Graphics Interface 2000):
+        https://graphicsinterface.org/wp-content/uploads/gi2000-24.pdf"
+      - "James J. Gibson, *The Ecological Approach to Visual Perception* (1979)
+        — cited via the HCI glossary:
+        https://interaction-design.org/literature/book/the-glossary-of-human-co\
+        mputer-interaction/affordances"
     references:
       - servers/exarchos-mcp/src/next-actions-computer.ts
       - servers/exarchos-mcp/src/format.ts
@@ -205,13 +234,13 @@ invariants:
   - id: INV-13
     dimension: process-manager-two-event-split
     integrity-class: substrate
-    phase-affinity: [review]
+    phase-affinity: [ review ]
     enforcement:
       mode: audit
       audit-prompt: >
-        Does every non-idempotent external side effect emit a *.requested
-        intent before and a *.executed result after, so a crash between them
-        is recoverable by an idempotent precheck? Flag single-event external
+        Does every non-idempotent external side effect emit a *.requested intent
+        before and a *.executed result after, so a crash between them is
+        recoverable by an idempotent precheck? Flag single-event external
         mutators.
     axis: substrate
     cost-of-load: reference-only
@@ -221,18 +250,23 @@ invariants:
       - create-pr
       - withSession
     summary: >
-      Handlers performing non-idempotent external side effects emit two
-      events: *.requested (intent + full payload) before the side effect;
-      *.executed (result) after. On retry, the requested event idempotency-collapses
+      Handlers performing non-idempotent external side effects emit two events:
+      *.requested (intent + full payload) before the side effect; *.executed
+      (result) after. On retry, the requested event idempotency-collapses
       (INV-8); the side effect runs once. On crash recovery, the next invocation
       observes *.requested without *.executed and runs an idempotent precheck
       against external state (e.g., does the PR already exist?) to determine
       whether to re-emit or skip. Pattern source — Akka Effect.thenRun,
       Wolverine [AggregateHandler], Greg Young.
     citations:
-      - "Akka Effect.thenRun (Persistence docs): https://doc.akka.io/api/akka-core/current/akka/persistence/typed/scaladsl/Effect$.html"
-      - "Wolverine [AggregateHandler] (Miller 2023): https://jeremydmiller.com/2023/12/06/building-a-critter-stack-application-wolverines-aggregate-handler-workflow-ftw/"
-      - "Greg Young, *Why Event Sourced Systems Fail*: https://www.youtube.com/watch?v=FKFu78ZEIi8"
+      - "Akka Effect.thenRun (Persistence docs):
+        https://doc.akka.io/api/akka-core/current/akka/persistence/typed/scalad\
+        sl/Effect$.html"
+      - "Wolverine [AggregateHandler] (Miller 2023):
+        https://jeremydmiller.com/2023/12/06/building-a-critter-stack-applicati\
+        on-wolverines-aggregate-handler-workflow-ftw/"
+      - "Greg Young, *Why Event Sourced Systems Fail*:
+        https://www.youtube.com/watch?v=FKFu78ZEIi8"
     references:
       - servers/exarchos-mcp/src/orchestrate/merge-orchestrate.ts
       - servers/exarchos-mcp/src/event-store/atomic-appender.ts
@@ -241,14 +275,14 @@ invariants:
   - id: INV-14
     dimension: native-primitive-first-recovery
     integrity-class: substrate
-    phase-affinity: [review]
+    phase-affinity: [ review ]
     enforcement:
       mode: audit
       audit-prompt: >
         On reversal, does the handler prefer the operation's own recovery
         primitive, then a refuse-to-discard substrate undo, and never a
-        destructive overwrite? Flag any reset-hard-style path or a recovery
-        that can silently lose work.
+        destructive overwrite? Flag any reset-hard-style path or a recovery that
+        can silently lose work.
     axis: substrate
     cost-of-load: reference-only
     applies-to:
@@ -256,18 +290,23 @@ invariants:
       - recovery-paths
       - error-discriminators
     summary: >
-      When an external operation needs reversal, handlers prefer the
-      operation's own recovery primitive first (e.g., `git merge --abort`),
-      fall back to substrate-level undo with refuse-to-discard semantics
-      second (e.g., `git reset --keep <sha>`), and never use destructive
-      overwrite (e.g., `git reset --hard`). The recoveryError field on
-      terminal results discriminates 'reset-keep-blocked' | 'reset-failed'
-      | 'unexpected-mid-merge-drift' so callers see indeterminate states
-      explicitly rather than as silent successes.
+      When an external operation needs reversal, handlers prefer the operation's
+      own recovery primitive first (e.g., `git merge --abort`), fall back to
+      substrate-level undo with refuse-to-discard semantics second (e.g., `git
+      reset --keep <sha>`), and never use destructive overwrite (e.g., `git
+      reset --hard`). The recoveryError field on terminal results discriminates
+      'reset-keep-blocked' | 'reset-failed' | 'unexpected-mid-merge-drift' so
+      callers see indeterminate states explicitly rather than as silent
+      successes.
     citations:
-      - "Mohan et al., *ARIES* (ACM TODS 1992) — Compensation Log Records semantics as the abstract analog: https://dl.acm.org/doi/10.1145/128765.128770"
-      - "Greg Young, *Event Sourcing: The Bad Parts* (CodeCrafts 2022) — local-rewind recovery posture: https://www.youtube.com/watch?v=K4bj31fJGFk"
-      - "git documentation — `git merge --abort`, `git reset --keep`: https://git-scm.com/docs/git-reset"
+      - "Mohan et al., *ARIES* (ACM TODS 1992) — Compensation Log Records
+        semantics as the abstract analog:
+        https://dl.acm.org/doi/10.1145/128765.128770"
+      - "Greg Young, *Event Sourcing: The Bad Parts* (CodeCrafts 2022) —
+        local-rewind recovery posture:
+        https://www.youtube.com/watch?v=K4bj31fJGFk"
+      - "git documentation — `git merge --abort`, `git reset --keep`:
+        https://git-scm.com/docs/git-reset"
     references:
       - servers/exarchos-mcp/src/orchestrate/merge-orchestrate.ts
       - docs/architecture/runtime.md#§5
@@ -283,17 +322,24 @@ invariants:
     summary: >
       Exarchos is a single-machine event-sourced process manager with
       cooperative agents — concurrent, not distributed. No saga, no
-      Scheduler-Agent-Supervisor, no 2PC, no leader election, no vector
-      clocks, no BFT consensus, no distributed locks. Compensation is
-      local rewind over the event log, not remote command dispatch.
-      Liveness is event-emitted (INV-10), queryable via lifecycle verbs.
-      Cooperation is by construction (INV-11 posture + INV-12 affordance).
-      When a candidate design imports primitives from outside this frame,
-      the frame rejects it.
+      Scheduler-Agent-Supervisor, no 2PC, no leader election, no vector clocks,
+      no BFT consensus, no distributed locks. Compensation is local rewind over
+      the event log, not remote command dispatch. Liveness is event-emitted
+      (INV-10), queryable via lifecycle verbs. Cooperation is by construction
+      (INV-11 posture + INV-12 affordance). When a candidate design imports
+      primitives from outside this frame, the frame rejects it.
     citations:
-      - "Microsoft Azure Architecture Center — Scheduler Agent Supervisor pattern (negative reference): https://learn.microsoft.com/en-us/azure/architecture/patterns/scheduler-agent-supervisor"
-      - "Microsoft Azure Architecture Center — Saga design pattern (negative reference): https://learn.microsoft.com/en-us/azure/architecture/patterns/saga"
-      - "Clemens Vasters, *Cloud Architecture: The Scheduler-Agent-Supervisor Pattern* (2010): https://learn.microsoft.com/en-us/archive/blogs/clemensv/cloud-architecture-the-scheduler-agent-supervisor-pattern"
+      - "Microsoft Azure Architecture Center — Scheduler Agent Supervisor
+        pattern (negative reference):
+        https://learn.microsoft.com/en-us/azure/architecture/patterns/scheduler\
+        -agent-supervisor"
+      - "Microsoft Azure Architecture Center — Saga design pattern (negative
+        reference):
+        https://learn.microsoft.com/en-us/azure/architecture/patterns/saga"
+      - "Clemens Vasters, *Cloud Architecture: The Scheduler-Agent-Supervisor
+        Pattern* (2010):
+        https://learn.microsoft.com/en-us/archive/blogs/clemensv/cloud-architec\
+        ture-the-scheduler-agent-supervisor-pattern"
     references:
       - docs/architecture/runtime.md#§1
       - docs/architecture/runtime.md#§8
@@ -301,7 +347,7 @@ invariants:
   - id: INV-2
     dimension: facade-equivalence
     integrity-class: substrate
-    phase-affinity: [review]
+    phase-affinity: [ review ]
     severity:
       default: advisory
     enforcement:
@@ -329,9 +375,12 @@ invariants:
       every action also registers a Zod outputSchema so parity is schema-checked
       in addition to byte-checked.
     citations:
-      - "Alistair Cockburn, *Hexagonal Architecture (Ports & Adapters)* (2005): https://alistair.cockburn.us/hexagonal-architecture/"
-      - "Martin Fowler, *PresentationDomainDataLayering* (2015): https://martinfowler.com/bliki/PresentationDomainDataLayering.html"
-      - "Anthropic, *Model Context Protocol — Tools* (2024): https://modelcontextprotocol.io/specification/2025-06-18/server/tools"
+      - "Alistair Cockburn, *Hexagonal Architecture (Ports & Adapters)* (2005):
+        https://alistair.cockburn.us/hexagonal-architecture/"
+      - "Martin Fowler, *PresentationDomainDataLayering* (2015):
+        https://martinfowler.com/bliki/PresentationDomainDataLayering.html"
+      - "Anthropic, *Model Context Protocol — Tools* (2024):
+        https://modelcontextprotocol.io/specification/2025-06-18/server/tools"
     references:
       - docs/architecture/invariants/references/INV-2-facade-equivalence.md
       - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
@@ -340,7 +389,7 @@ invariants:
   - id: INV-3
     dimension: basileus-forward
     integrity-class: substrate
-    phase-affinity: [review]
+    phase-affinity: [ review ]
     enforcement:
       mode: audit
       audit-prompt: >
@@ -363,9 +412,16 @@ invariants:
       (post-#1269). The remote-MCP surface throws-not-degrades when called
       (#1081).
     citations:
-      - "Jim Waldo et al., *A Note on Distributed Computing* (Sun Microsystems 1994): https://web.archive.org/web/2020/https://scholar.harvard.edu/files/waldo/files/waldo-94.pdf"
-      - "Anthropic, *Model Context Protocol — Transports* (2025): https://modelcontextprotocol.io/specification/2025-06-18/basic/transports"
-      - "Martin Fowler, *Patterns of Enterprise Application Architecture* — Remote Facade (Addison-Wesley 2002): https://martinfowler.com/eaaCatalog/remoteFacade.html"
+      - "Jim Waldo et al., *A Note on Distributed Computing* (Sun Microsystems
+        1994):
+        https://web.archive.org/web/2020/https://scholar.harvard.edu/files/wald\
+        o/files/waldo-94.pdf"
+      - "Anthropic, *Model Context Protocol — Transports* (2025):
+        https://modelcontextprotocol.io/specification/2025-06-18/basic/transpor\
+        ts"
+      - "Martin Fowler, *Patterns of Enterprise Application Architecture* —
+        Remote Facade (Addison-Wesley 2002):
+        https://martinfowler.com/eaaCatalog/remoteFacade.html"
     references:
       - docs/architecture/invariants/references/INV-3-basileus-forward.md
       - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
@@ -375,8 +431,8 @@ invariants:
   - id: INV-4
     dimension: platform-agnosticity
     integrity-class: substrate
-    phase-affinity: [review]
-    workflow-affinity: [feature, debug, refactor, oneshot]
+    phase-affinity: [ review ]
+    workflow-affinity: [ feature, debug, refactor, oneshot ]
     severity:
       default: blocking
       by-workflow:
@@ -407,14 +463,20 @@ invariants:
       runtimes are first-class (Claude Code, Codex, Copilot, Cursor, OpenCode,
       generic). Runtime-specific text is tokenized via {{TOKEN}} placeholders or
       guarded via <!-- requires:* --> blocks. Source-of-truth edits go to
-      skills-src/; skills/<runtime>/** is generated.
-      INV-4 owns the *platform* axis (6 runtimes); INV-6 owns the orthogonal
-      *workload* axis (workflow types). The two are complementary substrate
-      properties — substrate guarantees hold across both axes.
+      skills-src/; skills/<runtime>/** is generated. INV-4 owns the *platform*
+      axis (6 runtimes); INV-6 owns the orthogonal *workload* axis (workflow
+      types). The two are complementary substrate properties — substrate
+      guarantees hold across both axes.
     citations:
-      - "Andrew Hunt & David Thomas, *The Pragmatic Programmer* — DRY / Single Source of Truth (Addison-Wesley 1999): https://pragprog.com/titles/tpp20/the-pragmatic-programmer-20th-anniversary-edition/"
-      - "Anthropic, *Agent Skills* (2025): https://docs.anthropic.com/en/docs/agents-and-tools/agent-skills/overview"
-      - "Anthropic, *Model Context Protocol — Architecture* (2025): https://modelcontextprotocol.io/specification/2025-06-18/architecture"
+      - "Andrew Hunt & David Thomas, *The Pragmatic Programmer* — DRY / Single
+        Source of Truth (Addison-Wesley 1999):
+        https://pragprog.com/titles/tpp20/the-pragmatic-programmer-20th-anniver\
+        sary-edition/"
+      - "Anthropic, *Agent Skills* (2025):
+        https://docs.anthropic.com/en/docs/agents-and-tools/agent-skills/overvi\
+        ew"
+      - "Anthropic, *Model Context Protocol — Architecture* (2025):
+        https://modelcontextprotocol.io/specification/2025-06-18/architecture"
     references:
       - docs/architecture/invariants/references/INV-4-platform-agnosticity.md
       - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
@@ -423,7 +485,7 @@ invariants:
   - id: INV-5a
     dimension: input-ergonomics
     integrity-class: substrate
-    phase-affinity: [review]
+    phase-affinity: [ review ]
     enforcement:
       # mode:audit, not check: the visible-tool-count is a whole-repo
       # structural fact (a count over registry.ts), not a diff property the
@@ -445,9 +507,12 @@ invariants:
       with a pointer to the alternative. Visible tool count stays under 15.
       Static reference content is exposed as MCP Resources, not tools.
     citations:
-      - "Anthropic, *Model Context Protocol — Tools* (2025): https://modelcontextprotocol.io/specification/2025-06-18/server/tools"
-      - "Anthropic, *Writing effective tools for agents* (2025): https://www.anthropic.com/engineering/writing-tools-for-agents"
-      - "JSON Schema, *Validation* (draft 2020-12): https://json-schema.org/draft/2020-12/json-schema-validation"
+      - "Anthropic, *Model Context Protocol — Tools* (2025):
+        https://modelcontextprotocol.io/specification/2025-06-18/server/tools"
+      - "Anthropic, *Writing effective tools for agents* (2025):
+        https://www.anthropic.com/engineering/writing-tools-for-agents"
+      - "JSON Schema, *Validation* (draft 2020-12):
+        https://json-schema.org/draft/2020-12/json-schema-validation"
     references:
       - docs/architecture/invariants/references/INV-5a-input-ergonomics.md
       - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
@@ -468,12 +533,17 @@ invariants:
       _meta, _perf fields. Errors carry validTargets, expectedShape,
       suggestedFix. Post-#1266, the carrier is structuredContent with a
       registered outputSchema per action; long-running ops use Tasks (SEP-1686)
-      not NDJSON. The affordance-as-perceived semantics of next_actions live
-      in INV-12.
+      not NDJSON. The affordance-as-perceived semantics of next_actions live in
+      INV-12.
     citations:
-      - "Anthropic, *Model Context Protocol — Tools (structured content & output schema)* (2025): https://modelcontextprotocol.io/specification/2025-06-18/server/tools#structured-content"
-      - "David L. Parnas, *On the Criteria To Be Used in Decomposing Systems into Modules* (CACM 1972): https://dl.acm.org/doi/10.1145/361598.361623"
-      - "JSON Schema, *Validation* (draft 2020-12): https://json-schema.org/draft/2020-12/json-schema-validation"
+      - "Anthropic, *Model Context Protocol — Tools (structured content & output
+        schema)* (2025):
+        https://modelcontextprotocol.io/specification/2025-06-18/server/tools#s\
+        tructured-content"
+      - "David L. Parnas, *On the Criteria To Be Used in Decomposing Systems
+        into Modules* (CACM 1972): https://dl.acm.org/doi/10.1145/361598.361623"
+      - "JSON Schema, *Validation* (draft 2020-12):
+        https://json-schema.org/draft/2020-12/json-schema-validation"
     references:
       - docs/architecture/invariants/references/INV-5b-output-contract.md
       - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
@@ -495,9 +565,13 @@ invariants:
       they don't drive scripts. ps / describe / wait / export are observation
       verbs; mutating verbs default to --dry-run.
     citations:
-      - "Microsoft, *.NET Aspire overview* (2024): https://learn.microsoft.com/en-us/dotnet/aspire/get-started/aspire-overview"
-      - "Kubernetes, *kubectl --dry-run server-side apply* (2024): https://kubernetes.io/docs/reference/using-api/server-side-apply/"
-      - "Adam Wiggins, *The Twelve-Factor App — Admin processes* (2017): https://12factor.net/admin-processes"
+      - "Microsoft, *.NET Aspire overview* (2024):
+        https://learn.microsoft.com/en-us/dotnet/aspire/get-started/aspire-over\
+        view"
+      - "Kubernetes, *kubectl --dry-run server-side apply* (2024):
+        https://kubernetes.io/docs/reference/using-api/server-side-apply/"
+      - "Adam Wiggins, *The Twelve-Factor App — Admin processes* (2017):
+        https://12factor.net/admin-processes"
     references:
       - docs/architecture/invariants/references/INV-5c-aspire-verbs.md
       - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
@@ -507,16 +581,16 @@ invariants:
   - id: INV-5d
     dimension: action-discriminator
     integrity-class: substrate
-    phase-affinity: [review]
+    phase-affinity: [ review ]
     enforcement:
       # mode:audit, not check: the composite-tool count is a whole-repo
       # structural fact, not a diff property. Judgment stays with the reviewer.
       mode: audit
       audit-prompt: >
-        Do the visible composite tools stay at four with action
-        discriminators, and do per-action annotations (destructive / readOnly
-        / idempotent / openWorld) ride on each action? Flag any new top-level
-        tool that should be an action.
+        Do the visible composite tools stay at four with action discriminators,
+        and do per-action annotations (destructive / readOnly / idempotent /
+        openWorld) ride on each action? Flag any new top-level tool that should
+        be an action.
     axis: substrate
     cost-of-load: reference-only
     applies-to:
@@ -538,7 +612,7 @@ invariants:
   - id: INV-6
     dimension: workload-agnosticism
     integrity-class: substrate
-    phase-affinity: [review]
+    phase-affinity: [ review ]
     enforcement:
       # mode:audit, not check: scripts/lint-inv6.mjs is a deliberately-advisory
       # literal scan with a frontmatter-declaration escape hatch a diff-grep
@@ -549,8 +623,8 @@ invariants:
       audit-prompt: >
         Does any skill body encode workflow-typed branching or assume one
         workflow type without declaring metadata.workflow-type? Substrate
-        guarantees must hold for every workflow type; workflow-specifics
-        belong in topology and playbooks.
+        guarantees must hold for every workflow type; workflow-specifics belong
+        in topology and playbooks.
     axis: substrate
     cost-of-load: always-load
     applies-to:
@@ -561,14 +635,18 @@ invariants:
     summary: >
       The runtime makes no assumption about which workload is executing.
       Substrate guarantees (RT-1..RT-6) hold identically for every workflow
-      type. Workflow-type-specific concerns belong in topology.yaml, not
-      the catalog. Skills describe behaviors; playbooks/commands describe
-      workflows. Operational projection: scripts/lint-inv6.mjs grep for
-      workflow-typed literals in skills-src/.
+      type. Workflow-type-specific concerns belong in topology.yaml, not the
+      catalog. Skills describe behaviors; playbooks/commands describe workflows.
+      Operational projection: scripts/lint-inv6.mjs grep for workflow-typed
+      literals in skills-src/.
     citations:
-      - "AWP runtime-agnostic protocol: https://github.com/veegee82/agent-workflow-protocol/blob/main/docs/runtime.md"
-      - "Harn typed orchestration boundary: https://harnlang.com/workflow-runtime.html"
-      - "Novita framework-agnostic runtime: https://blogs.novita.ai/novita-agent-runtime-agentcore-compatible/"
+      - "AWP runtime-agnostic protocol:
+        https://github.com/veegee82/agent-workflow-protocol/blob/main/docs/runt\
+        ime.md"
+      - "Harn typed orchestration boundary:
+        https://harnlang.com/workflow-runtime.html"
+      - "Novita framework-agnostic runtime:
+        https://blogs.novita.ai/novita-agent-runtime-agentcore-compatible/"
     references:
       - docs/architecture/invariants/references/INV-6-workflow-agnosticism.md
       - scripts/lint-inv6.mjs
@@ -577,8 +655,8 @@ invariants:
   - id: INV-16
     dimension: os-portability
     integrity-class: substrate
-    phase-affinity: [review]
-    workflow-affinity: [feature, debug, refactor, oneshot]
+    phase-affinity: [ review ]
+    workflow-affinity: [ feature, debug, refactor, oneshot ]
     severity:
       default: blocking
       by-workflow:
@@ -594,9 +672,9 @@ invariants:
         stored / compared / returned are POSIX-normalized (toPosix); paths are
         built with path.join, never separator string-concatenation; tests
         release SQLite handles before removing a temp dir (rmrf / rmrfAsync or
-        close()); package-manager spawns go through resolveExecutable
-        (npm/npx .cmd shims); module-relative paths use fileURLToPath, not
-        URL.pathname; nothing relies on POSIX-only file modes (chmod).
+        close()); package-manager spawns go through resolveExecutable (npm/npx
+        .cmd shims); module-relative paths use fileURLToPath, not URL.pathname;
+        nothing relies on POSIX-only file modes (chmod).
     axis: substrate
     cost-of-load: reference-only
     applies-to:
@@ -615,9 +693,14 @@ invariants:
       *harness* axis (6 AI runtimes) — both are platform-agnosticity substrate
       properties.
     citations:
-      - "Node.js, *Path* (OS-specific separators; fs accepts '/' on Windows): https://nodejs.org/api/path.html"
-      - "Node.js, *child_process.execFile* (spawns without a shell; .cmd shims on Windows): https://nodejs.org/api/child_process.html#child_processexecfilefile-args-options-callback"
-      - "Node.js, *fs.rm* (maxRetries/retryDelay for EBUSY/EPERM on Windows): https://nodejs.org/api/fs.html#fspromisesrmpath-options"
+      - "Node.js, *Path* (OS-specific separators; fs accepts '/' on Windows):
+        https://nodejs.org/api/path.html"
+      - "Node.js, *child_process.execFile* (spawns without a shell; .cmd shims
+        on Windows):
+        https://nodejs.org/api/child_process.html#child_processexecfilefile-arg\
+        s-options-callback"
+      - "Node.js, *fs.rm* (maxRetries/retryDelay for EBUSY/EPERM on Windows):
+        https://nodejs.org/api/fs.html#fspromisesrmpath-options"
     references:
       - servers/exarchos-mcp/src/utils/paths.ts
       - servers/exarchos-mcp/src/utils/process.ts
@@ -642,6 +725,65 @@ invariants:
       - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
       - docs/research/2026-05-14-semantic-merge-queue-audit.md
       - servers/exarchos-mcp/src/sync
+  - id: INV-17
+    dimension: response-economy
+    axis: substrate
+    cost-of-load: reference-only
+    applies-to:
+      - registry
+      - dispatch-core
+      - response-envelope
+      - action-schemas
+    summary: "Every action declares a response-economy budget (a declared value wins
+      over a registry-wide default), enforced once at the shared dispatch-core
+      measurement seam; unbounded output requires an explicit schema-typed
+      escape hatch (detail/limit/fields); budgets are test-enforced by a
+      registry-enumeration snapshot. The budget and escape-hatch are properties
+      of the canonical response contract — declared in the registry descriptor,
+      enforced in the shared core, rendered through a presentation seam — never
+      special-cased in one facade. This carries the INV-2 reframe (#1608: the
+      CLI is a presentation client over the MCP contract, equivalence by
+      construction) and the facade-codegen direction (system-design 05) forward:
+      the registered outputSchema must be total over every emittable shape
+      (baseline + capped + degraded), the precondition that makes facade
+      equivalence hold by construction. INV-17 is the response-economy
+      specialization of that output-contract totality obligation."
+    references:
+      - servers/exarchos-mcp/src/registry.ts
+      - servers/exarchos-mcp/src/core/dispatch.ts
+      - servers/exarchos-mcp/src/core/economy.ts
+      - docs/specs/2026-07-12-tool-token-economy-remediation.md
+    citations:
+      - "Anthropic, *Writing effective tools for AI agents / tool-use best
+        practices* (2024):
+        https://docs.anthropic.com/en/docs/build-with-claude/tool-use"
+      - "Model Context Protocol, *Server Tools — Structured Content &
+        outputSchema* (2025-06-18):
+        https://modelcontextprotocol.io/specification/2025-06-18/server/tools"
+      - "GitHub, *github-mcp-server — minimal, purpose-built tool responses*
+        (2024): https://github.com/github/github-mcp-server"
+    phase-affinity:
+      - review
+    workflow-affinity:
+      - feature
+      - debug
+      - refactor
+      - oneshot
+    enforcement:
+      mode: audit
+      audit-prompt: Does every action declare (or inherit) a response-economy budget,
+        with unbounded output gated behind an explicit schema-typed escape hatch
+        (detail/limit/fields)? The mechanical backstops are the
+        registry-enumeration budget snapshot test (pins every action's effective
+        budget; an invalid budget fails the test) and the dispatch-core economy
+        guard (caps only data, stamps _meta.truncated, fails open with
+        _meta.economyDegraded). Flag any new action shipping unbounded output
+        without a declared budget or a schema-typed escape hatch, and any
+        capped/summary response shape absent from the action's registered
+        outputSchema.
+    severity:
+      default: advisory
+    integrity-class: substrate
 ---
 
 # Exarchos Architectural Invariants
