@@ -102,8 +102,12 @@ import {
 } from './dispatch-guard.js';
 import { shouldEnforceCheckpoint } from '../workflow/checkpoint.js';
 import { assertWorktreeBaseRefPinned } from './worktree-baseref.js';
-import { DEFAULTS } from '../config/resolve.js';
+import { DEFAULTS, resolveConfig } from '../config/resolve.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
+import { parseTaskStamps } from './parse-task-stamps.js';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { resolveVerificationSequence } from '../workflow/verification-policy.js';
 import type { GateName, RiskTier } from '../workflow/verification-policy.js';
 import { resolveVerificationPolicy } from '../workflow/verification-policy-resolver.js';
@@ -2417,7 +2421,11 @@ describe('handlePrepareDelegation', () => {
     });
 
     it('PrepareDelegation_WithCtx_UsesProjectConfigForModelResolution', async () => {
-      // Arrange
+      // DR-1 (#1672): the handler threads `projectConfig.agents.tierModels`
+      // through the classify seam — the dispatched model now keys off the task's
+      // riskTier, NOT the scaffolder/implementer agent split. Both tasks derive
+      // to the medium tier ({id,title}-only → default), so both resolve to the
+      // CONFIGURED medium model, regardless of agent.
       const state = readyWorkflowState();
       setupMaterializer(state);
       vi.mocked(generateQualityHints).mockReturnValue([]);
@@ -2428,16 +2436,14 @@ describe('handlePrepareDelegation', () => {
           { id: 'task-2', title: 'Implement handler' },
         ],
       };
+      // A REAL resolved config (not a hand-mocked partial) with a custom
+      // medium→opus tier policy — exercising the genuine resolveConfig collaborator
+      // across the classify seam.
       const ctx = {
         stateDir: STATE_DIR,
         eventStore: {} as never,
         enableTelemetry: false,
-        projectConfig: {
-          agents: {
-            defaultModel: 'sonnet' as const,
-            models: { scaffolder: 'haiku' as const },
-          },
-        } as never,
+        projectConfig: resolveConfig({ agents: { 'tier-models': { medium: 'opus' } } }),
       };
 
       // Act
@@ -2448,8 +2454,14 @@ describe('handlePrepareDelegation', () => {
       const data = result.data as { taskClassifications: TaskClassification[] };
       const scaffolderTask = data.taskClassifications.find(tc => tc.recommendedAgent === 'scaffolder');
       const implementerTask = data.taskClassifications.find(tc => tc.recommendedAgent === 'implementer');
-      expect(scaffolderTask?.recommendedModel).toBe('haiku');
-      expect(implementerTask?.recommendedModel).toBe('sonnet');
+      // Agent split is preserved…
+      expect(scaffolderTask).toBeDefined();
+      expect(implementerTask).toBeDefined();
+      // …but BOTH medium-tier tasks resolve to the configured medium model.
+      expect(scaffolderTask?.riskTier).toBe('medium');
+      expect(implementerTask?.riskTier).toBe('medium');
+      expect(scaffolderTask?.recommendedModel).toBe('opus');
+      expect(implementerTask?.recommendedModel).toBe('opus');
     });
 
     it('PrepareDelegation_WithoutCtx_UsesDefaults', async () => {
@@ -2468,13 +2480,18 @@ describe('handlePrepareDelegation', () => {
       // Act -- no ctx passed
       const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-      // Assert -- uses DEFAULTS.agents
+      // Assert -- uses DEFAULTS.agents.tierModels. Both tasks are {id,title}-only
+      // → medium tier → DEFAULTS.agents.tierModels.medium = 'sonnet'. The agent
+      // split (scaffolder vs implementer) is preserved but no longer drives the
+      // model (DR-1 #1672 — the model tracks the tier, not the agent).
       expect(result.success).toBe(true);
       const data = result.data as { taskClassifications: TaskClassification[] };
       const scaffolderTask = data.taskClassifications.find(tc => tc.recommendedAgent === 'scaffolder');
       const implementerTask = data.taskClassifications.find(tc => tc.recommendedAgent === 'implementer');
-      expect(scaffolderTask?.recommendedModel).toBe('haiku');   // DEFAULTS.agents.models.scaffolder
-      expect(implementerTask?.recommendedModel).toBe('opus');   // DEFAULTS.agents.defaultModel
+      expect(scaffolderTask).toBeDefined();
+      expect(implementerTask).toBeDefined();
+      expect(scaffolderTask?.recommendedModel).toBe('sonnet');   // tierModels.medium (was models.scaffolder=haiku)
+      expect(implementerTask?.recommendedModel).toBe('sonnet');  // tierModels.medium (was defaultModel=opus)
     });
   });
 
@@ -2541,44 +2558,146 @@ describe('handlePrepareDelegation', () => {
     });
   });
 
-  describe('classifyTask model resolution', () => {
-    it('classifyTask_WithAgentConfig_ScaffolderGetsConfiguredModel', () => {
-      const config = { defaultModel: 'opus' as const, models: { scaffolder: 'haiku' as const } };
-      const result = classifyTask({ id: '001', title: 'Stub out the API interface' }, config);
-      expect(result.recommendedModel).toBe('haiku');
+  // ─── DR-1 (#1672 / #1670): tier-keyed model selection in the classify path ──
+  //
+  // The dispatched model now tracks the task's verification-ladder `riskTier`
+  // via `agents.tierModels`, NOT the scaffolder/implementer agent split. The
+  // agent split (classifyTaskCore) is unchanged; the tier policy overrides the
+  // model on top. Defaults: low → haiku, medium → sonnet, high → opus.
+  describe('classifyTask — tier-keyed model resolution (DR-1 #1672)', () => {
+    it('ClassifyTask_LowTier_ResolvesConfiguredLowModel', () => {
+      // A low-tier task (all files match LOW_RISK_GLOBS) resolves to the
+      // CONFIGURED low-tier model — here re-mapped to 'sonnet' (a monotone table:
+      // low=sonnet, medium=sonnet, high=opus) to prove the config drives it, not
+      // the hardcoded default.
+      const agents = resolveConfig({ agents: { 'tier-models': { low: 'sonnet' } } }).agents;
+      const result = classifyTask({ id: '001', title: 'Tune settings', files: ['settings.json'] }, agents);
+      expect(result.riskTier).toBe('low');
+      expect(result.recommendedModel).toBe('sonnet');
+
+      // Control: with the documented defaults the same low-tier task → haiku.
+      const dflt = classifyTask({ id: '001', title: 'Tune settings', files: ['settings.json'] });
+      expect(dflt.riskTier).toBe('low');
+      expect(dflt.recommendedModel).toBe('haiku');
     });
 
-    it('classifyTask_WithAgentConfig_ImplementerGetsConfiguredModel', () => {
-      const config = { defaultModel: 'opus' as const, models: { implementer: 'opus' as const } };
-      const result = classifyTask({ id: '002', title: 'Implement auth handler' }, config);
-      expect(result.recommendedModel).toBe('opus');
+    it('ClassifyTask_HighTierScaffoldingTitle_NeverHaiku', () => {
+      // The #1670 miscalibration: a scaffolding-keyword title on a HIGH-tier task
+      // used to collapse to haiku (scaffolder→haiku). Now the agent stays
+      // scaffolder but the model is the high-tier model — never haiku.
+      const result = classifyTask({ id: '002', title: 'Scaffold the API interface', riskTier: 'high' });
+      expect(result.recommendedAgent).toBe('scaffolder'); // agent split preserved
+      expect(result.riskTier).toBe('high');
+      expect(result.recommendedModel).not.toBe('haiku');
+      expect(result.recommendedModel).toBe('opus'); // DEFAULTS.agents.tierModels.high
     });
 
-    it('classifyTask_WithAgentConfig_FallsBackToDefaultModel', () => {
-      const config = { defaultModel: 'sonnet' as const, models: {} };
-      const result = classifyTask({ id: '003', title: 'Implement feature X' }, config);
+    it('ClassifyTask_PlannerHighStamp_GetsHighTierModel', () => {
+      // The planner's explicit riskTier stamp WINS over the heuristic (#1669):
+      // an otherwise-medium task ({id,title}-only) stamped high dispatches on the
+      // high-tier model.
+      const heuristicOnly = classifyTask({ id: '003', title: 'Implement feature' });
+      expect(heuristicOnly.riskTier).toBe('medium');
+      expect(heuristicOnly.recommendedModel).toBe('sonnet');
+
+      const stamped = classifyTask({ id: '003', title: 'Implement feature', riskTier: 'high' });
+      expect(stamped.riskTier).toBe('high');
+      expect(stamped.recommendedModel).toBe('opus');
+    });
+
+    it('ClassifyTask_TierModelsOverride_FlowsThrough', () => {
+      // The settled OQ2 opt-in high→sonnet flows through the classify seam from a
+      // real resolved config.
+      const agents = resolveConfig({ agents: { 'tier-models': { high: 'sonnet' } } }).agents;
+      const result = classifyTask({ id: '004', title: 'Implement feature', riskTier: 'high' }, agents);
+      expect(result.riskTier).toBe('high');
       expect(result.recommendedModel).toBe('sonnet');
     });
 
-    it('classifyTask_WithAgentConfig_PerAgentOverridesDefault', () => {
-      const config = { defaultModel: 'opus' as const, models: { scaffolder: 'haiku' as const } };
-      // scaffolder task -> 'haiku'
-      const scaffolderResult = classifyTask({ id: '004a', title: 'Scaffold the test harness' }, config);
-      expect(scaffolderResult.recommendedModel).toBe('haiku');
-      // implementer task -> 'opus' (from defaultModel)
-      const implementerResult = classifyTask({ id: '004b', title: 'Implement handler' }, config);
-      expect(implementerResult.recommendedModel).toBe('opus');
+    it('ClassifyTask_MediumDefault_ResolvesSonnet', () => {
+      // Characterization: a plain {id,title} task is medium tier → sonnet, no
+      // longer opus-by-defaultModel. Locks the decoupling of model from agent.
+      const result = classifyTask({ id: '005', title: 'Add validation logic' });
+      expect(result.riskTier).toBe('medium');
+      expect(result.recommendedAgent).toBe('implementer');
+      expect(result.recommendedModel).toBe('sonnet');
     });
+  });
+});
 
-    it('classifyTask_WithDefaultConfig_ScaffolderGetsHaiku', () => {
-      const result = classifyTask({ id: '005', title: 'Scaffold boilerplate' }, DEFAULTS.agents);
-      expect(result.recommendedModel).toBe('haiku');
-    });
+// ─── DR-1 (#1672 / #1670): executed corpus assertion ────────────────────────
+//
+// The #1670 finding: over the stamped `docs/specs/` corpus the dispatched model
+// COLLAPSED to essentially a single model (opus), because the model keyed off
+// the scaffolder/implementer agent split — independent of the planner's tier.
+// After DR-1 the model is tier-keyed, so the corpus model mix must TRACK the
+// tier distribution (no single-model collapse). This runs the REAL production
+// `classifyTask` over the REAL corpus (parsed by the production stamp parser),
+// exercising the genuine classify seam end-to-end — not a hand-mocked fixture.
+describe('classifyTask — stamped-corpus model mix (DR-1 #1672)', () => {
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const SPECS_DIR = path.join(__dirname, '..', '..', '..', '..', 'docs', 'specs');
 
-    it('classifyTask_WithDefaultConfig_ImplementerGetsOpus', () => {
-      const result = classifyTask({ id: '006', title: 'Implement handler' }, DEFAULTS.agents);
-      expect(result.recommendedModel).toBe('opus');
-    });
+  /** Load every stamped task from docs/specs via the production stamp parser. */
+  function loadStampedCorpus(): TaskInput[] {
+    const files = fs.readdirSync(SPECS_DIR).filter((f) => f.endsWith('.md'));
+    const tasks: TaskInput[] = [];
+    for (const f of files) {
+      const parsed = parseTaskStamps(fs.readFileSync(path.join(SPECS_DIR, f), 'utf-8'));
+      for (const t of parsed) {
+        if (t.riskTier === undefined) continue; // only riskTier-stamped tasks are meaningful
+        tasks.push({
+          id: t.id,
+          title: t.title,
+          files: t.files,
+          blockedBy: t.blockedBy,
+          ...(t.testLayer ? { testLayer: t.testLayer } : {}),
+          riskTier: t.riskTier,
+          ...(t.boundaryTouching !== undefined ? { boundaryTouching: t.boundaryTouching } : {}),
+        });
+      }
+    }
+    return tasks;
+  }
+
+  it('PrepareDelegation_StampedCorpus_ModelMixTracksTierDistribution', () => {
+    const corpus = loadStampedCorpus();
+    // The corpus must be non-trivial and span more than one tier, else the
+    // "tracks the distribution / no collapse" claim is vacuous.
+    expect(corpus.length).toBeGreaterThanOrEqual(20);
+
+    const tierCounts: Record<RiskTier, number> = { low: 0, medium: 0, high: 0 };
+    const modelCounts: Record<string, number> = {};
+    for (const task of corpus) {
+      const c = classifyTask(task);
+      // Core invariant: the dispatched model is exactly the tier's configured
+      // model. This is what goes RED if the tier-keying is reverted.
+      expect(c.recommendedModel).toBe(DEFAULTS.agents.tierModels[c.riskTier]);
+      tierCounts[c.riskTier]++;
+      modelCounts[c.recommendedModel] = (modelCounts[c.recommendedModel] ?? 0) + 1;
+    }
+
+    // More than one tier is represented (a genuine distribution, not a collapse).
+    const tiersPresent = (['low', 'medium', 'high'] as const).filter((t) => tierCounts[t] > 0);
+    expect(tiersPresent.length).toBeGreaterThanOrEqual(2);
+
+    // The aggregate model mix TRACKS the tier distribution exactly, under the
+    // documented default table (low→haiku, medium→sonnet, high→opus — all
+    // distinct, so each model's count equals its tier's count).
+    const expectedModelCounts: Record<string, number> = {};
+    for (const tier of tiersPresent) {
+      const model = DEFAULTS.agents.tierModels[tier];
+      expectedModelCounts[model] = (expectedModelCounts[model] ?? 0) + tierCounts[tier];
+    }
+    expect(modelCounts).toEqual(expectedModelCounts);
+
+    // NO single-model collapse: more than one distinct model, and no model
+    // accounts for the entire corpus.
+    const distinctModels = Object.keys(modelCounts);
+    expect(distinctModels.length).toBeGreaterThanOrEqual(2);
+    for (const count of Object.values(modelCounts)) {
+      expect(count).toBeLessThan(corpus.length);
+    }
   });
 });
 

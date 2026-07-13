@@ -1,0 +1,68 @@
+# benchmark: gate-catch-rate (#1675 DR-3) — mechanical-gate catch rate + cost columns
+# source: measured
+# binaryTag: v2.12.0-preview.2
+# gitSha: 38e4ed93ec1d2262e8c92c80c4aa29766562fb64
+# modelIds: none
+# date: 2026-07-10
+# note: model-free — the mechanical gates are deterministic (no LLM); modelIds=[none] satisfies the provenance non-empty invariant. wallClockMs is a machine-dependent snapshot; payloadTokens = ceil(payloadChars/4).
+gateClass,fixtureId,kind,gate,expectedVerdict,verdict,correct,riskTier,boundaryTouching,wallClockMs,payloadChars,payloadTokens,oracleDetected,note
+test-adequacy,test-adequacy/defect-01,defect,check_test_adequacy,fail,fail,true,medium,false,127.84,92,23,,
+test-adequacy,test-adequacy/defect-02,defect,check_test_adequacy,fail,fail,true,medium,false,156.88,92,23,,
+test-adequacy,test-adequacy/defect-03,defect,check_test_adequacy,fail,fail,true,medium,false,157.95,92,23,,
+test-adequacy,test-adequacy/defect-04,defect,check_test_adequacy,fail,fail,true,medium,false,169.19,92,23,,
+test-adequacy,test-adequacy/defect-05,defect,check_test_adequacy,fail,fail,true,medium,false,154.62,92,23,,
+test-adequacy,test-adequacy/control-01,control,check_test_adequacy,pass,pass,true,medium,false,148.88,90,23,,
+test-adequacy,test-adequacy/control-02,control,check_test_adequacy,pass,pass,true,medium,false,137.68,90,23,,
+test-adequacy,test-adequacy/control-03,control,check_test_adequacy,pass,pass,true,medium,false,149.25,90,23,,
+test-adequacy,test-adequacy/control-04,control,check_test_adequacy,pass,pass,true,medium,false,148.67,90,23,,
+test-adequacy,test-adequacy/control-05,control,check_test_adequacy,pass,pass,true,medium,false,150.74,90,23,,
+contract-drift,contract-drift/defect-01,defect,check_contract_drift,fail,fail,true,high,true,45.09,208,52,,
+contract-drift,contract-drift/defect-02,defect,check_contract_drift,fail,fail,true,high,true,49.41,207,52,,
+contract-drift,contract-drift/defect-03,defect,check_contract_drift,fail,fail,true,high,true,43.14,218,55,,
+contract-drift,contract-drift/defect-04,defect,check_contract_drift,fail,fail,true,high,true,34.78,204,51,,
+contract-drift,contract-drift/defect-05,defect,check_contract_drift,fail,fail,true,high,true,21.04,251,63,,
+contract-drift,contract-drift/control-01,control,check_contract_drift,pass,pass,true,high,true,25.9,293,74,,
+contract-drift,contract-drift/control-02,control,check_contract_drift,pass,pass,true,high,true,47.03,293,74,,
+contract-drift,contract-drift/control-03,control,check_contract_drift,pass,pass,true,high,true,36.03,293,74,,
+contract-drift,contract-drift/control-04,control,check_contract_drift,pass,pass,true,high,true,28.41,293,74,,
+contract-drift,contract-drift/control-05,control,check_contract_drift,pass,pass,true,high,true,31.54,293,74,,
+mock-boundary,mock-boundary/defect-01,defect,check_mock_boundary,fail,fail,true,medium,true,11.92,503,126,,findings=1
+mock-boundary,mock-boundary/defect-02,defect,check_mock_boundary,fail,fail,true,medium,true,8.03,513,129,,findings=1
+mock-boundary,mock-boundary/defect-03,defect,check_mock_boundary,fail,fail,true,medium,true,13.72,525,132,,findings=1
+mock-boundary,mock-boundary/defect-04,defect,check_mock_boundary,fail,fail,true,medium,true,13.83,566,142,,findings=1
+mock-boundary,mock-boundary/defect-05,defect,check_mock_boundary,fail,fail,true,medium,true,13.21,384,96,,findings=1
+mock-boundary,mock-boundary/control-01,control,check_mock_boundary,pass,pass,true,medium,true,14.82,50,13,,findings=0
+mock-boundary,mock-boundary/control-02,control,check_mock_boundary,pass,pass,true,medium,true,7.76,50,13,,findings=0
+mock-boundary,mock-boundary/control-03,control,check_mock_boundary,pass,pass,true,medium,true,4.81,50,13,,findings=0
+mock-boundary,mock-boundary/control-04,control,check_mock_boundary,pass,pass,true,medium,true,11.08,50,13,,findings=0
+mock-boundary,mock-boundary/control-05,control,check_mock_boundary,pass,pass,true,medium,true,17.88,50,13,,findings=0
+static-analysis,static-analysis/defect-01,defect,check_static_analysis,fail,fail,true,medium,false,86.26,601,151,,
+static-analysis,static-analysis/defect-02,defect,check_static_analysis,fail,fail,true,medium,false,69.29,591,148,,
+static-analysis,static-analysis/defect-03,defect,check_static_analysis,fail,fail,true,medium,false,85.25,573,144,,
+static-analysis,static-analysis/defect-04,defect,check_static_analysis,fail,fail,true,medium,false,88.94,586,147,,
+static-analysis,static-analysis/defect-05,defect,check_static_analysis,fail,fail,true,medium,false,85.3,591,148,,
+static-analysis,static-analysis/control-01,control,check_static_analysis,pass,pass,true,medium,false,61.76,360,90,,
+static-analysis,static-analysis/control-02,control,check_static_analysis,pass,pass,true,medium,false,88.89,360,90,,
+static-analysis,static-analysis/control-03,control,check_static_analysis,pass,pass,true,medium,false,96.85,360,90,,
+static-analysis,static-analysis/control-04,control,check_static_analysis,pass,pass,true,medium,false,75.29,360,90,,
+static-analysis,static-analysis/control-05,control,check_static_analysis,pass,pass,true,medium,false,62.48,360,90,,
+integration-suite,integration-suite/defect-01,defect,check_integration_suite,fail,fail,true,high,false,75.86,367,92,,
+integration-suite,integration-suite/defect-02,defect,check_integration_suite,fail,fail,true,high,false,82.67,474,119,,
+integration-suite,integration-suite/defect-03,defect,check_integration_suite,fail,fail,true,high,false,66.15,367,92,,
+integration-suite,integration-suite/defect-04,defect,check_integration_suite,fail,fail,true,high,false,82.04,419,105,,
+integration-suite,integration-suite/defect-05,defect,check_integration_suite,fail,fail,true,high,false,72.13,369,93,,
+integration-suite,integration-suite/control-01,control,check_integration_suite,pass,pass,true,high,false,103.1,365,92,,
+integration-suite,integration-suite/control-02,control,check_integration_suite,pass,pass,true,high,false,84.97,365,92,,
+integration-suite,integration-suite/control-03,control,check_integration_suite,pass,pass,true,high,false,81.33,362,91,,
+integration-suite,integration-suite/control-04,control,check_integration_suite,pass,pass,true,high,false,71.77,368,92,,
+integration-suite,integration-suite/control-05,control,check_integration_suite,pass,pass,true,high,false,74.11,365,92,,
+dropped-edge-case,dropped-edge-case/defect-01,defect,none,ungated,ungated,,medium,false,20.11,0,0,true,ungated
+dropped-edge-case,dropped-edge-case/defect-02,defect,none,ungated,ungated,,medium,false,32.53,0,0,true,ungated
+dropped-edge-case,dropped-edge-case/defect-03,defect,none,ungated,ungated,,medium,false,20.06,0,0,true,ungated
+dropped-edge-case,dropped-edge-case/defect-04,defect,none,ungated,ungated,,medium,false,19.72,0,0,true,ungated
+dropped-edge-case,dropped-edge-case/defect-05,defect,none,ungated,ungated,,medium,false,25,0,0,true,ungated
+dropped-edge-case,dropped-edge-case/control-01,control,none,ungated,ungated,,medium,false,28.85,0,0,false,ungated
+dropped-edge-case,dropped-edge-case/control-02,control,none,ungated,ungated,,medium,false,26.45,0,0,false,ungated
+dropped-edge-case,dropped-edge-case/control-03,control,none,ungated,ungated,,medium,false,17.64,0,0,false,ungated
+dropped-edge-case,dropped-edge-case/control-04,control,none,ungated,ungated,,medium,false,32.67,0,0,false,ungated
+dropped-edge-case,dropped-edge-case/control-05,control,none,ungated,ungated,,medium,false,12.34,0,0,false,ungated

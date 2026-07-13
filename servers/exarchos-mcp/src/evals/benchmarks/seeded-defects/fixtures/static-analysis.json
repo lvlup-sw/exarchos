@@ -1,0 +1,129 @@
+{
+  "gateClass": "static-analysis",
+  "gate": "check_static_analysis",
+  "branchPrefix": "seeded/static-analysis",
+  "defects": [
+    {
+      "id": "static-analysis/defect-01",
+      "defectMechanism": "type/lint violation: unterminated string literal",
+      "base": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"lint\": \"node --check src/mod.js\"\n  }\n}\n",
+        "src/mod.js": "export const meta = 'seeded';\nexport function mod() {\n  return 1;\n}\n"
+      },
+      "head": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"lint\": \"node --check src/mod.js\"\n  }\n}\n",
+        "src/mod.js": "export const s = \"oops;\n"
+      }
+    },
+    {
+      "id": "static-analysis/defect-02",
+      "defectMechanism": "type/lint violation: missing right-hand operand",
+      "base": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"lint\": \"node --check src/mod.js\"\n  }\n}\n",
+        "src/mod.js": "export const meta = 'seeded';\nexport function mod() {\n  return 1;\n}\n"
+      },
+      "head": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"lint\": \"node --check src/mod.js\"\n  }\n}\n",
+        "src/mod.js": "export const y = 1 + ;\n"
+      }
+    },
+    {
+      "id": "static-analysis/defect-03",
+      "defectMechanism": "type/lint violation: mismatched closing bracket",
+      "base": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"lint\": \"node --check src/mod.js\"\n  }\n}\n",
+        "src/mod.js": "export const meta = 'seeded';\nexport function mod() {\n  return 1;\n}\n"
+      },
+      "head": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"lint\": \"node --check src/mod.js\"\n  }\n}\n",
+        "src/mod.js": "export function f() {\n  return 1; ]\n"
+      }
+    },
+    {
+      "id": "static-analysis/defect-04",
+      "defectMechanism": "type/lint violation: duplicate lexical const declaration",
+      "base": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"lint\": \"node --check src/mod.js\"\n  }\n}\n",
+        "src/mod.js": "export const meta = 'seeded';\nexport function mod() {\n  return 1;\n}\n"
+      },
+      "head": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"lint\": \"node --check src/mod.js\"\n  }\n}\n",
+        "src/mod.js": "const a = 1;\nconst a = 2;\nexport { a };\n"
+      }
+    },
+    {
+      "id": "static-analysis/defect-05",
+      "defectMechanism": "type/lint violation: illegal token in expression",
+      "base": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"lint\": \"node --check src/mod.js\"\n  }\n}\n",
+        "src/mod.js": "export const meta = 'seeded';\nexport function mod() {\n  return 1;\n}\n"
+      },
+      "head": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"lint\": \"node --check src/mod.js\"\n  }\n}\n",
+        "src/mod.js": "export const z = @;\n"
+      }
+    }
+  ],
+  "controls": [
+    {
+      "id": "static-analysis/control-01",
+      "defectMechanism": "clean module — parses + lints without error",
+      "base": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"lint\": \"node --check src/mod.js\"\n  }\n}\n",
+        "src/mod.js": "export const meta = 'seeded';\nexport function mod() {\n  return 0;\n}\n"
+      },
+      "head": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"lint\": \"node --check src/mod.js\"\n  }\n}\n",
+        "src/mod.js": "export const meta = 'seeded';\nexport function mod() {\n  return 1;\n}\n"
+      }
+    },
+    {
+      "id": "static-analysis/control-02",
+      "defectMechanism": "clean module — parses + lints without error",
+      "base": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"lint\": \"node --check src/mod.js\"\n  }\n}\n",
+        "src/mod.js": "export const meta = 'seeded';\nexport function mod() {\n  return 0;\n}\n"
+      },
+      "head": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"lint\": \"node --check src/mod.js\"\n  }\n}\n",
+        "src/mod.js": "export const meta = 'seeded';\nexport function mod() {\n  return 2 * 21;\n}\n"
+      }
+    },
+    {
+      "id": "static-analysis/control-03",
+      "defectMechanism": "clean module — parses + lints without error",
+      "base": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"lint\": \"node --check src/mod.js\"\n  }\n}\n",
+        "src/mod.js": "export const meta = 'seeded';\nexport function mod() {\n  return 0;\n}\n"
+      },
+      "head": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"lint\": \"node --check src/mod.js\"\n  }\n}\n",
+        "src/mod.js": "export const meta = 'seeded';\nexport function mod() {\n  return 'ok'.length;\n}\n"
+      }
+    },
+    {
+      "id": "static-analysis/control-04",
+      "defectMechanism": "clean module — parses + lints without error",
+      "base": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"lint\": \"node --check src/mod.js\"\n  }\n}\n",
+        "src/mod.js": "export const meta = 'seeded';\nexport function mod() {\n  return 0;\n}\n"
+      },
+      "head": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"lint\": \"node --check src/mod.js\"\n  }\n}\n",
+        "src/mod.js": "export const meta = 'seeded';\nexport function mod() {\n  return [1,2,3].reduce((a,b)=>a+b,0);\n}\n"
+      }
+    },
+    {
+      "id": "static-analysis/control-05",
+      "defectMechanism": "clean module — parses + lints without error",
+      "base": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"lint\": \"node --check src/mod.js\"\n  }\n}\n",
+        "src/mod.js": "export const meta = 'seeded';\nexport function mod() {\n  return 0;\n}\n"
+      },
+      "head": {
+        "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"lint\": \"node --check src/mod.js\"\n  }\n}\n",
+        "src/mod.js": "export const meta = 'seeded';\nexport function mod() {\n  return Math.max(1,2,3);\n}\n"
+      }
+    }
+  ]
+}
