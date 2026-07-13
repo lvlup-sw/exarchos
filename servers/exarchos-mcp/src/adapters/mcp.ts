@@ -156,12 +156,41 @@ const LCD_OUTPUT_SCHEMA = EnvelopeSchema(z.unknown());
 // ─── D.1: Envelope → MCP CallToolResult carrier mapping ────────────────────
 
 /**
+ * DR-9 presentation seam — the single point where the MCP `content` block is
+ * derived from the canonical envelope. This is the §05 presentation/contract
+ * split point: `structuredContent` is the canonical *contract* (the full
+ * envelope); `content` is a *presentation* of it, rendered here.
+ *
+ * Today this is deliberately **byte-identical** to the pre-seam inline
+ * construction — `[{ type: 'text', text: JSON.stringify(env) }]` — so the
+ * refactor changes no bytes over the wire (characterization-pinned by
+ * `toMcpResult_RenderContentSeam_BytesIdenticalToInline`).
+ *
+ * The lean/compact rendering this seam is designed to host is **DEFERRED** —
+ * NOT implemented here. Task 016's decision rule returned DEFER: whether a host
+ * injects `content` (vs `structuredContent`) into the model's context is
+ * un-evidenced across *every* Tier-1 runtime, so INV-4 forbids shipping a
+ * model-visible rendering change now. Fill this seam with a lean rendering only
+ * on a live-runtime GO per that note's §6 decision rule; until then it stays
+ * byte-identical. See `docs/research/2026-07-DR9-content-injection-verification.md`.
+ *
+ * Discipline: any future economy/capping logic lives in the shared core
+ * (`core/economy.ts`, `core/dispatch.ts`) — `renderContent` only *renders*.
+ */
+function renderContent(
+  env: Envelope<unknown> | ErrorEnvelope,
+): { type: 'text'; text: string }[] {
+  return [{ type: 'text' as const, text: JSON.stringify(env) }];
+}
+
+/**
  * Map an Exarchos envelope onto the MCP `CallToolResult` carrier.
  *
  * MCP 2025-11-25 §Tools / Structured Content: SHOULD also return the
  * serialized JSON in a TextContent block for backwards compatibility.
  * We honour that — clients reading `content[0].text` keep working; the
- * new validated payload rides `structuredContent`.
+ * new validated payload rides `structuredContent`. The `content` block is
+ * derived through the DR-9 `renderContent` presentation seam (above).
  *
  * Envelope construction lives in `format.ts` (`toEnvelope`); this adapter
  * only handles the carrier mapping. `createMcpServer` (this file's main
@@ -172,7 +201,7 @@ const LCD_OUTPUT_SCHEMA = EnvelopeSchema(z.unknown());
  */
 export function toMcpResult(env: Envelope<unknown> | ErrorEnvelope) {
   return {
-    content: [{ type: 'text' as const, text: JSON.stringify(env) }],
+    content: renderContent(env),
     // The SDK's `CallToolResult` types `structuredContent` as
     // `{[x: string]: unknown} | undefined` (an index-signatured object).
     // Our envelope types use named-readonly fields — semantically a JSON

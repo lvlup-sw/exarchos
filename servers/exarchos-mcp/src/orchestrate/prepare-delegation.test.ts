@@ -74,12 +74,23 @@ import {
   computeScopedWorktrees,
   deriveRiskTier,
   deriveBoundaryTouching,
+  verificationNoteKey,
   HIGH_RISK_GLOBS,
   LOW_RISK_GLOBS,
   BOUNDARY_GLOBS,
 } from './prepare-delegation.js';
 import type { TaskClassification, TaskInput } from './prepare-delegation.js';
-import { renderImplementerPrompt } from '../agents/definitions.js';
+import {
+  renderImplementerPrompt,
+  reconstructImplementerPrompt,
+  buildVerificationNote,
+  IMPLEMENTER_PROMPT_TEMPLATE,
+  VERIFICATION_NOTE_PLACEHOLDER,
+} from '../agents/definitions.js';
+import { estimateTokens } from '../architecture/description-budget.js';
+import * as fsp from 'node:fs/promises';
+import * as os from 'node:os';
+import * as nodePath from 'node:path';
 import * as fc from 'fast-check';
 import { delegationReadinessProjection } from '../views/delegation-readiness-view.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
@@ -91,8 +102,12 @@ import {
 } from './dispatch-guard.js';
 import { shouldEnforceCheckpoint } from '../workflow/checkpoint.js';
 import { assertWorktreeBaseRefPinned } from './worktree-baseref.js';
-import { DEFAULTS } from '../config/resolve.js';
+import { DEFAULTS, resolveConfig } from '../config/resolve.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
+import { parseTaskStamps } from './parse-task-stamps.js';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { resolveVerificationSequence } from '../workflow/verification-policy.js';
 import type { GateName, RiskTier } from '../workflow/verification-policy.js';
 import { resolveVerificationPolicy } from '../workflow/verification-policy-resolver.js';
@@ -2012,13 +2027,13 @@ describe('handlePrepareDelegation', () => {
     });
   });
 
-  // #1586 (root cause): classifyTask now renders the per-task implementer prompt
-  // via renderImplementerPrompt, so the orchestrator dispatches a TIER-SELECTED
-  // prompt instead of the static medium-RGR `agents/implementer.md` default.
-  // Before this, the tier-aware renderImplementerPrompt had ZERO production
-  // callers and every dispatch shipped the medium RED-GREEN-REFACTOR block
-  // regardless of the resolved tier (Layer 4 of the methodology drift audit).
-  describe('classifyTask — per-task implementer prompt rendering (#1586)', () => {
+  // #1586 (root cause) upheld under DR-4: classifyTask still TIER-SELECTS the
+  // implementer prompt (never the static medium-RGR default). DR-4 only changed
+  // WHERE the tier-selected note is carried: the default classification exposes a
+  // `verificationNoteKey` (the tier profile) and the full prompt is deduped into
+  // the response's shared template + note map, rendered inline per task only when
+  // the caller opts in via `{ includeImplementerPrompt: true }`.
+  describe('classifyTask — per-task implementer prompt rendering (#1586 / DR-4)', () => {
     it('ClassifyTask_LowTierTask_RendersStaticAnalysisNote_NotRGR', () => {
       const task: TaskInput = {
         id: 'T-LOW',
@@ -2027,8 +2042,11 @@ describe('handlePrepareDelegation', () => {
         boundaryTouching: false,
       };
 
-      const classification = classifyTask(task);
+      const classification = classifyTask(task, undefined, undefined, {
+        includeImplementerPrompt: true,
+      });
 
+      expect(classification.verificationNoteKey).toBe('low|false');
       expect(classification.implementerPrompt).toContain('static analysis suffices');
       // The uppercase RGR ceremony tokens must NOT leak onto a low-tier dispatch.
       expect(classification.implementerPrompt).not.toContain('RED');
@@ -2043,10 +2061,29 @@ describe('handlePrepareDelegation', () => {
         boundaryTouching: true,
       };
 
-      const classification = classifyTask(task);
+      const classification = classifyTask(task, undefined, undefined, {
+        includeImplementerPrompt: true,
+      });
 
+      expect(classification.verificationNoteKey).toBe('high|true');
       expect(classification.implementerPrompt).toContain('check_test_adequacy');
       expect(classification.implementerPrompt).toContain('check_integration_suite');
+    });
+
+    it('ClassifyTask_DefaultClassification_OmitsFullPrompt_CarriesNoteKey', () => {
+      // DR-4: the default (token-optimal) path carries only the tiny
+      // `verificationNoteKey`, never the ~1,560-token full prompt.
+      const task: TaskInput = {
+        id: 'T-MED',
+        title: 'Implement widget',
+        riskTier: 'medium',
+        boundaryTouching: false,
+      };
+
+      const classification = classifyTask(task);
+
+      expect(classification.verificationNoteKey).toBe('medium|false');
+      expect(classification.implementerPrompt).toBeUndefined();
     });
 
     it('ClassifyTask_ImplementerPrompt_ByteIdenticalToRenderForResolvedTier', () => {
@@ -2057,16 +2094,264 @@ describe('handlePrepareDelegation', () => {
         boundaryTouching: false,
       };
 
-      const classification = classifyTask(task);
+      const classification = classifyTask(task, undefined, undefined, {
+        includeImplementerPrompt: true,
+      });
 
-      // The stamp the orchestrator dispatches IS renderImplementerPrompt for the
-      // task's resolved tier — no static medium default in the path.
+      // The detail-path prompt IS renderImplementerPrompt for the task's resolved
+      // tier — no static medium default in the path (#1586 preserved).
       expect(classification.implementerPrompt).toBe(
         renderImplementerPrompt({
           riskTier: classification.riskTier,
           boundaryTouching: classification.boundaryTouching,
         }),
       );
+    });
+  });
+
+  // ─── DR-4: prepare_delegation prompt dedupe ──────────────────────────────
+  //
+  // Live confirmation this matters: a 10-task wave once returned a 71,000-char
+  // response because the FULL ~1,560-token implementer prompt was re-rendered
+  // once PER TASK (~95% identical). DR-4 returns the shared template ONCE, the
+  // distinct tier notes ONCE each, and a tiny per-task note key — losslessly
+  // reconstructible into the exact pre-DR-4 per-task prompt.
+  describe('DR-4 — prompt dedupe (template once + per-task note deltas)', () => {
+    // An 8-task wave whose tiers cluster (as real decompositions do). Native
+    // isolation filters worktree blockers so the whole wave reaches
+    // classification regardless of the fixture's readyTaskIds.
+    function eightTaskWave(): TaskInput[] {
+      return [
+        { id: 'task-1', title: 'Update the README', files: ['docs/a.md'] }, // low
+        { id: 'task-2', title: 'Update the guide', files: ['docs/b.md'] }, // low
+        { id: 'task-3', title: 'Implement widget A' }, // medium
+        { id: 'task-4', title: 'Implement widget B' }, // medium
+        { id: 'task-5', title: 'Implement widget C' }, // medium
+        { id: 'task-6', title: 'Implement widget D' }, // medium
+        { id: 'task-7', title: 'Reshape the schema', riskTier: 'high', boundaryTouching: true }, // high
+        { id: 'task-8', title: 'Rework the API contract', riskTier: 'high', boundaryTouching: true }, // high
+      ];
+    }
+
+    interface DedupeData {
+      ready: boolean;
+      taskClassifications: TaskClassification[];
+      implementerPromptTemplate?: string;
+      verificationNotes?: Record<string, string>;
+    }
+
+    it('prepareDelegation_EightTaskWave_ReturnsPromptTemplateOnce', async () => {
+      // Arrange
+      const state = readyWorkflowState();
+      setupMaterializer(state);
+      vi.mocked(generateQualityHints).mockReturnValue([]);
+      const args = {
+        featureId: 'test-feature',
+        nativeIsolation: true,
+        tasks: eightTaskWave(),
+      };
+
+      // Act
+      const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+      // Assert — 8 classifications, template shipped exactly ONCE.
+      expect(result.success).toBe(true);
+      const data = result.data as DedupeData;
+      expect(data.ready).toBe(true);
+      expect(data.taskClassifications).toHaveLength(8);
+
+      // The shared template is present once and is the real implementer template.
+      expect(typeof data.implementerPromptTemplate).toBe('string');
+      expect(data.implementerPromptTemplate).toBe(IMPLEMENTER_PROMPT_TEMPLATE);
+      expect(data.implementerPromptTemplate).toContain(VERIFICATION_NOTE_PLACEHOLDER);
+
+      // "Once, not 8×": the template's unique HEAD sentence appears exactly once
+      // across the entire serialized response.
+      const serialized = JSON.stringify(data);
+      const sentinel = 'You are an implementer agent on the verification ladder';
+      expect(serialized.split(sentinel).length - 1).toBe(1);
+
+      // No task carries the full prompt on the default path — only the note key.
+      for (const c of data.taskClassifications) {
+        expect(c.implementerPrompt).toBeUndefined();
+        expect(typeof c.verificationNoteKey).toBe('string');
+      }
+
+      // The distinct notes are deduped into the shared map (3 tier profiles here,
+      // far fewer than 8 full prompts).
+      expect(Object.keys(data.verificationNotes ?? {})).toHaveLength(3);
+
+      // DR-4 acceptance (≤2,500 tok for 8 tasks): DR-4 dedupes the PROMPT payload
+      // — the shared template (once), the distinct tier notes (once each), and
+      // the tiny per-task note keys. That is the surface that replaced the
+      // ~12,500-token 8×-full-prompt duplication (the advisory classification
+      // metadata — complexity/reason/verificationSequence — is a separate,
+      // pre-existing feature, not what DR-4 controls).
+      const promptPayloadTokens = estimateTokens(
+        JSON.stringify({
+          implementerPromptTemplate: data.implementerPromptTemplate,
+          verificationNotes: data.verificationNotes,
+          noteKeys: data.taskClassifications.map((c) => c.verificationNoteKey),
+        }),
+      );
+      expect(promptPayloadTokens).toBeLessThanOrEqual(2500);
+
+      // …and the WHOLE response is far smaller than the pre-DR-4 shape, which
+      // carried the full ~1,560-token prompt inline on every task.
+      const responseTokens = estimateTokens(serialized);
+      const preDr4PromptTokens = data.taskClassifications.reduce(
+        (sum, c) =>
+          sum +
+          estimateTokens(
+            renderImplementerPrompt({ riskTier: c.riskTier, boundaryTouching: c.boundaryTouching }),
+          ),
+        0,
+      );
+      // The pre-DR-4 response = this response minus the deduped prompt payload,
+      // plus one full prompt per task.
+      const preDr4ResponseTokens = responseTokens - promptPayloadTokens + preDr4PromptTokens;
+      expect(responseTokens).toBeLessThan(preDr4ResponseTokens / 3);
+    });
+
+    it('prepareDelegation_PerTaskDeltas_ReconstructExactPerTaskPrompt', async () => {
+      // Arrange
+      const state = readyWorkflowState();
+      setupMaterializer(state);
+      vi.mocked(generateQualityHints).mockReturnValue([]);
+      const args = {
+        featureId: 'test-feature',
+        nativeIsolation: true,
+        tasks: eightTaskWave(),
+      };
+
+      // Act
+      const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+      // Assert — LOSSLESS: template + per-task note delta reconstructs byte-for-byte
+      // what today's per-task `implementerPrompt` produced.
+      const data = result.data as DedupeData;
+      const template = data.implementerPromptTemplate as string;
+      const notes = data.verificationNotes as Record<string, string>;
+
+      for (const c of data.taskClassifications) {
+        // The note key indexes a note that exists in the shared map.
+        expect(notes[c.verificationNoteKey]).toBeDefined();
+
+        // Reconstruction === the pre-DR-4 full per-task prompt.
+        const reconstructed = template.replaceAll(
+          VERIFICATION_NOTE_PLACEHOLDER,
+          notes[c.verificationNoteKey],
+        );
+        const preDr4 = renderImplementerPrompt({
+          riskTier: c.riskTier,
+          boundaryTouching: c.boundaryTouching,
+        });
+        expect(reconstructed).toBe(preDr4);
+
+        // And the shared-helper path agrees byte-for-byte.
+        expect(
+          reconstructImplementerPrompt({ verificationNote: notes[c.verificationNoteKey] }),
+        ).toBe(preDr4);
+      }
+
+      // The map is keyed exactly as `verificationNoteKey` computes it.
+      for (const c of data.taskClassifications) {
+        expect(c.verificationNoteKey).toBe(
+          verificationNoteKey(c.riskTier, c.boundaryTouching),
+        );
+        expect(notes[c.verificationNoteKey]).toBe(
+          buildVerificationNote({ riskTier: c.riskTier, boundaryTouching: c.boundaryTouching }),
+        );
+      }
+    });
+
+    it('prepareDelegation_TierStamps_ThreadedEndToEnd', async () => {
+      // Characterization of #1636 UNCHANGED under DR-4: a high-tier stamp lifted
+      // from the plan markdown via `planPath` must still resolve end-to-end and
+      // drive the high-tier verification note in the deduped response.
+      const state = readyWorkflowState();
+      setupMaterializer(state);
+      vi.mocked(generateQualityHints).mockReturnValue([]);
+
+      // Write a real decomposition-markdown plan with a high+boundary stamp for
+      // the task, matched by canonical id (`Task 001` ↔ `task-1`).
+      const planDir = await fsp.mkdtemp(nodePath.join(os.tmpdir(), 'dr4-planpath-'));
+      const planPath = nodePath.join(planDir, 'plan.md');
+      await fsp.writeFile(
+        planPath,
+        '#### Task 001: Reshape the schema\n**Risk Tier:** high · **Boundary Touching:** true\n',
+        'utf-8',
+      );
+
+      try {
+        const args = {
+          featureId: 'test-feature',
+          tasks: [{ id: 'task-1', title: 'Reshape the schema' }],
+          planPath,
+        };
+
+        const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+        expect(result.success).toBe(true);
+        const data = result.data as DedupeData;
+        expect(data.taskClassifications).toHaveLength(1);
+        const c = data.taskClassifications[0];
+
+        // The plan stamp threaded through: high tier, boundary-touching.
+        expect(c.riskTier).toBe('high');
+        expect(c.boundaryTouching).toBe(true);
+        expect(c.verificationNoteKey).toBe('high|true');
+
+        // …and it drives the HIGH-tier note (integration-suite rung + boundary
+        // steer), reconstructed losslessly.
+        const note = (data.verificationNotes as Record<string, string>)[c.verificationNoteKey];
+        expect(note).toContain('check_integration_suite');
+        const reconstructed = (data.implementerPromptTemplate as string).replaceAll(
+          VERIFICATION_NOTE_PLACEHOLDER,
+          note,
+        );
+        expect(reconstructed).toBe(
+          renderImplementerPrompt({ riskTier: 'high', boundaryTouching: true }),
+        );
+      } finally {
+        await fsp.rm(planDir, { recursive: true, force: true });
+      }
+    });
+
+    it('prepareDelegation_DetailFlag_InlinesFullPerTaskPrompt', async () => {
+      // The `detail` escape hatch restores the pre-DR-4 inline full prompt for a
+      // caller that explicitly wants it — byte-identical to reconstruction.
+      const state = readyWorkflowState();
+      setupMaterializer(state);
+      vi.mocked(generateQualityHints).mockReturnValue([]);
+      const args = {
+        featureId: 'test-feature',
+        nativeIsolation: true,
+        detail: true,
+        tasks: [{ id: 'task-1', title: 'Reshape the schema', riskTier: 'high' as const, boundaryTouching: true }],
+      };
+
+      const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+      expect(result.success).toBe(true);
+      const data = result.data as DedupeData;
+      const c = data.taskClassifications[0];
+      expect(c.implementerPrompt).toBe(
+        renderImplementerPrompt({ riskTier: 'high', boundaryTouching: true }),
+      );
+    });
+
+    it('prepareDelegation_InvalidOutputFormat_ReturnsInvalidInput', async () => {
+      const args = {
+        featureId: 'test-feature',
+        outputFormat: 'verbose',
+      } as unknown as { featureId: string; outputFormat?: 'prompt-only' };
+
+      const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('INVALID_INPUT');
+      expect(result.error?.message).toContain('outputFormat');
     });
   });
 
@@ -2136,7 +2421,11 @@ describe('handlePrepareDelegation', () => {
     });
 
     it('PrepareDelegation_WithCtx_UsesProjectConfigForModelResolution', async () => {
-      // Arrange
+      // DR-1 (#1672): the handler threads `projectConfig.agents.tierModels`
+      // through the classify seam — the dispatched model now keys off the task's
+      // riskTier, NOT the scaffolder/implementer agent split. Both tasks derive
+      // to the medium tier ({id,title}-only → default), so both resolve to the
+      // CONFIGURED medium model, regardless of agent.
       const state = readyWorkflowState();
       setupMaterializer(state);
       vi.mocked(generateQualityHints).mockReturnValue([]);
@@ -2147,16 +2436,14 @@ describe('handlePrepareDelegation', () => {
           { id: 'task-2', title: 'Implement handler' },
         ],
       };
+      // A REAL resolved config (not a hand-mocked partial) with a custom
+      // medium→opus tier policy — exercising the genuine resolveConfig collaborator
+      // across the classify seam.
       const ctx = {
         stateDir: STATE_DIR,
         eventStore: {} as never,
         enableTelemetry: false,
-        projectConfig: {
-          agents: {
-            defaultModel: 'sonnet' as const,
-            models: { scaffolder: 'haiku' as const },
-          },
-        } as never,
+        projectConfig: resolveConfig({ agents: { 'tier-models': { medium: 'opus' } } }),
       };
 
       // Act
@@ -2167,8 +2454,14 @@ describe('handlePrepareDelegation', () => {
       const data = result.data as { taskClassifications: TaskClassification[] };
       const scaffolderTask = data.taskClassifications.find(tc => tc.recommendedAgent === 'scaffolder');
       const implementerTask = data.taskClassifications.find(tc => tc.recommendedAgent === 'implementer');
-      expect(scaffolderTask?.recommendedModel).toBe('haiku');
-      expect(implementerTask?.recommendedModel).toBe('sonnet');
+      // Agent split is preserved…
+      expect(scaffolderTask).toBeDefined();
+      expect(implementerTask).toBeDefined();
+      // …but BOTH medium-tier tasks resolve to the configured medium model.
+      expect(scaffolderTask?.riskTier).toBe('medium');
+      expect(implementerTask?.riskTier).toBe('medium');
+      expect(scaffolderTask?.recommendedModel).toBe('opus');
+      expect(implementerTask?.recommendedModel).toBe('opus');
     });
 
     it('PrepareDelegation_WithoutCtx_UsesDefaults', async () => {
@@ -2187,13 +2480,18 @@ describe('handlePrepareDelegation', () => {
       // Act -- no ctx passed
       const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-      // Assert -- uses DEFAULTS.agents
+      // Assert -- uses DEFAULTS.agents.tierModels. Both tasks are {id,title}-only
+      // → medium tier → DEFAULTS.agents.tierModels.medium = 'sonnet'. The agent
+      // split (scaffolder vs implementer) is preserved but no longer drives the
+      // model (DR-1 #1672 — the model tracks the tier, not the agent).
       expect(result.success).toBe(true);
       const data = result.data as { taskClassifications: TaskClassification[] };
       const scaffolderTask = data.taskClassifications.find(tc => tc.recommendedAgent === 'scaffolder');
       const implementerTask = data.taskClassifications.find(tc => tc.recommendedAgent === 'implementer');
-      expect(scaffolderTask?.recommendedModel).toBe('haiku');   // DEFAULTS.agents.models.scaffolder
-      expect(implementerTask?.recommendedModel).toBe('opus');   // DEFAULTS.agents.defaultModel
+      expect(scaffolderTask).toBeDefined();
+      expect(implementerTask).toBeDefined();
+      expect(scaffolderTask?.recommendedModel).toBe('sonnet');   // tierModels.medium (was models.scaffolder=haiku)
+      expect(implementerTask?.recommendedModel).toBe('sonnet');  // tierModels.medium (was defaultModel=opus)
     });
   });
 
@@ -2260,44 +2558,146 @@ describe('handlePrepareDelegation', () => {
     });
   });
 
-  describe('classifyTask model resolution', () => {
-    it('classifyTask_WithAgentConfig_ScaffolderGetsConfiguredModel', () => {
-      const config = { defaultModel: 'opus' as const, models: { scaffolder: 'haiku' as const } };
-      const result = classifyTask({ id: '001', title: 'Stub out the API interface' }, config);
-      expect(result.recommendedModel).toBe('haiku');
+  // ─── DR-1 (#1672 / #1670): tier-keyed model selection in the classify path ──
+  //
+  // The dispatched model now tracks the task's verification-ladder `riskTier`
+  // via `agents.tierModels`, NOT the scaffolder/implementer agent split. The
+  // agent split (classifyTaskCore) is unchanged; the tier policy overrides the
+  // model on top. Defaults: low → haiku, medium → sonnet, high → opus.
+  describe('classifyTask — tier-keyed model resolution (DR-1 #1672)', () => {
+    it('ClassifyTask_LowTier_ResolvesConfiguredLowModel', () => {
+      // A low-tier task (all files match LOW_RISK_GLOBS) resolves to the
+      // CONFIGURED low-tier model — here re-mapped to 'sonnet' (a monotone table:
+      // low=sonnet, medium=sonnet, high=opus) to prove the config drives it, not
+      // the hardcoded default.
+      const agents = resolveConfig({ agents: { 'tier-models': { low: 'sonnet' } } }).agents;
+      const result = classifyTask({ id: '001', title: 'Tune settings', files: ['settings.json'] }, agents);
+      expect(result.riskTier).toBe('low');
+      expect(result.recommendedModel).toBe('sonnet');
+
+      // Control: with the documented defaults the same low-tier task → haiku.
+      const dflt = classifyTask({ id: '001', title: 'Tune settings', files: ['settings.json'] });
+      expect(dflt.riskTier).toBe('low');
+      expect(dflt.recommendedModel).toBe('haiku');
     });
 
-    it('classifyTask_WithAgentConfig_ImplementerGetsConfiguredModel', () => {
-      const config = { defaultModel: 'opus' as const, models: { implementer: 'opus' as const } };
-      const result = classifyTask({ id: '002', title: 'Implement auth handler' }, config);
-      expect(result.recommendedModel).toBe('opus');
+    it('ClassifyTask_HighTierScaffoldingTitle_NeverHaiku', () => {
+      // The #1670 miscalibration: a scaffolding-keyword title on a HIGH-tier task
+      // used to collapse to haiku (scaffolder→haiku). Now the agent stays
+      // scaffolder but the model is the high-tier model — never haiku.
+      const result = classifyTask({ id: '002', title: 'Scaffold the API interface', riskTier: 'high' });
+      expect(result.recommendedAgent).toBe('scaffolder'); // agent split preserved
+      expect(result.riskTier).toBe('high');
+      expect(result.recommendedModel).not.toBe('haiku');
+      expect(result.recommendedModel).toBe('opus'); // DEFAULTS.agents.tierModels.high
     });
 
-    it('classifyTask_WithAgentConfig_FallsBackToDefaultModel', () => {
-      const config = { defaultModel: 'sonnet' as const, models: {} };
-      const result = classifyTask({ id: '003', title: 'Implement feature X' }, config);
+    it('ClassifyTask_PlannerHighStamp_GetsHighTierModel', () => {
+      // The planner's explicit riskTier stamp WINS over the heuristic (#1669):
+      // an otherwise-medium task ({id,title}-only) stamped high dispatches on the
+      // high-tier model.
+      const heuristicOnly = classifyTask({ id: '003', title: 'Implement feature' });
+      expect(heuristicOnly.riskTier).toBe('medium');
+      expect(heuristicOnly.recommendedModel).toBe('sonnet');
+
+      const stamped = classifyTask({ id: '003', title: 'Implement feature', riskTier: 'high' });
+      expect(stamped.riskTier).toBe('high');
+      expect(stamped.recommendedModel).toBe('opus');
+    });
+
+    it('ClassifyTask_TierModelsOverride_FlowsThrough', () => {
+      // The settled OQ2 opt-in high→sonnet flows through the classify seam from a
+      // real resolved config.
+      const agents = resolveConfig({ agents: { 'tier-models': { high: 'sonnet' } } }).agents;
+      const result = classifyTask({ id: '004', title: 'Implement feature', riskTier: 'high' }, agents);
+      expect(result.riskTier).toBe('high');
       expect(result.recommendedModel).toBe('sonnet');
     });
 
-    it('classifyTask_WithAgentConfig_PerAgentOverridesDefault', () => {
-      const config = { defaultModel: 'opus' as const, models: { scaffolder: 'haiku' as const } };
-      // scaffolder task -> 'haiku'
-      const scaffolderResult = classifyTask({ id: '004a', title: 'Scaffold the test harness' }, config);
-      expect(scaffolderResult.recommendedModel).toBe('haiku');
-      // implementer task -> 'opus' (from defaultModel)
-      const implementerResult = classifyTask({ id: '004b', title: 'Implement handler' }, config);
-      expect(implementerResult.recommendedModel).toBe('opus');
+    it('ClassifyTask_MediumDefault_ResolvesSonnet', () => {
+      // Characterization: a plain {id,title} task is medium tier → sonnet, no
+      // longer opus-by-defaultModel. Locks the decoupling of model from agent.
+      const result = classifyTask({ id: '005', title: 'Add validation logic' });
+      expect(result.riskTier).toBe('medium');
+      expect(result.recommendedAgent).toBe('implementer');
+      expect(result.recommendedModel).toBe('sonnet');
     });
+  });
+});
 
-    it('classifyTask_WithDefaultConfig_ScaffolderGetsHaiku', () => {
-      const result = classifyTask({ id: '005', title: 'Scaffold boilerplate' }, DEFAULTS.agents);
-      expect(result.recommendedModel).toBe('haiku');
-    });
+// ─── DR-1 (#1672 / #1670): executed corpus assertion ────────────────────────
+//
+// The #1670 finding: over the stamped `docs/specs/` corpus the dispatched model
+// COLLAPSED to essentially a single model (opus), because the model keyed off
+// the scaffolder/implementer agent split — independent of the planner's tier.
+// After DR-1 the model is tier-keyed, so the corpus model mix must TRACK the
+// tier distribution (no single-model collapse). This runs the REAL production
+// `classifyTask` over the REAL corpus (parsed by the production stamp parser),
+// exercising the genuine classify seam end-to-end — not a hand-mocked fixture.
+describe('classifyTask — stamped-corpus model mix (DR-1 #1672)', () => {
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const SPECS_DIR = path.join(__dirname, '..', '..', '..', '..', 'docs', 'specs');
 
-    it('classifyTask_WithDefaultConfig_ImplementerGetsOpus', () => {
-      const result = classifyTask({ id: '006', title: 'Implement handler' }, DEFAULTS.agents);
-      expect(result.recommendedModel).toBe('opus');
-    });
+  /** Load every stamped task from docs/specs via the production stamp parser. */
+  function loadStampedCorpus(): TaskInput[] {
+    const files = fs.readdirSync(SPECS_DIR).filter((f) => f.endsWith('.md'));
+    const tasks: TaskInput[] = [];
+    for (const f of files) {
+      const parsed = parseTaskStamps(fs.readFileSync(path.join(SPECS_DIR, f), 'utf-8'));
+      for (const t of parsed) {
+        if (t.riskTier === undefined) continue; // only riskTier-stamped tasks are meaningful
+        tasks.push({
+          id: t.id,
+          title: t.title,
+          files: t.files,
+          blockedBy: t.blockedBy,
+          ...(t.testLayer ? { testLayer: t.testLayer } : {}),
+          riskTier: t.riskTier,
+          ...(t.boundaryTouching !== undefined ? { boundaryTouching: t.boundaryTouching } : {}),
+        });
+      }
+    }
+    return tasks;
+  }
+
+  it('PrepareDelegation_StampedCorpus_ModelMixTracksTierDistribution', () => {
+    const corpus = loadStampedCorpus();
+    // The corpus must be non-trivial and span more than one tier, else the
+    // "tracks the distribution / no collapse" claim is vacuous.
+    expect(corpus.length).toBeGreaterThanOrEqual(20);
+
+    const tierCounts: Record<RiskTier, number> = { low: 0, medium: 0, high: 0 };
+    const modelCounts: Record<string, number> = {};
+    for (const task of corpus) {
+      const c = classifyTask(task);
+      // Core invariant: the dispatched model is exactly the tier's configured
+      // model. This is what goes RED if the tier-keying is reverted.
+      expect(c.recommendedModel).toBe(DEFAULTS.agents.tierModels[c.riskTier]);
+      tierCounts[c.riskTier]++;
+      modelCounts[c.recommendedModel] = (modelCounts[c.recommendedModel] ?? 0) + 1;
+    }
+
+    // More than one tier is represented (a genuine distribution, not a collapse).
+    const tiersPresent = (['low', 'medium', 'high'] as const).filter((t) => tierCounts[t] > 0);
+    expect(tiersPresent.length).toBeGreaterThanOrEqual(2);
+
+    // The aggregate model mix TRACKS the tier distribution exactly, under the
+    // documented default table (low→haiku, medium→sonnet, high→opus — all
+    // distinct, so each model's count equals its tier's count).
+    const expectedModelCounts: Record<string, number> = {};
+    for (const tier of tiersPresent) {
+      const model = DEFAULTS.agents.tierModels[tier];
+      expectedModelCounts[model] = (expectedModelCounts[model] ?? 0) + tierCounts[tier];
+    }
+    expect(modelCounts).toEqual(expectedModelCounts);
+
+    // NO single-model collapse: more than one distinct model, and no model
+    // accounts for the entire corpus.
+    const distinctModels = Object.keys(modelCounts);
+    expect(distinctModels.length).toBeGreaterThanOrEqual(2);
+    for (const count of Object.values(modelCounts)) {
+      expect(count).toBeLessThan(corpus.length);
+    }
   });
 });
 

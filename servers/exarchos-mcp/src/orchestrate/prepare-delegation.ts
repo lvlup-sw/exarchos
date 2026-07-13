@@ -62,7 +62,11 @@ import {
   type RuntimeHandshake,
 } from '../capabilities/resolver.js';
 import type { Capability } from '../agents/capabilities.js';
-import { renderImplementerPrompt } from '../agents/definitions.js';
+import {
+  buildVerificationNote,
+  reconstructImplementerPrompt,
+  IMPLEMENTER_PROMPT_TEMPLATE,
+} from '../agents/definitions.js';
 
 // ─── Result Interface ────────────────────────────────────────────────────────
 
@@ -122,17 +126,29 @@ export interface TaskClassification {
    */
   readonly verificationSequence: readonly GateName[];
   /**
-   * #1586 (root cause): the tier-selected implementer system prompt the
-   * orchestrator dispatches for this task — `renderImplementerPrompt` keyed on
-   * the resolved `riskTier`/`boundaryTouching`. Before this field the tier-aware
-   * renderer had ZERO production callers and every dispatch shipped the static
-   * medium-RGR `agents/implementer.md` default regardless of tier. The
-   * orchestrator fills the `{{taskDescription}}`/`{{requirements}}`/
-   * `{{filePaths}}` placeholders at dispatch; the verification note is already
-   * tier-resolved here (INV-2: rendered in the shared dispatch core, identical
-   * for CLI and MCP).
+   * DR-4: the shared-notes map key for this task's tier profile
+   * (`"<riskTier>|<boundaryTouching>"`). The orchestrator reconstructs the exact
+   * per-task implementer prompt by splicing `result.verificationNotes[<this key>]`
+   * into `result.implementerPromptTemplate` (see {@link verificationNoteKey} and
+   * {@link reconstructImplementerPrompt}) — lossless vs. the pre-DR-4 per-task
+   * full prompt.
+   *
+   * #1586 (root cause, still upheld): the prompt the orchestrator dispatches is
+   * TIER-SELECTED — the note keyed here off the resolved `riskTier`/
+   * `boundaryTouching` is the low/medium/high variant, never the static
+   * medium-RGR default. DR-4 only changed WHERE that note is carried (a shared,
+   * deduped map) — not WHICH note a task resolves.
    */
-  readonly implementerPrompt: string;
+  readonly verificationNoteKey: string;
+  /**
+   * DR-4: the full, tier-selected implementer prompt, present ONLY when the
+   * caller opts in via `detail: true` / `outputFormat: 'prompt-only'`. The
+   * default response omits it — the shared template + per-task
+   * {@link verificationNoteKey} losslessly reconstruct it — because returning
+   * ~1,560 identical tokens per task was the DR-4 defect. When present it is
+   * byte-identical to the reconstruction.
+   */
+  readonly implementerPrompt?: string;
 }
 
 export interface PrepareDelegationResult {
@@ -142,6 +158,22 @@ export interface PrepareDelegationResult {
   readonly qualityHints?: Array<{ category: string; severity: string; hint: string }>;
   readonly isolation?: 'native';
   readonly taskClassifications?: readonly TaskClassification[];
+  /**
+   * DR-4: the SHARED implementer-prompt template, returned ONCE per response
+   * (was ~1,560 identical tokens re-rendered per task). Present whenever
+   * `taskClassifications` is. Combine with {@link verificationNotes} to
+   * reconstruct any task's exact prompt.
+   */
+  readonly implementerPromptTemplate?: string;
+  /**
+   * DR-4: the DISTINCT tier-selected verification notes used across the wave,
+   * keyed by `"<riskTier>|<boundaryTouching>"` (see {@link verificationNoteKey}).
+   * A wave clusters on a handful of tier profiles, so this is a few small
+   * entries — not one ~250-token note per task. `implementerPromptTemplate`
+   * with `verificationNotes[task.verificationNoteKey]` spliced in reproduces the
+   * pre-DR-4 per-task prompt byte-for-byte.
+   */
+  readonly verificationNotes?: Readonly<Record<string, string>>;
 }
 
 // ─── Task Classification ────────────────────────────────────────────────────
@@ -289,6 +321,11 @@ export function deriveBoundaryTouching(task: TaskInput): boolean {
 /**
  * Resolves the recommended model for a given agent type from the agent config.
  * Falls back to `defaultModel` when no per-agent override exists.
+ *
+ * Legacy agent-keyed resolution. As of DR-1 (#1672) this NO LONGER drives
+ * task-classification model choice — {@link resolveModelForTask} (tier-keyed)
+ * does. `resolveModel` is retained for the non-dispatch surfaces (reviewer/fixer
+ * dispatch, agent generation) that still key the model off the agent role.
  */
 function resolveModel(
   agent: 'scaffolder' | 'implementer',
@@ -298,17 +335,55 @@ function resolveModel(
 }
 
 /**
+ * DR-1 (#1672 / #1670): resolve the dispatch model for a task from its
+ * verification-ladder `riskTier`, via the Task-001 `agents.tierModels` policy.
+ *
+ * This is the model that drives task classification, and it OVERRIDES the legacy
+ * agent-keyed {@link resolveModel}. The `agent` split (scaffolder/implementer) is
+ * resolved SEPARATELY by {@link classifyTaskCore} and is deliberately NOT
+ * consulted here: the tier is authoritative for the model. That is the #1670 fix
+ * — before this, every high-tier task that happened to carry a scaffolding
+ * keyword collapsed to `haiku` (scaffolder→haiku), under-powering the dispatch;
+ * now a high-tier scaffolding task keeps `agent=scaffolder` yet dispatches on the
+ * high-tier model.
+ *
+ * `agent` is accepted for call-site symmetry with {@link resolveModel} and to
+ * keep the classify-seam signature explicit. `tierModels` is always fully
+ * populated (`DEFAULTS.agents.tierModels`, validated at `resolveConfig` time),
+ * so this is a TOTAL lookup — never undefined.
+ */
+function resolveModelForTask(
+  agent: 'scaffolder' | 'implementer',
+  riskTier: RiskTier,
+  agentConfig: ResolvedProjectConfig['agents'],
+): 'opus' | 'sonnet' | 'haiku' {
+  void agent; // tier is authoritative; the agent split is owned by classifyTaskCore.
+  return agentConfig.tierModels[riskTier];
+}
+/**
  * The agent/complexity/effort portion of a classification — the legacy
  * heuristic. The verification-ladder fields (riskTier/boundaryTouching/
  * verificationSequence) are layered on top in {@link classifyTask}.
  */
 type CoreClassification = Omit<
   TaskClassification,
-  'riskTier' | 'boundaryTouching' | 'verificationSequence' | 'implementerPrompt'
+  | 'riskTier'
+  | 'boundaryTouching'
+  | 'verificationSequence'
+  | 'verificationNoteKey'
+  | 'implementerPrompt'
 >;
 
 /**
  * Legacy agent/complexity/effort heuristic.
+ *
+ * NOTE (DR-1, #1672): the `recommendedModel` set on each branch below is the
+ * legacy agent-keyed value and is a PLACEHOLDER only — {@link classifyTask}
+ * unconditionally overrides it with the tier-keyed {@link resolveModelForTask}
+ * (see line ~475). Do NOT consume `CoreClassification.recommendedModel` as the
+ * dispatched model: it is the pre-DR-1 agent-keyed value and reading it would
+ * reintroduce the flat-model collapse (#1670) this fix removed. The dispatched
+ * model is always the tier-keyed one on `TaskClassification`.
  *
  * Priority order:
  *   0. testLayer: "acceptance" → high/implementer (highest priority)
@@ -425,26 +500,64 @@ function classifyTaskCore(
  * a SEPARATE, blast-radius-driven axis (a scaffolding task can be low-effort
  * yet high-risk if it edits a schema, and vice versa).
  */
+/**
+ * DR-4: the shared-notes map key for a task's tier profile. Two tasks with the
+ * same `(riskTier, boundaryTouching)` share one verification note, so a wave's
+ * distinct notes collapse to this small keyspace (six possible values). Exported
+ * so the handler, the orchestrator's reconstruction, and tests all agree on the
+ * key form.
+ */
+export function verificationNoteKey(riskTier: RiskTier, boundaryTouching: boolean): string {
+  return `${riskTier}|${boundaryTouching}`;
+}
+
+/** DR-4: per-task classification options. */
+export interface ClassifyTaskOptions {
+  /**
+   * When true, additionally render the FULL tier-selected implementer prompt
+   * onto `implementerPrompt` (the `detail: true` / `outputFormat: 'prompt-only'`
+   * escape hatch). Off by default — the deduped template + note map is the
+   * token-optimal path and losslessly reconstructs the same prompt.
+   */
+  readonly includeImplementerPrompt?: boolean;
+}
+
 export function classifyTask(
   task: TaskInput,
   agentConfig: ResolvedProjectConfig['agents'] = DEFAULTS.agents,
   config?: ResolvedProjectConfig,
+  opts?: ClassifyTaskOptions,
 ): TaskClassification {
   const core = classifyTaskCore(task, agentConfig);
   const riskTier = deriveRiskTier(task);
   const boundaryTouching = deriveBoundaryTouching(task);
   return {
     ...core,
+    // DR-1 (#1672/#1670): the tier policy OVERRIDES the model that
+    // classifyTaskCore derived from the agent split. classifyTaskCore still owns
+    // agent/complexity/effort, but the dispatched model now tracks blast-radius
+    // `riskTier` (planner stamps win, resolved above) — so the corpus model mix
+    // tracks the tier distribution instead of collapsing to a single model.
+    recommendedModel: resolveModelForTask(core.recommendedAgent, riskTier, agentConfig),
     riskTier,
     boundaryTouching,
     verificationSequence: ladderGateNames(
       resolveGateSet('IMPLEMENT', { riskTier, boundaryTouching, config }),
     ),
-    // #1586: render the tier-selected implementer prompt HERE, off the same
-    // stamp, so the dispatch layer consumes a prompt whose verification note
-    // already matches the task's blast radius — closing the gap where the
-    // static medium-RGR default leaked onto every dispatch.
-    implementerPrompt: renderImplementerPrompt({ riskTier, boundaryTouching }),
+    // DR-4 (upholds #1586): the tier-selected verification note is keyed HERE off
+    // the resolved stamp so the dispatch layer consumes a note that already
+    // matches the task's blast radius. The note TEXT is deduped into the
+    // response's shared `verificationNotes` map (a wave clusters on a few tier
+    // profiles); only the tiny key rides per task. The full prompt is rendered
+    // inline solely on the opt-in detail path.
+    verificationNoteKey: verificationNoteKey(riskTier, boundaryTouching),
+    ...(opts?.includeImplementerPrompt
+      ? {
+          implementerPrompt: reconstructImplementerPrompt({
+            verificationNote: buildVerificationNote({ riskTier, boundaryTouching }),
+          }),
+        }
+      : {}),
   };
 }
 
@@ -561,6 +674,7 @@ export function classifyTasksFailClosed(
   agentConfig: ResolvedProjectConfig['agents'] = DEFAULTS.agents,
   config?: ResolvedProjectConfig,
   phase = 'delegate',
+  opts?: ClassifyTaskOptions,
 ): ClassifyTasksResult {
   try {
     // DR-14 (#1546): the dispatch kind must grant mutation before a wave of
@@ -570,7 +684,7 @@ export function classifyTasksFailClosed(
     assertDispatchMutationCapabilities();
     return {
       ok: true,
-      classifications: tasks.map(t => classifyTask(t, agentConfig, config)),
+      classifications: tasks.map(t => classifyTask(t, agentConfig, config, opts)),
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -890,6 +1004,19 @@ export async function handlePrepareDelegation(
      * classifications. Validated below alongside the task fields.
      */
     riskTier?: RiskTier;
+    /**
+     * DR-4: opt into the pre-DR-4 behavior of returning the FULL tier-selected
+     * implementer prompt inline on every `taskClassifications[]` entry. Off by
+     * default — the deduped `implementerPromptTemplate` + `verificationNotes`
+     * losslessly reconstruct it at a fraction of the tokens. Equivalent to
+     * `outputFormat: 'prompt-only'`.
+     */
+    detail?: boolean;
+    /**
+     * DR-4: `'prompt-only'` is an alias for `detail: true` — the caller wants
+     * the full per-task prompt inline. Any other value is rejected.
+     */
+    outputFormat?: 'prompt-only';
   },
   stateDir: string,
   ctx?: DispatchContext,
@@ -967,6 +1094,27 @@ export async function handlePrepareDelegation(
       error: {
         code: 'INVALID_INPUT',
         message: 'riskTier must be one of low|medium|high',
+      },
+    };
+  }
+
+  // DR-4: validate the full-prompt escape-hatch flags at the boundary, matching
+  // the well-typed treatment the other optional fields get.
+  if (!isOptionalBoolean(args.detail)) {
+    return {
+      success: false,
+      error: { code: 'INVALID_INPUT', message: 'detail must be a boolean' },
+    };
+  }
+  // Accept the schema's full enum. `'prompt-only'` opts into the inlined
+  // detail; `'full'` (the schema default, injected by dispatch when omitted)
+  // is the deduped template + per-task deltas — same as the field being absent.
+  if (!isOptionalOneOf(args.outputFormat, ['full', 'prompt-only'])) {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message: "outputFormat must be 'full' or 'prompt-only' when provided",
       },
     };
   }
@@ -1428,6 +1576,12 @@ export async function handlePrepareDelegation(
       }
     }
 
+    // DR-4: return the full per-task prompt inline only when the caller opts in
+    // (`detail: true` or `outputFormat: 'prompt-only'`). The default response
+    // ships the deduped template + shared note map instead.
+    const includeImplementerPrompt =
+      args.detail === true || args.outputFormat === 'prompt-only';
+
     // DR-7: classify the wave through the fail-closed boundary. A resolver
     // throw (e.g. a deferred-kind 'not-yet-wired' fault) no longer propagates
     // and fails the dispatch OPEN; instead the boundary records `phase.blocked`
@@ -1439,6 +1593,7 @@ export async function handlePrepareDelegation(
         agentConfig,
         projectConfig,
         workflowState.phase ?? 'delegate',
+        { includeImplementerPrompt },
       );
       if (!classified.ok) {
         const { blocked } = classified;
@@ -1471,12 +1626,35 @@ export async function handlePrepareDelegation(
       await persistWorkflowRiskTier(store, streamId, workflowRiskTier);
     }
 
+    // ─── DR-4: dedupe the implementer prompt across the wave ────────────────
+    // Return the shared template ONCE and the DISTINCT tier-selected notes ONCE
+    // each (keyed by tier profile), instead of ~1,560 near-identical tokens per
+    // task. The orchestrator reconstructs any task's exact prompt losslessly:
+    //   implementerPromptTemplate with verificationNotes[task.verificationNoteKey]
+    //   spliced in === the pre-DR-4 per-task prompt.
+    let verificationNotes: Record<string, string> | undefined;
+    if (taskClassifications) {
+      verificationNotes = {};
+      for (const c of taskClassifications) {
+        if (verificationNotes[c.verificationNoteKey] === undefined) {
+          verificationNotes[c.verificationNoteKey] = buildVerificationNote({
+            riskTier: c.riskTier,
+            boundaryTouching: c.boundaryTouching,
+          });
+        }
+      }
+    }
+
     const result: PrepareDelegationResult = {
       ready: true,
       readiness: effectiveReadiness,
       qualityHints,
       ...(args.nativeIsolation ? { isolation: 'native' as const } : {}),
       ...(taskClassifications ? { taskClassifications } : {}),
+      ...(taskClassifications
+        ? { implementerPromptTemplate: IMPLEMENTER_PROMPT_TEMPLATE }
+        : {}),
+      ...(verificationNotes ? { verificationNotes } : {}),
     };
     return {
       success: true,

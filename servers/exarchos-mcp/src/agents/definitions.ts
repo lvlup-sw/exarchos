@@ -312,6 +312,54 @@ export function renderImplementerPrompt(
   return prompt;
 }
 
+// ─── DR-4: Deduped implementer-prompt template ──────────────────────────────
+//
+// `prepare_delegation` used to return the FULL rendered implementer prompt
+// (~1,560 tokens) once PER TASK — ~95% identical across a wave. On a 10-task
+// wave that was a measured 71,000-char response. DR-4 splits the prompt into the
+// SHARED template (returned once per response) and the per-task VERIFICATION
+// NOTE (the only prose that varies, keyed purely by riskTier/boundaryTouching).
+// The note is itself deduped into a small shared map because a wave's tasks
+// cluster on a handful of (riskTier, boundaryTouching) pairs — there are only
+// six distinct notes possible. Reconstruction (template + note) is byte-for-byte
+// identical to the old per-task `renderImplementerPrompt({ riskTier,
+// boundaryTouching })`, so the change is lossless for the orchestrator.
+
+/**
+ * The placeholder marking where a task's tier-selected verification note is
+ * spliced into {@link IMPLEMENTER_PROMPT_TEMPLATE}. Distinct from the HEAD/TAIL
+ * dispatch placeholders (`{{taskDescription}}` / `{{requirements}}` /
+ * `{{filePaths}}`), which the template deliberately leaves unfilled.
+ */
+export const VERIFICATION_NOTE_PLACEHOLDER = '{{verificationNote}}';
+
+/**
+ * DR-4: the SHARED implementer-prompt template — the ~95%-identical prose every
+ * dispatched task carries, with the per-task verification note replaced by
+ * {@link VERIFICATION_NOTE_PLACEHOLDER}. `prepare_delegation` returns this ONCE
+ * per response instead of re-rendering the full prompt per task. The dispatch
+ * placeholders (`{{taskDescription}}` etc.) remain unfilled here exactly as they
+ * are in a per-task render — the dispatch layer fills them.
+ */
+export const IMPLEMENTER_PROMPT_TEMPLATE = `${IMPLEMENTER_PROMPT_HEAD}${VERIFICATION_NOTE_PLACEHOLDER}${IMPLEMENTER_PROMPT_TAIL}`;
+
+/**
+ * DR-4: reconstruct a task's full implementer prompt from the shared
+ * {@link IMPLEMENTER_PROMPT_TEMPLATE} and its per-task `verificationNote` delta.
+ *
+ * LOSSLESS: for any tier context `ctx`,
+ * `reconstructImplementerPrompt({ verificationNote: buildVerificationNote(ctx) })`
+ * === `renderImplementerPrompt(ctx)`. The placeholder never occurs inside
+ * HEAD/TAIL or a note, so the splice is unambiguous; `replaceAll` (not
+ * `replace`) is defensive against the placeholder ever appearing twice.
+ */
+export function reconstructImplementerPrompt(delta: { readonly verificationNote: string }): string {
+  return IMPLEMENTER_PROMPT_TEMPLATE.replaceAll(
+    VERIFICATION_NOTE_PLACEHOLDER,
+    delta.verificationNote,
+  );
+}
+
 export const IMPLEMENTER: AgentSpec = {
   id: 'implementer',
   posture: 'task-isolated',

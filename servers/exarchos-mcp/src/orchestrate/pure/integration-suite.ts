@@ -249,6 +249,14 @@ export function parseVitestResult(raw: string): IntegrationSuiteParse | null {
 // REPORT
 // ============================================================
 
+/**
+ * Counts-not-transcripts cap (DR-7, audit O-4): a load cascade can list
+ * hundreds of files. The report enumerates at most N of them, then a single
+ * total-count line steers to the uncapped escape hatch (re-run the suite
+ * locally). Fixed internal cap — NOT a schema param (that boundary is Task 022).
+ */
+export const LOAD_FAILURE_LIST_CAP = 20;
+
 function buildReport(repoRoot: string, parse: IntegrationSuiteParse): string {
   const lines: string[] = [
     '## Integration Suite Report',
@@ -263,8 +271,16 @@ function buildReport(repoRoot: string, parse: IntegrationSuiteParse): string {
 
   if (parse.loadFailureFiles.length > 0) {
     lines.push('### Files that failed to load');
-    for (const f of parse.loadFailureFiles) {
+    const shownFiles = parse.loadFailureFiles.slice(0, LOAD_FAILURE_LIST_CAP);
+    for (const f of shownFiles) {
       lines.push(`- \`${f}\``);
+    }
+    if (parse.loadFailureFiles.length > shownFiles.length) {
+      const remaining = parse.loadFailureFiles.length - shownFiles.length;
+      lines.push(
+        `- …and ${remaining} more (${parse.loadFailureFiles.length} load failures total). ` +
+          `Re-run the suite locally for the full list.`,
+      );
     }
     lines.push('');
   }

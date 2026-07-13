@@ -460,6 +460,28 @@ export async function handleBatchAppend(
 
 // ─── Event Query Handler ────────────────────────────────────────────────────
 
+/**
+ * DR-5 — default page size for `event query`.
+ *
+ * When the caller supplies no explicit `limit`, the handler returns the 20
+ * NEWEST events plus `page` metadata instead of the unbounded stream (the
+ * audit measured a 112-event stream at 5,755 tokens unbounded vs 1,490 at
+ * limit 20). Full history stays reachable via an explicit `limit`/`offset`.
+ */
+export const EVENT_QUERY_DEFAULT_LIMIT = 20;
+
+/** Paging metadata returned alongside `event query` results (DR-5). */
+export interface EventQueryPage {
+  /** Total events matching the window filters, before limit/offset. */
+  readonly total: number;
+  /** Zero-based offset into the newest-first ordering this page starts at. */
+  readonly offset: number;
+  /** Effective page size — the explicit `limit`, else {@link EVENT_QUERY_DEFAULT_LIMIT}. */
+  readonly limit: number;
+  /** True when events outside this page remain, i.e. `offset + shown < total`. */
+  readonly hasMore: boolean;
+}
+
 /** Handles the event_query tool: validates input, queries events with optional filters and pagination. */
 export async function handleEventQuery(
   args: {
@@ -481,33 +503,59 @@ export async function handleEventQuery(
 
   const store = eventStore;
 
-  const hasFilterFields = args.filter || args.limit !== undefined || args.offset !== undefined;
-  const filters = hasFilterFields
+  // Window filters (type/time/sequence) narrow WHICH events match and are
+  // pushed to the store. Pagination (limit/offset) is applied in-handler over a
+  // newest-first ordering: the store orders ascending by sequence, so deriving
+  // both `page.total` and a deterministic newest-first window requires the full
+  // matching set. `limit`/`offset` are therefore NOT forwarded to the store.
+  const hasWindowFilter =
+    args.filter?.type !== undefined ||
+    args.filter?.sinceSequence !== undefined ||
+    args.filter?.since !== undefined ||
+    args.filter?.until !== undefined;
+  const filters = hasWindowFilter
     ? {
         type: args.filter?.type as string | undefined,
         sinceSequence: args.filter?.sinceSequence as number | undefined,
         since: args.filter?.since as string | undefined,
         until: args.filter?.until as string | undefined,
-        limit: args.limit,
-        offset: args.offset,
       }
     : undefined;
 
   try {
-    const events = await store.query(args.stream, filters);
+    const matching = await store.query(args.stream, filters);
+    const total = matching.length;
 
-    // Apply field projection if requested
+    // Newest-first, stable: `sequence` is unique + monotonic per stream, so the
+    // ascending set reversed is a total, deterministic descending order.
+    const newestFirst = matching.slice().reverse();
+
+    // Default to the 20 newest when no explicit limit; explicit `limit`/`offset`
+    // page deterministically through the same descending order (no gaps, no
+    // duplicates). `offset` counts from the newest event.
+    const limit = args.limit ?? EVENT_QUERY_DEFAULT_LIMIT;
+    const offset = args.offset ?? 0;
+    const windowed = newestFirst.slice(offset, offset + limit);
+
+    const page: EventQueryPage = {
+      total,
+      offset,
+      limit,
+      hasMore: offset + windowed.length < total,
+    };
+
+    // Apply field projection if requested — over the windowed page only.
+    let events: unknown[] = windowed;
     if (args.fields && args.fields.length > 0) {
       const safeFields = args.fields.filter(
         (field) => !['__proto__', 'constructor', 'prototype'].includes(field),
       );
-      const projected = events.map((event) =>
+      events = windowed.map((event) =>
         pickFields(event as unknown as Record<string, unknown>, safeFields),
       );
-      return { success: true, data: projected };
     }
 
-    return { success: true, data: events };
+    return { success: true, data: { events, page } };
   } catch (err) {
     return {
       success: false,

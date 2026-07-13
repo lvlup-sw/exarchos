@@ -16,6 +16,14 @@ import tseslint from 'typescript-eslint';
  */
 export default [
   {
+    // Seeded-defect corpus fixtures (#1675, task 003) are INTENTIONALLY broken
+    // template assets — type/lint-violation defect content materialized into
+    // disposable worktrees at gate-run time, NEVER compiled/linted here. Ignore
+    // the whole tree so a deliberately malformed fixture cannot fail repo CI.
+    // (The tsconfig `exclude` keeps tsc off it too.)
+    ignores: ['servers/exarchos-mcp/src/evals/benchmarks/seeded-defects/fixtures/**'],
+  },
+  {
     files: ['servers/exarchos-mcp/src/**/*.ts'],
     languageOptions: {
       parser: tseslint.parser,

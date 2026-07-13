@@ -3,8 +3,24 @@ import * as path from 'node:path';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { EventStore } from '../../event-store/store.js';
-import { handleEventAppend, handleEventQuery } from '../../event-store/tools.js';
+import {
+  handleEventAppend,
+  handleEventQuery,
+  EVENT_QUERY_DEFAULT_LIMIT,
+  type EventQueryPage,
+} from '../../event-store/tools.js';
+import type { ToolResult } from '../../format.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
+
+// DR-5: `event query` returns `{ events, page }`; unwrap here so the shape lives
+// in one place.
+function queryEvents(result: ToolResult): Array<Record<string, unknown>> {
+  const data = result.data as { events?: unknown } | undefined;
+  return (data?.events ?? []) as Array<Record<string, unknown>>;
+}
+function queryPage(result: ToolResult): EventQueryPage {
+  return (result.data as { page: EventQueryPage }).page;
+}
 
 let tempDir: string;
 let eventStore: EventStore;
@@ -170,7 +186,7 @@ describe('handleEventAppend', () => {
     const queryResult = await handleEventQuery({ stream: 'my-workflow' }, tempDir, eventStore);
     expect(queryResult.success).toBe(true);
 
-    const events = queryResult.data as Array<Record<string, unknown>>;
+    const events = queryEvents(queryResult);
     expect(events).toHaveLength(1);
     expect(events[0].streamId).toBe('my-workflow');
     expect(events[0].sequence).toBe(1);
@@ -224,7 +240,7 @@ describe('handleEventQuery', () => {
 
     const result = await handleEventQuery({ stream: 'my-workflow' }, tempDir, eventStore);
     expect(result.success).toBe(true);
-    expect(result.data).toHaveLength(2);
+    expect(queryEvents(result)).toHaveLength(2);
   });
 
   it('should filter by type', async () => {
@@ -250,7 +266,7 @@ describe('handleEventQuery', () => {
       eventStore,
     );
     expect(result.success).toBe(true);
-    expect(result.data).toHaveLength(2);
+    expect(queryEvents(result)).toHaveLength(2);
   });
 
   it('should filter by sinceSequence', async () => {
@@ -276,14 +292,21 @@ describe('handleEventQuery', () => {
       eventStore,
     );
     expect(result.success).toBe(true);
-    expect(result.data).toHaveLength(1);
-    expect(result.data![0].sequence).toBe(3);
+    const filtered = queryEvents(result);
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].sequence).toBe(3);
   });
 
   it('should return empty for nonexistent stream', async () => {
     const result = await handleEventQuery({ stream: 'nonexistent' }, tempDir, eventStore);
     expect(result.success).toBe(true);
-    expect(result.data).toEqual([]);
+    expect(queryEvents(result)).toEqual([]);
+    expect(queryPage(result)).toEqual({
+      total: 0,
+      offset: 0,
+      limit: EVENT_QUERY_DEFAULT_LIMIT,
+      hasMore: false,
+    });
   });
 
   it('should return error when stream is missing', async () => {
@@ -311,7 +334,7 @@ describe('handleEventQuery Pagination', () => {
       eventStore,
     );
     expect(result.success).toBe(true);
-    expect(result.data).toHaveLength(2);
+    expect(queryEvents(result)).toHaveLength(2);
   });
 
   it('handleEventQuery_WithOffset_PassesToStore', async () => {
@@ -329,7 +352,7 @@ describe('handleEventQuery Pagination', () => {
       eventStore,
     );
     expect(result.success).toBe(true);
-    expect(result.data).toHaveLength(2);
+    expect(queryEvents(result)).toHaveLength(2);
   });
 
   it('handleEventQuery_WithLimitAndOffset_Combined', async () => {
@@ -347,7 +370,7 @@ describe('handleEventQuery Pagination', () => {
       eventStore,
     );
     expect(result.success).toBe(true);
-    expect(result.data).toHaveLength(3);
+    expect(queryEvents(result)).toHaveLength(3);
   });
 });
 
@@ -375,7 +398,7 @@ describe('handleEventQuery Fields Projection', () => {
       eventStore,
     );
     expect(result.success).toBe(true);
-    const events = result.data as Record<string, unknown>[];
+    const events = queryEvents(result);
     expect(events).toHaveLength(1);
 
     // Only requested fields should be present
@@ -416,7 +439,7 @@ describe('handleEventQuery Fields Projection', () => {
       eventStore,
     );
     expect(result.success).toBe(true);
-    const events = result.data as Record<string, unknown>[];
+    const events = queryEvents(result);
     expect(events).toHaveLength(2);
 
     for (const event of events) {
@@ -449,7 +472,7 @@ describe('handleEventQuery Fields Projection', () => {
       eventStore,
     );
     expect(result.success).toBe(true);
-    const events = result.data as Record<string, unknown>[];
+    const events = queryEvents(result);
     expect(events).toHaveLength(1);
 
     // Full events should have standard fields
@@ -477,7 +500,7 @@ describe('handleEventQuery Fields Projection', () => {
       eventStore,
     );
     expect(result.success).toBe(true);
-    const events = result.data as Record<string, unknown>[];
+    const events = queryEvents(result);
     expect(events).toHaveLength(1);
 
     // Only 'type' should be present; 'nonexistent' is skipped

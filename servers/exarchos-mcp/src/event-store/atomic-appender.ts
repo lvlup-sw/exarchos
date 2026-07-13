@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 import { validateStreamId } from '../shared/validation.js';
+import { STORE_DB_FILENAME } from '../utils/paths.js';
 import {
   SqliteBackend,
   SqliteBusyExhaustedError,
@@ -275,10 +276,12 @@ export interface AtomicAppenderOptions {
    */
   sqliteBackend?: SqliteBackend;
   /**
-   * SQLite database file name relative to `stateDir`. Defaults to
-   * `exarchos.db` to match `index.ts:initializeBackend`. Tests that
-   * isolate the appender from the rest of the lifecycle can override
-   * this to keep their fixture databases out of the shared file.
+   * SQLite database file name relative to `stateDir`. Defaults to the shared
+   * {@link STORE_DB_FILENAME} constant — the SAME source of truth
+   * `index.ts:initializeBackend` uses, so the two backends cannot drift on the
+   * leaf name (DR-11 B-5). Tests that isolate the appender from the rest of the
+   * lifecycle can override this to keep their fixture databases out of the
+   * shared file.
    */
   sqliteDbFilename?: string;
   /**
@@ -365,7 +368,7 @@ export class AtomicAppender {
 
   constructor(options: AtomicAppenderOptions) {
     this.stateDir = options.stateDir;
-    this.sqliteDbFilename = options.sqliteDbFilename ?? 'exarchos.db';
+    this.sqliteDbFilename = options.sqliteDbFilename ?? STORE_DB_FILENAME;
     this.synchronous = options.synchronous;
     if (options.sqliteBackend) {
       this.sqliteBackend = options.sqliteBackend;

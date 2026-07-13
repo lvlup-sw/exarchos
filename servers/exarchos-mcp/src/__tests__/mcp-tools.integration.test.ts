@@ -132,7 +132,8 @@ describe('Task 7: Workflow + Event Round-Trip Tests', () => {
       );
       expect(queryResult.success).toBe(true);
 
-      const events = queryResult.data as Array<Record<string, unknown>>;
+      // DR-5: `event query` returns `{ events, page }`.
+      const events = (queryResult.data as { events: Array<Record<string, unknown>> }).events;
       expect(events.length).toBeGreaterThanOrEqual(1);
 
       // Assert: the appended event is present
@@ -174,18 +175,19 @@ describe('Task 7: Workflow + Event Round-Trip Tests', () => {
       );
       expect(queryResult.success).toBe(true);
 
-      const events = queryResult.data as Array<Record<string, unknown>>;
+      // DR-5: `event query` returns `{ events, page }`, newest-first.
+      const events = (queryResult.data as { events: Array<Record<string, unknown>> }).events;
       expect(events).toHaveLength(3);
 
-      // Assert: sequence ordering is correct (1, 2, 3)
-      expect(events[0].sequence).toBe(1);
+      // Assert: deterministic newest-first ordering (3, 2, 1).
+      expect(events[0].sequence).toBe(3);
       expect(events[1].sequence).toBe(2);
-      expect(events[2].sequence).toBe(3);
+      expect(events[2].sequence).toBe(1);
 
-      // Assert: data integrity
-      expect((events[0].data as Record<string, unknown>).taskId).toBe('1');
+      // Assert: data integrity (taskIds track their sequence).
+      expect((events[0].data as Record<string, unknown>).taskId).toBe('3');
       expect((events[1].data as Record<string, unknown>).taskId).toBe('2');
-      expect((events[2].data as Record<string, unknown>).taskId).toBe('3');
+      expect((events[2].data as Record<string, unknown>).taskId).toBe('1');
     });
   });
 
@@ -346,7 +348,7 @@ describe('Task 8: View + Orchestrate + Sync Integration Tests', () => {
       );
       expect(queryResult.success).toBe(true);
 
-      const events = queryResult.data as Array<Record<string, unknown>>;
+      const events = (queryResult.data as { events: Array<Record<string, unknown>> }).events;
       const claimedEvent = events.find((e) => e.type === 'task.claimed');
       expect(claimedEvent).toBeDefined();
       expect((claimedEvent!.data as Record<string, unknown>).taskId).toBe('T1');
@@ -433,7 +435,7 @@ describe('Task 9: Cross-Tool Lifecycle Integration Tests', () => {
       );
       expect(eventQuery.success).toBe(true);
 
-      const events = eventQuery.data as Array<Record<string, unknown>>;
+      const events = (eventQuery.data as { events: Array<Record<string, unknown>> }).events;
       const transitionEvents = events.filter((e) => e.type === 'workflow.transition');
       expect(transitionEvents.length).toBeGreaterThanOrEqual(1);
 
@@ -478,7 +480,7 @@ describe('Task 9: Cross-Tool Lifecycle Integration Tests', () => {
         { action: 'query', stream: 'lifecycle-feat' },
         ctx(),
       );
-      const allEvents = finalEventQuery.data as Array<Record<string, unknown>>;
+      const allEvents = (finalEventQuery.data as { events: Array<Record<string, unknown>> }).events;
       const allTransitions = allEvents.filter((e) => e.type === 'workflow.transition');
       // DR-4 (#1581): plan is initial — should have: plan->plan-review, plan-review->delegate
       expect(allTransitions.length).toBe(2);
@@ -527,7 +529,7 @@ describe('Task 9: Cross-Tool Lifecycle Integration Tests', () => {
         ctx(),
       );
       expect(queryResult.success).toBe(true);
-      const events = queryResult.data as Array<Record<string, unknown>>;
+      const events = (queryResult.data as { events: Array<Record<string, unknown>> }).events;
       expect(events.length).toBeGreaterThanOrEqual(3);
 
       const taskAssigned = events.filter((e) => e.type === 'task.assigned');

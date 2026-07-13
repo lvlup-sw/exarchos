@@ -10,10 +10,11 @@ import {
   PsOutputSchema,
   WaitOutputSchema,
   WorktreesOutputSchema,
+  extractEnvelopeDataSchema,
 } from './orchestrate/worktree/schemas.js';
 import type { AgentPosture } from './agents/spec.js';
-export { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray } from './coerce.js';
-import { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray } from './coerce.js';
+export { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray, coercedIntArray } from './coerce.js';
+import { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray, coercedIntArray } from './coerce.js';
 
 // ─── Tool Registry Types ────────────────────────────────────────────────────
 
@@ -65,6 +66,95 @@ export interface DispatchHints {
    */
   readonly taskTtlSuggestionMs?: number;
 }
+
+/**
+ * Action-descriptor-level response-economy metadata (DR-1, design
+ * §"The economy block").
+ *
+ * Lives at the action-descriptor level — sibling to `cli`, `gate`,
+ * `autoEmits`, `dispatch` — because a response budget is action-behavior
+ * metadata shared by both facades (INV-2), exactly the placement rationale
+ * documented on {@link DispatchHints}. Annotating under `cli.` would imply
+ * this is CLI-presentation metadata; a response token budget is not
+ * presentation, it is a property of what the action emits, so both the CLI
+ * and MCP surfaces inherit the same ceiling from one declaration.
+ *
+ * - `budgetTokens` — the per-action response ceiling in estimated output
+ *   tokens. Resolves via {@link resolveEconomyBudget}: declared value wins
+ *   over {@link DEFAULT_ECONOMY_BUDGET_TOKENS}, so every action resolves a
+ *   concrete number.
+ * - `compactByDefault` — advisory marker that this action's presentation
+ *   should default to its compact rendering (consumed by DR-8/DR-12).
+ * - `summarize` — optional per-action reducer applied on overflow (else a
+ *   generic capped fallback). Declared here so schemas stay honest.
+ *
+ * Enforcement lives at the dispatch-core measurement seam (Task 003); this
+ * block is the declaration, that seam is the guard. They agree by
+ * construction because both read {@link resolveEconomyBudget}.
+ */
+export interface EconomyHints {
+  readonly budgetTokens?: number;
+  readonly compactByDefault?: boolean;
+  readonly summarize?: (data: unknown) => unknown;
+}
+
+/**
+ * Registry-wide default response budget in estimated output tokens (DR-1,
+ * design §"The economy block"). An action's declared `economy.budgetTokens`
+ * wins over this default; every action therefore resolves to a concrete
+ * number via {@link resolveEconomyBudget}. Initial value from the
+ * token-economy audit (PR #1679); the qualityHints 25,600-token threshold
+ * remains the last-resort catastrophic backstop. Tune after dogfooding.
+ */
+export const DEFAULT_ECONOMY_BUDGET_TOKENS = 2000;
+
+// Verbose-by-design response budgets (DR-1). These actions are the
+// intentional detail paths, so they declare explicit higher budgets rather
+// than exemptions — everything still resolves a number. Values are grounded
+// in measured worst-case outputs (token-economy audit, PR #1679): a
+// `describe` of the ten largest orchestrate actions runs ~21k tokens
+// (full input + output JSON schemas per action), the event `describe`
+// emission catalog ~3.5k tokens on top of action schemas, and the largest
+// resolved runbook ~2k tokens. Budgets sit between typical usage and the
+// worst case so a normal detail call is uncapped while an extreme dump is
+// summarized by the dispatch-core seam (Task 003). Tune after dogfooding.
+
+/** `describe` (workflow / orchestrate / view) — full per-action schemas. */
+export const DESCRIBE_ECONOMY_BUDGET_TOKENS = 8000;
+
+/**
+ * Event `describe` — sized above {@link DESCRIBE_ECONOMY_BUDGET_TOKENS}
+ * because it carries the additional `emissionGuide` param path (the full
+ * event catalog grouped by source) on top of action schemas. The
+ * `emissionGuide` is a *param* of the one `describe` action, not a separate
+ * action, so its budget rides that single descriptor.
+ */
+export const EVENT_DESCRIBE_ECONOMY_BUDGET_TOKENS = 12000;
+
+/** `runbook` — a resolved runbook with step schemas. */
+export const RUNBOOK_ECONOMY_BUDGET_TOKENS = 4000;
+
+/**
+ * Resolve an action's effective response budget: its declared
+ * `economy.budgetTokens` when present, else {@link DEFAULT_ECONOMY_BUDGET_TOKENS}.
+ * Always returns a number so callers (the dispatch-core seam, `describe`
+ * surfacing) never branch on "declared vs default". The returned value's
+ * validity (finite, positive) is pinned at build time by the registry
+ * budget-snapshot test; the runtime seam (Task 003) fails open on a
+ * non-finite / non-positive budget per DR-1.
+ */
+export function resolveEconomyBudget(action: Pick<ToolAction, 'economy'>): number {
+  const declared = action.economy?.budgetTokens;
+  return declared !== undefined ? declared : DEFAULT_ECONOMY_BUDGET_TOKENS;
+}
+
+// DR-3 / B-3 — `prNumbers` and its int-array peers bind the shared, CSV-tolerant
+// `coercedIntArray` helper imported from `coerce.ts` (Task 010). It accepts a
+// JSON-stringified array (`"[1660,1671]"`), a CSV string (`"1660,1671,1659"`),
+// or a native array, so the direct-MCP path funnels the same shapes the CLI's
+// `coerceFlags` splitter produces. (The former local stub here was NOT
+// CSV-tolerant and made the direct-MCP CSV path fail INVALID_INPUT while its
+// tests exercised the unused shared helper — review fix.)
 
 export interface GateMetadata {
   readonly blocking: boolean;
@@ -332,6 +422,18 @@ export interface ToolAction {
    * task-suitable actions.
    */
   readonly dispatch?: DispatchHints;
+  /**
+   * DR-1 (design §"The economy block") — response-economy metadata:
+   * per-action token budget (+ optional summarizer / compact-by-default
+   * markers). Sibling-level (not under `cli`) because the budget is
+   * action-behavior metadata shared by both facades (INV-2), mirroring
+   * `dispatch`. Undefined leaves the action on {@link DEFAULT_ECONOMY_BUDGET_TOKENS};
+   * every action resolves a number via {@link resolveEconomyBudget}. The
+   * effective budget is surfaced via `exarchos_view describe`
+   * (`economyBudgetTokens`); the binding cap lives at the dispatch-core
+   * measurement seam (Task 003).
+   */
+  readonly economy?: EconomyHints;
   /**
    * DR-5: When true, the action can take multiple seconds to complete and
    * the CLI adapter should emit stderr heartbeats under `--json` so a long
@@ -803,6 +905,8 @@ function makeDescribeAction(): ToolAction {
     schema: describeSchema,
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    // DR-1: verbose-by-design detail path — full per-action JSON schemas.
+    economy: { budgetTokens: DESCRIBE_ECONOMY_BUDGET_TOKENS },
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: READ_ONLY_LOCAL,
   };
@@ -832,6 +936,8 @@ function makeWorkflowDescribeAction(): ToolAction {
     schema: workflowDescribeSchema,
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    // DR-1: verbose-by-design detail path — schemas + topology/playbooks/config.
+    economy: { budgetTokens: DESCRIBE_ECONOMY_BUDGET_TOKENS },
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: READ_ONLY_LOCAL,
   };
@@ -856,6 +962,10 @@ function makeEventDescribeAction(): ToolAction {
     schema: eventDescribeSchema,
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    // DR-1: verbose-by-design detail path whose budget accounts for the
+    // `emissionGuide` param path (the full event catalog), which is a param
+    // of this one describe action — not a separate action.
+    economy: { budgetTokens: EVENT_DESCRIBE_ECONOMY_BUDGET_TOKENS },
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: READ_ONLY_LOCAL,
   };
@@ -1024,6 +1134,60 @@ const TelemetryViewDataSchema = z.object({
 }).passthrough();
 
 export const TelemetryViewOutputSchema = EnvelopeSchema(TelemetryViewDataSchema);
+
+// ─── Capped-shape outputSchema union (DR-1/DR-3/DR-8, Task 022) ───────────────
+//
+// outputSchema honesty (contract-canonical): the registered `outputSchema` IS
+// the canonical response contract (system-design "one contract, one core"), so
+// a capped/summary response whose shape the schema does not declare violates the
+// contract itself — regardless of which facade renders it. The MCP adapter's
+// D.5 validator (`adapters/mcp.ts:245`, `validateAgainstActionSchema`) enforces
+// that contract today by replacing a non-conforming envelope with an
+// INTERNAL_ERROR. So every action carrying a TYPED `data` outputSchema must have
+// its schema made TOTAL over its emittable shapes (baseline + capped) BEFORE the
+// dispatch-core economy enforcement (Task 003) can emit a capped response —
+// this is also the §05 output-codegen precondition (you cannot generate a
+// presentation client from a schema that does not enumerate the response shapes).
+
+/**
+ * The generic capped-fallback `data` shape the dispatch-core economy seam
+ * (Task 003) emits when an over-budget response has no declared summarizer:
+ * a `summary` (human-readable message or a structured roll-up), counts-by-group
+ * `counts`, and a `firstPage` preview of the first items.
+ *
+ * Declared ONCE and unioned into every typed-`data` outputSchema via
+ * {@link withCappedShape}. `.passthrough()` tolerates the extra capped-envelope
+ * decorators a summarizer may attach (`total`, `truncated`, `page`, …) without
+ * re-cutting the fragment — the same "do NOT over-constrain" discipline the
+ * per-action data schemas already follow (a stricter schema would make the D.5
+ * validator replace a real capped response with an INTERNAL_ERROR).
+ */
+export const CappedDataSchema = z
+  .object({
+    summary: z.union([z.string(), z.record(z.string(), z.unknown())]),
+    counts: z.record(z.string(), z.number()),
+    firstPage: z.array(z.unknown()),
+  })
+  .passthrough();
+
+/**
+ * Union {@link CappedDataSchema} into an existing typed-`data`
+ * `EnvelopeSchema(...)` output schema, keeping the result a single
+ * `success`-discriminated envelope union whose `data` branch is
+ * `z.union([<baseData>, CappedDataSchema])`. Unioning at the `data` level (not
+ * the envelope level) preserves the discriminated-union shape that
+ * {@link extractEnvelopeDataSchema} / `envelopeDataSchemaIsTyped` rely on, so
+ * the action stays a "typed output" after the widening.
+ *
+ * No-op passthrough for a schema whose success-branch `data` cannot be extracted
+ * (e.g. the `EnvelopeSchema(z.unknown()).and(...)` intersection wrappers) —
+ * those already accept the capped shape because their `data` is `z.unknown()`.
+ */
+export function withCappedShape(outputSchema: z.ZodType): z.ZodType {
+  const baseData = extractEnvelopeDataSchema(outputSchema);
+  if (baseData === undefined) return outputSchema;
+  return EnvelopeSchema(z.union([baseData, CappedDataSchema]));
+}
 
 // ─── Composite Tool: exarchos_workflow ───────────────────────────────────────
 
@@ -1465,6 +1629,17 @@ const orchestrateActions: readonly ToolAction[] = [
       // supplied it WINS over the derived value (the planner has context the
       // heuristic cannot infer).
       riskTier: z.enum(['low', 'medium', 'high']).optional().describe('Explicit workflow risk-tier override; wins over the derived max-of-tiers'),
+      // DR-4: the full-prompt escape hatch. `detail:true` (or its alias
+      // `outputFormat:'prompt-only'`) inlines the full per-task implementer
+      // prompt instead of the deduped template + per-task deltas. Declared on
+      // the schema so the hatch is reachable through BOTH facades — Zod would
+      // otherwise `.strip()` an undeclared key on the MCP path, and the CLI
+      // would emit no flag (review fix: previously the handler honored these but
+      // the schema declared neither, so the affordance was dead). `outputFormat`
+      // mirrors `agent_spec.outputFormat` exactly to satisfy the registration
+      // flattener's field-contract guard (`buildRegistrationSchema`).
+      detail: z.boolean().optional().describe('DR-4: inline the full per-task implementer prompt instead of the deduped template + per-task deltas'),
+      outputFormat: z.enum(['full', 'prompt-only']).default('full').describe("DR-4: 'prompt-only' is an alias for detail:true; 'full' (default) returns the deduped template + per-task deltas"),
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
@@ -1496,7 +1671,14 @@ const orchestrateActions: readonly ToolAction[] = [
     description: 'Assess PR stack health during synthesize: CI status, reviews, comments. Emits events for the shepherd iteration loop (within synthesize phase) and eval flywheel.',
     schema: z.object({
       featureId: z.string().min(1),
-      prNumbers: z.array(z.number().int().positive()),
+      // DR-3/Task 010 — route `prNumbers` through the coercion layer as an int
+      // array (CSV tolerance rides Task 010's coerce.ts helper).
+      prNumbers: coercedIntArray(),
+      // DR-2 — per-PR comment paging inputs, schema-declared so the CLI flags
+      // auto-emit. The capped comments + `page` metadata land in the handler
+      // under DR-2 (Task 002 shaping); Task 022 owns only the schema surface.
+      limit: coercedPositiveInt().optional(),
+      offset: coercedNonnegativeInt().optional(),
     }),
     phases: SYNTHESIS_REVIEW_PHASES,
     roles: ROLE_LEAD,
@@ -2412,7 +2594,9 @@ const orchestrateActions: readonly ToolAction[] = [
     schema: z.object({
       owner: z.string(),
       repo: z.string(),
-      prNumbers: z.array(z.number()),
+      // DR-3/Task 010 — same coerced int-array param as assess_stack's
+      // prNumbers so the shared registration flattener sees one contract.
+      prNumbers: coercedIntArray(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
@@ -2609,6 +2793,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    // DR-1: verbose-by-design detail path — a resolved runbook with step schemas.
+    economy: { budgetTokens: RUNBOOK_ECONOMY_BUDGET_TOKENS },
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: READ_ONLY_LOCAL,
   },
@@ -2715,6 +2901,13 @@ const orchestrateActions: readonly ToolAction[] = [
     description: 'Get comments on a pull/merge request via the VCS provider abstraction. Read-only, no events emitted.',
     schema: z.object({
       prId: z.string().min(1),
+      // DR-3 — window + projection inputs, schema-declared so the CLI flags
+      // auto-emit via schema-to-flags. The default newest-window + `page`
+      // metadata + `fields` projection land in the handler under Task 006;
+      // Task 022 owns only the schema surface here.
+      limit: coercedPositiveInt().optional(),
+      offset: coercedNonnegativeInt().optional(),
+      fields: coercedStringArray().optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
@@ -2908,7 +3101,7 @@ const orchestrateActions: readonly ToolAction[] = [
       { event: 'worktree.adopted', condition: 'conditional', description: 'Per on-disk worktree not yet tracked' },
       { event: 'worktree.reserved', condition: 'always' },
     ],
-    outputSchema: AcquireWorktreeOutputSchema,
+    outputSchema: withCappedShape(AcquireWorktreeOutputSchema),
     annotations: LOCAL_MUTATION_IDEMPOTENT,
   },
   {
@@ -2924,7 +3117,7 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'worktree.released', condition: 'always' },
     ],
-    outputSchema: ReleaseWorktreeOutputSchema,
+    outputSchema: withCappedShape(ReleaseWorktreeOutputSchema),
     annotations: LOCAL_MUTATION_IDEMPOTENT,
   },
   {
@@ -2960,7 +3153,7 @@ const orchestrateActions: readonly ToolAction[] = [
     // resolver gate rejects a task-isolated or read-only caller BEFORE the
     // destructive prune runs.
     posture: 'shared-mutating',
-    outputSchema: PruneWorktreesOutputSchema,
+    outputSchema: withCappedShape(PruneWorktreesOutputSchema),
     annotations: {
       safety: 'compensable',
       readOnly: false,
@@ -3019,7 +3212,7 @@ const orchestrateActions: readonly ToolAction[] = [
     // mutating trust tier. Mirrors merge_orchestrate so the resolver mints the
     // same fs:write + shell:exec capabilities.
     posture: 'shared-mutating',
-    outputSchema: SerializeMergeOutputSchema,
+    outputSchema: withCappedShape(SerializeMergeOutputSchema),
     annotations: COMPENSABLE_REMOTE,
   },
   makeDescribeAction(),
@@ -3062,6 +3255,10 @@ const viewActions: readonly ToolAction[] = [
       limit: coercedPositiveInt().optional(),
       offset: coercedNonnegativeInt().optional(),
       fields: coercedStringArray().optional(),
+      // DR-8 (Task 013) — schema-declared so the CLI flag auto-emits; the
+      // compact-by-default fold + `detail:true` full-row restore land in the
+      // handler under Task 013.
+      detail: z.boolean().optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
@@ -3077,6 +3274,12 @@ const viewActions: readonly ToolAction[] = [
     description: 'Workflow phase, task counts, and metadata',
     schema: z.object({
       workflowId: z.string().optional(),
+      // DR-8 (Task 013) — list/inventory paging + detail inputs, schema-
+      // declared so the CLI flags auto-emit; the `page` metadata + `detail:true`
+      // fold land in the handler under Task 013.
+      limit: coercedPositiveInt().optional(),
+      offset: coercedNonnegativeInt().optional(),
+      detail: z.boolean().optional(),
       // #1555 — optional bounded-fold (as-of/time-travel) read over a single
       // stream. Same single-source `AsOfSchema` as `get`. The bounded read
       // bypasses the hwm cache (see views/tools.ts) so the projection folds
@@ -3104,6 +3307,8 @@ const viewActions: readonly ToolAction[] = [
       streamId: z.string().optional(),
       limit: coercedPositiveInt().optional(),
       offset: coercedNonnegativeInt().optional(),
+      // DR-8 (Task 013) — `detail:true` full-row restore; handler rides Task 013.
+      detail: z.boolean().optional(),
     }),
     phases: STACK_PHASES,
     roles: ROLE_ANY,
@@ -3133,6 +3338,11 @@ const viewActions: readonly ToolAction[] = [
       tool: z.string().optional(),
       sort: z.enum(['tokens', 'invocations', 'duration']).optional(),
       limit: coercedPositiveInt().optional(),
+      // DR-8 (Task 024) — offset paging + detail inputs on the analytic view
+      // batch, schema-declared so the CLI flags auto-emit; the `page`/`scope`
+      // metadata + `detail:true` fold land in the handler under Task 024.
+      offset: coercedNonnegativeInt().optional(),
+      detail: z.boolean().optional(),
       // Wave 5 (#1437) — correlation tuple filters scope the telemetry
       // rollup to a single dispatch boundary. Honored at the backend layer
       // (indexed columns / post-fetch JS filter); INV-1 keeps payload as
@@ -3144,7 +3354,10 @@ const viewActions: readonly ToolAction[] = [
     // PR3/T10 (#1364) — typed envelope advertises the per-tool
     // `actionErrors` + `actionErrorBreakdown` fields (post Wave 0 carrier
     // composition).
-    outputSchema: TelemetryViewOutputSchema,
+    // Task 022 (DR-1/DR-8): union the capped-shape fallback into the typed
+    // telemetry `data` so a summarized/capped telemetry response validates
+    // against its own registered contract (D.5 totality).
+    outputSchema: withCappedShape(TelemetryViewOutputSchema),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -3152,6 +3365,10 @@ const viewActions: readonly ToolAction[] = [
     description: 'Team performance metrics from delegation events',
     schema: z.object({
       workflowId: z.string().optional(),
+      // DR-8 (Task 013) — list/inventory paging + detail; handler rides Task 013.
+      limit: coercedPositiveInt().optional(),
+      offset: coercedNonnegativeInt().optional(),
+      detail: z.boolean().optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
@@ -3163,6 +3380,10 @@ const viewActions: readonly ToolAction[] = [
     description: 'Delegation timeline with bottleneck detection',
     schema: z.object({
       workflowId: z.string().optional(),
+      // DR-8 (Task 013) — list/inventory paging + detail; handler rides Task 013.
+      limit: coercedPositiveInt().optional(),
+      offset: coercedNonnegativeInt().optional(),
+      detail: z.boolean().optional(),
       // Wave 5 (#1437) — correlation tuple filters scope the projection
       // fold to a single dispatch boundary.
       ...CORRELATION_TUPLE_FILTER_SHAPE,
@@ -3180,6 +3401,10 @@ const viewActions: readonly ToolAction[] = [
       skill: z.string().optional(),
       gate: z.string().optional(),
       limit: coercedPositiveInt().optional(),
+      // DR-8 (Task 024) — offset paging + detail on the analytic view batch;
+      // handler rides Task 024.
+      offset: coercedNonnegativeInt().optional(),
+      detail: z.boolean().optional(),
       // Wave 5 (#1437) — correlation tuple filters scope the projection
       // fold to a single dispatch boundary.
       ...CORRELATION_TUPLE_FILTER_SHAPE,
@@ -3202,6 +3427,10 @@ const viewActions: readonly ToolAction[] = [
       workflowId: z.string().optional(),
       skill: z.string().optional(),
       limit: coercedPositiveInt().optional(),
+      // DR-8 (Task 024) — offset paging + detail on the analytic view batch;
+      // handler rides Task 024.
+      offset: coercedNonnegativeInt().optional(),
+      detail: z.boolean().optional(),
       // Wave 5 (#1437) — correlation tuple filters scope the projection
       // fold to a single dispatch boundary.
       ...CORRELATION_TUPLE_FILTER_SHAPE,
@@ -3216,6 +3445,11 @@ const viewActions: readonly ToolAction[] = [
     description: 'Per-skill correlation of code-quality gate pass rates with eval scores',
     schema: z.object({
       workflowId: z.string().optional(),
+      // DR-8 (Task 024) — paging + detail on the analytic view batch;
+      // handler rides Task 024.
+      limit: coercedPositiveInt().optional(),
+      offset: coercedNonnegativeInt().optional(),
+      detail: z.boolean().optional(),
       // Wave 5 (#1437) — correlation tuple filters scope BOTH underlying
       // projection folds (CQ + ER) to a single dispatch boundary so the
       // joined output stays internally consistent.
@@ -3239,6 +3473,11 @@ const viewActions: readonly ToolAction[] = [
           end: z.string(),
         })
         .optional(),
+      // DR-8 (Task 024) — paging + detail on the analytic view batch;
+      // handler rides Task 024.
+      limit: coercedPositiveInt().optional(),
+      offset: coercedNonnegativeInt().optional(),
+      detail: z.boolean().optional(),
       // Wave 5 (#1437) — correlation tuple filters scope BOTH underlying
       // projection folds (CQ + ER) to a single dispatch boundary.
       ...CORRELATION_TUPLE_FILTER_SHAPE,
@@ -3327,6 +3566,11 @@ const viewActions: readonly ToolAction[] = [
     description: 'Per-dimension gate convergence status (D1-D5) from gate.executed events',
     schema: z.object({
       workflowId: z.string().optional(),
+      // DR-8 (Task 024) — paging + detail on the analytic view batch;
+      // handler rides Task 024.
+      limit: coercedPositiveInt().optional(),
+      offset: coercedNonnegativeInt().optional(),
+      detail: z.boolean().optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
@@ -3392,7 +3636,7 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    outputSchema: WorktreesOutputSchema,
+    outputSchema: withCappedShape(WorktreesOutputSchema),
     annotations: READ_ONLY_LOCAL,
   },
   // ─── Worktree-lifecycle liveness reads (WLM operational core, DR-4) ────────
@@ -3414,7 +3658,7 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    outputSchema: PsOutputSchema,
+    outputSchema: withCappedShape(PsOutputSchema),
     // `ps probe:true` can append worktree.released / worktree.orphan_detected, so
     // it is NOT readOnly. The heals are idempotent (re-running a probe over an
     // already-reconciled set emits nothing) and non-destructive → idempotent
@@ -3444,7 +3688,7 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    outputSchema: WaitOutputSchema,
+    outputSchema: withCappedShape(WaitOutputSchema),
     annotations: READ_ONLY_LOCAL,
   },
   makeDescribeAction(),
