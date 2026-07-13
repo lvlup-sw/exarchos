@@ -3221,6 +3221,16 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       if (fromStringElements.success) {
         expect((fromStringElements.data as Record<string, unknown>).prNumbers).toEqual([1, 2, 3]);
       }
+      // B-3 regression (review): a bare CSV string — the shape `coerceFlags`
+      // produces for an array flag, AND the shape a direct-MCP caller may pass —
+      // coerces to the same int array. Before the fix `prNumbers` bound a LOCAL
+      // stub that was NOT CSV-tolerant, so this yielded INVALID_INPUT while the
+      // tested helper (`coerce.ts`) was dead in production.
+      const fromCsv = schema.safeParse({ featureId: 'feat-x', prNumbers: '1660,1671,1659' });
+      expect(fromCsv.success).toBe(true);
+      if (fromCsv.success) {
+        expect((fromCsv.data as Record<string, unknown>).prNumbers).toEqual([1660, 1671, 1659]);
+      }
     });
 
     it('check_coderabbit prNumbers routes through the same coerced int-array', () => {
@@ -3230,6 +3240,44 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       if (parsed.success) {
         expect((parsed.data as Record<string, unknown>).prNumbers).toEqual([1, 2]);
       }
+      // CSV form coerces identically (shared CSV-tolerant helper).
+      const fromCsv = schema.safeParse({ owner: 'acme', repo: 'app', prNumbers: '1,2' });
+      expect(fromCsv.success).toBe(true);
+      if (fromCsv.success) {
+        expect((fromCsv.data as Record<string, unknown>).prNumbers).toEqual([1, 2]);
+      }
+    });
+
+    it('prepare_delegation declares the DR-4 detail/outputFormat escape hatch', () => {
+      // Review regression: the handler honored `detail`/`outputFormat` but the
+      // schema declared neither, so Zod `.strip()` dropped them on the MCP path
+      // (and the CLI emitted no flag) — the DR-4 affordance was unreachable
+      // through both facades while its two covering tests bypassed the schema.
+      const schema = findAction('exarchos_orchestrate', 'prepare_delegation').schema;
+
+      const withDetail = schema.safeParse({ featureId: 'feat-x', detail: true });
+      expect(withDetail.success, 'detail:true must survive schema parse').toBe(true);
+      if (withDetail.success) {
+        expect((withDetail.data as Record<string, unknown>).detail).toBe(true);
+      }
+
+      const withPromptOnly = schema.safeParse({ featureId: 'feat-x', outputFormat: 'prompt-only' });
+      expect(withPromptOnly.success, "outputFormat:'prompt-only' must survive schema parse").toBe(true);
+      if (withPromptOnly.success) {
+        expect((withPromptOnly.data as Record<string, unknown>).outputFormat).toBe('prompt-only');
+      }
+
+      // Omitted → the schema default 'full' (dispatch injects it; the handler
+      // treats 'full' as the non-detail default — same as the field being absent).
+      const omitted = schema.safeParse({ featureId: 'feat-x' });
+      expect(omitted.success).toBe(true);
+      if (omitted.success) {
+        expect((omitted.data as Record<string, unknown>).outputFormat).toBe('full');
+      }
+
+      // An out-of-enum value is rejected at the schema boundary (dispatch path).
+      const invalid = schema.safeParse({ featureId: 'feat-x', outputFormat: 'verbose' });
+      expect(invalid.success).toBe(false);
     });
 
     it('DR-8 view batch declares detail + paging inputs', () => {

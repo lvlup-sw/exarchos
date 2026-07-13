@@ -62,11 +62,12 @@ function registerEconomyTool(opts: {
   action: string;
   economy: EconomyHints;
   handlerResult: unknown;
+  schema?: z.ZodObject<z.ZodRawShape>;
 }): () => void {
   const actionDef = {
     name: opts.action,
     description: `economy test action ${opts.action}`,
-    schema: z.object({}),
+    schema: opts.schema ?? z.object({}),
     phases: new Set<string>(),
     roles: new Set<string>(['any']),
     outputSchema: EnvelopeSchema(z.unknown()),
@@ -200,24 +201,27 @@ describe('response-economy enforcement (DR-1, Task 003)', () => {
     }
   });
 
-  it('dispatchEconomy_CappedResponse_EnvelopeCarrierIntact', async () => {
-    // Property: for arbitrary over-budget payloads, the carrier floor
-    // (`success` / `next_actions` / `_meta` / `_perf`) always survives — the
-    // guard replaces only `data` and AUGMENTS `_meta` / `next_actions`.
+  it('dispatchEconomy_CappedListResponse_FirstPageIsFaithfulPrefix', async () => {
+    // Property (DATA FIDELITY, not just shape): for an arbitrary over-budget
+    // LIST payload the generic fallback keeps a FAITHFUL prefix — `firstPage`
+    // deep-equals `items.slice(0, firstPage.length)` and `counts.total` is the
+    // true length — while the carrier floor (`success` / `next_actions` /
+    // `_meta` / `_perf`) survives. (Previously this test fed an object payload
+    // and asserted only the fallback SHAPE, so it passed even when the real
+    // payload — the object's non-array fields — was discarded; review fix.)
     await fc.assert(
       fc.asyncProperty(
-        fc.array(fc.record({ k: fc.string(), n: fc.integer() }), { maxLength: 30 }),
+        fc.array(fc.record({ k: fc.string({ minLength: 1 }), n: fc.integer() }), {
+          minLength: 12,
+          maxLength: 40,
+        }),
         async (items) => {
           const dispose = registerEconomyTool({
             tool: 'econ_property_tool',
             action: 'list',
+            // 12+ small records comfortably exceed a 20-token budget.
             economy: { budgetTokens: 20 },
-            handlerResult: {
-              success: true,
-              // Filler guarantees the payload exceeds the 20-token budget
-              // regardless of the generated `items`.
-              data: { items, filler: 'x'.repeat(600) },
-            } satisfies ToolResult,
+            handlerResult: { success: true, data: items } satisfies ToolResult,
           });
           try {
             const result = await dispatch('econ_property_tool', { action: 'list' }, ctx);
@@ -226,17 +230,20 @@ describe('response-economy enforcement (DR-1, Task 003)', () => {
             expect(result.success).toBe(true);
             expect(Array.isArray(result.next_actions)).toBe(true);
             expect((result.next_actions ?? []).length).toBeGreaterThanOrEqual(1);
-            expect(result._meta).not.toBeNull();
-            expect(typeof result._meta).toBe('object');
             expect((result._meta as { truncated?: unknown }).truncated).toBe(true);
-            expect(result._perf).toBeDefined();
             expect(typeof result._perf?.tokens).toBe('number');
 
-            // `data` was replaced by the generic capped fallback shape.
-            const data = result.data as { summary?: unknown; counts?: unknown; firstPage?: unknown };
-            expect(typeof data.summary).toBe('string');
-            expect(Array.isArray(data.firstPage)).toBe(true);
-            expect(typeof data.counts).toBe('object');
+            const data = result.data as {
+              summary: string;
+              counts: { total: number; shown: number };
+              firstPage: unknown[];
+            };
+            // FIDELITY: the surviving page is a genuine prefix of the input, and
+            // the reported total is the real length — no fabricated/dropped rows.
+            expect(data.firstPage.length).toBe(Math.min(items.length, 10));
+            expect(data.firstPage).toEqual(items.slice(0, data.firstPage.length));
+            expect(data.counts.total).toBe(items.length);
+            expect(data.counts.shown).toBe(data.firstPage.length);
           } finally {
             dispose();
           }
@@ -244,6 +251,150 @@ describe('response-economy enforcement (DR-1, Task 003)', () => {
       ),
       { numRuns: 25 },
     );
+  });
+
+  it('dispatchEconomy_OverBudgetObjectPayload_FailsOpenPreservingAllFields', async () => {
+    // HIGH regression (review): an over-budget OBJECT payload whose arrays are
+    // INCIDENTAL (the `exarchos_workflow` rehydrate/get/transition shape) must
+    // FAIL OPEN — the whole structured payload is retained and
+    // `_meta.economyDegraded` is stamped — NOT gutted to the largest incidental
+    // array's first page. Before the fix, `{ workflowState, phasePlaybook,
+    // taskProgress:[…] }` over budget was replaced by the first 10 of
+    // `taskProgress`, silently dropping workflowState + phasePlaybook.
+    const payload = {
+      workflowState: { featureId: 'x'.repeat(400), phase: 'review' },
+      phasePlaybook: { skill: 'review', guidance: 'y'.repeat(400) },
+      taskProgress: [
+        { id: '1', status: 'complete' },
+        { id: '2', status: 'pending' },
+      ],
+    };
+    const dispose = registerEconomyTool({
+      tool: 'econ_object_tool',
+      action: 'rehydrate',
+      economy: { budgetTokens: 20 }, // payload is well over 20 tokens
+      handlerResult: { success: true, data: payload } satisfies ToolResult,
+    });
+    try {
+      const result = await dispatch('econ_object_tool', { action: 'rehydrate' }, ctx);
+
+      expect(result.success).toBe(true);
+      // Fail-open, NOT the destructive list fallback.
+      expect((result._meta as { economyDegraded?: unknown }).economyDegraded).toBe(true);
+      expect((result._meta as { truncated?: unknown }).truncated).toBeUndefined();
+      // Every structured field survives byte-for-byte — zero data loss.
+      expect(result.data).toEqual(payload);
+    } finally {
+      dispose();
+    }
+  });
+
+  it('dispatchEconomy_ObjectWrappedInventory_StillCaps', async () => {
+    // The dominance rule must NOT over-fail-open: an object whose largest array
+    // carries the BULK of the payload (an inventory wrapper like
+    // `{ worktrees: [...] }`) is still list-dominant and IS capped to the
+    // generic fallback — otherwise the backstop would go inert for the views.
+    const dispose = registerEconomyTool({
+      tool: 'econ_inventory_tool',
+      action: 'list',
+      economy: { budgetTokens: 100 },
+      handlerResult: { success: true, data: { worktrees: bigArray(200) } } satisfies ToolResult,
+    });
+    try {
+      const result = await dispatch('econ_inventory_tool', { action: 'list' }, ctx);
+
+      expect(result.success).toBe(true);
+      expect((result._meta as { truncated?: unknown }).truncated).toBe(true);
+      expect((result._meta as { economyDegraded?: unknown }).economyDegraded).toBeUndefined();
+      const data = result.data as { counts: { total: number }; firstPage: unknown[] };
+      expect(data.counts.total).toBe(200);
+      expect(data.firstPage.length).toBe(10);
+    } finally {
+      dispose();
+    }
+  });
+
+  it('dispatchEconomy_TelemetryDisabled_StillEnforcesBudget', async () => {
+    // MEDIUM regression (review): the budget is a property of the dispatch
+    // CONTRACT, not of telemetry. `enforceResponseEconomy` lived only inside the
+    // telemetry middleware, so `EXARCHOS_TELEMETRY=false` silently disabled ALL
+    // enforcement. With telemetry OFF, an over-budget response is STILL capped.
+    const offCtx: DispatchContext = { stateDir: tmpDir, eventStore, enableTelemetry: false };
+
+    const disposeList = registerEconomyTool({
+      tool: 'econ_teloff_list',
+      action: 'list',
+      economy: { budgetTokens: 20 },
+      handlerResult: { success: true, data: bigArray() } satisfies ToolResult,
+    });
+    try {
+      const result = await dispatch('econ_teloff_list', { action: 'list' }, offCtx);
+      expect(result.success).toBe(true);
+      expect((result._meta as { truncated?: unknown }).truncated).toBe(true);
+      expect(Array.isArray((result.data as { firstPage?: unknown }).firstPage)).toBe(true);
+    } finally {
+      disposeList();
+    }
+
+    const disposeObj = registerEconomyTool({
+      tool: 'econ_teloff_obj',
+      action: 'get',
+      economy: { budgetTokens: 20 },
+      handlerResult: {
+        success: true,
+        data: { big: 'z'.repeat(600), taskProgress: [{ id: '1' }] },
+      } satisfies ToolResult,
+    });
+    try {
+      const result = await dispatch('econ_teloff_obj', { action: 'get' }, offCtx);
+      expect(result.success).toBe(true);
+      // Enforcement ran (fail-open marker present) even with telemetry off.
+      expect((result._meta as { economyDegraded?: unknown }).economyDegraded).toBe(true);
+      expect(result.data).toEqual({ big: 'z'.repeat(600), taskProgress: [{ id: '1' }] });
+    } finally {
+      disposeObj();
+    }
+  });
+
+  it('dispatchEconomy_NoWindowingParam_OmitsCliFlagHint', async () => {
+    // MEDIUM regression (review): the steering affordance must NOT advertise a
+    // `--limit` flag on an action whose schema declares no windowing param — a
+    // `.strict()` action would reject `--limit` with INVALID_INPUT, so the hint
+    // was a dead-end recovery step. No param → no CLI flag hint.
+    const dispose = registerEconomyTool({
+      tool: 'econ_nolimit_tool',
+      action: 'list', // default schema z.object({}) — no limit/offset/fields
+      economy: { budgetTokens: 20 },
+      handlerResult: { success: true, data: bigArray() } satisfies ToolResult,
+    });
+    try {
+      const result = await dispatch('econ_nolimit_tool', { action: 'list' }, ctx);
+      const affordance = (result.next_actions ?? [])[0];
+      expect(affordance?.verb).toBe('list');
+      expect(affordance?.hint).toBeUndefined();
+      expect(NextAction.safeParse(affordance).success).toBe(true);
+    } finally {
+      dispose();
+    }
+  });
+
+  it('dispatchEconomy_LimitParam_EmitsAccurateLimitFlagHint', async () => {
+    // The positive half: an action that DOES declare `limit` gets a `--limit`
+    // hint the caller can actually pass.
+    const dispose = registerEconomyTool({
+      tool: 'econ_limit_tool',
+      action: 'list',
+      schema: z.object({ limit: z.number().int().positive().optional() }),
+      economy: { budgetTokens: 20 },
+      handlerResult: { success: true, data: bigArray() } satisfies ToolResult,
+    });
+    try {
+      const result = await dispatch('econ_limit_tool', { action: 'list' }, ctx);
+      const affordance = (result.next_actions ?? [])[0];
+      expect(affordance?.hint).toBe('list --limit 10');
+    } finally {
+      dispose();
+    }
   });
 
   it('dispatchEconomy_CappedTypedOutputSchemaAction_ConformsToRegisteredSchema', async () => {

@@ -15,6 +15,7 @@ import {
 import type { EventAck, ToolResult } from '../format.js';
 import { runWithDispatchContext } from '../dispatch/dispatch-context.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
+import { estimateOutputTokens } from '../core/economy.js';
 
 // DR-5: `event query` returns `{ events, page }`. These helpers unwrap that
 // envelope so a shape change surfaces in exactly one place per accessor.
@@ -773,6 +774,19 @@ describe('handleEventQuery DR-5 default limit + page metadata', () => {
     const result = await handleBatchAppend({ stream, events }, tempDir, eventStore);
     expect(result.success).toBe(true);
   }
+
+  it('eventQuery_DefaultLimitOn112EventStream_StaysUnderTokenBudget', async () => {
+    // DR-5 acceptance asserted DIRECTLY (review LOW): the default query on a
+    // 112-event stream stays within the ~1,600-token budget the acceptance
+    // criterion names — not merely inferred from the limit-20 mechanism — while
+    // `page.hasMore` keeps the hidden older history perceivable. Pins the token
+    // outcome the same way the DR-2 / DR-8 budget tests pin theirs.
+    await seed('dr5-budget', 112);
+    const result = await handleEventQuery({ stream: 'dr5-budget' }, tempDir, eventStore);
+    expect(result.success).toBe(true);
+    expect(estimateOutputTokens(result.data)).toBeLessThanOrEqual(1600);
+    expect(queryPage(result)).toMatchObject({ hasMore: true, total: 112 });
+  });
 
   it('eventQuery_NoLimit_Returns20NewestWithPageMetadata', async () => {
     const TOTAL = 25; // > EVENT_QUERY_DEFAULT_LIMIT so older history is hidden

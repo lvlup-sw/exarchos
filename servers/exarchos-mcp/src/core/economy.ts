@@ -94,11 +94,14 @@ export function narrowAffordance(
   verb: string,
   shown: number,
   total: number,
-  cliHint: string,
+  cliHint?: string,
 ): NextAction {
   return {
     verb,
     reason: `Showing ${shown} of ${total} — narrow with limit/offset (or a filter) to page through the rest.`,
-    hint: cliHint,
+    // Only advertise a CLI flag when the caller actually has one. The
+    // dispatch-core generic fallback omits it for actions whose schema declares
+    // no windowing param (a `.strict()` action would reject `--limit`).
+    ...(cliHint !== undefined ? { hint: cliHint } : {}),
   };
 }

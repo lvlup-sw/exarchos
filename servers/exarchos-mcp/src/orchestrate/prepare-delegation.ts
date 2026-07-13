@@ -1061,12 +1061,15 @@ export async function handlePrepareDelegation(
       error: { code: 'INVALID_INPUT', message: 'detail must be a boolean' },
     };
   }
-  if (!isOptionalOneOf(args.outputFormat, ['prompt-only'])) {
+  // Accept the schema's full enum. `'prompt-only'` opts into the inlined
+  // detail; `'full'` (the schema default, injected by dispatch when omitted)
+  // is the deduped template + per-task deltas — same as the field being absent.
+  if (!isOptionalOneOf(args.outputFormat, ['full', 'prompt-only'])) {
     return {
       success: false,
       error: {
         code: 'INVALID_INPUT',
-        message: "outputFormat must be 'prompt-only' when provided",
+        message: "outputFormat must be 'full' or 'prompt-only' when provided",
       },
     };
   }

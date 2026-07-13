@@ -13,8 +13,8 @@ import {
   extractEnvelopeDataSchema,
 } from './orchestrate/worktree/schemas.js';
 import type { AgentPosture } from './agents/spec.js';
-export { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray } from './coerce.js';
-import { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray } from './coerce.js';
+export { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray, coercedIntArray } from './coerce.js';
+import { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray, coercedIntArray } from './coerce.js';
 
 // ─── Tool Registry Types ────────────────────────────────────────────────────
 
@@ -148,36 +148,13 @@ export function resolveEconomyBudget(action: Pick<ToolAction, 'economy'>): numbe
   return declared !== undefined ? declared : DEFAULT_ECONOMY_BUDGET_TOKENS;
 }
 
-/**
- * DR-3 — a coerced int-array param that routes through the coercion layer
- * (`coerce.ts`) as an array of positive integers: a JSON-stringified array
- * (`"[1660,1671]"`) is parsed to a native array and each element coerces via
- * {@link coercedPositiveInt} (numeric strings → integers). Preprocessing into
- * `z.array` keeps `zodToJsonSchema` emitting `{"type":"array"}` so the CLI flag
- * auto-emits with the right shape.
- *
- * The CSV-tolerance *behavior* (`"1660,1671,1659"`) is deliberately NOT handled
- * here — it lands with the shared, CSV-tolerant `coercedIntArray` helper in
- * `coerce.ts` under Task 010, at which point this local definition is replaced
- * by that import. Task 022 owns only the schema swap (routing `prNumbers` and
- * peers through coercion as an int array); the parsing behavior rides Task 010.
- */
-function coercedIntArray() {
-  return z.preprocess(
-    (val) => {
-      if (typeof val !== 'string') return val;
-      try {
-        const parsed = JSON.parse(val);
-        if (Array.isArray(parsed)) return parsed;
-      } catch {
-        // Not a JSON array — CSV tolerance rides Task 010 (coerce.ts). Pass the
-        // raw string through so downstream validation surfaces a typed error.
-      }
-      return val;
-    },
-    z.array(coercedPositiveInt()),
-  );
-}
+// DR-3 / B-3 — `prNumbers` and its int-array peers bind the shared, CSV-tolerant
+// `coercedIntArray` helper imported from `coerce.ts` (Task 010). It accepts a
+// JSON-stringified array (`"[1660,1671]"`), a CSV string (`"1660,1671,1659"`),
+// or a native array, so the direct-MCP path funnels the same shapes the CLI's
+// `coerceFlags` splitter produces. (The former local stub here was NOT
+// CSV-tolerant and made the direct-MCP CSV path fail INVALID_INPUT while its
+// tests exercised the unused shared helper — review fix.)
 
 export interface GateMetadata {
   readonly blocking: boolean;
@@ -1652,6 +1629,17 @@ const orchestrateActions: readonly ToolAction[] = [
       // supplied it WINS over the derived value (the planner has context the
       // heuristic cannot infer).
       riskTier: z.enum(['low', 'medium', 'high']).optional().describe('Explicit workflow risk-tier override; wins over the derived max-of-tiers'),
+      // DR-4: the full-prompt escape hatch. `detail:true` (or its alias
+      // `outputFormat:'prompt-only'`) inlines the full per-task implementer
+      // prompt instead of the deduped template + per-task deltas. Declared on
+      // the schema so the hatch is reachable through BOTH facades — Zod would
+      // otherwise `.strip()` an undeclared key on the MCP path, and the CLI
+      // would emit no flag (review fix: previously the handler honored these but
+      // the schema declared neither, so the affordance was dead). `outputFormat`
+      // mirrors `agent_spec.outputFormat` exactly to satisfy the registration
+      // flattener's field-contract guard (`buildRegistrationSchema`).
+      detail: z.boolean().optional().describe('DR-4: inline the full per-task implementer prompt instead of the deduped template + per-task deltas'),
+      outputFormat: z.enum(['full', 'prompt-only']).default('full').describe("DR-4: 'prompt-only' is an alias for detail:true; 'full' (default) returns the deduped template + per-task deltas"),
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,

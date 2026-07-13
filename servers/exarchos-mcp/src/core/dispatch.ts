@@ -501,6 +501,18 @@ const ECONOMY_CARRIER_KEYS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Fraction of a response's estimated tokens that its largest array must carry
+ * for the payload to count as list-DOMINANT (safe for the generic list
+ * fallback). Above this, the array IS effectively the payload (an inventory
+ * wrapper like `{ worktrees: [...] }`); below it, the arrays are incidental to
+ * a structured object (`{ workflowState, …, taskProgress:[…] }`) and slicing
+ * would destroy the real content, so the guard fails open instead. Chosen well
+ * above a state document's incidental-array share and well below a true
+ * inventory's (~1.0), so the two separate cleanly.
+ */
+const ECONOMY_LIST_DOMINANCE_RATIO = 0.6;
+
+/**
  * Best-effort item extraction for the generic capped fallback + the steering
  * affordance's shown/total counts. An array `data` is itself the item list;
  * an object `data` contributes its largest array-valued property (the common
@@ -519,6 +531,31 @@ function extractCappableItems(data: unknown): { items: readonly unknown[]; total
     if (best !== undefined) return { items: best, total: best.length };
   }
   return { items: [], total: 0 };
+}
+
+/**
+ * Build the INV-12 steering hint's CLI flag, or `undefined` when the action
+ * declares no windowing/projection param. The generic capped fallback must not
+ * advertise `--limit` on a `.strict()` action whose schema would reject it —
+ * that would hand the caller an INVALID_INPUT recovery step (review DR fix). We
+ * read the action's top-level Zod object shape; a `limit` wins, else `offset` /
+ * `fields`, else no flag hint at all.
+ */
+function economyNarrowHint(
+  action: { schema?: unknown } | undefined,
+  actionName: string,
+): string | undefined {
+  const schema = action?.schema;
+  const shape =
+    schema !== null && typeof schema === 'object' && 'shape' in schema
+      ? (schema as { shape?: unknown }).shape
+      : undefined;
+  if (shape === null || typeof shape !== 'object') return undefined;
+  const keys = shape as Record<string, unknown>;
+  if ('limit' in keys) return `${actionName} --limit ${SUMMARY_FIRST_PAGE_ITEMS}`;
+  if ('offset' in keys) return `${actionName} --offset <n>`;
+  if ('fields' in keys) return `${actionName} --fields <comma,separated>`;
+  return undefined;
 }
 
 /**
@@ -583,8 +620,8 @@ export function enforceResponseEconomy(
   const tokens = estimateOutputTokens(result.data);
   if (tokens <= budget) return result; // under budget — untouched
 
-  const { items, total } = extractCappableItems(result.data);
   let cappedData: unknown;
+  let total: number;
   const summarize = action.economy?.summarize;
   if (summarize !== undefined) {
     try {
@@ -593,7 +630,32 @@ export function enforceResponseEconomy(
       // A throwing summarizer degrades to the uncapped payload.
       return stampEconomyDegraded(result);
     }
+    total = extractCappableItems(result.data).total;
   } else {
+    // The generic list fallback replaces `data` with a counts summary + first
+    // page. That is SAFE ONLY when the payload is genuinely list-DOMINANT:
+    //  - `data` is itself an array, OR
+    //  - `data` is an object whose largest array carries the BULK of the bytes
+    //    (an inventory wrapper like `{ worktrees: [...] }` / `{ items: [...],
+    //    page }`).
+    // A structured object whose arrays are INCIDENTAL — `exarchos_workflow`
+    // get/transition/rehydrate return `{ workflowState, phasePlaybook,
+    // taskProgress:[…] }`, where `taskProgress` is a small side list, not the
+    // payload — would be GUTTED by a blind slice (dropping workflowState /
+    // phasePlaybook with no recoverable copy). Those fail open instead: the
+    // full payload is retained with a visible `_meta.economyDegraded`. An action
+    // that ships large object responses must declare an `economy.summarize` (or
+    // self-cap) to be genuinely bounded. (DR-1 fail-open; INV-17 totality holds
+    // because the degraded envelope is the declared degraded shape.)
+    const { items, total: itemTotal } = extractCappableItems(result.data);
+    const listDominant =
+      Array.isArray(result.data) ||
+      (items.length > 0 &&
+        estimateOutputTokens(items) >= ECONOMY_LIST_DOMINANCE_RATIO * tokens);
+    if (!listDominant) {
+      return stampEconomyDegraded(result);
+    }
+    total = itemTotal;
     const firstPage = items.slice(0, SUMMARY_FIRST_PAGE_ITEMS);
     cappedData = {
       summary:
@@ -609,13 +671,16 @@ export function enforceResponseEconomy(
   // Steering affordance (INV-12), keyed on the action's own name. `shown` is
   // derived from whatever list the capped `data` surfaced (the generic
   // fallback's `firstPage`, or a summarizer's own list) so the affordance's
-  // "showing X of Y" tracks the capped shape.
+  // "showing X of Y" tracks the capped shape. The CLI hint is emitted ONLY
+  // when the action's schema actually declares a windowing/projection param —
+  // advertising `--limit` on a `.strict()` action that rejects it would hand
+  // the caller an INVALID_INPUT recovery step.
   const shown = extractCappableItems(cappedData).total;
   const affordance = narrowAffordance(
     actionName,
     shown,
     total,
-    `${actionName} --limit ${SUMMARY_FIRST_PAGE_ITEMS}`,
+    economyNarrowHint(action, actionName),
   );
   const existingNextActions: readonly NextAction[] = result.next_actions ?? [];
 
@@ -1141,6 +1206,15 @@ export async function dispatch(
   // an MCP client that never advertised tasks support cannot opt in
   // by smuggling a `task` key into args; capability negotiation wins.
   let result: ToolResult;
+  // DR-1 / INV-17: the response-economy budget is a property of the dispatch
+  // CONTRACT, not of telemetry. `withTelemetry` caps on the telemetry-ON paths
+  // (so `_perf` / the D3 gate measure the post-cap size). The telemetry-OFF
+  // leaves below must cap too — otherwise `EXARCHOS_TELEMETRY=false` (a
+  // documented event-silencing switch) would silently disable ALL enforcement,
+  // contradicting INV-17's "every action". `enforceResponseEconomy` is
+  // idempotent (a capped/under-budget result re-passes as a no-op), so applying
+  // it here never double-caps a telemetry-ON result.
+  const economyActionName = typeof args.action === 'string' ? args.action : undefined;
   // ─── #1273 / C1+C2 — Tasks-augmented synthesis ─────────────────────────
   // When the caller threaded `task: { ttl? }` AND a TaskStore is wired AND
   // the MCP client declared the `tasks` capability (or no resolver is
@@ -1169,7 +1243,7 @@ export async function dispatch(
           const wrapped = withTelemetry(coreHandler, tool, ctx.eventStore);
           return wrapped(args);
         }
-      : async () => coreHandler(args);
+      : async () => enforceResponseEconomy(await coreHandler(args), tool, economyActionName);
     result = await runTasksAugmented({
       taskStore: ctx.taskStore,
       taskOptions,
@@ -1183,7 +1257,8 @@ export async function dispatch(
     const wrappedHandler = withTelemetry(coreHandler, tool, ctx.eventStore);
     result = await wrappedHandler(args);
   } else {
-    result = await coreHandler(args);
+    // Telemetry-OFF leaf: cap here so enforcement is not gated on telemetry.
+    result = enforceResponseEconomy(await coreHandler(args), tool, economyActionName);
   }
 
   // ─── T11 (#1440 Op 4, Preview-4 §4.4) — retry_with_task hint emission ───
