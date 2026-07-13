@@ -20,7 +20,7 @@
 // to their full base+signatures form and the token budget test goes red —
 // the kill-probe guarantee.
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -45,11 +45,27 @@ interface CallToolTextResult {
 
 const cleanups: Array<() => Promise<void>> = [];
 
+// Windows portability (memory: project_windows_portability_1620). `createServer`
+// builds its EventStore internally and returns only the McpServer, so the test
+// holds no store handle to `close()`. With telemetry ON (createServer's default)
+// the `describe` dispatch below lazily writes a telemetry event, opening the
+// SQLite handle on `<tmpDir>/exarchos.db` (+ -wal/-shm) — on Windows (NTFS) that
+// open handle blocks `fs.rm(tmpDir)` with EBUSY. Telemetry is orthogonal to
+// every assertion here, so we boot with it OFF: the store is never touched and
+// the temp dir stays empty, so teardown has nothing to unlink. This mirrors the
+// CI-proven integration harness (tools-list/tools-call.test.ts use
+// enableTelemetry:false) and keeps the test on the production `createServer`
+// path, so the DR-6 kill-probe on the `slimRegistration:true` flip is preserved.
+beforeEach(() => {
+  vi.stubEnv('EXARCHOS_TELEMETRY', 'false');
+});
+
 afterEach(async () => {
   while (cleanups.length > 0) {
     const fn = cleanups.pop();
     if (fn) await fn();
   }
+  vi.unstubAllEnvs();
 });
 
 /**
