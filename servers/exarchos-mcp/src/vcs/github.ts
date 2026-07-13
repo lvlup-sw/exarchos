@@ -20,7 +20,10 @@ import type {
   IssueSearchSummary,
   RepoInfo,
   ReplyResult,
+  GetPrCommentsOptions,
+  PrCommentsPage,
 } from './provider.js';
+import { windowPrComments } from './provider.js';
 import { exec } from './shell.js';
 
 // `gh pr checks --json` fields. The `gh` CLI dropped the legacy `conclusion`
@@ -405,6 +408,21 @@ export class GitHubProvider implements VcsProvider {
     }
 
     return this.enrichResolvedStatus(prId, comments);
+  }
+
+  /**
+   * DR-3 — windowed + projected read. Fetches the full aggregated feed via
+   * {@link getPrComments} (all three surfaces + resolution enrichment), then
+   * hands it to the shared, provider-agnostic {@link windowPrComments} so the
+   * newest-first window / `page` metadata / `fields` projection / steer notice
+   * are byte-identical to what the GitLab/ADO fallback path produces.
+   */
+  async getPrCommentsPage(
+    prId: string,
+    opts?: GetPrCommentsOptions,
+  ): Promise<PrCommentsPage> {
+    const all = await this.getPrComments(prId);
+    return windowPrComments(all, opts);
   }
 
   /**

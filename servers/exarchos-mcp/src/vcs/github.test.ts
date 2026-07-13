@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GitHubProvider } from './github.js';
+import { estimateOutputTokens } from '../core/economy.js';
+import { DEFAULT_PR_COMMENTS_LIMIT } from './provider.js';
 
 // Recorded `gh pr checks --json name,state,link,bucket,workflow` blobs captured
 // verbatim from `gh` v2.95.0 against real PRs, so the parse is pinned to the
@@ -1047,5 +1049,105 @@ index abc123..def456 100644
     );
 
     expect(result).toEqual([]);
+  });
+
+  // ─── DR-3: getPrCommentsPage — window + page + fields projection ─────────────
+  //
+  // Boundary discipline: pinned against the hermetic `stubGhComments` fixtures
+  // (recorded gh shapes), never live `gh`. The audit measured this PR's real
+  // 85-comment feed at 37,613 tokens unbounded; these tests pin the bounded
+  // contract that replaces it.
+
+  // Build N issue comments with distinct, monotonically-increasing timestamps
+  // (higher index == newer) and a realistic ~220-char body, so the unbounded
+  // feed blows the token budget while the default window stays well under it.
+  function makeIssueComments(n: number): unknown[] {
+    const base = Date.parse('2026-04-15T10:00:00.000Z');
+    const body =
+      'This change looks mostly fine, but consider the edge case where the ' +
+      'input is empty and the downstream consumer expects at least one element; ' +
+      'please add a guard and a regression test so we do not reintroduce the bug.';
+    return Array.from({ length: n }, (_, i) => ({
+      id: 1000 + i,
+      user: { login: `reviewer-${i % 7}` },
+      body,
+      created_at: new Date(base + i * 60_000).toISOString(),
+    }));
+  }
+
+  it('getPrComments_DefaultLimit_ReturnsPageWithHasMore', async () => {
+    stubGhComments({ issues: makeIssueComments(85) });
+
+    const page = await provider.getPrCommentsPage('42');
+
+    // Default window is the newest ~20, with page metadata + hasMore steer.
+    expect(page.comments).toHaveLength(DEFAULT_PR_COMMENTS_LIMIT);
+    expect(page.page).toEqual({
+      total: 85,
+      offset: 0,
+      limit: DEFAULT_PR_COMMENTS_LIMIT,
+      hasMore: true,
+    });
+    expect(page.notice).toBeDefined();
+    expect(page.notice).toContain('20 of 85');
+
+    // Newest-first: the freshest comment (highest index) is first.
+    expect(page.comments[0]?.id).toBe(1084);
+    expect(page.comments[DEFAULT_PR_COMMENTS_LIMIT - 1]?.id).toBe(1065);
+
+    // Budget: the bounded page is far under 4,000 tokens; the unbounded feed
+    // (what the tool used to return) is well over it — this is the reduction
+    // DR-3 buys (audit baseline: 37,613 tok on the real PR).
+    const full = await provider.getPrComments('42');
+    expect(estimateOutputTokens(full)).toBeGreaterThan(4000);
+    expect(estimateOutputTokens(page)).toBeLessThanOrEqual(4000);
+  });
+
+  it('getPrComments_FieldsProjection_ReturnsOnlyRequestedKeys', async () => {
+    stubGhComments({ issues: makeIssueComments(85) });
+
+    const page = await provider.getPrCommentsPage('42', {
+      limit: 5,
+      fields: ['id', 'author'],
+    });
+
+    expect(page.comments).toHaveLength(5);
+    for (const comment of page.comments) {
+      expect(Object.keys(comment).sort()).toEqual(['author', 'id']);
+      expect(comment).not.toHaveProperty('body');
+      expect(comment).not.toHaveProperty('createdAt');
+      expect(comment).not.toHaveProperty('source');
+    }
+  });
+
+  it('getPrComments_ExplicitOffset_PagesDeterministically', async () => {
+    stubGhComments({ issues: makeIssueComments(85) });
+
+    const first = await provider.getPrCommentsPage('42', { limit: 10, offset: 0 });
+    const second = await provider.getPrCommentsPage('42', { limit: 10, offset: 10 });
+
+    expect(first.page).toEqual({ total: 85, offset: 0, limit: 10, hasMore: true });
+    expect(second.page).toEqual({ total: 85, offset: 10, limit: 10, hasMore: true });
+
+    // Newest-first, contiguous, non-overlapping pages.
+    const firstIds = first.comments.map((c) => c.id);
+    const secondIds = second.comments.map((c) => c.id);
+    expect(firstIds).toEqual([1084, 1083, 1082, 1081, 1080, 1079, 1078, 1077, 1076, 1075]);
+    expect(secondIds).toEqual([1074, 1073, 1072, 1071, 1070, 1069, 1068, 1067, 1066, 1065]);
+    expect(firstIds.filter((id) => secondIds.includes(id as number))).toEqual([]);
+
+    // Deterministic: re-reading the same window yields identical order.
+    const firstAgain = await provider.getPrCommentsPage('42', { limit: 10, offset: 0 });
+    expect(firstAgain.comments.map((c) => c.id)).toEqual(firstIds);
+  });
+
+  it('getPrCommentsPage_LastPage_NoHasMoreNoNotice', async () => {
+    stubGhComments({ issues: makeIssueComments(25) });
+
+    const page = await provider.getPrCommentsPage('42', { limit: 20, offset: 20 });
+
+    expect(page.comments).toHaveLength(5);
+    expect(page.page).toEqual({ total: 25, offset: 20, limit: 20, hasMore: false });
+    expect(page.notice).toBeUndefined();
   });
 });

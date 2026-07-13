@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { GitLabProvider } from './gitlab.js';
 import { AzureDevOpsProvider } from './azure-devops.js';
-import { isResolvedKnown } from './provider.js';
+import { isResolvedKnown, windowPrComments, DEFAULT_PR_COMMENTS_LIMIT } from './provider.js';
 import type { PrComment, VcsProvider } from './provider.js';
 
 describe('VcsProvider', () => {
@@ -151,5 +151,66 @@ describe('VcsProvider', () => {
     // The exposed helper treats absent as "unknown", not as resolved/false.
     expect(isResolvedKnown(explicit)).toBe(true);
     expect(isResolvedKnown(unknown)).toBe(false);
+  });
+});
+
+// ─── DR-3: windowPrComments (shared window/projection helper) ─────────────────
+
+describe('windowPrComments', () => {
+  function makeComments(n: number): PrComment[] {
+    const base = Date.parse('2026-04-15T10:00:00.000Z');
+    return Array.from({ length: n }, (_, i) => ({
+      id: 1000 + i,
+      author: `a${i}`,
+      body: `body ${i}`,
+      createdAt: new Date(base + i * 60_000).toISOString(),
+      source: 'issue-comment' as const,
+    }));
+  }
+
+  it('windowPrComments_NoOpts_DefaultsToNewestLimit', () => {
+    const result = windowPrComments(makeComments(50));
+
+    expect(result.comments).toHaveLength(DEFAULT_PR_COMMENTS_LIMIT);
+    expect(result.page).toEqual({
+      total: 50,
+      offset: 0,
+      limit: DEFAULT_PR_COMMENTS_LIMIT,
+      hasMore: true,
+    });
+    // Newest-first ordering.
+    expect(result.comments[0]?.id).toBe(1049);
+  });
+
+  it('windowPrComments_InvalidLimitOrOffset_Coerces', () => {
+    // Non-positive / non-finite limit → default; negative offset → 0.
+    const result = windowPrComments(makeComments(30), { limit: 0, offset: -5 });
+
+    expect(result.page.limit).toBe(DEFAULT_PR_COMMENTS_LIMIT);
+    expect(result.page.offset).toBe(0);
+  });
+
+  it('windowPrComments_OffsetBeyondTotal_EmptyNoMore', () => {
+    const result = windowPrComments(makeComments(10), { limit: 5, offset: 100 });
+
+    expect(result.comments).toEqual([]);
+    expect(result.page).toEqual({ total: 10, offset: 100, limit: 5, hasMore: false });
+    expect(result.notice).toBeUndefined();
+  });
+
+  it('windowPrComments_EmptyFields_ReturnsFullComments', () => {
+    // An empty projection list is treated as "no projection".
+    const result = windowPrComments(makeComments(3), { fields: [] });
+
+    expect(result.comments[0]).toHaveProperty('body');
+    expect(result.comments[0]).toHaveProperty('source');
+  });
+
+  it('windowPrComments_ProjectsOnlyPresentKeys', () => {
+    // `path` is absent on issue-comments, so it is not fabricated in the
+    // projection — only present-and-defined keys survive.
+    const result = windowPrComments(makeComments(1), { fields: ['id', 'path'] });
+
+    expect(Object.keys(result.comments[0] ?? {})).toEqual(['id']);
   });
 });

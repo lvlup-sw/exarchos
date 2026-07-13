@@ -67,7 +67,45 @@ describe('handleGetPrComments', () => {
     const result = await handleGetPrComments(args, ctx);
 
     expect(result.success).toBe(true);
-    expect(result.data).toEqual(sampleComments);
+    // DR-3: the shim now returns a windowed `{ comments, page }` shape. With the
+    // 2-comment fixture both fit the default window, newest-first (id 2 before
+    // id 1), and nothing remains (hasMore false → no notice).
+    const data = result.data as { comments: unknown[]; page: unknown; notice?: string };
+    expect(data.comments).toEqual([sampleComments[1], sampleComments[0]]);
+    expect(data.page).toEqual({ total: 2, offset: 0, limit: 20, hasMore: false });
+    expect(data.notice).toBeUndefined();
+    expect(result.next_actions).toBeUndefined();
+  });
+
+  it('handleGetPrComments_ThreadsWindowOpts_ToProvider', async () => {
+    // A provider that implements the bounded surface receives the parsed
+    // limit/offset/fields opts verbatim; the shim prefers it over the fallback.
+    const page = {
+      comments: [{ id: 5, author: 'z' }],
+      page: { total: 3, offset: 0, limit: 2, hasMore: true },
+      notice: 'Showing 1 of 3 comments (newest first).',
+    };
+    const getPrCommentsPage = vi.fn().mockResolvedValue(page);
+    mockProvider = makeMockProvider({ getPrCommentsPage });
+    vi.mocked(createVcsProvider).mockResolvedValue(mockProvider);
+
+    const result = await handleGetPrComments(
+      { prId: '42', limit: 2, offset: 0, fields: ['id', 'author'] },
+      ctx,
+    );
+
+    expect(getPrCommentsPage).toHaveBeenCalledWith('42', {
+      limit: 2,
+      offset: 0,
+      fields: ['id', 'author'],
+    });
+    // Falls through to the full feed only when the bounded surface is absent.
+    expect(mockProvider.getPrComments).not.toHaveBeenCalled();
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual(page);
+    // hasMore → a narrow affordance steering to the next page.
+    expect(result.next_actions).toHaveLength(1);
+    expect(result.next_actions?.[0]?.verb).toBe('get_pr_comments');
   });
 
   it('handleGetPrComments_ReadOnly_DoesNotEmitEvent', async () => {
