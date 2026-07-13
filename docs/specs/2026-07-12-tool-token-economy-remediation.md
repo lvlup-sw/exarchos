@@ -2,6 +2,7 @@
 
 **Date:** 2026-07-12 · **Feature:** `tool-token-economy-remediation` · **Depth:** deep
 **Inputs:** `docs/research/2026-07-11-tool-surface-token-economy-audit.md` (discovery workflow `tool-token-economy-audit`, PR #1679) · `docs/specs/2026-07-09-refactor-pipeline-view-economy.md` (#1659, patterns P1–P5) · `.exarchos/invariants.md`
+**Forward-compat (§05 target):** `docs/system-design.html` §05 "facade-as-MCP-contract codegen" (Z3) · #1604 (2026-07-28 MCP migration, GA imminent) · #1608 (INV-2/INV-4/INV-11 reframe). This feature governs the **output side** of the contract; §05 makes the MCP contract the sole API abstraction with the CLI a generated presentation client. The economy work is designed as the output-side down-payment on that transition — see the Technical Design "outputSchema honesty" and "presentation seam" notes.
 
 > One unified artifact: `## Design & Rationale` is the DR-N source; `## Decomposition` maps tasks → DR-N within this same document.
 
@@ -109,22 +110,25 @@ Apply compact-by-default + `page` + scope perceivability (#1659 P1–P5) to the 
 - `view telemetry --compact` measurably reduces output on a populated store (baseline: no-op at 85 tok).
 - Each migrated view carries a DR-2-style token-budget test.
 
-### DR-9: Envelope split (`content` lean, `structuredContent` full) — verification-gated
+### DR-9: Envelope split (`content` lean, `structuredContent` full) — seam unconditional, rendering verification-gated
 
-Verify empirically how host clients (Claude Code plugin first, then the other Tier-1 runtimes) inject `content` vs `structuredContent` into model context; implement the lean-`content` rendering only where verified beneficial.
+Two separable parts. **(a) The presentation seam is unconditional:** extract `content` construction in `toMcpResult` into a single `renderContent(env)` function (byte-identical, characterization-pinned) — the structural split point between the canonical contract (`structuredContent`) and its presentation (`content`), and the first instance of the split §05 generalizes across facades. **(b) The lean rendering is gated:** verify empirically how host clients (Claude Code plugin first, then the other Tier-1 runtimes) inject `content` vs `structuredContent` into model context; fill the seam with a lean rendering only where verified beneficial.
 
 **Acceptance criteria:**
+- **Seam (unconditional):** `renderContent(env)` is the sole construction point for `content`; a characterization test pins byte-identical output vs. today's inline `JSON.stringify(env)`. This lands even on a defer verdict — deferring the *rendering* must not defer the *split point*.
 - A written verification note (in-repo, linked from this spec's decomposition) records per-runtime injection behavior with reproduction steps.
-- **Decision rule (decidable):** implement only if the primary runtime (Claude Code) demonstrably injects `content` (not `structuredContent`) into model context AND a lean rendering reduces model-visible tokens ≥30% across ≥3 representative actions. Runtimes evidenced to inject `structuredContent` are no-loss by construction; any Tier-1 runtime whose injection behavior cannot be evidenced ⇒ defer (INV-4: the guarantee must exist on every runtime's path).
-- If implemented: `content` carries a compact rendering, `structuredContent` the full envelope; both facades produce identical `structuredContent` (INV-2); rendering is presentation-only in adapters.
-- If verification shows no model-token benefit: explicitly deferred with the evidence recorded — the task closes without code.
+- **Decision rule (decidable):** fill the seam with a lean rendering only if the primary runtime (Claude Code) demonstrably injects `content` (not `structuredContent`) into model context AND a lean rendering reduces model-visible tokens ≥30% across ≥3 representative actions. Runtimes evidenced to inject `structuredContent` are no-loss by construction; any Tier-1 runtime whose injection behavior cannot be evidenced ⇒ defer (INV-4: the guarantee must exist on every runtime's path).
+- If the rendering is implemented: `content` carries a compact rendering via `renderContent`, `structuredContent` the full envelope; both facades produce identical `structuredContent` (INV-2); rendering is presentation-only in adapters (no business logic).
+- If verification shows no model-token benefit: the *rendering* is explicitly deferred with the evidence recorded — the task closes with the seam landed but `renderContent` still byte-identical.
 
 ### DR-10: Codify INV-17 (response-economy)
 
 Author a dev-catalog entry via the `/exarchos:invariants` wizard verbs (`invariants_scaffold`/`invariants_add`): every action declares a default token budget; unbounded output requires an explicit schema-typed escape hatch; budgets are test-enforced.
+Frame the invariant **contract-canonically**: the budget and escape-hatch are properties of the *canonical response contract* — declared in the registry schema/descriptor, enforced in the shared dispatch core, rendered through a presentation seam — never special-cased in one facade. This carries the INV-2 reframe (#1608) and the §05 facade-codegen direction forward to every future action, so the next new action inherits the contract-canonical posture, not the peer-facade one.
 
 **Acceptance criteria:**
 - `.exarchos/invariants.md` gains INV-17 with ≥3 citations (Anthropic tool-writing guidance, MCP 2025-06-18, GitHub MCP minimal-types precedent), `cost-of-load` and `applies-to` set.
+- The invariant statement is contract-canonical (schema-declared, core-enforced, presentation-rendered) and cross-references the INV-2 reframe (#1608) / §05 target.
 - The id is INV-17 — INV-16 (os-portability) is not disturbed; vocabulary-lint passes.
 - `check_invariant_conformance` surfaces INV-17 for review-phase audits.
 
@@ -158,12 +162,16 @@ A small set of verbose-by-design actions (`describe`, `runbook` detail, `emissio
 **Enforcement seam:** dispatch core, post-handler, immediately before the telemetry middleware's `injectPerf` — the same place response bytes/tokens are already measured, so the guard and `_perf` agree by construction.
 Order: handler → economy check (measure `data`; if over budget → summarizer or generic fallback; stamp `_meta.truncated`) → `injectPerf` (final size).
 
-**outputSchema honesty:** actions with a summarizer declare the summary shape in their registered schema; the generic fallback's shape (`{summary, counts, firstPage}`) is a shared schema fragment unioned into every action that carries a typed `data` outputSchema (10 today).
-This union is load-bearing, not cosmetic: the MCP adapter's D.5 validator replaces any envelope violating its registered outputSchema with an `INTERNAL_ERROR` envelope, so an un-unioned capped response would break the fail-open criterion on the MCP facade while the CLI facade (which has no D.5 pass) sailed through — an INV-2 parity break.
-The union is single-owned by a dedicated registry task and must land before enforcement activates.
+**outputSchema honesty (contract-canonical):** actions with a summarizer declare the summary shape in their registered schema; the generic fallback's shape (`{summary, counts, firstPage}`) is a shared schema fragment unioned into every action that carries a typed `data` outputSchema (10 today).
+This union is load-bearing, not cosmetic: the registered `outputSchema` **is** the canonical response contract (system-design "one contract, one core"), so a capped response whose shape the schema does not declare violates the contract itself — regardless of which surface renders it.
+The MCP adapter's D.5 validator (`adapters/mcp.ts:245`, `validateAgainstActionSchema`) is *where that contract is enforced today* — it replaces a violating envelope with an `INTERNAL_ERROR` envelope; the CLI is a presentation client over the same contract, bound to it by construction (INV-2 reframe, #1608; §05 facade-codegen atop the #1604 2026-07-28 MCP migration).
+Framing the union as "MCP has D.5, the CLI has no D.5 pass, so they diverge" is the pre-#1608 peer-facade model and is deliberately **not** the rationale here: that "CLI sails through" asymmetry is a transitional artifact §05 removes (the CLI stops being an independent validation path). The union exists because the contract must honestly describe every shape an action can emit — which is *also* the precondition for §05 output-codegen (you cannot generate a presentation client from a schema that doesn't enumerate the response shapes).
+The union is single-owned by a dedicated registry task (022) and must land before enforcement (003) activates; concretely it makes each typed action's schema **total over its emittable shapes** (baseline + capped) — a §05 down-payment, not just a D.5 unblock.
 **Budget scope note (audit F-6):** budgets measure `data` only; the ~40–60-token envelope carrier floor is deliberately outside the budget and documented as such.
 
 **Kit relocation:** `views/output-cap.ts` → `core/economy.ts` (name illustrative); `pipeline`/`worktrees` become the first consumers of the generalized kit, unchanged in behavior.
+
+**Presentation seam (§05 down-payment):** today `toMcpResult` (`adapters/mcp.ts:173`) builds the `content` block inline as `JSON.stringify(env)` — the same full envelope it also puts in `structuredContent`. This feature extracts that into a single `renderContent(env)` presentation function: the one place `content` is derived from the canonical envelope. The extraction is **byte-identical and unconditional** — it lands regardless of DR-9's go/no-go, because it is the structural split point between *contract* (`structuredContent`, the canonical envelope) and *presentation* (`content`, a rendering of it). DR-9's lean rendering, if verified, simply fills this seam; §05's facade-codegen consumes the same split (the CLI becomes another renderer over the same contract). The input side is already schema-derived (`adapters/schema-to-flags.ts`); this establishes the matching seam on the output side. **Discipline:** capping/economy logic lives in the shared core (`core/economy.ts`, `core/dispatch.ts`), never in an adapter; adapters only *render*. New response shapes must fall out of the shared envelope + `renderContent`, never a hand-added `cli-format.ts` branch.
 
 **Slim registration** is a one-line context flip plus eval validation; the `describe` action is already the bounded detail path (1–10 actions).
 
@@ -307,8 +315,8 @@ Post-handler, pre-`injectPerf`: measure `data`; over budget → declared summari
 - `dispatchEconomy_BudgetUnresolvable_FailsOpenWithDegradedMarker`
 - `dispatchEconomy_SummarizerThrows_ReturnsUncappedWithDegradedMarker`
 - `dispatchEconomy_CappedResponse_EnvelopeCarrierIntact` — property test: for arbitrary over-budget payloads, `success`/`next_actions`/`_meta`/`_perf` survive
-- `dispatchEconomy_CappedTypedOutputSchemaAction_SurvivesD5Validation` — a capped response for a typed-outputSchema action passes the MCP adapter's D.5 pass (never INTERNAL_ERROR)
-- `check_test_adequacy` kill-probe + integration suite across the dispatch seam (both facades, INV-2 parity)
+- `dispatchEconomy_CappedTypedOutputSchemaAction_ConformsToRegisteredSchema` — a capped response for a typed-outputSchema action conforms to its registered `outputSchema` (passes D.5; never INTERNAL_ERROR). This is a **schema-conformance** assertion — the codegen-golden precursor (#1608: "parity harness → codegen golden test"), *not* a runtime two-facade result-diff.
+- `check_test_adequacy` kill-probe + integration suite across the **shared** dispatch seam. Enforcement lives in the core, so both surfaces inherit the cap by construction (INV-2 by construction, per #1608) — assert the cap once at the core seam, not by diffing MCP-vs-CLI outputs.
 
 **Dependencies:** 001, 002, 022
 **Parallelizable:** No
@@ -578,7 +586,7 @@ Empirically record how host clients (Claude Code plugin first, then Tier-1 runti
 **Dependencies:** None
 **Parallelizable:** Yes
 
-### Task 017: DR-9 — lean `content` rendering (conditional on Task 016)
+### Task 017: DR-9 — `renderContent` presentation seam (unconditional) + lean rendering (gated on Task 016)
 
 **Risk Tier:** high
 **Boundary Touching:** true
@@ -590,12 +598,14 @@ Empirically record how host clients (Claude Code plugin first, then Tier-1 runti
 - `servers/exarchos-mcp/src/adapters/mcp.ts`
 - co-located test
 
-If 016's decision rule verifies benefit: `content` carries a compact rendering, `structuredContent` the full envelope; identical `structuredContent` across facades (INV-2); rendering stays presentation-only. If the rule says defer: close without code, citing the note. High tier — this changes what every tool response injects into model context on the primary runtime.
+**Unconditional (always lands):** extract the inline `content` construction in `toMcpResult` (`adapters/mcp.ts:173`) into a single `renderContent(env)` function — byte-identical to today's `JSON.stringify(env)`, characterization-pinned. This is the §05 presentation/contract split point and lands regardless of the decision rule.
+**Gated on 016:** if 016's decision rule verifies benefit, `renderContent` returns a compact rendering while `structuredContent` keeps the full envelope; identical `structuredContent` across facades (INV-2); rendering stays presentation-only (no business logic). If the rule says defer: `renderContent` stays byte-identical and the deferral evidence is cited — the seam is still established. High tier — the gated rendering changes what every tool response injects into model context on the primary runtime.
 
 **Verification:**
-- `toMcpResult_LeanContent_StructuredContentCarriesFullEnvelope`
+- `toMcpResult_RenderContentSeam_BytesIdenticalToInline` — characterization pinning the unconditional extraction (holds on both defer and implement paths)
+- `toMcpResult_LeanContent_StructuredContentCarriesFullEnvelope` — gated path only
 - `toMcpResult_BothFacades_IdenticalStructuredContent`
-- `check_test_adequacy` kill-probe + integration suite across the adapter seam — or the recorded deferral evidence
+- `check_test_adequacy` kill-probe + integration suite across the adapter seam — or the recorded deferral evidence (with the seam characterization still green)
 
 **Dependencies:** 015, 016
 **Parallelizable:** No
@@ -610,7 +620,7 @@ If 016's decision rule verifies benefit: `content` carries a compact rendering, 
 **Files:**
 - `.exarchos/invariants.md`
 
-Author the response-economy entry through `invariants_scaffold`/`invariants_add` (never hand-written YAML): every action declares a default token budget; unbounded output requires a schema-typed escape hatch; budgets are test-enforced. Id INV-17 (INV-16 = os-portability); ≥3 citations; vocabulary-lint green.
+Author the response-economy entry through `invariants_scaffold`/`invariants_add` (never hand-written YAML): every action declares a default token budget; unbounded output requires a schema-typed escape hatch; budgets are test-enforced. Frame it contract-canonically (schema-declared, core-enforced, presentation-rendered — never facade-special-cased), cross-referencing the INV-2 reframe (#1608) and the §05 facade-codegen target so future actions inherit the posture. Id INV-17 (INV-16 = os-portability); ≥3 citations; vocabulary-lint green.
 
 **Verification:**
 - `npm run lint:invariants` green; `check_invariant_conformance` surfaces INV-17
@@ -697,11 +707,12 @@ Regenerate golden fixtures and parity snapshots; update `skills-src/` prose citi
 - `servers/exarchos-mcp/src/registry.ts`
 - `servers/exarchos-mcp/src/registry.test.ts`
 
-Single owner of every `registry.ts` schema edit the economy work needs, so handler tasks never touch the file: new input params (`limit`/`offset`/`fields` for `get_pr_comments`; paging for `assess_stack`; the CSV-tolerant coerced int-array for `prNumbers`; `detail`/paging for view schemas) and the `{summary, counts, firstPage}` capped-shape union into every action with a typed `data` outputSchema (10 today), so the MCP adapter's D.5 validation never rejects a capped envelope.
+Single owner of every `registry.ts` schema edit the economy work needs, so handler tasks never touch the file: new input params (`limit`/`offset`/`fields` for `get_pr_comments`; paging for `assess_stack`; the CSV-tolerant coerced int-array for `prNumbers`; `detail`/paging for view schemas) and the `{summary, counts, firstPage}` capped-shape union into every action with a typed `data` outputSchema (10 today), so the registered contract is **total over every emittable shape** (baseline + capped). D.5 enforces that totality today; §05 output-codegen *requires* it — this task is the output-side codegen down-payment. All new params are schema-declared (never facade special-cased), so they auto-emit to CLI flags via `schema-to-flags` today and are codegen-ready tomorrow.
 
 **Verification:**
 - `registrySchemas_EconomyParams_ValidateAndCoerce`
 - `registrySchemas_TypedOutputActions_AcceptCappedShape`
+- `registrySchemas_TypedOutputActions_SchemaTotalOverEmittableShapes` — every typed-output action's `outputSchema` admits both its baseline and capped shapes (schema totality — the §05 output-codegen precondition)
 - `check_test_adequacy` kill-probe + integration suite (registration schema is a shared contract surface)
 
 **Dependencies:** 002
