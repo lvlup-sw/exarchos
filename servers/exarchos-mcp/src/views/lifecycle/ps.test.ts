@@ -298,6 +298,61 @@ describe('ps scope:"worktree" — WLM-6 capabilities preserved (consumed, not du
     expect(data.operations).toBeUndefined();
   });
 
+  it('Ps_NoStorageBackend_SurfacesStructuredMetaWarning', async () => {
+    // Finding 6a: with no storage backend wired, the workflows section can't be
+    // read. Instead of a SILENT empty section (which reads as "no workflows
+    // exist"), the handler surfaces a structured `_meta.warning`. The operations
+    // section (event-store-backed) is unaffected.
+    const { ctx } = await createRealArm(); // ctx has no `storage`
+    await ctx.eventStore.append(
+      WORKTREES_STREAM,
+      { type: 'launch.executing_started', data: { worktreeId: '/wt/x', instanceId: '/wt/x', holderPid: 1, holderStartedAt: null } },
+    );
+
+    const result = await handleViewPs({}, ctx, FIXED_DEPS);
+    expect(result.success).toBe(true);
+    const data = result.data as { workflows: unknown[]; workflowCount: number; operations: InFlightOperation[] };
+    expect(data.workflowCount).toBe(0);
+    // The degraded read is announced, not silent.
+    const meta = result._meta as { warning?: string } | undefined;
+    expect(meta?.warning).toBeDefined();
+    expect(meta?.warning).toMatch(/workflows section unavailable/i);
+    // Operations section still works — the launch is in flight.
+    expect(data.operations.some((o) => o.surface === 'launch')).toBe(true);
+  });
+
+  it('Ps_StorageBackendPresent_NoMetaWarning', async () => {
+    // The warning is present ONLY on degrade — a normally-wired ctx omits it.
+    const arm = await createArm();
+    seedWorkflow(arm.backend, { featureId: 'feat-a', workflowType: 'feature', phase: 'plan', createdAt: '2026-07-13T00:00:00.000Z' });
+    const result = await handleViewPs({}, arm.ctx, FIXED_DEPS);
+    expect(result.success).toBe(true);
+    expect(result._meta).toBeUndefined();
+  });
+
+  it('Ps_SameMergeKeyTwoFeatureStreams_TerminalDoesNotCrossClear_S6', async () => {
+    // Finding 1 end-to-end through the real handler + perf-pushdown gather: two
+    // feature workflows share the merge key 'T11'; only feat-b's merge
+    // terminates. `ps --scope all` must still show feat-a's stuck merge (the S-6
+    // guarantee), attributed to feat-a.
+    const arm = await createArm();
+    seedWorkflow(arm.backend, { featureId: 'feat-a', workflowType: 'feature', phase: 'delegate', createdAt: '2026-07-13T00:00:00.000Z' });
+    seedWorkflow(arm.backend, { featureId: 'feat-b', workflowType: 'feature', phase: 'delegate', createdAt: '2026-07-13T00:00:00.000Z' });
+
+    seedEvent(arm.backend, 'feat-a', 'merge.executing_started', { instanceId: 'T11' }, '2026-07-13T00:00:01.000Z');
+    seedEvent(arm.backend, 'feat-b', 'merge.executing_started', { instanceId: 'T11' }, '2026-07-13T00:00:02.000Z');
+    seedEvent(arm.backend, 'feat-b', 'merge.executed', { instanceId: 'T11' }, '2026-07-13T00:00:03.000Z');
+
+    const result = await handleViewPs({}, arm.ctx, FIXED_DEPS);
+    expect(result.success).toBe(true);
+    const data = result.data as { operations: InFlightOperation[] };
+    const merges = data.operations.filter((o) => o.surface === 'merge');
+    expect(merges).toHaveLength(1);
+    expect(merges[0]?.instanceKey).toBe('T11');
+    expect(merges[0]?.streamId).toBe('feat-a');
+    expect(merges[0]?.featureId).toBe('feat-a');
+  });
+
   it('Ps_WorktreeScope_ProbeAccepted_RunsReclaim', async () => {
     const { ctx } = await createRealArm();
     // probe:true is VALID in worktree scope — it must run the DR-5 process probe

@@ -132,13 +132,14 @@ describe('OperationsFold — generic in-flight operations (DR-3)', () => {
   });
 
   it('OperationsFold_UnresolvableKey_SkippedNeverThrows', () => {
-    // A pre-retrofit mutation row carrying neither instanceId nor operationId
-    // — `instanceKeyOf` returns undefined and the fold must not throw or list
-    // a phantom entry for it.
+    // A `launch` row carrying neither instanceId nor worktreeId — `instanceKeyOf`
+    // returns undefined (launch has no singleton fallback) and the fold must not
+    // throw or list a phantom entry for it. (Mutation now resolves keyless rows
+    // to the DR-2 singleton, so `launch` is the surface that stays unresolvable.)
     const events: OperationEventLike[] = [
       {
-        type: 'mutation.executing_started',
-        data: { command: 'npx stryker run', repoRoot: '/repo' },
+        type: 'launch.executing_started',
+        data: { holderPid: 4242 },
         timestamp: '2026-07-13T00:00:00.000Z',
       },
     ];
@@ -168,53 +169,138 @@ describe('OperationsFold — generic in-flight operations (DR-3)', () => {
     expect(rows).toHaveLength(4);
   });
 
-  // ── Property test (state-machine): pairing correctness over arbitrary
-  //    start/terminal/surface interleavings ──────────────────────────────
+  // ── S-6 regression: cross-stream mis-pairing (finding 1) ───────────────────
   //
-  // An independent reference model — a plain `Set<string>` of `surface:key`
-  // compound keys, mutated by the same start-adds/terminal-removes rule the
-  // registry documents — is compared against `foldInFlightOperations` over
-  // hundreds of randomly generated event sequences spanning ALL FOUR
-  // registered surfaces and a small key alphabet. This both restates the
-  // property from `liveness-registry.test.ts` (single-surface) at the fold
-  // level AND additionally proves cross-surface isolation: a `launch` START
-  // for key `'A'` must never be cleared by a `merge` TERMINAL for the same
-  // literal key `'A'`.
-  it('OperationsFold_InFlightListing_MatchesReferenceModelOverArbitraryInterleavings', () => {
+  // Two feature workflows whose merge `instanceKey` COLLIDES (a recurring taskId
+  // `T11`, or a shared branch pair) must pair PER STREAM. A terminal on
+  // workflow-B's stream may only clear B's in-flight merge — it must NOT clear
+  // workflow-A's genuinely-stuck merge, which would make A vanish from `ps
+  // operations`. This is the exact S-6 failure the feature exists to prevent; a
+  // mutation that drops stream-scoping (pairing by `(surface, instanceKey)`
+  // alone) fails this test.
+  it('OperationsFold_SameMergeKeyDifferentFeatureStreams_TerminalDoesNotCrossClear', () => {
+    const events: OperationEventLike[] = [
+      // feat-a starts a merge with key T11.
+      { type: 'merge.executing_started', data: { instanceId: 'T11' }, streamId: 'feat-a', timestamp: '2026-07-13T00:00:00.000Z' },
+      // feat-b starts a merge with the SAME key T11.
+      { type: 'merge.executing_started', data: { instanceId: 'T11' }, streamId: 'feat-b', timestamp: '2026-07-13T00:00:01.000Z' },
+      // Only feat-b's merge terminates.
+      { type: 'merge.executed', data: { instanceId: 'T11' }, streamId: 'feat-b', timestamp: '2026-07-13T00:00:02.000Z' },
+    ];
+
+    const rows = foldInFlightOperations(events);
+    const merges = rows.filter((r) => r.surface === 'merge');
+
+    // feat-a's T11 merge is STILL in flight; feat-b's was cleared.
+    expect(merges).toHaveLength(1);
+    expect(merges[0]?.instanceKey).toBe('T11');
+    expect(merges[0]?.streamId).toBe('feat-a');
+    // The row names the stuck workflow so a consumer can answer "which is stuck?".
+    expect(merges[0]?.featureId).toBe('feat-a');
+  });
+
+  it('OperationsFold_WorktreesScope_SameKeyOneStream_PairsByKeyAcrossInstances', () => {
+    // The dual of the S-6 case: launch is `worktrees`-scoped (one shared
+    // singleton stream), so cross-instance concurrency on that one stream is
+    // NORMAL and pairs by key alone. A `featureId` is never attributed to a
+    // worktrees-scoped op (it names no workflow).
+    const events: OperationEventLike[] = [
+      { type: 'launch.executing_started', data: { instanceId: 'wt-A' }, streamId: 'worktrees', timestamp: '2026-07-13T00:00:00.000Z' },
+      { type: 'launch.executing_started', data: { instanceId: 'wt-B' }, streamId: 'worktrees', timestamp: '2026-07-13T00:00:01.000Z' },
+      { type: 'launch.executed', data: { instanceId: 'wt-B' }, streamId: 'worktrees', timestamp: '2026-07-13T00:00:02.000Z' },
+    ];
+
+    const rows = foldInFlightOperations(events);
+    const launches = rows.filter((r) => r.surface === 'launch');
+    expect(launches).toHaveLength(1);
+    expect(launches[0]?.instanceKey).toBe('wt-A');
+    expect(launches[0]?.streamId).toBe('worktrees');
+    expect(launches[0]?.featureId).toBeUndefined();
+  });
+
+  // ── Property test (state-machine): pairing correctness over arbitrary
+  //    start/terminal/surface/STREAM interleavings (finding 2) ─────────────
+  //
+  // An independent reference model — a plain `Set<string>` of compound keys,
+  // mutated by the same start-adds/terminal-removes rule the registry documents
+  // — is compared against `foldInFlightOperations` over hundreds of randomly
+  // generated event sequences spanning ALL FOUR surfaces, a small key alphabet,
+  // AND a stream dimension. It proves three isolations at once:
+  //   • cross-surface: a `launch` START for `'A'` is never cleared by a `merge`
+  //     TERMINAL for the same literal `'A'`;
+  //   • cross-stream (the S-6 property): a `feature`-scoped START for `'A'` on
+  //     stream `s1` is never cleared by a TERMINAL for `'A'` on stream `s2`;
+  //   • singleton-stream collapse: a `worktrees`-scoped surface pairs by key
+  //     alone, so the stream dimension is IGNORED for it (concurrent ops on the
+  //     one shared stream is the normal case).
+  // The reference model's compound key mirrors that scope-dependent rule exactly.
+  it('OperationsFold_InFlightListing_MatchesReferenceModelOverArbitraryStreamInterleavings', () => {
     const keyAlphabet = ['A', 'B', 'C'] as const;
+    const streamAlphabet = ['s1', 's2'] as const;
     const opArb = fc.record({
       surfaceIndex: fc.constantFrom(0, 1, 2, 3),
       op: fc.constantFrom<'start' | 'terminal'>('start', 'terminal'),
       key: fc.constantFrom(...keyAlphabet),
+      stream: fc.constantFrom(...streamAlphabet),
     });
+
+    // The reference model's identity for an instance: feature-scoped surfaces
+    // are per-(stream,key); worktrees-scoped surfaces are per-key (stream elided).
+    const refId = (surfaceIndex: number, stream: string, key: string): string => {
+      const descriptor = LIVENESS_DESCRIPTORS[surfaceIndex];
+      return descriptor.streamScope === 'feature'
+        ? `${descriptor.surface}:${stream}:${key}`
+        : `${descriptor.surface}:${key}`;
+    };
 
     fc.assert(
       fc.property(fc.array(opArb, { minLength: 0, maxLength: 80 }), (ops) => {
-        const events: OperationEventLike[] = ops.map(({ surfaceIndex, op, key }, i) => {
+        const events: OperationEventLike[] = ops.map(({ surfaceIndex, op, key, stream }, i) => {
           const descriptor = LIVENESS_DESCRIPTORS[surfaceIndex];
           return {
             type: op === 'start' ? descriptor.startType : descriptor.terminalTypes[0],
             data: { instanceId: key },
+            streamId: stream,
             timestamp: new Date(2026, 0, 1, 0, 0, i).toISOString(),
           };
         });
 
         const rows = foldInFlightOperations(events);
-        const actual = new Set(rows.map((r) => `${r.surface}:${r.instanceKey}`));
+        const actual = new Set(
+          rows.map((r) => {
+            const idx = LIVENESS_DESCRIPTORS.findIndex((d) => d.surface === r.surface);
+            return refId(idx, r.streamId ?? '', r.instanceKey);
+          }),
+        );
 
         // Reference model: independent from the implementation under test.
         const expected = new Set<string>();
-        for (const { surfaceIndex, op, key } of ops) {
-          const surface = LIVENESS_DESCRIPTORS[surfaceIndex].surface;
-          const compound = `${surface}:${key}`;
-          if (op === 'start') expected.add(compound);
-          else expected.delete(compound);
+        for (const { surfaceIndex, op, key, stream } of ops) {
+          const id = refId(surfaceIndex, stream, key);
+          if (op === 'start') expected.add(id);
+          else expected.delete(id);
         }
 
         expect(actual).toEqual(expected);
       }),
-      { numRuns: 200 },
+      { numRuns: 300 },
     );
+  });
+
+  it('OperationsFold_FeatureSurface_SameKeyDistinctStreams_PairIndependently', () => {
+    // A focused witness of the cross-stream property the generator explores:
+    // two mutation starts for key `'K'` on different feature streams, one
+    // terminated, leaves exactly the other in flight (same-key/different-stream
+    // feature ops pair independently — finding 2).
+    const events: OperationEventLike[] = [
+      { type: 'mutation.executing_started', data: { instanceId: 'K' }, streamId: 'feat-a', timestamp: '2026-07-13T00:00:00.000Z' },
+      { type: 'mutation.executing_started', data: { instanceId: 'K' }, streamId: 'feat-b', timestamp: '2026-07-13T00:00:01.000Z' },
+      { type: 'mutation.executed', data: { instanceId: 'K' }, streamId: 'feat-a', timestamp: '2026-07-13T00:00:02.000Z' },
+    ];
+    const rows = foldInFlightOperations(events).filter((r) => r.surface === 'mutation');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.streamId).toBe('feat-b');
+    expect(rows[0]?.instanceKey).toBe('K');
   });
 
   // ── DR-3 acceptance criterion: a hypothetical fifth surface requires ZERO

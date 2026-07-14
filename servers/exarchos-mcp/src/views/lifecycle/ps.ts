@@ -60,6 +60,10 @@ import {
   type InFlightOperation,
   type OperationEventLike,
 } from './operations-fold.js';
+import {
+  LIVENESS_DESCRIPTORS,
+  everyExecutingStartedType,
+} from '../../event-store/liveness-registry.js';
 import { scopeField } from './schema-fields.js';
 
 // ─── Scope vocabulary ─────────────────────────────────────────────────────────
@@ -155,21 +159,27 @@ interface WorkflowsSection {
   readonly workflowCount: number;
 }
 
+/** `_meta.warning` surfaced when the workflows section can't be read (no backend). */
+const NO_STORAGE_WARNING =
+  'workflows section unavailable: no storage backend wired to this context — ' +
+  'the operations section (event-store-backed) is unaffected';
+
 /**
  * Fold the WORKFLOWS section for the `workflow` / `all` scopes: task 005's
  * `foldWorkflowSummaries` over `ctx.storage`, honoring the status / phase /
  * workflowType / all (includeTerminal) filters. When no storage backend is wired
  * (a test-context shape only — production always supplies a SqliteBackend), the
- * section degrades to empty rather than throwing; the operations section (which
- * rides `eventStore`, always present) is unaffected.
+ * section degrades to empty AND surfaces a structured `_meta.warning` (rather
+ * than a silent empty section that reads as "no workflows exist"); the
+ * operations section (which rides `eventStore`, always present) is unaffected.
  */
 function foldWorkflowsSection(
   backend: StorageBackend | undefined,
   args: Record<string, unknown>,
   nowMs: number | undefined,
-): { section: WorkflowsSection } | { error: ToolResult } {
+): { section: WorkflowsSection; warning?: string } | { error: ToolResult } {
   if (backend === undefined) {
-    return { section: { workflows: [], workflowCount: 0 } };
+    return { section: { workflows: [], workflowCount: 0 }, warning: NO_STORAGE_WARNING };
   }
 
   const filter: WorkflowSummaryFilter = {};
@@ -204,21 +214,46 @@ function foldWorkflowsSection(
 // ─── Operations section (task 006) ────────────────────────────────────────────
 
 /**
- * Gather every liveness event across every stream, globally ordered by
+ * The registry's liveness event types — every `<surface>.executing_started`
+ * START plus every declared TERMINAL, deduplicated. Derived from the DR-2
+ * registry (never hardcoded), so a fifth surface's types are picked up
+ * automatically. This is the type-scoped pushdown set `gatherOperationEvents`
+ * restricts its reads to.
+ */
+function livenessEventTypes(): readonly string[] {
+  const types = new Set<string>(everyExecutingStartedType());
+  for (const descriptor of LIVENESS_DESCRIPTORS) {
+    for (const terminal of descriptor.terminalTypes) types.add(terminal);
+  }
+  return [...types];
+}
+
+/**
+ * Gather the liveness events across every stream, globally ordered by
  * `(timestamp, sequence)`, so `foldInFlightOperations` can pair START/TERMINAL
  * across the feature streams (merge / mutation) AND the singleton `worktrees`
  * stream (launch / prune) in one pass. `WorkflowEvent` rows satisfy
- * {@link OperationEventLike} structurally — no adapter needed. Non-liveness
- * events are folded harmlessly (the registry-driven fold ignores them).
+ * {@link OperationEventLike} structurally (including `streamId`, load-bearing for
+ * the DR-2 per-stream pairing) — no adapter needed.
+ *
+ * Perf (DR-3): rather than loading the FULL event log of every stream and
+ * global-sorting it on each `ps --scope all`, this pushes the type filter down
+ * to the backend — only the registry's liveness start/terminal types are
+ * materialized (`query(streamId, { type })`, which the SqliteBackend and
+ * InMemoryBackend both honor at the storage layer). The remaining sort is over
+ * the small liveness slice, not the whole log.
  */
 async function gatherOperationEvents(
   eventStore: DispatchContext['eventStore'],
 ): Promise<OperationEventLike[]> {
   const streams = eventStore.listStreams();
+  const types = livenessEventTypes();
   const all: WorkflowEvent[] = [];
   for (const streamId of streams) {
-    const events = await eventStore.query(streamId);
-    for (const event of events) all.push(event);
+    for (const type of types) {
+      const events = await eventStore.query(streamId, { type });
+      for (const event of events) all.push(event);
+    }
   }
   all.sort((a, b) => {
     const byTs = a.timestamp.localeCompare(b.timestamp);
@@ -294,12 +329,16 @@ export async function handleViewPs(
   // Workflows section (both remaining scopes need it).
   const workflowsResult = foldWorkflowsSection(ctx.storage, args, nowMs);
   if ('error' in workflowsResult) return workflowsResult.error;
-  const { section: workflows } = workflowsResult;
+  const { section: workflows, warning } = workflowsResult;
+  // Surface a degraded-read warning structurally instead of a silent empty
+  // section (finding 6a). Only present when a section actually degraded.
+  const metaField = warning !== undefined ? { _meta: { warning } } : {};
 
   if (scope === 'workflow') {
     return {
       success: true,
       data: { scope, ...workflows },
+      ...metaField,
     };
   }
 
@@ -308,5 +347,6 @@ export async function handleViewPs(
   return {
     success: true,
     data: { scope, ...workflows, ...operations },
+    ...metaField,
   };
 }

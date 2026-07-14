@@ -58,12 +58,30 @@ export interface InFlightOperation {
   readonly instanceKey: string;
   /** Which stream family this surface's pair rides on (`'feature'` | `'worktrees'`). */
   readonly streamScope: LivenessStreamScope;
+  /**
+   * The stream this instance's START rode. For `feature`-scoped surfaces this
+   * distinguishes two workflows whose `instanceKey` collides (DR-2 per-stream
+   * pairing); for the singleton `worktrees` scope it is the shared stream id.
+   * `undefined` only for a keyless test fixture.
+   */
+  readonly streamId: string | undefined;
+  /**
+   * The workflow this operation belongs to — the featureId — for `feature`-scoped
+   * surfaces (where `streamId` IS the featureId), so a consumer can answer "which
+   * workflow is stuck?". `undefined` for `worktrees`-scoped surfaces (launch /
+   * prune ride the shared singleton stream, not a workflow's feature stream).
+   */
+  readonly featureId: string | undefined;
   /** The `<surface>.executing_started` CLAIM event type that opened this instance. */
   readonly startType: string;
   /** ISO 8601 instant the instance started, from the START event's envelope `timestamp`. */
   readonly startedAt: string | undefined;
-  /** Age in milliseconds at fold time (`now - startedAt`), or `undefined` when `startedAt` is unresolvable. */
-  readonly ageMs: number | undefined;
+  /**
+   * Age in milliseconds at fold time (`now - startedAt`), or `null` when
+   * `startedAt` is unresolvable. Standardized on `number | null` to match the
+   * sibling workflow-fold's `ageMs` (one age contract across both `ps` folds).
+   */
+  readonly ageMs: number | null;
 }
 
 /** Options for {@link foldInFlightOperations}. */
@@ -108,15 +126,19 @@ export function foldInFlightOperations(
   const rows: InFlightOperation[] = [];
   for (const descriptor of registry) {
     const inFlight = computeInFlightInstances(descriptor, events);
-    for (const [instanceKey, startEvent] of inFlight) {
+    for (const { instanceKey, streamId, startEvent } of inFlight.values()) {
       const startedAt = livenessStartedAt(startEvent as OperationEventLike);
       rows.push({
         surface: descriptor.surface,
         instanceKey,
         streamScope: descriptor.streamScope,
+        streamId,
+        // `feature`-scoped streams ARE the featureId; `worktrees`-scoped launch/
+        // prune ride the shared singleton stream, so they name no workflow.
+        featureId: descriptor.streamScope === 'feature' ? streamId : undefined,
         startType: descriptor.startType,
         startedAt,
-        ageMs: startedAt !== undefined ? Math.max(0, nowMs - Date.parse(startedAt)) : undefined,
+        ageMs: startedAt !== undefined ? Math.max(0, nowMs - Date.parse(startedAt)) : null,
       });
     }
   }
