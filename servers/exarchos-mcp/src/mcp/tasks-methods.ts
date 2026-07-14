@@ -24,6 +24,13 @@ import type {
 } from '@modelcontextprotocol/sdk/types.js';
 
 import type { EventSourcedTaskStore } from '../task-store/event-sourced-task-store.js';
+import {
+  runInspectFollow,
+  type FollowSubscribe,
+  type InspectFollowHandle,
+} from '../cli/follow-loop.js';
+import type { SubscriptionClock } from '../event-store/subscriptions.js';
+import type { Frame } from '../ndjson/frames.js';
 
 /**
  * `tasks/get` — return the SDK `Task` projection for `taskId`. Mirrors
@@ -105,4 +112,81 @@ export async function tasksCancel(
     throw new Error(`Task not found after cancellation: ${taskId}`);
   }
   return updated;
+}
+
+// ─── DR-4: MCP Tasks arm of `inspect --follow` ───────────────────────────────
+//
+// The Tasks facade of the streaming `inspect --follow` carrier. It drives the
+// SAME `runInspectFollow` core (see `cli/follow-loop.ts`) over the SAME DR-1
+// subscription contract the CLI NDJSON arm uses, so both facades stream
+// byte-identical frames from one subscription (INV-2). The one facade-specific
+// wire is cancellation: an MCP `tasks/cancel` disposes the subscription. This
+// arm owns an internal `AbortController` so a single {@link TasksFollowHandle.cancel}
+// call (invoked from the cancel path) folds into the carrier's abort teardown
+// — subscription disposed, heartbeat cancelled, terminal `end` frame written.
+
+export interface TasksFollowOptions {
+  /** DR-1 subscription contract — the SAME one the CLI arm drives. */
+  readonly subscribe: FollowSubscribe;
+  /** Workflow to tail. */
+  readonly featureId: string;
+  /** Carrier sink — the MCP transport pushes each frame as a task update. */
+  readonly onFrame: (frame: Frame) => void;
+  /** Initial cursor (see {@link runInspectFollow}). */
+  readonly fromSequence?: number;
+  /** Injected heartbeat timer (INV-16). */
+  readonly clock?: SubscriptionClock;
+  /** Idle heartbeat interval (ms). */
+  readonly heartbeatIntervalMs?: number;
+  /**
+   * Optional external abort (e.g. server teardown / session close) folded into
+   * the same disposal path as {@link TasksFollowHandle.cancel}.
+   */
+  readonly signal?: AbortSignal;
+}
+
+export interface TasksFollowHandle extends InspectFollowHandle {
+  /**
+   * MCP `tasks/cancel` seam — dispose the underlying DR-1 subscription and end
+   * the frame stream. Idempotent; mirrors the abort path exactly.
+   */
+  cancel(): void;
+}
+
+/**
+ * `tasks/follow` — register the MCP Tasks arm of `inspect --follow` over the
+ * DR-1 subscription. Returns a handle whose {@link TasksFollowHandle.cancel}
+ * (wired from the `tasks/cancel` method) disposes the subscription.
+ */
+export function tasksFollow(opts: TasksFollowOptions): TasksFollowHandle {
+  const controller = new AbortController();
+  // Fold an external signal (server teardown) into the same abort the cancel
+  // path uses, so there is ONE disposal route regardless of trigger.
+  if (opts.signal) {
+    if (opts.signal.aborted) controller.abort();
+    else opts.signal.addEventListener('abort', () => controller.abort(), { once: true });
+  }
+
+  const inner = runInspectFollow({
+    subscribe: opts.subscribe,
+    featureId: opts.featureId,
+    fromSequence: opts.fromSequence,
+    onFrame: opts.onFrame,
+    signal: controller.signal,
+    clock: opts.clock,
+    heartbeatIntervalMs: opts.heartbeatIntervalMs,
+  });
+
+  return {
+    done: inner.done,
+    disposed: () => inner.disposed(),
+    dispose: () => inner.dispose(),
+    cancel: () => {
+      // task-cancel → subscription dispose. Abort drives the carrier's abort
+      // teardown; the explicit dispose covers the (already-aborted) idempotent
+      // case where the signal fired before this call.
+      controller.abort();
+      inner.dispose();
+    },
+  };
 }

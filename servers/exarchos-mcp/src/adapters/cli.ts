@@ -933,6 +933,15 @@ function registerActionCommand(
     );
   }
 
+  // DR-4 (task-009): `view inspect --follow` tails ONE workflow's event stream
+  // live as NDJSON frames over the DR-1 cursor-pump subscription (a DIFFERENT
+  // carrier from the `VIEW_FOLLOW_ACTIONS` Tasks-polling loop above). No option
+  // is registered here — inspect's `follow` field is schema-declared (DR-8 SoT),
+  // so `addFlagsFromSchema` already emits `--follow`; this predicate only routes
+  // the dispatch branch below.
+  const isInspectFollow =
+    tool.name === 'exarchos_view' && action.name === 'inspect';
+
   // T5 (#1240): convenience flags on `wf checkpoint` so agents emit a
   // structured handoff payload without having to type nested JSON.
   // The flags map to the `handoff` field on the dispatch surface
@@ -1202,6 +1211,82 @@ function registerActionCommand(
           format,
         );
         process.exitCode = CLI_EXIT_CODES.UNCAUGHT_EXCEPTION;
+      }
+      return;
+    }
+
+    // ─── DR-4 (task-009): `view inspect --follow` NDJSON carrier ──────
+    //
+    // Tails ONE workflow's event stream live over the DR-1 cursor-pump
+    // subscription, framing each delivered event as an NDJSON `event`
+    // frame (deduped by sequence) with heartbeat frames on silence. The
+    // MCP Tasks arm (`mcp/tasks-methods.ts#tasksFollow`) drives the SAME
+    // `runInspectFollow` core over the SAME subscription contract, so the
+    // two facades stream byte-identical frames (INV-2). Disposal is
+    // AbortSignal-driven: SIGINT aborts the controller → the carrier
+    // disposes the subscription and writes a terminal `end` frame.
+    if (isInspectFollow && follow === true) {
+      // Parse the action args first so a bad/missing featureId surfaces as
+      // INVALID_INPUT before we open a subscription.
+      const followCoerced = coerceFlags(flagOpts, action.schema);
+      const followParse = action.schema.safeParse(followCoerced);
+      if (!followParse.success) {
+        const errCtx = `${tool.name}/${action.name}`;
+        const err = formatValidationError(followParse.error, errCtx);
+        emitResult({ success: false, error: err }, isJson, format);
+        process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
+        return;
+      }
+      const featureId =
+        typeof followParse.data.featureId === 'string'
+          ? followParse.data.featureId
+          : undefined;
+      if (!featureId) {
+        const err = buildInvalidInput(
+          `${tool.name}/${action.name}: --follow requires featureId`,
+        );
+        emitResult({ success: false, error: err }, isJson, format);
+        process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
+        return;
+      }
+
+      // Wire SIGINT → AbortController (no POSIX-only signal semantics reach
+      // the carrier). The handler MUST NOT call `process.exit` — awaiting
+      // `handle.done` lets the carrier dispose the subscription and flush the
+      // `end` frame, then the action returns and the event loop drains.
+      const controller = new AbortController();
+      const onSigint = (): void => controller.abort();
+      process.once('SIGINT', onSigint);
+      try {
+        const { runInspectFollow, defaultFollowClock } = await import(
+          '../cli/follow-loop.js'
+        );
+        const { NdjsonEncoder } = await import('../ndjson/encoder.js');
+        const encoder = new NdjsonEncoder(process.stdout);
+        const handle = runInspectFollow({
+          subscribe: (filter, onEvent, options) =>
+            ctx.eventStore.subscribe(filter, onEvent, options),
+          featureId,
+          // `0` so the follow stream is self-contained: existing events
+          // (initial drain) followed by the live tail.
+          fromSequence: 0,
+          onFrame: (frame) => encoder.write(frame),
+          signal: controller.signal,
+          clock: defaultFollowClock(),
+        });
+        await handle.done;
+        // Abort (SIGINT) is a clean exit — the user asked for it.
+        process.exitCode = CLI_EXIT_CODES.SUCCESS;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        emitResult(
+          { success: false, error: { code: 'UNCAUGHT_EXCEPTION', message } },
+          isJson,
+          format,
+        );
+        process.exitCode = CLI_EXIT_CODES.UNCAUGHT_EXCEPTION;
+      } finally {
+        process.off('SIGINT', onSigint);
       }
       return;
     }
