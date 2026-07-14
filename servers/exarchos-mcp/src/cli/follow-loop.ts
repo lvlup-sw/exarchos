@@ -389,11 +389,20 @@ export function runInspectFollow(opts: InspectFollowOptions): InspectFollowHandl
     }, heartbeatIntervalMs);
   }
 
+  // Single abort-listener reference so the SAME function can be removed on
+  // teardown — a stream that ends by `dispose()` (never abort) must not leave a
+  // live `abort` listener pinned to a long-lived external AbortSignal (SIGINT
+  // wiring / server session). `{ once: true }` covers the abort-fired case; this
+  // covers the dispose-first case. Both disposal entry points still converge on
+  // the SINGLE `end()` → `handle.dispose()` route.
+  const onAbort = (): void => end('aborted');
+
   const end = (reason: string): void => {
     if (ended) return;
     ended = true;
     cancelHeartbeat?.();
     cancelHeartbeat = undefined;
+    opts.signal.removeEventListener('abort', onAbort);
     handle.dispose();
     opts.onFrame({ type: 'end', reason });
     resolveDone();
@@ -402,7 +411,7 @@ export function runInspectFollow(opts: InspectFollowOptions): InspectFollowHandl
   if (opts.signal.aborted) {
     end('aborted');
   } else {
-    opts.signal.addEventListener('abort', () => end('aborted'), { once: true });
+    opts.signal.addEventListener('abort', onAbort, { once: true });
   }
 
   return {

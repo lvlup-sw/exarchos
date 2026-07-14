@@ -162,9 +162,11 @@ export function tasksFollow(opts: TasksFollowOptions): TasksFollowHandle {
   const controller = new AbortController();
   // Fold an external signal (server teardown) into the same abort the cancel
   // path uses, so there is ONE disposal route regardless of trigger.
-  if (opts.signal) {
-    if (opts.signal.aborted) controller.abort();
-    else opts.signal.addEventListener('abort', () => controller.abort(), { once: true });
+  const onExternalAbort = (): void => controller.abort();
+  const externalSignal = opts.signal;
+  if (externalSignal) {
+    if (externalSignal.aborted) controller.abort();
+    else externalSignal.addEventListener('abort', onExternalAbort, { once: true });
   }
 
   const inner = runInspectFollow({
@@ -176,6 +178,14 @@ export function tasksFollow(opts: TasksFollowOptions): TasksFollowHandle {
     clock: opts.clock,
     heartbeatIntervalMs: opts.heartbeatIntervalMs,
   });
+
+  // When the carrier ends by ANY route (cancel / dispose / inner abort), drop the
+  // external-signal listener so a long-lived server/session signal does not
+  // retain it after this follow is gone (`{ once: true }` only covers the
+  // abort-fired case). No new disposal route — purely leak hygiene.
+  if (externalSignal) {
+    void inner.done.then(() => externalSignal.removeEventListener('abort', onExternalAbort));
+  }
 
   return {
     done: inner.done,
