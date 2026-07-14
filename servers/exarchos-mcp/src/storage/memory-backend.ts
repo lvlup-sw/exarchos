@@ -1,7 +1,15 @@
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import type { WorkflowState } from '../workflow/types.js';
 import type { QueryFilters } from '../event-store/store.js';
-import type { StorageBackend, EventSender, ViewCacheEntry, DrainResult } from './backend.js';
+import type {
+  StorageBackend,
+  EventSender,
+  ViewCacheEntry,
+  DrainResult,
+  WorkflowSummary,
+  WorkflowSummaryFilter,
+} from './backend.js';
+import { deriveWorkflowStatus, matchesWorkflowSummaryFilter } from './backend.js';
 import type { SnapshotRecord } from '../projections/snapshot-schema.js';
 import { resolveMaxRecords } from './snapshot-retention.js';
 
@@ -240,6 +248,62 @@ export class InMemoryBackend implements StorageBackend {
       result.push({ featureId, state: entry.state });
     }
     return result;
+  }
+
+  /**
+   * Cross-workflow summary read (DR-3). Capability-equivalent counterpart to
+   * {@link SqliteBackend.listWorkflowSummaries}: derives the same
+   * {@link WorkflowSummary} fields from the in-memory state objects and event
+   * arrays and applies the filter in JS (there is no index to push down to).
+   *
+   * `workflowType`/`phase` come off the stored state object; `status` from the
+   * shared {@link deriveWorkflowStatus}; `createdAt` is the earliest event
+   * timestamp for the stream (the event envelope). The shared
+   * {@link matchesWorkflowSummaryFilter} applies the lifecycle axes and the
+   * `workflowType` axis is applied here in JS — together they reproduce the
+   * SQLite path's rows exactly (INV-2 facade equivalence), the guarantee the
+   * `ListWorkflowSummaries_BackendContract_SharedAcrossSqliteAndInMemory` test
+   * pins.
+   */
+  listWorkflowSummaries(filter: WorkflowSummaryFilter = {}): WorkflowSummary[] {
+    const summaries: WorkflowSummary[] = [];
+
+    for (const [featureId, entry] of this.states) {
+      const state = entry.state as { phase?: unknown; workflowType?: unknown };
+      const phase = typeof state.phase === 'string' ? state.phase : '';
+      const workflowType = typeof state.workflowType === 'string' ? state.workflowType : '';
+
+      // Earliest event envelope = workflow creation instant. ISO-8601 sorts
+      // lexicographically, matching SQLite's MIN(timestamp).
+      let createdAt: string | null = null;
+      const events = this.events.get(featureId);
+      if (events && events.length > 0) {
+        createdAt = events[0].timestamp;
+        for (const event of events) {
+          if (event.timestamp < createdAt) createdAt = event.timestamp;
+        }
+      }
+
+      summaries.push({
+        featureId,
+        workflowType,
+        phase,
+        status: deriveWorkflowStatus(phase),
+        createdAt,
+      });
+    }
+
+    // Stable ORDER BY featureId ASC — parity with SqliteBackend.
+    summaries.sort((a, b) => a.featureId.localeCompare(b.featureId));
+
+    return summaries.filter((summary) => {
+      // workflow_type has no index in memory, so filter it in JS here; the
+      // shared predicate applies the lifecycle axes.
+      if (filter.workflowType !== undefined && summary.workflowType !== filter.workflowType) {
+        return false;
+      }
+      return matchesWorkflowSummaryFilter(summary, filter);
+    });
   }
 
   // ─── Outbox Operations ──────────────────────────────────────────────────
