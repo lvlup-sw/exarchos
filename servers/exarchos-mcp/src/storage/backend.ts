@@ -48,6 +48,120 @@ export interface DrainResult {
   readonly failed: number;
 }
 
+// ─── Workflow Summary (DR-3, `ps` fold) ──────────────────────────────────────
+
+/**
+ * Coarse lifecycle status derived from a workflow's phase. Distinct from the
+ * fine-grained `phase` (`plan`, `delegate`, `triage`, …): `status` collapses
+ * every non-terminal phase to `active` and surfaces only the three states a
+ * `ps`-style listing cares about — is this workflow still running, did it
+ * finish, was it cancelled, or is it wedged (`blocked`)?
+ *
+ * `completed` and `cancelled` are the terminal states (see
+ * {@link isTerminalWorkflowStatus}); `blocked` is NOT terminal (a blocked
+ * workflow can be resumed), so it stays visible in the default listing.
+ */
+export type WorkflowLifecycleStatus = 'active' | 'completed' | 'cancelled' | 'blocked';
+
+/** The terminal lifecycle statuses excluded from the default `ps` listing. */
+export const TERMINAL_WORKFLOW_STATUSES: ReadonlySet<WorkflowLifecycleStatus> = new Set<WorkflowLifecycleStatus>([
+  'completed',
+  'cancelled',
+]);
+
+/**
+ * Map a workflow `phase` string to its coarse {@link WorkflowLifecycleStatus}.
+ *
+ * Shared by both backends so the SQLite (join + json_extract) and in-memory
+ * (state-object) read paths derive `status` identically — the linchpin of the
+ * `ListWorkflowSummaries_BackendContract_SharedAcrossSqliteAndInMemory`
+ * parity contract. The terminal phases (`completed`, `cancelled`) and the
+ * resumable `blocked` phase are recognised by name across every workflow type
+ * (feature/debug/refactor/oneshot/discovery all share those three terminal
+ * phase labels); any other phase is `active`.
+ */
+export function deriveWorkflowStatus(phase: string): WorkflowLifecycleStatus {
+  switch (phase) {
+    case 'completed':
+      return 'completed';
+    case 'cancelled':
+      return 'cancelled';
+    case 'blocked':
+      return 'blocked';
+    default:
+      return 'active';
+  }
+}
+
+/** Whether a lifecycle status is terminal (hidden from the default listing). */
+export function isTerminalWorkflowStatus(status: WorkflowLifecycleStatus): boolean {
+  return TERMINAL_WORKFLOW_STATUSES.has(status);
+}
+
+/**
+ * Filter passed to {@link StorageBackend.listWorkflowSummaries}.
+ *
+ * All fields are optional; an omitted field means "no constraint on that
+ * axis". `workflowType` is the indexed pushdown axis (SQLite filters it in SQL
+ * against `streams.workflow_type`); `status`/`phase`/`includeTerminal` are the
+ * lifecycle axes applied by {@link matchesWorkflowSummaryFilter} identically on
+ * both backends.
+ */
+export interface WorkflowSummaryFilter {
+  /** Exact `workflow_type` match — pushed down to the indexed column in SQLite. */
+  workflowType?: string;
+  /** Exact derived-{@link WorkflowLifecycleStatus} match. Authoritative over the terminal default. */
+  status?: WorkflowLifecycleStatus;
+  /** Exact `phase` match. */
+  phase?: string;
+  /**
+   * Include terminal (`completed`/`cancelled`) workflows. Defaults to `false`
+   * — the default listing shows only live/blocked workflows. Ignored when an
+   * explicit `status` is supplied (that status is then authoritative).
+   */
+  includeTerminal?: boolean;
+}
+
+/**
+ * One row of the workflow-summary read model: the minimal projection a
+ * `ps`-style listing folds. `createdAt` is the earliest event-envelope
+ * timestamp for the stream (ISO-8601), or `null` when the stream carries no
+ * events — the consuming view computes `ageMs` from it.
+ */
+export interface WorkflowSummary {
+  readonly featureId: string;
+  readonly workflowType: string;
+  readonly phase: string;
+  readonly status: WorkflowLifecycleStatus;
+  readonly createdAt: string | null;
+}
+
+/**
+ * Shared lifecycle predicate applied by BOTH backends so SQLite and in-memory
+ * agree row-for-row (INV-2 facade equivalence). Deliberately does NOT re-check
+ * `workflowType`: SQLite owns that axis via the indexed SQL WHERE and the
+ * in-memory backend applies it in JS separately, so leaving it out here keeps
+ * the SQLite pushdown behaviourally load-bearing (a broken pushdown leaks
+ * foreign-type rows rather than being silently re-filtered here).
+ *
+ * Terminal handling: an explicit `status` is authoritative — filtering for
+ * `completed` returns completed workflows even without `includeTerminal`.
+ * With no explicit `status`, terminal workflows are hidden unless
+ * `includeTerminal` is set.
+ */
+export function matchesWorkflowSummaryFilter(
+  summary: WorkflowSummary,
+  filter: WorkflowSummaryFilter,
+): boolean {
+  if (filter.phase !== undefined && summary.phase !== filter.phase) return false;
+  if (filter.status !== undefined) {
+    // Explicit status is authoritative, terminal or not.
+    return summary.status === filter.status;
+  }
+  if (!filter.includeTerminal && isTerminalWorkflowStatus(summary.status)) return false;
+  return true;
+}
+
 // ─── Storage Backend Interface ──────────────────────────────────────────────
 
 /**
@@ -123,6 +237,29 @@ export interface StorageBackend {
   getState(featureId: string): WorkflowState | null;
   setState(featureId: string, state: WorkflowState, expectedVersion?: number): void;
   listStates(): Array<{ featureId: string; state: WorkflowState }>;
+
+  /**
+   * Cross-workflow summary read (DR-3) — the backend half of the `ps`
+   * workflows fold. Returns one {@link WorkflowSummary} per tracked workflow,
+   * filtered by {@link WorkflowSummaryFilter}.
+   *
+   * Required (not optional): both production backends implement it, and the
+   * `workflow-fold` view relies on its presence.
+   *
+   * Backend obligations:
+   *  - {@link SqliteBackend}: real pushdown — join `workflow_state × streams`
+   *    and constrain `streams.workflow_type = ?` in SQL against the
+   *    `idx_streams_workflow_type` index (never a post-fetch JS scan). Phase
+   *    comes from `json_extract(state, '$.phase')`; `createdAt` from
+   *    `MIN(events.timestamp)` per stream.
+   *  - {@link InMemoryBackend}: capability-equivalent — derives the same fields
+   *    from the in-memory state object and event arrays and applies the
+   *    filter in JS (no index to consult).
+   *
+   * Both apply {@link matchesWorkflowSummaryFilter} for the lifecycle axes so
+   * the two paths return the same rows for the same inputs.
+   */
+  listWorkflowSummaries(filter?: WorkflowSummaryFilter): WorkflowSummary[];
 
   // Outbox operations
   addOutboxEntry(streamId: string, event: WorkflowEvent): string;

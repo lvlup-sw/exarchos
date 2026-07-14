@@ -4,7 +4,15 @@ import { dirname, join, basename, resolve, relative, isAbsolute } from 'node:pat
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import type { WorkflowState } from '../workflow/types.js';
 import type { QueryFilters } from '../event-store/store.js';
-import type { StorageBackend, EventSender, ViewCacheEntry, DrainResult } from './backend.js';
+import type {
+  StorageBackend,
+  EventSender,
+  ViewCacheEntry,
+  DrainResult,
+  WorkflowSummary,
+  WorkflowSummaryFilter,
+} from './backend.js';
+import { deriveWorkflowStatus, matchesWorkflowSummaryFilter } from './backend.js';
 import { VersionConflictError } from './memory-backend.js';
 import type { SnapshotRecord } from '../projections/snapshot-schema.js';
 import { resolveMaxRecords } from './snapshot-retention.js';
@@ -428,6 +436,19 @@ export class SqliteBackend implements StorageBackend {
    * invisible until users notice the latency.
    */
   private correlationFilteredQueries = 0;
+
+  /**
+   * Counter for {@link listWorkflowSummaries} calls that pushed a
+   * `workflow_type` predicate down to the indexed SQL WHERE (the
+   * `idx_streams_workflow_type` fast path). Incremented ONCE per filtered
+   * query. Exposed via {@link getStats} so the
+   * `WorkflowFold_TypeFilter_PushedDownToIndexedColumn` gate can assert the
+   * type filter took the index path rather than a post-fetch JS scan — a
+   * silent regression to a full workflow_state × streams scan would still
+   * return correct rows and otherwise stay invisible until users notice the
+   * latency.
+   */
+  private workflowTypePushdownQueries = 0;
 
   /**
    * Clock used for outbox retry-eligibility checks. Injectable so tests can
@@ -1589,8 +1610,11 @@ export class SqliteBackend implements StorageBackend {
    * object) so callers can compose per-subsystem stat snapshots without a
    * shared metrics interface.
    */
-  getStats(): { correlationFilteredQueries: number } {
-    return { correlationFilteredQueries: this.correlationFilteredQueries };
+  getStats(): { correlationFilteredQueries: number; workflowTypePushdownQueries: number } {
+    return {
+      correlationFilteredQueries: this.correlationFilteredQueries,
+      workflowTypePushdownQueries: this.workflowTypePushdownQueries,
+    };
   }
 
   /**
@@ -2097,6 +2121,73 @@ export class SqliteBackend implements StorageBackend {
       featureId: row.featureId,
       state: JSON.parse(row.state) as WorkflowState,
     }));
+  }
+
+  /**
+   * Cross-workflow summary read (DR-3). Real pushdown: the `workflow_type`
+   * predicate is compiled into the SQL WHERE against the
+   * `idx_streams_workflow_type` index — the INNER JOIN of `workflow_state ×
+   * streams` keys the type filter to the indexed registry column rather than
+   * scanning every row's state JSON.
+   *
+   * Per-row fields:
+   *  - `workflowType` from `streams.workflow_type` (the indexed, authoritative
+   *    registry value; equal to the state's own `workflowType` because
+   *    `registerStream` is written with the same value on the init path).
+   *  - `phase` from `json_extract(state, '$.phase')` on the persisted blob.
+   *  - `status` derived from `phase` via the shared {@link deriveWorkflowStatus}.
+   *  - `createdAt` from `MIN(events.timestamp)` per stream — the earliest
+   *    event envelope, i.e. the workflow's creation instant (indexed via
+   *    `idx_events_time (streamId, timestamp)`).
+   *
+   * The lifecycle axes (`status`/`phase`/`includeTerminal`) are applied by the
+   * shared {@link matchesWorkflowSummaryFilter} so this path and the in-memory
+   * path stay row-for-row equivalent. `workflowType` is intentionally NOT
+   * re-checked in JS — the SQL WHERE owns it, keeping the pushdown load-bearing.
+   */
+  listWorkflowSummaries(filter: WorkflowSummaryFilter = {}): WorkflowSummary[] {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+
+    if (filter.workflowType !== undefined) {
+      // Indexed pushdown on the registry's workflow_type column.
+      conditions.push('s.workflow_type = ?');
+      params.push(filter.workflowType);
+      this.workflowTypePushdownQueries++;
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const sql = `
+      SELECT ws.featureId AS featureId,
+             s.workflow_type AS workflowType,
+             json_extract(ws.state, '$.phase') AS phase,
+             (SELECT MIN(e.timestamp) FROM events e WHERE e.streamId = ws.featureId) AS createdAt
+        FROM workflow_state ws
+        INNER JOIN streams s ON s.streamId = ws.featureId
+        ${where}
+        ORDER BY ws.featureId ASC`;
+
+    const rows = this.db.prepare(sql).all(...params) as Array<{
+      featureId: string;
+      workflowType: string;
+      phase: string | null;
+      createdAt: string | null;
+    }>;
+
+    const summaries: WorkflowSummary[] = rows.map((row) => {
+      const phase = row.phase ?? '';
+      return {
+        featureId: row.featureId,
+        workflowType: row.workflowType,
+        phase,
+        status: deriveWorkflowStatus(phase),
+        createdAt: row.createdAt ?? null,
+      };
+    });
+
+    // Apply the lifecycle axes only — workflow_type is already SQL-filtered.
+    const lifecycleFilter: WorkflowSummaryFilter = { ...filter, workflowType: undefined };
+    return summaries.filter((summary) => matchesWorkflowSummaryFilter(summary, lifecycleFilter));
   }
 
   // ─── Outbox Operations ──────────────────────────────────────────────────
