@@ -12,30 +12,36 @@
 // *contract*: a different base kind (enum/string/number/boolean/...), a
 // different enum value set, or a different default. (Optionality and
 // refinements like `.min()`/`.positive()` are contract-neutral — the per-action
-// handler schema re-validates those via dispatch.) So a lifecycle verb that
-// hand-rolled `scope: z.string()` while `pipeline` already declares
-// `scope: z.enum(['repo','all'])` would crash MCP registration at module load.
+// handler schema re-validates those via dispatch.) So two view actions that
+// declare `scope` with DIFFERENT enum value sets would crash MCP registration
+// at module load — which is exactly why `scope` is defined ONCE here and every
+// action that carries a scope axis imports THIS shape.
 //
 // BASE-TYPE ALIGNMENT (where a name ALSO exists on an existing view action)
 // The four names below already appear on shipped `exarchos_view` actions; the
 // canonical shape here is aligned to the EXISTING contract EXACTLY so the
 // composed registration never throws. `registry.construction.test.ts` pins this
 // (both the "does not throw" guard and the base-type-match assertions):
-//   • scope        → z.enum(['repo','all'])   (matches `pipeline.scope`)
+//   • scope        → z.enum(['repo','all','workflow','worktree'])  (the UNION —
+//                     `pipeline` uses the ['repo','all'] members, `ps` uses the
+//                     ['workflow','worktree','all'] members; both import THIS shape)
 //   • phase        → z.string()               (matches `invariants_effective.phase`)
 //   • workflowType → z.string()               (matches `invariants_effective.workflowType`)
 //   • limit        → coercedPositiveInt()      (matches the shared `limit` on
 //                                               pipeline/tasks/stack_status/etc.)
 //
-// SCOPE CAVEAT (for tasks 007/008/010/013 and the feature owner)
-// The shared `scope` value set is `['repo','all']` — forced by the still-inline
-// `pipeline.scope` on the same tool. It is NOT `['workflow','worktree','all']`
-// as DR-3's `ps` prose reads: an enum with that value set would diverge from
-// `pipeline.scope` and make `buildRegistrationSchema` THROW (DR-8's own
-// registration-integrity criterion). Until `pipeline.scope` is migrated onto
-// this shared shape (a `registry.ts` edit no task in the plan makes), the `ps`
-// process-plane selector must NOT reuse this `scope` for a workflow/worktree/all
-// axis — pick a distinct field name for that axis, or migrate `pipeline` first.
+// SCOPE — the UNION resolution (DR-3, task 007)
+// `ps` needs a `workflow|worktree|all` axis; `pipeline` (GA) uses `repo|all`.
+// Two actions declaring `scope` with divergent enum value sets on the SAME tool
+// make `buildRegistrationSchema` THROW. Task 007 resolved this by WIDENING this
+// shared shape to the additive UNION of both value sets and migrating
+// `pipeline.scope` onto it — so the tool carries ONE `scope` definition (no
+// collision). Every existing `pipeline` value (`repo`/`all`) is still valid, and
+// each action validates its OWN subset at the handler: `pipeline` acts on
+// `repo`/`all` (and ignores `workflow`/`worktree`); `ps` accepts
+// `workflow`/`worktree`/`all` and REJECTS `repo`. The registration-flattener
+// only cares that the enum value SET matches across actions — it does; per-action
+// subset enforcement is a handler concern, re-validated via dispatch.
 //
 // The remaining names are new to `exarchos_view`, so their base type is a free
 // (but deliberate) choice; each is documented at its declaration.
@@ -45,11 +51,15 @@ import { z } from 'zod';
 import { coercedPositiveInt } from '../../coerce.js';
 
 /**
- * `scope` — repo-scoping selector. COLLIDES with `pipeline.scope`, so the base
- * type is pinned to that action's exact `z.enum(['repo','all'])` contract. See
- * the SCOPE CAVEAT above before reusing this for a process-plane axis.
+ * `scope` — the shared scoping selector across `exarchos_view` (DR-3, task 007).
+ * The UNION of every action's scope members so ONE definition serves both
+ * `pipeline` (`repo`/`all`) and `ps` (`workflow`/`worktree`/`all`) without a
+ * flattener collision. Each action validates its own subset at the handler
+ * (`pipeline` acts on `repo`/`all`; `ps` accepts `workflow`/`worktree`/`all` and
+ * rejects `repo`) — the registration guard only requires the enum value SET to
+ * match across the actions that declare it, which this single shape guarantees.
  */
-export const scopeField = z.enum(['repo', 'all']);
+export const scopeField = z.enum(['repo', 'all', 'workflow', 'worktree']);
 
 /**
  * `status` — workflow status filter (`ps`) / terminal-status predicate

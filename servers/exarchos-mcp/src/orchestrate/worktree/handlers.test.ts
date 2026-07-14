@@ -322,6 +322,11 @@ async function seedReserved(
   );
 }
 
+// DR-3 (task 007): `ps` became scope-parameterized (default `scope: 'all'`
+// composes the workflows + operations folds). The WLM-6 worktree liveness fold
+// these tests characterize is now the `scope: 'worktree'` path — CONSUMED, not
+// changed. Every call below passes `scope: 'worktree'` so it exercises the exact
+// same kernel behavior, re-pointed at its preserved address.
 describe('ps — in-flight liveness read (DR-4)', () => {
   it('HandleView_Ps_ListsInFlightFromInFlightMerges_NoProcessScan', async () => {
     const arm = await createArm();
@@ -337,7 +342,7 @@ describe('ps — in-flight liveness read (DR-4)', () => {
     const listSpy = vi.fn((): readonly ProcessRecord[] => []);
     const table: ProcessTableSource = { list: listSpy };
 
-    const result = await handleView({ action: 'ps' }, arm.ctx, {
+    const result = await handleView({ action: 'ps', scope: 'worktree' }, arm.ctx, {
       processTableSource: table,
       realpath: (p) => p,
     });
@@ -376,7 +381,7 @@ describe('ps — in-flight liveness read (DR-4)', () => {
       list: () => [{ pid: 777, ppid: 1, cwd: '/wlm/orphan-wt/sub', startTime: 'b777' }],
     };
 
-    const result = await handleView({ action: 'ps', probe: true }, arm.ctx, {
+    const result = await handleView({ action: 'ps', scope: 'worktree', probe: true }, arm.ctx, {
       processTableSource: table,
       realpath: (p) => p,
       selfPid: 999999,
@@ -415,7 +420,7 @@ describe('ps — in-flight liveness read (DR-4)', () => {
 
     // ps surfaces the launch straight from events — no process scan.
     const listSpy = vi.fn((): readonly ProcessRecord[] => []);
-    const inFlightResult = await handleView({ action: 'ps' }, arm.ctx, {
+    const inFlightResult = await handleView({ action: 'ps', scope: 'worktree' }, arm.ctx, {
       processTableSource: { list: listSpy },
       realpath: (p) => p,
     });
@@ -437,7 +442,7 @@ describe('ps — in-flight liveness read (DR-4)', () => {
       worktreeId: '/wlm/launch-wt',
       exitCode: 0,
     });
-    const clearedResult = await handleView({ action: 'ps' }, arm.ctx, {
+    const clearedResult = await handleView({ action: 'ps', scope: 'worktree' }, arm.ctx, {
       realpath: (p) => p,
     });
     const clearedData = clearedResult.data as {
@@ -476,7 +481,7 @@ describe('ps — in-flight liveness read (DR-4)', () => {
     );
     expect(before).toHaveLength(0);
 
-    const result = await handleView({ action: 'ps', probe: true }, arm.ctx, {
+    const result = await handleView({ action: 'ps', scope: 'worktree', probe: true }, arm.ctx, {
       processTableSource: table,
       realpath: (p) => p,
       selfPid: 999999,
@@ -509,7 +514,7 @@ describe('ps — in-flight liveness read (DR-4)', () => {
     expect(after[0].data?.worktreeId).toBe('/wlm/phantom-launch-wt');
 
     // A follow-up ps shows the launch column cleared — no permanent phantom.
-    const cleared = await handleView({ action: 'ps' }, arm.ctx, { realpath: (p) => p });
+    const cleared = await handleView({ action: 'ps', scope: 'worktree' }, arm.ctx, { realpath: (p) => p });
     expect((cleared.data as { launchCount: number }).launchCount).toBe(0);
   });
 });
@@ -662,7 +667,7 @@ describe('ps — in-flight prune surface (DR-3)', () => {
     // Without `probe` the prune column is a pure fold — the process table (a spy)
     // must NEVER be enumerated.
     const listSpy = vi.fn((): readonly ProcessRecord[] => []);
-    const result = await handleView({ action: 'ps' }, arm.ctx, {
+    const result = await handleView({ action: 'ps', scope: 'worktree' }, arm.ctx, {
       processTableSource: { list: listSpy },
       realpath: (p) => p,
     });
@@ -678,7 +683,7 @@ describe('ps — in-flight prune surface (DR-3)', () => {
     // After the paired terminal folds, ps reports a cleared prune column — the
     // pair can never surface as a permanent phantom.
     await seedPruneExecuted(arm, { operationId: 'op-prune', deletedCount: 0 });
-    const cleared = await handleView({ action: 'ps' }, arm.ctx, { realpath: (p) => p });
+    const cleared = await handleView({ action: 'ps', scope: 'worktree' }, arm.ctx, { realpath: (p) => p });
     const clearedData = cleared.data as { prunes: InFlightPrune[]; pruneCount: number };
     expect(clearedData.pruneCount).toBe(0);
     expect(clearedData.prunes).toEqual([]);

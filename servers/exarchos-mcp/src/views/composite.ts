@@ -30,10 +30,8 @@ import {
 import { handleViewInvariantsEffective } from './effective-catalog.js';
 import { handleViewInspect } from './lifecycle/inspect.js';
 import { handleViewWait, type WaitDeps } from './lifecycle/wait.js';
-import {
-  handleViewWorktrees,
-  handleViewPs,
-} from '../orchestrate/worktree/handlers.js';
+import { handleViewPs } from './lifecycle/ps.js';
+import { handleViewWorktrees } from '../orchestrate/worktree/handlers.js';
 import { handleStackStatus, handleStackPlace } from '../stack/tools.js';
 import { handleViewTelemetry } from '../telemetry/tools.js';
 import type { QualityHintsConfig } from '../capabilities/resolver.js';
@@ -441,18 +439,19 @@ export async function handleView(
       return envelopeWrap(await handleViewWorktrees(rest, ctx), startedAt);
 
     case 'ps':
-      // WLM operational core (DR-4/DR-3) — list the live worktree-layer liveness
-      // pairs from the `worktrees@v1` fold (no process scan): in-flight merges,
-      // launches, AND prunes (`inFlightPrunes`, DR-3). `probe: true` additionally
-      // pulls the DR-5 process probe and emits worktree.released /
-      // worktree.orphan_detected (the deferred orphan emitter — the sole write
-      // path on this view surface). `rest`/`deps` thread every field/mode.
+      // DR-3 (Task 007) — scope-parameterized process-plane lister. `scope: 'all'`
+      // (default) composes task 005's workflows fold + task 006's operations fold;
+      // `scope: 'workflow'` returns the workflows section; `scope: 'worktree'`
+      // delegates to the CONSUMED WLM-6 kernel (inFlightMerges / launches /
+      // inFlightPrunes + the `probe: true` reclaim/reconcile write path — the sole
+      // write path, valid ONLY in worktree scope). `rest`/`deps` thread every
+      // field/mode.
       //
-      // DR-7 (Task 018) — for launcher-spawned sessions the launch column
-      // answers liveness from the `launch.*` event pair ALONE;
+      // DR-7 (Task 018) — for launcher-spawned worktree-scope sessions the launch
+      // column answers liveness from the `launch.*` event pair ALONE;
       // `withLaunchLivenessAffordance` surfaces that guarantee as an agent-first
       // `next_actions` hint when any launcher session is in flight (pure
-      // annotation — the WLM fold's `launches` data is untouched).
+      // annotation — keyed on the worktree-scope `launchCount`, a no-op otherwise).
       return envelopeWrap(
         withLaunchLivenessAffordance(await handleViewPs(rest, ctx, deps)),
         startedAt,
