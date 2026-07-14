@@ -62,6 +62,17 @@ export class InMemoryBackend implements StorageBackend {
   /** Counter for generating unique outbox entry IDs */
   private outboxIdCounter = 0;
 
+  /**
+   * Monotonic Tier-2 poll-floor change token (see
+   * {@link StorageBackend.dataVersion}). Bumped on every {@link appendEvent}.
+   * In-memory has no cross-process notion, so — unlike SQLite's
+   * `PRAGMA data_version`, which ignores own-connection commits — this
+   * counter treats every append (including the observer's own) as a change.
+   * The floor loop's cursor guard makes the resulting redundant drains
+   * harmless (never a double delivery).
+   */
+  private appendVersion = 0;
+
   // ─── Event Operations ───────────────────────────────────────────────────
 
   appendEvent(streamId: string, event: WorkflowEvent): void {
@@ -71,6 +82,19 @@ export class InMemoryBackend implements StorageBackend {
       this.events.set(streamId, stream);
     }
     stream.push(event);
+    // Bump the change token AFTER the event is durably in the array so a
+    // concurrent dataVersion() read never observes a bumped token without
+    // the corresponding event being visible.
+    this.appendVersion++;
+  }
+
+  /**
+   * Tier-2 poll-floor change token: a monotonic count of appends. Own
+   * appends bump it (there is no foreign connection in memory). See
+   * {@link StorageBackend.dataVersion} for the cross-backend contract.
+   */
+  dataVersion(): number {
+    return this.appendVersion;
   }
 
   queryEvents(streamId: string, filters?: QueryFilters): WorkflowEvent[] {

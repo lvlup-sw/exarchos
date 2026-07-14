@@ -68,6 +68,41 @@ export interface StorageBackend {
   listStreams(): string[];
 
   /**
+   * Change token consumed by the Tier-2 cross-process poll floor
+   * (`event-store/subscriptions.ts`). The floor loop re-reads this on every
+   * tick and drains its cursor ONLY when the value changed since the last
+   * read — so a foreign writer's commit is delivered without re-scanning the
+   * event log every tick.
+   *
+   * The absolute value is meaningless; only equality between two successive
+   * reads on the SAME backend instance is load-bearing. Semantics differ
+   * per backend, but both satisfy the floor-loop contract — "the token
+   * differs from its previous value whenever an event this observer has not
+   * yet drained may have been committed by a party the Tier-1 in-process
+   * hook does NOT cover":
+   *
+   *  - {@link SqliteBackend}: `PRAGMA data_version`. SQLite guarantees the
+   *    value is UNCHANGED for commits on the observer's own connection and
+   *    differs only when some OTHER connection (a foreign process) committed
+   *    since the pragma last ran. That is exactly the Tier-2 signal: the
+   *    Tier-1 hook already wakes on this process's own commits, so the floor
+   *    must fire only on foreign ones. Near-free: a single-row pragma read
+   *    that retains no open statement across ticks.
+   *
+   *  - {@link InMemoryBackend}: a monotonic counter bumped on every
+   *    {@link StorageBackend.appendEvent}. In-memory has no cross-process
+   *    notion, so "foreign" collapses to "any append" — the observer's own
+   *    appends bump it. A single-process in-memory subscriber is already
+   *    served by the Tier-1 hook, so a floor tick that fires on an own
+   *    append merely triggers a redundant, cursor-guarded drain; it never
+   *    double-delivers.
+   *
+   * Required (not optional): both production backends implement it, and the
+   * subscription registry relies on its presence for the Tier-2 floor.
+   */
+  dataVersion(): number;
+
+  /**
    * Cross-stream query reducer (DR-3, optional).
    *
    * Returns every event of `eventType` whose `streamId` matches `streamPrefix`

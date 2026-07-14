@@ -715,13 +715,15 @@ export class EventStore {
    * unconditional initial drain, so an event committed at any moment relative
    * to registration is delivered exactly once.
    *
-   * THIS is the Tier-1 (in-process) surface: an append committing in this
-   * process wakes the subscription via the appender's post-commit hook, fired
-   * after the transaction commits AND after the per-stream mutex releases (so
-   * an `onEvent` that itself appends does not deadlock). INV-8 idempotency
-   * cache-hits commit nothing and do not wake. The Tier-2 cross-process poll
-   * floor (`dataVersion()`) is task-002 — the registry already carries the
-   * injectable-clock + `floorMs` seam it binds to.
+   * Two wake tiers converge on the same cursor drain. Tier-1 (in-process):
+   * an append committing in this process wakes the subscription via the
+   * appender's post-commit hook, fired after the transaction commits AND
+   * after the per-stream mutex releases (so an `onEvent` that itself appends
+   * does not deadlock). INV-8 idempotency cache-hits commit nothing and do
+   * not wake. Tier-2 (cross-process poll floor): a loop on the injectable
+   * clock re-reads `dataVersion()` every `floorMs` and drains only when a
+   * FOREIGN process committed, so cross-process events are delivered within a
+   * bounded latency without re-scanning the log every tick.
    *
    * Subscriptions are ephemeral (INV-15): the returned handle MUST be
    * disposed by the dispatch that registered it; `close()` disposes any that
@@ -755,6 +757,11 @@ export class EventStore {
             this.getReadBackend().queryEvents(streamId, { sinceSequence: afterSequence }),
           ),
         listStreams: () => this.getReadBackend().listStreams(),
+        // Tier-2 poll-floor change token: reads through the SAME backend
+        // handle the appender writes to, so `PRAGMA data_version` reports a
+        // FOREIGN process's commit (never this process's own — those the
+        // Tier-1 hook already delivered).
+        dataVersion: () => this.getReadBackend().dataVersion(),
       };
       this.subscriptions = new SubscriptionRegistry(reader, registryOptions);
       // Wire the Tier-1 hook only now — the zero-subscriber append path never
