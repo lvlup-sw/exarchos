@@ -148,7 +148,10 @@ const BANNED_FLAGS: readonly BannedFlag[] = [
 //      documents it as "a path, NOT a table|json format enum"). The guard keys
 //      on the token STRING and cannot see that semantic split, so the legitimate
 //      path-valued use is excepted surgically — a `--output` on any OTHER command
-//      still fails.
+//      still fails. DR-7 (task-015) promotes `export` to a TOP-LEVEL verb, so the
+//      SAME destination-path `--output` now also surfaces at `exarchos export`;
+//      that promoted path gets the identical surgical exception below (the flag's
+//      semantics are unchanged by the hoist — same action, same schema field).
 const KNOWN_EXCEPTIONS: ReadonlySet<string> = new Set([
   'exarchos vw ls::ls',
   'exarchos doctor::--format',
@@ -156,6 +159,8 @@ const KNOWN_EXCEPTIONS: ReadonlySet<string> = new Set([
   'exarchos orch doctor::--format',
   'exarchos orch onboard::--format',
   'exarchos vw export::--output',
+  // DR-7 top-level promotion of the same DR-6 destination-path flag.
+  'exarchos export::--output',
 ]);
 
 // ─── Surface extraction ───────────────────────────────────────────────────────

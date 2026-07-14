@@ -3725,6 +3725,10 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    // DR-7 (task-015): promote `ps` to a TOP-LEVEL CLI verb (`exarchos ps`)
+    // alongside its `vw ps` subcommand form. Both dispatch through the ONE
+    // `registerActionCommand` path (same Zod schema, no divergent parsing).
+    cli: { topLevel: 'ps' },
     outputSchema: withCappedShape(PsOutputSchema),
     // `ps scope:'worktree' probe:true` can append worktree.released /
     // worktree.orphan_detected, so the action is NOT readOnly. The heals are
@@ -3769,6 +3773,9 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    // DR-7 (task-015): promote `wait` to a TOP-LEVEL CLI verb (`exarchos wait`)
+    // alongside its `vw wait` subcommand form (one registerActionCommand path).
+    cli: { topLevel: 'wait' },
     outputSchema: withCappedShape(WaitOutputSchema),
     // Pure read: appends nothing on every path → readOnlyHint + idempotentHint
     // (the MCP-annotation hints derive from `readOnly`/`idempotent` here). DR-5
@@ -3803,8 +3810,19 @@ const viewActions: readonly ToolAction[] = [
     phases: ALL_PHASES,
     roles: ROLE_ANY,
     cli: {
+      // DR-7 (task-015): promote `inspect` to the TOP-LEVEL `describe` verb — the
+      // workflow-PROJECTION describe (`exarchos describe -f my-feature`). The
+      // top-level NAME intentionally differs from the action name: the schema-
+      // introspection `describe` is a per-tool ACTION subcommand (`vw describe`,
+      // `wf describe`), NEVER a top-level command, so `exarchos describe` (→ the
+      // `inspect` action) does not collide with it. The task-014 hoist-loop guard
+      // re-checks the full top-level namespace at build time and confirms this.
+      topLevel: 'describe',
       flags: { featureId: { alias: 'f' } },
-      examples: ['exarchos vw inspect -f my-feature'],
+      examples: [
+        'exarchos vw inspect -f my-feature',
+        'exarchos describe -f my-feature',
+      ],
     },
     // Typed-output totality (DR-1): union the generic capped-fallback shape so
     // the schema admits BOTH the baseline projection AND a dispatch-core-capped
@@ -3844,8 +3862,14 @@ const viewActions: readonly ToolAction[] = [
     // bundle write, contained to the caller's worktree. The last worktree verb.
     posture: 'task-isolated',
     cli: {
+      // DR-7 (task-015): promote `export` to a TOP-LEVEL CLI verb
+      // (`exarchos export`) alongside its `vw export` subcommand form.
+      topLevel: 'export',
       flags: { featureId: { alias: 'f' }, output: { alias: 'o' } },
-      examples: ['exarchos vw export -f my-feature -o ./my-feature-export.zip'],
+      examples: [
+        'exarchos vw export -f my-feature -o ./my-feature-export.zip',
+        'exarchos export -f my-feature -o ./my-feature-export.zip',
+      ],
     },
     // Typed-output totality (DR-1): union the generic capped-fallback shape so
     // the schema admits BOTH the bundle-write result AND a dispatch-core-capped
