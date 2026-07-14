@@ -27,6 +27,18 @@ export interface CliActionHints {
     readonly description?: string;
   }>>;
   readonly format?: 'table' | 'json' | 'tree';
+  /**
+   * DR-7 — hoist this action to a TOP-LEVEL CLI command in addition to its
+   * `<tool> <action>` subcommand form. When set to (say) `'ps'`, the CLI
+   * adapter registers `exarchos ps` alongside `exarchos view ps`; both forms
+   * dispatch through the same code path and derive their flags from the same
+   * Zod schema (no divergent parsing). A `topLevel` name that collides with an
+   * existing top-level command fails at registration (build time), not at
+   * runtime — see the hoist loop in `adapters/cli.ts`. This task ships only the
+   * generic mechanism + its guard; the lifecycle-verb re-map (which actions
+   * declare `topLevel`, the exit-code map, and parity) is a follow-on.
+   */
+  readonly topLevel?: string;
 }
 
 export interface CliToolHints {

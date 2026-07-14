@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getFullRegistry } from '../registry.js';
+import type { CompositeTool, ToolAction } from '../registry.js';
 import { dispatch } from '../core/dispatch.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import type { ToolResult } from '../format.js';
@@ -227,6 +228,16 @@ export const VIEW_FOLLOW_ACTIONS: ReadonlySet<string> = new Set([
 export interface BuildCliOptions {
   /** OS-effect / advanced overrides threaded into the `exarchos <harness>` launcher wiring. */
   readonly launcher?: LauncherWiringOverrides;
+  /**
+   * DR-7 test seam — override the composite-tool registry the auto-generated
+   * command tree (and the top-level promotion hoist loop) is built from.
+   * Production callers pass none and the full registry ({@link getFullRegistry})
+   * is used. Tests stamp `cli.topLevel` onto a REAL registry action to exercise
+   * the promotion mechanism + its collision guard without hand-mocking the
+   * registry. Mirrors the `launcher` seam: a DI point at the production boundary,
+   * not a divergent code path.
+   */
+  readonly registry?: readonly CompositeTool[];
 }
 
 /**
@@ -245,7 +256,9 @@ export function buildCli(ctx: DispatchContext, options?: BuildCliOptions): Comma
 
   // ─── Auto-generated tool commands ──────────────────────────────────────────
 
-  for (const tool of getFullRegistry()) {
+  const cliRegistry = options?.registry ?? getFullRegistry();
+
+  for (const tool of cliRegistry) {
     const toolName = tool.name.replace(/^exarchos_/, '');
     const cliName = tool.cli?.alias ?? toolName;
     const toolCmd = program
@@ -261,401 +274,13 @@ export function buildCli(ctx: DispatchContext, options?: BuildCliOptions): Comma
     }
 
     for (const action of tool.actions) {
-      const actionCmd = toolCmd
-        .command(action.cli?.alias ?? action.name)
-        .description(action.description);
-
-      addFlagsFromSchema(actionCmd, action.schema, action.cli?.flags);
-
-      // T042 / DR-9: the `exarchos event query` action gains a streaming
-      // `--follow` mode that emits NDJSON frames via the dedicated
-      // `runEventQueryFollow` handler instead of the one-shot dispatch path.
-      // The flag is intentionally registered outside `addFlagsFromSchema` so
-      // the MCP tool schema (which only describes one-shot query args) is
-      // not affected.
-      const isEventQuery =
-        tool.name === 'exarchos_event' && action.name === 'query';
-      if (isEventQuery) {
-        actionCmd.option('--follow', 'Stream events as NDJSON frames until the source closes');
-      }
-
-      // T33 (#1273) / Wave C PR 3 — the `exarchos view` actions listed in
-      // `VIEW_FOLLOW_ACTIONS` gain a `--follow` flag that drives the
-      // dispatch-core `EventSourcedTaskStore` polling loop (see
-      // `cli/follow-loop.ts`). #1440 Op 1 (T7) expanded the set from the
-      // original two-arm disjunction (workflow_status, shepherd_status) to
-      // include three more pure-projection view actions (pipeline,
-      // convergence, delegation_timeline). Like the event-query `--follow`,
-      // this flag is registered outside `addFlagsFromSchema` so the MCP
-      // tool schema for the underlying action stays one-shot — the
-      // Tasks-augmented branch for the MCP arm is gated by the SDK
-      // `task: { ttl }` request parameter, not by a tool-schema field (C2).
-      const isViewFollow =
-        tool.name === 'exarchos_view' && VIEW_FOLLOW_ACTIONS.has(action.name);
-      if (isViewFollow) {
-        actionCmd.option(
-          '--follow',
-          'Stream task lifecycle transitions to stdout until terminal status or SIGINT',
-        );
-      }
-
-      // T5 (#1240): convenience flags on `wf checkpoint` so agents emit a
-      // structured handoff payload without having to type nested JSON.
-      // The flags map to the `handoff` field on the dispatch surface
-      // (which `addFlagsFromSchema` already exposes as
-      // `--handoff <json-or-csv>` for power-user / scripting parity).
-      // `--context` accepts inline strings only — the `@<path>` substitution
-      // sugar is OUT OF SCOPE here (#1245, scheduled v2.12.0). The
-      // variadic syntax `<step...>` lets agents repeat `--next-steps a
-      // --next-steps b` to build the array, mirroring how the MCP arm
-      // would receive `nextSteps: ['a', 'b']`.
-      const isWorkflowCheckpoint =
-        tool.name === 'exarchos_workflow' && action.name === 'checkpoint';
-      if (isWorkflowCheckpoint) {
-        actionCmd.option(
-          '--context <string>',
-          'Handoff context (single inline string, max 2KB). Maps to handoff.context.',
-        );
-        actionCmd.option(
-          '--next-steps <step...>',
-          'Repeatable handoff next-step entry; pass once per entry. Maps to handoff.nextSteps.',
-        );
-        actionCmd.option(
-          '--suggestions <suggestion...>',
-          'Repeatable handoff suggestion entry; pass once per entry. Maps to handoff.suggestions.',
-        );
-      }
-
-      actionCmd.action(async (opts: Record<string, unknown>) => {
-        const { json, follow, ...flagOpts } = opts;
-        const isJson = Boolean(json);
-        const format = action.cli?.format;
-
-        // ─── T5 (#1240): convenience-flag → handoff reshape ───────────────
-        // Done BEFORE `coerceFlags` / `safeParse` so the synthesised
-        // `handoff` is the value that hits both schema validation and
-        // dispatch. Critical contract: when NONE of the convenience
-        // flags are present, `handoff` MUST stay ABSENT — not be set
-        // to `{ context: undefined, nextSteps: undefined, ... }`. The
-        // C3 (#1241) digest is `sha256(handoff ?? {})`, and an
-        // all-undefined object stringifies to `{}` only by coincidence;
-        // explicit absence keeps the digest stable for pre-T5 callers
-        // and for the parity contract with the MCP arm (which passes
-        // `handoff` undefined when the caller didn't populate it).
-        if (isWorkflowCheckpoint) {
-          const ctxOpt = flagOpts.context;
-          const nextStepsOpt = flagOpts.nextSteps;
-          const suggestionsOpt = flagOpts.suggestions;
-          const hasContext = typeof ctxOpt === 'string';
-          const hasNextSteps = Array.isArray(nextStepsOpt) && nextStepsOpt.length > 0;
-          const hasSuggestions =
-            Array.isArray(suggestionsOpt) && suggestionsOpt.length > 0;
-
-          // Reject the conflict where the operator passes both the raw
-          // `--handoff '{...}'` JSON flag AND any convenience flag. Without
-          // this guard the reshape block below would silently overwrite
-          // the JSON-supplied handoff with the synthesized convenience
-          // object — losing data the operator explicitly supplied. The
-          // two surfaces are mutually exclusive: `--handoff` is the full
-          // shape, the convenience flags are field-level sugar.
-          if (
-            flagOpts.handoff !== undefined &&
-            (hasContext || hasNextSteps || hasSuggestions)
-          ) {
-            const err = buildInvalidInput(
-              `${tool.name}/${action.name}: --handoff is mutually exclusive with --context/--next-steps/--suggestions; pass either the full --handoff JSON or the convenience flags, not both`,
-            );
-            emitResult({ success: false, error: err }, isJson, format);
-            process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
-            return;
-          }
-
-          if (hasContext || hasNextSteps || hasSuggestions) {
-            // Synthesize `handoff` from the convenience flags. Spread-on-
-            // condition keeps the shape minimal so the rehydration
-            // projection's `latestHandoff` snapshot only carries what
-            // the operator actually supplied (e.g. `{ context: 'x' }`
-            // and not `{ context: 'x', nextSteps: undefined,
-            // suggestions: undefined }`). The handler's
-            // `CheckpointInputSchema.handoff` is a Zod object with all
-            // three fields optional, so omitting them is valid input.
-            flagOpts.handoff = {
-              ...(hasContext ? { context: ctxOpt as string } : {}),
-              ...(hasNextSteps ? { nextSteps: nextStepsOpt as string[] } : {}),
-              ...(hasSuggestions
-                ? { suggestions: suggestionsOpt as string[] }
-                : {}),
-            };
-          }
-          // Strip the convenience-flag aliases so they don't leak into
-          // dispatch args (the schema doesn't declare them; they'd be
-          // silently ignored, but cleaning them up here keeps the
-          // dispatched payload shaped exactly like the MCP arm's).
-          delete flagOpts.context;
-          delete flagOpts.nextSteps;
-          delete flagOpts.suggestions;
-        }
-
-        // ─── T33 (#1273): view `--follow` Tasks polling branch ────────────
-        //
-        // Wave C PR 3 — the CLI equivalent of the MCP `tasks/get` polling
-        // loop. The dispatch creates a task via the dispatch-core
-        // `runTasksAugmented` path (synthetic `task: {}` augmentation
-        // threaded through dispatch args), pulls out the resulting
-        // `taskId`, then drives `runFollowLoop` against the same
-        // `EventSourcedTaskStore` the MCP arm consumes (INV-2 facade
-        // equivalence). SIGINT during the loop emits `task.cancelled`
-        // via the dispatch-core `cancelTask` surface.
-        if (isViewFollow && follow === true) {
-          if (!ctx.taskStore) {
-            const err = buildInvalidInput(
-              `${tool.name}/${action.name}: --follow requires a wired EventSourcedTaskStore; none present on this context`,
-            );
-            emitResult({ success: false, error: err }, isJson, format);
-            process.exitCode = CLI_EXIT_CODES.HANDLER_ERROR;
-            return;
-          }
-
-          // Parse the action args first so a `--workflow-id` typo surfaces
-          // as INVALID_INPUT before we cut a task envelope.
-          const followCoerced = coerceFlags(flagOpts, action.schema);
-          const followParse = action.schema.safeParse(followCoerced);
-          if (!followParse.success) {
-            const errCtx = `${tool.name}/${action.name}`;
-            const err = formatValidationError(followParse.error, errCtx);
-            emitResult({ success: false, error: err }, isJson, format);
-            process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
-            return;
-          }
-
-          // Resolve poll cadence: CLI override (none yet — reserved for a
-          // future `--poll-interval-ms` flag) > `.exarchos.yml`
-          // `cli.followPollIntervalMs` > module default. The loader runs
-          // synchronously and tolerates a missing file (returns null).
-          let pollIntervalMs: number | undefined;
-          try {
-            const { loadExarchosConfig } = await import(
-              '../config/load-exarchos-config.js'
-            );
-            const loaded = loadExarchosConfig(process.cwd());
-            pollIntervalMs = loaded?.config.cli?.followPollIntervalMs;
-          } catch {
-            // Malformed `.exarchos.yml` is surfaced by the broader CLI
-            // load path; in `--follow` we degrade to the default cadence
-            // rather than abort the polling session.
-            pollIntervalMs = undefined;
-          }
-
-          // Wire SIGINT → AbortController. The handler MUST NOT call
-          // `process.exit` — the polling loop awaits `cancelTask` before
-          // returning, then we let the action callback fall through to
-          // its normal return so the event-loop drains cleanly (project-
-          // memory caution).
-          const controller = new AbortController();
-          const onSigint = (): void => controller.abort();
-          process.once('SIGINT', onSigint);
-
-          try {
-            const { runFollowLoop } = await import('../cli/follow-loop.js');
-            // #1440 Op 1 (T7): the routing now flows directly from
-            // `action.name` since `VIEW_FOLLOW_ACTIONS` and the
-            // `FollowSubcommand` union are kept in lockstep — both
-            // describe the same five-element set. The cast is the
-            // bridge from the registry's `string` field to the
-            // narrower literal union; the `isViewFollow` guard above
-            // proves membership before we reach this point.
-            const subcommand = action.name as FollowSubcommand;
-
-            // Dispatch the underlying action through the Tasks-augmented
-            // path so the lifecycle is recorded in the same
-            // `EventSourcedTaskStore` projection the MCP arm reads. The
-            // `task: {}` field is the augmentation signal per C1's
-            // `isTaskAugmented` predicate (presence of a plain object is
-            // sufficient; no `ttl` here means an unbounded task lifetime,
-            // appropriate for an interactive CLI follow session).
-            const createResult = await dispatch(
-              tool.name,
-              {
-                action: action.name,
-                ...followParse.data,
-                task: {},
-              },
-              ctx,
-            );
-
-            // Extract taskId from the CreateTaskResult envelope. Dispatch
-            // wraps the Tasks-augmented response under
-            // `{ success: true, data: { task: { taskId, ... } } }` (see
-            // `runTasksAugmented`'s return shape in C1).
-            const dataCandidate = (createResult as { data?: unknown }).data;
-            const taskCandidate =
-              dataCandidate && typeof dataCandidate === 'object'
-                ? (dataCandidate as { task?: { taskId?: unknown } }).task
-                : undefined;
-            const taskId =
-              taskCandidate && typeof taskCandidate.taskId === 'string'
-                ? taskCandidate.taskId
-                : undefined;
-            if (!createResult.success || !taskId) {
-              // The underlying dispatch already serialised a meaningful
-              // error envelope; surface it untouched.
-              emitResult(createResult, isJson, format);
-              process.exitCode = createResult.success
-                ? CLI_EXIT_CODES.HANDLER_ERROR
-                : createResult.error?.code === VALIDATION_ERROR_CODE
-                  ? CLI_EXIT_CODES.INVALID_INPUT
-                  : CLI_EXIT_CODES.HANDLER_ERROR;
-              return;
-            }
-
-            const loopResult = await runFollowLoop({
-              taskStore: ctx.taskStore,
-              taskId,
-              pollIntervalMs,
-              stdout: process.stdout,
-              subcommand,
-              signal: controller.signal,
-            });
-
-            // Cancellation is a clean exit — the user asked for it. Map
-            // it to SUCCESS so a wrapping shell script doesn't treat ^C
-            // as an error (matches `exarchos event query --follow`'s
-            // SIGINT-on-close discipline).
-            process.exitCode =
-              loopResult.terminalStatus === 'failed'
-                ? CLI_EXIT_CODES.HANDLER_ERROR
-                : CLI_EXIT_CODES.SUCCESS;
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            emitResult(
-              { success: false, error: { code: 'UNCAUGHT_EXCEPTION', message } },
-              isJson,
-              format,
-            );
-            process.exitCode = CLI_EXIT_CODES.UNCAUGHT_EXCEPTION;
-          } finally {
-            process.off('SIGINT', onSigint);
-          }
-          return;
-        }
-
-        // ─── T042: `--follow` streaming branch ─────────────────────────────
-        if (isEventQuery && follow === true) {
-          const streamFlag = typeof flagOpts.stream === 'string' ? flagOpts.stream : undefined;
-          if (!streamFlag) {
-            const err = buildInvalidInput(
-              `${tool.name}/${action.name}: required option(s) not specified: stream`,
-            );
-            emitResult({ success: false, error: err }, isJson, format);
-            process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
-            return;
-          }
-          try {
-            const { runEventQueryFollow, pollingEventSource } = await import(
-              '../cli-commands/event-query.js'
-            );
-            const source = pollingEventSource({
-              store: ctx.eventStore,
-              streamId: streamFlag,
-            });
-            await runEventQueryFollow({ source, sink: process.stdout });
-            process.exitCode = CLI_EXIT_CODES.SUCCESS;
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            emitResult(
-              { success: false, error: { code: 'UNCAUGHT_EXCEPTION', message } },
-              isJson,
-              format,
-            );
-            process.exitCode = CLI_EXIT_CODES.UNCAUGHT_EXCEPTION;
-          }
-          return;
-        }
-
-        // ─── INVALID_INPUT (exit 1): required-flag check ──────────────────
-        // Commander can't enforce --flag vs --no-flag for required booleans.
-        const missingBools = validateRequiredBooleans(flagOpts, action.schema);
-        if (missingBools.length > 0) {
-          const err = buildInvalidInput(
-            `${tool.name}/${action.name}: required option(s) not specified: ${missingBools.join(', ')}`,
-          );
-          const errResult: ToolResult = { success: false, error: err };
-          emitResult(errResult, isJson, format);
-          process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
-          return;
-        }
-
-        // ─── INVALID_INPUT (exit 1): Zod validation at CLI layer ──────────
-        // Parse coerced args through the action schema so bad inputs are
-        // surfaced before dispatch runs. DR-5: this funnels through the
-        // shared `formatValidationError` so the MCP adapter emits the same
-        // error.code and an equivalent error.message for the same input.
-        const coerced = coerceFlags(flagOpts, action.schema);
-        const parseResult = action.schema.safeParse(coerced);
-        if (!parseResult.success) {
-          const context = `${tool.name}/${action.name}`;
-          const err = formatValidationError(parseResult.error, context);
-          const errResult: ToolResult = { success: false, error: err };
-          emitResult(errResult, isJson, format);
-          process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
-          return;
-        }
-
-        // ─── Dispatch ─────────────────────────────────────────────────────
-        // Dispatch may return a handler-reported error (exit 2) or throw
-        // an unexpected exception (exit 3). Normalize both into ToolResult.
-        //
-        // DR-5: for actions flagged `longRunning` in the registry, emit
-        // stderr heartbeats under --json so a multi-second silence doesn't
-        // look like a hung process.  Interactive pretty-print mode stays
-        // untouched — a progress spinner belongs to a future UX layer.
-        const heartbeatEnabled = isJson && action.longRunning === true;
-        const stopHeartbeat = heartbeatEnabled
-          ? startHeartbeat(action.name)
-          : null;
-        let result: ToolResult;
-        try {
-          try {
-            result = await dispatch(
-              tool.name,
-              { action: action.name, ...parseResult.data },
-              ctx,
-            );
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            // F-024 dead-code: inlined single-use ToolResult shape — was
-            // previously a `toErrorResult(code, message)` helper used only
-            // from this branch.
-            const errResult: ToolResult = {
-              success: false,
-              error: { code: 'UNCAUGHT_EXCEPTION', message },
-            };
-            emitResult(errResult, isJson, format);
-            process.exitCode = CLI_EXIT_CODES.UNCAUGHT_EXCEPTION;
-            return;
-          }
-        } finally {
-          // F-023-1: cleanup runs on success, handler-reported errors, AND
-          // uncaught exceptions — a single site so future edits can't leak
-          // timers.
-          stopHeartbeat?.();
-        }
-
-        // ─── Emit + map to exit code ──────────────────────────────────────
-        // Preserve INVALID_INPUT when the handler reports a validation
-        // failure — collapsing every non-success into HANDLER_ERROR loses
-        // parity with the pre-dispatch INVALID_INPUT path (e.g. a bad arg
-        // that slips past Zod at the CLI layer but is caught by a handler
-        // guard should still report exit 1, not exit 2).
-        emitResult(result, isJson, format);
-        if (result.success) {
-          process.exitCode = CLI_EXIT_CODES.SUCCESS;
-        } else if (result.error?.code === VALIDATION_ERROR_CODE) {
-          process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
-        } else {
-          process.exitCode = CLI_EXIT_CODES.HANDLER_ERROR;
-        }
-      });
+      registerActionCommand(
+        toolCmd,
+        tool,
+        action,
+        action.cli?.alias ?? action.name,
+        ctx,
+      );
     }
   }
 
@@ -1219,7 +844,454 @@ export function buildCli(ctx: DispatchContext, options?: BuildCliOptions): Comma
       });
   }
 
+  // ─── DR-7: top-level CLI promotion (hoist loop) ──────────────────────────
+  //
+  // For each action carrying `cli.topLevel`, register a TOP-LEVEL command that
+  // dispatches through the SAME `registerActionCommand` path — same Zod schema,
+  // same handler — as its `<tool> <action>` subcommand form (no divergent
+  // parsing). Runs AFTER every other top-level command is registered so the
+  // collision guard below sees the full top-level namespace (tool groups,
+  // standalone verbs, harness launchers) plus any earlier hoist in this loop.
+  //
+  // Collision guard: a `topLevel` name clashing with an existing top-level
+  // command NAME or ALIAS throws HERE, at registration (build time) — never at
+  // runtime — so a bad promotion can't ship silently. The subcommand form is
+  // untouched and keeps working regardless.
+  for (const tool of cliRegistry) {
+    for (const action of tool.actions) {
+      const topLevel = action.cli?.topLevel;
+      if (topLevel === undefined) continue;
+      const clash = program.commands.find(
+        (c) => c.name() === topLevel || c.aliases().includes(topLevel),
+      );
+      if (clash) {
+        throw new Error(
+          `buildCli: CliActionHints.topLevel '${topLevel}' on action ` +
+            `'${tool.name}/${action.name}' collides with the existing top-level ` +
+            `command '${clash.name()}'. Choose a non-colliding top-level name ` +
+            `or drop the promotion.`,
+        );
+      }
+      registerActionCommand(program, tool, action, topLevel, ctx);
+    }
+  }
+
   return program;
+}
+
+/**
+ * Registers a single composite-tool action as a Commander command under
+ * `parent` with `commandName`, wiring flags from the action's Zod schema and
+ * the shared dispatch handler. Extracted (DR-7) so the auto-generated
+ * `<tool> <action>` subcommand form AND the top-level promotion hoist loop go
+ * through ONE code path — same schema, same handler, no divergent parsing.
+ * `parent` is the tool group for a subcommand, or the root `program` for a
+ * promoted top-level command.
+ */
+function registerActionCommand(
+  parent: Command,
+  tool: CompositeTool,
+  action: ToolAction,
+  commandName: string,
+  ctx: DispatchContext,
+): Command {
+  const actionCmd = parent
+    .command(commandName)
+    .description(action.description);
+
+  addFlagsFromSchema(actionCmd, action.schema, action.cli?.flags);
+
+  // T042 / DR-9: the `exarchos event query` action gains a streaming
+  // `--follow` mode that emits NDJSON frames via the dedicated
+  // `runEventQueryFollow` handler instead of the one-shot dispatch path.
+  // The flag is intentionally registered outside `addFlagsFromSchema` so
+  // the MCP tool schema (which only describes one-shot query args) is
+  // not affected.
+  const isEventQuery =
+    tool.name === 'exarchos_event' && action.name === 'query';
+  if (isEventQuery) {
+    actionCmd.option('--follow', 'Stream events as NDJSON frames until the source closes');
+  }
+
+  // T33 (#1273) / Wave C PR 3 — the `exarchos view` actions listed in
+  // `VIEW_FOLLOW_ACTIONS` gain a `--follow` flag that drives the
+  // dispatch-core `EventSourcedTaskStore` polling loop (see
+  // `cli/follow-loop.ts`). #1440 Op 1 (T7) expanded the set from the
+  // original two-arm disjunction (workflow_status, shepherd_status) to
+  // include three more pure-projection view actions (pipeline,
+  // convergence, delegation_timeline). Like the event-query `--follow`,
+  // this flag is registered outside `addFlagsFromSchema` so the MCP
+  // tool schema for the underlying action stays one-shot — the
+  // Tasks-augmented branch for the MCP arm is gated by the SDK
+  // `task: { ttl }` request parameter, not by a tool-schema field (C2).
+  const isViewFollow =
+    tool.name === 'exarchos_view' && VIEW_FOLLOW_ACTIONS.has(action.name);
+  if (isViewFollow) {
+    actionCmd.option(
+      '--follow',
+      'Stream task lifecycle transitions to stdout until terminal status or SIGINT',
+    );
+  }
+
+  // T5 (#1240): convenience flags on `wf checkpoint` so agents emit a
+  // structured handoff payload without having to type nested JSON.
+  // The flags map to the `handoff` field on the dispatch surface
+  // (which `addFlagsFromSchema` already exposes as
+  // `--handoff <json-or-csv>` for power-user / scripting parity).
+  // `--context` accepts inline strings only — the `@<path>` substitution
+  // sugar is OUT OF SCOPE here (#1245, scheduled v2.12.0). The
+  // variadic syntax `<step...>` lets agents repeat `--next-steps a
+  // --next-steps b` to build the array, mirroring how the MCP arm
+  // would receive `nextSteps: ['a', 'b']`.
+  const isWorkflowCheckpoint =
+    tool.name === 'exarchos_workflow' && action.name === 'checkpoint';
+  if (isWorkflowCheckpoint) {
+    actionCmd.option(
+      '--context <string>',
+      'Handoff context (single inline string, max 2KB). Maps to handoff.context.',
+    );
+    actionCmd.option(
+      '--next-steps <step...>',
+      'Repeatable handoff next-step entry; pass once per entry. Maps to handoff.nextSteps.',
+    );
+    actionCmd.option(
+      '--suggestions <suggestion...>',
+      'Repeatable handoff suggestion entry; pass once per entry. Maps to handoff.suggestions.',
+    );
+  }
+
+  actionCmd.action(async (opts: Record<string, unknown>) => {
+    const { json, follow, ...flagOpts } = opts;
+    const isJson = Boolean(json);
+    const format = action.cli?.format;
+
+    // ─── T5 (#1240): convenience-flag → handoff reshape ───────────────
+    // Done BEFORE `coerceFlags` / `safeParse` so the synthesised
+    // `handoff` is the value that hits both schema validation and
+    // dispatch. Critical contract: when NONE of the convenience
+    // flags are present, `handoff` MUST stay ABSENT — not be set
+    // to `{ context: undefined, nextSteps: undefined, ... }`. The
+    // C3 (#1241) digest is `sha256(handoff ?? {})`, and an
+    // all-undefined object stringifies to `{}` only by coincidence;
+    // explicit absence keeps the digest stable for pre-T5 callers
+    // and for the parity contract with the MCP arm (which passes
+    // `handoff` undefined when the caller didn't populate it).
+    if (isWorkflowCheckpoint) {
+      const ctxOpt = flagOpts.context;
+      const nextStepsOpt = flagOpts.nextSteps;
+      const suggestionsOpt = flagOpts.suggestions;
+      const hasContext = typeof ctxOpt === 'string';
+      const hasNextSteps = Array.isArray(nextStepsOpt) && nextStepsOpt.length > 0;
+      const hasSuggestions =
+        Array.isArray(suggestionsOpt) && suggestionsOpt.length > 0;
+
+      // Reject the conflict where the operator passes both the raw
+      // `--handoff '{...}'` JSON flag AND any convenience flag. Without
+      // this guard the reshape block below would silently overwrite
+      // the JSON-supplied handoff with the synthesized convenience
+      // object — losing data the operator explicitly supplied. The
+      // two surfaces are mutually exclusive: `--handoff` is the full
+      // shape, the convenience flags are field-level sugar.
+      if (
+        flagOpts.handoff !== undefined &&
+        (hasContext || hasNextSteps || hasSuggestions)
+      ) {
+        const err = buildInvalidInput(
+          `${tool.name}/${action.name}: --handoff is mutually exclusive with --context/--next-steps/--suggestions; pass either the full --handoff JSON or the convenience flags, not both`,
+        );
+        emitResult({ success: false, error: err }, isJson, format);
+        process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
+        return;
+      }
+
+      if (hasContext || hasNextSteps || hasSuggestions) {
+        // Synthesize `handoff` from the convenience flags. Spread-on-
+        // condition keeps the shape minimal so the rehydration
+        // projection's `latestHandoff` snapshot only carries what
+        // the operator actually supplied (e.g. `{ context: 'x' }`
+        // and not `{ context: 'x', nextSteps: undefined,
+        // suggestions: undefined }`). The handler's
+        // `CheckpointInputSchema.handoff` is a Zod object with all
+        // three fields optional, so omitting them is valid input.
+        flagOpts.handoff = {
+          ...(hasContext ? { context: ctxOpt as string } : {}),
+          ...(hasNextSteps ? { nextSteps: nextStepsOpt as string[] } : {}),
+          ...(hasSuggestions
+            ? { suggestions: suggestionsOpt as string[] }
+            : {}),
+        };
+      }
+      // Strip the convenience-flag aliases so they don't leak into
+      // dispatch args (the schema doesn't declare them; they'd be
+      // silently ignored, but cleaning them up here keeps the
+      // dispatched payload shaped exactly like the MCP arm's).
+      delete flagOpts.context;
+      delete flagOpts.nextSteps;
+      delete flagOpts.suggestions;
+    }
+
+    // ─── T33 (#1273): view `--follow` Tasks polling branch ────────────
+    //
+    // Wave C PR 3 — the CLI equivalent of the MCP `tasks/get` polling
+    // loop. The dispatch creates a task via the dispatch-core
+    // `runTasksAugmented` path (synthetic `task: {}` augmentation
+    // threaded through dispatch args), pulls out the resulting
+    // `taskId`, then drives `runFollowLoop` against the same
+    // `EventSourcedTaskStore` the MCP arm consumes (INV-2 facade
+    // equivalence). SIGINT during the loop emits `task.cancelled`
+    // via the dispatch-core `cancelTask` surface.
+    if (isViewFollow && follow === true) {
+      if (!ctx.taskStore) {
+        const err = buildInvalidInput(
+          `${tool.name}/${action.name}: --follow requires a wired EventSourcedTaskStore; none present on this context`,
+        );
+        emitResult({ success: false, error: err }, isJson, format);
+        process.exitCode = CLI_EXIT_CODES.HANDLER_ERROR;
+        return;
+      }
+
+      // Parse the action args first so a `--workflow-id` typo surfaces
+      // as INVALID_INPUT before we cut a task envelope.
+      const followCoerced = coerceFlags(flagOpts, action.schema);
+      const followParse = action.schema.safeParse(followCoerced);
+      if (!followParse.success) {
+        const errCtx = `${tool.name}/${action.name}`;
+        const err = formatValidationError(followParse.error, errCtx);
+        emitResult({ success: false, error: err }, isJson, format);
+        process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
+        return;
+      }
+
+      // Resolve poll cadence: CLI override (none yet — reserved for a
+      // future `--poll-interval-ms` flag) > `.exarchos.yml`
+      // `cli.followPollIntervalMs` > module default. The loader runs
+      // synchronously and tolerates a missing file (returns null).
+      let pollIntervalMs: number | undefined;
+      try {
+        const { loadExarchosConfig } = await import(
+          '../config/load-exarchos-config.js'
+        );
+        const loaded = loadExarchosConfig(process.cwd());
+        pollIntervalMs = loaded?.config.cli?.followPollIntervalMs;
+      } catch {
+        // Malformed `.exarchos.yml` is surfaced by the broader CLI
+        // load path; in `--follow` we degrade to the default cadence
+        // rather than abort the polling session.
+        pollIntervalMs = undefined;
+      }
+
+      // Wire SIGINT → AbortController. The handler MUST NOT call
+      // `process.exit` — the polling loop awaits `cancelTask` before
+      // returning, then we let the action callback fall through to
+      // its normal return so the event-loop drains cleanly (project-
+      // memory caution).
+      const controller = new AbortController();
+      const onSigint = (): void => controller.abort();
+      process.once('SIGINT', onSigint);
+
+      try {
+        const { runFollowLoop } = await import('../cli/follow-loop.js');
+        // #1440 Op 1 (T7): the routing now flows directly from
+        // `action.name` since `VIEW_FOLLOW_ACTIONS` and the
+        // `FollowSubcommand` union are kept in lockstep — both
+        // describe the same five-element set. The cast is the
+        // bridge from the registry's `string` field to the
+        // narrower literal union; the `isViewFollow` guard above
+        // proves membership before we reach this point.
+        const subcommand = action.name as FollowSubcommand;
+
+        // Dispatch the underlying action through the Tasks-augmented
+        // path so the lifecycle is recorded in the same
+        // `EventSourcedTaskStore` projection the MCP arm reads. The
+        // `task: {}` field is the augmentation signal per C1's
+        // `isTaskAugmented` predicate (presence of a plain object is
+        // sufficient; no `ttl` here means an unbounded task lifetime,
+        // appropriate for an interactive CLI follow session).
+        const createResult = await dispatch(
+          tool.name,
+          {
+            action: action.name,
+            ...followParse.data,
+            task: {},
+          },
+          ctx,
+        );
+
+        // Extract taskId from the CreateTaskResult envelope. Dispatch
+        // wraps the Tasks-augmented response under
+        // `{ success: true, data: { task: { taskId, ... } } }` (see
+        // `runTasksAugmented`'s return shape in C1).
+        const dataCandidate = (createResult as { data?: unknown }).data;
+        const taskCandidate =
+          dataCandidate && typeof dataCandidate === 'object'
+            ? (dataCandidate as { task?: { taskId?: unknown } }).task
+            : undefined;
+        const taskId =
+          taskCandidate && typeof taskCandidate.taskId === 'string'
+            ? taskCandidate.taskId
+            : undefined;
+        if (!createResult.success || !taskId) {
+          // The underlying dispatch already serialised a meaningful
+          // error envelope; surface it untouched.
+          emitResult(createResult, isJson, format);
+          process.exitCode = createResult.success
+            ? CLI_EXIT_CODES.HANDLER_ERROR
+            : createResult.error?.code === VALIDATION_ERROR_CODE
+              ? CLI_EXIT_CODES.INVALID_INPUT
+              : CLI_EXIT_CODES.HANDLER_ERROR;
+          return;
+        }
+
+        const loopResult = await runFollowLoop({
+          taskStore: ctx.taskStore,
+          taskId,
+          pollIntervalMs,
+          stdout: process.stdout,
+          subcommand,
+          signal: controller.signal,
+        });
+
+        // Cancellation is a clean exit — the user asked for it. Map
+        // it to SUCCESS so a wrapping shell script doesn't treat ^C
+        // as an error (matches `exarchos event query --follow`'s
+        // SIGINT-on-close discipline).
+        process.exitCode =
+          loopResult.terminalStatus === 'failed'
+            ? CLI_EXIT_CODES.HANDLER_ERROR
+            : CLI_EXIT_CODES.SUCCESS;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        emitResult(
+          { success: false, error: { code: 'UNCAUGHT_EXCEPTION', message } },
+          isJson,
+          format,
+        );
+        process.exitCode = CLI_EXIT_CODES.UNCAUGHT_EXCEPTION;
+      } finally {
+        process.off('SIGINT', onSigint);
+      }
+      return;
+    }
+
+    // ─── T042: `--follow` streaming branch ─────────────────────────────
+    if (isEventQuery && follow === true) {
+      const streamFlag = typeof flagOpts.stream === 'string' ? flagOpts.stream : undefined;
+      if (!streamFlag) {
+        const err = buildInvalidInput(
+          `${tool.name}/${action.name}: required option(s) not specified: stream`,
+        );
+        emitResult({ success: false, error: err }, isJson, format);
+        process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
+        return;
+      }
+      try {
+        const { runEventQueryFollow, pollingEventSource } = await import(
+          '../cli-commands/event-query.js'
+        );
+        const source = pollingEventSource({
+          store: ctx.eventStore,
+          streamId: streamFlag,
+        });
+        await runEventQueryFollow({ source, sink: process.stdout });
+        process.exitCode = CLI_EXIT_CODES.SUCCESS;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        emitResult(
+          { success: false, error: { code: 'UNCAUGHT_EXCEPTION', message } },
+          isJson,
+          format,
+        );
+        process.exitCode = CLI_EXIT_CODES.UNCAUGHT_EXCEPTION;
+      }
+      return;
+    }
+
+    // ─── INVALID_INPUT (exit 1): required-flag check ──────────────────
+    // Commander can't enforce --flag vs --no-flag for required booleans.
+    const missingBools = validateRequiredBooleans(flagOpts, action.schema);
+    if (missingBools.length > 0) {
+      const err = buildInvalidInput(
+        `${tool.name}/${action.name}: required option(s) not specified: ${missingBools.join(', ')}`,
+      );
+      const errResult: ToolResult = { success: false, error: err };
+      emitResult(errResult, isJson, format);
+      process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
+      return;
+    }
+
+    // ─── INVALID_INPUT (exit 1): Zod validation at CLI layer ──────────
+    // Parse coerced args through the action schema so bad inputs are
+    // surfaced before dispatch runs. DR-5: this funnels through the
+    // shared `formatValidationError` so the MCP adapter emits the same
+    // error.code and an equivalent error.message for the same input.
+    const coerced = coerceFlags(flagOpts, action.schema);
+    const parseResult = action.schema.safeParse(coerced);
+    if (!parseResult.success) {
+      const context = `${tool.name}/${action.name}`;
+      const err = formatValidationError(parseResult.error, context);
+      const errResult: ToolResult = { success: false, error: err };
+      emitResult(errResult, isJson, format);
+      process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
+      return;
+    }
+
+    // ─── Dispatch ─────────────────────────────────────────────────────
+    // Dispatch may return a handler-reported error (exit 2) or throw
+    // an unexpected exception (exit 3). Normalize both into ToolResult.
+    //
+    // DR-5: for actions flagged `longRunning` in the registry, emit
+    // stderr heartbeats under --json so a multi-second silence doesn't
+    // look like a hung process.  Interactive pretty-print mode stays
+    // untouched — a progress spinner belongs to a future UX layer.
+    const heartbeatEnabled = isJson && action.longRunning === true;
+    const stopHeartbeat = heartbeatEnabled
+      ? startHeartbeat(action.name)
+      : null;
+    let result: ToolResult;
+    try {
+      try {
+        result = await dispatch(
+          tool.name,
+          { action: action.name, ...parseResult.data },
+          ctx,
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        // F-024 dead-code: inlined single-use ToolResult shape — was
+        // previously a `toErrorResult(code, message)` helper used only
+        // from this branch.
+        const errResult: ToolResult = {
+          success: false,
+          error: { code: 'UNCAUGHT_EXCEPTION', message },
+        };
+        emitResult(errResult, isJson, format);
+        process.exitCode = CLI_EXIT_CODES.UNCAUGHT_EXCEPTION;
+        return;
+      }
+    } finally {
+      // F-023-1: cleanup runs on success, handler-reported errors, AND
+      // uncaught exceptions — a single site so future edits can't leak
+      // timers.
+      stopHeartbeat?.();
+    }
+
+    // ─── Emit + map to exit code ──────────────────────────────────────
+    // Preserve INVALID_INPUT when the handler reports a validation
+    // failure — collapsing every non-success into HANDLER_ERROR loses
+    // parity with the pre-dispatch INVALID_INPUT path (e.g. a bad arg
+    // that slips past Zod at the CLI layer but is caught by a handler
+    // guard should still report exit 1, not exit 2).
+    emitResult(result, isJson, format);
+    if (result.success) {
+      process.exitCode = CLI_EXIT_CODES.SUCCESS;
+    } else if (result.error?.code === VALIDATION_ERROR_CODE) {
+      process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
+    } else {
+      process.exitCode = CLI_EXIT_CODES.HANDLER_ERROR;
+    }
+  });
+
+  return actionCmd;
 }
 
 // ─── Commander-Error → INVALID_INPUT (DR-5) ────────────────────────────────
