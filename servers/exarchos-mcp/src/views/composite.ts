@@ -29,11 +29,10 @@ import {
 } from './tools.js';
 import { handleViewInvariantsEffective } from './effective-catalog.js';
 import { handleViewInspect } from './lifecycle/inspect.js';
+import { handleViewWait, type WaitDeps } from './lifecycle/wait.js';
 import {
   handleViewWorktrees,
   handleViewPs,
-  handleViewWait,
-  type WorktreeViewDeps,
 } from '../orchestrate/worktree/handlers.js';
 import { handleStackStatus, handleStackPlace } from '../stack/tools.js';
 import { handleViewTelemetry } from '../telemetry/tools.js';
@@ -118,12 +117,14 @@ export async function handleView(
   args: Record<string, unknown>,
   ctx: DispatchContext,
   // WLM operational core (DR-4) — test-only DI seam for the `ps` / `wait`
-  // worktree-liveness arms (fake process-table source / realpath / sleep clock).
-  // Production dispatch (`core/dispatch.ts`) calls `handleView(args, ctx)` with
-  // no third argument, so the real OS-backed defaults are wired; only the named
-  // worktree tests thread it. Other action arms ignore it. An extra optional
-  // parameter keeps `handleView` assignable to `CompositeHandler` (2 params).
-  deps?: WorktreeViewDeps,
+  // liveness arms. `WaitDeps` is the superset (it extends `WorktreeViewDeps`
+  // with the generic-`wait` subscription/deadline seams) so one param threads
+  // both the worktree ps/wait scope AND the generic wait's phase/status/operation
+  // predicates. Production dispatch (`core/dispatch.ts`) calls `handleView(args,
+  // ctx)` with no third argument, so the real OS-backed defaults are wired; only
+  // the named lifecycle tests thread it. Other action arms ignore it. An extra
+  // optional parameter keeps `handleView` assignable to `CompositeHandler`.
+  deps?: WaitDeps,
 ): Promise<ToolResult> {
   const startedAt = Date.now();
   const { stateDir, eventStore } = ctx;
@@ -458,12 +459,12 @@ export async function handleView(
       );
 
     case 'wait':
-      // WLM operational core (DR-4/DR-3) — caller-bounded poll. Default
-      // until:'merge' blocks on the serialized merge on `integrationRef` reaching
-      // its terminal worktree.merge_executed; until:'idle' blocks until no
-      // in-flight prune_worktrees pass remains (prune terminal cleared). Both
-      // read-only, structured-timeout-on-expiry, no background timer. `rest`
-      // carries `until`/`integrationRef`/`timeoutMs` through unchanged.
+      // Generic event-driven gate (DR-5/DR-8) — a PURE CONSUMER that appends
+      // nothing. Feature-scoped phase/status/operation predicates resolve via a
+      // precheck then a DR-1 subscription (Tier-1 wake / Tier-2 floor), with
+      // structured WAIT_TIMEOUT/WAIT_FAILED on expiry/failure; the worktree
+      // `until: merge|idle` scope delegates to the absorbed WLM-6 kernel. `rest`
+      // carries featureId/phase/status/operation/until/integrationRef/timeoutMs.
       return envelopeWrap(await handleViewWait(rest, ctx, deps), startedAt);
 
     case 'inspect':
