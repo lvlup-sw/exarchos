@@ -66,6 +66,14 @@ export interface RunMutationDeps {
   eventStore?: RunMutationEventStore;
   /** Stream to emit liveness events on (typically the active featureId). */
   stream?: string;
+  /**
+   * DR-2 — canonical INV-10 liveness instance key for the mutation surface. When
+   * provided it is stamped (additive) as `instanceId` on BOTH liveness events so
+   * a uniform liveness view can correlate the mutation start↔terminal without
+   * per-surface field knowledge. Omitted (no `instanceId` field) when absent, so
+   * a pre-retrofit / operation-less invocation still validates.
+   */
+  operationId?: string;
 }
 
 /** Fire-and-forget emit that never throws into the run path (degrade per INV-4). */
@@ -129,9 +137,15 @@ export function handleRunMutation(argv: readonly string[], deps: RunMutationDeps
   const run: (cmd: string, args: readonly string[], runCwd: string) => number = canEmit
     ? (cmd, args, runCwd) => {
         const command = resolved.mutation ?? cmd;
+        // DR-2 — stamp the canonical liveness instance key (additive) only when
+        // an operationId is supplied; omit the field otherwise so operation-less
+        // invocations stay valid against the additive-optional schema.
+        const instanceIdField =
+          deps.operationId !== undefined ? { instanceId: deps.operationId } : {};
         emitLiveness(deps.eventStore!, deps.stream!, 'mutation.executing_started', {
           command,
           repoRoot: runCwd,
+          ...instanceIdField,
         });
         const exitCode = baseRun(cmd, args, runCwd);
         emitLiveness(deps.eventStore!, deps.stream!, 'mutation.executed', {
@@ -139,6 +153,7 @@ export function handleRunMutation(argv: readonly string[], deps: RunMutationDeps
           repoRoot: runCwd,
           passed: exitCode === 0,
           exitCode,
+          ...instanceIdField,
         });
         return exitCode;
       }

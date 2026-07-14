@@ -88,6 +88,13 @@ import {
   WorktreeCreateExecutedData,
   LaunchExecutingStartedData,
   LaunchExecutedData,
+  // DR-2 (task 003) — the four INV-10 liveness pairs retrofitted with a
+  // canonical additive `instanceId` (merge / launch / mutation / prune).
+  MergeExecutingStartedData,
+  MutationExecutingStartedData,
+  MutationExecutedData,
+  PruneExecutingStartedData,
+  PruneExecutedData,
   type WorkflowEvent,
 } from './schemas.js';
 import { workflowStateProjection } from '../views/workflow-state-projection.js';
@@ -4320,5 +4327,195 @@ describe('harness-launcher event schemas (DR-2)', () => {
     expect(
       WorktreeCreateExecutedData.parse({ operationId: opId, worktreePath: '/abs/launch-worktree', created: true }).created,
     ).toBe(true);
+  });
+});
+
+// ─── DR-2 (task 003): validation-compatible liveness `instanceId` retrofit ───
+//
+// The four INV-10 liveness pairs — merge / launch / mutation / prune
+// `<surface>.executing_started` + paired terminal — gained a canonical,
+// ADDITIVE `instanceId` field via the shared `livenessInstanceFields` mixin.
+// These tests pin the two halves of the contract:
+//   1. every VERBATIM payload each surface emitted BEFORE the retrofit still
+//      validates (backward-compatibility / nothing migrated), and
+//   2. the additive field is TYPED — a malformed (wrong-typed / empty)
+//      `instanceId` is now rejected at the boundary. This second property is
+//      what the DR-2 revert-probe pins: with the schema change reverted,
+//      `instanceId` is no longer a known key, so a wrong-typed value is
+//      silently stripped and the malformed payload wrongly validates.
+
+describe('DR-2 liveness instanceId retrofit', () => {
+  // VERBATIM shapes captured from the four emitters' emission sites BEFORE the
+  // retrofit (characterization). NONE carries `instanceId`, mirroring every
+  // previously-persisted row. `instanceId` is the canonical key each emitter
+  // now stamps additively.
+  const LIVENESS_PAIR_FIXTURES = [
+    {
+      surface: 'merge',
+      startedType: 'merge.executing_started',
+      startedSchema: MergeExecutingStartedData,
+      started: {
+        taskId: 'T11',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        recoveryPointSha: 'b'.repeat(40),
+        startedAt: '2026-06-21T00:00:00.000Z',
+      },
+      terminalType: 'merge.executed',
+      terminalSchema: MergeExecutedData,
+      terminal: {
+        taskId: 'T11',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        strategy: 'squash',
+        mergeSha: 'a'.repeat(40),
+        rollbackSha: 'b'.repeat(40),
+      },
+      instanceId: 'T11',
+    },
+    {
+      surface: 'launch',
+      startedType: 'launch.executing_started',
+      startedSchema: LaunchExecutingStartedData,
+      started: {
+        worktreeId: '/srv/wt/launch-a',
+        holderPid: 4242,
+        holderStartedAt: 'boot-4242',
+      },
+      terminalType: 'launch.executed',
+      terminalSchema: LaunchExecutedData,
+      terminal: { worktreeId: '/srv/wt/launch-a', exitCode: 0 },
+      instanceId: '/srv/wt/launch-a',
+    },
+    {
+      surface: 'mutation',
+      startedType: 'mutation.executing_started',
+      startedSchema: MutationExecutingStartedData,
+      started: { command: 'npx stryker run', repoRoot: '/repo' },
+      terminalType: 'mutation.executed',
+      terminalSchema: MutationExecutedData,
+      terminal: { command: 'npx stryker run', repoRoot: '/repo', passed: true, exitCode: 0 },
+      instanceId: 'op-mutation-1',
+    },
+    {
+      surface: 'prune',
+      startedType: 'prune.executing_started',
+      startedSchema: PruneExecutingStartedData,
+      started: { operationId: 'op-prune-1', repoRoot: '/repo', holderPid: 7777, holderStartedAt: null },
+      terminalType: 'prune.executed',
+      terminalSchema: PruneExecutedData,
+      terminal: { operationId: 'op-prune-1', deletedCount: 0 },
+      instanceId: 'op-prune-1',
+    },
+  ] as const;
+
+  it('ExecutingStartedSchemas_PreviouslyEmittedPayloadFixtures_StillValidate', () => {
+    // Every verbatim pre-retrofit payload (no instanceId) must still parse under
+    // the additive schema — the additive change never breaks a persisted row.
+    for (const f of LIVENESS_PAIR_FIXTURES) {
+      const started = f.startedSchema.safeParse(f.started);
+      expect(started.success, `${f.startedType}: ${JSON.stringify(started)}`).toBe(true);
+      const terminal = f.terminalSchema.safeParse(f.terminal);
+      expect(terminal.success, `${f.terminalType}: ${JSON.stringify(terminal)}`).toBe(true);
+
+      // And the schema is also registered against the live event-type key.
+      expect(EVENT_DATA_SCHEMAS[f.startedType as typeof EventTypes[number]]).toBeDefined();
+      expect(EVENT_DATA_SCHEMAS[f.terminalType as typeof EventTypes[number]]).toBeDefined();
+    }
+  });
+
+  it('LegacyPayloadsWithoutInstanceId_StillValidate', () => {
+    // The additive field is OPTIONAL: a payload with NO instanceId key (every
+    // legacy row) validates, and the parsed shape leaves instanceId undefined —
+    // no default is injected, so replay is byte-stable.
+    for (const f of LIVENESS_PAIR_FIXTURES) {
+      expect(Object.prototype.hasOwnProperty.call(f.started, 'instanceId')).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(f.terminal, 'instanceId')).toBe(false);
+
+      const startedParsed = f.startedSchema.parse(f.started) as { instanceId?: string };
+      const terminalParsed = f.terminalSchema.parse(f.terminal) as { instanceId?: string };
+      expect(startedParsed.instanceId).toBeUndefined();
+      expect(terminalParsed.instanceId).toBeUndefined();
+
+      // The additive-widened shape ALSO accepts an explicit instanceId.
+      expect(f.startedSchema.safeParse({ ...f.started, instanceId: f.instanceId }).success).toBe(true);
+      expect(f.terminalSchema.safeParse({ ...f.terminal, instanceId: f.instanceId }).success).toBe(true);
+    }
+  });
+
+  it('ExecutingStartedSchemas_RejectMalformedPayload', () => {
+    // REVERT-PROBE ADEQUACY: the additive `instanceId` is a TYPED string field,
+    // not a stripped unknown. A wrong-typed (number) or empty (`min(1)`) value
+    // is rejected. With the schema retrofit reverted, `instanceId` is no longer
+    // a known key → the wrong-typed value is silently stripped and these
+    // payloads wrongly validate → this test goes red (the kill-probe trigger).
+    for (const f of LIVENESS_PAIR_FIXTURES) {
+      // A well-formed instanceId is accepted — establishes the field IS honored.
+      expect(f.startedSchema.safeParse({ ...f.started, instanceId: f.instanceId }).success).toBe(true);
+      expect(f.terminalSchema.safeParse({ ...f.terminal, instanceId: f.instanceId }).success).toBe(true);
+
+      // Wrong type (number) — rejected only because instanceId is a typed field.
+      expect(
+        f.startedSchema.safeParse({ ...f.started, instanceId: 123 }).success,
+        `${f.startedType}: number instanceId must be rejected`,
+      ).toBe(false);
+      expect(
+        f.terminalSchema.safeParse({ ...f.terminal, instanceId: 123 }).success,
+        `${f.terminalType}: number instanceId must be rejected`,
+      ).toBe(false);
+
+      // Empty string — rejected by `.min(1)` (an empty instance key is meaningless).
+      expect(
+        f.startedSchema.safeParse({ ...f.started, instanceId: '' }).success,
+        `${f.startedType}: empty instanceId must be rejected`,
+      ).toBe(false);
+      expect(
+        f.terminalSchema.safeParse({ ...f.terminal, instanceId: '' }).success,
+        `${f.terminalType}: empty instanceId must be rejected`,
+      ).toBe(false);
+    }
+  });
+
+  it('LivenessPairSchemas_SerializationRoundTrip_ValidateWithAndWithoutInstanceId', () => {
+    // Property (serialization): every fixture-shaped payload, JSON round-tripped
+    // as it would be after persistence, validates BOTH with and without the
+    // additive instanceId — the two states the event log can hold across the
+    // retrofit boundary.
+    for (const f of LIVENESS_PAIR_FIXTURES) {
+      const variants: Array<{ label: string; started: unknown; terminal: unknown }> = [
+        { label: 'without instanceId (legacy)', started: f.started, terminal: f.terminal },
+        {
+          label: 'with instanceId (retrofit)',
+          started: { ...f.started, instanceId: f.instanceId },
+          terminal: { ...f.terminal, instanceId: f.instanceId },
+        },
+      ];
+      for (const v of variants) {
+        const started = JSON.parse(JSON.stringify(v.started));
+        const terminal = JSON.parse(JSON.stringify(v.terminal));
+        expect(
+          f.startedSchema.safeParse(started).success,
+          `${f.startedType} ${v.label}`,
+        ).toBe(true);
+        expect(
+          f.terminalSchema.safeParse(terminal).success,
+          `${f.terminalType} ${v.label}`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it('LivenessInstanceFields_SharedMixin_IsAppliedToAllEightSchemas', () => {
+    // The shared structural helper is applied to EXACTLY the eight liveness
+    // schemas (4 starts + 4 terminals) — the only place the payloads agree. Each
+    // exposes `instanceId` in its Zod shape. (Asserted against the schema shape
+    // rather than importing the mixin, so this is a clean assertion-level red
+    // when the retrofit is reverted — not an import artifact.)
+    for (const f of LIVENESS_PAIR_FIXTURES) {
+      const startedShape = (f.startedSchema as unknown as { shape: Record<string, unknown> }).shape;
+      const terminalShape = (f.terminalSchema as unknown as { shape: Record<string, unknown> }).shape;
+      expect(startedShape, `${f.startedType} shape must carry instanceId`).toHaveProperty('instanceId');
+      expect(terminalShape, `${f.terminalType} shape must carry instanceId`).toHaveProperty('instanceId');
+    }
   });
 });
