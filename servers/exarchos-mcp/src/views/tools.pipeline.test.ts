@@ -515,6 +515,40 @@ describe('handleViewPipeline — DR-6/DR-7 repo scoping + perceivability (task 0
     });
   });
 
+  it('Pipeline_ScopeOutOfSubset_RejectedAsInvalidInput', async () => {
+    // Task fix-C: the shared `scopeField` widening (task 007 → the 4-member
+    // union so `pipeline` and `ps` share ONE `scope` definition) lets a `ps`-only
+    // scope (`workflow`/`worktree`) reach the pipeline handler. GA rejected
+    // out-of-subset scopes; the widening must NOT silently coerce them to
+    // unscoped. A `ps`-only member returns a structured INVALID_INPUT with
+    // validTargets ['repo','all'] (mirroring how `ps` rejects the pipeline-only
+    // `repo` member) and a self-correcting `suggestedFix` routing to `ps`.
+    await seedStarted('scope-reject', { repoRoot: '/repo/z' });
+
+    const workflowResult = await handleViewPipeline(
+      { scope: 'workflow', includeCompleted: true },
+      stateDir,
+      store,
+    );
+    expect(workflowResult.success).toBe(false);
+    expect(workflowResult.error?.code).toBe('INVALID_INPUT');
+    expect(workflowResult.error?.validTargets).toEqual(['repo', 'all']);
+    expect(workflowResult.error?.suggestedFix?.params).toMatchObject({
+      action: 'ps',
+      scope: 'workflow',
+    });
+
+    // The sibling ps-only member is rejected identically.
+    const worktreeResult = await handleViewPipeline(
+      { scope: 'worktree', includeCompleted: true },
+      stateDir,
+      store,
+    );
+    expect(worktreeResult.success).toBe(false);
+    expect(worktreeResult.error?.code).toBe('INVALID_INPUT');
+    expect(worktreeResult.error?.validTargets).toEqual(['repo', 'all']);
+  });
+
   it('Pipeline_ScopeAll_IncludesLegacyUnscopedRows', async () => {
     // scope:'all' reproduces the full cross-repo inventory INCLUDING legacy rows
     // that carry no `repoRoot` (undefined) — those match only unscoped/'all'.

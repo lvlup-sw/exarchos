@@ -3281,10 +3281,11 @@ const viewActions: readonly ToolAction[] = [
       // DR-3 (task 007) — `scope` migrated onto the shared `schema-fields.ts`
       // shape so `pipeline` and `ps` declare ONE `scope` definition on this tool
       // (no flattener collision). The shared shape is the UNION
-      // `['repo','all','workflow','worktree']`; `pipeline` acts on `repo`/`all`
-      // and ignores the `ps`-only members at the handler (see `views/tools.ts`
-      // scope-resolution: anything not `all`/`repo` falls through to the default
-      // caller-key / unscoped branch).
+      // `['repo','all','workflow','worktree']`; `pipeline` acts ONLY on the
+      // `{repo, all}` subset and REJECTS the `ps`-only members (`workflow`/
+      // `worktree`) at the handler with a structured `INVALID_INPUT` (mirroring
+      // how `ps` rejects the pipeline-only `repo` member) — never a silent
+      // coerce to unscoped (see the subset guard in `views/tools.ts`).
       scope: lifecycleScopeField.optional(),
     }),
     phases: ALL_PHASES,
@@ -3763,8 +3764,10 @@ const viewActions: readonly ToolAction[] = [
       // Worktree-scope selector (WLM-6, absorbed). 'merge' polls the serialized-
       // merge terminal; 'idle' polls until the prune liveness pair clears. New
       // field name — no other action declares `until`, so no field-collision at
-      // the flattener. NB: NOT a `scope` field (task-019 pins `scope` to
-      // z.enum(['repo','all']) to match pipeline.scope) — the axis rides `until`.
+      // the flattener. NB: `wait` declares NO `scope` field at all — the worktree
+      // scope axis rides `until` (the feature scope rides `phase`/`status`/
+      // `operation`). (The shared `scopeField` is the 4-member union since task
+      // 007; `wait` simply does not use it.)
       until: z.enum(['merge', 'idle']).optional(),
       // Bounded-wait budget. Same base type (ZodNumber) as serialize_merge /
       // doctor `timeoutMs` so the MCP-registration flattener sees no divergent
