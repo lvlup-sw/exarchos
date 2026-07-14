@@ -168,8 +168,12 @@ const PsData = z
   .passthrough();
 
 /**
- * `wait` success — the resolved bounded-poll outcome for either mode
- * (`until: 'merge'` carries `integrationRef`, `until: 'idle'` carries `until`).
+ * `wait` success — the resolved outcome (DR-5). ALWAYS carries `resolved: true`
+ * + `waitedMs`. The worktree scope stamps `until`/`integrationRef`; the generic
+ * feature-scoped predicates stamp `predicate` (`phase`/`status`/`operation`) with
+ * the matched target, plus an optional `perf` snapshot of the DR-1 subscription's
+ * Tier-2 floor telemetry (surfaced when resolution rode a floor tick). All
+ * optional + passthrough so every success shape validates against one schema.
  */
 const WaitData = z
   .object({
@@ -177,6 +181,11 @@ const WaitData = z
     waitedMs: z.number(),
     until: z.string().optional(),
     integrationRef: z.string().optional(),
+    predicate: z.string().optional(),
+    phase: z.string().optional(),
+    status: z.string().optional(),
+    operation: z.string().optional(),
+    perf: z.record(z.string(), z.unknown()).optional(),
   })
   .passthrough();
 

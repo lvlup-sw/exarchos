@@ -16,7 +16,13 @@ import {
 // task-008 `inspect` typed output schema. Import shapes from the SoT module so
 // the flattened `exarchos_view` registration cannot drift a shared field's base
 // type apart across verbs (DR-8).
-import { followField, limitField as lifecycleLimitField } from './views/lifecycle/schema-fields.js';
+import {
+  followField,
+  limitField as lifecycleLimitField,
+  phaseField as lifecyclePhaseField,
+  statusField as lifecycleStatusField,
+  operationField as lifecycleOperationField,
+} from './views/lifecycle/schema-fields.js';
 import { InspectOutputSchema } from './views/lifecycle/inspect.js';
 import type { AgentPosture } from './agents/spec.js';
 export { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray, coercedIntArray } from './coerce.js';
@@ -3687,17 +3693,29 @@ const viewActions: readonly ToolAction[] = [
     name: 'wait',
     surface: 'worktree',
     description:
-      "Block on a worktree-layer condition (caller-bounded poll, re-folding worktrees@v1 each iteration; structured wait-timeout on expiry; never hangs, no background timer, emits no events). until:'merge' (default) blocks until the serialized merge on integrationRef reaches its terminal worktree.merge_executed (integrationRef required). until:'idle' blocks until no in-flight prune_worktrees GC pass remains (the prune terminal cleared inFlightPrunes). timeoutMs bounds the wait. Use for: gating on a serialized merge terminal (until:'merge') or on prune-idle (until:'idle') before proceeding. Do NOT use for: a point-in-time liveness snapshot (use ps); running the merge itself (use serialize_merge).",
+      "Block until an event-log predicate holds; PURE CONSUMER — emits NO events, never hangs (structured WAIT_TIMEOUT on expiry). Feature-scoped (needs featureId, pick one): phase resolves on entering the target phase (already-passed ⇒ immediate; a failed/cancelled terminal first ⇒ WAIT_FAILED); status resolves on the requested terminal (completed/failed/cancelled; a DIFFERENT terminal ⇒ WAIT_FAILED); operation <surface> is the S-6 predicate for feature-scoped surfaces (merge, mutation), resolving when the unpaired executing_started gains its registry terminal by instance key (none in flight ⇒ immediate; launch/prune ⇒ INVALID_INPUT → use until). Worktree scope: until:'merge' (default) awaits the serialized merge on integrationRef, until:'idle' awaits prune-idle; timeoutMs bounds it. Use for: gating on a phase/status/operation/merge/idle condition. Do NOT use for: a snapshot (use ps/inspect); running a merge (use serialize_merge).",
     schema: z.object({
-      // Optional: required only in the default until:'merge' mode (the handler
+      // Feature-scoped predicate target. Required by every feature-scoped
+      // predicate (phase/status/operation); the worktree `until` scope ignores it.
+      featureId: featureIdSchema.optional(),
+      // DR-8 shared field shapes — imported from the schema-fields SoT so the
+      // flattened exarchos_view registration cannot drift these names' base types
+      // across lifecycle verbs. `phase` collides with invariants_effective.phase
+      // (both z.string()); `status`/`operation` are new to exarchos_view.
+      phase: lifecyclePhaseField.optional(),
+      status: lifecycleStatusField.optional(),
+      operation: lifecycleOperationField.optional(),
+      // Optional: required only in the worktree until:'merge' mode (the handler
       // rejects a missing ref there). until:'idle' does not consult it. Base
       // type (ZodString) is unchanged, so the MCP-registration flattener sees no
       // divergent shape vs serialize_merge's required integrationRef (optionality
       // drift is allowed; base-type/enum/default drift is not).
       integrationRef: z.string().min(1).optional(),
-      // Mode selector (DR-3/DR-4). 'merge' polls the serialized-merge terminal;
-      // 'idle' polls until the prune liveness pair clears. New field name — no
-      // other action declares `until`, so no field-collision at the flattener.
+      // Worktree-scope selector (WLM-6, absorbed). 'merge' polls the serialized-
+      // merge terminal; 'idle' polls until the prune liveness pair clears. New
+      // field name — no other action declares `until`, so no field-collision at
+      // the flattener. NB: NOT a `scope` field (task-019 pins `scope` to
+      // z.enum(['repo','all']) to match pipeline.scope) — the axis rides `until`.
       until: z.enum(['merge', 'idle']).optional(),
       // Bounded-wait budget. Same base type (ZodNumber) as serialize_merge /
       // doctor `timeoutMs` so the MCP-registration flattener sees no divergent
@@ -3707,6 +3725,9 @@ const viewActions: readonly ToolAction[] = [
     phases: ALL_PHASES,
     roles: ROLE_ANY,
     outputSchema: withCappedShape(WaitOutputSchema),
+    // Pure read: appends nothing on every path → readOnlyHint + idempotentHint
+    // (the MCP-annotation hints derive from `readOnly`/`idempotent` here). DR-5
+    // revises #1316 Q7 — the log records domain facts, not observations of them.
     annotations: READ_ONLY_LOCAL,
   },
   // ─── Worktree-lifecycle single-workflow projection (DR-4) ─────────────────
