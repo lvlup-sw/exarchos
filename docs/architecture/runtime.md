@@ -129,9 +129,14 @@ Generic queries over the event log using the liveness convention (§6). Four ver
 
 **`inspect`** — Single-workflow cold-probe projection. Returns phase, phase history, task state, and next-action affordances for a workflow without side effects. Schema discovery via `inspect --schema`.
 
-**`wait`** — Caller-bounded poll with structured timeout (never hangs, no background timers). Blocks until a condition is reached or timeout expires:
-- Default `until: 'merge'` — block until the serialized merge on `integrationRef` reaches its terminal `worktree.merge_executed` event. `integrationRef` is required. When a merge crashes mid-operation (stuck in `executing` phase with an unpaired `merge.executing_started`), this predicate resolves when the terminal event is detected — the operation-level invariant (§6) detects completion regardless of workflow phase, solving the S-6 stuck-operation recovery scenario without per-feature supervisor logic.
-- `until: 'idle'` — block until no in-flight `prune_worktrees` GC pass remains (i.e., `inFlightPrunes` list clears). `integrationRef` not consulted.
+**`wait`** — Caller-bounded poll with structured timeout (never hangs, no background timers). A pure consumer: appends no events on any path and returns a structured `WAIT_TIMEOUT` on expiry. Blocks until an event-log predicate holds. Two scopes:
+- **Feature-scoped predicates** (require a `featureId`):
+  - `--phase <phase>` — reached-or-passed: returns immediately if the projection already reached (or passed) the target phase, else resolves on the `workflow.transition` into it; a `failed`/`cancelled` terminal first ⇒ `WAIT_FAILED`.
+  - `--status <terminal>` — resolves when the workflow reaches the *requested* terminal status (`completed`/`failed`/`cancelled`); a *different* terminal first ⇒ `WAIT_FAILED`.
+  - `--operation <surface>` — the **S-6 predicate**, valid only for the feature-scoped liveness surfaces (`merge`, `mutation`, per §6). Resolves when the feature stream's unpaired `<surface>.executing_started` (by instance key) gains its registry terminal — for `merge` that terminal is `merge.executed` **or** `merge.recovered`; returns immediately if none is in flight. This — **not** `until: 'merge'` — is how a stuck merge is waited out: a crash mid-merge leaves an unpaired `merge.executing_started` on the *feature* stream, and `wait <id> --operation merge` resolves when its terminal lands (or exits 17 on timeout), needing no per-feature supervisor and no workflow-phase transition (`merge.recovered` folds into the `mergeOrchestrator` sub-view, never a phase change).
+- **Worktree scope** — the singleton `launch`/`prune` surfaces emit to the `worktrees` stream and are **not** feature-observable, so they ride `until` rather than `--operation`:
+  - `until: 'merge'` (default) — block until the serialized `serialize_merge` on `integrationRef` reaches its `worktrees`-stream terminal (`worktree.merge_executed`, the lease-release event — a distinct event family from the feature-scoped `merge.*` liveness pair above); `integrationRef` is required.
+  - `until: 'idle'` — block until no in-flight `prune_worktrees` GC pass remains (i.e., `inFlightPrunes` list clears); `integrationRef` not consulted.
 
 **`export`** — Two-event export operation split: `export.requested` (persists full intent) → `export.executed` (records result). Follows the process-manager pattern (§4) for side-effect durability.
 
