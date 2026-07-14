@@ -192,6 +192,22 @@ describe('export (DR-6 diagnostic bundle)', () => {
         .map((e) => (e.data as { idempotencyKey: string }).idempotencyKey),
     );
     for (const k of requestedKeys) expect(executedKeys.has(k)).toBe(true);
+
+    // INV-13 ORDER (observed on the REAL handler, not a hand-seeded intent): the
+    // intent `export.requested` MUST be journaled BEFORE its result
+    // `export.executed`. `findDanglingIntent` keys crash-recovery on a
+    // requested-WITHOUT-a-paired-executed, so a swapped emission order silently
+    // breaks recovery even though the pair COUNTS stay 1:1. Assert strict
+    // sequence ordering per logical key — this fails if the two `append()` calls
+    // in export.ts are swapped.
+    for (const key of new Set(requestedKeys)) {
+      const keyOf = (e: WorkflowEvent): string => (e.data as { idempotencyKey: string }).idempotencyKey;
+      const requested = events.find((e) => e.type === 'export.requested' && keyOf(e) === key);
+      const executed = events.find((e) => e.type === 'export.executed' && keyOf(e) === key);
+      expect(requested).toBeDefined();
+      expect(executed).toBeDefined();
+      expect(requested!.sequence).toBeLessThan(executed!.sequence);
+    }
   });
 
   it('Export_CrashBetweenPair_PrecheckCompletesWithoutDuplicateIntent', async () => {
