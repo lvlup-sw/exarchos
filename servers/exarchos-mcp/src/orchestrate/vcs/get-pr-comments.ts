@@ -44,6 +44,12 @@ export async function handleGetPrComments(
 
     if (page.page.hasMore) {
       const nextOffset = page.page.offset + page.page.limit;
+      // Carry the projection forward — otherwise page 2 silently returns full
+      // comments, defeating the DR-3 field-narrowing the caller asked for.
+      const fieldsArg =
+        args.fields && args.fields.length > 0
+          ? ` --fields ${args.fields.join(',')}`
+          : '';
       return {
         success: true,
         data: page,
@@ -52,7 +58,7 @@ export async function handleGetPrComments(
             'get_pr_comments',
             page.comments.length,
             page.page.total,
-            `get_pr_comments --pr ${args.prId} --offset ${nextOffset} --limit ${page.page.limit}`,
+            `get_pr_comments --pr ${args.prId} --offset ${nextOffset} --limit ${page.page.limit}${fieldsArg}`,
           ),
         ],
       };

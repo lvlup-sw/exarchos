@@ -69,6 +69,8 @@ function isEventQueryData(d: unknown): d is EventQueryData {
     typeof p === 'object' &&
     p !== null &&
     typeof p.total === 'number' &&
+    typeof p.offset === 'number' &&
+    typeof p.limit === 'number' &&
     typeof p.hasMore === 'boolean'
   );
 }

@@ -442,6 +442,13 @@ function readPackageJson(
 export const FAIL_DETAIL_MAX_LINES = 50;
 
 /**
+ * Maximum distinct failing files enumerated in the per-file breakdown. Without
+ * this cap a large cascade appends one line per file, so the "capped" detail can
+ * still blow the DR-7 response budget the line cap exists to protect.
+ */
+export const FAIL_DETAIL_MAX_FILES = 20;
+
+/**
  * Path-like token ending in a recognized source extension. Used to attribute
  * each transcript line to a failing file. Matches tsc (`src/foo.ts(12,5):`),
  * eslint stylish headers (`/abs/src/foo.ts`), eslint unix/compact
@@ -473,9 +480,10 @@ function fileFailureCounts(lines: readonly string[]): Map<string, number> {
 
 /**
  * Cap a verbose FAIL `detail` (raw lint/typecheck transcript) to the first
- * `FAIL_DETAIL_MAX_LINES` lines plus a total count, a complete per-file failing
- * breakdown, and a steering suffix. Returns the detail unchanged when it already
- * fits within the cap (preserving the exact shape of short single-line messages).
+ * `FAIL_DETAIL_MAX_LINES` lines plus a total count, a per-file failing breakdown
+ * (itself capped at `FAIL_DETAIL_MAX_FILES` with an elided-count line), and a
+ * steering suffix. Returns the detail unchanged when it already fits within the
+ * cap (preserving the exact shape of short single-line messages).
  *
  * @param rawDetail    the full (already-trimmed) tool transcript
  * @param rerunCommand the command the reviewer re-runs for the uncapped output
@@ -499,8 +507,12 @@ export function capFailDetail(rawDetail: string, rerunCommand: string): string {
     // Highest line count first; ties broken by first-seen order (Map iteration).
     const ordered = [...fileCounts.entries()].sort((a, b) => b[1] - a[1]);
     parts.push(`Failing files (${fileCounts.size}):`);
-    for (const [file, count] of ordered) {
+    const shown = ordered.slice(0, FAIL_DETAIL_MAX_FILES);
+    for (const [file, count] of shown) {
       parts.push(`  ${file}: ${count}`);
+    }
+    if (ordered.length > shown.length) {
+      parts.push(`  …and ${ordered.length - shown.length} more files.`);
     }
   }
 

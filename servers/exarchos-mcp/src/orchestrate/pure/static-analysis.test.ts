@@ -2,7 +2,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { runStaticAnalysis, FAIL_DETAIL_MAX_LINES } from './static-analysis.js';
+import {
+  runStaticAnalysis,
+  FAIL_DETAIL_MAX_LINES,
+  FAIL_DETAIL_MAX_FILES,
+} from './static-analysis.js';
 import type { StaticAnalysisResult, RunCommandFn } from './static-analysis.js';
 
 describe('runStaticAnalysis', () => {
@@ -647,6 +651,41 @@ describe('runStaticAnalysis', () => {
       expect(result.output).toContain('src/beta.ts: 1');
       // The complete set of distinct failing files is enumerated.
       expect(result.output).toContain('Failing files (3)');
+    });
+
+    it('checkStaticAnalysis_ManyFailingFiles_CapsBreakdownWithElidedCount', () => {
+      const repoRoot = createPackageJson({
+        lint: 'eslint .',
+        typecheck: 'tsc --noEmit',
+      });
+
+      // 30 distinct files, 2 lines each (60 lines total), so the head cap
+      // engages AND the per-file breakdown would list all 30 without a cap —
+      // itself blowing the DR-7 budget the line cap protects.
+      const fileCount = 30;
+      const lines: string[] = [];
+      for (let i = 1; i <= fileCount; i++) {
+        const name = `src/file${String(i).padStart(2, '0')}.ts`;
+        lines.push(`${name}(1,1): error TS2322: type error`);
+        lines.push(`${name}(2,1): error TS2345: bad arg`);
+      }
+
+      const result = runStaticAnalysis({
+        repoRoot,
+        runCommand: failingRunner({ typecheck: { stderr: lines.join('\n') } }),
+      });
+
+      expect(result.status).toBe('fail');
+      // Total distinct-file count is still reported honestly…
+      expect(result.output).toContain(`Failing files (${fileCount})`);
+      // …but only the first FAIL_DETAIL_MAX_FILES are enumerated, with an
+      // explicit elided-count line so the omission is perceivable.
+      expect(result.output).toContain(
+        `…and ${fileCount - FAIL_DETAIL_MAX_FILES} more files.`,
+      );
+      // The first file is shown; a folded-off file is absent entirely.
+      expect(result.output).toContain('src/file01.ts: 2');
+      expect(result.output).not.toContain('src/file30.ts');
     });
   });
 });
