@@ -39,3 +39,15 @@ export {
 export type { InvalidSessionOptionsSuggestedFix } from './session-errors.js';
 
 export { EventStore } from './store.js';
+
+export {
+  SubscriptionRegistry,
+  DEFAULT_FLOOR_MS,
+  type SubscribeOptions,
+  type SubscriptionClock,
+  type SubscriptionEventReader,
+  type SubscriptionFilter,
+  type SubscriptionHandle,
+  type SubscriptionListener,
+  type SubscriptionRegistryOptions,
+} from './subscriptions.js';
