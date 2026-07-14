@@ -589,6 +589,23 @@ export async function handleViewWait(
       }
       predicate = phasePredicate(featureId, axis.value, seedPhase);
     } else {
+      // ── Status-target terminality validation (DR-8, symmetric with --phase/--operation) ──
+      // A `status` predicate resolves only on a WORKFLOW-TERMINAL status
+      // (completed/failed/cancelled — `WAIT_TERMINAL_STATUSES`). A non-terminal
+      // value (e.g. a mid-pipeline phase like `delegate`) is not a status at
+      // all: the pre-fix code built a statusPredicate that resolved immediately
+      // on phase-equality, silently conflating status with phase. Reject it up
+      // front — mirroring the topology guard on `--phase` and the surface guard
+      // on `--operation` so all three axes fail fast on an unreachable target.
+      if (!isWaitTerminal(axis.value)) {
+        return invalidInput(
+          `wait --status '${axis.value}' is not a terminal workflow status — a status predicate resolves only on completed/failed/cancelled`,
+          {
+            validTargets: [...WAIT_TERMINAL_STATUSES],
+            expectedShape: { status: 'a terminal workflow status (completed/failed/cancelled)' },
+          },
+        );
+      }
       predicate = statusPredicate(featureId, axis.value, seedPhase);
     }
   }

@@ -332,6 +332,33 @@ describe('wait — status predicate', () => {
     expect(result.error?.code).toBe('WAIT_FAILED');
     expect((result.data as { terminalStatus: string }).terminalStatus).toBe('cancelled');
   });
+
+  it('Wait_StatusPredicate_NonTerminalStatus_InvalidInputWithTerminalTargets', async () => {
+    const { store, ctx } = await makeArm();
+    const featureId = 'feat-status-nonterminal';
+    await seedWorkflow(store, featureId);
+    // Drive the workflow INTO the `delegate` phase. Pre-fix, `--status delegate`
+    // built a statusPredicate whose seedPhase already equals `delegate`, so the
+    // precheck resolved IMMEDIATELY on phase-equality — conflating status with
+    // phase. The guard must reject `delegate` (a non-terminal phase, not a
+    // terminal status) with INVALID_INPUT BEFORE that conflation can occur,
+    // symmetric with the `--phase` topology guard and the `--operation` surface
+    // guard.
+    await appendTransition(store, featureId, 'plan', 'delegate');
+
+    const before = await totalEvents(store);
+    const result = await handleViewWait({ featureId, status: 'delegate' }, ctx);
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    // validTargets = exactly the terminal statuses; `delegate` is not among them.
+    expect(result.error?.validTargets).toEqual(['completed', 'failed', 'cancelled']);
+    expect(result.error?.validTargets).not.toContain('delegate');
+    expect(result.error?.expectedShape).toHaveProperty('status');
+    // It must NOT have resolved immediately (the pre-fix phase-equality bug).
+    expect((result.data as { resolved?: boolean } | undefined)?.resolved).not.toBe(true);
+    expect(await totalEvents(store)).toBe(before); // side-effect free
+  });
 });
 
 // ─── Operation predicate (S-6) ────────────────────────────────────────────────
