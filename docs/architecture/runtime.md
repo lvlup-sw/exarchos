@@ -119,9 +119,32 @@ Four visible: `exarchos_workflow`, `exarchos_event`, `exarchos_orchestrate`, `ex
 
 ### L7 — Process lifecycle verbs (v2.12)
 
-`ps`, `describe`, `wait`, `export`. Generic queries over the event log: `ps` lists in-flight workflows by reading liveness-start events without corresponding terminal events; `wait --workflow=<id> --phase=<target> --timeout=<ms>` blocks until the projection reaches the target. Every long-running operation (merge, shepherd, TDD swarm) emits `<surface>.executing_started` so these verbs work without per-feature code.
+Generic queries over the event log using the liveness convention (§6). Four verbs:
 
-Launcher-spawned sessions ride the same convention (v2.12.0-preview.1, DR-7): `ps` / `wait` answer a launch's liveness from the `launch.executing_started` / `launch.executed` pair **alone** — a pure fold of `worktrees@v1`, no process scan (the opt-in `ps --probe` reclaim path is the only thing that consults the live process table). The launcher is the lifecycle authority; direct (non-launcher) launches answer lifecycle from event-sourced reconciliation (INV-10, reconcile-on-next-entry — never a daemon), which is also the documented `generic`-runtime contract. Known follow-up: spawn-time injection *degradation* is recorded on the launcher lifecycle result but not yet on the `launch.executing_started` event, so these verbs surface launch *liveness* — not injection *degradation* — from events alone.
+**`ps`** — List in-flight operations. Reads `worktrees@v1` and feature-level folds to return:
+- **In-flight merges** — keyed by `sourceBranch → targetBranch`; a merge is in-flight iff its `merge.executing_started` has no paired `merge.executed` or `merge.recovered` event.
+- **In-flight launches** — keyed by `worktreeId`; a launch is in-flight iff its `launch.executing_started` has no paired `launch.executed` event (DR-7, v2.12.0-preview.1). Launcher-spawned sessions answer liveness from the `launch.*` event pair **alone** — a pure fold of `worktrees@v1`, no process scan. The launcher is the lifecycle authority; direct (non-launcher) launches answer lifecycle from event-sourced reconciliation (INV-10, reconcile-on-next-entry — never a daemon), which is also the documented `generic`-runtime contract.
+- **In-flight prunes** — keyed by `operationId`; a prune pass is in-flight iff its `prune.executing_started` has no paired `prune.executed` event.
+- Optional `--probe` flag: additionally pulls the process table source and emits `worktree.released` / `worktree.orphan_detected` events for crashed holders, then re-folds post-reconcile.
+
+**`inspect`** — Single-workflow cold-probe projection. Returns phase, phase history, task state, and next-action affordances for a workflow without side effects. Schema discovery via `inspect --schema`.
+
+**`wait`** — Caller-bounded poll with structured timeout (never hangs, no background timers). Blocks until a condition is reached or timeout expires:
+- Default `until: 'merge'` — block until the serialized merge on `integrationRef` reaches its terminal `worktree.merge_executed` event. `integrationRef` is required. When a merge crashes mid-operation (stuck in `executing` phase with an unpaired `merge.executing_started`), this predicate resolves when the terminal event is detected — the operation-level invariant (§6) detects completion regardless of workflow phase, solving the S-6 stuck-operation recovery scenario without per-feature supervisor logic.
+- `until: 'idle'` — block until no in-flight `prune_worktrees` GC pass remains (i.e., `inFlightPrunes` list clears). `integrationRef` not consulted.
+
+**`export`** — Two-event export operation split: `export.requested` (persists full intent) → `export.executed` (records result). Follows the process-manager pattern (§4) for side-effect durability.
+
+**`describe`** — Schema discovery for progressive UI rendering. Returns `outputSchema` and emission catalog for requested actions, surfacing annotations (`taskSuitable`, `taskTtlSuggestionMs`) for long-running operations.
+
+### Subscription contract (DR-1)
+
+Clients may subscribe to the event stream with a cursor-pump abstraction: `subscribe(filter, onEvent, {fromSequence?, floorMs?})`. Guarantees:
+- **Exactly-once global-sequence delivery** — each event is delivered to the subscription callback exactly once.
+- **Two-tier wake strategy** — Tier-1 (in-process, post-commit wake) for single-process subscribers; Tier-2 (configurable poll floor `floorMs`) for cross-process subscribers polling the event log. An ephemeral subscription (no durability for fromSequence) is the default; persistent cursor tracking is client-owned.
+- **Filter-first query** — subscriptions apply the filter at the event-store query layer before waking, not at the callback layer, for efficient multi-subscriber scenarios.
+
+Known follow-up: spawn-time injection *degradation* is recorded on the launcher lifecycle result but not yet on the `launch.executing_started` event, so these verbs surface launch *liveness* — not injection *degradation* — from events alone.
 
 ### L8 — Adapters
 
@@ -212,10 +235,27 @@ Resume after crash: handler reads the projection, sees the last terminal phase, 
 Events are the only source of truth. Everything else — projections, state files, view caches — is a cache derived from events. Three observable categories:
 
 - **Lifecycle events** — phase transitions, task assignments, gate executions. `workflow.transition`, `task.assigned`, `gate.executed`, `merge.preflight`, `merge.executed`, `merge.recovered`. These are the events the HSM consumes and the projections fold.
-- **Liveness signals** — `<surface>.executing_started` events emitted at the entry of long-running operations. `merge.executing_started` (#1309) is the first; shepherd and TDD swarm follow the pattern. v2.12 `ps` and `wait` query these to detect stuck operations.
+- **Liveness signals** — `<surface>.executing_started` events emitted at the entry of long-running operations. Each surface follows an invariant pairing convention (INV-10) so that `ps` and `wait` can detect in-flight operations and stuck scenarios without external process inspection or daemon infrastructure.
 - **Telemetry events** — `dispatch.preflight`, `stash.detected`, deprecation invocations, migration steps. Observable but not load-bearing for state.
 
 Operators inspect the timeline through `exarchos_event({action: 'query'})`; agents inspect through `next_actions` envelope hints; developers inspect through CLI `ps` / `describe` / `wait`. All three see the same underlying event stream.
+
+### Liveness convention (INV-10)
+
+Every long-running operation emits a `<surface>.executing_started` event ("claim") at its entry, paired with one or more possible terminal events ("completion"). The runtime operates on the invariant: **an operation is in-flight iff its start event has no later matching terminal event in the stream, keyed by an operation-specific instance key**.
+
+Four surfaces follow this convention, each with a canonical start type, terminal types, stream scope, and instance key scheme:
+
+| Surface | Scope | Start event | Terminal events | Instance key |
+|---|---|---|---|---|
+| **merge** | feature | `merge.executing_started` | `merge.executed`, `merge.recovered` | `sourceBranch → targetBranch` (or `taskId` if available) |
+| **mutation** | feature | `mutation.executing_started` | `mutation.executed` | `operationId` |
+| **launch** | worktrees | `launch.executing_started` | `launch.executed` | `worktreeId` |
+| **prune** | worktrees | `prune.executing_started` | `prune.executed` | `operationId` |
+
+Each `<surface>.executing_started` event carries an ISO 8601 `startedAt` timestamp; the envelope-derived `livenessStartedAt()` function extracts this to compute elapsed time for stuck-operation detection.
+
+The pairing rule is **per-stream**: merge operations are keyed within their feature stream, while launch and prune operations are keyed within the singleton `worktrees` stream. This allows `ps` to list all in-flight operations by reading a single stream fold, and `wait` to block on specific conditions (terminal event arrival for a merge or launch, or zero in-flight prunes for idle detection) without background timers or daemon infrastructure.
 
 ---
 
