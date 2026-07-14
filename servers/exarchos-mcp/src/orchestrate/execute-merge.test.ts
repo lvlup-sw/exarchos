@@ -152,6 +152,8 @@ describe('handleExecuteMerge (T15)', () => {
           targetBranch: 'main',
           recoveryPointSha: ROLLBACK_SHA,
           startedAt: expect.any(String),
+          // DR-2 — canonical liveness instance key (taskId present).
+          instanceId: 'T11',
         },
       },
       {
@@ -171,6 +173,8 @@ describe('handleExecuteMerge (T15)', () => {
           strategy: 'squash',
           mergeSha: MERGE_SHA,
           rollbackSha: ROLLBACK_SHA,
+          // DR-2 — canonical liveness instance key (taskId present).
+          instanceId: 'T11',
         },
       },
       // #1303: idempotencyKey + expectedSequence wired on merge.executed.
@@ -388,6 +392,8 @@ describe('handleExecuteMerge rollback (T16)', () => {
           targetBranch: 'main',
           recoveryPointSha: ROLLBACK_SHA,
           startedAt: expect.any(String),
+          // DR-2 — canonical liveness instance key (taskId present).
+          instanceId: 'T11',
         },
       },
       {
