@@ -12,6 +12,12 @@ import {
   WorktreesOutputSchema,
   extractEnvelopeDataSchema,
 } from './orchestrate/worktree/schemas.js';
+// Lifecycle verbs (worktree-lifecycle-verbs) — task-019 shared field shapes +
+// task-008 `inspect` typed output schema. Import shapes from the SoT module so
+// the flattened `exarchos_view` registration cannot drift a shared field's base
+// type apart across verbs (DR-8).
+import { followField, limitField as lifecycleLimitField } from './views/lifecycle/schema-fields.js';
+import { InspectOutputSchema } from './views/lifecycle/inspect.js';
 import type { AgentPosture } from './agents/spec.js';
 export { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray, coercedIntArray } from './coerce.js';
 import { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray, coercedIntArray } from './coerce.js';
@@ -3701,6 +3707,43 @@ const viewActions: readonly ToolAction[] = [
     phases: ALL_PHASES,
     roles: ROLE_ANY,
     outputSchema: withCappedShape(WaitOutputSchema),
+    annotations: READ_ONLY_LOCAL,
+  },
+  // ─── Worktree-lifecycle single-workflow projection (DR-4) ─────────────────
+  // The `inspect` read leg of the lifecycle verbs: folds ONE feature stream and
+  // projects state (via the canonical event-store-first `resolveWorkflowState` —
+  // SQLite is the only source of truth), recent events + the correlation tuple,
+  // artifacts, and task progress. Pure read — appends nothing on any path — so it
+  // sits on the wholesale-read-only exarchos_view tool as an ACTION (INV-5d: NO
+  // new visible tool; the visible composite count stays 4). A cold probe of an
+  // unknown featureId returns `workflowExists:false` and emits ZERO events (the
+  // CB-2 no-phantom-stream guarantee). The CLI verb re-map (`inspect`→`describe`)
+  // is task-015; the `--follow` streaming behavior is task-009 — the `follow`
+  // field is schema-declared here (imported from the DR-8 SoT) so its CLI flag
+  // auto-emits ahead of that handler work.
+  {
+    name: 'inspect',
+    description:
+      'Project a single workflow in one read: state (phase / workflowType / timestamps via the canonical event-store-first resolveWorkflowState — SQLite is the only source of truth, NEVER .state.json presence), the recent event tail + the latest dispatch correlation tuple, the artifact map, and task progress (roster + counts-by-status). Read-only; emits no events. Cold-probe safe: an unknown/never-init\'d featureId returns workflowExists:false and appends nothing (no phantom stream). Bound the event tail with limit (the full state/artifacts/tasks are always complete). Use for: a one-call status snapshot of a specific workflow. Do NOT use for: the cross-workflow pipeline roll-up (use pipeline); mutating or advancing a workflow (use exarchos_workflow).',
+    schema: z.object({
+      featureId: featureIdSchema,
+      // DR-8 shared shapes (imported from the SoT so the flattened exarchos_view
+      // registration cannot drift these field names' base types across verbs).
+      // `limit` bounds the recent-event tail; `follow` is reserved for task-009's
+      // `--follow` streaming (schema-declared now so its CLI flag auto-emits).
+      limit: lifecycleLimitField.optional(),
+      follow: followField.optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+    cli: {
+      flags: { featureId: { alias: 'f' } },
+      examples: ['exarchos vw inspect -f my-feature'],
+    },
+    // Typed-output totality (DR-1): union the generic capped-fallback shape so
+    // the schema admits BOTH the baseline projection AND a dispatch-core-capped
+    // {summary,counts,firstPage} envelope, keeping it total over emittable shapes.
+    outputSchema: withCappedShape(InspectOutputSchema),
     annotations: READ_ONLY_LOCAL,
   },
   makeDescribeAction(),

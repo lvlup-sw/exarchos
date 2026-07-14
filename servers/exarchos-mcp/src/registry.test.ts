@@ -2981,6 +2981,7 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_view.worktrees': 2000,
   'exarchos_view.ps': 2000,
   'exarchos_view.wait': 2000,
+  'exarchos_view.inspect': 2000,
   'exarchos_view.describe': 8000,
   'exarchos_sync.now': 2000,
 };
@@ -3168,6 +3169,12 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       inFlight: [], count: 0, launches: [], launchCount: 0, prunes: [], pruneCount: 0,
     },
     'exarchos_view.wait': { resolved: true, waitedMs: 5 },
+    // The `inspect` cold-probe projection is its minimal valid baseline: the
+    // exists-branch fields (state/artifacts/taskProgress/correlation) are all
+    // optional, so the workflowExists:false shape is the floor.
+    'exarchos_view.inspect': {
+      featureId: 'f', workflowExists: false, recentEvents: [], eventCount: 0,
+    },
   };
   function baselineEnvelope(data: Record<string, unknown>): Record<string, unknown> {
     return {
@@ -3315,9 +3322,10 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
     it('every typed-output action validates a {summary,counts,firstPage} capped envelope', () => {
       const actions = typedOutputActions();
       // Enumerated from code, not assumed — the spec claims 10; the post-002
-      // base carries 8 (the two exarchos_workflow LCD schemas wrap
-      // EnvelopeSchema(z.unknown()) and are NOT typed).
-      expect(actions.length).toBe(8);
+      // base carried 8 (the two exarchos_workflow LCD schemas wrap
+      // EnvelopeSchema(z.unknown()) and are NOT typed). The worktree-lifecycle
+      // `inspect` verb (DR-4) adds a 9th typed-output view action.
+      expect(actions.length).toBe(9);
       for (const { tool, action } of actions) {
         const parsed = action.outputSchema.safeParse(cappedEnvelope());
         expect(

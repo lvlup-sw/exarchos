@@ -28,6 +28,7 @@ import {
   handleViewConvergence,
 } from './tools.js';
 import { handleViewInvariantsEffective } from './effective-catalog.js';
+import { handleViewInspect } from './lifecycle/inspect.js';
 import {
   handleViewWorktrees,
   handleViewPs,
@@ -465,6 +466,15 @@ export async function handleView(
       // carries `until`/`integrationRef`/`timeoutMs` through unchanged.
       return envelopeWrap(await handleViewWait(rest, ctx, deps), startedAt);
 
+    case 'inspect':
+      // Worktree-lifecycle single-workflow projection (DR-4). Pure read: folds
+      // the feature stream ONCE via the canonical event-store-first
+      // `resolveWorkflowState` and projects state / recent events + correlation
+      // tuple / artifacts / task progress. Appends nothing on any path — a cold
+      // probe of an unknown featureId returns `workflowExists:false` with ZERO
+      // events emitted (the CB-2 no-phantom-stream guarantee).
+      return envelopeWrap(await handleViewInspect(rest, ctx), startedAt);
+
     case 'describe':
       return envelopeWrap(
         await handleDescribe(rest as { actions: string[] }, viewActions),
@@ -501,6 +511,7 @@ export async function handleView(
             'worktrees',
             'ps',
             'wait',
+            'inspect',
             'describe',
           ] as const,
         },
