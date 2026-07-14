@@ -29,6 +29,7 @@ import {
 } from './tools.js';
 import { handleViewInvariantsEffective } from './effective-catalog.js';
 import { handleViewInspect } from './lifecycle/inspect.js';
+import { handleViewExport } from './lifecycle/export.js';
 import { handleViewWait, type WaitDeps } from './lifecycle/wait.js';
 import { handleViewPs } from './lifecycle/ps.js';
 import { handleViewWorktrees } from '../orchestrate/worktree/handlers.js';
@@ -475,6 +476,17 @@ export async function handleView(
       // events emitted (the CB-2 no-phantom-stream guarantee).
       return envelopeWrap(await handleViewInspect(rest, ctx), startedAt);
 
+    case 'export':
+      // Worktree-lifecycle diagnostic bundle (DR-6). Writes a zip
+      // (events.jsonl / state.json / metadata.json / artifacts/) to a path
+      // OUTSIDE `.exarchos/` and journals the INV-13 export.requested →
+      // export.executed pair around the write (storage idempotency key derived
+      // from a logical key per INV-8 — a crash-retry completes the SAME intent,
+      // a fresh invocation mints a new pair). Cold-probe safe: an unknown
+      // featureId returns workflowExists:false, writes NO zip and emits ZERO
+      // events. The CLI verb promotion is task-015.
+      return envelopeWrap(await handleViewExport(rest, ctx), startedAt);
+
     case 'describe':
       return envelopeWrap(
         await handleDescribe(rest as { actions: string[] }, viewActions),
@@ -512,6 +524,7 @@ export async function handleView(
             'ps',
             'wait',
             'inspect',
+            'export',
             'describe',
           ] as const,
         },

@@ -140,12 +140,22 @@ const BANNED_FLAGS: readonly BannedFlag[] = [
 //      field, alongside the canonical `--json`. The `format` field is load-
 //      bearing in HandleDoctorArgs/HandleOnboardArgs and their parity tests.
 //      Tracked for collapse onto `--json` as a follow-up.
+//   3. `exarchos vw export --output` — NOT debt and NOT a JSON-carrier alias.
+//      The `--output` ban targets `--output json` (output-FORMAT selection, whose
+//      canonical is `--json`); `export`'s `--output` is a DESTINATION FILE PATH
+//      (DR-6 — the zip bundle's location, default `./<featureId>-export.zip`),
+//      declared by the shared DR-8 `output` field (schema-fields.ts, which
+//      documents it as "a path, NOT a table|json format enum"). The guard keys
+//      on the token STRING and cannot see that semantic split, so the legitimate
+//      path-valued use is excepted surgically — a `--output` on any OTHER command
+//      still fails.
 const KNOWN_EXCEPTIONS: ReadonlySet<string> = new Set([
   'exarchos vw ls::ls',
   'exarchos doctor::--format',
   'exarchos onboard::--format',
   'exarchos orch doctor::--format',
   'exarchos orch onboard::--format',
+  'exarchos vw export::--output',
 ]);
 
 // ─── Surface extraction ───────────────────────────────────────────────────────
