@@ -1540,6 +1540,36 @@ export class SqliteBackend implements StorageBackend {
     return row ? row.sequence : 0;
   }
 
+  /**
+   * Tier-2 poll-floor change token (see {@link StorageBackend.dataVersion}).
+   *
+   * `PRAGMA data_version` is unchanged for commits made on THIS connection
+   * and differs only when another connection (a foreign process) committed
+   * since the pragma last ran. That is precisely the cross-process wake
+   * signal the subscription floor loop needs — the Tier-1 in-process hook
+   * already covers this connection's own commits, so the floor must fire
+   * only on foreign ones. The absolute value is connection-specific and
+   * meaningless; the caller compares successive reads for a change.
+   *
+   * Deliberately NOT a retained prepared statement: the floor loop must
+   * "hold no open SQLite statement across ticks" so it never pins a read
+   * snapshot that would hide the very foreign commit it is polling for. An
+   * inline `query(...).get()` fully reads and finalizes the pragma each call.
+   *
+   * bun:sqlite keys the single pragma column by `data_version`; the
+   * better-sqlite3 test shim does the same. A defensive fallback tolerates
+   * an unnamed column just in case.
+   */
+  dataVersion(): number {
+    const row = this.db.query('PRAGMA data_version').get() as
+      | Record<string, number | string>
+      | undefined;
+    if (!row) return 0;
+    const raw = row.data_version ?? row[''];
+    const value = typeof raw === 'number' ? raw : Number(raw ?? 0);
+    return Number.isFinite(value) ? value : 0;
+  }
+
   listStreams(): string[] {
     const rows = this.db
       .prepare('SELECT DISTINCT streamId FROM sequences ORDER BY streamId')
