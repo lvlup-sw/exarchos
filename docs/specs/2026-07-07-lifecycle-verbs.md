@@ -93,7 +93,7 @@ Adding a surface to the lifecycle plane = one registry entry, zero verb code.
 New `exarchos_view` action `inspect(featureId, follow?, limit?)`: composite projection returning workflow state (via the canonical `resolveWorkflowState`/rehydration path — never `.state.json` presence), recent events (with `operationId`/`correlationId`/`causationId`), artifacts, and task progress. Existence signal is `_meta.workflowExists`; a cold probe of an unknown featureId is side-effect-free. `--follow` consumes DR-1 and streams through two carriers per #1316 Q3: NDJSON frames on the CLI (existing encoder/heartbeat, heartbeats on the injectable timer), MCP Tasks (SEP-1686) on the MCP path — one contract, two presentations (INV-5b). Follow disposal is `AbortSignal`-based (SIGINT wired to abort on POSIX and Windows alike — no POSIX-only signal semantics). The MCP action name avoids the GA'd schema-`describe` (no rename, no Zod-union overload — a known CLI-parity hazard); DR-7 maps the CLI top-level verb `exarchos describe <id>` onto it.
 
 **Acceptance criteria:**
-- Given an unknown featureId, when `inspect` runs, then `_meta.workflowExists: false` with `expectedShape` in the error envelope, and no event is appended.
+- Given an unknown featureId, when `inspect` runs, then it returns `success: true` with `_meta.workflowExists: false` and appends no event — the canonical, side-effect-free cold-probe contract shared with `rehydrate`/`get` (NOT an error envelope).
 - Given `--follow`, when events append to the feature's stream (in-process or cross-process), then they appear as NDJSON `event` frames deduplicated by sequence; heartbeat frames cover silent gaps (injected timer).
 - The MCP path exposes follow via Tasks (`tasks/get`/`tasks/result`), sharing the DR-1 subscription with the CLI carrier.
 - Given abort (CLI SIGINT→AbortSignal, MCP task cancel), the follow loop exits and its subscription handle is disposed.
@@ -151,7 +151,7 @@ Cross-cutting failure contract for the verb surface.
 
 **Acceptance criteria:**
 - Given `wait --phase <invalid>`, then the error envelope's `validTargets` is populated from the HSM topology **for that workflow's type**; given `--operation <unknown-or-non-feature-scoped-surface>`, `validTargets` lists the registry's **feature-scoped** surfaces.
-- Given an unknown featureId on `inspect`/`wait`/`export`, then a side-effect-free error with `expectedShape` returns (cold-probe rule; no stream registration, no events).
+- Given an unknown featureId on the read verbs `inspect`/`export`, then a side-effect-free `success: true` result with `_meta.workflowExists: false` returns — the canonical cold-probe contract shared with `rehydrate`/`get` (NOT an error envelope); no stream registration, no events. `wait` on an unknown featureId is likewise side-effect-free (no stream registration, no events): its predicate simply never holds, resolving through the normal `WAIT_TIMEOUT`/`WAIT_FAILED` path rather than a `workflowExists` envelope.
 - Given a subscription whose consumer disconnects mid-follow (CLI abort, MCP task cancel), then the handle is disposed and the leak test passes.
 - Given concurrent `wait`s on the same stream from two dispatches, then both resolve independently (no shared-handle interference).
 - Cross-process `wait` latency is bounded by one floor interval + one drain — verified at the **verb level** by DR-5's foreign-connection test (Task 010), deterministically via the injected clock; the floor default is documented and surfaced in `_perf`.

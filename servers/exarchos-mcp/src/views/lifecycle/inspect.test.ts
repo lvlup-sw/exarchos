@@ -3,8 +3,10 @@
 // Boundary coverage: every assertion drives a REAL `EventStore` +
 // `resolveWorkflowState` across the composite seam — no mocks of the state
 // source. The three named cases pin:
-//   • the cold-probe side-effect-free invariant (unknown featureId →
-//     workflowExists:false, ZERO events emitted — event-count invariance);
+//   • the RATIFIED cold-probe contract (spec DR-4/DR-8): an unknown featureId →
+//     success:true + workflowExists:false, ZERO events emitted (event-count
+//     invariance) — the side-effect-free shape shared with rehydrate/get, NOT an
+//     error envelope;
 //   • the exists path (state / recent events / correlation / artifacts / tasks),
 //     validated against the registered `InspectOutputSchema` through the real
 //     envelope wrap;
@@ -97,7 +99,11 @@ describe('inspect (DR-4 single-workflow projection)', () => {
 
     const res = await handleViewInspect({ featureId: unknown }, ctx);
 
-    // Cold-probe contract: exists:false, empty projection, success.
+    // RATIFIED cold-probe contract (spec DR-4/DR-8, revised 2026-07): an unknown
+    // featureId returns `success: true` with `_meta.workflowExists: false` and an
+    // empty projection — the canonical, side-effect-free cold-probe shared with
+    // `rehydrate`/`get`. It is NOT an error envelope (the earlier spec draft
+    // wrongly said so); the assertions below pin the ratified success shape.
     expect(res.success).toBe(true);
     const data = (res as { data: Record<string, unknown> }).data;
     expect(data.workflowExists).toBe(false);
