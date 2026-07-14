@@ -7,6 +7,15 @@ import { validateStreamId } from '../shared/validation.js';
 import { AtomicAppender } from './atomic-appender.js';
 import { migrateEvents } from './event-migration.js';
 import { getDispatchContext } from '../dispatch/dispatch-context.js';
+import {
+  SubscriptionRegistry,
+  type SubscribeOptions,
+  type SubscriptionEventReader,
+  type SubscriptionFilter,
+  type SubscriptionHandle,
+  type SubscriptionListener,
+  type SubscriptionRegistryOptions,
+} from './subscriptions.js';
 
 // ─── #1291 — Dispatch-boundary correlation stamping ─────────────────────────
 //
@@ -185,6 +194,15 @@ export class EventStore {
   /** Durability posture threaded to the lazily-created appender (DR-4). */
   private synchronous?: 'normal' | 'full';
 
+  /**
+   * DR-1 subscription registry (#1315). Lazily created on the first
+   * `subscribe()` call so the append hot path pays nothing until a
+   * subscription exists — the Tier-1 commit hook on the appender is wired at
+   * the same moment, leaving `appendSqliteLocked` a single `undefined` guard
+   * on the zero-subscriber path.
+   */
+  private subscriptions?: SubscriptionRegistry;
+
   constructor(private readonly stateDir: string, options?: EventStoreOptions) {
     this.backend = options?.backend;
     this.synchronous = options?.synchronous;
@@ -293,6 +311,11 @@ export class EventStore {
    * (INV-1); `close()` only releases the live connection.
    */
   close(): void {
+    // Dispose every live subscription (INV-15) and detach the Tier-1 hook
+    // before the appender goes away.
+    this.subscriptions?.disposeAll();
+    this.atomicAppender?.setCommitHook(undefined);
+    this.subscriptions = undefined;
     this.atomicAppender?.close();
     this.atomicAppender = undefined;
     this.backend?.close();
@@ -680,6 +703,74 @@ export class EventStore {
    */
   async tailSequence(streamId: string): Promise<number> {
     return this.getReadBackend().getSequence(streamId);
+  }
+
+  /**
+   * DR-1 cursor-pump subscription primitive (#1315).
+   *
+   * Registers a subscription whose cursor drains committed events matching
+   * `filter` (`{ streamId?, eventTypes? }`) and delivers them to `onEvent` in
+   * global sequence order, exactly once. Registration atomically captures the
+   * cursor (stream head, or `options.fromSequence`) and schedules an
+   * unconditional initial drain, so an event committed at any moment relative
+   * to registration is delivered exactly once.
+   *
+   * THIS is the Tier-1 (in-process) surface: an append committing in this
+   * process wakes the subscription via the appender's post-commit hook, fired
+   * after the transaction commits AND after the per-stream mutex releases (so
+   * an `onEvent` that itself appends does not deadlock). INV-8 idempotency
+   * cache-hits commit nothing and do not wake. The Tier-2 cross-process poll
+   * floor (`dataVersion()`) is task-002 — the registry already carries the
+   * injectable-clock + `floorMs` seam it binds to.
+   *
+   * Subscriptions are ephemeral (INV-15): the returned handle MUST be
+   * disposed by the dispatch that registered it; `close()` disposes any that
+   * leak. `registryOptions` (injectable clock, floor default) is an optional
+   * test/wiring seam.
+   */
+  subscribe(
+    filter: SubscriptionFilter,
+    onEvent: SubscriptionListener,
+    options?: SubscribeOptions,
+    registryOptions?: SubscriptionRegistryOptions,
+  ): SubscriptionHandle {
+    return this.ensureSubscriptions(registryOptions).subscribe(filter, onEvent, options);
+  }
+
+  /**
+   * Lazily construct the subscription registry and wire the appender's
+   * Tier-1 commit hook. The registry reads through this store's read backend
+   * — the same SQLite handle the appender writes to (production wiring), so a
+   * commit is visible to the drain the wake triggers. Reads route through
+   * `migrateEvents` for parity with `query()` (identity today).
+   */
+  private ensureSubscriptions(
+    registryOptions?: SubscriptionRegistryOptions,
+  ): SubscriptionRegistry {
+    if (!this.subscriptions) {
+      const reader: SubscriptionEventReader = {
+        headSequence: (streamId) => this.getReadBackend().getSequence(streamId),
+        readStreamAfter: (streamId, afterSequence) =>
+          migrateEvents(
+            this.getReadBackend().queryEvents(streamId, { sinceSequence: afterSequence }),
+          ),
+        listStreams: () => this.getReadBackend().listStreams(),
+      };
+      this.subscriptions = new SubscriptionRegistry(reader, registryOptions);
+      // Wire the Tier-1 hook only now — the zero-subscriber append path never
+      // pays for a hook that is undefined.
+      const registry = this.subscriptions;
+      this.getAppender().setCommitHook((streamId) => registry.wake(streamId));
+    }
+    return this.subscriptions;
+  }
+
+  /**
+   * Dispose every live subscription (dispatch teardown — INV-15). Idempotent;
+   * safe to call whether or not any subscription was ever registered.
+   */
+  disposeSubscriptions(): void {
+    this.subscriptions?.disposeAll();
   }
 
   /**
