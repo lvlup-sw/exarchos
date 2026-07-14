@@ -1767,6 +1767,39 @@ export const MergeRequestedData = z.object({
     .describe('Feature stream id; useful for cross-stream observability'),
 });
 
+// ─── Shared liveness instance key (DR-2 / INV-10) ────────────────────────────
+//
+// The SINGLE field the four INV-10 liveness pairs — merge / launch / mutation /
+// prune `<surface>.executing_started` + paired terminal — agree on. `instanceId`
+// is a canonical per-instance key so a uniform liveness view can correlate a
+// START event with its TERMINAL without per-surface knowledge of which native
+// field is the instance discriminator. Each emitter derives it from its own key:
+//   • merge    → taskId ?? `${sourceBranch}→${targetBranch}`
+//   • launch   → worktreeId
+//   • mutation → operationId
+//   • prune    → operationId
+//
+// This is ADDITIVE, not a uniform-shape rewrite: the surface-native fields
+// (sourceBranch, worktreeId, operationId, holderPid, …) are DELIBERATELY kept
+// as-is. Only this one field is shared — the payloads otherwise stay their own
+// distinct shapes (do not force a uniform shape where the real payloads differ).
+//
+// OPTIONAL + additive (INV-5b widening): every payload emitted BEFORE this
+// retrofit carried NO `instanceId`, so historical rows MUST still validate — no
+// migration, no schemaVersion bump. The emitters populate it going forward and
+// legacy rows fold as instanceId-absent. `.min(1)` rejects an empty/blank key:
+// an empty instance id is meaningless, and a wrong-typed value is a malformed
+// payload the boundary now rejects — the field the DR-2 revert-probe pins.
+export const livenessInstanceFields = {
+  instanceId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      'Canonical per-instance liveness key correlating a `<surface>.executing_started` event with its paired terminal (DR-2 / INV-10). Additive: absent on pre-retrofit rows.',
+    ),
+} as const;
+
 /**
  * merge.executed — records that a merge has been performed. `mergeSha` is
  * the resulting commit on the target branch; `rollbackSha` is the parent
@@ -1783,6 +1816,8 @@ export const MergeExecutedData = z.object({
   strategy: z.enum(['squash', 'rebase', 'merge']).optional(),
   mergeSha: z.string().min(1),
   rollbackSha: z.string().min(1),
+  // DR-2 — canonical liveness instance key (merge: taskId ?? `src→tgt`).
+  ...livenessInstanceFields,
 });
 
 /**
@@ -1910,6 +1945,8 @@ export const MergeExecutingStartedData = z.object({
   targetBranch: z.string().min(1),
   recoveryPointSha: z.string().min(1),
   startedAt: z.string().min(1),
+  // DR-2 — canonical liveness instance key (merge: taskId ?? `src→tgt`).
+  ...livenessInstanceFields,
 });
 
 // ─── Wave B Two-Event Split Schemas (#1342) ──────────────────────────────────
@@ -2264,6 +2301,8 @@ export const LaunchExecutingStartedData = z.object({
     .describe(
       'Supervisor process start time (ISO 8601) — disambiguates PID reuse; non-empty when resolved, or null when the platform cannot resolve create-time (DR-6, never the empty string)',
     ),
+  // DR-2 — canonical liveness instance key (launch: worktreeId).
+  ...livenessInstanceFields,
 });
 
 /**
@@ -2276,6 +2315,8 @@ export const LaunchExecutingStartedData = z.object({
 export const LaunchExecutedData = z.object({
   worktreeId: z.string().min(1).describe('Canonical worktrees@v1 key of the launch top-level worktree'),
   exitCode: z.number().int().nullable().describe('Child process exit code, or null when signalled / not captured'),
+  // DR-2 — canonical liveness instance key (launch: worktreeId).
+  ...livenessInstanceFields,
 });
 
 // ─── Command Resolver Event Data (#1199 T15) ────────────────────────────────
@@ -2817,6 +2858,8 @@ export const MutationExecutingStartedData = z.object({
   command: z.string().min(1),
   /** Repo root the command runs in. */
   repoRoot: z.string().min(1),
+  // DR-2 — canonical liveness instance key (mutation: operationId).
+  ...livenessInstanceFields,
 });
 
 /** Paired terminal event: the mutation run completed (pass/fail + exit code). */
@@ -2827,6 +2870,8 @@ export const MutationExecutedData = z.object({
   passed: z.boolean(),
   /** The child process exit code. */
   exitCode: z.number().int(),
+  // DR-2 — canonical liveness instance key (mutation: operationId).
+  ...livenessInstanceFields,
 });
 
 /**
@@ -2881,6 +2926,8 @@ export const PruneExecutingStartedData = z.object({
    * null-ready contract.
    */
   holderStartedAt: z.string().min(1).nullable(),
+  // DR-2 — canonical liveness instance key (prune: the existing operationId).
+  ...livenessInstanceFields,
 });
 
 /** Paired TERMINAL: the `prune_worktrees` GC pass completed (DR-3). */
@@ -2888,6 +2935,8 @@ export const PruneExecutedData = z.object({
   operationId: z.string().min(1),
   /** How many worktrees the pass deleted (0 on a dry-run or a no-op pass). */
   deletedCount: z.number().int().nonnegative(),
+  // DR-2 — canonical liveness instance key (prune: the existing operationId).
+  ...livenessInstanceFields,
 });
 
 // ─── Event Data Schemas Map ─────────────────────────────────────────────────
