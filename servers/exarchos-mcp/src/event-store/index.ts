@@ -49,5 +49,6 @@ export {
   type SubscriptionFilter,
   type SubscriptionHandle,
   type SubscriptionListener,
+  type SubscriptionPerf,
   type SubscriptionRegistryOptions,
 } from './subscriptions.js';
