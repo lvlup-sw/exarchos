@@ -168,7 +168,7 @@ const InFlightOperationSchema = z
     streamScope: z.string(),
     startType: z.string(),
     startedAt: z.string().optional(),
-    ageMs: z.number().optional(),
+    ageMs: z.number().nullable(),
   })
   .passthrough();
 
