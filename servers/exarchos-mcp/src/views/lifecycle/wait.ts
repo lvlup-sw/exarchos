@@ -66,6 +66,7 @@ import {
   type LivenessSurface,
 } from '../../event-store/liveness-registry.js';
 import { resolveWorkflowState } from '../../orchestrate/resolve-state.js';
+import { getHSMDefinition } from '../../workflow/state-machine.js';
 import { DEFAULT_WAIT_TIMEOUT_MS } from '../../orchestrate/worktree/manager.js';
 import {
   handleWorktreeUntilWait,
@@ -279,6 +280,33 @@ export function operationPredicate(featureId: string, descriptor: LivenessDescri
 /** The DR-2 feature-scoped liveness surfaces `wait --operation` accepts. */
 export function featureScopedSurfaces(): LivenessSurface[] {
   return LIVENESS_DESCRIPTORS.filter((d) => d.streamScope === 'feature').map((d) => d.surface);
+}
+
+/**
+ * The valid `wait --phase` targets for a workflow type (DR-8): every WAITABLE
+ * phase in that type's HSM topology — the atomic + final states a workflow can
+ * actually be IN. Compound states are excluded because a workflow's phase is
+ * always an atomic leaf (or a final terminal), never a compound container, so a
+ * `--phase implementation` wait could never resolve.
+ *
+ * Derived from the REAL HSM registry (`getHSMDefinition`) — never a hardcoded
+ * list — so a topology edit or a custom-registered workflow type is reflected
+ * with no change here, and the targets are per-TYPE (feature ≠ refactor).
+ * Returns `undefined` for a type with NO registered topology (`getHSMDefinition`
+ * throws): the caller then SKIPS phase validation, so an un-topologized/custom
+ * type keeps the pre-DR-8 permissive behavior rather than rejecting a
+ * legitimate wait it cannot adjudicate.
+ */
+export function topologyPhaseTargets(workflowType: string): readonly string[] | undefined {
+  try {
+    const hsm = getHSMDefinition(workflowType);
+    return Object.values(hsm.states)
+      .filter((state) => state.type !== 'compound')
+      .map((state) => state.id)
+      .sort();
+  } catch {
+    return undefined;
+  }
 }
 
 // ─── Result envelopes (structured, never-hang) ────────────────────────────────
@@ -536,10 +564,33 @@ export async function handleViewWait(
     const resolved = await resolveWorkflowState({ featureId, eventStore });
     if ('error' in resolved) return resolved.error;
     const seedPhase = typeof resolved.state.phase === 'string' ? resolved.state.phase : '';
-    predicate =
-      axis.axis === 'phase'
-        ? phasePredicate(featureId, axis.value, seedPhase)
-        : statusPredicate(featureId, axis.value, seedPhase);
+    if (axis.axis === 'phase') {
+      // ── Phase-target topology validation (DR-8) ─────────────────────────────
+      // The `--phase` target must be a real phase in THIS workflow type's HSM
+      // topology — not a hardcoded list. An off-topology phase can NEVER be
+      // entered, so the pre-DR-8 permissive behavior (subscribe, then block until
+      // the deadline) was a guaranteed WAIT_TIMEOUT masquerading as a live wait.
+      // Fail fast with a self-correcting `INVALID_INPUT` whose `validTargets` are
+      // the topology's waitable phases FOR THE WORKFLOW'S TYPE (feature ≠
+      // refactor), so the caller sees exactly which phases exist. Skipped only
+      // for a type with no registered topology (`topologyPhaseTargets` →
+      // undefined), preserving the permissive path there.
+      const workflowType =
+        typeof resolved.state.workflowType === 'string' ? resolved.state.workflowType : '';
+      const validPhases = topologyPhaseTargets(workflowType);
+      if (validPhases !== undefined && !validPhases.includes(axis.value)) {
+        return invalidInput(
+          `wait --phase '${axis.value}' is not a phase in the '${workflowType}' workflow topology — the workflow can never enter it`,
+          {
+            validTargets: validPhases,
+            expectedShape: { phase: 'a phase in the workflow topology' },
+          },
+        );
+      }
+      predicate = phasePredicate(featureId, axis.value, seedPhase);
+    } else {
+      predicate = statusPredicate(featureId, axis.value, seedPhase);
+    }
   }
 
   // ── Precheck: resolve/fail without ever subscribing when already decided ─────
