@@ -523,7 +523,12 @@ describe('EventTypes', () => {
     // the counted plan-review dispatch emitted by the `prepare_review scope:plan`
     // provisioning seam (folded into `state.planReview.revisionCount` to bound the
     // plan-review loop at its unskippable server action).
-    expect(EventTypes).toHaveLength(146);
+    // DR-6 (lifecycle-verbs task 012): bumped 146 → 148 to include the two-event
+    // `export` contract — `export.requested` (durable intent + RESOLVED path) and
+    // `export.executed` (result + content hash), the INV-13 two-event split for
+    // the non-idempotent zip-bundle write, emitted `auto` by the `export`
+    // composite handler (task 013), idempotency-keyed per INV-8.
+    expect(EventTypes).toHaveLength(148);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');
@@ -549,6 +554,8 @@ describe('EventTypes', () => {
     expect(EventTypes).toContain('workflow.plan-revision');
     expect(EventTypes).toContain('prune.executing_started');
     expect(EventTypes).toContain('prune.executed');
+    expect(EventTypes).toContain('export.requested');
+    expect(EventTypes).toContain('export.executed');
     // Retirement guard: init.executed removed in DR-5 (task 018).
     expect(EventTypes as readonly string[]).not.toContain('init.executed');
   });

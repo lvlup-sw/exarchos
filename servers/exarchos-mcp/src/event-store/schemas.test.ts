@@ -621,7 +621,12 @@ describe('EventTypes', () => {
     //   plan-review dispatch emitted by the `prepare_review scope:plan` provisioning
     //   seam; folded into state.planReview.revisionCount to bound the plan-review
     //   loop at its one unskippable server action, closing the skippable-edge bypass).
-    expect(EventTypes).toHaveLength(146);
+    // Bumped 146 → 148: DR-6 (lifecycle-verbs task 012) — export.requested +
+    //   export.executed (the two-event `export` contract, INV-13 two-event split /
+    //   INV-8 idempotency; export.requested carries the RESOLVED path intent before
+    //   the zip write, export.executed carries the written bundle's content hash
+    //   after, emitted `auto` by the `export` composite handler in task 013).
+    expect(EventTypes).toHaveLength(148);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');
@@ -640,6 +645,8 @@ describe('EventTypes', () => {
     expect(EventTypes).toContain('workflow.plan-revision');
     expect(EventTypes).toContain('prune.executing_started');
     expect(EventTypes).toContain('prune.executed');
+    expect(EventTypes).toContain('export.requested');
+    expect(EventTypes).toContain('export.executed');
     // Retirement guard: init.executed removed in DR-5 (task 018).
     expect(EventTypes as readonly string[]).not.toContain('init.executed');
   });
@@ -4125,17 +4132,18 @@ describe('WLM operational-core merge lease schemas', () => {
     expect(EventTypes).toContain('worktree.merge_executed');
   });
 
-  it('EventTypes_CountPins_146_AllThreeSites', () => {
+  it('EventTypes_CountPins_148_AllThreeSites', () => {
     // The single canonical count after adding the two operational-core merge
     // types (136 foundation → 138), main's `workflow.plan-revision` merged in
     // (138 → 139), the harness-launcher (DR-2) create pair + launch liveness
     // pair (139 → 143), the WLM slice 3 (DR-3) prune-run liveness pair
-    // prune.executing_started / prune.executed (143 → 145), and WLM-6 (DR-2)
-    // `workflow.plan-review-dispatched` (145 → 146). The pinned literal at ALL
-    // THREE toHaveLength sites (this file at two sites plus the mirror
-    // __tests__/event-store/schemas.test.ts) must agree with this — a divergence
-    // means one pin was missed.
-    expect(EventTypes).toHaveLength(146);
+    // prune.executing_started / prune.executed (143 → 145), WLM-6 (DR-2)
+    // `workflow.plan-review-dispatched` (145 → 146), and the DR-6 (lifecycle-verbs
+    // task 012) two-event `export` contract export.requested / export.executed
+    // (146 → 148). The pinned literal at ALL THREE toHaveLength sites (this file
+    // at two sites plus the mirror __tests__/event-store/schemas.test.ts) must
+    // agree with this — a divergence means one pin was missed.
+    expect(EventTypes).toHaveLength(148);
     // No duplicate slipped in while bumping the count.
     expect(new Set(EventTypes).size).toBe(EventTypes.length);
   });
@@ -4516,6 +4524,133 @@ describe('DR-2 liveness instanceId retrofit', () => {
       const terminalShape = (f.terminalSchema as unknown as { shape: Record<string, unknown> }).shape;
       expect(startedShape, `${f.startedType} shape must carry instanceId`).toHaveProperty('instanceId');
       expect(terminalShape, `${f.terminalType} shape must carry instanceId`).toHaveProperty('instanceId');
+    }
+  });
+});
+
+// ─── DR-6 (lifecycle-verbs task 012) — export two-event contract ─────────────
+//
+// `export` writes a zip bundle to a path OUTSIDE `.exarchos/` — a non-idempotent
+// external side effect — so it follows the INV-13 two-event split:
+// `export.requested` (durable intent + RESOLVED path) journaled BEFORE the
+// write; `export.executed` (result + content hash) journaled AFTER. Both are
+// `auto` (the composite handler owns the appends) and idempotency-keyed (INV-8).
+//
+// Schemas are read from EVENT_DATA_SCHEMAS (the live registry) rather than the
+// direct exports, so the revert-probe (which reverts the schemas.ts hunks that
+// register + define them) makes these assertions a CLEAN red: the map has no
+// `export.*` key, so the schema is undefined and the required-field pins below
+// fail — not an import artifact.
+describe('Export event contract (DR-6, lifecycle-verbs task 012)', () => {
+  const requestedSchema = () => EVENT_DATA_SCHEMAS['export.requested'];
+  const executedSchema = () => EVENT_DATA_SCHEMAS['export.executed'];
+
+  const validRequested = () => ({
+    featureId: 'feat-export-1',
+    outputPath: '/repo/feat-export-1-export.zip',
+    idempotencyKey: 'feat-export-1:export:/repo/feat-export-1-export.zip',
+  });
+
+  const validExecuted = () => ({
+    featureId: 'feat-export-1',
+    outputPath: '/repo/feat-export-1-export.zip',
+    contentHash: 'sha256:'.concat('a'.repeat(64)),
+    eventCount: 42,
+    idempotencyKey: 'feat-export-1:export:/repo/feat-export-1-export.zip',
+  });
+
+  it('ExportEventSchemas_RequestedExecutedPair_RegisteredWithEmissionSource', () => {
+    // The pair is registered as first-class event types, both classified `auto`
+    // (the `export` composite handler owns both appends — never model-emitted),
+    // and both carry a data schema. Registration is the substrate task 013's
+    // handler emits onto.
+    expect(EventTypes).toContain('export.requested');
+    expect(EventTypes).toContain('export.executed');
+
+    expect(EVENT_EMISSION_REGISTRY['export.requested']).toBe('auto');
+    expect(EVENT_EMISSION_REGISTRY['export.executed']).toBe('auto');
+
+    expect(requestedSchema()).toBeDefined();
+    expect(executedSchema()).toBeDefined();
+
+    // And the serialized catalog surfaces both under bySource.auto with a schema.
+    const catalog = serializeEventCatalog();
+    expect(catalog.bySource.auto).toContain('export.requested');
+    expect(catalog.bySource.auto).toContain('export.executed');
+    expect(catalog.types['export.requested']).toEqual({ source: 'auto', isBuiltIn: true, hasSchema: true });
+    expect(catalog.types['export.executed']).toEqual({ source: 'auto', isBuiltIn: true, hasSchema: true });
+  });
+
+  it('ExportRequested_CarriesResolvedPathIntent', () => {
+    // REVERT-PROBE ANCHOR: `export.requested` pins the RESOLVED destination path
+    // as a REQUIRED, typed, non-empty field — the intent the timeline needs to
+    // reconstruct where the bundle was meant to land after a mid-write crash
+    // (INV-13). With the schemas.ts hunks reverted the schema is unregistered
+    // (undefined) and these required-field pins go red.
+    const schema = requestedSchema();
+    expect(schema).toBeDefined();
+
+    // A fully-formed intent (resolved path + feature + idempotency key) validates.
+    expect(schema!.safeParse(validRequested()).success).toBe(true);
+
+    // The resolved path IS carried through on parse (not stripped).
+    const parsed = schema!.parse(validRequested()) as { outputPath: string };
+    expect(parsed.outputPath).toBe('/repo/feat-export-1-export.zip');
+
+    // Missing the resolved path — rejected (the intent is meaningless without it).
+    expect(schema!.safeParse({ featureId: 'f', idempotencyKey: 'k' }).success).toBe(false);
+    // Empty path — rejected by `.min(1)`.
+    expect(schema!.safeParse({ ...validRequested(), outputPath: '' }).success).toBe(false);
+    // Wrong-typed path (number) — rejected because outputPath is a typed string.
+    expect(schema!.safeParse({ ...validRequested(), outputPath: 123 }).success).toBe(false);
+    // Missing featureId / idempotencyKey — both required.
+    expect(schema!.safeParse({ outputPath: '/x.zip', idempotencyKey: 'k' }).success).toBe(false);
+    expect(schema!.safeParse({ featureId: 'f', outputPath: '/x.zip' }).success).toBe(false);
+    // Empty idempotency key — rejected (INV-8: an empty key would collapse
+    // unrelated exports into one).
+    expect(schema!.safeParse({ ...validRequested(), idempotencyKey: '' }).success).toBe(false);
+  });
+
+  it('ExportEventSchemas_Serialization_ValidPayloadsValidate_MalformedReject', () => {
+    // Property (serialization category): every valid payload survives a JSON
+    // persistence round-trip and re-validates; every malformed payload is
+    // rejected. Exercises BOTH events of the pair.
+    const requested = requestedSchema();
+    const executed = executedSchema();
+    expect(requested).toBeDefined();
+    expect(executed).toBeDefined();
+
+    const validCases: Array<{ label: string; schema: z.ZodSchema; payload: Record<string, unknown> }> = [
+      { label: 'export.requested (minimal)', schema: requested!, payload: validRequested() },
+      { label: 'export.executed (minimal)', schema: executed!, payload: validExecuted() },
+      {
+        label: 'export.executed (with tolerated missingArtifacts)',
+        schema: executed!,
+        payload: { ...validExecuted(), missingArtifacts: ['artifacts/plan.md', 'artifacts/review.json'] },
+      },
+      {
+        label: 'export.executed (empty missingArtifacts — nothing missing)',
+        schema: executed!,
+        payload: { ...validExecuted(), missingArtifacts: [] },
+      },
+    ];
+    for (const c of validCases) {
+      const roundTripped = JSON.parse(JSON.stringify(c.payload));
+      expect(c.schema.safeParse(roundTripped).success, c.label).toBe(true);
+    }
+
+    const malformedCases: Array<{ label: string; schema: z.ZodSchema; payload: Record<string, unknown> }> = [
+      { label: 'requested: missing outputPath', schema: requested!, payload: { featureId: 'f', idempotencyKey: 'k' } },
+      { label: 'requested: empty idempotencyKey', schema: requested!, payload: { ...validRequested(), idempotencyKey: '' } },
+      { label: 'executed: missing contentHash', schema: executed!, payload: (() => { const p = validExecuted() as Record<string, unknown>; delete p.contentHash; return p; })() },
+      { label: 'executed: empty contentHash', schema: executed!, payload: { ...validExecuted(), contentHash: '' } },
+      { label: 'executed: fractional eventCount', schema: executed!, payload: { ...validExecuted(), eventCount: 4.5 } },
+      { label: 'executed: negative eventCount', schema: executed!, payload: { ...validExecuted(), eventCount: -1 } },
+      { label: 'executed: missingArtifacts wrong element type', schema: executed!, payload: { ...validExecuted(), missingArtifacts: [123] } },
+    ];
+    for (const c of malformedCases) {
+      const roundTripped = JSON.parse(JSON.stringify(c.payload));
+      expect(c.schema.safeParse(roundTripped).success, c.label).toBe(false);
     }
   });
 });

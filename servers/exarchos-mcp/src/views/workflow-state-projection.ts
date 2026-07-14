@@ -844,6 +844,11 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       // effect on any workflow's projected state (folded by `worktrees@v1`).
       case 'prune.executing_started':
       case 'prune.executed':
+      // DR-6 (lifecycle-verbs task 012) — the two-event `export` contract is an
+      // audit trail (INV-13) of a zip-bundle write; it carries no
+      // workflow_state-affecting fields, so it leaves the projection unchanged.
+      case 'export.requested':
+      case 'export.executed':
       // #1319 — lands on the shared `meta/feedback` stream, never a feature
       // stream, so it has no effect on any workflow's projected state.
       case 'feedback.recorded':
