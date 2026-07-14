@@ -147,23 +147,63 @@ const SerializeMergeData = z
   })
   .passthrough();
 
+/** One folded workflow-summary row (mirrors `views/lifecycle/workflow-fold.ts`
+ *  `WorkflowFoldRow`) — the `ps` scope:'workflow'|'all' workflows section. */
+const WorkflowFoldRowSchema = z
+  .object({
+    featureId: z.string(),
+    workflowType: z.string(),
+    phase: z.string(),
+    status: z.string(),
+    ageMs: z.number().nullable(),
+  })
+  .passthrough();
+
+/** One folded in-flight liveness instance (mirrors `views/lifecycle/operations-fold.ts`
+ *  `InFlightOperation`) — the `ps` scope:'all' operations section. */
+const InFlightOperationSchema = z
+  .object({
+    surface: z.string(),
+    instanceKey: z.string(),
+    streamScope: z.string(),
+    startType: z.string(),
+    startedAt: z.string().optional(),
+    ageMs: z.number().optional(),
+  })
+  .passthrough();
+
 /**
- * `ps` success — the live liveness-pair fold. `probe`/`reconcile`/`mergeReconcile`
- * are present ONLY on a `probe: true` invocation, so they are optional; their
- * inner shapes are left loose (typed as objects) to avoid coupling this schema
- * to the reconciler result types.
+ * `ps` success — the DR-3 scope-parameterized fold. THREE shapes ride ONE
+ * `.passthrough()` schema, selected by `scope`:
+ *   - scope:'worktree' (WLM-6, unchanged): inFlight/count/launches/launchCount/
+ *     prunes/pruneCount, plus probe/reconcile/mergeReconcile on `probe: true`;
+ *   - scope:'workflow': workflows/workflowCount (+ echoed `scope`);
+ *   - scope:'all' (default): workflows/workflowCount + operations/operationCount.
+ * Every field is therefore optional — no single scope carries all of them — so a
+ * response for any scope validates against this one schema (the MCP adapter
+ * safeParses real output against it; an over-strict shape would break production).
  */
 const PsData = z
   .object({
-    inFlight: z.array(InFlightMergeSchema),
-    count: z.number(),
-    launches: z.array(WorktreeEntrySchema),
-    launchCount: z.number(),
-    prunes: z.array(InFlightPruneSchema),
-    pruneCount: z.number(),
+    // Scope discriminator (echoed on the workflow/all shapes; absent on the raw
+    // WLM-6 worktree shape, which predates the scope field).
+    scope: z.string().optional(),
+    // Worktree scope (WLM-6) — now optional, present only for scope:'worktree'.
+    inFlight: z.array(InFlightMergeSchema).optional(),
+    count: z.number().optional(),
+    launches: z.array(WorktreeEntrySchema).optional(),
+    launchCount: z.number().optional(),
+    prunes: z.array(InFlightPruneSchema).optional(),
+    pruneCount: z.number().optional(),
     probe: z.record(z.string(), z.unknown()).optional(),
     reconcile: z.record(z.string(), z.unknown()).optional(),
     mergeReconcile: z.record(z.string(), z.unknown()).optional(),
+    // Workflows section (scope:'workflow'|'all').
+    workflows: z.array(WorkflowFoldRowSchema).optional(),
+    workflowCount: z.number().optional(),
+    // Operations section (scope:'all').
+    operations: z.array(InFlightOperationSchema).optional(),
+    operationCount: z.number().optional(),
   })
   .passthrough();
 

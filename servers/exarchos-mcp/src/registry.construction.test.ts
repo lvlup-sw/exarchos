@@ -113,8 +113,10 @@ describe('DR-8 shared lifecycle field shapes — registration construction', () 
       'limit as z.string() must collide with the shared numeric limit',
     ).toThrow();
     // The DR-3 hazard specifically: a scope enum with the wrong VALUE SET (base
-    // kind matches, values diverge) also throws — this is why the shared scope
-    // is pinned to ['repo','all'] rather than ['workflow','worktree','all'].
+    // kind matches, values diverge) still throws — proving the guard discriminates
+    // on the value set, not just the base kind. Task 007 widened the shared scope
+    // to the UNION ['repo','all','workflow','worktree'] (4 members); a probe
+    // declaring only a 3-member subset diverges from that union and collides.
     expect(
       () =>
         buildRegistrationSchema([
@@ -123,7 +125,7 @@ describe('DR-8 shared lifecycle field shapes — registration construction', () 
             scope: z.enum(['workflow', 'worktree', 'all']).optional(),
           }),
         ]),
-      "scope value set ['workflow','worktree','all'] must collide with pipeline.scope ['repo','all']",
+      "scope value set ['workflow','worktree','all'] must collide with the widened union scope ['repo','all','workflow','worktree']",
     ).toThrow();
   });
 
@@ -132,10 +134,14 @@ describe('DR-8 shared lifecycle field shapes — registration construction', () 
     // field's base type (colliding or not) flips one of these red, so the
     // adequacy guard has teeth beyond the collision oracle above.
 
-    // enum ['repo','all'] — accepts exactly those members, rejects others.
+    // enum ['repo','all','workflow','worktree'] (the task-007 widened union) —
+    // accepts every member of BOTH the pipeline (`repo`/`all`) and ps
+    // (`workflow`/`worktree`/`all`) subsets, and rejects a non-member.
     expect(scopeField.safeParse('repo').success).toBe(true);
     expect(scopeField.safeParse('all').success).toBe(true);
-    expect(scopeField.safeParse('workflow').success).toBe(false);
+    expect(scopeField.safeParse('workflow').success).toBe(true);
+    expect(scopeField.safeParse('worktree').success).toBe(true);
+    expect(scopeField.safeParse('bogus-scope').success).toBe(false);
 
     // string base type.
     for (const s of [statusField, phaseField, workflowTypeField, outputField, operationField]) {

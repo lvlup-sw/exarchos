@@ -18,9 +18,12 @@ import {
 // type apart across verbs (DR-8).
 import {
   followField,
+  scopeField as lifecycleScopeField,
   limitField as lifecycleLimitField,
   phaseField as lifecyclePhaseField,
   statusField as lifecycleStatusField,
+  workflowTypeField as lifecycleWorkflowTypeField,
+  allField as lifecycleAllField,
   operationField as lifecycleOperationField,
 } from './views/lifecycle/schema-fields.js';
 import { InspectOutputSchema } from './views/lifecycle/inspect.js';
@@ -3259,7 +3262,14 @@ const viewActions: readonly ToolAction[] = [
       // `repoRoot` scopes to an arbitrary repo (normalized before compare);
       // `scope` forces 'all' (unfiltered) or 'repo' (requires a resolvable key).
       repoRoot: z.string().optional(),
-      scope: z.enum(['repo', 'all']).optional(),
+      // DR-3 (task 007) — `scope` migrated onto the shared `schema-fields.ts`
+      // shape so `pipeline` and `ps` declare ONE `scope` definition on this tool
+      // (no flattener collision). The shared shape is the UNION
+      // `['repo','all','workflow','worktree']`; `pipeline` acts on `repo`/`all`
+      // and ignores the `ps`-only members at the handler (see `views/tools.ts`
+      // scope-resolution: anything not `all`/`repo` falls through to the default
+      // caller-key / unscoped branch).
+      scope: lifecycleScopeField.optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
@@ -3676,17 +3686,36 @@ const viewActions: readonly ToolAction[] = [
     name: 'ps',
     surface: 'worktree',
     description:
-      'List the live worktree-layer liveness pairs as a pure fold, NO process scan: the worktrees@v1 inFlightMerges (each: integrationRef, operationId, sourceBranch, holder pid/start-time), the in-flight launcher launches, AND the inFlightPrunes — live prune_worktrees GC passes (each: operationId, repoRoot, holder pid/start-time; DR-3). Pass probe:true to additionally run the on-demand DR-5 process probe and emit worktree.released (owner dead, idle) / worktree.orphan_detected (owner dead, still occupied) — the orphan emitter, a conditional write path. Idempotent: without probe it is a pure read; with probe the heals re-converge on re-run. Use for: seeing which merges/launches/prunes are in flight, or (probe:true) reconciling dead holders on demand. Do NOT use for: the governed worktree set (use worktrees); blocking until a merge/prune completes (use wait).',
+      "Scope-parameterized process-plane lister composing three folds (DR-3). scope:'all' (DEFAULT) returns a workflows section (every tracked workflow: featureId, workflowType, phase, status, age) PLUS an operations section (every IN-FLIGHT liveness instance across merge/launch/mutation/prune — a started-without-terminal pair, surface-generic). scope:'workflow' returns the workflows section only; filter it with status/phase/workflowType and all:true to include terminal workflows. scope:'worktree' preserves the WLM-6 worktree capabilities: the worktrees@v1 inFlightMerges/launches/inFlightPrunes fold, and probe:true (valid ONLY in this scope) runs the on-demand DR-5 process probe emitting worktree.released / worktree.orphan_detected + reconciling dead holders. probe on a non-worktree scope is INVALID_INPUT. Idempotent: a pure read except scope:'worktree' probe:true, whose heals re-converge. Use for: a snapshot of what workflows exist and what operations are in flight. Do NOT use for: the governed worktree set (use worktrees); blocking until a condition holds (use wait).",
     schema: z.object({
+      // DR-3 (task 007) — the process-plane axis. Imported from the shared
+      // schema-fields SoT (widened to the union `['repo','all','workflow',
+      // 'worktree']` so `pipeline` and `ps` share ONE `scope` definition on this
+      // tool). `ps` accepts the `workflow|worktree|all` subset and rejects `repo`
+      // at the handler; default `all`.
+      scope: lifecycleScopeField.optional(),
+      // Worktree-scope-only: the on-demand DR-5 process probe. Rejected (INVALID_INPUT)
+      // for any non-worktree scope at the handler.
       probe: z.boolean().optional(),
+      // Workflows-section filters (scope workflow|all). Base types imported from
+      // the DR-8 schema-fields SoT so the flattened registration cannot drift them:
+      // `phase`/`workflowType` collide with invariants_effective (both z.string());
+      // `status` is new; `all` is a new boolean; `limit` reuses the shared coerced int.
+      status: lifecycleStatusField.optional(),
+      phase: lifecyclePhaseField.optional(),
+      workflowType: lifecycleWorkflowTypeField.optional(),
+      all: lifecycleAllField.optional(),
+      limit: lifecycleLimitField.optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
     outputSchema: withCappedShape(PsOutputSchema),
-    // `ps probe:true` can append worktree.released / worktree.orphan_detected, so
-    // it is NOT readOnly. The heals are idempotent (re-running a probe over an
-    // already-reconciled set emits nothing) and non-destructive → idempotent
-    // local-mutation. `wait` / `worktrees` stay genuinely READ_ONLY_LOCAL.
+    // `ps scope:'worktree' probe:true` can append worktree.released /
+    // worktree.orphan_detected, so the action is NOT readOnly. The heals are
+    // idempotent (re-running a probe over an already-reconciled set emits nothing)
+    // and non-destructive → idempotent local-mutation. Every non-probe scope path
+    // is a pure read; the conservative annotation covers the sole write path.
+    // `wait` / `worktrees` stay genuinely READ_ONLY_LOCAL.
     annotations: LOCAL_MUTATION_IDEMPOTENT,
   },
   {

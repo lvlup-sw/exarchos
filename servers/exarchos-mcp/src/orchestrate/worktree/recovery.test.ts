@@ -244,7 +244,7 @@ describe('DR-3 — crash-mid-merge reconciled from the ps --probe production ent
     });
 
     const result = await handleView(
-      { action: 'ps', probe: true },
+      { action: 'ps', scope: 'worktree', probe: true },
       arm.ctx,
       { processTableSource: EMPTY_TABLE, selfPid: 999999, realpath: (p) => p },
     );
@@ -286,7 +286,7 @@ describe('DR-3 — crash-mid-merge reconciled from the ps --probe production ent
     });
 
     const result = await handleView(
-      { action: 'ps', probe: true },
+      { action: 'ps', scope: 'worktree', probe: true },
       arm.ctx,
       {
         processTableSource: liveTable([{ pid: 7777, startTime: 'alive-7777' }]),
