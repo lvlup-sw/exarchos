@@ -113,6 +113,30 @@ class SpyReader implements SubscriptionEventReader {
 }
 
 /**
+ * Wraps a reader so a configured stream's `readStreamAfter` throws — models a
+ * mid-loop read failure during a cross-stream drain (DR-1 "no gaps"): the drain
+ * must not leave an EARLIER stream's cursor advanced past events discarded when
+ * a LATER stream's read throws. `throwOn` is armed/cleared per phase.
+ */
+class ThrowOnStreamReader implements SubscriptionEventReader {
+  throwOn: string | null = null;
+  constructor(private readonly inner: SubscriptionEventReader) {}
+  headSequence(streamId: string): number {
+    return this.inner.headSequence(streamId);
+  }
+  readStreamAfter(streamId: string, afterSequence: number): readonly WorkflowEvent[] {
+    if (this.throwOn === streamId) throw new Error(`read boom on ${streamId}`);
+    return this.inner.readStreamAfter(streamId, afterSequence);
+  }
+  listStreams(): readonly string[] {
+    return this.inner.listStreams();
+  }
+  dataVersion(): number {
+    return this.inner.dataVersion();
+  }
+}
+
+/**
  * Manually-driven clock (INV-16) for deterministic Tier-2 floor tests. Records
  * every scheduled floor loop and its interval; {@link fireAll} fires one tick
  * on every live loop with no wall-clock sleep. A cancelled loop (disposed
@@ -464,6 +488,46 @@ describe('SubscriptionRegistry (DR-1 invariants)', () => {
 
     expect(received).toEqual(['other#2', 'fresh#1']);
     handle.dispose();
+  });
+
+  it('Drain_CrossStreamLaterReadThrows_EarlierCursorNotAdvanced_Redelivered', () => {
+    // DR-1 "no gaps": for a cross-stream subscription the per-stream cursors must
+    // advance only AFTER the whole batch is assembled. If a LATER stream's read
+    // throws mid-loop, the assembled batch is discarded — so an EARLIER stream's
+    // cursor must NOT have advanced past its (undelivered) events, or the next
+    // drain would silently skip them. Insertion order fixes the union scan:
+    // 'stream-a' (has a new event) is read before 'stream-z' (throws).
+    const log = new FakeLog();
+    log.commit('stream-a', T1); // baseline seq 1 — cursor pinned here at registration
+    log.commit('stream-z', T1); // baseline seq 1 on the later-scanned stream
+    const reader = new ThrowOnStreamReader(log);
+    const registry = new SubscriptionRegistry(reader, { clock: fixedClock });
+
+    const received: string[] = [];
+    // Cross-stream subscription (no streamId filter). Registration pins both
+    // cursors to their heads (a=1, z=1); baselines are not delivered.
+    const handle = registry.subscribe({}, (e) => received.push(`${e.streamId}#${e.sequence}`));
+    expect(received).toEqual([]);
+
+    // A NEW event on the earlier stream (seq 2), then arm the later stream to
+    // throw. The wake drains cross-stream: reads stream-a (new event), then
+    // stream-z (throws). The registry isolates the throw (wake swallows it), so
+    // the assembled batch is discarded and NOTHING is delivered this pass.
+    log.commit('stream-a', T2); // seq 2 — the event at risk of silent loss
+    reader.throwOn = 'stream-z';
+    registry.wake('stream-a');
+    expect(received).toEqual([]); // batch discarded on the throw — no partial delivery
+
+    // Heal the later stream and drain again. The earlier stream's cursor must
+    // still be at 1 (NOT advanced past the undelivered seq 2), so seq 2 is
+    // redelivered exactly once. A premature per-stream advance would lose it
+    // forever (received would stay empty).
+    reader.throwOn = null;
+    registry.wake('stream-a');
+    expect(received).toEqual(['stream-a#2']);
+
+    handle.dispose();
+    expect(registry.size).toBe(0);
   });
 });
 
