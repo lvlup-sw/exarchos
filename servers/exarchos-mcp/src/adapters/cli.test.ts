@@ -71,7 +71,8 @@ vi.mock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
 
 import { buildCli, commanderErrorToResult, runCli, CLI_EXIT_CODES } from './cli.js';
 import { dispatch } from '../core/dispatch.js';
-import { TOOL_REGISTRY } from '../registry.js';
+import { TOOL_REGISTRY, getFullRegistry } from '../registry.js';
+import type { CompositeTool } from '../registry.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { CommanderError } from 'commander';
 
@@ -941,3 +942,126 @@ describe.skipIf(!SMOKE_BINARY)(
     });
   },
 );
+
+// ─── DR-7: top-level CLI promotion mechanism (CliActionHints.topLevel) ────────
+//
+// These tests exercise the GENERIC promotion mechanism + its collision guard
+// over the REAL registry + CLI wiring (no hand-mocked registry): they stamp
+// `cli.topLevel` onto a real registry action and assert `buildCli` hoists it to
+// a top-level command that shares the subcommand's code path + Zod schema. The
+// lifecycle-verb re-map (which actions actually declare `topLevel`) is a
+// follow-on — this task ships only the mechanism.
+describe('CLI top-level promotion (DR-7)', () => {
+  let ctx: DispatchContext;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    ctx = createTestContext();
+  });
+
+  // Clone the REAL registry (getFullRegistry) and stamp `cli.topLevel` onto one
+  // action. Everything else — the action's Zod schema, description, dispatch
+  // wiring — stays the real thing, so the mechanism is proven against real
+  // registry data, not a fabricated fixture.
+  function registryWithTopLevel(
+    toolName: string,
+    actionName: string,
+    topLevel: string,
+  ): readonly CompositeTool[] {
+    return getFullRegistry().map((tool) =>
+      tool.name !== toolName
+        ? tool
+        : {
+            ...tool,
+            actions: tool.actions.map((action) =>
+              action.name !== actionName
+                ? action
+                : { ...action, cli: { ...action.cli, topLevel } },
+            ),
+          },
+    );
+  }
+
+  it('Promotion_TopLevelStamp_CommandRegisteredAndDispatches', async () => {
+    // Arrange — promote the real `exarchos_view` `ps` action to top-level `ps`.
+    const registry = registryWithTopLevel('exarchos_view', 'ps', 'ps');
+    const program = buildCli(ctx, { registry });
+
+    // Assert (registration) — a NEW top-level `ps` command exists alongside the
+    // untouched `vw` tool group.
+    const topLevelNames = program.commands.map((c) => c.name());
+    expect(topLevelNames).toContain('ps');
+
+    // Assert (same Zod schema) — the hoisted command's flag set is IDENTICAL to
+    // the `vw ps` subcommand's, and carries the schema-derived `--probe` flag.
+    const topLevelPs = program.commands.find((c) => c.name() === 'ps');
+    const vwPs = program.commands
+      .find((c) => c.name() === 'vw')
+      ?.commands.find((c) => c.name() === 'ps');
+    expect(topLevelPs, 'top-level ps not registered').toBeDefined();
+    expect(vwPs, 'vw ps subcommand not registered').toBeDefined();
+    const topLevelFlags = (topLevelPs?.options ?? []).map((o) => o.flags).sort();
+    const subFlags = (vwPs?.options ?? []).map((o) => o.flags).sort();
+    expect(topLevelFlags).toEqual(subFlags);
+    expect(topLevelFlags.some((f) => f.includes('--probe'))).toBe(true);
+
+    // Assert (same dispatch path) — running `exarchos ps` dispatches the SAME
+    // tool + action the subcommand form would, through the shared handler.
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    await program.parseAsync(['node', 'exarchos', 'ps']);
+    stdoutSpy.mockRestore();
+
+    expect(dispatch).toHaveBeenCalledWith(
+      'exarchos_view',
+      expect.objectContaining({ action: 'ps' }),
+      ctx,
+    );
+  });
+
+  it('Promotion_CollidingName_FailsRegistrationNotRuntime', () => {
+    // A `topLevel` that collides with an existing top-level command must fail at
+    // REGISTRATION (build time) — the throw happens inside `buildCli`, before any
+    // argv is parsed or any command action runs. `wf` is the workflow tool
+    // group's top-level name.
+    const collideName = registryWithTopLevel('exarchos_view', 'ps', 'wf');
+    expect(() => buildCli(ctx, { registry: collideName })).toThrow(
+      /topLevel 'wf'.*collides with the existing top-level command 'wf'/,
+    );
+
+    // The guard also catches a clash with a top-level command's ALIAS, not just
+    // its primary name: `workflow` is registered as an alias of `wf`.
+    const collideAlias = registryWithTopLevel('exarchos_view', 'ps', 'workflow');
+    expect(() => buildCli(ctx, { registry: collideAlias })).toThrow(
+      /topLevel 'workflow'.*collides with the existing top-level command/,
+    );
+
+    // Guard specificity: a non-colliding name must NOT throw (proves the guard
+    // rejects clashes, not every promotion).
+    const noCollide = registryWithTopLevel('exarchos_view', 'ps', 'ps');
+    expect(() => buildCli(ctx, { registry: noCollide })).not.toThrow();
+
+    // Dispatch was never invoked — the failure is at registration, not runtime.
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('Promotion_SubcommandForm_StillWorks', async () => {
+    // Promoting an action to top-level must NOT disturb its `<tool> <action>`
+    // subcommand form: `vw ps` still registers and still dispatches.
+    const registry = registryWithTopLevel('exarchos_view', 'ps', 'ps');
+    const program = buildCli(ctx, { registry });
+
+    const vwCmd = program.commands.find((c) => c.name() === 'vw');
+    const vwPs = vwCmd?.commands.find((c) => c.name() === 'ps');
+    expect(vwPs, 'vw ps subcommand missing after promotion').toBeDefined();
+
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    await program.parseAsync(['node', 'exarchos', 'vw', 'ps']);
+    stdoutSpy.mockRestore();
+
+    expect(dispatch).toHaveBeenCalledWith(
+      'exarchos_view',
+      expect.objectContaining({ action: 'ps' }),
+      ctx,
+    );
+  });
+});
