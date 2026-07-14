@@ -25,8 +25,10 @@ import {
   workflowTypeField as lifecycleWorkflowTypeField,
   allField as lifecycleAllField,
   operationField as lifecycleOperationField,
+  outputField as lifecycleOutputField,
 } from './views/lifecycle/schema-fields.js';
 import { InspectOutputSchema } from './views/lifecycle/inspect.js';
+import { ExportOutputSchema } from './views/lifecycle/export.js';
 import type { AgentPosture } from './agents/spec.js';
 export { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray, coercedIntArray } from './coerce.js';
 import { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray, coercedIntArray } from './coerce.js';
@@ -395,6 +397,20 @@ const LOCAL_MUTATION_IDEMPOTENT: ActionAnnotations = {
   destructive: false,
   idempotent: true,
   openWorld: false,
+};
+
+// DR-6 (lifecycle-verbs) — a local-mutation whose side effect is a FILE written
+// OUTSIDE the managed `.exarchos/` store (the `export` diagnostic zip bundle),
+// so `openWorld` is true. Non-destructive (a diagnostic write, not a workflow
+// mutation) and NOT idempotent at the event level (a fresh invocation mints a
+// new INV-13 pair). `local-mutation` leaves `openWorld` free (the annotation
+// schema only pins it for `remote-mutation`), so this tuple is valid.
+const LOCAL_MUTATION_OPEN_WORLD: ActionAnnotations = {
+  safety: 'local-mutation',
+  readOnly: false,
+  destructive: false,
+  idempotent: false,
+  openWorld: true,
 };
 
 const COMPENSABLE_LOCAL: ActionAnnotations = {
@@ -3795,6 +3811,48 @@ const viewActions: readonly ToolAction[] = [
     // {summary,counts,firstPage} envelope, keeping it total over emittable shapes.
     outputSchema: withCappedShape(InspectOutputSchema),
     annotations: READ_ONLY_LOCAL,
+  },
+  // ─── Worktree-lifecycle diagnostic bundle (DR-6) ──────────────────────────
+  // The `export` WRITE leg of the lifecycle verbs (the last verb): writes a
+  // portable zip bundle (events.jsonl / state.json / metadata.json / artifacts/)
+  // of one workflow to a path OUTSIDE `.exarchos/`. Unlike the pure-read `ps` /
+  // `wait` / `inspect` legs it has an unconditional external side effect (a file
+  // write), so it declares the `task-isolated` posture (the capability resolver
+  // mints fs:write from it, containing the blast radius to the caller's
+  // worktree) and an openWorld annotation (writes outside the managed store).
+  // It still rides `exarchos_view` as an ACTION (INV-5d — no new visible tool;
+  // the composite count stays 4), like `ps`'s conditional probe-write path.
+  // The write is journaled as the INV-13 export.requested → export.executed
+  // pair, the storage idempotency key is derived from a logical key (INV-8), a
+  // crashed pair is completed without duplicating the intent, and a cold probe
+  // of an unknown featureId writes nothing + emits zero events. The CLI verb
+  // promotion (`export`→top-level) is task-015.
+  {
+    name: 'export',
+    description:
+      "Write a portable diagnostic zip bundle of ONE workflow to disk: events.jsonl (the domain event stream, one JSON event/line), state.json (fold(events.jsonl) via the canonical projection — replaying events.jsonl reconstructs it), metadata.json (featureId / eventCount / phase / workflowType / artifacts + missingArtifacts), and artifacts/ (every referenced artifact FILE that exists; missing references are tolerated and listed). Default destination ./<featureId>-export.zip; override with output. Writes to a path OUTSIDE .exarchos/ (openWorld) and journals the INV-13 export.requested → export.executed pair around the write, so a crash between the two is completed WITHOUT duplicating the intent and a fresh invocation mints a new pair (INV-8). Cold-probe safe: an unknown featureId returns workflowExists:false, writes no zip and emits no events. Use for: capturing a self-contained, replayable snapshot of a workflow for diagnosis or handoff. Do NOT use for: a live status snapshot (use inspect); advancing or mutating the workflow (use exarchos_workflow).",
+    schema: z.object({
+      featureId: featureIdSchema,
+      // DR-8 shared shape — imported from the schema-fields SoT (z.string(), a
+      // destination FILE PATH, not a table|json format enum) so the flattened
+      // exarchos_view registration cannot drift the `output` field's base type.
+      output: lifecycleOutputField.optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+    // #1305 — task-isolated trust tier: the resolver mints fs:write for the
+    // bundle write, contained to the caller's worktree. The last worktree verb.
+    posture: 'task-isolated',
+    cli: {
+      flags: { featureId: { alias: 'f' }, output: { alias: 'o' } },
+      examples: ['exarchos vw export -f my-feature -o ./my-feature-export.zip'],
+    },
+    // Typed-output totality (DR-1): union the generic capped-fallback shape so
+    // the schema admits BOTH the bundle-write result AND a dispatch-core-capped
+    // envelope.
+    outputSchema: withCappedShape(ExportOutputSchema),
+    // openWorldHint: true — writes a file outside the managed store.
+    annotations: LOCAL_MUTATION_OPEN_WORLD,
   },
   makeDescribeAction(),
 ];
