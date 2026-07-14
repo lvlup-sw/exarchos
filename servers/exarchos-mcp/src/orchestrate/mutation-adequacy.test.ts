@@ -29,6 +29,7 @@ import { resolveConfig } from '../config/resolve.js';
 import type { ProjectConfig } from '../config/yaml-schema.js';
 import type { MutationRunResult, RunDiff } from './mutation-adequacy.js';
 import { composeScopedCommand } from './mutation-adequacy.js';
+import { foldInFlightOperations, type OperationEventLike } from '../views/lifecycle/operations-fold.js';
 import { resolveMutationDiffScope } from '../config/toolchains.js';
 import { rmrf } from '../test-helpers/temp-dir.js';
 
@@ -728,6 +729,52 @@ describe('mutation-adequacy liveness + gate emission', () => {
     const endIdx = types.indexOf('mutation.executed');
     expect(startIdx).toBeGreaterThanOrEqual(0);
     expect(endIdx).toBeGreaterThan(startIdx);
+  });
+
+  it('MutationAdequacy_LivenessPair_CarriesCanonicalInstanceId_AndFoldsToPaired', async () => {
+    // Finding 3: the LIVE emitter (mutation-adequacy) must stamp a canonical
+    // `instanceId` on BOTH liveness emissions so a stuck mutation run is visible
+    // to `ps` and waitable — not an anonymous keyless row collapsed to the DR-2
+    // singleton. Passing an operationId correlates the instanceId with the gate.
+    const { stateDir, eventStore } = await newStore();
+    await dispatchMutation({ eventStore, stateDir, operationId: 'op-mut-42' });
+
+    const events = await eventStore.query('feat-mutadq');
+    const start = events.find((e) => e.type === 'mutation.executing_started');
+    const end = events.find((e) => e.type === 'mutation.executed');
+    const startId = (start?.data as { instanceId?: unknown } | undefined)?.instanceId;
+    const endId = (end?.data as { instanceId?: unknown } | undefined)?.instanceId;
+
+    // Both emissions carry a non-empty instanceId, equal to each other and to
+    // the supplied operationId (the correlation contract, mirroring run-mutation).
+    expect(typeof startId).toBe('string');
+    expect((startId as string).length).toBeGreaterThan(0);
+    expect(endId).toBe(startId);
+    expect(startId).toBe('op-mut-42');
+
+    // And the pair folds cleanly: the terminal clears the start → nothing stuck.
+    const rows = foldInFlightOperations(events as unknown as OperationEventLike[]);
+    expect(rows.some((r) => r.surface === 'mutation')).toBe(false);
+  });
+
+  it('MutationAdequacy_StuckRun_VisibleToOperationsFold_WithFeatureAttribution', async () => {
+    // The S-6 case at the LIVE-emitter level: if the terminal never lands (a
+    // crashed run — simulated by dropping the `mutation.executed` event), the
+    // unpaired start is surfaced by the fold, keyed by the canonical instanceId
+    // and attributed to the feature stream — exactly what `ps operations` /
+    // `wait --operation mutation` consume.
+    const { stateDir, eventStore } = await newStore();
+    await dispatchMutation({ eventStore, stateDir, operationId: 'op-stuck' });
+
+    const events = (await eventStore.query('feat-mutadq')).filter(
+      (e) => e.type !== 'mutation.executed',
+    );
+    const rows = foldInFlightOperations(events as unknown as OperationEventLike[]);
+    const stuck = rows.find((r) => r.surface === 'mutation');
+    expect(stuck).toBeDefined();
+    expect(stuck?.instanceKey).toBe('op-stuck');
+    expect(stuck?.streamId).toBe('feat-mutadq');
+    expect(stuck?.featureId).toBe('feat-mutadq');
   });
 
   it('MutationAdequacy_Result_EmitsGateExecutedWithScore', async () => {

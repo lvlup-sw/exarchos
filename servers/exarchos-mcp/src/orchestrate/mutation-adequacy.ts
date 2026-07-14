@@ -17,6 +17,7 @@
 // that to a Warning carrier rather than failing the gate closed-with-an-error.
 // ────────────────────────────────────────────────────────────────────────────
 
+import { randomUUID } from 'node:crypto';
 import { runCommandSync } from '../utils/process.js';
 import { z } from 'zod';
 
@@ -651,10 +652,20 @@ export async function handleMutationAdequacy(
         })();
 
   // ── Run (injected seam). Bracket with the INV-10 liveness pair. ────────────
+  //
+  // DR-2 / DR-3: stamp a canonical `instanceId` on BOTH the start and terminal
+  // liveness emissions (mirroring `cli-commands/run-mutation.ts`) so a stuck
+  // mutation run is visible to `ps` and waitable via `wait --operation mutation`.
+  // Without it the live emitter emitted keyless rows that `computeInFlightInstances`
+  // could only pair via the DR-2 legacy singleton — one indistinguishable slot per
+  // stream. Reuse the gate `operationId` when present (correlating the liveness
+  // pair with the gate.executed row); otherwise mint a fresh per-pass id.
   const runMutation = args.runMutation ?? defaultRunMutation;
+  const instanceId = args.operationId ?? randomUUID();
   await emitLiveness(eventStore, args.featureId, 'mutation.executing_started', {
     command: scoped.command,
     repoRoot,
+    instanceId,
   });
   const runResult = await runMutation({ command: scoped.command, repoRoot, base: args.base });
   await emitLiveness(eventStore, args.featureId, 'mutation.executed', {
@@ -662,6 +673,7 @@ export async function handleMutationAdequacy(
     repoRoot,
     passed: runResult.ok,
     exitCode: runResult.ok ? 0 : 1,
+    instanceId,
   });
 
   // ── Run-level degrade (no parseable report) → Warning, never a throw. ──────

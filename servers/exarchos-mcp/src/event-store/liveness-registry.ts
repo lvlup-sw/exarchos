@@ -20,11 +20,11 @@
  *
  *   • merge    → `data.instanceId ?? data.taskId ?? \`${sourceBranch}→${targetBranch}\``
  *   • launch   → `data.instanceId ?? data.worktreeId`
- *   • mutation → `data.instanceId ?? data.operationId` (legacy fallback: the
- *     older `mutation-adequacy.ts` emission path predates the instanceId
- *     retrofit and stamps neither field on some rows; the operationId fallback
- *     is defensive so a future/foreign row that carries a bare `operationId`
- *     still resolves)
+ *   • mutation → `data.instanceId ?? data.operationId ?? MUTATION_LEGACY_SINGLETON_KEY`
+ *     (both live emitters — `orchestrate/mutation-adequacy.ts` and
+ *     `cli-commands/run-mutation.ts` — now stamp `instanceId`; the `operationId`
+ *     fallback is defensive, and a truly keyless legacy row resolves to the DR-2
+ *     singleton instance so it still pairs rather than being dropped)
  *   • prune    → `data.instanceId ?? data.operationId`
  *
  * `instanceKeyOf` is intentionally permissive about its input: any pre-
@@ -62,6 +62,16 @@ export type LivenessStreamScope = 'feature' | 'worktrees';
 export interface LivenessEventLike {
   readonly type: string;
   readonly data?: Record<string, unknown> | undefined;
+  /**
+   * The stream this event was persisted on. Load-bearing for the DR-2 "same
+   * stream" pairing relation: two `feature`-scoped workflows whose merge
+   * `instanceKey` collides (recurring `taskId`s, a shared branch pair) must NOT
+   * cross-contaminate — a terminal on workflow B's stream may only clear an
+   * in-flight START on B's stream, never A's. Real `WorkflowEvent` rows carry it;
+   * fixtures should set it for `feature`-scoped surfaces. Absent → treated as the
+   * empty stream (the degenerate single-namespace fallback).
+   */
+  readonly streamId?: string | undefined;
 }
 
 /** One registry entry: the whole liveness contract for a single surface. */
@@ -75,6 +85,17 @@ export interface LivenessDescriptor {
   readonly terminalTypes: readonly EventType[];
   /** Which stream family the pair rides on. */
   readonly streamScope: LivenessStreamScope;
+  /**
+   * Whether this surface has a LEGACY key fallback — a way to derive an instance
+   * key from rows emitted BEFORE the canonical `instanceId` retrofit (task 003).
+   * All four shipped surfaces do (merge → `taskId`/branch-pair, launch →
+   * `worktreeId`, mutation → `operationId`/singleton, prune → `operationId`), so
+   * their start schemas may leave `instanceId` optional and still pair legacy
+   * rows. A NEW surface has no legacy rows to accommodate, so it carries
+   * `hasLegacyFallback: false` and MUST require a non-optional `instanceId` in
+   * its start schema — the DR-2 new-surface rule the conformance test enforces.
+   */
+  readonly hasLegacyFallback: boolean;
   /**
    * Derive the canonical per-instance liveness key from a raw event `data`
    * payload. Returns `undefined` when no key can be derived (e.g. `data` is
@@ -114,12 +135,28 @@ function launchInstanceKeyOf(data: Record<string, unknown> | undefined): string 
   return readStringField(data, 'instanceId') ?? readStringField(data, 'worktreeId');
 }
 
+/**
+ * DR-2 singleton fallback key for a keyless legacy `mutation` row. The
+ * pre-retrofit `orchestrate/mutation-adequacy.ts` liveness path stamped neither
+ * `instanceId` nor `operationId`, so such a start would resolve to `undefined`
+ * and be SKIPPED by the pairing fold — leaving a stuck mutation invisible to
+ * `ps` / un-waitable, which contradicts DR-2's "keyless mutation → singleton
+ * instance" AC. Resolving a constant key instead lets a keyless START pair with
+ * its keyless TERMINAL (per stream, since `mutation` is `feature`-scoped). The
+ * value is namespaced so it can never collide with a real emitter-minted key.
+ */
+export const MUTATION_LEGACY_SINGLETON_KEY = 'mutation:legacy-singleton';
+
 function mutationInstanceKeyOf(data: Record<string, unknown> | undefined): string | undefined {
-  // Legacy-mutation fallback: rows from the pre-retrofit `mutation-adequacy.ts`
-  // liveness path carry neither `instanceId` nor `operationId` today, but the
-  // fallback stays defensive against any row (present or future) that carries
-  // a bare `operationId` with no `instanceId`.
-  return readStringField(data, 'instanceId') ?? readStringField(data, 'operationId');
+  // Canonical key (post-retrofit) → the emitter-minted `instanceId`. Defensive
+  // fallback for any row carrying a bare `operationId`. A truly keyless legacy
+  // row (neither field) resolves to the DR-2 singleton so it still pairs rather
+  // than being silently dropped.
+  return (
+    readStringField(data, 'instanceId') ??
+    readStringField(data, 'operationId') ??
+    MUTATION_LEGACY_SINGLETON_KEY
+  );
 }
 
 function pruneInstanceKeyOf(data: Record<string, unknown> | undefined): string | undefined {
@@ -160,6 +197,7 @@ export const LIVENESS_REGISTRY: Readonly<Record<LivenessSurface, LivenessDescrip
     // merge.executed / merge.recovered events drive the phase").
     terminalTypes: ['merge.executed', 'merge.recovered'],
     streamScope: 'feature',
+    hasLegacyFallback: true,
     instanceKeyOf: mergeInstanceKeyOf,
   },
   launch: {
@@ -167,6 +205,7 @@ export const LIVENESS_REGISTRY: Readonly<Record<LivenessSurface, LivenessDescrip
     startType: 'launch.executing_started',
     terminalTypes: ['launch.executed'],
     streamScope: 'worktrees',
+    hasLegacyFallback: true,
     instanceKeyOf: launchInstanceKeyOf,
   },
   mutation: {
@@ -174,6 +213,7 @@ export const LIVENESS_REGISTRY: Readonly<Record<LivenessSurface, LivenessDescrip
     startType: 'mutation.executing_started',
     terminalTypes: ['mutation.executed'],
     streamScope: 'feature',
+    hasLegacyFallback: true,
     instanceKeyOf: mutationInstanceKeyOf,
   },
   prune: {
@@ -181,6 +221,7 @@ export const LIVENESS_REGISTRY: Readonly<Record<LivenessSurface, LivenessDescrip
     startType: 'prune.executing_started',
     terminalTypes: ['prune.executed'],
     streamScope: 'worktrees',
+    hasLegacyFallback: true,
     instanceKeyOf: pruneInstanceKeyOf,
   },
 };
@@ -212,43 +253,87 @@ export function everyExecutingStartedType(): readonly string[] {
 
 // ─── Pairing helper ──────────────────────────────────────────────────────────
 
+/** One surviving in-flight instance: its resolved key, the stream it rides, and
+ *  the START event that opened it (for envelope-derived `startedAt`). */
+export interface InFlightInstance {
+  /** The descriptor's own resolved `instanceKeyOf(startEvent.data)`. */
+  readonly instanceKey: string;
+  /** The stream the START event was persisted on (`undefined` for keyless
+   *  fixtures). For `feature`-scoped surfaces this is the workflow's featureId. */
+  readonly streamId: string | undefined;
+  /** The `<surface>.executing_started` event that opened this instance. */
+  readonly startEvent: LivenessEventLike;
+}
+
+/** NUL separator for the composite `(streamId, instanceKey)` pairing key — a
+ *  byte neither a stream id nor an instance key ever contains, so the composite
+ *  is unambiguous (`(streamId='a', key='b→c')` never collides with
+ *  `(streamId='a→b', key='c')`). */
+const PAIRING_KEY_SEP = String.fromCharCode(0);
+
+/**
+ * The DR-2 pairing key. `feature`-scoped surfaces pair PER STREAM — the same
+ * `instanceKey` on two different feature streams is two DISTINCT instances, so a
+ * terminal on one stream can never clear the other (the S-6 cross-stream
+ * mis-pairing this feature exists to prevent). The singleton `worktrees` stream
+ * pairs by `instanceKey` alone: concurrent launches/prunes on that one shared
+ * stream are the NORMAL case, so cross-instance concurrency there is expected.
+ */
+function pairingKey(
+  descriptor: LivenessDescriptor,
+  instanceKey: string,
+  streamId: string | undefined,
+): string {
+  return descriptor.streamScope === 'feature'
+    ? `${streamId ?? ''}${PAIRING_KEY_SEP}${instanceKey}`
+    : instanceKey;
+}
+
 /**
  * Fold an ordered event list into the set of liveness instances still IN
  * FLIGHT for one surface: a START with no paired TERMINAL (yet) after it in
- * the given order. Applies the pairing purely at the instance-key level —
- * caller supplies whichever events are relevant to the descriptor's stream
- * scope (a `ps`/`wait` consumer filters to the right stream before calling
- * this).
+ * the given order. For `feature`-scoped surfaces the pairing is keyed by
+ * `(streamId, instanceKey)` so events from different workflow streams never
+ * cross-contaminate; for the singleton `worktrees` scope it is keyed by
+ * `instanceKey` alone (see {@link pairingKey}).
  *
  * Semantics, applied left-to-right over `events`:
  *   - a START event whose key resolves is recorded as in-flight (re-starting
- *     an already in-flight key overwrites — the latest START wins, matching
- *     an idempotent-retry re-emission of the same key);
+ *     an already in-flight `(stream,key)` overwrites — the latest START wins,
+ *     matching an idempotent-retry re-emission of the same key);
  *   - a TERMINAL event (any of `descriptor.terminalTypes`) whose key resolves
- *     clears that key from the in-flight set (a terminal for an unknown/
- *     already-cleared key is a no-op, never a throw);
+ *     clears that `(stream,key)` from the in-flight set (a terminal for an
+ *     unknown/already-cleared key is a no-op, never a throw);
  *   - events whose key cannot be derived (`instanceKeyOf` returns `undefined`)
  *     are skipped — an unresolvable row can never be paired.
  *
- * Returns a map of `instanceKey -> the START event that opened it`, so a
- * caller can report `startedAt` (via {@link livenessStartedAt}) alongside the
- * surviving in-flight set.
+ * Returns a map keyed by the internal pairing key; each value is the surviving
+ * {@link InFlightInstance} (resolved `instanceKey`, `streamId`, and the START
+ * event) so a caller can report the true key, "which workflow is stuck?", and
+ * `startedAt` (via {@link livenessStartedAt}). `.size` is the count of distinct
+ * in-flight instances — the `wait --operation` predicate reads exactly this.
  */
 export function computeInFlightInstances(
   descriptor: LivenessDescriptor,
   events: readonly LivenessEventLike[],
-): ReadonlyMap<string, LivenessEventLike> {
-  const inFlight = new Map<string, LivenessEventLike>();
+): ReadonlyMap<string, InFlightInstance> {
+  const inFlight = new Map<string, InFlightInstance>();
   const terminalTypes: readonly string[] = descriptor.terminalTypes;
   for (const event of events) {
     if (event.type === descriptor.startType) {
-      const key = descriptor.instanceKeyOf(event.data);
-      if (key !== undefined) inFlight.set(key, event);
+      const instanceKey = descriptor.instanceKeyOf(event.data);
+      if (instanceKey === undefined) continue;
+      inFlight.set(pairingKey(descriptor, instanceKey, event.streamId), {
+        instanceKey,
+        streamId: event.streamId,
+        startEvent: event,
+      });
       continue;
     }
     if (terminalTypes.includes(event.type)) {
-      const key = descriptor.instanceKeyOf(event.data);
-      if (key !== undefined) inFlight.delete(key);
+      const instanceKey = descriptor.instanceKeyOf(event.data);
+      if (instanceKey === undefined) continue;
+      inFlight.delete(pairingKey(descriptor, instanceKey, event.streamId));
     }
   }
   return inFlight;
