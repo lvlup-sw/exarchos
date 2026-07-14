@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { fc } from '@fast-check/vitest';
 import { join } from 'node:path';
+import { Database } from 'bun:sqlite';
 
 import { EventStore } from './store.js';
 import { AtomicAppender } from './atomic-appender.js';
@@ -14,6 +15,11 @@ import type { WorkflowEvent } from './schemas.js';
 import { SqliteBackend } from '../storage/sqlite-backend.js';
 import { InMemoryBackend } from '../storage/memory-backend.js';
 import { makeTempDir, rmrf } from '../test-helpers/temp-dir.js';
+import { runInspectFollow, type FollowSubscribe } from '../cli/follow-loop.js';
+import { tasksFollow } from '../mcp/tasks-methods.js';
+import { handleViewWait, type WaitDeps } from '../views/lifecycle/wait.js';
+import type { DispatchContext } from '../core/dispatch.js';
+import type { Frame } from '../ndjson/frames.js';
 
 // ─── Test helpers ────────────────────────────────────────────────────────────
 
@@ -786,5 +792,434 @@ describe('SubscriptionRegistry Tier-2 poll floor (DR-1 invariants)', () => {
       ),
       { numRuns: 300 },
     );
+  });
+});
+
+// ─── DR-1/DR-8: disposal lifecycle across the two entry points (task-017) ─────
+//
+// Both disposal entry points — the CLI AbortSignal (SIGINT) and the MCP
+// task-cancel — MUST converge on the SINGLE `SubscriptionHandle.dispose()` so
+// the DR-1 registry returns to size 0 with NO leak (INV-15: no daemon, the
+// dispatch disposes what it registered). These suites drive the REAL follow
+// carriers (`runInspectFollow` / `tasksFollow`) over a REAL `SubscriptionRegistry`
+// so the leak assertion is `registry.size`, not merely `handle.disposed`.
+// Determinism is INV-16: the injected `ManualClock` — no per-test win32 skips.
+
+/** Bind a `SubscriptionRegistry` as the DR-1 subscribe contract the carriers drive. */
+function registryFollowSubscribe(registry: SubscriptionRegistry): FollowSubscribe {
+  return (filter, onEvent, options) => registry.subscribe(filter, onEvent, options);
+}
+
+/**
+ * An AbortSignal that counts its LIVE `abort` listeners so a leak of the
+ * disposal listener (a dispose-first teardown that never removes the listener
+ * it added to a long-lived signal) is observable. `{ once: true }` auto-removal
+ * on a fired abort bypasses `removeEventListener`, so this probe is only used on
+ * the dispose-BEFORE-abort paths (where abort never fires).
+ */
+function countingAbortSignal(): {
+  signal: AbortSignal;
+  liveAbortListeners: () => number;
+} {
+  const controller = new AbortController();
+  let live = 0;
+  const wrapper = {
+    get aborted(): boolean {
+      return controller.signal.aborted;
+    },
+    addEventListener(type: string, cb: EventListenerOrEventListenerObject, opts?: AddEventListenerOptions | boolean): void {
+      if (type === 'abort') live++;
+      controller.signal.addEventListener(type, cb, opts);
+    },
+    removeEventListener(type: string, cb: EventListenerOrEventListenerObject, opts?: EventListenerOptions | boolean): void {
+      if (type === 'abort') live--;
+      controller.signal.removeEventListener(type, cb, opts);
+    },
+  };
+  return { signal: wrapper as unknown as AbortSignal, liveAbortListeners: () => live };
+}
+
+describe('Subscription disposal lifecycle — AbortSignal + task-cancel (DR-1/DR-8)', () => {
+  it('Follow_ConsumerDisconnect_HandleDisposedRegistryZero', () => {
+    const log = new FakeLog();
+    const clock = new ManualClock();
+    const registry = new SubscriptionRegistry(log, { clock });
+    const frames: Frame[] = [];
+    const controller = new AbortController();
+
+    // CLI `inspect --follow` over a REAL DR-1 registry. The CLI wires SIGINT →
+    // this AbortController (the "consumer disconnect" entry point).
+    const handle = runInspectFollow({
+      subscribe: registryFollowSubscribe(registry),
+      featureId: STREAM,
+      fromSequence: 0,
+      onFrame: (f) => frames.push(f),
+      signal: controller.signal,
+      clock,
+    });
+    expect(registry.size).toBe(1); // one live subscription while following
+    expect(handle.disposed()).toBe(false);
+
+    // Consumer disconnects (^C). The AbortSignal route MUST reach the single
+    // handle.dispose() and drain the registry.
+    controller.abort();
+
+    expect(handle.disposed()).toBe(true);
+    expect(registry.size).toBe(0); // NO leak — sole disposal route reached dispose()
+    expect(frames.at(-1)).toEqual({ type: 'end', reason: 'aborted' });
+
+    // Idempotent: a redundant teardown after abort neither throws nor resurrects.
+    handle.dispose();
+    expect(registry.size).toBe(0);
+  });
+
+  it('Follow_DisposeBeforeAbort_AbortListenerRemovedNoSignalLeak', async () => {
+    // Disposal source hardening (follow-loop.ts): a stream ended by dispose()
+    // (never abort) must not leave a live `abort` listener pinned to a
+    // long-lived external signal. The registry sub is disposed either way; this
+    // pins the SIGNAL-listener half of "NO leak".
+    const log = new FakeLog();
+    const clock = new ManualClock();
+    const registry = new SubscriptionRegistry(log, { clock });
+    const probe = countingAbortSignal();
+
+    const handle = runInspectFollow({
+      subscribe: registryFollowSubscribe(registry),
+      featureId: STREAM,
+      fromSequence: 0,
+      onFrame: () => {},
+      signal: probe.signal,
+      clock,
+    });
+    expect(registry.size).toBe(1);
+    expect(probe.liveAbortListeners()).toBe(1); // listener armed while following
+
+    // End via dispose() — the OTHER convergence into the single end() route,
+    // with NO abort ever firing on the external signal.
+    handle.dispose();
+    await handle.done;
+
+    expect(handle.disposed()).toBe(true);
+    expect(registry.size).toBe(0); // subscription disposed
+    expect(probe.liveAbortListeners()).toBe(0); // abort listener removed — no signal leak
+  });
+
+  it('TasksCancel_MidFollow_HandleDisposed', () => {
+    const log = new FakeLog();
+    const clock = new ManualClock();
+    const registry = new SubscriptionRegistry(log, { clock });
+    const frames: Frame[] = [];
+
+    // MCP Tasks arm — the disposal entry point is `tasks/cancel` (no POSIX
+    // signal; the SDK cancel folds into the carrier's internal AbortController).
+    const handle = tasksFollow({
+      subscribe: registryFollowSubscribe(registry),
+      featureId: STREAM,
+      fromSequence: 0,
+      onFrame: (f) => frames.push(f),
+      clock,
+    });
+    expect(registry.size).toBe(1);
+
+    // Mid-follow: an in-process commit is delivered as an event frame BEFORE the
+    // cancel — the disposal happens partway through a live tail.
+    log.commit(STREAM, T1);
+    registry.wake(STREAM);
+    const eventSeqs = frames
+      .filter((f) => f.type === 'event')
+      .map((f) => (f as { sequence: number }).sequence);
+    expect(eventSeqs).toEqual([1]);
+
+    // tasks/cancel → cancel() → controller.abort() + inner.dispose(), both
+    // folding into the ONE handle.dispose() (task-009 single disposal route).
+    handle.cancel();
+    expect(handle.disposed()).toBe(true);
+    expect(registry.size).toBe(0); // disposed, NOT leaked
+    expect(frames.at(-1)).toEqual({ type: 'end', reason: 'aborted' });
+
+    // Idempotent — a repeat cancel neither re-disposes nor resurrects the sub.
+    handle.cancel();
+    expect(registry.size).toBe(0);
+  });
+
+  it('TasksFollow_EndsBeforeExternalAbort_ExternalListenerRemovedNoSignalLeak', async () => {
+    // Disposal source hardening (tasks-methods.ts): an external (server/session)
+    // signal folded into the carrier must have its `abort` listener dropped once
+    // the follow ends by cancel/dispose, so a long-lived signal does not retain
+    // it after the follow is gone. The registry sub is disposed either way.
+    const log = new FakeLog();
+    const clock = new ManualClock();
+    const registry = new SubscriptionRegistry(log, { clock });
+    const probe = countingAbortSignal();
+
+    const handle = tasksFollow({
+      subscribe: registryFollowSubscribe(registry),
+      featureId: STREAM,
+      fromSequence: 0,
+      onFrame: () => {},
+      clock,
+      signal: probe.signal, // external abort folded into the internal controller
+    });
+    expect(registry.size).toBe(1);
+    expect(probe.liveAbortListeners()).toBe(1); // external listener armed
+
+    // End via cancel() — the external signal itself NEVER aborts, so `{ once }`
+    // auto-removal does not apply; only the explicit teardown removes it.
+    handle.cancel();
+    await handle.done;
+
+    expect(handle.disposed()).toBe(true);
+    expect(registry.size).toBe(0);
+    expect(probe.liveAbortListeners()).toBe(0); // external listener removed — no signal leak
+  });
+});
+
+// ─── DR-1/DR-8: concurrent waits + N-way registry concurrency (task-017) ──────
+//
+// Concurrent consumers on ONE stream each own an INDEPENDENT DR-1 subscription
+// (task-010: each `wait` owns its own handle), so one resolving/disposing never
+// settles or starves another, and each subscriber sees ONLY its own matches.
+// The named case drives the REAL `handleViewWait`; the property generalizes to
+// N concurrent subscribe/dispose/append interleavings over the registry.
+
+/** Reach the store's lazily-created registry to observe/assert leak state. */
+function registryOf(store: EventStore): SubscriptionRegistry | undefined {
+  return (store as unknown as { subscriptions?: SubscriptionRegistry }).subscriptions;
+}
+
+/** Yield (macrotask) until the store's registry reaches `n` live subscriptions. */
+async function waitForRegistrySize(store: EventStore, n: number): Promise<void> {
+  for (let i = 0; i < 200; i++) {
+    if ((registryOf(store)?.size ?? 0) === n) return;
+    await new Promise((r) => setImmediate(r));
+  }
+  throw new Error(`registry size never reached ${n} (was ${registryOf(store)?.size ?? 0})`);
+}
+
+describe('Concurrent waits on one stream resolve independently (DR-1/DR-8)', () => {
+  it('Wait_ConcurrentSameStream_BothResolveIndependently', async () => {
+    const dir = makeTempDir('wait-concurrent-');
+    const store = new EventStore(dir);
+    await store.initialize();
+    const ctx = { stateDir: dir, eventStore: store, enableTelemetry: false } as unknown as DispatchContext;
+    const clock = new ManualClock();
+    // Deterministic deps (INV-16): injected floor clock + a deadline that never
+    // fires (both waits resolve on Tier-1 in-process wakes).
+    const deps: WaitDeps = {
+      now: () => 1000,
+      scheduleTimeout: () => () => {},
+      subscriptionOptions: { clock },
+    };
+    const featureId = 'feat-concurrent';
+    try {
+      await store.append(featureId, {
+        type: 'workflow.started',
+        data: { featureId, workflowType: 'feature' },
+      });
+
+      // Two concurrent waits on the SAME stream, DIFFERENT phase targets — each
+      // registers its own DR-1 subscription on one registry.
+      const w1 = handleViewWait({ featureId, phase: 'plan-review', timeoutMs: 60_000 }, ctx, deps);
+      const w2 = handleViewWait({ featureId, phase: 'delegate', timeoutMs: 60_000 }, ctx, deps);
+      await waitForRegistrySize(store, 2); // both subscribed: two live handles, one stream
+
+      // First transition: the Tier-1 wake fans out to BOTH subscriptions, but
+      // only w1's predicate is satisfied — w2 stays pending (independence).
+      await store.append(featureId, {
+        type: 'workflow.transition',
+        data: { from: 'plan', to: 'plan-review', featureId },
+      });
+      const r1 = await w1;
+      expect(r1.success).toBe(true);
+      expect((r1.data as { phase?: string }).phase).toBe('plan-review');
+      // Resolved via its OWN subscription (perf surfaced) on a Tier-1 wake.
+      expect((r1.data as { perf?: { floorTicks: number } }).perf?.floorTicks).toBe(0);
+
+      // w1 disposed its handle; w2's subscription is untouched (size 2 → 1).
+      await waitForRegistrySize(store, 1);
+      const PENDING = Symbol('pending');
+      expect(await Promise.race([w2, Promise.resolve(PENDING)])).toBe(PENDING); // w2 still pending
+
+      // Second transition: now w2 resolves — independently, on the SAME stream.
+      await store.append(featureId, {
+        type: 'workflow.transition',
+        data: { from: 'plan-review', to: 'delegate', featureId },
+      });
+      const r2 = await w2;
+      expect(r2.success).toBe(true);
+      expect((r2.data as { phase?: string }).phase).toBe('delegate');
+
+      // Both waits disposed their handles → registry drained to zero (no leak).
+      await waitForRegistrySize(store, 0);
+    } finally {
+      store.close();
+      rmrf(dir);
+    }
+  });
+
+  it('Registry_ConcurrentSubscribeDisposeAppendInterleavings_ConsistentAndScoped', () => {
+    // Property: for ANY set of concurrent subscribers on one stream (each with
+    // its own filter and its own disposal point) and ANY interleaving of own
+    // (Tier-1 wake) / foreign (Tier-2 tick) appends, the registry stays
+    // consistent (returns to size 0 once all dispose) and every subscriber
+    // receives EXACTLY its own matching events committed while it was alive —
+    // exactly once, in ascending sequence order, with no cross-talk between
+    // siblings.
+    fc.assert(
+      fc.property(
+        fc.record({
+          ops: fc.array(
+            fc.record({ type: fc.constantFrom(T1, T2, T3), foreign: fc.boolean() }),
+            { minLength: 0, maxLength: 16 },
+          ),
+          subs: fc.array(
+            fc.record({ filterTypes: fc.subarray([T1, T2, T3]), disposeAt: fc.nat() }),
+            { minLength: 1, maxLength: 5 },
+          ),
+        }),
+        ({ ops, subs }) => {
+          const log = new FakeLog();
+          const clock = new ManualClock();
+          const registry = new SubscriptionRegistry(log, { clock });
+          const n = ops.length;
+
+          const state = subs.map((s) => {
+            const received: WorkflowEvent[] = [];
+            const filter =
+              s.filterTypes.length > 0
+                ? { streamId: STREAM, eventTypes: s.filterTypes }
+                : { streamId: STREAM };
+            const handle = registry.subscribe(filter, (e) => received.push(e));
+            return {
+              s,
+              received,
+              handle,
+              disposeBefore: s.disposeAt % (n + 1), // dispose just before this op index
+              disposed: false,
+            };
+          });
+          expect(registry.size).toBe(subs.length); // all concurrently live at op 0
+
+          for (let i = 0; i < n; i++) {
+            // Any subscriber scheduled to end before op i disposes now — it must
+            // not observe op i onward.
+            for (const st of state) {
+              if (!st.disposed && st.disposeBefore === i) {
+                st.handle.dispose();
+                st.disposed = true;
+              }
+            }
+            const op = ops[i];
+            if (op.foreign) {
+              log.commitForeign(STREAM, op.type); // no Tier-1 wake — only a tick pulls it
+            } else {
+              log.commit(STREAM, op.type);
+              registry.wake(STREAM);
+            }
+            clock.fireAll(); // tick each op so foreign commits are flushed deterministically
+          }
+          // Dispose the survivors.
+          for (const st of state) {
+            if (!st.disposed) {
+              st.handle.dispose();
+              st.disposed = true;
+            }
+          }
+          expect(registry.size).toBe(0); // consistent — every handle removed, no leak
+
+          for (const st of state) {
+            const matches = (t: string) =>
+              st.s.filterTypes.length === 0 || st.s.filterTypes.includes(t);
+            const expected: number[] = [];
+            for (let i = 0; i < st.disposeBefore; i++) {
+              if (matches(ops[i].type)) expected.push(i + 1); // seq is 1-based op index
+            }
+            const got = st.received.map((e) => e.sequence);
+            expect(got).toEqual(expected); // only its matches, in order, none post-dispose
+            expect(new Set(got).size).toBe(got.length); // exactly once
+          }
+        },
+      ),
+      { numRuns: 300 },
+    );
+  });
+});
+
+// ─── DR-8: Windows handle-close / INV-16 poll-floor mechanics (task-017) ──────
+//
+// The Tier-2 poll floor stands on a real SQLite connection. On Windows an open
+// statement pins the handle so the DB cannot close and the file cannot be
+// deleted (#1620 handle-close class). These tests assert the floor holds NO
+// open statement across ticks: every foreign commit stays visible tick-over-tick
+// (no pinned read snapshot) AND both connections close cleanly afterwards
+// (better-sqlite3 throws on close with an open statement — the portable stand-in
+// for the Windows handle pin). Two-connection contention is made safe by the
+// explicit `busy_timeout` the test verifies on BOTH connections. The injected
+// `ManualClock` drives the floor deterministically — no per-test win32 skips.
+
+/** Read a SqliteBackend connection's `busy_timeout` (per-handle pragma). */
+function readBusyTimeout(backend: SqliteBackend): number {
+  const db = (backend as unknown as { db: Database }).db;
+  const rows = db.query('PRAGMA busy_timeout').all() as Array<Record<string, number>>;
+  const row = rows[0];
+  const value = row.timeout ?? row.busy_timeout ?? row[''];
+  return typeof value === 'number' ? value : Number(value);
+}
+
+describe('Tier-2 poll floor over real SQLite — Windows handle-close (DR-8/INV-16)', () => {
+  it('Floor_RealSqlite_NoOpenStatementAcrossTicks_ClosesCleanBusyTimeout', () => {
+    const dir = makeTempDir('floor-win32-');
+    const dbPath = join(dir, 'exarchos.db');
+    const observer = new SqliteBackend(dbPath);
+    const foreign = new SqliteBackend(dbPath);
+    observer.initialize();
+    foreign.initialize();
+    const clock = new ManualClock();
+    try {
+      // Explicit busy_timeout on BOTH connections — the C-layer silent-absorption
+      // tier that makes two-connection floor contention Windows-safe (the
+      // anti-SQLITE_BUSY posture the poll floor stands on).
+      expect(readBusyTimeout(observer)).toBe(5000);
+      expect(readBusyTimeout(foreign)).toBe(5000);
+
+      // Registry floor over the observer's REAL SQLite reader — the same reader
+      // shape `EventStore.subscribe` wires in production.
+      const reader: SubscriptionEventReader = {
+        headSequence: (s) => observer.getSequence(s),
+        readStreamAfter: (s, after) => observer.queryEvents(s, { sinceSequence: after }),
+        listStreams: () => observer.listStreams(),
+        dataVersion: () => observer.dataVersion(),
+      };
+      const registry = new SubscriptionRegistry(reader, { clock });
+      const received: number[] = [];
+      const handle = registry.subscribe({ streamId: STREAM }, (e) => received.push(e.sequence));
+
+      // Drive many floor ticks, each after a FOREIGN commit. If the floor pinned
+      // a read snapshot (an open statement held across ticks), the observer would
+      // stop seeing new foreign rows — so full delivery witnesses "no open
+      // statement across ticks".
+      const TICKS = 8;
+      for (let seq = 1; seq <= TICKS; seq++) {
+        foreign.appendEvent(STREAM, makeEvent(STREAM, seq, T1));
+        clock.fireAll();
+      }
+      expect(received).toEqual([1, 2, 3, 4, 5, 6, 7, 8]); // every foreign commit visible
+
+      handle.dispose();
+      expect(registry.size).toBe(0);
+
+      // #1620 handle-close: no statement pinned across the ticks ⇒ both handles
+      // close cleanly (better-sqlite3 throws on close if a statement is still
+      // open) and the dir is removable — the Windows teardown guarantee.
+      expect(() => observer.close()).not.toThrow();
+      expect(() => foreign.close()).not.toThrow();
+      expect(() => rmrf(dir)).not.toThrow();
+    } catch (err) {
+      // Best-effort teardown on assertion failure (close() is idempotent).
+      observer.close();
+      foreign.close();
+      rmrf(dir);
+      throw err;
+    }
   });
 });
