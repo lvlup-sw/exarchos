@@ -354,16 +354,30 @@ class Subscription {
         ? [this.filter.streamId]
         : this.unionStreams();
 
+    // Assemble the FULL cross-stream batch BEFORE mutating any cursor. For a
+    // cross-stream subscription a later stream's `readStreamAfter` throwing must
+    // not leave EARLIER streams' cursors advanced past events that were never
+    // delivered (DR-1 "no gaps"): the assembled batch is discarded on a mid-loop
+    // throw, so any cursor already advanced would silently skip its events on the
+    // next drain. Stage each stream's cursor target and apply the advances only
+    // once every read has succeeded — a throw leaves every cursor untouched, so
+    // the next drain re-reads from the same positions and redelivers.
     const batch: WorkflowEvent[] = [];
+    const pendingCursors: Array<[streamId: string, tailSequence: number]> = [];
     for (const streamId of streams) {
       const cursor = this.cursors.get(streamId) ?? 0;
       const events = this.reader.readStreamAfter(streamId, cursor);
       if (events.length === 0) continue;
       for (const event of events) batch.push(event);
-      // Advance the cursor PAST every event read (matching or not) so
-      // trailing non-matching events never force a re-scan. Contiguous
+      // STAGE (do not yet apply) the advance PAST every event read (matching or
+      // not) so trailing non-matching events never force a re-scan. Contiguous
       // per-stream sequences make the tail the last element.
-      this.cursors.set(streamId, events[events.length - 1].sequence);
+      pendingCursors.push([streamId, events[events.length - 1].sequence]);
+    }
+
+    // Every read succeeded — now it is safe to commit the cursor advances.
+    for (const [streamId, tailSequence] of pendingCursors) {
+      this.cursors.set(streamId, tailSequence);
     }
 
     if (batch.length === 0) return;
