@@ -61,6 +61,51 @@ export const CLI_EXIT_CODES = {
 
 export type CliExitCode = (typeof CLI_EXIT_CODES)[keyof typeof CLI_EXIT_CODES];
 
+// ─── DR-7: generic errorCode → exit-code map (presentation only) ─────────────
+
+/**
+ * Generic `errorCode → exit-code` table (DR-7). This is PRESENTATION metadata,
+ * NOT business logic: it lets a shell caller branch on a `wait` outcome by exit
+ * code alone (`$? == 17`) without parsing the JSON envelope. The map is a plain
+ * lookup consulted by {@link resolveExitCode} BEFORE the generic
+ * INVALID_INPUT/HANDLER_ERROR fallback, so it is purely additive — any error
+ * code NOT listed here keeps the pre-DR-7 mapping.
+ *
+ * - `WAIT_TIMEOUT` → 17: the bounded `wait` expired before its predicate held.
+ * - `WAIT_FAILED`  → 18: a terminal that can never satisfy the predicate arrived
+ *   first (e.g. a failed/cancelled workflow while waiting for `completed`).
+ *
+ * The codes ride `result.error.code` from the `wait` handler
+ * (`views/lifecycle/wait.ts`); the exit codes (17/18) sit above the 0-3 generic
+ * band so they never alias SUCCESS/INVALID_INPUT/HANDLER_ERROR/UNCAUGHT.
+ */
+export const ERROR_CODE_EXIT_CODES: Readonly<Record<string, number>> = {
+  WAIT_TIMEOUT: 17,
+  WAIT_FAILED: 18,
+};
+
+/**
+ * Map a dispatched {@link ToolResult} to its process exit code (DR-7).
+ *
+ * Resolution order (presentation only — never consulted for control flow):
+ *   1. success            → SUCCESS (0)
+ *   2. code in the DR-7 map → its mapped value (WAIT_TIMEOUT 17 / WAIT_FAILED 18)
+ *   3. code === INVALID_INPUT (VALIDATION_ERROR_CODE) → INVALID_INPUT (1)
+ *   4. any other handler error → HANDLER_ERROR (2)
+ *
+ * Steps 1/3/4 reproduce the pre-DR-7 mapping exactly, so this is a superset:
+ * only the two `wait` codes gain a distinct exit code.
+ */
+export function resolveExitCode(result: ToolResult): number {
+  if (result.success) return CLI_EXIT_CODES.SUCCESS;
+  const code = result.error?.code;
+  if (code !== undefined && Object.prototype.hasOwnProperty.call(ERROR_CODE_EXIT_CODES, code)) {
+    return ERROR_CODE_EXIT_CODES[code];
+  }
+  if (code === VALIDATION_ERROR_CODE) return CLI_EXIT_CODES.INVALID_INPUT;
+  return CLI_EXIT_CODES.HANDLER_ERROR;
+}
+
 // ─── Error-Shape Helpers ────────────────────────────────────────────────────
 
 /**
@@ -1361,19 +1406,17 @@ function registerActionCommand(
     }
 
     // ─── Emit + map to exit code ──────────────────────────────────────
-    // Preserve INVALID_INPUT when the handler reports a validation
-    // failure — collapsing every non-success into HANDLER_ERROR loses
-    // parity with the pre-dispatch INVALID_INPUT path (e.g. a bad arg
-    // that slips past Zod at the CLI layer but is caught by a handler
-    // guard should still report exit 1, not exit 2).
+    // DR-7: `resolveExitCode` funnels the handler result through the generic
+    // errorCode→exitCode table (WAIT_TIMEOUT→17 / WAIT_FAILED→18) BEFORE the
+    // generic fallback. It preserves the prior mapping exactly — INVALID_INPUT
+    // stays exit 1 when the handler reports a validation failure (collapsing
+    // every non-success into HANDLER_ERROR would lose parity with the
+    // pre-dispatch INVALID_INPUT path), any other handler error stays exit 2 —
+    // so only the two structured `wait` codes gain a distinct exit code. The
+    // SAME site serves both the `vw <verb>` subcommand and the DR-7 top-level
+    // promotion (both route through this one registerActionCommand handler).
     emitResult(result, isJson, format);
-    if (result.success) {
-      process.exitCode = CLI_EXIT_CODES.SUCCESS;
-    } else if (result.error?.code === VALIDATION_ERROR_CODE) {
-      process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
-    } else {
-      process.exitCode = CLI_EXIT_CODES.HANDLER_ERROR;
-    }
+    process.exitCode = resolveExitCode(result);
   });
 
   return actionCmd;
