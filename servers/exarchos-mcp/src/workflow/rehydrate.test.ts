@@ -5,8 +5,13 @@ import * as path from 'node:path';
 
 import { EventStore } from '../event-store/store.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
-import { appendSnapshot } from '../projections/store.js';
-import { rebuildProjection } from '../projections/rebuild.js';
+import { appendSnapshot, readLatestSnapshot } from '../projections/store.js';
+import { rebuildProjection, projectAt } from '../projections/rebuild.js';
+import {
+  REHYDRATION_PROJECTION_ID,
+  REHYDRATION_PROJECTION_VERSION,
+} from '../projections/rehydration/identity.js';
+import { handleInit, handleCheckpoint } from './tools.js';
 import {
   RehydrationDocumentSchema,
   type RehydrationDocument,
@@ -14,6 +19,7 @@ import {
 import type {
   WorkflowRehydrated,
   WorkflowProjectionDegraded,
+  WorkflowEvent,
 } from '../event-store/schemas.js';
 // Importing this barrel has a side effect: it registers the rehydration
 // reducer with the process-wide default registry. Import so the handler's
@@ -22,7 +28,11 @@ import '../projections/rehydration/index.js';
 import { rehydrationReducer } from '../projections/rehydration/reducer.js';
 import { initStateFile } from './state-store.js';
 
-import { handleRehydrate, classifyArtifactLayout } from './rehydrate.js';
+import {
+  handleRehydrate,
+  classifyArtifactLayout,
+  hydrateFromSnapshotThenTail,
+} from './rehydrate.js';
 
 /**
  * T031 — `handleRehydrate` happy path
@@ -1197,3 +1207,249 @@ describe('handleRehydrate — in-flight backward-compat (DR-9, task 020)', () =>
     expect(meta.artifactLayout).toBe('unified');
   });
 });
+
+/**
+ * Regression guard for the retirement of the global projection scope (DR-1).
+ *
+ * That change narrowed `ProjectionScope` to `'stream'` and deleted
+ * `readProjection` / `projections/cadence.ts` / `InvalidReducerScopeError`. It
+ * deliberately KEPT the `appendSnapshot` / `readLatestSnapshot` pair, whose
+ * live round trip threads the checkpoint→rehydrate path:
+ *
+ *   `tools.ts::handleCheckpoint`  — writes the snapshot (`appendSnapshot`)
+ *   `rehydrate.ts::hydrateFromSnapshotThenTail` — reads it (warm hydrate)
+ *   `rehydrate.ts::handleRehydrate`             — reads it (handler path)
+ *   `rebuild.ts::projectAt`                     — reads it (warm start)
+ *
+ * The snapshot pair sits one import away from every symbol the retirement
+ * deleted, so "the deletion compiled" is not evidence the round trip still
+ * works. This test pins the whole loop end-to-end through the production
+ * write path.
+ *
+ * ## Why the tracer phase exists
+ *
+ * Asserting only "warm read == cold rebuild" is VACUOUS: if the snapshot were
+ * silently ignored, every read path would simply cold-fold and still agree
+ * with the cold rebuild. The final phase therefore bakes a tracer into the
+ * snapshot state that NO event can produce. It surfaces iff the reader
+ * genuinely consulted the snapshot — a positive control that separates
+ * "warm-start works" from "warm-start is dead code that happens to agree".
+ */
+describe('rehydration snapshot round-trip survives the global-scope retirement (DR-1)', () => {
+  it('RehydrationCheckpoint_AfterGlobalPathRemoval_RoundTripsUnchanged', async () => {
+    const featureId = 'roundtrip-after-global-removal';
+
+    // ── GIVEN: an initialized workflow with a seeded event prefix ───────────
+    const initResult = await handleInit(
+      { featureId, workflowType: 'feature' },
+      stateDir,
+      store,
+    );
+    expect(initResult.success).toBe(true);
+
+    await store.append(featureId, { type: 'task.assigned', data: { taskId: 'T001' } });
+    await store.append(featureId, { type: 'task.completed', data: { taskId: 'T001' } });
+    await store.append(featureId, { type: 'task.assigned', data: { taskId: 'T002' } });
+
+    // ── PHASE 1 — WRITE side: handleCheckpoint materializes a snapshot ──────
+    const cpResult = await handleCheckpoint(
+      { featureId, summary: 'round-trip guard checkpoint' },
+      stateDir,
+      store,
+    );
+    expect(cpResult.success).toBe(true);
+
+    const written = readLatestSnapshot(
+      store.getReadBackend(),
+      featureId,
+      REHYDRATION_PROJECTION_ID,
+      REHYDRATION_PROJECTION_VERSION,
+    );
+
+    // The snapshot must exist and round-trip through SnapshotRecord validation
+    // (`readLatestSnapshot` returns undefined on a schema miss, so a non-
+    // undefined result already proves the payload validated).
+    expect(written).toBeDefined();
+    expect(written!.projectionId).toBe(REHYDRATION_PROJECTION_ID);
+    expect(written!.projectionVersion).toBe(REHYDRATION_PROJECTION_VERSION);
+
+    // `snapshot.sequence` is a real stream coordinate: the sequence of the
+    // `workflow.checkpoint` event, i.e. everything known as of the checkpoint
+    // moment. It is NOT the post-return tip — the handler emits
+    // `workflow.checkpoint_written` AFTER the snapshot write, so the log tip
+    // is one past the snapshot by the time the call returns.
+    const checkpointSeq = await lastSequenceOfType(store, featureId, 'workflow.checkpoint');
+    expect(written!.sequence).toBe(checkpointSeq);
+    expect(await tipSequence(store, featureId)).toBe(checkpointSeq + 1);
+
+    const writtenDoc = RehydrationDocumentSchema.parse(written!.state) as RehydrationDocument;
+    expect(writtenDoc.projectionSequence).toBeLessThan(written!.sequence);
+
+    // The persisted state must equal a cold fold of the log as of the snapshot.
+    const coldAtCheckpoint = (await rebuildProjection(
+      rehydrationReducer,
+      store,
+      featureId,
+    )) as RehydrationDocument;
+    expect(writtenDoc).toEqual(coldAtCheckpoint);
+
+    // ── PHASE 2 — READ side: every warm path agrees with a cold replay ──────
+    // Tail events land strictly after the snapshot's sequence; a reader that
+    // mishandles `sinceSequence` will drop or double-apply them.
+    await store.append(featureId, { type: 'task.completed', data: { taskId: 'T002' } });
+    await store.append(featureId, { type: 'task.assigned', data: { taskId: 'T003' } });
+    await store.append(featureId, { type: 'task.failed', data: { taskId: 'T003' } });
+
+    // Cold baseline — `rebuildProjection` never consults snapshots, so it is
+    // the independent oracle for what the warm paths must reproduce (INV-1:
+    // warm-start is an optimisation, never a change in observed state).
+    const cold = (await rebuildProjection(
+      rehydrationReducer,
+      store,
+      featureId,
+    )) as RehydrationDocument;
+
+    // Sanity: the tail actually moved the projection, so the comparisons below
+    // are not all agreeing on a stale snapshot's state.
+    expect(cold).not.toEqual(writtenDoc);
+    expect(statusById(cold)).toEqual({
+      T001: 'complete',
+      T002: 'complete',
+      T003: 'failed',
+    });
+
+    // rehydrate.ts:171 — warm hydrate. Reads the snapshot, folds the tail.
+    const warmHydrate = await hydrateFromSnapshotThenTail<RehydrationDocument, WorkflowEvent>(
+      rehydrationReducer,
+      store,
+      featureId,
+      stateDir,
+      REHYDRATION_PROJECTION_ID,
+      REHYDRATION_PROJECTION_VERSION,
+    );
+    expect(warmHydrate.state).toEqual(cold);
+    // The absorbed stream position must track the log tip, not the handled
+    // count — a stale value here re-feeds absorbed events on the next read.
+    expect(warmHydrate.lastEventSequence).toBe(await tipSequence(store, featureId));
+
+    // rebuild.ts:243 — `projectAt` warm start (unbounded == full replay).
+    const warmProjectAt = await projectAt(rehydrationReducer, store, featureId);
+    expect(warmProjectAt).toEqual(cold);
+
+    // rehydrate.ts:443 — the handler path. Compared last: it appends
+    // `workflow.rehydrated` AFTER folding, so it observes the same log as the
+    // reads above, but mutates the log for anything that follows.
+    const handlerResult = await handleRehydrate(
+      { featureId },
+      { eventStore: store, stateDir },
+    );
+    expect(handlerResult.success).toBe(true);
+    const handlerDoc = handlerResult.data as RehydrationDocument;
+    // `phasePlaybook` is composed live by the handler (T-20) and is not part
+    // of the snapshot round trip, so it is normalized out of the comparison
+    // rather than re-derived here (which would just re-assert the handler's
+    // own logic against itself).
+    expect(withoutPlaybook(handlerDoc)).toEqual(withoutPlaybook(cold));
+
+    // ── PHASE 3 — the snapshot is genuinely consulted (anti-vacuity) ────────
+    // Bake a tracer task into the snapshot state that no event in the stream
+    // can ever produce, pinned at the current log tip. Every read path must
+    // surface it; the cold rebuild must not.
+    const tracerAnchor = await tipSequence(store, featureId);
+    const coldAtAnchor = (await rebuildProjection(
+      rehydrationReducer,
+      store,
+      featureId,
+    )) as RehydrationDocument;
+    const tracerState: RehydrationDocument = {
+      ...coldAtAnchor,
+      taskProgress: [...coldAtAnchor.taskProgress, { id: TRACER_TASK_ID, status: 'complete' }],
+    };
+    appendSnapshot(store.getReadBackend(), featureId, {
+      projectionId: REHYDRATION_PROJECTION_ID,
+      projectionVersion: REHYDRATION_PROJECTION_VERSION,
+      sequence: tracerAnchor,
+      state: tracerState,
+      timestamp: new Date().toISOString(),
+    });
+
+    // One more tail event after the tracer snapshot, so each read must BOTH
+    // seed from the snapshot (tracer present) and fold the tail (T004 present).
+    await store.append(featureId, { type: 'task.assigned', data: { taskId: 'T004' } });
+
+    const coldAfterTracer = (await rebuildProjection(
+      rehydrationReducer,
+      store,
+      featureId,
+    )) as RehydrationDocument;
+    // Negative control: the tracer is not reachable from the event log.
+    expect(statusById(coldAfterTracer)).not.toHaveProperty(TRACER_TASK_ID);
+    expect(statusById(coldAfterTracer)).toHaveProperty('T004', 'in_progress');
+
+    // Positive control, once per read path.
+    const tracedHydrate = await hydrateFromSnapshotThenTail<RehydrationDocument, WorkflowEvent>(
+      rehydrationReducer,
+      store,
+      featureId,
+      stateDir,
+      REHYDRATION_PROJECTION_ID,
+      REHYDRATION_PROJECTION_VERSION,
+    );
+    expect(statusById(tracedHydrate.state)).toHaveProperty(TRACER_TASK_ID, 'complete');
+    expect(statusById(tracedHydrate.state)).toHaveProperty('T004', 'in_progress');
+
+    const tracedProjectAt = (await projectAt(
+      rehydrationReducer,
+      store,
+      featureId,
+    )) as RehydrationDocument;
+    expect(statusById(tracedProjectAt)).toHaveProperty(TRACER_TASK_ID, 'complete');
+    expect(statusById(tracedProjectAt)).toHaveProperty('T004', 'in_progress');
+
+    const tracedHandler = await handleRehydrate(
+      { featureId },
+      { eventStore: store, stateDir },
+    );
+    expect(tracedHandler.success).toBe(true);
+    const tracedDoc = tracedHandler.data as RehydrationDocument;
+    expect(statusById(tracedDoc)).toHaveProperty(TRACER_TASK_ID, 'complete');
+    expect(statusById(tracedDoc)).toHaveProperty('T004', 'in_progress');
+  });
+});
+
+/** Task id no event can produce — see the tracer phase above. */
+const TRACER_TASK_ID = 'T-SNAPSHOT-TRACER';
+
+/** Highest event-store sequence currently in `streamId`, or 0 when empty. */
+async function tipSequence(eventStore: EventStore, streamId: string): Promise<number> {
+  const events = await eventStore.query(streamId);
+  return events.length > 0 ? events[events.length - 1].sequence : 0;
+}
+
+/** Sequence of the last event of `type` in `streamId`. Fails loudly if absent. */
+async function lastSequenceOfType(
+  eventStore: EventStore,
+  streamId: string,
+  type: string,
+): Promise<number> {
+  const matches = (await eventStore.query(streamId)).filter((e) => e.type === type);
+  if (matches.length === 0) {
+    throw new Error(`expected at least one '${type}' event in stream '${streamId}'`);
+  }
+  return matches[matches.length - 1].sequence;
+}
+
+/** `taskProgress` as an `{ [id]: status }` map for order-insensitive asserts. */
+function statusById(doc: RehydrationDocument): Record<string, string> {
+  return Object.fromEntries(doc.taskProgress.map((t) => [t.id, t.status]));
+}
+
+/**
+ * Drop the handler-composed `phasePlaybook` so a handler document can be
+ * compared against a raw reducer fold. The playbook is derived from the
+ * registry at handler time, not carried through the snapshot.
+ */
+function withoutPlaybook(doc: RehydrationDocument): Omit<RehydrationDocument, 'phasePlaybook'> {
+  const { phasePlaybook: _phasePlaybook, ...rest } = doc;
+  return rest;
+}

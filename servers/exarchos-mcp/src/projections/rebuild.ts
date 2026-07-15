@@ -149,11 +149,16 @@ function foldEvents(
  * `reducer.initial`.
  *
  * The **stream-scoped snapshot contract**: `snapshot.sequence` is the stream
- * sequence of the last event baked into `snapshot.state`. This is DISTINCT from
- * the count-as-position semantics `store.ts::readProjection` uses for GLOBAL
- * reducers (where the HWM is the number of cross-stream events folded). The two
- * must not be conflated — a stream snapshot's sequence is a real event
- * coordinate, not a count.
+ * sequence of the last event baked into `snapshot.state` — a real event
+ * coordinate, which is why it can be compared directly against `effectiveN`
+ * above. It is NOT a count of folded events. The reducer's own
+ * `projectionSequence` IS such a count (it advances only on events the reducer
+ * handles), so the two diverge the moment a stream carries an event type the
+ * reducer ignores. Conflating them would make the eligibility test above
+ * compare a count against a coordinate and warm-start from the wrong point;
+ * writers must therefore persist the absorbed stream position in
+ * `snapshot.sequence`, never `projectionSequence` (see `workflow/tools.ts`'s
+ * checkpoint snapshot write).
  *
  * INV-1 purity: warm-start is an optimisation. Seeding from a snapshot at or
  * before the bound and folding the remaining tail is observationally identical
