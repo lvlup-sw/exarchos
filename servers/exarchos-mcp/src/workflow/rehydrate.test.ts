@@ -1386,6 +1386,19 @@ describe('rehydration snapshot round-trip survives the global-scope retirement (
     expect(statusById(coldAfterTracer)).not.toHaveProperty(TRACER_TASK_ID);
     expect(statusById(coldAfterTracer)).toHaveProperty('T004', 'in_progress');
 
+    // What every warm read must produce: the cold fold, plus the tracer that
+    // only the snapshot can supply. Asserting `projectionSequence` alongside
+    // the status map is load-bearing, NOT belt-and-braces: `task.*` folds are
+    // idempotent by task id, so re-applying events the snapshot already
+    // absorbed leaves every status untouched and moves only this counter. It
+    // is the sole assertion here that can see a `sinceSequence` seeded from
+    // the handled-event count instead of the absorbed stream coordinate —
+    // the exact conflation `rebuild.ts` warns about.
+    const expectedStatuses = {
+      ...statusById(coldAfterTracer),
+      [TRACER_TASK_ID]: 'complete',
+    };
+
     // Positive control, once per read path.
     const tracedHydrate = await hydrateFromSnapshotThenTail<RehydrationDocument, WorkflowEvent>(
       rehydrationReducer,
@@ -1395,16 +1408,16 @@ describe('rehydration snapshot round-trip survives the global-scope retirement (
       REHYDRATION_PROJECTION_ID,
       REHYDRATION_PROJECTION_VERSION,
     );
-    expect(statusById(tracedHydrate.state)).toHaveProperty(TRACER_TASK_ID, 'complete');
-    expect(statusById(tracedHydrate.state)).toHaveProperty('T004', 'in_progress');
+    expect(statusById(tracedHydrate.state)).toEqual(expectedStatuses);
+    expect(tracedHydrate.state.projectionSequence).toBe(coldAfterTracer.projectionSequence);
 
     const tracedProjectAt = (await projectAt(
       rehydrationReducer,
       store,
       featureId,
     )) as RehydrationDocument;
-    expect(statusById(tracedProjectAt)).toHaveProperty(TRACER_TASK_ID, 'complete');
-    expect(statusById(tracedProjectAt)).toHaveProperty('T004', 'in_progress');
+    expect(statusById(tracedProjectAt)).toEqual(expectedStatuses);
+    expect(tracedProjectAt.projectionSequence).toBe(coldAfterTracer.projectionSequence);
 
     const tracedHandler = await handleRehydrate(
       { featureId },
@@ -1412,8 +1425,8 @@ describe('rehydration snapshot round-trip survives the global-scope retirement (
     );
     expect(tracedHandler.success).toBe(true);
     const tracedDoc = tracedHandler.data as RehydrationDocument;
-    expect(statusById(tracedDoc)).toHaveProperty(TRACER_TASK_ID, 'complete');
-    expect(statusById(tracedDoc)).toHaveProperty('T004', 'in_progress');
+    expect(statusById(tracedDoc)).toEqual(expectedStatuses);
+    expect(tracedDoc.projectionSequence).toBe(coldAfterTracer.projectionSequence);
   });
 });
 
