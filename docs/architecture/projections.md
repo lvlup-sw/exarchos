@@ -110,8 +110,18 @@ stream at a time — the stamp now matches what the code always did.
 The corrupting state is unrepresentable rather than merely detected, which is why the
 per-stream primitives (`decide` / `withSession` / `aggregateStream`) carry no runtime
 scope check: `resolveStreamReducer` in `event-store/atomic-appender.ts` resolves the
-reducer id and nothing more. Its former `INVALID_REDUCER_SCOPE` guard was unreachable
-once the union collapsed, and was removed with it.
+reducer id and nothing more. Its former `INVALID_REDUCER_SCOPE` guard was removed with
+the `'global'` scope.
+
+Be precise about *why* that is safe, because the type alone does not carry it. `tsconfig.json`
+excludes `**/*.test.ts`, so the compiler does not enforce the scope in test files — a fixture
+can still author `scope: 'global'`. The removal is safe for three other reasons: every
+production `defaultRegistry.register` call site is a module-load import from a typechecked
+barrel; reducers are code and are never deserialized, so none reaches the registry across a
+trust boundary; and the per-stream primitives query a single `streamId` regardless, so even a
+wrongly-scoped reducer could not fold across streams. **The cross-stream fold died with
+`readProjection`, not with the scope stamp** — the stamp is what makes the mistake hard to
+re-author, not what prevented the corruption.
 
 **If you ever re-widen `ProjectionScope`**, you re-arm the collision above. Re-widening
 MUST land together with (a) a state shape actually keyed by stream, and (b) a restored

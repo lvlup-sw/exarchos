@@ -835,11 +835,18 @@ export class AtomicAppender {
    * Shared by `decide` (Task 3.4), `withSession`, and `aggregateStream`
    * (Task 3.12).
    *
-   * No runtime scope check: `ProjectionScope` is the single literal
-   * `'stream'`, so a wrong-scoped reducer is unrepresentable and the former
-   * `INVALID_REDUCER_SCOPE` guard here was unreachable. The type is the
-   * guard — see `projections/types.ts`. Re-widening that union MUST restore
-   * a runtime check here.
+   * No runtime scope check, and the former `INVALID_REDUCER_SCOPE` guard here
+   * was removed with the `'global'` scope (#1342). Precisely why that is safe:
+   * every production registration is a module-load import from a typechecked
+   * barrel (so `scope: 'global'` cannot be authored there), reducers are code
+   * rather than deserialized data (so none enters via a trust boundary), and
+   * this method's callers query a single `streamId` regardless — a wrongly
+   * scoped reducer could not produce a cross-stream fold here even if one
+   * existed. Note the type is NOT a total guard: `tsconfig.json` excludes test
+   * files from the program, so a fixture can still author `scope: 'global'`.
+   *
+   * Re-widening `ProjectionScope` MUST restore a runtime check here — see
+   * `projections/types.ts`.
    */
   private resolveStreamReducer(
     reducerId: string,

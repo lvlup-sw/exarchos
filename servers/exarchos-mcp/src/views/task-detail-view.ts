@@ -2,7 +2,7 @@
  * TaskDetail view — post-Wave-2A.7 composes over `task-store@v1` (#1284).
  *
  * Pre-2A.7 this projection carried its own per-event switch, duplicating
- * the fold logic that the `task-store@v1` global reducer already encodes.
+ * the fold logic that the canonical `task-store@v1` reducer already encodes.
  * The duplication let the two surfaces drift (e.g. the old view wrote
  * `title: data.title ?? ''` while the canonical reducer writes
  * `title: undefined` when absent — see the cross-fold parity test in

@@ -83,10 +83,26 @@ export interface ProjectionReducer<State, Event> {
    * state **unrepresentable at compile time** rather than merely rejected at
    * runtime.
    *
-   * Consequently the per-stream primitives need no runtime scope check — the
-   * type is the guard. Re-widening {@link ProjectionScope} re-arms the
-   * collision above and MUST re-introduce a runtime guard alongside a state
-   * shape that is actually keyed by stream.
+   * Consequently the per-stream primitives carry no runtime scope check. Three
+   * things make that safe, and the type alone is NOT one of them:
+   *
+   * 1. Every production `defaultRegistry.register` call site is a module-load
+   *    side-effect import from a typechecked barrel, so `scope: 'global'` is a
+   *    compile error at every real authoring site.
+   * 2. Reducers are code, never deserialized — snapshots carry state, not
+   *    reducers — so no reducer crosses a trust boundary into the registry.
+   * 3. Even a wrongly-scoped reducer reaching `decide` / `aggregateStream`
+   *    would fold ONE stream: those read `backend.queryEvents(streamId)`. The
+   *    cross-stream fold died with `readProjection`, not with this stamp.
+   *
+   * The limit worth knowing: `tsconfig.json` excludes test files from the
+   * program, so the compiler does NOT enforce this in a `.test.ts`. A fixture
+   * can still author `scope: 'global'` there. That is a gap in coverage, not in
+   * safety — see (3).
+   *
+   * Re-widening {@link ProjectionScope} re-arms the collision above and MUST
+   * re-introduce a runtime guard alongside a state shape actually keyed by
+   * stream.
    */
   readonly scope: ProjectionScope;
 

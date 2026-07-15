@@ -1,10 +1,16 @@
 /**
  * TaskStore projection reducer — Wave 2A.3 (#1284).
  *
- * `task-store@v1` is a **global** reducer: it folds over `task.*` events from
- * every workflow stream and produces a single indexed view of task records
- * keyed by `taskId`. See `types.ts` for the projected state shape and the
- * status-enum rationale.
+ * `task-store@v1` is a **stream-scoped** reducer: it folds `task.*` events from
+ * ONE workflow stream and produces a view of that feature's task records keyed
+ * by `taskId`. See `types.ts` for the projected state shape and the status-enum
+ * rationale.
+ *
+ * It was authored (#1284) as a global reducer folding every stream. That was
+ * incorrect, and #1342 retired it: `tasks` is keyed by a bare per-feature
+ * ordinal (`'001'`) and `TaskRecord` carries no `featureId`, so folding streams
+ * together merged feature-A's task `001` into feature-B's. The scope must match
+ * the key space. Do not restore the cross-stream reading of this comment.
  *
  * ## Event-to-status map (matches `event-store/schemas.ts`)
  *

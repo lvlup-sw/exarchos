@@ -14,7 +14,8 @@
  * registry's list view; functionally each registration is independent.
  */
 
-// Wave 2A — TaskStore global projection registration (side-effect import)
+// Wave 2A — TaskStore projection registration (side-effect import); the
+// reducer is stream-scoped, not global — see taskstore/reducer.ts (#1342).
 import './taskstore/index.js';
 
 // Wave 2B — mergeOrchestrator per-stream projection registration (side-effect import)
