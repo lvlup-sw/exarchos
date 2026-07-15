@@ -424,6 +424,49 @@ function getStateVersion(state: WorkflowState): number {
 // ─── Write State File Atomically ───────────────────────────────────────────
 
 /**
+ * Attempts to publish a temp file over `target` before giving up. Windows only
+ * ever needs a handful; the ceiling exists so a permanent failure cannot spin.
+ */
+const PUBLISH_RETRY_LIMIT = 10;
+
+/**
+ * Replace `target` with `tmpPath`, tolerating Windows' concurrent-rename race.
+ *
+ * Giving each writer a distinct temp path (see {@link TEMP_FILE_PATTERN}) fixed
+ * writers overwriting each other's temp file, but it left them all replacing ONE
+ * destination. POSIX `rename(2)` defines that: the replace is atomic and a loser
+ * simply overwrites. Windows does not — while one replace is in flight the
+ * destination is briefly held open, and a concurrent `MoveFileEx` fails EPERM (or
+ * EACCES) even though nothing is actually wrong. So the same correct code is
+ * green on Linux and red on Windows, which is why this surfaced only once a
+ * concurrency test existed and only in the win32 lane.
+ *
+ * Retrying is safe because the operation being retried is the *publish*, not the
+ * write: the payload is already fully on disk, each rename is still atomic, and a
+ * reader therefore sees the old bytes or the new bytes and never a torn mix.
+ *
+ * Bounded on purpose. A real permission fault — read-only file, hostile ACL,
+ * antivirus holding a handle — reports EPERM too and is indistinguishable at this
+ * layer, so the loop must terminate and rethrow rather than mask it as a hang.
+ * The retry is gated on win32 so POSIX keeps the single unconditional rename it
+ * is already guaranteed.
+ */
+async function publishTempFile(tmpPath: string, target: string): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await fs.rename(tmpPath, target);
+      return;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      const isWindowsRenameRace =
+        process.platform === 'win32' && (code === 'EPERM' || code === 'EACCES');
+      if (!isWindowsRenameRace || attempt >= PUBLISH_RETRY_LIMIT) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 5 * (attempt + 1)));
+    }
+  }
+}
+
+/**
  * Write a workflow state file atomically using tmp+rename.
  *
  * When `expectedVersion` is provided, performs a Compare-And-Swap (CAS) check:
@@ -543,7 +586,7 @@ export async function writeStateFile(
   const tmpPath = nextTempPath(stateFile, 'tmp');
   try {
     await fs.writeFile(tmpPath, JSON.stringify(stateWithVersion, null, 2), 'utf-8');
-    await fs.rename(tmpPath, stateFile);
+    await publishTempFile(tmpPath, stateFile);
   } catch (err) {
     // Clean up temp file if rename failed
     try {
