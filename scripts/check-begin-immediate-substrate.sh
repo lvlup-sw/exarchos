@@ -47,11 +47,43 @@ SCAN_ROOT="$(cd "$SCAN_ROOT" && pwd)"
 # Violations, tagged by which pattern fired: "<tag>|<file>:<line>:<content>"
 VIOLATIONS=()
 
-# is_exempt <abs_filepath> <content-line>
+# strip_comments <content-line>
+# Echoes <content-line> with comment text removed, so the caller can ask whether
+# the PATTERN survives in real CODE rather than whether the LINE merely looks
+# commented. Line-local by design — the gate greps line by line.
+strip_comments() {
+    local line="$1"
+
+    # 1. Remove every CLOSED `/* ... */` span. These can sit before real code on
+    #    the same line, which is the whole bypass this exists to close.
+    while [[ "$line" =~ ^(.*)/\*.*\*/(.*)$ ]]; do
+        line="${BASH_REMATCH[1]}${BASH_REMATCH[2]}"
+    done
+
+    # 2. If what remains BEGINS with a comment marker, the line is comment-only.
+    #    `*` covers JSDoc continuation lines (` * BEGIN IMMEDIATE …`) — the most
+    #    common documentation shape in this tree by far.
+    local trimmed="${line#"${line%%[![:space:]]*}"}"
+    if [[ "$trimmed" == \** || "$trimmed" == //* || "$trimmed" == \#* || "$trimmed" == /\** ]]; then
+        printf ''
+        return
+    fi
+
+    # 3. Otherwise drop a TRAILING comment: an unterminated block opener, or a
+    #    line comment. `#` is deliberately NOT cut here — it is only a comment as
+    #    a line prefix (step 2). Cutting it mid-line would eat TypeScript private
+    #    fields, so `this.#db.immediate()` would vanish from the scan entirely.
+    line="${line%%/\**}"
+    line="${line%%//*}"
+    printf '%s' "$line"
+}
+
+# is_exempt <abs_filepath> <content-line> <pattern>
 # Returns 0 (true) when this match is an allowed use of the primitive.
 is_exempt() {
     local abs_filepath="$1"
     local content="$2"
+    local pattern="$3"
 
     # Allow: storage substrate
     [[ "$abs_filepath" == */servers/exarchos-mcp/src/storage/* ]] && return 0
@@ -65,15 +97,20 @@ is_exempt() {
     # Allow: __tests__ directories
     [[ "$abs_filepath" == */__tests__/* ]] && return 0
 
-    # Allow: comment lines — JSDoc/inline comments that mention the primitive
-    # in documentation are not statements leaking through the abstraction.
-    # Check if the content line is a comment (leading whitespace then *, //,
-    # /*, or # before any non-whitespace). /* covers block-comment opener lines
-    # like `/* ... BEGIN IMMEDIATE` so documentation snippets and disabled
-    # examples don't trip the gate.
-    # (CodeRabbit review #4278133032 on PR #1344.)
-    local trimmed="${content#"${content%%[![:space:]]*}"}"  # ltrim whitespace
-    if [[ "$trimmed" == \** || "$trimmed" == //* || "$trimmed" == \#* || "$trimmed" == /\** ]]; then
+    # Allow: comments — documentation mentioning the primitive is not a use of
+    # it. The question is whether the TOKEN is inside a comment, NOT whether the
+    # line begins with one. Testing the line prefix (the original approach) let
+    # real code hide behind a comment that merely came first:
+    #
+    #     /* rationale */ txn.immediate();   <- line starts with /*, so exempt
+    #
+    # A gate a comment prefix disarms is not a gate. So strip the comment text
+    # and re-ask whether the pattern still matches what is left; if it does, the
+    # token is live code regardless of what preceded it.
+    # (Original prefix rule: CodeRabbit review #4278133032 on PR #1344.)
+    local code
+    code="$(strip_comments "$content")"
+    if ! printf '%s' "$code" | grep -qE "$pattern"; then
         return 0
     fi
 
@@ -88,17 +125,44 @@ scan() {
     local matches=()
 
     # grep exits 0 if matches found, 1 if no matches, 2+ on error.
-    # Exclude generated/dependency dirs that rg would skip via .gitignore.
-    mapfile -t matches < <(
-        grep -rnE "$pattern" "$SCAN_ROOT" \
-            --include="*.ts" \
-            --include="*.sql" \
-            --exclude-dir=node_modules \
-            --exclude-dir=.git \
-            --exclude-dir=dist \
-            --exclude-dir=".claude" \
-            2>/dev/null || true
-    )
+    #
+    # FAIL CLOSED on 2+. The original `2>/dev/null || true` collapsed all three
+    # into "no matches", so an unreadable path — a permissions problem, a broken
+    # symlink, a mount hiccup on a runner — silently turned a red gate green and
+    # reported "OK: no leaks found". A scan that could not look is not a scan
+    # that found nothing; only status 1 means that.
+    #
+    # stderr is captured separately from stdout: folding it into `matches` with
+    # `2>&1` would feed grep's own error text back through the match parser.
+    #
+    # grep's status is captured via a temp file rather than `mapfile < <(grep …)`.
+    # Process substitution reports MAPFILE's status, not grep's, so the earlier
+    # `|| status=$?` form silently always saw 0 and this guard never fired — the
+    # fail-open it was written to close survived it verbatim.
+    local status=0
+    local outfile errfile
+    outfile="$(mktemp)"
+    errfile="$(mktemp)"
+    grep -rnE "$pattern" "$SCAN_ROOT" \
+        --include="*.ts" \
+        --include="*.sql" \
+        --exclude-dir=node_modules \
+        --exclude-dir=.git \
+        --exclude-dir=dist \
+        --exclude-dir=".claude" \
+        >"$outfile" 2>"$errfile" || status=$?
+
+    mapfile -t matches <"$outfile"
+    rm -f "$outfile"
+
+    if [[ $status -gt 1 ]]; then
+        echo "ERROR: scan for '${tag}' failed (grep exit ${status}) — refusing to report a" >&2
+        echo "green gate from an incomplete scan. grep said:" >&2
+        sed 's/^/  /' "$errfile" >&2
+        rm -f "$errfile"
+        exit 2
+    fi
+    rm -f "$errfile"
 
     local match filepath abs_filepath content
     for match in "${matches[@]}"; do
@@ -111,7 +175,7 @@ scan() {
         content="${match#*:}"    # strip filepath
         content="${content#*:}"  # strip lineno
 
-        if is_exempt "$abs_filepath" "$content"; then
+        if is_exempt "$abs_filepath" "$content" "$pattern"; then
             continue
         fi
 
