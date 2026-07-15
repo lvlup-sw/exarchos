@@ -1083,7 +1083,9 @@ export class WorktreeManager {
         WORKTREES_STREAM,
         {
           type: 'prune.executing_started',
-          data: { operationId, repoRoot, holderPid, holderStartedAt },
+          // DR-2 — canonical liveness instance key (prune: the existing
+          // per-pass operationId). Additive; paired to `prune.executed`.
+          data: { operationId, repoRoot, holderPid, holderStartedAt, instanceId: operationId },
         },
         { idempotencyKey: `prune.executing_started:${operationId}` },
       ),
@@ -1105,7 +1107,9 @@ export class WorktreeManager {
         WORKTREES_STREAM,
         {
           type: 'prune.executed',
-          data: { operationId, deletedCount },
+          // DR-2 — canonical liveness instance key (prune: the existing
+          // per-pass operationId), paired to `prune.executing_started`.
+          data: { operationId, deletedCount, instanceId: operationId },
         },
         { idempotencyKey: `prune.executed:${operationId}` },
       ),

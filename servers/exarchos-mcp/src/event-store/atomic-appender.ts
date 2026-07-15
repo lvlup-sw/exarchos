@@ -366,6 +366,21 @@ export class AtomicAppender {
   /** Durability posture for lazily-constructed backends (DR-4). */
   private readonly synchronous?: 'normal' | 'full';
 
+  /**
+   * DR-1 Tier-1 post-commit hook (#1315). Fired with the committed stream id
+   * AFTER the append transaction commits AND AFTER the per-stream mutex
+   * releases — never inside the lock, so a listener that itself appends to
+   * the same stream re-enters the normal append path without deadlocking the
+   * non-reentrant Promise-chain mutex. Only fresh commits fire it:
+   * INV-8 idempotency cache-hits (pre-transaction short-circuit) and every
+   * failure branch commit nothing and do NOT wake.
+   *
+   * Wired by `EventStore` to the `SubscriptionRegistry`. Undefined until the
+   * first subscription is registered, so the zero-subscriber hot path costs a
+   * single `undefined` check in {@link notifyCommit}.
+   */
+  private commitHook?: (streamId: string) => void;
+
   constructor(options: AtomicAppenderOptions) {
     this.stateDir = options.stateDir;
     this.sqliteDbFilename = options.sqliteDbFilename ?? STORE_DB_FILENAME;
@@ -383,15 +398,40 @@ export class AtomicAppender {
     }
   }
 
+  /**
+   * Install (or clear) the DR-1 Tier-1 post-commit hook (#1315). Idempotent
+   * setter owned by `EventStore`; passing `undefined` detaches it. See
+   * {@link commitHook}.
+   */
+  setCommitHook(hook: ((streamId: string) => void) | undefined): void {
+    this.commitHook = hook;
+  }
+
+  /**
+   * Fire the Tier-1 hook iff a fresh commit happened. Called by every append
+   * entry point AFTER `runExclusive` has resolved — i.e. after the per-stream
+   * mutex's `finally` released the lock — so the hook runs outside the lock
+   * (deadlock-free re-entrant append) and only for `kind: 'committed'`
+   * (INV-8 cache-hits and failures never wake). Zero-subscriber hot path:
+   * a single `undefined` guard, no allocation, no listener work.
+   */
+  private notifyCommit(streamId: string, result: AppendResult): void {
+    const hook = this.commitHook;
+    if (hook === undefined) return;
+    if (result.ok && result.kind === 'committed') hook(streamId);
+  }
+
   async append(
     streamId: string,
     events: EventInput[],
     idempotencyKey: string,
     options?: AppendOptions,
   ): Promise<AppendResult> {
-    return this.locks.runExclusive(streamId, () =>
+    const result = await this.locks.runExclusive(streamId, () =>
       this.appendSqliteLocked(streamId, events, { idempotencyKey }, options),
     );
+    this.notifyCommit(streamId, result);
+    return result;
   }
 
   /**
@@ -407,9 +447,11 @@ export class AtomicAppender {
     events: EventInput[],
     options?: AppendOptions,
   ): Promise<AppendResult> {
-    return this.locks.runExclusive(streamId, () =>
+    const result = await this.locks.runExclusive(streamId, () =>
       this.appendSqliteLocked(streamId, events, null, options),
     );
+    this.notifyCommit(streamId, result);
+    return result;
   }
 
   /**
@@ -432,7 +474,7 @@ export class AtomicAppender {
     compute: () => Promise<EventInput[]>,
     options?: AppendOptions,
   ): Promise<AppendResult> {
-    return this.locks.runExclusive(streamId, async () => {
+    const result = await this.locks.runExclusive(streamId, async () => {
       const events = await compute();
       return this.appendSqliteLocked(
         streamId,
@@ -441,6 +483,8 @@ export class AtomicAppender {
         options,
       );
     });
+    this.notifyCommit(streamId, result);
+    return result;
   }
 
   /**

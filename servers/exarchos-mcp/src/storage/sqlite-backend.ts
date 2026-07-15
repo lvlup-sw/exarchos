@@ -4,7 +4,15 @@ import { dirname, join, basename, resolve, relative, isAbsolute } from 'node:pat
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import type { WorkflowState } from '../workflow/types.js';
 import type { QueryFilters } from '../event-store/store.js';
-import type { StorageBackend, EventSender, ViewCacheEntry, DrainResult } from './backend.js';
+import type {
+  StorageBackend,
+  EventSender,
+  ViewCacheEntry,
+  DrainResult,
+  WorkflowSummary,
+  WorkflowSummaryFilter,
+} from './backend.js';
+import { deriveWorkflowStatus, matchesWorkflowSummaryFilter } from './backend.js';
 import { VersionConflictError } from './memory-backend.js';
 import type { SnapshotRecord } from '../projections/snapshot-schema.js';
 import { resolveMaxRecords } from './snapshot-retention.js';
@@ -198,6 +206,17 @@ interface Statements {
 // ─── SqliteBackend ──────────────────────────────────────────────────────────
 
 const MAX_OUTBOX_RETRIES = 5;
+
+/**
+ * `workflowType` for a summary row: the registry's column when the `streams`
+ * row exists, else the workflow_state row's own copy, else `''`. Used by BOTH
+ * the SELECT projection and the WHERE pushdown in
+ * {@link SqliteBackend.listWorkflowSummaries} so the filtered and projected
+ * values can never disagree. The `''` tail mirrors the in-memory backend's
+ * `typeof state.workflowType === 'string' ? state.workflowType : ''`, keeping
+ * the two backends row-for-row equivalent (INV-2).
+ */
+const WORKFLOW_TYPE_EXPR = `COALESCE(s.workflow_type, json_extract(ws.state, '$.workflowType'), '')`;
 
 /**
  * Bounded retry policy for SQLITE_BUSY surfaced by the substrate
@@ -428,6 +447,19 @@ export class SqliteBackend implements StorageBackend {
    * invisible until users notice the latency.
    */
   private correlationFilteredQueries = 0;
+
+  /**
+   * Counter for {@link listWorkflowSummaries} calls that pushed a
+   * `workflow_type` predicate down to the indexed SQL WHERE (the
+   * `idx_streams_workflow_type` fast path). Incremented ONCE per filtered
+   * query. Exposed via {@link getStats} so the
+   * `WorkflowFold_TypeFilter_PushedDownToIndexedColumn` gate can assert the
+   * type filter took the index path rather than a post-fetch JS scan — a
+   * silent regression to a full workflow_state × streams scan would still
+   * return correct rows and otherwise stay invisible until users notice the
+   * latency.
+   */
+  private workflowTypePushdownQueries = 0;
 
   /**
    * Clock used for outbox retry-eligibility checks. Injectable so tests can
@@ -1540,6 +1572,36 @@ export class SqliteBackend implements StorageBackend {
     return row ? row.sequence : 0;
   }
 
+  /**
+   * Tier-2 poll-floor change token (see {@link StorageBackend.dataVersion}).
+   *
+   * `PRAGMA data_version` is unchanged for commits made on THIS connection
+   * and differs only when another connection (a foreign process) committed
+   * since the pragma last ran. That is precisely the cross-process wake
+   * signal the subscription floor loop needs — the Tier-1 in-process hook
+   * already covers this connection's own commits, so the floor must fire
+   * only on foreign ones. The absolute value is connection-specific and
+   * meaningless; the caller compares successive reads for a change.
+   *
+   * Deliberately NOT a retained prepared statement: the floor loop must
+   * "hold no open SQLite statement across ticks" so it never pins a read
+   * snapshot that would hide the very foreign commit it is polling for. An
+   * inline `query(...).get()` fully reads and finalizes the pragma each call.
+   *
+   * bun:sqlite keys the single pragma column by `data_version`; the
+   * better-sqlite3 test shim does the same. A defensive fallback tolerates
+   * an unnamed column just in case.
+   */
+  dataVersion(): number {
+    const row = this.db.query('PRAGMA data_version').get() as
+      | Record<string, number | string>
+      | undefined;
+    if (!row) return 0;
+    const raw = row.data_version ?? row[''];
+    const value = typeof raw === 'number' ? raw : Number(raw ?? 0);
+    return Number.isFinite(value) ? value : 0;
+  }
+
   listStreams(): string[] {
     const rows = this.db
       .prepare('SELECT DISTINCT streamId FROM sequences ORDER BY streamId')
@@ -1559,8 +1621,11 @@ export class SqliteBackend implements StorageBackend {
    * object) so callers can compose per-subsystem stat snapshots without a
    * shared metrics interface.
    */
-  getStats(): { correlationFilteredQueries: number } {
-    return { correlationFilteredQueries: this.correlationFilteredQueries };
+  getStats(): { correlationFilteredQueries: number; workflowTypePushdownQueries: number } {
+    return {
+      correlationFilteredQueries: this.correlationFilteredQueries,
+      workflowTypePushdownQueries: this.workflowTypePushdownQueries,
+    };
   }
 
   /**
@@ -2067,6 +2132,82 @@ export class SqliteBackend implements StorageBackend {
       featureId: row.featureId,
       state: JSON.parse(row.state) as WorkflowState,
     }));
+  }
+
+  /**
+   * Cross-workflow summary read (DR-3). Real pushdown: the `workflow_type`
+   * predicate is compiled into the SQL WHERE against the
+   * `idx_streams_workflow_type` index — the INNER JOIN of `workflow_state ×
+   * streams` keys the type filter to the indexed registry column rather than
+   * scanning every row's state JSON.
+   *
+   * Per-row fields:
+   *  - `workflowType` from `streams.workflow_type` (the indexed, authoritative
+   *    registry value; equal to the state's own `workflowType` because
+   *    `registerStream` is written with the same value on the init path).
+   *  - `phase` from `json_extract(state, '$.phase')` on the persisted blob.
+   *  - `status` derived from `phase` via the shared {@link deriveWorkflowStatus}.
+   *  - `createdAt` from `MIN(events.timestamp)` per stream — the earliest
+   *    event envelope, i.e. the workflow's creation instant (indexed via
+   *    `idx_events_time (streamId, timestamp)`).
+   *
+   * The lifecycle axes (`status`/`phase`/`includeTerminal`) are applied by the
+   * shared {@link matchesWorkflowSummaryFilter} so this path and the in-memory
+   * path stay row-for-row equivalent. `workflowType` is intentionally NOT
+   * re-checked in JS — the SQL WHERE owns it, keeping the pushdown load-bearing.
+   */
+  listWorkflowSummaries(filter: WorkflowSummaryFilter = {}): WorkflowSummary[] {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+
+    if (filter.workflowType !== undefined) {
+      // Pushdown on the SAME coalesced expression the SELECT projects — NOT on
+      // the bare `s.workflow_type`, which would be NULL for a registry-less row
+      // and re-drop exactly the rows the LEFT JOIN below exists to keep.
+      conditions.push(`${WORKFLOW_TYPE_EXPR} = ?`);
+      params.push(filter.workflowType);
+      this.workflowTypePushdownQueries++;
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    // LEFT JOIN, not INNER: `registerStream()` is attempted on init but its
+    // write errors are swallowed, so a `workflow_state` row can outlive a
+    // missing `streams` row. An INNER JOIN silently OMITS those workflows,
+    // which diverges from the in-memory backend (it reads workflowType off the
+    // state object and never consults a registry) — an INV-2 facade-equivalence
+    // break that makes the same workflow visible via one backend and invisible
+    // via the other. Fall back to the state row's own workflowType.
+    const sql = `
+      SELECT ws.featureId AS featureId,
+             ${WORKFLOW_TYPE_EXPR} AS workflowType,
+             json_extract(ws.state, '$.phase') AS phase,
+             (SELECT MIN(e.timestamp) FROM events e WHERE e.streamId = ws.featureId) AS createdAt
+        FROM workflow_state ws
+        LEFT JOIN streams s ON s.streamId = ws.featureId
+        ${where}
+        ORDER BY ws.featureId ASC`;
+
+    const rows = this.db.prepare(sql).all(...params) as Array<{
+      featureId: string;
+      workflowType: string;
+      phase: string | null;
+      createdAt: string | null;
+    }>;
+
+    const summaries: WorkflowSummary[] = rows.map((row) => {
+      const phase = row.phase ?? '';
+      return {
+        featureId: row.featureId,
+        workflowType: row.workflowType,
+        phase,
+        status: deriveWorkflowStatus(phase),
+        createdAt: row.createdAt ?? null,
+      };
+    });
+
+    // Apply the lifecycle axes only — workflow_type is already SQL-filtered.
+    const lifecycleFilter: WorkflowSummaryFilter = { ...filter, workflowType: undefined };
+    return summaries.filter((summary) => matchesWorkflowSummaryFilter(summary, lifecycleFilter));
   }
 
   // ─── Outbox Operations ──────────────────────────────────────────────────

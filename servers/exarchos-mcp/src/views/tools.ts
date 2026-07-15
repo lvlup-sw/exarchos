@@ -704,7 +704,13 @@ export async function handleViewPipeline(
     // flags auto-emit). `repoRoot` scopes to an arbitrary repo (normalized before
     // compare); `scope` forces `"all"` (unfiltered) or `"repo"` (requires a key).
     repoRoot?: string;
-    scope?: 'repo' | 'all';
+    // The shared `scopeField` (lifecycle `schema-fields.ts`) was widened to the
+    // 4-member union so `pipeline` and `ps` declare ONE `scope` definition on
+    // `exarchos_view` (a divergent enum value set would make
+    // `buildRegistrationSchema` THROW). `pipeline` acts ONLY on the `{repo, all}`
+    // subset; the `ps`-only members (`workflow`/`worktree`) can reach this
+    // handler through the widened registration and are REJECTED below.
+    scope?: 'repo' | 'all' | 'workflow' | 'worktree';
   },
   stateDir: string,
   eventStore: EventStore,
@@ -721,6 +727,39 @@ export async function handleViewPipeline(
   callerRepoKey?: string,
 ): Promise<ToolResult> {
   try {
+    // Subset guard — `pipeline` acts only on the `{repo, all}` axis. The shared
+    // `scopeField` union (widened by task 007 so `pipeline` and `ps` share one
+    // `scope` definition without a flattener collision) can surface a `ps`-only
+    // member (`workflow`/`worktree`) here. GA rejected out-of-subset scopes; the
+    // widening must not silently coerce them to unscoped. Reject with a
+    // structured, self-correcting `INVALID_INPUT` (mirroring how `ps` rejects the
+    // pipeline-only `repo` member — see `views/lifecycle/ps.ts`) rather than a
+    // silent fall-through to the default caller-key / unscoped branch.
+    if (args.scope !== undefined && args.scope !== 'repo' && args.scope !== 'all') {
+      const outOfSubset = args.scope;
+      const isPsScope = outOfSubset === 'workflow' || outOfSubset === 'worktree';
+      return {
+        success: false,
+        error: {
+          code: 'INVALID_INPUT',
+          message:
+            `pipeline: scope '${outOfSubset}' is not a pipeline axis — pipeline scopes are 'repo' | 'all'.` +
+            (isPsScope
+              ? ` ('workflow' | 'worktree' are ps-only scopes — use ps for those.)`
+              : ''),
+          validTargets: ['repo', 'all'],
+          ...(isPsScope
+            ? {
+                suggestedFix: {
+                  tool: 'exarchos_view',
+                  params: { action: 'ps', scope: outOfSubset },
+                },
+              }
+            : {}),
+        },
+      };
+    }
+
     const store = eventStore;
     const materializer = getOrCreateMaterializer(stateDir);
 

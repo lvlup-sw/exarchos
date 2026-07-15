@@ -51,6 +51,15 @@ import {
   formatTransition,
   type FollowSubcommand,
 } from './follow-formatter.js';
+import type { WorkflowEvent } from '../event-store/schemas.js';
+import type {
+  SubscribeOptions,
+  SubscriptionClock,
+  SubscriptionFilter,
+  SubscriptionHandle,
+  SubscriptionListener,
+} from '../event-store/subscriptions.js';
+import type { Frame } from '../ndjson/frames.js';
 
 /**
  * Minimum slice of the SDK `TaskStore` interface the polling loop
@@ -218,4 +227,206 @@ export async function runFollowLoop(
 
     await sleep(pollIntervalMs, signal);
   }
+}
+
+// ─── DR-4: subscription-fed `inspect --follow` carrier ───────────────────────
+//
+// The task-polling loop above (`runFollowLoop`) tails the SDK `TaskStore`
+// projection for the `workflow_status` / `shepherd_status` view actions.
+// `inspect --follow` is a DIFFERENT shape: it tails ONE workflow's raw event
+// stream live over the DR-1 cursor-pump subscription (see
+// `event-store/subscriptions.ts`), framing each delivered event as an NDJSON
+// `event` frame. Both streaming facades — the CLI NDJSON carrier and the MCP
+// Tasks arm (`mcp/tasks-methods.ts`) — drive this SAME core over the SAME
+// subscription contract, so they emit byte-identical frame streams (INV-2).
+//
+// Two invariants shape the core:
+//   • DEDUP BY SEQUENCE (monotonic). A monotonic cursor drops any event whose
+//     sequence is at-or-below the last-emitted one, so the frame stream carries
+//     each sequence EXACTLY ONCE in ascending order. The DR-1 subscription
+//     already guarantees exactly-once in-order delivery; this cursor is
+//     defence-in-depth over that guarantee AND the seam a future snapshot+tail
+//     overlap needs (a snapshot's trailing events re-delivered by the tail's
+//     initial drain collapse to one frame each).
+//   • INJECTED-TIMER HEARTBEAT (INV-16 — no wall-clock). Heartbeat frames on
+//     silence are scheduled through the injected {@link SubscriptionClock}, not
+//     `setInterval` + `Date.now()` directly, so tests drive both the cadence
+//     (`scheduleInterval`) and the frame timestamp (`now`) deterministically.
+//     A tick that follows real event activity RESETS instead of emitting, so a
+//     heartbeat marks a genuine idle gap rather than merely elapsed time.
+//
+// Disposal is AbortSignal-driven (no POSIX-only signal semantics): aborting the
+// signal — SIGINT on the CLI, `tasks/cancel` on the MCP arm — disposes the
+// subscription, cancels the heartbeat, and writes a terminal `end` frame.
+
+/**
+ * The slice of the DR-1 subscription contract the follow carrier drives
+ * (`EventStore.subscribe` satisfies it). Declared structurally so tests can
+ * inject a hermetic subscribe fixture without a real EventStore.
+ */
+export type FollowSubscribe = (
+  filter: SubscriptionFilter,
+  onEvent: SubscriptionListener,
+  options?: SubscribeOptions,
+) => SubscriptionHandle;
+
+/**
+ * Default idle-heartbeat cadence (ms) for the `inspect --follow` carrier —
+ * matches `event query --follow`'s 30s so an HTTP/WS intermediary doesn't tear
+ * down an idle stream.
+ */
+export const DEFAULT_FOLLOW_HEARTBEAT_MS = 30_000;
+
+export interface InspectFollowOptions {
+  /** DR-1 subscription contract (`EventStore.subscribe` in production). */
+  readonly subscribe: FollowSubscribe;
+  /** Workflow to tail — becomes the subscription filter's `streamId`. */
+  readonly featureId: string;
+  /**
+   * Start the cursor here (subscription sees events at-or-after
+   * `fromSequence + 1`). The CLI passes `0` so the follow stream is
+   * self-contained (existing events + live tail); omitting it tails only
+   * events committed after registration.
+   */
+  readonly fromSequence?: number;
+  /** Carrier sink: an NDJSON encoder (CLI) or a task-update pump (MCP). */
+  readonly onFrame: (frame: Frame) => void;
+  /** Disposal handle — abort disposes the subscription and ends the stream. */
+  readonly signal: AbortSignal;
+  /**
+   * Injected heartbeat timer (INV-16). When it omits `scheduleInterval` (a bare
+   * `{ now }` clock) the carrier runs with NO heartbeat; production CLI passes
+   * {@link defaultFollowClock}.
+   */
+  readonly clock?: SubscriptionClock;
+  /** Idle heartbeat interval (ms). Defaults to {@link DEFAULT_FOLLOW_HEARTBEAT_MS}. */
+  readonly heartbeatIntervalMs?: number;
+}
+
+export interface InspectFollowHandle {
+  /** Resolves once the stream has ended (signal aborted or {@link dispose}). */
+  readonly done: Promise<void>;
+  /** True once the underlying DR-1 subscription has been disposed. */
+  disposed(): boolean;
+  /**
+   * Force-dispose (idempotent) — the same teardown the abort path runs. The
+   * MCP `tasks/cancel` arm calls this to turn a task cancellation into a
+   * subscription dispose.
+   */
+  dispose(): void;
+}
+
+/**
+ * A real host-timer clock for the carrier's heartbeat. Unlike the
+ * subscription registry's default clock this interval is deliberately NOT
+ * `unref`'d: the heartbeat is the CLI follow session's keep-alive, holding the
+ * process open until SIGINT aborts the signal (there is no polling loop to do
+ * so). Tests inject a manual clock and never touch this.
+ */
+export function defaultFollowClock(): SubscriptionClock {
+  return {
+    now: () => Date.now(),
+    scheduleInterval: (tick, intervalMs) => {
+      const timer = setInterval(tick, intervalMs);
+      return () => clearInterval(timer);
+    },
+  };
+}
+
+/**
+ * Tail one workflow's event stream as a frame stream over the DR-1
+ * subscription. Returns immediately with a handle; the initial drain (existing
+ * events at-or-after the cursor) is delivered synchronously during
+ * {@link InspectFollowOptions.subscribe}, and live events arrive as the source
+ * commits. The stream ends when the signal aborts or {@link dispose} is called.
+ */
+export function runInspectFollow(opts: InspectFollowOptions): InspectFollowHandle {
+  const heartbeatIntervalMs = opts.heartbeatIntervalMs ?? DEFAULT_FOLLOW_HEARTBEAT_MS;
+
+  // Monotonic dedup cursor. `fromSequence` (when set) is the initial cursor, so
+  // an event re-delivered at or below it is dropped; otherwise start below the
+  // first possible sequence (events are 1-based) so nothing is filtered.
+  let lastEmitted = opts.fromSequence ?? 0;
+  let ended = false;
+  // Set on every emitted event; a heartbeat tick that sees it RESETS instead of
+  // firing, so heartbeats mark genuine idle gaps ("on silence"), not activity.
+  let activitySinceTick = false;
+  let cancelHeartbeat: (() => void) | undefined;
+  let resolveDone!: () => void;
+  const done = new Promise<void>((res) => {
+    resolveDone = res;
+  });
+
+  const handle = opts.subscribe(
+    { streamId: opts.featureId },
+    (event: WorkflowEvent) => {
+      if (ended) return;
+      // DEDUP BY SEQUENCE (monotonic): drop anything not strictly newer.
+      if (event.sequence <= lastEmitted) return;
+      lastEmitted = event.sequence;
+      activitySinceTick = true;
+      opts.onFrame({ type: 'event', event, sequence: event.sequence });
+    },
+    opts.fromSequence !== undefined ? { fromSequence: opts.fromSequence } : undefined,
+  );
+
+  // Call the clock methods as methods (never detach them) so an injected clock
+  // may keep instance state on `this` — matching the subscription registry's
+  // own convention.
+  const clock = opts.clock;
+  const now = (): number => (clock ? clock.now() : Date.now());
+  if (clock?.scheduleInterval) {
+    cancelHeartbeat = clock.scheduleInterval(() => {
+      if (ended) return;
+      // Heartbeat ONLY on silence: a tick that follows real event activity
+      // resets the idle marker rather than emitting a frame (INV-16 timing +
+      // frame timestamp both come from the injected clock — no wall-clock).
+      if (activitySinceTick) {
+        activitySinceTick = false;
+        return;
+      }
+      try {
+        opts.onFrame({ type: 'heartbeat', timestamp: new Date(now()).toISOString() });
+      } catch {
+        // Isolate the caller-supplied sink (NDJSON encoder write / MCP
+        // task-update push) from the tick — same gap, and same containment, as
+        // `Subscription.floorTick()` in event-store/subscriptions.ts. This runs
+        // inside `scheduleInterval`, so an escaping throw is an unhandled
+        // process-level exception rather than one dropped frame. A lost
+        // heartbeat is cosmetic: it carries no state, real event frames flow
+        // through the subscription path, and the next tick re-emits.
+      }
+    }, heartbeatIntervalMs);
+  }
+
+  // Single abort-listener reference so the SAME function can be removed on
+  // teardown — a stream that ends by `dispose()` (never abort) must not leave a
+  // live `abort` listener pinned to a long-lived external AbortSignal (SIGINT
+  // wiring / server session). `{ once: true }` covers the abort-fired case; this
+  // covers the dispose-first case. Both disposal entry points still converge on
+  // the SINGLE `end()` → `handle.dispose()` route.
+  const onAbort = (): void => end('aborted');
+
+  const end = (reason: string): void => {
+    if (ended) return;
+    ended = true;
+    cancelHeartbeat?.();
+    cancelHeartbeat = undefined;
+    opts.signal.removeEventListener('abort', onAbort);
+    handle.dispose();
+    opts.onFrame({ type: 'end', reason });
+    resolveDone();
+  };
+
+  if (opts.signal.aborted) {
+    end('aborted');
+  } else {
+    opts.signal.addEventListener('abort', onAbort, { once: true });
+  }
+
+  return {
+    done,
+    disposed: () => handle.disposed,
+    dispose: () => end('disposed'),
+  };
 }

@@ -102,6 +102,8 @@ export async function emitLaunchExecutingStarted(
           worktreeId: input.worktreeId,
           holderPid: input.holderPid,
           holderStartedAt: input.holderStartedAt,
+          // DR-2 — canonical liveness instance key (launch: worktreeId).
+          instanceId: input.worktreeId,
         },
       },
       { idempotencyKey: `${LAUNCH_EXECUTING_STARTED}:${input.worktreeId}` },
@@ -128,7 +130,12 @@ export async function emitLaunchExecuted(
   await withStateRetry(() =>
     eventStore.append(
       WORKTREES_STREAM,
-      { type: LAUNCH_EXECUTED, data: { worktreeId, exitCode } },
+      {
+        type: LAUNCH_EXECUTED,
+        // DR-2 — canonical liveness instance key (launch: worktreeId), paired
+        // to the `launch.executing_started` START by the same value.
+        data: { worktreeId, exitCode, instanceId: worktreeId },
+      },
       { idempotencyKey: `${LAUNCH_EXECUTED}:${worktreeId}` },
     ),
   );

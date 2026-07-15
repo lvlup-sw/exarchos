@@ -17,6 +17,7 @@
 // that to a Warning carrier rather than failing the gate closed-with-an-error.
 // ────────────────────────────────────────────────────────────────────────────
 
+import { randomUUID } from 'node:crypto';
 import { runCommandSync } from '../utils/process.js';
 import { z } from 'zod';
 
@@ -651,17 +652,46 @@ export async function handleMutationAdequacy(
         })();
 
   // ── Run (injected seam). Bracket with the INV-10 liveness pair. ────────────
+  //
+  // DR-2 / DR-3: stamp a canonical `instanceId` on BOTH the start and terminal
+  // liveness emissions (mirroring `cli-commands/run-mutation.ts`) so a stuck
+  // mutation run is visible to `ps` and waitable via `wait --operation mutation`.
+  // Without it the live emitter emitted keyless rows that `computeInFlightInstances`
+  // could only pair via the DR-2 legacy singleton — one indistinguishable slot per
+  // stream. Reuse the gate `operationId` when present (correlating the liveness
+  // pair with the gate.executed row); otherwise mint a fresh per-pass id.
   const runMutation = args.runMutation ?? defaultRunMutation;
+  const instanceId = args.operationId ?? randomUUID();
   await emitLiveness(eventStore, args.featureId, 'mutation.executing_started', {
     command: scoped.command,
     repoRoot,
+    instanceId,
   });
-  const runResult = await runMutation({ command: scoped.command, repoRoot, base: args.base });
+  // The terminal event must land on EVERY exit path. `defaultRunMutation`
+  // handles its own sync failures, but the injected `runMutation` seam can
+  // still reject — and an unpaired `mutation.executing_started` pins the run
+  // in-flight forever: `ps` reports a phantom executing mutation and
+  // `wait --operation mutation` blocks to timeout, because DR-2 liveness
+  // pairing resolves an instance only when its terminal event arrives.
+  let runResult: MutationRunResult;
+  try {
+    runResult = await runMutation({ command: scoped.command, repoRoot, base: args.base });
+  } catch (err) {
+    await emitLiveness(eventStore, args.featureId, 'mutation.executed', {
+      command: scoped.command,
+      repoRoot,
+      passed: false,
+      exitCode: 1,
+      instanceId,
+    });
+    throw err;
+  }
   await emitLiveness(eventStore, args.featureId, 'mutation.executed', {
     command: scoped.command,
     repoRoot,
     passed: runResult.ok,
     exitCode: runResult.ok ? 0 : 1,
+    instanceId,
   });
 
   // ── Run-level degrade (no parseable report) → Warning, never a throw. ──────
@@ -816,7 +846,27 @@ function warningCarrier(reason: string, scopeWarning?: string): ToolResult {
   };
 }
 
-/** Fire-and-forget liveness emit that never throws into the run path (INV-4 degrade). */
+/**
+ * Fire-and-forget liveness emit that never throws into the run path (INV-4
+ * degrade) — but never silently, either.
+ *
+ * The no-throw is deliberate and stays: a liveness-emission failure must not
+ * fail a mutation run that actually succeeded, and throwing would not close the
+ * gap anyway (a crash between the pair produces the identical unpaired state).
+ *
+ * The two events are NOT symmetric, though, and the asymmetry is why this logs:
+ *   - a lost `mutation.executing_started` is self-healing — no start is
+ *     recorded, so no instance is ever considered in-flight;
+ *   - a lost `mutation.executed` is NOT — `computeInFlightInstances` is a pure
+ *     left-fold with no TTL or age eviction, so the unpaired start reports as
+ *     in-flight to `ps` / `wait --operation mutation` until a registry terminal
+ *     for its `instanceId` is appended (the S-6 recovery path).
+ *
+ * That end state is designed-observable and recoverable, not corruption — but an
+ * empty `catch {}` threw away the one breadcrumb explaining WHY an instance is
+ * stuck. Log it instead, matching the `gate.executed` degrade path's diagnostic
+ * trail (RVC-R4) in this same file.
+ */
 async function emitLiveness(
   store: EventStore,
   stream: string,
@@ -825,7 +875,21 @@ async function emitLiveness(
 ): Promise<void> {
   try {
     await store.append(stream, { type, data });
-  } catch {
-    /* degrade — liveness emission failure must not break the run */
+  } catch (err) {
+    // Terminal-event loss is the consequential one — say so, and name the
+    // instance an operator would otherwise have to reverse-engineer from `ps`.
+    const terminal = type === 'mutation.executed';
+    orchestrateLogger.warn(
+      {
+        stream,
+        type,
+        instanceId: data.instanceId,
+        err: err instanceof Error ? err.message : String(err),
+        ...(terminal ? { consequence: 'unpaired-start-reports-in-flight' } : {}),
+      },
+      terminal
+        ? 'mutation-adequacy: failed to emit terminal mutation.executed — `ps`/`wait --operation mutation` will report this instance in-flight until a registry terminal is appended for it (S-6 recovery)'
+        : 'mutation-adequacy: failed to emit mutation.executing_started — run proceeds untracked',
+    );
   }
 }

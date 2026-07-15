@@ -1021,7 +1021,7 @@ describe('ps — launcher-session liveness (DR-7, Task 018)', () => {
     const listSpy = vi.fn((): readonly ProcessRecord[] => []);
     const table: ProcessTableSource = { list: listSpy };
 
-    const inFlight = await handleView({ action: 'ps' }, ctx, {
+    const inFlight = await handleView({ action: 'ps', scope: 'worktree' }, ctx, {
       processTableSource: table,
       realpath: (p) => p,
     });
@@ -1054,7 +1054,7 @@ describe('ps — launcher-session liveness (DR-7, Task 018)', () => {
     // The terminal folds → the launch column (and its affordance) clear
     // deterministically, again from events alone (no permanent phantom).
     await emitLaunchExecuted(ctx.eventStore, { worktreeId, exitCode: 0 });
-    const cleared = await handleView({ action: 'ps' }, ctx, { realpath: (p) => p });
+    const cleared = await handleView({ action: 'ps', scope: 'worktree' }, ctx, { realpath: (p) => p });
     const clearedData = cleared.data as {
       launches: WorktreeEntry[];
       launchCount: number;

@@ -744,3 +744,27 @@ export async function handleViewWait(
   }
   return waitTimeout(integrationRef, timeoutMs, result.holder);
 }
+
+/**
+ * The WLM-6 worktree `until: merge|idle` wait kernel, ABSORBED as the WORKTREE
+ * SCOPE of the generic `wait` verb (DR-5). The generic router in
+ * `views/lifecycle/wait.ts` delegates here whenever `until` is present; the
+ * feature-scoped phase / status / operation predicates live in that module. This
+ * is the SAME function as {@link handleViewWait} — re-exported under an
+ * intention-revealing name for the generic router — so the frozen WLM-6
+ * characterization/parity suites (which import `handleViewWait`) keep pinning the
+ * unchanged worktree behavior.
+ */
+export const handleWorktreeUntilWait = handleViewWait;
+
+/**
+ * The WLM-6 worktree liveness fold ({@link handleViewPs}), ABSORBED as the
+ * WORKTREE SCOPE of the generic `ps` verb (DR-3, task 007). The scope-
+ * parameterized router in `views/lifecycle/ps.ts` delegates here whenever
+ * `scope: 'worktree'` is selected — so the worktree fold (inFlightMerges /
+ * launches / inFlightPrunes + the `probe: true` reclaim/reconcile write path) is
+ * CONSUMED, never duplicated in the new module. Re-exported under an intention-
+ * revealing name so the frozen WLM-6 characterization/parity/schema suites (which
+ * import `handleViewPs`) keep pinning the unchanged worktree behavior directly.
+ */
+export const handleWorktreeScopePs = handleViewPs;

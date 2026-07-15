@@ -16,12 +16,13 @@
 //   reinvented).
 // ────────────────────────────────────────────────────────────────────────────
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdtempSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { EventStore } from '../event-store/store.js';
+import { orchestrateLogger } from '../logger.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { handleOrchestrate } from './composite.js';
 import type { ResolvedVerificationRuntime } from '../config/test-runtime-resolver.js';
@@ -29,6 +30,7 @@ import { resolveConfig } from '../config/resolve.js';
 import type { ProjectConfig } from '../config/yaml-schema.js';
 import type { MutationRunResult, RunDiff } from './mutation-adequacy.js';
 import { composeScopedCommand } from './mutation-adequacy.js';
+import { foldInFlightOperations, type OperationEventLike } from '../views/lifecycle/operations-fold.js';
 import { resolveMutationDiffScope } from '../config/toolchains.js';
 import { rmrf } from '../test-helpers/temp-dir.js';
 
@@ -718,6 +720,80 @@ describe("mutation-adequacy repoRoot:'auto' resolution (PR #1541 Seer)", () => {
 // ─── Task 004: liveness + gate.executed ──────────────────────────────────────
 
 describe('mutation-adequacy liveness + gate emission', () => {
+  it('MutationAdequacy_TerminalLivenessEmitFails_DegradesWithoutThrowingButLogsTrail', async () => {
+    // The no-throw degrade is deliberate (INV-4): a liveness-emission failure
+    // must not fail a mutation run that actually succeeded. But an empty
+    // `catch {}` also discarded the only breadcrumb — and a lost TERMINAL event
+    // is the consequential case: `computeInFlightInstances` has no TTL, so the
+    // unpaired start reports in-flight to `ps` until an S-6 registry terminal
+    // lands. Degrade, but leave a diagnostic trail (RVC-R4).
+    const { stateDir, eventStore } = await newStore();
+    const ctx = makeCtx(stateDir, eventStore);
+    const warn = vi.spyOn(orchestrateLogger, 'warn').mockImplementation(() => undefined);
+
+    // Fail ONLY the terminal append; the opening one must still land.
+    const realAppend = eventStore.append.bind(eventStore);
+    vi.spyOn(eventStore, 'append').mockImplementation(
+      async (stream: string, event: { type: string }) => {
+        if (event.type === 'mutation.executed') throw new Error('append boom');
+        return realAppend(stream, event);
+      },
+    );
+
+    // The run still completes — the emission failure does not surface as a throw.
+    await expect(dispatchMutation({ eventStore, stateDir })).resolves.toBeDefined();
+
+    // …and the failure is no longer silent: the trail names the terminal type
+    // and the instance an operator would otherwise reverse-engineer from `ps`.
+    const terminalWarn = warn.mock.calls.find(
+      (c) => (c[0] as { type?: string })?.type === 'mutation.executed',
+    );
+    expect(terminalWarn).toBeDefined();
+    expect((terminalWarn![0] as { instanceId?: string }).instanceId).toBeDefined();
+    expect((terminalWarn![0] as { consequence?: string }).consequence).toBe(
+      'unpaired-start-reports-in-flight',
+    );
+
+    vi.restoreAllMocks();
+  });
+
+  it('MutationAdequacy_RunMutationRejects_StillEmitsPairedTerminalExecuted', async () => {
+    // `defaultRunMutation` handles its own sync failures, but the INJECTED
+    // seam can reject. The terminal event must still land: an unpaired
+    // `mutation.executing_started` pins the run in-flight forever — `ps`
+    // reports a phantom executing mutation and `wait --operation mutation`
+    // blocks to timeout, because DR-2 pairing resolves an instance only when
+    // its terminal event arrives.
+    const { stateDir, eventStore } = await newStore();
+    const ctx = makeCtx(stateDir, eventStore);
+
+    await expect(
+      handleOrchestrate(
+        {
+          action: 'mutation-adequacy',
+          featureId: 'feat-mutadq',
+          base: 'main',
+          resolve: () => runtimeWith('npx stryker run'),
+          detectToolchainId: () => 'node',
+          runMutation: () => Promise.reject(new Error('runner exploded')),
+        },
+        ctx,
+      ),
+    ).rejects.toThrow('runner exploded');
+
+    const events = await eventStore.query('feat-mutadq');
+    const started = events.find((e) => e.type === 'mutation.executing_started');
+    const executed = events.find((e) => e.type === 'mutation.executed');
+    expect(started).toBeDefined();
+    // The pair is CLOSED despite the rejection — no phantom in-flight instance.
+    expect(executed).toBeDefined();
+    // …and it closes THIS instance (same instanceId) as a failure.
+    const startedData = started!.data as { instanceId?: string };
+    const executedData = executed!.data as { instanceId?: string; passed?: boolean };
+    expect(executedData.instanceId).toBe(startedData.instanceId);
+    expect(executedData.passed).toBe(false);
+  });
+
   it('MutationAdequacy_Run_EmitsExecutingStartedThenExecuted', async () => {
     const { stateDir, eventStore } = await newStore();
     await dispatchMutation({ eventStore, stateDir });
@@ -728,6 +804,52 @@ describe('mutation-adequacy liveness + gate emission', () => {
     const endIdx = types.indexOf('mutation.executed');
     expect(startIdx).toBeGreaterThanOrEqual(0);
     expect(endIdx).toBeGreaterThan(startIdx);
+  });
+
+  it('MutationAdequacy_LivenessPair_CarriesCanonicalInstanceId_AndFoldsToPaired', async () => {
+    // Finding 3: the LIVE emitter (mutation-adequacy) must stamp a canonical
+    // `instanceId` on BOTH liveness emissions so a stuck mutation run is visible
+    // to `ps` and waitable — not an anonymous keyless row collapsed to the DR-2
+    // singleton. Passing an operationId correlates the instanceId with the gate.
+    const { stateDir, eventStore } = await newStore();
+    await dispatchMutation({ eventStore, stateDir, operationId: 'op-mut-42' });
+
+    const events = await eventStore.query('feat-mutadq');
+    const start = events.find((e) => e.type === 'mutation.executing_started');
+    const end = events.find((e) => e.type === 'mutation.executed');
+    const startId = (start?.data as { instanceId?: unknown } | undefined)?.instanceId;
+    const endId = (end?.data as { instanceId?: unknown } | undefined)?.instanceId;
+
+    // Both emissions carry a non-empty instanceId, equal to each other and to
+    // the supplied operationId (the correlation contract, mirroring run-mutation).
+    expect(typeof startId).toBe('string');
+    expect((startId as string).length).toBeGreaterThan(0);
+    expect(endId).toBe(startId);
+    expect(startId).toBe('op-mut-42');
+
+    // And the pair folds cleanly: the terminal clears the start → nothing stuck.
+    const rows = foldInFlightOperations(events as unknown as OperationEventLike[]);
+    expect(rows.some((r) => r.surface === 'mutation')).toBe(false);
+  });
+
+  it('MutationAdequacy_StuckRun_VisibleToOperationsFold_WithFeatureAttribution', async () => {
+    // The S-6 case at the LIVE-emitter level: if the terminal never lands (a
+    // crashed run — simulated by dropping the `mutation.executed` event), the
+    // unpaired start is surfaced by the fold, keyed by the canonical instanceId
+    // and attributed to the feature stream — exactly what `ps operations` /
+    // `wait --operation mutation` consume.
+    const { stateDir, eventStore } = await newStore();
+    await dispatchMutation({ eventStore, stateDir, operationId: 'op-stuck' });
+
+    const events = (await eventStore.query('feat-mutadq')).filter(
+      (e) => e.type !== 'mutation.executed',
+    );
+    const rows = foldInFlightOperations(events as unknown as OperationEventLike[]);
+    const stuck = rows.find((r) => r.surface === 'mutation');
+    expect(stuck).toBeDefined();
+    expect(stuck?.instanceKey).toBe('op-stuck');
+    expect(stuck?.streamId).toBe('feat-mutadq');
+    expect(stuck?.featureId).toBe('feat-mutadq');
   });
 
   it('MutationAdequacy_Result_EmitsGateExecutedWithScore', async () => {

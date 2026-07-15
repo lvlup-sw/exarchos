@@ -223,6 +223,14 @@ export async function handleExecuteMerge(
   }
   const args = parsed.data;
 
+  // DR-2 — canonical liveness instance key for the merge surface. Stamped
+  // (additive) on both the `merge.executing_started` START and the
+  // `merge.executed` terminal so a uniform INV-10 liveness view can correlate
+  // the pair without merge-specific field knowledge. Prefer the task id; fall
+  // back to the `<sourceBranch>→<targetBranch>` pair for CLI direct-invocation
+  // (no task context), which uniquely identifies the merge in flight.
+  const instanceId = args.taskId ?? `${args.sourceBranch}→${args.targetBranch}`;
+
   const gitExec = input.gitExec ?? defaultGitExec;
   const vcsMerge = input.vcsMerge ?? buildDefaultVcsMerge(input, gitExec);
   const rawPersistState =
@@ -266,6 +274,8 @@ export async function handleExecuteMerge(
             targetBranch: args.targetBranch,
             recoveryPointSha,
             startedAt: new Date().toISOString(),
+            // DR-2 — canonical liveness instance key (additive).
+            instanceId,
           },
         },
         {
@@ -545,6 +555,9 @@ export async function handleExecuteMerge(
             strategy: args.strategy,
             mergeSha: result.mergeSha,
             rollbackSha: result.recoveryPointSha,
+            // DR-2 — canonical liveness instance key (additive), paired to the
+            // `merge.executing_started` START by the same value.
+            instanceId,
           },
         },
         appendOptionsExecuted,

@@ -352,6 +352,22 @@ export const EventTypes = [
   // deterministic plumbing: the WorktreeManager owns both appends around the pass.
   'prune.executing_started',
   'prune.executed',
+  // DR-6 (lifecycle-verbs, task 012) — the two-event `export` contract (INV-13
+  // two-event split, INV-8 idempotency). `export` writes a zip bundle
+  // (events.jsonl + state.json + metadata.json + artifacts/) to a path OUTSIDE
+  // `.exarchos/` — a non-idempotent external side effect. `export.requested` is
+  // the durable INTENT carrying the RESOLVED destination path, journaled BEFORE
+  // the write; `export.executed` is the RESULT carrying the written bundle's
+  // content hash, journaled AFTER. A crash between the two is recoverable: the
+  // next invocation observes `export.requested` without `export.executed` and
+  // runs an idempotent precheck (zip exists + hash matches the recorded
+  // `contentHash`) to re-emit or redo. Both are `auto` — the `export` composite
+  // handler owns both appends deterministically (task 013), so the model is
+  // never asked to hand-emit them. Keyed on the payload's `idempotencyKey`
+  // (INV-8): a crash-retry of the SAME logical export collapses onto one intent,
+  // while a fresh export invocation mints a distinct key and a new pair.
+  'export.requested',
+  'export.executed',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -750,6 +766,13 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   // so the model is never asked to hand-emit them.
   'prune.executing_started': 'auto',
   'prune.executed': 'auto',
+
+  // DR-6 (lifecycle-verbs, task 012) — the two-event `export` contract. Both
+  // `auto`: the `export` composite handler owns both appends deterministically
+  // (task 013 — `export.requested` before the zip write, `export.executed`
+  // after), so the model is never nagged to hand-emit them.
+  'export.requested': 'auto',
+  'export.executed': 'auto',
 };
 
 // ─── Base Event Schema ──────────────────────────────────────────────────────
@@ -1767,6 +1790,39 @@ export const MergeRequestedData = z.object({
     .describe('Feature stream id; useful for cross-stream observability'),
 });
 
+// ─── Shared liveness instance key (DR-2 / INV-10) ────────────────────────────
+//
+// The SINGLE field the four INV-10 liveness pairs — merge / launch / mutation /
+// prune `<surface>.executing_started` + paired terminal — agree on. `instanceId`
+// is a canonical per-instance key so a uniform liveness view can correlate a
+// START event with its TERMINAL without per-surface knowledge of which native
+// field is the instance discriminator. Each emitter derives it from its own key:
+//   • merge    → taskId ?? `${sourceBranch}→${targetBranch}`
+//   • launch   → worktreeId
+//   • mutation → operationId
+//   • prune    → operationId
+//
+// This is ADDITIVE, not a uniform-shape rewrite: the surface-native fields
+// (sourceBranch, worktreeId, operationId, holderPid, …) are DELIBERATELY kept
+// as-is. Only this one field is shared — the payloads otherwise stay their own
+// distinct shapes (do not force a uniform shape where the real payloads differ).
+//
+// OPTIONAL + additive (INV-5b widening): every payload emitted BEFORE this
+// retrofit carried NO `instanceId`, so historical rows MUST still validate — no
+// migration, no schemaVersion bump. The emitters populate it going forward and
+// legacy rows fold as instanceId-absent. `.min(1)` rejects an empty/blank key:
+// an empty instance id is meaningless, and a wrong-typed value is a malformed
+// payload the boundary now rejects — the field the DR-2 revert-probe pins.
+export const livenessInstanceFields = {
+  instanceId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      'Canonical per-instance liveness key correlating a `<surface>.executing_started` event with its paired terminal (DR-2 / INV-10). Additive: absent on pre-retrofit rows.',
+    ),
+} as const;
+
 /**
  * merge.executed — records that a merge has been performed. `mergeSha` is
  * the resulting commit on the target branch; `rollbackSha` is the parent
@@ -1783,6 +1839,8 @@ export const MergeExecutedData = z.object({
   strategy: z.enum(['squash', 'rebase', 'merge']).optional(),
   mergeSha: z.string().min(1),
   rollbackSha: z.string().min(1),
+  // DR-2 — canonical liveness instance key (merge: taskId ?? `src→tgt`).
+  ...livenessInstanceFields,
 });
 
 /**
@@ -1910,6 +1968,8 @@ export const MergeExecutingStartedData = z.object({
   targetBranch: z.string().min(1),
   recoveryPointSha: z.string().min(1),
   startedAt: z.string().min(1),
+  // DR-2 — canonical liveness instance key (merge: taskId ?? `src→tgt`).
+  ...livenessInstanceFields,
 });
 
 // ─── Wave B Two-Event Split Schemas (#1342) ──────────────────────────────────
@@ -2264,6 +2324,8 @@ export const LaunchExecutingStartedData = z.object({
     .describe(
       'Supervisor process start time (ISO 8601) — disambiguates PID reuse; non-empty when resolved, or null when the platform cannot resolve create-time (DR-6, never the empty string)',
     ),
+  // DR-2 — canonical liveness instance key (launch: worktreeId).
+  ...livenessInstanceFields,
 });
 
 /**
@@ -2276,6 +2338,8 @@ export const LaunchExecutingStartedData = z.object({
 export const LaunchExecutedData = z.object({
   worktreeId: z.string().min(1).describe('Canonical worktrees@v1 key of the launch top-level worktree'),
   exitCode: z.number().int().nullable().describe('Child process exit code, or null when signalled / not captured'),
+  // DR-2 — canonical liveness instance key (launch: worktreeId).
+  ...livenessInstanceFields,
 });
 
 // ─── Command Resolver Event Data (#1199 T15) ────────────────────────────────
@@ -2817,6 +2881,8 @@ export const MutationExecutingStartedData = z.object({
   command: z.string().min(1),
   /** Repo root the command runs in. */
   repoRoot: z.string().min(1),
+  // DR-2 — canonical liveness instance key (mutation: operationId).
+  ...livenessInstanceFields,
 });
 
 /** Paired terminal event: the mutation run completed (pass/fail + exit code). */
@@ -2827,6 +2893,8 @@ export const MutationExecutedData = z.object({
   passed: z.boolean(),
   /** The child process exit code. */
   exitCode: z.number().int(),
+  // DR-2 — canonical liveness instance key (mutation: operationId).
+  ...livenessInstanceFields,
 });
 
 /**
@@ -2881,6 +2949,8 @@ export const PruneExecutingStartedData = z.object({
    * null-ready contract.
    */
   holderStartedAt: z.string().min(1).nullable(),
+  // DR-2 — canonical liveness instance key (prune: the existing operationId).
+  ...livenessInstanceFields,
 });
 
 /** Paired TERMINAL: the `prune_worktrees` GC pass completed (DR-3). */
@@ -2888,6 +2958,83 @@ export const PruneExecutedData = z.object({
   operationId: z.string().min(1),
   /** How many worktrees the pass deleted (0 on a dry-run or a no-op pass). */
   deletedCount: z.number().int().nonnegative(),
+  // DR-2 — canonical liveness instance key (prune: the existing operationId).
+  ...livenessInstanceFields,
+});
+
+// ─── Export event contract (DR-6, lifecycle-verbs task 012 / INV-13 / INV-8) ─
+//
+// `export` writes a zip bundle (events.jsonl + state.json + metadata.json +
+// artifacts/) to a path OUTSIDE `.exarchos/` — a non-idempotent external side
+// effect, so it follows the INV-13 two-event split. `export.requested` is the
+// durable INTENT (carrying the RESOLVED destination path) journaled BEFORE the
+// write; `export.executed` is the RESULT (carrying the written bundle's content
+// hash) journaled AFTER. On a crash between the two, the next invocation
+// observes `export.requested` without `export.executed` and runs an idempotent
+// precheck (the zip exists AND its hash matches the recorded `contentHash`) to
+// decide whether to re-emit `export.executed` or redo the write.
+//
+// Both payloads carry `idempotencyKey` (INV-8) — the emitter (task 013) derives
+// the storage key from it so a crash-retry of the SAME logical export collapses
+// onto one intent, while a fresh export invocation mints a distinct key and a
+// new pair. The schema's only contract is that the field is present + non-empty;
+// the emitter owns the key's construction.
+
+/**
+ * `export.requested` — durable INTENT recorded BEFORE the non-idempotent zip
+ * write (INV-13). Carries the RESOLVED destination `outputPath` so the timeline
+ * reconstructs exactly WHERE the bundle was intended to land even if the write
+ * crashes mid-flight (the default `./<featureId>-export.zip` is resolved to an
+ * absolute path by the handler before this event is emitted). `idempotencyKey`
+ * (INV-8) lets a crash-retry collapse onto the same logical request.
+ */
+export const ExportRequestedData = z.object({
+  featureId: z.string().min(1).describe('The workflow/feature stream being exported'),
+  outputPath: z
+    .string()
+    .min(1)
+    .describe(
+      'RESOLVED absolute destination path for the zip bundle — the intent recorded before the write (default ./<featureId>-export.zip, resolved by the handler before emit)',
+    ),
+  idempotencyKey: z
+    .string()
+    .min(1)
+    .describe(
+      'Stable key (INV-8) collapsing crash-retries of the same logical export onto one intent; a fresh export invocation mints a distinct key',
+    ),
+});
+
+/**
+ * `export.executed` — the RESULT recorded AFTER the zip write succeeds
+ * (INV-13). Carries the written bundle's `contentHash` (the INV-13 crash
+ * precheck compares it against the on-disk zip to decide re-emit vs redo), the
+ * `eventCount` in the exported stream extract, the OPTIONAL `missingArtifacts`
+ * (referenced artifact paths that did not exist on disk — tolerated and listed
+ * in the bundle metadata), and the SAME `idempotencyKey` that paired it to its
+ * `export.requested` intent.
+ */
+export const ExportExecutedData = z.object({
+  featureId: z.string().min(1).describe('The workflow/feature stream that was exported'),
+  outputPath: z.string().min(1).describe('Path the zip bundle was written to (matches the requested event)'),
+  contentHash: z
+    .string()
+    .min(1)
+    .describe(
+      'Content hash of the written zip bundle — the INV-13 crash precheck compares it against the on-disk manifest to decide re-emit vs redo',
+    ),
+  eventCount: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe('Number of events in the exported stream extract (recorded in metadata.json)'),
+  missingArtifacts: z
+    .array(z.string().min(1))
+    .optional()
+    .describe('Referenced artifact paths that did not exist on disk — tolerated, listed in the bundle metadata'),
+  idempotencyKey: z
+    .string()
+    .min(1)
+    .describe('Same key as the paired export.requested intent (INV-8)'),
 });
 
 // ─── Event Data Schemas Map ─────────────────────────────────────────────────
@@ -3119,6 +3266,10 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   // WLM slice 3 (DR-3 / INV-10) — prune-run liveness pair.
   'prune.executing_started': PruneExecutingStartedData,
   'prune.executed': PruneExecutedData,
+
+  // DR-6 (lifecycle-verbs task 012) — export two-event contract (INV-13 / INV-8).
+  'export.requested': ExportRequestedData,
+  'export.executed': ExportExecutedData,
 };
 
 // ─── TypeScript Types ───────────────────────────────────────────────────────
@@ -3274,6 +3425,10 @@ export type FeedbackRecorded = z.infer<typeof FeedbackRecordedData>;
 export type PruneExecutingStarted = z.infer<typeof PruneExecutingStartedData>;
 export type PruneExecuted = z.infer<typeof PruneExecutedData>;
 
+// DR-6 (lifecycle-verbs task 012) — export two-event contract (INV-13 / INV-8).
+export type ExportRequested = z.infer<typeof ExportRequestedData>;
+export type ExportExecuted = z.infer<typeof ExportExecutedData>;
+
 // ─── Event Data Map ─────────────────────────────────────────────────────────
 
 export type EventDataMap = {
@@ -3417,6 +3572,9 @@ export type EventDataMap = {
   // WLM slice 3 (DR-3 / INV-10) — prune-run liveness pair.
   'prune.executing_started': PruneExecutingStarted;
   'prune.executed': PruneExecuted;
+  // DR-6 (lifecycle-verbs task 012) — export two-event contract (INV-13 / INV-8).
+  'export.requested': ExportRequested;
+  'export.executed': ExportExecuted;
 };
 
 // ─── Event Catalog Serialization ────────────────────────────────────────────
