@@ -95,7 +95,7 @@ export abstract class McpJsonWriter implements RuntimeConfigWriter {
 
     // Atomic write: tmp → rename
     await this.fs.writeFile(tmpPath, content);
-    await publishTempFile(tmpPath, configPath, (from, to) => this.fs.rename(from, to));
+    await publishTempFile(tmpPath, configPath, { rename: (from, to) => this.fs.rename(from, to) });
 
     return {
       runtime: this.runtime,

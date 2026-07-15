@@ -35,7 +35,7 @@ import * as fs from 'node:fs';
 // default bypassed its crash-injection mock, and a test that asserts a failed
 // rename leaves the previous snapshot intact published the "crashed" payload
 // instead.
-import { rename as fsPromisesRename } from 'node:fs/promises';
+import { rename as fsPromisesRename, unlink as fsPromisesUnlink } from 'node:fs/promises';
 
 /**
  * Attempts to publish a temp file over its target before giving up, and the
@@ -45,7 +45,7 @@ import { rename as fsPromisesRename } from 'node:fs/promises';
  * hang.
  */
 const PUBLISH_RETRY_LIMIT = 20;
-const PUBLISH_BACKOFF_CAP_MS = 64;
+export const PUBLISH_BACKOFF_CAP_MS = 64;
 
 /** `true` when `err` is Windows refusing a replace that a concurrent one holds open. */
 function isWindowsRenameRace(err: unknown): boolean {
@@ -93,21 +93,49 @@ function publishBackoffMs(attempt: number): number {
  * hang. The retry is gated on win32 so POSIX keeps the single unconditional
  * rename it is already guaranteed.
  *
- * @param rename injection seam for callers that own their own `fs` (see
- * `orchestrate/init/writers/`). Defaults to `node:fs/promises`' `rename` — see
- * the import note above for why that module and not `node:fs`'s `fs.promises`.
+ * When the publish ultimately fails, `tmpPath` is removed before the error is
+ * rethrown. A staged temp file whose publish failed is garbage by definition,
+ * and leaving it behind orphans a file next to `target` on every failure —
+ * `state-store` and {@link atomicWriteFile} each hand-rolled that cleanup while
+ * the other publishes silently leaked. Owning it here is the point of having one
+ * home. Cleanup is best-effort and never masks the original error.
+ *
+ * @param io injection seam for callers that own their own `fs` (see
+ * `orchestrate/init/writers/`). Defaults to `node:fs/promises` — see the import
+ * note above for why that module and not `node:fs`'s `fs.promises`. `unlink` is
+ * optional: a caller whose injected fs cannot delete (e.g. `McpJsonWriterFs`)
+ * simply gets no cleanup, exactly as before.
  */
+export interface PublishIo {
+  rename(from: string, to: string): Promise<void>;
+  unlink?(path: string): Promise<void>;
+}
+
+const DEFAULT_PUBLISH_IO: PublishIo = {
+  rename: fsPromisesRename,
+  unlink: fsPromisesUnlink,
+};
+
 export async function publishTempFile(
   tmpPath: string,
   target: string,
-  rename: (from: string, to: string) => Promise<void> = fsPromisesRename,
+  io: PublishIo = DEFAULT_PUBLISH_IO,
 ): Promise<void> {
   for (let attempt = 0; ; attempt++) {
     try {
-      await rename(tmpPath, target);
+      await io.rename(tmpPath, target);
       return;
     } catch (err) {
-      if (!isWindowsRenameRace(err) || attempt >= PUBLISH_RETRY_LIMIT) throw err;
+      if (!isWindowsRenameRace(err) || attempt >= PUBLISH_RETRY_LIMIT) {
+        if (io.unlink) {
+          try {
+            await io.unlink(tmpPath);
+          } catch {
+            /* best-effort — never mask the publish failure */
+          }
+        }
+        throw err;
+      }
       await new Promise((resolve) => setTimeout(resolve, publishBackoffMs(attempt)));
     }
   }

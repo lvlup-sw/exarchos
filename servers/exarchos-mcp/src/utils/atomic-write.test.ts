@@ -2,7 +2,12 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fsp from 'node:fs/promises';
-import { publishTempFile, publishTempFileSync, atomicWriteFile } from './atomic-write.js';
+import {
+  publishTempFile,
+  publishTempFileSync,
+  atomicWriteFile,
+  PUBLISH_BACKOFF_CAP_MS,
+} from './atomic-write.js';
 
 /**
  * Testing strategy only — for the race itself, see `publishTempFile`.
@@ -40,7 +45,7 @@ describe('publishTempFile', () => {
     stubPlatform('linux');
     const rename = vi.fn<(from: string, to: string) => Promise<void>>().mockResolvedValue(undefined);
 
-    await publishTempFile('/tmp/a.tmp', '/tmp/a', rename);
+    await publishTempFile('/tmp/a.tmp', '/tmp/a', { rename });
 
     expect(rename).toHaveBeenCalledTimes(1);
     expect(rename).toHaveBeenCalledWith('/tmp/a.tmp', '/tmp/a');
@@ -52,7 +57,7 @@ describe('publishTempFile', () => {
     stubPlatform('linux');
     const rename = vi.fn<(from: string, to: string) => Promise<void>>().mockRejectedValue(eperm());
 
-    await expect(publishTempFile('/tmp/a.tmp', '/tmp/a', rename)).rejects.toThrow(/EPERM/);
+    await expect(publishTempFile('/tmp/a.tmp', '/tmp/a', { rename })).rejects.toThrow(/EPERM/);
     expect(rename).toHaveBeenCalledTimes(1);
   });
 
@@ -64,7 +69,7 @@ describe('publishTempFile', () => {
       .mockRejectedValueOnce(eperm())
       .mockResolvedValue(undefined);
 
-    await publishTempFile('/tmp/a.tmp', '/tmp/a', rename);
+    await publishTempFile('/tmp/a.tmp', '/tmp/a', { rename });
 
     expect(rename).toHaveBeenCalledTimes(3);
   });
@@ -76,7 +81,7 @@ describe('publishTempFile', () => {
       .mockRejectedValueOnce(errWithCode('EACCES'))
       .mockResolvedValue(undefined);
 
-    await publishTempFile('/tmp/a.tmp', '/tmp/a', rename);
+    await publishTempFile('/tmp/a.tmp', '/tmp/a', { rename });
 
     expect(rename).toHaveBeenCalledTimes(2);
   });
@@ -88,7 +93,7 @@ describe('publishTempFile', () => {
       .fn<(from: string, to: string) => Promise<void>>()
       .mockRejectedValue(errWithCode('ENOSPC'));
 
-    await expect(publishTempFile('/tmp/a.tmp', '/tmp/a', rename)).rejects.toThrow(/ENOSPC/);
+    await expect(publishTempFile('/tmp/a.tmp', '/tmp/a', { rename })).rejects.toThrow(/ENOSPC/);
     expect(rename).toHaveBeenCalledTimes(1);
   });
 
@@ -98,7 +103,7 @@ describe('publishTempFile', () => {
     stubPlatform('win32');
     const rename = vi.fn<(from: string, to: string) => Promise<void>>().mockRejectedValue(eperm());
 
-    await expect(publishTempFile('/tmp/a.tmp', '/tmp/a', rename)).rejects.toThrow(/EPERM/);
+    await expect(publishTempFile('/tmp/a.tmp', '/tmp/a', { rename })).rejects.toThrow(/EPERM/);
 
     // Bounded: the initial attempt plus a finite number of retries, not unbounded.
     expect(rename.mock.calls.length).toBeGreaterThan(1);
@@ -131,7 +136,7 @@ describe('publishTempFile', () => {
         .fn<(from: string, to: string) => Promise<void>>()
         .mockRejectedValueOnce(eperm())
         .mockResolvedValue(undefined);
-      await publishTempFile(`/tmp/a.tmp.${i}`, '/tmp/a', rename);
+      await publishTempFile(`/tmp/a.tmp.${i}`, '/tmp/a', { rename });
     }
 
     expect(attemptZeroDelays.length).toBe(24);
@@ -139,10 +144,13 @@ describe('publishTempFile', () => {
     for (const d of attemptZeroDelays) expect(d).toBeLessThanOrEqual(1 + 64);
   });
 
-  it('PublishTempFile_Win32Backoff_StaysInsideTheDocumentedBudget', async () => {
-    // The bound is the other half of the contract: it must grow (so a long
-    // contention outlasts) but never exceed the documented cap.
+  it('PublishTempFile_Win32WorstCaseBackoff_StaysInsideTheDocumentedBudget', async () => {
+    // Pin `Math.random` to its maximum so this measures the WORST case rather
+    // than a lucky sample. With real jitter the total is random, so a loose
+    // ceiling would let an implementation that busts the documented ~1s budget
+    // pass most runs and fail rarely — a flake that reads as a bad test.
     stubPlatform('win32');
+    vi.spyOn(Math, 'random').mockReturnValue(1);
     const delays: number[] = [];
     vi.spyOn(global, 'setTimeout').mockImplementation(((fn: () => void, ms?: number) => {
       delays.push(ms ?? 0);
@@ -151,12 +159,61 @@ describe('publishTempFile', () => {
     }) as unknown as typeof setTimeout);
 
     const rename = vi.fn<(from: string, to: string) => Promise<void>>().mockRejectedValue(eperm());
-    await expect(publishTempFile('/tmp/a.tmp', '/tmp/a', rename)).rejects.toThrow(/EPERM/);
+    await expect(publishTempFile('/tmp/a.tmp', '/tmp/a', { rename })).rejects.toThrow(/EPERM/);
 
+    // Every individual sleep respects the per-attempt cap...
     expect(delays.length).toBeGreaterThan(0);
-    for (const d of delays) expect(d).toBeLessThanOrEqual(1 + 64);
-    // Total budget bounded well under the ~1s the docstring promises.
-    expect(delays.reduce((a, b) => a + b, 0)).toBeLessThan(2000);
+    for (const d of delays) expect(d).toBeLessThanOrEqual(1 + PUBLISH_BACKOFF_CAP_MS);
+    // ...and the worst-case TOTAL honours the ~1s the docstring promises.
+    expect(delays.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(1000);
+  });
+
+  it('PublishTempFile_TerminalFailure_RemovesTheStagedTempFile', async () => {
+    // A staged temp whose publish failed is garbage. Leaving it orphans a file
+    // next to the target on EVERY failure — state-store and atomicWriteFile each
+    // hand-rolled this cleanup while the other publishes silently leaked.
+    const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'publish-cleanup-'));
+    const target = path.join(dir, 'x.json');
+    const tmp = `${target}.tmp`;
+    await fsp.writeFile(tmp, 'staged', 'utf-8');
+
+    const rename = vi
+      .fn<(from: string, to: string) => Promise<void>>()
+      .mockRejectedValue(errWithCode('ENOSPC'));
+
+    await expect(publishTempFile(tmp, target, { rename, unlink: fsp.unlink })).rejects.toThrow(
+      /ENOSPC/,
+    );
+
+    await expect(fsp.access(tmp)).rejects.toThrow(); // temp is gone
+    expect(await fsp.readdir(dir)).toEqual([]); // nothing orphaned
+  });
+
+  it('PublishTempFile_CleanupItselfFails_StillRethrowsTheOriginalError', async () => {
+    // Cleanup is best-effort and must never mask why the publish failed.
+    stubPlatform('linux');
+    const rename = vi
+      .fn<(from: string, to: string) => Promise<void>>()
+      .mockRejectedValue(errWithCode('ENOSPC'));
+    const unlink = vi
+      .fn<(p: string) => Promise<void>>()
+      .mockRejectedValue(new Error('unlink exploded'));
+
+    await expect(publishTempFile('/tmp/a.tmp', '/tmp/a', { rename, unlink })).rejects.toThrow(
+      /ENOSPC/,
+    );
+    expect(unlink).toHaveBeenCalledWith('/tmp/a.tmp');
+  });
+
+  it('PublishTempFile_IoWithoutUnlink_PublishesWithoutAttemptingCleanup', async () => {
+    // An injected fs that cannot delete (e.g. McpJsonWriterFs) must still work —
+    // it simply gets no cleanup, exactly as before this seam existed.
+    stubPlatform('linux');
+    const rename = vi
+      .fn<(from: string, to: string) => Promise<void>>()
+      .mockRejectedValue(errWithCode('ENOSPC'));
+
+    await expect(publishTempFile('/tmp/a.tmp', '/tmp/a', { rename })).rejects.toThrow(/ENOSPC/);
   });
 
   it('PublishTempFile_DefaultRename_PublishesRealFileOnThisPlatform', async () => {

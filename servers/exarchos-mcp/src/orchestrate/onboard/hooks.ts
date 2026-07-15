@@ -304,7 +304,7 @@ async function atomicWriteJson(
 ): Promise<void> {
   const tmp = `${path}.tmp`;
   await deps.fs.writeFile(tmp, JSON.stringify(data, null, 2));
-  await publishTempFile(tmp, path, (from, to) => deps.fs.rename(from, to));
+  await publishTempFile(tmp, path, { rename: (from, to) => deps.fs.rename(from, to) });
 }
 
 // ─── Installer ──────────────────────────────────────────────────────────────

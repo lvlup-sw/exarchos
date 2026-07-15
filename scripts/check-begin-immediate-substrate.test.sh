@@ -239,8 +239,10 @@ setup
 mkdir -p "$TMPDIR_ROOT/servers/exarchos-mcp/src/orchestrate"
 cat > "$TMPDIR_ROOT/servers/exarchos-mcp/src/orchestrate/leaky-step.ts" << 'EOF'
 // Application orchestration — reaches for the substrate txn primitive directly.
-// Note: the literal string "BEGIN IMMEDIATE" never appears here, so the
-// legacy literal-only check could not catch this.
+// The legacy literal-only check could not catch this call. The literal itself is
+// deliberately absent from this fixture: including it (even in a comment) would
+// let the literal scan produce the expected failure, so the test would pass even
+// if `.immediate()` detection were broken.
 export function leakyStep(db: Database, fn: () => void) {
   const txn = db.transaction(fn);
   txn.immediate();

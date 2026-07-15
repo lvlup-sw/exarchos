@@ -48,7 +48,7 @@ export async function atomicWriteJson(
   const tmp = `${path}.tmp`;
   const serialized = JSON.stringify(data, null, 2);
   await deps.fs.writeFile(tmp, serialized);
-  await publishTempFile(tmp, path, (from, to) => deps.fs.rename(from, to));
+  await publishTempFile(tmp, path, { rename: (from, to) => deps.fs.rename(from, to) });
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
