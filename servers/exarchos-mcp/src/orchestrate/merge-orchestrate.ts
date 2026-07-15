@@ -816,10 +816,13 @@ export async function handleMergeOrchestrate(
   // this retry boundary, so an OCC loss inside `decide` never re-fires the
   // executor's local git merge. The executor's `merge.executed` append is
   // the Phase C outcome record — the orchestrator does not emit a
-  // separate terminal event (the `merge.completed` type referenced by the
-  // projection is not yet registered in `event-store/schemas.ts`; out of
-  // scope for Wave 4 per the prompt's "no new event types beyond
-  // `merge.requested`" guard).
+  // separate terminal event. Emitting the terminal marker is the EXECUTOR's
+  // job: `merge.completed` is registered in `event-store/schemas.ts` and is
+  // appended by `handleExecuteMerge` (`execute-merge.ts`) immediately after
+  // its `merge.executed` append, under its own idempotency key. The
+  // `merge-orchestrator@v1` projection folds it as the transition into the
+  // terminal `completed` phase, so the split this comment describes is
+  // orchestrator-vs-executor — not a missing event type.
   //
   // Idempotency: derive `operationId` from `featureId` + `taskId` so two
   // concurrent invocations targeting the same feature/task converge on

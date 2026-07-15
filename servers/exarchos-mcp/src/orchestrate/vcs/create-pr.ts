@@ -159,9 +159,13 @@ export async function handleCreatePr(
   // ensures only one `pr.create.requested` lands per operationId: the
   // EventStore deduplicates on key-match so a retry does NOT re-emit Phase A.
   //
-  // This satisfies the CI idempotency contract gate: the append call carries
-  // `idempotencyKey: phaseAKey` (keyed by operationId) which is equivalent
-  // to the `operationId` pattern checked by check-withsession-idempotency.sh.
+  // NOTE: `check-withsession-idempotency.sh` does NOT check this file. That
+  // gate selects files solely by the presence of a `.withSession(` call site,
+  // and this handler has none — it appends directly. create-pr.ts is therefore
+  // never scanned, so the gate can neither pass nor fail it, and it will not
+  // catch a regression here. The `idempotencyKey: phaseAKey` discipline below
+  // is equivalent in intent to the gate's `operationId` pattern, but it is
+  // held only by review and by the tests in `create-pr.test.ts`.
   try {
     await withStateRetry(() =>
       ctx.eventStore.append(
