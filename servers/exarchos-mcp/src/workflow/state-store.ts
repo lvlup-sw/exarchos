@@ -424,10 +424,13 @@ function getStateVersion(state: WorkflowState): number {
 // ─── Write State File Atomically ───────────────────────────────────────────
 
 /**
- * Attempts to publish a temp file over `target` before giving up. Windows only
- * ever needs a handful; the ceiling exists so a permanent failure cannot spin.
+ * Attempts to publish a temp file over `target` before giving up, and the ceiling
+ * on the jittered backoff between them. Sized so the whole budget stays under
+ * ~1s of wall clock: long enough to outlast a contended replace, short enough
+ * that a permanent failure surfaces promptly instead of looking like a hang.
  */
-const PUBLISH_RETRY_LIMIT = 10;
+const PUBLISH_RETRY_LIMIT = 20;
+const PUBLISH_BACKOFF_CAP_MS = 64;
 
 /**
  * Replace `target` with `tmpPath`, tolerating Windows' concurrent-rename race.
@@ -445,6 +448,12 @@ const PUBLISH_RETRY_LIMIT = 10;
  * write: the payload is already fully on disk, each rename is still atomic, and a
  * reader therefore sees the old bytes or the new bytes and never a torn mix.
  *
+ * The backoff is jittered, and that is load-bearing rather than decorative. The
+ * contending writers are woken by the same collision, so a fixed or purely
+ * exponential delay retries them in lockstep and they simply collide again on
+ * every round — a first cut of this used `5 * attempt` and left one writer still
+ * failing. Randomising each sleep is what actually breaks the convoy.
+ *
  * Bounded on purpose. A real permission fault — read-only file, hostile ACL,
  * antivirus holding a handle — reports EPERM too and is indistinguishable at this
  * layer, so the loop must terminate and rethrow rather than mask it as a hang.
@@ -461,7 +470,8 @@ async function publishTempFile(tmpPath: string, target: string): Promise<void> {
       const isWindowsRenameRace =
         process.platform === 'win32' && (code === 'EPERM' || code === 'EACCES');
       if (!isWindowsRenameRace || attempt >= PUBLISH_RETRY_LIMIT) throw err;
-      await new Promise((resolve) => setTimeout(resolve, 5 * (attempt + 1)));
+      const cap = Math.min(2 ** attempt, PUBLISH_BACKOFF_CAP_MS);
+      await new Promise((resolve) => setTimeout(resolve, 1 + Math.random() * cap));
     }
   }
 }
