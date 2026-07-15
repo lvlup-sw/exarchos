@@ -26,7 +26,7 @@ The epic's question has an answer: **the primitive is underused because it is wr
 
 The distinction rev.1 missed is load-bearing. `withSession`'s zero consumers are dormant **and correct** — a gated API awaiting the right-shaped caller (Marten's `FetchForWriting`); adopting it works. `task-store@v1`-global is dormant **and wrong**; adopting it corrupts. Rev.1 treated them as the same fact and anchored on optimizing the dead path — a V6→V7 event-store migration spent on code nothing calls.
 
-DR-1 retires the path **atomically**, and the atomicity is forced by the type system rather than chosen: narrowing `ProjectionScope` to `'stream'` makes `readProjection`'s `reducer.scope !== 'global'` check (`store.ts:257`) a type error, so the deletion and the scope fix cannot land separately. That is also the strongest available fix — it makes the corrupting state **unrepresentable at compile time**, not merely rejected at runtime. Rev.2 split these into two sequential tasks and the panel showed they were mutually destructive: `apply` never reads `scope`, so a per-stream collision test is tautological, and post-deletion the trap is closed by the deletion regardless of the stamp.
+DR-1 retires the path **atomically**, and the atomicity is forced by the type system rather than chosen: narrowing `ProjectionScope` to `'stream'` makes `readProjection`'s `reducer.scope !== 'global'` check (`store.ts:257`) a type error, so the deletion and the scope fix cannot land separately. That is also the strongest available fix — it makes the corrupting state **unauthorable in typechecked code**, not merely rejected at runtime. (DR-1 carries the precise scope of that guarantee and its one limit; the wording is deliberate and "unrepresentable" would overstate it.) Rev.2 split these into two sequential tasks and the panel showed they were mutually destructive: `apply` never reads `scope`, so a per-stream collision test is tautological, and post-deletion the trap is closed by the deletion regardless of the stamp.
 
 DR-2 exists because a deletion's real risk is silent coverage loss. DR-3..DR-6 are the remaining live defects.
 
@@ -38,16 +38,18 @@ DR-2 exists because a deletion's real risk is silent coverage loss. DR-3..DR-6 a
 
 Delete `readProjection` (`projections/store.ts:247-355`) and `projections/cadence.ts`, narrow `ProjectionScope` (`projections/types.ts:77`) from `'stream' | 'global'` to `'stream'`, and correct `taskStoreReducer.scope` (`reducer.ts:218`).
 
-These are one change, not three. Narrowing the union makes `store.ts:257`'s comparison against `'global'` a type error, and makes `reducer.ts:218`'s `scope: 'global'` a type error. The compiler forces the whole set to land together — which is why rev.2's sequential split could not compile.
+These are one change, not three. Narrowing the union makes `store.ts:257`'s comparison against `'global'` a type error, makes `reducer.ts:218`'s `scope: 'global'` a type error, and — found only in implementation — makes `event-store/decide-fixtures.ts:21` a third, cascading into `decide.test.ts` and `aggregate-stream.test.ts`. The forced set is three sites, not the two rev.3 predicted. The compiler forces the whole set to land together — which is why rev.2's sequential split could not compile.
 
 Scope discipline: `appendSnapshot` / `readLatestSnapshot` **stay** — live caller at `workflow/tools.ts:1678` (the per-stream rehydration checkpoint), read back by `workflow/rehydrate.ts:171,443` and `projections/rebuild.ts:243`. Deletion is internal: `readProjection` is not in the `projections/index.ts` barrel, and `servers/exarchos-mcp` is unpublished.
 
 **Acceptance criteria:**
 - `readProjection`, `ReadProjectionOptions`, and `projections/cadence.ts` are removed; `npm run build`, `npm run typecheck` (root **and** `servers/exarchos-mcp` — the root typecheck does not cover it), and the full suite pass.
-- `ProjectionScope` admits only `'stream'`. Given a reducer authored with `scope: 'global'`, When the tree is typechecked, Then it fails — the corrupting configuration is unrepresentable, not merely rejected at runtime.
+- `ProjectionScope` admits only `'stream'`. Given a reducer authored with `scope: 'global'` **in typechecked code**, When the tree is typechecked, Then it fails (TS2322) — the corrupting configuration is unauthorable at every real registration site, not merely rejected at runtime.
+  - **The qualifier is load-bearing and was added after implementation.** As first written this criterion was flatly false: `tsconfig.json` excludes `**/*.test.ts` from the program, so a fixture can author `scope: 'global'` in a `.test.ts` and the tree stays green. "Unrepresentable" overstates the guarantee. The canonical statement — what it covers, the three conditions that make it safe, and this exact limit — lives once, in the `scope` docstring at `projections/types.ts`. This criterion points there rather than restating it, per DR-3's one-copy rule.
 - `appendSnapshot` / `readLatestSnapshot` and the checkpoint at `tools.ts:1678` are untouched and still covered.
 - Every test that pins the old stamp is updated in the same change: `projections/taskstore/index.test.ts:22` (`expect(registered?.scope).toBe('global')`) and `projections/taskstore/reducer.test.ts:248` (`TaskStoreReducer_HasGlobalScope`). Neither may be left red.
 - `InvalidReducerScopeError` and `aggregateStream`'s scope check (`event-store/atomic-appender.ts:809-813`) are explicitly resolved — with a single-member union the check is provably true. State the decision (keep as a defensive runtime guard for untyped callers, or remove) rather than leaving a provably-dead branch.
+  - **Resolved in implementation: removed.** The conditions that make removal safe are stated once, in the `scope` docstring at `projections/types.ts`; the type alone is not one of them. Review cycle 4 rejected the justification originally given for the removal — that keeping the guard "would have forced casting a fabricated value past the type system" — as false: a `.test.ts` needs no cast. The conclusion was right and the code is correct; only the stated premise was fabricated. It is recorded here because it was persuasive, it agreed with the conclusion already wanted, and it was endorsed as exemplary before anyone checked it — which is the failure mode this epic exists to punish.
 
 ### DR-2: No surviving guard is lost to the deletion
 
@@ -103,7 +105,9 @@ The comment at `tools.ts:910-911` claims the key makes CAS retries "safely dedup
 
 `workflow/state-store.ts:450` builds `${stateFile}.tmp.${process.pid}`; two concurrent in-process writers collide on one temp path. Same shape at `:215` (`.init.${process.pid}`). Production is unaffected today (a configured `SqliteBackend` demotes the file write to best-effort), so this is bounded hardening.
 
-**The sweep coupling is the real hazard, and rev.2 understated it.** The orphan sweep (`:712-719`) does not merely match `/\.(tmp|init)\.(\d+)$/` — it extracts `match[2]`, parses it as a PID, and gates deletion on `isPidAlive(pid)` (`:715-718`). Appending a counter (`.tmp.<pid>.<counter>`) and naively re-anchoring makes `match[2]` capture the **counter**: counter `1` resolves to PID 1 (init), always alive, so the file is **never reaped** — a permanent orphan leak introduced by a hardening task. The counter's position relative to the pid is load-bearing.
+**The sweep coupling is the real hazard, and rev.2 understated it.** The orphan sweep (`:712-719`) does not merely match `/\.(tmp|init)\.(\d+)$/` — it extracts `match[2]`, parses it as a PID, and gates deletion on `isPidAlive(pid)` (`:715-718`). Appending a counter (`.tmp.<pid>.<counter>`) and naively re-anchoring makes `match[2]` capture the **counter**, so liveness is tested against a counter value rather than against the writer. Whenever that counter collides with **any** live pid, the sweep reads the orphan as "still being written" and never reaps it — a permanent temp-file leak introduced by a hardening task. Counters are small and dense, so those collisions are routine rather than exotic. The counter's position relative to the pid is load-bearing.
+
+> **Rationale corrected after implementation — task 008 refuted rev.3's version of this paragraph.** Rev.3 argued the leak through one worked example: "counter `1` resolves to PID 1 (init), always alive, so the file is never reaped." That example is false in both directions, and no criterion below ever rested on it. `isPidAlive` (`utils/process.ts:44-52`) wraps `process.kill(pid, 0)` in a `catch` that returns `false` on **every** throw, and `kill(1, 0)` raises `EPERM` in a container — so PID 1 is judged *dead* there and the file is reaped, the opposite of the claimed failure. The hazard never needed PID 1 to be special: it is any counter colliding with any live pid, which is why the fix is positional (`.tmp.<counter>.<pid>`, pid anchored last, counter absorbed by a non-capturing group) rather than a special case.
 
 **Acceptance criteria:**
 - Two concurrent in-process writers never select the same temp path; neither observes a partial file.
@@ -146,7 +150,7 @@ Five forks with the author, plus **two adversarial panels that refuted two revis
 
 **Fork 4 — `handleSet`.** rev.1 specified a client token; **revised** — no caller can thread a stable one, so the seam would be dead on arrival. Deferred to #1643. Rev.2 then wrote a *false* contract in its place; corrected in DR-4.
 
-**Fork 5 — the anchor, after refutation.** Considered: wire a consumer first (creates the cliff to justify fixing it); keep the migration (riskiest surface, speculative need); file-and-ship-the-rest. **Re-scope + delete won** — the global scope is *incorrect*, not merely unused. Rev.3 strengthens it further: narrowing the union makes the corrupting state unrepresentable at compile time, and makes the retirement atomic by construction rather than by discipline.
+**Fork 5 — the anchor, after refutation.** Considered: wire a consumer first (creates the cliff to justify fixing it); keep the migration (riskiest surface, speculative need); file-and-ship-the-rest. **Re-scope + delete won** — the global scope is *incorrect*, not merely unused. Rev.3 strengthens it further: narrowing the union makes the corrupting state unauthorable in typechecked code (DR-1), and makes the retirement atomic by construction rather than by discipline.
 
 ## Alternatives considered
 
@@ -216,7 +220,7 @@ Paths are relative to `servers/exarchos-mcp/` unless noted. Test names follow `M
 **Verification:** high — the full suite plus both typechecks. This is a deletion across a shared contract; the compiler and the suite are the evidence.
 
 **Steps:**
-1. Narrow `ProjectionScope` (`types.ts:77`) to `'stream'`. This is the forcing function: it turns `store.ts:257` and `reducer.ts:218` into type errors, so the set must land together.
+1. Narrow `ProjectionScope` (`types.ts:77`) to `'stream'`. This is the forcing function: it turns `store.ts:257`, `reducer.ts:218`, and `event-store/decide-fixtures.ts:21` into type errors, so the set must land together. (The third site surfaced only in implementation and cascades into `decide.test.ts` and `aggregate-stream.test.ts`.)
 2. Delete `readProjection` + `ReadProjectionOptions` (`store.ts:247-355`) and `projections/cadence.ts` + `cadence.test.ts`. **Keep** `appendSnapshot` / `readLatestSnapshot` — live caller at `workflow/tools.ts:1678`.
 3. Stamp `taskStoreReducer.scope = 'stream'` (`reducer.ts:218`). Update `index.test.ts:22` (`toBe('global')`) and `reducer.test.ts:248` (`TaskStoreReducer_HasGlobalScope`) — both currently pin the old stamp and will go red.
 4. **Preserve the surviving guards (DR-2).** In `views/task-detail-view.test.ts`, remove only the `readProjection` half (`:79,138`); re-point the view↔reducer parity assertion at the per-stream path — `task-detail-view.ts:100-114`'s round-trip survives and this is its only guard. Re-point `store.test.ts:360-367`'s `UnknownProjectionIdError` positive-throw at a surviving raiser (`rebuild.ts:58,296` / `atomic-appender.ts:807`).
@@ -364,7 +368,7 @@ Paths are relative to `servers/exarchos-mcp/` unless noted. Test names follow `M
 
 **Steps:**
 1. Add a process-lifetime-monotonic counter to the temp path (`:450`) and init path (`:215`).
-2. **The sweep is the hazard.** `:712-719` extracts `match[2]`, parses it as a PID, and gates deletion on `isPidAlive` (`:715-718`). A naive `.tmp.<pid>.<counter>` makes `match[2]` capture the counter — counter `1` resolves to PID 1 (init), always alive, so the file is never reaped. Choose the counter's position and the regex together so the PID stays in the extracted group.
+2. **The sweep is the hazard.** `:712-719` extracts `match[2]`, parses it as a PID, and gates deletion on `isPidAlive` (`:715-718`). A naive `.tmp.<pid>.<counter>` makes `match[2]` capture the counter, so liveness is tested against a counter — and any counter that collides with a live pid strands the file forever. Choose the counter's position and the regex together so the PID stays in the extracted group. (Rev.3 justified this step with an appeal to PID 1 always being alive; that is false — see DR-6's correction note.)
 3. Cover: `WriteStateFile_ConcurrentInProcessWriters_NeverCollideOnTempPath`; `WriteStateFile_ConcurrentWriters_NeitherObservesPartialFile`; `OrphanSweep_TempFileWithCounter_ExtractsPidNotCounter`; `OrphanSweep_DeadPidWithLivePidCollidingCounter_StillReaps`.
 4. Windows: release SQLite handles before temp-dir teardown (INV-16).
 
