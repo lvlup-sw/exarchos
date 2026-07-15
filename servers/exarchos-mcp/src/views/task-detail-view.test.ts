@@ -10,10 +10,9 @@
  * Both sides fold **per stream**. The comparison side uses
  * `rebuildProjection(taskStoreReducer, ...)` — the surviving per-stream
  * cold-fold primitive — rather than the retired cross-stream
- * `readProjection('task-store@v1')`. `task-store@v1` is `scope: 'stream'`:
- * its state is keyed by a bare per-feature ordinal (`'001'`) with no
- * `featureId` on `TaskRecord`, so a cross-stream fold would merge distinct
- * features' tasks. The round-trip this guards
+ * `readProjection('task-store@v1')`. For why `task-store@v1` is
+ * `scope: 'stream'`, see `TaskStoreState`'s key space in
+ * `projections/taskstore/types.ts`. The round-trip this guards
  * (`task-detail-view.ts` view → `viewTasksToProjectionTasks` →
  * `TaskStoreState` → `taskStoreReducer.apply` → back) is unaffected by that
  * retirement, and this file is its only guard.

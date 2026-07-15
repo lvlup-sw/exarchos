@@ -8,29 +8,17 @@
  * `views/task-detail-view.ts` and `views/workflow-status-view.ts` (see Task
  * 2A.7 for the wire-through).
  *
- * ## Why stream-scoped, and why that is not a tuning knob
+ * ## The key space
  *
- * This reducer originally shipped `scope: 'global'`, folding every stream at
- * once. That was a defect, not a capability: `tasks` below is keyed by a bare
- * per-feature ordinal (`'001'`) and {@link TaskRecord} carries no `featureId`,
- * so a cross-stream fold silently merges feature-A's task `001` into
- * feature-B's. The key is only unique *within* a stream.
+ * `tasks` is keyed by `taskId` — a bare per-feature ordinal (`'001'`), minted
+ * by `parseTaskBlocks` from `### Task 001` headers — and {@link TaskRecord}
+ * carries no `featureId`. So the key is unique only *within* a stream.
  *
- * It had zero consumers, which is what made the bug survivable — and what made
- * it easy to misread. When auditing a dormant surface, separate the two cases:
- *
- * - **Dormant-and-correct** — e.g. `withSession`: no consumers *by intent*.
- *   The surface is sound; adopting it is safe. Absence of callers is a
- *   roadmap fact.
- * - **Dormant-and-wrong** — e.g. `task-store@v1`-global: no consumers because
- *   adopting it would have **corrupted state**. Absence of callers is the only
- *   thing that kept the bug latent, and is evidence *against* adoption.
- *
- * An audit that cannot tell these apart reads "unused" as "under-adopted" and
- * files work to wire the broken one up. That is precisely how this epic went
- * wrong. The fix was to delete the global scope, not to find it callers — see
- * the `scope` field in `projections/types.ts` for the rule, its guarantee, and
- * what re-widening would demand.
+ * That is the fact this reducer's `scope` stamp answers to; the reducer-scope
+ * rule itself, why this one is `'stream'`, and what re-widening would demand
+ * are stated once, in the `scope` docstring in `projections/types.ts`. The
+ * dormant-and-correct vs dormant-and-wrong posture lesson this epic turned on
+ * lives in `docs/architecture/projections.md`.
  *
  * Status enum is the **production-realistic** transition surface (per the
  * plan's GREEN correction on line 355). The five values map 1:1 to the

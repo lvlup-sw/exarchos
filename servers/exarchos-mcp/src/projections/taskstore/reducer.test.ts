@@ -245,12 +245,10 @@ describe('taskStoreReducer.apply (Wave 2A.3, #1284)', () => {
   });
 
   it('TaskStoreReducer_HasStreamScope', () => {
-    // This reducer MUST be `scope: 'stream'`. `TaskStoreState.tasks` is keyed
-    // by a bare per-feature ordinal (`'001'`) and `TaskRecord` carries no
-    // `featureId`, so a cross-stream fold would merge distinct features' task
-    // `001` into a single clobbered entry. Wired through the registry check in
-    // 2A.5, but asserted statically here so a misconfiguration surfaces in the
-    // reducer test, not via a side-effect import in another file.
+    // This reducer MUST be `scope: 'stream'` — see `TaskStoreState`'s key space
+    // in `./types.ts` for why. Wired through the registry check in 2A.5, but
+    // asserted statically here so a misconfiguration surfaces in the reducer
+    // test, not via a side-effect import in another file.
     expect(taskStoreReducer.scope).toBe('stream');
     expect(taskStoreReducer.id).toBe('task-store@v1');
     expect(taskStoreReducer.version).toBe(1);

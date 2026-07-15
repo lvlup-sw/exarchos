@@ -513,11 +513,7 @@ export class AtomicAppender {
    *     decision after backoff — the other writer commits on its own).
    *
    * Scope discipline: the reducer must own the aggregate's consistency
-   * boundary. `ProjectionScope` is `'stream'` only, so a cross-stream reducer
-   * cannot be authored in typechecked code — but the compiler is not the
-   * guarantee here (test files are excluded from the program). This method
-   * reads one `streamId`, so the boundary holds regardless of what a fixture
-   * authors. See {@link resolveStreamReducer}.
+   * boundary. See {@link resolveStreamReducer}.
    *
    * Idempotency (audit §F1.3): when `operationId` is supplied, derives
    * ONE key per call (`${streamId}:${reducerId}:${operationId}`) so all
@@ -748,12 +744,7 @@ export class AtomicAppender {
    * observation. Callers that need read-then-decide-then-write must
    * route through `decide` or `withSession`.
    *
-   * Scope: `ProjectionScope` is `'stream'` only, so a cross-stream reducer
-   * cannot be authored in typechecked code — but a `.test.ts` fixture can
-   * (tests are excluded from the program) and would reach this method. That is
-   * harmless: the read below is `backend.queryEvents(streamId)`, one stream, so
-   * a wrongly-scoped reducer folds one stream like any other. There is no
-   * runtime scope check — see {@link resolveStreamReducer} for why.
+   * Scope: no runtime check — see {@link resolveStreamReducer} for why.
    *
    * **Snapshot stability discipline (audit §F2.3):**
    * Today's implementation is a single SELECT through
@@ -842,18 +833,11 @@ export class AtomicAppender {
    * Shared by `decide` (Task 3.4), `withSession`, and `aggregateStream`
    * (Task 3.12).
    *
-   * No runtime scope check, and the former `INVALID_REDUCER_SCOPE` guard here
-   * was removed with the `'global'` scope (#1342). Precisely why that is safe:
-   * every production registration is a module-load import from a typechecked
-   * barrel (so `scope: 'global'` cannot be authored there), reducers are code
-   * rather than deserialized data (so none enters via a trust boundary), and
-   * this method's callers query a single `streamId` regardless — a wrongly
-   * scoped reducer could not produce a cross-stream fold here even if one
-   * existed. Note the type is NOT a total guard: `tsconfig.json` excludes test
-   * files from the program, so a fixture can still author `scope: 'global'`.
-   *
-   * Re-widening `ProjectionScope` MUST restore a runtime check here — see
-   * `projections/types.ts`.
+   * No runtime scope check: the former `INVALID_REDUCER_SCOPE` guard was
+   * removed with the `'global'` scope (#1342). Why that is safe, what the type
+   * does and does not guarantee, and what re-widening `ProjectionScope` would
+   * require here are stated once — see the `scope` docstring on
+   * `ProjectionReducer` in `projections/types.ts`.
    */
   private resolveStreamReducer(
     reducerId: string,

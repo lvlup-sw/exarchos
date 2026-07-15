@@ -105,14 +105,26 @@ export interface ProjectionReducer<State, Event> {
    * re-introduce a runtime guard alongside a state shape actually keyed by
    * stream.
    *
-   * THIS COMMENT AND `docs/architecture/projections.md` ("Reducer scope
-   * discipline") ARE THE ONLY TWO PLACES THIS GUARANTEE IS STATED. Every other
-   * site — reducers, the primitives, the tests — points here and asserts
-   * nothing. That is deliberate: #1342 was caused by a claim about this
-   * subsystem being restated in ~8 places until the restatements outlived the
-   * code and contradicted each other. Prose has no compiler, so the only
-   * defence is to have one copy. If you find yourself explaining the scope rule
-   * somewhere else, link instead.
+   * THIS COMMENT IS THE ONLY PLACE IN CODE THAT STATES THIS RULE;
+   * `docs/architecture/projections.md` ("Reducer scope discipline") is its
+   * prose counterpart. Every other site — the reducers, the primitives, the
+   * tests — POINTS here and asserts nothing. (`taskstore/types.ts` documents
+   * its own key space: that is the *fact* this rule answers to, not the rule.)
+   *
+   * That is deliberate: #1342 was caused by a claim about this subsystem being
+   * restated in ~8 places until the restatements outlived the code and
+   * contradicted each other. Prose has no compiler, so the only defence is to
+   * have one copy. If you find yourself explaining the scope rule somewhere
+   * else, link instead.
+   *
+   * Worth knowing that this rule is, for now, enforced only by review: the
+   * first version of this very comment claimed two exclusive homes while six
+   * other sites still restated the whole argument — including
+   * `atomic-appender.ts`, which reproduced all three points *and* the tsconfig
+   * limit and then linked here, as though a pointer appended to a restatement
+   * were a pointer. A self-refuting one-copy rule is the failure mode in
+   * miniature. #1696 tracks the grep gate that would catch it in one CI run
+   * instead of a review cycle.
    */
   readonly scope: ProjectionScope;
 

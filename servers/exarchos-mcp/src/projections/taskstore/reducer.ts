@@ -221,11 +221,9 @@ function applyTaskFailed(
 export const taskStoreReducer: ProjectionReducer<TaskStoreState, WorkflowEvent> = {
   id: 'task-store@v1',
   version: 1,
-  // Per-stream, and only ever safely per-stream: `TaskStoreState.tasks` is
-  // keyed by a bare per-feature ordinal (`'001'`) and `TaskRecord` carries no
-  // `featureId`, so a cross-stream fold would merge distinct features' task
-  // `001` into one entry. Both real consumers (`views/workflow-status-view.ts`,
-  // `views/task-detail-view.ts`) already fold `.apply` one stream at a time.
+  // Per-stream, and only ever safely per-stream — see `TaskStoreState`'s key
+  // space in `./types.ts` for the fact this answers to, and the `scope`
+  // docstring in `projections/types.ts` for the rule.
   scope: 'stream',
   initial: initialTaskStoreState,
   apply(state: TaskStoreState, event: WorkflowEvent): TaskStoreState {
