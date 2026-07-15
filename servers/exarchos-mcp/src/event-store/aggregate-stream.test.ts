@@ -83,11 +83,21 @@ describe('aggregateStream<T> — read-only fold (Tasks 3.11 + 3.12)', () => {
   // ─── Task 3.12 — scope validation ─────────────────────────────────────
   //
   // `AggregateStream_RejectsGlobalScopedReducer` was removed when
-  // `ProjectionScope` collapsed to the single literal `'stream'`. Its subject
-  // — a registered reducer whose scope is not `'stream'` — is no longer
-  // representable, so the test could only have been kept by casting a
-  // fabricated value past the type system, which would assert on the cast
-  // rather than on any reachable state. The invariant it guarded is now
-  // enforced by the compiler; see `projections/types.test.ts`
-  // (`ProjectionScope_ReducerAuthoredGlobal_FailsTypecheck`).
+  // `ProjectionScope` collapsed to the single literal `'stream'`. It asserted
+  // that `aggregateStream` throws `INVALID_REDUCER_SCOPE` on a global-scoped
+  // reducer; that guard no longer exists, so there is nothing left to assert.
+  //
+  // It was NOT removed for want of a subject: this is a `.test.ts`, excluded
+  // from the tsconfig program, so a `scope: 'global'` fixture is authorable
+  // here with no cast at all. The test could have been kept verbatim. It is
+  // gone because the behaviour it pinned is gone, and because that behaviour
+  // was never what made a wrong scope harmless — `aggregateStream` reads one
+  // `streamId`, so a wrongly-scoped reducer folds one stream regardless. The
+  // cross-stream fold died with `readProjection`, not with the scope stamp.
+  //
+  // What survives: `projections/types.test.ts`
+  // (`ProjectionScope_ReducerAuthoredGlobal_FailsTypecheck`) pins that the
+  // scope is unauthorable in TYPECHECKED code — a narrower guarantee than
+  // this test's, and deliberately so. See `atomic-appender.ts`'s
+  // `resolveStreamReducer` for the full reasoning.
 });

@@ -513,8 +513,11 @@ export class AtomicAppender {
    *     decision after backoff — the other writer commits on its own).
    *
    * Scope discipline: the reducer must own the aggregate's consistency
-   * boundary. Enforced at compile time — `ProjectionScope` is `'stream'`
-   * only, so a cross-stream reducer cannot be authored.
+   * boundary. `ProjectionScope` is `'stream'` only, so a cross-stream reducer
+   * cannot be authored in typechecked code — but the compiler is not the
+   * guarantee here (test files are excluded from the program). This method
+   * reads one `streamId`, so the boundary holds regardless of what a fixture
+   * authors. See {@link resolveStreamReducer}.
    *
    * Idempotency (audit §F1.3): when `operationId` is supplied, derives
    * ONE key per call (`${streamId}:${reducerId}:${operationId}`) so all
@@ -533,7 +536,7 @@ export class AtomicAppender {
     ) => EventInput[] | Promise<EventInput[]>,
     opts?: DecideOptions,
   ): Promise<DecideResult> {
-    // ─── Step 1: resolve + validate reducer scope ───────────────────────
+    // ─── Step 1: resolve the reducer ─────────────────────────────────────
     const reducer = this.resolveStreamReducer(reducerId, opts?.registry);
 
     // ─── Step 2: read events for fold (single SELECT — WAL snapshot) ───
@@ -640,7 +643,7 @@ export class AtomicAppender {
       throw new InvalidSessionOptionsError();
     }
 
-    // ─── Step 1: resolve + validate reducer scope ───────────────────────
+    // ─── Step 1: resolve the reducer ─────────────────────────────────────
     const reducer = this.resolveStreamReducer(reducerId, opts?.registry);
 
     // ─── Step 2: read events + fold ─────────────────────────────────────
@@ -745,8 +748,12 @@ export class AtomicAppender {
    * observation. Callers that need read-then-decide-then-write must
    * route through `decide` or `withSession`.
    *
-   * Scope validation: enforced at compile time — `ProjectionScope` is
-   * `'stream'` only, so a cross-stream reducer cannot reach this method.
+   * Scope: `ProjectionScope` is `'stream'` only, so a cross-stream reducer
+   * cannot be authored in typechecked code — but a `.test.ts` fixture can
+   * (tests are excluded from the program) and would reach this method. That is
+   * harmless: the read below is `backend.queryEvents(streamId)`, one stream, so
+   * a wrongly-scoped reducer folds one stream like any other. There is no
+   * runtime scope check — see {@link resolveStreamReducer} for why.
    *
    * **Snapshot stability discipline (audit §F2.3):**
    * Today's implementation is a single SELECT through

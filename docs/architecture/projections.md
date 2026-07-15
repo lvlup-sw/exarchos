@@ -105,10 +105,12 @@ The key space is per-stream, so the scope is `'stream'`. Both real consumers
 (`views/workflow-status-view.ts`, `views/task-detail-view.ts`) already fold `.apply` one
 stream at a time — the stamp now matches what the code always did.
 
-**The type is the guard.** Authoring `scope: 'global'` is a *compile* error
-(`TS2322: Type '"global"' is not assignable to type '"stream"'`), not a runtime rejection.
-The corrupting state is unrepresentable rather than merely detected, which is why the
-per-stream primitives (`decide` / `withSession` / `aggregateStream`) carry no runtime
+**The type makes the mistake hard to re-author — it is not what makes it harmless.**
+Authoring `scope: 'global'` in typechecked code is a *compile* error
+(`TS2322: Type '"global"' is not assignable to type '"stream"'`) rather than a runtime
+rejection, which is a real improvement: the wrong configuration is caught at the keyboard.
+But do not over-read it, and do not quote the first half of this paragraph without the
+second. The per-stream primitives (`decide` / `withSession` / `aggregateStream`) carry no runtime
 scope check: `resolveStreamReducer` in `event-store/atomic-appender.ts` resolves the
 reducer id and nothing more. Its former `INVALID_REDUCER_SCOPE` guard was removed with
 the `'global'` scope.

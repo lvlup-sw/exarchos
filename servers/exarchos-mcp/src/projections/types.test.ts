@@ -112,8 +112,12 @@ describe('ProjectionScope — compile-time scope guard', () => {
       ),
     ).toEqual([]);
 
-    // A reducer authored as `scope: 'global'` must not compile: the corrupting
-    // cross-stream fold is unrepresentable, not merely runtime-rejected.
+    // A reducer authored as `scope: 'global'` must not compile. Note the exact
+    // guarantee: unauthorable in TYPECHECKED code, not unrepresentable outright
+    // — this very file is excluded from the tsconfig program, so a fixture here
+    // could author `scope: 'global'` uncast. That gap is harmless (the
+    // primitives fold one stream regardless); see `atomic-appender.ts`'s
+    // `resolveStreamReducer`. This probe pins the narrow claim, not the broad one.
     const globalDiagnostics = typecheckProbe(reducerSource('global'));
     const messages = globalDiagnostics.map((d) =>
       ts.flattenDiagnosticMessageText(d.messageText, ' '),
