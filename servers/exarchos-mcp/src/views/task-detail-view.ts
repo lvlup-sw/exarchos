@@ -95,8 +95,12 @@ export const taskDetailProjection: ViewProjection<TaskDetailViewState> = {
     // We reconstruct a minimal `TaskStoreState` from the view's tasks (the
     // canonical state shape's only other field, `projectionSequence`, is
     // not surfaced by the view; we discard it after each fold step). This
-    // keeps the per-stream materializer and the global readProjection on
-    // the same fold semantics — see Wave 2A.7 / #1284.
+    // keeps this materializer on the reducer's fold semantics rather than a
+    // second, drifting copy — see Wave 2A.7 / #1284.
+    //
+    // Both sides are per-stream: `task-store@v1` is `scope: 'stream'`, and
+    // this view folds one feature's events. The reducer's `tasks` key is only
+    // unique within a stream, so that alignment is required, not incidental.
     const priorTaskStore: TaskStoreState = {
       projectionSequence: 0,
       tasks: viewTasksToProjectionTasks(view.tasks),

@@ -4,7 +4,13 @@
  * Importing this module has a **side effect**: it registers
  * {@link taskStoreReducer} with the process-wide {@link defaultRegistry}
  * so consumers can resolve the reducer by its stable id `"task-store@v1"`
- * via `readProjection<T>('task-store@v1')` (Task 2A.6).
+ * via the per-stream primitives (`decide` / `withSession` / `aggregateStream`).
+ *
+ * The reducer is `scope: 'stream'`: it folds one workflow stream at a time.
+ * The `readProjection<T>(reducerId)` cross-stream reader that this barrel
+ * originally fed was removed along with the global scope — folding every
+ * stream into one `task-store@v1` state merged distinct features' tasks (see
+ * `./types.ts` for the collision and why the scope is not a tuning knob).
  *
  * Mirrors the established pattern from `projections/rehydration/index.ts`.
  *

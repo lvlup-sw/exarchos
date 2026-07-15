@@ -24,8 +24,12 @@ export const DEFAULT_SNAPSHOT_MAX_RECORDS = 500;
  * Reads `SNAPSHOT_MAX_RECORDS` and parses it as a positive integer. Any
  * missing, non-numeric, zero, or negative value falls back to
  * {@link DEFAULT_SNAPSHOT_MAX_RECORDS} (500) so misconfiguration never
- * disables the cap or produces a pathological value. Mirrors the defensive
- * pattern of `projections/cadence.ts.resolveCadence`.
+ * disables the cap or produces a pathological value — an unparseable env var
+ * is treated as "unset", never as "no limit".
+ *
+ * This total-fallback pattern was shared with `projections/cadence.ts`'s
+ * `resolveCadence`, which was retired alongside the global projection scope;
+ * this resolver is now its sole surviving instance.
  *
  * @param env - Environment object to read from. Defaults to `process.env`
  *   so callers usually invoke with no args; explicit passthrough enables
