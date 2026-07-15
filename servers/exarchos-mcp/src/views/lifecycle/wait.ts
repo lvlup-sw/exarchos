@@ -476,13 +476,21 @@ function parseField(field: { safeParse(v: unknown): { success: boolean; data?: u
   return parsed.success && typeof parsed.data === 'string' ? parsed.data : s;
 }
 
-/** Resolve the timeout budget (positive int) or the default. */
+/**
+ * Node's `setTimeout` delay ceiling (2^31-1 ms ≈ 24.85 days). A delay ABOVE
+ * this does not clamp — it silently wraps to 1ms and fires almost immediately,
+ * which would turn an over-large `timeoutMs` into a near-instant WAIT_TIMEOUT:
+ * the exact opposite of the caller's "wait longer" intent.
+ */
+const MAX_TIMER_MS = 2_147_483_647;
+
+/** Resolve the timeout budget (positive int, clamped to the timer ceiling) or the default. */
 function resolveTimeoutMs(args: Record<string, unknown>): number {
   const raw = args.timeoutMs;
-  if (typeof raw === 'number' && Number.isInteger(raw) && raw > 0) return raw;
+  if (typeof raw === 'number' && Number.isInteger(raw) && raw > 0) return Math.min(raw, MAX_TIMER_MS);
   if (typeof raw === 'string' && /^\d+$/.test(raw)) {
     const n = Number(raw);
-    if (n > 0) return n;
+    if (n > 0) return Math.min(n, MAX_TIMER_MS);
   }
   return DEFAULT_WAIT_TIMEOUT_MS;
 }
@@ -640,7 +648,7 @@ function buildOperationPredicate(
         `wait --operation '${surface}' is not a known liveness surface`,
         {
           validTargets: valid,
-          suggestedFix: { tool: 'wait', params: { until: 'merge' } },
+          suggestedFix: { tool: 'exarchos_view', params: { action: 'wait', until: 'merge' } },
         },
       ),
     };
@@ -651,7 +659,7 @@ function buildOperationPredicate(
         `wait --operation '${surface}' is a worktrees-scoped surface — not feature-observable. Use the worktree scope (\`wait --until merge|idle\`) for launch/prune.`,
         {
           validTargets: valid,
-          suggestedFix: { tool: 'wait', params: { until: 'merge' } },
+          suggestedFix: { tool: 'exarchos_view', params: { action: 'wait', until: 'merge' } },
         },
       ),
     };

@@ -35,15 +35,18 @@ const T0 = '2026-07-01T00:00:00.000Z';
  * its stream-registry row (for the SQLite indexed join — a no-op on backends
  * without `registerStream`), and a `workflow.started` event so the envelope
  * timestamp exists. Uses the REAL backends — no hand-mocks.
+ *
+ * `skipRegistry` models the REACHABLE state where `registerStream()` failed and
+ * its error was swallowed: a `workflow_state` row with no `streams` row.
  */
-function seed(backend: StorageBackend, spec: WorkflowSpec): void {
+function seed(backend: StorageBackend, spec: WorkflowSpec, skipRegistry = false): void {
   const state = {
     featureId: spec.featureId,
     workflowType: spec.workflowType,
     phase: spec.phase,
   } as unknown as WorkflowState;
   backend.setState(spec.featureId, state);
-  backend.registerStream?.(spec.featureId, spec.workflowType);
+  if (!skipRegistry) backend.registerStream?.(spec.featureId, spec.workflowType);
   backend.appendEvent(spec.featureId, {
     streamId: spec.featureId,
     sequence: 1,
@@ -116,18 +119,26 @@ describe('workflow-fold view (DR-3)', () => {
     const rows = foldWorkflowSummaries(backend, { workflowType: 'debug', includeTerminal: true });
 
     // Behavioural proof: only debug workflows returned. If the type predicate
-    // were NOT pushed down to SQL, the INNER JOIN would return every type and
+    // were NOT pushed down to SQL, the join would return every type and
     // — because the JS lifecycle filter deliberately does not re-check
     // workflowType — feature rows would leak through here.
     expect(rows.map((r) => r.featureId).sort()).toEqual(['dbg-active', 'dbg-done']);
 
     // Structural proof: the summary query compiled the type predicate into a
-    // SQL WHERE against the indexed streams.workflow_type column.
+    // SQL WHERE built on the registry's workflow_type column. The predicate is
+    // the COALESCE expression rather than a bare `s.workflow_type = ?` because
+    // the join is a LEFT JOIN: a workflow whose `streams` row is missing (a
+    // swallowed registerStream failure) must still be filtered on its state
+    // row's own workflowType instead of being silently dropped. The load-
+    // bearing property this pins is unchanged — the type predicate lives in
+    // SQL, never in JS. Only index utilisation on streams.workflow_type is
+    // traded away, which the per-row MIN(timestamp) correlated subquery below
+    // already dominates.
     const summarySql = preparedSql.find(
       (sql) => sql.includes('json_extract') && sql.includes('workflow_type'),
     );
     expect(summarySql).toBeDefined();
-    expect(summarySql!).toMatch(/where[\s\S]*s\.workflow_type\s*=\s*\?/i);
+    expect(summarySql!).toMatch(/where[\s\S]*coalesce\(s\.workflow_type[\s\S]*=\s*\?/i);
 
     // Counter proof: the indexed pushdown path fired exactly once.
     expect(backend.getStats().workflowTypePushdownQueries).toBe(1);
@@ -269,6 +280,55 @@ describe('listWorkflowSummaries backend contract', () => {
       const byId = (rows: WorkflowSummary[]) =>
         Object.fromEntries(rows.map((r) => [r.featureId, r.createdAt]));
       expect(byId(memoryAll)).toEqual(byId(sqliteAll));
+    } finally {
+      sqlite.cleanup();
+      memory.cleanup();
+    }
+  });
+
+  it('ListWorkflowSummaries_StateRowWithoutRegistryRow_StillListedAndBackendsAgree', () => {
+    // `registerStream()` is attempted on init but its write errors are
+    // SWALLOWED, so a `workflow_state` row can outlive a missing `streams` row.
+    // An INNER JOIN drops those workflows entirely — they vanish from `ps` and
+    // the SQLite backend disagrees with the in-memory one, which reads
+    // workflowType off the state object and never consults a registry (INV-2).
+    const sqlite = makeSqlite();
+    const memory = makeMemory();
+    try {
+      const orphan: WorkflowSpec = {
+        featureId: 'orphan-feat',
+        workflowType: 'feature',
+        phase: 'delegate',
+      };
+      // A registered sibling, so the JOIN has a matching row to find as well.
+      seed(sqlite.backend, CORPUS[0]);
+      seed(memory.backend, CORPUS[0]);
+      seed(sqlite.backend, orphan, true);
+      seed(memory.backend, orphan, true);
+
+      // Listed at all, with workflowType recovered from the state row …
+      const rows = sqlite.backend.listWorkflowSummaries();
+      expect(rows.map((r) => r.featureId)).toContain('orphan-feat');
+      expect(rows.find((r) => r.featureId === 'orphan-feat')!.workflowType).toBe('feature');
+
+      // … and the two backends agree — unfiltered AND under the workflowType
+      // pushdown, which must filter on the same coalesced expression it selects
+      // (a bare `s.workflow_type = ?` is NULL for the orphan and re-drops it).
+      const filters: WorkflowSummaryFilter[] = [
+        {},
+        { workflowType: 'feature' },
+        { workflowType: 'debug' },
+        { includeTerminal: true },
+      ];
+      for (const filter of filters) {
+        expect(
+          normalize(memory.backend.listWorkflowSummaries(filter)),
+          `filter=${JSON.stringify(filter)}`,
+        ).toEqual(normalize(sqlite.backend.listWorkflowSummaries(filter)));
+      }
+      expect(
+        sqlite.backend.listWorkflowSummaries({ workflowType: 'feature' }).map((r) => r.featureId),
+      ).toContain('orphan-feat');
     } finally {
       sqlite.cleanup();
       memory.cleanup();

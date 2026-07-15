@@ -719,6 +719,43 @@ describe("mutation-adequacy repoRoot:'auto' resolution (PR #1541 Seer)", () => {
 // ─── Task 004: liveness + gate.executed ──────────────────────────────────────
 
 describe('mutation-adequacy liveness + gate emission', () => {
+  it('MutationAdequacy_RunMutationRejects_StillEmitsPairedTerminalExecuted', async () => {
+    // `defaultRunMutation` handles its own sync failures, but the INJECTED
+    // seam can reject. The terminal event must still land: an unpaired
+    // `mutation.executing_started` pins the run in-flight forever — `ps`
+    // reports a phantom executing mutation and `wait --operation mutation`
+    // blocks to timeout, because DR-2 pairing resolves an instance only when
+    // its terminal event arrives.
+    const { stateDir, eventStore } = await newStore();
+    const ctx = makeCtx(stateDir, eventStore);
+
+    await expect(
+      handleOrchestrate(
+        {
+          action: 'mutation-adequacy',
+          featureId: 'feat-mutadq',
+          base: 'main',
+          resolve: () => runtimeWith('npx stryker run'),
+          detectToolchainId: () => 'node',
+          runMutation: () => Promise.reject(new Error('runner exploded')),
+        },
+        ctx,
+      ),
+    ).rejects.toThrow('runner exploded');
+
+    const events = await eventStore.query('feat-mutadq');
+    const started = events.find((e) => e.type === 'mutation.executing_started');
+    const executed = events.find((e) => e.type === 'mutation.executed');
+    expect(started).toBeDefined();
+    // The pair is CLOSED despite the rejection — no phantom in-flight instance.
+    expect(executed).toBeDefined();
+    // …and it closes THIS instance (same instanceId) as a failure.
+    const startedData = started!.data as { instanceId?: string };
+    const executedData = executed!.data as { instanceId?: string; passed?: boolean };
+    expect(executedData.instanceId).toBe(startedData.instanceId);
+    expect(executedData.passed).toBe(false);
+  });
+
   it('MutationAdequacy_Run_EmitsExecutingStartedThenExecuted', async () => {
     const { stateDir, eventStore } = await newStore();
     await dispatchMutation({ eventStore, stateDir });

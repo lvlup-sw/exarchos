@@ -295,6 +295,67 @@ describe('export (DR-6 diagnostic bundle)', () => {
     expect((executed!.data as { missingArtifacts?: string[] }).missingArtifacts).toEqual([planRel]);
   });
 
+  it('Export_ArtifactRefEscapingBaseDir_RefusedByBothRoutesAndListedMissing', async () => {
+    const featureId = 'traversal-feature';
+    // A file that EXISTS and is readable, but lives OUTSIDE the workflow tree.
+    const outsideDir = await mkdtemp(path.join(tmpdir(), 'export-outside-'));
+    try {
+      const secretAbs = path.join(outsideDir, 'secret.txt');
+      await writeFile(secretAbs, 'TOP-SECRET-BYTES', 'utf8');
+
+      // BOTH escape routes: a `..` traversal relative to baseDir, and a bare
+      // absolute path (the old code fed `path.isAbsolute(value) ? value` to
+      // statSync/readFileSync with no containment check at all).
+      const viaTraversal = path.relative(tempDir, secretAbs);
+      expect(viaTraversal.startsWith('..')).toBe(true); // the ref really does escape
+      await seedWorkflow(featureId, { viaTraversal, viaAbsolute: secretAbs });
+
+      const outputPath = path.join(tempDir, 'traversal.zip');
+      const res = await handleViewExport({ featureId, output: outputPath }, ctx);
+      expect(res.success).toBe(true);
+
+      const entries = await readZipEntries(await fs.promises.readFile(outputPath));
+      const names = [...entries.keys()];
+      // No artifact entry from outside baseDir, by either route …
+      expect(names.some((n) => n.startsWith('artifacts/viaTraversal/'))).toBe(false);
+      expect(names.some((n) => n.startsWith('artifacts/viaAbsolute/'))).toBe(false);
+      // … and the bundle carries the file's bytes NOWHERE (the real assertion:
+      // an export zip must never absorb arbitrary readable files).
+      for (const buf of entries.values()) {
+        expect(buf.toString('utf8')).not.toContain('TOP-SECRET-BYTES');
+      }
+      // Refused refs degrade to `missing` — tolerated, never a throw.
+      const data = (res as { data: Record<string, unknown> }).data;
+      expect(data.missingArtifacts).toEqual(expect.arrayContaining([viaTraversal, secretAbs]));
+    } finally {
+      await rmrfAsync(outsideDir);
+    }
+  });
+
+  it('Export_AbsoluteInTreeArtifact_EntryNameIsPlatformBasenameNotWholePath', async () => {
+    // An absolute, IN-TREE artifact ref. The entry name must be the file's
+    // basename: `path.posix.basename()` does not treat `\` as a separator, so on
+    // Windows the old code emitted `artifacts/design/C:\…\design.md` as a single
+    // entry name. Passes either way on POSIX; this is the Windows lane's pin.
+    const featureId = 'abs-artifact-feature';
+    await mkdir(path.join(tempDir, 'docs', 'specs'), { recursive: true });
+    const absArtifact = path.join(tempDir, 'docs', 'specs', 'design.md');
+    await writeFile(absArtifact, '# Abs\ncontents', 'utf8');
+    await seedWorkflow(featureId, { design: absArtifact });
+
+    const outputPath = path.join(tempDir, 'abs-artifact.zip');
+    const res = await handleViewExport({ featureId, output: outputPath }, ctx);
+    expect(res.success).toBe(true);
+
+    const entries = await readZipEntries(await fs.promises.readFile(outputPath));
+    const names = [...entries.keys()];
+    expect(names).toContain('artifacts/design/design.md');
+    expect(entries.get('artifacts/design/design.md')!.toString('utf8')).toBe('# Abs\ncontents');
+    // No drive letter or backslash leaked into the posix entry name (INV-16).
+    const designEntry = names.find((n) => n.startsWith('artifacts/design/'))!;
+    expect(designEntry).not.toMatch(/[\\:]/);
+  });
+
   it('Export_InvalidOutputPath_SuggestedFixNoEvents', async () => {
     const featureId = 'invalid-path-feature';
     await seedWorkflow(featureId);

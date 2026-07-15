@@ -141,12 +141,15 @@ function deterministicDeps(clock?: SubscriptionClock): {
   deps: WaitDeps;
   fireDeadline: () => void;
   deadlineScheduled: () => boolean;
+  scheduledMs: () => number | undefined;
 } {
   let deadlineCb: (() => void) | undefined;
+  let scheduledMs: number | undefined;
   const deps: WaitDeps = {
     now: () => 1000,
-    scheduleTimeout: (cb) => {
+    scheduleTimeout: (cb, ms) => {
       deadlineCb = cb;
+      scheduledMs = ms;
       return () => {
         deadlineCb = undefined;
       };
@@ -157,6 +160,7 @@ function deterministicDeps(clock?: SubscriptionClock): {
     deps,
     fireDeadline: () => deadlineCb?.(),
     deadlineScheduled: () => deadlineCb !== undefined,
+    scheduledMs: () => scheduledMs,
   };
 }
 
@@ -181,6 +185,31 @@ describe('wait — phase predicate', () => {
     expect((result.data as { waitedMs: number }).waitedMs).toBe(0);
     expect((result.data as { phase?: string }).phase).toBe('plan-review');
     expect(await totalEvents(store)).toBe(before);
+  });
+
+  it('Wait_TimeoutMsAboveNodeTimerCeiling_ClampedNotWrappedToNearImmediate', async () => {
+    // Node's setTimeout does NOT clamp: a delay above 2^31-1 ms silently
+    // becomes 1ms and fires almost immediately, flipping a deliberately-huge
+    // timeoutMs into a near-instant WAIT_TIMEOUT — the exact opposite of the
+    // caller's "wait longer" intent. The resolved budget must be clamped.
+    const { store, ctx } = await makeArm();
+    const featureId = 'feat-clamp';
+    await seedWorkflow(store, featureId);
+
+    const { deps, fireDeadline, scheduledMs } = deterministicDeps();
+    // Well past the ceiling (~24.85 days).
+    const waitP = handleViewWait(
+      { featureId, phase: 'plan-review', timeoutMs: 9_999_999_999 },
+      ctx,
+      deps,
+    );
+    await flush(); // let the precheck complete and the deadline get scheduled
+
+    expect(scheduledMs()).toBe(2_147_483_647);
+
+    fireDeadline(); // resolve the pending wait so the test doesn't hang
+    const result = await waitP;
+    expect(result.success).toBe(false);
   });
 
   it('Wait_InProcessTransition_ResolvesOnTier1Wake', async () => {
@@ -414,7 +443,10 @@ describe('wait — operation predicate (S-6)', () => {
     // validTargets = the feature-scoped surfaces; suggestedFix points at `until`.
     expect(result.error?.validTargets).toEqual(expect.arrayContaining(['merge', 'mutation']));
     expect(result.error?.validTargets).not.toContain('launch');
-    expect(result.error?.suggestedFix?.tool).toBe('wait');
+    // `wait` is an exarchos_view ACTION, not a tool of its own — the fix must
+    // name the tool and carry `action`, or a client cannot replay it (INV-5b).
+    expect(result.error?.suggestedFix?.tool).toBe('exarchos_view');
+    expect(result.error?.suggestedFix?.params).toMatchObject({ action: 'wait' });
     expect(result.error?.suggestedFix?.params).toHaveProperty('until');
     expect(await totalEvents(store)).toBe(before); // side-effect free
   });

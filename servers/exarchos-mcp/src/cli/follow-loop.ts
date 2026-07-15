@@ -385,7 +385,17 @@ export function runInspectFollow(opts: InspectFollowOptions): InspectFollowHandl
         activitySinceTick = false;
         return;
       }
-      opts.onFrame({ type: 'heartbeat', timestamp: new Date(now()).toISOString() });
+      try {
+        opts.onFrame({ type: 'heartbeat', timestamp: new Date(now()).toISOString() });
+      } catch {
+        // Isolate the caller-supplied sink (NDJSON encoder write / MCP
+        // task-update push) from the tick — same gap, and same containment, as
+        // `Subscription.floorTick()` in event-store/subscriptions.ts. This runs
+        // inside `scheduleInterval`, so an escaping throw is an unhandled
+        // process-level exception rather than one dropped frame. A lost
+        // heartbeat is cosmetic: it carries no state, real event frames flow
+        // through the subscription path, and the next tick re-emits.
+      }
     }, heartbeatIntervalMs);
   }
 

@@ -91,6 +91,22 @@ function isUrl(value: string): boolean {
   return /^[a-z][a-z0-9+.-]*:\/\//i.test(value);
 }
 
+/**
+ * CONTAINMENT. True when `abs` resolves to a path strictly inside `baseDir`.
+ *
+ * An artifact reference is workflow-authored data, not a trusted path: both a
+ * traversal (`../../etc/passwd`) and a bare absolute (`/etc/passwd`) would
+ * otherwise be `statSync`'d and read straight into the bundle, so an export zip
+ * could absorb arbitrary readable files. `path.relative` is the containment
+ * primitive — an escaping target yields a `..`-prefixed (or absolute) relative
+ * path, and an identical target yields `''` (baseDir itself is a directory, not
+ * an artifact file, so it is excluded too).
+ */
+function isContainedIn(abs: string, baseDir: string): boolean {
+  const rel = path.relative(baseDir, abs);
+  return rel !== '' && !rel.startsWith(`..${path.sep}`) && rel !== '..' && !path.isAbsolute(rel);
+}
+
 function sha256(buf: Buffer): string {
   return createHash('sha256').update(buf).digest('hex');
 }
@@ -129,17 +145,30 @@ function collectArtifacts(
 
   for (const { key, value } of candidates) {
     if (isUrl(value)) continue; // e.g. a `pr` URL is not a filesystem artifact
-    const abs = path.isAbsolute(value) ? value : path.join(baseDir, value);
+    // `path.resolve` collapses `..` segments AND absorbs an already-absolute
+    // `value` — so ONE containment check covers both escape routes. Anything
+    // outside `baseDir` is refused BEFORE statSync/readFileSync ever touch it
+    // and is reported as `missing` (the reference is real; the bundle just
+    // won't carry a file from outside the workflow's tree).
+    const abs = path.resolve(baseDir, value);
     let bytes: Buffer | undefined;
-    try {
-      const st = fs.statSync(abs);
-      if (st.isFile()) bytes = fs.readFileSync(abs);
-    } catch {
-      // ENOENT / unreadable → tolerated as missing
+    if (isContainedIn(abs, baseDir)) {
+      try {
+        const st = fs.statSync(abs);
+        if (st.isFile()) bytes = fs.readFileSync(abs);
+      } catch {
+        // ENOENT / unreadable → tolerated as missing
+      }
     }
     if (bytes) {
-      // Entry name uses path.posix (INV-16: zip entries are always posix).
-      const entryName = path.posix.join('artifacts', key, path.posix.basename(value));
+      // Entry name uses path.posix (INV-16: zip entries are always posix), but
+      // the basename MUST come off the RESOLVED platform path: path.posix
+      // does not treat `\` as a separator, so `path.posix.basename` on a
+      // Windows path (`C:\...\a.md`) returns the WHOLE string and yields a
+      // malformed `artifacts/<key>/C:\...\a.md` entry. `path.basename(abs)` is
+      // platform-native, and `abs` is by construction a path that stat'd on
+      // THIS platform.
+      const entryName = path.posix.join('artifacts', key, path.basename(abs));
       included.push({ entryName, bytes });
     } else {
       missing.push(value);

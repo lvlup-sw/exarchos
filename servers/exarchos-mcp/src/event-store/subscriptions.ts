@@ -290,15 +290,33 @@ class Subscription {
   private floorTick(): void {
     if (this.disposed) return;
     this.floorTicks++;
-    const current = this.reader.dataVersion();
-    if (current === this.floorVersion) return; // no foreign commit → no re-read
-    // Advance the baseline BEFORE draining: a commit that lands during this
-    // drain bumps the token past `current`, so the next tick still fires for
-    // it (an extra harmless, cursor-guarded drain) rather than being folded
-    // into the baseline and lost. Never a gap; at worst one redundant tick.
-    this.floorVersion = current;
-    this.floorDrains++;
-    this.requestDrain();
+    // Isolate tick-level failures exactly as `wake()` isolates Tier-1 drains.
+    // This body runs inside a native `setInterval` callback (see
+    // `defaultSubscriptionClock`), so an escaping throw — a transient
+    // `dataVersion()` read error, or a listener that throws through
+    // `requestDrain()` (which is try/FINALLY, not try/catch, so it propagates)
+    // — would surface as an unhandled process-level exception rather than
+    // being contained to this one subscription.
+    const baseline = this.floorVersion;
+    try {
+      const current = this.reader.dataVersion();
+      if (current === baseline) return; // no foreign commit → no re-read
+      // Advance the baseline BEFORE draining: a commit that lands during this
+      // drain bumps the token past `current`, so the next tick still fires for
+      // it (an extra harmless, cursor-guarded drain) rather than being folded
+      // into the baseline and lost. Never a gap; at worst one redundant tick.
+      this.floorVersion = current;
+      this.floorDrains++;
+      this.requestDrain();
+    } catch {
+      // Contained. Roll the baseline back so the commit this tick failed to
+      // drain is retried by the next tick instead of being folded into the
+      // baseline and lost — preserving the same no-gap guarantee the
+      // constructor's T1/T2/T3 ordering establishes. The retry is safe: the
+      // per-stream cursor advance still guarantees exactly-once, so a
+      // re-drain never double-delivers events the failed drain did emit.
+      this.floorVersion = baseline;
+    }
   }
 
   /** Snapshot of this subscription's Tier-2 floor telemetry. */

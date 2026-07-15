@@ -667,7 +667,25 @@ export async function handleMutationAdequacy(
     repoRoot,
     instanceId,
   });
-  const runResult = await runMutation({ command: scoped.command, repoRoot, base: args.base });
+  // The terminal event must land on EVERY exit path. `defaultRunMutation`
+  // handles its own sync failures, but the injected `runMutation` seam can
+  // still reject — and an unpaired `mutation.executing_started` pins the run
+  // in-flight forever: `ps` reports a phantom executing mutation and
+  // `wait --operation mutation` blocks to timeout, because DR-2 liveness
+  // pairing resolves an instance only when its terminal event arrives.
+  let runResult: MutationRunResult;
+  try {
+    runResult = await runMutation({ command: scoped.command, repoRoot, base: args.base });
+  } catch (err) {
+    await emitLiveness(eventStore, args.featureId, 'mutation.executed', {
+      command: scoped.command,
+      repoRoot,
+      passed: false,
+      exitCode: 1,
+      instanceId,
+    });
+    throw err;
+  }
   await emitLiveness(eventStore, args.featureId, 'mutation.executed', {
     command: scoped.command,
     repoRoot,

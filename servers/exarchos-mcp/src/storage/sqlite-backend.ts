@@ -208,6 +208,17 @@ interface Statements {
 const MAX_OUTBOX_RETRIES = 5;
 
 /**
+ * `workflowType` for a summary row: the registry's column when the `streams`
+ * row exists, else the workflow_state row's own copy, else `''`. Used by BOTH
+ * the SELECT projection and the WHERE pushdown in
+ * {@link SqliteBackend.listWorkflowSummaries} so the filtered and projected
+ * values can never disagree. The `''` tail mirrors the in-memory backend's
+ * `typeof state.workflowType === 'string' ? state.workflowType : ''`, keeping
+ * the two backends row-for-row equivalent (INV-2).
+ */
+const WORKFLOW_TYPE_EXPR = `COALESCE(s.workflow_type, json_extract(ws.state, '$.workflowType'), '')`;
+
+/**
  * Bounded retry policy for SQLITE_BUSY surfaced by the substrate
  * `atomicAppend` write path (#1259, T09, DR-12, refined by audit §F2.2).
  *
@@ -2150,20 +2161,29 @@ export class SqliteBackend implements StorageBackend {
     const params: unknown[] = [];
 
     if (filter.workflowType !== undefined) {
-      // Indexed pushdown on the registry's workflow_type column.
-      conditions.push('s.workflow_type = ?');
+      // Pushdown on the SAME coalesced expression the SELECT projects — NOT on
+      // the bare `s.workflow_type`, which would be NULL for a registry-less row
+      // and re-drop exactly the rows the LEFT JOIN below exists to keep.
+      conditions.push(`${WORKFLOW_TYPE_EXPR} = ?`);
       params.push(filter.workflowType);
       this.workflowTypePushdownQueries++;
     }
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    // LEFT JOIN, not INNER: `registerStream()` is attempted on init but its
+    // write errors are swallowed, so a `workflow_state` row can outlive a
+    // missing `streams` row. An INNER JOIN silently OMITS those workflows,
+    // which diverges from the in-memory backend (it reads workflowType off the
+    // state object and never consults a registry) — an INV-2 facade-equivalence
+    // break that makes the same workflow visible via one backend and invisible
+    // via the other. Fall back to the state row's own workflowType.
     const sql = `
       SELECT ws.featureId AS featureId,
-             s.workflow_type AS workflowType,
+             ${WORKFLOW_TYPE_EXPR} AS workflowType,
              json_extract(ws.state, '$.phase') AS phase,
              (SELECT MIN(e.timestamp) FROM events e WHERE e.streamId = ws.featureId) AS createdAt
         FROM workflow_state ws
-        INNER JOIN streams s ON s.streamId = ws.featureId
+        LEFT JOIN streams s ON s.streamId = ws.featureId
         ${where}
         ORDER BY ws.featureId ASC`;
 

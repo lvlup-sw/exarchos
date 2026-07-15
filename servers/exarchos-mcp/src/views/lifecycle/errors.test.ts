@@ -180,8 +180,12 @@ describe('verb error envelopes (DR-8)', () => {
     // The worktrees-scoped surfaces are NOT feature-observable → excluded.
     expect(result.error?.validTargets).not.toContain('launch');
     expect(result.error?.validTargets).not.toContain('prune');
-    // suggestedFix steers the caller to the worktree `until` scope.
-    expect(result.error?.suggestedFix?.tool).toBe('wait');
+    // suggestedFix steers the caller to the worktree `until` scope — as a
+    // REAL action-call: `wait` is an exarchos_view action, not a tool of its
+    // own, so the shape must name the tool and carry `action` in params or a
+    // client cannot replay it verbatim (INV-5b).
+    expect(result.error?.suggestedFix?.tool).toBe('exarchos_view');
+    expect(result.error?.suggestedFix?.params).toMatchObject({ action: 'wait' });
     expect(result.error?.suggestedFix?.params).toHaveProperty('until');
     // Side-effect-free.
     expect(await totalEvents(store)).toBe(before);

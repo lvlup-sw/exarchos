@@ -230,6 +230,47 @@ describe('inspect --follow — CLI NDJSON carrier (DR-4)', () => {
     expect(frames.at(-1)).toMatchObject({ type: 'end' });
   });
 
+  it('InspectFollow_HeartbeatSinkThrows_ContainedAndLaterFramesStillFlow', async () => {
+    // `onFrame` is a CALLER-supplied sink (NDJSON encoder write / MCP
+    // task-update push). The heartbeat fires inside `scheduleInterval`, so a
+    // throwing sink must be contained — otherwise it escapes the tick as an
+    // unhandled process-level exception, the same gap `floorTick()` had.
+    const clock = new ManualClock();
+    const src = capturingSubscribe();
+    const frames: Frame[] = [];
+    const controller = new AbortController();
+    let failNextHeartbeat = true;
+
+    const handle = runInspectFollow({
+      subscribe: src.subscribe,
+      featureId: 'feat-hb-throw',
+      onFrame: (frame) => {
+        if (frame.type === 'heartbeat' && failNextHeartbeat) throw new Error('sink boom');
+        frames.push(frame);
+      },
+      signal: controller.signal,
+      clock,
+      heartbeatIntervalMs: 1000,
+    });
+
+    // The heartbeat tick's sink throws → contained, not process-level.
+    expect(() => clock.fireAll()).not.toThrow();
+    expect(frames).toHaveLength(0); // the throwing heartbeat delivered nothing
+
+    // The follow loop survives: real event frames still flow afterwards …
+    src.deliver(evt(1));
+    expect(frames.map((f) => f.type)).toEqual(['event']);
+
+    // … and a later heartbeat still emits once the sink recovers.
+    failNextHeartbeat = false;
+    clock.fireAll(); // suppressed — the delivered event reset the idle marker
+    clock.fireAll(); // silence → heartbeat resumes
+    expect(frames.map((f) => f.type)).toEqual(['event', 'heartbeat']);
+
+    controller.abort();
+    await handle.done;
+  });
+
   it('InspectFollow_SilentGap_HeartbeatFramesOnInjectedTimer', async () => {
     const clock = new ManualClock();
     const src = capturingSubscribe();

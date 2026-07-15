@@ -137,6 +137,30 @@ class ThrowOnStreamReader implements SubscriptionEventReader {
 }
 
 /**
+ * Wraps a reader so `dataVersion()` throws on demand — models the transient
+ * storage read failure a Tier-2 floor tick must CONTAIN. The tick body runs
+ * inside a native `setInterval` callback, so an escaping throw is an unhandled
+ * process-level exception, not a contained per-subscription failure.
+ */
+class ThrowOnDataVersionReader implements SubscriptionEventReader {
+  throwNext = false;
+  constructor(private readonly inner: SubscriptionEventReader) {}
+  headSequence(streamId: string): number {
+    return this.inner.headSequence(streamId);
+  }
+  readStreamAfter(streamId: string, afterSequence: number): readonly WorkflowEvent[] {
+    return this.inner.readStreamAfter(streamId, afterSequence);
+  }
+  listStreams(): readonly string[] {
+    return this.inner.listStreams();
+  }
+  dataVersion(): number {
+    if (this.throwNext) throw new Error('dataVersion boom');
+    return this.inner.dataVersion();
+  }
+}
+
+/**
  * Manually-driven clock (INV-16) for deterministic Tier-2 floor tests. Records
  * every scheduled floor loop and its interval; {@link fireAll} fires one tick
  * on every live loop with no wall-clock sleep. A cancelled loop (disposed
@@ -487,6 +511,35 @@ describe('SubscriptionRegistry (DR-1 invariants)', () => {
     registry.wake('fresh');
 
     expect(received).toEqual(['other#2', 'fresh#1']);
+    handle.dispose();
+  });
+
+  it('FloorTick_DataVersionThrows_ContainedAndLaterTickStillDeliversForeignCommit', () => {
+    // The Tier-2 floor tick runs inside a native setInterval callback, so a
+    // transient `dataVersion()` failure must be contained the same way `wake()`
+    // contains a Tier-1 drain — otherwise it escapes as an unhandled
+    // process-level exception and takes the server down.
+    const log = new FakeLog();
+    const reader = new ThrowOnDataVersionReader(log);
+    const clock = new ManualClock();
+    const registry = new SubscriptionRegistry(reader, { clock });
+    const received: number[] = [];
+    const handle = registry.subscribe({ streamId: STREAM }, (e) => received.push(e.sequence));
+
+    // A FOREIGN commit: no Tier-1 wake fires, so only the floor can observe it.
+    log.commitForeign(STREAM, T1);
+
+    // The tick that would have observed it fails mid-read.
+    reader.throwNext = true;
+    expect(() => clock.fireAll()).not.toThrow(); // contained, not process-level
+    expect(received).toEqual([]); // nothing delivered by the failed tick
+
+    // …and the failure did NOT fold the commit into the baseline: the next
+    // healthy tick still drains it (the no-gap guarantee survives the throw).
+    reader.throwNext = false;
+    clock.fireAll();
+    expect(received).toEqual([1]);
+
     handle.dispose();
   });
 
