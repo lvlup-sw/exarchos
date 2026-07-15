@@ -172,3 +172,417 @@ The divergent loop ran across four forks, each converged with the author. No `/e
 - **`global_seq` backfill cost on large stores.** Resolves in DR-1's task: measure against the largest available real store; if the one-shot backfill is unacceptable, the fallback is a lazy/chunked backfill behind the V7 gate.
 - **Spec heading shape vs template.** This document uses `## Requirements` (H2) + `### DR-N` (H3), matching the two most recent shipped specs, because `check_plan_coverage` / `check_provenance_chain` are h3-only. The template in `skills-src/plan/references/spec-template.md` specifies `#### DR-N` (H4). Known divergence — tracked by **#1654**; not re-litigated here.
 - **Does `task-store@v1` want to stay `scope: 'global'`?** DR-2 makes global reads cheap, which removes the pressure to answer. Deferred, not resolved — flagged so plan-review can challenge it.
+- **`check_task_decomposition` mis-reads this plan (out of scope, filed).** Two heuristics in `orchestrate/task-decomposition.ts` fire wrong: (1) the MSO test-name regex at `:370` is `[A-Z][a-zA-Z]+_…` — **digit-blind**, so `MigrateV6ToV7_RunTwice_IsIdempotent` and any version-bearing test name is invisible and the task reports "0 tests"; (2) the description check wants a `**Goal:**`/`**Description:**` field (`:307`) that **1 of 14 shipped specs** carries, so it reports `✗` on essentially every task in the repo. This plan's test names were written around (1) — the version tokens were redundant — but the next author hits it again. The gate's own comment at `:386` says over-flagging "trained operators to ignore the gate"; that is happening now, for a new reason. Not fixed here: it is #1657's parser class, not this epic's. Filed as **#1692**.
+
+## Decomposition
+
+### Scope
+
+**Target:** Full design — DR-1 through DR-8.
+**Excluded:**
+- `decide` rollout and `aggregateStream` adoption (epic #1342 P2). Behavior-neutral refactors; #1599's coordination rule names them as churn #1258 undoes. Rationale in Alternatives.
+- In-memory store audit (epic #1342 P2). Premise false — see Alternatives.
+- Two-event-split rollout (epic #1342 P1) and `merge.completed` resolution (P2). Already shipped; the audit's evidence is in the Problem Statement.
+- A general docs sweep. DR-7 is scoped to artifacts that provably misled.
+
+### Traceability matrix (DR-N → tasks)
+
+| DR | Requirement | Tasks |
+|----|-------------|-------|
+| DR-1 | Global position — durable cross-stream cursor | 001, 002, 003 |
+| DR-2 | Snapshot-floored global projection reads | 005, 006, 007, 008 |
+| DR-3 | Total, schema-typed error-code union | 009, 010, 011 |
+| DR-4 | handleSet keyed on the request | 012 |
+| DR-5 | `BEGIN IMMEDIATE` gate guards the real primitive | 013, 014 |
+| DR-6 | Bound the `writeStateFile` temp filename | 015 |
+| DR-7 | Retire the stale artifacts | 012, 016, 017 |
+| DR-8 | Migration failure modes are provable | 003, 004 |
+
+### Tasks
+
+All paths are relative to `servers/exarchos-mcp/` unless noted. Test names follow `Method_Scenario_Outcome`.
+
+### Task 001: V7 schema — `global_seq` column and unique index
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-1
+
+**Files:**
+- `src/storage/sqlite-backend.ts`
+- `src/storage/sqlite-backend.test.ts`
+
+**Verification:** high — scoped tests plus the `check_test_adequacy` kill-probe, then the integration suite across the storage seam.
+
+**Steps:**
+1. Bump `SCHEMA_VERSION` to 7; add `global_seq INTEGER` to the `events` DDL and a unique index on it.
+2. Follow the existing V6 precedent — index creation for a migrated column belongs in the migration, not `SCHEMA_DDL`, because `CREATE TABLE IF NOT EXISTS` no-ops on a legacy table and the column would be absent.
+3. Cover: `SchemaDdl_FreshDatabase_CreatesGlobalSeqColumnAndUniqueIndex`; `SchemaDdl_LegacyTable_DoesNotAttemptIndexOnAbsentColumn`.
+
+**Dependencies:** None
+**Parallelizable:** No — heads the event-store chain.
+
+### Task 002: Assign `global_seq` inside the existing `BEGIN IMMEDIATE` transaction
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-1
+
+**Files:**
+- `src/storage/sqlite-backend.ts`
+- `src/event-store/atomic-appender.ts`
+- `src/storage/sqlite-backend.test.ts`
+
+**Verification:** high — scoped tests plus the kill-probe, then the integration suite. Concurrency behavior is the contract here, so tests must exercise real concurrent appends, not a mocked lock.
+
+**Steps:**
+1. Assign `global_seq` via `MAX(global_seq)+1` inside the transaction that already holds the write lock and runs the per-stream version gate. Introduce no second write path and no new coordination primitive (INV-7, INV-15).
+2. Cover: `Append_ConcurrentSameStream_AssignsDistinctMonotonicGlobalSeq`; `Append_ConcurrentDistinctStreams_AssignsDistinctGlobalSeq`; `Append_FreshDatabase_GlobalSeqIsDenseAndMonotonic`.
+
+**Dependencies:** 001
+**Parallelizable:** No
+
+### Task 003: `migrateV6ToV7` — order-preserving, idempotent, interruption-safe backfill
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-1, DR-8
+
+**Files:**
+- `src/storage/sqlite-backend.ts`
+- `src/storage/sqlite-backend.test.ts`
+
+**Verification:** high — scoped tests plus the kill-probe, then the integration suite. This mutates the event store's schema, the one surface where a silent error is unrecoverable.
+
+**Steps:**
+1. Backfill `global_seq` over existing rows in `(timestamp, sequence, streamId)` order — the order the current fold already uses — so the migration is order-preserving.
+2. Make the migration idempotent and safe to resume: re-running after an interruption completes it and yields a result identical to an uninterrupted run.
+3. Seed the fixture with events across multiple streams **including same-millisecond-timestamp collisions** — the case the current JS sort orders arbitrarily and the one most likely to expose a backfill-order bug.
+4. Measure backfill cost against the largest available real store and record it; this resolves the Open Question. If one-shot proves unacceptable, land the lazy/chunked fallback behind the V7 gate.
+5. Release SQLite handles before temp-dir teardown (INV-16).
+6. Cover: `MigrateSchema_ExistingEvents_BackfillsInTimestampSequenceStreamIdOrder`; `MigrateSchema_RunTwice_IsIdempotent`; `MigrateSchema_InterruptedMidMigration_ResumesToIdenticalResult`; `MigrateSchema_SameMillisecondTimestamps_BackfillsDeterministically`.
+
+**Dependencies:** 001
+**Parallelizable:** No
+
+### Task 004: Fail closed on version mismatch; migration chain reaches V7
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-8
+
+**Files:**
+- `src/storage/sqlite-backend.ts`
+- `src/storage/sqlite-backend.test.ts`
+
+**Verification:** high — scoped tests plus the kill-probe, then the integration suite.
+
+**Steps:**
+1. Cover: `Open_NewerDatabaseOnOlderReadPath_FailsClosedWithTypedVersionError` — it must name the version mismatch, never silently ignore `global_seq`.
+2. Cover: `Open_DatabaseAtAnySupportedPriorVersion_MigratesToLatestWithoutIntervention`.
+
+**Dependencies:** 003
+**Parallelizable:** No
+
+### Task 005: `StorageBackend` gains a cursor-scoped cross-stream read
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-2
+
+**Files:**
+- `src/storage/backend.ts`
+- `src/storage/sqlite-backend.ts`
+- `src/storage/sqlite-backend.test.ts`
+
+**Verification:** high — scoped tests plus the kill-probe, then the integration suite across the backend interface.
+
+**Steps:**
+1. Add a cursor-scoped read returning events with `global_seq > cursor` in `global_seq` order, as one indexed query.
+2. Follow the `queryEventsByType` precedent: optional on the interface, with the in-memory/fixture backends falling back so non-SQLite backends keep working.
+3. Cover: `QueryEventsSince_CursorMidStore_ReturnsOnlyTailInGlobalSeqOrder`; `QueryEventsSince_CursorAtHead_ReturnsEmpty`.
+
+**Dependencies:** 002
+**Parallelizable:** No
+
+### Task 006: `readProjection` — snapshot-floored tail fold over `global_seq`
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-2
+
+**Files:**
+- `src/projections/store.ts`
+- `src/projections/store.test.ts`
+
+**Verification:** high — scoped tests plus the kill-probe, then the integration suite.
+
+**Steps:**
+1. Replace *enumerate-streams → query-each-in-full → merge-sort in JS → fold-all* with *read-snapshot → one cursor-scoped tail query → fold-tail*.
+2. Delete the `listStreams()` enumeration, the JS `(timestamp, sequence, streamId)` sort, and the count-as-position slice with its backdated-event guard (`store.ts:276-348`). The snapshot cursor becomes a `global_seq` value, not a count — that is what makes the positional hack unnecessary rather than relocated. Closes #1353.
+3. Cover: `ReadProjection_SnapshotAtCursor_QueriesOnlyEventsAfterCursor` — assert by **counting backend queries**, not by timing.
+4. Cover: `ReadProjection_BackdatedEventArrives_FoldsInGlobalSeqOrder` — the case the deleted guard existed for.
+
+**Dependencies:** 005
+**Parallelizable:** No
+
+### Task 007: Snapshot writer on cadence; `workflow.snapshot_taken` gains a producer
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-2
+
+**Files:**
+- `src/projections/store.ts`
+- `src/projections/cadence.ts`
+- `src/projections/store.test.ts`
+
+**Verification:** high — scoped tests plus the kill-probe, then the integration suite.
+
+**Steps:**
+1. Give `shouldTakeSnapshot` / `resolveCadence` their first production caller; write the snapshot back keyed on the reducer id (the global-snapshot convention `readProjection` already reads at `store.ts:265`).
+2. Emit `workflow.snapshot_taken` — registered at `schemas.ts:97` and consumed at `views/workflow-state-projection.ts:726`, with no producer today.
+3. Cover: `ReadProjection_NoSnapshot_SecondCallReadsSnapshotWrittenByFirst`; `ResolveCadence_SnapshotEveryNSet_ChangesSnapshotFrequency`.
+
+**Dependencies:** 006
+**Parallelizable:** No
+
+### Task 008: North-star — bounded reads and unchanged reducer output
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** acceptance
+**Implements:** DR-2
+
+**Files:**
+- `src/projections/store.test.ts`
+- `src/projections/taskstore/reducer.test.ts`
+
+**Verification:** high — real collaborators, no mocks. This is the DR-2 cluster's acceptance test and the evidence the cliff is gone.
+
+**Steps:**
+1. Golden equivalence — reducer output must not move despite the fold order changing from wall-clock `timestamp` to causal `global_seq`.
+2. Boundedness — seed a store past the cadence threshold and assert reads stay **independent of total store size**: the O(tail)-not-O(all) claim, asserted structurally rather than by wall-clock.
+3. Cover: `ReadProjection_GlobalReducer_MatchesFullColdFoldOverSameEvents`; `ReadProjection_StoreGrowsPastCadenceThreshold_RowReadsStayBoundedIndependentOfStoreSize`.
+
+**Dependencies:** 007
+**Parallelizable:** No
+
+### Task 009: Total, schema-typed error-code union with a declared retry class
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-3
+
+**Files:**
+- `src/schemas/envelope.ts`
+- `src/format.ts`
+- `src/format.test.ts`
+
+**Verification:** high — scoped tests plus the kill-probe, then the integration suite across the contract seam.
+
+**Steps:**
+1. Replace `code: z.string()` (`envelope.ts:100`) with a schema-typed union; attach a retry class per code (back-off / retry-now / invalid-input).
+2. Make the union **total**: adding a code without declaring its retry class must fail typecheck — that is the property, not a lint.
+3. Cover: `ErrorEnvelope_CodeWithoutRetryClass_FailsTypecheck` (type-level test); `WrapError_StorageBusy_DeclaresBackoffRetryClass`.
+
+**Dependencies:** None
+**Parallelizable:** Yes — heads the error-contract chain, independent of the event-store chain.
+
+### Task 010: CLI derives its exit class from the contract
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-3
+
+**Files:**
+- `src/adapters/cli.ts`
+- `src/adapters/cli.test.ts`
+
+**Verification:** high — scoped tests plus the kill-probe, then the integration suite.
+
+**Steps:**
+1. Replace the `VALIDATION_ERROR_CODE`-only branch (`cli.ts:653-656`) with derivation from the DR-3 retry-class declaration. **No error-code table may exist in `adapters/`** — behavior in the adapter is the defect the #1608 reframe repudiates (INV-2).
+2. Cover: `Cli_StorageBusy_ExitsWithBackoffClassNotHandlerError`; `Cli_ConcurrencyConflict_ExitsDistinctlyFromStorageBusy`.
+3. Enumerate the exit-code changes for the changelog — this is an observable CLI contract change for scripted consumers.
+
+**Dependencies:** 009
+**Parallelizable:** No
+
+### Task 011: Route handler-local code mapping through the shared contract
+
+**Risk Tier:** medium
+**Test Layer:** integration
+**Implements:** DR-3
+
+**Files:**
+- `src/orchestrate/execute-merge.ts`
+- `src/orchestrate/merge-orchestrate.ts`
+- `src/orchestrate/vcs/create-pr.ts`
+- `src/orchestrate/vcs/add-pr-comment.ts`
+- `src/orchestrate/vcs/create-issue.ts`
+
+**Verification:** medium — scoped tests plus the `check_test_adequacy` kill-probe.
+
+**Steps:**
+1. Six sites pre-map their own codes (`execute-merge.ts:378,387`; `merge-orchestrate.ts:891,900`; `create-pr.ts:189,198`; `add-pr-comment.ts:184,193`; `create-issue.ts:238,247`), duplicating the distinction. Route them through the shared mapping.
+2. If any site cannot route without behavior change, leave it and record why — DR-3's criterion permits justified duplication, and an unjustified rewrite is worse than the duplication.
+
+**Dependencies:** 009
+**Parallelizable:** No
+
+### Task 012: `handleSet` — client-token idempotency key
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-4, DR-7
+
+**Files:**
+- `src/workflow/tools.ts`
+- `src/workflow/tools.test.ts`
+
+**Verification:** high — scoped tests plus the kill-probe, then the integration suite across the idempotency boundary.
+
+**Steps:**
+1. Derive the key from a client-supplied token plus request content. Remove `expectedVersion` from every key (`tools.ts:923`, `:787`, and the `:480` docstring). Do not CAS-pin the append — that trap wedges the retry loop (#1643).
+2. Make the token additive: absent a token, behavior degrades to the current contract rather than throwing.
+3. Correct the comment at `tools.ts:910-911`, which cites `expectedVersion`-derived keys as the property that makes retries safely deduplicated (DR-7).
+4. Cover: `HandleSet_LostResponseRetryWithSameToken_AppendsExactlyOneEvent`; `HandleSet_SameFieldsDifferentTokens_AppendsTwoEvents`; `HandleSet_NoToken_MatchesCurrentContract`.
+5. Shape the seam so #1643's `prepare_review scope:plan` can adopt it without redesign.
+
+**Dependencies:** None
+**Parallelizable:** Yes
+
+### Task 013: `BEGIN IMMEDIATE` gate guards `.immediate()`, not a dead literal
+
+**Risk Tier:** medium
+**Test Layer:** integration
+**Implements:** DR-5
+
+**Files:**
+- `scripts/check-begin-immediate-substrate.sh` (repo root)
+- `scripts/check-begin-immediate-substrate.test.sh` (repo root)
+
+**Verification:** medium — the gate's own self-test is its test; extend it rather than adding a parallel harness.
+
+**Steps:**
+1. Every `BEGIN IMMEDIATE` occurrence in the tree is a comment; the real primitive is the driver call `.immediate()` (`sqlite-backend.ts:1852`). Extend the gate to catch `.immediate()` outside `src/storage/*` and `src/event-store/*`, keeping the SQL-literal check.
+2. Cover in the self-test: fails on a seeded `.immediate()` leak outside the substrate; passes on the current tree with no false positive at `sqlite-backend.ts:1852` or on comments.
+
+**Dependencies:** None
+**Parallelizable:** Yes
+
+### Task 014: Run the grep-gate self-tests in CI
+
+**Risk Tier:** low
+**Test Layer:** unit
+**Implements:** DR-5
+
+**Files:**
+- `.github/workflows/ci.yml` (repo root)
+
+**Verification:** low — static analysis; the CI run itself is the evidence.
+
+**Steps:**
+1. Wire `check-begin-immediate-substrate.test.sh` and `check-withsession-idempotency.test.sh` into the `grep-gates` job, as the windows-portability and WLM gate self-tests already are (`ci.yml:522-523, 528-529`). A gate whose self-test never runs can rot into a no-op silently (cf. #1658).
+
+**Dependencies:** 013
+**Parallelizable:** No
+
+### Task 015: Bound the `writeStateFile` temp filename
+
+**Risk Tier:** medium
+**Test Layer:** integration
+**Implements:** DR-6
+
+**Files:**
+- `src/workflow/state-store.ts`
+- `src/workflow/state-store.test.ts`
+
+**Verification:** medium — scoped tests plus the `check_test_adequacy` kill-probe.
+
+**Steps:**
+1. Add a process-lifetime-monotonic counter to the temp path at `:450` (`.tmp.${process.pid}`) and to the init path at `:215` (`.init.${process.pid}`).
+2. Keep both shapes reapable by the orphan sweep at `:712-719` (`/\.(tmp|init)\.(\d+)$/`) — widening the filename must not orphan the sweep's regex.
+3. Cover: `WriteStateFile_ConcurrentInProcessWriters_NeverCollideOnTempPath`; `WriteStateFile_ConcurrentWriters_NeitherObservesPartialFile`.
+
+**Dependencies:** None
+**Parallelizable:** Yes
+
+### Task 016: Retire the two stale comments that misled this epic
+
+**Risk Tier:** low
+**Test Layer:** unit
+**Implements:** DR-7
+
+**Files:**
+- `src/orchestrate/merge-orchestrate.ts`
+- `src/orchestrate/vcs/create-pr.ts`
+
+**Verification:** low — static analysis. Comment-only edit.
+
+**Steps:**
+1. `merge-orchestrate.ts:819-821` claims `merge.completed` "is not yet registered in `event-store/schemas.ts`; out of scope for Wave 4." It is registered (`schemas.ts:172`) and produced (`execute-merge.ts:618`). This comment is the origin of the epic's false claim.
+2. `create-pr.ts:162-165` claims it "satisfies the CI idempotency contract gate" — it never calls `withSession`, so the gate never scans it.
+
+**Dependencies:** 011 — same files; must not run in parallel with it.
+**Parallelizable:** No
+
+### Task 017: Correct `projections.md`; document reducer-scope and the `decide`/`withSession` split
+
+**Risk Tier:** low
+**Test Layer:** unit
+**Implements:** DR-7
+
+**Files:**
+- `docs/architecture/projections.md` (repo root)
+- `skills-src/plan/references/` or the nearest author-facing reference (placement decided in-task)
+
+**Verification:** low — static analysis plus `verify_doc_links` **scoped to changed docs only**; the repo-wide scan fails on ~190 pre-existing broken links (#1657-class) and is not this task's to fix.
+
+**Steps:**
+1. `projections.md:369-384` documents a snapshot-cadence runner as live — "the projection runner resets `eventCountSinceLast` to 0 after each snapshot write and emits `workflow.snapshot_taken`." No such runner existed. Rewrite to match DR-2's shipped shape.
+2. Document the `stream` vs `global` reducer-scope rule that `InvalidReducerScopeError` already enforces at runtime (`atomic-appender.ts:806`, `projections/store.ts:259`) — a runtime failure mode with no prose today.
+3. Record the `decide` vs `withSession` split where authors will meet it, stating that `withSession`'s zero consumers are the **intended** posture (mirroring Marten's `FetchForWriting`), so the next audit does not re-file this epic.
+
+**Dependencies:** 007 — documents DR-2's shipped shape.
+**Parallelizable:** No
+
+### Parallelization
+
+Five independent chains; the event-store chain is the critical path.
+
+```
+A (critical): 001 → 002 → 005 → 006 → 007 → 008 → 017
+                  └─→ 003 → 004
+B:            009 → 010
+                  └─→ 011 → 016
+C:            012
+D:            013 → 014
+E:            015
+```
+
+A, B, C, D, E dispatch in parallel worktrees. Within A, 003/004 branch off 001 and run alongside 005-008.
+
+**File-conflict check:** 011 and 016 both touch `merge-orchestrate.ts` and `create-pr.ts` — sequenced, never parallel. Chain A owns `sqlite-backend.ts` and `projections/store.ts` exclusively. No two parallel tasks share a file.
+
+**Checkpoint before dispatching chain A past 002** — `global_seq` assignment is the load-bearing concurrency change; everything downstream assumes it.
+
+### Completion checklist
+
+- [ ] Every DR-N in `## Design & Rationale` maps to at least one task in the matrix
+- [ ] Every task `Implements:` a DR-N that exists in this document
+- [ ] Every task carries a `riskTier` stamp
+- [ ] Medium/high-tier tasks carry adequacy-judged tests (test-after); low-tier tasks lean on static analysis
+- [ ] Open questions are resolved OR explicitly deferred with rationale
+- [ ] Ready for `plan-review`
