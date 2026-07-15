@@ -200,8 +200,7 @@ export interface DecideContext {
  * Mirrors the substrate's {@link AppendResult} ok-branch so callers that
  * just want sequences/eventIds don't need a second translation layer.
  * On failure the primitive throws a typed error (`ConcurrencyError`,
- * `StorageBusyError`, `InvalidReducerScopeError`, etc.) — there is no
- * `ok: false` discriminator here.
+ * `StorageBusyError`, etc.) — there is no `ok: false` discriminator here.
  */
 export type DecideResult =
   | {
