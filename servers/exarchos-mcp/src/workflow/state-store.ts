@@ -13,6 +13,7 @@ import { workflowStateProjection, type WorkflowStateView } from '../views/workfl
 import type { StorageBackend } from '../storage/backend.js';
 import { mergeSidecarEvents } from '../storage/sidecar-merger.js';
 import { isPidAlive } from '../utils/process.js';
+import { publishTempFile } from '../utils/atomic-write.js';
 import { logger } from '../logger.js';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -423,58 +424,6 @@ function getStateVersion(state: WorkflowState): number {
 
 // ─── Write State File Atomically ───────────────────────────────────────────
 
-/**
- * Attempts to publish a temp file over `target` before giving up, and the ceiling
- * on the jittered backoff between them. Sized so the whole budget stays under
- * ~1s of wall clock: long enough to outlast a contended replace, short enough
- * that a permanent failure surfaces promptly instead of looking like a hang.
- */
-const PUBLISH_RETRY_LIMIT = 20;
-const PUBLISH_BACKOFF_CAP_MS = 64;
-
-/**
- * Replace `target` with `tmpPath`, tolerating Windows' concurrent-rename race.
- *
- * Giving each writer a distinct temp path (see {@link TEMP_FILE_PATTERN}) fixed
- * writers overwriting each other's temp file, but it left them all replacing ONE
- * destination. POSIX `rename(2)` defines that: the replace is atomic and a loser
- * simply overwrites. Windows does not — while one replace is in flight the
- * destination is briefly held open, and a concurrent `MoveFileEx` fails EPERM (or
- * EACCES) even though nothing is actually wrong. So the same correct code is
- * green on Linux and red on Windows, which is why this surfaced only once a
- * concurrency test existed and only in the win32 lane.
- *
- * Retrying is safe because the operation being retried is the *publish*, not the
- * write: the payload is already fully on disk, each rename is still atomic, and a
- * reader therefore sees the old bytes or the new bytes and never a torn mix.
- *
- * The backoff is jittered, and that is load-bearing rather than decorative. The
- * contending writers are woken by the same collision, so a fixed or purely
- * exponential delay retries them in lockstep and they simply collide again on
- * every round — a first cut of this used `5 * attempt` and left one writer still
- * failing. Randomising each sleep is what actually breaks the convoy.
- *
- * Bounded on purpose. A real permission fault — read-only file, hostile ACL,
- * antivirus holding a handle — reports EPERM too and is indistinguishable at this
- * layer, so the loop must terminate and rethrow rather than mask it as a hang.
- * The retry is gated on win32 so POSIX keeps the single unconditional rename it
- * is already guaranteed.
- */
-async function publishTempFile(tmpPath: string, target: string): Promise<void> {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      await fs.rename(tmpPath, target);
-      return;
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      const isWindowsRenameRace =
-        process.platform === 'win32' && (code === 'EPERM' || code === 'EACCES');
-      if (!isWindowsRenameRace || attempt >= PUBLISH_RETRY_LIMIT) throw err;
-      const cap = Math.min(2 ** attempt, PUBLISH_BACKOFF_CAP_MS);
-      await new Promise((resolve) => setTimeout(resolve, 1 + Math.random() * cap));
-    }
-  }
-}
 
 /**
  * Write a workflow state file atomically using tmp+rename.

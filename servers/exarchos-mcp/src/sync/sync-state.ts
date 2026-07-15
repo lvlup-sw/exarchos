@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { SyncState } from './types.js';
+import { publishTempFile } from '../utils/atomic-write.js';
 
 // ─── Stream ID Validation ────────────────────────────────────────────────────
 
@@ -73,7 +74,7 @@ export class SyncStateManager {
 
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     await fs.writeFile(tmpPath, JSON.stringify(state, null, 2), 'utf-8');
-    await fs.rename(tmpPath, filePath);
+    await publishTempFile(tmpPath, filePath);
   }
 
   // ─── Update Local HWM ──────────────────────────────────────────────────

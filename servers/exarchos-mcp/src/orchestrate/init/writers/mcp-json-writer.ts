@@ -14,6 +14,7 @@ import type { ConfigWriteResult } from '../schema.js';
 import type { AgentRuntimeName } from '../../../runtime/agent-environment-detector.js';
 import type { RuntimeConfigWriter, WriteOptions } from './writer.js';
 import type { WriterDeps } from '../probes.js';
+import { publishTempFile } from '../../../utils/atomic-write.js';
 
 // ─── Shared types ───────────────────────────────────────────────────────────
 
@@ -94,7 +95,7 @@ export abstract class McpJsonWriter implements RuntimeConfigWriter {
 
     // Atomic write: tmp → rename
     await this.fs.writeFile(tmpPath, content);
-    await this.fs.rename(tmpPath, configPath);
+    await publishTempFile(tmpPath, configPath, (from, to) => this.fs.rename(from, to));
 
     return {
       runtime: this.runtime,
