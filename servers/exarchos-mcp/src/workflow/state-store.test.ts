@@ -1091,8 +1091,11 @@ describe('temp-file naming and orphan sweep', () => {
           // rename(2) is atomic, so a reader can only ever see a whole file.
           JSON.parse(raw);
         } catch (err) {
-          const code = (err as NodeJS.ErrnoException).code;
-          if (code === 'ENOENT') continue; // never expected; not the assertion
+          // ENOENT is NOT swallowed. The file exists before this reader starts
+          // and a publish only ever renames over it, so the target can never be
+          // absent — under a correct implementation this is unreachable. Skipping
+          // it would let an unlink-then-rename implementation pass the very test
+          // that exists to forbid it, which is the whole atomicity claim.
           readObservations.push(String(err));
         }
         await new Promise((r) => setImmediate(r));
