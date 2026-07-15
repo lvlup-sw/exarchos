@@ -17,6 +17,99 @@ import { logger } from '../logger.js';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
+// ─── Temp-File Naming (collision-free, sweep-safe) ────────────────────────────
+//
+// A temp path of `<stateFile>.<kind>.<pid>` is unique across *processes* but NOT
+// within one: two concurrent in-process writers to the same stateFile derive the
+// identical path, then race — one writer truncates the temp file the other is
+// still filling, and whichever renames first can publish a half-written payload
+// (or the loser's rename fails ENOENT). A process-lifetime-monotonic counter
+// makes the path unique per writer, restoring write/rename atomicity.
+//
+// WHERE the counter goes is load-bearing. The orphan sweep in `listStateFiles`
+// reclaims temp files by extracting a PID and testing liveness. It reads the
+// SECOND capture group of {@link TEMP_FILE_PATTERN}, whose PID group is anchored
+// to `$`. So the counter is placed BEFORE the pid — `.tmp.<counter>.<pid>` — and
+// matched by a NON-capturing optional group. Two properties fall out by
+// construction:
+//
+//   1. The pid is always the trailing segment, so the end-anchored `(\d+)$`
+//      group — i.e. `match[2]` — can only ever land on the pid.
+//   2. Group numbering is unaffected by the counter, so the sweep's extraction
+//      index does not shift.
+//
+// The naive alternative, `.tmp.<pid>.<counter>`, inverts this: the end-anchored
+// group captures the COUNTER, so liveness is tested against a counter value
+// rather than the writer. Whenever that value collides with a live pid, the
+// sweep concludes the orphan is "still being written" and never reaps it — a
+// silent, permanent temp-file leak. Counters are small and dense, so collisions
+// are routine rather than exotic. Keeping the pid last makes the whole class
+// unrepresentable instead of merely unlikely.
+//
+// The counter segment is OPTIONAL in the pattern so temp files written by an
+// older version (`.tmp.<pid>`, no counter) remain reapable after upgrade.
+
+/**
+ * Matches an orphaned temp state file, capturing the writer's pid.
+ *
+ * - group 1 — the temp kind (`tmp` for updates, `init` for creation).
+ * - group 2 — the writer's **pid**, anchored to end-of-string.
+ *
+ * The optional `(?:\d+\.)?` in between absorbs the in-process counter without
+ * capturing, so `match[2]` is the pid for both `.tmp.<counter>.<pid>` (current)
+ * and `.tmp.<pid>` (legacy, pre-counter) filenames.
+ */
+export const TEMP_FILE_PATTERN = /\.(tmp|init)\.(?:\d+\.)?(\d+)$/;
+
+/**
+ * Extract the writing process's pid from a temp state filename, or `null` if the
+ * name is not a temp file / carries no parseable pid. The sweep gates deletion on
+ * this pid's liveness, so returning a counter here would strand temp files
+ * forever — see {@link TEMP_FILE_PATTERN}.
+ */
+export function extractTempFilePid(filename: string): number | null {
+  const match = filename.match(TEMP_FILE_PATTERN);
+  if (!match) return null;
+  const pid = parseInt(match[2], 10);
+  return Number.isNaN(pid) ? null : pid;
+}
+
+/**
+ * Process-lifetime-monotonic counter. Never reset — resetting would reintroduce
+ * the collision this exists to prevent (a second writer reusing a live writer's
+ * suffix). Node executes JS on one thread, so `++` is atomic here and every
+ * caller observes a distinct value even under concurrent async writers.
+ */
+let _tempFileCounter = 0;
+
+/**
+ * The temp-path format itself, as a pure function — the single place the segment
+ * ORDER is decided. `counter` before `pid` keeps the pid trailing, which is what
+ * makes {@link TEMP_FILE_PATTERN}'s end-anchored group land on the pid.
+ *
+ * Exported so the writer/sweep round trip can be tested at arbitrary
+ * counter/pid combinations — notably the adversarial case where a counter's
+ * value collides with a live pid, which is unreachable through
+ * {@link nextTempPath} alone (its counter starts at 1 and only ever climbs).
+ */
+export function formatTempPath(
+  stateFile: string,
+  kind: 'tmp' | 'init',
+  counter: number,
+  pid: number,
+): string {
+  return `${stateFile}.${kind}.${counter}.${pid}`;
+}
+
+/**
+ * Build a collision-free temp path for `stateFile`. Unique per writer (counter)
+ * and per process (pid), with the pid last so the orphan sweep still reads it —
+ * see {@link TEMP_FILE_PATTERN}.
+ */
+export function nextTempPath(stateFile: string, kind: 'tmp' | 'init'): string {
+  return formatTempPath(stateFile, kind, ++_tempFileCounter, process.pid);
+}
+
 // ─── Module-Level StorageBackend ──────────────────────────────────────────────
 
 /** Module-level storage backend. When set, state operations delegate here. */
@@ -212,7 +305,7 @@ export async function initStateFile(
   // Write via temp file + atomic link for crash safety.
   // link() fails with EEXIST if target exists, preserving exclusive-create semantics.
   // On crash before link(), only the temp file remains — no corrupt state file.
-  const tmpPath = `${stateFile}.init.${process.pid}`;
+  const tmpPath = nextTempPath(stateFile, 'init');
   try {
     await fs.writeFile(tmpPath, JSON.stringify(state, null, 2), 'utf-8');
   } catch (err) {
@@ -447,7 +540,7 @@ export async function writeStateFile(
     }
   }
 
-  const tmpPath = `${stateFile}.tmp.${process.pid}`;
+  const tmpPath = nextTempPath(stateFile, 'tmp');
   try {
     await fs.writeFile(tmpPath, JSON.stringify(stateWithVersion, null, 2), 'utf-8');
     await fs.rename(tmpPath, stateFile);
@@ -708,16 +801,13 @@ export async function listStateFiles(
 
   const stateFiles = entries.filter((f) => f.endsWith('.state.json'));
 
-  // Clean up orphaned temp files from crashed writes
-  const tmpPattern = /\.(tmp|init)\.(\d+)$/;
-  const tmpFiles = entries.filter((f) => tmpPattern.test(f));
-  for (const tmpFile of tmpFiles) {
-    const match = tmpFile.match(tmpPattern);
-    if (match) {
-      const pid = parseInt(match[2], 10);
-      if (!isNaN(pid) && !isPidAlive(pid)) {
-        await fs.unlink(path.join(stateDir, tmpFile)).catch(() => {});
-      }
+  // Clean up orphaned temp files from crashed writes. The pid — never the
+  // in-process counter — gates deletion; see TEMP_FILE_PATTERN for why the
+  // filename puts the pid last to guarantee that.
+  for (const tmpFile of entries) {
+    const pid = extractTempFilePid(tmpFile);
+    if (pid !== null && !isPidAlive(pid)) {
+      await fs.unlink(path.join(stateDir, tmpFile)).catch(() => {});
     }
   }
 
