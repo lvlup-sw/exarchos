@@ -45,7 +45,11 @@ function viewTool(): CompositeTool {
  * `name` + `schema.shape`) sees the probe's fields against the real registry.
  */
 function probeAction(name: string, shape: z.ZodRawShape): ToolAction {
-  const template = viewTool().actions[0]; // `pipeline` — carries every required field
+  // Look the template up BY NAME: `actions[0]` assumed `pipeline` sits first, so
+  // a reordering would silently swap in another action's metadata instead of
+  // failing loudly.
+  const template = viewTool().actions.find((a) => a.name === 'pipeline');
+  if (!template) throw new Error('exarchos_view.pipeline action missing — probe template invalid');
   return { ...template, name, surface: undefined, schema: z.object(shape) };
 }
 

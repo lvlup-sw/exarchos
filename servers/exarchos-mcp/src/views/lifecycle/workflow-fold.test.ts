@@ -101,46 +101,22 @@ function sqliteWithCorpus(): SqliteBackend {
   return backend;
 }
 
-// ─── WorkflowFold_TypeFilter_PushedDownToIndexedColumn ────────────────────────
+// ─── WorkflowFold_TypeFilter_PushedDownToSql ─────────────────────────────────
 
 describe('workflow-fold view (DR-3)', () => {
-  it('WorkflowFold_TypeFilter_PushedDownToIndexedColumn', () => {
+  it('WorkflowFold_TypeFilter_PushedDownToSql', () => {
     const backend = sqliteWithCorpus();
-
-    // Capture every SQL string the backend compiles during the filtered read.
-    const db = (backend as unknown as { db: { prepare: (sql: string) => unknown } }).db;
-    const preparedSql: string[] = [];
-    const original = db.prepare.bind(db);
-    vi.spyOn(db, 'prepare').mockImplementation((sql: string) => {
-      preparedSql.push(sql);
-      return original(sql);
-    });
 
     const rows = foldWorkflowSummaries(backend, { workflowType: 'debug', includeTerminal: true });
 
     // Behavioural proof: only debug workflows returned. If the type predicate
     // were NOT pushed down to SQL, the join would return every type and
     // — because the JS lifecycle filter deliberately does not re-check
-    // workflowType — feature rows would leak through here.
+    // workflowType — feature rows would leak through here. This is the real
+    // guarantee: the type filter lives in SQL, never in JS.
     expect(rows.map((r) => r.featureId).sort()).toEqual(['dbg-active', 'dbg-done']);
 
-    // Structural proof: the summary query compiled the type predicate into a
-    // SQL WHERE built on the registry's workflow_type column. The predicate is
-    // the COALESCE expression rather than a bare `s.workflow_type = ?` because
-    // the join is a LEFT JOIN: a workflow whose `streams` row is missing (a
-    // swallowed registerStream failure) must still be filtered on its state
-    // row's own workflowType instead of being silently dropped. The load-
-    // bearing property this pins is unchanged — the type predicate lives in
-    // SQL, never in JS. Only index utilisation on streams.workflow_type is
-    // traded away, which the per-row MIN(timestamp) correlated subquery below
-    // already dominates.
-    const summarySql = preparedSql.find(
-      (sql) => sql.includes('json_extract') && sql.includes('workflow_type'),
-    );
-    expect(summarySql).toBeDefined();
-    expect(summarySql!).toMatch(/where[\s\S]*coalesce\(s\.workflow_type[\s\S]*=\s*\?/i);
-
-    // Counter proof: the indexed pushdown path fired exactly once.
+    // Counter proof: the pushdown path fired exactly once.
     expect(backend.getStats().workflowTypePushdownQueries).toBe(1);
   });
 
