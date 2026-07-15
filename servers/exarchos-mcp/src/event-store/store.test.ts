@@ -719,11 +719,22 @@ describe('EventStore Query Sequence Pre-filter', () => {
 
   it('Query_SequenceRegex_HandlesMultiDigitSequences', async () => {
     const store = new EventStore(tempDir);
-    // Append 1050 events to get multi-digit sequences
-    for (let i = 0; i < 1050; i++) {
-      const type = i % 3 === 0 ? 'task.completed' : 'task.assigned';
-      await store.append('my-workflow', { type });
-    }
+    // 1050 events, so sequences cross into 4 digits — the point of the test is
+    // the QUERY's sequence pre-filter, not the append path.
+    //
+    // Seeded via ONE batchAppend rather than 1050 awaited appends: sequence
+    // assignment and types are identical, but the batch commits in a single
+    // transaction instead of paying a per-append fsync. That is what makes this
+    // test's runtime independent of host disk throughput — the loop took ~121ms
+    // on Linux but ~35.6s on a Windows runner (NTFS fsync per append), which
+    // blew the 30s budget and reds the required `Windows Unit (MCP)` lane
+    // nondeterministically depending on how fast the runner happens to be.
+    await store.batchAppend(
+      'my-workflow',
+      Array.from({ length: 1050 }, (_, i) => ({
+        type: i % 3 === 0 ? 'task.completed' : 'task.assigned',
+      })),
+    );
 
     // Query with sinceSequence=1000 and type filter
     const events = await store.query('my-workflow', {
