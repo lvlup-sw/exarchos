@@ -494,8 +494,20 @@ jobs:
       - name: withSession idempotency contract (#1342 P1.D)
         run: bash scripts/check-withsession-idempotency.sh servers/exarchos-mcp/src
 
+      # Self-test for the gate above. It exercises the gate's own matching logic
+      # against seeded fixtures in a tmpdir — it says nothing about production
+      # code. Paths resolve from the script's own location, not the cwd.
+      - name: withSession idempotency gate self-test (#1342 P1.D)
+        run: bash scripts/check-withsession-idempotency.test.sh
+
       - name: BEGIN IMMEDIATE substrate-only (#1342 P1.E)
         run: bash scripts/check-begin-immediate-substrate.sh servers/exarchos-mcp/src
+
+      # Self-test for the gate above. Seeded-fixture cases plus RealTree_* cases
+      # that scan this checkout to catch false positives on the legitimate
+      # in-substrate `.immediate()` call site.
+      - name: BEGIN IMMEDIATE substrate gate self-test (#1342 P1.E)
+        run: bash scripts/check-begin-immediate-substrate.test.sh
 
       # Event-sourcing read-path structural gates (v2.11.0 Wave 3). Each is a
       # zero-dependency node script that scans servers/exarchos-mcp/src for an

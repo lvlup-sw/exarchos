@@ -2,7 +2,7 @@
  * TaskDetail view — post-Wave-2A.7 composes over `task-store@v1` (#1284).
  *
  * Pre-2A.7 this projection carried its own per-event switch, duplicating
- * the fold logic that the `task-store@v1` global reducer already encodes.
+ * the fold logic that the canonical `task-store@v1` reducer already encodes.
  * The duplication let the two surfaces drift (e.g. the old view wrote
  * `title: data.title ?? ''` while the canonical reducer writes
  * `title: undefined` when absent — see the cross-fold parity test in
@@ -95,8 +95,12 @@ export const taskDetailProjection: ViewProjection<TaskDetailViewState> = {
     // We reconstruct a minimal `TaskStoreState` from the view's tasks (the
     // canonical state shape's only other field, `projectionSequence`, is
     // not surfaced by the view; we discard it after each fold step). This
-    // keeps the per-stream materializer and the global readProjection on
-    // the same fold semantics — see Wave 2A.7 / #1284.
+    // keeps this materializer on the reducer's fold semantics rather than a
+    // second, drifting copy — see Wave 2A.7 / #1284.
+    //
+    // Both sides are per-stream: `task-store@v1` is `scope: 'stream'`, and
+    // this view folds one feature's events. The reducer's `tasks` key is only
+    // unique within a stream, so that alignment is required, not incidental.
     const priorTaskStore: TaskStoreState = {
       projectionSequence: 0,
       tasks: viewTasksToProjectionTasks(view.tasks),

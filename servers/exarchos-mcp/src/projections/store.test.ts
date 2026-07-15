@@ -4,12 +4,9 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { storeLogger } from '../logger.js';
-import { appendSnapshot, readLatestSnapshot, readProjection } from './store.js';
+import { appendSnapshot, readLatestSnapshot } from './store.js';
+import * as projectionsStore from './store.js';
 import { SnapshotRecord } from './snapshot-schema.js';
-import { createRegistry } from './registry.js';
-import type { ProjectionReducer } from './types.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
-import { EventStore } from '../event-store/store.js';
 import { InMemoryBackend } from '../storage/memory-backend.js';
 import { rmrf } from '../test-helpers/temp-dir.js';
 
@@ -214,155 +211,47 @@ describe('projection snapshot store — appendSnapshot backend delegation (A3.2)
   });
 });
 
-// ─── Wave 2A.6 — readProjection<T>(reducerId) global-scope primitive (#1284) ──
+// ─── Retirement boundary: what survived the `readProjection` removal ────────
 
 /**
- * Fixture state shape for `readProjection<T>` tests — counts handled events
- * and stores the most-recent payload. Intentionally simple so the test
- * fixtures stay readable.
+ * `readProjection` + `ReadProjectionOptions` + `InvalidReducerScopeError` were
+ * removed from this module when `ProjectionScope` collapsed to `'stream'`. The
+ * snapshot primitives are a SEPARATE, live surface — `appendSnapshot` has a
+ * production caller at `workflow/tools.ts` (the per-stream rehydration
+ * checkpoint), read back by `workflow/rehydrate.ts` and `projections/rebuild.ts`.
+ *
+ * This pins the boundary in both directions: the snapshot pair must still be
+ * exported AND still round-trip, and the retired symbols must be gone. A
+ * removal that over-reached (taking the snapshot pair with it) fails here
+ * rather than in a distant rehydration test.
  */
-interface FixtureState {
-  readonly count: number;
-  readonly latest: string | undefined;
-}
+describe('projection snapshot store — surface after readProjection removal', () => {
+  it('ProjectionsStore_AfterRemoval_StillExposesSnapshotPrimitives', () => {
+    // The surviving primitives are exported...
+    expect(typeof projectionsStore.appendSnapshot).toBe('function');
+    expect(typeof projectionsStore.readLatestSnapshot).toBe('function');
+    // ...along with the retention re-exports consumers resolve from here.
+    expect(typeof projectionsStore.resolveMaxRecords).toBe('function');
+    expect(projectionsStore.DEFAULT_SNAPSHOT_MAX_RECORDS).toBeGreaterThan(0);
 
-/**
- * Build a fixture reducer with a given scope. Used to exercise both the
- * happy-path (`scope: 'global'`) and the rejection path
- * (`scope: 'stream'` → `INVALID_REDUCER_SCOPE`).
- */
-function makeFixtureReducer(
-  id: string,
-  scope: 'stream' | 'global',
-): ProjectionReducer<FixtureState, WorkflowEvent> {
-  return {
-    id,
-    version: 1,
-    scope,
-    initial: { count: 0, latest: undefined },
-    apply(state, event) {
-      if (event.type !== 'task.assigned') return state;
-      const data = event.data as { taskId?: string } | undefined;
-      const tid = typeof data?.taskId === 'string' ? data.taskId : undefined;
-      if (!tid) return state;
-      return { count: state.count + 1, latest: tid };
-    },
-  };
-}
+    // ...and they still round-trip a record through a backend.
+    const backend = new InMemoryBackend();
+    const streamId = 'wf-surface-check';
+    const record: SnapshotRecord = {
+      projectionId: 'rehydration@v1',
+      projectionVersion: '1',
+      sequence: 7,
+      state: { hello: 'world' },
+      timestamp: '2026-07-15T00:00:00.000Z',
+    };
+    appendSnapshot(backend, streamId, record);
+    const read = readLatestSnapshot(backend, streamId, 'rehydration@v1', '1');
+    expect(read).toBeDefined();
+    expect(read?.sequence).toBe(7);
+    expect(read?.state).toEqual({ hello: 'world' });
 
-describe('readProjection<T>(reducerId) — global fold (Wave 2A.6, #1284)', () => {
-  let stateDir: string;
-  let eventStore: EventStore;
-
-  beforeEach(async () => {
-    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-read-proj-'));
-    eventStore = new EventStore(stateDir);
-    await eventStore.initialize();
-  });
-
-  afterEach(() => {
-    rmrf(stateDir);
-  });
-
-  it('ReadProjection_FoldsGlobalProjectionFromColdFold_WhenNoSnapshot', async () => {
-    // GIVEN: a fixture reducer registered as 'global' and events seeded
-    //   across two distinct streams.
-    const registry = createRegistry();
-    const reducer = makeFixtureReducer('fixture-global@v1', 'global');
-    registry.register(
-      reducer as unknown as Parameters<typeof registry.register>[0],
-    );
-
-    await eventStore.append('stream-A', {
-      type: 'task.assigned',
-      data: { taskId: 'T-A1' },
-    });
-    await eventStore.append('stream-B', {
-      type: 'task.assigned',
-      data: { taskId: 'T-B1' },
-    });
-    await eventStore.append('stream-A', {
-      type: 'task.assigned',
-      data: { taskId: 'T-A2' },
-    });
-
-    // WHEN: readProjection is invoked.
-    const result = await readProjection<FixtureState>(
-      'fixture-global@v1',
-      eventStore,
-      { registry },
-    );
-
-    // THEN: count covers every event across both streams.
-    expect(result.count).toBe(3);
-    expect(result.latest).toBeDefined();
-  });
-
-  it('ReadProjection_FoldsFromSnapshot_WhenFreshSnapshotPresent', async () => {
-    const registry = createRegistry();
-    const reducer = makeFixtureReducer('fixture-global@v1', 'global');
-    registry.register(
-      reducer as unknown as Parameters<typeof registry.register>[0],
-    );
-
-    // Pre-seed events that contribute to a snapshot.
-    await eventStore.append('stream-A', {
-      type: 'task.assigned',
-      data: { taskId: 'T-A1' },
-    });
-    await eventStore.append('stream-B', {
-      type: 'task.assigned',
-      data: { taskId: 'T-B1' },
-    });
-
-    // Write a snapshot keyed on the reducer id with the pre-seed state.
-    // The snapshot encodes a count=2 fold up to (and including) sequence 2.
-    appendSnapshot(eventStore.getReadBackend(), reducer.id, {
-      projectionId: reducer.id,
-      projectionVersion: String(reducer.version),
-      sequence: 2,
-      state: { count: 2, latest: 'T-B1' } satisfies FixtureState,
-      timestamp: '2026-05-10T00:00:00.000Z',
-    });
-
-    // Append one more event AFTER the snapshot — readProjection must fold
-    // it on top of the snapshotted state.
-    await eventStore.append('stream-A', {
-      type: 'task.assigned',
-      data: { taskId: 'T-A2' },
-    });
-
-    const result = await readProjection<FixtureState>(
-      'fixture-global@v1',
-      eventStore,
-      { registry },
-    );
-
-    // count = 2 from snapshot + 1 post-snapshot event.
-    expect(result.count).toBe(3);
-    expect(result.latest).toBe('T-A2');
-  });
-
-  it('ReadProjection_ThrowsInvalidScope_WhenReducerIsStream', async () => {
-    const registry = createRegistry();
-    const reducer = makeFixtureReducer('fixture-stream@v1', 'stream');
-    registry.register(
-      reducer as unknown as Parameters<typeof registry.register>[0],
-    );
-
-    await expect(
-      readProjection<FixtureState>('fixture-stream@v1', eventStore, {
-        registry,
-      }),
-    ).rejects.toThrow(/INVALID_REDUCER_SCOPE/);
-  });
-
-  it('ReadProjection_ThrowsUnknownReducer_WhenIdNotRegistered', async () => {
-    const registry = createRegistry();
-    await expect(
-      readProjection<FixtureState>('no-such-reducer@v1', eventStore, {
-        registry,
-      }),
-    ).rejects.toThrow(/unknown projection id/);
+    // The retired cross-stream surface is gone.
+    expect('readProjection' in projectionsStore).toBe(false);
+    expect('InvalidReducerScopeError' in projectionsStore).toBe(false);
   });
 });

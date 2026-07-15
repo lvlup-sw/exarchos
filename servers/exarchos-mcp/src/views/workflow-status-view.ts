@@ -26,8 +26,12 @@ export const WORKFLOW_STATUS_VIEW = 'workflow-status';
  *   - `tasksFailed    = count where status === 'failed'`
  *
  * Embedding the canonical state inside the view keeps the materializer's
- * per-stream snapshot integrity intact while sharing the fold logic with
- * the global `readProjection<TaskStoreState>('task-store@v1')` path.
+ * per-stream snapshot integrity intact while sharing the fold logic with the
+ * canonical `task-store@v1` reducer. That reducer is `scope: 'stream'`, which
+ * matches this view exactly: the counts above describe one feature's tasks.
+ * (A cross-stream `readProjection<TaskStoreState>('task-store@v1')` reader
+ * once existed and was removed — folding every stream together merged
+ * distinct features' tasks under the same ordinal key.)
  *
  * BC for legacy snapshots: the `_seenAssignedTaskIds` / `_seenCompletedTaskIds`
  * fields are retained on the state shape (kept empty / unused) so JSON

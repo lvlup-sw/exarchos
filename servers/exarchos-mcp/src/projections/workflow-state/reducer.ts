@@ -37,7 +37,8 @@ export const workflowStateReducer: ProjectionReducer<WorkflowStateView, Workflow
   id: 'workflow-state@v1',
   version: 1,
   // Per-feature workflow stream — consumed by the per-stream primitives
-  // (`decide` / `aggregateStream`), not the cross-stream `readProjection`.
+  // (`decide` / `aggregateStream`). Scope must match the state's key space;
+  // see `projections/types.ts` for the rule and its exact guarantee.
   scope: 'stream' as const,
   initial: workflowStateProjection.init(),
   apply(state: WorkflowStateView, event: WorkflowEvent): WorkflowStateView {

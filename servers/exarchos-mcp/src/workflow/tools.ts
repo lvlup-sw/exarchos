@@ -476,14 +476,25 @@ const MAX_CAS_RETRIES = 3;
  * **Event-first contract:** When an event store is configured and a phase
  * transition occurs, the `workflow.transition` event is appended BEFORE
  * the state file is written. If the event append fails, no state is
- * modified and an error is returned. Idempotency keys prevent duplicate
- * events on CAS retry: `${featureId}:${from}:${to}:${expectedVersion}`.
+ * modified and an error is returned. That event is keyed
+ * `${featureId}:${evt.type}:${evt.from}:${evt.to}:${expectedVersion}`
+ * (built in `hsm-transition-guard.ts`, which appends the suffix this
+ * function passes as `idempotencyKeySuffix`).
  *
  * **ES v2 field updates:** For workflows with `_esVersion === 2`, field
  * updates emit a `state.patched` event with the patch delta before
  * writing. After the CAS write succeeds, the state file is overwritten
  * with a snapshot re-materialized from the full event stream, ensuring
- * the file is always a derived artifact.
+ * the file is always a derived artifact. That event is keyed
+ * `${featureId}:patch:${expectedVersion}:${fieldsHash}`, which guarantees
+ * only **one event per (featureId, base-version, field-name-set)** — the
+ * key covers field NAMES, not values, so two different patches to the same
+ * fields at the same base version collide and the second is silently
+ * dropped. Because `expectedVersion` is server-derived it also does NOT
+ * deduplicate CAS or lost-response retries (those duplicate instead). The
+ * full contract and its hazards are documented inline at the append site;
+ * #1643 tracks the derivation fix. Do not rely on these keys for
+ * end-to-end request idempotency.
  *
  * **Legacy v1 path:** Field-only updates write directly without events.
  *
@@ -907,8 +918,53 @@ export async function handleSet(
 
     // Transition events are now emitted inside `hsmTransitionGuard.attempt`
     // — see Primitive 3 in `docs/designs/2026-05-06-v29-bug-cluster-combined-fix.md`.
-    // Idempotency keys are derived from `expectedVersion`, so CAS retries
-    // through this loop are still safely deduplicated by the event store.
+    //
+    // ─── Idempotency contract for the `state.patched` append below ───
+    //
+    // The real guarantee is narrow: **at most one `state.patched` event per
+    // (featureId, base-version, field-name-set)**. That is the whole of it.
+    //
+    // Why: the key at the append site is
+    //   `${featureId}:patch:${expectedVersion}:${fieldsHash}`
+    // and `fieldsHash` is `[...updateKeys].sort().join(',')` over
+    // `Object.keys(input.updates)` — sorted field *NAMES* only. Values never
+    // enter the key. (`fieldsHash` is also a plain join, NOT a hash; the name
+    // is misleading — do not read it as a digest of the patch.)
+    //
+    // Two consequences, and they cut in opposite directions:
+    //
+    // 1. COLLISION (lost write). `{status:'a'}` and `{status:'b'}` applied at
+    //    the same base version derive the IDENTICAL key. The second append is
+    //    silently deduplicated by the event store — the write is dropped, with
+    //    no error surfaced to the caller. Distinct patches are conflated
+    //    because only the key set is keyed on.
+    //
+    // 2. NO DEDUP ACROSS RETRIES. `expectedVersion` is server-derived
+    //    (`state._version ?? 1`, re-read from disk on every pass of this
+    //    loop). So it is not stable across exactly the retries a dedup key
+    //    exists to cover:
+    //      - CAS retry: a `VersionConflictError` means a concurrent writer
+    //        advanced `_version`, so the next pass reads a NEW version and
+    //        derives a DIFFERENT key. The prior pass's event is already in the
+    //        store (event-first), so the retry ADDS a second event rather than
+    //        collapsing onto the first.
+    //      - Lost-response retry: a client that re-sends after a dropped
+    //        response has its `expectedVersion` re-derived from the server's
+    //        own already-advanced version — again a different key, again a
+    //        duplicate.
+    //
+    // Net: this key drops writes it should keep (1) and duplicates writes it
+    // should collapse (2). Fixing the derivation is tracked in #1643 — do not
+    // infer a stronger contract than the one stated above until it lands.
+    //
+    // SCOPE: everything above describes ONLY the `state.patched` append in
+    // this function. It does NOT cover the transition path at the
+    // `hsmTransitionGuard.attempt` call above, which passes
+    // `idempotencyKeySuffix: String(expectedVersion)` and keys a DIFFERENT
+    // event type (`workflow.transition` and its compound/fix-cycle siblings)
+    // via a different derivation built inside the guard
+    // (`${featureId}:${evt.type}:${evt.from}:${evt.to}:${suffix}`, see
+    // `hsm-transition-guard.ts`). Do not assume this analysis transfers to it.
     let highestEventSequence: number | undefined = transitionTopSequence;
 
     // ─── Event-first: append state.patched event for v2 field updates ──
@@ -982,9 +1038,16 @@ export async function handleSet(
         };
       }
       if (err instanceof VersionConflictError && attempt < MAX_CAS_RETRIES) {
-        // Re-read and retry on version conflict — events already appended
-        // with idempotency key, so re-append on next iteration is safely
-        // deduplicated
+        // Re-read and retry on version conflict.
+        //
+        // NOTE: the next iteration's append is NOT deduplicated against this
+        // failed pass's event. A `VersionConflictError` means a concurrent
+        // writer advanced `_version`, so the re-read derives a new
+        // `expectedVersion` and therefore a new idempotency key — while this
+        // pass's event is already committed (event-first). The retry appends
+        // an ADDITIONAL event. See the idempotency contract above the
+        // `state.patched` append for the full derivation; #1643 tracks the
+        // fix.
         continue;
       }
 

@@ -5,6 +5,7 @@ import type { WorkflowState } from '../workflow/types.js';
 import { logger } from '../logger.js';
 import { WorkflowStateSchema } from '../workflow/schemas.js';
 import { TELEMETRY_STREAM } from '../telemetry/constants.js';
+import { publishTempFile } from '../utils/atomic-write.js';
 
 // ─── Lifecycle Policy ───────────────────────────────────────────────────────
 
@@ -158,7 +159,7 @@ export async function compactWorkflow(
   const archivePath = path.join(archiveDir, `${featureId}.archive.json`);
   const tmpPath = `${archivePath}.tmp.${Date.now()}`;
   await fs.writeFile(tmpPath, JSON.stringify(archive, null, 2), 'utf-8');
-  await fs.rename(tmpPath, archivePath);
+  await publishTempFile(tmpPath, archivePath);
 
   // Delete state file
   await unlinkIfExists(stateFile);

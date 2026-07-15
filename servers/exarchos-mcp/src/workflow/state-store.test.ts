@@ -17,7 +17,13 @@ import {
   hydrateEventsFromStore,
   VersionConflictError,
   StateStoreError,
+  TEMP_FILE_PATTERN,
+  extractTempFilePid,
+  nextTempPath,
+  formatTempPath,
 } from './state-store.js';
+import { spawn } from 'node:child_process';
+import { isPidAlive } from '../utils/process.js';
 import { EventStore } from '../event-store/store.js';
 import { InMemoryBackend, VersionConflictError as BackendVersionConflictError } from '../storage/memory-backend.js';
 import type { WorkflowState } from './types.js';
@@ -1004,3 +1010,204 @@ describe('StateStoreError reserved-field data (#1360)', () => {
     }
   });
 });
+
+// ─── Temp-File Naming: In-Process Collisions & Orphan Sweep ────────────────
+//
+// Two coupled contracts, deliberately tested together because a fix to one can
+// silently break the other:
+//
+//   1. Concurrent in-process writers must never derive the same temp path.
+//   2. The orphan sweep must extract the writer's PID from a temp filename —
+//      never the in-process counter. A counter misread as a PID resolves to a
+//      low, near-certainly-live PID (counter 1 → init), so the sweep declares
+//      the orphan "still being written" and never reaps it: a silent, permanent
+//      temp-file leak.
+
+describe('temp-file naming and orphan sweep', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    // The file-based path is under test; a backend would short-circuit it.
+    configureStateStoreBackend(undefined);
+    tempDir = await mkdtemp(path.join(tmpdir(), 'statestore-tmpname-'));
+  });
+
+  afterEach(async () => {
+    configureStateStoreBackend(undefined);
+    // rmrfAsync releases any SQLite handle opened under tempDir before removing
+    // it — Windows refuses to delete a file with a live handle (INV-16).
+    await rmrfAsync(tempDir);
+  });
+
+  it('WriteStateFile_ConcurrentInProcessWriters_NeverCollideOnTempPath', async () => {
+    const { state, stateFile } = await initStateFile(tempDir, 'collide', 'feature');
+
+    // Every writer targets the SAME stateFile, so a pid-only temp path gives
+    // them all one shared temp file: they truncate each other mid-write and the
+    // loser's rename hits ENOENT once the winner has moved the file away.
+    const writers = Array.from({ length: 24 }, (_, i) =>
+      writeStateFile(stateFile, { ...state, _version: i } as WorkflowState, {
+        skipValidation: true,
+      }),
+    );
+    const results = await Promise.allSettled(writers);
+
+    const rejected = results.filter((r) => r.status === 'rejected');
+    expect(
+      rejected.map((r) => String((r as PromiseRejectedResult).reason)),
+    ).toEqual([]);
+
+    // No writer may leave a temp file behind on the success path.
+    const leftovers = (await fs.readdir(tempDir)).filter((f) =>
+      TEMP_FILE_PATTERN.test(f),
+    );
+    expect(leftovers).toEqual([]);
+
+    // The published file must be exactly one writer's payload, intact.
+    const published = await fs.readFile(stateFile, 'utf-8');
+    expect(() => JSON.parse(published)).not.toThrow();
+  });
+
+  it('WriteStateFile_ConcurrentWriters_NeitherObservesPartialFile', async () => {
+    const { state, stateFile } = await initStateFile(tempDir, 'partial', 'feature');
+
+    // A payload large enough that writeFile cannot land in a single syscall —
+    // this is what opens the window where a shared temp path lets one writer
+    // publish another's half-written bytes.
+    const bulky = (marker: string): WorkflowState =>
+      ({
+        ...state,
+        _version: 1,
+        _padding: Array.from({ length: 4000 }, () => `${marker}-payload-chunk`),
+      }) as unknown as WorkflowState;
+
+    let readerStop = false;
+    const readObservations: string[] = [];
+    const reader = (async () => {
+      while (!readerStop) {
+        try {
+          const raw = await fs.readFile(stateFile, 'utf-8');
+          // Every observation of the published file must be complete JSON —
+          // rename(2) is atomic, so a reader can only ever see a whole file.
+          JSON.parse(raw);
+        } catch (err) {
+          // ENOENT is NOT swallowed. The file exists before this reader starts
+          // and a publish only ever renames over it, so the target can never be
+          // absent — under a correct implementation this is unreachable. Skipping
+          // it would let an unlink-then-rename implementation pass the very test
+          // that exists to forbid it, which is the whole atomicity claim.
+          readObservations.push(String(err));
+        }
+        await new Promise((r) => setImmediate(r));
+      }
+    })();
+
+    const writers = Array.from({ length: 12 }, (_, i) =>
+      writeStateFile(stateFile, bulky(`w${i}`), { skipValidation: true }),
+    );
+    const results = await Promise.allSettled(writers);
+    readerStop = true;
+    await reader;
+
+    expect(
+      results
+        .filter((r) => r.status === 'rejected')
+        .map((r) => String((r as PromiseRejectedResult).reason)),
+    ).toEqual([]);
+    // No reader ever saw a torn/partial payload.
+    expect(readObservations).toEqual([]);
+
+    const final = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+    expect(final.featureId).toBe('partial');
+    // The published payload is one writer's whole array — not a splice of two.
+    expect(final._padding).toHaveLength(4000);
+    const markers = new Set(
+      (final._padding as string[]).map((c) => c.split('-')[0]),
+    );
+    expect(markers.size).toBe(1);
+  });
+
+  it('OrphanSweep_TempFileWithCounter_ExtractsPidNotCounter', () => {
+    // `.tmp.<counter>.<pid>` — the pid is the trailing segment, so the
+    // end-anchored capture group can only land on it.
+    expect(extractTempFilePid('x.state.json.tmp.1.4242')).toBe(4242);
+    expect(extractTempFilePid('x.state.json.tmp.99999.4242')).toBe(4242);
+    expect(extractTempFilePid('x.state.json.init.7.4242')).toBe(4242);
+
+    // Legacy pre-counter names (`.tmp.<pid>`) must stay reapable after upgrade,
+    // or an in-flight orphan from the previous version leaks forever.
+    expect(extractTempFilePid('x.state.json.tmp.4242')).toBe(4242);
+    expect(extractTempFilePid('x.state.json.init.4242')).toBe(4242);
+
+    // Non-temp files are not sweep candidates.
+    expect(extractTempFilePid('x.state.json')).toBeNull();
+    expect(extractTempFilePid('x.state.json.tmp.abc')).toBeNull();
+    expect(extractTempFilePid('notes.txt')).toBeNull();
+
+    // The writer and the sweep must agree: whatever the writer emits, the
+    // sweep must read this process's real pid back out of it.
+    const emitted = nextTempPath(path.join(tempDir, 'agree.state.json'), 'tmp');
+    expect(extractTempFilePid(emitted)).toBe(process.pid);
+  });
+
+  it('OrphanSweep_DeadPidWithLivePidCollidingCounter_StillReaps', async () => {
+    // The regression test for the naive `.tmp.<pid>.<counter>` layout.
+    //
+    // The adversarial case: a temp file left by a DEAD writer whose counter
+    // value happens to equal a LIVE pid. Under the naive layout the sweep's
+    // end-anchored group captures the trailing counter, reads it as a live pid,
+    // concludes "still being written", and never reaps — a silent, permanent
+    // leak. Under the correct layout the trailing segment is the dead writer's
+    // pid, so it reaps regardless of what the counter holds.
+    //
+    // The live pid used as the colliding counter is our OWN: it is the only pid
+    // guaranteed both to exist and to be signalable by this user. (PID 1 is not
+    // usable as the decoy — in a container/namespace `kill(1, 0)` raises EPERM,
+    // which isPidAlive deliberately reports as not-alive.)
+    const deadPid = await findDeadPid();
+    const liveCounter = process.pid;
+    expect(isPidAlive(deadPid)).toBe(false);
+    expect(isPidAlive(liveCounter)).toBe(true);
+
+    // Built through the production formatter, so this tracks whatever segment
+    // order the implementation chose rather than hardcoding the correct one.
+    const deadOrphan = path.basename(
+      formatTempPath('orphan-a.state.json', 'tmp', liveCounter, deadPid),
+    );
+    const deadInitOrphan = path.basename(
+      formatTempPath('orphan-b.state.json', 'init', liveCounter, deadPid),
+    );
+    // Inverse: a LIVE writer's temp file must survive, even though its counter
+    // value is a dead pid. Guards against "just swap the group" fixes.
+    const liveOrphan = path.basename(
+      formatTempPath('orphan-c.state.json', 'tmp', deadPid, liveCounter),
+    );
+
+    for (const f of [deadOrphan, deadInitOrphan, liveOrphan]) {
+      await fs.writeFile(path.join(tempDir, f), '{}', 'utf-8');
+    }
+
+    await listStateFiles(tempDir);
+
+    const remaining = await fs.readdir(tempDir);
+    // Dead writer's temp files reaped — the counter must not shadow the pid.
+    expect(remaining).not.toContain(deadOrphan);
+    expect(remaining).not.toContain(deadInitOrphan);
+    // Live writer's temp file untouched — its counter must not be read as a pid.
+    expect(remaining).toContain(liveOrphan);
+  });
+});
+
+/**
+ * Find a PID that is definitely not running: spawn a trivial child, wait for it
+ * to exit, and reuse its pid. Beats a hardcoded high number, which a busy host
+ * could legitimately have assigned.
+ */
+async function findDeadPid(): Promise<number> {
+  const child = spawn(process.execPath, ['-e', '']);
+  const pid = child.pid!;
+  await new Promise<void>((resolve) => child.on('exit', () => resolve()));
+  // Reap latency: the pid can linger as a zombie for a tick after 'exit'.
+  await new Promise((r) => setTimeout(r, 50));
+  return pid;
+}

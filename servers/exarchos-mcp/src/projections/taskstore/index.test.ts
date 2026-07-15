@@ -19,6 +19,6 @@ describe('taskstore barrel registration (Wave 2A.5)', () => {
     expect(registered).toBeDefined();
     expect(registered?.id).toBe('task-store@v1');
     expect(registered?.version).toBe(1);
-    expect(registered?.scope).toBe('global');
+    expect(registered?.scope).toBe('stream');
   });
 });

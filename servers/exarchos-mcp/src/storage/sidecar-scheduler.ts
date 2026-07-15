@@ -150,6 +150,12 @@ async function drainOnce(
     );
     const drainPath = path.join(stateDir, drainFile);
 
+    // Deliberately NOT routed through `publishTempFile`: this is not a publish.
+    // `drainPath` is unique per drainer (`drain-<pid>-<timestamp>`), so no two
+    // callers ever replace the same destination and the Windows concurrent-
+    // replace race it guards cannot arise. The rename is a claim, not a publish
+    // — losing it means another drainer got there first, which `continue`
+    // already handles correctly.
     try {
       await fs.rename(sidecarPath, drainPath);
     } catch {

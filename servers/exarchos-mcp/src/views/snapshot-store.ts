@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { EVENT_SCHEMA_VERSION } from '../event-store/event-migration.js';
+import { publishTempFile } from '../utils/atomic-write.js';
 
 // ─── Snapshot Data ─────────────────────────────────────────────────────────
 
@@ -128,7 +129,7 @@ export class SnapshotStore {
     };
 
     await fs.writeFile(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
-    await fs.rename(tmpPath, filePath);
+    await publishTempFile(tmpPath, filePath);
   }
 
   /**

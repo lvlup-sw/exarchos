@@ -13,7 +13,7 @@ export interface FixtureState {
 
 export function makeFixtureReducer(
   id: string,
-  scope: 'stream' | 'global',
+  scope: 'stream' = 'stream',
 ): ProjectionReducer<FixtureState, WorkflowEvent> {
   return {
     id,

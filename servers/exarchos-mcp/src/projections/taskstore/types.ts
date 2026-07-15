@@ -1,12 +1,24 @@
 /**
  * TaskStore projection state types (Task 2A.2 / #1284).
  *
- * The TaskStore is a **global** projection — its reducer (`task-store@v1`)
- * folds over `task.*` events from every workflow stream and produces a single
+ * The TaskStore is a **stream-scoped** projection — its reducer
+ * (`task-store@v1`) folds `task.*` events from **one** workflow stream into an
  * indexed view of task records keyed by `taskId`. This is the canonical
  * replacement for the ad-hoc fold-in-view patterns previously living in
  * `views/task-detail-view.ts` and `views/workflow-status-view.ts` (see Task
  * 2A.7 for the wire-through).
+ *
+ * ## The key space
+ *
+ * `tasks` is keyed by `taskId` — a bare per-feature ordinal (`'001'`), minted
+ * by `parseTaskBlocks` from `### Task 001` headers — and {@link TaskRecord}
+ * carries no `featureId`. So the key is unique only *within* a stream.
+ *
+ * That is the fact this reducer's `scope` stamp answers to; the reducer-scope
+ * rule itself, why this one is `'stream'`, and what re-widening would demand
+ * are stated once, in the `scope` docstring in `projections/types.ts`. The
+ * dormant-and-correct vs dormant-and-wrong posture lesson this epic turned on
+ * lives in `docs/architecture/projections.md`.
  *
  * Status enum is the **production-realistic** transition surface (per the
  * plan's GREEN correction on line 355). The five values map 1:1 to the

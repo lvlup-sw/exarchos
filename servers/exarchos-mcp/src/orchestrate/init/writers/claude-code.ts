@@ -18,6 +18,7 @@ import type { WriterDeps, WriterFs } from '../probes.js';
 import type { ConfigWriteResult } from '../schema.js';
 import type { RuntimeConfigWriter, WriteOptions } from './writer.js';
 import { deployOnrampBlocks } from './onramp-block.js';
+import { publishTempFile } from '../../../utils/atomic-write.js';
 
 /** MCP server entry shape in ~/.claude.json */
 interface McpServerEntry {
@@ -47,7 +48,7 @@ export async function atomicWriteJson(
   const tmp = `${path}.tmp`;
   const serialized = JSON.stringify(data, null, 2);
   await deps.fs.writeFile(tmp, serialized);
-  await deps.fs.rename(tmp, path);
+  await publishTempFile(tmp, path, { rename: (from, to) => deps.fs.rename(from, to) });
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────

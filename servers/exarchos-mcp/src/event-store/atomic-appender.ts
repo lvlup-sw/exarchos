@@ -22,9 +22,6 @@ import {
   type ProjectionRegistry,
 } from '../projections/registry.js';
 import type { ProjectionReducer } from '../projections/types.js';
-import {
-  InvalidReducerScopeError,
-} from '../projections/store.js';
 import { UnknownProjectionIdError } from '../projections/rebuild.js';
 
 /**
@@ -203,8 +200,7 @@ export interface DecideContext {
  * Mirrors the substrate's {@link AppendResult} ok-branch so callers that
  * just want sequences/eventIds don't need a second translation layer.
  * On failure the primitive throws a typed error (`ConcurrencyError`,
- * `StorageBusyError`, `InvalidReducerScopeError`, etc.) — there is no
- * `ok: false` discriminator here.
+ * `StorageBusyError`, etc.) — there is no `ok: false` discriminator here.
  */
 export type DecideResult =
   | {
@@ -516,10 +512,8 @@ export class AtomicAppender {
    *     (substrate write-lock contention; caller may retry the SAME
    *     decision after backoff — the other writer commits on its own).
    *
-   * Scope discipline: throws {@link InvalidReducerScopeError} when the
-   * reducer's `scope` is not `'stream'`. The reducer must own the
-   * aggregate's consistency boundary — global-scoped reducers belong to
-   * `readProjection`, not `decide`.
+   * Scope discipline: the reducer must own the aggregate's consistency
+   * boundary. See {@link resolveStreamReducer}.
    *
    * Idempotency (audit §F1.3): when `operationId` is supplied, derives
    * ONE key per call (`${streamId}:${reducerId}:${operationId}`) so all
@@ -538,7 +532,7 @@ export class AtomicAppender {
     ) => EventInput[] | Promise<EventInput[]>,
     opts?: DecideOptions,
   ): Promise<DecideResult> {
-    // ─── Step 1: resolve + validate reducer scope ───────────────────────
+    // ─── Step 1: resolve the reducer ─────────────────────────────────────
     const reducer = this.resolveStreamReducer(reducerId, opts?.registry);
 
     // ─── Step 2: read events for fold (single SELECT — WAL snapshot) ───
@@ -645,7 +639,7 @@ export class AtomicAppender {
       throw new InvalidSessionOptionsError();
     }
 
-    // ─── Step 1: resolve + validate reducer scope ───────────────────────
+    // ─── Step 1: resolve the reducer ─────────────────────────────────────
     const reducer = this.resolveStreamReducer(reducerId, opts?.registry);
 
     // ─── Step 2: read events + fold ─────────────────────────────────────
@@ -750,9 +744,7 @@ export class AtomicAppender {
    * observation. Callers that need read-then-decide-then-write must
    * route through `decide` or `withSession`.
    *
-   * Scope validation: throws {@link InvalidReducerScopeError} when
-   * `reducer.scope !== 'stream'` (Task 3.12). Global-scoped reducers
-   * belong to `readProjection` (DR-1 / Wave 2A).
+   * Scope: no runtime check — see {@link resolveStreamReducer} for why.
    *
    * **Snapshot stability discipline (audit §F2.3):**
    * Today's implementation is a single SELECT through
@@ -837,9 +829,15 @@ export class AtomicAppender {
   }
 
   /**
-   * Resolve a reducer id against the supplied (or default) registry and
-   * enforce `scope: 'stream'`. Shared by `decide` (Task 3.4) and
-   * `aggregateStream` (Task 3.12).
+   * Resolve a reducer id against the supplied (or default) registry.
+   * Shared by `decide` (Task 3.4), `withSession`, and `aggregateStream`
+   * (Task 3.12).
+   *
+   * No runtime scope check: the former `INVALID_REDUCER_SCOPE` guard was
+   * removed with the `'global'` scope (#1342). Why that is safe, what the type
+   * does and does not guarantee, and what re-widening `ProjectionScope` would
+   * require here are stated once — see the `scope` docstring on
+   * `ProjectionReducer` in `projections/types.ts`.
    */
   private resolveStreamReducer(
     reducerId: string,
@@ -849,11 +847,6 @@ export class AtomicAppender {
     const reducer = reg.get(reducerId);
     if (!reducer) {
       throw new UnknownProjectionIdError(reducerId);
-    }
-    if (reducer.scope !== 'stream') {
-      throw new InvalidReducerScopeError(reducerId, reducer.scope, {
-        scope: 'stream',
-      });
     }
     return reducer;
   }

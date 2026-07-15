@@ -5,6 +5,7 @@ import type { WorkflowEvent } from '../event-store/schemas.js';
 import type { OutboxEntry, EventSender } from './types.js';
 import type { StorageBackend } from '../storage/backend.js';
 import { validateStreamId } from '../shared/validation.js';
+import { publishTempFile } from '../utils/atomic-write.js';
 
 // ─── Outbox Options ─────────────────────────────────────────────────────────
 
@@ -327,6 +328,6 @@ export class Outbox {
 
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     await fs.writeFile(tmpPath, JSON.stringify(entries, null, 2), 'utf-8');
-    await fs.rename(tmpPath, filePath);
+    await publishTempFile(tmpPath, filePath);
   }
 }

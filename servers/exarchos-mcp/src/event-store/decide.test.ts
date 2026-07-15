@@ -7,7 +7,6 @@ import { AtomicAppender } from './atomic-appender.js';
 import { EventStore } from './store.js';
 import { ConcurrencyError } from './concurrency-error.js';
 import { StorageBusyError } from './storage-busy-error.js';
-import { InvalidReducerScopeError } from '../projections/store.js';
 import {
   createRegistry,
   type ProjectionRegistry,
@@ -130,38 +129,14 @@ describe('decide<TState> — scope discipline (Task 3.4)', () => {
     await rmrfAsync(stateDir);
   });
 
-  it('Decide_RejectsGlobalScopedReducer_WithInvalidReducerScope', async () => {
-    // A global-scoped fixture stands in for task-store@v1 (real registered
-    // global reducer) — keeps the test hermetic on a fresh registry.
-    const globalReducer = makeFixtureReducer('fixture-global@v1', 'global');
-    registry.register(
-      globalReducer as unknown as Parameters<typeof registry.register>[0],
-    );
-
-    await expect(
-      appender.decide<FixtureState>(
-        streamId,
-        'fixture-global@v1',
-        () => [{ type: 'task.completed' }],
-        { registry },
-      ),
-    ).rejects.toBeInstanceOf(InvalidReducerScopeError);
-
-    try {
-      await appender.decide<FixtureState>(
-        streamId,
-        'fixture-global@v1',
-        () => [{ type: 'task.completed' }],
-        { registry },
-      );
-    } catch (err) {
-      expect(err).toBeInstanceOf(InvalidReducerScopeError);
-      const e = err as InvalidReducerScopeError;
-      expect(e.expectedShape.scope).toBe('stream');
-      expect(e.actualScope).toBe('global');
-      expect(e.message).toMatch(/INVALID_REDUCER_SCOPE/);
-    }
-  });
+  // `Decide_RejectsGlobalScopedReducer_WithInvalidReducerScope` was removed
+  // when `ProjectionScope` collapsed to the single literal `'stream'`. Its
+  // subject — a registered reducer whose scope is not `'stream'` — is no
+  // longer representable, so the test could only have been kept by casting a
+  // fabricated value past the type system, which would assert on the cast
+  // rather than on any reachable state. The invariant it guarded is now
+  // enforced by the compiler; see `projections/types.test.ts`
+  // (`ProjectionScope_ReducerAuthoredGlobal_FailsTypecheck`).
 
   it('Decide_ThrowsUnknownProjection_WhenReducerNotRegistered', async () => {
     await expect(

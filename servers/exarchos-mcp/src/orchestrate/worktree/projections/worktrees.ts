@@ -544,7 +544,8 @@ export function createWorktreesReducer(
     id: 'worktrees@v1',
     version: 1,
     // Folds the singleton `worktrees` stream — consumed by the per-stream
-    // `aggregateStream` / `decide` primitives, not the cross-stream `readProjection`.
+    // `aggregateStream` / `decide` primitives. Scope must match the state's
+    // key space; see `projections/types.ts` for the rule and its guarantee.
     scope: 'stream' as const,
     initial: initialWorktreesProjection,
     apply(state: WorktreesProjection, event: WorkflowEvent): WorktreesProjection {

@@ -114,7 +114,7 @@ describe('projection registry — domain singularity (#1554-1)', () => {
     // Sanity: distinct domains register side by side (no false positives).
     const registry = createRegistry();
     const reducers: ProjectionReducer<unknown, unknown>[] = [
-      { id: 'task-store@v1', version: 1, scope: 'global', initial: {}, apply: (s) => s },
+      { id: 'task-store@v1', version: 1, scope: 'stream', initial: {}, apply: (s) => s },
       { id: 'merge-orchestrator@v1', version: 1, scope: 'stream', initial: {}, apply: (s) => s },
       { id: 'workflow-state@v1', version: 1, scope: 'stream', initial: {}, apply: (s) => s },
     ];

@@ -40,6 +40,15 @@
  * @typeParam State - The projected state type this reducer produces.
  * @typeParam Event - The event type this reducer consumes.
  */
+/**
+ * Aggregate boundary a {@link ProjectionReducer} folds over.
+ *
+ * Deliberately a single literal. See {@link ProjectionReducer.scope} for why a
+ * cross-stream (`'global'`) member is not — and must not be — representable.
+ * This alias is the one place to change if that decision is ever revisited.
+ */
+export type ProjectionScope = 'stream';
+
 export interface ProjectionReducer<State, Event> {
   /**
    * Globally unique identifier for this reducer (e.g. `"rehydration@v1"`).
@@ -63,18 +72,61 @@ export interface ProjectionReducer<State, Event> {
    * Aggregate boundary for this reducer.
    *
    * - `'stream'` — folds over events on one stream (one feature workflow).
-   *   Consumed by `decide` / `withSession` / `aggregateStream` primitives;
-   *   rejected by `readProjection`.
-   * - `'global'` — folds over events across all streams. Consumed by
-   *   `readProjection`; rejected by the per-stream primitives.
+   *   Consumed by the `decide` / `withSession` / `aggregateStream` primitives.
    *
-   * Runtime scope-validation in the R-2 primitive APIs enforces the
-   * correspondence — a misused reducer fails fast with `INVALID_REDUCER_SCOPE`
-   * rather than silently returning a wrong-shaped fold. See
-   * `docs/designs/2026-05-10-v2-10-0-preview-2-marten-primitives.md`
-   * §"Reducer-scope discipline".
+   * {@link ProjectionScope} is `'stream'` and nothing else. A cross-stream
+   * (`'global'`) fold was removed because no reducer in this codebase has a
+   * state shape that survives one: `task-store@v1` keys `TaskStoreState.tasks`
+   * by a bare per-feature ordinal (`'001'`) and `TaskRecord` carries no
+   * `featureId`, so folding two streams together silently merges feature-A's
+   * task `001` into feature-B's. Collapsing the union makes that corrupting
+   * state **unauthorable in typechecked code** — a compile error at the
+   * keyboard rather than a runtime rejection. Note the precise wording: not
+   * "unrepresentable", which would overstate it. See the limit below.
+   *
+   * Consequently the per-stream primitives carry no runtime scope check. Three
+   * things make that safe, and the type alone is NOT one of them:
+   *
+   * 1. Every production `defaultRegistry.register` call site is a module-load
+   *    side-effect import from a typechecked barrel, so `scope: 'global'` is a
+   *    compile error at every real authoring site.
+   * 2. Reducers are code, never deserialized — snapshots carry state, not
+   *    reducers — so no reducer crosses a trust boundary into the registry.
+   * 3. Even a wrongly-scoped reducer reaching `decide` / `aggregateStream`
+   *    would fold ONE stream: those read `backend.queryEvents(streamId)`. The
+   *    cross-stream fold died with `readProjection`, not with this stamp.
+   *
+   * The limit worth knowing: `tsconfig.json` excludes test files from the
+   * program, so the compiler does NOT enforce this in a `.test.ts`. A fixture
+   * can still author `scope: 'global'` there. That is a gap in coverage, not in
+   * safety — see (3).
+   *
+   * Re-widening {@link ProjectionScope} re-arms the collision above and MUST
+   * re-introduce a runtime guard alongside a state shape actually keyed by
+   * stream.
+   *
+   * THIS COMMENT IS THE ONLY PLACE IN CODE THAT STATES THIS RULE;
+   * `docs/architecture/projections.md` ("Reducer scope discipline") is its
+   * prose counterpart. Every other site — the reducers, the primitives, the
+   * tests — POINTS here and asserts nothing. (`taskstore/types.ts` documents
+   * its own key space: that is the *fact* this rule answers to, not the rule.)
+   *
+   * That is deliberate: #1342 was caused by a claim about this subsystem being
+   * restated in ~8 places until the restatements outlived the code and
+   * contradicted each other. Prose has no compiler, so the only defence is to
+   * have one copy. If you find yourself explaining the scope rule somewhere
+   * else, link instead.
+   *
+   * Worth knowing that this rule is, for now, enforced only by review: the
+   * first version of this very comment claimed two exclusive homes while six
+   * other sites still restated the whole argument — including
+   * `atomic-appender.ts`, which reproduced all three points *and* the tsconfig
+   * limit and then linked here, as though a pointer appended to a restatement
+   * were a pointer. A self-refuting one-copy rule is the failure mode in
+   * miniature. #1696 tracks the grep gate that would catch it in one CI run
+   * instead of a review cycle.
    */
-  readonly scope: 'stream' | 'global';
+  readonly scope: ProjectionScope;
 
   /**
    * The initial `State` value used as the seed for replay.

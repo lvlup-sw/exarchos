@@ -16,7 +16,7 @@ function. This document captures the architectural contracts for:
 2. The required test shape for every projection
 3. The registration protocol (barrel pattern + `defaultRegistry`)
 4. Failure-mode conventions and the `buildDegradedResponse` helper
-5. Snapshot store, snapshot cadence, and cold rebuild
+5. Snapshot store and cold rebuild
 6. Cross-references to the design doc and related tasks
 7. Pipeline-view specifics: folded repo identity, repo scoping, paging metadata, and the versioned (v2) snapshot lineage
 
@@ -32,6 +32,9 @@ implementation and the proving ground for this architecture.
 Every projection is implemented as a `ProjectionReducer<State, Event>`:
 
 ```ts
+/** Aggregate boundary a reducer folds over. Deliberately a single literal. */
+export type ProjectionScope = 'stream';
+
 export interface ProjectionReducer<State, Event> {
   /** Globally unique id, e.g. "rehydration@v1". */
   readonly id: string;
@@ -39,6 +42,10 @@ export interface ProjectionReducer<State, Event> {
   /** Integer schema version. Bump when State shape changes in a
    *  snapshot-incompatible way; the runner discards cached snapshots on mismatch. */
   readonly version: number;
+
+  /** Aggregate boundary. `'stream'` and nothing else — see "Reducer scope
+   *  discipline" below. */
+  readonly scope: ProjectionScope;
 
   /** Seed state. Folding over an empty event stream MUST return this value. */
   readonly initial: State;
@@ -73,6 +80,85 @@ duplicate ids.
 The `version` field is an integer. It is compared to the `projectionVersion` stored
 on a cached snapshot. A mismatch signals schema skew and causes the runner to cold-fold
 from sequence 0 rather than warm-starting from the stale snapshot.
+
+### Reducer scope discipline
+
+**The rule: a reducer's scope MUST match its state's key space.** If the state is keyed
+by something that is only unique *within* a stream, folding two streams through it
+silently merges unrelated entities. Nothing throws; the state is simply wrong.
+
+`ProjectionScope` is the single literal `'stream'` (`projections/types.ts`). There is no
+`'global'` member, and the absence is load-bearing rather than incidental — no reducer in
+this codebase has a state shape that survives a cross-stream fold.
+
+`task-store@v1` is the worked example, and the reason the union was collapsed:
+
+- `TaskStoreState.tasks` is `Readonly<Record<string, TaskRecord>>`, keyed by a bare
+  per-feature ordinal (`'001'`) minted from `### Task 001` plan headers.
+- `TaskRecord` carries **no `featureId`** — nothing in the value disambiguates which
+  feature the task belongs to.
+- Therefore a cross-stream fold maps feature-A's task `001` and feature-B's task `001`
+  onto the *same key*, and `upsertTask` (`projections/taskstore/reducer.ts`) clobbers via
+  `{ ...prior, ...overlay }`. Feature-B's title silently overwrites feature-A's.
+
+The key space is per-stream, so the scope is `'stream'`. Both real consumers
+(`views/workflow-status-view.ts`, `views/task-detail-view.ts`) already fold `.apply` one
+stream at a time — the stamp now matches what the code always did.
+
+**The type makes the mistake hard to re-author — it is not what makes it harmless.**
+Authoring `scope: 'global'` in typechecked code is a *compile* error
+(`TS2322: Type '"global"' is not assignable to type '"stream"'`) rather than a runtime
+rejection, which is a real improvement: the wrong configuration is caught at the keyboard.
+But do not over-read it, and do not quote the first half of this paragraph without the
+second. The per-stream primitives (`decide` / `withSession` / `aggregateStream`) carry no runtime
+scope check: `resolveStreamReducer` in `event-store/atomic-appender.ts` resolves the
+reducer id and nothing more. Its former `INVALID_REDUCER_SCOPE` guard was removed with
+the `'global'` scope.
+
+Be precise about *why* that is safe, because the type alone does not carry it. `tsconfig.json`
+excludes `**/*.test.ts`, so the compiler does not enforce the scope in test files — a fixture
+can still author `scope: 'global'`. The removal is safe for three other reasons: every
+production `defaultRegistry.register` call site is a module-load import from a typechecked
+barrel; reducers are code and are never deserialized, so none reaches the registry across a
+trust boundary; and the per-stream primitives query a single `streamId` regardless, so even a
+wrongly-scoped reducer could not fold across streams. **The cross-stream fold died with
+`readProjection`, not with the scope stamp** — the stamp is what makes the mistake hard to
+re-author, not what prevented the corruption.
+
+**If you ever re-widen `ProjectionScope`**, you re-arm the collision above. Re-widening
+MUST land together with (a) a state shape actually keyed by stream, and (b) a restored
+runtime guard in `resolveStreamReducer`. `types.ts` is the one place to change.
+
+### Dormant primitives: correct vs wrong
+
+An audit that finds a primitive with zero consumers has learned **nothing yet**. "Unused"
+is not a diagnosis. There are two populations, and they call for opposite work:
+
+| Posture | Meaning | Right response |
+|---|---|---|
+| **Dormant-and-correct** | Zero consumers *intentionally*. The primitive is sound; it is waiting for a caller of the right shape. Adopting it **works**. | Leave it. Optionally document the shape it awaits. |
+| **Dormant-and-wrong** | Zero consumers because adopting it would **corrupt state**. The emptiness is the codebase routing around a defect. | Retire it. A consumer is the *worst* possible next step. |
+
+The canonical pair in this codebase:
+
+- **`withSession` — dormant-and-correct.** Zero production call sites, by design. It
+  exists for Marten's `FetchForWriting` posture (read-fold-decide-append inside one
+  session) and no handler has needed that shape yet. It is safe to adopt the day one does.
+- **`task-store@v1` at global scope — dormant-and-wrong.** The global read path had zero
+  production callers because adopting it would have returned silently-corrupted state, per
+  the collision above. It was retired (the path deleted, the union narrowed), not staffed.
+
+**Why this distinction is worth writing down.** Epic #1342 was filed as an adoption
+ledger and asked *"why is this primitive underused?"* — a question that presumes
+dormant-and-correct. For `task-store@v1`-global the answer was **"because it is wrong, and
+adopting it would corrupt"**, so the epic's implied work (write a consumer, tune snapshot
+cadence for it) would have shipped the corruption it was trying to fill in. An audit that
+cannot separate these two postures files the wrong work with full confidence.
+
+**So: before asking "why is this unused?", ask "what happens if I adopt it?"** Zero
+consumers is a symptom. Read the state's key space against the reducer's scope, and read
+the primitive's contract against a real caller's shape. Only then is "underused" a finding
+rather than a guess.
 
 ### `projectionSequence` increment convention
 
@@ -304,7 +390,7 @@ export async function buildDegradedResponse(
 
 ---
 
-## 5. Snapshot Store, Cadence, and Cold Rebuild
+## 5. Snapshot Store and Cold Rebuild
 
 Three modules implement the caching layer.
 
@@ -365,23 +451,6 @@ The single transaction (`INSERT` + `COUNT` + conditional `DELETE`) guarantees th
   and snapshot reads pass this field as `sinceSequence` to
   `eventStore.query`. Storing the projection sequence here would cause
   unhandled events between checkpoints to be re-fetched on every read.
-
-### `projections/cadence.ts` — snapshot every N events
-
-**Source:** `servers/exarchos-mcp/src/projections/cadence.ts`
-
-```ts
-export function shouldTakeSnapshot(
-  eventCountSinceLast: number,
-  cadence: number,
-): boolean
-```
-
-Returns `true` when `eventCountSinceLast` is a positive multiple of `cadence`.
-Default cadence: `SNAPSHOT_EVERY_N` env var (default 50). Pure function — no I/O.
-
-The projection runner resets `eventCountSinceLast` to 0 after each snapshot write
-and emits `workflow.snapshot_taken` (T009) with `{ projectionId, sequence }`.
 
 ### `projections/rebuild.ts` — cold fold from sequence 0
 
