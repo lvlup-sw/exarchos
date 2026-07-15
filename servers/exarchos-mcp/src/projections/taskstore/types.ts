@@ -28,11 +28,9 @@
  *
  * An audit that cannot tell these apart reads "unused" as "under-adopted" and
  * files work to wire the broken one up. That is precisely how this epic went
- * wrong. The fix was to delete the global scope, not to find it callers: the
- * `ProjectionScope` alias in `projections/types.ts` is now a single literal,
- * which makes the corrupting fold unrepresentable at compile time. Re-widening
- * it re-arms the collision above and demands a state shape actually keyed by
- * stream.
+ * wrong. The fix was to delete the global scope, not to find it callers — see
+ * the `scope` field in `projections/types.ts` for the rule, its guarantee, and
+ * what re-widening would demand.
  *
  * Status enum is the **production-realistic** transition surface (per the
  * plan's GREEN correction on line 355). The five values map 1:1 to the

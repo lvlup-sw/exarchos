@@ -80,8 +80,9 @@ export interface ProjectionReducer<State, Event> {
    * by a bare per-feature ordinal (`'001'`) and `TaskRecord` carries no
    * `featureId`, so folding two streams together silently merges feature-A's
    * task `001` into feature-B's. Collapsing the union makes that corrupting
-   * state **unrepresentable at compile time** rather than merely rejected at
-   * runtime.
+   * state **unauthorable in typechecked code** — a compile error at the
+   * keyboard rather than a runtime rejection. Note the precise wording: not
+   * "unrepresentable", which would overstate it. See the limit below.
    *
    * Consequently the per-stream primitives carry no runtime scope check. Three
    * things make that safe, and the type alone is NOT one of them:
@@ -103,6 +104,15 @@ export interface ProjectionReducer<State, Event> {
    * Re-widening {@link ProjectionScope} re-arms the collision above and MUST
    * re-introduce a runtime guard alongside a state shape actually keyed by
    * stream.
+   *
+   * THIS COMMENT AND `docs/architecture/projections.md` ("Reducer scope
+   * discipline") ARE THE ONLY TWO PLACES THIS GUARANTEE IS STATED. Every other
+   * site — reducers, the primitives, the tests — points here and asserts
+   * nothing. That is deliberate: #1342 was caused by a claim about this
+   * subsystem being restated in ~8 places until the restatements outlived the
+   * code and contradicted each other. Prose has no compiler, so the only
+   * defence is to have one copy. If you find yourself explaining the scope rule
+   * somewhere else, link instead.
    */
   readonly scope: ProjectionScope;
 

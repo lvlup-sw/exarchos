@@ -24,12 +24,12 @@ describe('ProjectionReducer', () => {
 // ─── ProjectionScope is a compile-time guard ────────────────────────────────
 
 /**
- * `ProjectionScope` collapsed to the single literal `'stream'` so that a
- * cross-stream (`'global'`) reducer is **unrepresentable**, rather than merely
- * rejected at runtime. That guarantee lives entirely in the type system, so it
- * needs a test that actually consults the type system.
+ * Pins the reducer-scope guarantee stated in `projections/types.ts` — see the
+ * `scope` field's docstring there for the rule and its exact limits. This file
+ * does not restate them; it tests them.
  *
- * Two facts make a plain `expectTypeOf` assertion useless here:
+ * The guarantee is a compile-time one, so it needs a test that actually
+ * consults the compiler. Two facts make a plain `expectTypeOf` useless here:
  *
  *  1. `servers/exarchos-mcp/tsconfig.json` EXCLUDES every `.test.ts` file, so
  *     `npm run typecheck` never sees this file.

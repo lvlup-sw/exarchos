@@ -44,7 +44,7 @@ export interface ProjectionReducer<State, Event> {
   readonly version: number;
 
   /** Aggregate boundary. `'stream'` and nothing else — see "Reducer scope
-   *  discipline" below for why a cross-stream fold is unrepresentable. */
+   *  discipline" below. */
   readonly scope: ProjectionScope;
 
   /** Seed state. Folding over an empty event stream MUST return this value. */
