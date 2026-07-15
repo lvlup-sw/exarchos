@@ -846,7 +846,27 @@ function warningCarrier(reason: string, scopeWarning?: string): ToolResult {
   };
 }
 
-/** Fire-and-forget liveness emit that never throws into the run path (INV-4 degrade). */
+/**
+ * Fire-and-forget liveness emit that never throws into the run path (INV-4
+ * degrade) — but never silently, either.
+ *
+ * The no-throw is deliberate and stays: a liveness-emission failure must not
+ * fail a mutation run that actually succeeded, and throwing would not close the
+ * gap anyway (a crash between the pair produces the identical unpaired state).
+ *
+ * The two events are NOT symmetric, though, and the asymmetry is why this logs:
+ *   - a lost `mutation.executing_started` is self-healing — no start is
+ *     recorded, so no instance is ever considered in-flight;
+ *   - a lost `mutation.executed` is NOT — `computeInFlightInstances` is a pure
+ *     left-fold with no TTL or age eviction, so the unpaired start reports as
+ *     in-flight to `ps` / `wait --operation mutation` until a registry terminal
+ *     for its `instanceId` is appended (the S-6 recovery path).
+ *
+ * That end state is designed-observable and recoverable, not corruption — but an
+ * empty `catch {}` threw away the one breadcrumb explaining WHY an instance is
+ * stuck. Log it instead, matching the `gate.executed` degrade path's diagnostic
+ * trail (RVC-R4) in this same file.
+ */
 async function emitLiveness(
   store: EventStore,
   stream: string,
@@ -855,7 +875,21 @@ async function emitLiveness(
 ): Promise<void> {
   try {
     await store.append(stream, { type, data });
-  } catch {
-    /* degrade — liveness emission failure must not break the run */
+  } catch (err) {
+    // Terminal-event loss is the consequential one — say so, and name the
+    // instance an operator would otherwise have to reverse-engineer from `ps`.
+    const terminal = type === 'mutation.executed';
+    orchestrateLogger.warn(
+      {
+        stream,
+        type,
+        instanceId: data.instanceId,
+        err: err instanceof Error ? err.message : String(err),
+        ...(terminal ? { consequence: 'unpaired-start-reports-in-flight' } : {}),
+      },
+      terminal
+        ? 'mutation-adequacy: failed to emit terminal mutation.executed — `ps`/`wait --operation mutation` will report this instance in-flight until a registry terminal is appended for it (S-6 recovery)'
+        : 'mutation-adequacy: failed to emit mutation.executing_started — run proceeds untracked',
+    );
   }
 }

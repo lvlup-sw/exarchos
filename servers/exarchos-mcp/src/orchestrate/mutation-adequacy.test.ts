@@ -16,12 +16,13 @@
 //   reinvented).
 // ────────────────────────────────────────────────────────────────────────────
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdtempSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { EventStore } from '../event-store/store.js';
+import { orchestrateLogger } from '../logger.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { handleOrchestrate } from './composite.js';
 import type { ResolvedVerificationRuntime } from '../config/test-runtime-resolver.js';
@@ -719,6 +720,43 @@ describe("mutation-adequacy repoRoot:'auto' resolution (PR #1541 Seer)", () => {
 // ─── Task 004: liveness + gate.executed ──────────────────────────────────────
 
 describe('mutation-adequacy liveness + gate emission', () => {
+  it('MutationAdequacy_TerminalLivenessEmitFails_DegradesWithoutThrowingButLogsTrail', async () => {
+    // The no-throw degrade is deliberate (INV-4): a liveness-emission failure
+    // must not fail a mutation run that actually succeeded. But an empty
+    // `catch {}` also discarded the only breadcrumb — and a lost TERMINAL event
+    // is the consequential case: `computeInFlightInstances` has no TTL, so the
+    // unpaired start reports in-flight to `ps` until an S-6 registry terminal
+    // lands. Degrade, but leave a diagnostic trail (RVC-R4).
+    const { stateDir, eventStore } = await newStore();
+    const ctx = makeCtx(stateDir, eventStore);
+    const warn = vi.spyOn(orchestrateLogger, 'warn').mockImplementation(() => undefined);
+
+    // Fail ONLY the terminal append; the opening one must still land.
+    const realAppend = eventStore.append.bind(eventStore);
+    vi.spyOn(eventStore, 'append').mockImplementation(
+      async (stream: string, event: { type: string }) => {
+        if (event.type === 'mutation.executed') throw new Error('append boom');
+        return realAppend(stream, event);
+      },
+    );
+
+    // The run still completes — the emission failure does not surface as a throw.
+    await expect(dispatchMutation({ eventStore, stateDir })).resolves.toBeDefined();
+
+    // …and the failure is no longer silent: the trail names the terminal type
+    // and the instance an operator would otherwise reverse-engineer from `ps`.
+    const terminalWarn = warn.mock.calls.find(
+      (c) => (c[0] as { type?: string })?.type === 'mutation.executed',
+    );
+    expect(terminalWarn).toBeDefined();
+    expect((terminalWarn![0] as { instanceId?: string }).instanceId).toBeDefined();
+    expect((terminalWarn![0] as { consequence?: string }).consequence).toBe(
+      'unpaired-start-reports-in-flight',
+    );
+
+    vi.restoreAllMocks();
+  });
+
   it('MutationAdequacy_RunMutationRejects_StillEmitsPairedTerminalExecuted', async () => {
     // `defaultRunMutation` handles its own sync failures, but the INJECTED
     // seam can reject. The terminal event must still land: an unpaired
