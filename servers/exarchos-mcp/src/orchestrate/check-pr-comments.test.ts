@@ -155,6 +155,7 @@ describe('handleCheckPrComments', () => {
       author: `reviewer-${i}`,
       body: `comment-body-${i}`,
       createdAt: '2026-01-01T00:00:00Z',
+      source: 'review-inline',
       path: `src/file-${i}.ts`,
       line: i + 1,
     }));

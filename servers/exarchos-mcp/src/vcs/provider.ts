@@ -181,7 +181,11 @@ function normalizePrCommentsLimit(limit?: number): number {
   if (limit === undefined || !Number.isFinite(limit) || limit <= 0) {
     return DEFAULT_PR_COMMENTS_LIMIT;
   }
-  return Math.floor(limit);
+  // A fractional limit in (0, 1) floors to 0 — a zero-sized page reports
+  // `hasMore: true` forever, so the schema-guarded boundary aside, this
+  // defense-in-depth normalizer must never emit 0 (mirrors resolveCommentWindow).
+  const normalized = Math.floor(limit);
+  return normalized > 0 ? normalized : DEFAULT_PR_COMMENTS_LIMIT;
 }
 
 /** Coerce an optional `offset` to a non-negative integer, defaulting to 0. */

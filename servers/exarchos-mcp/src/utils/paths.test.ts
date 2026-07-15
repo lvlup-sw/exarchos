@@ -101,6 +101,13 @@ describe('resolveStateDir', () => {
     expect(resolveStateDir()).toBe('/home/testuser/.local/state/exarchos/state');
   });
 
+  it('expands tilde when XDG_STATE_HOME contains tilde', () => {
+    // Parity with the WORKFLOW_STATE_DIR branch — a leading `~` must not leak
+    // through as a cwd-relative path.
+    vi.stubEnv('XDG_STATE_HOME', '~/state');
+    expect(resolveStateDir()).toBe('/home/testuser/state/exarchos/state');
+  });
+
   it('returns universal default when no env vars are set', () => {
     expect(resolveStateDir()).toBe('/home/testuser/.exarchos/state');
   });

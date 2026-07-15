@@ -190,6 +190,15 @@ describe('windowPrComments', () => {
     expect(result.page.offset).toBe(0);
   });
 
+  it('windowPrComments_FractionalLimit_DoesNotFloorToZeroPage', () => {
+    // A limit in (0, 1) floors to 0; a zero-sized page would report
+    // hasMore:true forever. Must fall back to the default, not emit a 0 page.
+    const result = windowPrComments(makeComments(30), { limit: 0.5 });
+
+    expect(result.page.limit).toBe(DEFAULT_PR_COMMENTS_LIMIT);
+    expect(result.comments.length).toBeGreaterThan(0);
+  });
+
   it('windowPrComments_OffsetBeyondTotal_EmptyNoMore', () => {
     const result = windowPrComments(makeComments(10), { limit: 5, offset: 100 });
 
