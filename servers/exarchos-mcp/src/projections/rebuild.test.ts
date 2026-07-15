@@ -9,7 +9,7 @@ import type { ProjectionReducer } from './types.js';
 import { rehydrationReducer } from './rehydration/reducer.js';
 import type { RehydrationDocument } from './rehydration/schema.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
-import { rebuildProjection } from './rebuild.js';
+import { rebuildProjection, UnknownProjectionIdError } from './rebuild.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 /**
@@ -176,8 +176,18 @@ describe('rebuildProjection — full replay from sequence 0 (T029, DR-1, DR-18)'
     // WHEN/THEN: invoking rebuild with an unregistered id raises a structured
     //   error so the rehydrate handler can translate it to a degraded-mode
     //   response (DR-18) rather than silently returning initial state.
+    //
+    // The class + canonical `unknown projection id:` message prefix are
+    // asserted here because `readProjection`'s deleted registry-miss test
+    // (`ReadProjection_ThrowsUnknownReducer_WhenIdNotRegistered`) was the
+    // only guard pinning that message contract; the surviving raisers' other
+    // tests pin only the offending id substring. Re-pointed onto this raiser
+    // (`rebuild.ts::resolveReducer`) so the contract keeps a home.
     await expect(
       rebuildProjection('does-not-exist@v1', store, streamId, { registry }),
-    ).rejects.toThrow(/does-not-exist@v1/);
+    ).rejects.toBeInstanceOf(UnknownProjectionIdError);
+    await expect(
+      rebuildProjection('does-not-exist@v1', store, streamId, { registry }),
+    ).rejects.toThrow(/unknown projection id: does-not-exist@v1/);
   });
 });

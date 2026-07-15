@@ -5,7 +5,6 @@ import * as path from 'node:path';
 
 import { AtomicAppender } from './atomic-appender.js';
 import { EventStore } from './store.js';
-import { InvalidReducerScopeError } from '../projections/store.js';
 import {
   createRegistry,
   type ProjectionRegistry,
@@ -82,32 +81,13 @@ describe('aggregateStream<T> — read-only fold (Tasks 3.11 + 3.12)', () => {
   });
 
   // ─── Task 3.12 — scope validation ─────────────────────────────────────
-
-  it('AggregateStream_RejectsGlobalScopedReducer', async () => {
-    const globalReducer = makeFixtureReducer('fixture-global@v1', 'global');
-    registry.register(
-      globalReducer as unknown as Parameters<typeof registry.register>[0],
-    );
-
-    await expect(
-      appender.aggregateStream<FixtureState>(
-        streamId,
-        'fixture-global@v1',
-        { registry },
-      ),
-    ).rejects.toBeInstanceOf(InvalidReducerScopeError);
-
-    try {
-      await appender.aggregateStream<FixtureState>(
-        streamId,
-        'fixture-global@v1',
-        { registry },
-      );
-    } catch (err) {
-      expect(err).toBeInstanceOf(InvalidReducerScopeError);
-      const e = err as InvalidReducerScopeError;
-      expect(e.expectedShape.scope).toBe('stream');
-      expect(e.actualScope).toBe('global');
-    }
-  });
+  //
+  // `AggregateStream_RejectsGlobalScopedReducer` was removed when
+  // `ProjectionScope` collapsed to the single literal `'stream'`. Its subject
+  // — a registered reducer whose scope is not `'stream'` — is no longer
+  // representable, so the test could only have been kept by casting a
+  // fabricated value past the type system, which would assert on the cast
+  // rather than on any reachable state. The invariant it guarded is now
+  // enforced by the compiler; see `projections/types.test.ts`
+  // (`ProjectionScope_ReducerAuthoredGlobal_FailsTypecheck`).
 });

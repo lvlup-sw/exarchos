@@ -40,6 +40,15 @@
  * @typeParam State - The projected state type this reducer produces.
  * @typeParam Event - The event type this reducer consumes.
  */
+/**
+ * Aggregate boundary a {@link ProjectionReducer} folds over.
+ *
+ * Deliberately a single literal. See {@link ProjectionReducer.scope} for why a
+ * cross-stream (`'global'`) member is not — and must not be — representable.
+ * This alias is the one place to change if that decision is ever revisited.
+ */
+export type ProjectionScope = 'stream';
+
 export interface ProjectionReducer<State, Event> {
   /**
    * Globally unique identifier for this reducer (e.g. `"rehydration@v1"`).
@@ -63,18 +72,23 @@ export interface ProjectionReducer<State, Event> {
    * Aggregate boundary for this reducer.
    *
    * - `'stream'` — folds over events on one stream (one feature workflow).
-   *   Consumed by `decide` / `withSession` / `aggregateStream` primitives;
-   *   rejected by `readProjection`.
-   * - `'global'` — folds over events across all streams. Consumed by
-   *   `readProjection`; rejected by the per-stream primitives.
+   *   Consumed by the `decide` / `withSession` / `aggregateStream` primitives.
    *
-   * Runtime scope-validation in the R-2 primitive APIs enforces the
-   * correspondence — a misused reducer fails fast with `INVALID_REDUCER_SCOPE`
-   * rather than silently returning a wrong-shaped fold. See
-   * `docs/designs/2026-05-10-v2-10-0-preview-2-marten-primitives.md`
-   * §"Reducer-scope discipline".
+   * {@link ProjectionScope} is `'stream'` and nothing else. A cross-stream
+   * (`'global'`) fold was removed because no reducer in this codebase has a
+   * state shape that survives one: `task-store@v1` keys `TaskStoreState.tasks`
+   * by a bare per-feature ordinal (`'001'`) and `TaskRecord` carries no
+   * `featureId`, so folding two streams together silently merges feature-A's
+   * task `001` into feature-B's. Collapsing the union makes that corrupting
+   * state **unrepresentable at compile time** rather than merely rejected at
+   * runtime.
+   *
+   * Consequently the per-stream primitives need no runtime scope check — the
+   * type is the guard. Re-widening {@link ProjectionScope} re-arms the
+   * collision above and MUST re-introduce a runtime guard alongside a state
+   * shape that is actually keyed by stream.
    */
-  readonly scope: 'stream' | 'global';
+  readonly scope: ProjectionScope;
 
   /**
    * The initial `State` value used as the seed for replay.

@@ -1,11 +1,22 @@
 /**
- * Wave 2A.7 — TaskStore projection ↔ TaskDetailView shape parity (#1284).
+ * TaskStore projection ↔ TaskDetailView shape parity (#1284).
  *
- * The view's `apply` now delegates to `taskStoreReducer.apply` so both
- * fold paths (per-stream view materialization AND global readProjection)
- * produce identical per-task shapes. This integration test seeds a real
- * event store with `task.assigned` + `task.completed` events, then
- * compares the view's task entry to the canonical projection's entry.
+ * The view's `apply` delegates to `taskStoreReducer.apply`, so the view
+ * materializer and a direct reducer fold over the SAME stream must produce
+ * identical per-task shapes. This integration test seeds a real event store
+ * with `task.assigned` + `task.completed` events, then compares the view's
+ * task entry to the canonical reducer's entry.
+ *
+ * Both sides fold **per stream**. The comparison side uses
+ * `rebuildProjection(taskStoreReducer, ...)` — the surviving per-stream
+ * cold-fold primitive — rather than the retired cross-stream
+ * `readProjection('task-store@v1')`. `task-store@v1` is `scope: 'stream'`:
+ * its state is keyed by a bare per-feature ordinal (`'001'`) with no
+ * `featureId` on `TaskRecord`, so a cross-stream fold would merge distinct
+ * features' tasks. The round-trip this guards
+ * (`task-detail-view.ts` view → `viewTasksToProjectionTasks` →
+ * `TaskStoreState` → `taskStoreReducer.apply` → back) is unaffected by that
+ * retirement, and this file is its only guard.
  *
  * Co-located with the view module per repository convention; an
  * older test file lives at `__tests__/views/task-detail-view.test.ts`
@@ -23,9 +34,8 @@ import {
   TASK_DETAIL_VIEW,
   type TaskDetailViewState,
 } from './task-detail-view.js';
-import { readProjection } from '../projections/store.js';
-// Side-effect import: registers task-store@v1 with defaultRegistry.
-import '../projections/taskstore/index.js';
+import { rebuildProjection } from '../projections/rebuild.js';
+import { taskStoreReducer } from '../projections/taskstore/reducer.js';
 import type { TaskStoreState } from '../projections/taskstore/types.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
@@ -43,7 +53,7 @@ describe('TaskDetailView_ReflectsTaskStoreProjection (Wave 2A.7, #1284)', () => 
     await rmrfAsync(stateDir);
   });
 
-  it('TaskDetailView_ReflectsTaskStoreProjection_AfterAssignedAndCompleted', async () => {
+  it('TaskDetailView_PerStreamFold_MatchesReducerShapeParity', async () => {
     // GIVEN: a real event store with task.assigned + task.completed events
     //   on one workflow stream.
     const streamId = 'wf-parity';
@@ -66,8 +76,8 @@ describe('TaskDetailView_ReflectsTaskStoreProjection (Wave 2A.7, #1284)', () => 
       },
     });
 
-    // WHEN: we materialize the per-stream task-detail view AND read the
-    //   global task-store projection.
+    // WHEN: we materialize the per-stream task-detail view AND fold the
+    //   canonical reducer over the SAME stream.
     const events = await eventStore.query(streamId);
     const materializer = new ViewMaterializer();
     materializer.register(TASK_DETAIL_VIEW, taskDetailProjection);
@@ -76,9 +86,10 @@ describe('TaskDetailView_ReflectsTaskStoreProjection (Wave 2A.7, #1284)', () => 
       TASK_DETAIL_VIEW,
       events,
     );
-    const projection = await readProjection<TaskStoreState>(
-      'task-store@v1',
+    const projection = await rebuildProjection<TaskStoreState, unknown>(
+      taskStoreReducer,
       eventStore,
+      streamId,
     );
 
     // THEN: both surface the same task with identical fields. The view's
@@ -105,10 +116,10 @@ describe('TaskDetailView_ReflectsTaskStoreProjection (Wave 2A.7, #1284)', () => 
   it('TaskDetailView_ReflectsTaskStoreProjection_StatusAcrossLifecycle', async () => {
     // Both fold paths MUST agree on the canonical status surface — that is
     // the load-bearing semantic shared across CLI / MCP / per-stream view
-    // / global projection consumers. The view's empty-string title default
-    // is a stable BC contract preserved by the view layer; the canonical
-    // reducer's title remains undefined-when-absent. Status, however, is
-    // single-truth across both — the reducer is the authority.
+    // consumers. The view's empty-string title default is a stable BC
+    // contract preserved by the view layer; the canonical reducer's title
+    // remains undefined-when-absent. Status, however, is single-truth across
+    // both — the reducer is the authority.
     const streamId = 'wf-lifecycle';
     await eventStore.append(streamId, {
       type: 'task.assigned',
@@ -135,9 +146,10 @@ describe('TaskDetailView_ReflectsTaskStoreProjection (Wave 2A.7, #1284)', () => 
       TASK_DETAIL_VIEW,
       events,
     );
-    const projection = await readProjection<TaskStoreState>(
-      'task-store@v1',
+    const projection = await rebuildProjection<TaskStoreState, unknown>(
+      taskStoreReducer,
       eventStore,
+      streamId,
     );
 
     expect(view.tasks['task-lc-1'].status).toBe('failed');
