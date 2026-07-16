@@ -497,7 +497,6 @@ The task's evidence is a PR touching only the relocated evals that still trigger
 **Expected tests:** `EnforcerWiring_OrphanScript_Fails`, `EnforcerWiring_ReachableOnlyViaUninvokedNpmScript_Fails`, `EnforcerWiring_ExitCodeSwallowedByOrTrue_Fails`, `EnforcerWiring_DiffDependentGateWithoutSynchronize_Fails`
 **Dependencies:** 008 (ci.yml serialization — first edge of the canonical chain)
 **Verification:** medium rung: tool/manifest-parse failure = FAIL; every primary dispositioned by the task's own enumeration. The self-test covers all three trap classes — the **transitive** and **neutered** fixtures are what make this a ratchet rather than a name-grep, since a naive "is this script mentioned anywhere" implementation passes the orphan test while leaving both real loopholes open. Both fixtures exist in the tree today (`package.json:49`'s uninvoked `validate`; `package.json:35`'s `|| true`). Dispositioning today's set proves the tree is clean now; only those fixtures prove the gate catches tomorrow's recurrence.
-**Dependencies:** None
 **Parallelizable:** Yes
 **testingStrategy:** propertyTests: false, benchmarks: false
 
@@ -719,9 +718,9 @@ The task's evidence is a PR touching only the relocated evals that still trigger
 
 **Waves below are dispatch batches whose members are mutually independent** — an edge inside a wave would make it undispatchable, and same-file editors are split across waves even where no edge is strictly required.
 
-- **Wave A** (no dependencies): 001, 002, 003, 004, 006, 011, 014.
+- **Wave A** (no dependencies): 001, 002, 003, 004, 006, 014.
 - **Wave A′** (after 006): 008 (also first in the `ci.yml` sub-chain) and 027.
-- **Wave A″** (after 027): 030 — 027 and 030 both edit `registry.ts`, so they are split rather than dispatched together.
+- **Wave A″**: 030 (after 027 — both edit `registry.ts`, so they are split rather than dispatched together); 011 (after 008 — the second edge of the `ci.yml` canonical chain).
 - **Wave B** (after 005): 017, 018; 012 (also after 008+011); 009 and 016 (also after 006 — `views/workflow-state-projection.ts` and `registry.ts` respectively); 031 (after 030, which creates the T8 baseline record it appends to).
 - **Wave B′**: 032 — it appends to the same T8 baseline record as 031, so the two are split.
 - **Wave C**: 007 (after 002+006), 019 (after 006), 010 (after 009+012).
