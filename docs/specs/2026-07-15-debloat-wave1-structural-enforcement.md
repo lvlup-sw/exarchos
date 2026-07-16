@@ -63,10 +63,11 @@ Move the eval runner's `promptfoo` dependency behind an opt-in surface (eval-onl
 
 ### DR-4: Cycle gate — break the mutual pairs, ratchet `no-circular`
 
-**Edge semantics and instrument (pinned):** the gate counts **runtime edges only** — `import type`-only edges are excluded; dynamic `import()` edges count as runtime. **dependency-cruiser is the sole acceptance instrument** (it is type-aware; type-only edges are excluded by default). The vendored `scripts/audit/{refgraph,cycle-hubs}.mjs` scanners are **type-blind** (their regex counts `import type` as an edge) — they remain exploratory/targeting tools and are never acceptance instruments; their 9-SCC / 14-pair / 57-module figures are type-inflated upper bounds. Under runtime semantics the verified state of the audited pairs is: **one genuine runtime mutual pair** (`views/workflow-state-projection.ts ↔ workflow/state-store.ts`); the composite→dispatch, `hsm-definitions→state-machine`, `resolver→format`, `hooks→reconcile`, `reserved-tier-guard→scaffold`, `lifecycle-core→verb`, and `store↔backend` back-edges are already `import type` or one-way; `adapters/mcp ↔ index` is **not a cycle** (one-way dynamic import; `mcp.ts` deliberately never imports `index`). The work: capture the true runtime-cycle baseline with depcruise, fix the one genuine pair by extraction, baseline the intentional `dispatch → */composite` dynamic lazy seams (load-bearing latency rationale) as a **permanent class**, then add `no-circular` wired **blocking** in CI — failing on any *new, unbaselined* runtime cycle.
+**Edge semantics and instrument (pinned):** the gate counts **runtime edges only** — `import type`-only edges are excluded; dynamic `import()` edges count as runtime. **dependency-cruiser is the sole acceptance instrument** (it is type-aware; type-only edges are excluded by default). The vendored `scripts/audit/{refgraph,cycle-hubs}.mjs` scanners are **type-blind** (their regex counts `import type` as an edge) — they remain exploratory/targeting tools and are never acceptance instruments; their 9-SCC / 14-pair / 57-module figures are type-inflated upper bounds. Under runtime semantics the verified state of the audited pairs is: **one genuine runtime mutual pair** (`views/workflow-state-projection.ts ↔ workflow/state-store.ts`); the composite→dispatch, `hsm-definitions→state-machine`, `resolver→format`, `hooks→reconcile`, `reserved-tier-guard→scaffold`, `lifecycle-core→verb`, and `store↔backend` back-edges are already `import type` or one-way; `adapters/mcp ↔ index` is **not a cycle** (one-way dynamic import; `mcp.ts` deliberately never imports `index`). Two genuine runtime cycles are known going in: `workflow-state-projection ↔ state-store` (fix by extraction) and `core/dispatch ↔ telemetry/middleware` (`dispatch.ts:1242/1256` dynamic import out; `middleware.ts:3` value-imports `enforceResponseEconomy` back — fix by extraction or baseline with rationale + issue). The work: capture the true runtime-cycle baseline with depcruise, fix the projection↔state-store pair by extraction, disposition the dispatch↔middleware cycle, then add `no-circular` wired **blocking** in CI — failing on any *new, unbaselined* runtime cycle. **The measured capture governs the final baseline** — entries exist only for cycles depcruise actually reports (the `dispatch → */composite` lazy seams are likely in *no* runtime cycle since the composite back-edges are `import type`; they get entries only if the capture proves otherwise — pre-committing them would trip the gate's own no-phantom rule).
 
 **Acceptance criteria:**
-- depcruise (type-aware, dynamic-imports-counted) reports zero cycles outside the checked-in baseline; the `workflow-state-projection ↔ state-store` runtime pair is gone.
+- depcruise (type-aware, dynamic-imports-counted) reports zero cycles outside the checked-in baseline; the `workflow-state-projection ↔ state-store` runtime pair is gone; the `dispatch ↔ telemetry/middleware` cycle is fixed or baselined with rationale + owning issue.
+- The gate's tools are actually installed where it runs: the grep-gates job currently does **no** `npm ci` (all existing gates are zero-dependency by design) — Task 010/011 add a root-only install step (small closure; the server/promptfoo closure is never installed there) and hoist `dependency-cruiser` to root devDependencies.
 - The gate fails on: a synthetic new cycle, an expired baseline entry, and a baseline entry matching **no** current violation (no phantom masking). `permanent: true` entries (load-bearing seams) carry rationale + owning issue and are exempt from expiry.
 - The shared `.dependency-cruiser.cjs` keeps bare `depcruise --validate` green (`no-circular` ships at non-error severity there) so the dogfooded `check_static_analysis`/`runBoundaryLint` path does not go permanently red; blocking is enforced by the CI gate script over depcruise JSON output.
 - INV-2 holds — no behavior moves into adapters to dodge an edge.
@@ -158,7 +159,7 @@ The decomposition maps every task to one or more DR-N from the section above.
 | DR-5 | Enforcer-wiring gate | 011 |
 | DR-6 | knip exports/types ratchet | 012 |
 | DR-7 | Module-intent gate + RESERVED headers | 013, 014 |
-| DR-8 | Fail-closed, portable gates; attributable baseline | 005, 010, 011, 013, 015 |
+| DR-8 | Fail-closed, portable gates; attributable baseline | 005, 010, 011, 012, 013, 015 |
 
 ### Tasks
 
@@ -270,7 +271,8 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Implements:** DR-3
 **Files:**
 - `servers/exarchos-mcp/package.json` (+ lockfiles; mechanism per Open Question)
-- `servers/exarchos-mcp/src/evals/graders/llm-rubric.ts`, `llm-similarity.ts` (actionable absent-dep error)
+- `servers/exarchos-mcp/src/evals/graders/llm-rubric.ts`, `llm-similarity.ts` (actionable absent-dep error) + the typecheck mechanism artifact (grader relocation into the eval surface, or an ambient module declaration — one of the two lands as a file in this task)
+- `servers/exarchos-mcp/src/evals/graders/llm-rubric.test.ts`, `llm-similarity.test.ts`, `llm-helper.test.ts` (all `vi.mock('promptfoo')` by name — move/adapt with the mechanism)
 - `.github/workflows/eval-gate.yml` (eval-lane install)
 **Verification:** medium rung: scoped tests for the absent-dep error path + adequacy probe; fresh default install measured without promptfoo closure; eval-gate lane green
 **Dependencies:** None
@@ -282,11 +284,11 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Risk Tier:** high
 **Boundary Touching:** true
 **Implements:** DR-4
-**Scope note:** per DR-4's pinned semantics, most audited pairs are already conforming (`import type` or one-way) — verified per-pair in the design section. The real work: (a) depcruise runtime-cycle capture over `servers/exarchos-mcp/src` — the authoritative SCC set; (b) extraction fix for the one genuine runtime mutual pair, `views/workflow-state-projection.ts ↔ workflow/state-store.ts` (shared helpers `isPlainObject`/`applyDotPath`/`StateStoreError` move to a leaf module); (c) record the per-pair conformance findings and draft `scripts/audit/cycle-baseline.json` entries for the intentional `dispatch → */composite` dynamic lazy seams (`permanent: true`, rationale + issue). `adapters/mcp ↔ index` is not a cycle — it gets no baseline entry.
+**Scope note:** per DR-4's pinned semantics, most audited pairs are already conforming (`import type` or one-way) — verified per-pair in the design section. The real work: (a) depcruise runtime-cycle capture over `servers/exarchos-mcp/src` — the authoritative SCC set; (b) extraction fix for `views/workflow-state-projection.ts ↔ workflow/state-store.ts` (shared helpers `isPlainObject`/`applyDotPath`/`StateStoreError` move to a leaf module); (c) disposition `core/dispatch ↔ telemetry/middleware` (extract `enforceResponseEconomy` to a leaf, or baseline with rationale + issue); (d) draft `scripts/audit/cycle-baseline.json` strictly from the measured capture — no entry without a matching depcruise violation (`adapters/mcp ↔ index` is not a cycle; the `dispatch → */composite` seams are baselined only if the capture reports them).
 **Files:**
 - `servers/exarchos-mcp/src/views/workflow-state-projection.ts`, `servers/exarchos-mcp/src/workflow/state-store.ts` + new shared leaf module for the extracted helpers
 - `scripts/audit/cycle-baseline.json` (draft — finalized in Task 010)
-- `servers/exarchos-mcp/src/architecture/import-cycles.test.ts` (new: shells depcruise with JSON output and asserts zero cycles outside the baseline file, so regressions fail in-tree, not only at the CI gate)
+- `servers/exarchos-mcp/src/architecture/import-cycles.test.ts` (new: shells depcruise with JSON output via the existing `runCommandSync`/`resolveExecutable` pattern — the `.cmd`-shim spawn class — with a per-test timeout above the child budget, since this test runs in the blocking `test-windows` MCP lane; asserts zero cycles outside the baseline file)
 **Expected tests:** `importGraph_DepcruiseRuntimeEdges_ZeroUnbaselinedCycles`, `stateStoreProjectionSeam_NoRuntimeBackEdge`
 **Verification:** high rung: extraction + scoped tests + integration suite; depcruise re-run shows the projection↔state-store cycle gone and no cycle outside the drafted baseline (the type-blind `cycle-hubs.mjs` is exploratory only — not an acceptance instrument)
 **Dependencies:** 005 (stable post-deletion import graph), 006 (both edit `views/workflow-state-projection.ts` — 006 lands first)
@@ -302,11 +304,11 @@ The decomposition maps every task to one or more DR-N from the section above.
 - `.dependency-cruiser.cjs` (no-circular under DR-4's pinned semantics, at **non-error severity** — the shared config has an existing consumer, `runBoundaryLint` in `orchestrate/pure/static-analysis.ts:208`, which runs bare `depcruise --validate` and folds any non-zero exit into `check_static_analysis` FAIL; blocking is enforced only by the gate script below)
 - `scripts/audit/cycle-baseline.json` (finalized from Task 009's draft — depcruise has no native owner/issue metadata; entries: `{rule, from, to, rationale, issue, expires | permanent: true}`)
 - new gate script over depcruise JSON output: FAILS on unbaselined cycle, expired entry, entry matching no current violation, and tool-missing/unparseable output
-- `.github/workflows/ci.yml` (blocking wiring in the grep-gates job)
+- `.github/workflows/ci.yml` (blocking wiring in the grep-gates job — which currently runs **no** `npm ci`: add a root-only install step; the server/promptfoo closure is never installed there) + root `package.json` (hoist `dependency-cruiser` to root devDependencies so the gate runs without the server install)
 - self-test fixture (synthetic cycle → gate fails; tool-missing → gate fails)
 **Verification:** medium rung: self-test proves fail-closed all ways; bare `depcruise --validate` stays green (check_static_analysis unaffected); gate steps green in grep-gates
 **Serialization note:** edits `ci.yml` — serialized against Tasks 011 and 013 (011 → 010 → 013).
-**Dependencies:** 005, 009
+**Dependencies:** 005, 009, 011 (ci.yml serialization)
 **Parallelizable:** No
 **testingStrategy:** propertyTests: false, benchmarks: false
 
@@ -328,12 +330,12 @@ The decomposition maps every task to one or more DR-N from the section above.
 
 **Risk Tier:** medium
 **Boundary Touching:** false
-**Implements:** DR-6
+**Implements:** DR-6, DR-8
 **Files:**
 - `scripts/validate-no-legacy.sh` (knip `--include files,dependencies,exports,types`)
 - `scripts/audit/knip-allowlist.json` (new sidecar — knip has no metadata-carrying allowlist; entries: `{symbol, file, owner, expires, rationale}`; a wrapper diffs knip output against it, FAILS on unallowlisted violations and on expired entries)
 - dispositions for `validateAgentSpec`, `assertNever` (workflow/phase-kind), `hasExarchosBinding` + the ~50 dead exported types (fix or allowlist each); `getEmbeddedRuntime` is codegen-emitted (`scripts/codegen-runtimes.ts:124`, pinned by its test) — allowlist-with-rationale is the only in-scope path (a "fix" means generator + pin changes, out of scope)
-**Verification:** medium rung: CI knip blocking with zero unallowlisted violations; allowlist schema test rejects entries missing owner/expiry. **Census note:** knip treats tests/benches/evals as entry points (knip.json), so the enforced dead-export set is knip-semantic — smaller than the audit's prod-only ~50-type census; the ratchet enforces the knip set, and the audit census is targeting guidance only
+**Verification:** medium rung: CI knip blocking with zero unallowlisted violations; allowlist schema test rejects entries missing owner/expiry; the knip-diff wrapper is itself a DR-8 gate — tool-missing and unparseable-output paths FAIL with cause-naming diagnostics (tested). **Census note:** knip treats tests/benches/evals as entry points (knip.json), so the enforced dead-export set is knip-semantic — smaller than the audit's prod-only ~50-type census; the ratchet enforces the knip set, and the audit census is targeting guidance only
 **Dependencies:** 005 (post-deletion baseline)
 **Parallelizable:** Yes (after 005)
 **testingStrategy:** propertyTests: false, benchmarks: false
@@ -369,9 +371,9 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Boundary Touching:** false
 **Implements:** DR-8
 **Files:**
-- unit tests across `check-enforcer-wiring.mjs`, `check-module-intent.mjs`, depcruise wiring: tool-missing / unparseable-output paths assert FAIL with cause-naming diagnostics
+- unit tests across `check-enforcer-wiring.mjs`, `check-module-intent.mjs`, the knip-diff wrapper, and the depcruise gate script: tool-missing / unparseable-output paths assert FAIL with cause-naming diagnostics
 - run `scripts/check-windows-portability.mjs` over the new scripts
-**Verification:** medium rung: all simulated failure paths red-then-fixed; both OS lanes green in CI
+**Verification:** medium rung: all simulated failure paths red-then-fixed; evidence = grep-gates job green + `check-windows-portability.mjs` pass (per DR-8 — there is no Windows execution surface for gate steps)
 **Dependencies:** 010, 011, 013
 **Parallelizable:** No
 **testingStrategy:** propertyTests: false, benchmarks: false
