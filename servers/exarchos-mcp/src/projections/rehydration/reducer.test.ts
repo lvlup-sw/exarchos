@@ -663,6 +663,160 @@ describe('rehydration reducer — state.patched.tasks fold (Fix 2 / #1179)', () 
     expect(RehydrationDocumentSchema.safeParse(next).success).toBe(true);
   });
 
+  it('Rehydration_PlanNarrowedByRevision_RetractsDroppedPendingTasks', () => {
+    // GIVEN: a plan-review revision narrows the plan — the planner stamps
+    // 4 tasks, then re-stamps only 2. This is the counted plan-review
+    // revision edge the HSM explicitly supports, so a narrowed plan is a
+    // normal outcome, not a corruption.
+    const initial = rehydrationReducer.initial;
+    const widePlan = rehydrationReducer.apply(
+      initial,
+      makeEvent(
+        'state.patched',
+        {
+          featureId: 'feat-narrow',
+          fields: ['tasks'],
+          patch: {
+            tasks: [
+              { id: 'T1', title: 'kept', status: 'pending' },
+              { id: 'T2', title: 'kept', status: 'pending' },
+              { id: 'T3', title: 'dropped by revision', status: 'pending' },
+              { id: 'T4', title: 'dropped by revision', status: 'pending' },
+            ],
+          },
+        },
+        1,
+      ),
+    );
+    expect(widePlan.taskProgress).toHaveLength(4);
+
+    const narrowPlan = rehydrationReducer.apply(
+      widePlan,
+      makeEvent(
+        'state.patched',
+        {
+          featureId: 'feat-narrow',
+          fields: ['tasks'],
+          patch: {
+            tasks: [
+              { id: 'T1', title: 'kept', status: 'pending' },
+              { id: 'T2', title: 'kept', status: 'pending' },
+            ],
+          },
+        },
+        2,
+      ),
+    );
+
+    // THEN: the dropped ids are retracted rather than wedged in as
+    // permanent pending ghosts. Pre-fix this returned 4 — the fold could
+    // only append, so every id ever declared accumulated forever and the
+    // document reported the high-water union of all plan revisions.
+    expect(narrowPlan.taskProgress).toHaveLength(2);
+    expect(narrowPlan.taskProgress.map((t) => t.id).sort()).toEqual(['T1', 'T2']);
+
+    // AND: the resulting document still conforms to the schema.
+    expect(RehydrationDocumentSchema.safeParse(narrowPlan).success).toBe(true);
+  });
+
+  it('Rehydration_PlanDropsTaskCarryingLifecycleEvidence_RetainsIt', () => {
+    // GIVEN: a plan of 3 tasks where one is in flight and one has completed
+    const initial = rehydrationReducer.initial;
+    const plan = rehydrationReducer.apply(
+      initial,
+      makeEvent(
+        'state.patched',
+        {
+          featureId: 'feat-evidence',
+          fields: ['tasks'],
+          patch: {
+            tasks: [
+              { id: 'KEEP', title: 'stays in plan', status: 'pending' },
+              { id: 'WORKED', title: 'dropped while in flight', status: 'pending' },
+              { id: 'DONE', title: 'dropped after completing', status: 'pending' },
+              { id: 'GHOST', title: 'dropped untouched', status: 'pending' },
+            ],
+          },
+        },
+        1,
+      ),
+    );
+    let next = rehydrationReducer.apply(
+      plan,
+      makeEvent('task.assigned', { taskId: 'WORKED', title: 'w' }, 2),
+    );
+    next = rehydrationReducer.apply(next, makeEvent('task.completed', { taskId: 'DONE' }, 3));
+
+    // WHEN: a revision drops all three of WORKED / DONE / GHOST
+    const narrowed = rehydrationReducer.apply(
+      next,
+      makeEvent(
+        'state.patched',
+        {
+          featureId: 'feat-evidence',
+          fields: ['tasks'],
+          patch: { tasks: [{ id: 'KEEP', title: 'stays in plan', status: 'pending' }] },
+        },
+        4,
+      ),
+    );
+
+    // THEN: only the untouched pending ghost is retracted. Entries carrying
+    // lifecycle evidence are retained even though the plan dropped them —
+    // real work exists against them, and a plan that drops in-flight or
+    // completed work is an anomaly a human should see rather than one the
+    // projection silently erases.
+    const byId = new Map(narrowed.taskProgress.map((t) => [t.id, t.status]));
+    expect(byId.get('KEEP')).toBe('pending');
+    expect(byId.get('WORKED')).toBe('in_progress');
+    expect(byId.get('DONE')).toBe('complete');
+    expect(byId.has('GHOST')).toBe(false);
+    expect(narrowed.taskProgress).toHaveLength(3);
+  });
+
+  it('Rehydration_StatePatchedWithoutTasksSubtree_LeavesTaskProgressIntact', () => {
+    // GIVEN: a stamped plan
+    const initial = rehydrationReducer.initial;
+    const plan = rehydrationReducer.apply(
+      initial,
+      makeEvent(
+        'state.patched',
+        {
+          featureId: 'feat-artifacts-only',
+          fields: ['tasks'],
+          patch: {
+            tasks: [
+              { id: 'T1', title: 'a', status: 'pending' },
+              { id: 'T2', title: 'b', status: 'pending' },
+            ],
+          },
+        },
+        1,
+      ),
+    );
+
+    // WHEN: a later state.patched carries only `artifacts` and no `tasks`
+    // subtree — the two subtrees are independent contributions.
+    const artifactsOnly = rehydrationReducer.apply(
+      plan,
+      makeEvent(
+        'state.patched',
+        {
+          featureId: 'feat-artifacts-only',
+          fields: ['artifacts'],
+          patch: { artifacts: { pr: 'https://example.test/pr/1' } },
+        },
+        2,
+      ),
+    );
+
+    // THEN: retraction does NOT fire — an absent `tasks` subtree asserts
+    // nothing about membership, so it must not be read as "the plan is now
+    // empty". Without this, any artifacts-only patch would wipe the plan.
+    expect(artifactsOnly.taskProgress).toHaveLength(2);
+    expect(artifactsOnly.artifacts['pr']).toBe('https://example.test/pr/1');
+  });
+
   it('Rehydration_StatePatchedTasksFollowedByPlanReexpansion_DoesNotResurrectCompleted', () => {
     // GIVEN: a plan was patched and one task completed
     const initial = rehydrationReducer.initial;

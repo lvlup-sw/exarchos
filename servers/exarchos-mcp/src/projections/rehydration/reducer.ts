@@ -246,12 +246,30 @@ const extractPlanTasks = extractPlanTasksFromPatch;
  * while still preventing the regression case (a re-assertion of `pending`
  * over a `completed` entry is ignored). New ids in the plan are appended
  * with their plan-declared status. Per CR review 4178067854.
+ *
+ * Membership retraction: `patch.tasks` carries the planner's FULL task list
+ * — `workflow set` stamps it wholesale, never as a partial delta — so the
+ * newest assertion is authoritative on membership. An id the plan no longer
+ * declares is dropped, but ONLY while it is still `pending`. Once an entry
+ * carries lifecycle evidence (`in_progress` / `complete` / `failed`) real
+ * work exists against it, and a plan that drops it is an anomaly a human
+ * should see rather than one the projection silently erases. Statuses
+ * outside the canonical ladder are likewise retained — `rankOf` cannot
+ * distinguish them from `pending`, and erasing real work is the worse
+ * failure, so retraction tests the literal status instead.
+ *
+ * Without this, a plan narrowed during a plan-review revision — an edge the
+ * HSM explicitly supports — left every dropped id wedged in the document as
+ * a permanent pending ghost, because the fold could only ever append.
  */
 function foldPlanTasks(
   progress: readonly TaskProgressEntry[],
   planTasks: readonly ExtractedPlanTask[],
 ): TaskProgressEntry[] {
-  const next = progress.slice();
+  const planIds = new Set(planTasks.map((planTask) => planTask.id));
+  const next = progress.filter(
+    (entry) => planIds.has(entry.id) || entry.status !== 'pending',
+  );
   const indexById = new Map(next.map((entry, idx) => [entry.id, idx]));
   for (const planTask of planTasks) {
     const existingIdx = indexById.get(planTask.id);
