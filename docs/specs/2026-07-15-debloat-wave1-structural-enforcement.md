@@ -1,7 +1,7 @@
 # Spec: Debloat Wave 1 + Structural-Enforcement Ratchet
 
 **Date:** 2026-07-15 · **Feature:** `debloat-wave1-structural-enforcement` · **Depth:** standard
-**Inputs:** `docs/exarchos-debloat-audit-bundle.zip` (audit @ `main@f70b1e8`, 2026-07-08); this session's re-verification @ `main@b3a58d7a` (2026-07-15): bundle detectors (`refgraph.mjs`, `cycle-hubs.mjs`, `compose.mjs`) re-run on current main + three read-only comb passes over every load-bearing claim.
+**Inputs:** the exarchos-debloat audit bundle (audit @ `main@f70b1e8`, 2026-07-08; distributed as a local untracked `docs/exarchos-debloat-audit-bundle.zip` — not in version control); this session's re-verification @ `main@b3a58d7a` (2026-07-15): detectors re-run on current main + three read-only comb passes over every load-bearing claim. The bundle's detectors are **vendored in-repo on this branch at `scripts/audit/{refgraph,cycle-hubs,compose}.mjs`** (smoke-tested against the current tree), so every acceptance criterion below is executable from the repo alone.
 
 > One unified artifact: `## Design & Rationale` is the DR-N source; `## Decomposition` maps tasks → DR-N within this same document.
 
@@ -17,7 +17,7 @@ Anchored to `.exarchos/invariants.md`:
 
 ### Problem Statement
 
-The verified audit shows Exarchos's bloat is structural, not quality rot: production code is only ~22% of a 730K-line repo, but **18 hard-dead production modules (~4.2K lines with their tests, including the entire `sync/` subsystem)** ship in every build; the legacy `merge.rollback` event is still dual-emitted at `execute-merge.ts:746-773` despite being marked "removed in v2.12" while the package sits at `2.12.0-preview.3`; and a default dev install pulls **~1,186 MiB** of `node_modules`, ~1,091 MiB of which is the promptfoo closure used only by the eval gate.
+The verified audit shows Exarchos's bloat is structural, not quality rot: production code is only ~22% of a 730K-line repo, but **18 hard-dead production modules (~4.2K lines with their tests, including the dead `sync/` trio — `conflict`, `sync-state`, `config`; the live `outbox`/`composite`/`sync-handler`/`types` stay)** ship in every build; the legacy `merge.rollback` event is still dual-emitted at `execute-merge.ts:746-773` despite being marked "removed in v2.12" while the package sits at `2.12.0-preview.3`; and a default dev install pulls **~1,186 MiB** of `node_modules`, ~1,091 MiB of which is the promptfoo closure used only by the eval gate.
 
 The deeper finding is *why* this accretes: the codebase's discipline is **documented but unwired**. The production import graph has 9 circular SCCs — including a 57-module dispatch↔composite mega-cycle — with no `no-circular` rule; 5 of 16 enforcer scripts are CI-unwired (two exist only in a `validate` script no workflow invokes); only 1 of 20 catalog invariants is a deterministic machine check; and export/type hygiene is explicitly deferred in the knip gate, leaving 4 dead value exports and ~50 dead exported types standing.
 
@@ -36,9 +36,10 @@ The one audit "owner decision" — the 6 header-reserved dead stubs — is resol
 Remove the 18 modules re-verified dead on `main@b3a58d7a` (17 audit survivors — `projections/cadence.ts` is already gone — plus the `views/output-cap.ts` re-export shim): `quality/regression-eval-generator`, `benchmarks/emit-results`, `cli-commands/run-mutation`, `cli-commands/run-contract`, `cli-commands/checkpoint`, `session/lifecycle`, `sync/conflict`, `sync/sync-state`, `sync/config`, `views/unified-task-view`, `views/output-cap`, `review/comment-parser`, `review/merge-gate`, `errors.ts` (top-level), `orchestrate/detect-test-commands`, `mcp/tools-call-handler`, `telemetry/benchmarks/helpers`, `orchestrate/tools-config` — each with its co-located test file(s). `core/dispatch.economy-seam.ts` is **kept** (test-infra: self-testing INV-17 lint gate).
 
 **Acceptance criteria:**
-- `refgraph.mjs` re-run over `servers/exarchos-mcp/src` lists none of the 18, and the DEAD-IN-PROD count does not grow relative to the pre-deletion baseline (no new orphans created by the deletions).
+- `node scripts/audit/refgraph.mjs servers/exarchos-mcp/src` (vendored in-repo) lists none of the 18, and the DEAD-IN-PROD count does not grow relative to the pre-deletion baseline (no new orphans created by the deletions).
 - `npm run typecheck` (root **and** `servers/exarchos-mcp` — the root typecheck does not cover the server) and both test suites green in CI.
-- If the `sync/` directory empties, its composite/registry references (if any) are removed in the same change, not left dangling.
+- Non-co-located test consumers of deleted modules are partially rewritten, not deleted wholesale, preserving their live-module coverage (known: `event-store/liveness-instance-id.emitters.test.ts`, `quality/__tests__/flywheel-integration.test.ts`).
+- The live `sync/` modules (`outbox.ts`, `composite.ts`, `sync-handler.ts`, `types.ts`) are untouched.
 
 ### DR-2: Complete the overdue `merge.rollback` retirement without breaking replay
 
@@ -47,6 +48,7 @@ Stop the legacy dual-emission in `orchestrate/execute-merge.ts` (~746-773) and r
 **Acceptance criteria:**
 - No production code path appends `merge.rollback`; `merge.recovered` is the sole recovery event.
 - A fixture event log containing legacy `merge.rollback` events still materializes to the same workflow state as before the change (regression test).
+- No registration/claim surface still advertises `merge.rollback` emission: the `registry.ts` emission declaration (~:2268) and `runbooks/definitions.ts` `autoEmits` (~:682, pinned by `definitions.test.ts`) are updated with the write path.
 - Parity/migration tests updated in the same change; `skills-src`/docs wording follows.
 
 ### DR-3: Isolate promptfoo so the default install is light
@@ -56,20 +58,21 @@ Move the eval runner's `promptfoo` dependency behind an opt-in surface (eval-onl
 **Acceptance criteria:**
 - Fresh default dev install completes without downloading the promptfoo closure (verify via lockfile closure or `du` on `node_modules`).
 - `evals/graders/llm-{rubric,similarity}.ts` fail with an actionable "install the eval package" error when promptfoo is absent — not an opaque import crash.
+- Server typecheck stays green in non-eval lanes: the graders (which `await import('promptfoo')` and sit inside the default-typechecked tree) are either relocated into the eval surface or given an ambient module declaration — decided with the mechanism, declared in the task.
 - eval-gate CI lane green; no other CI lane installs promptfoo.
 
 ### DR-4: Cycle gate — break the mutual pairs, ratchet `no-circular`
 
-Break the 14 two-node mutual import pairs (5 are `core/dispatch.ts ↔ */composite.ts`; several are likely type-only-import fixes), then add a `no-circular` rule to `.dependency-cruiser.cjs` (dependency-cruiser `^17.4.3` is now installed) wired **blocking** in CI with a checked-in baseline allowlisting any residual SCC — failing on any *new* cycle.
+**Edge semantics (pinned):** the gate counts **runtime edges only** — `import type`-only edges are excluded; dynamic `import()` edges count as runtime. On the current tree the composite→dispatch back-edges and several others are *already* `import type`, so the remaining work is removing genuinely-runtime back-edges by extracting shared types/pure functions (e.g. `resolver↔format`, `reconcile↔hooks`, `reserved-tier-guard↔scaffold`, `lifecycle-core↔verb`, `workflow-state-projection↔state-store`). The **intentional lazy-load seams** (`core/dispatch.ts → */composite.ts` TraceWriter/economy lazy imports, `adapters/mcp.ts ↔ index.ts`) are load-bearing and stay — enumerated in the checked-in baseline with rationale and owning issue, not "fixed". Then add `no-circular` under these semantics to `.dependency-cruiser.cjs` (dependency-cruiser `^17.4.3` is installed) wired **blocking** in CI — failing on any *new, unbaselined* runtime cycle.
 
 **Acceptance criteria:**
-- `cycle-hubs.mjs` (or depcruise) re-run shows 0 mutual two-node pairs.
-- depcruise runs blocking in CI; a synthetic new cycle in a test fixture fails the gate; baseline file enumerates any residual SCCs with an owning issue.
-- Type-only imports used for breaking cycles are marked `import type` (no runtime edge), and INV-2 holds — no behavior moves into adapters to dodge an edge.
+- Under the pinned semantics, zero unbaselined runtime mutual pairs and zero unbaselined runtime SCCs (`scripts/audit/cycle-hubs.mjs` cross-checked against depcruise output).
+- depcruise runs blocking in CI; a synthetic new cycle in a test fixture fails the gate; every baseline entry carries rationale + owning issue + expiry, and an expired entry FAILS the gate.
+- INV-2 holds — no behavior moves into adapters to dodge an edge; the intentional lazy-load seams keep their documented latency rationale.
 
 ### DR-5: Enforcer-wiring gate — every enforcer live or explicitly retired
 
-Add `check-enforcer-wiring` (manifest-driven): every `scripts/check-*`/`lint-*` primary must be referenced by a CI workflow or package-gate, or be marked `advisory`/`retired` in the manifest. Disposition the 5 currently-unwired enforcers: wire `check-golden-fixture-note` (pr-body-check) and `check-prefix-fingerprint` + `check-prose-lint` (CI); retire or wire `check-property-tests.sh` and `check-design-completeness.sh` (the latter is already a deprecated alias in the collapsed flow — retire is the default).
+Add `check-enforcer-wiring` (manifest-driven): every `scripts/check-*`/`lint-*` primary must be **transitively reachable from a CI workflow** (a package-script reference counts only if some workflow invokes that script, directly or through another script — closing the `npm run validate` loophole where a "referenced" gate never runs), or be marked `advisory`/`retired` in the manifest with rationale. Disposition the 5 currently-unwired enforcers: wire `check-golden-fixture-note` (pr-body-check) and `check-prefix-fingerprint` + `check-prose-lint` (CI); retire or wire `check-property-tests.sh` and `check-design-completeness.sh` (the latter is already a deprecated alias in the collapsed flow — retire is the default).
 
 **Acceptance criteria:**
 - The gate fails CI when a `scripts/check-*` primary is neither referenced nor manifest-dispositioned (self-test with a synthetic orphan script).
@@ -99,14 +102,14 @@ All gates added or modified by this feature fail closed — a scanner crash, mis
 
 **Acceptance criteria:**
 - Unit tests for each new/changed gate simulate tool-missing and scan-error paths and assert failure with a diagnostic naming the real cause.
-- New scripts pass `check-windows-portability.mjs`; both Windows and Linux CI lanes green.
-- Deletion PRs include the refgraph/depcruise before/after delta in the PR body (measured, not asserted).
+- New scripts pass `check-windows-portability.mjs`; the **gate steps** are green on both OS lanes. The chronically-flaky Windows Unit (Root) lane (#1699, spawn timeouts, path-filter-skipped on main) is explicitly not a blocking criterion — gate scripts run in the grep-gates job, not that lane.
+- Deletion PRs include the `scripts/audit/refgraph.mjs`/depcruise before/after delta in the PR body (measured, not asserted).
 
 ## Technical Design
 
 Two independent workstreams compose: **reduction** (DR-1..3) touches `servers/exarchos-mcp/src` module deletions, the `execute-merge`/`schemas`/projection seam, and package layout; **enforcement** (DR-4..7) lands as `scripts/check-*.mjs` following the existing self-tested enforcer pattern, plus `.dependency-cruiser.cjs` rules and the `validate-no-legacy.sh` knip-args change, wired into the existing `grep-gates`/`no-legacy` CI blocks in `ci.yml`. DR-8 is a cross-cutting property of every gate task, not a separate component.
 
-Ordering: enforcement gates land with baselines **captured after** the reductions merge (a gate baselined pre-deletion would allowlist the modules DR-1 removes). The module-intent scanner reuses the audit skill's `refgraph.mjs` import-resolution logic (`.js`→`.ts` resolver, dynamic-import string scan) rather than reimplementing reachability.
+Ordering: enforcement gates land with baselines **captured after** the reductions merge (a gate baselined pre-deletion would allowlist the modules DR-1 removes). The module-intent scanner reuses the vendored `scripts/audit/refgraph.mjs` import-resolution logic (`.js`→`.ts` resolver, dynamic-import string scan) rather than reimplementing reachability; the audit detectors are checked in at `scripts/audit/` on this branch so every measured acceptance criterion is executable from the repo alone.
 
 The `merge.rollback` seam is the only event-store-touching change; it follows the established retired-event pattern (read-tolerant fold, write-path removal) and keeps `execute-merge ↔ merge-orchestrate` parity tests as the equivalence proof (INV-2).
 
@@ -180,6 +183,7 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Files:**
 - `servers/exarchos-mcp/src/cli-commands/checkpoint.ts`, `run-mutation.ts`, `run-contract.ts` (+ co-located tests) (delete)
 - `servers/exarchos-mcp/src/session/lifecycle.ts` (+ test) (delete)
+- `servers/exarchos-mcp/src/event-store/liveness-instance-id.emitters.test.ts` (partial rewrite — it imports `handleRunMutation` as an INV-10 liveness emitter under test; replace with a live emitter, preserve the rest of its coverage)
 **Verification:** scoped: server typecheck + suite; confirm `adapters/cli.ts` registry auto-wiring and `index.ts` fast-paths carry no references
 **Dependencies:** None
 **Parallelizable:** Yes
@@ -191,8 +195,9 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Boundary Touching:** false
 **Implements:** DR-1
 **Files:**
-- `servers/exarchos-mcp/src/review/comment-parser.ts`, `review/merge-gate.ts` (+ tests) (delete)
-- `servers/exarchos-mcp/src/views/unified-task-view.ts`, `views/output-cap.ts` (+ tests) (delete)
+- `servers/exarchos-mcp/src/review/comment-parser.ts`, `review/merge-gate.ts` (+ co-located tests) (delete)
+- `servers/exarchos-mcp/src/views/unified-task-view.ts` + its non-co-located test `servers/exarchos-mcp/src/__tests__/views/unified-task-view.test.ts` (delete)
+- `servers/exarchos-mcp/src/views/output-cap.ts` (+ co-located test) (delete)
 - `servers/exarchos-mcp/src/errors.ts` (+ `errors.test.ts`) (delete)
 **Verification:** scoped: server typecheck + suite; verify `views/output-cap.ts` consumers all import `core/economy.js` directly (re-export shim retired)
 **Dependencies:** None
@@ -206,6 +211,7 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Implements:** DR-1
 **Files:**
 - `servers/exarchos-mcp/src/benchmarks/emit-results.ts`, `quality/regression-eval-generator.ts`, `orchestrate/detect-test-commands.ts`, `mcp/tools-call-handler.ts`, `telemetry/benchmarks/helpers.ts`, `orchestrate/tools-config.ts` (+ co-located/characterization tests, incl. `orchestrate/tools-config-wiring.test.ts`) (delete)
+- `servers/exarchos-mcp/src/quality/__tests__/flywheel-integration.test.ts` (partial rewrite — cross-module integration test importing `generateRegressionEval`/`writeAutoRegressionCase`; drop only those paths, preserve its live coverage of calibrated-correlation, refinement-signal, hints, and the code-quality/eval-results views)
 **Verification:** scoped: server typecheck + suite; `knip.json` reference to `telemetry/benchmarks/helpers` cleaned
 **Dependencies:** None
 **Parallelizable:** Yes
@@ -231,7 +237,8 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Files:**
 - `servers/exarchos-mcp/src/orchestrate/execute-merge.ts` (drop legacy append ~746-773)
 - `servers/exarchos-mcp/src/event-store/schemas.ts` (write-path entries; read-tolerance decision)
-- affected projection reducers (`views/workflow-state-projection.ts`, merge-orchestrator projections)
+- affected projection reducers (`views/workflow-state-projection.ts` — `merge.rollback` case ~:587, merge-orchestrator projections)
+- `servers/exarchos-mcp/src/runbooks/definitions.ts` `autoEmits` (~:682) + `definitions.test.ts` pin; `registry.ts` `merge.rollback` emission declaration (~:2268)
 - `servers/exarchos-mcp/src/orchestrate/execute-merge.test.ts` (update: no legacy append asserted)
 - `servers/exarchos-mcp/src/projections/merge-rollback-replay.regression.test.ts` (new: fixture log with legacy `merge.rollback` events folds to identical state)
 **Expected tests:** `executeMerge_RecoveryPath_EmitsOnlyMergeRecovered`, `executeMerge_RecoveryPath_NoLegacyRollbackAppend`, `replayFixture_LegacyRollbackEvents_FoldsToIdenticalWorkflowState`, `schemas_MergeRollback_ReadTolerantButNotEmittable`
@@ -267,18 +274,19 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Parallelizable:** Yes
 **testingStrategy:** propertyTests: false, benchmarks: false
 
-### Task 009: Break the 14 mutual import pairs
+### Task 009: Remove runtime back-edges from the mutual import pairs (pinned semantics)
 
 **Risk Tier:** high
 **Boundary Touching:** true
 **Implements:** DR-4
+**Scope note:** per DR-4's pinned edge semantics — type-only edges are already `import type` on most pairs; the work is extracting shared types/pure functions to remove the genuinely-runtime back-edges, and baselining (not "fixing") the intentional lazy-load seams (`dispatch → */composite`, `adapters/mcp ↔ index`) with rationale + issue.
 **Files:**
 - `core/dispatch.ts` ↔ `workflow|event-store|orchestrate|views|sync/composite.ts`, `telemetry/middleware.ts` (6 pairs)
 - `adapters/mcp.ts`↔`index.ts`, `capabilities/resolver.ts`↔`format.ts`, `event-store/store.ts`↔`storage/backend.ts`, `views/workflow-state-projection.ts`↔`workflow/state-store.ts`, `workflow/hsm-definitions.ts`↔`state-machine.ts`, `core/onboarding/reconcile.ts`↔`orchestrate/onboard/hooks.ts`, `orchestrate/invariants/reserved-tier-guard.ts`↔`scaffold.ts`, `launcher/lifecycle-core.ts`↔`launcher/verb.ts`
 - `servers/exarchos-mcp/src/architecture/import-cycles.test.ts` (new: pins zero two-node mutual import pairs via the production import graph, so regressions fail in-tree, not only at the depcruise CI gate)
-**Expected tests:** `importGraph_ProductionModules_ZeroMutualImportPairs`, `importGraph_DispatchCompositeSeam_NoRuntimeBackEdge`
-**Verification:** high rung: `import type` where the edge is type-only; extraction of shared types where not; parity + integration suites green (INV-2: no behavior into adapters); cycle-hubs re-run shows 0 mutual pairs
-**Dependencies:** 005 (stable post-deletion import graph)
+**Expected tests:** `importGraph_RuntimeEdges_ZeroUnbaselinedMutualPairs`, `importGraph_DispatchCompositeSeam_NoRuntimeBackEdge`
+**Verification:** high rung: shared-type/pure-function extraction removes runtime back-edges; parity + integration suites green (INV-2: no behavior into adapters); `scripts/audit/cycle-hubs.mjs` re-run shows zero unbaselined runtime mutual pairs
+**Dependencies:** 005 (stable post-deletion import graph), 006 (both edit `views/workflow-state-projection.ts` — 006 lands first)
 **Parallelizable:** No (graph-wide)
 **testingStrategy:** propertyTests: false, benchmarks: false
 
@@ -288,10 +296,11 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Boundary Touching:** false
 **Implements:** DR-4, DR-8
 **Files:**
-- `.dependency-cruiser.cjs` (no-circular + baseline allowlist)
-- `.github/workflows/ci.yml` (blocking wiring)
+- `.dependency-cruiser.cjs` (no-circular under DR-4's pinned semantics: type-only edges excluded)
+- `scripts/audit/cycle-baseline.json` (new sidecar — depcruise has no native owner/issue metadata; entries: `{rule, from, to, rationale, issue, expires}`; the gate script diffs depcruise output against it and FAILS on any expired entry)
+- `.github/workflows/ci.yml` (blocking wiring in the grep-gates job)
 - self-test fixture (synthetic cycle → gate fails; tool-missing → gate fails)
-**Verification:** medium rung: self-test proves fail-closed both ways; baseline enumerates residual SCCs with owning issue; Windows lane green
+**Verification:** medium rung: self-test proves fail-closed both ways; baseline enumerates residual SCCs with rationale + owning issue + expiry; gate steps green on both OS lanes
 **Dependencies:** 005, 009
 **Parallelizable:** No
 **testingStrategy:** propertyTests: false, benchmarks: false
@@ -317,8 +326,8 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Implements:** DR-6
 **Files:**
 - `scripts/validate-no-legacy.sh` (knip `--include files,dependencies,exports,types`)
-- new allowlist file with schema-enforced owner+expiry
-- fixes for `getEmbeddedRuntime`, `validateAgentSpec`, `assertNever` (workflow/phase-kind), `hasExarchosBinding` + the ~50 dead exported types (fix or allowlist each)
+- `scripts/audit/knip-allowlist.json` (new sidecar — knip has no metadata-carrying allowlist; entries: `{symbol, file, owner, expires, rationale}`; a wrapper diffs knip output against it, FAILS on unallowlisted violations and on expired entries)
+- dispositions for `validateAgentSpec`, `assertNever` (workflow/phase-kind), `hasExarchosBinding` + the ~50 dead exported types (fix or allowlist each); `getEmbeddedRuntime` is codegen-emitted (`scripts/codegen-runtimes.ts:124`, pinned by its test) — allowlist-with-rationale is the only in-scope path (a "fix" means generator + pin changes, out of scope)
 **Verification:** medium rung: CI knip blocking with zero unallowlisted violations; allowlist schema test rejects entries missing owner/expiry
 **Dependencies:** 005 (post-deletion baseline)
 **Parallelizable:** Yes (after 005)
@@ -330,7 +339,7 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Boundary Touching:** false
 **Implements:** DR-7, DR-8
 **Files:**
-- `scripts/check-module-intent.mjs` (reuse refgraph `.js`→`.ts` resolver; class allowlist: test-infra, build-shim, type-test entrypoint) + self-test
+- `scripts/check-module-intent.mjs` (reuse the vendored `scripts/audit/refgraph.mjs` `.js`→`.ts` resolver; class allowlist: test-infra, build-shim, type-test entrypoint) + self-test; expired-and-unadopted RESERVED headers FAIL the gate (the DR-7 "deletion happens at expiry" enforcement point)
 - `.github/workflows/ci.yml` (blocking wiring)
 **Verification:** medium rung: synthetic new 0-importer module fails; scan crash = FAIL; current tree scans clean given 014's headers; Windows lane green
 **Dependencies:** 005, 014
@@ -364,9 +373,9 @@ The decomposition maps every task to one or more DR-N from the section above.
 
 ### Parallelization
 
-Critical path: {001-004} → 005 → 009 → 010 → 015.
+Critical path: {001-004} → 005 → 009 (also gated on 006) → 010 → 015.
 Wave A (parallel worktrees): 001, 002, 003, 004, 006, 008, 011, 014.
-Wave B (after 005): 009, 012.
+Wave B (after 005): 012; 009 additionally waits for 006 (both edit `views/workflow-state-projection.ts`).
 Wave C: 007 (after 006), 010 (after 009), 013 (after 005+014).
 Wave D: 015 (after 010, 011, 013).
 Gate baselines (010, 012, 013) are captured only after the deletion wave merges, per Technical Design ordering.
