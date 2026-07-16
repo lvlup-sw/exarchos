@@ -772,6 +772,9 @@ describe('rehydration reducer — state.patched.tasks fold (Fix 2 / #1179)', () 
     expect(byId.get('DONE')).toBe('complete');
     expect(byId.has('GHOST')).toBe(false);
     expect(narrowed.taskProgress).toHaveLength(3);
+
+    // AND: the resulting document still conforms to the schema.
+    expect(RehydrationDocumentSchema.safeParse(narrowed).success).toBe(true);
   });
 
   it('Rehydration_StatePatchedWithoutTasksSubtree_LeavesTaskProgressIntact', () => {
@@ -815,6 +818,9 @@ describe('rehydration reducer — state.patched.tasks fold (Fix 2 / #1179)', () 
     // empty". Without this, any artifacts-only patch would wipe the plan.
     expect(artifactsOnly.taskProgress).toHaveLength(2);
     expect(artifactsOnly.artifacts['pr']).toBe('https://example.test/pr/1');
+
+    // AND: the resulting document still conforms to the schema.
+    expect(RehydrationDocumentSchema.safeParse(artifactsOnly).success).toBe(true);
   });
 
   it('Rehydration_StatePatchedTasksFollowedByPlanReexpansion_DoesNotResurrectCompleted', () => {
