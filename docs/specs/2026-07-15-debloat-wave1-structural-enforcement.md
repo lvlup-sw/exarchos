@@ -33,12 +33,12 @@ The one audit "owner decision" — the 6 header-reserved dead stubs — is resol
 
 **Program scope (DR-9 … DR-18).** The same reduction-plus-ratchet logic extends across the epic's v2.12-eligible waves, taken in one feature because they share the enforcement substrate and the `ci.yml` contention point:
 
-- **Wave 2 (#1703, DR-9..DR-11)** — the ready-now SIMPLIFYs: a config surface that has been deprecated *and ignored* since #1334 but is still plumbed through four files (DR-9); ~165 ln of verified production cross-file clones plus a duplicated/triplicated resolver (DR-10); and a `--minify` A/B on the binary (DR-11). These are blocked on wave 1 by genuine file overlap (`registry.ts`, `config/resolve.ts`, and the projection seam), so they serialize behind it rather than running beside it.
-- **Wave 3a (#1704, DR-12..DR-13)** — `test:coverage` exists but no workflow invokes it. This is the *same* "gate exists, unwired" class DR-5 closes for check-scripts, one layer up: coverage effectiveness is never measured, so the largest LoC lever (#1705's test-mass consolidation) cannot be attempted safely. Wiring coverage with a baseline + non-regression ratchet, backed by the in-tree diff-scoped mutation-adequacy gate, is what makes that follow-on wave verifiable — and is the reason #1705 stays out of this spec rather than being guessed at.
-- **Enforcement phase 2 (#1706, DR-14..DR-17)** — the §7.5 items wave 1 left: the tsconfig strict-flag ratchet (532 mechanical fixes behind two flags both tsconfigs omit today), raising mechanically-checkable catalog invariants from `mode: audit` to `mode: check`, an error-envelope lint at the public handler boundary, and wiring the `vocabulary-lint` that already exists as an uninvoked script.
+- **Wave 2 (#1703, DR-9..DR-10)** — the ready-now SIMPLIFYs: a config surface deprecated *and ignored* since #1334 yet still plumbed through five sites (DR-9), and ~165 ln of verified production cross-file clones plus a duplicated/triplicated resolver (DR-10). Only DR-9's task is genuinely blocked on wave 1 (`registry.ts` overlap); the rest sequences on the post-deletion baseline.
+- **Wave 3a (#1704) is NOT in this spec — it moved to #1711.** `test:coverage` exists but no workflow invokes it (the same "gate exists, unwired" class DR-5 closes, one layer up), and it is the prerequisite for #1705's test-mass consolidation. But every candidate host job for it is path-filtered, and `ci-gate` passes skipped jobs — so wiring it from this spec would ship the vacuous gate the spec indicts. It returns once #1711 settles where a filtered gate lives.
+- **Enforcement phase 2 (#1706, DR-14..DR-16)** — the §7.5 items wave 1 left, less the parts that need CI-topology decisions: the tsconfig strict-flag ratchet (532 mechanical fixes behind two flags every tsconfig omits today), raising mechanically-checkable catalog invariants from `mode: audit` to `mode: check`, and an error-envelope lint at the public handler boundary. The `vocabulary-lint` wiring and the `as unknown as` type-debt register moved to #1711.
 - **T8 (#1707, DR-18)** — repo-size hygiene in MB rather than code LoC: archival and dedup of superseded dated delivery artifacts, and one 2.11 MB SVG.
 
-The unifying claim is the one re-verification measured: **every unwired rule decays.** Wave 1 proves it for dead modules (+2/week) and cycles (41→57 modules/week); DR-12's coverage ratchet and DR-14's flag flips are the same move applied to test effectiveness and type strictness. Reduction is the one-time gain; the ratchet is the deliverable.
+The unifying claim is the one re-verification measured: **every unwired rule decays.** Wave 1 proves it for dead modules (+2/week) and cycles (41→57 modules/week); DR-14's flag flips apply the same move to type strictness. Reduction is the one-time gain; the ratchet is the deliverable — which is exactly why the gates whose host jobs are path-filtered went to #1711 rather than shipping here as green theater.
 
 ## Requirements
 
@@ -93,11 +93,13 @@ Add `check-enforcer-wiring` (manifest-driven): every `scripts/check-*`/`lint-*` 
 2. **Unreachable-script** — referenced only from an npm script no workflow invokes (`package.json:49`'s `validate` references `check-prefix-fingerprint.mjs` and `check-prose-lint.mjs`; no workflow runs `npm run validate`).
 3. **Neutered** — reachable and running, but its exit code is swallowed so it can never fail. `package.json:35`'s `skills:guard` invokes `(npm run lint:inv6 || true)`: `lint-inv6.mjs` *runs in CI* and is structurally incapable of failing it. This is the most dangerous class — it looks wired.
 
-**Dispositions (7+, re-enumerated by the task):** the audit's five — `check-golden-fixture-note` (wire in pr-body-check), `check-prefix-fingerprint` + `check-prose-lint` (wire in CI), `check-property-tests.sh` and `check-design-completeness.sh` (retire is the default; the latter is already a deprecated alias in the collapsed flow) — **plus** `lint-inv6.mjs` (class 3, `|| true`) and `lint-test-first-drift.mjs` (`package.json:32` `lint:test-first-drift`, invoked by no workflow). Both are `lint-*` primaries squarely inside DR-5's declared scope.
+**Dispositions (6, re-enumerated by the task):** the audit's five — `check-golden-fixture-note` (wire in pr-body-check), `check-prefix-fingerprint` + `check-prose-lint` (wire in CI), `check-property-tests.sh` and `check-design-completeness.sh` (retire is the default; the latter is already a deprecated alias in the collapsed flow) — **plus `lint-inv6.mjs`**, a class-3 instance: `package.json:35` runs it as `(npm run lint:inv6 || true)` inside `skills:guard`, which CI does invoke (`ci.yml:109`), so it executes on every root-touching PR and cannot fail one.
+
+**Counter-example, stated so the task does not "fix" it:** `lint-test-first-drift.mjs` **is correctly wired**. The same `skills:guard` line chains it with `&&` (not `|| true`), so its exit code propagates. It satisfies DR-5's rule and is not a disposition candidate — a gate that retires a live enforcer is worse than one that misses a dead one.
 
 **Acceptance criteria:**
 - The gate fails CI on a synthetic instance of **each** of the three trap classes — an orphan, a script reachable only via an unreachable npm script, and a `|| true`-swallowed invocation. The transitive and neutered fixtures are what distinguish this gate from a name-grep; without them a naive implementation passes its own self-test while leaving every real loophole open.
-- Every primary dispositioned by the task's own enumeration — **not by this document's count**, which the audit already undercounted.
+- Every primary dispositioned by the task's own enumeration — **not by this document's count**. The enumeration must walk npm-script chains transitively and inspect exit-code handling per term, since `skills:guard` alone contains both a neutered primary and a correctly-wired one.
 - `pr-body-check.yml` is a separate workflow, so a gate wired there is blocking within that workflow's own required status, not via `ci-gate` (DR-8) — the manifest records which workflow each primary belongs to.
 
 ### DR-6: Export/type hygiene ratchet in CI
@@ -121,7 +123,9 @@ Add `check-module-intent`: a production module with zero production importers fa
 
 All gates added or modified by this feature fail closed — a scanner crash, missing tool, or unparseable output is a FAIL, not a skip (the `6a335010` substrate-gate lesson). Gate scripts execute on **ubuntu only** — in `grep-gates` when they are zero-dependency, and in `test-root` when they need a Node toolchain (`ci.yml` has no Windows execution surface for either); Windows portability is *defensive* (INV-16)
 
-**Job placement is determined by dependencies, not preference.** `grep-gates` deliberately runs **no `npm ci`**, so a gate that imports TypeScript via `tsx` cannot execute there. `ci.yml:119-127` sets the precedent: `desc:budget-guard` runs in `test-root` *"because it imports TOOL_REGISTRY via tsx, which needs both the root and MCP-server deps this job already installs. Sibling to skills:guard / lint:invariants."* Therefore: DR-17's `lint:invariants` (a `tsx` entrypoint) lands in **`test-root`**; DR-4's depcruise gate stays in `grep-gates` behind a root-only install; DR-13's mutation gate is a server TS module and lands in **`test-root`**. **Every task naming a `ci.yml` edit names its job**, and evidence cites the lane that actually runs the gate — grep-gates cannot observe a test-root gate
+**Job placement is determined by dependencies, not preference.** `grep-gates` deliberately runs **no `npm ci`**, so a gate that imports TypeScript via `tsx` cannot execute there. `ci.yml:119-127` sets the precedent: `desc:budget-guard` runs in `test-root` *"because it imports TOOL_REGISTRY via tsx, which needs both the root and MCP-server deps this job already installs. Sibling to skills:guard / lint:invariants."* Therefore DR-4's depcruise gate stays in `grep-gates` behind a root-only install. **Every task naming a `ci.yml` edit names its job**, and evidence cites the lane that actually runs the gate.
+
+**The corollary that scoped this spec:** `needs:` membership is necessary but *not sufficient* for blocking. `test-root` (~:63) and `test-mcp` (~:132) are path-filtered on `changes.outputs.root`/`.mcp`, and `ci-gate` fails only on `failure|cancelled` — it prints *"All checks passed (skipped jobs are OK)"* (~:763). A gate stepped into a filtered job is silently skipped-as-passed on every PR outside its host's filter. **Every gate in this spec lands in `grep-gates` or `validate-no-legacy`, which carry no path filter and therefore always run.** Any gate needing a filtered host is out of scope (#1711)
 
 **How "blocking" works here — each gate lands as a step in a job that is already blocking.** `ci-gate` is the aggregator (`ci.yml:690` `needs:` + its evaluate block ~:693-763; `ci.yml:126`: *"Blocking via the ci-gate aggregator (test-root)"*). That `needs:` list is **job-keyed**, and `grep-gates`, `validate-no-legacy`, and `test-root` are all already in it. So a gate added as a **step** to one of those jobs blocks the moment it merges — a failing step fails its job, and that job is already aggregated. **No task in this spec adds a new job, so none touches the aggregator.** The one thing to prove per gate is that a synthetic violation reaches `ci-gate` red, which follows from the step's own fail-closed self-test plus its job's membership.
 
@@ -164,39 +168,6 @@ Two distinct duplications, both re-verified in production code:
 - Extracting the projection data-extractors preserves both reducers' folds byte-for-byte on a fixture log (INV-1: read-models are left-folds; a shared extractor must not re-order or coalesce).
 - Each extraction is proven behavior-preserving by the existing tests passing **unmodified** — a test edited to accommodate a helper is a design smell and fails this criterion.
 
-### DR-11: Binary `--minify` A/B — measure, then decide
-
-`scripts/build-binary.ts` (~:138) runs `bun build --compile` with no minify flag. Add `--minify`, measure, keep only if it wins.
-
-**Acceptance criteria:**
-- Before/after **measured** binary size and cold-start delta recorded in the PR body — not asserted.
-- Kept only if it wins on size with no behavioral delta: CLI smoke (a representative verb) and the `mcp` subcommand both green against the minified binary.
-- **Explicit negative-result path:** if minify regresses startup, breaks stack-trace attributability, or changes any error message the harness matches on, the task lands the measurement and the rejection rationale, not the flag. A negative result is a completed task.
-
-### DR-12: Wire `test:coverage` in CI with a baseline and a non-regression ratchet
-
-`test:coverage` exists (`servers/exarchos-mcp/package.json` → `vitest run --coverage`) but **no workflow invokes it** — this is DR-5's "gate exists, unwired" class one layer up: coverage effectiveness is never measured. Run it on the CI Linux lane, check in `coverage-summary.json` as the baseline, and ratchet non-regression against it.
-
-**Acceptance criteria:**
-- **The baseline is captured from the CI Linux lane, never locally.** CI is the stricter and only trustworthy signal here — the known-red local suite is local-only, and a locally-captured baseline would bake local skips into the ratchet.
-- **The ratchet's tolerance is measured, not guessed:** coverage is nondeterministic across runs (platform-skipped tests, flaky E2E/perf lanes). The task measures run-to-run variance over N≥3 CI runs and sets the epsilon from that measurement, recording both. A zero-epsilon ratchet on a nondeterministic metric is a flake generator, and an unmeasured epsilon is a guess that hides regressions.
-- Fail-closed per DR-8: missing, empty, or unparseable coverage output is a FAIL naming the real cause — never a skip. A ratchet that passes when coverage did not run is the exact failure this DR exists to prevent.
-- The baseline file records the commit and lane it was measured on.
-
-### DR-13: Run diff-scoped mutation-adequacy as a measured advisory signal
-
-Coverage measures *execution*, not *assertion* — a suite can execute a line and assert nothing. The in-tree diff-scoped `orchestrate/mutation-adequacy.ts` gate is the only instrument that sees that hole. Run it on the diff and surface its findings.
-
-**What this DR does NOT claim, and why.** It is **not** a backstop that makes DR-12's percentage mean something, because the gate as built cannot enforce that. `mutation-adequacy.ts` excludes NoCoverage mutants from the score by construction — `denominator = total - noCoverage` (~:159), `mutationScore = killed / denominator` (~:160), `passed = mutationScore >= threshold` (~:712) — so a diff of 5 killed + 5 NoCoverage scores **1.0 and passes**. The severity machinery cannot fix that from config: `applyLadderGateSeverity` (`gate-utils.ts:367-409`) only ever *downgrades* (`passed:false → true`) and `resolveGateSeverity` is gate-keyed, not mutant-class-keyed. Blocking on NoCoverage would require changing the gate's `passed` computation — **a product-code design decision, deferred to #1711**, not something this spec can assert into existence.
-
-So this DR ships the honest half: a measured signal and follow-ups. The assertion-hole *enforcement* arrives when #1711 resolves. Naming that boundary is the point — an advisory gate described as a backstop is how gates rot.
-
-**Acceptance criteria:**
-- **Diff-scoped only.** Full-tree mutation (`scope: 'full'`) is out of scope — the in-tree diff-scoped gate is the paved path; full-tree stryker is not.
-- The gate runs on every PR diff and its report is visible; surviving and NoCoverage mutants become **recorded follow-ups**, not merge blocks.
-- **Fail-closed per DR-8 applies to the gate's own execution**: a mutation-runner crash or unparseable report is a FAIL with a cause-naming diagnostic, distinct from "ran and found survivors" (advisory). That distinction is the only thing keeping an advisory gate from silently not running at all.
-- The report states plainly that NoCoverage does not affect the score, so no reader mistakes a 1.0 for an assertion guarantee.
-
 ### DR-14: tsconfig strict-flag ratchet, with the cheat closed
 
 Both tsconfigs are `strict: true` but omit `noUncheckedIndexedAccess` (+346 errors) and `exactOptionalPropertyTypes` (+186). Fix per-area, then flip each flag to lock it. 532 mechanical fixes (the counts are the audit's targeting guidance and are re-measured by their tasks).
@@ -204,7 +175,8 @@ Both tsconfigs are `strict: true` but omit `noUncheckedIndexedAccess` (+346 erro
 **The `as unknown as` type-debt register is deferred to #1711**, not dropped. It needs an identity function this spec cannot supply: `{symbol, file}` cannot distinguish the multiple casts that share a file (`orchestrate/composite.ts` alone holds 13), so a subset register would pass a completeness check exactly where the debt concentrates; `{file, line, column}` churns on every edit and would be invalidated wholesale by this DR's own 532-fix wave. The census is also undefined — a naive scan returns 98 sites but includes a `.d.ts`, a `__shims__` module, a `.bench.ts`, and a `__tests__` fixture. A register with no workable key is a snapshot, and an unread snapshot is the documented-but-unwired decay this feature exists to stop; better to name the design question than to ship the thing the feature indicts.
 
 **Acceptance criteria:**
-- Both flags on in **both** tsconfigs, and **both typechecks green** — the root typecheck does not cover `servers/exarchos-mcp`, so "typecheck passes" without the server run is not evidence.
+- Both flags on in **every** tsconfig — root, `servers/exarchos-mcp`, and the eval workspace DR-3 creates — with **every** typecheck green. The root typecheck does not cover `servers/exarchos-mcp`, so "typecheck passes" without the server run is not evidence; and an eval workspace exempt from the flags would be a strict-flag hole this program opened itself.
+- **Scope disclosed, not implied: this ratchets production source only.** Both tsconfigs exclude tests (root excludes `**/*.test.ts`; the server also excludes `**/*.bench.ts` and `**/__tests__/**`), and vitest does not typecheck. So the 532-fix census and both flags cover ~22% of the repo and never reach the test mass — which is precisely the mass #1705 will later consolidate. "Type strictness ratcheted" means production; extending it to tests is out of scope here and is a follow-up for #1706.
 - **The cheat is closed and budgeted:** `noUncheckedIndexedAccess` is trivially defeated by `!` non-null assertions and `as` casts, which would flip the flag while abandoning its purpose. The task records a **measured** count of `!`/`as` sites introduced by the fix wave and justifies each above a declared budget; silencing rather than narrowing is a defect, and `as any` is barred outright (strict-TS convention: `unknown` + type guards).
 - **High blast radius, full suite:** 532 fixes across the tree exceed what per-task scoped verification can see. Both full suites run in CI between merges of the fix waves, not just at the end.
 
@@ -232,15 +204,6 @@ Public `orchestrate/**` / `adapters/**` handler catch-boundaries must return `To
 - Existing violations are fixed or allowlisted with owner + expiry in this gate's own register file, carrying **DR-6's exact schema** and validated by the same shared schema test (per Technical Design: one shape, per-gate files — a differently-*shaped* register is the accretion this feature exists to stop).
 - Fail-closed per DR-8: rule-crash or unparseable source is a FAIL.
 
-### DR-17: Wire `vocabulary-lint`
-
-`npm run lint:invariants` exists; **no workflow runs it** — the same unwired class as DR-5 and DR-12. Wire it blocking in CI and extend its scope to action names and descriptions in normative directories.
-
-**Acceptance criteria:**
-- Blocking in CI, with a self-test proving a synthetic vocabulary violation fails the gate.
-- The scope extension to action names/descriptions lands with its own violations fixed or allowlisted (owner + expiry) — wiring a gate whose new scope is already red is how gates get disabled.
-- Fail-closed per DR-8; INV-4 holds — any skills-side finding is fixed in `skills-src/`, never in generated `skills/<runtime>/**`.
-
 ### DR-18: Docs and data archival — MB hygiene, with a real code seam
 
 Repo size in MB, not code LoC: archive/docsite-exclude the superseded dated delivery artifacts in `docs/plans` + `docs/designs` (114.5K ln / 5.58 MB, preserving git history), dedup the duplicate-basename groups spanning plans ↔ designs ↔ proposals to one canonical + links (the audit's 105 groups / 211 files / 84K ln / 4.16 MB is week-old targeting guidance; the current tree scans to 102, and the task's own scan governs), and optimize `documentation/public/logo.svg` (measured at ~2.1 MB on this branch).
@@ -254,8 +217,8 @@ Repo size in MB, not code LoC: archive/docsite-exclude the superseded dated deli
 - Inbound references from **code, skills-src, and commands** to archived paths are updated — the archive is a doc-surface move, and a skill pointing at a moved reference is a runtime break, not a doc nit.
 - Dedup keeps exactly one canonical per group; the other members become links, not deletions (history preserved either way).
 - Measured before/after repo size + file count in the PR body.
-- **This DR edits `servers/exarchos-mcp/src/**`, and two of those edits are behavior.** A "zero `src/**` change" bar is unsatisfiable — ~48 production references across ~33 files (re-measured by the task; including a live relative markdown link at `telemetry/telemetry-projection.ts:183` and 8+ across `agents/adapters/*.ts`) point at exactly the artifacts this DR archives, so archiving while forbidding `src/**` edits would force stale production references.
-- **"Comment/string-only" is not a proof of no-behavior, and is not the bar.** Two string constants *are* behavior and must be treated as code changes with tests: `workflow/rehydrate.ts:76` `LEGACY_DESIGN_DIR = 'docs/designs/'` classifies in-flight workflows as two-artifact vs unified (its own comment says such workflows "MUST resume and complete under the OLD path — no forced mid-flight migration"), and `architecture/vocabulary-lint.ts:188` `DATED_RECORD_TREES` freezes the trees the lint must not walk. The task **enumerates every `src/**` edit and classifies each as inert (comment/link text) or behavioral**; each behavioral one carries a test. A mechanical "the hunks are string-only" check would pass a change that silently breaks workflow classification.
+- **This DR edits `servers/exarchos-mcp/src/**`, and one of those edits is behavior.** A "zero `src/**` change" bar is unsatisfiable — ~48 production references across ~33 files (re-measured by the task; including a live relative markdown link at `telemetry/telemetry-projection.ts:183` and 8+ across `agents/adapters/*.ts`) point at exactly the artifacts this DR archives, so archiving while forbidding `src/**` edits would force stale production references.
+- **"Comment/string-only" is not a proof of no-behavior, and is not the bar.** Some string constants *are* behavior, and the two that matter here pull in opposite directions. `architecture/vocabulary-lint.ts:188` `DATED_RECORD_TREES` (an exclusion list) **must** gain the archive path, or the lint walks archived records and reds. `workflow/rehydrate.ts:76` `LEGACY_DESIGN_DIR` **must not** change: `classifyArtifactLayout` is filesystem-blind and matches the path string recorded in historical events, so archival cannot break it and repointing it would silently force the mid-flight migration the module forbids. The task therefore **enumerates every `src/**` edit and classifies each as inert (reference text), must-change, or must-not-touch** — a mechanical "the hunks are string-only" check cannot tell these three apart, which is why it is not the bar.
 - Both typechecks and both full suites green; **an in-flight workflow whose `designPath` points at an archived location still resolves** (regression test).
 
 ## Technical Design
@@ -275,11 +238,10 @@ The `merge.rollback` seam is the only event-store-touching change; it follows th
   - **Task 020 (`--minify`) is independent** — no dependencies, runs in Wave A.
   - **Task 017 sequences on the 005 baseline, not on file overlap** — nothing in 001-004 touches `config/test-runtime-resolver.ts`. This is a deliberate choice to plan against a settled post-deletion graph, recorded as sequencing rather than conflict.
   - **The projection seam belongs to 019, via 006 only** — see its dependency below.
-- **Wave 3a (DR-12..DR-13) is independent of the wave chain** and can run beside the deletion wave — its only coupling is the `ci.yml` chain above. It is also the gate that unlocks #1705, which is why it is in this spec and #1705 is not: 3b's task shapes are a function of 3a's measured baseline, so decomposing 3b now would be fiction.
-- **Enforcement phase 2 (DR-14..DR-17) is mostly slack-fill**, with one exception: DR-14's 532 mechanical fixes are the largest blast radius in the program and touch files every other task also touches. The two flag ratchets serialize against each other (both edit both tsconfigs, and fixing one flag's errors churns the same files), and they land **last** among the code-touching work so they do not force constant rebasing on the deletion and extraction waves. DR-14's `as unknown as` register additionally waits on DR-6's allowlist schema.
+- **Enforcement phase 2 (DR-14..DR-16) is mostly slack-fill**, with one exception: DR-14's 532 mechanical fixes are the largest blast radius in the program and touch files nearly every other task also touches. The two flag ratchets serialize against each other (both edit every tsconfig, and fixing one flag's errors churns the same files), and they land **last** among the code-touching work — they are the end of the critical path, not a parallel branch.
 - **T8 (DR-18) is not independent, though it looks it.** It is docs and one SVG by *intent*, but ~48 production references across ~33 files point at the archived artifacts, so it edits `src/**` — which puts it inside DR-14's 532-fix surface (024 must order behind it) and in direct collision with Task 029 over `architecture/vocabulary-lint.ts`, whose scope 029 extends and whose `DATED_RECORD_TREES` constant 030 must change. Two of its `src/**` edits are behavior, not text. It touches no `ci.yml`.
 
-The new gates reuse the established substrate rather than inventing one: DR-12's ratchet, DR-16's lint, and DR-17's wiring all follow the self-tested `scripts/check-*.mjs` pattern with the DR-6 owner/expiry allowlist shape.
+The new gates reuse the established substrate rather than inventing one: DR-16's lint follows the self-tested `scripts/check-*.mjs` pattern with the DR-6 owner/expiry allowlist shape.
 
 **One *contract*, two key shapes, per-gate register files.** The debt registers — `cycle-baseline.json` (DR-4), `knip-allowlist.json` (DR-6), `error-envelope-allowlist.json` (DR-16) — stay distinct files (different consumers, different gates; one blob would make the gates contend and serialize for no design reason).
 
@@ -301,13 +263,9 @@ What they share is a **contract**, not a row: every entry, whatever its key, car
 - `servers/exarchos-mcp/src/orchestrate/prune-stale-workflows.ts` (~:284, ~:800-807) + `registry.ts` (~:2778) + `config/resolve.ts` — prune knob removal (DR-9)
 - `servers/exarchos-mcp/src/config/test-runtime-resolver.ts` (~266-325, ~495-556) — table-driving (DR-10)
 - Gate handlers (`orchestrate/contract-drift.ts`, `mock-boundary.ts`, `test-adequacy.ts`, `check-integration-suite.ts`, `pure/static-analysis.ts`), `src/vcs/{github,gitlab,azure-devops}.ts` `computeOverallCiStatus`, composite `envelopeWrap` (`views/composite.ts`, `workflow/composite.ts`), `projections/rehydration/reducer.ts` ↔ `projections/taskstore/reducer.ts`, `orchestrate/finalize-oneshot.ts`/`request-synthesize.ts` — clone extraction (DR-10)
-- `scripts/build-binary.ts` (~:138) — `--minify` A/B (DR-11)
-- `servers/exarchos-mcp/package.json` `test:coverage` + `.github/workflows/ci.yml` Linux lane + new coverage baseline/ratchet gate (DR-12)
-- `servers/exarchos-mcp/src/orchestrate/mutation-adequacy.ts` — CI wiring, diff-scoped (DR-13)
 - `tsconfig.json` (root) + `servers/exarchos-mcp/tsconfig.json` — strict-flag ratchet (DR-14)
 - `.exarchos/invariants.md` catalog entries + `check_invariant_conformance` gate registration (DR-15)
 - New error-envelope rule over `orchestrate/**` / `adapters/**` catch-boundaries (DR-16)
-- `npm run lint:invariants` + `.github/workflows/ci.yml` wiring (DR-17)
 - `docs/plans`, `docs/designs`, `documentation/public/logo.svg` (DR-18)
 
 ## Alternatives considered
@@ -315,7 +273,7 @@ What they share is a **contract**, not a row: every entry, whatever its key, car
 - **Aggressive posture: delete the 6 header-reserved stubs now (~1,946 ln).** Rejected — the reserving issues are live intents; DR-7's expiry mechanism converts the keep/delete argument into a tracked lifecycle that self-resolves.
 - **Dissolve the 57-module mega-cycle in this feature.** Rejected as scope — breaking the 14 mutual pairs plus a new-cycle ratchet stops the bleeding; full dispatch/composite layering is a follow-up (v3.0 candidate).
 - **Reduction without enforcement (the original runbook framing).** Rejected on measurement — one week of drift (+44K lines, +16 cycle modules, +2 dead modules) shows deletion alone regresses.
-- **Blanket test consolidation (T3 / wave 3b, #1705, ~2–6K ln, up to +4–10K).** Deferred — and this spec now lands its prerequisite rather than just naming it. The consolidation's premise is "coverage-preserving", which is unverifiable without DR-12's baseline; its task shapes are a *function* of what that baseline measures. Decomposing it now would be fiction dressed as a plan. It becomes plannable the moment DR-12 lands, and #1705 is the workflow that takes it.
+- **Blanket test consolidation (T3 / wave 3b, #1705, ~2–6K ln, up to +4–10K).** Deferred, and now double-gated: its premise is "coverage-preserving", which is unverifiable without a coverage baseline — and that baseline moved to #1711 once its host job proved path-filtered. Decomposing 3b now would be fiction dressed as a plan. The chain to unlock it is #1711 → #1704 → #1705.
 - **Include #1705 in this spec anyway, as framed phases.** Rejected — the plan-coverage gate would be satisfied by tasks whose acceptance criteria cannot be written yet. A task that cannot state its own evidence bar is not a task; it is a placeholder that reviewers approve and implementers reinterpret.
 - **Include #1708 (registry custom-tool API deletion).** Rejected on the version gate — it is milestoned `v3.0.0` behind a cutover that has not happened. Deleting a deprecated public API inside a v2.12 feature would ship a breaking change under a chore label.
 - **Keep wave 1 as its own spec and follow with a second one for #1703–#1707.** Rejected by owner decision, with the tradeoff recorded: one spec pays a re-review of already-hardened DRs and delays wave-1's merge, but buys a single coherent verdict over the real scope — including the cross-wave couplings (the `ci.yml` chain, DR-14's blast radius against the extraction waves, DR-6's allowlist shape being reused by DR-14/DR-16) that two separate specs would each treat as someone else's problem.
@@ -326,9 +284,8 @@ What they share is a **contract**, not a row: every entry, whatever its key, car
 
 - **Reserved-stub expiry policy** (proposal: two minor releases from header stamp) — resolve at plan-review.
 - **`merge.rollback` replay mechanism**: read-tolerant retained schema vs upcast-to-`merge.recovered` at the query seam — decide in the DR-2 task; INV-1 acceptance pins the behavior either way.
-- **promptfoo isolation mechanism — RESOLVED (2026-07-16): eval-only workspace package.** Carrying this open changed the *shape of the plan*, not just a task's internals, so it could not stay open: the install-profile branch (`--omit=dev` + eval-gate-only install) would edit **every server-installing lane** in `ci.yml` (`test-mcp`, `test-windows` ~:204, `test-windows-root` ~:343, `e2e-process` ~:611, `outcome-tests` ~:669 — only `binary-matrix` ~:419 already passes `--omit=dev`), pulling DR-3 into the `ci.yml` serial chain and making the chain's completeness contingent on an unresolved question. The workspace branch is contained (server `package.json` + graders + `eval-gate.yml`), touches no shared CI lane, and keeps Task 008 independent in Wave A. The ~94 MiB target is a measured bar under either mechanism and remains DR-3's acceptance criterion.
+- **promptfoo isolation mechanism — RESOLVED (2026-07-16): eval-only workspace package**, and it **does** touch `ci.yml`. The install-profile alternative (`--omit=dev` + eval-gate-only install) would edit every server-installing lane (`test-mcp`, `test-windows` ~:204, `test-windows-root` ~:343, `e2e-process` ~:611, `outcome-tests` ~:669 — only `binary-matrix` ~:419 already passes `--omit=dev`), so the workspace is still the smaller change. But it is **not** CI-free: `ci.yml:57`'s `prompts` path filter names `servers/exarchos-mcp/src/evals/**`, and `ci.yml:135` derives `RUN_EVALS` from it. Relocating the evals without moving that filter would silently stop evals triggering — a failure with no failing signal, which is the decay class this feature exists to stop. Task 008 therefore updates the `prompts` filter to follow the evals, and is ordered accordingly.
 - **DR-9 removed-knob rejection behavior — RESOLVED (2026-07-16): actionable error naming the removal and #1334.** Closed rather than carried: the deprecation has been live since #1334, and Task 016 already pins the branch with `PruneAction_LegacyKnobPassed_ActionableRemovalError`. Listing it as open while a named test pre-committed the answer meant a reviewer would have been approving a decision already made.
-- **DR-12 coverage epsilon**: the tolerance is deliberately *not* proposed here — it is an output of the DR-12 task's N≥3 CI variance measurement. Naming a number now would be the guess the DR forbids.
 - **DR-14 `!`/`as` budget**: the per-flag budget is set from the measured fix wave, not pre-committed. Open until DR-14 measures; the criterion (justify each site above the declared budget, no `as any`) holds regardless of the number.
 
 ## Decomposition
@@ -337,8 +294,14 @@ The decomposition maps every task to one or more DR-N from the section above.
 
 ### Scope
 
-**Target:** Full design (DR-1 … DR-18) — epic #1701's v2.12-eligible program: #1702 (wave 1), #1703 (wave 2), #1704 (wave 3a), #1706 (enforcement phase 2), #1707 (T8).
-**Excluded (explicit deferrals, rationale in Alternatives):** #1705 wave-3b test-mass consolidation — the largest LoC lever, gated on DR-12's coverage baseline and plannable only once it lands; #1708 registry custom-tool API deletion (v3.0.0 milestone, version-gated); full dissolution of the dispatch↔composite mega-cycle (v3.0 candidate — DR-4's ratchet stops its growth); full-tree mutation (DR-13 takes the diff-scoped paved path). Each is a follow-up with a named owner issue, not silently dropped.
+**Target:** DR-1 … DR-10, DR-14 … DR-16, DR-18 — the specifiable core of epic #1701's v2.12 program: #1702 (wave 1), #1703 (wave 2, less the `--minify` A/B), #1706 (enforcement phase 2, less `vocabulary-lint` wiring), #1707 (T8).
+**Excluded, each with a named owner issue:**
+- **#1711 — every gate whose host job is path-filtered.** The coverage ratchet, the diff-scoped mutation gate, and the `vocabulary-lint` wiring (#1704 and part of #1706) all land as steps in `test-root`/`test-mcp`, which run only when `changes.outputs.root`/`.mcp` match — and `ci-gate` treats a skipped job as passed (`ci.yml:763`). Each would therefore be green theater on the very PRs it exists to police, which is DR-5's own class-3 defect. The fix is a CI-topology decision (widen the host filters, or adopt the aggregator skip-guard pattern at `ci.yml:728-732`), not a spec assertion. **Wave-1's gates are unaffected and stay in scope**: `grep-gates` and `validate-no-legacy` carry no path filter, so DR-4/DR-5/DR-6/DR-7 block reliably.
+- **#1705 — wave-3b test-mass consolidation.** The largest LoC lever, gated on the coverage baseline that now sits in #1711.
+- **#1708 — registry custom-tool API deletion.** `v3.0.0` milestone, version-gated.
+- **The binary `--minify` A/B** (#1703's last bullet). Cut for ROI: unknown upside, it changes the shipped release binary, and its only CI evidence lane (`binary-matrix`) is absent from `ci-gate`'s `needs:` and cannot fail a PR. Not worth a medium-tier task; recorded in #1703 if anyone wants to measure it later.
+- **Full dissolution of the dispatch↔composite mega-cycle.** v3.0 candidate — DR-4's ratchet stops its growth.
+- **Full-tree mutation.** Not the paved path.
 
 ### Traceability matrix (DR-N → tasks)
 
@@ -351,16 +314,12 @@ The decomposition maps every task to one or more DR-N from the section above.
 | DR-5 | Enforcer-wiring gate | 011 |
 | DR-6 | knip exports/types ratchet | 012 |
 | DR-7 | Module-intent gate + RESERVED headers | 013, 014 |
-| DR-8 | Fail-closed, portable gates; attributable baseline | 005, 010, 011, 012, 013, 015, 022, 023, 029, 033 |
+| DR-8 | Fail-closed, portable gates; attributable baseline | 005, 010, 011, 012, 013, 015 |
 | DR-9 | Prune staleness knob removal | 016 |
 | DR-10 | Production duplication collapse | 017, 018, 019 |
-| DR-11 | Binary `--minify` A/B | 020 |
-| DR-12 | Coverage baseline + non-regression ratchet | 021, 022 |
-| DR-13 | Diff-scoped mutation-adequacy backstop | 023 |
 | DR-14 | tsconfig strict-flag ratchet | 024, 025 |
 | DR-15 | Executable invariants (audit → check, blocking) | 027 |
 | DR-16 | Error-envelope lint | 028 |
-| DR-17 | `vocabulary-lint` wiring | 029 |
 | DR-18 | Docs/data archival + dedup | 030, 031, 032 |
 
 ### Tasks
@@ -479,14 +438,17 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Boundary Touching:** false
 **Implements:** DR-3
 **Files:**
-- `servers/exarchos-mcp/package.json` (+ lockfiles; mechanism per Open Question)
+- `servers/exarchos-mcp/package.json` (+ lockfiles), the new eval workspace package and its `tsconfig.json`
+- `.github/workflows/ci.yml` — the `prompts` filter (~:57) repointed at the evals' new location, so `RUN_EVALS` (~:135) keeps firing
 - `servers/exarchos-mcp/src/evals/graders/llm-rubric.ts`, `llm-similarity.ts` (actionable absent-dep error) + the typecheck mechanism artifact (grader relocation into the eval surface, or an ambient module declaration — one of the two lands as a file in this task)
 - `servers/exarchos-mcp/src/evals/graders/llm-rubric.test.ts`, `llm-similarity.test.ts`, `llm-helper.test.ts` (all `vi.mock('promptfoo')` by name — move/adapt with the mechanism)
 - `.github/workflows/eval-gate.yml` (eval-lane install)
 **Verification:** medium rung: scoped tests for the absent-dep error path + adequacy probe; **the task measures the default install closure before and after** and records both — the bar is its own measured delta, not the audit's ~94 MiB (week-old targeting guidance that governs nothing); proving promptfoo absent is necessary but not sufficient, since a mechanism could drop promptfoo and still leave a 400 MiB install; eval-gate lane green
-**Mechanism (resolved, see Open Questions):** eval-only **workspace package** — chosen partly *because* the install-profile alternative would have edited five server-installing `ci.yml` lanes and dragged DR-3 into the serial chain. This task touches no shared CI lane and stays independent.
+**Mechanism (resolved, see Open Questions):** eval-only **workspace package** — a smaller change than the install-profile alternative's five server-installing lanes, but **not** a CI-free one.
+**Critical `ci.yml` edit — the `prompts` filter must follow the evals:** `ci.yml:57` names `servers/exarchos-mcp/src/evals/**` and `ci.yml:135` derives `RUN_EVALS` from it. Move the evals without moving the filter and `RUN_EVALS` never sets — evals stop running with **no failing signal**. The task's evidence includes a PR touching only the relocated evals that still triggers the eval run.
+**Third tsconfig:** the workspace gets its own `tsconfig.json`. DR-14's ratchet covers it (see DR-14) — an eval surface exempt from the strict flags would be a hole this program created itself.
 **Dependencies:** None
-**Parallelizable:** Yes
+**Parallelizable:** No (edits `ci.yml`'s `prompts` filter)
 **testingStrategy:** propertyTests: false, benchmarks: false
 
 ### Task 009: Fix the runtime projection↔state-store pair and capture the depcruise cycle baseline
@@ -532,7 +494,7 @@ The decomposition maps every task to one or more DR-N from the section above.
 - `scripts/check-enforcer-wiring.mjs` (+ manifest + self-tests, one fixture per trap class)
 - `.github/workflows/ci.yml`, `.github/workflows/pr-body-check.yml` (wire `check-golden-fixture-note`, `check-prefix-fingerprint`, `check-prose-lint`)
 - retire-or-wire `check-property-tests.sh`, `check-design-completeness.sh` (retire default, recorded in manifest)
-- disposition `scripts/lint-inv6.mjs` (reachable via `skills:guard` but `|| true`-swallowed — `package.json:35`) and `scripts/lint-test-first-drift.mjs` (`package.json:32`, invoked by no workflow)
+- disposition `scripts/lint-inv6.mjs` (reachable via `skills:guard` but `|| true`-swallowed — `package.json:35`). **Do not disposition `scripts/lint-test-first-drift.mjs`** — the same line chains it with `&&`, so it is correctly wired.
 **Expected tests:** `EnforcerWiring_OrphanScript_Fails`, `EnforcerWiring_ReachableOnlyViaUninvokedNpmScript_Fails`, `EnforcerWiring_ExitCodeSwallowedByOrTrue_Fails`
 **Verification:** medium rung: tool/manifest-parse failure = FAIL; every primary dispositioned by the task's own enumeration. The self-test covers all three trap classes — the **transitive** and **neutered** fixtures are what make this a ratchet rather than a name-grep, since a naive "is this script mentioned anywhere" implementation passes the orphan test while leaving both real loopholes open. Both fixtures exist in the tree today (`package.json:49`'s uninvoked `validate`; `package.json:35`'s `|| true`). Dispositioning today's set proves the tree is clean now; only those fixtures prove the gate catches tomorrow's recurrence.
 **Dependencies:** None
@@ -589,7 +551,7 @@ The decomposition maps every task to one or more DR-N from the section above.
 - unit tests across `check-enforcer-wiring.mjs`, `check-module-intent.mjs`, the knip-diff wrapper, and the depcruise gate script: tool-missing / unparseable-output paths assert FAIL with cause-naming diagnostics
 - run `scripts/check-windows-portability.mjs` over the new scripts
 **Verification:** medium rung: all simulated failure paths red-then-fixed; evidence = grep-gates job green + `check-windows-portability.mjs` pass (per DR-8 — there is no Windows execution surface for gate steps)
-**Dependencies:** 010, 011, 013
+**Dependencies:** 010, 011, 013, 028
 **Parallelizable:** No
 **testingStrategy:** propertyTests: false, benchmarks: false
 
@@ -653,64 +615,6 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Parallelizable:** No
 **testingStrategy:** propertyTests: false, benchmarks: false
 
-### Task 020: Binary `--minify` A/B
-
-**Risk Tier:** medium
-**Boundary Touching:** false
-**Implements:** DR-11
-**Files:**
-- `scripts/build-binary.ts` (~:138 — `--minify` added only if it wins)
-- `docs/specs/2026-07-15-debloat-wave1-structural-enforcement-baseline.md` (append the measured A/B)
-**Verification:** medium rung: **named instruments, declared thresholds** — before/after binary size via `du` on the built artifact, cold-start via N≥5 timed `--version` invocations reported as median (the A/B is decided on the median, not one sample), and an **error-message diff**: the same failing invocation run against both binaries must produce byte-identical stderr. **Win threshold is declared before measuring** and recorded with the result, so "wins" is not adjudicated by implementer taste. **A negative result is a completed task** — if minify regresses startup, breaks stack-trace attributability, or alters any error message, land the measurement and rejection rationale, not the flag.
-**Tier/evidence note:** this changes the **shipped release binary** — not low-tier work. Its CI evidence is also weak by default: `binary-matrix` is **absent from `ci-gate`'s `needs:` list** (`ci.yml:690`) and therefore already non-blocking, a lane that cannot fail a PR. The verification above must therefore run and be recorded **in the task**, not delegated to that lane. A single representative verb cannot see minify-induced changes to error text or stack traces, which is why the error-message diff is explicit.
-**Dependencies:** None
-**Parallelizable:** Yes
-**testingStrategy:** propertyTests: false, benchmarks: true
-
-### Task 021: Wire `test:coverage` in CI and capture the baseline
-
-**Risk Tier:** medium
-**Boundary Touching:** false
-**Implements:** DR-12
-**Files:**
-- `.github/workflows/ci.yml` — run `test:coverage` and publish `coverage-summary.json` as a step in **`test-mcp`** (the ubuntu server-test lane that already installs the server deps `vitest --coverage` needs; named explicitly per DR-8 rather than left as "the Linux lane", which resolves ambiguously to `test-mcp` or `test-root`)
-- `scripts/audit/coverage-baseline.json` (new — checked-in baseline recording the commit, lane, **and the GitHub run-id of the CI run that produced it**)
-**Verification:** medium rung: baseline **captured from CI, never locally** — the known-red local suite is local-only and would bake local skips into the ratchet; coverage artifact present and parseable in CI. **The provenance is mechanized, not asserted:** the baseline records the originating GitHub run-id and the ratchet validates it against a real run/artifact. A self-reported `"lane"` field would prove nothing, since a locally-captured file can simply claim to be from CI — and this provenance is the property the whole ratchet rests on.
-**Serialization note:** edits `ci.yml` — after Task 013 in the canonical chain (see Parallelization).
-**Dependencies:** 013 (ci.yml serialization)
-**Parallelizable:** No
-**testingStrategy:** propertyTests: false, benchmarks: false
-
-### Task 022: Coverage non-regression ratchet, fail-closed
-
-**Risk Tier:** medium
-**Boundary Touching:** false
-**Implements:** DR-12, DR-8
-**Files:**
-- new gate script diffing `coverage-summary.json` against the checked-in baseline
-- `.github/workflows/ci.yml` (blocking wiring)
-- variance measurement recorded in the baseline doc + self-test fixtures (missing / empty / unparseable coverage → FAIL)
-**Verification:** medium rung: self-test proves fail-closed all ways — **a ratchet that passes when coverage did not run is the exact failure DR-12 exists to prevent**; the epsilon is **set from a measured N≥3 CI variance run**, with both the runs and the derived epsilon recorded (a zero epsilon flakes, an unmeasured one hides regressions)
-**Serialization note:** edits `ci.yml` — after Task 021.
-**Dependencies:** 021
-**Parallelizable:** No
-**testingStrategy:** propertyTests: false, benchmarks: false
-
-### Task 023: Run diff-scoped mutation-adequacy as an advisory signal
-
-**Risk Tier:** medium
-**Boundary Touching:** false
-**Implements:** DR-13, DR-8
-**Files:**
-- `.github/workflows/ci.yml` — run `orchestrate/mutation-adequacy.ts` diff-scoped as a step in **`test-root`** (it is a server TS module; per DR-8's placement rule `grep-gates` installs no deps and cannot run it)
-- self-test fixtures separating runner-crash (FAIL, DR-8) from ran-and-found-mutants (advisory report)
-**Expected tests:** `MutationGate_RunnerCrash_FailsClosedWithCause`, `MutationGate_SurvivedMutant_ReportsAdvisoryOnly`, `MutationGate_UnparseableReport_FailsClosed`
-**Verification:** medium rung: diff-scoped only (`scope: 'full'` explicitly out); the report is visible on the PR and its findings become follow-ups; **fail-closed on the gate's own execution** — a crashed or unparseable run FAILS with a cause-naming diagnostic, which is the only thing separating an advisory gate from a gate that silently never ran. **This task does not make NoCoverage block**: the gate excludes NoCoverage from its score by construction and the severity path only downgrades, so blocking is a source change deferred to **#1711**.
-**Serialization note:** edits `ci.yml` — after Task 022.
-**Dependencies:** 022
-**Parallelizable:** No
-**testingStrategy:** propertyTests: false, benchmarks: false
-
 ### Task 024: `noUncheckedIndexedAccess` ratchet (+346)
 
 **Risk Tier:** high
@@ -724,7 +628,7 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Verification:** high rung: **both typechecks** (root does **not** cover `servers/exarchos-mcp`) + both full suites in CI; **the cheat is closed** — a measured count of `!`/`as` sites introduced by the fix wave, each above the declared budget justified, `as any` barred outright (strict-TS: `unknown` + type guards); **high blast radius** — full suites run between fix-wave merges, not only at the end, since per-task scoped verification cannot see this diff's reach
 **Scope note:** the largest mechanical task in the program; the orchestrator may sub-wave the fix sites across worktrees, but the flag flip is atomic and lands last within the task.
 **Semantic coupling with 017 (not just textual):** Task 017's deliverable is to *table-drive* the resolver, and **a table lookup is an indexed access** — `noUncheckedIndexedAccess` changes what correct table-driven code looks like. So 017-then-024 and 024-then-017 produce different implementations, and 017's acceptance ("existing tests pass unmodified") cannot arbitrate between them. 017 lands first, and 024 brings its table under the flag; authoring the table twice is the cost of getting the order right.
-**Dependencies:** 005, 006, 007, 016, 017, 018, 019, 030 — **every src-touching task in the program**, so the fix wave lands last and nothing rebases onto 346 fixes. Each of these edits files inside the 532-fix surface: 016 (`prune-stale-workflows.ts`, `registry.ts`, `config/resolve.ts`, `describe-config.ts`), 017 (`test-runtime-resolver.ts`), 018 (the five gate handlers), 006/007 (the merge seam), 019 (the extraction set), and **030** (~48 reference edits plus two behavioral constants — T8 reads as docs-only but is not).
+**Dependencies:** 005, 006, 007, 008, 016, 017, 018, 019, 030 — **every src-touching task in the program**, so the fix wave lands last and nothing rebases onto 346 fixes. Each edits files inside the 532-fix surface: 016 (`prune-stale-workflows.ts`, `registry.ts`, `config/resolve.ts`, `describe-config.ts`), 017 (`test-runtime-resolver.ts`), 018 (the five gate handlers), 006/007 (the merge seam), 019 (the extraction set), **008** (the graders sit in the default-typechecked tree, and its workspace split *moves files out of it* — changing this task's own fix census depending on merge order), and **030** (~48 reference edits — T8 reads as docs-only but is not).
 **Parallelizable:** No
 **testingStrategy:** propertyTests: false, benchmarks: false
 
@@ -773,21 +677,6 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Parallelizable:** No (ordered 010 → 028 on the shared schema module)
 **testingStrategy:** propertyTests: false, benchmarks: false
 
-### Task 029: Wire `vocabulary-lint` and extend its scope
-
-**Risk Tier:** medium
-**Boundary Touching:** false
-**Implements:** DR-17, DR-8
-**Files:**
-- `.github/workflows/ci.yml` — add the `lint:invariants` step to the **`test-root` job**, not `grep-gates`
-- scope extension to action names/descriptions in normative directories + fixes/allowlist for its new violations
-- self-test (synthetic vocabulary violation → gate fails)
-**Job-placement note:** `lint:invariants` is `tsx servers/exarchos-mcp/src/architecture/vocabulary-lint-cli.ts` — it needs `tsx` plus **root and server** deps. `grep-gates` runs no `npm ci` by design (and DR-4's depcruise gate depends on that staying true), so this gate cannot execute there. `ci.yml:119-127` sets the precedent explicitly for the sibling `desc:budget-guard`: it runs in `test-root` *"because it imports TOOL_REGISTRY via tsx... Sibling to skills:guard / lint:invariants."* Consequently Task 033 must **not** cite "grep-gates green" as this gate's evidence — that lane structurally cannot observe it.
-**Verification:** medium rung: the extended scope's own violations already fixed or allowlisted before wiring (**wiring a gate whose new scope is red is how gates get disabled**); INV-4 — skills-side findings fixed in `skills-src/` with `build:skills` re-run, never in generated `skills/<runtime>/**`; fail-closed. `test-root` is already in `ci-gate`'s `needs:` list, so this gate blocks the moment its step lands (DR-8).
-**Dependencies:** 023 (ci.yml serialization)
-**Parallelizable:** No
-**testingStrategy:** propertyTests: false, benchmarks: false
-
 ### Task 030: Archive the superseded dated delivery artifacts
 
 **Risk Tier:** medium
@@ -796,12 +685,13 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Files:**
 - `docs/plans/**`, `docs/designs/**` — superseded dated artifacts archived / docsite-excluded (the audit's 114.5K ln / 5.58 MB is week-old targeting guidance, **re-measured by this task**; git history preserved)
 - inbound reference updates from `skills-src/**`, `commands/**`, and `servers/exarchos-mcp/src/**` — ~48 refs across ~33 files at authoring (**the task re-measures**), e.g. `telemetry/telemetry-projection.ts` (~:183, a live relative markdown link), `registry.ts` (~:1148), `format.ts` (~:116, :353, :446), and 8+ across `agents/adapters/*.ts`
-- **behavioral edits, each with a test:** `servers/exarchos-mcp/src/workflow/rehydrate.ts` (~:76 `LEGACY_DESIGN_DIR` — classifies in-flight workflows; legacy workflows must still resolve under the old path) and `servers/exarchos-mcp/src/architecture/vocabulary-lint.ts` (~:188 `DATED_RECORD_TREES` — scopes which trees the lint walks)
+- **one behavioral edit, with a test:** `servers/exarchos-mcp/src/architecture/vocabulary-lint.ts` (~:188 `DATED_RECORD_TREES`) — an **exclusion** list naming the dated-record trees the lint must not walk. Archiving to a new path requires **adding** that path, or the lint starts walking archived historical records and goes red. Its pin at `servers/exarchos-mcp/src/architecture/doc-scanners-specs.test.ts` (~:26-28) updates with it.
+- **`workflow/rehydrate.ts` `LEGACY_DESIGN_DIR` (~:76) must NOT be touched** — and this is load-bearing, not an omission. `classifyArtifactLayout` is pure and filesystem-blind (`rehydrate.ts:83-85`, ~:703 — "reads only the projected `artifacts` record, never the filesystem"): it matches the literal path string recorded in historical events, so moving files on disk cannot affect it. Repointing the constant at the archive prefix would make every legacy in-flight workflow fall through to the `'unified'` default (~:94), forcing exactly the mid-flight migration `rehydrate.ts:64-65` declares MUST NOT happen — silently and unrecoverably.
 - `docs/specs/2026-07-15-debloat-wave1-structural-enforcement-t8-baseline.md` (**new — DR-18's own measurement record**, created here and appended by 031/032; separate from the wave-1 deletion baseline so the T8 tasks do not contend with 005/020)
-**Expected tests:** `Rehydrate_LegacyDesignPathArchived_StillResolvesUnderOldPath`, `VocabularyLint_DatedRecordTrees_ScopeUnchangedAfterArchival`
+**Expected tests:** `VocabularyLint_ArchivedTree_ExcludedFromScan`, `Rehydrate_LegacyDesignPath_ClassificationUnchangedByArchival`
 **Verification:** medium rung: **diff-scoped link check** — links in and to the moved files resolve, measured before/after (the checker scans all of `docs/` and already fails on ~190 pre-existing repo-wide breaks; a whole-tree green is unattainable and is **not** the bar, and pre-existing breaks must not be absorbed into this feature's evidence); **every `src/**` edit is enumerated and classified inert-vs-behavioral**, each behavioral one carrying a test; both typechecks + both full suites green; generated artifacts untouched (lockfiles, `snapshots.test.ts.snap`, `docs/schemas/tool-reference.md`, legacy hash manifest); measured before/after repo size + file count in the T8 baseline doc and PR body
-**Tier note:** not low-tier — it changes two constants that steer workflow classification and lint scope.
-**Dependencies:** 029 (both edit `architecture/vocabulary-lint.ts`: 029 extends its scope, 030 changes its `DATED_RECORD_TREES`)
+**Tier note:** not low-tier — it edits ~48 production reference sites and one constant that steers lint scope, and it must prove a second constant was correctly left alone.
+**Dependencies:** 006 (both edit `registry.ts` — 006 restructures the `merge.rollback` emission declaration ~:2268, this task updates a doc link ~:1148)
 **Parallelizable:** No
 **testingStrategy:** propertyTests: false, benchmarks: false
 
@@ -832,30 +722,20 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Parallelizable:** No
 **testingStrategy:** propertyTests: false, benchmarks: false
 
-### Task 033: Fail-closed conformance for the phase-2 gates
-
-**Risk Tier:** medium
-**Boundary Touching:** false
-**Implements:** DR-8
-**Files:**
-- unit tests across the coverage ratchet (022), the mutation wiring (023), the error-envelope rule (028), and the vocabulary-lint wiring (029): tool-missing / unparseable-output paths assert FAIL with cause-naming diagnostics
-- run `scripts/check-windows-portability.mjs` over any new scripts
-**Verification:** medium rung: all simulated failure paths red-then-fixed; mirrors Task 015 for the gates this broadening adds (015 stays scoped to the wave-1 gates); portability pass. **Evidence is per-gate, by lane**: 029's `lint:invariants` and 023's mutation gate run in **`test-root`**, so grep-gates cannot observe them (DR-8). Each gate's evidence names the lane that actually runs it.
-**Dependencies:** 022, 023, 028, 029
-**Parallelizable:** No
-**testingStrategy:** propertyTests: false, benchmarks: false
-
 ### Parallelization
 
-**Longest pole — the `ci.yml` chain (canonical; every task's `Serialization note` defers to this):** `011 → 012 → 010 → 013 → 021 → 022 → 023 → 029`, itself gated behind `{001-004} → 005` and `009`. Eight tasks add steps to one workflow file, so they land serially. **Plan the calendar around this chain, not around test runtime.** Task 033 depends on the chain's gates but edits no `ci.yml` — it is not a link in it. DR-3's mechanism was resolved to the workspace package partly to keep Task 008 out of the chain.
+**Longest pole — the whole program is one chain, and it ends in the 532-fix wave:**
+`{001-004} → 005 → 009 → 010 → 013 → 015` for the gates, and the real critical path is
+`{001-004} → 005 → 009 → 019 → 024 → 025` — the two tsconfig tasks hang off the end of everything src-touching, including 030.
+**`ci.yml` sub-chain (canonical; every `Serialization note` defers to this):** `008 → 011 → 012 → 010 → 013`. Five tasks add steps or filters to one workflow file, so they land serially.
+Previous drafts described two independent "poles"; they are one graph. Plan the calendar around 024/025 landing last, not around test runtime.
 **Second pole — the tsconfig chain:** 005 → 006 → 019 → 024 → 025. It is **not** routed through 009: 009 and 019 share no file, so no edge exists between them, which keeps a high-tier extraction off the 532-fix wave's critical path.
 
-- **Wave A** (parallel worktrees, no dependencies): 001, 002, 003, 004, 006, 008, 011, 014, 020, 027.
-- **Wave B** (after 005): 017, 018; 012 also waits for 011 (ci.yml); 009 and 016 additionally wait for 006 (`views/workflow-state-projection.ts` and `registry.ts` respectively).
-- **Wave C**: 007 (after 006), 010 (after 009+012), 019 (after 006), 013 (after 005+014+010); 030 (after 029 — both edit `architecture/vocabulary-lint.ts`), then 031 and 032 (after 030, which creates the T8 baseline record they append to).
-- **Wave D**: the `ci.yml` chain 021 → 022 → 023 → 029, strictly serial; 015 (after 010, 011, 013) runs beside it. 028 lands here too (after 010 on the shared validator, and 012 for the allowlist shape).
-- **Wave E**: 024 (after every src-touching task: 005, 006, 007, 016, 017, 018, 019, 030) → 025.
-- **Wave F**: 033 (after 022, 023, 028, 029) — fail-closed conformance across the phase-2 gates.
+- **Wave A** (parallel worktrees, no dependencies): 001, 002, 003, 004, 006, 011, 014, 027. Task 008 also starts here but is `ci.yml`-serialized (see the sub-chain).
+- **Wave B**: 017, 018 (after 005); 012 (after 005+011, ci.yml); 009 and 016 (after 005+006 — `views/workflow-state-projection.ts` and `registry.ts` respectively); 030 (after 006 — `registry.ts`), then 031 and 032 (after 030, which creates the T8 baseline record they append to).
+- **Wave C**: 007 (after 002+006), 010 (after 009+012), 019 (after 006), 013 (after 005+014+010), 028 (after 010+012).
+- **Wave D**: 015 (after 010, 011, 013, 028) — cross-gate fail-closed and portability conformance.
+- **Wave E**: 024 (after every src-touching task: 005, 006, 007, 008, 016, 017, 018, 019, 030) → 025. This is the end of the critical path, not a parallel branch.
 
 Gate baselines (010, 012, 013, 021) are captured only after the deletion wave merges, per Technical Design ordering — a baseline captured pre-deletion would allowlist the modules DR-1 removes and bake deleted code into the coverage denominator.
 
@@ -869,7 +749,8 @@ Gate baselines (010, 012, 013, 021) are captured only after the deletion wave me
 - [ ] Medium/high-tier tasks carry adequacy-judged tests (test-after); low-tier tasks lean on static analysis
 - [ ] Open questions are resolved OR explicitly deferred with rationale
 - [ ] Every in-scope epic sub-issue (#1702, #1703, #1704, #1706, #1707) maps to at least one DR-N; every excluded one (#1705, #1708) carries a recorded rationale
-- [ ] Every new gate (DR-12, DR-16, DR-17) has a both-directions self-test — synthetic violation FAILS, conforming tree PASSES
+- [ ] Every new gate has a both-directions self-test — synthetic violation FAILS, conforming tree PASSES
+- [ ] **Every gate lands in an unfiltered host job** (`grep-gates` / `validate-no-legacy`) — a gate in a path-filtered job is skipped-as-passed and belongs in #1711
 - [ ] **Every task naming a `ci.yml` edit names its job**, and every gate's evidence cites the lane that runs it (DR-8)
 - [ ] **Every register has a consumer** — no checked-in JSON that no script reads
 - [ ] **Every cited number an acceptance criterion depends on is re-measured by its task** — no figure inherited from the audit or an issue body governs a bar
