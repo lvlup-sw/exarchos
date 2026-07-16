@@ -771,7 +771,7 @@ The decomposition maps every task to one or more DR-N from the section above.
 - `documentation/public/logo.svg` (measured at 2.1 MB on this branch — optimize in place)
 - `docs/specs/2026-07-15-debloat-wave1-structural-enforcement-baseline.md` (append the measured asset delta)
 **Verification:** static: measured before/after size recorded in the baseline doc; the asset still renders identically at its used sizes (visual check recorded)
-**Gate note:** `svg` is absent from the task-decomposition gate's closed file-extension allowlist, so this task's real target is invisible to that parser (the same blind-spot class #1544 fixed for `.py`). Filed as a follow-up; the baseline doc is a genuine artifact of this task, not a workaround for the gate.
+**Gate note:** `svg` is absent from the task-decomposition gate's closed file-extension allowlist, so this task's real target is invisible to that parser (the same blind-spot class #1544 fixed for `.py`) — filed as **#1710**. The baseline doc is a genuine artifact of this task, not a workaround for the gate.
 **Dependencies:** None
 **Parallelizable:** Yes
 **testingStrategy:** propertyTests: false, benchmarks: false
