@@ -80,6 +80,16 @@ jobs:
         working-directory: servers/exarchos-mcp/evals-pkg
         run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
 
+      # DR-14: enforce the strict-flag ratchet on the eval workspace itself.
+      # promptfoo is installed above, so evals-pkg tsc resolves it under the
+      # noUncheckedIndexedAccess + exactOptionalPropertyTypes flags this
+      # workspace now carries (the ambient shim is server-tree-only and does
+      # not reach evals-pkg/src). This is the continuous "every typecheck
+      # green" enforcement the flag-presence guard test cannot provide.
+      - name: Typecheck eval package (DR-14 strict flags)
+        working-directory: servers/exarchos-mcp/evals-pkg
+        run: npm run typecheck
+
       - name: Run Regression Evals
         working-directory: servers/exarchos-mcp
         run: |
