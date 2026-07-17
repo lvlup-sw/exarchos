@@ -60,10 +60,17 @@ describe('envelopeWrap (shared composite envelope, DR-10)', () => {
       expect(env._perf).toBeDefined();
     }
 
-    // The three no-opt callsites are byte-identical envelopes to each other
-    // (perf.ms aside — it derives from Date.now(); pin the stable fields).
-    expect(workflowLike).toEqual(eventStoreLike);
-    expect(eventStoreLike).toEqual(orchestrateLike);
+    // The three no-opt callsites are byte-identical envelopes to each other,
+    // `_perf` aside — its `ms` derives from Date.now() at each call, so the
+    // three sequential calls can straddle a timer tick (notably on Windows'
+    // coarse ~15ms clock) and legitimately differ. Compare the stable fields.
+    const withoutPerf = (env: unknown): Record<string, unknown> => {
+      const copy = { ...(env as Record<string, unknown>) };
+      delete copy._perf;
+      return copy;
+    };
+    expect(withoutPerf(workflowLike)).toEqual(withoutPerf(eventStoreLike));
+    expect(withoutPerf(eventStoreLike)).toEqual(withoutPerf(orchestrateLike));
   });
 
   it('EnvelopeWrap_DefaultCallsite_DropsHandlerNextActions', () => {
