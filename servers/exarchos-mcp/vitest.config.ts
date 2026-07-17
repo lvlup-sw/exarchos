@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { defineConfig, configDefaults } from 'vitest/config';
 import { fileURLToPath } from 'node:url';
 
 export default defineConfig({
@@ -48,6 +48,20 @@ export default defineConfig({
       'tests/**/*.test.ts',
       'src/bench/**/*.bench.ts',
     ],
+    // The composed-path Stryker smoke test (DR-7, task 012) is heavy — it
+    // spawns the real pinned Stryker binary over an isolated fixture repo
+    // (seconds of wall-time) — so it is excluded from the DEFAULT/coverage run.
+    // That keeps it from inflating the coverage-measured lane (DR-5) and from
+    // being conscripted onto the Windows leg's known spawn-flake class. It runs
+    // instead in its own dedicated Linux-only test-mcp step, which sets
+    // EXARCHOS_SMOKE_ONLY=1 to lift the exclusion for that one invocation
+    // (vitest's CLI `--exclude` is additive and cannot un-exclude, so the
+    // toggle has to live here). `configDefaults.exclude` is always preserved so
+    // the node_modules/dist defaults are never dropped.
+    exclude:
+      process.env.EXARCHOS_SMOKE_ONLY === '1'
+        ? [...configDefaults.exclude]
+        : [...configDefaults.exclude, 'src/orchestrate/stryker-adapter.smoke.test.ts'],
     // Cold-start bench (src/bench/cli-startup.bench.ts) isolation strategy
     // (F-021-2):
     //   - `describe.sequential(...)` in the bench file forces its two
