@@ -28,6 +28,34 @@ export interface CiStatus {
   readonly checks: readonly CiCheck[];
 }
 
+/**
+ * Fold a provider's per-check statuses into a single overall CI verdict
+ * ({@link CiStatus.status}). Shared by GitHub / GitLab / Azure DevOps so the
+ * three `checkCi` implementations compute the aggregate identically (DR-10 —
+ * the three providers previously carried byte-identical private copies).
+ *
+ * Precedence is fail-fast then pending-blocks:
+ *   - any `fail` check ⇒ overall `fail`   (a terminal non-pass blocks gating);
+ *   - else any `pending` check ⇒ overall `pending` (not yet terminal);
+ *   - else `pass` (every check is `pass` or `skipped`, including the empty set).
+ *
+ * Pure: no I/O, no throws. Provider methods that throw by design (the GitLab /
+ * Azure DevOps partial-provider `UnsupportedOperationError` surfaces) are
+ * unaffected — this helper only aggregates the check list a `checkCi` already
+ * built and never sits on those throw paths.
+ */
+export function computeOverallCiStatus(
+  checks: readonly CiCheck[],
+): CiStatus['status'] {
+  const hasFailure = checks.some((c) => c.status === 'fail');
+  if (hasFailure) return 'fail';
+
+  const hasPending = checks.some((c) => c.status === 'pending');
+  if (hasPending) return 'pending';
+
+  return 'pass';
+}
+
 export interface MergeResult {
   readonly merged: boolean;
   readonly sha?: string;

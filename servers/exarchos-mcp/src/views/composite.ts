@@ -3,12 +3,12 @@
 // Routes `action` to the appropriate view or stack handler, replacing 6
 // individual MCP tools with a single `exarchos_view` entry point.
 
-import { wrap, wrapWithPassthrough, type ToolResult } from '../format.js';
+import { type ToolResult } from '../format.js';
 import type { NextAction } from '../next-action.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { handleDescribe } from '../describe/handler.js';
 import { TOOL_REGISTRY } from '../registry.js';
-import { nextActionsFromResult } from '../next-actions-from-result.js';
+import { envelopeWrap } from '../envelope-wrap.js';
 import {
   handleViewPipeline,
   handleViewTasks,
@@ -41,38 +41,19 @@ import { deriveRepoKey } from '../utils/paths.js';
 const viewActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_view')!.actions;
 
 /**
- * HATEOAS envelope wrapping for successful tool responses (T039 + T041, DR-7/DR-8).
+ * View-composite envelope wrap — the shared `envelopeWrap` (../envelope-wrap.ts)
+ * with `mergeHandlerActions` enabled (T039 + T041, DR-7/DR-8; DR-10 dedup).
  *
- * Mirrors the workflow composite (T036) treatment: successful results are
- * re-shaped into `Envelope<T>` at the tool boundary so agents see a stable
- * contract with `next_actions`, `_meta`, and `_perf` on every response.
- * Internal callers of the underlying handlers (view materializer, stack
- * handlers, etc.) continue to see the raw `ToolResult` they depend on.
- *
- * `next_actions` is derived by `nextActionsFromResult` — in practice view
- * payloads (pipelines, tasks, telemetry, provenance, etc.) do not carry
- * `{ phase, workflowType }` at the envelope boundary, so this yields `[]`.
- * The call is retained for architectural symmetry with the workflow
- * composite; the function is a pure, cheap lookup.
- *
- * Error responses pass through unchanged so structured `error` payloads
- * (error codes, valid targets, suggested fixes) remain accessible to
- * callers for auto-correction flows.
+ * #1262 — view handlers may pre-populate `result.next_actions` with
+ * telemetry-derived hints (e.g. the `output_tokens_high` checkpoint hint
+ * surfaced by `handleViewTelemetry`). The `mergeHandlerActions` knob prepends
+ * those to the HSM-derived verbs so the envelope carries both, rather than the
+ * wrap silently dropping the handler source (which the workflow / orchestrate /
+ * event-store composites do — their handlers carry no such hints). This is the
+ * ONLY per-composite difference; everything else is the shared helper.
  */
-function envelopeWrap(result: ToolResult, startedAt: number): ToolResult {
-  if (!result.success) return result;
-
-  const meta = (result._meta ?? {}) as Record<string, unknown>;
-  const perf = result._perf ?? { ms: Date.now() - startedAt };
-  // #1262 — handlers may pre-populate `result.next_actions` with telemetry-
-  // derived hints (e.g. the `output_tokens_high` checkpoint hint surfaced
-  // by `handleViewTelemetry`). Merge those with the HSM-derived verbs
-  // from `nextActionsFromResult` so the envelope carries both rather than
-  // the wrap silently dropping one source.
-  const hsmActions = nextActionsFromResult(result);
-  const handlerActions = result.next_actions ?? [];
-  const nextActions = [...handlerActions, ...hsmActions];
-  return wrapWithPassthrough(result, wrap(result.data, meta, perf, nextActions));
+function wrapView(result: ToolResult, startedAt: number): ToolResult {
+  return envelopeWrap(result, startedAt, { mergeHandlerActions: true });
 }
 
 /**
@@ -131,7 +112,7 @@ export async function handleView(
 
   switch (action) {
     case 'pipeline':
-      return envelopeWrap(
+      return wrapView(
         await handleViewPipeline(
           rest as {
             limit?: number;
@@ -162,7 +143,7 @@ export async function handleView(
       );
 
     case 'tasks':
-      return envelopeWrap(
+      return wrapView(
         await handleViewTasks(
           rest as {
             workflowId?: string;
@@ -178,7 +159,7 @@ export async function handleView(
       );
 
     case 'workflow_status':
-      return envelopeWrap(
+      return wrapView(
         // #1555 — `asOf` rides through `rest` unchanged; the dispatch core
         // (`handleViewWorkflowStatus`) owns the bounded-fold behavior (INV-2).
         await handleViewWorkflowStatus(
@@ -190,7 +171,7 @@ export async function handleView(
       );
 
     case 'stack_status':
-      return envelopeWrap(
+      return wrapView(
         await handleStackStatus(
           rest as { streamId?: string; limit?: number; offset?: number },
           stateDir,
@@ -200,7 +181,7 @@ export async function handleView(
       );
 
     case 'stack_place':
-      return envelopeWrap(
+      return wrapView(
         await handleStackPlace(
           rest as {
             streamId: string;
@@ -216,7 +197,7 @@ export async function handleView(
       );
 
     case 'telemetry':
-      return envelopeWrap(
+      return wrapView(
         await handleViewTelemetry(
           rest as {
             compact?: boolean;
@@ -243,7 +224,7 @@ export async function handleView(
       );
 
     case 'team_performance':
-      return envelopeWrap(
+      return wrapView(
         await handleViewTeamPerformance(
           rest as { workflowId?: string },
           stateDir,
@@ -253,7 +234,7 @@ export async function handleView(
       );
 
     case 'delegation_timeline':
-      return envelopeWrap(
+      return wrapView(
         await handleViewDelegationTimeline(
           rest as {
             workflowId?: string;
@@ -270,7 +251,7 @@ export async function handleView(
       );
 
     case 'delegation_readiness':
-      return envelopeWrap(
+      return wrapView(
         await handleViewDelegationReadiness(
           rest as { workflowId?: string },
           stateDir,
@@ -280,7 +261,7 @@ export async function handleView(
       );
 
     case 'code_quality':
-      return envelopeWrap(
+      return wrapView(
         await handleViewCodeQuality(
           rest as {
             workflowId?: string;
@@ -300,7 +281,7 @@ export async function handleView(
       );
 
     case 'quality_hints':
-      return envelopeWrap(
+      return wrapView(
         await handleViewQualityHints(
           rest as { workflowId?: string; skill?: string },
           stateDir,
@@ -310,7 +291,7 @@ export async function handleView(
       );
 
     case 'eval_results':
-      return envelopeWrap(
+      return wrapView(
         await handleViewEvalResults(
           rest as {
             workflowId?: string;
@@ -329,7 +310,7 @@ export async function handleView(
       );
 
     case 'quality_correlation':
-      return envelopeWrap(
+      return wrapView(
         await handleViewQualityCorrelation(
           rest as {
             workflowId?: string;
@@ -347,7 +328,7 @@ export async function handleView(
       );
 
     case 'quality_attribution':
-      return envelopeWrap(
+      return wrapView(
         await handleViewQualityAttribution(
           rest as {
             workflowId?: string;
@@ -368,7 +349,7 @@ export async function handleView(
       );
 
     case 'session_provenance':
-      return envelopeWrap(
+      return wrapView(
         await handleViewSessionProvenance(
           rest as { sessionId?: string; workflowId?: string; metric?: string },
           stateDir,
@@ -377,7 +358,7 @@ export async function handleView(
       );
 
     case 'synthesis_readiness':
-      return envelopeWrap(
+      return wrapView(
         await handleViewSynthesisReadiness(
           rest as { workflowId?: string },
           stateDir,
@@ -387,7 +368,7 @@ export async function handleView(
       );
 
     case 'shepherd_status':
-      return envelopeWrap(
+      return wrapView(
         await handleViewShepherdStatus(
           rest as { workflowId?: string },
           stateDir,
@@ -397,7 +378,7 @@ export async function handleView(
       );
 
     case 'provenance':
-      return envelopeWrap(
+      return wrapView(
         await handleViewProvenance(
           rest as { workflowId?: string },
           stateDir,
@@ -407,7 +388,7 @@ export async function handleView(
       );
 
     case 'convergence':
-      return envelopeWrap(
+      return wrapView(
         await handleViewConvergence(
           rest as { workflowId?: string },
           stateDir,
@@ -421,7 +402,7 @@ export async function handleView(
       // `repoRoot` falls back to `ctx.cwd` (then `process.cwd()` inside the
       // handler) so the dev-catalog + `.exarchos.yml` resolve from the active
       // workspace.
-      return envelopeWrap(
+      return wrapView(
         await handleViewInvariantsEffective(
           rest as {
             phase: string;
@@ -437,7 +418,7 @@ export async function handleView(
       // WLM foundation (task 008) — read the `worktrees@v1` projection via the
       // WorktreeManager facade. Behavior lives in the shared dispatch core
       // (INV-2); the handler takes the full DispatchContext for `ctx.eventStore`.
-      return envelopeWrap(await handleViewWorktrees(rest, ctx), startedAt);
+      return wrapView(await handleViewWorktrees(rest, ctx), startedAt);
 
     case 'ps':
       // DR-3 (Task 007) — scope-parameterized process-plane lister. `scope: 'all'`
@@ -453,7 +434,7 @@ export async function handleView(
       // `withLaunchLivenessAffordance` surfaces that guarantee as an agent-first
       // `next_actions` hint when any launcher session is in flight (pure
       // annotation — keyed on the worktree-scope `launchCount`, a no-op otherwise).
-      return envelopeWrap(
+      return wrapView(
         withLaunchLivenessAffordance(await handleViewPs(rest, ctx, deps)),
         startedAt,
       );
@@ -465,7 +446,7 @@ export async function handleView(
       // structured WAIT_TIMEOUT/WAIT_FAILED on expiry/failure; the worktree
       // `until: merge|idle` scope delegates to the absorbed WLM-6 kernel. `rest`
       // carries featureId/phase/status/operation/until/integrationRef/timeoutMs.
-      return envelopeWrap(await handleViewWait(rest, ctx, deps), startedAt);
+      return wrapView(await handleViewWait(rest, ctx, deps), startedAt);
 
     case 'inspect':
       // Worktree-lifecycle single-workflow projection (DR-4). Pure read: folds
@@ -474,7 +455,7 @@ export async function handleView(
       // tuple / artifacts / task progress. Appends nothing on any path — a cold
       // probe of an unknown featureId returns `workflowExists:false` with ZERO
       // events emitted (the CB-2 no-phantom-stream guarantee).
-      return envelopeWrap(await handleViewInspect(rest, ctx), startedAt);
+      return wrapView(await handleViewInspect(rest, ctx), startedAt);
 
     case 'export':
       // Worktree-lifecycle diagnostic bundle (DR-6). Writes a zip
@@ -485,10 +466,10 @@ export async function handleView(
       // a fresh invocation mints a new pair). Cold-probe safe: an unknown
       // featureId returns workflowExists:false, writes NO zip and emits ZERO
       // events. The CLI verb promotion is task-015.
-      return envelopeWrap(await handleViewExport(rest, ctx), startedAt);
+      return wrapView(await handleViewExport(rest, ctx), startedAt);
 
     case 'describe':
-      return envelopeWrap(
+      return wrapView(
         await handleDescribe(rest as { actions: string[] }, viewActions),
         startedAt,
       );

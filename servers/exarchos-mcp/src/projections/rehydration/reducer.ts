@@ -35,6 +35,10 @@ import {
   type ExtractedPlanTask,
   type TaskStatus,
 } from '../shared/task-status-fold.js';
+import {
+  extractTaskId,
+  extractString,
+} from '../shared/event-data-extractors.js';
 
 /**
  * Task statuses surfaced by this reducer — post #1359 PR4 canonical
@@ -94,35 +98,13 @@ const initialRehydrationDocument: RehydrationDocument = RehydrationDocumentSchem
   phasePlaybook: null,
 });
 
-// ─── Shared extractors ──────────────────────────────────────────────────────
-
-/**
- * Narrow extractor — pulls a string `taskId` off an event's opaque `data` bag
- * without widening the reducer's type surface to `any`. The event-store base
- * schema types `data` as `Record<string, unknown> | undefined`, so this
- * performs the runtime check the type system cannot.
- */
-function extractTaskId(data: WorkflowEvent['data']): string | undefined {
-  if (!data) return undefined;
-  const raw = data['taskId'];
-  return typeof raw === 'string' && raw.length > 0 ? raw : undefined;
-}
-
-/**
- * Generic string-field extractor — mirrors {@link extractTaskId} for arbitrary
- * string-typed fields on the event's opaque `data` bag (e.g. `featureId`,
- * `workflowType`, `to`). Returns `undefined` for missing/non-string/empty
- * values so the reducer can short-circuit on malformed events without ever
- * writing `undefined` into the schema-validated workflowState.
- */
-function extractString(
-  data: WorkflowEvent['data'],
-  key: string,
-): string | undefined {
-  if (!data) return undefined;
-  const raw = data[key];
-  return typeof raw === 'string' && raw.length > 0 ? raw : undefined;
-}
+// ─── Local extractors ───────────────────────────────────────────────────────
+//
+// The generic string / taskId extractors live in
+// `../shared/event-data-extractors.ts` (DR-10) so this reducer and the
+// task-store reducer share one copy. The rehydration-specific decoders below
+// (`extractArtifactsPatch`, `extractHandoff`) stay local — they decode
+// projection-shaped subtrees only this document consumes.
 
 /**
  * Diff-style decoding of `data.patch.artifacts` from a `state.patched` event:

@@ -22,7 +22,7 @@ import type {
   RepoInfo,
   ReplyResult,
 } from './provider.js';
-import { UnsupportedOperationError } from './provider.js';
+import { UnsupportedOperationError, computeOverallCiStatus } from './provider.js';
 import { exec } from './shell.js';
 
 interface GlabPipelineJob {
@@ -92,16 +92,6 @@ function mapGitLabJobStatus(status: string): CiCheck['status'] {
     default:
       return 'pending';
   }
-}
-
-function computeOverallCiStatus(checks: readonly CiCheck[]): CiStatus['status'] {
-  const hasFailure = checks.some((c) => c.status === 'fail');
-  if (hasFailure) return 'fail';
-
-  const hasPending = checks.some((c) => c.status === 'pending');
-  if (hasPending) return 'pending';
-
-  return 'pass';
 }
 
 export class GitLabProvider implements VcsProvider {

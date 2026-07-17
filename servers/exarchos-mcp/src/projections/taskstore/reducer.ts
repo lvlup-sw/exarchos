@@ -39,6 +39,12 @@
 import type { ProjectionReducer } from '../types.js';
 import type { WorkflowEvent } from '../../event-store/schemas.js';
 import type { TaskRecord, TaskStoreState, TaskStatus } from './types.js';
+import {
+  extractTaskId,
+  extractString,
+  extractNumber,
+  extractStringArray,
+} from '../shared/event-data-extractors.js';
 
 type TaskOverlay = { -readonly [K in keyof Omit<TaskRecord, 'taskId'>]?: TaskRecord[K] } & { status: TaskStatus };
 
@@ -50,53 +56,13 @@ const initialTaskStoreState: TaskStoreState = {
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
-
-/**
- * Pull a non-empty string `taskId` off an event's opaque `data` bag without
- * widening the reducer's type surface. Returns `undefined` for missing,
- * non-string, or empty values so callers can short-circuit malformed events
- * into no-op handling.
- */
-function extractTaskId(data: WorkflowEvent['data']): string | undefined {
-  if (!data) return undefined;
-  const raw = data['taskId'];
-  return typeof raw === 'string' && raw.length > 0 ? raw : undefined;
-}
-
-/**
- * Extract a non-empty string field, or `undefined`. Matches the convention
- * from `rehydration/reducer.ts` so the two reducers stay symmetrically lax
- * about partial payloads (replay tolerance, DR-1).
- */
-function extractString(
-  data: WorkflowEvent['data'],
-  key: string,
-): string | undefined {
-  if (!data) return undefined;
-  const raw = data[key];
-  return typeof raw === 'string' && raw.length > 0 ? raw : undefined;
-}
-
-/** Extract a finite number, or `undefined`. */
-function extractNumber(
-  data: WorkflowEvent['data'],
-  key: string,
-): number | undefined {
-  if (!data) return undefined;
-  const raw = data[key];
-  return typeof raw === 'number' && Number.isFinite(raw) ? raw : undefined;
-}
-
-/** Extract a `string[]`, filtering non-string entries. Returns `undefined` for missing or non-array. */
-function extractStringArray(
-  data: WorkflowEvent['data'],
-  key: string,
-): string[] | undefined {
-  if (!data) return undefined;
-  const raw = data[key];
-  if (!Array.isArray(raw)) return undefined;
-  return raw.filter((v): v is string => typeof v === 'string');
-}
+//
+// The generic `data`-bag extractors (`extractTaskId`, `extractString`,
+// `extractNumber`, `extractStringArray`) live in
+// `../shared/event-data-extractors.ts` (DR-10) so this reducer and the
+// rehydration reducer share one copy and stay symmetrically lax about partial
+// payloads (replay tolerance, DR-1). `extractTddPhase` below stays local — it
+// narrows to the task-store-specific `TaskRecord['tddPhase']` surface.
 
 /**
  * Narrow `tddPhase` from event data to the `TaskRecord` surface
