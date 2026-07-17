@@ -33,6 +33,9 @@ import { composeScopedCommand } from './mutation-adequacy.js';
 import { foldInFlightOperations, type OperationEventLike } from '../views/lifecycle/operations-fold.js';
 import { resolveMutationDiffScope } from '../config/toolchains.js';
 import { rmrf } from '../test-helpers/temp-dir.js';
+import { workflowStateProjection } from '../views/workflow-state-projection.js';
+import { guards } from '../workflow/guards.js';
+import type { GuardFailure } from '../workflow/guards.js';
 
 // ─── fixtures ────────────────────────────────────────────────────────────────
 
@@ -94,6 +97,10 @@ interface MutationData {
   deferred?: boolean;
   warning?: string;
   next_actions?: string[];
+  // DR-6 additive carrier fields.
+  maxNoCoverage?: number;
+  trivialPass?: boolean;
+  noCoverageReason?: string;
 }
 
 // ─── harness ─────────────────────────────────────────────────────────────────
@@ -127,6 +134,7 @@ interface DispatchOpts {
   offline?: boolean;
   base?: string;
   threshold?: number;
+  maxNoCoverage?: number;
   operationId?: string;
   projectConfig?: DispatchContext['projectConfig'];
   eventStore?: EventStore;
@@ -149,6 +157,7 @@ async function dispatchMutation(
       ...(opts.scope !== undefined ? { scope: opts.scope } : {}),
       ...(opts.offline !== undefined ? { offline: opts.offline } : {}),
       ...(opts.threshold !== undefined ? { threshold: opts.threshold } : {}),
+      ...(opts.maxNoCoverage !== undefined ? { maxNoCoverage: opts.maxNoCoverage } : {}),
       ...(opts.operationId !== undefined ? { operationId: opts.operationId } : {}),
       // Test seams — injected through the dispatch args.
       resolve: () => runtimeWith(cmd),
@@ -1032,5 +1041,199 @@ describe('mutation-adequacy advisory verdict + threshold', () => {
     expect(result.data.passed).toBe(true);
     const warnings = (result as { warnings?: string[] }).warnings ?? [];
     expect(warnings.some((w) => /warning-only/.test(w))).toBe(true);
+  });
+});
+
+// ─── DR-6: NoCoverage as a SECOND, orthogonal blocking axis (handler) ─────────
+//
+// `mutationScore = killed / (total − noCoverage)` is UNCHANGED (INV-5b). For a
+// diff-scoped run the handler additionally requires `noCoverage <= maxNoCoverage`
+// (default 0). An empty mutatable surface (`total === 0`) is a trivial pass.
+
+describe('mutation-adequacy NoCoverage axis (DR-6)', () => {
+  it('Passed_DiffScopeKilledPlusNoCoverageMix_Fails', async () => {
+    // 5 killed + 5 NoCoverage → mutationScore = 5 / (10 − 5) = 1.0 (>= threshold),
+    // yet the diff has 5 uncovered changed mutants: TODAY this passed at score 1.0.
+    // DR-6: the NoCoverage axis (budget 0) now FAILS it while the score is
+    // untouched.
+    const { data } = await dispatchMutation({
+      runResult: {
+        ok: true,
+        report: strykerReport([
+          { status: 'Killed', line: 1 },
+          { status: 'Killed', line: 2 },
+          { status: 'Killed', line: 3 },
+          { status: 'Killed', line: 4 },
+          { status: 'Killed', line: 5 },
+          { status: 'NoCoverage', line: 11 },
+          { status: 'NoCoverage', line: 12 },
+          { status: 'NoCoverage', line: 13 },
+          { status: 'NoCoverage', line: 14 },
+          { status: 'NoCoverage', line: 15 },
+        ]),
+      },
+    });
+    // mutationScore definition UNCHANGED — still 1.0 (INV-5b).
+    expect(data.mutationScore).toBeCloseTo(1.0, 5);
+    expect(data.noCoverage).toBe(5);
+    // The orthogonal axis blocks despite the perfect score.
+    expect(data.passed).toBe(false);
+    expect(data.maxNoCoverage).toBe(0);
+  });
+
+  it('Passed_AllCoveredAtThreshold_PassesUnchanged', async () => {
+    // An all-covered diff at the same 1.0 score (0 NoCoverage) still PASSES on the
+    // handler path — the score axis is byte-identical to before (INV-5b guardrail).
+    const { data } = await dispatchMutation({
+      runResult: {
+        ok: true,
+        report: strykerReport([
+          { status: 'Killed', line: 1 },
+          { status: 'Killed', line: 2 },
+          { status: 'Killed', line: 3 },
+        ]),
+      },
+    });
+    expect(data.mutationScore).toBeCloseTo(1.0, 5);
+    expect(data.noCoverage).toBe(0);
+    expect(data.passed).toBe(true);
+  });
+
+  it('Passed_NoCoverageWithinExplicitBudget_Passes', async () => {
+    // With an explicit budget of 2, a diff with 2 NoCoverage mutants (and a
+    // passing score) is within budget → PASSES. The budget is honoured.
+    const { data } = await dispatchMutation({
+      maxNoCoverage: 2,
+      runResult: {
+        ok: true,
+        report: strykerReport([
+          { status: 'Killed', line: 1 },
+          { status: 'Killed', line: 2 },
+          { status: 'NoCoverage', line: 11 },
+          { status: 'NoCoverage', line: 12 },
+        ]),
+      },
+    });
+    expect(data.noCoverage).toBe(2);
+    expect(data.maxNoCoverage).toBe(2);
+    expect(data.passed).toBe(true);
+    // One more uncovered mutant beyond the same budget flips it closed.
+    const over = await dispatchMutation({
+      maxNoCoverage: 2,
+      runResult: {
+        ok: true,
+        report: strykerReport([
+          { status: 'Killed', line: 1 },
+          { status: 'Killed', line: 2 },
+          { status: 'NoCoverage', line: 11 },
+          { status: 'NoCoverage', line: 12 },
+          { status: 'NoCoverage', line: 13 },
+        ]),
+      },
+    });
+    expect(over.data.noCoverage).toBe(3);
+    expect(over.data.passed).toBe(false);
+  });
+
+  it('Passed_EmptyMutatableSurface_TrivialPassWithMarker', async () => {
+    // total === 0 (nothing to mutate — a server-untouching diff) is a TRIVIAL
+    // PASS with an explicit marker: not a score-0 failure, not a degrade.
+    const { success, data } = await dispatchMutation({
+      runResult: { ok: true, report: JSON.stringify({ schemaVersion: '1', files: {} }) },
+    });
+    expect(success).toBe(true);
+    expect(data.total).toBe(0);
+    expect(data.mutationScore).toBe(0); // score guard stays 0 for a 0 denominator
+    expect(data.passed).toBe(true); // …yet vacuously adequate
+    expect(data.trivialPass).toBe(true); // the explicit marker
+  });
+
+  it('FailureMessage_NoCoverageMutants_AttributesFileAndLine', async () => {
+    // When the NoCoverage axis blocks, the failure message names each uncovered
+    // mutant by file:line so the caller knows exactly what executes no test.
+    const { data } = await dispatchMutation({
+      runResult: {
+        ok: true,
+        report: strykerReport([
+          { status: 'Killed', line: 1 },
+          { status: 'NoCoverage', file: 'src/util.ts', line: 7 },
+          { status: 'NoCoverage', file: 'src/calc.ts', line: 42 },
+        ]),
+      },
+    });
+    expect(data.passed).toBe(false);
+    expect(data.noCoverageReason).toBeDefined();
+    expect(data.noCoverageReason).toContain('src/util.ts:7');
+    expect(data.noCoverageReason).toContain('src/calc.ts:42');
+  });
+
+  it('FullScope_NoCoverageAxisInert_ScoreOnly', async () => {
+    // The NoCoverage axis is a DIFF-scoped signal. A full-scope (offline) run
+    // keeps the single score axis — NoCoverage mutants do not block there.
+    const { data } = await dispatchMutation({
+      scope: 'full',
+      offline: true,
+      runResult: {
+        ok: true,
+        report: strykerReport([
+          { status: 'Killed', line: 1 },
+          { status: 'Killed', line: 2 },
+          { status: 'NoCoverage', line: 11 },
+        ]),
+      },
+    });
+    expect(data.noCoverage).toBe(1);
+    // score = 2 / (3 − 1) = 1.0 >= threshold, and NoCoverage is inert at full scope.
+    expect(data.passed).toBe(true);
+  });
+
+  it('Integration_HandlerEventFoldsToGuard_NoCoverageBlocks', async () => {
+    // HIGH-rung cross-seam proof: the REAL handler emits a real gate.executed,
+    // the REAL projection folds it into reviews['mutation-adequacy'] (carrying
+    // noCoverage), and the REAL block-mode guard reads that folded state and
+    // blocks — no mocks between the three collaborators.
+    const { stateDir, eventStore } = await newStore();
+    const mix = [
+      { status: 'Killed', line: 1 },
+      { status: 'Killed', line: 2 },
+      { status: 'Killed', line: 3 },
+      { status: 'Killed', line: 4 },
+      { status: 'Killed', line: 5 },
+      { status: 'NoCoverage', file: 'src/pay.ts', line: 21 },
+      { status: 'NoCoverage', file: 'src/pay.ts', line: 22 },
+      { status: 'NoCoverage', file: 'src/pay.ts', line: 23 },
+      { status: 'NoCoverage', file: 'src/pay.ts', line: 24 },
+      { status: 'NoCoverage', file: 'src/pay.ts', line: 25 },
+    ];
+    const { data } = await dispatchMutation({
+      eventStore,
+      stateDir,
+      runResult: { ok: true, report: strykerReport(mix) },
+    });
+    // Handler axis: score 1.0 (UNCHANGED) yet failed on the NoCoverage axis.
+    expect(data.mutationScore).toBeCloseTo(1.0, 5);
+    expect(data.passed).toBe(false);
+
+    // Fold the emitted events through the REAL projection.
+    const events = await eventStore.query('feat-mutadq', { type: 'gate.executed' });
+    let view = workflowStateProjection.init();
+    for (const e of events) view = workflowStateProjection.apply(view, e);
+    const dim = (view.reviews as Record<string, { noCoverage?: number; mutationScore?: number }>)[
+      'mutation-adequacy'
+    ];
+    expect(dim.noCoverage).toBe(5);
+    expect(dim.mutationScore).toBeCloseTo(1.0, 5); // definition unchanged (INV-5b)
+
+    // The REAL guard reads the folded state + the injected budget and blocks.
+    const guardState = {
+      reviews: view.reviews,
+      _requiredReviews: ['mutation-adequacy'],
+      _mutationEnforcement: 'block',
+      _mutationThreshold: 0.4,
+      _maxNoCoverage: 0,
+    } as unknown as Record<string, unknown>;
+    const verdict = guards.allReviewsPassed.evaluate(guardState);
+    expect(verdict).not.toBe(true);
+    expect((verdict as GuardFailure).reason).toContain('NoCoverage');
   });
 });
