@@ -2,7 +2,13 @@ name: PR Body Check
 
 on:
   pull_request:
-    types: [opened, edited, ready_for_review, reopened]
+    # `synchronize` is REQUIRED: the golden-fixture gate below is diff-dependent
+    # (it inspects the PR's changed files). Without `synchronize` the workflow
+    # would not re-run when a load-bearing fixture is pushed AFTER the PR opens,
+    # leaving a stale green — the exact wrong-trigger trap the enforcer-wiring
+    # gate (task 011) fences. The `synchronize` addition is likewise asserted by
+    # that gate for check-golden-fixture-note (diffDependent: true).
+    types: [opened, edited, synchronize, ready_for_review, reopened]
 
 permissions:
   contents: read
@@ -77,3 +83,21 @@ jobs:
             exit 1
           fi
           echo "PR body validation passed."
+
+      # Golden-fixture PR-body marker (DR-15, task 011). Diff-dependent gate:
+      # if this PR changes a file under
+      # servers/exarchos-mcp/tests/fixtures/load-bearing/**, the PR body MUST
+      # carry a `GOLDEN-FIXTURE-UPDATE: <reason>` line. Hosted here (not in the
+      # path-filtered ci.yml jobs) because it needs the PR body; the
+      # `synchronize` trigger above is what lets it re-run when a fixture is
+      # pushed after the PR opens. Zero-dependency node script — no install.
+      - name: Golden-fixture marker check (DR-15)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR="${{ github.event.pull_request.number }}"
+          gh pr view "$PR" --json body -q .body > "$RUNNER_TEMP/pr-body.txt"
+          gh pr diff "$PR" --name-only > "$RUNNER_TEMP/pr-changed.txt"
+          node scripts/check-golden-fixture-note.mjs \
+            --body-file "$RUNNER_TEMP/pr-body.txt" \
+            --changed-files-file "$RUNNER_TEMP/pr-changed.txt"
