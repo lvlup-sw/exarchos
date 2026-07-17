@@ -12,7 +12,8 @@
 import { runCommandSync } from '../utils/process.js';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
-import { emitGateEvent, resolveRepoRoot } from './gate-utils.js';
+import { emitGateEvent } from './gate-utils.js';
+import { runGatePreflight } from './pure/gate-preflight.js';
 import { runIntegrationSuite } from './pure/integration-suite.js';
 import type { RunCommandFn, CommandResult } from './pure/static-analysis.js';
 
@@ -145,42 +146,22 @@ export async function handleCheckIntegrationSuite(
   eventStore: EventStore,
   runCommand: RunCommandFn = execCommandRunner,
 ): Promise<ToolResult> {
-  // Fail-fast on miswired DispatchContext: a missing eventStore is a wiring
-  // bug, not a transient error.
-  if (!eventStore) {
-    return {
-      success: false,
-      error: {
-        code: 'MISWIRED_CONTEXT',
-        message: 'handleCheckIntegrationSuite: eventStore is required',
-      },
-    };
-  }
-
-  if (!args.featureId) {
-    return {
-      success: false,
-      error: { code: 'INVALID_INPUT', message: 'featureId is required' },
-    };
-  }
-
-  // Resolve repoRoot — worktree-aware 'auto' mode (#1330, T-04 resolver).
-  const resolved = await resolveRepoRoot(
+  // Preflight (DR-10): fail-fast on a miswired DispatchContext / absent
+  // featureId (a missing eventStore is a wiring bug, not a transient error) and
+  // resolve the worktree-aware 'auto' repoRoot (#1330, T-04 resolver). taskId is
+  // optional for this post-merge gate, so it is not required here.
+  const pre = await runGatePreflight(
     {
-      repoRoot: args.repoRoot,
-      worktreePath: args.worktreePath,
       featureId: args.featureId,
       taskId: args.taskId,
+      repoRoot: args.repoRoot,
+      worktreePath: args.worktreePath,
+      handlerName: 'handleCheckIntegrationSuite',
     },
     eventStore,
   );
-  if (!resolved.ok) {
-    return {
-      success: false,
-      error: { code: 'INVALID_INPUT', message: resolved.error },
-    };
-  }
-  const repoRoot = resolved.repoRoot;
+  if (!pre.ok) return pre.result;
+  const repoRoot = pre.repoRoot;
 
   // Run the full suite and fold load-failures into the failure count.
   const suite = runIntegrationSuite({
