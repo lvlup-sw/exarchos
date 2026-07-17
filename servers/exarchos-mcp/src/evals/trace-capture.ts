@@ -5,7 +5,7 @@ import type { EvalCase } from './types.js';
 
 export interface CaptureOptions {
   /** Filter events by skill/source. */
-  skill?: string;
+  skill?: string | undefined;
 }
 
 // ─── Paired Event Types ─────────────────────────────────────────────────────

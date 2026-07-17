@@ -134,7 +134,7 @@ export interface ResolveExpectedShaOptions {
    * PREFERRED when present — it avoids a redundant network round-trip and uses
    * the exact SHA the loop reasoned about.
    */
-  readonly observedSha?: string;
+  readonly observedSha?: string | undefined;
   /** Injectable git runner; defaults to a real `execFileSync`. */
   readonly runGit?: RunGit;
 }

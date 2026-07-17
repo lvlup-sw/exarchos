@@ -6,8 +6,8 @@ import { GitLabProvider } from './gitlab.js';
 import { AzureDevOpsProvider } from './azure-devops.js';
 
 export interface CreateVcsProviderOpts {
-  readonly config?: ResolvedProjectConfig;
-  readonly detectorDeps?: VcsDetectorDeps;
+  readonly config?: ResolvedProjectConfig | undefined;
+  readonly detectorDeps?: VcsDetectorDeps | undefined;
 }
 
 /**

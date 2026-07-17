@@ -185,11 +185,11 @@ export interface MergeOrchestratorState {
   /** Current lifecycle phase; see {@link MergeOrchestratorPhase}. */
   readonly phase: MergeOrchestratorPhase;
   /** Preflight gate metadata; populated on `merge.preflight`. */
-  readonly preflight?: MergePreflightMetadata;
+  readonly preflight?: MergePreflightMetadata | undefined;
   /** Merge action metadata; populated across `merge.requested` + `merge.executed`. */
-  readonly merge?: MergeActionMetadata;
+  readonly merge?: MergeActionMetadata | undefined;
   /** Recovery context; populated on `merge.recovered` (or legacy `merge.rollback`). */
-  readonly recovery?: MergeRecoveryContext;
+  readonly recovery?: MergeRecoveryContext | undefined;
 }
 
 /**

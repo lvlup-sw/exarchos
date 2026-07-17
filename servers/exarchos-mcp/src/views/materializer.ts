@@ -80,10 +80,10 @@ export class ViewMaterializer {
   // Track last snapshot high-water mark per key for interval-based snapshotting
   private readonly lastSnapshotHwm = new Map<string, number>();
 
-  private readonly snapshotStore?: SnapshotStore;
+  private readonly snapshotStore?: SnapshotStore | undefined;
   private readonly snapshotInterval: number;
   private readonly maxCacheEntries: number;
-  private readonly backend?: StorageBackend;
+  private readonly backend?: StorageBackend | undefined;
 
   // Pending snapshot writes (fire-and-forget, but flushable for tests/shutdown)
   private pendingSnapshots: Promise<void>[] = [];

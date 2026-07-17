@@ -33,7 +33,7 @@ export interface AtomicAppendEvent {
   sequence: number;
   type: string;
   timestamp: string;
-  data?: Record<string, unknown>;
+  data?: Record<string, unknown> | undefined;
   /**
    * The full PublicPersistedEvent serialized as JSON. Persisted into
    * `events.payload` so `rowToEvent` can rehydrate the canonical shape on

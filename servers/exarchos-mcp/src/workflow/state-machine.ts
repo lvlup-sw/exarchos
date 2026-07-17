@@ -41,9 +41,9 @@ export type State =
 export interface Transition {
   readonly from: string;
   readonly to: string;
-  readonly guard?: Guard;
-  readonly effects?: readonly Effect[];
-  readonly isFixCycle?: boolean;
+  readonly guard?: Guard | undefined;
+  readonly effects?: readonly Effect[] | undefined;
+  readonly isFixCycle?: boolean | undefined;
   /**
    * Marks a plan-review revise loop edge (DR-1). When traversed, the executor
    * emits one counted `plan-revision` event — the exact analog of `isFixCycle`
@@ -84,7 +84,7 @@ export interface TransitionResult {
   readonly newPhase?: string;
   readonly effects: readonly Effect[];
   readonly events: readonly TransitionEvent[];
-  readonly historyUpdates?: Record<string, string>;
+  readonly historyUpdates?: Record<string, string> | undefined;
   readonly errorCode?: string;
   readonly errorMessage?: string;
   readonly guardDescription?: string;

@@ -117,15 +117,15 @@ export const CheckNodeSchema: z.ZodType<CheckNode> = z.lazy(() =>
 export type CheckLeaf = {
   kind: LeafKind;
   pattern: string;
-  fileGlob?: string;
-  threshold?: number;
+  fileGlob?: string | undefined;
+  threshold?: number | undefined;
 };
 export type CheckNode =
   | CheckLeaf
   | { 'all-of': CheckNode[] }
   | { 'any-of': CheckNode[] }
   | { not: CheckNode }
-  | { scope: { fileGlob?: string; phase?: string }; node: CheckNode };
+  | { scope: { fileGlob?: string | undefined; phase?: string | undefined }; node: CheckNode };
 
 // ─── Enforcement (combinator DSL entry point) ───────────────────────────────
 

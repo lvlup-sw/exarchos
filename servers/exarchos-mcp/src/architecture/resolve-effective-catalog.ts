@@ -65,20 +65,20 @@ export interface ResolveEffectiveCatalogContext {
    * derived from this module's location (four levels up from
    * `src/architecture/`), mirroring `vocabulary-lint.ts`.
    */
-  repoRoot?: string;
+  repoRoot?: string | undefined;
   /**
    * Resolved `.exarchos.yml` config. Drives dev-catalog gating
    * (`invariants.devCatalog`), the user `catalogs` paths, and per-invariant
    * `overrides`. When omitted, no dev catalog is surfaced (default-disabled)
    * and there are no user catalogs or overrides.
    */
-  config?: ExarchosConfigInput;
+  config?: ExarchosConfigInput | undefined;
   /** SDLC phase to project for — e.g. `'ideate' | 'plan' | 'delegate'`. */
   phase: string;
   /** Workflow kind to project for — e.g. `'feature' | 'debug' | 'discovery'`. */
   workflowType: string;
   /** Files the current task touches (delegate-phase projection narrowing). */
-  touchedFiles?: string[];
+  touchedFiles?: string[] | undefined;
 }
 
 /** Result of `resolveEffectiveCatalog`: projected entries plus merge/override warnings. */

@@ -31,10 +31,10 @@ import type { DesignDepth } from './workflow/plan-depth-policy.js';
  * already terminated.
  */
 export interface NextActionsState {
-  phase?: string;
-  workflowType?: string;
+  phase?: string | undefined;
+  workflowType?: string | undefined;
   /** Stream identifier — used as the `streamId` segment of merge idempotency keys. */
-  featureId?: string;
+  featureId?: string | undefined;
   /**
    * The feature's frozen planning depth (DR-7, #1581 task 018). When `'deep'`
    * and the current phase is a PLAN-kind authoring phase, the deep-rung
@@ -58,7 +58,7 @@ export interface NextActionsState {
      * for the same task collapse.
      */
     taskId?: string;
-  };
+  } | undefined;
 }
 
 /**

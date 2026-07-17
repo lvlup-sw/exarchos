@@ -122,7 +122,7 @@ function invalidInput(
 }
 
 /** Read `{ from, to }` off a transition-carrying event, tolerating loose data. */
-function transitionEnds(event: WorkflowEvent): { from?: string; to?: string } {
+function transitionEnds(event: WorkflowEvent): { from?: string | undefined; to?: string | undefined } {
   const data = event.data as Record<string, unknown> | undefined;
   const from = typeof data?.from === 'string' ? data.from : undefined;
   const to = typeof data?.to === 'string' ? data.to : undefined;

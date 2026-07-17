@@ -102,7 +102,7 @@ function parseCliVersion(output: string): string | undefined {
 async function checkCliAvailability(
   exec: (cmd: string, args: string[]) => Promise<string>,
   provider: VcsProviderName,
-): Promise<{ cliAvailable: boolean; cliVersion?: string }> {
+): Promise<{ cliAvailable: boolean; cliVersion?: string | undefined }> {
   const { cmd, args } = cliCommandFor(provider);
   try {
     const output = await exec(cmd, args);

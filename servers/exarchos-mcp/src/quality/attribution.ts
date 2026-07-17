@@ -14,8 +14,8 @@ export function isValidDimension(value: string): value is AttributionDimension {
 
 export interface AttributionQuery {
   readonly dimension: AttributionDimension;
-  readonly skill?: string;
-  readonly timeRange?: string; // ISO 8601 duration (e.g., 'P7D')
+  readonly skill?: string | undefined;
+  readonly timeRange?: string | undefined; // ISO 8601 duration (e.g., 'P7D')
 }
 
 export interface AttributionEntry {

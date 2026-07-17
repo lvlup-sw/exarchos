@@ -9,7 +9,7 @@ export type { GuardDefinition };
 export interface GuardResult {
   passed: boolean;
   error?: string;
-  output?: string;
+  output?: string | undefined;
 }
 
 // ─── Guard Execution ────────────────────────────────────────────────────────
@@ -31,7 +31,7 @@ export function executeGuard(guard: GuardDefinition): Promise<GuardResult> {
     const child = exec(guard.command, { timeout }, (error, stdout, stderr) => {
       if (error) {
         // Check if it was killed due to timeout (error.killed is the documented API)
-        if ((error as NodeJS.ErrnoException & { killed?: boolean }).killed) {
+        if ((error as unknown as NodeJS.ErrnoException & { killed?: boolean }).killed) {
           resolve({ passed: false, error: 'timeout' });
           return;
         }

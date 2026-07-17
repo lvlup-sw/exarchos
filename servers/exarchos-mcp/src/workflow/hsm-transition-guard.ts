@@ -272,7 +272,7 @@ export interface GuardContext {
   /** Workflow type used to look up the HSM definition. */
   readonly workflowType: string;
   /** Optional phase-skip overrides applied before transition lookup. */
-  readonly skipPhases?: readonly string[];
+  readonly skipPhases?: readonly string[] | undefined;
   /** Idempotency key suffix to deduplicate retried event appends. */
   readonly idempotencyKeySuffix?: string;
   /**

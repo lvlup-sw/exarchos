@@ -42,16 +42,37 @@ describe('DR-14: noUncheckedIndexedAccess ratchet (root)', () => {
     ).toBe(true);
   });
 
+  it('TsconfigRoot_ExactOptionalPropertyTypesEnabled_TypecheckGreen', () => {
+    // DR-14 task 025 — same guard shape for the second strict flag. The root
+    // tree is proven clean at 0 errors under it via CI's `npm run typecheck`.
+    expect(
+      readCompilerFlag(resolve(REPO_ROOT, 'tsconfig.json'), 'exactOptionalPropertyTypes'),
+    ).toBe(true);
+  });
+
+  it('FixWave_BothStrictFlags_FullSuitesGreen', () => {
+    // DR-14 task 025 — both tsconfig-strictness ratchets are live on the root
+    // project simultaneously. "Full suites green" under both flags is enforced
+    // by CI (both `npm run typecheck` steps + both `test:run` suites); this
+    // guard fails fast if either flag is silently dropped, which is what would
+    // let a suite go red under the ratchets.
+    const root = resolve(REPO_ROOT, 'tsconfig.json');
+    expect(readCompilerFlag(root, 'noUncheckedIndexedAccess')).toBe(true);
+    expect(readCompilerFlag(root, 'exactOptionalPropertyTypes')).toBe(true);
+  });
+
   // Pre-wave escape-hatch census across BOTH typed src trees, measured on the
-  // integration tip immediately before this wave landed (root/src +
-  // servers/exarchos-mcp/src, test/bench/fixture files excluded — see
-  // count-casts.ts). The wave prefers real narrowing (guards, `?.`, `??`,
-  // destructuring defaults) over `!`/`as`, so the introduced delta is tiny and
-  // `as any` is barred outright.
+  // integration tip immediately before the tsconfig-strictness ratchets (tasks
+  // 024 noUncheckedIndexedAccess + 025 exactOptionalPropertyTypes) landed
+  // (root/src + servers/exarchos-mcp/src, test/bench/fixture files excluded —
+  // see count-casts.ts). Both waves prefer real narrowing (guards, `?.`, `??`,
+  // destructuring defaults) and field widening (`?: T | undefined`) over `!`/`as`,
+  // so the combined introduced delta stays tiny and `as any` is barred outright.
   const BASELINE: CastCounts = { nonNull: 84, asCast: 2674, asAny: 3 };
-  // Declared budget = MAX escape-hatch sites this wave (and near-term follow-ups
-  // before a re-baseline) may introduce over the baseline. Justified in the PR
-  // body; `as any` may never grow.
+  // Declared budget = MAX escape-hatch sites BOTH ratchet waves (and near-term
+  // follow-ups before a re-baseline) may introduce over the baseline. Justified
+  // in the PR body; `as any` may never grow. Measured combined delta at landing:
+  // nonNull +14 (024), asCast +1 (025), asAny +0.
   const DELTA_BUDGET: CastCounts = { nonNull: 20, asCast: 5, asAny: 0 };
 
   it('FixWave_CastBudget_MeasuredAndWithinDeclaredLimit', () => {

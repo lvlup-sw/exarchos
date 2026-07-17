@@ -20,11 +20,11 @@ import { workflowStateProjection } from '../views/workflow-state-projection.js';
 
 export interface ResolveOpts {
   /** Path to a JSON state file on disk. */
-  stateFile?: string;
+  stateFile?: string | undefined;
   /** Feature/stream ID for event store lookup. */
-  featureId?: string;
+  featureId?: string | undefined;
   /** Event store instance for in-memory state materialization. */
-  eventStore?: EventStore;
+  eventStore?: EventStore | undefined;
 }
 
 export type ResolveResult =

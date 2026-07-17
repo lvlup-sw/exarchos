@@ -77,7 +77,7 @@ export interface TaskRecord {
 
   // ─── Passthrough fields from task.progressed ───────────────────────────
   /** Most-recent TDD phase (from `task.progressed`). */
-  readonly tddPhase?: 'red' | 'green' | 'refactor';
+  readonly tddPhase?: 'red' | 'green' | 'refactor' | undefined;
   /** Free-form progress detail (from `task.progressed`). */
   readonly detail?: string;
 

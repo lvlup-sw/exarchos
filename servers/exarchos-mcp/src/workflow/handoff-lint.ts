@@ -50,9 +50,9 @@ export interface HandoffLintFinding extends Violation {
  * this file unit-testable without dragging in the workflow surface.
  */
 export interface HandoffLintInput {
-  readonly context?: string;
-  readonly nextSteps?: readonly string[];
-  readonly suggestions?: readonly string[];
+  readonly context?: string | undefined;
+  readonly nextSteps?: readonly string[] | undefined;
+  readonly suggestions?: readonly string[] | undefined;
 }
 
 export function lintHandoff(handoff: HandoffLintInput): HandoffLintFinding[] {

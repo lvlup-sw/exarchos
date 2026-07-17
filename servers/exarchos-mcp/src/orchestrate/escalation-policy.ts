@@ -62,8 +62,8 @@ export interface EscalationPolicy {
  * garbage override can never weaken the bound below the resolvable default.
  */
 export function resolveEscalationPolicy(opts?: {
-  readonly configMaxIterations?: number;
-  readonly perLoopOverride?: number;
+  readonly configMaxIterations?: number | undefined;
+  readonly perLoopOverride?: number | undefined;
 }): EscalationPolicy {
   const layers = [opts?.perLoopOverride, opts?.configMaxIterations, DEFAULT_MAX_ITERATIONS];
   for (const candidate of layers) {

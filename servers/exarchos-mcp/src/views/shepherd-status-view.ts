@@ -28,7 +28,7 @@ export interface ShepherdStatusState {
   readonly startedAt?: string;
   readonly approvalRequestedAt?: string;
   readonly completedAt?: string;
-  readonly outcome?: string;
+  readonly outcome?: string | undefined;
   // DR-3 (#1595): the WHY behind an `escalate` status. `overallStatus` already
   // derives `'escalate'` from the iteration count; this field carries the
   // structured reason + counts from the `shepherd.escalated` event so

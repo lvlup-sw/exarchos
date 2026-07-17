@@ -116,7 +116,7 @@ export interface PruneSelection {
  * it's the first thing we'd want to look up, so we include it when we have it.
  */
 export interface PruneMalformedEntry {
-  featureId?: string;
+  featureId?: string | undefined;
   reason: string;
 }
 

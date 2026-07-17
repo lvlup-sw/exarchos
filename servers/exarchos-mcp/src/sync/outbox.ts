@@ -17,7 +17,7 @@ export interface OutboxOptions {
 
 export class Outbox {
   private readonly locks = new Map<string, Promise<void>>();
-  private readonly backend?: StorageBackend;
+  private readonly backend?: StorageBackend | undefined;
 
   constructor(private readonly stateDir: string, options?: OutboxOptions) {
     this.backend = options?.backend;

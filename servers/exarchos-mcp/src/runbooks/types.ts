@@ -82,7 +82,7 @@ export interface ResolvedRunbookStep {
   /** JSON Schema resolved from registry (null for native: tools) */
   readonly schema?: unknown;
   /** Action description from registry */
-  readonly description?: string;
+  readonly description?: string | undefined;
   /** Gate metadata from registry (null if not a gate action) */
   readonly gate?: { readonly blocking: boolean; readonly dimension?: string } | null;
   /** Platform-specific hints for native steps that reference agent specs */

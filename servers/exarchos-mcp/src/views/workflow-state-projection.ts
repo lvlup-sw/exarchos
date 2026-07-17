@@ -88,12 +88,12 @@ interface MergeOrchestratorView {
   sourceBranch?: string;
   targetBranch?: string;
   taskId?: string;
-  strategy?: 'squash' | 'rebase' | 'merge';
+  strategy?: 'squash' | 'rebase' | 'merge' | undefined;
   rollbackSha?: string;
   mergeSha?: string;
-  reason?: 'merge-failed' | 'verification-failed' | 'timeout';
+  reason?: 'merge-failed' | 'verification-failed' | 'timeout' | undefined;
   rollbackError?: string;
-  recoveryError?: 'reset-keep-blocked' | 'reset-failed' | 'unexpected-mid-merge-drift';
+  recoveryError?: 'reset-keep-blocked' | 'reset-failed' | 'unexpected-mid-merge-drift' | undefined;
   abortReason?: string;
   preflight?: unknown;
   [key: string]: unknown;
@@ -117,8 +117,8 @@ interface TaskEntry {
   id: string;
   title: string;
   status: string;
-  branch?: string;
-  worktreePath?: string;
+  branch?: string | undefined;
+  worktreePath?: string | undefined;
   completedAt?: string;
   [key: string]: unknown;
 }

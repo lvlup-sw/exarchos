@@ -45,7 +45,7 @@ export interface EnvelopeWrapOptions {
    * envelope untouched — matching the prior `envelopeWrapWithCacheHints`
    * guard, which only applied hints when a resolver was present.
    */
-  readonly cacheHintsResolver?: CapabilityResolver;
+  readonly cacheHintsResolver?: CapabilityResolver | undefined;
 }
 
 /**

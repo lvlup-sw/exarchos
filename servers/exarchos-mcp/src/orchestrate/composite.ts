@@ -344,7 +344,7 @@ function adaptSetupWorktree(): ActionHandler {
     let workflowState:
       | {
           tasks?: Array<{ id: string; branch?: string }>;
-          synthesis?: { integrationBranch?: string };
+          synthesis?: { integrationBranch?: string } | undefined;
         }
       | undefined;
 

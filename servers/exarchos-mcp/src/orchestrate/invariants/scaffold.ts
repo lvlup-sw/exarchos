@@ -37,14 +37,14 @@ export interface HandleScaffoldArgs {
   /** Repo root the target path + `.exarchos.yml` resolve against. */
   readonly repoRoot: string;
   /** Repo-relative path of the catalog file to create. Defaults per tier. */
-  readonly path?: string;
+  readonly path?: string | undefined;
   /** Privilege tier of the catalog. Defaults to `user`. */
-  readonly tier?: 'dev' | 'user';
+  readonly tier?: 'dev' | 'user' | undefined;
   /**
    * Opt-in to author into exarchos's reserved `dev` namespace from a non-exarchos
    * repo. Almost always a mistake outside the exarchos repo itself (#1489).
    */
-  readonly allowReservedTier?: boolean;
+  readonly allowReservedTier?: boolean | undefined;
 }
 
 /** Result of the catalog-file write step. */

@@ -35,9 +35,9 @@ export interface CheckCatalog {
 export interface PluginFinding {
   readonly source: string;
   readonly severity: CheckSeverity;
-  readonly dimension?: string;
-  readonly file?: string;
-  readonly line?: number;
+  readonly dimension?: string | undefined;
+  readonly file?: string | undefined;
+  readonly line?: number | undefined;
   readonly message: string;
 }
 

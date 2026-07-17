@@ -125,7 +125,7 @@ async function mergeOneSidecar(
       const beforeSeq = await getStreamSequence(eventStore, streamId);
       await eventStore.append(
         streamId,
-        { type: type as WorkflowEvent['type'], data, timestamp },
+        { type: type as WorkflowEvent['type'], data, ...(timestamp !== undefined ? { timestamp } : {}) },
         idempotencyKey ? { idempotencyKey } : undefined,
       );
       const afterSeq = await getStreamSequence(eventStore, streamId);

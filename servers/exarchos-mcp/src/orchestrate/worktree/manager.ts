@@ -392,9 +392,9 @@ export interface PruneOptions {
    * content is unverifiable). Effective ONLY together with {@link yes} on an
    * `apply` run — `--prune-orphans --yes`.
    */
-  readonly pruneOrphans?: boolean;
+  readonly pruneOrphans?: boolean | undefined;
   /** Explicit confirmation required alongside {@link pruneOrphans} for orphans. */
-  readonly yes?: boolean;
+  readonly yes?: boolean | undefined;
 }
 
 /** Per-candidate line of a {@link PruneResult}. */

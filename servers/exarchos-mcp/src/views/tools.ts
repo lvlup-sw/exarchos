@@ -222,9 +222,9 @@ export function hasCorrelationFilters(filters?: ViewQueryFilters): boolean {
  * correlation tuple back into every telemetry call.
  */
 export function deriveCorrelationFilters(args: {
-  operationId?: string;
-  correlationId?: string;
-  causationId?: string;
+  operationId?: string | undefined;
+  correlationId?: string | undefined;
+  causationId?: string | undefined;
 }): ViewQueryFilters {
   const explicit: ViewQueryFilters = {
     ...(args.operationId !== undefined ? { operationId: args.operationId } : {}),

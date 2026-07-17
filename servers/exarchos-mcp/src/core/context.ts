@@ -100,7 +100,7 @@ export async function initializeContext(
   // Configure the module-level storage backend for state operations
   configureStateStoreBackend(backend);
 
-  const eventStore = new EventStore(stateDir, { backend });
+  const eventStore = new EventStore(stateDir, backend !== undefined ? { backend } : {});
   await eventStore.initialize();
 
   // SnapshotStore is still module-level (out of scope for EventStore threading)
@@ -111,7 +111,7 @@ export async function initializeContext(
 
   // ─── Fast exit: no projectRoot → no config/vcs/hooks work ────────────────
   if (!options?.projectRoot) {
-    return { stateDir, eventStore, enableTelemetry, capabilityResolver, storage: backend };
+    return { stateDir, eventStore, enableTelemetry, capabilityResolver, ...(backend !== undefined ? { storage: backend } : {}) };
   }
 
   // ─── Cold-start aware config path ────────────────────────────────────────
@@ -168,7 +168,7 @@ export async function initializeContext(
       eventStore,
       enableTelemetry,
       capabilityResolver,
-      storage: backend,
+      ...(backend !== undefined ? { storage: backend } : {}),
       config: {},
       projectConfig,
       vcsProvider,
@@ -199,7 +199,7 @@ export async function initializeContext(
     }
   }
 
-  return { stateDir, eventStore, enableTelemetry, capabilityResolver, storage: backend, config, projectConfig, vcsProvider, hookRunner };
+  return { stateDir, eventStore, enableTelemetry, capabilityResolver, ...(backend !== undefined ? { storage: backend } : {}), config, projectConfig, vcsProvider, hookRunner };
 }
 
 /**

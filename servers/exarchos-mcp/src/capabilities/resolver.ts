@@ -30,7 +30,7 @@ import type { PhaseKind } from '../workflow/phase-kind.js';
  */
 export interface ClientHandshake {
   readonly capabilities?: {
-    readonly roots?: { readonly listChanged?: boolean };
+    readonly roots?: { readonly listChanged?: boolean | undefined } | undefined;
     /**
      * Per the MCP spec (#1274), the `elicitation` capability is signaled by
      * the client as `capabilities.elicitation: {}` — the presence of the
@@ -39,7 +39,7 @@ export interface ClientHandshake {
      * narrowed from `object` to `Record<string, unknown>` so the type
      * itself rejects array handshakes (`object` admits arrays in TS).
      */
-    readonly elicitation?: Readonly<Record<string, unknown>>;
+    readonly elicitation?: Readonly<Record<string, unknown>> | undefined;
     /**
      * Per the MCP spec (#1273), the `tasks` capability is signaled by the
      * client as `capabilities.tasks: { ... }` — the presence of the object
@@ -55,9 +55,9 @@ export interface ClientHandshake {
      * handshakes — `typeof [] === 'object'` so the looser type would admit
      * a malformed array declaration.
      */
-    readonly tasks?: Readonly<Record<string, unknown>>;
+    readonly tasks?: Readonly<Record<string, unknown>> | undefined;
     readonly [k: string]: unknown;
-  };
+  } | undefined;
 }
 
 /**

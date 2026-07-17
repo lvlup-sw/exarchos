@@ -59,8 +59,8 @@ export class InquirerPromptAdapter implements PromptAdapter {
       choices: options.map((opt) => ({
         name: opt.label,
         value: opt.value,
-        description: opt.description,
-        disabled: opt.disabled,
+        ...(opt.description !== undefined ? { description: opt.description } : {}),
+        ...(opt.disabled !== undefined ? { disabled: opt.disabled } : {}),
       })),
     });
   }
@@ -71,9 +71,9 @@ export class InquirerPromptAdapter implements PromptAdapter {
       choices: options.map((opt) => ({
         name: opt.label,
         value: opt.value,
-        description: opt.description,
-        disabled: opt.disabled,
-        checked: opt.selected,
+        ...(opt.description !== undefined ? { description: opt.description } : {}),
+        ...(opt.disabled !== undefined ? { disabled: opt.disabled } : {}),
+        ...(opt.selected !== undefined ? { checked: opt.selected } : {}),
       })),
     });
   }
@@ -81,14 +81,14 @@ export class InquirerPromptAdapter implements PromptAdapter {
   async confirm(message: string, defaultValue?: boolean): Promise<boolean> {
     return inquirerConfirm({
       message,
-      default: defaultValue,
+      ...(defaultValue !== undefined ? { default: defaultValue } : {}),
     });
   }
 
   async text(message: string, placeholder?: string): Promise<string> {
     return inquirerInput({
       message,
-      default: placeholder,
+      ...(placeholder !== undefined ? { default: placeholder } : {}),
     });
   }
 }

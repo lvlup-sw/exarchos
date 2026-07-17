@@ -44,13 +44,13 @@ export type GatePreflightOutcome =
 
 export interface GatePreflightParams {
   /** The feature/stream id — absent → INVALID_INPUT. */
-  readonly featureId?: string;
+  readonly featureId?: string | undefined;
   /** The task id — forwarded to the `'auto'` repoRoot resolver; required only when {@link requireTaskId}. */
-  readonly taskId?: string;
+  readonly taskId?: string | undefined;
   /** `repoRoot` input: a literal path, `'auto'`, or undefined (→ process.cwd()). */
-  readonly repoRoot?: string;
+  readonly repoRoot?: string | undefined;
   /** Explicit worktree path — preferred resolver seam for `repoRoot:'auto'`. */
-  readonly worktreePath?: string;
+  readonly worktreePath?: string | undefined;
   /** Handler name stamped into the MISWIRED_CONTEXT message (e.g. `'handleContractDrift'`). */
   readonly handlerName: string;
   /** When true, an absent `taskId` is an INVALID_INPUT — the per-task gate contract. */
@@ -120,14 +120,14 @@ export interface PolicySkipParams {
   readonly featureId: string;
   readonly taskId: string;
   /** The task branch — emitted into `details.branch` only when present. */
-  readonly branch?: string;
+  readonly branch?: string | undefined;
   /** Idempotency key for the emission (INV-8). */
-  readonly operationId?: string;
+  readonly operationId?: string | undefined;
 
   // ── the stamped verification profile consulted by resolvePolicySkip ────────
-  readonly riskTier?: RiskTier;
-  readonly boundaryTouching?: boolean;
-  readonly projectConfig?: ResolvedProjectConfig;
+  readonly riskTier?: RiskTier | undefined;
+  readonly boundaryTouching?: boolean | undefined;
+  readonly projectConfig?: ResolvedProjectConfig | undefined;
 
   // ── per-gate emission shape (preserved, NOT coalesced) ─────────────────────
   /** Gate name resolvePolicySkip checks against the resolved sequence (e.g. `'check_contract_drift'`). */

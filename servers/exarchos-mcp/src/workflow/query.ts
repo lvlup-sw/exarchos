@@ -144,7 +144,7 @@ export interface TaskDriftReport {
 
 interface NativeTaskFile {
   readonly id: string;
-  readonly subject?: string;
+  readonly subject?: string | undefined;
   readonly status: string;
 }
 

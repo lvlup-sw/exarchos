@@ -57,7 +57,7 @@ export interface RunIntegrationSuiteInput {
    * (#1537) so the monorepo-root / workspace layout — or a `.exarchos.yml`
    * override — picks the right command instead of a hardcoded `test:run`.
    */
-  readonly testScript?: string;
+  readonly testScript?: string | undefined;
   /**
    * Toolchain detector seam (defaults to {@link detectToolchain}). Injected in
    * tests; production may thread a config-aware detector so `.exarchos.yml`

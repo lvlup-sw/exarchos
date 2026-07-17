@@ -605,9 +605,9 @@ export async function handleSet(
           error: {
             code: 'CHECKPOINT_REQUIRED' as typeof ErrorCode[keyof typeof ErrorCode],
             message: `Checkpoint required before phase transition: ${gateResult.operationsSince} operations since last checkpoint (threshold: ${gateResult.threshold})`,
-            gate: gateResult.gate,
-            operationsSince: gateResult.operationsSince,
-            threshold: gateResult.threshold,
+            ...(gateResult.gate !== undefined ? { gate: gateResult.gate } : {}),
+            ...(gateResult.operationsSince !== undefined ? { operationsSince: gateResult.operationsSince } : {}),
+            ...(gateResult.threshold !== undefined ? { threshold: gateResult.threshold } : {}),
           },
         };
       }
@@ -847,7 +847,7 @@ export async function handleSet(
         }
         return {
           success: false,
-          error: errorPayload as ToolResult['error'],
+          error: errorPayload as NonNullable<ToolResult['error']>,
         };
       }
 

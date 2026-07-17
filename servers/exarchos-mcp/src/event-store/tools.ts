@@ -155,14 +155,14 @@ export async function handleEventAppend(
         const validatedEvent = buildValidatedEvent(args.stream, 1, {
           type: eventType,
           data: persistedData,
-          correlationId: args.event.correlationId as string | undefined,
-          causationId: args.event.causationId as string | undefined,
-          agentId: args.event.agentId as string | undefined,
-          agentRole: args.event.agentRole as string | undefined,
-          tenantId: args.event.tenantId as string | undefined,
-          organizationId: args.event.organizationId as string | undefined,
-          source: args.event.source as string | undefined,
-          timestamp: args.event.timestamp as string | undefined,
+          ...(args.event.correlationId !== undefined ? { correlationId: args.event.correlationId as string } : {}),
+          ...(args.event.causationId !== undefined ? { causationId: args.event.causationId as string } : {}),
+          ...(args.event.agentId !== undefined ? { agentId: args.event.agentId as string } : {}),
+          ...(args.event.agentRole !== undefined ? { agentRole: args.event.agentRole as string } : {}),
+          ...(args.event.tenantId !== undefined ? { tenantId: args.event.tenantId as string } : {}),
+          ...(args.event.organizationId !== undefined ? { organizationId: args.event.organizationId as string } : {}),
+          ...(args.event.source !== undefined ? { source: args.event.source as string } : {}),
+          ...(args.event.timestamp !== undefined ? { timestamp: args.event.timestamp as string } : {}),
         });
         const event = await store.appendValidated(
           args.stream,
@@ -213,15 +213,15 @@ export async function handleEventAppend(
     // Sequence 1 is a placeholder — appendValidated overwrites it with the real sequence
     const validatedEvent = buildValidatedEvent(args.stream, 1, {
       type: eventType,
-      data: args.event.data as Record<string, unknown> | undefined,
-      correlationId: args.event.correlationId as string | undefined,
-      causationId: args.event.causationId as string | undefined,
-      agentId: args.event.agentId as string | undefined,
-      agentRole: args.event.agentRole as string | undefined,
-      tenantId: args.event.tenantId as string | undefined,
-      organizationId: args.event.organizationId as string | undefined,
-      source: args.event.source as string | undefined,
-      timestamp: args.event.timestamp as string | undefined,
+      ...(args.event.data !== undefined ? { data: args.event.data as Record<string, unknown> } : {}),
+      ...(args.event.correlationId !== undefined ? { correlationId: args.event.correlationId as string } : {}),
+      ...(args.event.causationId !== undefined ? { causationId: args.event.causationId as string } : {}),
+      ...(args.event.agentId !== undefined ? { agentId: args.event.agentId as string } : {}),
+      ...(args.event.agentRole !== undefined ? { agentRole: args.event.agentRole as string } : {}),
+      ...(args.event.tenantId !== undefined ? { tenantId: args.event.tenantId as string } : {}),
+      ...(args.event.organizationId !== undefined ? { organizationId: args.event.organizationId as string } : {}),
+      ...(args.event.source !== undefined ? { source: args.event.source as string } : {}),
+      ...(args.event.timestamp !== undefined ? { timestamp: args.event.timestamp as string } : {}),
     });
 
     // Append without re-validating (already validated above)

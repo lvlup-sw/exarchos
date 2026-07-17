@@ -90,7 +90,7 @@ export interface ResolveWorkspaceOpts {
    * removed). Optional: CLI/legacy callers that omit it fall back to the
    * file scan.
    */
-  readonly storage?: StorageBackend;
+  readonly storage?: StorageBackend | undefined;
 }
 
 // ─── Pure detector ──────────────────────────────────────────────────────────

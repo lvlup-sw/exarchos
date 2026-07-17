@@ -57,8 +57,8 @@ export interface ActionItem {
   readonly pr: number;
   readonly description: string;
   readonly severity: 'critical' | 'major' | 'minor';
-  readonly file?: string;
-  readonly line?: number;
+  readonly file?: string | undefined;
+  readonly line?: number | undefined;
   readonly reviewer?: ReviewerKind;
   readonly threadId?: string;
   readonly raw?: unknown;

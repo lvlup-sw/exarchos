@@ -34,7 +34,7 @@ export interface ConcurrencyErrorOptions {
    * downstream observers can correlate retries back to the originating
    * command id.
    */
-  readonly operationId?: string;
+  readonly operationId?: string | undefined;
 }
 
 export class ConcurrencyError extends Error {
@@ -42,7 +42,7 @@ export class ConcurrencyError extends Error {
   readonly reducerId: string;
   readonly expectedVersion: number;
   readonly actualVersion: number;
-  readonly operationId?: string;
+  readonly operationId?: string | undefined;
 
   constructor(opts: ConcurrencyErrorOptions) {
     super(

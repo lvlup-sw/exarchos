@@ -17,9 +17,9 @@ import { readManifestEntries } from './manifest.js';
 // ─── Public Types ───────────────────────────────────────────────────────────
 
 export interface SessionProvenanceQuery {
-  sessionId?: string;
-  workflowId?: string;
-  metric?: 'cost' | 'attribution';
+  sessionId?: string | undefined;
+  workflowId?: string | undefined;
+  metric?: 'cost' | 'attribution' | undefined;
 }
 
 export interface SessionProvenanceResult {

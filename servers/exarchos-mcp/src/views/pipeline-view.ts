@@ -34,8 +34,8 @@ export const MAX_STACK_POSITIONS = 100;
 export interface StackPosition {
   position: number;
   taskId: string;
-  branch?: string;
-  prUrl?: string;
+  branch?: string | undefined;
+  prUrl?: string | undefined;
 }
 
 // ─── Measured-size summary variant (DR-3) ────────────────────────────────────
@@ -84,7 +84,7 @@ export interface PipelineViewState {
    * `repoRoot` (treated as unscoped by the repo-scoping filter). Purely folded —
    * the projection performs NO lookup to populate it.
    */
-  repoRoot?: string;
+  repoRoot?: string | undefined;
   /**
    * ISO timestamp of the last folded event — used by handlers to expose
    * `projectionAsOf` and `_meta.projectionLag` on the response envelope

@@ -316,7 +316,7 @@ function validateTierModels(tierModels: Record<RiskTier, ModelId>): void {
  * into a canonical `ResolvedDimensionConfig`.
  */
 function normalizeDimension(
-  value: string | { severity?: string; enabled?: boolean },
+  value: string | { severity?: string | undefined; enabled?: boolean | undefined },
 ): ResolvedDimensionConfig {
   if (typeof value === 'string') {
     return { severity: value as ResolvedDimensionConfig['severity'], enabled: true };
@@ -331,7 +331,7 @@ function normalizeDimension(
  * Normalizes a gate config into a canonical `ResolvedGateConfig`.
  */
 function normalizeGate(
-  value: { enabled?: boolean; blocking?: boolean; params?: Record<string, unknown> },
+  value: { enabled?: boolean | undefined; blocking?: boolean | undefined; params?: Record<string, unknown> | undefined },
 ): ResolvedGateConfig {
   return {
     enabled: value.enabled ?? true,
@@ -344,7 +344,7 @@ function normalizeGate(
  * Normalizes a hook action, applying default timeout.
  */
 function normalizeHookAction(
-  action: { command: string; timeout?: number },
+  action: { command: string; timeout?: number | undefined },
 ): { readonly command: string; readonly timeout: number } {
   return {
     command: action.command,

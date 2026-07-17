@@ -122,9 +122,9 @@ interface ProjectedTask {
   task: Task;
   request: Request;
   requestId: RequestId;
-  result?: Result;
+  result?: Result | undefined;
   /** Wall-clock expiration; undefined when ttl is null (unlimited). */
-  expiresAt?: number;
+  expiresAt?: number | undefined;
   /**
    * FINDING-2 (#1438, PR 2): tail sequence at the last successful fold.
    * `loadTask` compares this against `EventStore.tailSequence(stream)` on
@@ -721,7 +721,7 @@ export class EventSourcedTaskStore implements TaskStore {
             taskId: lastPageEntry.task.taskId,
           })
         : undefined;
-    return { tasks, nextCursor };
+    return { tasks, ...(nextCursor !== undefined ? { nextCursor } : {}) };
   }
 
   // ─── Internals ─────────────────────────────────────────────────────────

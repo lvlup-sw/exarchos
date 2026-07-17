@@ -722,7 +722,7 @@ export function resolveVerificationRuntime(
  */
 function resolveContract(
   overrideContract: { codegen?: string; diff?: string } | undefined,
-  configContract: { codegen?: string | null; diff?: string | null } | undefined,
+  configContract: { codegen?: string | null | undefined; diff?: string | null | undefined } | undefined,
   userContract: ContractCommands | null,
 ): ContractCommands | null {
   const codegen =
