@@ -21,9 +21,11 @@
 //
 // T16 extends this with the `phase: 'rolled-back'` branch: the pure executor
 // has already run the INV-14 recovery ladder (`git merge --abort` →
-// `git reset --keep <recoveryPointSha>`), so the handler emits a
-// `merge.rollback` event (categorized reason: 'merge-failed' |
-// 'verification-failed' | 'timeout') and returns a structured error.
+// `git reset --keep <recoveryPointSha>`), so the handler emits the canonical
+// `merge.recovered` event (categorized reason: 'merge-failed' |
+// 'verification-failed' | 'timeout') and returns a structured error. (DR-2 /
+// task 006 retired the legacy `merge.rollback` write path — it stays
+// read-tolerant for replay but is no longer emitted here.)
 // ───────────────────────────────────────────────────────────────────────────
 
 import { defaultGitExec } from './git-exec-default.js';
@@ -585,11 +587,11 @@ export async function handleExecuteMerge(
     // Distinct event from `merge.executed`: the side effect record vs. the
     // lifecycle-terminated record. Future work may interpose post-merge
     // verification between the two. Idempotency-key suffix `:merge.completed`
-    // keeps this dedup row separate from the executed/rollback rows on the
+    // keeps this dedup row separate from the executed/recovered rows on the
     // same stream.
     //
     // CAS against a FRESH stream-tail read — the SAME high-water-mark idiom
-    // the `merge.executed` and `merge.rollback` sites use. We deliberately do
+    // the `merge.executed` and `merge.recovered` sites use. We deliberately do
     // NOT pin to the `merge.executed` sequence we just observed: a static pin
     // strands the workflow permanently in `executing` (Sentry r3315312847).
     // The featureId stream is shared across many event types, so any unrelated
@@ -647,7 +649,7 @@ export async function handleExecuteMerge(
       // silently flip to a terminal phase — and a later re-dispatch can still
       // complete it (the idempotency key keeps that safe). Surface a
       // categorized STATE_CONFLICT rather than letting a raw substrate error
-      // escape — symmetric with the `merge.executed`/`merge.rollback` sites.
+      // escape — symmetric with the `merge.executed`/`merge.recovered` sites.
       if (err instanceof SequenceConflictError) {
         return {
           success: false,
@@ -772,7 +774,7 @@ export async function handleExecuteMerge(
     }
     // Surface other StateStoreErrors (notably STATE_NOT_FOUND when the
     // workflow's state file is missing) as structured failures. The
-    // terminal `merge.executed` / `merge.rollback` event has already been
+    // terminal `merge.executed` / `merge.recovered` event has already been
     // appended above, so projection rebuild can still recover the terminal
     // phase from the event stream even if this write fails.
     if (err instanceof StateStoreError) {

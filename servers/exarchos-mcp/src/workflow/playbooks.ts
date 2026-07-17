@@ -455,7 +455,7 @@ register({
     {
       tool: 'exarchos_event',
       action: 'query',
-      purpose: 'Reconstruct merge timeline from merge.preflight/executed/rollback events',
+      purpose: 'Reconstruct merge timeline from merge.preflight/executed/recovered events',
     },
   ],
   events: [
@@ -470,19 +470,19 @@ register({
       fields: ['taskId', 'sourceBranch', 'targetBranch', 'mergeSha', 'rollbackSha', 'strategy'],
     },
     {
-      type: 'merge.rollback',
-      when: 'When merge fails post-commit and the rollback path runs',
-      fields: ['taskId', 'sourceBranch', 'targetBranch', 'rollbackSha', 'reason', 'rollbackError'],
+      type: 'merge.recovered',
+      when: 'When merge fails post-commit and the INV-14 recovery path runs (legacy merge.rollback is retired — read-tolerant, not emitted)',
+      fields: ['taskId', 'sourceBranch', 'targetBranch', 'recoveryPointSha', 'reason', 'recoveryError', 'recoveryErrorDetail'],
     },
   ],
   transitionCriteria:
-    'merge.executed → delegate (next worktree) | merge.rollback / merge.aborted → delegate (drop back, mergeOrchestrator terminal)',
+    'merge.executed → delegate (next worktree) | merge.recovered / merge.aborted → delegate (drop back, mergeOrchestrator terminal)',
   guardPrerequisites:
     "mergeOrchestrator.phase ∉ {completed, rolled-back, aborted} AND latest task.completed carries a worktree association",
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'Local-git merge handoff. Call exarchos_orchestrate merge_orchestrate to land the subagent worktree branch on the integration branch via local git merge with recorded rollback sha. NOT a remote PR merge — that is merge_pr in synthesize. Runs preflight (ancestry / current-branch / main-worktree / drift), records HEAD as rollback anchor, runs git merge per strategy, and on failure runs the INV-14 recovery ladder (git merge --abort → git reset --keep <rollbackSha>, never --hard). Strategy required (no default). Resumable: terminal phases (completed / rolled-back / aborted) short-circuit on re-entry. Events auto-emitted: merge.preflight carries structured guard sub-results + failureReasons; merge.executed records mergeSha; merge.rollback records reason + optional recoveryError/rollbackError. Use exarchos_event describe before any manual emission. HSM exits merge-pending back to delegate on terminal merge event. Full guidance: @skills/merge-orchestrator/SKILL.md.',
+    'Local-git merge handoff. Call exarchos_orchestrate merge_orchestrate to land the subagent worktree branch on the integration branch via local git merge with recorded rollback sha. NOT a remote PR merge — that is merge_pr in synthesize. Runs preflight (ancestry / current-branch / main-worktree / drift), records HEAD as rollback anchor, runs git merge per strategy, and on failure runs the INV-14 recovery ladder (git merge --abort → git reset --keep <rollbackSha>, never --hard). Strategy required (no default). Resumable: terminal phases (completed / rolled-back / aborted) short-circuit on re-entry. Events auto-emitted: merge.preflight carries structured guard sub-results + failureReasons; merge.executed records mergeSha; merge.recovered records reason + optional recoveryError/recoveryErrorDetail. Use exarchos_event describe before any manual emission. HSM exits merge-pending back to delegate on terminal merge event. Full guidance: @skills/merge-orchestrator/SKILL.md.',
 });
 
 register({

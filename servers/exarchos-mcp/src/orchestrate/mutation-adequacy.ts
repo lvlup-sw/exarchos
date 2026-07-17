@@ -654,8 +654,8 @@ export async function handleMutationAdequacy(
   // ── Run (injected seam). Bracket with the INV-10 liveness pair. ────────────
   //
   // DR-2 / DR-3: stamp a canonical `instanceId` on BOTH the start and terminal
-  // liveness emissions (mirroring `cli-commands/run-mutation.ts`) so a stuck
-  // mutation run is visible to `ps` and waitable via `wait --operation mutation`.
+  // liveness emissions (this handler is the sole live mutation emitter) so a
+  // stuck run is visible to `ps` and waitable via `wait --operation mutation`.
   // Without it the live emitter emitted keyless rows that `computeInFlightInstances`
   // could only pair via the DR-2 legacy singleton — one indistinguishable slot per
   // stream. Reuse the gate `operationId` when present (correlating the liveness

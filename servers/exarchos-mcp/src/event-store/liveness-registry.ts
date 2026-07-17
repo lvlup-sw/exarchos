@@ -21,10 +21,10 @@
  *   • merge    → `data.instanceId ?? data.taskId ?? \`${sourceBranch}→${targetBranch}\``
  *   • launch   → `data.instanceId ?? data.worktreeId`
  *   • mutation → `data.instanceId ?? data.operationId ?? MUTATION_LEGACY_SINGLETON_KEY`
- *     (both live emitters — `orchestrate/mutation-adequacy.ts` and
- *     `cli-commands/run-mutation.ts` — now stamp `instanceId`; the `operationId`
- *     fallback is defensive, and a truly keyless legacy row resolves to the DR-2
- *     singleton instance so it still pairs rather than being dropped)
+ *     (the live emitter — `orchestrate/mutation-adequacy.ts` — stamps
+ *     `instanceId`; the `operationId` fallback is defensive, and a truly
+ *     keyless legacy row resolves to the DR-2 singleton instance so it still
+ *     pairs rather than being dropped)
  *   • prune    → `data.instanceId ?? data.operationId`
  *
  * `instanceKeyOf` is intentionally permissive about its input: any pre-
@@ -184,7 +184,7 @@ export function livenessStartedAt(event: { readonly timestamp?: string }): strin
  * One entry per INV-10 liveness surface. See the module doc for the full
  * canonical-key contract each `instanceKeyOf` mirrors from task 003's real
  * emitters (`orchestrate/execute-merge.ts`, `launcher/liveness.ts`,
- * `cli-commands/run-mutation.ts`, `orchestrate/worktree/manager.ts`).
+ * `orchestrate/mutation-adequacy.ts`, `orchestrate/worktree/manager.ts`).
  */
 export const LIVENESS_REGISTRY: Readonly<Record<LivenessSurface, LivenessDescriptor>> = {
   merge: {
