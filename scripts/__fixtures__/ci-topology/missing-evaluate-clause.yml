@@ -1,0 +1,35 @@
+# Synthetic fixture (DR-2 self-test, direction c): `validate-no-legacy` is
+# in `ci-gate.needs` and is NOT path-filtered (its `if:` never references
+# `needs.changes.outputs.*`) — but the evaluate script has NO
+# `needs.validate-no-legacy.result` clause matched against failure|cancelled
+# at all. Trips the EVALUATE-COVERAGE assertion only.
+name: CI Fixture - Missing Evaluate Clause
+on: push
+
+jobs:
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      root: ${{ steps.filter.outputs.root }}
+    steps:
+      - run: echo noop
+
+  validate-no-legacy:
+    name: Validate No Legacy
+    needs: changes
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo noop
+
+  ci-gate:
+    name: CI Gate
+    runs-on: ubuntu-latest
+    needs: [changes, validate-no-legacy]
+    steps:
+      - name: Evaluate results
+        run: |
+          if [[ "${{ needs.changes.result }}" =~ ^(failure|cancelled)$ ]]; then
+            exit 1
+          fi
+          echo "validate-no-legacy result is never inspected"
