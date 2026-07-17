@@ -228,7 +228,13 @@ const DEPCRUISE_CONFIG = path.join(REPO_ROOT, '.dependency-cruiser.cjs');
  * the MCP `import-cycles.test.ts` lane, which uses the win32-correct spawn shim.
  */
 function defaultRunDepcruise(): DepcruiseRun {
-  const binPath = path.join(REPO_ROOT, 'node_modules', '.bin', 'depcruise');
+  // Binary path is overridable via EXARCHOS_DEPCRUISE_BIN so the DR-8 fail-closed
+  // paths (tool-missing / unparseable-output) are exercisable from the unfiltered
+  // grep-gates `.test.sh` self-test without uninstalling depcruise: point it at a
+  // missing path (→ found:false, tool-missing) or a stub that emits garbage
+  // (→ unparseable-output). Mirrors the `--refgraph` / `--manifest` seams the
+  // sibling `.mjs` gates already expose for the same reason.
+  const binPath = process.env.EXARCHOS_DEPCRUISE_BIN ?? path.join(REPO_ROOT, 'node_modules', '.bin', 'depcruise');
   const res = spawnSync(
     binPath,
     ['--config', DEPCRUISE_CONFIG, '--output-type', 'json', SRC_PREFIX],

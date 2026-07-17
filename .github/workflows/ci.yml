@@ -573,6 +573,14 @@ jobs:
       - name: Enforcer wiring gate (DR-5/DR-8, task 011)
         run: node scripts/check-enforcer-wiring.mjs
 
+      # Cross-gate fail-closed self-test (task 015, DR-8). The gate's own
+      # `.test.ts` runs only in the path-filtered `test-root` job (excludes
+      # `scripts/**`), so a scripts-only PR skips it. This `.test.sh` re-asserts
+      # the tool-missing + unparseable-output fail-closed paths on THIS
+      # unfiltered host, where they fire on every PR. Pure node, no install.
+      - name: Enforcer-wiring gate self-test (DR-8, task 015)
+        run: bash scripts/check-enforcer-wiring.test.sh
+
       - name: npm-ci-retry helper tests
         run: bash scripts/npm-ci-retry.test.sh
 
@@ -631,6 +639,20 @@ jobs:
       - name: No-circular cycle ratchet (DR-4/DR-8, task 010)
         run: npx --no-install tsx scripts/audit/cycle-gate.ts
 
+      # Cross-gate fail-closed self-tests for the two tsx-backed audit gates
+      # (task 015, DR-8). Their own `.test.ts` cases run only in the
+      # path-filtered `test-root` job (excludes `scripts/**`), so a scripts-only
+      # PR skips them. These `.test.sh` re-assert the tool-missing +
+      # unparseable-output fail-closed paths here, driving the REAL CLI via the
+      # EXARCHOS_{DEPCRUISE,KNIP}_BIN seam (a missing path / a garbage-emitting
+      # stub) — so depcruise/knip need not even be resolvable. Uses the root tsx
+      # installed by the two steps above.
+      - name: Cycle-gate ratchet self-test (DR-8, task 015)
+        run: bash scripts/audit/cycle-gate.test.sh
+
+      - name: Knip-diff gate self-test (DR-8, task 015)
+        run: bash scripts/audit/knip-diff.test.sh
+
       # Module-intent gate (task 013, DR-7/DR-8). Delegates reachability to the
       # vendored scripts/audit/refgraph.mjs detector, then requires every
       # dead-in-prod module (0 production importers) to declare intent: a
@@ -644,6 +666,15 @@ jobs:
       # scripts/check-module-intent.test.ts, run by the root unit suite (test-root).
       - name: Module-intent gate (DR-7/DR-8, task 013)
         run: node scripts/check-module-intent.mjs
+
+      # Cross-gate fail-closed self-test (task 015, DR-8). The gate's own
+      # `.test.ts` runs only in the path-filtered `test-root` job (excludes
+      # `scripts/**`), so a scripts-only PR skips it. This `.test.sh` re-asserts
+      # the tool-missing + unparseable-output fail-closed paths here (via the
+      # `--refgraph` seam: a missing detector / a garbage-emitting stub). Pure
+      # node, no install.
+      - name: Module-intent gate self-test (DR-8, task 015)
+        run: bash scripts/check-module-intent.test.sh
 
   # ─────────────────────────────────────────────────────────────────────
   # e2e-process

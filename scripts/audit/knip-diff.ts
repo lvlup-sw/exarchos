@@ -266,7 +266,13 @@ function parseIncludeArg(argv: readonly string[]): string {
 }
 
 function defaultRunKnip(include: string): KnipRun {
-  const binPath = path.join(REPO_ROOT, 'node_modules', '.bin', 'knip');
+  // Binary path is overridable via EXARCHOS_KNIP_BIN so the DR-8 fail-closed
+  // paths (tool-missing / unparseable-output) are exercisable from the
+  // unfiltered grep-gates `.test.sh` self-test without uninstalling knip:
+  // point it at a missing path (→ found:false, tool-missing) or a stub that
+  // emits garbage (→ unparseable-output). Mirrors the `--refgraph` / `--manifest`
+  // seams the sibling `.mjs` gates already expose for the same reason.
+  const binPath = process.env.EXARCHOS_KNIP_BIN ?? path.join(REPO_ROOT, 'node_modules', '.bin', 'knip');
   const res = spawnSync(
     binPath,
     ['--no-progress', '--reporter', 'json', '--include', include],

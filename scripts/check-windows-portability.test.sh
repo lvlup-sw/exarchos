@@ -114,5 +114,18 @@ repo_exit=$?
 set -e
 check "real repo is clean" 0 "$repo_exit"
 
+# ── CI-tooling exemption (task 015): the fail-closed audit gates under
+# scripts/audit (knip-diff.ts / cycle-gate.ts) call raw `spawnSync(binPath, …)`
+# with a VARIABLE bin — rule 4's shape. They are CI-only tooling that degrades
+# to fail-closed on a spawn error, so rule 4 (whose scope is "Production files
+# only") is exempted for scripts/. The real scripts/audit tree must therefore
+# scan CLEAN. Reverting the exemption reds this case (proving its teeth): the
+# two audit gates would then trip rule 4.
+set +e
+node "$GATE" --src-root "$SCRIPT_DIR/audit" >/dev/null 2>&1
+tooling_exit=$?
+set -e
+check "scripts/audit CI tooling is exempt from rule 4" 0 "$tooling_exit"
+
 echo "check-windows-portability self-test: $pass passed, $fail failed"
 [[ "$fail" == "0" ]]
