@@ -2,7 +2,7 @@
   "version": 1,
   "instrument": "scripts/check-type-debt.mjs",
   "censusHash": "43a6f656ccf3bfdd33e3633f7d70835ffd98a271b5eee5b878b532cd41b0c717",
-  "generatedAt": "2026-07-17T22:05:38.731Z",
+  "generatedAt": "2026-07-17T23:31:13.989Z",
   "generatedVia": "node scripts/check-type-debt.mjs --update",
   "files": {
     "servers/exarchos-mcp/src/adapters/mcp.ts": 2,
