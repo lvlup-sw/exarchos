@@ -688,6 +688,94 @@ describe('allReviewsPassed (synthesis ready)', () => {
     ).toBe(true);
   });
 
+  // ── DR-6: mutation NoCoverage enforcement (Check 4b — orthogonal axis) ──
+  // Reads the pre-resolved `_maxNoCoverage` injection and the folded dimension's
+  // `noCoverage` count. Blocks under block mode when noCoverage exceeds the
+  // budget — independently of the score axis (Check 4a). `mutationScore` stays
+  // untouched (INV-5b).
+
+  it('GuardCheckFour_NoCoverageExceedsBudget_BlocksUnderEnforcement', () => {
+    // Score PASSES (1.0 >= 0.4) yet 2 uncovered mutants exceed the budget of 0 —
+    // the orthogonal axis blocks the transition anyway (the exact 5-killed +
+    // NoCoverage-at-1.0 hole DR-6 closes).
+    const state = mutationBase(
+      1.0,
+      { _mutationEnforcement: 'block', _mutationThreshold: 0.4, _maxNoCoverage: 0 },
+      { noCoverage: 2 },
+    );
+    const result = guards.allReviewsPassed.evaluate(state);
+    expect(result).not.toBe(true);
+    const reason = (result as GuardFailure).reason;
+    expect(reason).toContain('NoCoverage');
+    expect(reason).toContain('budget');
+  });
+
+  it('GuardCheckFour_AllCovered_PassesUnchanged', () => {
+    // Same passing score, zero NoCoverage → the transition passes (both axes ok).
+    const state = mutationBase(
+      1.0,
+      { _mutationEnforcement: 'block', _mutationThreshold: 0.4, _maxNoCoverage: 0 },
+      { noCoverage: 0 },
+    );
+    expect(guards.allReviewsPassed.evaluate(state)).toBe(true);
+  });
+
+  it('GuardCheckFour_NoCoverageAxisIsOrthogonalToScore', () => {
+    // With NO threshold injected the score axis (4a) is inert, so a block here can
+    // ONLY come from the NoCoverage axis (4b) — proving orthogonality.
+    const state = mutationBase(
+      1.0,
+      { _mutationEnforcement: 'block', _maxNoCoverage: 0 },
+      { noCoverage: 3 },
+    );
+    const result = guards.allReviewsPassed.evaluate(state);
+    expect(result).not.toBe(true);
+    expect((result as GuardFailure).reason).toContain('NoCoverage');
+  });
+
+  it('GuardCheckFour_NoCoverageWithinExplicitBudget_Passes', () => {
+    // Budget of 5 with 3 uncovered mutants → within budget → passes.
+    const state = mutationBase(
+      1.0,
+      { _mutationEnforcement: 'block', _mutationThreshold: 0.4, _maxNoCoverage: 5 },
+      { noCoverage: 3 },
+    );
+    expect(guards.allReviewsPassed.evaluate(state)).toBe(true);
+  });
+
+  it('GuardCheckFour_AdvisoryMode_NoCoverageNeverBlocks', () => {
+    // NoCoverage enforcement is scoped to block mode. Under advisory a diff with
+    // uncovered mutants still passes review→synthesize (no secondary dead-lock).
+    const state = mutationBase(
+      1.0,
+      { _mutationEnforcement: 'advisory', _maxNoCoverage: 0 },
+      { noCoverage: 9 },
+    );
+    expect(guards.allReviewsPassed.evaluate(state)).toBe(true);
+  });
+
+  it('GuardCheckFour_NoBudgetInjected_NoCoverageNotEnforced', () => {
+    // The guard reads injected values only: block mode without a `_maxNoCoverage`
+    // injection leaves the NoCoverage axis inert (mirrors the threshold contract).
+    const state = mutationBase(
+      1.0,
+      { _mutationEnforcement: 'block' },
+      { noCoverage: 4 },
+    );
+    expect(guards.allReviewsPassed.evaluate(state)).toBe(true);
+  });
+
+  it('GuardCheckFour_SkipPassWithNoCoverage_NotEnforced', () => {
+    // A skip-pass run carries no verifiable NoCoverage count — the axis reads only
+    // a real run, so a skipped dimension is never blocked by 4b.
+    const state = mutationBase(
+      0,
+      { _mutationEnforcement: 'block', _maxNoCoverage: 0 },
+      { skipped: true, noCoverage: 4 },
+    );
+    expect(guards.allReviewsPassed.evaluate(state)).toBe(true);
+  });
+
   it('SynthesisReadyGuard_RequiredDimensionPresentButFailed_ReturnsFailed', () => {
     const state: Record<string, unknown> = {
       featureId: 'test-feature',

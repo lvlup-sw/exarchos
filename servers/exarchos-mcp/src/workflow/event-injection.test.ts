@@ -540,3 +540,137 @@ describe('handleSet_PlanRevisionCapInjection', () => {
     expect((result.data as Record<string, unknown>).phase).toBe('blocked');
   });
 });
+
+// ─── DR-6 (Task 001): NoCoverage budget injection into allReviewsPassed ──────
+// The resolved `review.gates['mutation-adequacy'].params.maxNoCoverage` reaches
+// the PURE `allReviewsPassed` guard's SECOND, orthogonal axis via the reserved
+// ephemeral `_maxNoCoverage`, injected in handleSet (HIGH tier only) exactly as
+// `_mutationThreshold` is, then stripped before persistence (INV-1). This is the
+// full seam: handleSet injector → guard read → transition verdict.
+
+describe('handleSet_MaxNoCoverageInjection', () => {
+  async function driveToReviewHighTier(
+    featureId: string,
+    eventStore: EventStore,
+    mutationDimension: Record<string, unknown>,
+  ): Promise<void> {
+    await handleInit({ featureId, workflowType: 'feature' }, tmpDir, eventStore);
+    await handleSet(
+      { featureId, updates: { 'artifacts.design': 'docs/design.md' } },
+      tmpDir,
+      eventStore,
+    );
+    await handleSet({ featureId, phase: 'plan' }, tmpDir, eventStore);
+    await handleSet(
+      { featureId, updates: { 'artifacts.plan': 'docs/plan.md' } },
+      tmpDir,
+      eventStore,
+    );
+    await handleSet({ featureId, phase: 'plan-review' }, tmpDir, eventStore);
+    await handleSet(
+      { featureId, updates: { 'planReview.approved': true } },
+      tmpDir,
+      eventStore,
+    );
+    await handleSet({ featureId, phase: 'delegate' }, tmpDir, eventStore);
+    await handleSet(
+      { featureId, updates: { tasks: [{ id: 't1', status: 'complete' }] } },
+      tmpDir,
+      eventStore,
+    );
+    // Subagent mode — no team events; delegate → review passes.
+    await handleSet({ featureId, phase: 'review' }, tmpDir, eventStore);
+    // HIGH tier (so the injector fires) + the folded reviews: the
+    // mutation-adequacy dimension carries `noCoverage` (as DR-6's projection
+    // fold produces it) and a PASSING score, so only the NoCoverage axis can
+    // decide the review → synthesize transition.
+    await handleSet(
+      {
+        featureId,
+        updates: {
+          riskTier: 'high',
+          reviews: {
+            review: { status: 'pass' },
+            'mutation-adequacy': mutationDimension,
+          },
+        },
+      },
+      tmpDir,
+      eventStore,
+    );
+  }
+
+  const enforceOpts = (maxNoCoverage: number) => ({
+    mutationEnforcement: 'block' as const,
+    mutationThreshold: 0.4,
+    maxNoCoverage,
+    requiredReviews: ['review', 'mutation-adequacy'],
+  });
+
+  it('BlockMode_NoCoverageExceedsInjectedBudget_TransitionGuarded', async () => {
+    const eventStore = new EventStore(tmpDir);
+    await driveToReviewHighTier('noco-block', eventStore, {
+      status: 'pass',
+      passed: true,
+      mutationScore: 1.0,
+      noCoverage: 2,
+    });
+
+    // Budget 0 + 2 uncovered mutants → the injected axis blocks the transition,
+    // even though the score (1.0) passes — proving config → guard reach.
+    const result = await handleSet(
+      { featureId: 'noco-block', phase: 'synthesize' },
+      tmpDir,
+      eventStore,
+      enforceOpts(0),
+    );
+
+    expect(result.success).toBe(false);
+    expect((result.error as Record<string, unknown>).code).toBe('GUARD_FAILED');
+    expect((result.error as Record<string, unknown>).message).toContain('NoCoverage');
+  });
+
+  it('BlockMode_NoCoverageWithinInjectedBudget_TransitionSucceeds', async () => {
+    const eventStore = new EventStore(tmpDir);
+    await driveToReviewHighTier('noco-ok', eventStore, {
+      status: 'pass',
+      passed: true,
+      mutationScore: 1.0,
+      noCoverage: 2,
+    });
+
+    // Budget 5 ≥ 2 uncovered → within budget → the transition proceeds.
+    const result = await handleSet(
+      { featureId: 'noco-ok', phase: 'synthesize' },
+      tmpDir,
+      eventStore,
+      enforceOpts(5),
+    );
+
+    expect(result.success).toBe(true);
+    expect((result.data as Record<string, unknown>).phase).toBe('synthesize');
+  });
+
+  it('BlockMode_InjectedBudget_NotPersisted_INV1', async () => {
+    const eventStore = new EventStore(tmpDir);
+    await driveToReviewHighTier('noco-strip', eventStore, {
+      status: 'pass',
+      passed: true,
+      mutationScore: 1.0,
+      noCoverage: 0,
+    });
+
+    await handleSet(
+      { featureId: 'noco-strip', phase: 'synthesize' },
+      tmpDir,
+      eventStore,
+      enforceOpts(0),
+    );
+
+    // INV-1: the injected config budget is transient — never folded into state.
+    const raw = JSON.parse(
+      await fs.readFile(path.join(tmpDir, 'noco-strip.state.json'), 'utf-8'),
+    );
+    expect(raw._maxNoCoverage).toBeUndefined();
+  });
+});

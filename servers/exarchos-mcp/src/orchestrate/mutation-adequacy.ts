@@ -223,6 +223,17 @@ export function parseMutationReport(input: unknown): ParseResult {
 /** Soft default adequacy threshold (design §4.6 — ~40% per the observed distribution). */
 export const DEFAULT_MUTATION_THRESHOLD = 0.4;
 
+/**
+ * DR-6: default NoCoverage budget for a diff-scoped run — ZERO uncovered changed
+ * mutants. On a *diff*-scoped gate the changed line is the subject, so an
+ * uncovered changed line is exactly the "test executes nothing" defect the gate
+ * exists for. NoCoverage is deterministic (runner-budget-insensitive), making it
+ * the safest axis to block on — while the survivor threshold stays the
+ * flake-budget-sensitive one. A project relaxes the budget with an explicit
+ * `review.gates['mutation-adequacy'].params.maxNoCoverage`.
+ */
+export const DEFAULT_MAX_NO_COVERAGE = 0;
+
 /** The gate name + review layer this action stamps (INV-2: declared once here). */
 export const MUTATION_GATE_NAME = 'mutation-adequacy';
 const MUTATION_GATE_LAYER = 'review';
@@ -269,6 +280,15 @@ export interface MutationAdequacyArgs {
   readonly operationId?: string;
   /** Adequacy threshold override; falls back to config, then the soft default. */
   readonly threshold?: number;
+  /**
+   * DR-6: NoCoverage budget for a diff-scoped run — a SECOND, ORTHOGONAL blocking
+   * axis. For diff scope, `passed = mutationScore >= threshold && noCoverage <=
+   * maxNoCoverage`; `mutationScore`'s `killed / (total − noCoverage)` definition
+   * is UNCHANGED (INV-5b — consumers keep their semantics). Falls back to config
+   * (`review.gates['mutation-adequacy'].params.maxNoCoverage`), then the default
+   * ({@link DEFAULT_MAX_NO_COVERAGE} = 0). Ignored for `scope:'full'`.
+   */
+  readonly maxNoCoverage?: number;
   /**
    * `'diff'` (default) runs scoped. `'full'` runs the whole tree — but ONLY behind
    * the explicit `offline` opt-in (DR-6); without it, `'full'` returns a deferred
@@ -483,6 +503,21 @@ function survivorAffordances(report: MutationReport): string[] {
     }
   }
   return actions;
+}
+
+/**
+ * DR-6: attribute every NoCoverage mutant to its `file:line`, order-preserving.
+ * The NoCoverage blocking axis' failure message names each uncovered changed
+ * mutant so the caller knows exactly which line executes no test.
+ */
+function noCoverageMutants(report: MutationReport): Array<{ file: string; line: number }> {
+  const out: Array<{ file: string; line: number }> = [];
+  for (const [file, result] of Object.entries(report.files)) {
+    for (const m of result.mutants) {
+      if (m.status === 'NoCoverage') out.push({ file, line: m.location.start.line });
+    }
+  }
+  return out;
 }
 
 /**
@@ -709,7 +744,34 @@ export async function handleMutationAdequacy(
 
   const carrier = parsed.carrier;
   const threshold = resolveThreshold(args);
-  const passed = carrier.mutationScore >= threshold;
+  const maxNoCoverage = resolveMaxNoCoverage(args);
+
+  // ── DR-6: pass/fail across TWO orthogonal axes ──────────────────────────────
+  //
+  // A parsed report with `total === 0` (an empty mutatable surface — the diff
+  // changed no mutatable source) is a TRIVIAL PASS with an explicit marker:
+  // nothing to mutate is vacuously adequate, never a score-0 failure and never a
+  // degrade. This protects the review path from false blocks on
+  // server-untouching features.
+  const trivialPass = carrier.total === 0;
+
+  // The SECOND axis: NoCoverage. For a *diff*-scoped run an uncovered changed
+  // line is exactly the "test executes nothing" defect the gate exists for, and
+  // NoCoverage is deterministic, making it the safest axis to block on.
+  // `mutationScore`'s `killed / (total − noCoverage)` definition is UNCHANGED
+  // (INV-5b) — this is an additional knob, not a redefinition. Full-scope
+  // (offline) runs keep the single score axis; the budget defaults to 0.
+  const noCoverageBlocks =
+    scope === 'diff' && !trivialPass && carrier.noCoverage > maxNoCoverage;
+  const noCoverageReason = noCoverageBlocks
+    ? `mutation-adequacy: ${carrier.noCoverage} uncovered (NoCoverage) mutant(s) ` +
+      `exceed the diff-scoped budget of ${maxNoCoverage} — ` +
+      `${noCoverageMutants(parsed.report)
+        .map((u) => `${u.file}:${u.line}`)
+        .join(', ')}`
+    : undefined;
+
+  const passed = trivialPass || (carrier.mutationScore >= threshold && !noCoverageBlocks);
   const nextActions = survivorAffordances(parsed.report);
 
   // ── Emit the foldable gate.executed (004 / INV-1). Idempotent via an
@@ -755,6 +817,12 @@ export async function handleMutationAdequacy(
       noCoverage: carrier.noCoverage,
       total: carrier.total,
       threshold,
+      // DR-6 (additive, INV-5b): the resolved NoCoverage budget, an explicit
+      // trivial-pass marker for an empty mutatable surface, and — when the
+      // NoCoverage axis blocks — the file:line-attributed failure message.
+      maxNoCoverage,
+      ...(trivialPass ? { trivialPass: true } : {}),
+      ...(noCoverageReason ? { noCoverageReason } : {}),
       report: parsed.report,
       next_actions: nextActions,
     },
@@ -784,6 +852,21 @@ function resolveThreshold(args: MutationAdequacyArgs): number {
   const configured = args.projectConfig?.review.gates[MUTATION_GATE_NAME]?.params?.threshold;
   if (typeof configured === 'number') return configured;
   return DEFAULT_MUTATION_THRESHOLD;
+}
+
+/**
+ * DR-6: resolve the effective NoCoverage budget — arg override > config
+ * (`review.gates['mutation-adequacy'].params.maxNoCoverage`) > default (0). A
+ * non-finite value at any layer is rejected in favour of the next (a NaN budget
+ * would make `noCoverage > NaN` always false, silently disarming the axis).
+ */
+function resolveMaxNoCoverage(args: MutationAdequacyArgs): number {
+  if (typeof args.maxNoCoverage === 'number' && Number.isFinite(args.maxNoCoverage)) {
+    return args.maxNoCoverage;
+  }
+  const configured = args.projectConfig?.review.gates[MUTATION_GATE_NAME]?.params?.maxNoCoverage;
+  if (typeof configured === 'number' && Number.isFinite(configured)) return configured;
+  return DEFAULT_MAX_NO_COVERAGE;
 }
 
 /**
