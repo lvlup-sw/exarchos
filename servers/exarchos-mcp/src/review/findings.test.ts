@@ -41,7 +41,7 @@ describe('emitReviewFindings', () => {
     );
 
     expect(mockEventStore.append).toHaveBeenCalledTimes(1);
-    const [streamId, event] = mockEventStore.append.mock.calls[0];
+    const [streamId, event] = mockEventStore.append.mock.calls[0]!;
     expect(streamId).toBe('test-stream');
     expect(event.type).toBe('review.finding');
     expect(event.data.pr).toBe(42);
@@ -115,7 +115,7 @@ describe('emitReviewFindings', () => {
     );
 
     expect(mockEventStore.append).toHaveBeenCalledTimes(1);
-    const [, event] = mockEventStore.append.mock.calls[0];
+    const [, event] = mockEventStore.append.mock.calls[0]!;
     expect(event.data.lineRange).toBeUndefined();
     expect(event.data.rule).toBeUndefined();
 
@@ -167,7 +167,7 @@ describe('emitReviewEscalated', () => {
     );
 
     expect(mockEventStore.append).toHaveBeenCalledTimes(1);
-    const [streamId, event] = mockEventStore.append.mock.calls[0];
+    const [streamId, event] = mockEventStore.append.mock.calls[0]!;
     expect(streamId).toBe('test-stream');
     expect(event.type).toBe('review.escalated');
     expect(event.data.pr).toBe(42);

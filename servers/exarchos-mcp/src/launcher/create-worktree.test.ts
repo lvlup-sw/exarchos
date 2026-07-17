@@ -225,9 +225,9 @@ describe('createLauncherWorktree (real git + real event store)', () => {
     expect(requested[0]!.streamId).toBe(WORKTREES_STREAM);
     expect(executed[0]!.streamId).toBe(WORKTREES_STREAM);
     // Correlated by the SAME operationId, which is the returned correlator.
-    expect(strField(requested[0], 'operationId')).toBe(result.operationId);
-    expect(strField(executed[0], 'operationId')).toBe(result.operationId);
-    expect(strField(requested[0], 'operationId')).toBe(strField(executed[0], 'operationId'));
+    expect(strField(requested[0]!, 'operationId')).toBe(result.operationId);
+    expect(strField(executed[0]!, 'operationId')).toBe(result.operationId);
+    expect(strField(requested[0]!, 'operationId')).toBe(strField(executed[0]!, 'operationId'));
   });
 
   // ─── crash between intent and terminal — precheck resumes or skips ─────────
@@ -452,7 +452,7 @@ describe('createLauncherWorktree (real git + real event store)', () => {
     );
     expect(result.ok).toBe(true);
     // The durable intent captures the `-b` branch so recovery can replay it (INV-13).
-    expect(strField(eventsOfType(store, CREATE_REQUESTED)[0], 'branch')).toBe('launch-persist');
+    expect(strField(eventsOfType(store, CREATE_REQUESTED)[0]!, 'branch')).toBe('launch-persist');
   });
 
   // ─── crash-resume replays the ORIGINAL branch, not a path-derived one ──────

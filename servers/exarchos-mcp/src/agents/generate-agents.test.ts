@@ -382,7 +382,7 @@ describe('generateAgents', () => {
         );
         const expected = fs.readFileSync(fixturePath, 'utf-8');
         const spec = SPEC_BY_ID[specId];
-        const actual = claudeAdapter.lowerSpec(spec).contents;
+        const actual = claudeAdapter.lowerSpec(spec!).contents;
         expect(actual).toBe(expected);
       },
     );

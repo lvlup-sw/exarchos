@@ -22,7 +22,7 @@ function exportedSchemaNames(source: string): string[] {
   const names: string[] = [];
   const re = /^export\s+const\s+([A-Za-z0-9_]+Schema)\b/gm;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(source)) !== null) names.push(m[1]);
+  while ((m = re.exec(source)) !== null) names.push(m[1]!);
   return names;
 }
 

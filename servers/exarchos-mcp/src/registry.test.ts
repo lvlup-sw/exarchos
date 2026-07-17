@@ -972,7 +972,7 @@ describe('TOOL_REGISTRY', () => {
       };
 
       for (const name of [...SPECIAL_BRANCH_DISPATCH]) {
-        const result = await handleOrchestrate(minimalArgs[name], ctx);
+        const result = await handleOrchestrate(minimalArgs[name]!, ctx);
         const errCode =
           result.success === false ? result.error?.code : undefined;
         expect(
@@ -3413,7 +3413,7 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
         expect(baseline, `missing baseline fixture for ${key}`).toBeDefined();
 
         // Baseline shape validates (the pre-cap emittable shape).
-        const baselineParsed = action.outputSchema.safeParse(baselineEnvelope(baseline));
+        const baselineParsed = action.outputSchema.safeParse(baselineEnvelope(baseline!));
         expect(
           baselineParsed.success,
           `${key} must admit its baseline shape: ${

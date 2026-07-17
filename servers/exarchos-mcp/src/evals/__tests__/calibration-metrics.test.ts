@@ -330,7 +330,7 @@ describe('Calibration Metrics Property Tests', () => {
           const judgeVerdicts = new Map<string, { verdict: boolean; reason: string }>();
           const limit = Math.min(cases.length, verdicts.length);
           for (let i = 0; i < limit; i++) {
-            judgeVerdicts.set(cases[i]!.caseId, verdicts[i]);
+            judgeVerdicts.set(cases[i]!.caseId, verdicts[i]!);
           }
 
           const report = computeConfusionMatrix(

@@ -172,8 +172,8 @@ describe('handleAddPrComment', () => {
     const appender = replyCtx.eventStore.getAppender();
     const [, , computeFn] = vi.mocked(appender.appendComputed).mock.calls[0]!;
     const events = await computeFn();
-    expect(events[0].type).toBe('pr.comment.requested');
-    expect((events[0].data as Record<string, unknown>).threadId).toBe(201);
+    expect(events[0]!.type).toBe('pr.comment.requested');
+    expect((events[0]!.data as Record<string, unknown>).threadId).toBe(201);
   });
 
   it('handleAddPrComment_InvalidThreadId_ReturnsInvalidInput', async () => {
@@ -199,7 +199,7 @@ describe('handleAddPrComment', () => {
     // The compute function should produce a pr.comment.requested event
     const events = await computeFn();
     expect(events).toHaveLength(1);
-    expect(events[0].type).toBe('pr.comment.requested');
+    expect(events[0]!.type).toBe('pr.comment.requested');
 
     // Phase C — pr.comment.executed must also be appended
     expect(ctx.eventStore.append).toHaveBeenCalledWith(

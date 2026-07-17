@@ -148,7 +148,7 @@ describe('diffStates (T4) — pure structural delta of two projected States', ()
         let cursor: Record<string, unknown> | unknown[];
         if (typeof target !== 'object' || target === null) {
           // The first segment dictates whether the container is an array or object.
-          cursor = /^\d+$/.test(segments[0]) ? [] : {};
+          cursor = /^\d+$/.test(segments[0]!) ? [] : {};
         } else {
           cursor = target as Record<string, unknown> | unknown[];
         }
@@ -158,7 +158,7 @@ describe('diffStates (T4) — pure structural delta of two projected States', ()
           const next = (cursor as Record<string, unknown>)[seg!];
           if (typeof next !== 'object' || next === null) {
             const child: Record<string, unknown> | unknown[] = /^\d+$/.test(
-              segments[i + 1],
+              segments[i + 1]!,
             )
               ? []
               : {};

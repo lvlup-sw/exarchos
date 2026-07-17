@@ -86,7 +86,7 @@ describe('#1636 applyPlanStamps lifts markdown stamps onto bare tasks', () => {
     expect(tasks[0]!.riskTier).toBe('high');
     expect(tasks[0]!.boundaryTouching).toBe(true);
 
-    const c = classifyTask(tasks[0]);
+    const c = classifyTask(tasks[0]!);
     expect(c.riskTier).toBe('high');
     expect(c.boundaryTouching).toBe(true);
     expect(c.verificationSequence).toContain('check_integration_suite');

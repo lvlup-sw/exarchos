@@ -254,8 +254,8 @@ describe('handleCheckEventEmissions', () => {
     expect(dataOf(result).complete).toBe(false);
     expect(dataOf(result).missing).toBe(1);
     expect(dataOf(result).hints).toHaveLength(1);
-    expect(dataOf(result).hints[0].eventType).toBe('team.spawned');
-    expect(dataOf(result).hints[0].description).toEqual(expect.any(String));
+    expect(dataOf(result).hints[0]!.eventType).toBe('team.spawned');
+    expect(dataOf(result).hints[0]!.description).toEqual(expect.any(String));
   });
 
   it('CheckEventEmissions_MissingEvent_IncludesRequiredFields', async () => {

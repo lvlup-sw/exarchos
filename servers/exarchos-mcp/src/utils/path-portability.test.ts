@@ -82,7 +82,7 @@ describe('no hardcoded ~/.claude/ path constructions in production code', () => 
           const lines = content.split('\n');
           for (let i = 0; i < lines.length; i++) {
             for (const pattern of patterns) {
-              if (pattern.test(lines[i])) {
+              if (pattern.test(lines[i]!)) {
                 violations.push({
                   file: path.relative(srcDir, fullPath),
                   line: i + 1,

@@ -52,6 +52,9 @@ import type { GitExec } from './pure/execute-merge.js';
 import '../projections/merge-orchestrator/index.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
+/** Structural view of the failure envelope's error block (test-only). */
+type ErrEnv = { error?: { code?: string; message?: string } & Record<string, unknown> };
+
 // ─── Fixtures ──────────────────────────────────────────────────────────────
 
 const RECOVERY_POINT_SHA = 'b'.repeat(40);
@@ -238,8 +241,8 @@ describe('merge.recovered recovery-terminal CLI↔MCP parity (DR-2, task 006)', 
     // Both surfaces report the recovery failure (MERGE_ROLLED_BACK bubbles up).
     expect(cliResult.success).toBe(false);
     expect(mcpResult.success).toBe(false);
-    expect(cliResult.error?.code).toBe('MERGE_ROLLED_BACK');
-    expect(mcpResult.error?.code).toBe('MERGE_ROLLED_BACK');
+    expect((cliResult as ErrEnv).error?.code).toBe('MERGE_ROLLED_BACK');
+    expect((mcpResult as ErrEnv).error?.code).toBe('MERGE_ROLLED_BACK');
 
     // The recovery-terminal payload, read off each arm's real event stream.
     const cliData = await readRecoveredEventData(cliArm);

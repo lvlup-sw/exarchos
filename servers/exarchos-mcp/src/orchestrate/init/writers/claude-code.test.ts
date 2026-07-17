@@ -113,7 +113,7 @@ describe('atomicWriteJson', () => {
 
     await atomicWriteJson(deps, '/out.json', { a: 1, b: [2, 3] });
 
-    const parsed = JSON.parse(fs.written['/out.json.tmp']);
+    const parsed = JSON.parse(fs.written['/out.json.tmp']!);
     expect(parsed).toEqual({ a: 1, b: [2, 3] });
   });
 });
@@ -140,7 +140,7 @@ describe('claudeCodeWriter', () => {
 
     // Verify the written config has mcpServers.exarchos
     const tmpPath = '/home/user/.claude.json.tmp';
-    const content = JSON.parse(fs.written[tmpPath]);
+    const content = JSON.parse(fs.written[tmpPath]!);
     expect(content.mcpServers).toBeDefined();
     expect(content.mcpServers.exarchos).toBeDefined();
     expect(content.mcpServers.exarchos.type).toBe('stdio');
@@ -171,7 +171,7 @@ describe('claudeCodeWriter', () => {
     expect(result.status).toBe('written');
 
     const tmpPath = '/home/user/.claude.json.tmp';
-    const content = JSON.parse(fs.written[tmpPath]);
+    const content = JSON.parse(fs.written[tmpPath]!);
     expect(content.mcpServers['my-other-server']).toBeDefined();
     expect(content.mcpServers.exarchos).toBeDefined();
     expect(content.someOtherKey).toBe('preserved');
@@ -203,7 +203,7 @@ describe('claudeCodeWriter', () => {
 
     expect(result.status).toBe('written');
     const tmpPath = '/home/user/.claude.json.tmp';
-    const content = JSON.parse(fs.written[tmpPath]);
+    const content = JSON.parse(fs.written[tmpPath]!);
     // Should have updated the exarchos entry
     expect(content.mcpServers.exarchos).toBeDefined();
   });
@@ -279,7 +279,7 @@ describe('claudeCodeWriter', () => {
     await claudeCodeWriter.write(deps, defaultOptions());
 
     const tmpPath = '/home/user/.claude.json.tmp';
-    const content = JSON.parse(fs.written[tmpPath]);
+    const content = JSON.parse(fs.written[tmpPath]!);
     const entry = content.mcpServers.exarchos;
     expect(entry.type).toBe('stdio');
     expect(entry.command).toBeDefined();

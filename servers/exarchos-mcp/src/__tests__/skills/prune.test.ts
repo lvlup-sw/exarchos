@@ -42,7 +42,7 @@ function loadSkill(): { frontmatter: SkillFrontmatter; body: string; raw: string
   if (!match) {
     throw new Error(`SKILL.md missing YAML frontmatter delimited by ---: ${skillPath}`);
   }
-  const frontmatter = parseYaml(match[1]) as SkillFrontmatter;
+  const frontmatter = parseYaml(match[1]!) as SkillFrontmatter;
   return { frontmatter, body: match[2], raw };
 }
 

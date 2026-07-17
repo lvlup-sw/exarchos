@@ -112,7 +112,7 @@ describe('HsmStates kind tagging (DR-2)', () => {
       const s = ALL_HSMS[hsm]!.states[state];
       expect(s, `${hsm}.${state} must exist`).toBeDefined();
       expect(s!.type, `${hsm}.${state} must be atomic`).toBe('atomic');
-      expect(kindOf(s), `${hsm}.${state} must be kind IMPLEMENT`).toBe('IMPLEMENT');
+      expect(kindOf(s!), `${hsm}.${state} must be kind IMPLEMENT`).toBe('IMPLEMENT');
     }
   });
 

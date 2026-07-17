@@ -251,17 +251,17 @@ function deriveDesignFixture(): string {
   expect(blocks.length, 'design-template.md should ship 3 markdown example blocks').toBe(3);
 
   const optionBlockTemplate = blocks[0];
-  const option1 = substitutePlaceholders(optionBlockTemplate);
+  const option1 = substitutePlaceholders(optionBlockTemplate!);
   // Second option: re-derive from the same template block, but renumber the
   // heading/name so we get a genuinely distinct `### Option 2`.
-  const option2 = substitutePlaceholders(optionBlockTemplate)
+  const option2 = substitutePlaceholders(optionBlockTemplate!)
     .replace('### Option 1: Streaming validator', '### Option 2: Buffered validator')
     .replace(
       'Validate each record as it streams in, rejecting malformed input early.',
       'Buffer the whole input, then validate all records and report every error at once.',
     );
 
-  const structure = substitutePlaceholders(blocks[1]);
+  const structure = substitutePlaceholders(blocks[1]!);
 
   // Splice the two options into the document under Chosen Approach so the
   // single rendered document carries >= 2 `### Option N` headings AND all 7
@@ -279,7 +279,7 @@ function deriveDesignFixture(): string {
 function deriveTaskFixture(): string {
   const { blocks } = renderFromTemplate(TEMPLATES.task);
   expect(blocks.length, 'task-template.md should ship 1 markdown example block').toBe(1);
-  return substitutePlaceholders(blocks[0]);
+  return substitutePlaceholders(blocks[0]!);
 }
 
 /**
@@ -290,7 +290,7 @@ function deriveTaskFixture(): string {
 function derivePlanFixture(taskBlock: string): string {
   const { blocks } = renderFromTemplate(TEMPLATES.plan);
   expect(blocks.length, 'plan-document-template.md should ship 1 markdown example block').toBe(1);
-  const rendered = substitutePlaceholders(blocks[0]);
+  const rendered = substitutePlaceholders(blocks[0]!);
   return rendered.replace('__TASK_BREAKDOWN__', taskBlock);
 }
 

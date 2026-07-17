@@ -277,8 +277,8 @@ describe('listWorkflowSummaries backend contract', () => {
         phase: 'delegate',
       };
       // A registered sibling, so the JOIN has a matching row to find as well.
-      seed(sqlite.backend, CORPUS[0]);
-      seed(memory.backend, CORPUS[0]);
+      seed(sqlite.backend, CORPUS[0]!);
+      seed(memory.backend, CORPUS[0]!);
       seed(sqlite.backend, orphan, true);
       seed(memory.backend, orphan, true);
 

@@ -699,7 +699,7 @@ describe('generateQualityHints', () => {
       generateQualityHints(state, undefined, undefined, undefined, mockEventStore as unknown as EventStore);
 
       expect(mockEventStore.append).toHaveBeenCalledTimes(1);
-      const [, event] = mockEventStore.append.mock.calls[0];
+      const [, event] = mockEventStore.append.mock.calls[0]!;
       expect(event.data.skill).toBe('global');
     });
 
@@ -768,7 +768,7 @@ describe('generateQualityHints', () => {
 
       generateQualityHints(state, undefined, undefined, undefined, mockEventStore as unknown as EventStore);
 
-      const [, event] = mockEventStore.append.mock.calls[0];
+      const [, event] = mockEventStore.append.mock.calls[0]!;
       const categories = event.data.categories as string[];
       // Categories should be unique (no duplicates)
       expect(categories.length).toBe(new Set(categories).size);

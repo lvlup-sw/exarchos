@@ -459,7 +459,7 @@ describe('SubscriptionRegistry (DR-1 invariants)', () => {
 
           // Appends BEFORE registration: committed, but no wake reaches a
           // subscription that does not yet exist.
-          for (let i = 0; i < k; i++) log.commit(STREAM, types[i]);
+          for (let i = 0; i < k; i++) log.commit(STREAM, types[i]!);
 
           const received: WorkflowEvent[] = [];
           const filter =
@@ -471,14 +471,14 @@ describe('SubscriptionRegistry (DR-1 invariants)', () => {
           // Appends AFTER registration: each commit is followed by its
           // Tier-1 wake.
           for (let i = k; i < types.length; i++) {
-            log.commit(STREAM, types[i]);
+            log.commit(STREAM, types[i]!);
             registry.wake(STREAM);
           }
 
           const matches = (t: string) => filterTypes.length === 0 || filterTypes.includes(t);
           const expectedSeqs: number[] = [];
           for (let i = k; i < types.length; i++) {
-            if (matches(types[i])) expectedSeqs.push(i + 1); // seq is 1-based index
+            if (matches(types[i]!)) expectedSeqs.push(i + 1); // seq is 1-based index
           }
 
           const gotSeqs = received.map((e) => e.sequence);

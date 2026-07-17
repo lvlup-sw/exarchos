@@ -172,7 +172,7 @@ function scanHarnessNameBranching(source: string, members: readonly string[]): V
     switchRe.lastIndex = 0;
     let m: RegExpExecArray | null;
     while ((m = switchRe.exec(line)) !== null) {
-      if (/harness/i.test(m[1])) {
+      if (/harness/i.test(m[1]!)) {
         violations.push({ line: idx + 1, rule: 'switch-on-harness', snippet: line.trim() });
       }
     }
@@ -220,7 +220,7 @@ function scanHarnessKeyedBehaviorMap(source: string, members: readonly string[])
       violations.push({ line: idx + 1, rule: 'record-harness-arrow', snippet: line.trim() });
     }
     const idm = recordIdentRe.exec(line);
-    if (idm && fnAliasSuffix.test(idm[1])) {
+    if (idm && fnAliasSuffix.test(idm[1]!)) {
       violations.push({ line: idx + 1, rule: 'record-harness-fn-alias', snippet: line.trim() });
     }
     if (memberFnRes.some((re) => re.test(line))) {

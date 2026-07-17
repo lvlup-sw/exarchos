@@ -36,7 +36,7 @@ describe('Manifest Writer', () => {
     const lines = content.trim().split('\n');
     expect(lines).toHaveLength(1);
 
-    const parsed = JSON.parse(lines[0]);
+    const parsed = JSON.parse(lines[0]!);
     expect(parsed.sessionId).toBe('test-session-001');
     expect(parsed.transcriptPath).toBe('/home/user/.claude/projects/abc/session.jsonl');
     expect(parsed.startedAt).toBe('2026-02-24T10:00:00.000Z');

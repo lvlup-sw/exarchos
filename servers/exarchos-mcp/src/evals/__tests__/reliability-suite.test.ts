@@ -43,7 +43,7 @@ describe('reliability eval suite', () => {
       expect(lines.length).toBeGreaterThan(0);
 
       for (let i = 0; i < lines.length; i++) {
-        const parsed = JSON.parse(lines[i]);
+        const parsed = JSON.parse(lines[i]!);
         const result = EvalCaseSchema.safeParse(parsed);
         expect(result.success, `Line ${i + 1} failed validation: ${JSON.stringify(result.error?.issues)}`).toBe(true);
       }
@@ -62,7 +62,7 @@ describe('reliability eval suite', () => {
       const lines = content.split('\n').filter((l) => l.trim().length > 0);
 
       for (let i = 0; i < lines.length; i++) {
-        const evalCase = EvalCaseSchema.parse(JSON.parse(lines[i]));
+        const evalCase = EvalCaseSchema.parse(JSON.parse(lines[i]!));
         expect(evalCase.layer, `Case ${evalCase.id} at line ${i + 1} missing layer: reliability`).toBe('reliability');
       }
     }

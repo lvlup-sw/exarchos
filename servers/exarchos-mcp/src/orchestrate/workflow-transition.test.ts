@@ -31,6 +31,9 @@ import {
 } from '../__tests__/parity-harness.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
+/** Structural view of the failure envelope's error block (test-only). */
+type ErrEnv = { error?: { code?: string; message?: string } & Record<string, unknown> };
+
 // ─── Fixture ────────────────────────────────────────────────────────────────
 
 let tmpDir: string;
@@ -204,11 +207,11 @@ describe('WorkflowTransition_GuardFailure (T42, DR-5)', () => {
       expect(normalize(cliResult, opts)).toEqual(normalize(mcpResult, opts));
 
       // Spot-check the structured envelope is preserved on both arms.
-      expect(cliResult.error?.code).toBe('GUARD_FAILED');
-      expect(mcpResult.error?.code).toBe('GUARD_FAILED');
-      expect(cliResult.error?.validTargets).toEqual(mcpResult.error?.validTargets);
-      expect(cliResult.error?.suggestedFix).toEqual(mcpResult.error?.suggestedFix);
-      expect(cliResult.error?.expectedShape).toEqual(mcpResult.error?.expectedShape);
+      expect((cliResult as ErrEnv).error?.code).toBe('GUARD_FAILED');
+      expect((mcpResult as ErrEnv).error?.code).toBe('GUARD_FAILED');
+      expect((cliResult as ErrEnv).error?.validTargets).toEqual((mcpResult as ErrEnv).error?.validTargets);
+      expect((cliResult as ErrEnv).error?.suggestedFix).toEqual((mcpResult as ErrEnv).error?.suggestedFix);
+      expect((cliResult as ErrEnv).error?.expectedShape).toEqual((mcpResult as ErrEnv).error?.expectedShape);
     } finally {
       await rmrfAsync(cliDir);
       await rmrfAsync(mcpDir);

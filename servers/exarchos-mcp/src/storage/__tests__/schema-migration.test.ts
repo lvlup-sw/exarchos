@@ -709,9 +709,9 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     const seqByStream = new Map<string, number>(STREAMS.map((s) => [s, 0]));
     for (let i = 0; i < TOTAL_EVENTS; i++) {
       const streamId = STREAMS[i % STREAMS.length];
-      const seq = (seqByStream.get(streamId) ?? 0) + 1;
-      seqByStream.set(streamId, seq);
-      insertV5Event(rawDb, streamId, seq, 'task.assigned', '2024-01-01T00:00:00.000Z', {
+      const seq = (seqByStream.get(streamId!) ?? 0) + 1;
+      seqByStream.set(streamId!, seq);
+      insertV5Event(rawDb, streamId!, seq, 'task.assigned', '2024-01-01T00:00:00.000Z', {
         streamId,
         sequence: seq,
         type: 'task.assigned',

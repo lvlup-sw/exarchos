@@ -99,7 +99,7 @@ describe('emitRegressionEvents', () => {
     );
 
     expect(mockEventStore.append).toHaveBeenCalledTimes(1);
-    const [streamId, event] = mockEventStore.append.mock.calls[0];
+    const [streamId, event] = mockEventStore.append.mock.calls[0]!;
     expect(streamId).toBe('test-stream');
     expect(event.type).toBe('quality.regression');
     expect(event.data.skill).toBe('delegation');

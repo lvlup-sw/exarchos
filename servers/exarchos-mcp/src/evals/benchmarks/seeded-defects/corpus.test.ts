@@ -59,8 +59,8 @@ describe('seeded-defect corpus', () => {
     const classOrder = a.map((f) => f.gateClass);
     const firstIndexOf = (c: string) => classOrder.indexOf(c);
     for (let i = 1; i < MECHANICAL_GATE_CLASSES.length; i++) {
-      expect(firstIndexOf(MECHANICAL_GATE_CLASSES[i])).toBeGreaterThan(
-        firstIndexOf(MECHANICAL_GATE_CLASSES[i - 1]),
+      expect(firstIndexOf(MECHANICAL_GATE_CLASSES[i]!)).toBeGreaterThan(
+        firstIndexOf(MECHANICAL_GATE_CLASSES[i - 1]!),
       );
     }
     expect(firstIndexOf('dropped-edge-case')).toBe(
