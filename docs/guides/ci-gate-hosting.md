@@ -57,4 +57,4 @@ The `root` path filter excludes `scripts/**`, so `test-root`'s execution of `scr
 Widening the `root` filter to include `scripts/**` was considered and rejected: `changes.outputs.root` also arms `test-windows-root`, a chronically flaky Windows lane never proven green on `main` (#1699), and the existing `ci-gate` evaluate guard makes that lane required-not-skippable once `root == true` — every scripts-only PR would inherit a known-flaky blocking lane in exchange for closing a narrower coverage gap.
 A follow-up issue tracking this residual hole, carrying the Windows-lane (#1699) constraint as the reason a filter-widening fix was not simply applied, is filed and cited from here.
 
-**Follow-up issue pointer (filled in by the task that files it):** `<follow-up issue: TBD — filed against the scripts-filter hole above, carries the #1699 Windows-lane constraint>`
+**Follow-up issue pointer:** [lvlup-sw/exarchos#1717](https://github.com/lvlup-sw/exarchos/issues/1717) — filed against the scripts-filter hole above, carries the #1699 Windows-lane constraint.

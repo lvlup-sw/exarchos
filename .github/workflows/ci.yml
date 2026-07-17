@@ -23,6 +23,16 @@ env:
   npm_config_build_from_source: 'true'
 
 jobs:
+  # ─────────────────────────────────────────────────────────────────────
+  # Gate hosting taxonomy (DR-1): every job/gate below lives in exactly one
+  # of four host classes (zero-dep prefix unfiltered, deps-tail unfiltered,
+  # deps-unfiltered suite-shaped, deps-filtered). The decision table, the
+  # two-surface subset rule, and the non-blocking allowlist contract
+  # (scripts/ci-topology.test.ts) are documented ONCE, canonically, at
+  # docs/guides/ci-gate-hosting.md — cite it at each gate's wiring site,
+  # do not restate it here. `pr-body-check.yml` is a separate workflow,
+  # outside this aggregator's contract (see the guide's out-of-scope note).
+  # ─────────────────────────────────────────────────────────────────────
   changes:
     name: Detect Changes
     if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
@@ -370,6 +380,18 @@ jobs:
   # Releases: this job uploads per-target workflow artifacts only. Actual
   # GitHub Release publishing + SHA-512 checksums are owned by
   # `.github/workflows/release.yml` (task 2.7).
+  #
+  # DISPOSITION (DR-4, wave-S enforcement-substrate spec): NON-BLOCKING —
+  # not in `ci-gate.needs`, and recorded as such (with this rationale) in
+  # the `scripts/ci-topology.test.ts` non-blocking allowlist. Rationale:
+  # release-lane compile evidence, not a per-PR gate — the standing reason
+  # the `--minify` A/B comparison was dropped (#1703). Measured over the
+  # last 60 completed `ci.yml` runs (2026-07-17): 300/300 per-target job
+  # instances executed (5-target matrix × 60 runs), 0 failed — the low
+  # failure rate does not change the disposition, since the rationale for
+  # non-blocking is architectural (release-lane evidence), not reliability.
+  # Host class: deps, unfiltered, suite-shaped — see
+  # docs/guides/ci-gate-hosting.md.
   # ─────────────────────────────────────────────────────────────────────
   binary-matrix:
     name: Binary Matrix (${{ matrix.target }})
@@ -699,7 +721,18 @@ jobs:
   #
   # Linux only — Windows process fidelity is v2.10 P5.
   #
-  # Blocking gate as of T3.7 — closes #1109 invariants #1 and #2.
+  # DISPOSITION (DR-4, wave-S enforcement-substrate spec, corrects the stale
+  # "Blocking gate as of T3.7" claim below, which was never true — this job
+  # has never been in `ci-gate.needs`): NON-BLOCKING. Measured over the last
+  # 60 completed `ci.yml` runs (2026-07-17) via `gh api .../actions/runs/<id>/jobs`:
+  # executed 60/60 (no path filter), failed 2/60 — a 3.33% failure-rate-when-
+  # executed, both failures in the "Run process-fidelity suite" step and
+  # consistent with the known SQLITE_BUSY flake cluster. That is above the
+  # spec's 2% blocking threshold, so this job stays non-blocking and is
+  # recorded (with this measured rate) in the `scripts/ci-topology.test.ts`
+  # non-blocking allowlist. Follow-up to burn down the flake and flip this to
+  # blocking: lvlup-sw/exarchos#1718. Host class: deps, unfiltered,
+  # suite-shaped — see docs/guides/ci-gate-hosting.md.
   # ─────────────────────────────────────────────────────────────────────
   e2e-process:
     name: E2E Process (linux-x64)
@@ -828,8 +861,34 @@ jobs:
             echo "::error::Root package tests: ${{ needs.test-root.result }}"
             exit 1
           fi
+          # DR-3 (wave-S skip-guard, mirrors the test-windows/test-windows-root
+          # pattern below): test-root is REQUIRED for any root-touching PR. A
+          # generic skip is OK (non-root PRs legitimately skip test-root via
+          # `changes.outputs.root`, host class: deps, filtered — see
+          # docs/guides/ci-gate-hosting.md). But if root code DID change and
+          # the lane was skipped, that's a path-filter/matrix regression
+          # silently dropping our only Linux root-package coverage
+          # (skipped-as-passed hole) — fail closed.
+          if [[ "${{ needs.changes.outputs.root }}" == 'true' \
+             && "${{ needs.test-root.result }}" == 'skipped' ]]; then
+            echo "::error::Root package tests (test-root) skipped on a root-touching PR (path-filter/matrix regression dropped required root coverage)"
+            exit 1
+          fi
           if [[ "${{ needs.test-mcp.result }}" =~ ^(failure|cancelled)$ ]]; then
             echo "::error::MCP server tests: ${{ needs.test-mcp.result }}"
+            exit 1
+          fi
+          # DR-3 (wave-S skip-guard, mirrors the test-windows/test-windows-root
+          # pattern below): test-mcp is REQUIRED for any MCP-touching PR. A
+          # generic skip is OK (non-MCP PRs legitimately skip test-mcp via
+          # `changes.outputs.mcp`, host class: deps, filtered — see
+          # docs/guides/ci-gate-hosting.md). But if MCP code DID change and
+          # the lane was skipped, that's a path-filter/matrix regression
+          # silently dropping our only Linux MCP-package coverage
+          # (skipped-as-passed hole) — fail closed.
+          if [[ "${{ needs.changes.outputs.mcp }}" == 'true' \
+             && "${{ needs.test-mcp.result }}" == 'skipped' ]]; then
+            echo "::error::MCP server tests (test-mcp) skipped on an MCP-touching PR (path-filter/matrix regression dropped required MCP coverage)"
             exit 1
           fi
           # test-windows is BLOCKING. The Windows-portability gap (#1620) is
