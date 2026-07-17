@@ -111,6 +111,54 @@ links resolve, and the 2 inbound markdown links that point at a now-stubbed path
 files persist). No whole-tree link check was attempted (the repo's ~190 pre-existing historical-link
 breaks are out of this task's bar).
 
-## T8.032 — (reserved)
+## T8.032 — optimize the `documentation/public/logo.svg` asset (this task)
+
+**Asset shape, measured not assumed.** `documentation/public/logo.svg` is a **VTracer 0.6.5**
+full-colour raster-trace (`<!-- Generator: visioncortex VTracer 0.6.5 -->`): 6,146 `<path>` elements,
+**5,924 near-unique hex fills**, `width="2048" height="1117"`, **no `viewBox`**, **no embedded base64
+raster**. The weight is the vector geometry itself — a photographic gradient traced to per-pixel-ish
+paths — not editor cruft or an embedded bitmap. So the levers are `convertPathData` (relative coords +
+coordinate-precision quantization) and dropping the generator comment; `mergePaths`/`convertColors`
+buy little because almost every path carries a distinct colour.
+
+**Method.** `npx svgo@4.0.2 --multipass -p 1` in place (default preset + `floatPrecision: 1`).
+This strips the generator comment, converts absolute path data to compact relative commands, quantizes
+coordinates to 0.1 units on the 2048-unit canvas, and removes 4 degenerate sub-pixel/zero-area paths
+(the "hidden/zero-size" cleanup). `width`/`height` are preserved and no `viewBox` is introduced, so the
+intrinsic box and every consumer's layout are unchanged.
+
+### Byte delta (single file, optimized in place)
+
+| Metric | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| `documentation/public/logo.svg` bytes | 2,215,858 (2.11 MiB) | 729,776 (712.7 KiB) | **−1,486,082 (−67.1%)** |
+| `<path>` elements | 6,146 | 6,142 | −4 (degenerate sub-pixel paths dropped) |
+| Unique fills | 5,924 | 5,923 | −1 (colour of a dropped degenerate path) |
+| `width` × `height` | 2048 × 1117 | 2048 × 1117 | unchanged |
+| `viewBox` | absent | absent | unchanged |
+
+**Precision choice — evidence-backed, not by feel.** The asset is consumed only downscaled: as the
+docsite favicon (`link rel=icon`, ~16–32 px) and the VitePress nav logo (`themeConfig.logo`, ~24 px)
+— both from a 2,048 px source (~64× downscale). Candidate optimizations measured: precision 3 (svgo
+default) = 47.3 %; precision 2 = 58.4 %; **precision 1 = 67.1 %** (chosen). At precision 1 a coordinate
+is quantized to 0.1 px at native resolution ≈ 0.0016 px at the 32 px used size — ~450× below one
+display pixel.
+
+**Render-integrity check — structural + empirical.** Structural: the optimized file parses and renders
+(rasterized via `@resvg/resvg-js`), root is `<svg>`, `width`/`height`/`viewBox` and the full fill set
+are preserved. Empirical: original vs optimized were rasterized at 32 / 256 / 2048 px and pixel-diffed
+(per-channel, 0–255). At the **used sizes** the two are perceptually identical — 32 px: mean-abs-error
+**0.17 / 255** (0.067 %), max isolated-edge error 14; 256 px: mean 0.067 / 255, max 40. Only at full
+native 2048 px (never a used size) does isolated-edge antialiasing error rise (mean 0.037 / 255, max
+210 on hairline edges). A precision-2 build (58.4 %) would trim native max-error to 184 at the cost of
+190 KB; precision 1 was chosen because it renders identically at every *used* size while maximizing the
+debloat reduction.
+
+**Scope note — duplicate at repo root.** `exarchos-logo.svg` at the repo root is **byte-identical** to
+the pre-optimization `documentation/public/logo.svg` (same `md5 737a68b3…`). It is **out of scope** for
+this task (SCOPE = `documentation/public/logo.svg` only) and left untouched — flagged here as a
+**follow-up** candidate (re-run the same optimization, or dedupe if it is an unused stray copy). The
+build-output copy `documentation/.vitepress/dist/logo.svg` was absent (dist not built) and is generated
+output — not to be edited.
 
 Subsequent archival tasks append their measured before/after deltas here.
