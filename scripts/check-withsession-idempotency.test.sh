@@ -183,15 +183,17 @@ fi
 teardown
 
 # --------------------------------------------------
-# Test 7: EmptyDir_NoWithSessionCalls_ExitsZero
+# Test 7: EmptyDir_NoWithSessionCalls_ExitsNonZeroByDefault
 # --------------------------------------------------
+# An empty selection means the gate enforced nothing — since #1694 that is
+# a loud failure by default, not a vacuous pass.
 setup
 # No files created — empty directory
 OUTPUT="$(bash "$SCRIPT_UNDER_TEST" "$TMPDIR_ROOT" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
-if [[ $EXIT_CODE -eq 0 ]]; then
-    pass "EmptyDir_NoWithSessionCalls_ExitsZero"
+if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -q "not.*guarding anything"; then
+    pass "EmptyDir_NoWithSessionCalls_ExitsNonZeroByDefault"
 else
-    fail "EmptyDir_NoWithSessionCalls_ExitsZero (exit=$EXIT_CODE, expected 0)"
+    fail "EmptyDir_NoWithSessionCalls_ExitsNonZeroByDefault (exit=$EXIT_CODE, expected non-zero + 'not guarding anything' message)"
     echo "  Output: $OUTPUT"
 fi
 teardown
@@ -199,7 +201,10 @@ teardown
 # --------------------------------------------------
 # Test 8: TestFile_Excluded_ExitsZero
 # --------------------------------------------------
-# A .test.ts file with a non-compliant .withSession( call must be skipped
+# A .test.ts file with a non-compliant .withSession( call must be skipped.
+# Exempt-only trees are an EMPTY selection since #1694, so run with
+# --declared-dormant; if the exemption ever broke, the file would be
+# scanned and its VIOLATION would fail the run despite the flag.
 setup
 cat > "$TMPDIR_ROOT/my-handler.test.ts" << 'EOF'
 import { AtomicAppender } from '../event-store/atomic-appender.js';
@@ -211,11 +216,11 @@ const result = await appender.withSession(
   { registry },
 );
 EOF
-OUTPUT="$(bash "$SCRIPT_UNDER_TEST" "$TMPDIR_ROOT" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
-if [[ $EXIT_CODE -eq 0 ]]; then
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" --declared-dormant "$TMPDIR_ROOT" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 0 ]] && ! echo "$OUTPUT" | grep -q "VIOLATION"; then
     pass "TestFile_Excluded_ExitsZero"
 else
-    fail "TestFile_Excluded_ExitsZero (exit=$EXIT_CODE, expected 0 — .test.ts must be exempt)"
+    fail "TestFile_Excluded_ExitsZero (exit=$EXIT_CODE, expected 0 with no VIOLATION — .test.ts must be exempt)"
     echo "  Output: $OUTPUT"
 fi
 teardown
@@ -223,7 +228,8 @@ teardown
 # --------------------------------------------------
 # Test 9: UnderscoreTestsDir_Excluded_ExitsZero
 # --------------------------------------------------
-# A __tests__ file with a non-compliant call must be skipped
+# A __tests__ file with a non-compliant call must be skipped.
+# Exempt-only tree — same --declared-dormant rationale as Test 8.
 setup
 mkdir -p "$TMPDIR_ROOT/__tests__"
 cat > "$TMPDIR_ROOT/__tests__/my-handler.ts" << 'EOF'
@@ -235,11 +241,11 @@ const result = await appender.withSession(
   { registry },
 );
 EOF
-OUTPUT="$(bash "$SCRIPT_UNDER_TEST" "$TMPDIR_ROOT" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
-if [[ $EXIT_CODE -eq 0 ]]; then
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" --declared-dormant "$TMPDIR_ROOT" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 0 ]] && ! echo "$OUTPUT" | grep -q "VIOLATION"; then
     pass "UnderscoreTestsDir_Excluded_ExitsZero"
 else
-    fail "UnderscoreTestsDir_Excluded_ExitsZero (exit=$EXIT_CODE, expected 0 — __tests__/ must be exempt)"
+    fail "UnderscoreTestsDir_Excluded_ExitsZero (exit=$EXIT_CODE, expected 0 with no VIOLATION — __tests__/ must be exempt)"
     echo "  Output: $OUTPUT"
 fi
 teardown
@@ -247,7 +253,8 @@ teardown
 # --------------------------------------------------
 # Test 10: AtomicAppenderSubstrate_Excluded_ExitsZero
 # --------------------------------------------------
-# The substrate implementation file is exempt — it IS the implementation
+# The substrate implementation file is exempt — it IS the implementation.
+# Exempt-only tree — same --declared-dormant rationale as Test 8.
 setup
 mkdir -p "$TMPDIR_ROOT/servers/exarchos-mcp/src/event-store"
 cat > "$TMPDIR_ROOT/servers/exarchos-mcp/src/event-store/atomic-appender.ts" << 'EOF'
@@ -261,11 +268,11 @@ export class AtomicAppender {
   }
 }
 EOF
-OUTPUT="$(bash "$SCRIPT_UNDER_TEST" "$TMPDIR_ROOT" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
-if [[ $EXIT_CODE -eq 0 ]]; then
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" --declared-dormant "$TMPDIR_ROOT" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 0 ]] && ! echo "$OUTPUT" | grep -q "VIOLATION"; then
     pass "AtomicAppenderSubstrate_Excluded_ExitsZero"
 else
-    fail "AtomicAppenderSubstrate_Excluded_ExitsZero (exit=$EXIT_CODE, expected 0 — atomic-appender.ts must be exempt)"
+    fail "AtomicAppenderSubstrate_Excluded_ExitsZero (exit=$EXIT_CODE, expected 0 with no VIOLATION — atomic-appender.ts must be exempt)"
     echo "  Output: $OUTPUT"
 fi
 teardown
@@ -278,6 +285,9 @@ teardown
 # Previously the anchor regex matched any `.withSession(` substring,
 # even inside `//` or `*` lines — every doc reference produced a
 # spurious failure (Sentry finding #14039483).
+# Since #1694 comment-only references also do NOT count as real call
+# sites, so this fixture is an EMPTY selection: run with
+# --declared-dormant and assert no VIOLATION is emitted.
 setup
 cat > "$TMPDIR_ROOT/commented-only.ts" << 'EOF'
 import { AtomicAppender } from '../event-store/atomic-appender.js';
@@ -291,11 +301,67 @@ export function noop(): void {
   // intentionally empty — no real .withSession( calls in this file
 }
 EOF
-OUTPUT="$(bash "$SCRIPT_UNDER_TEST" "$TMPDIR_ROOT" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
-if [[ $EXIT_CODE -eq 0 ]]; then
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" --declared-dormant "$TMPDIR_ROOT" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 0 ]] && ! echo "$OUTPUT" | grep -q "VIOLATION"; then
     pass "CommentedWithSession_DoesNotTriggerFalsePositive"
 else
-    fail "CommentedWithSession_DoesNotTriggerFalsePositive (exit=$EXIT_CODE, expected 0)"
+    fail "CommentedWithSession_DoesNotTriggerFalsePositive (exit=$EXIT_CODE, expected 0 with no VIOLATION)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
+# --------------------------------------------------
+# Test 12: EmptyDir_DeclaredDormant_ExitsZeroWithDormantMarker
+# --------------------------------------------------
+# With --declared-dormant an empty selection passes, but must print a
+# loud DORMANT marker so the dormancy stays visible in CI logs (#1694).
+setup
+# No files created — empty directory
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" --declared-dormant "$TMPDIR_ROOT" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 0 ]] && echo "$OUTPUT" | grep -q "DORMANT"; then
+    pass "EmptyDir_DeclaredDormant_ExitsZeroWithDormantMarker"
+else
+    fail "EmptyDir_DeclaredDormant_ExitsZeroWithDormantMarker (exit=$EXIT_CODE, expected 0 + DORMANT marker)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
+# --------------------------------------------------
+# Test 13: CommentOnlyDir_Default_TreatedAsEmptySelection
+# --------------------------------------------------
+# Comment/doc references to .withSession( match the file selector but are
+# not real call sites — they must NOT arm the gate. In default mode a
+# comment-only tree is therefore an empty selection and fails loudly.
+# This pins the real-repo shape that made the gate vacuous (#1694): the
+# only production match was a comment in create-pr.ts.
+setup
+cat > "$TMPDIR_ROOT/comment-ref-only.ts" << 'EOF'
+// See check-withsession-idempotency.sh — callers use .withSession( with operationId.
+export function noop(): void {}
+EOF
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" "$TMPDIR_ROOT" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -q "not.*guarding anything"; then
+    pass "CommentOnlyDir_Default_TreatedAsEmptySelection"
+else
+    fail "CommentOnlyDir_Default_TreatedAsEmptySelection (exit=$EXIT_CODE, expected non-zero + 'not guarding anything' message)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
+# --------------------------------------------------
+# Test 14: FixtureA_DeclaredDormant_StillEnforcesWhenArmed
+# --------------------------------------------------
+# --declared-dormant only relaxes the EMPTY-selection case. A non-empty
+# selection scans and enforces normally regardless of the flag: a seeded
+# violating call site must still fail. Proves the scan path works when
+# the gate is armed (#1694).
+setup
+create_fixture_a_noncompliant
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" --declared-dormant "$TMPDIR_ROOT" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -q "VIOLATION"; then
+    pass "FixtureA_DeclaredDormant_StillEnforcesWhenArmed"
+else
+    fail "FixtureA_DeclaredDormant_StillEnforcesWhenArmed (exit=$EXIT_CODE, expected non-zero + VIOLATION despite --declared-dormant)"
     echo "  Output: $OUTPUT"
 fi
 teardown

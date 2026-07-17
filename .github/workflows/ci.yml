@@ -508,8 +508,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # --declared-dormant: the production withSession consumer count is
+      # intentionally zero today — the only match under src/ is a code comment.
+      # Without the flag the gate now fails loudly on an empty selection
+      # (#1694). Remove the flag when the first real .withSession( consumer
+      # lands so the gate arms itself again.
       - name: withSession idempotency contract (#1342 P1.D)
-        run: bash scripts/check-withsession-idempotency.sh servers/exarchos-mcp/src
+        run: bash scripts/check-withsession-idempotency.sh --declared-dormant servers/exarchos-mcp/src
 
       # Self-test for the gate above. It exercises the gate's own matching logic
       # against seeded fixtures in a tmpdir — it says nothing about production

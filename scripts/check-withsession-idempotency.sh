@@ -13,20 +13,51 @@
 #   - servers/exarchos-mcp/src/event-store/atomic-appender.ts  (substrate impl)
 #
 # Usage:
-#   check-withsession-idempotency.sh [<scan-dir>]
+#   check-withsession-idempotency.sh [--declared-dormant] [<scan-dir>]
 #
 # Arguments:
-#   <scan-dir>   Directory to scan. Defaults to current working directory.
+#   <scan-dir>            Directory to scan. Defaults to current working directory.
+#   --declared-dormant    Declare that zero .withSession( consumers is expected.
+#                         With this flag an empty selection passes (with a loud
+#                         DORMANT marker) instead of failing. A NON-empty
+#                         selection scans and enforces normally regardless of
+#                         the flag. Remove the flag with the first consumer.
+#
+# Empty selection (#1694): a grep gate whose selector matches zero real call
+# sites guards nothing — it passes vacuously forever. By default an empty
+# selection is therefore a FAILURE, not a pass. "Empty" means zero production
+# call sites actually scanned: zero files matched, or matched files containing
+# only comment/doc references to `.withSession(`, both count as empty.
 #
 # Exit codes:
-#   0   All .withSession( call sites are compliant (or no call sites found).
-#   1   One or more non-compliant call sites detected.
+#   0   All scanned .withSession( call sites are compliant (>=1 scanned), or
+#       the selection is empty and --declared-dormant was passed.
+#   1   One or more non-compliant call sites detected, or the selection is
+#       empty without --declared-dormant.
 
 set -euo pipefail
 
 # ─── Argument handling ───────────────────────────────────────────────────────
 
-SCAN_DIR="${1:-.}"
+DECLARED_DORMANT=false
+SCAN_DIR=""
+
+for arg in "$@"; do
+    case "$arg" in
+        --declared-dormant)
+            DECLARED_DORMANT=true
+            ;;
+        *)
+            if [[ -n "$SCAN_DIR" ]]; then
+                echo "ERROR: unexpected extra argument: $arg" >&2
+                exit 1
+            fi
+            SCAN_DIR="$arg"
+            ;;
+    esac
+done
+
+SCAN_DIR="${SCAN_DIR:-.}"
 
 if [[ ! -d "$SCAN_DIR" ]]; then
     echo "ERROR: scan directory does not exist: $SCAN_DIR" >&2
@@ -100,6 +131,9 @@ get_match_context() {
 # ─── Main scan ───────────────────────────────────────────────────────────────
 
 VIOLATIONS=0
+# Real (non-comment, non-exempt) call sites evaluated. If this stays 0 the
+# selection is empty and the gate is not guarding anything (#1694).
+SCANNED_SITES=0
 
 while IFS= read -r file; do
     # Skip the exempt substrate implementation.
@@ -128,6 +162,7 @@ while IFS= read -r file; do
     check_window() {
         local ln="$1"
         local ctx="$2"
+        SCANNED_SITES=$((SCANNED_SITES + 1))
         if echo "$ctx" | grep -qE 'operationId\s*:'; then
             return 0
         fi
@@ -190,12 +225,29 @@ done < <(find_matching_files)
 
 # ─── Result ──────────────────────────────────────────────────────────────────
 
+# Empty selection: zero real call sites were scanned, so the gate enforced
+# nothing this run. Fail loudly unless dormancy was explicitly declared (#1694).
+if [[ $SCANNED_SITES -eq 0 ]]; then
+    if [[ "$DECLARED_DORMANT" == "true" ]]; then
+        echo "check-withsession-idempotency: DORMANT: zero consumers declared expected —" \
+             "selector matched no production .withSession( call sites under $SCAN_DIR." \
+             "Remove --declared-dormant with the first consumer."
+        exit 0
+    fi
+    echo "check-withsession-idempotency: ERROR: selector matched no files with" \
+         "production .withSession( call sites under $SCAN_DIR — this gate is not" \
+         "guarding anything." >&2
+    echo "If zero consumers is intentional, pass --declared-dormant to declare the" \
+         "gate dormant (and remove the flag with the first consumer)." >&2
+    exit 1
+fi
+
 if [[ $VIOLATIONS -gt 0 ]]; then
     echo ""
     echo "check-withsession-idempotency: $VIOLATIONS violation(s) found." \
          "Each .withSession( call must include operationId: or allowNonIdempotent: true."
     exit 1
 else
-    echo "check-withsession-idempotency: OK (all .withSession( call sites are compliant)"
+    echo "check-withsession-idempotency: OK ($SCANNED_SITES .withSession( call site(s) scanned, all compliant)"
     exit 0
 fi
