@@ -1,9 +1,9 @@
 // ─── Generate Traceability Matrix ────────────────────────────────────────────
 //
 // Generates a traceability matrix from design and plan markdown documents.
-// Extracts ## and ### headers from the design file, matches them to
-// ### Task N headers in the plan file, and produces a markdown table
-// showing coverage status.
+// Extracts ## through #### headers from the design file (preferring DR-N
+// sections when present), matches them to ### / #### Task N headers in the
+// plan file, and produces a markdown table showing coverage status.
 //
 // Port of scripts/generate-traceability.sh to pure TypeScript.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -32,11 +32,19 @@ interface PlanTask {
 
 // ─── Extraction Helpers ─────────────────────────────────────────────────────
 
-/** Extract ## and ### headers from a design document. */
+/**
+ * Extract ## through #### headers from a design document. The h4 depth admits
+ * the unified `docs/specs/` template's `#### DR-N:` sections (#1654 DR-1).
+ *
+ * DR-preference rule: when ANY extracted section name is a `DR-N` requirement,
+ * ONLY the DR-N sections become matrix rows — narrative headers (Problem
+ * Statement, Technical Design, …) are context, not requirements. Designs with
+ * no DR-N sections keep the full header list (legacy behavior).
+ */
 function extractDesignSections(content: string): readonly DesignSection[] {
   const sections: DesignSection[] = [];
   for (const line of content.split('\n')) {
-    const match = line.match(/^(#{2,3})\s+(.+)/);
+    const match = line.match(/^(#{2,4})\s+(.+)/);
     if (match) {
       sections.push({
         level: match[1] ?? '',
@@ -44,14 +52,15 @@ function extractDesignSections(content: string): readonly DesignSection[] {
       });
     }
   }
-  return sections;
+  const drSections = sections.filter((s) => /^DR-\d+\b/.test(s.name));
+  return drSections.length > 0 ? drSections : sections;
 }
 
-/** Extract ### Task N headers from a plan document. */
+/** Extract ### Task N / #### Task N headers from a plan document. */
 function extractPlanTasks(content: string): readonly PlanTask[] {
   const tasks: PlanTask[] = [];
   for (const line of content.split('\n')) {
-    const match = line.match(/^###\s+Task\s+(\d+)/);
+    const match = line.match(/^#{3,4}\s+Task\s+(\d+)/);
     if (match) {
       const id = match[1] ?? '';
       const colonIndex = line.indexOf(': ');
@@ -73,7 +82,7 @@ function extractImplementsByDr(planContent: string): Map<string, readonly string
   const byDr = new Map<string, string[]>();
   let currentTaskId: string | null = null;
   for (const line of planContent.split('\n')) {
-    const taskMatch = line.match(/^###\s+Task\s+(\d+)/);
+    const taskMatch = line.match(/^#{3,4}\s+Task\s+(\d+)/);
     if (taskMatch) {
       currentTaskId = taskMatch[1] ?? null;
       continue;

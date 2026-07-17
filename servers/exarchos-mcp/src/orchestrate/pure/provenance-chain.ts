@@ -62,11 +62,13 @@ interface TaskEntry {
 /**
  * The decomposition boundary in a unified `docs/specs/` artifact (#1581 DR-6,
  * task 012): the first `## Decomposition` / `## Tasks` section heading, or the
- * first canonical `### Task <id>:` header. Everything before it is the design
- * region (the DR-N *definition* zone); everything after is the task region
- * (where `**Implements:** DR-N` *references* live).
+ * first canonical `### Task <id>:` / `#### Task <id>:` header (#1654 DR-1 —
+ * the unified template nests tasks at h4 under a `### Tasks` grouping header).
+ * Everything before it is the design region (the DR-N *definition* zone);
+ * everything after is the task region (where `**Implements:** DR-N`
+ * *references* live).
  */
-const DECOMPOSITION_BOUNDARY = /^(?:##\s+(?:Decomposition|Tasks)\b|###\s+Task\s+[A-Za-z0-9-]+:)/im;
+const DECOMPOSITION_BOUNDARY = /^(?:##\s+(?:Decomposition|Tasks)\b|#{3,4}\s+Task\s+[A-Za-z0-9-]+:)/im;
 
 /**
  * The design region of an artifact — content before the decomposition boundary.
@@ -105,7 +107,8 @@ function extractDesignRequirements(content: string): string[] {
 /**
  * Parse plan tasks and extract their Implements: DR-N references.
  *
- * Looks for ### Task headers and case-insensitive Implements: lines.
+ * Looks for ### Task (legacy plans) or #### Task (unified `docs/specs/`
+ * template, #1654 DR-1) headers and case-insensitive Implements: lines.
  */
 function extractPlanTasks(content: string): TaskEntry[] {
   const lines = content.split('\n');
@@ -115,8 +118,8 @@ function extractPlanTasks(content: string): TaskEntry[] {
   let inTask = false;
 
   for (const line of lines) {
-    // Detect task header: ### Task ...
-    const taskMatch = line.match(/^###\s+Task\s/);
+    // Detect task header: ### Task ... or #### Task ...
+    const taskMatch = line.match(/^#{3,4}\s+Task\s/);
     if (taskMatch) {
       // Save previous task
       if (inTask && currentTitle) {
@@ -212,8 +215,10 @@ export function verifyProvenanceChain(input: ProvenanceInput): ProvenanceResult 
   // tasks were authored at the wrong heading depth. Distinguish the two states.
   if (tasks.length === 0) {
     return errorResult(
-      "No '### Task' headers found in plan — 0 tasks parsed. Tasks must be " +
-        "'### Task <id>: ...' (h3); grouping headings must be h2 or shallower. " +
+      "No '### Task' or '#### Task' headers found in plan — 0 tasks parsed. " +
+        "Tasks must be '### Task <id>: ...' (h3, legacy plans) or " +
+        "'#### Task <id>: ...' (h4, unified docs/specs/ shape); grouping " +
+        'headings must be shallower than the task depth. ' +
         '(This is a parse issue, not a coverage gap.)',
     );
   }

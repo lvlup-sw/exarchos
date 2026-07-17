@@ -26,6 +26,9 @@ vi.mock('node:fs/promises', () => ({
 }));
 
 import { readFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   parseDesignSections,
   parsePlanTasks,
@@ -1030,5 +1033,336 @@ describe('handlePlanCoverage', () => {
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('NO_PLAN_TASKS');
     });
+  });
+});
+
+// ─── Unified docs/specs/ template shape (#1654, DR-1) ────────────────────────
+//
+// The unified spec template (skills-src/plan/references/spec-template.md)
+// carries DR-N definitions as `#### DR-N:` under `### Requirements (DR-N)`
+// inside `## Design & Rationale`, and tasks under a `### Tasks` grouping
+// inside `## Decomposition`. Tasks appear at h3 (the template's literal shape)
+// or h4 (the shipped docs/specs/ corpus shape) — both must parse.
+
+/**
+ * A concrete document following the unified spec template verbatim, with
+ * `taskDepth` selecting the task-header depth (both are canonical).
+ */
+function buildUnifiedSpec(taskDepth: '###' | '####'): string {
+  return [
+    '# Spec: Widget Pipeline',
+    '',
+    '**Date:** 2026-07-17 · **Feature:** `widget-pipeline` · **Depth:** standard',
+    '**Inputs:** none',
+    '',
+    '> One unified artifact: `## Design & Rationale` is the DR-N source; `## Decomposition` maps tasks → DR-N within this same document.',
+    '',
+    '## Design & Rationale',
+    '',
+    '### Problem Statement',
+    '',
+    'The widget pipeline drops records under load.',
+    '',
+    '### Chosen Approach',
+    '',
+    'Stream records through a bounded queue.',
+    '',
+    '### Requirements (DR-N)',
+    '',
+    'The DR-N identifiers below are the single source the decomposition traces against.',
+    '',
+    '#### DR-1: Bounded queue backpressure',
+    '',
+    'Records queue with backpressure instead of dropping.',
+    '',
+    '**Acceptance criteria:**',
+    '- The queue never exceeds its bound',
+    '',
+    '#### DR-2: Structured drop metrics',
+    '',
+    'Rejected records emit a structured metric.',
+    '',
+    '**Acceptance criteria:**',
+    '- Each rejection increments a counter',
+    '',
+    '### Technical Design',
+    '',
+    'A `BoundedQueue` wraps the ingest path.',
+    '',
+    '### Integration Points',
+    '',
+    '- `src/pipeline.ts` — wraps ingest',
+    '',
+    '### Alternatives considered',
+    '',
+    '- **Option B —** unbounded queue, rejected for memory risk.',
+    '',
+    '### Open Questions',
+    '',
+    '- None.',
+    '',
+    '## Decomposition',
+    '',
+    'The decomposition maps every task to one or more DR-N from the section above.',
+    '',
+    '### Scope',
+    '',
+    '**Target:** Full design',
+    '**Excluded:** None',
+    '',
+    '### Traceability matrix (DR-N → tasks)',
+    '',
+    '| DR | Requirement | Tasks |',
+    '|----|-------------|-------|',
+    '| DR-1 | Bounded queue backpressure | 001 |',
+    '| DR-2 | Structured drop metrics | 002 |',
+    '',
+    '### Tasks',
+    '',
+    'Each task carries a `riskTier` stamp.',
+    '',
+    `${taskDepth} Task 001: Add bounded queue backpressure to ingest`,
+    '',
+    '**Risk Tier:** medium',
+    '**Implements:** DR-1',
+    '**Files:**',
+    '- `src/pipeline.ts`',
+    '**Dependencies:** None',
+    '**Parallelizable:** Yes',
+    '',
+    `${taskDepth} Task 002: Emit rejection counters`,
+    '',
+    '**Risk Tier:** medium',
+    '**Test Layer:** acceptance',
+    '**Implements:** DR-2',
+    'Covers structured drop metrics for every rejected record.',
+    '**Dependencies:** None',
+    '**Parallelizable:** Yes',
+    '',
+    '### Parallelization',
+    '',
+    'Both tasks run in parallel worktrees.',
+    '',
+    '### Completion checklist',
+    '',
+    '- [ ] Every DR-N maps to at least one task',
+  ].join('\n');
+}
+
+// Repo root: this file lives at servers/exarchos-mcp/src/orchestrate/.
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
+const WLM_SPEC_PATH = resolve(REPO_ROOT, 'docs/specs/2026-07-03-wlm-6-surface-and-workflow-fixes.md');
+
+describe('unified spec template shape (#1654, DR-1)', () => {
+  it('UnifiedSpec_TemplateVerbatim_ParsesDrsAndTasks', () => {
+    for (const taskDepth of ['###', '####'] as const) {
+      const spec = buildUnifiedSpec(taskDepth);
+
+      // DR-preference: only the DR-N sections are coverage units — narrative
+      // h3s (Problem Statement, Technical Design, …) are filtered out.
+      const sections = parseDesignSections(spec);
+      expect(sections).toEqual([
+        'DR-1: Bounded queue backpressure',
+        'DR-2: Structured drop metrics',
+      ]);
+
+      const tasks = parsePlanTasks(spec);
+      expect(tasks).toEqual([
+        { id: '001', title: 'Add bounded queue backpressure to ingest' },
+        { id: '002', title: 'Emit rejection counters' },
+      ]);
+
+      // Acceptance-layer task parsing follows the widened task-header regex.
+      expect(parseAcceptanceTestTasks(spec)).toEqual([
+        { taskId: '002', taskTitle: 'Emit rejection counters', implementsDrs: ['DR-2'] },
+      ]);
+
+      // Full coverage: DR-1 matches Task 001's title; DR-2 matches only via
+      // Task 002's BODY (exercising h4 task-body extraction).
+      const result = computeCoverage(sections, tasks, spec, parseDeferredSections(spec), spec);
+      expect(result.passed).toBe(true);
+      expect(result.coverage).toEqual({ covered: 2, gaps: 0, deferred: 0, total: 2 });
+    }
+  });
+
+  it('UnifiedSpec_H4TaskBody_EndsAtShallowerHeading', () => {
+    // An h4 task's body must end at the next SHALLOWER heading (here the h3
+    // `### Parallelization`), so prose after it cannot fake body coverage.
+    const spec = [
+      '## Design & Rationale',
+      '',
+      '### Requirements (DR-N)',
+      '',
+      '#### DR-1: Bounded queue backpressure',
+      '',
+      'Records queue with backpressure.',
+      '',
+      '## Decomposition',
+      '',
+      '### Tasks',
+      '',
+      '#### Task 001: Unrelated title',
+      '',
+      '**Implements:** DR-1',
+      '',
+      '### Parallelization',
+      '',
+      'Not a task body: bounded queue backpressure keywords live here.',
+    ].join('\n');
+
+    const sections = parseDesignSections(spec);
+    const tasks = parsePlanTasks(spec);
+    const result = computeCoverage(sections, tasks, spec, []);
+
+    // The keyword-bearing prose sits OUTSIDE the task body, so DR-1 is a GAP.
+    // (Task 002 of this bundle makes **Implements:** authoritative; until
+    // then, body extraction must not leak past the h4 task's boundary.)
+    expect(result.gapSections).toEqual(['DR-1: Bounded queue backpressure']);
+  });
+
+  it('LegacyPair_TwoFileShape_Unchanged', () => {
+    // Legacy two-file shape: narrative ### sections under ## Technical Design
+    // and h3 tasks. Behavior must be byte-identical to the pre-#1654 parser.
+    const legacyDesign = [
+      '# Feature Design',
+      '',
+      '## Problem Statement',
+      '',
+      'We need a widget system.',
+      '',
+      '## Technical Design',
+      '',
+      '### Widget Component',
+      '',
+      'Renders the main UI.',
+      '',
+      '### API Client',
+      '',
+      'Handles data fetching.',
+      '',
+      '## Testing Strategy',
+      '',
+      'Unit tests.',
+    ].join('\n');
+    const legacyPlan = [
+      '# Implementation Plan',
+      '',
+      '## Tasks',
+      '',
+      '### Task 001: Create Widget Component',
+      '',
+      'Build the widget rendering layer.',
+      '',
+      '### Task 002: Create API Client',
+      '',
+      'Build the API integration.',
+    ].join('\n');
+
+    const sections = parseDesignSections(legacyDesign);
+    expect(sections).toEqual(['Widget Component', 'API Client']);
+
+    const tasks = parsePlanTasks(legacyPlan);
+    expect(tasks).toEqual([
+      { id: '001', title: 'Create Widget Component' },
+      { id: '002', title: 'Create API Client' },
+    ]);
+
+    const result = computeCoverage(sections, tasks, legacyPlan, []);
+    expect(result.passed).toBe(true);
+    expect(result.coverage).toEqual({ covered: 2, gaps: 0, deferred: 0, total: 2 });
+    expect(result.gapSections).toEqual([]);
+  });
+
+  it('LegacyH3Task_BodyRunsToNextH2_Unchanged', () => {
+    // Legacy h3-task body semantics: the body ends at the next h2 — an
+    // intervening NON-task h3 stays inside the body (pre-#1654 behavior).
+    const legacyDesign = [
+      '## Technical Design',
+      '',
+      '### Cache Layer',
+      '',
+      'Caching for performance.',
+    ].join('\n');
+    const legacyPlan = [
+      '# Plan',
+      '',
+      '### Task 001: Unrelated title',
+      '',
+      'Some work.',
+      '',
+      '### Notes',
+      '',
+      'Also touches the cache layer for performance.',
+      '',
+      '## Appendix',
+      '',
+      'Nothing.',
+    ].join('\n');
+
+    const sections = parseDesignSections(legacyDesign);
+    const tasks = parsePlanTasks(legacyPlan);
+    const result = computeCoverage(sections, tasks, legacyPlan, []);
+
+    // "Cache Layer" is covered via the task BODY, which legacy-includes the
+    // `### Notes` section up to the next h2.
+    expect(result.coverage).toEqual({ covered: 1, gaps: 0, deferred: 0, total: 1 });
+  });
+
+  it('WlmCorpusSpec_UnifiedShape_ParsesFourDrsSevenTasks', () => {
+    // Regression pin against the real shipped corpus file (#1654 acceptance
+    // criterion): 4 DRs / 7 tasks.
+    const spec = readFileSync(WLM_SPEC_PATH, 'utf-8');
+
+    const sections = parseDesignSections(spec);
+    expect(sections).toHaveLength(4);
+    expect(sections.map((s) => s.split(':')[0])).toEqual(['DR-1', 'DR-2', 'DR-3', 'DR-4']);
+
+    const tasks = parsePlanTasks(spec);
+    expect(tasks).toHaveLength(7);
+    expect(tasks.map((t) => t.id)).toEqual(['001', '002', '003', '004', '005', '006', '007']);
+    // Real names, not placeholders.
+    expect(tasks[0]?.title).toContain('surface');
+
+    const result = computeCoverage(sections, tasks, spec, parseDeferredSections(spec));
+    expect(result.coverage.total).toBe(4);
+    expect(result.coverage.gaps).toBe(0);
+  });
+
+  it('NoDesignSections_ErrorMessage_NamesBothShapes', async () => {
+    const designContent = '# Feature Design\n\n## Problem Statement\n\nSome problem.';
+    const planContent = '### Task 001: Something\n\nSome task.';
+
+    vi.mocked(readFile).mockImplementation(async (path: Parameters<typeof readFile>[0]) => {
+      const pathStr = String(path);
+      if (pathStr.includes('design')) return designContent;
+      return planContent;
+    });
+
+    const result = await handlePlanCoverage(
+      { featureId: 'feat-1', designPath: '/tmp/design.md', planPath: '/tmp/plan.md' },
+      STATE_DIR,
+      mockStore as unknown as EventStore,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('NO_DESIGN_SECTIONS');
+    expect(result.error?.message).toContain('## Design & Rationale');
+    expect(result.error?.message).toContain('## Technical Design');
+  });
+
+  it('UnifiedSpec_HandlerSinglePath_PassesCoverage', async () => {
+    // The handler seam: designPath === planPath (one unified artifact).
+    const spec = buildUnifiedSpec('####');
+    vi.mocked(readFile).mockResolvedValue(spec);
+
+    const result = await handlePlanCoverage(
+      { featureId: 'widget-pipeline', designPath: '/tmp/spec.md', planPath: '/tmp/spec.md' },
+      STATE_DIR,
+      mockStore as unknown as EventStore,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.data?.passed).toBe(true);
+    expect(result.data?.coverage).toEqual({ covered: 2, gaps: 0, deferred: 0, total: 2 });
   });
 });

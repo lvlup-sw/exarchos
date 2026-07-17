@@ -2,8 +2,13 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { verifyProvenanceChain } from './provenance-chain.js';
 import type { ProvenanceResult } from './provenance-chain.js';
+
+// Repo root: this file lives at servers/exarchos-mcp/src/orchestrate/pure/.
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..', '..');
+const WLM_SPEC_PATH = path.resolve(REPO_ROOT, 'docs/specs/2026-07-03-wlm-6-surface-and-workflow-fixes.md');
 
 describe('verifyProvenanceChain', () => {
   let tmpDir: string;
@@ -464,29 +469,165 @@ describe('verifyProvenanceChain', () => {
   // ============================================================
 
   describe('zero parsed tasks (issue #1543)', () => {
-    it('h4 tasks yield a distinct zero-tasks error, not an N/N-unmapped FAIL', () => {
+    it('too-deep tasks yield a distinct zero-tasks error naming both accepted shapes', () => {
       const designFile = writeDesign(
         ['# Design', '', 'DR-1: First requirement.', 'DR-2: Second requirement.'].join('\n'),
       );
-      // Tasks nested at h4 under an h3 cluster — extractPlanTasks finds zero h3
-      // tasks, which previously rendered as a misleading "2/2 unmapped" FAIL.
+      // Tasks nested at h5 — deeper than BOTH accepted depths (h3 legacy,
+      // h4 unified docs/specs/ shape, #1654 DR-1). extractPlanTasks finds
+      // zero tasks, which previously rendered as a misleading "2/2 unmapped"
+      // FAIL; it must surface as a parse error instead.
       const planFile = writePlan(
         [
           '# Plan',
           '',
           '### Cluster A',
           '',
-          '#### Task 1: Foo',
+          '#### Subcluster',
+          '',
+          '##### Task 1: Foo',
           '**Implements:** DR-1',
           '',
-          '#### Task 2: Bar',
+          '##### Task 2: Bar',
           '**Implements:** DR-2',
         ].join('\n'),
       );
       const result = verifyProvenanceChain({ designFile, planFile });
       expect(result.status).toBe('error');
-      expect(result.error).toMatch(/0 tasks|### Task/i);
+      expect(result.error).toMatch(/0 tasks/i);
+      // The error names both accepted shapes (#1654 DR-1 acceptance criterion).
+      expect(result.error).toContain("'### Task'");
+      expect(result.error).toContain("'#### Task'");
       expect(result.output).not.toContain('requirements unmapped');
+    });
+  });
+
+  // ============================================================
+  // UNIFIED docs/specs/ TEMPLATE SHAPE (#1654, DR-1)
+  // ============================================================
+  //
+  // The unified spec template nests DR-N definitions as `#### DR-N:` under
+  // `### Requirements (DR-N)` inside `## Design & Rationale`, and tasks as
+  // `#### Task NNN:` under a `### Tasks` grouping inside `## Decomposition`.
+  // Both the h3 (legacy) and h4 (unified) task depths must parse; the
+  // decomposition boundary must trigger on either depth.
+  describe('unified spec template shape (#1654, DR-1)', () => {
+    it('UnifiedSpec_TemplateVerbatim_ParsesDrsAndTasks', () => {
+      const spec = path.join(tmpDir, 'spec.md');
+      fs.writeFileSync(
+        spec,
+        [
+          '# Spec: Widget Pipeline',
+          '',
+          '## Design & Rationale',
+          '',
+          '### Problem Statement',
+          '',
+          'The widget pipeline drops records under load.',
+          '',
+          '### Requirements (DR-N)',
+          '',
+          '#### DR-1: Bounded queue backpressure',
+          '',
+          'Records queue with backpressure instead of dropping.',
+          '',
+          '#### DR-2: Structured drop metrics',
+          '',
+          'Rejected records emit a structured metric.',
+          '',
+          '## Decomposition',
+          '',
+          '### Tasks',
+          '',
+          '#### Task 001: Add the bounded queue',
+          '',
+          '**Implements:** DR-1',
+          '',
+          '#### Task 002: Emit rejection counters',
+          '',
+          '**Implements:** DR-2',
+        ].join('\n'),
+        'utf-8',
+      );
+
+      // One unified artifact: designFile === planFile.
+      const result = verifyProvenanceChain({ designFile: spec, planFile: spec });
+
+      expect(result.status).toBe('pass');
+      expect(result.requirements).toBe(2);
+      expect(result.covered).toBe(2);
+      expect(result.gaps).toBe(0);
+      expect(result.orphanRefs).toBe(0);
+      // Real task names appear in the traceability matrix rows.
+      expect(result.output).toContain('| DR-1 | Add the bounded queue | Covered |');
+      expect(result.output).toContain('| DR-2 | Emit rejection counters | Covered |');
+    });
+
+    it('LegacyPair_TwoFileShape_Unchanged', () => {
+      // Legacy two-file shape (separate design + plan, h3 tasks): behavior
+      // must remain byte-identical to the pre-#1654 parser.
+      const designFile = writeDesign(
+        [
+          '# Feature Design',
+          '',
+          '## Technical Design',
+          '',
+          '### Widget Component',
+          'DR-1: Renders the main UI widget.',
+          '',
+          '### API Client',
+          'DR-2: Handles data fetching.',
+        ].join('\n'),
+      );
+      const planFile = writePlan(
+        [
+          '# Implementation Plan',
+          '',
+          '## Tasks',
+          '',
+          '### Task 1: Build Widget Component',
+          '**Implements:** DR-1',
+          '',
+          '### Task 2: Create API Client',
+          '**Implements:** DR-2',
+        ].join('\n'),
+      );
+
+      const result = verifyProvenanceChain({ designFile, planFile });
+
+      expect(result.status).toBe('pass');
+      expect(result.requirements).toBe(2);
+      expect(result.covered).toBe(2);
+      expect(result.gaps).toBe(0);
+      expect(result.orphanRefs).toBe(0);
+      expect(result.gapDetails).toEqual([]);
+      expect(result.orphanDetails).toEqual([]);
+      expect(result.output).toContain('**Result: PASS** (2/2 requirements traced)');
+    });
+
+    it('WlmCorpusSpec_UnifiedShape_ParsesFourDrsSevenTasks', () => {
+      // Regression pin against the real shipped corpus file (#1654 acceptance
+      // criterion). Its 7 h4 tasks previously parsed as ZERO tasks (a #1543
+      // error); they must now parse, with each of the 4 defined DRs covered.
+      const result = verifyProvenanceChain({
+        designFile: WLM_SPEC_PATH,
+        planFile: WLM_SPEC_PATH,
+      });
+
+      expect(result.status).not.toBe('error');
+      // The 4 h4-defined DRs are all covered by the 7 h4 tasks' Implements
+      // lines. (The prose-token scan also picks up DR-10/DR-12 cross-document
+      // references in the design region — pre-existing behavior out of #1654
+      // scope — so `requirements` may exceed 4, but never at the cost of the
+      // four real DRs.)
+      expect(result.covered).toBe(4);
+      expect(result.requirements).toBeGreaterThanOrEqual(4);
+      for (const dr of ['DR-1', 'DR-2', 'DR-3', 'DR-4']) {
+        expect(result.gapDetails).not.toContain(dr);
+      }
+      expect(result.orphanRefs).toBe(0);
+      // A real task title from the corpus appears in the matrix.
+      expect(result.output).toContain('Registry-driven conformance rewrite');
     });
   });
 });
