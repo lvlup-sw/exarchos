@@ -35,6 +35,9 @@
  * `bisect` is an internal projection primitive — it is not exposed as a public
  * verb (no `get`/`view` action) yet.
  */
+
+// RESERVED(issue: #1555, owner: exarchos, expires: 2027-01-31) — reserved dead stub; deletion at expiry if unadopted (DR-7 module-intent gate)
+
 import type { EventStore } from '../event-store/store.js';
 import type { ProjectionReducer } from './types.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
