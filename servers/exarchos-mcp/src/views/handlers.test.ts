@@ -69,8 +69,6 @@ describe('View Handlers', () => {
       // Arrange: seed event store with team.task.completed events
       const store = new EventStore(tmpDir);
       await store.append('test-wf', {
-        streamId: 'test-wf',
-        sequence: 1,
         timestamp: new Date().toISOString(),
         type: 'team.task.completed',
         data: {
@@ -100,8 +98,6 @@ describe('View Handlers', () => {
       // through the handler output (EnvelopeSchema(z.unknown()) — no strip).
       const store = new EventStore(tmpDir);
       await store.append('tok-wf', {
-        streamId: 'tok-wf',
-        sequence: 1,
         timestamp: new Date().toISOString(),
         type: 'subagent.tokens_used',
         data: { agentId: 'a1', teammateName: 'worker-1', outputTokens: 1234 },
@@ -123,8 +119,6 @@ describe('View Handlers', () => {
       // Arrange: seed event store with team events
       const store = new EventStore(tmpDir);
       await store.append('test-wf', {
-        streamId: 'test-wf',
-        sequence: 1,
         timestamp: new Date().toISOString(),
         type: 'team.spawned',
         data: {
@@ -136,8 +130,6 @@ describe('View Handlers', () => {
         schemaVersion: '1.0',
       });
       await store.append('test-wf', {
-        streamId: 'test-wf',
-        sequence: 2,
         timestamp: new Date().toISOString(),
         type: 'team.task.assigned',
         data: {
@@ -164,16 +156,12 @@ describe('View Handlers', () => {
       // H1-E (#1525) — per-task outputTokens must surface through the handler.
       const store = new EventStore(tmpDir);
       await store.append('tok-wf', {
-        streamId: 'tok-wf',
-        sequence: 1,
         timestamp: new Date().toISOString(),
         type: 'team.task.assigned',
         data: { taskId: 'task-1', teammateName: 'w1', worktreePath: '/tmp/wt-1', modules: [] },
         schemaVersion: '1.0',
       });
       await store.append('tok-wf', {
-        streamId: 'tok-wf',
-        sequence: 2,
         timestamp: new Date().toISOString(),
         type: 'subagent.tokens_used',
         data: { agentId: 'a1', teammateName: 'w1', taskId: 'task-1', outputTokens: 777 },
@@ -209,8 +197,6 @@ describe('View Handlers', () => {
       // Arrange: seed events in specific stream
       const store = new EventStore(tmpDir);
       await store.append('quality-wf', {
-        streamId: 'quality-wf',
-        sequence: 1,
         timestamp: new Date().toISOString(),
         type: 'gate.executed',
         data: {
@@ -225,8 +211,6 @@ describe('View Handlers', () => {
 
       // Seed a different stream
       await store.append('other-wf', {
-        streamId: 'other-wf',
-        sequence: 1,
         timestamp: new Date().toISOString(),
         type: 'gate.executed',
         data: {
@@ -254,8 +238,6 @@ describe('View Handlers', () => {
       // Arrange: seed events with two different skills
       const store = new EventStore(tmpDir);
       await store.append('skill-wf', {
-        streamId: 'skill-wf',
-        sequence: 1,
         timestamp: new Date().toISOString(),
         type: 'gate.executed',
         data: {
@@ -268,8 +250,6 @@ describe('View Handlers', () => {
         schemaVersion: '1.0',
       });
       await store.append('skill-wf', {
-        streamId: 'skill-wf',
-        sequence: 2,
         timestamp: new Date().toISOString(),
         type: 'gate.executed',
         data: {
@@ -297,8 +277,6 @@ describe('View Handlers', () => {
       // Arrange: seed events with two different gates
       const store = new EventStore(tmpDir);
       await store.append('gate-wf', {
-        streamId: 'gate-wf',
-        sequence: 1,
         timestamp: new Date().toISOString(),
         type: 'gate.executed',
         data: {
@@ -311,8 +289,6 @@ describe('View Handlers', () => {
         schemaVersion: '1.0',
       });
       await store.append('gate-wf', {
-        streamId: 'gate-wf',
-        sequence: 2,
         timestamp: new Date().toISOString(),
         type: 'gate.executed',
         data: {
@@ -341,8 +317,6 @@ describe('View Handlers', () => {
       const store = new EventStore(tmpDir);
       for (let i = 1; i <= 3; i++) {
         await store.append('regression-wf', {
-          streamId: 'regression-wf',
-          sequence: i,
           timestamp: new Date().toISOString(),
           type: 'gate.executed',
           data: {
@@ -378,8 +352,6 @@ describe('View Handlers', () => {
       const store = new EventStore(tmpDir);
       for (let i = 1; i <= 3; i++) {
         await store.append('dedup-wf', {
-          streamId: 'dedup-wf',
-          sequence: i,
           timestamp: new Date().toISOString(),
           type: 'gate.executed',
           data: {
@@ -407,8 +379,6 @@ describe('View Handlers', () => {
       // Arrange: seed events that produce multiple benchmark entries
       const store = new EventStore(tmpDir);
       await store.append('limit-wf', {
-        streamId: 'limit-wf',
-        sequence: 1,
         timestamp: new Date().toISOString(),
         type: 'benchmark.completed',
         data: {
@@ -425,8 +395,6 @@ describe('View Handlers', () => {
       // Also seed multiple gate failures to produce regressions
       for (let i = 2; i <= 7; i++) {
         await store.append('limit-wf', {
-          streamId: 'limit-wf',
-          sequence: i,
           timestamp: new Date().toISOString(),
           type: 'gate.executed',
           data: {
@@ -461,8 +429,6 @@ describe('View Handlers', () => {
       const scores = [0.5, 0.6, 0.72];
       for (let i = 0; i < scores.length; i++) {
         await store.append('mut-wf', {
-          streamId: 'mut-wf',
-          sequence: i + 1,
           timestamp: new Date().toISOString(),
           type: 'gate.executed',
           data: {
@@ -512,8 +478,6 @@ describe('View Handlers', () => {
       // Three events tagged cor-X with skill "delegation"
       for (let i = 1; i <= 3; i++) {
         await store.append(streamId, {
-          streamId,
-          sequence: i,
           timestamp: new Date().toISOString(),
           type: 'gate.executed',
           operationId: 'op-X',
@@ -532,8 +496,6 @@ describe('View Handlers', () => {
       // Three events tagged cor-Y with skill "synthesis"
       for (let i = 4; i <= 6; i++) {
         await store.append(streamId, {
-          streamId,
-          sequence: i,
           timestamp: new Date().toISOString(),
           type: 'gate.executed',
           operationId: 'op-Y',
@@ -574,8 +536,6 @@ describe('View Handlers', () => {
       const streamId = 'op-wf';
 
       await store.append(streamId, {
-        streamId,
-        sequence: 1,
         timestamp: new Date().toISOString(),
         type: 'gate.executed',
         operationId: 'op-A',
@@ -590,8 +550,6 @@ describe('View Handlers', () => {
         schemaVersion: '1.0',
       });
       await store.append(streamId, {
-        streamId,
-        sequence: 2,
         timestamp: new Date().toISOString(),
         type: 'gate.executed',
         operationId: 'op-B',
@@ -624,8 +582,6 @@ describe('View Handlers', () => {
       const streamId = 'cause-wf';
 
       await store.append(streamId, {
-        streamId,
-        sequence: 1,
         timestamp: new Date().toISOString(),
         type: 'gate.executed',
         causationId: 'cause-A',
@@ -640,8 +596,6 @@ describe('View Handlers', () => {
         schemaVersion: '1.0',
       });
       await store.append(streamId, {
-        streamId,
-        sequence: 2,
         timestamp: new Date().toISOString(),
         type: 'gate.executed',
         causationId: 'cause-B',
@@ -677,8 +631,6 @@ describe('View Handlers', () => {
 
       // cor-X side: a single task end-to-end
       await store.append(streamId, {
-        streamId,
-        sequence: 1,
         timestamp: new Date().toISOString(),
         type: 'team.task.assigned',
         operationId: 'op-X',
@@ -694,8 +646,6 @@ describe('View Handlers', () => {
 
       // cor-Y side: a different task
       await store.append(streamId, {
-        streamId,
-        sequence: 2,
         timestamp: new Date().toISOString(),
         type: 'team.task.assigned',
         operationId: 'op-Y',
@@ -743,8 +693,6 @@ describe('View Handlers', () => {
       const streamId = 'eval-corr-wf';
 
       await store.append(streamId, {
-        streamId,
-        sequence: 1,
         timestamp: new Date().toISOString(),
         type: 'eval.run.completed',
         operationId: 'op-X',
@@ -762,8 +710,6 @@ describe('View Handlers', () => {
         schemaVersion: '1.0',
       });
       await store.append(streamId, {
-        streamId,
-        sequence: 2,
         timestamp: new Date().toISOString(),
         type: 'eval.run.completed',
         operationId: 'op-Y',
@@ -803,8 +749,6 @@ describe('View Handlers', () => {
       const streamId = 'eval-op-wf';
 
       await store.append(streamId, {
-        streamId,
-        sequence: 1,
         timestamp: new Date().toISOString(),
         type: 'eval.run.completed',
         operationId: 'op-A',
@@ -822,8 +766,6 @@ describe('View Handlers', () => {
         schemaVersion: '1.0',
       });
       await store.append(streamId, {
-        streamId,
-        sequence: 2,
         timestamp: new Date().toISOString(),
         type: 'eval.run.completed',
         operationId: 'op-B',
@@ -863,8 +805,6 @@ describe('View Handlers', () => {
 
       // cor-X: code quality gate + eval run for "delegation"
       await store.append(streamId, {
-        streamId,
-        sequence: 1,
         timestamp: new Date().toISOString(),
         type: 'gate.executed',
         operationId: 'op-X',
@@ -879,8 +819,6 @@ describe('View Handlers', () => {
         schemaVersion: '1.0',
       });
       await store.append(streamId, {
-        streamId,
-        sequence: 2,
         timestamp: new Date().toISOString(),
         type: 'eval.run.completed',
         operationId: 'op-X',
@@ -900,8 +838,6 @@ describe('View Handlers', () => {
 
       // cor-Y: code quality gate + eval run for "synthesis"
       await store.append(streamId, {
-        streamId,
-        sequence: 3,
         timestamp: new Date().toISOString(),
         type: 'gate.executed',
         operationId: 'op-Y',
@@ -916,8 +852,6 @@ describe('View Handlers', () => {
         schemaVersion: '1.0',
       });
       await store.append(streamId, {
-        streamId,
-        sequence: 4,
         timestamp: new Date().toISOString(),
         type: 'eval.run.completed',
         operationId: 'op-Y',
@@ -959,8 +893,6 @@ describe('View Handlers', () => {
 
       // cor-X: delegation
       await store.append(streamId, {
-        streamId,
-        sequence: 1,
         timestamp: new Date().toISOString(),
         type: 'gate.executed',
         operationId: 'op-X',
@@ -976,8 +908,6 @@ describe('View Handlers', () => {
       });
       // cor-Y: synthesis
       await store.append(streamId, {
-        streamId,
-        sequence: 2,
         timestamp: new Date().toISOString(),
         type: 'gate.executed',
         operationId: 'op-Y',
@@ -998,8 +928,6 @@ describe('View Handlers', () => {
       // filter — without these appends a regression that breaks eval-side
       // filtering would still pass via the gate-only path.
       await store.append(streamId, {
-        streamId,
-        sequence: 3,
         timestamp: new Date().toISOString(),
         type: 'eval.run.completed',
         operationId: 'op-X',
@@ -1017,8 +945,6 @@ describe('View Handlers', () => {
         schemaVersion: '1.0',
       });
       await store.append(streamId, {
-        streamId,
-        sequence: 4,
         timestamp: new Date().toISOString(),
         type: 'eval.run.completed',
         operationId: 'op-Y',
@@ -1072,8 +998,6 @@ describe('View Handlers', () => {
       // Arrange: seed eval events for two skills
       const store = new EventStore(tmpDir);
       await store.append('eval-stream', {
-        streamId: 'eval-stream',
-        sequence: 1,
         timestamp: new Date().toISOString(),
         type: 'eval.run.completed',
         data: {
@@ -1089,8 +1013,6 @@ describe('View Handlers', () => {
         schemaVersion: '1.0',
       });
       await store.append('eval-stream', {
-        streamId: 'eval-stream',
-        sequence: 2,
         timestamp: new Date().toISOString(),
         type: 'eval.run.completed',
         data: {
@@ -1122,8 +1044,6 @@ describe('View Handlers', () => {
       const store = new EventStore(tmpDir);
       for (let i = 1; i <= 5; i++) {
         await store.append('eval-limit', {
-          streamId: 'eval-limit',
-          sequence: i,
           timestamp: new Date().toISOString(),
           type: 'eval.run.completed',
           data: {
@@ -1158,8 +1078,6 @@ describe('View Handlers', () => {
       // Arrange: seed event store with provenance-relevant events
       const store = new EventStore(tmpDir);
       await store.append('test-id', {
-        streamId: 'test-id',
-        sequence: 1,
         timestamp: new Date().toISOString(),
         type: 'workflow.started',
         data: { featureId: 'test-id', workflowType: 'feature' },
@@ -1200,8 +1118,6 @@ describe('View Handlers', () => {
 
       // Seed code quality events
       await store.append(streamId, {
-        streamId,
-        sequence: 1,
         timestamp: new Date().toISOString(),
         type: 'gate.executed',
         data: {
@@ -1216,8 +1132,6 @@ describe('View Handlers', () => {
 
       // Seed eval events
       await store.append(streamId, {
-        streamId,
-        sequence: 2,
         timestamp: new Date().toISOString(),
         type: 'eval.run.completed',
         data: {
@@ -1352,16 +1266,12 @@ describe('View Handlers', () => {
       });
 
       await store.append(featureId, {
-        streamId: featureId,
-        sequence: 1,
         timestamp: new Date().toISOString(),
         type: 'task.completed',
         data: { taskId: 'T3' },
         schemaVersion: '1.0',
       });
       await store.append(featureId, {
-        streamId: featureId,
-        sequence: 2,
         timestamp: new Date().toISOString(),
         type: 'task.completed',
         data: { taskId: 'T4' },
@@ -1397,16 +1307,12 @@ describe('View Handlers', () => {
       });
 
       await store.append(featureId, {
-        streamId: featureId,
-        sequence: 1,
         timestamp: new Date().toISOString(),
         type: 'task.assigned',
         data: { taskId: 'T1', title: 'Task 1' },
         schemaVersion: '1.0',
       });
       await store.append(featureId, {
-        streamId: featureId,
-        sequence: 2,
         timestamp: new Date().toISOString(),
         type: 'task.assigned',
         data: { taskId: 'T2', title: 'Task 2' },
@@ -1451,16 +1357,12 @@ describe('View Handlers', () => {
 
       // Seed an aligned task event so the tasks block doesn't crowd the assertion
       await store.append(featureId, {
-        streamId: featureId,
-        sequence: 1,
         timestamp: new Date().toISOString(),
         type: 'task.assigned',
         data: { taskId: 'T1', title: 'Task 1' },
         schemaVersion: '1.0',
       });
       await store.append(featureId, {
-        streamId: featureId,
-        sequence: 2,
         timestamp: new Date().toISOString(),
         type: 'task.completed',
         data: { taskId: 'T1' },

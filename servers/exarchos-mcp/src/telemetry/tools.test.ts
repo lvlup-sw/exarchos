@@ -492,8 +492,6 @@ describe('Wave 5 — handleViewTelemetry honors correlation filters (#1437)', ()
     // cor-X: two invocations of `tool_X`
     for (let i = 1; i <= 2; i++) {
       await store.append(TELEMETRY_STREAM_NAME, {
-        streamId: TELEMETRY_STREAM_NAME,
-        sequence: i,
         timestamp: new Date().toISOString(),
         type: 'tool.completed',
         operationId: 'op-X',
@@ -509,8 +507,6 @@ describe('Wave 5 — handleViewTelemetry honors correlation filters (#1437)', ()
     }
     // cor-Y: one invocation of `tool_Y`
     await store.append(TELEMETRY_STREAM_NAME, {
-      streamId: TELEMETRY_STREAM_NAME,
-      sequence: 3,
       timestamp: new Date().toISOString(),
       type: 'tool.completed',
       operationId: 'op-Y',
@@ -546,8 +542,6 @@ describe('Wave 5 — handleViewTelemetry honors correlation filters (#1437)', ()
   it('handleViewTelemetry_WithOperationIdFilter_RolsUpOnlyMatchingEvents', async () => {
     const store = new EventStore(stateDir);
     await store.append(TELEMETRY_STREAM_NAME, {
-      streamId: TELEMETRY_STREAM_NAME,
-      sequence: 1,
       timestamp: new Date().toISOString(),
       type: 'tool.completed',
       operationId: 'op-A',
@@ -556,8 +550,6 @@ describe('Wave 5 — handleViewTelemetry honors correlation filters (#1437)', ()
       schemaVersion: '1.0',
     });
     await store.append(TELEMETRY_STREAM_NAME, {
-      streamId: TELEMETRY_STREAM_NAME,
-      sequence: 2,
       timestamp: new Date().toISOString(),
       type: 'tool.completed',
       operationId: 'op-B',
@@ -581,8 +573,6 @@ describe('Wave 5 — handleViewTelemetry honors correlation filters (#1437)', ()
   it('handleViewTelemetry_WithCausationIdFilter_RolsUpOnlyMatchingEvents', async () => {
     const store = new EventStore(stateDir);
     await store.append(TELEMETRY_STREAM_NAME, {
-      streamId: TELEMETRY_STREAM_NAME,
-      sequence: 1,
       timestamp: new Date().toISOString(),
       type: 'tool.completed',
       causationId: 'cause-A',
@@ -591,8 +581,6 @@ describe('Wave 5 — handleViewTelemetry honors correlation filters (#1437)', ()
       schemaVersion: '1.0',
     });
     await store.append(TELEMETRY_STREAM_NAME, {
-      streamId: TELEMETRY_STREAM_NAME,
-      sequence: 2,
       timestamp: new Date().toISOString(),
       type: 'tool.completed',
       causationId: 'cause-B',

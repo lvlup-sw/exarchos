@@ -47,8 +47,6 @@ describe('Wave 2 — handlers honor AsyncLocalStorage ctx-default (#1448)', () =
     // GIVEN: two gate.executed events, one stamped cor-X and one stamped
     // cor-Y. Pre-ctx-default, a no-args call would fold both into the view.
     await store.append(streamId, {
-      streamId,
-      sequence: 1,
       timestamp: new Date().toISOString(),
       type: 'gate.executed',
       operationId: 'op-X',
@@ -63,8 +61,6 @@ describe('Wave 2 — handlers honor AsyncLocalStorage ctx-default (#1448)', () =
       schemaVersion: '1.0',
     });
     await store.append(streamId, {
-      streamId,
-      sequence: 2,
       timestamp: new Date().toISOString(),
       type: 'gate.executed',
       operationId: 'op-Y',
@@ -107,8 +103,6 @@ describe('Wave 2 — handlers honor AsyncLocalStorage ctx-default (#1448)', () =
     const TELEMETRY_STREAM_NAME = 'telemetry';
 
     await store.append(TELEMETRY_STREAM_NAME, {
-      streamId: TELEMETRY_STREAM_NAME,
-      sequence: 1,
       timestamp: new Date().toISOString(),
       type: 'tool.completed',
       operationId: 'op-X',
@@ -122,8 +116,6 @@ describe('Wave 2 — handlers honor AsyncLocalStorage ctx-default (#1448)', () =
       schemaVersion: '1.0',
     });
     await store.append(TELEMETRY_STREAM_NAME, {
-      streamId: TELEMETRY_STREAM_NAME,
-      sequence: 2,
       timestamp: new Date().toISOString(),
       type: 'tool.completed',
       operationId: 'op-Y',
@@ -164,8 +156,6 @@ describe('Wave 2 — handlers honor AsyncLocalStorage ctx-default (#1448)', () =
 
     // cor-X event with operationId op-irrelevant (should NOT appear)
     await store.append(streamId, {
-      streamId,
-      sequence: 1,
       timestamp: new Date().toISOString(),
       type: 'gate.executed',
       operationId: 'op-irrelevant',
@@ -184,8 +174,6 @@ describe('Wave 2 — handlers honor AsyncLocalStorage ctx-default (#1448)', () =
     // still appear because the explicit operationId disables the
     // ctx-default branch.
     await store.append(streamId, {
-      streamId,
-      sequence: 2,
       timestamp: new Date().toISOString(),
       type: 'gate.executed',
       operationId: 'op-explicit-z',

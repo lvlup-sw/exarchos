@@ -245,8 +245,6 @@ describe.skipIf(process.platform === 'win32')('CLI correlation filter — end-to
     // GIVEN: one tool.completed event stamped cor-X, one stamped cor-Y.
     // Pre-Task-5 (or pre-#1437) a no-filter call would fold both.
     await store.append(TELEMETRY_STREAM, {
-      streamId: TELEMETRY_STREAM,
-      sequence: 1,
       timestamp: new Date().toISOString(),
       type: 'tool.completed',
       operationId: 'op-X',
@@ -260,8 +258,6 @@ describe.skipIf(process.platform === 'win32')('CLI correlation filter — end-to
       schemaVersion: '1.0',
     });
     await store.append(TELEMETRY_STREAM, {
-      streamId: TELEMETRY_STREAM,
-      sequence: 2,
       timestamp: new Date().toISOString(),
       type: 'tool.completed',
       operationId: 'op-Y',
