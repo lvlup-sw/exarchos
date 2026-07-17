@@ -98,7 +98,7 @@ export interface DispatchContext {
    * a SqliteBackend; absence here is a test-context shape only — there
    * is no JSONL fallback any more.
    */
-  readonly storage?: StorageBackend;
+  readonly storage?: StorageBackend | undefined;
   /**
    * MCP roots-list adapter (#1290). When the client declares the
    * `roots` capability via the initialize handshake (recorded on the

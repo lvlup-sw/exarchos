@@ -18,7 +18,7 @@ export interface DiscoveredSuite {
  */
 export async function discoverSuites(
   evalsDir: string,
-  filter?: { skill?: string },
+  filter?: { skill?: string | undefined },
 ): Promise<DiscoveredSuite[]> {
   const entries = await fs.readdir(evalsDir, { withFileTypes: true });
   const discovered: DiscoveredSuite[] = [];

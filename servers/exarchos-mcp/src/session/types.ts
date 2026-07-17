@@ -1,11 +1,11 @@
 /** Manifest entry recording a session's startup metadata */
 export interface SessionManifestEntry {
   readonly sessionId: string;
-  readonly workflowId?: string;
+  readonly workflowId?: string | undefined;
   readonly transcriptPath: string;
   readonly startedAt: string;
   readonly cwd: string;
-  readonly branch?: string;
+  readonly branch?: string | undefined;
 }
 
 /** Completion metadata appended by SessionEnd hook */

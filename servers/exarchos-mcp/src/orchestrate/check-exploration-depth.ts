@@ -153,7 +153,7 @@ interface CheckExplorationDepthArgs {
 async function resolveDepthAndPath(
   args: CheckExplorationDepthArgs,
   eventStore: EventStore,
-): Promise<{ designDepth?: DesignDepth; designPath?: string }> {
+): Promise<{ designDepth?: DesignDepth | undefined; designPath?: string | undefined }> {
   let designDepth = args.designDepth;
   let designPath = args.designPath;
 

@@ -174,7 +174,7 @@ interface HostSettings {
     SessionEnd?: HookGroup[];
     SubagentStop?: HookGroup[];
     [event: string]: unknown;
-  };
+  } | undefined;
   [key: string]: unknown;
 }
 

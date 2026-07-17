@@ -36,14 +36,14 @@ export const TASK_DETAIL_VIEW = 'task-detail';
 export interface TaskDetail {
   taskId: string;
   title: string;
-  branch?: string;
-  worktree?: string;
-  assignee?: string;
+  branch?: string | undefined;
+  worktree?: string | undefined;
+  assignee?: string | undefined;
   status: 'pending' | 'assigned' | 'claimed' | 'in-progress' | 'completed' | 'failed';
-  tddPhase?: string;
-  artifacts?: string[];
-  duration?: number;
-  error?: string;
+  tddPhase?: string | undefined;
+  artifacts?: string[] | undefined;
+  duration?: number | undefined;
+  error?: string | undefined;
 }
 
 // ─── View State ────────────────────────────────────────────────────────────

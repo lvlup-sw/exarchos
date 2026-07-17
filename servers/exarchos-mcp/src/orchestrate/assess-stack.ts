@@ -33,7 +33,7 @@ import {
 export interface CiCheck {
   readonly name: string;
   readonly status: 'pass' | 'fail' | 'pending';
-  readonly url?: string;
+  readonly url?: string | undefined;
 }
 
 /**
@@ -211,7 +211,7 @@ function withoutRaw(item: ActionItem): ActionItem {
 
 // ─── VcsProvider Query Helpers ──────────────────────────────────────────────
 
-function mapCiCheck(check: { name: string; status: string; url?: string }): CiCheck {
+function mapCiCheck(check: { name: string; status: string; url?: string | undefined }): CiCheck {
   const statusMap: Record<string, 'pass' | 'fail' | 'pending'> = {
     pass: 'pass',
     fail: 'fail',

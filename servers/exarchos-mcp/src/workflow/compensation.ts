@@ -506,7 +506,7 @@ export interface SkippedWorktreeTeardown {
 export interface CompensationOptions {
   readonly dryRun: boolean;
   readonly stateDir?: string;
-  readonly checkpoint?: CompensationCheckpoint;
+  readonly checkpoint?: CompensationCheckpoint | undefined;
   /** External event store for emitting two-event-split audit events (B4/B5). */
   readonly eventStore?: EventStore;
   /** Feature ID (stream ID) for event store appends. Required when eventStore is set. */

@@ -62,9 +62,9 @@ const REQUIRED_SECTIONS = [
 // ─── resolveDesignFile ──────────────────────────────────────────────────────
 
 export interface ResolveDesignFileArgs {
-  readonly designFile?: string;
-  readonly stateFile?: string;
-  readonly docsDir?: string;
+  readonly designFile?: string | undefined;
+  readonly stateFile?: string | undefined;
+  readonly docsDir?: string | undefined;
   /**
    * Pre-resolved `artifacts.design` path from the workflow state, supplied by
    * the orchestrate layer after materializing state via `resolveWorkflowState`
@@ -74,7 +74,7 @@ export interface ResolveDesignFileArgs {
    * resolved but recorded no design path"; `undefined` means "not supplied —
    * fall back to reading `stateFile`".
    */
-  readonly designPathFromState?: string | null;
+  readonly designPathFromState?: string | null | undefined;
 }
 
 /**

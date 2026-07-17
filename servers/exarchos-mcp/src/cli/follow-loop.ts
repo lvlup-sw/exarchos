@@ -88,7 +88,7 @@ export interface RunFollowLoopOptions {
   readonly taskStore: FollowTaskStore;
   readonly taskId: string;
   /** Override the default 250ms cadence. Resolved by CLI wiring. */
-  readonly pollIntervalMs?: number;
+  readonly pollIntervalMs?: number | undefined;
   /** Sink for rendered transition lines. Defaults to `process.stdout`. */
   readonly stdout?: NodeJS.WritableStream;
   /** Which CLI subcommand triggered the loop (drives line prefix). */
@@ -288,7 +288,7 @@ export interface InspectFollowOptions {
    * self-contained (existing events + live tail); omitting it tails only
    * events committed after registration.
    */
-  readonly fromSequence?: number;
+  readonly fromSequence?: number | undefined;
   /** Carrier sink: an NDJSON encoder (CLI) or a task-update pump (MCP). */
   readonly onFrame: (frame: Frame) => void;
   /** Disposal handle — abort disposes the subscription and ends the stream. */
@@ -298,9 +298,9 @@ export interface InspectFollowOptions {
    * `{ now }` clock) the carrier runs with NO heartbeat; production CLI passes
    * {@link defaultFollowClock}.
    */
-  readonly clock?: SubscriptionClock;
+  readonly clock?: SubscriptionClock | undefined;
   /** Idle heartbeat interval (ms). Defaults to {@link DEFAULT_FOLLOW_HEARTBEAT_MS}. */
-  readonly heartbeatIntervalMs?: number;
+  readonly heartbeatIntervalMs?: number | undefined;
 }
 
 export interface InspectFollowHandle {

@@ -115,20 +115,20 @@ export type AppendResult =
 
 export interface EventInput {
   type: string;
-  data?: Record<string, unknown>;
-  timestamp?: string;
-  correlationId?: string;
-  causationId?: string;
+  data?: Record<string, unknown> | undefined;
+  timestamp?: string | undefined;
+  correlationId?: string | undefined;
+  causationId?: string | undefined;
   // #1291 — dispatch-boundary operation id. Stamped by
   // `EventStore.append*` from the active dispatch context's
   // `AsyncLocalStorage` store when present; passes through to persistence
   // verbatim. Optional because direct (non-dispatch) callers stay
   // backward-compatible.
-  operationId?: string;
-  agentId?: string;
-  agentRole?: string;
-  source?: string;
-  schemaVersion?: string;
+  operationId?: string | undefined;
+  agentId?: string | undefined;
+  agentRole?: string | undefined;
+  source?: string | undefined;
+  schemaVersion?: string | undefined;
   [k: string]: unknown;
 }
 
@@ -150,7 +150,7 @@ export interface AppendOptions {
    * caller can translate to a typed error without needing access to
    * internal state.
    */
-  expectedSequence?: number;
+  expectedSequence?: number | undefined;
 }
 
 // ─── Wave 3 (R-2) — decide / withSession / aggregateStream types ────────────
@@ -295,8 +295,8 @@ interface PersistedEvent {
   type: string;
   timestamp: string;
   eventId: string;
-  idempotencyKey?: string;
-  data?: Record<string, unknown>;
+  idempotencyKey?: string | undefined;
+  data?: Record<string, unknown> | undefined;
   [k: string]: unknown;
 }
 
@@ -349,7 +349,7 @@ export class AtomicAppender {
    * synchronously assigning the in-flight Promise before any await,
    * so all concurrent callers converge on a single handle.
    */
-  private sqliteBackend?: SqliteBackend;
+  private sqliteBackend?: SqliteBackend | undefined;
   /**
    * Promise cache for the lazy SQLite backend init (T63). The first
    * caller assigns this field synchronously before awaiting backend
@@ -357,10 +357,10 @@ export class AtomicAppender {
    * and never trigger a duplicate construction. Once resolved, both
    * this field and `sqliteBackend` reference the canonical handle.
    */
-  private sqliteBackendPromise?: Promise<SqliteBackend>;
+  private sqliteBackendPromise?: Promise<SqliteBackend> | undefined;
   private readonly sqliteBackendInjected: boolean;
   /** Durability posture for lazily-constructed backends (DR-4). */
-  private readonly synchronous?: 'normal' | 'full';
+  private readonly synchronous?: 'normal' | 'full' | undefined;
 
   /**
    * DR-1 Tier-1 post-commit hook (#1315). Fired with the committed stream id
@@ -375,7 +375,7 @@ export class AtomicAppender {
    * first subscription is registered, so the zero-subscriber hot path costs a
    * single `undefined` check in {@link notifyCommit}.
    */
-  private commitHook?: (streamId: string) => void;
+  private commitHook?: ((streamId: string) => void) | undefined;
 
   constructor(options: AtomicAppenderOptions) {
     this.stateDir = options.stateDir;
@@ -791,7 +791,7 @@ export class AtomicAppender {
     streamId: string;
     reducerId: string;
     expectedVersion: number;
-    operationId?: string;
+    operationId?: string | undefined;
   }): DecideResult {
     const { result, streamId, reducerId, expectedVersion, operationId } = args;
     if (result.ok) {

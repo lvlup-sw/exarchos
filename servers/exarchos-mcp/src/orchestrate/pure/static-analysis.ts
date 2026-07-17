@@ -59,9 +59,9 @@ export interface StaticAnalysisInput {
   /** Repository root to analyze. */
   readonly repoRoot: string;
   /** Skip lint check. */
-  readonly skipLint?: boolean;
+  readonly skipLint?: boolean | undefined;
   /** Skip typecheck. */
-  readonly skipTypecheck?: boolean;
+  readonly skipTypecheck?: boolean | undefined;
   /** External command runner (dependency injection). */
   readonly runCommand: RunCommandFn;
 }
@@ -97,7 +97,7 @@ export interface StaticAnalysisResult {
   /** Number of checks that failed. */
   readonly failCount: number;
   /** Detected project type (undefined if no recognized project). */
-  readonly projectType?: string;
+  readonly projectType?: string | undefined;
 }
 
 // ============================================================

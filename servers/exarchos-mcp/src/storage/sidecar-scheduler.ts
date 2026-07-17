@@ -202,7 +202,7 @@ async function drainOnce(
 
         await eventStore.append(
           streamId,
-          { type: type as WorkflowEvent['type'], data, timestamp },
+          { type: type as WorkflowEvent['type'], data, ...(timestamp !== undefined ? { timestamp } : {}) },
           idempotencyKey ? { idempotencyKey } : undefined,
         );
 

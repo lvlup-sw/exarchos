@@ -37,4 +37,12 @@ describe('DR-14: noUncheckedIndexedAccess ratchet (server)', () => {
       readCompilerFlag(resolve(SERVER_ROOT, 'tsconfig.json'), 'noUncheckedIndexedAccess'),
     ).toBe(true);
   });
+
+  it('TsconfigServer_ExactOptionalPropertyTypesEnabled_TypecheckGreen', () => {
+    // DR-14 task 025 — second strict flag on the nested server project. Proven
+    // clean at 0 errors under it via CI's server `npm run typecheck`.
+    expect(
+      readCompilerFlag(resolve(SERVER_ROOT, 'tsconfig.json'), 'exactOptionalPropertyTypes'),
+    ).toBe(true);
+  });
 });

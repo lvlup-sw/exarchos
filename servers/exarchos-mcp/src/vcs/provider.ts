@@ -8,8 +8,8 @@ export interface CreatePrOpts {
   readonly body: string;
   readonly baseBranch: string;
   readonly headBranch: string;
-  readonly draft?: boolean;
-  readonly labels?: readonly string[];
+  readonly draft?: boolean | undefined;
+  readonly labels?: readonly string[] | undefined;
 }
 
 export interface PrResult {
@@ -20,7 +20,7 @@ export interface PrResult {
 export interface CiCheck {
   readonly name: string;
   readonly status: 'pass' | 'fail' | 'pending' | 'skipped';
-  readonly url?: string;
+  readonly url?: string | undefined;
 }
 
 export interface CiStatus {
@@ -73,9 +73,9 @@ export interface ReviewStatus {
 }
 
 export interface PrFilter {
-  readonly state?: 'open' | 'closed' | 'merged' | 'all';
-  readonly head?: string;
-  readonly base?: string;
+  readonly state?: 'open' | 'closed' | 'merged' | 'all' | undefined;
+  readonly head?: string | undefined;
+  readonly base?: string | undefined;
 }
 
 export interface PrSummary {
@@ -123,8 +123,8 @@ export interface PrComment {
    * discriminant — see the interface doc for the three kinds.
    */
   readonly source: 'issue-comment' | 'review-inline' | 'review-summary';
-  readonly path?: string;
-  readonly line?: number;
+  readonly path?: string | undefined;
+  readonly line?: number | undefined;
   /**
    * Id of the top-level comment this one replies to (one-level threading).
    * Absent ⇒ this comment is top-level.
@@ -171,9 +171,9 @@ export const DEFAULT_PR_COMMENTS_LIMIT = 20;
  * omitted/empty `fields` returns every comment key.
  */
 export interface GetPrCommentsOptions {
-  readonly limit?: number;
-  readonly offset?: number;
-  readonly fields?: readonly string[];
+  readonly limit?: number | undefined;
+  readonly offset?: number | undefined;
+  readonly fields?: readonly string[] | undefined;
 }
 
 /**
@@ -288,8 +288,8 @@ export function windowPrComments(
 export interface CreateIssueOpts {
   readonly title: string;
   readonly body: string;
-  readonly labels?: readonly string[];
-  readonly assignees?: readonly string[];
+  readonly labels?: readonly string[] | undefined;
+  readonly assignees?: readonly string[] | undefined;
 }
 
 export interface IssueResult {

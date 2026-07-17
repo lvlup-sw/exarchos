@@ -34,7 +34,7 @@ export interface SplitHunksOptions {
    * a "test file" is for that project). When omitted, {@link DEFAULT_TEST_GLOBS}
    * is used.
    */
-  readonly testGlobs?: readonly string[];
+  readonly testGlobs?: readonly string[] | undefined;
 }
 
 export interface SplitHunksResult {

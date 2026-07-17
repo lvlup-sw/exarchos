@@ -153,7 +153,7 @@ export const KIND_OBLIGATIONS = {
 export interface ResolveGateSetCtx {
   readonly riskTier: RiskTier;
   readonly boundaryTouching: boolean;
-  readonly config?: ResolvedProjectConfig;
+  readonly config?: ResolvedProjectConfig | undefined;
   /**
    * The workflow type of the phase being resolved (e.g. `'feature'`). The
    * REVIEW resolver keys its dimension roster off this (review dimensions vary

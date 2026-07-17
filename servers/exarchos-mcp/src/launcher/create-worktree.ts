@@ -148,7 +148,7 @@ export type CreateLauncherWorktreeResult =
       readonly ok: false;
       readonly reason: 'reserve-conflict';
       /** The live owner already holding the worktree, when known. */
-      readonly conflict?: ReservationOwner;
+      readonly conflict?: ReservationOwner | undefined;
     }
   | {
       readonly ok: false;

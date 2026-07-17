@@ -116,8 +116,8 @@ export function boundEvents(
  * dispatch core has a single normalize-and-bound seam.
  */
 export interface AsOfParam {
-  readonly untilSequence?: number;
-  readonly untilTimestamp?: string;
+  readonly untilSequence?: number | undefined;
+  readonly untilTimestamp?: string | undefined;
 }
 
 /**

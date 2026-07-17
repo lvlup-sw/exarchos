@@ -43,18 +43,18 @@ export interface HandleAddArgs {
   /** The authored entry (without an `id` — auto-assigned on commit). */
   readonly entry: Record<string, unknown>;
   /** Repo-relative path of the target catalog. Defaults per tier. */
-  readonly catalog?: string;
+  readonly catalog?: string | undefined;
   /** Target tier — drives namespace (`U-N` user, `INV-N` dev). Default user. */
-  readonly tier?: 'dev' | 'user';
+  readonly tier?: 'dev' | 'user' | undefined;
   /** Explicit id override (rare — normally auto-assigned). */
-  readonly id?: string;
+  readonly id?: string | undefined;
   /** Dry-run (default true, INV-5c): render + diff, write nothing. */
   readonly dryRun?: boolean;
   /**
    * Opt-in to author into exarchos's reserved `dev` namespace from a non-exarchos
    * repo. Almost always a mistake outside the exarchos repo itself (#1489).
    */
-  readonly allowReservedTier?: boolean;
+  readonly allowReservedTier?: boolean | undefined;
 }
 
 const DEFAULT_PATH: Record<'dev' | 'user', string> = {

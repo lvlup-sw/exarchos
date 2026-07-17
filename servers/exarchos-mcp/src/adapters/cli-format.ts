@@ -200,11 +200,11 @@ function envelopeToToolResult(env: Envelope<unknown> | ErrorEnvelope): ToolResul
     // thread below (CodeRabbit minor on PR #1369).
     return {
       success: false,
-      error: errEnv.error as ToolResult['error'],
+      error: errEnv.error as NonNullable<ToolResult['error']>,
       _meta: errEnv._meta,
       _perf: errEnv._perf,
-      warnings: errEnv.warnings,
-      _corrections: errEnv._corrections,
+      ...(errEnv.warnings !== undefined ? { warnings: errEnv.warnings } : {}),
+      ...(errEnv._corrections !== undefined ? { _corrections: errEnv._corrections } : {}),
     };
   }
   const okEnv = env as Envelope<unknown>;
@@ -217,9 +217,11 @@ function envelopeToToolResult(env: Envelope<unknown> | ErrorEnvelope): ToolResul
     data: okEnv.data,
     _meta: okEnv._meta,
     _perf: okEnv._perf,
-    warnings: withSidebars.warnings,
-    _corrections: withSidebars._corrections,
-    _eventHints: okEnv._eventHints as EventHintsPayload | undefined,
+    ...(withSidebars.warnings !== undefined ? { warnings: withSidebars.warnings } : {}),
+    ...(withSidebars._corrections !== undefined ? { _corrections: withSidebars._corrections } : {}),
+    ...(okEnv._eventHints !== undefined
+      ? { _eventHints: okEnv._eventHints as EventHintsPayload }
+      : {}),
   };
 }
 

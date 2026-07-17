@@ -227,7 +227,7 @@ class Subscription {
    */
   private floorVersion = 0;
   /** Cancels the Tier-2 floor loop; undefined when no floor loop is active. */
-  private cancelFloor?: () => void;
+  private cancelFloor?: (() => void) | undefined;
   /** Tier-2 telemetry (surfaced via {@link perf}). */
   private floorTicks = 0;
   private floorDrains = 0;

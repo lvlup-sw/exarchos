@@ -51,7 +51,7 @@ interface SetupWorktreeWorkflowState {
    * derivation so both isolation paths uphold the same base-correctness
    * guarantee across all six runtimes (INV-4).
    */
-  readonly synthesis?: { readonly integrationBranch?: string };
+  readonly synthesis?: { readonly integrationBranch?: string } | undefined;
 }
 
 type CheckStatus = 'pass' | 'fail' | 'skip';

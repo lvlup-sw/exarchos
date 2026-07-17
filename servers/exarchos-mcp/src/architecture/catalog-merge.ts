@@ -43,8 +43,8 @@ export type OverrideFloor = 'none' | 'advisory' | 'disable' | 'immutable';
 
 /** Per-invariant override directive (mirrors `InvariantsConfigSchema.overrides`). */
 export interface InvariantOverride {
-  severity?: 'blocking' | 'advisory';
-  enabled?: boolean;
+  severity?: 'blocking' | 'advisory' | undefined;
+  enabled?: boolean | undefined;
 }
 
 /** Result of `applyOverrides`: clamped entries plus human-readable warnings. */

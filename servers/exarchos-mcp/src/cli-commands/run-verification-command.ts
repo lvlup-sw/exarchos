@@ -37,7 +37,7 @@ export interface RunResolvedCommandArgs {
   /** The resolved command string, or null/empty when unresolved. */
   readonly command: string | null;
   /** Remediation text surfaced on the unresolved path. */
-  readonly remediation?: string;
+  readonly remediation?: string | undefined;
   /** Whether `--dry-run` was passed (print, do not execute). */
   readonly dryRun: boolean;
   /** Working directory to run in. */

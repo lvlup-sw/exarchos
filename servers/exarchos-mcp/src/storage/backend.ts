@@ -20,14 +20,14 @@ export interface EventSender {
       sequence: number;
       timestamp: string;
       type: string;
-      correlationId?: string;
-      causationId?: string;
-      agentId?: string;
-      agentRole?: string;
-      source?: string;
-      schemaVersion?: string;
-      data?: Record<string, unknown>;
-      idempotencyKey?: string;
+      correlationId?: string | undefined;
+      causationId?: string | undefined;
+      agentId?: string | undefined;
+      agentRole?: string | undefined;
+      source?: string | undefined;
+      schemaVersion?: string | undefined;
+      data?: Record<string, unknown> | undefined;
+      idempotencyKey?: string | undefined;
     }>,
   ): Promise<{ accepted: number; streamVersion: number }>;
 }
@@ -109,7 +109,7 @@ export function isTerminalWorkflowStatus(status: WorkflowLifecycleStatus): boole
  */
 export interface WorkflowSummaryFilter {
   /** Exact `workflow_type` match — pushed down to the indexed column in SQLite. */
-  workflowType?: string;
+  workflowType?: string | undefined;
   /** Exact derived-{@link WorkflowLifecycleStatus} match. Authoritative over the terminal default. */
   status?: WorkflowLifecycleStatus;
   /** Exact `phase` match. */

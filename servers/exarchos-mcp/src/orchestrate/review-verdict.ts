@@ -86,7 +86,7 @@ export function computeVerdict(args: {
   high: number;
   medium: number;
   low: number;
-  blockedReason?: string;
+  blockedReason?: string | undefined;
 }): 'APPROVED' | 'NEEDS_FIXES' | 'BLOCKED' {
   if (args.blockedReason) {
     return 'BLOCKED';
@@ -130,7 +130,7 @@ interface FixLoopEscalation {
  */
 export function generateVerdictReport(
   verdict: 'APPROVED' | 'NEEDS_FIXES' | 'BLOCKED',
-  args: { high: number; medium: number; low: number; blockedReason?: string },
+  args: { high: number; medium: number; low: number; blockedReason?: string | undefined },
   escalation?: FixLoopEscalation,
 ): string {
   const lines: string[] = [];
