@@ -8,9 +8,7 @@
 // the language-agnostic task-runner tier from ./task-runners.ts. Returns a typed
 // ResolvedRuntime describing which commands to run plus the source per field.
 //
-// This module is the new authoritative source for runtime resolution. It
-// intentionally does NOT import detect-test-commands.ts — that module will
-// become a compatibility shim layered on top of this resolver.
+// This module is the authoritative source for runtime resolution.
 // ────────────────────────────────────────────────────────────────────────────
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -237,6 +235,49 @@ function isYarnBerry(repoRoot: string, pkg: PackageJsonShape | null): boolean {
   return false;
 }
 
+/**
+ * Per-package-manager script profile for the Node script-existence path
+ * (pnpm / yarn / npm — `bun` is handled separately since `bun test` needs no
+ * `scripts.test` entry). `testScript` is the script whose presence gates a
+ * runnable `test` command; `install` is a function so yarn can pick
+ * `--immutable` (Berry) vs `--frozen-lockfile` (Classic). These PM-aware
+ * command strings live here, not in toolchains.ts, by design: the registry's
+ * node entry is a package-manager-blind baseline (see toolchains.ts), and these
+ * are the refinements the resolver layers on top — not a second toolchain list.
+ */
+const NODE_SCRIPT_PROFILES: Record<
+  'pnpm' | 'yarn' | 'npm',
+  {
+    testScript: string;
+    test: string;
+    typecheck: string;
+    install: (repoRoot: string, pkg: PackageJsonShape | null) => string;
+  }
+> = {
+  pnpm: {
+    testScript: 'test',
+    test: 'pnpm test',
+    typecheck: 'pnpm run typecheck',
+    install: () => 'pnpm install --frozen-lockfile',
+  },
+  yarn: {
+    testScript: 'test',
+    test: 'yarn test',
+    typecheck: 'yarn run typecheck',
+    // `--immutable` is Berry-only; Classic (v1) rejects it. Pick the install
+    // command from the detected version. Both versions still get the same
+    // test/typecheck shape — those scripts are user-defined.
+    install: (repoRoot, pkg) =>
+      isYarnBerry(repoRoot, pkg) ? 'yarn install --immutable' : 'yarn install --frozen-lockfile',
+  },
+  npm: {
+    testScript: 'test:run',
+    test: 'npm run test:run',
+    typecheck: 'npm run typecheck',
+    install: () => 'npm install',
+  },
+};
+
 function detect(repoRoot: string): DetectionResult {
   // Tier 5 (built-in): node first (package-manager-aware, with script-existence
   // nuance), then any other toolchain via the shared registry's priority order.
@@ -263,66 +304,29 @@ function detect(repoRoot: string): DetectionResult {
         detected: true,
       };
     }
-    if (pm === 'pnpm') {
-      if (!hasScript(pkg, 'test')) {
-        return {
-          test: null,
-          typecheck: null,
-          install: 'pnpm install --frozen-lockfile',
-          detected: true,
-          unresolvedReason:
-            'package.json is missing a "test" script. Add a "test" entry under scripts (e.g., "test": "vitest run") or define test/typecheck commands in .exarchos.yml.',
-        };
-      }
+    // pnpm / yarn / npm share one script-existence shape (bun handled above): a
+    // missing test script yields an unresolved-test result that still carries a
+    // runnable install; otherwise test/typecheck resolve package-manager-aware.
+    // The per-PM commands come from the NODE_SCRIPT_PROFILES table.
+    const profile = NODE_SCRIPT_PROFILES[pm];
+    const install = profile.install(repoRoot, pkg);
+    if (!hasScript(pkg, profile.testScript)) {
       return {
-        test: 'pnpm test',
-        typecheck: hasScript(pkg, 'typecheck') ? 'pnpm run typecheck' : 'tsc --noEmit',
-        install: 'pnpm install --frozen-lockfile',
+        test: null,
+        typecheck: null,
+        install,
         detected: true,
+        unresolvedReason:
+          `package.json is missing a "${profile.testScript}" script. Add a "${profile.testScript}" entry under scripts ` +
+          `(e.g., "${profile.testScript}": "vitest run") or define test/typecheck commands in .exarchos.yml.`,
       };
     }
-    if (pm === 'yarn') {
-      // `--immutable` is Berry-only; Classic (v1) rejects it. Pick the install
-      // command from the detected version. Both versions still get the same
-      // test/typecheck shape — those scripts are user-defined.
-      const yarnInstall = isYarnBerry(repoRoot, pkg)
-        ? 'yarn install --immutable'
-        : 'yarn install --frozen-lockfile';
-      if (!hasScript(pkg, 'test')) {
-        return {
-          test: null,
-          typecheck: null,
-          install: yarnInstall,
-          detected: true,
-          unresolvedReason:
-            'package.json is missing a "test" script. Add a "test" entry under scripts (e.g., "test": "vitest run") or define test/typecheck commands in .exarchos.yml.',
-        };
-      }
-      return {
-        test: 'yarn test',
-        typecheck: hasScript(pkg, 'typecheck') ? 'yarn run typecheck' : 'tsc --noEmit',
-        install: yarnInstall,
-        detected: true,
-      };
-    }
-    if (pm === 'npm') {
-      if (!hasScript(pkg, 'test:run')) {
-        return {
-          test: null,
-          typecheck: null,
-          install: 'npm install',
-          detected: true,
-          unresolvedReason:
-            'package.json is missing a "test:run" script. Add a "test:run" entry under scripts (e.g., "test:run": "vitest run") or define test/typecheck commands in .exarchos.yml.',
-        };
-      }
-      return {
-        test: 'npm run test:run',
-        typecheck: hasScript(pkg, 'typecheck') ? 'npm run typecheck' : 'tsc --noEmit',
-        install: 'npm install',
-        detected: true,
-      };
-    }
+    return {
+      test: profile.test,
+      typecheck: hasScript(pkg, 'typecheck') ? profile.typecheck : 'tsc --noEmit',
+      install,
+      detected: true,
+    };
   }
 
   // Non-node toolchains: delegate identity + canonical commands to the registry,
@@ -472,6 +476,35 @@ export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): 
     `No ${field} command available for this project from detection. ` +
     `Add a "${field}" entry to .exarchos.yml or pass an override.`;
 
+  // Per-field event construction, table-driven over the three legacy fields in
+  // order. Each field's event derives from its resolved pick: a null layer
+  // (nothing contributed) emits `source: 'unresolved'` with a remediation string
+  // (the schema requires one), otherwise the contributing layer becomes the
+  // event source. The result-branches below differ only in which remediation an
+  // unresolved field gets, so they share this one builder rather than each
+  // repeating the three-element array literal.
+  const layerToSource = (layer: Layer | null): ResolutionSource =>
+    layer === null ? 'unresolved' : layer;
+  const fieldPicks: Record<
+    'test' | 'typecheck' | 'install',
+    { value: string | null; layer: Layer | null }
+  > = { test: testPick, typecheck: typecheckPick, install: installPick };
+  const buildPerFieldEvents = (
+    remediationForNull: (field: 'test' | 'typecheck' | 'install') => string,
+  ): PerFieldEvent[] =>
+    (['test', 'typecheck', 'install'] as const).map((field) => {
+      const p = fieldPicks[field];
+      if (p.layer === null) {
+        return {
+          field,
+          command: p.value,
+          source: 'unresolved',
+          remediation: remediationForNull(field),
+        };
+      }
+      return { field, command: p.value, source: layerToSource(p.layer) };
+    });
+
   if (det.unresolvedReason && testPick.value === null) {
     // The built-in detection flagged an unresolvable test (e.g. node missing a
     // test:run script) AND no higher tier (override / config / user toolchain /
@@ -479,38 +512,19 @@ export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): 
     // (and now the toolchain-config / task-runner tiers) may still have
     // contributed valid `typecheck`/`install` values — honor them per the
     // documented precedence. The aggregate source remains `unresolved` because
-    // `test` is unrunnable, but per-field events keep their actual source.
-    // The aggregate source remains `unresolved` because `test` is unrunnable,
-    // but per-field events keep their actual source so the audit trail is
-    // accurate.
-    const layerToSource = (layer: Layer | null): ResolutionSource =>
-      layer === null ? 'unresolved' : layer;
+    // `test` is unrunnable, but per-field events keep their actual source so the
+    // audit trail is accurate.
+    const reason = det.unresolvedReason;
     result = {
       test: null,
       typecheck: typecheckPick.value,
       install: installPick.value,
       source: 'unresolved',
-      remediation: det.unresolvedReason,
+      remediation: reason,
     };
-    perFieldEvents = [
-      { field: 'test', command: null, source: 'unresolved', remediation: det.unresolvedReason },
-      {
-        field: 'typecheck',
-        command: typecheckPick.value,
-        source: layerToSource(typecheckPick.layer),
-        ...(typecheckPick.layer === null
-          ? { remediation: fieldUnresolvedRemediation('typecheck') }
-          : {}),
-      },
-      {
-        field: 'install',
-        command: installPick.value,
-        source: layerToSource(installPick.layer),
-        ...(installPick.layer === null
-          ? { remediation: fieldUnresolvedRemediation('install') }
-          : {}),
-      },
-    ];
+    perFieldEvents = buildPerFieldEvents((field) =>
+      field === 'test' ? reason : fieldUnresolvedRemediation(field),
+    );
   } else if (source === 'unresolved') {
     result = {
       test: null,
@@ -519,11 +533,7 @@ export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): 
       source: 'unresolved',
       remediation: UNRESOLVED_REMEDIATION,
     };
-    perFieldEvents = [
-      { field: 'test', command: null, source: 'unresolved', remediation: UNRESOLVED_REMEDIATION },
-      { field: 'typecheck', command: null, source: 'unresolved', remediation: UNRESOLVED_REMEDIATION },
-      { field: 'install', command: null, source: 'unresolved', remediation: UNRESOLVED_REMEDIATION },
-    ];
+    perFieldEvents = buildPerFieldEvents(() => UNRESOLVED_REMEDIATION);
   } else {
     result = {
       test: testPick.value,
@@ -531,29 +541,12 @@ export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): 
       install: installPick.value,
       source,
     };
-    const layerToSource = (layer: Layer | null): ResolutionSource =>
-      layer === null ? 'unresolved' : layer;
-    const buildEvent = (
-      field: 'test' | 'typecheck' | 'install',
-      pick: { value: string | null; layer: Layer | null },
-    ): PerFieldEvent => {
-      if (pick.layer === null) {
-        // Detected projects (e.g., .NET / Rust / Python) leave secondary
-        // fields null — the per-field event must still satisfy the schema's
-        // unresolved-with-remediation invariant.
-        const remediation =
-          field === 'test'
-            ? UNRESOLVED_REMEDIATION
-            : fieldUnresolvedRemediation(field);
-        return { field, command: pick.value, source: 'unresolved', remediation };
-      }
-      return { field, command: pick.value, source: layerToSource(pick.layer) };
-    };
-    perFieldEvents = [
-      buildEvent('test', testPick),
-      buildEvent('typecheck', typecheckPick),
-      buildEvent('install', installPick),
-    ];
+    // Detected projects (e.g., .NET / Rust / Python) leave secondary fields
+    // null — the per-field event must still satisfy the schema's
+    // unresolved-with-remediation invariant.
+    perFieldEvents = buildPerFieldEvents((field) =>
+      field === 'test' ? UNRESOLVED_REMEDIATION : fieldUnresolvedRemediation(field),
+    );
   }
 
   // Emit per-field events. Resolution succeeds even if emission fails
