@@ -97,7 +97,12 @@ jobs:
         run: |
           PR="${{ github.event.pull_request.number }}"
           gh pr view "$PR" --json body -q .body > "$RUNNER_TEMP/pr-body.txt"
-          gh pr diff "$PR" --name-only > "$RUNNER_TEMP/pr-changed.txt"
+          # Use the paginated "list PR files" API, not `gh pr diff` — the .diff
+          # endpoint caps at 300 files and 406s on large PRs (e.g. the debloat
+          # wave itself), which would fail this gate closed on scale. The files
+          # API paginates (100/page) and returns the same newline-separated list.
+          gh api --paginate "repos/${{ github.repository }}/pulls/$PR/files" \
+            --jq '.[].filename' > "$RUNNER_TEMP/pr-changed.txt"
           node scripts/check-golden-fixture-note.mjs \
             --body-file "$RUNNER_TEMP/pr-body.txt" \
             --changed-files-file "$RUNNER_TEMP/pr-changed.txt"
