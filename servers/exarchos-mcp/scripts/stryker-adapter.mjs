@@ -59,6 +59,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 
 /** Repo-root-relative prefix this adapter's diff-scoping is hardwired to. */
@@ -276,7 +277,7 @@ const invokedDirectly = (() => {
   try {
     const argv1 = process.argv[1];
     if (!argv1) return false;
-    const self = new URL(import.meta.url).pathname;
+    const self = fileURLToPath(import.meta.url);
     return argv1 === self || argv1.endsWith('/stryker-adapter.mjs');
   } catch {
     return false;
