@@ -92,16 +92,3 @@ export const AgentSpecSchema = z
       });
     }
   });
-
-export type AgentSpecParsed = z.infer<typeof AgentSpecSchema>;
-
-/**
- * Validate an inbound spec declaration. Throws on Zod failure; the
- * structured error is the Zod issues array.
- *
- * Post-DR-6 (v2.11): no deprecation telemetry path remains — legacy
- * `capabilities[]` is hard-rejected at parse time.
- */
-export function validateAgentSpec(input: unknown): AgentSpecParsed {
-  return AgentSpecSchema.parse(input);
-}

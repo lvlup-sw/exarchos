@@ -57,7 +57,8 @@ export type GateResolverName =
 // dimensions, and synthesis-readiness legs are different vocabularies — so they
 // are kept as distinct discriminated members rather than flattened into one
 // `GateName` namespace. The `family` tag makes downstream dispatch exhaustively
-// checkable (a missing arm is a compile error via the `assertNever` helper).
+// checkable — a `switch` over `family` narrows the remaining union to `never`,
+// so an unhandled family is a compile error.
 
 /**
  * Plan-structure gate names (PLAN kind). Sourced from `plan-depth-policy.ts`
@@ -95,15 +96,6 @@ export type ResolvedGate =
   | { readonly family: 'synthesis'; readonly gate: SynthesisLeg };
 
 export type { ReviewDimension };
-
-/**
- * Exhaustiveness guard for `ResolvedGate.family` dispatch: a `switch` over
- * `family` whose `default` calls `assertNever(g)` becomes a COMPILE error the
- * moment a new family is added without a handling arm.
- */
-export function assertNever(value: never): never {
-  throw new Error(`Unhandled ResolvedGate family: ${JSON.stringify(value)}`);
-}
 
 /**
  * Extract the ordered ladder `GateName` sequence from a resolved gate-set,
