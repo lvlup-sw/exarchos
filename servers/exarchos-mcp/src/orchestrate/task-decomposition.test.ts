@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -291,6 +291,54 @@ describe('parseTaskBlocks — #1670 majority-4-hash corpus (DR-5)', () => {
     expect(result.hasTests).toBe(true);
     expect(result.riskTier).toBe('high');
     expect(result.status).toBe('PASS');
+  });
+});
+
+// ─── #1692: corpus regression — the description column on real specs ─────────
+//
+// Before the prose-after-field-block fix, the description column was NEAR-
+// uniformly negative on the real `docs/specs/` corpus: 29/255 tasks described
+// overall (~11%), and the field-stanza-shaped specs scored 0 (the v2-12
+// execution bundle: 0/26). With the fix the corpus reads ~two-thirds described
+// (172/255 at time of writing; the v2-12 bundle: 26/26).
+describe('validateTaskStructure — #1692 docs/specs corpus regression', () => {
+  it('CorpusSpecs_DescriptionColumn_NotUniformlyNegative', () => {
+    const specsDir = resolve(REPO_ROOT, 'docs/specs');
+    let total = 0;
+    let described = 0;
+    for (const file of readdirSync(specsDir).filter((f) => f.endsWith('.md'))) {
+      const content = readFileSync(resolve(specsDir, file), 'utf-8');
+      const blocks = parseTaskBlocks(content);
+      total += blocks.length;
+      described += blocks.filter(
+        (b) => validateTaskStructure(b.content).hasDescription,
+      ).length;
+    }
+
+    // The corpus must have tasks, and the description column must not be
+    // uniformly (or near-uniformly) negative. The 25% floor discriminates
+    // against the pre-fix parser (~11%) while leaving headroom for future
+    // corpus growth (~67% at time of writing).
+    expect(total).toBeGreaterThan(0);
+    expect(described).toBeGreaterThan(0);
+    expect(described / total).toBeGreaterThan(0.25);
+  });
+
+  it('CorpusSpecs_FieldStanzaShapedSpec_DescriptionsCredited', () => {
+    // Targeted contrast oracle: the v2-12 execution bundle is authored in the
+    // field-stanza shape (heading, `**Risk Tier:** …` stanza, prose below).
+    // The pre-fix parser scored it 0/26 described; the fix credits the
+    // post-stanza prose. As-built specs are historical records, so pinning
+    // the filename is stable (same precedent as the #1670 corpus test above).
+    const specPath = resolve(REPO_ROOT, 'docs/specs/2026-07-17-v2-12-execution-bundle.md');
+    const content = readFileSync(specPath, 'utf-8');
+    const blocks = parseTaskBlocks(content);
+    expect(blocks.length).toBeGreaterThan(0);
+
+    const described = blocks.filter(
+      (b) => validateTaskStructure(b.content).hasDescription,
+    ).length;
+    expect(described).toBeGreaterThan(0);
   });
 });
 
@@ -733,6 +781,144 @@ present without requiring a literal Description field-header marker.`;
     expect(result.hasDescription).toBe(false);
     expect(result.descriptionWordCount).toBeLessThanOrEqual(10);
   });
+
+  // ─── #1692: digit-tolerant Method_Scenario_Outcome detection ─────────────
+  //
+  // The MSO segment body was `[a-zA-Z]+` — digit-blind — so a real test name
+  // like `MigrateV6ToV7_RunTwice_IsIdempotent` counted 0 tests and a
+  // high-tier task carrying only such names hard-FAILed. Segment bodies now
+  // admit digits; the leading-capital anchor per segment is preserved.
+  describe('validateTaskStructure — digit-tolerant MSO regex (#1692)', () => {
+    const taskWithTestNames = (names: readonly string[]) => `### Task T-01: migration harness
+
+Test names:
+${names.map((n) => `- ${n}`).join('\n')}
+`;
+
+    it('MsoPattern_VersionTokenName_IsCounted', () => {
+      const result = validateTaskStructure(
+        taskWithTestNames(['MigrateV6ToV7_RunTwice_IsIdempotent']),
+      );
+      expect(result.testCount).toBe(1);
+      expect(result.hasTests).toBe(true);
+    });
+
+    it('MsoPattern_NoDigitName_StillCounted', () => {
+      // No-digit regression: the classic all-letter MSO name must keep
+      // matching exactly as before the digit broadening.
+      const result = validateTaskStructure(
+        taskWithTestNames(['Widget_Render_DisplaysContent']),
+      );
+      expect(result.testCount).toBe(1);
+      expect(result.hasTests).toBe(true);
+    });
+
+    it('MsoPattern_DigitLedSegment_NotCounted', () => {
+      // The leading-capital anchor is load-bearing: a digit-LED segment
+      // (`429`) is not a PascalCase MSO segment and must not match.
+      const result = validateTaskStructure(taskWithTestNames(['STORAGE_BUSY_429']));
+      expect(result.testCount).toBe(0);
+      expect(result.hasTests).toBe(false);
+    });
+  });
+
+  // ─── #1692: naked prose AFTER the field-header block counts ──────────────
+  //
+  // The description span used to TERMINATE at the first non-introducer
+  // field-header, so the corpus-dominant `docs/specs/` shape — heading,
+  // field stanza (`**Risk Tier:**`, `**Files:**`, `**Dependencies:**`, …),
+  // THEN narrative paragraphs — scored 0 words on every task. Post-stanza
+  // naked prose now counts; field headers, their list continuations, table
+  // rows, and backticked spans still never do (F20/#1213 holds).
+  describe('validateTaskStructure — prose after field block (#1692)', () => {
+    it('ProseBody_NoFieldIntroducer_HasDescription', () => {
+      // Naked prose body, no `**Goal:**`/`**Description:**` introducer, no
+      // field headers at all — the body IS the description.
+      const block = `#### Task 003: gate fixes
+
+The gate must stop rejecting real prose when the author writes the task
+description as plain narrative paragraphs without any field introducer.`;
+
+      const result = validateTaskStructure(block);
+      expect(result.hasDescription).toBe(true);
+      expect(result.descriptionWordCount).toBeGreaterThanOrEqual(10);
+    });
+
+    it('ProseAfterFieldBlock_IsCounted', () => {
+      // The corpus shape that motivated #1692: short heading tail, field
+      // stanza, then the real description as naked prose BELOW the stanza.
+      const block = `#### Task 003: fix the gate
+
+**Risk Tier:** medium · **Boundary Touching:** false
+**Files:** \`servers/exarchos-mcp/src/orchestrate/task-decomposition.ts\`
+**Dependencies:** None · **Parallelizable:** Yes
+
+Fix the four false-signal defects in the decomposition gate so plan review
+stops rejecting spec shapes that real planners actually author in practice.`;
+
+      const result = validateTaskStructure(block);
+      // Heading tail (3 words) alone is under threshold; the post-stanza
+      // prose (~24 words) must be what crosses it. Field-header lines and
+      // the backticked path contribute nothing, so the count stays bounded.
+      expect(result.hasDescription).toBe(true);
+      expect(result.descriptionWordCount).toBeGreaterThan(10);
+      expect(result.descriptionWordCount).toBeLessThan(35);
+    });
+
+    it('FileListProseAfterFieldBlock_StillFailsDescription', () => {
+      // F20/#1213 guard on the NEW branch: post-stanza lines that are
+      // nothing but backticked file paths must contribute ZERO words —
+      // unstripped they would exceed the 10-word threshold.
+      const block = `#### Task 004:
+
+**Dependencies:** None
+
+\`src/a.ts\` \`src/b.ts\` \`src/c.ts\` \`src/d.ts\`
+\`src/e.ts\` \`src/f.ts\` \`src/g.ts\` \`src/h.ts\`
+\`src/i.ts\` \`src/j.ts\` \`src/k.ts\` \`src/l.ts\``;
+
+      const result = validateTaskStructure(block);
+      expect(result.hasDescription).toBe(false);
+      expect(result.descriptionWordCount).toBe(0);
+    });
+
+    it('TableRowsAfterFieldBlock_NotCountedAsDescription', () => {
+      // Table rows are structure, not prose — a summary table after the
+      // stanza must not satisfy the description threshold.
+      const block = `#### Task 005:
+
+**Dependencies:** None
+
+| Wave | Task | Owner | Outcome | Notes |
+|------|------|-------|---------|-------|
+| one | first | alice | shipped the widget rendering pipeline | verified twice |
+| two | second | bob | shipped the api client retry wrapper | verified once |`;
+
+      const result = validateTaskStructure(block);
+      expect(result.hasDescription).toBe(false);
+      expect(result.descriptionWordCount).toBe(0);
+    });
+  });
+
+  // ─── #1710: asset-file extensions on the allowlist ───────────────────────
+  it('AssetOnlyTask_SvgFile_PassesLowTier', () => {
+    // #1710: a low-tier task whose only file target is a static asset
+    // (`logo.svg`) reported ✗ 0 files and false-FAILed — asset extensions
+    // were missing from FILE_EXTENSION_ALLOWLIST (#1544 class).
+    const block = `### Task T-40: Optimize the marketing logo asset for the docs site
+
+**Risk Tier:** low
+
+**Files:**
+- \`documentation/public/logo.svg\`
+`;
+
+    const result = validateTaskStructure(block);
+    expect(result.fileCount).toBe(1);
+    expect(result.hasFiles).toBe(true);
+    expect(result.riskTier).toBe('low');
+    expect(result.status).toBe('PASS');
+  });
 });
 
 describe('validateDependencyDAG', () => {
@@ -765,12 +951,15 @@ describe('validateDependencyDAG', () => {
   });
 });
 
-// ─── T-13 dependency-parser contract (DR-5 step 2/3) ────────────────────
+// ─── T-13 dependency-parser contract (DR-5 step 2/3; extended #1692 DR-2) ──
 //
-// `extractDependencies` MUST anchor strictly to the `**Dependencies:**` line
-// and MUST match both `T-XX` and `TXX` formats via a single regex
-// `\b(T-?\d+)\b`. There is NO greedy `[0-9]+` fallback — if the deps line
-// contains no `T<id>`/`T-<id>` token, the helper returns `[]`.
+// `extractDependencies` MUST anchor strictly to the `**Dependencies:**` line.
+// It matches `T-XX`, `TXX`, AND (since #1692 DR-2) bare-numeric `XX` ids via
+// `\b(?:T-?)?\d+\b` — the corpus-dominant `**Dependencies:** 001, 015` form
+// used to return `[]`, making DAG validation vacuous on most real specs.
+// There is still NO whole-block `[0-9]+` fallback, and the deps line is
+// scrubbed of backtick spans and parentheticals before scanning so
+// annotation digits (`Rollup24h`, `(same file …)`) never read as task ids.
 //
 // Normalization decision (documented for posterity): the helper returns
 // matches **verbatim** — `T-001` stays `T-001`, `T002` stays `T002`. The
@@ -830,6 +1019,61 @@ parser entirely. Numbers like 24 in prose must not leak.
 **Parallelizable:** No`;
 
     expect(extractDependencies(block)).toEqual([]);
+  });
+
+  // ─── #1692 (DR-2): bare-numeric dependency ids ──────────────────────────
+  it('DependenciesLine_BareNumericIds_Resolved', () => {
+    // The corpus-dominant form: `**Dependencies:** 001, 015` (no T prefix).
+    // The T-prefix-only regex returned [] here, so the DAG check validated an
+    // edgeless graph — vacuously true for most real specs.
+    const block = `#### Task 016: consumer of two upstream tasks
+
+**Dependencies:** 001, 015
+**Parallelizable:** No`;
+
+    expect(extractDependencies(block)).toEqual(['001', '015']);
+
+    // "Resolved" end-to-end: the bare-numeric edges participate in DAG
+    // validation. A dep on a MISSING task must now be caught — proof the
+    // validation is no longer vacuous.
+    const tasks = [
+      { id: '001', deps: [] as string[] },
+      { id: '015', deps: [] as string[] },
+      { id: '016', deps: extractDependencies(block) },
+    ];
+    expect(validateDependencyDAG(tasks).valid).toBe(true);
+
+    const missingDep = validateDependencyDAG([
+      { id: '001', deps: [] },
+      { id: '016', deps: ['001', '015'] }, // 015 does not exist
+    ]);
+    expect(missingDep.valid).toBe(false);
+    expect(missingDep.cyclePath).toContain('unknown 015');
+  });
+
+  it('DependenciesLine_ParentheticalAndBacktickAnnotations_NotScraped', () => {
+    // Bare-numeric matching MUST NOT reopen the Rollup24h class: digits
+    // inside backtick spans or parentheticals on the deps line are
+    // annotations, not task ids. (See the corpus shape
+    // `**Dependencies:** None · **Parallelizable:** Yes (002, …)`.)
+    const annotated = `#### Task 007: annotated deps line
+
+**Dependencies:** 004 (shares \`facade.ts\` — pinned order 004 → 005 → 007)
+**Parallelizable:** No`;
+    expect(extractDependencies(annotated)).toEqual(['004']);
+
+    const noneWithParallelInfo = `#### Task 001: chain head
+
+**Dependencies:** None · **Parallelizable:** Yes (002, the other consumer)`;
+    expect(extractDependencies(noneWithParallelInfo)).toEqual([]);
+
+    // Unterminated trailing parenthetical (long annotation wrapped by the
+    // author) — everything after the `(` is scrubbed to end-of-line.
+    const unterminated = `#### Task 005: unterminated annotation
+
+**Dependencies:** 003 (the ladder is pure over injected inputs — \`x.ts\`, 24 more
+**Parallelizable:** No`;
+    expect(extractDependencies(unterminated)).toEqual(['003']);
   });
 
   it('extractDependencies_DigitsInOtherLines_NotExtracted', () => {
@@ -927,6 +1171,21 @@ through the projection so downstream consumers see the change without polling.
     expect(files).toContain('config.json');
     expect(files).toContain('README.md');
   });
+
+  // ─── #1710: static-asset extensions (#1544 class) ───────────────────────
+  it.each(['svg', 'png', 'jpg', 'jpeg', 'webp', 'ico', 'gif'] as const)(
+    'extractFiles_AssetExtension_%s_Matched',
+    (ext) => {
+      const block = `### Task T-41: asset task
+
+**Files:**
+- \`documentation/public/logo.${ext}\`
+
+**Dependencies:** None`;
+
+      expect(extractFiles(block)).toContain(`documentation/public/logo.${ext}`);
+    },
+  );
 
   it('extractFiles_UnknownExtension_NotMatched', () => {
     // The allowlist is closed. A backtick-quoted token whose suffix is not

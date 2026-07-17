@@ -124,6 +124,18 @@ export const FILE_EXTENSION_ALLOWLIST: readonly string[] = [
   'kt',
   'cpp',
   'tf',
+  // #1710 (#1544-class): static-asset extensions — an asset-only task
+  // declaring e.g. `documentation/public/logo.svg` reported ✗ 0 files and
+  // false-FAILed. Assets are not plausible dotted-identifier suffixes
+  // (`imageProvenance.isFirstParty`-style prose tokens), so admitting them
+  // cannot reopen the false-positive class the allowlist exists to reject.
+  'svg',
+  'png',
+  'jpg',
+  'jpeg',
+  'webp',
+  'ico',
+  'gif',
 ];
 
 /**
@@ -219,20 +231,32 @@ export function parseTaskBlocks(content: string): TaskBlock[] {
 // ─── Validate Task Structure ────────────────────────────────────────────
 
 /**
+ * Strip backtick-quoted spans (inline code / file paths like `src/a.ts`)
+ * from a line before it is word-counted as description prose. The F20/#1213
+ * guard: a file list must NEVER satisfy the description threshold, so only
+ * the prose remnant of a line contributes words.
+ */
+function stripBacktickSpans(line: string): string {
+  return line.replace(/`[^`]*`/g, ' ');
+}
+
+/**
  * Extract the description span from a task block's lines.
  *
  * The description span is the union of:
  *
  *  1. The **brief-description tail of the `### Task N: …` heading** — the
  *     text after the `### Task N:` prefix. (T-02 / #1486.)
- *  2. The **body span** — "everything between the task heading and the next
- *     field-header (`**Word:**`) or section header (`### `)", with the caveat
- *     that the FIRST field-header encountered is treated as a description
- *     introducer and is *included* in the span (its inline tail is captured;
- *     the prose after it is also captured). The SECOND field-header
- *     terminates the span.
+ *  2. The **body prose** — every naked-prose line of the block, wherever it
+ *     appears. The FIRST `**Goal:**` / `**Description:**` field-header is a
+ *     description introducer (its inline tail counts); every OTHER
+ *     field-header opens a field block whose header line, list/indented
+ *     continuations, and table rows are skipped — but naked prose appearing
+ *     AFTER a field block re-enters the span (#1692). Backtick-quoted spans
+ *     are stripped before counting so file lists never satisfy the
+ *     description threshold (F20 / #1213).
  *
- * Together these handle four canonical block shapes:
+ * Together these handle five canonical block shapes:
  * - **task-template.md shape** (T-02 / #1486): the brief description lives IN
  *   the `### Task [N]: [Brief Description]` heading and the body opens
  *   immediately with `**Phase:**` (a NON-introducer field header). The body
@@ -245,20 +269,23 @@ export function parseTaskBlocks(content: string): TaskBlock[] {
  *   by `**Files:**`, `**Tests:**`, etc.) — Goal prose counts as description.
  * - Legacy explicit `**Description:**` shape — Description prose counts.
  * - Naked-prose shape (no field-headers at all) — full body counts.
+ * - **Prose-after-field-block shape** (#1692): the corpus-dominant
+ *   `docs/specs/` layout opens with a field stanza (`**Risk Tier:**`,
+ *   `**Files:**`, `**Dependencies:**`, …) and carries its real description
+ *   as narrative paragraphs BELOW the stanza. The scan used to TERMINATE at
+ *   the first non-introducer field-header, so those tasks scored 0 words;
+ *   the post-stanza prose now counts.
  *
- * Returned as the array of captured raw lines (not yet word-counted) so
- * callers can decide how to render or score them.
+ * Returned as the array of captured lines (backtick spans stripped, not yet
+ * word-counted) so callers can decide how to render or score them.
  */
 export function extractDescriptionSpan(lines: readonly string[]): string[] {
   const descLines: string[] = [];
-  let firstFieldSeen = false;
 
   // T-02 (#1486): capture the heading's brief-description tail (text after
   // `### Task N:`) as a description signal. The task-template.md shape puts
   // the description in the heading, so without this the body-only span is
-  // empty for template-verbatim tasks. We do NOT count backtick-quoted file
-  // paths here (template headings are prose, not file lists), so this does
-  // not reopen the F20/#1213 hole guarded against below.
+  // empty for template-verbatim tasks.
   //
   // #1670: recognise both `###` and `####` task headings so the heading-tail
   // description is credited on the majority-4-hash corpus, not just legacy
@@ -267,63 +294,75 @@ export function extractDescriptionSpan(lines: readonly string[]): string[] {
   const start = firstLine !== undefined && TASK_HEADING_LINE.test(firstLine) ? 1 : 0;
   if (start === 1 && firstLine !== undefined) {
     const headingTail = firstLine.replace(TASK_HEADING_PREFIX, '');
-    // Strip backtick-quoted spans (file paths like `src/a.ts`) before counting
-    // the tail as description — a heading that is nothing but a file list must
-    // NOT satisfy the description threshold (the F20/#1213 hole this comment
-    // claims to avoid). Only the prose remnant counts.
-    const headingTailProse = headingTail.replace(/`[^`]*`/g, ' ').trim();
+    const headingTailProse = stripBacktickSpans(headingTail).trim();
     if (headingTailProse.length > 0) {
       descLines.push(headingTailProse);
     }
   }
 
+  // Scan state. `prose` counts naked-prose lines toward the description;
+  // `field` skips a non-introducer field block — the `**Field:**` header
+  // line itself plus its continuations (blank lines, list items, indented
+  // lines). Naked prose after the field block flips back to `prose` (#1692).
+  let mode: 'prose' | 'field' = 'prose';
+  let introducerSeen = false;
+
   for (let i = start; i < lines.length; i++) {
     const line = lines[i];
     if (line === undefined) continue;
     // #1670: terminate the span at the next task-depth (`###`/`####`) heading —
-    // previously only `###` broke the scan, so a 4-hash sub-heading leaked into
-    // the description on the majority-4-hash corpus.
+    // a sub-heading's section (e.g. `#### Acceptance criteria`) is structure,
+    // not description prose.
     if (TASK_DEPTH_HEADING.test(line)) {
       break;
     }
-    // F20 (#1213): capture the LABEL inside `**...:**` separately so we
-    // can distinguish description introducers (`**Goal:**`,
-    // `**Description:**`) from non-description structural headers
-    // (`**Files:**`, `**Tests:**`, `**Dependencies:**`,
-    // `**Parallelizable:**`, `**Acceptance criteria:**`, …).
-    //
-    // Previously the FIRST `**Field:**` line was treated as the
-    // description introducer regardless of label. Tasks that opened with
-    // `**Files:** \`a.ts\`, \`b.ts\`, \`c.ts\``, etc. inadvertently had
-    // their inline file list counted as description prose, satisfying
-    // the 10-word threshold and masking missing-description failures.
-    //
-    // Now: only `Goal` / `Description` (case-insensitive) introduce the
-    // span. Any other label terminates the scan immediately, leaving
-    // any preceding naked-prose lines as the description (handles the
-    // legacy "no field-headers at all" shape via the `else` branch
-    // below).
+    // F20 (#1213): capture the LABEL inside `**...:**` so we can distinguish
+    // description introducers (`**Goal:**`, `**Description:**`) from
+    // non-description structural headers (`**Files:**`, `**Tests:**`,
+    // `**Dependencies:**`, `**Parallelizable:**`, `**Acceptance criteria:**`,
+    // …). Only the first Goal/Description introduces the span; every other
+    // field-header opens a skipped field block. A field-header's inline tail
+    // (e.g. `**Files:** \`a.ts\`, \`b.ts\``) never counts as prose.
     const fieldMatch = /^\*\*(\w[\w\s]*?):\*\*\s?(.*)$/.exec(line);
     if (fieldMatch) {
       const label = (fieldMatch[1] ?? '').trim();
-      const isDescriptionIntroducer = /^(goal|description)$/i.test(label);
-      if (firstFieldSeen) {
-        // Second field-header — terminate the description span.
-        break;
+      if (!introducerSeen && /^(goal|description)$/i.test(label)) {
+        // First description-introducer — drop the label, keep the inline tail.
+        introducerSeen = true;
+        const tail = stripBacktickSpans(fieldMatch[2] ?? '');
+        if (/[A-Za-z0-9]/.test(tail)) {
+          descLines.push(tail);
+        }
+        mode = 'prose';
+      } else {
+        mode = 'field';
       }
-      if (!isDescriptionIntroducer) {
-        // Non-description header reached before any introducer —
-        // terminate the scan WITHOUT swallowing this line. Any naked
-        // prose preceding it (already pushed to `descLines`) remains
-        // the description.
-        break;
-      }
-      // First description-introducer — drop the label, keep inline tail.
-      firstFieldSeen = true;
-      descLines.push(fieldMatch[2] ?? '');
       continue;
     }
-    descLines.push(line);
+
+    // Table rows are structure, never prose (same F20-class guard: a task
+    // whose body is a summary table must not score description words).
+    if (/^\s*\|/.test(line)) {
+      continue;
+    }
+
+    if (mode === 'field') {
+      // Field-block continuations: blank lines, list items (`- ` / `* ` /
+      // `1. `), and indented continuation lines all belong to the field.
+      if (/^\s*$/.test(line) || /^\s*(?:[-*+]|\d+[.)])\s/.test(line) || /^\s/.test(line)) {
+        continue;
+      }
+      // Naked prose after the field block — the description resumes (#1692).
+      mode = 'prose';
+    }
+
+    // F20 (#1213): strip backtick spans before counting; a line that is
+    // nothing but backticked paths / punctuation contributes no words.
+    const prose = stripBacktickSpans(line);
+    if (!/[A-Za-z0-9]/.test(prose)) {
+      continue;
+    }
+    descLines.push(prose);
   }
 
   return descLines;
@@ -369,7 +408,11 @@ export function validateTaskStructure(block: string): TaskStructureResult {
 
   // --- Test expectations ---
   const redPattern = /\[RED\]/g;
-  const msoPattern = /[A-Z][a-zA-Z]+_[A-Z][a-zA-Z]+_[A-Z][a-zA-Z]+/g;
+  // #1692: segment BODIES admit digits — `MigrateV6ToV7_RunTwice_IsIdempotent`
+  // is a real Method_Scenario_Outcome test name, but the digit-blind body
+  // `[a-zA-Z]+` counted it as 0 tests. Each segment keeps its leading-capital
+  // anchor, so digit-LED segments (`STORAGE_BUSY_429`) still do not match.
+  const msoPattern = /[A-Z][a-zA-Z0-9]+_[A-Z][a-zA-Z0-9]+_[A-Z][a-zA-Z0-9]+/g;
   let testCount = 0;
   for (const line of lines) {
     const redMatches = line.match(redPattern);
@@ -647,16 +690,26 @@ export function checkParallelSafety(tasks: readonly ParallelTask[]): ParallelSaf
  * of narrative prose ("`GetCslSloRollup24h`") and report them as unknown
  * dependencies.
  *
- * Matches both `T-NNN` and `TNNN` formats via a single word-boundary regex
- * (`\b(T-?\d+)\b`). The returned matches are verbatim — `T-001` stays
- * `T-001`, `T002` stays `T002`. The equivalence between `T-NNN`, `TNNN`,
- * and `NNN` (bare numeric IDs emitted by `parseTaskBlocks` for `### Task
- * 002:` headings) is handled at comparison time inside
- * `validateDependencyDAG`, not here, so this helper does not silently
- * mutate caller-visible IDs.
+ * Matches `T-NNN`, `TNNN`, AND bare-numeric `NNN` ids via a single
+ * word-boundary regex (`\b(?:T-?)?\d+\b`). Bare-numeric matching is #1692
+ * (DR-2): the corpus-dominant `**Dependencies:** 001, 015` form used to
+ * return `[]` under the T-prefix-only regex, making DAG validation vacuous
+ * for most real specs. The returned matches are verbatim — `T-001` stays
+ * `T-001`, `001` stays `001`. The equivalence between `T-NNN`, `TNNN`, and
+ * `NNN` (bare numeric IDs emitted by `parseTaskBlocks` for `### Task 002:`
+ * headings) is handled at comparison time inside `validateDependencyDAG`,
+ * not here, so this helper does not silently mutate caller-visible IDs.
  *
- * Returns `[]` if no `T<id>`/`T-<id>` token is present (e.g. `none`,
- * empty, or "Task 1, Task 2"-style narrative without a recognised id).
+ * Because bare digits are far more collision-prone than `T`-prefixed ids,
+ * the deps line is SCRUBBED before scanning: backtick spans
+ * (`` `GetCslSloRollup24h` `` — the historical Rollup24h false positive)
+ * and parentheticals (`(same file …)`, including an unterminated trailing
+ * `(…`) are removed, so annotation digits never read as task ids. The scan
+ * remains anchored to the `**Dependencies:**` line only — there is still NO
+ * whole-block digit fallback.
+ *
+ * Returns `[]` if no id token survives the scrub (e.g. `none`, empty, or a
+ * parenthetical-only annotation).
  */
 export function extractDependencies(block: string): string[] {
   const lines = block.split('\n');
@@ -666,8 +719,12 @@ export function extractDependencies(block: string): string[] {
       if (!depsLine || /^none$/i.test(depsLine)) {
         return [];
       }
-      const tRefs = depsLine.match(/\bT-?\d+\b/g);
-      return tRefs ?? [];
+      const scrubbed = depsLine
+        .replace(/`[^`]*`/g, ' ')
+        .replace(/\([^)]*\)/g, ' ')
+        .replace(/\([^)]*$/, ' ');
+      const refs = scrubbed.match(/\b(?:T-?)?\d+\b/g);
+      return refs ?? [];
     }
   }
   return [];
