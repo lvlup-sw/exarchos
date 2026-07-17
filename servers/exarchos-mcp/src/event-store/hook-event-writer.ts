@@ -12,6 +12,8 @@
 // the side-channel is structural, not a degradation of the primary
 // write-path.
 
+// RESERVED(issue: #1713, owner: exarchos, expires: 2026-10-31) — pre-existing dead; writeHookEvent, no prod invoker — dead or hook-sidecar wiring gap; delete-or-wire tracked in #1713 (DR-7 module-intent gate)
+
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 

@@ -1,3 +1,5 @@
+// RESERVED(issue: #1713, owner: exarchos, expires: 2026-10-31) — pre-existing dead; computeRunbookAutoEmits, test-only caller — dead or wiring gap; delete-or-wire tracked in #1713 (DR-7 module-intent gate)
+
 import { findActionInRegistry } from '../registry.js';
 import type { RunbookDefinition } from './types.js';
 
