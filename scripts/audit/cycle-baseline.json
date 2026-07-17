@@ -1,0 +1,16 @@
+{
+  "$comment": "DRAFT runtime import-cycle baseline (DR-4, debloat task 009). dependency-cruiser is the SOLE acceptance instrument: it counts RUNTIME edges only (the repo config's default tsPreCompilationDeps:false elides `import type` edges; dynamic import() is counted). Each entry is edge-keyed and documents an ACCEPTED, TRACKED runtime cycle back-edge. STRICTLY empty here because the measured capture over servers/exarchos-mcp/src reports ZERO remaining runtime cycles after task 009's two extractions (workflow-state-projection<->state-store and core/dispatch<->telemetry/middleware were both broken by leaf extraction, not baselined). No phantom entries: an entry MUST correspond to a live depcruise-reported cycle edge. The `dispatch -> */composite` seams are NOT cycles (their back-edges are `import type`, elided). Task 010 finalizes this file and its validating schema.",
+  "version": 1,
+  "instrument": "dependency-cruiser (runtime edges: import type excluded, dynamic import counted)",
+  "entryShape": {
+    "rule": "depcruise rule that flags the edge, e.g. 'no-circular'",
+    "from": "repo-relative source module of the back-edge",
+    "to": "repo-relative target module of the back-edge",
+    "owner": "team/person accountable for retiring the edge",
+    "rationale": "why the edge is tolerated for now",
+    "issue": "tracking issue for the fix",
+    "expires": "ISO date the waiver lapses (XOR 'permanent')",
+    "permanent": "true when the edge is an accepted permanent exception (no expiry)"
+  },
+  "entries": []
+}
