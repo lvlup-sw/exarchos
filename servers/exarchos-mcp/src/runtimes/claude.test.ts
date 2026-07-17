@@ -5,7 +5,7 @@
 // This declaration is consumed by the prose renderer (Tasks 8/9) to gate
 // `<!-- requires:* -->` and `<!-- requires:native:* -->` blocks.
 //
-// Implements: Task 7a of docs/plans/2026-04-25-delegation-runtime-parity.md.
+// Implements: Task 7a of docs/plans/archive/2026-04-25-delegation-runtime-parity.md.
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect } from 'vitest';

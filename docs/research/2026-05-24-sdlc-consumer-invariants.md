@@ -5,7 +5,7 @@
 > **Issue:** [#1467](https://github.com/lvlup-sw/exarchos/issues/1467) (`type:docs` — scoping; has an implementation tail, see §5)
 > **Stacks on:** #1466 (`feature/invariants-dev-catalog-v3-content`) → #1465 (machinery)
 > **Mechanism delivered by:** [PR #1465](https://github.com/lvlup-sw/exarchos/pull/1465) (`integrity-class: sdlc`, layered merge, override-floor)
-> **Provenance:** v2 spec [§10](../proposals/2026-05-20-invariants-catalog-v2-spec.md); design [DR-6 + Open Question #2](../designs/2026-05-23-invariants-projection-and-extensibility.md)
+> **Provenance:** v2 spec [§10](../proposals/2026-05-20-invariants-catalog-v2-spec.md); design [DR-6 + Open Question #2](../designs/archive/2026-05-23-invariants-projection-and-extensibility.md)
 
 ## 1. Research question
 

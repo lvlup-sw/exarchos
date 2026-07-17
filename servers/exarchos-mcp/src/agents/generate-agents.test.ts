@@ -9,8 +9,8 @@
 // errors (DIM-2 observability), idempotent writes, deterministic
 // iteration, and Claude-only plugin manifest registration.
 //
-// See docs/designs/2026-04-25-delegation-runtime-parity.md §5 and Task
-// 5 in docs/plans/2026-04-25-delegation-runtime-parity.md.
+// See docs/designs/archive/2026-04-25-delegation-runtime-parity.md §5 and Task
+// 5 in docs/plans/archive/2026-04-25-delegation-runtime-parity.md.
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';

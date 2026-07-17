@@ -211,6 +211,6 @@ bash scripts/verify-flywheel-activation.sh --gold-standard evals/calibration/gol
 ## Related
 
 - [Flywheel Activation Guide](flywheel-activation.md) — Full pipeline activation steps
-- [Flywheel Activation Design](../designs/2026-02-27-flywheel-activation.md) — Design document
+- [Flywheel Activation Design](../designs/archive/2026-02-27-flywheel-activation.md) — Design document
 - `servers/exarchos-mcp/src/evals/calibration-types.ts` — `HumanGradedCase` and `CalibrationReport` schemas
 - `servers/exarchos-mcp/src/evals/calibration-split.ts` — Deterministic split assignment

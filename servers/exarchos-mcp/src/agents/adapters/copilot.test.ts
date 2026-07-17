@@ -6,7 +6,7 @@
 // and the literal `.agent.md` extension (distinct from plain `.md`).
 //
 // References:
-//   - docs/designs/2026-04-25-delegation-runtime-parity.md §4
+//   - docs/designs/archive/2026-04-25-delegation-runtime-parity.md §4
 //   - docs/research/2026-04-25-delegation-platform-agnosticity.md §3 (Copilot row)
 //   - https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-custom-agents-for-cli
 // ────────────────────────────────────────────────────────────────────────────

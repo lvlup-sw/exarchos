@@ -1,4 +1,4 @@
-// Source: docs/designs/2026-05-05-e2e-v29-revisited.md §5.2 (T2.4)
+// Source: docs/designs/archive/2026-05-05-e2e-v29-revisited.md §5.2 (T2.4)
 // Regression test for #1208 — task.completed{worktreePath} must auto-detour the
 // rehydration envelope's `next_actions` so a `merge_orchestrate` verb is
 // surfaced. Per the documented behavior in

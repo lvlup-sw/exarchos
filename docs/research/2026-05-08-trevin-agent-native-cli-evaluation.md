@@ -323,8 +323,8 @@ The deeper convergence: Trevin Chow, Cloudflare, HeyGen, and Exarchos are indepe
 - [`docs/architecture/runtime.md`](../architecture/runtime.md) — canonical runtime architecture; the framing this report tests against.
 - [`docs/research/2026-05-08-marten-event-store-lessons.md`](2026-05-08-marten-event-store-lessons.md) — companion piece evaluating the substrate side. Together these two reports cover surface (Trevin) and substrate (Marten).
 - [`.claude/skills/design-invariants/SKILL.md`](../../.claude/skills/design-invariants/SKILL.md) + references — INV-1..INV-5d operational skill consulted throughout.
-- [`docs/designs/2026-05-08-durable-event-store-substrate.md`](../designs/2026-05-08-durable-event-store-substrate.md) — `#1259` substrate spike; Tier 1 principles 1, 2, 4 cite this.
-- [`docs/designs/2026-04-18-strategic-framing-exarchos-basileus.md`](../designs/2026-04-18-strategic-framing-exarchos-basileus.md) — local vs remote tiers; informs the `feedback` upstream-POST design (R-C).
+- [`docs/designs/archive/2026-05-08-durable-event-store-substrate.md`](../designs/archive/2026-05-08-durable-event-store-substrate.md) — `#1259` substrate spike; Tier 1 principles 1, 2, 4 cite this.
+- [`docs/designs/archive/2026-04-18-strategic-framing-exarchos-basileus.md`](../designs/archive/2026-04-18-strategic-framing-exarchos-basileus.md) — local vs remote tiers; informs the `feedback` upstream-POST design (R-C).
 
 ### Issues referenced
 

@@ -9,8 +9,8 @@
 // no longer carries a `capabilities[]` field; tests assert against the
 // resolved set instead.
 //
-// See docs/designs/2026-04-25-delegation-runtime-parity.md §3 and
-// docs/designs/2026-05-09-v2-10-0-preview-1-substrate-stabilization.md.
+// See docs/designs/archive/2026-04-25-delegation-runtime-parity.md §3 and
+// docs/designs/archive/2026-05-09-v2-10-0-preview-1-substrate-stabilization.md.
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect } from 'vitest';

@@ -191,7 +191,7 @@ For a mid-implementing opt-in walkthrough and a `synthesisPolicy: 'always'` exam
 
 - Skill: `@skills/oneshot-workflow/SKILL.md` — full prose walkthrough with worked examples
 - HSM reference: `@skills/workflow-state/references/phase-transitions.md` — transition table, guards, prerequisites
-- Design doc: `docs/designs/2026-04-11-oneshot-and-pruning.md` — rationale, non-goals, research links
+- Design doc: `docs/designs/archive/2026-04-11-oneshot-and-pruning.md` — rationale, non-goals, research links
 - Orchestrate actions: [`request_synthesize`, `finalize_oneshot`](/reference/tools/orchestrate)
 - Events: [`synthesize.requested`, `workflow.pruned`](/reference/events)
 - State machine reference: [State Machine — Oneshot Workflow](/architecture/state-machine)

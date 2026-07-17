@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-08
 **Workflow:** `marten-event-store-lessons` (discovery)
-**Pairs with:** [`docs/architecture/runtime.md`](../architecture/runtime.md), [`docs/designs/2026-05-08-durable-event-store-substrate.md`](../designs/2026-05-08-durable-event-store-substrate.md) (#1259)
+**Pairs with:** [`docs/architecture/runtime.md`](../architecture/runtime.md), [`docs/designs/archive/2026-05-08-durable-event-store-substrate.md`](../designs/archive/2026-05-08-durable-event-store-substrate.md) (#1259)
 **Verdict:** **Conditional adopt — five primitives, not the full Marten stack.** Exarchos's event store, even after #1259's SQLite flip, *is* simpler than Marten's. Most of that simplicity is correct: it matches the canonical framing (single-machine event-sourced process manager with cooperative agents). But Marten has crystallized five primitives that Exarchos currently leaves implicit or absent — adopting them would close real gaps without dragging in framework that doesn't fit our context.
 
 ## Concern stated by the requester
@@ -262,7 +262,7 @@ The framing — *single-machine event-sourced process manager with cooperative a
 
 ### Internal
 - [`docs/architecture/runtime.md`](../architecture/runtime.md) — canonical runtime architecture (the framing this report tests against)
-- [`docs/designs/2026-05-08-durable-event-store-substrate.md`](../designs/2026-05-08-durable-event-store-substrate.md) — #1259 v2.10 substrate spike
+- [`docs/designs/archive/2026-05-08-durable-event-store-substrate.md`](../designs/archive/2026-05-08-durable-event-store-substrate.md) — #1259 v2.10 substrate spike
 - [`docs/research/2026-05-08-1119-merge-orchestrator-audit.md`](2026-05-08-1119-merge-orchestrator-audit.md) — RT-1..RT-6 runtime guarantees source
 
 ### Issues referenced

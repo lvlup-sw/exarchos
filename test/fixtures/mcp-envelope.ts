@@ -1,4 +1,4 @@
-// Source: docs/plans/2026-05-05-e2e-v29-revisited.md §T3.6 (refactor step)
+// Source: docs/plans/archive/2026-05-05-e2e-v29-revisited.md §T3.6 (refactor step)
 //
 // MCP `tools/call` returns the envelope wrapped as a JSON-encoded text
 // content block:

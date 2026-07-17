@@ -315,7 +315,7 @@ describe('runStaticAnalysis', () => {
       // T-10: no-toolchain repos produce a 'skip' (inconclusive) result so
       // the static-analysis gate cannot falsely-green a project that has
       // no recognized toolchain. See DR-4 in
-      // docs/plans/2026-05-04-v290-dogfood-bundle.md.
+      // docs/plans/archive/2026-05-04-v290-dogfood-bundle.md.
       const emptyDir = path.join(tmpDir, 'empty');
       fs.mkdirSync(emptyDir, { recursive: true });
 

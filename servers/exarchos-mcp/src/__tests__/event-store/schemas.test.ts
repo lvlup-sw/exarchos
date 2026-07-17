@@ -473,7 +473,8 @@ describe('EventTypes', () => {
     // alongside the init verb/handler. `onboard.*` is the audit trail now.
     // verification-ladder slice 1 (task 020): bumped 120 → 122 to include the
     // mutation-run liveness pair `mutation.executing_started` +
-    // `mutation.executed`, emitted by the `exarchos run-mutation` CLI verb.
+    // `mutation.executed`, emitted by the liveness handler (the `exarchos
+    // run-mutation` CLI verb was removed in task 002).
     // phase-kind binding DR-7 (task 007): bumped 122 → 123 to include
     // `phase.blocked`, the fail-closed marker appended when the IMPLEMENT
     // gate-set resolver throws at a phase boundary (orchestrate/prepare-delegation.ts).

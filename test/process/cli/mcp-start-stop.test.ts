@@ -1,4 +1,4 @@
-// Source: docs/designs/2026-05-05-e2e-v29-revisited.md §4.4 (T4.7)
+// Source: docs/designs/archive/2026-05-05-e2e-v29-revisited.md §4.4 (T4.7)
 import { describe, it, expect } from 'vitest';
 import { withHermeticEnv } from '../../fixtures/hermetic.js';
 import { spawnMcpClient } from '../../fixtures/mcp-client.js';

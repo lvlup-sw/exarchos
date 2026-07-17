@@ -559,7 +559,7 @@ describe('dispatch', () => {
 
   // ─── T-12: session.machinery_consumed dispatch interceptor ─────────────────
   //
-  // Plan: docs/plans/2026-05-08-rehydration-machinery-plan.md (T-12)
+  // Plan: docs/plans/archive/2026-05-08-rehydration-machinery-plan.md (T-12)
   // Design: docs/research/2026-05-08-rehydrate-machinery-reinit.md §11.4 (P4)
   //
   // After a `workflow.rehydrated` event lands at sequence S on stream X, the
@@ -834,7 +834,7 @@ describe('dispatch', () => {
 
   // ─── T-13: session.machinery_consumed idempotency property ─────────────────
   //
-  // Plan: docs/plans/2026-05-08-rehydration-machinery-plan.md (T-13)
+  // Plan: docs/plans/archive/2026-05-08-rehydration-machinery-plan.md (T-13)
   // Design: docs/research/2026-05-08-rehydrate-machinery-reinit.md §11.4 (P4)
   //
   // Formalises the contract that T-12 implements:

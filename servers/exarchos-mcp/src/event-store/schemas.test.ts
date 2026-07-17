@@ -570,8 +570,9 @@ describe('EventTypes', () => {
     // Bumped 121 → 120: init.executed retired (#1510 DR-5 task 018 — the init
     //   verb/handler was removed; `onboard.*` is the audit trail now).
     // Bumped 120 → 122: mutation.executing_started + mutation.executed
-    //   (verification-ladder slice 1 task 020 — the run-mutation liveness pair,
-    //   INV-10, emitted by the `exarchos run-mutation` CLI verb).
+    //   (verification-ladder slice 1 task 020 — the mutation-run liveness pair,
+    //   INV-10, emitted by the liveness handler; the `exarchos run-mutation` CLI
+    //   verb was removed in task 002).
     // Bumped 122 → 123: phase.blocked (phase-kind binding DR-7, epic #1546 —
     //   fail-closed at the gate-set boundary; emitted by the wave-dispatch
     //   boundary when the IMPLEMENT-kind gate-set resolver throws, refusing the
@@ -2886,7 +2887,9 @@ describe('MergeExecutedData', () => {
 
 describe('MergeRollbackData', () => {
   it('MergeRollbackEventSchema_ValidPayload_Parses', () => {
-    // DR-MO-2: merge.rollback payload — emitted when a merge is reverted.
+    // DR-MO-2: merge.rollback payload — legacy/read-tolerant. Historically
+    // emitted when a merge was reverted; the emitter is retired, but the schema
+    // is retained so historical events still replay.
     // reason is a closed enum: 'merge-failed' | 'verification-failed' | 'timeout'.
     expect(EventTypes).toContain('merge.rollback');
 

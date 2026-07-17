@@ -6,7 +6,7 @@
 // test proves the wiring works end-to-end (handshake + tool registration)
 // before the path tests layer assertions on top.
 //
-// Design: `docs/designs/2026-05-17-preview-4-substrate-realization.md` §4.1.
+// Design: `docs/designs/archive/2026-05-17-preview-4-substrate-realization.md` §4.1.
 
 import { describe, it, expect, vi } from 'vitest';
 import { createElicitationTestPair } from './elicitation-roundtrip.fixture.js';

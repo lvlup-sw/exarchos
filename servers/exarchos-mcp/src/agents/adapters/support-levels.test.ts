@@ -5,7 +5,7 @@
 // `Capability` enum, and that `validateSupport` and `lowerSpec` consult
 // the map rather than ad-hoc constants.
 //
-// See docs/designs/2026-04-25-delegation-runtime-parity.md §4 (Task 4f
+// See docs/designs/archive/2026-04-25-delegation-runtime-parity.md §4 (Task 4f
 // retrofit — replaces the divergent per-adapter policy with a shared
 // three-state contract).
 // ────────────────────────────────────────────────────────────────────────────

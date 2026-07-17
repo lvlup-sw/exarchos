@@ -3,7 +3,7 @@
 **Date:** 2026-06-26 · **Feature:** `wlm-operational-core` · **Depth:** standard
 **Inputs:**
 - Epic `#1574` — holistic worktree lifecycle manager + integration-branch merge serializer
-- Source design: [`docs/designs/2026-06-21-worktree-lifecycle-manager.md`](../designs/2026-06-21-worktree-lifecycle-manager.md) (DR-4, DR-5, DR-7, DR-8, DR-12)
+- Source design: [`docs/designs/archive/2026-06-21-worktree-lifecycle-manager.md`](../designs/archive/2026-06-21-worktree-lifecycle-manager.md) (DR-4, DR-5, DR-7, DR-8, DR-12)
 - Foundation already shipped (PR #1628, v2.12.0): [`docs/specs/2026-06-25-wlm-foundation.md`](2026-06-25-wlm-foundation.md) — WLM-1 (`#1575`) + WLM-2 (`#1576`)
 - Bundle issues: WLM-3 `#1577` (DR-4/5) · WLM-4 `#1578` (DR-7/8)
 - Roadmap: `#1599` Z2 (runtime supervision), coordination rules 2 & 3

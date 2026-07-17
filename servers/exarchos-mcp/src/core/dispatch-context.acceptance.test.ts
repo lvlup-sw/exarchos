@@ -2,7 +2,7 @@
 //
 // Bundle scope: T14 acceptance for the durable-event-store-substrate plan.
 // This test is the canonical observable for DR-2 (design doc:
-// `docs/designs/2026-05-08-durable-event-store-substrate.md`).
+// `docs/designs/archive/2026-05-08-durable-event-store-substrate.md`).
 //
 // DR-2 acceptance criteria (verbatim from the design doc):
 //   1. `DispatchContext` carries a `storage: StorageBackend` field

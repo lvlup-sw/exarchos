@@ -602,6 +602,11 @@ jobs:
           echo "probe complete"
 
       # ─────────────────────────────────────────────────────────────────
+      # NOTE: the design's "grep-gates are root-only / zero-dependency" framing
+      # is inaccurate for this job as a whole — do not rely on it. The tsx-backed
+      # gates below shell `tsx` over the MCP TypeScript source, so this job
+      # installs BOTH the root and servers/exarchos-mcp deps (steps below).
+      #
       # Rehydration prefix/prose gates (task 011, DR-8). These two gates
       # previously ran ONLY via `npm run validate`, which no workflow invokes —
       # so a real DR-12 fingerprint drift or DR-13 prose regression passed CI
