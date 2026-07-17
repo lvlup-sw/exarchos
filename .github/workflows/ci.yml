@@ -439,8 +439,11 @@ jobs:
   # Runs scripts/validate-no-legacy.sh, which rolls up two checks:
   #   1. The NoLegacy_* shell assertion suite (scripts/validate-no-legacy.test.sh)
   #      — pins obsolete v2.8 install artifacts as deleted/archived.
-  #   2. `knip` (files + dependencies scope) — detects unused modules and
-  #      unused dependencies against the entry-point allowlist in knip.json.
+  #   2. `knip` (files + dependencies + exports + types) via the allowlist-diff
+  #      wrapper (scripts/audit/knip-diff.ts) — detects unused modules, deps,
+  #      exported symbols, and types, diffed against
+  #      scripts/audit/knip-allowlist.json (fails closed on unallowlisted or
+  #      expired findings, a missing binary, or unparseable output).
   #
   # Runs in parallel with test-root / test-mcp on a GitHub-hosted
   # ubuntu-latest runner. All CI jobs run on ubuntu-latest — the
@@ -463,7 +466,17 @@ jobs:
             package-lock.json
             servers/exarchos-mcp/package-lock.json
 
-      - name: Install dependencies
+      - name: Install dependencies (root)
+        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
+
+      # The exports/types sweep resolves TypeScript across BOTH workspaces that
+      # knip.json declares (root + servers/exarchos-mcp), so the server's own
+      # node_modules must be present to type-resolve its source. This install
+      # stays light — promptfoo (the heavy eval-only dep whose Playwright/Chromium
+      # postinstall used to wedge `npm ci`) is out of the server's install
+      # closure, so this is a normal devDependency install.
+      - name: Install dependencies (servers/exarchos-mcp)
+        working-directory: servers/exarchos-mcp
         run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
 
       - name: Run validate-no-legacy rollup

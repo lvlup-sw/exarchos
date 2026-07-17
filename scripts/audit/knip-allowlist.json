@@ -1,0 +1,387 @@
+[
+  {
+    "symbol": "_PolaImplementBundleMutating",
+    "file": "servers/exarchos-mcp/src/capabilities/resolver.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Compile-time PoLA (Principle of Least Authority) invariant assertion; consumed only by tsc type-checking, not by a runtime import. Deleting it drops a static guard — review to re-home as an explicit type-level test."
+  },
+  {
+    "symbol": "_PolaPlanBundleNotMutating",
+    "file": "servers/exarchos-mcp/src/capabilities/resolver.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Compile-time PoLA (Principle of Least Authority) invariant assertion; consumed only by tsc type-checking, not by a runtime import. Deleting it drops a static guard — review to re-home as an explicit type-level test."
+  },
+  {
+    "symbol": "_PolaReviewBundleNotMutating",
+    "file": "servers/exarchos-mcp/src/capabilities/resolver.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Compile-time PoLA (Principle of Least Authority) invariant assertion; consumed only by tsc type-checking, not by a runtime import. Deleting it drops a static guard — review to re-home as an explicit type-level test."
+  },
+  {
+    "symbol": "CatalogRegistration",
+    "file": "servers/exarchos-mcp/src/config/exarchos-config-schema.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Public .exarchos.yml config sub-schema type; doc-referenced forward-compat surface."
+  },
+  {
+    "symbol": "EscalationConfig",
+    "file": "servers/exarchos-mcp/src/config/exarchos-config-schema.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Public .exarchos.yml config sub-schema type; doc-referenced forward-compat surface."
+  },
+  {
+    "symbol": "FeedbackConfig",
+    "file": "servers/exarchos-mcp/src/config/exarchos-config-schema.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Public .exarchos.yml config sub-schema type; doc-referenced forward-compat surface."
+  },
+  {
+    "symbol": "OwnershipConfig",
+    "file": "servers/exarchos-mcp/src/config/exarchos-config-schema.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Public .exarchos.yml config sub-schema type; doc-referenced forward-compat surface."
+  },
+  {
+    "symbol": "StorageConfig",
+    "file": "servers/exarchos-mcp/src/config/exarchos-config-schema.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Public .exarchos.yml config sub-schema type; doc-referenced forward-compat surface."
+  },
+  {
+    "symbol": "SynthesisConfig",
+    "file": "servers/exarchos-mcp/src/config/exarchos-config-schema.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Public .exarchos.yml config sub-schema type; doc-referenced forward-compat surface."
+  },
+  {
+    "symbol": "ToolchainConfig",
+    "file": "servers/exarchos-mcp/src/config/exarchos-config-schema.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Public .exarchos.yml config sub-schema type; doc-referenced forward-compat surface."
+  },
+  {
+    "symbol": "AgentEventType",
+    "file": "servers/exarchos-mcp/src/event-store/schemas.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal — event schemas are append-only."
+  },
+  {
+    "symbol": "GateExecutedDetails",
+    "file": "servers/exarchos-mcp/src/event-store/schemas.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal — event schemas are append-only."
+  },
+  {
+    "symbol": "PhaseEntered",
+    "file": "servers/exarchos-mcp/src/event-store/schemas.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal — event schemas are append-only."
+  },
+  {
+    "symbol": "PhaseExited",
+    "file": "servers/exarchos-mcp/src/event-store/schemas.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal — event schemas are append-only."
+  },
+  {
+    "symbol": "SubagentTokensUsedData",
+    "file": "servers/exarchos-mcp/src/event-store/schemas.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal — event schemas are append-only."
+  },
+  {
+    "symbol": "TurnCompletedData",
+    "file": "servers/exarchos-mcp/src/event-store/schemas.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal — event schemas are append-only."
+  },
+  {
+    "symbol": "InjectionChannel",
+    "file": "servers/exarchos-mcp/src/launcher/injection-seam.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Launcher injection-seam type; forward-compat surface."
+  },
+  {
+    "symbol": "InjectionPayload",
+    "file": "servers/exarchos-mcp/src/launcher/injection-seam.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Launcher injection-seam type; forward-compat surface."
+  },
+  {
+    "symbol": "LauncherVerbInput",
+    "file": "servers/exarchos-mcp/src/launcher/verb.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Launcher verb input type; forward-compat launcher surface."
+  },
+  {
+    "symbol": "ResultData",
+    "file": "servers/exarchos-mcp/src/next-actions-from-result.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Public result-shape type; forward-compat surface."
+  },
+  {
+    "symbol": "VerificationPolicyCell",
+    "file": "servers/exarchos-mcp/src/orchestrate/doctor/schema.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Doctor verification-policy schema type; forward-compat surface."
+  },
+  {
+    "symbol": "InitOutput",
+    "file": "servers/exarchos-mcp/src/orchestrate/init/schema.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Init action output schema type; forward-compat surface."
+  },
+  {
+    "symbol": "SkillsScope",
+    "file": "servers/exarchos-mcp/src/orchestrate/onboard/install.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Onboard install skills-scope type; forward-compat surface."
+  },
+  {
+    "symbol": "PhasePlaybook",
+    "file": "servers/exarchos-mcp/src/projections/rehydration/schema.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Rehydration-document schema public type; forward-compat / inference-consumed surface."
+  },
+  {
+    "symbol": "StableSections",
+    "file": "servers/exarchos-mcp/src/projections/rehydration/schema.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Rehydration-document schema public type; forward-compat / inference-consumed surface."
+  },
+  {
+    "symbol": "VolatileSections",
+    "file": "servers/exarchos-mcp/src/projections/rehydration/schema.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Rehydration-document schema public type; forward-compat / inference-consumed surface."
+  },
+  {
+    "symbol": "PendingCommand",
+    "file": "servers/exarchos-mcp/src/sync/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Forward-compat remote-agent sync contract (v3.2 Remote Agent Layer roadmap); the schema + types are the not-yet-wired public surface, not accidental dead code."
+  },
+  {
+    "symbol": "SyncConfig",
+    "file": "servers/exarchos-mcp/src/sync/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Forward-compat remote-agent sync contract (v3.2 Remote Agent Layer roadmap); the schema + types are the not-yet-wired public surface, not accidental dead code."
+  },
+  {
+    "symbol": "SyncConfigSchema",
+    "file": "servers/exarchos-mcp/src/sync/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Forward-compat remote-agent sync contract (v3.2 Remote Agent Layer roadmap); the schema + types are the not-yet-wired public surface, not accidental dead code."
+  },
+  {
+    "symbol": "SyncResult",
+    "file": "servers/exarchos-mcp/src/sync/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Forward-compat remote-agent sync contract (v3.2 Remote Agent Layer roadmap); the schema + types are the not-yet-wired public surface, not accidental dead code."
+  },
+  {
+    "symbol": "SyncState",
+    "file": "servers/exarchos-mcp/src/sync/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Forward-compat remote-agent sync contract (v3.2 Remote Agent Layer roadmap); the schema + types are the not-yet-wired public surface, not accidental dead code."
+  },
+  {
+    "symbol": "WorkflowRegistration",
+    "file": "servers/exarchos-mcp/src/sync/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Forward-compat remote-agent sync contract (v3.2 Remote Agent Layer roadmap); the schema + types are the not-yet-wired public surface, not accidental dead code."
+  },
+  {
+    "symbol": "PhaseEntry",
+    "file": "servers/exarchos-mcp/src/topology/phase-contract.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Topology phase-contract type (DR-7 staleness); forward-compat surface."
+  },
+  {
+    "symbol": "StalenessSignal",
+    "file": "servers/exarchos-mcp/src/topology/phase-contract.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Topology phase-contract type (DR-7 staleness); forward-compat surface."
+  },
+  {
+    "symbol": "PipelineSummary",
+    "file": "servers/exarchos-mcp/src/views/pipeline-view.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Pipeline-view summary type; forward-compat view surface."
+  },
+  {
+    "symbol": "PerformanceSLA",
+    "file": "servers/exarchos-mcp/src/workflow/schemas.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Workflow schema public type; forward-compat surface."
+  },
+  {
+    "symbol": "TestingStrategy",
+    "file": "servers/exarchos-mcp/src/workflow/schemas.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Workflow schema public type; forward-compat surface."
+  },
+  {
+    "symbol": "TerminalPhase",
+    "file": "servers/exarchos-mcp/src/workflow/terminal-phases.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Terminal-phase union type; forward-compat surface."
+  },
+  {
+    "symbol": "Artifacts",
+    "file": "servers/exarchos-mcp/src/workflow/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Workflow domain public type; forward-compat / partially inference-consumed surface."
+  },
+  {
+    "symbol": "DebugPhase",
+    "file": "servers/exarchos-mcp/src/workflow/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Workflow domain public type; forward-compat / partially inference-consumed surface."
+  },
+  {
+    "symbol": "DebugWorkflowState",
+    "file": "servers/exarchos-mcp/src/workflow/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Workflow domain public type; forward-compat / partially inference-consumed surface."
+  },
+  {
+    "symbol": "ErrorCodeValue",
+    "file": "servers/exarchos-mcp/src/workflow/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Workflow domain public type; forward-compat / partially inference-consumed surface."
+  },
+  {
+    "symbol": "FeatureId",
+    "file": "servers/exarchos-mcp/src/workflow/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Workflow domain public type; forward-compat / partially inference-consumed surface."
+  },
+  {
+    "symbol": "FeaturePhase",
+    "file": "servers/exarchos-mcp/src/workflow/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Workflow domain public type; forward-compat / partially inference-consumed surface."
+  },
+  {
+    "symbol": "FeatureWorkflowState",
+    "file": "servers/exarchos-mcp/src/workflow/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Workflow domain public type; forward-compat / partially inference-consumed surface."
+  },
+  {
+    "symbol": "MergeOrchestratorState",
+    "file": "servers/exarchos-mcp/src/workflow/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Workflow domain public type; forward-compat / partially inference-consumed surface."
+  },
+  {
+    "symbol": "NextActionInput",
+    "file": "servers/exarchos-mcp/src/workflow/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Workflow domain public type; forward-compat / partially inference-consumed surface."
+  },
+  {
+    "symbol": "RefactorPhase",
+    "file": "servers/exarchos-mcp/src/workflow/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Workflow domain public type; forward-compat / partially inference-consumed surface."
+  },
+  {
+    "symbol": "RefactorWorkflowState",
+    "file": "servers/exarchos-mcp/src/workflow/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Workflow domain public type; forward-compat / partially inference-consumed surface."
+  },
+  {
+    "symbol": "Synthesis",
+    "file": "servers/exarchos-mcp/src/workflow/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Workflow domain public type; forward-compat / partially inference-consumed surface."
+  },
+  {
+    "symbol": "Task",
+    "file": "servers/exarchos-mcp/src/workflow/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Workflow domain public type; forward-compat / partially inference-consumed surface."
+  },
+  {
+    "symbol": "TaskStatus",
+    "file": "servers/exarchos-mcp/src/workflow/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Workflow domain public type; forward-compat / partially inference-consumed surface."
+  },
+  {
+    "symbol": "Worktree",
+    "file": "servers/exarchos-mcp/src/workflow/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Workflow domain public type; forward-compat / partially inference-consumed surface."
+  },
+  {
+    "symbol": "WorktreeStatus",
+    "file": "servers/exarchos-mcp/src/workflow/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-10-31",
+    "rationale": "Workflow domain public type; forward-compat / partially inference-consumed surface."
+  },
+  {
+    "symbol": "getEmbeddedRuntime",
+    "file": "src/runtimes/embedded.ts",
+    "owner": "@reedsalus",
+    "permanent": true,
+    "rationale": "Codegen-emitted by scripts/codegen-runtimes.ts (getEmbeddedRuntime is written into the generated runtimes module) and pinned by its codegen test. The symbol is regenerated on every build; removing it needs generator + pin changes (out of scope for the ratchet). Permanent by construction."
+  }
+]

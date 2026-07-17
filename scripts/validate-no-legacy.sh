@@ -52,11 +52,14 @@
 # issue for the rationale (e.g. root-level tsx is redundant with the
 # MCP server's own tsx devDep — cleanup deferred).
 #
-# Scope: this rollup uses `--include files,dependencies`. The
-# exports/types checks are deferred; the repo has ~40 flagged exports,
-# many of them public API hooks (MCP tool-registration functions,
-# forward-compat zod schemas) that require case-by-case review outside
-# the install-rewrite feature.
+# Scope: this rollup uses `--include files,dependencies,exports,types`
+# (task 012 widened it to add exports+types). Findings are diffed against
+# scripts/audit/knip-allowlist.json by scripts/audit/knip-diff.ts, which fails
+# CLOSED on an unallowlisted violation, an expired allowlist entry, a missing
+# knip binary, or unparseable knip output (DR-6/DR-8). The pre-existing dead
+# exports/types (forward-compat schemas, event-contract types, a codegen-emitted
+# symbol) are captured in that allowlist with owner + expiry + rationale, so the
+# ratchet blocks NEW accretion while the existing debt stays owned and time-boxed.
 
 set -euo pipefail
 
@@ -71,19 +74,26 @@ echo "=== validate-no-legacy: NoLegacy_* shell assertions ==="
 NOLEGACY_SKIP_KNIP_RUN=1 bash "$SCRIPT_DIR/validate-no-legacy.test.sh"
 
 echo
-echo "=== validate-no-legacy: knip dead-code sweep ==="
+echo "=== validate-no-legacy: knip dead-code sweep (allowlist-gated) ==="
 cd "$REPO_ROOT"
 
-# Prefer the project-local binary (installed via `npm ci`); fall back to
+# The sweep runs through the DR-6/DR-8 allowlist-diff wrapper
+# (scripts/audit/knip-diff.ts): it invokes knip with the EXPANDED include
+# below, diffs the findings against scripts/audit/knip-allowlist.json, and
+# fails CLOSED on an unallowlisted violation, an expired allowlist entry, a
+# missing knip binary, or unparseable knip output.
+KNIP_INCLUDE="files,dependencies,exports,types"
+KNIP_DIFF="$SCRIPT_DIR/audit/knip-diff.ts"
+
+# Prefer the project-local tsx (installed via `npm ci`); fall back to
 # `npx --no-install` so we never silently re-hit the network on CI.
-KNIP_BIN="$REPO_ROOT/node_modules/.bin/knip"
-KNIP_ARGS=(--no-progress --include files,dependencies)
-if [[ -x "$KNIP_BIN" ]]; then
-  "$KNIP_BIN" "${KNIP_ARGS[@]}"
+TSX_BIN="$REPO_ROOT/node_modules/.bin/tsx"
+if [[ -x "$TSX_BIN" ]]; then
+  "$TSX_BIN" "$KNIP_DIFF" --include "$KNIP_INCLUDE"
 elif command -v npx >/dev/null 2>&1; then
-  npx --no-install knip "${KNIP_ARGS[@]}"
+  npx --no-install tsx "$KNIP_DIFF" --include "$KNIP_INCLUDE"
 else
-  echo "knip binary not found at node_modules/.bin/knip and npx is unavailable." >&2
+  echo "tsx binary not found at node_modules/.bin/tsx and npx is unavailable." >&2
   echo "Run 'npm ci' at the repo root to install devDependencies, then retry." >&2
   exit 1
 fi
