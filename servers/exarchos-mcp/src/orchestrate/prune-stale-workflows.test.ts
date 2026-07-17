@@ -653,67 +653,19 @@ describe('handlePruneStaleWorkflows', () => {
     warnSpy.mockRestore();
   });
 
-  // ─── DR-9: the removed `thresholdMinutes` knob is REJECTED, not warned ─────
+  // ─── DR-9: the removed `thresholdMinutes` knob is REJECTED at the schema ───
   //
   // #1334 made `topology.yaml` `staleness` blocks the single source of
   // staleness policy; `thresholdMinutes` was accepted-but-ignored until the
-  // debloat wave removed it. A legacy caller still passing it now gets an
-  // actionable removal error (pointing at topology.yaml) BEFORE the handler
-  // touches handleList/cancel/event-store — INV-5b honest contract, not a
-  // silent no-op.
-  it('PruneAction_LegacyKnobPassed_ActionableRemovalError', async () => {
-    const { append, ctx } = makeEventStoreStub();
-    const deps = makeDeps();
-    deps.listSpy.mockResolvedValue(
-      makeListResult([
-        { featureId: 'a', lastActivityTimestamp: staleIso(30_000) },
-      ]),
-    );
-
-    const result = await handlePruneStaleWorkflows(
-      // `thresholdMinutes` is no longer part of `PruneHandlerArgs`; a legacy
-      // caller supplies it off-contract, so cast through the raw arg shape.
-      { thresholdMinutes: 60, dryRun: true, now: NOW_ISO } as unknown as Parameters<
-        typeof handlePruneStaleWorkflows
-      >[0],
-      STATE_DIR,
-      ctx,
-      deps,
-    );
-
-    expect(result.success).toBe(false);
-    expect(result.error?.code).toBe('INVALID_INPUT');
-    // Actionable: names the removed knob AND the replacement surface.
-    expect(result.error?.message).toContain('thresholdMinutes');
-    expect(result.error?.message).toContain('topology.yaml');
-    // Fail-closed: rejected before any list / cancel / event-append side effect.
-    expect(deps.listSpy).not.toHaveBeenCalled();
-    expect(deps.cancelSpy).not.toHaveBeenCalled();
-    expect(append).not.toHaveBeenCalled();
-  });
-
-  it('PruneAction_LegacyKnobPassedInApplyMode_RejectedBeforeAnyCancel', async () => {
-    // Even in apply mode (dryRun:false) — where a legacy `-1` could once have
-    // classified every workflow as stale and bulk-cancelled — the knob is
-    // rejected up front regardless of its value.
-    const { append, ctx } = makeEventStoreStub();
-    const deps = makeDeps();
-
-    const result = await handlePruneStaleWorkflows(
-      { thresholdMinutes: -1, dryRun: false, now: NOW_ISO } as unknown as Parameters<
-        typeof handlePruneStaleWorkflows
-      >[0],
-      STATE_DIR,
-      ctx,
-      deps,
-    );
-
-    expect(result.success).toBe(false);
-    expect(result.error?.code).toBe('INVALID_INPUT');
-    expect(deps.listSpy).not.toHaveBeenCalled();
-    expect(deps.cancelSpy).not.toHaveBeenCalled();
-    expect(append).not.toHaveBeenCalled();
-  });
+  // debloat wave removed it. The rejection now lives on the REAL dispatch/CLI
+  // seam (the `prune_stale_workflows` action schema), NOT inside this handler —
+  // `parsed.data` can never carry the removed key past `dispatch()`. The former
+  // in-handler `'thresholdMinutes' in args` guard + its two direct tests were
+  // removed: they cast past the type boundary to certify a path real callers
+  // never reach (a vacuous gate). The behavior is pinned end-to-end by the
+  // dispatch-level arbiter in `core/dispatch.test.ts`
+  // (`Dispatch_PruneLegacyThresholdMinutes_ActionableRemovalError`) and the
+  // yaml-config seam by `config/yaml-schema.test.ts`.
 
   it('dry run returns candidates without calling cancel', async () => {
     const { ctx } = makeEventStoreStub();

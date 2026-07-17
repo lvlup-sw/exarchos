@@ -274,9 +274,10 @@ const RECENT_COMMITS_WINDOW_HOURS = 24;
  * NOTE — `thresholdMinutes` was REMOVED in the debloat wave (DR-9). Per-phase
  * staleness has lived exclusively in `topology.yaml` `staleness` blocks since
  * #1334 (v2.10.0-preview.1), so the field was accepted-but-ignored. A legacy
- * caller still passing it is rejected up front with an actionable removal
- * error (see `handlePruneStaleWorkflows`) rather than silently ignored —
- * INV-5b honest contract.
+ * caller still passing it is rejected up front with an actionable removal error
+ * at the `prune_stale_workflows` SCHEMA seam (registry.ts —
+ * `.passthrough().superRefine`), so `parsed.data` never carries it into this
+ * handler — INV-5b honest contract.
  */
 export interface PruneHandlerArgs {
   dryRun?: boolean;
@@ -749,25 +750,15 @@ export async function handlePruneStaleWorkflows(
   ctx?: DispatchContext,
   deps: PruneHandlerDeps = productionDeps(ctx),
 ): Promise<ToolResult> {
-  // ─── DR-9: reject the REMOVED `thresholdMinutes` knob up front ────────────
-  // Per-phase staleness has lived exclusively in `topology.yaml` `staleness`
-  // blocks since #1334 (v2.10.0-preview.1); `thresholdMinutes` was
-  // accepted-but-ignored until the debloat wave removed it. A legacy caller
-  // still passing it gets an actionable removal error — pointing at the real
-  // configuration surface — instead of a silently-ignored value that a `-1`
-  // could once have turned into a bulk-cancel. Detected off the raw args
-  // object because the field is no longer on `PruneHandlerArgs`.
-  // INV-5b: honest contract; fail closed BEFORE touching handleList/cancel.
-  if ('thresholdMinutes' in (args as Record<string, unknown>)) {
-    return {
-      success: false,
-      error: {
-        code: 'INVALID_INPUT',
-        message:
-          'prune_stale_workflows: `thresholdMinutes` was removed (deprecated and ignored since #1334, v2.10.0-preview.1). Per-phase staleness now lives in `topology.yaml` `staleness` blocks — set `expectedMaxDwellMinutes` / `signals[].thresholdMinutes` there instead.',
-      },
-    };
-  }
+  // ─── DR-9: the REMOVED `thresholdMinutes` knob is rejected at the SCHEMA ────
+  // seam, not here. The `prune_stale_workflows` action schema (registry.ts) is
+  // `.passthrough().superRefine(...)`, so `dispatch()` / the CLI adapter reject
+  // a legacy `thresholdMinutes` with an actionable removal message BEFORE the
+  // handler runs — `parsed.data` can never carry the removed key into this
+  // function. `PruneHandlerArgs` no longer declares it, so a former in-handler
+  // `'thresholdMinutes' in args` guard was reachable only by a test casting
+  // past the type boundary (a vacuous gate). It was removed with its direct
+  // test; the dispatch-level test (`core/dispatch.test.ts`) is the real arbiter.
   if (args.now !== undefined) {
     if (typeof args.now !== 'string' || Number.isNaN(new Date(args.now).valueOf())) {
       return {

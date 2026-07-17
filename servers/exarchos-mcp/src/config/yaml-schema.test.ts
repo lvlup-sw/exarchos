@@ -149,20 +149,36 @@ describe('ProjectConfigSchema', () => {
       expect(result.prune?.['require-dry-run']).toBe(true);
     });
 
-    it('PruneConfigSchema_RemovedStaleAfterDays_RejectedAsUnknownKey', () => {
-      // DR-9: `stale-after-days` was removed. `PruneConfig` is `.strict()`, so a
-      // legacy config surfaces an actionable "unrecognized key" validation
-      // error rather than silently ignoring the knob.
+    it('PruneConfigSchema_RemovedStaleAfterDays_ActionableRemovalError', () => {
+      // DR-9: `stale-after-days` was removed. A bare `.strict()` would surface
+      // an OPAQUE `unrecognized_keys` that names neither the removal, #1334, nor
+      // the real config surface — the form DR-9 bars. `PruneConfig` now parses
+      // the removed key with `.passthrough().superRefine`, so the caller gets
+      // the ACTIONABLE removal message instead (identical to the action seam).
       const result = ProjectConfigSchema.safeParse({ prune: { 'stale-after-days': 30 } });
       expect(result.success).toBe(false);
       if (!result.success) {
-        const flagged = result.error.issues.some(
-          (i) =>
-            i.code === 'unrecognized_keys' &&
-            'keys' in i &&
-            (i as { keys: string[] }).keys.includes('stale-after-days'),
-        );
-        expect(flagged).toBe(true);
+        // The actionable message wins: it names the removal (#1334), the field,
+        // and the real surface (`topology.yaml`). No competing opaque
+        // `unrecognized_keys` is emitted for the removed key.
+        const message = result.error.issues.map((i) => i.message).join('; ');
+        expect(message).toContain('stale-after-days');
+        expect(message).toContain('#1334');
+        expect(message).toContain('topology.yaml');
+        expect(
+          result.error.issues.some((i) => i.code === 'unrecognized_keys'),
+        ).toBe(false);
+      }
+    });
+
+    it('PruneConfigSchema_UnknownTypoKey_StillRejected', () => {
+      // A genuinely-unknown key (caller typo, not a removed knob) is still
+      // rejected — the removed-knob affordance must not swallow typos.
+      const result = ProjectConfigSchema.safeParse({ prune: { 'max-bath-size': 10 } });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const message = result.error.issues.map((i) => i.message).join('; ');
+        expect(message).toContain('max-bath-size');
       }
     });
 
