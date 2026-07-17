@@ -95,3 +95,26 @@ export function isEntryExpired(entry: RegisterEntryBase, now: Date): boolean {
   const endOfDeadline = new Date(`${entry.expires}T23:59:59.999Z`);
   return now.getTime() > endOfDeadline.getTime();
 }
+
+/**
+ * The EDGE-KEYED register (task 010, DR-4/DR-8) — the `cycle-baseline.json`
+ * entry schema. It keys each accepted runtime import cycle on its back-edge
+ * (`{ from, to }`) plus the flagging `rule` and tracking `issue`, and inherits
+ * the shared `{ owner, rationale, expires XOR permanent }` accountability
+ * contract through {@link makeRegisterSchema} — the SAME seam the knip
+ * dead-export register uses, NOT a forked validator. `.strict()` rejects typo
+ * fields; the edge gate (`scripts/audit/cycle-gate.ts`) validates every baseline
+ * entry against this schema and fails closed when it does not conform.
+ */
+export const edgeRegisterSchema = makeRegisterSchema({
+  /** Repo-relative source module of the accepted cycle back-edge. */
+  from: z.string().min(1, '`from` is required (repo-relative back-edge source module)'),
+  /** Repo-relative target module of the accepted cycle back-edge. */
+  to: z.string().min(1, '`to` is required (repo-relative back-edge target module)'),
+  /** The depcruise rule that flags the edge (e.g. `no-circular`). */
+  rule: z.string().min(1, '`rule` is required (the depcruise rule, e.g. no-circular)'),
+  /** Tracking issue for retiring the edge. */
+  issue: z.string().min(1, '`issue` is required (tracking issue for the fix)'),
+});
+/** A validated `cycle-baseline.json` entry (task 010). */
+export type EdgeRegisterEntry = z.infer<typeof edgeRegisterSchema>;

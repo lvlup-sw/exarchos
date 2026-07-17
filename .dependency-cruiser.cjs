@@ -24,6 +24,34 @@
 module.exports = {
   forbidden: [
     {
+      // Runtime import cycles (DR-4). Severity is `warn`, NOT `error`, ON PURPOSE:
+      // the dogfooded static-analysis gate (static-analysis.ts `runBoundaryLint`)
+      // runs bare `depcruise --validate` and folds ANY non-zero exit into a
+      // check_static_analysis FAIL. `depcruise --validate` only returns non-zero
+      // for ERROR-severity violations, so a `warn` here surfaces cycles in the
+      // advisory output WITHOUT turning the dogfooded gate permanently red.
+      //
+      // Blocking enforcement lives ELSEWHERE — scripts/audit/cycle-gate.ts runs
+      // over the `--output-type json` graph, computes the runtime cycles itself
+      // (Tarjan, via architecture/import-cycles.ts), and fails CLOSED in CI on any
+      // unbaselined cycle / expired-or-phantom baseline entry. This rule's job is
+      // only to name the cycle in the shared config; the ratchet is the gate.
+      //
+      // Runtime semantics match DR-4's pinned instrument: with the default
+      // `tsPreCompilationDeps: false`, `import type` edges are elided (type-only
+      // excluded) while dynamic `import()` survives compilation (counted).
+      name: 'no-circular',
+      comment:
+        'Runtime import cycles are forbidden (DR-4). `warn` here so the dogfooded ' +
+        'runBoundaryLint (`depcruise --validate`) stays green; the blocking ratchet ' +
+        'is scripts/audit/cycle-gate.ts over the depcruise JSON graph.',
+      severity: 'warn',
+      from: {},
+      to: {
+        circular: true,
+      },
+    },
+    {
       name: 'no-domain-core-to-io-adapters',
       comment:
         'Domain core (event-store, workflow) must not import the IO facade ' +

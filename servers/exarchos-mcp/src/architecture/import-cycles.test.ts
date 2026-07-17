@@ -7,6 +7,7 @@ import {
   detectRuntimeCycles,
   runtimeEdgeExists,
   unbaselinedCycleEdges,
+  phantomBaselineEntries,
   edgeKey,
   type CycleBaseline,
 } from './import-cycles.js';
@@ -244,5 +245,39 @@ describe('detectRuntimeCycles', () => {
       ],
     };
     expect(unbaselinedCycleEdges(cycles, baseline).map(edgeKey)).toEqual(['src/b.ts -> src/a.ts']);
+  });
+
+  it('PhantomBaselineEntries_EdgeMatchesNoLiveCycle_ReportsEntry', () => {
+    // A baselined edge that no current cycle exercises is a PHANTOM — stale
+    // cover that would silently pre-authorize a future cycle on that seam.
+    const json = graph([
+      ['src/a.ts', 'src/b.ts'],
+      ['src/b.ts', 'src/a.ts'],
+    ]);
+    const cycles = detectRuntimeCycles(json, 'src');
+    const phantom = { rule: 'no-circular', from: 'src/x.ts', to: 'src/y.ts', owner: 'x', rationale: 'y', issue: '#0', permanent: true as const };
+    const baseline: CycleBaseline = {
+      entries: [
+        { rule: 'no-circular', from: 'src/a.ts', to: 'src/b.ts', owner: 'x', rationale: 'y', issue: '#0', permanent: true },
+        { rule: 'no-circular', from: 'src/b.ts', to: 'src/a.ts', owner: 'x', rationale: 'y', issue: '#0', permanent: true },
+        phantom,
+      ],
+    };
+    expect(phantomBaselineEntries(cycles, baseline)).toEqual([phantom]);
+  });
+
+  it('PhantomBaselineEntries_EveryEntryLive_ReturnsEmpty', () => {
+    const json = graph([
+      ['src/a.ts', 'src/b.ts'],
+      ['src/b.ts', 'src/a.ts'],
+    ]);
+    const cycles = detectRuntimeCycles(json, 'src');
+    const baseline: CycleBaseline = {
+      entries: [
+        { rule: 'no-circular', from: 'src/a.ts', to: 'src/b.ts', owner: 'x', rationale: 'y', issue: '#0', permanent: true },
+        { rule: 'no-circular', from: 'src/b.ts', to: 'src/a.ts', owner: 'x', rationale: 'y', issue: '#0', permanent: true },
+      ],
+    };
+    expect(phantomBaselineEntries(cycles, baseline)).toEqual([]);
   });
 });
