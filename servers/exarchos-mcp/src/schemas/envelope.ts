@@ -1,7 +1,7 @@
 // ─── Envelope Schemas (Wave 0 — Carrier Swap) ───────────────────────────────
 //
 // Single-source-of-truth Zod schemas for the dispatch-core ⇄ carrier boundary
-// (design `docs/designs/2026-05-13-wave-0-carrier-swap.md` §§2.1, 2.3, 2.5).
+// (design `docs/designs/archive/2026-05-13-wave-0-carrier-swap.md` §§2.1, 2.3, 2.5).
 //
 // Each schema is lifted from its companion TypeScript interface in
 // `../format.ts` / `../next-action.ts`. The factory `EnvelopeSchema(dataSchema)`

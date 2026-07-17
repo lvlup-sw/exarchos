@@ -8,7 +8,7 @@
 // transport/lifecycle wiring AND the event-store substrate, so each path
 // test can focus on the round-trip semantics.
 //
-// Per design `docs/designs/2026-05-17-preview-4-substrate-realization.md`
+// Per design `docs/designs/archive/2026-05-17-preview-4-substrate-realization.md`
 // §4.1, the fixture closes the verification gap from PR #1424: the
 // elicitation form-mode plumbing landed but no test exercised the full path
 // against a real MCP client. T4/T5/T6 consume this fixture to cover all

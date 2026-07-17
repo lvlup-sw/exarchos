@@ -12,7 +12,7 @@
 //   • `mcp` is an object map keyed by server name, e.g. `{ exarchos: true }`.
 //
 // Reference: https://opencode.ubitools.com/agents/ and
-// docs/designs/2026-04-25-delegation-runtime-parity.md §4.
+// docs/designs/archive/2026-04-25-delegation-runtime-parity.md §4.
 // ────────────────────────────────────────────────────────────────────────────
 
 import { stringify as stringifyYaml } from 'yaml';

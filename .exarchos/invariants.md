@@ -437,7 +437,7 @@ invariants:
     references:
       - docs/architecture/invariants/references/INV-2-facade-equivalence.md
       - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
-      - docs/designs/2026-05-07-milestone-16-mcp-alignment.md
+      - docs/designs/archive/2026-05-07-milestone-16-mcp-alignment.md
 
   - id: INV-3
     dimension: basileus-forward

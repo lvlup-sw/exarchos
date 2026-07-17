@@ -770,7 +770,7 @@ export async function handleSet(
     // ─── Phase transition — routed through HSMTransitionGuard ──────────
     // The dispatch contract for guarded phase transitions is owned by the
     // `HSMTransitionGuard` primitive (see `hsm-transition-guard.ts` /
-    // Primitive 3 in `docs/designs/2026-05-06-v29-bug-cluster-combined-fix.md`).
+    // Primitive 3 in `docs/designs/archive/2026-05-06-v29-bug-cluster-combined-fix.md`).
     // It evaluates the composite guard, emits exactly one of
     // `workflow.transition` or `workflow.guard-failed` per attempt, and
     // returns a structured result. `handleSet` is now responsible only
@@ -917,7 +917,7 @@ export async function handleSet(
     }
 
     // Transition events are now emitted inside `hsmTransitionGuard.attempt`
-    // — see Primitive 3 in `docs/designs/2026-05-06-v29-bug-cluster-combined-fix.md`.
+    // — see Primitive 3 in `docs/designs/archive/2026-05-06-v29-bug-cluster-combined-fix.md`.
     //
     // ─── Idempotency contract for the `state.patched` append below ───
     //

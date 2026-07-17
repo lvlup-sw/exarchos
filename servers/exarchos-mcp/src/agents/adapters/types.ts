@@ -6,7 +6,7 @@
 // capabilities is checked via `validateSupport`. Concrete adapters
 // (Claude, Codex, OpenCode, Cursor, Copilot) live alongside this file.
 //
-// See docs/designs/2026-04-25-delegation-runtime-parity.md §4.
+// See docs/designs/archive/2026-04-25-delegation-runtime-parity.md §4.
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { AgentSpec } from '../types.js';
@@ -27,7 +27,7 @@ export type Runtime = 'claude' | 'codex' | 'opencode' | 'cursor' | 'copilot';
  *     `validateSupport` rejects specs that declare it.
  *
  * Contract introduced in Task 4f to converge five divergent per-adapter
- * policies (see docs/designs/2026-04-25-delegation-runtime-parity.md §4).
+ * policies (see docs/designs/archive/2026-04-25-delegation-runtime-parity.md §4).
  */
 export type SupportLevel = 'native' | 'advisory' | 'unsupported';
 

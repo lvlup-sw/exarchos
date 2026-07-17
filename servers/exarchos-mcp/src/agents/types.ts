@@ -11,8 +11,8 @@
 // `capabilities: readonly Capability[]` was dropped — the resolver is the
 // single source of truth.
 //
-// See docs/designs/2026-04-25-delegation-runtime-parity.md §3 and
-// docs/designs/2026-05-09-v2-10-0-preview-1-substrate-stabilization.md.
+// See docs/designs/archive/2026-04-25-delegation-runtime-parity.md §3 and
+// docs/designs/archive/2026-05-09-v2-10-0-preview-1-substrate-stabilization.md.
 // ────────────────────────────────────────────────────────────────────────────
 
 /** A skill that can be loaded into an agent's context. */
