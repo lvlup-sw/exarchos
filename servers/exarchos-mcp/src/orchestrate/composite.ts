@@ -4,13 +4,13 @@
 // replacing individual MCP tools with a single `exarchos_orchestrate` tool.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { wrap, wrapWithPassthrough, type ToolResult } from '../format.js';
+import { type ToolResult } from '../format.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import type { EventStore } from '../event-store/store.js';
 import { handleDescribe } from '../describe/handler.js';
 import { handleRunbook } from '../runbooks/handler.js';
 import { TOOL_REGISTRY } from '../registry.js';
-import { nextActionsFromResult } from '../next-actions-from-result.js';
+import { envelopeWrap } from '../envelope-wrap.js';
 
 const orchestrateActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_orchestrate')!.actions;
 
@@ -524,26 +524,14 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
 export const ACTION_HANDLER_KEYS: readonly string[] = Object.keys(ACTION_HANDLERS);
 
 // ─── Envelope Wrapping (T038, DR-7) ─────────────────────────────────────────
+//
+// The composite wraps successful handler results into a HATEOAS `Envelope<T>`
+// via the shared `envelopeWrap` (../envelope-wrap.ts). Orchestrate task
+// handlers generally carry no workflow state (task claims, reviews,
+// diagnostics), so `next_actions` derives to `[]`; the wrap is retained for
+// architectural symmetry across the four composites. Sub-handlers still return
+// raw `ToolResult` for internal callers (tests, parity harness).
 
-/**
- * HATEOAS envelope wrapping for successful tool responses (T038 + T041, DR-7/DR-8).
- *
- * Successful results are re-shaped into `Envelope<T>` at the tool
- * boundary so agents see a stable contract with `next_actions`, `_meta`,
- * and `_perf` on every response. Mirrors the T036 treatment in
- * `workflow/composite.ts` — sub-handlers continue to return raw
- * `ToolResult` for internal callers (e.g. tests and parity harness).
- *
- * `next_actions` is derived by `nextActionsFromResult` — orchestrate task
- * handlers generally do not return workflow state in their response data
- * (task claims, reviews, diagnostics, etc.), so in practice this yields
- * `[]`. The call is retained for architectural symmetry with the workflow
- * composite; the function is a pure, cheap lookup.
- *
- * Error responses pass through unchanged so structured `error` payloads
- * (error codes, valid transition targets, suggested fixes) remain
- * accessible to callers for auto-correction flows.
- */
 /**
  * Guard-clause validation for the fields shared by `invariants_scaffold` and
  * `invariants_add`. Returns an `INVALID_INPUT` `ToolResult` on the first
@@ -629,15 +617,6 @@ function validateInvariantsAddArgs(
     };
   }
   return null;
-}
-
-function envelopeWrap(result: ToolResult, startedAt: number): ToolResult {
-  if (!result.success) return result;
-
-  const meta = (result._meta ?? {}) as Record<string, unknown>;
-  const perf = result._perf ?? { ms: Date.now() - startedAt };
-  const nextActions = nextActionsFromResult(result);
-  return wrapWithPassthrough(result, wrap(result.data, meta, perf, nextActions));
 }
 
 // ─── Composite Handler ──────────────────────────────────────────────────────
