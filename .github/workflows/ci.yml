@@ -531,6 +531,20 @@ jobs:
       - name: BEGIN IMMEDIATE substrate gate self-test (#1342 P1.E)
         run: bash scripts/check-begin-immediate-substrate.test.sh
 
+      # One-copy projection-scope claim (#1696, DR-6): the scope guarantee has
+      # exactly two homes (projections/types.ts `scope` docstring +
+      # docs/architecture/projections.md "Reducer scope discipline"); any
+      # restatement elsewhere fails. Scans src AND docs/architecture, so the
+      # scan root is the checkout root, not servers/exarchos-mcp/src. Never
+      # vacuous: the gate fails unless the phrase list still matches both homes.
+      - name: One-copy projection-scope claim (#1696)
+        run: bash scripts/check-scope-claim-single-copy.sh
+
+      # Self-test for the gate above: seeded-restatement fixtures, a
+      # stubbed-gate kill probe, and a pristine `git archive` scan of HEAD.
+      - name: One-copy projection-scope claim gate self-test (#1696)
+        run: bash scripts/check-scope-claim-single-copy.test.sh
+
       # Event-sourcing read-path structural gates (v2.11.0 Wave 3). Each is a
       # zero-dependency node script that scans servers/exarchos-mcp/src for an
       # architectural violation and exits non-zero on a regression. These
