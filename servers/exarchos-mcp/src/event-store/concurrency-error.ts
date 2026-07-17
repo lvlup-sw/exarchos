@@ -19,7 +19,7 @@
  * pattern-match by `err.name` without importing the class — useful for
  * loose-coupling at the retry boundary.
  *
- * Per design `docs/designs/2026-05-10-v2-10-0-preview-2-marten-primitives.md`
+ * Per design `docs/designs/archive/2026-05-10-v2-10-0-preview-2-marten-primitives.md`
  * §"ConcurrencyError envelope" — the `wrap()` boundary maps this to
  * `CONCURRENCY_CONFLICT` with `validTargets: ['retry']` (INV-5b).
  */

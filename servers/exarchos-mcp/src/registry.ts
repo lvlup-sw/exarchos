@@ -1145,7 +1145,7 @@ export const WorkflowUpdateOutputSchema = EnvelopeSchema(z.unknown());
  * reject the full shape. `hints[]` items are also passthrough to leave
  * room for future hint flavours without re-cutting the schema.
  *
- * See [`docs/designs/2026-05-15-wave2-wave3-polish.md`](../docs/designs/2026-05-15-wave2-wave3-polish.md)
+ * See [`docs/designs/archive/2026-05-15-wave2-wave3-polish.md`](../docs/designs/archive/2026-05-15-wave2-wave3-polish.md)
  * `#1364 — split transport vs action-level errors` for context.
  */
 const TelemetryToolEntrySchema = z.object({

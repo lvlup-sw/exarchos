@@ -5,7 +5,7 @@
 // by kind, never by workflow type, phase id, or transition. This is INV-6
 // (workload-agnosticism) made type-level: an obligation attaches to the *kind*,
 // so it composes across every workflow type — present and future — without new
-// playbook code. See `docs/designs/2026-06-16-phase-kind-binding.md` (DR-1).
+// playbook code. See `docs/designs/archive/2026-06-16-phase-kind-binding.md` (DR-1).
 //
 // INV-6 GUARD: no workflow names / phase ids / transitions here — only
 // kind-universal obligations. (The resolver wiring lives in later tasks.)

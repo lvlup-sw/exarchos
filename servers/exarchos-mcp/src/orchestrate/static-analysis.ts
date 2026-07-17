@@ -42,7 +42,7 @@ interface StaticAnalysisResult {
    * True when the gate could not actually run (no recognized toolchain).
    * Distinct from `passed:false` (which means a real failure) — callers
    * should treat skipped gates as inconclusive, not green. See DR-4 in
-   * docs/plans/2026-05-04-v290-dogfood-bundle.md.
+   * docs/plans/archive/2026-05-04-v290-dogfood-bundle.md.
    */
   readonly skipped?: boolean;
   /** Reason code when `skipped` is true (e.g. 'no-toolchain'). */

@@ -28,7 +28,7 @@ export const DEFAULT_MAX_ITERATIONS = 5;
 /**
  * The durable, machine-checkable mirror of the Workflow SDK (#1258) combinator
  * semantics that this interim escalation policy is authored to lower onto. The
- * prose source-of-truth is `docs/designs/2026-06-23-ship-gate-sdk-migration.md`
+ * prose source-of-truth is `docs/designs/archive/2026-06-23-ship-gate-sdk-migration.md`
  * ("SDK-contract values"); this constant is the anchor that the DR-6 divergence
  * guard test asserts the live policy against, so the as-shipped defaults and
  * the documented SDK semantics cannot silently fork before consolidation.

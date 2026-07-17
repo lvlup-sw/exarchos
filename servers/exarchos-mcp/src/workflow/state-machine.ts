@@ -23,7 +23,7 @@ export type Effect = 'checkpoint' | 'log' | 'increment-fix-cycle';
 // `.maxFixCycles` / `.parent` reads keep compiling without narrowing. Only the
 // `atomic` variant carries `kind` — an atomic state literal without `kind` is a
 // COMPILE error (DR-2), while compound/final states are exempt (they have no
-// kind in the obligation layer). See docs/designs/2026-06-16-phase-kind-binding.md.
+// kind in the obligation layer). See docs/designs/archive/2026-06-16-phase-kind-binding.md.
 interface StateBase {
   readonly id: string;
   readonly parent?: string;

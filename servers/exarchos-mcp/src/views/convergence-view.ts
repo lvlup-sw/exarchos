@@ -27,7 +27,7 @@ const DIMENSION_LABELS: Record<string, string> = {
  * A skipped gate has `passed: false` AND `skipped: true` — this is distinct
  * from a real failure (passed: false, skipped undefined/false). The dimension
  * is treated as not-converged in either case so a skip never falsely-greens
- * convergence. See DR-4 in docs/plans/2026-05-04-v290-dogfood-bundle.md.
+ * convergence. See DR-4 in docs/plans/archive/2026-05-04-v290-dogfood-bundle.md.
  */
 export interface ConvergenceGateResult {
   readonly gateName: string;

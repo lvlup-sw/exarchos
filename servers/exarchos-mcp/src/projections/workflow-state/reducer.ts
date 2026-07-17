@@ -24,7 +24,7 @@
  * the projection-registry runners and the per-stream `decide`/`aggregateStream`
  * primitives resolve by id.
  *
- * @see docs/designs/2026-06-20-w3-event-sourcing-read-path.md §3.3
+ * @see docs/designs/archive/2026-06-20-w3-event-sourcing-read-path.md §3.3
  */
 import type { ProjectionReducer } from '../types.js';
 import type { WorkflowEvent } from '../../event-store/schemas.js';

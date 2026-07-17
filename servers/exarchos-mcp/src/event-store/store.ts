@@ -236,7 +236,7 @@ export class EventStore {
    * required — `append`, `appendValidated`, and `batchAppend` all delegate
    * through this instance, so a one-line swap here flips the entire write
    * substrate. The migration doc is at
-   * docs/designs/2026-05-08-eventstore-appender-consumer-migration.md.
+   * docs/designs/archive/2026-05-08-eventstore-appender-consumer-migration.md.
    */
   getAppender(): AtomicAppender {
     if (!this.atomicAppender) {

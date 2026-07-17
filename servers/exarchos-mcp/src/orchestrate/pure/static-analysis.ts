@@ -16,7 +16,7 @@
  *             recognized toolchain). When this status is returned, the
  *             `skipReason` field carries the reason code (currently only
  *             'no-toolchain'). See DR-4 in
- *             docs/plans/2026-05-04-v290-dogfood-bundle.md.
+ *             docs/plans/archive/2026-05-04-v290-dogfood-bundle.md.
  *   'error' = usage error (missing repo root, no package.json)
  */
 

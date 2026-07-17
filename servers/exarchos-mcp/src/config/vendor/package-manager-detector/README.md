@@ -23,7 +23,7 @@ adds zero runtime dependency, and still tracks upstream's authoritative table.
 
 This is the "vendor the lockfile table" path chosen in the
 `refactor-v2-10-1-bundles` workflow (Bundle B, #1508 / #1507). See
-`docs/plans/2026-05-31-toolchain-registry-consolidation.md`.
+`docs/plans/archive/2026-05-31-toolchain-registry-consolidation.md`.
 
 ## Provenance & how to update
 

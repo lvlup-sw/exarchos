@@ -19,8 +19,8 @@
 //     order. Reruns are idempotent.
 //   • File-write failures propagate with the failing path included.
 //
-// See docs/designs/2026-04-25-delegation-runtime-parity.md §5 and Task 5
-// in docs/plans/2026-04-25-delegation-runtime-parity.md.
+// See docs/designs/archive/2026-04-25-delegation-runtime-parity.md §5 and Task 5
+// in docs/plans/archive/2026-04-25-delegation-runtime-parity.md.
 //
 // Out of scope (owned by later tasks):
 //   • Task 6 wires `npm run generate:agents` to call this entry point.
