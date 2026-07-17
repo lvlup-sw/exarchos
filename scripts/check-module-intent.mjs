@@ -1,0 +1,382 @@
+#!/usr/bin/env node
+/**
+ * check-module-intent — module-intent CI gate (DR-7, DR-8).
+ *
+ * A production module under `servers/exarchos-mcp/src` with ZERO production
+ * importers is a debloat candidate. Rather than delete blindly, DR-7 requires
+ * every such dead-in-prod module to DECLARE ITS INTENT, and the declaration to
+ * be honored:
+ *
+ *   1. a `RESERVED(issue, owner, expires)` header whose `expires` is a CLEAN,
+ *      parseable calendar date that is NOT in the past — an expired-and-unadopted
+ *      RESERVED stub FAILS (this is the DR-7 "deletion happens at expiry"
+ *      enforcement point). A well-formed issue ref (`#<number>`) and a non-empty
+ *      owner are also required, OR
+ *   2. membership in a declared CLASS ALLOWLIST — test-infra / build-shim /
+ *      type-test entrypoint — whose members are legitimately imported only by
+ *      tests (or not at all, for `*.type-test.ts` entrypoints) and are not
+ *      production import targets.
+ *
+ * Any dead-in-prod module that declares neither → FAIL (exit 1): add a RESERVED
+ * header, place it in a declared class, or delete it.
+ *
+ * Reachability is delegated to the vendored `scripts/audit/refgraph.mjs`
+ * detector (the SAME instrument the 005 disposition baseline used). refgraph is
+ * deliberately type-BLIND — a `import type` edge still counts as an importer —
+ * which is the correct posture here: a type-only importer still justifies the
+ * module's existence.
+ *
+ * FAIL-CLOSED (DR-8): if the reachability scan crashes / exits non-zero, its
+ * output cannot be parsed, or an in-scope module cannot be read, the gate FAILS
+ * with a named cause (exit 2) rather than passing on partial evidence. A gate
+ * that silently no-ops on a tooling error is a gate that isn't there.
+ *
+ *   Exit 0 — every dead-in-prod module declares valid intent (clean).
+ *   Exit 1 — one or more dead-in-prod modules lack valid intent (undeclared, or
+ *            an expired / malformed RESERVED header).
+ *   Exit 2 — fail-closed: scan crash / unparseable scan output / unreadable
+ *            module / usage error.
+ *
+ * Flags (primarily for testability):
+ *   --src-root <path>   Root dir the detector scans. Default
+ *                       `servers/exarchos-mcp/src` (repo-relative).
+ *   --refgraph <path>   Reachability detector script. Default
+ *                       `scripts/audit/refgraph.mjs`.
+ *   --now <YYYY-MM-DD>  "Today" for expiry comparison. Default: system clock.
+ *   --help              Show usage.
+ */
+import { readFileSync, statSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import * as path from 'node:path';
+import process from 'node:process';
+
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
+const DEFAULT_SRC_ROOT = path.join(REPO_ROOT, 'servers', 'exarchos-mcp', 'src');
+const DEFAULT_REFGRAPH = path.join(REPO_ROOT, 'scripts', 'audit', 'refgraph.mjs');
+
+const EXIT_CLEAN = 0;
+const EXIT_VIOLATION = 1;
+const EXIT_FAILCLOSED = 2;
+
+// ── path helpers (refgraph emits forward-slashed, repo-relative paths) ────────
+const segments = (rel) => rel.split('/');
+const basename = (rel) => segments(rel).pop() ?? rel;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CLASS ALLOWLIST
+//
+// A dead-in-prod module is exempt from the RESERVED-header requirement iff it
+// belongs to one of these declared classes. Each class is a MEMBERSHIP RULE
+// (a predicate over the module's repo-relative path) plus a rationale — NOT a
+// bare path whitelist. The convention-based classes generalize (any future
+// module matching the convention is covered); the one `declared-test-infra`
+// class enumerates the two modules that are unambiguous test/gate infra but
+// lack a filename convention, each with its own per-member rationale.
+//
+// These cover the 10 CLASS-ALLOWLIST modules from the 005 disposition table
+// plus `architecture/import-cycles.ts` (a task-009 sibling of contract-seam,
+// added after the 005 baseline — see its member note).
+// ─────────────────────────────────────────────────────────────────────────────
+const ALLOWLIST_CLASSES = [
+  {
+    name: 'test-helper',
+    rationale:
+      'Co-located test helper under a `test-helpers/` directory — imported only by tests by design (e.g. test-helpers/temp-dir, workflow/test-helpers/canonical-envelope).',
+    matches: (rel) => segments(rel).includes('test-helpers'),
+  },
+  {
+    name: 'test-fixtures',
+    rationale:
+      'Co-located test fixtures/data — a `__fixtures__/` directory or a `*-fixtures.ts` / `*.fixtures.ts` filename (e.g. event-store/decide-fixtures). Test-only by convention.',
+    matches: (rel) =>
+      segments(rel).includes('__fixtures__') || /(^|[.-])fixtures?\.ts$/.test(basename(rel)),
+  },
+  {
+    name: 'build-shim',
+    rationale:
+      'Runtime/build shim under a `__shims__/` directory that swaps an implementation under test (e.g. storage/__shims__/bun-sqlite-node) — never production-imported.',
+    matches: (rel) => segments(rel).includes('__shims__'),
+  },
+  {
+    name: 'type-test-entrypoint',
+    rationale:
+      'A `*.type-test.ts` compile-time assertion entrypoint, deliberately named to dodge the tsconfig `*.test.ts` exclude so `tsc` gates on it (DR-4). No runtime importer by design.',
+    matches: (rel) => /\.type-test\.ts$/.test(basename(rel)),
+  },
+  {
+    name: 'benchmark-harness',
+    rationale:
+      'Benchmark test-data factory/generator under a `benchmarks/` directory, exercised only by benchmark tests (e.g. benchmarks/event-factories, telemetry/benchmarks/cold-start). A `*-schema.ts` is a contract surface (escalated separately) and is excluded.',
+    matches: (rel) => segments(rel).includes('benchmarks') && !/-schema\.ts$/.test(basename(rel)),
+  },
+  {
+    name: 'source-lint-seam',
+    rationale:
+      'A `*-seam.ts` test-invoked source-lint gate: exports lint functions run by its own co-located test against production SOURCE (e.g. core/dispatch.economy-seam, architecture/contract-seam). Gate machinery, not a production import target.',
+    matches: (rel) => /-seam\.ts$/.test(basename(rel)),
+  },
+  {
+    name: 'declared-test-infra',
+    rationale:
+      'Test-invoked analysis / harness modules that are unambiguous gate/test infrastructure but lack a filename convention. Enumerated, each with its own rationale.',
+    members: {
+      'architecture/import-cycles.ts':
+        'Pure Tarjan-SCC runtime import-cycle detector (DR-4, debloat task 009); its co-located test shells dependency-cruiser and feeds the JSON graph here. Gate machinery — the analysis analog of contract-seam. NOTE: added by task 009 AFTER the 005 baseline, so it is the one dead-in-prod module not in 005’s disposition table.',
+      'projections/gwt.ts':
+        'Given-When-Then test-harness DSL for projection reducers (T044, DR-10). Pure test infrastructure.',
+    },
+    matches(rel) {
+      return Object.prototype.hasOwnProperty.call(this.members, rel);
+    },
+  },
+];
+
+/** Return the class a dead module belongs to, or null. */
+function classifyAllowed(rel) {
+  for (const cls of ALLOWLIST_CLASSES) {
+    if (cls.matches(rel)) return cls;
+  }
+  return null;
+}
+
+// ── RESERVED header parsing / validation ─────────────────────────────────────
+
+/**
+ * Extract the first `RESERVED(...)` field block from a module's source. Fields
+ * are `key: value` pairs separated by commas; the trailing ` — reason` (after
+ * the close paren) is not consumed. Returns `{ present: false }` when no marker
+ * exists.
+ */
+function parseReserved(source) {
+  const m = /RESERVED\(([^)]*)\)/.exec(source);
+  if (!m) return { present: false };
+  const fields = {};
+  for (const part of m[1].split(',')) {
+    const kv = /^\s*([A-Za-z]+)\s*:\s*(.*?)\s*$/.exec(part);
+    if (kv) fields[kv[1].toLowerCase()] = kv[2];
+  }
+  return { present: true, fields, raw: m[1].trim() };
+}
+
+function startOfUtcDay(date) {
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+}
+
+/**
+ * Validate a parsed RESERVED field block. Returns a list of problem strings
+ * (empty ⇒ valid). Requires a well-formed issue ref, a non-empty owner, and a
+ * CLEAN `YYYY-MM-DD` expiry that is a real calendar date and not in the past.
+ */
+function validateReserved(fields, now) {
+  const problems = [];
+
+  const issue = fields.issue;
+  if (!issue || !/^#\d+$/.test(issue)) {
+    problems.push(`issue ref must be "#<number>" (got ${JSON.stringify(issue ?? null)})`);
+  }
+
+  const owner = fields.owner;
+  if (!owner || !/\S/.test(owner)) {
+    problems.push('owner is required and must be non-empty');
+  }
+
+  const expires = fields.expires;
+  if (!expires || !/^\d{4}-\d{2}-\d{2}$/.test(expires)) {
+    // A polluted expires (e.g. "2027-01-31; see also #1609") lands here: the
+    // field must be EXACTLY a date, nothing trailing.
+    problems.push(`expires must be a clean YYYY-MM-DD date (got ${JSON.stringify(expires ?? null)})`);
+  } else {
+    const parsed = new Date(`${expires}T00:00:00Z`);
+    if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== expires) {
+      problems.push(`expires is not a real calendar date (got ${JSON.stringify(expires)})`);
+    } else if (parsed.getTime() < startOfUtcDay(now)) {
+      problems.push(`RESERVED expired on ${expires} — deletion is due at expiry (DR-7)`);
+    }
+  }
+
+  return problems;
+}
+
+// ── reachability (delegated to the vendored refgraph detector) ───────────────
+
+/** Strip ANSI color codes so parsing is TTY-independent. */
+function stripAnsi(s) {
+  // eslint-disable-next-line no-control-regex
+  return s.replace(/\x1b\[[0-9;]*m/g, '');
+}
+
+/**
+ * Run the reachability detector and return the list of repo-relative,
+ * forward-slashed dead-in-prod module paths. Throws a `ScanError` on any
+ * fail-closed condition (spawn failure, non-zero exit, unparseable output).
+ */
+class ScanError extends Error {}
+
+function detectDeadInProd(refgraphPath, srcRoot) {
+  let result;
+  try {
+    result = spawnSync('node', [refgraphPath, srcRoot], { encoding: 'utf8' });
+  } catch (err) {
+    throw new ScanError(`reachability detector could not be spawned: ${err.message}`);
+  }
+  if (result.error) {
+    throw new ScanError(`reachability detector could not be spawned: ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    const detail = (result.stderr || result.stdout || '').trim().split('\n').slice(-5).join('\n');
+    throw new ScanError(
+      `reachability detector (${path.relative(REPO_ROOT, refgraphPath)}) exited ${result.status}` +
+        (detail ? `:\n${detail}` : ''),
+    );
+  }
+
+  const out = stripAnsi(result.stdout || '');
+  const lines = out.split('\n');
+  const markerIdx = lines.findIndex((l) => l.includes('ALL DEAD-IN-PROD'));
+  if (markerIdx === -1) {
+    throw new ScanError(
+      'could not locate the "ALL DEAD-IN-PROD" section in reachability output — detector contract changed?',
+    );
+  }
+
+  const dead = [];
+  for (let i = markerIdx + 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line === '') break; // section is terminated by a blank line
+    if (line.startsWith('--') || line.startsWith('====')) break;
+    dead.push(line);
+  }
+  return dead;
+}
+
+// ── CLI ──────────────────────────────────────────────────────────────────────
+
+function printUsage() {
+  process.stderr.write(
+    'Usage: check-module-intent.mjs [--src-root <path>] [--refgraph <path>] [--now <YYYY-MM-DD>]\n',
+  );
+}
+
+function parseArgs(argv) {
+  const args = { srcRoot: DEFAULT_SRC_ROOT, refgraph: DEFAULT_REFGRAPH, now: new Date() };
+  for (let i = 2; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--help' || arg === '-h') {
+      printUsage();
+      process.exit(EXIT_CLEAN);
+    } else if (arg === '--src-root') {
+      const value = argv[++i];
+      if (!value) fail('--src-root requires a path argument');
+      args.srcRoot = path.resolve(value);
+    } else if (arg === '--refgraph') {
+      const value = argv[++i];
+      if (!value) fail('--refgraph requires a path argument');
+      args.refgraph = path.resolve(value);
+    } else if (arg === '--now') {
+      const value = argv[++i];
+      if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) fail('--now requires a YYYY-MM-DD date');
+      args.now = new Date(`${value}T00:00:00Z`);
+    } else {
+      fail(`Unknown argument: ${arg}`);
+    }
+  }
+  return args;
+}
+
+function fail(msg) {
+  process.stderr.write(`${msg}\n`);
+  printUsage();
+  process.exit(EXIT_FAILCLOSED);
+}
+
+function main() {
+  const args = parseArgs(process.argv);
+
+  let stat;
+  try {
+    stat = statSync(args.srcRoot);
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      process.stderr.write(`check-module-intent: src-root does not exist: ${args.srcRoot}\n`);
+      process.exit(EXIT_FAILCLOSED);
+    }
+    throw err;
+  }
+  if (!stat.isDirectory()) {
+    process.stderr.write(`check-module-intent: src-root is not a directory: ${args.srcRoot}\n`);
+    process.exit(EXIT_FAILCLOSED);
+  }
+
+  // 1. Reachability — fail closed on any scan error (DR-8).
+  let dead;
+  try {
+    dead = detectDeadInProd(args.refgraph, args.srcRoot);
+  } catch (err) {
+    if (err instanceof ScanError) {
+      process.stderr.write(`check-module-intent: reachability scan failed (fail-closed):\n  ${err.message}\n`);
+      process.exit(EXIT_FAILCLOSED);
+    }
+    throw err;
+  }
+
+  // 2. Classify each dead-in-prod module.
+  const violations = [];
+  for (const rel of dead) {
+    const full = path.join(args.srcRoot, ...rel.split('/'));
+
+    let source;
+    try {
+      source = readFileSync(full, 'utf8');
+    } catch (err) {
+      // A dead module we cannot read is not a clean module — fail closed.
+      process.stderr.write(
+        `check-module-intent: failed to read dead-in-prod module ${rel} (fail-closed): ${err.message}\n`,
+      );
+      process.exit(EXIT_FAILCLOSED);
+    }
+
+    const reserved = parseReserved(source);
+    if (reserved.present) {
+      // An intent declaration exists: it MUST be valid. A malformed / expired
+      // RESERVED header is a violation (the DR-7 enforcement point) — it does
+      // NOT fall through to the class allowlist.
+      const problems = validateReserved(reserved.fields, args.now);
+      if (problems.length === 0) continue; // valid RESERVED → OK
+      violations.push({
+        rel,
+        reason: `RESERVED header is invalid — ${problems.join('; ')}`,
+      });
+      continue;
+    }
+
+    const cls = classifyAllowed(rel);
+    if (cls) continue; // class-allowlisted → OK
+
+    violations.push({
+      rel,
+      reason:
+        'dead-in-prod (0 production importers) with no RESERVED(issue, owner, expires) header and no allowlist class',
+    });
+  }
+
+  if (violations.length === 0) {
+    process.exit(EXIT_CLEAN);
+  }
+
+  process.stderr.write(
+    `check-module-intent: ${violations.length} dead-in-prod module(s) lack valid intent (DR-7).\n\n`,
+  );
+  for (const v of violations) {
+    process.stderr.write(`  ${v.rel}\n      ${v.reason}\n`);
+  }
+  process.stderr.write(
+    '\nEvery production module with zero production importers must either carry a\n' +
+      'RESERVED(issue, owner, expires) header with a future expiry, belong to a declared\n' +
+      'allowlist class (test-infra / build-shim / type-test entrypoint), or be deleted.\n',
+  );
+  process.exit(EXIT_VIOLATION);
+}
+
+main();
