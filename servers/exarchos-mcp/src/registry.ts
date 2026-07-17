@@ -2787,8 +2787,13 @@ const orchestrateActions: readonly ToolAction[] = [
   {
     name: 'prune_stale_workflows',
     description: 'Find stale non-terminal workflows and cancel them. Defaults to dry-run; pass dryRun:false to actually prune. Auto-emits workflow.pruned event per pruned workflow.',
+    // `thresholdMinutes` was removed in the debloat wave (DR-9): per-phase
+    // staleness has lived exclusively in `topology.yaml` `staleness` blocks
+    // since #1334 (v2.10.0-preview.1), so the field was accepted-but-ignored.
+    // Dropping it here also drops the auto-emitted `--threshold-minutes` CLI
+    // flag. A legacy caller still passing it is rejected with an actionable
+    // removal error by the handler (see `handlePruneStaleWorkflows`).
     schema: z.object({
-      thresholdMinutes: z.number().int().positive().optional(),
       dryRun: z.boolean().optional(),
       force: z.boolean().optional(),
       includeOneShot: z.boolean().optional(),

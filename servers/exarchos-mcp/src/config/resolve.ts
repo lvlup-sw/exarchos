@@ -81,7 +81,6 @@ export interface ResolvedProjectConfig {
     readonly impeccable: ResolvedPluginConfig;
   };
   readonly prune: {
-    readonly staleAfterDays: number;
     readonly maxBatchSize: number;
     readonly phaseExclusions: readonly string[];
     readonly malformedHandling: 'report' | 'include' | 'skip';
@@ -229,7 +228,6 @@ export const DEFAULTS: ResolvedProjectConfig = deepFreeze({
     impeccable: { enabled: true },
   },
   prune: {
-    staleAfterDays: 14,
     maxBatchSize: 25,
     phaseExclusions: ['delegate', 'review', 'synthesize'],
     malformedHandling: 'report' as const,
@@ -470,7 +468,8 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
   const impeccableEnabled = project.plugins?.impeccable?.enabled ?? DEFAULTS.plugins.impeccable.enabled;
 
   // ── Prune ──
-  const staleAfterDays = project.prune?.['stale-after-days'] ?? DEFAULTS.prune.staleAfterDays;
+  // `stale-after-days` was removed (DR-9): per-phase staleness lives in
+  // `topology.yaml` `staleness` blocks, so the knob was accepted-but-ignored.
   const maxBatchSize = project.prune?.['max-batch-size'] ?? DEFAULTS.prune.maxBatchSize;
   const phaseExclusions = [...(project.prune?.['phase-exclusions'] ?? DEFAULTS.prune.phaseExclusions)];
   const malformedHandling = project.prune?.['malformed-handling'] ?? DEFAULTS.prune.malformedHandling;
@@ -506,7 +505,7 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
     tools: { defaultBranch, commitStyle, prTemplate, autoMerge, prStrategy },
     hooks: { on: hooksOn },
     plugins: { impeccable: { enabled: impeccableEnabled } },
-    prune: { staleAfterDays, maxBatchSize, phaseExclusions, malformedHandling, requireDryRun },
+    prune: { maxBatchSize, phaseExclusions, malformedHandling, requireDryRun },
     checkpoint: { operationThreshold, enforceOnPhaseTransition, enforceOnWaveDispatch },
     verification: { policy: verificationPolicy },
     storage: {

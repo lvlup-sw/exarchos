@@ -126,7 +126,6 @@ describe('ProjectConfigSchema', () => {
     it('PruneConfigSchema_ValidFullConfig_Parses', () => {
       const result = ProjectConfigSchema.safeParse({
         prune: {
-          'stale-after-days': 30,
           'max-batch-size': 50,
           'phase-exclusions': ['delegate', 'review'],
           'malformed-handling': 'include',
@@ -135,7 +134,6 @@ describe('ProjectConfigSchema', () => {
       });
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data.prune?.['stale-after-days']).toBe(30);
         expect(result.data.prune?.['max-batch-size']).toBe(50);
         expect(result.data.prune?.['phase-exclusions']).toEqual(['delegate', 'review']);
         expect(result.data.prune?.['malformed-handling']).toBe('include');
@@ -145,16 +143,27 @@ describe('ProjectConfigSchema', () => {
 
     it('PruneConfigSchema_EmptyObject_UsesDefaults', () => {
       const result = ProjectConfigSchema.parse({ prune: {} });
-      expect(result.prune?.['stale-after-days']).toBe(14);
       expect(result.prune?.['max-batch-size']).toBe(25);
       expect(result.prune?.['phase-exclusions']).toEqual(['delegate', 'review', 'synthesize']);
       expect(result.prune?.['malformed-handling']).toBe('report');
       expect(result.prune?.['require-dry-run']).toBe(true);
     });
 
-    it('PruneConfigSchema_InvalidStaleAfterDays_Rejects', () => {
-      expect(ProjectConfigSchema.safeParse({ prune: { 'stale-after-days': -1 } }).success).toBe(false);
-      expect(ProjectConfigSchema.safeParse({ prune: { 'stale-after-days': 0 } }).success).toBe(false);
+    it('PruneConfigSchema_RemovedStaleAfterDays_RejectedAsUnknownKey', () => {
+      // DR-9: `stale-after-days` was removed. `PruneConfig` is `.strict()`, so a
+      // legacy config surfaces an actionable "unrecognized key" validation
+      // error rather than silently ignoring the knob.
+      const result = ProjectConfigSchema.safeParse({ prune: { 'stale-after-days': 30 } });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const flagged = result.error.issues.some(
+          (i) =>
+            i.code === 'unrecognized_keys' &&
+            'keys' in i &&
+            (i as { keys: string[] }).keys.includes('stale-after-days'),
+        );
+        expect(flagged).toBe(true);
+      }
     });
 
     it('PruneConfigSchema_InvalidMalformedHandling_Rejects', () => {

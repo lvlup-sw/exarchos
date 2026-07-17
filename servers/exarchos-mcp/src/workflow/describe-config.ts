@@ -78,7 +78,7 @@ export function buildConfigDescription(config: ResolvedProjectConfig) {
       on: annotate(config.hooks.on, DEFAULTS.hooks.on),
     },
     prune: {
-      staleAfterDays: annotate(config.prune.staleAfterDays, DEFAULTS.prune.staleAfterDays),
+      // `staleAfterDays` removed (DR-9) — staleness now lives in topology.yaml.
       maxBatchSize: annotate(config.prune.maxBatchSize, DEFAULTS.prune.maxBatchSize),
       phaseExclusions: annotate(config.prune.phaseExclusions, DEFAULTS.prune.phaseExclusions),
       malformedHandling: annotate(config.prune.malformedHandling, DEFAULTS.prune.malformedHandling),
