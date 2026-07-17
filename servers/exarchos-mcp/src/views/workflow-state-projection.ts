@@ -2,7 +2,11 @@ import type { ViewProjection } from './materializer.js';
 import type { WorkflowEvent, EventType } from '../event-store/schemas.js';
 import { isBuiltInEventType } from '../event-store/schemas.js';
 import { getInitialPhase, isBuiltInWorkflowType } from '../workflow/state-machine.js';
-import { isPlainObject, applyDotPath, StateStoreError } from '../workflow/state-store.js';
+// State-mutation primitives imported from the shared LEAF module, not from
+// `state-store.ts` (DR-4, task 009). `state-store.ts` value-imports THIS
+// projection's `apply` for `reconcileFromEvents`; importing these helpers from
+// the leaf keeps that a one-way edge instead of a runtime import cycle.
+import { isPlainObject, applyDotPath, StateStoreError } from '../workflow/state-mutation.js';
 import { ErrorCode } from '../workflow/schemas.js';
 import type { DesignDepth } from '../workflow/plan-depth-policy.js';
 
