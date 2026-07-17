@@ -524,6 +524,26 @@ describe('dispatch', () => {
         expect(result.error?.message ?? '').not.toContain('was removed (DR-9)');
       }
     });
+
+    it('Dispatch_PruneNowOverride_ReachesHandlerClockValidation', async () => {
+      // `now` is a test-only ISO clock override the handler reads + validates.
+      // It is a passthrough key (PRUNE_ACTION_KNOWN_KEYS), NOT part of the
+      // schema shape, so the passthrough+superRefine seam must let it reach the
+      // handler rather than rejecting it as unrecognized. Proven by the
+      // HANDLER's ISO-validation error firing — not a schema rejection.
+      const { dispatch } = await import('./dispatch.js');
+
+      const result = await dispatch(
+        'exarchos_orchestrate',
+        { action: 'prune_stale_workflows', dryRun: true, now: 'not-a-date' },
+        { stateDir: tmpDir, eventStore, enableTelemetry: false },
+      );
+
+      expect(result.success).toBe(false);
+      const message = result.error?.message ?? '';
+      expect(message).toContain('now must be a valid ISO datetime string');
+      expect(message).not.toContain('unrecognized');
+    });
   });
 
   describe('doctor action wiring', () => {

@@ -31,6 +31,12 @@ export const PRUNE_ACTION_KNOWN_KEYS: ReadonlySet<string> = new Set([
   'dryRun',
   'force',
   'includeOneShot',
+  // `now` is a test-only ISO-string clock override that the handler reads and
+  // validates (prune-stale-workflows.ts: `args.now`). It is intentionally kept
+  // OUT of the action schema shape (no user-facing CLI flag) but MUST be a
+  // known key so the passthrough+superRefine seam lets it reach the handler
+  // instead of rejecting it as an unrecognized key.
+  'now',
 ]);
 
 /** Removed knob(s) on the `.exarchos.yml` `prune:` config block. */
