@@ -1,10 +1,13 @@
 import type { GradeResult, IGrader } from '../types.js';
 import { extractOutputText } from './output-extractor.js';
 import { callLlmAssertion } from './llm-helper.js';
+import { loadPromptfooAssertions } from './promptfoo-loader.js';
 
 /**
  * LLM-based rubric grader that wraps Promptfoo's matchesLlmRubric assertion.
- * Uses dynamic import to avoid loading promptfoo during normal MCP server operation.
+ * promptfoo is loaded lazily via the opt-in eval package (DR-3) so it never
+ * ships with the default MCP-server install; a missing package yields an
+ * actionable install hint rather than an opaque import crash.
  * Returns a skipped result (passed=true, score=0) when API keys are missing.
  */
 export class LlmRubricGrader implements IGrader {
@@ -42,7 +45,7 @@ export class LlmRubricGrader implements IGrader {
 
     return callLlmAssertion(
       async (r: unknown, o: unknown, opts: unknown) => {
-        const { assertions } = await import('promptfoo');
+        const assertions = await loadPromptfooAssertions();
         return assertions.matchesLlmRubric(
           r as string,
           o as string,
