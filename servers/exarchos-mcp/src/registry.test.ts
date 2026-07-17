@@ -49,6 +49,8 @@ describe('buildCompositeSchema', () => {
         schema: z.object({ featureId: z.string() }),
         phases: new Set(['ideate']),
         roles: new Set(['lead']),
+        outputSchema: z.unknown(),
+        annotations: { safety: 'read-only', readOnly: true, destructive: false, idempotent: true, openWorld: false },
       },
       {
         name: 'get',
@@ -56,6 +58,8 @@ describe('buildCompositeSchema', () => {
         schema: z.object({ query: z.string().optional() }),
         phases: new Set(['ideate', 'plan']),
         roles: new Set(['any']),
+        outputSchema: z.unknown(),
+        annotations: { safety: 'read-only', readOnly: true, destructive: false, idempotent: true, openWorld: false },
       },
     ];
 
@@ -90,6 +94,8 @@ describe('buildRegistrationSchema', () => {
       }),
       phases: new Set(['ideate']),
       roles: new Set(['any']),
+      outputSchema: z.unknown(),
+      annotations: { safety: 'read-only', readOnly: true, destructive: false, idempotent: true, openWorld: false },
     },
     {
       name: 'query',
@@ -100,6 +106,8 @@ describe('buildRegistrationSchema', () => {
       }),
       phases: new Set(['ideate']),
       roles: new Set(['any']),
+      outputSchema: z.unknown(),
+      annotations: { safety: 'read-only', readOnly: true, destructive: false, idempotent: true, openWorld: false },
     },
   ];
 
@@ -147,6 +155,8 @@ describe('buildRegistrationSchema', () => {
         schema: z.object({ format: z.enum(['full', 'prompt-only']).default('full') }),
         phases: new Set(['ideate']),
         roles: new Set(['any']),
+        outputSchema: z.unknown(),
+        annotations: { safety: 'read-only', readOnly: true, destructive: false, idempotent: true, openWorld: false },
       },
       {
         name: 'second',
@@ -154,6 +164,8 @@ describe('buildRegistrationSchema', () => {
         schema: z.object({ format: z.enum(['table', 'json']).optional() }),
         phases: new Set(['ideate']),
         roles: new Set(['any']),
+        outputSchema: z.unknown(),
+        annotations: { safety: 'read-only', readOnly: true, destructive: false, idempotent: true, openWorld: false },
       },
     ];
 
@@ -169,6 +181,8 @@ describe('buildRegistrationSchema', () => {
         schema: z.object({ limit: z.number().int() }),
         phases: new Set(['ideate']),
         roles: new Set(['any']),
+        outputSchema: z.unknown(),
+        annotations: { safety: 'read-only', readOnly: true, destructive: false, idempotent: true, openWorld: false },
       },
       {
         name: 'b',
@@ -176,6 +190,8 @@ describe('buildRegistrationSchema', () => {
         schema: z.object({ limit: z.string() }),
         phases: new Set(['ideate']),
         roles: new Set(['any']),
+        outputSchema: z.unknown(),
+        annotations: { safety: 'read-only', readOnly: true, destructive: false, idempotent: true, openWorld: false },
       },
     ];
 
@@ -194,6 +210,8 @@ describe('buildRegistrationSchema', () => {
         schema: z.object({ mode: z.string().default('full') }),
         phases: new Set(['ideate']),
         roles: new Set(['any']),
+        outputSchema: z.unknown(),
+        annotations: { safety: 'read-only', readOnly: true, destructive: false, idempotent: true, openWorld: false },
       },
       {
         name: 'second',
@@ -201,6 +219,8 @@ describe('buildRegistrationSchema', () => {
         schema: z.object({ mode: z.string().default('json') }),
         phases: new Set(['ideate']),
         roles: new Set(['any']),
+        outputSchema: z.unknown(),
+        annotations: { safety: 'read-only', readOnly: true, destructive: false, idempotent: true, openWorld: false },
       },
     ];
 
@@ -219,6 +239,8 @@ describe('buildRegistrationSchema', () => {
         schema: z.object({ tag: z.literal('alpha') }),
         phases: new Set(['ideate']),
         roles: new Set(['any']),
+        outputSchema: z.unknown(),
+        annotations: { safety: 'read-only', readOnly: true, destructive: false, idempotent: true, openWorld: false },
       },
       {
         name: 'second',
@@ -226,6 +248,8 @@ describe('buildRegistrationSchema', () => {
         schema: z.object({ tag: z.literal('beta') }),
         phases: new Set(['ideate']),
         roles: new Set(['any']),
+        outputSchema: z.unknown(),
+        annotations: { safety: 'read-only', readOnly: true, destructive: false, idempotent: true, openWorld: false },
       },
     ];
 
@@ -244,6 +268,8 @@ describe('buildRegistrationSchema', () => {
         }),
         phases: new Set(['ideate']),
         roles: new Set(['any']),
+        outputSchema: z.unknown(),
+        annotations: { safety: 'read-only', readOnly: true, destructive: false, idempotent: true, openWorld: false },
       },
       {
         name: 'second',
@@ -253,6 +279,8 @@ describe('buildRegistrationSchema', () => {
         }),
         phases: new Set(['ideate']),
         roles: new Set(['any']),
+        outputSchema: z.unknown(),
+        annotations: { safety: 'read-only', readOnly: true, destructive: false, idempotent: true, openWorld: false },
       },
     ];
 
@@ -267,6 +295,8 @@ describe('buildRegistrationSchema', () => {
         schema: z.object({ prId: z.string().min(1) }),
         phases: new Set(['ideate']),
         roles: new Set(['any']),
+        outputSchema: z.unknown(),
+        annotations: { safety: 'read-only', readOnly: true, destructive: false, idempotent: true, openWorld: false },
       },
       {
         name: 'merge_pr',
@@ -274,6 +304,8 @@ describe('buildRegistrationSchema', () => {
         schema: z.object({ prId: z.string().min(1) }),
         phases: new Set(['ideate']),
         roles: new Set(['any']),
+        outputSchema: z.unknown(),
+        annotations: { safety: 'read-only', readOnly: true, destructive: false, idempotent: true, openWorld: false },
       },
     ];
 
@@ -306,6 +338,8 @@ describe('buildRegistrationSchema', () => {
         schema: z.object({ riskTier, designDepth, boundaryTouching }),
         phases: new Set(['plan']),
         roles: new Set(['any']),
+        outputSchema: z.unknown(),
+        annotations: { safety: 'read-only', readOnly: true, destructive: false, idempotent: true, openWorld: false },
       },
       {
         name: 'transition',
@@ -313,6 +347,8 @@ describe('buildRegistrationSchema', () => {
         schema: z.object({ riskTier, designDepth, boundaryTouching }),
         phases: new Set(['plan']),
         roles: new Set(['any']),
+        outputSchema: z.unknown(),
+        annotations: { safety: 'read-only', readOnly: true, destructive: false, idempotent: true, openWorld: false },
       },
     ];
 
@@ -328,6 +364,8 @@ describe('buildRegistrationSchema', () => {
         schema: z.object({ designDepth }),
         phases: new Set(['plan']),
         roles: new Set(['any']),
+        outputSchema: z.unknown(),
+        annotations: { safety: 'read-only', readOnly: true, destructive: false, idempotent: true, openWorld: false },
       },
       {
         name: 'second',
@@ -335,6 +373,8 @@ describe('buildRegistrationSchema', () => {
         schema: z.object({ designDepth: z.enum(['shallow', 'full']).optional() }),
         phases: new Set(['plan']),
         roles: new Set(['any']),
+        outputSchema: z.unknown(),
+        annotations: { safety: 'read-only', readOnly: true, destructive: false, idempotent: true, openWorld: false },
       },
     ];
     expect(() => buildRegistrationSchema(shadowed)).toThrow(/collides/);
@@ -1589,6 +1629,8 @@ describe('Dynamic Tool Registration', () => {
         schema: z.object({ target: z.string() }),
         phases: new Set(['deploy']),
         roles: new Set(['lead']),
+        outputSchema: z.unknown(),
+        annotations: { safety: 'read-only', readOnly: true, destructive: false, idempotent: true, openWorld: false },
       },
       {
         name: 'status',
@@ -1596,6 +1638,8 @@ describe('Dynamic Tool Registration', () => {
         schema: z.object({ deployId: z.string().optional() }),
         phases: new Set(['deploy']),
         roles: new Set(['any']),
+        outputSchema: z.unknown(),
+        annotations: { safety: 'read-only', readOnly: true, destructive: false, idempotent: true, openWorld: false },
       },
     ],
   };
@@ -1634,6 +1678,8 @@ describe('Dynamic Tool Registration', () => {
             schema: z.object({}),
             phases: new Set(['ideate']),
             roles: new Set(['any']),
+            outputSchema: z.unknown(),
+            annotations: { safety: 'read-only', readOnly: true, destructive: false, idempotent: true, openWorld: false },
           },
           {
             name: 'b',
@@ -1641,6 +1687,8 @@ describe('Dynamic Tool Registration', () => {
             schema: z.object({}),
             phases: new Set(['ideate']),
             roles: new Set(['any']),
+            outputSchema: z.unknown(),
+            annotations: { safety: 'read-only', readOnly: true, destructive: false, idempotent: true, openWorld: false },
           },
         ],
       };

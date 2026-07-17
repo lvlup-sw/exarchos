@@ -180,6 +180,8 @@ describe('dispatch', () => {
             schema: z.object({}).passthrough(),
             phases: new Set<string>(),
             roles: new Set<string>(['any']),
+            outputSchema: z.unknown(),
+            annotations: { safety: 'read-only', readOnly: true, destructive: false, idempotent: true, openWorld: false },
           },
           {
             name: 'status',
@@ -187,6 +189,8 @@ describe('dispatch', () => {
             schema: z.object({}).passthrough(),
             phases: new Set<string>(),
             roles: new Set<string>(['any']),
+            outputSchema: z.unknown(),
+            annotations: { safety: 'read-only', readOnly: true, destructive: false, idempotent: true, openWorld: false },
           },
         ],
       };
@@ -224,6 +228,8 @@ describe('dispatch', () => {
             schema: z.object({}).passthrough(),
             phases: new Set<string>(),
             roles: new Set<string>(['any']),
+            outputSchema: z.unknown(),
+            annotations: { safety: 'read-only', readOnly: true, destructive: false, idempotent: true, openWorld: false },
           },
           {
             name: 'cancel',
@@ -231,6 +237,8 @@ describe('dispatch', () => {
             schema: z.object({}).passthrough(),
             phases: new Set<string>(),
             roles: new Set<string>(['any']),
+            outputSchema: z.unknown(),
+            annotations: { safety: 'read-only', readOnly: true, destructive: false, idempotent: true, openWorld: false },
           },
         ],
       };
@@ -264,6 +272,8 @@ describe('dispatch', () => {
             schema: z.object({}).passthrough(),
             phases: new Set<string>(),
             roles: new Set<string>(['any']),
+            outputSchema: z.unknown(),
+            annotations: { safety: 'read-only', readOnly: true, destructive: false, idempotent: true, openWorld: false },
           },
           {
             name: 'list',
@@ -271,6 +281,8 @@ describe('dispatch', () => {
             schema: z.object({}).passthrough(),
             phases: new Set<string>(),
             roles: new Set<string>(['any']),
+            outputSchema: z.unknown(),
+            annotations: { safety: 'read-only', readOnly: true, destructive: false, idempotent: true, openWorld: false },
           },
         ],
       };
@@ -352,6 +364,8 @@ describe('dispatch', () => {
             schema: z.object({}).passthrough(),
             phases: new Set<string>(),
             roles: new Set<string>(['any']),
+            outputSchema: z.unknown(),
+            annotations: { safety: 'read-only', readOnly: true, destructive: false, idempotent: true, openWorld: false },
           },
           {
             name: 'warnings',
@@ -359,6 +373,8 @@ describe('dispatch', () => {
             schema: z.object({}).passthrough(),
             phases: new Set<string>(),
             roles: new Set<string>(['any']),
+            outputSchema: z.unknown(),
+            annotations: { safety: 'read-only', readOnly: true, destructive: false, idempotent: true, openWorld: false },
           },
           {
             name: 'noop',
@@ -366,6 +382,8 @@ describe('dispatch', () => {
             schema: z.object({}).passthrough(),
             phases: new Set<string>(),
             roles: new Set<string>(['any']),
+            outputSchema: z.unknown(),
+            annotations: { safety: 'read-only', readOnly: true, destructive: false, idempotent: true, openWorld: false },
           },
         ],
       };

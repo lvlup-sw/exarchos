@@ -72,6 +72,7 @@ describe('formatRunSummary', () => {
               score: 0.3,
               reason: 'Mismatched fields: output',
               threshold: 1.0,
+              skipped: false,
             },
           ],
         }),

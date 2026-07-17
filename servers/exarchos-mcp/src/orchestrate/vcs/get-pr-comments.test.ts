@@ -11,8 +11,10 @@ import { createVcsProvider } from '../../vcs/factory.js';
 import { handleGetPrComments } from './get-pr-comments.js';
 
 const sampleComments: PrComment[] = [
-  { id: 1, author: 'alice', body: 'LGTM', createdAt: '2026-01-01T00:00:00Z' },
-  { id: 2, author: 'bob', body: 'Needs changes', createdAt: '2026-01-02T00:00:00Z', path: 'src/main.ts', line: 42 },
+  { id: 1, author: 'alice', body: 'LGTM', createdAt: '2026-01-01T00:00:00Z',
+  source: 'issue-comment' },
+  { id: 2, author: 'bob', body: 'Needs changes', createdAt: '2026-01-02T00:00:00Z', path: 'src/main.ts', line: 42,
+  source: 'review-inline' },
 ];
 
 function makeMockProvider(overrides: Partial<VcsProvider> = {}): VcsProvider {

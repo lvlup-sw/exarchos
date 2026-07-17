@@ -69,7 +69,10 @@ const EXPECTED_CATALOG_SIZE = 21;
  * suite) pass their own config inline. The dependency-injection pattern
  * keeps the gating contract explicit at every call site.
  */
-const ENABLED_CONFIG = { invariants: { devCatalog: 'enabled' as const } };
+const ENABLED_CONFIG = {
+  invariants: { devCatalog: 'enabled' as const },
+  ownership: { firstParty: [] as string[] },
+};
 
 describe('invariants-loader', () => {
   it('Invariants_StructuredFrontmatter_ParsesAllRequiredFields', () => {

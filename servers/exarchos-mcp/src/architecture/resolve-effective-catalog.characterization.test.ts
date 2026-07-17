@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { resolveEffectiveCatalog } from './resolve-effective-catalog.js';
-import type { ExarchosConfig } from '../config/exarchos-config-schema.js';
+import type { ExarchosConfigInput } from '../config/exarchos-config-schema.js';
 
 /**
  * Characterization guard for the dev-catalog migration (P1, T0).
@@ -17,7 +17,7 @@ import type { ExarchosConfig } from '../config/exarchos-config-schema.js';
  */
 describe('resolveEffectiveCatalog — dev-catalog characterization (T0)', () => {
   it('resolveEffectiveCatalog_DevCatalogEnabled_GoldenSnapshot', () => {
-    const config: ExarchosConfig = {
+    const config: ExarchosConfigInput = {
       invariants: { devCatalog: 'enabled' },
     };
 

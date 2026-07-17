@@ -21,7 +21,10 @@ const INVARIANTS_DOC = path.join(REPO_ROOT, '.exarchos/invariants.md');
  * tests stable independent of that landing order. See Wave B2 in
  * docs/proposals/2026-05-20-invariants-catalog-v2-spec.md §4.0.
  */
-const ENABLED_CONFIG = { invariants: { devCatalog: 'enabled' as const } };
+const ENABLED_CONFIG = {
+  invariants: { devCatalog: 'enabled' as const },
+  ownership: { firstParty: [] as string[] },
+};
 
 describe('vocabulary-lint', () => {
   let tmpDir: string;
@@ -149,7 +152,8 @@ describe('scanRepoDefaults / DATED_RECORD_TREES archival-invariance (DR-18, task
     try {
       const findings = scanPaths(
         SCAN_ROOTS.map((r) => path.join(root, r)),
-        { invariantsDoc: INVARIANTS_DOC, config: ENABLED_CONFIG },
+        { invariantsDoc: INVARIANTS_DOC, config: ENABLED_CONFIG,
+        ownership: { firstParty: [] } },
       );
       const tokens = findings.map((f) => f.token).sort();
       // Exactly the four live-surface tokens — no archived-tree token leaks in.

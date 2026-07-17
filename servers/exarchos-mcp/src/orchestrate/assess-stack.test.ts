@@ -212,7 +212,8 @@ describe('handleAssessStack', () => {
       const provider = createMockProvider({
         checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
         prComments: [
-          { id: 1, author: 'alice', body: 'Please fix this', createdAt: '2026-01-01T00:00:00Z' },
+          { id: 1, author: 'alice', body: 'Please fix this', createdAt: '2026-01-01T00:00:00Z',
+          source: 'issue-comment' },
         ],
       });
 
@@ -304,7 +305,8 @@ describe('handleAssessStack', () => {
       const provider = createMockProvider({
         checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
         prComments: [
-          { id: 1, author: 'alice', body: 'Please fix this logic', createdAt: '2026-01-01T00:00:00Z' },
+          { id: 1, author: 'alice', body: 'Please fix this logic', createdAt: '2026-01-01T00:00:00Z',
+          source: 'issue-comment' },
         ],
       });
 
@@ -333,7 +335,8 @@ describe('handleAssessStack', () => {
       const provider = createMockProvider({
         checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
         prComments: [
-          { id: 1, author: 'alice', body: longBody, createdAt: '2026-01-01T00:00:00Z' },
+          { id: 1, author: 'alice', body: longBody, createdAt: '2026-01-01T00:00:00Z',
+          source: 'issue-comment' },
         ],
       });
 
@@ -358,7 +361,8 @@ describe('handleAssessStack', () => {
       const provider = createMockProvider({
         checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
         prComments: [
-          { id: 1, author: 'alice', body: shortBody, createdAt: '2026-01-01T00:00:00Z' },
+          { id: 1, author: 'alice', body: shortBody, createdAt: '2026-01-01T00:00:00Z',
+          source: 'issue-comment' },
         ],
       });
 
@@ -894,6 +898,7 @@ describe('handleAssessStack', () => {
             author: 'coderabbitai[bot]',
             body: '_:rocket: Brand new tier_\n\nLooks like something CodeRabbit ships in a future version.',
             createdAt: '2026-01-01T00:00:00Z',
+            source: 'issue-comment',
           },
         ],
       });
@@ -924,6 +929,7 @@ describe('handleAssessStack', () => {
             author: 'coderabbitai[bot]',
             body: '_:rocket: Brand new tier_\n\nUnrecognised marker.',
             createdAt: '2026-01-01T00:00:00Z',
+            source: 'issue-comment',
           },
         ],
       });
@@ -953,6 +959,7 @@ describe('handleAssessStack', () => {
             author: 'coderabbitai[bot]',
             body: '_:warning: Potential issue_\n\nThis is a recognized tier.',
             createdAt: '2026-01-01T00:00:00Z',
+            source: 'issue-comment',
           },
         ],
       });
@@ -983,6 +990,7 @@ describe('handleAssessStack', () => {
             createdAt: '2026-01-01T00:00:00Z',
             path: 'src/x.ts',
             line: 5,
+            source: 'review-inline',
           },
         ],
       });
@@ -1017,6 +1025,7 @@ describe('handleAssessStack', () => {
             createdAt: '2026-01-01T00:00:00Z',
             path: 'src/auth.ts',
             line: 42,
+            source: 'review-inline',
           },
         ],
       });
@@ -1049,6 +1058,7 @@ describe('handleAssessStack', () => {
             author: 'alice',
             body: 'Could you rename this variable?',
             createdAt: '2026-01-01T00:00:00Z',
+            source: 'issue-comment',
           },
         ],
       });
@@ -1077,6 +1087,7 @@ describe('handleAssessStack', () => {
             author: 'mystery-scanner[bot]',
             body: 'something happened',
             createdAt: '2026-01-01T00:00:00Z',
+            source: 'issue-comment',
           },
         ],
       });
@@ -1106,7 +1117,8 @@ describe('handleAssessStack', () => {
       const provider = createMockProvider({
         checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
         prComments: [
-          { id: 1, author: 'reviewer', body: longBody, createdAt: '2026-01-01T00:00:00Z' },
+          { id: 1, author: 'reviewer', body: longBody, createdAt: '2026-01-01T00:00:00Z',
+          source: 'issue-comment' },
         ],
       });
 
@@ -1195,7 +1207,8 @@ describe('handleAssessStack', () => {
       const provider = createMockProvider({
         checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
         prComments: [
-          { id: 99, author: 'coderabbitai[bot]', body: 'explodes', createdAt: '2026-01-01T00:00:00Z' },
+          { id: 99, author: 'coderabbitai[bot]', body: 'explodes', createdAt: '2026-01-01T00:00:00Z',
+          source: 'issue-comment' },
         ],
       });
 
@@ -1224,8 +1237,10 @@ describe('handleAssessStack', () => {
       const provider = createMockProvider({
         checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
         prComments: [
-          { id: 1, author: 'coderabbitai[bot]', body: 'explodes', createdAt: '2026-01-01T00:00:00Z' },
-          { id: 2, author: 'mystery-reviewer', body: 'survives', createdAt: '2026-01-01T00:00:00Z' },
+          { id: 1, author: 'coderabbitai[bot]', body: 'explodes', createdAt: '2026-01-01T00:00:00Z',
+          source: 'issue-comment' },
+          { id: 2, author: 'mystery-reviewer', body: 'survives', createdAt: '2026-01-01T00:00:00Z',
+          source: 'issue-comment' },
         ],
       });
 

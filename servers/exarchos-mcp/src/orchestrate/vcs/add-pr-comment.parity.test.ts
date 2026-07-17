@@ -86,6 +86,7 @@ function buildStubProvider(): VcsProvider {
           author: 'github-actions[bot]',
           body: lastPostedBody,
           createdAt: '2026-05-12T00:00:00.000Z',
+          source: 'issue-comment',
         },
       ];
     }),
