@@ -370,7 +370,7 @@ function applyTaskEvent(
     //
     //   1. `conflictsWithActiveOther` — an active pending merge already exists
     //      for a DIFFERENT task. Clobbering it would let a subsequent
-    //      merge.executed / merge.rollback / merge.aborted fire against the
+    //      merge.executed / merge.recovered / merge.aborted fire against the
     //      wrong taskId in `applyMergeTerminalEvent`. Preserve the active
     //      pending; the second task's worktree merge gets picked up after
     //      the first task's terminal event lands.
@@ -425,7 +425,7 @@ function applyMergeTerminalEvent(
   const existing = state.workflowState.mergeOrchestrator;
   if (!existing) return state;
   // Idempotent no-op when this terminal event has already been folded — a
-  // duplicate merge.executed / merge.rollback / merge.aborted at the same
+  // duplicate merge.executed / merge.recovered / merge.aborted at the same
   // taskId + terminalPhase must NOT bump projectionSequence, otherwise replay
   // count diverges from the truth-of-events count and downstream consumers
   // (snapshot cadence, fingerprint comparisons) observe phantom mutations.

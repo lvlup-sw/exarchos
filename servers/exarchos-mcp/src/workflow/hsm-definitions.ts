@@ -141,8 +141,9 @@ const mergePendingExit: Guard = {
       (e) =>
         e.type === 'merge.executed' ||
         e.type === 'merge.rollback' ||
-        // #1306 — merge.recovered is the successor to merge.rollback; both are
-        // terminal during the v2.11.x dual-emit deprecation window.
+        // #1306 — merge.recovered is the successor to merge.rollback and, since
+        // DR-2 (task 006), the sole emitted recovery terminal; the legacy
+        // merge.rollback arm stays so old event logs still exit merge-pending.
         e.type === 'merge.recovered' ||
         e.type === 'merge.aborted',
     );
@@ -188,8 +189,8 @@ export function createFeatureHSM(): HSMDefinition {
     review: { id: 'review', type: 'atomic', kind: 'REVIEW', parent: 'implementation' },
     // T17: substate entered when a delegated subagent worktree task completes
     // and an autonomous merge is required before progressing. Exits back to
-    // `delegate` once `merge.executed` / `merge.rollback` / `merge.aborted`
-    // is observed.
+    // `delegate` once `merge.executed` / `merge.recovered` (or legacy
+    // `merge.rollback`) / `merge.aborted` is observed.
     'merge-pending': {
       id: 'merge-pending',
       type: 'atomic',

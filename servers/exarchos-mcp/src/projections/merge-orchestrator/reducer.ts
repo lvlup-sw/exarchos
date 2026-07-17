@@ -9,14 +9,14 @@
  * substitution: every state transition is now an event, every state read is a
  * fold over the durable event log.
  *
- * ## Naming note (#1306 rename tracker)
+ * ## Naming note (#1306 rename / DR-2 retirement)
  *
- * This worktree's `event-store/schemas.ts` ships `merge.rollback` as the
- * canonical recovery event (the rename to `merge.recovered` is tracked
- * separately by #1306). The reducer's dispatcher handles `merge.rollback`
- * here; if/when #1306 lands, the case label switches alongside the schema.
- * The reducer's external contract (the `recovering` phase, the
- * {@link MergeRecoveryContext} field shape) does not change with the rename.
+ * `merge.recovered` is the canonical recovery event and, since DR-2 (task 006),
+ * the sole one emitted. The legacy `merge.rollback` is retired — read-tolerant-
+ * not-emittable — so the dispatcher below still handles it as a READER (old
+ * event logs replay identically), never as a live emission. The reducer's
+ * external contract (the `recovering` phase, the {@link MergeRecoveryContext}
+ * field shape) is identical whichever of the two event types folded it.
  *
  * ## Purity contract
  *
@@ -193,8 +193,9 @@ function applyMergeExecuted(
 }
 
 /**
- * Handler for `merge.rollback` (or post-#1306 `merge.recovered`) — `any →
- * recovering`. Captures the rollback reason + any reset-side error. Does NOT
+ * Handler for `merge.recovered` (and its read-tolerant legacy alias
+ * `merge.rollback`) — `any → recovering`. Captures the recovery reason + any
+ * reset-side error. Does NOT
  * overwrite earlier merge metadata; the recovery context is additive, and
  * downstream observability needs both the original merge identifiers and the
  * rollback rationale.

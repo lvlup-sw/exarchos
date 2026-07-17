@@ -67,7 +67,8 @@ export interface WorkflowStateView {
   designDepth?: DesignDepth;
   /**
    * Terminal merge-orchestrator state (#1504/#1554). Folded from the
-   * `merge.preflight` / `merge.executed` / `merge.rollback` events, mirroring
+   * `merge.preflight` / `merge.executed` / `merge.recovered` (and legacy
+   * `merge.rollback`) events, mirroring
    * the file-path `applyEventToState` (state-store.ts) so `resolveWorkflowState`
    * reconstructs the block instead of silently dropping it. `undefined` until
    * the first terminal merge event is folded (matches the file's
@@ -606,8 +607,9 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       case 'merge.recovered': {
         // #1306 successor to merge.rollback — same logical fold, reading the
         // renamed event fields (recoveryPointSha / recoveryErrorDetail) onto the
-        // existing view fields. Dual-emitted alongside merge.rollback during the
-        // v2.11.x deprecation window; folding both is idempotent (same view).
+        // existing view fields. Since DR-2 (task 006) this is the sole emitted
+        // recovery terminal; the merge.rollback case above is retained only to
+        // fold legacy logs, and folding both is idempotent (same view).
         const data = event.data as Record<string, unknown> | undefined;
         if (!data) return view;
         return {

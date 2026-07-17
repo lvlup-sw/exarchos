@@ -22,7 +22,7 @@
  *                          merge.executed
  *                          directly)
  *
- *   any ──merge.rollback / merge.recovered──▶ recovering
+ *   any ──merge.recovered / merge.rollback (legacy)──▶ recovering
  *
  * The `requested` phase (audit findings §F1.2) is the durable INTENT recorded
  * BEFORE the non-idempotent side effect (e.g., GitHub merge API). Wave 4's
@@ -34,13 +34,14 @@
  * the call sites — preview.2 still allows legacy `preflight → executed`
  * sequences for streams predating the migration).
  *
- * ## Naming note (#1306 rename tracker)
+ * ## Naming note (#1306 rename / DR-2 retirement)
  *
- * Preview.2 ships `merge.rollback` (the canonical name in this worktree's
- * `event-store/schemas.ts`); #1306 will rename it to `merge.recovered` in a
- * follow-up epic. The reducer handles whichever name is registered; the
- * projection state captures the outcome (`recovering` phase) identically
- * regardless of which event type fired the transition.
+ * `merge.recovered` (#1306) is the canonical recovery event and, since DR-2
+ * (task 006), the sole emitted one. The legacy `merge.rollback` is retired —
+ * read-tolerant-not-emittable — so the reducer still folds it from old event
+ * logs but nothing writes it. The projection state captures the outcome
+ * (`recovering` phase) identically regardless of which event type fired the
+ * transition.
  */
 
 /**
@@ -54,8 +55,8 @@
  *                   yet fired. Wave 4's Phase B reads this state.
  * - `executed`    — `merge.executed` was folded; the merge has been performed
  *                   on the target branch (mergeSha is durable).
- * - `recovering`  — `merge.rollback` (or post-#1306 `merge.recovered`) was
- *                   folded; rollback is in flight or completed.
+ * - `recovering`  — `merge.recovered` (or its legacy alias `merge.rollback`)
+ *                   was folded; recovery is in flight or completed.
  * - `completed`   — `merge.completed` was folded; the orchestrator has
  *                   formally terminated the lifecycle. Terminal phase.
  */
@@ -117,7 +118,7 @@ export interface MergeActionMetadata {
 }
 
 /**
- * Recovery context captured from `merge.rollback` (or post-#1306 `merge.recovered`).
+ * Recovery context captured from `merge.recovered` (or its legacy alias `merge.rollback`).
  *
  * Three fields with distinct roles:
  *
@@ -187,7 +188,7 @@ export interface MergeOrchestratorState {
   readonly preflight?: MergePreflightMetadata;
   /** Merge action metadata; populated across `merge.requested` + `merge.executed`. */
   readonly merge?: MergeActionMetadata;
-  /** Recovery context; populated on `merge.rollback` / `merge.recovered`. */
+  /** Recovery context; populated on `merge.recovered` (or legacy `merge.rollback`). */
   readonly recovery?: MergeRecoveryContext;
 }
 

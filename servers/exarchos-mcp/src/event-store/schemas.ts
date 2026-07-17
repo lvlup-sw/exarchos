@@ -154,8 +154,9 @@ export const EventTypes = [
   'merge.requested',
   'merge.executed',
   'merge.rollback',
-  // #1306 — successor to `merge.rollback`; dual-emitted during the v2.11.x
-  // deprecation window. Legacy `merge.rollback` removed in v2.12 (tracked).
+  // #1306 — successor to `merge.rollback` and, since DR-2 (task 006), the SOLE
+  // emitted recovery terminal. `merge.rollback` is now read-tolerant-not-
+  // emittable (schema + type-map kept for replay; nothing writes it).
   'merge.recovered',
   // #1308 — audit record of a transient-failure retry of the merge attempt.
   // Records the retry `attempt` ordinal, the backoff `delayMs` before it, and
@@ -325,8 +326,9 @@ export const EventTypes = [
   'invariant.authored',
   'catalog.registered',
   // verification-ladder slice 1 (task 020) — mutation-run liveness (INV-10).
-  // `mutation.executing_started` lands at the start of an `exarchos
-  // run-mutation` execution (NOT dry-run); `mutation.executed` is the paired
+  // `mutation.executing_started` lands at the start of a (non-dry-run) mutation
+  // run driven by the `mutation-adequacy` gate handler
+  // (`orchestrate/mutation-adequacy.ts`); `mutation.executed` is the paired
   // terminal event carrying the pass/fail verdict + exit code. The pair makes
   // a long-running mutation sweep observable as "started but not yet
   // terminated" the same way merge.executing_started/executed does. Emitted
@@ -761,10 +763,11 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'invariant.authored': 'auto',
   'catalog.registered': 'auto',
 
-  // auto — emitted by the `exarchos run-mutation` CLI verb on the execution
-  // path (verification-ladder slice 1, task 020). The handler owns both
-  // appends (started at entry, executed at exit), so the model is never asked
-  // to hand-emit the liveness pair.
+  // auto — emitted by the `mutation-adequacy` gate handler
+  // (`orchestrate/mutation-adequacy.ts`) on the execution path (verification-
+  // ladder slice 1, task 020). The handler owns both appends (started at entry,
+  // executed at exit), so the model is never asked to hand-emit the liveness
+  // pair.
   'mutation.executing_started': 'auto',
   'mutation.executed': 'auto',
   // #1319 — the `exarchos_workflow.feedback` handler owns the write
@@ -1855,10 +1858,14 @@ export const MergeExecutedData = z.object({
 });
 
 /**
- * merge.rollback — emitted when a merge is reverted. `reason` is a closed
- * enum so observability dashboards don't fragment across free-form text.
- * Preflight failures are NOT a rollback cause — they short-circuit before
- * any merge occurs. `rollbackError` carries the human-readable recovery-failure
+ * merge.rollback — legacy recovery event, RETIRED as of DR-2 (task 006):
+ * read-tolerant-not-emittable. Its data schema + type-map entry are KEPT so
+ * pre-DR-2 event logs still replay to identical state (INV-1), but nothing
+ * writes it any more — the recovery path now emits `merge.recovered` (below).
+ * `reason` is a closed enum so observability dashboards don't fragment across
+ * free-form text. Preflight failures are NOT a rollback cause — they
+ * short-circuit before any merge occurs. `rollbackError` carries the
+ * human-readable recovery-failure
  * detail (paired with the `recoveryError` discriminator below) when the INV-14
  * recovery ladder did not land cleanly: presence signals the worktree may be in
  * an indeterminate state, so consumers can page operators.
@@ -1891,9 +1898,10 @@ export const MergeRollbackData = z.object({
  * `rollbackSha`); `recoveryErrorDetail` is the human-readable recovery-failure
  * string (was `rollbackError`) paired with the `recoveryError` discriminator.
  *
- * During the v2.11.x deprecation window the executor dual-emits this AND the
- * legacy `merge.rollback` for the same logical event; v2.12 removes the legacy
- * emission (tracked separately). Vocabulary follows the canonical frame —
+ * Since DR-2 (task 006) this is the SOLE emitted recovery terminal; the legacy
+ * `merge.rollback` write path is retired (read-tolerant-not-emittable). Old
+ * dual-emit streams still replay identically because the reducers fold both
+ * events to the same terminal state. Vocabulary follows the canonical frame —
  * recovery point / recovery event, not saga compensation / rollback.
  */
 export const MergeRecoveredData = z.object({
@@ -2881,12 +2889,13 @@ export const StashDetectedData = z.object({
 
 // ─── Mutation-run liveness (verification-ladder slice 1, task 020 / INV-10) ──
 //
-// `mutation.executing_started` records the start of an `exarchos run-mutation`
-// execution; `mutation.executed` is the paired terminal carrying the verdict.
-// The pair makes a long-running mutation sweep observable as a lifecycle, the
-// same shape as the merge orchestrator's executing/executed split.
+// `mutation.executing_started` records the start of a mutation run driven by
+// the `mutation-adequacy` gate handler (`orchestrate/mutation-adequacy.ts`);
+// `mutation.executed` is the paired terminal carrying the verdict. The pair
+// makes a long-running mutation sweep observable as a lifecycle, the same shape
+// as the merge orchestrator's executing/executed split.
 
-/** Emitted at the start of a (non-dry-run) `exarchos run-mutation` execution. */
+/** Emitted at the start of a (non-dry-run) mutation-adequacy run. */
 export const MutationExecutingStartedData = z.object({
   /** The resolved mutation command being run (e.g. `npx stryker run`). */
   command: z.string().min(1),
