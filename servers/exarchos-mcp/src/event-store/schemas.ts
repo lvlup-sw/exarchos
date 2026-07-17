@@ -452,7 +452,13 @@ export function isBuiltInEventType(name: string): boolean {
 
 // ─── Event Emission Source ───────────────────────────────────────────────────
 
-export type EventEmissionSource = 'auto' | 'model' | 'hook' | 'planned';
+// `retired` — the data schema + type-map entry are KEPT so legacy event logs
+// remain replayable (INV-1), but nothing emits the event any more. Semantically
+// the mirror of `planned` (schema exists, not-yet-emitted): `retired` is
+// schema-exists, no-longer-emitted. Distinguishing the two keeps the emission
+// catalog honest — a `retired` event must never appear in any action's
+// `autoEmits` (the RegistryDrift test enforces `autoEmits ⊆ auto`).
+export type EventEmissionSource = 'auto' | 'model' | 'hook' | 'planned' | 'retired';
 
 export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   // auto — emitted by MCP server handlers (deterministic)
@@ -621,8 +627,13 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   // of the workflow-author's command logic, not server-deterministic plumbing.
   'merge.requested': 'model',
   'merge.executed': 'auto',
-  'merge.rollback': 'auto',
-  // #1306 successor — same auto family as the legacy event it replaces.
+  // DR-2 (task 006) — the `merge.rollback` WRITE path is RETIRED. The recovery
+  // path in `orchestrate/execute-merge.ts` now emits ONLY the canonical
+  // `merge.recovered`. `merge.rollback` stays read-tolerant (its data schema +
+  // type-map entry below are KEPT so legacy logs replay identically, INV-1) but
+  // is NON-EMITTABLE — hence `retired`, not `auto`.
+  'merge.rollback': 'retired',
+  // #1306 successor — the sole emitted recovery terminal after DR-2.
   'merge.recovered': 'auto',
   // #1308 — emitted by the merge executor's retry loop (server-deterministic
   // plumbing), so it lives in the auto family alongside the other merge events.
@@ -3590,6 +3601,8 @@ export interface EventCatalog {
     model: string[];
     hook: string[];
     planned: string[];
+    // read-tolerant-but-not-emittable (DR-2): schema kept for replay, never emitted.
+    retired: string[];
   };
   totalCount: number;
 }
@@ -3611,6 +3624,7 @@ export function serializeEventCatalog(): EventCatalog {
     model: [],
     hook: [],
     planned: [],
+    retired: [],
   };
 
   for (const eventType of allTypes) {

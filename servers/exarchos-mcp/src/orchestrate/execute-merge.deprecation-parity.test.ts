@@ -1,12 +1,16 @@
 /**
- * #1306 T4 — deprecation-envelope CLI↔MCP parity (REFACTOR step).
+ * DR-2 (task 006) — recovery-terminal CLI↔MCP parity (the DR-10 equivalence
+ * proof, retargeted from the retired legacy event).
  *
- * The legacy `merge.rollback` event dual-emitted on the recovery path carries
- * a `_meta.deprecation = { since, removeIn, replacement }` envelope. Because
- * both the CLI (`exarchos orch merge_orchestrate`) and the MCP
- * (`exarchos_orchestrate`) surfaces funnel the recovery through the SAME
- * `handleExecuteMerge` code path, that envelope MUST be byte-identical
- * regardless of which surface drove the merge.
+ * Before DR-2 this suite pinned the byte-identity of the legacy `merge.rollback`
+ * `_meta.deprecation` envelope across surfaces. DR-2 RETIRED the `merge.rollback`
+ * write path: the recovery path now emits ONLY the canonical `merge.recovered`.
+ * The equivalence coverage is preserved — because both the CLI
+ * (`exarchos orch merge_orchestrate`) and the MCP (`exarchos_orchestrate`)
+ * surfaces funnel recovery through the SAME `handleExecuteMerge` code path, the
+ * emitted `merge.recovered` payload MUST be byte-identical regardless of which
+ * surface drove the merge — and NEITHER surface may emit the retired
+ * `merge.rollback` event.
  *
  * Strategy (mirrors `merge-orchestrate.parity.test.ts`):
  *   - Stub the `exarchos_orchestrate` composite so its `merge_orchestrate`
@@ -15,16 +19,16 @@
  *       • an `executeMerge` adapter that augments the orchestrator-built
  *         executor input with a REJECTING `vcsMerge` + a deterministic
  *         `gitExec`, then delegates to the REAL `handleExecuteMerge`. This
- *         drives the genuine dual-emit (canonical `merge.recovered` + legacy
- *         `merge.rollback`) into the arm's real `EventStore`.
+ *         drives the genuine single-emit (canonical `merge.recovered`) into the
+ *         arm's real `EventStore`.
  *   - Run two arms (CLI + MCP) against isolated tmp event stores, then read
- *     each arm's legacy `merge.rollback` event and compare its
- *     `_meta.deprecation` block byte-for-byte.
+ *     each arm's `merge.recovered` event and compare its `data` payload
+ *     byte-for-byte, and assert `merge.rollback` is absent on each.
  *
  * Unlike the success-path parity suite (which stubs the executor and only
  * compares the projected ToolResult), this suite exercises the real event
- * emission so the parity assertion pins the EMITTED envelope — the artifact
- * the deprecation window actually exposes to downstream consumers.
+ * emission so the parity assertion pins the EMITTED payload — the artifact the
+ * recovery path actually exposes to downstream consumers.
  */
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
@@ -76,10 +80,13 @@ const PARITY_ARGS = {
   repoRoot: '/repo',
 };
 
-const EXPECTED_DEPRECATION = {
-  since: '2.11.0',
-  removeIn: '2.12.0',
-  replacement: 'merge.recovered',
+// The clean-recovery `merge.recovered` payload the shared code path emits.
+const EXPECTED_RECOVERED_DATA = {
+  taskId: 'T44',
+  sourceBranch: 'feat/x',
+  targetBranch: 'main',
+  recoveryPointSha: RECOVERY_POINT_SHA,
+  reason: 'merge-failed',
 };
 
 // ─── Arm helpers ───────────────────────────────────────────────────────────
@@ -133,7 +140,7 @@ function makeGitExec(): GitExec {
  * Composite stub forwarding `merge_orchestrate` to the REAL orchestrator with
  * a passing preflight + an `executeMerge` adapter that drives the REAL
  * executor down its recovery path (rejecting `vcsMerge`). The executor emits
- * the genuine dual-emit events into the arm's real EventStore.
+ * the genuine `merge.recovered` event into the arm's real EventStore.
  */
 function buildRecoveryCompositeStub(): CompositeHandler {
   return async (args, ctx): Promise<ToolResult> => {
@@ -158,7 +165,7 @@ function buildRecoveryCompositeStub(): CompositeHandler {
         {
           ...input,
           // Force the recovery path: the merge adapter rejects, so the real
-          // executor runs the INV-14 ladder and dual-emits.
+          // executor runs the INV-14 ladder and emits `merge.recovered`.
           vcsMerge: vi.fn().mockRejectedValue(new Error('merge conflict')),
           gitExec: makeGitExec(),
           // Bypass the state-file write so the arm never touches disk state.
@@ -181,19 +188,16 @@ function buildRecoveryCompositeStub(): CompositeHandler {
   };
 }
 
-/** Read the `_meta.deprecation` block off the legacy `merge.rollback` event. */
-async function readLegacyDeprecationEnvelope(
-  arm: ArmContext,
-): Promise<unknown> {
+/** Read the `data` payload off the canonical `merge.recovered` event. */
+async function readRecoveredEventData(arm: ArmContext): Promise<unknown> {
   const events = await arm.eventStore.query(PARITY_ARGS.featureId);
-  const legacy = events.find((e) => e.type === 'merge.rollback');
-  const data = legacy?.data as Record<string, unknown> | undefined;
-  return (data?._meta as Record<string, unknown> | undefined)?.deprecation;
+  const recovered = events.find((e) => e.type === 'merge.recovered');
+  return recovered?.data;
 }
 
 // ─── Tests ─────────────────────────────────────────────────────────────────
 
-describe('merge.recovered deprecation envelope CLI↔MCP parity (#1306 T4)', () => {
+describe('merge.recovered recovery-terminal CLI↔MCP parity (DR-2, task 006)', () => {
   let arms: ArmContext[] = [];
   let restoreStub: (() => void) | null = null;
 
@@ -207,7 +211,7 @@ describe('merge.recovered deprecation envelope CLI↔MCP parity (#1306 T4)', () 
     vi.restoreAllMocks();
   });
 
-  it('mergeRecovered_DeprecationEnvelope_ByteEqualAcrossCliAndMcp', async () => {
+  it('mergeRecovered_Payload_ByteEqualAcrossCliAndMcp', async () => {
     restoreStub = stubCompositeHandler(
       'exarchos_orchestrate',
       buildRecoveryCompositeStub(),
@@ -237,22 +241,23 @@ describe('merge.recovered deprecation envelope CLI↔MCP parity (#1306 T4)', () 
     expect(cliResult.error?.code).toBe('MERGE_ROLLED_BACK');
     expect(mcpResult.error?.code).toBe('MERGE_ROLLED_BACK');
 
-    // The dual-emit envelope, read off each arm's real event stream.
-    const cliEnvelope = await readLegacyDeprecationEnvelope(cliArm);
-    const mcpEnvelope = await readLegacyDeprecationEnvelope(mcpArm);
+    // The recovery-terminal payload, read off each arm's real event stream.
+    const cliData = await readRecoveredEventData(cliArm);
+    const mcpData = await readRecoveredEventData(mcpArm);
 
-    // Each arm carries the exact deprecation contract...
-    expect(cliEnvelope).toEqual(EXPECTED_DEPRECATION);
-    expect(mcpEnvelope).toEqual(EXPECTED_DEPRECATION);
+    // Each arm carries the exact recovery payload...
+    expect(cliData).toEqual(EXPECTED_RECOVERED_DATA);
+    expect(mcpData).toEqual(EXPECTED_RECOVERED_DATA);
 
-    // ...and the envelopes are byte-identical across surfaces (parity invariant).
-    expect(JSON.stringify(cliEnvelope)).toEqual(JSON.stringify(mcpEnvelope));
-    expect(JSON.stringify(cliEnvelope)).toEqual(JSON.stringify(EXPECTED_DEPRECATION));
+    // ...and the payloads are byte-identical across surfaces (parity invariant).
+    expect(JSON.stringify(cliData)).toEqual(JSON.stringify(mcpData));
+    expect(JSON.stringify(cliData)).toEqual(JSON.stringify(EXPECTED_RECOVERED_DATA));
   });
 
-  it('mergeRecovered_BothEventTypesEmitted_OnEachSurface', async () => {
-    // Sanity guard: each surface emits BOTH the canonical and legacy events
-    // (not just the envelope on one of them).
+  it('mergeRecovered_OnlyCanonicalEmitted_LegacyRollbackAbsentOnEachSurface', async () => {
+    // DR-2 non-emission guard: each surface emits the canonical
+    // `merge.recovered` EXACTLY once and the retired legacy `merge.rollback`
+    // NEVER (proving the write path is retired on both surfaces, not just one).
     restoreStub = stubCompositeHandler(
       'exarchos_orchestrate',
       buildRecoveryCompositeStub(),
@@ -272,7 +277,7 @@ describe('merge.recovered deprecation envelope CLI↔MCP parity (#1306 T4)', () 
     for (const arm of [cliArm, mcpArm]) {
       const events = await arm.eventStore.query(PARITY_ARGS.featureId);
       expect(events.filter((e) => e.type === 'merge.recovered')).toHaveLength(1);
-      expect(events.filter((e) => e.type === 'merge.rollback')).toHaveLength(1);
+      expect(events.filter((e) => e.type === 'merge.rollback')).toHaveLength(0);
     }
   });
 });

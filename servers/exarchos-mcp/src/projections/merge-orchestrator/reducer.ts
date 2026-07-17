@@ -305,16 +305,15 @@ export const mergeOrchestratorReducer: ProjectionReducer<
         return applyMergeRequested(state, event);
       case 'merge.executed':
         return applyMergeExecuted(state, event);
-      // #1306 deprecation window — the recovery path DUAL-EMITS the canonical
-      // `merge.recovered` (emitted first) + the legacy `merge.rollback`. Fold
-      // BOTH into the `any → recovering` transition so the projection advances
-      // on whichever event lands. The two appends are NOT atomic: a concurrent
-      // writer between them (or a lost sequence race on the second) can leave a
-      // `merge.recovered`-only stream; keying the projection on the legacy
-      // second event alone would strand it at `executing` (Sentry review,
-      // #1571). Folding both is safe — `applyMergeRollback` sets
-      // `phase: 'recovering'` from any prior phase and the recovery context is
-      // identical across the pair. v2.12 (#1570) drops the `merge.rollback` case.
+      // DR-2 (task 006) — the recovery path now emits ONLY the canonical
+      // `merge.recovered`. The legacy `merge.rollback` case is KEPT (read
+      // tolerance): pre-DR-2 event logs that already contain `merge.rollback`
+      // (whether standalone or the second half of the old dual-emit) must still
+      // fold to the `any → recovering` transition, so old streams replay to
+      // identical state (INV-1). Folding both is safe and idempotent —
+      // `applyMergeRollback` sets `phase: 'recovering'` from any prior phase and
+      // the recovery context is identical across the pair. `merge.rollback` is
+      // read-tolerant-but-not-emittable: this case is a READER, never a writer.
       case 'merge.recovered':
       case 'merge.rollback':
         return applyMergeRollback(state, event);

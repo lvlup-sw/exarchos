@@ -359,7 +359,10 @@ describe('Merge orchestrator happy timeline (T23, DR-MO-1, DR-MO-2)', () => {
 //   1. dispatch `merge_orchestrate` with a passing preflight + a failing
 //      `vcsMerge` adapter that rejects with a generic Error.
 //   2. assert event stream contains `merge.preflight` (passed: true) followed
-//      by `merge.rollback` with `data.reason === 'merge-failed'` per T10.
+//      by `merge.recovered` with `data.reason === 'merge-failed'` per T10. DR-2
+//      (task 006) retired the legacy `merge.rollback` write path; the recovery
+//      terminal is now the canonical `merge.recovered` (carrying
+//      `recoveryPointSha` in place of the legacy `rollbackSha`).
 //   3. read workflow state file; assert `mergeOrchestrator.phase` advanced
 //      past `'pending'` (softened — see Wiring Gaps footer).
 //   4. compute `next_actions` for synthesized post-fix state (`phase:
@@ -443,7 +446,7 @@ describe('handleMergeOrchestrate integration — rollback timeline (T24)', () =>
     await rmrfAsync(tmpDir);
   });
 
-  it('eventTimeline_RollbackPath_ContainsMergeRollbackWithCategorizedReason', async () => {
+  it('eventTimeline_RecoveryPath_ContainsMergeRecoveredWithCategorizedReason', async () => {
     const ctx = await initializeContext(tmpDir);
     const featureId = 'feat-rollback';
     await seedFeatureStateForRollback(tmpDir, featureId);
@@ -477,15 +480,18 @@ describe('handleMergeOrchestrate integration — rollback timeline (T24)', () =>
     expect(result.success).toBe(false);
 
     const events = await ctx.eventStore.query(featureId);
-    const rollbackEvents = events.filter((e) => e.type === 'merge.rollback');
-    expect(rollbackEvents).toHaveLength(1);
+    // DR-2 (task 006): the recovery terminal is the canonical `merge.recovered`;
+    // the retired legacy `merge.rollback` must NOT appear on the stream.
+    const recoveredEvents = events.filter((e) => e.type === 'merge.recovered');
+    expect(recoveredEvents).toHaveLength(1);
+    expect(events.filter((e) => e.type === 'merge.rollback')).toHaveLength(0);
 
-    const rollback = rollbackEvents[0]!;
-    const rollbackData = rollback.data as Record<string, unknown>;
-    expect(rollbackData.reason).toBe('merge-failed');
-    expect(rollbackData.sourceBranch).toBe('feat/x');
-    expect(rollbackData.targetBranch).toBe('main');
-    expect(typeof rollbackData.rollbackSha).toBe('string');
+    const recovered = recoveredEvents[0]!;
+    const recoveredData = recovered.data as Record<string, unknown>;
+    expect(recoveredData.reason).toBe('merge-failed');
+    expect(recoveredData.sourceBranch).toBe('feat/x');
+    expect(recoveredData.targetBranch).toBe('main');
+    expect(typeof recoveredData.recoveryPointSha).toBe('string');
 
     const preflightEvents = events.filter((e) => e.type === 'merge.preflight');
     expect(preflightEvents).toHaveLength(1);
@@ -530,10 +536,10 @@ describe('handleMergeOrchestrate integration — rollback timeline (T24)', () =>
       workflowType: string;
     };
 
-    // T27 persists the terminal phase before emitting `merge.rollback`, so
-    // the on-disk `mergeOrchestrator.phase` reflects the actual outcome.
-    // (Originally softened to `not.toBe('pending')` while T27 was a known
-    //  gap; now strict per the design.)
+    // T27 persists the terminal phase before emitting the recovery terminal
+    // (`merge.recovered` post-DR-2), so the on-disk `mergeOrchestrator.phase`
+    // reflects the actual outcome. (Originally softened to `not.toBe('pending')`
+    // while T27 was a known gap; now strict per the design.)
     expect(state.mergeOrchestrator?.phase).toBe('rolled-back');
     expect(state.mergeOrchestrator?.reason).toBe('merge-failed');
     expect(typeof state.mergeOrchestrator?.recoveryPointSha).toBe('string');
