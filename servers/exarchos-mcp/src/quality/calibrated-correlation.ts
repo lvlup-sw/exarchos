@@ -100,6 +100,7 @@ export function correlateWithCalibration(
     const latestCalibration = findLatestCalibration(calibrations, skillName);
     const qualityMetrics = codeQuality.skills[skillName];
     const evalMetrics = evalResults.skills[skillName];
+    if (qualityMetrics === undefined || evalMetrics === undefined) continue;
 
     const judgeTPR = latestCalibration?.tpr ?? 0;
     const judgeTNR = latestCalibration?.tnr ?? 0;

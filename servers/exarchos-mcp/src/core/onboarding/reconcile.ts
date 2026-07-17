@@ -427,6 +427,7 @@ function orderBlockWriteBeforeHookRemoval(steps: readonly PlanStep[]): PlanStep[
   // Block write currently AFTER removal — lift it to just before the removal step.
   const reordered = [...steps];
   const [blockStep] = reordered.splice(blockIdx, 1);
+  if (blockStep === undefined) return [...steps];
   const newRemovalIdx = reordered.findIndex((s) => s.key === RETIRED_HOOKS_CHECK_NAME);
   reordered.splice(newRemovalIdx, 0, blockStep);
   return reordered;

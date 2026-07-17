@@ -100,7 +100,7 @@ export function resolveExitCode(result: ToolResult): number {
   if (result.success) return CLI_EXIT_CODES.SUCCESS;
   const code = result.error?.code;
   if (code !== undefined && Object.prototype.hasOwnProperty.call(ERROR_CODE_EXIT_CODES, code)) {
-    return ERROR_CODE_EXIT_CODES[code];
+    return ERROR_CODE_EXIT_CODES[code] ?? CLI_EXIT_CODES.HANDLER_ERROR;
   }
   if (code === VALIDATION_ERROR_CODE) return CLI_EXIT_CODES.INVALID_INPUT;
   return CLI_EXIT_CODES.HANDLER_ERROR;

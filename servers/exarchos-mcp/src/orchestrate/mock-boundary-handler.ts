@@ -177,7 +177,7 @@ export function parseUnifiedDiff(diff: string): FileDiff[] {
     }
     const hunkMatch = raw.match(HUNK_HEADER_RE);
     if (hunkMatch) {
-      newLine = Number.parseInt(hunkMatch[1], 10);
+      newLine = Number.parseInt(hunkMatch[1] ?? '0', 10);
       continue;
     }
     if (raw.startsWith('+')) {

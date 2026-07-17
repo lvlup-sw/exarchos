@@ -347,7 +347,7 @@ function changedJavaClasses(files: readonly string[]): string[] {
     if (!posix.endsWith('.java')) continue;
     const noExt = posix.slice(0, -'.java'.length);
     const rooted = noExt.match(/(?:^|\/)(?:src\/(?:main|test)\/java|java)\/(.+)$/);
-    const rel = rooted ? rooted[1] : noExt;
+    const rel = (rooted ? rooted[1] : noExt) ?? noExt;
     classes.add(rel.replace(/\//g, '.'));
   }
   return [...classes];

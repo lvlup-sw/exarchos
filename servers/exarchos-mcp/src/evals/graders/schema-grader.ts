@@ -67,6 +67,9 @@ export class SchemaGrader implements IGrader {
     }
 
     const firstError = parseResult.error.issues[0];
+    if (firstError === undefined) {
+      return { passed: false, score: 0.0, reason: 'Validation failed' };
+    }
     const fieldPath = firstError.path.join('.');
     const reason = fieldPath
       ? `Validation failed at ${fieldPath}: ${firstError.message}`

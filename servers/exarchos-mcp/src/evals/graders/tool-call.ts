@@ -115,14 +115,22 @@ function longestOrderedSubsequence(
   );
 
   for (let i = 1; i <= m; i++) {
+    // dp is fully pre-allocated (m+1 × n+1), so every row/cell below is
+    // present; the guards/`?? 0` narrow the index-access widening only.
+    const row = dp[i];
+    const prevRow = dp[i - 1];
+    const outI = output[i - 1];
+    if (row === undefined || prevRow === undefined || outI === undefined) continue;
     for (let j = 1; j <= n; j++) {
-      if (callMatches(output[i - 1], required[j - 1])) {
-        dp[i][j] = dp[i - 1][j - 1] + 1;
+      const reqJ = required[j - 1];
+      if (reqJ === undefined) continue;
+      if (callMatches(outI, reqJ)) {
+        row[j] = (prevRow[j - 1] ?? 0) + 1;
       } else {
-        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+        row[j] = Math.max(prevRow[j] ?? 0, row[j - 1] ?? 0);
       }
     }
   }
 
-  return dp[m][n];
+  return dp[m]?.[n] ?? 0;
 }

@@ -87,8 +87,12 @@ export function compareSemver(a: string, b: string): number {
 
   // Compare major/minor/patch in order.
   for (let i = 0; i < 3; i++) {
-    if (left.core[i] !== right.core[i]) {
-      return left.core[i] - right.core[i];
+    // `core` is a fixed 3-tuple, so these are always defined for i < 3;
+    // `?? 0` narrows the tuple-by-variable-index widening to `number`.
+    const l = left.core[i] ?? 0;
+    const r = right.core[i] ?? 0;
+    if (l !== r) {
+      return l - r;
     }
   }
 
@@ -104,8 +108,8 @@ export function compareSemver(a: string, b: string): number {
   // Both have prerelease — compare identifier-by-identifier.
   const len = Math.min(left.prerelease.length, right.prerelease.length);
   for (let i = 0; i < len; i++) {
-    const ai = left.prerelease[i];
-    const bi = right.prerelease[i];
+    const ai = left.prerelease[i] ?? '';
+    const bi = right.prerelease[i] ?? '';
     const aNum = /^[0-9]+$/.test(ai);
     const bNum = /^[0-9]+$/.test(bi);
 
@@ -138,8 +142,9 @@ interface ParsedSemver {
  */
 function parseSemver(raw: string): ParsedSemver {
   // Strip leading `v` and build metadata (`+...`).
-  const noBuild = raw.replace(/^v/, '').split('+')[0];
-  const [coreStr, ...preParts] = noBuild.split('-');
+  const noBuild = raw.replace(/^v/, '').split('+')[0] ?? '';
+  const [coreStrRaw, ...preParts] = noBuild.split('-');
+  const coreStr = coreStrRaw ?? '';
   const prerelease = preParts.length > 0 ? preParts.join('-').split('.') : [];
 
   // Pad missing segments with 0. `parseInt` with a non-numeric segment

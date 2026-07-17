@@ -59,7 +59,7 @@ export function getVersion(command: string, args: string[]): string | null {
     if (/^\d+\.\d+\.\d+/.test(cleaned)) {
       // Return just the major.minor.patch portion
       const match = cleaned.match(/^(\d+\.\d+\.\d+)/);
-      return match ? match[1] : null;
+      return match?.[1] ?? null;
     }
 
     return null;
@@ -174,13 +174,14 @@ export interface PrerequisiteReport {
  * @returns A report indicating whether installation can proceed.
  */
 export function checkAllPrerequisites(prereqs: Prerequisite[]): PrerequisiteReport {
-  const results = prereqs.map((p) => checkPrerequisite(p));
+  const checks = prereqs.map((prereq) => ({
+    prereq,
+    result: checkPrerequisite(prereq),
+  }));
+  const results = checks.map((c) => c.result);
   const blockers: string[] = [];
 
-  for (let i = 0; i < prereqs.length; i++) {
-    const prereq = prereqs[i];
-    const result = results[i];
-
+  for (const { prereq, result } of checks) {
     if (!prereq.required) continue;
 
     if (!result.found) {

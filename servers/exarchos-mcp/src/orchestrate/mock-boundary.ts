@@ -121,7 +121,7 @@ export interface DetectMockOptions {
 function globToRegExp(glob: string): RegExp {
   let out = '^';
   for (let i = 0; i < glob.length; i++) {
-    const ch = glob[i];
+    const ch = glob[i] ?? '';
     if (ch === '*') {
       if (glob[i + 1] === '*') {
         if (glob[i + 2] === '/') {
@@ -246,7 +246,7 @@ function detectIdentifier(text: string): MockIdentifier | undefined {
  */
 function extractTarget(text: string): string {
   const match = text.match(/['"]([^'"]+)['"]/);
-  return match ? match[1] : text.trim();
+  return match?.[1] ?? text.trim();
 }
 
 // ─── public entry point ──────────────────────────────────────────────────────

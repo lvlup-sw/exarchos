@@ -134,7 +134,7 @@ function extractPlanTasks(content: string): TaskEntry[] {
     if (inTask) {
       const implMatch = line.match(/[Ii]mplements:?\s*(.*)/);
       if (implMatch) {
-        const implText = implMatch[1];
+        const implText = implMatch[1] ?? '';
         const refs = implText.match(/DR-\d+/g);
         if (refs) {
           currentRefs.push(...refs);

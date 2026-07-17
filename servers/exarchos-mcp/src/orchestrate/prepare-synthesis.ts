@@ -80,8 +80,8 @@ function parseTestOutput(output: string): { passCount: number; failCount: number
   const passMatch = output.match(/(\d+)\s+passed/);
   const failMatch = output.match(/(\d+)\s+failed/);
   return {
-    passCount: passMatch ? parseInt(passMatch[1], 10) : 0,
-    failCount: failMatch ? parseInt(failMatch[1], 10) : 0,
+    passCount: passMatch ? parseInt(passMatch[1] ?? '0', 10) : 0,
+    failCount: failMatch ? parseInt(failMatch[1] ?? '0', 10) : 0,
   };
 }
 

@@ -120,7 +120,8 @@ export function resolveDesignFile(args: ResolveDesignFileArgs): string | undefin
     if (entries.length > 0) {
       // Sort descending by filename (date prefix sorts lexicographically)
       entries.sort((a, b) => b.localeCompare(a));
-      return join(args.docsDir, entries[0]);
+      const latest = entries[0];
+      if (latest !== undefined) return join(args.docsDir, latest);
     }
   }
 
@@ -227,9 +228,11 @@ export function checkAcceptanceCriteria(content: string): AcceptanceCriteriaResu
   // Collect all DR-N entries with their line positions
   const drEntries: Array<{ id: string; lineIndex: number }> = [];
   for (let i = 0; i < lines.length; i++) {
-    const match = DR_LINE_PATTERN.exec(lines[i]);
+    const line = lines[i];
+    if (line === undefined) continue;
+    const match = DR_LINE_PATTERN.exec(line);
     if (match) {
-      drEntries.push({ id: match[1] ?? match[2], lineIndex: i });
+      drEntries.push({ id: match[1] ?? match[2] ?? '', lineIndex: i });
     }
   }
 
@@ -240,13 +243,15 @@ export function checkAcceptanceCriteria(content: string): AcceptanceCriteriaResu
   const missingCriteria: string[] = [];
 
   for (let idx = 0; idx < drEntries.length; idx++) {
-    const drLine = lines[drEntries[idx].lineIndex];
-    const startLine = drEntries[idx].lineIndex + 1;
-    const endLine = findBlockEnd(lines, startLine, drEntries, idx, headingLevel(drLine));
+    const entry = drEntries[idx];
+    if (entry === undefined) continue;
+    const drLine = lines[entry.lineIndex];
+    const startLine = entry.lineIndex + 1;
+    const endLine = findBlockEnd(lines, startLine, drEntries, idx, headingLevel(drLine ?? ''));
     const block = lines.slice(startLine, endLine).join('\n');
 
     if (!hasAcceptanceCriteria(block)) {
-      missingCriteria.push(drEntries[idx].id);
+      missingCriteria.push(entry.id);
     }
   }
 
@@ -281,7 +286,7 @@ export function acceptanceCriteriaFinding(content: string): string | null {
  */
 function headingLevel(line: string): number {
   const match = /^(#{1,})\s+/.exec(line);
-  return match ? match[1].length : 0;
+  return match?.[1]?.length ?? 0;
 }
 
 /**
@@ -302,15 +307,18 @@ function findBlockEnd(
   drLevel: number,
 ): number {
   // If there's a subsequent DR-N entry, its line is the boundary
-  if (currentIdx + 1 < drEntries.length) {
-    return drEntries[currentIdx + 1].lineIndex;
+  const nextEntry = drEntries[currentIdx + 1];
+  if (nextEntry !== undefined) {
+    return nextEntry.lineIndex;
   }
 
   // Otherwise, scan for the next sibling/parent section heading. A deeper
   // sub-heading (level > drLevel) belongs to this DR and is not a boundary.
   for (let j = startLine; j < lines.length; j++) {
-    if (SECTION_HEADING_PATTERN.test(lines[j]) && !lines[j].startsWith(' ')) {
-      const level = headingLevel(lines[j]);
+    const lineJ = lines[j];
+    if (lineJ === undefined) continue;
+    if (SECTION_HEADING_PATTERN.test(lineJ) && !lineJ.startsWith(' ')) {
+      const level = headingLevel(lineJ);
       if (level > 0 && level <= drLevel) {
         return j;
       }
@@ -400,7 +408,7 @@ export function checkStateDesignPath(stateFile: string): StateDesignPathResult {
     (parsed as Record<string, unknown>).artifacts !== null
   ) {
     const artifacts = (parsed as Record<string, Record<string, unknown>>).artifacts;
-    const designPath = artifacts.design;
+    const designPath = artifacts?.design;
     if (typeof designPath === 'string' && designPath.length > 0) {
       return { passed: true, designPath };
     }

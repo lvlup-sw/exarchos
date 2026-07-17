@@ -65,7 +65,7 @@ export interface CommandAliasReport {
 function readCommandDescription(commandPath: string): string {
   const src = readFileSync(commandPath, 'utf8');
   const match = src.match(/^description:\s*(.+?)\s*$/m);
-  if (!match) {
+  if (!match || match[1] === undefined) {
     throw new Error(
       `buildCommandAliases: ${commandPath} has no \`description:\` frontmatter ` +
         `to lift into the canonical alias.`,

@@ -84,8 +84,9 @@ export async function handleExtractTask(
     const availableTasks: string[] = [];
     for (const line of lines) {
       const match = taskHeaderPattern.exec(line);
-      if (match) {
-        availableTasks.push(match[1]);
+      const id = match?.[1];
+      if (id !== undefined) {
+        availableTasks.push(id);
       }
     }
 
@@ -100,7 +101,7 @@ export async function handleExtractTask(
   }
 
   // Trim trailing empty lines
-  while (extracted.length > 0 && extracted[extracted.length - 1].trim() === '') {
+  while (extracted.length > 0 && extracted[extracted.length - 1]?.trim() === '') {
     extracted.pop();
   }
 

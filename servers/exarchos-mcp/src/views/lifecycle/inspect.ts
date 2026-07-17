@@ -103,6 +103,7 @@ interface CorrelationTuple {
 function latestCorrelationTuple(events: readonly WorkflowEvent[]): CorrelationTuple | undefined {
   for (let i = events.length - 1; i >= 0; i--) {
     const ev = events[i];
+    if (ev === undefined) continue;
     if (ev.operationId !== undefined || ev.correlationId !== undefined || ev.causationId !== undefined) {
       return {
         ...(ev.operationId !== undefined ? { operationId: ev.operationId } : {}),

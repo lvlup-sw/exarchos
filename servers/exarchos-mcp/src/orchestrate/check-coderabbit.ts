@@ -97,6 +97,7 @@ export async function handleCheckCoderabbit(
 
       // Map reviewer state to review state string
       const latest = coderabbitReviewers[coderabbitReviewers.length - 1];
+      if (latest === undefined) continue;
       const stateStr = latest.state === 'approved' ? 'APPROVED' :
                        latest.state === 'changes_requested' ? 'CHANGES_REQUESTED' :
                        latest.state === 'commented' ? 'COMMENTED' : 'PENDING';

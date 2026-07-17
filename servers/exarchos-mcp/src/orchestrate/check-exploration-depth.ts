@@ -58,8 +58,9 @@ export function extractExplorationSection(markdown: string): string | null {
   for (let i = start + 1; i < lines.length; i++) {
     // Stop at the next heading of level h1–h3 (a `####` h4 is a child of the
     // Exploration section and stays in the body).
-    if (/^#{1,3}\s+/.test(lines[i])) break;
-    body.push(lines[i]);
+    const bodyLine = lines[i] ?? '';
+    if (/^#{1,3}\s+/.test(bodyLine)) break;
+    body.push(bodyLine);
   }
   return body.join('\n');
 }

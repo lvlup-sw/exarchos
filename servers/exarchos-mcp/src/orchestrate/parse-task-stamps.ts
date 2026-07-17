@@ -91,15 +91,21 @@ export function parseTaskStamps(planMarkdown: string): TaskStamp[] {
   const headers: Array<{ idx: number; id: string; title: string }> = [];
   lines.forEach((line, idx) => {
     const m = TASK_HEADER.exec(line);
-    if (m) headers.push({ idx, id: m[1], title: m[2].trim() });
+    if (m && m[1] !== undefined && m[2] !== undefined) {
+      headers.push({ idx, id: m[1], title: m[2].trim() });
+    }
   });
 
   const stamps: TaskStamp[] = [];
   for (let h = 0; h < headers.length; h++) {
-    const start = headers[h].idx;
-    let end = h + 1 < headers.length ? headers[h + 1].idx : lines.length;
+    const header = headers[h];
+    if (header === undefined) continue;
+    const start = header.idx;
+    const nextHeader = headers[h + 1];
+    let end = nextHeader !== undefined ? nextHeader.idx : lines.length;
     for (let i = start + 1; i < end; i++) {
-      if (SECTION_HEADER.test(lines[i])) {
+      const li = lines[i];
+      if (li !== undefined && SECTION_HEADER.test(li)) {
         end = i;
         break;
       }
@@ -109,12 +115,12 @@ export function parseTaskStamps(planMarkdown: string): TaskStamp[] {
     const boundary = BOUNDARY_STAMP.exec(block);
     const testLayer = TEST_LAYER_STAMP.exec(block);
     stamps.push({
-      id: headers[h].id,
-      canonicalId: normalizeTaskId(headers[h].id),
-      title: headers[h].title,
-      ...(risk ? { riskTier: risk[1].toLowerCase() as RiskTier } : {}),
-      ...(boundary ? { boundaryTouching: boundary[1].toLowerCase() === 'true' } : {}),
-      ...(testLayer ? { testLayer: testLayer[1].toLowerCase() as TestLayer } : {}),
+      id: header.id,
+      canonicalId: normalizeTaskId(header.id),
+      title: header.title,
+      ...(risk && risk[1] !== undefined ? { riskTier: risk[1].toLowerCase() as RiskTier } : {}),
+      ...(boundary && boundary[1] !== undefined ? { boundaryTouching: boundary[1].toLowerCase() === 'true' } : {}),
+      ...(testLayer && testLayer[1] !== undefined ? { testLayer: testLayer[1].toLowerCase() as TestLayer } : {}),
       files: extractFiles(block),
       blockedBy: extractDependencies(block),
     });

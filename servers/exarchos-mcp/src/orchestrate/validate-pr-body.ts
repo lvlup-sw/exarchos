@@ -60,7 +60,7 @@ function extractSectionsFromTemplate(templatePath: string): readonly string[] {
   const sections: string[] = [];
   for (const line of content.split('\n')) {
     const match = /^##\s+(.+)$/.exec(line);
-    if (match) {
+    if (match?.[1] !== undefined) {
       sections.push(match[1].trim());
     }
   }

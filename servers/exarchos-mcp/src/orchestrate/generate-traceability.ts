@@ -39,8 +39,8 @@ function extractDesignSections(content: string): readonly DesignSection[] {
     const match = line.match(/^(#{2,3})\s+(.+)/);
     if (match) {
       sections.push({
-        level: match[1],
-        name: match[2].trimEnd(),
+        level: match[1] ?? '',
+        name: (match[2] ?? '').trimEnd(),
       });
     }
   }
@@ -53,7 +53,7 @@ function extractPlanTasks(content: string): readonly PlanTask[] {
   for (const line of content.split('\n')) {
     const match = line.match(/^###\s+Task\s+(\d+)/);
     if (match) {
-      const id = match[1];
+      const id = match[1] ?? '';
       const colonIndex = line.indexOf(': ');
       const title = colonIndex !== -1 ? line.slice(colonIndex + 2) : line;
       tasks.push({ id, title });
@@ -75,12 +75,12 @@ function extractImplementsByDr(planContent: string): Map<string, readonly string
   for (const line of planContent.split('\n')) {
     const taskMatch = line.match(/^###\s+Task\s+(\d+)/);
     if (taskMatch) {
-      currentTaskId = taskMatch[1];
+      currentTaskId = taskMatch[1] ?? null;
       continue;
     }
     const implMatch = line.match(/\*\*Implements:\*\*\s*(.+)/i);
     if (implMatch && currentTaskId) {
-      const drs = implMatch[1].match(/DR-\d+/gi) ?? [];
+      const drs = (implMatch[1] ?? '').match(/DR-\d+/gi) ?? [];
       for (const dr of drs) {
         const key = dr.toUpperCase();
         const ids = byDr.get(key) ?? [];

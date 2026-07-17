@@ -194,8 +194,9 @@ function deriveTracks(hsm: HSMDefinition): Record<string, string[]> {
     }
   }
   for (const state of Object.values(hsm.states)) {
-    if (state.parent && tracks[state.parent] !== undefined) {
-      tracks[state.parent].push(state.id);
+    const parentTrack = state.parent ? tracks[state.parent] : undefined;
+    if (parentTrack !== undefined) {
+      parentTrack.push(state.id);
     }
   }
   return tracks;
@@ -256,7 +257,8 @@ export function listWorkflowTypes(): WorkflowTypeSummary {
 
   for (const name of Object.keys(hsmRegistry)) {
     const hsm = hsmRegistry[name];
-    const initialPhase = initialPhaseRegistry[name];
+    if (hsm === undefined) continue;
+    const initialPhase = initialPhaseRegistry[name] ?? '';
     const phaseCount = Object.keys(hsm.states).length;
     const tracks = deriveTracks(hsm);
     const trackCount = Object.keys(tracks).length;

@@ -117,6 +117,7 @@ export async function handleEvent(
         const resultData = result.data as Array<Record<string, unknown>> | undefined;
         for (let i = 0; i < events.length; i++) {
           const event = events[i];
+          if (event === undefined) continue;
           const ack = resultData?.[i];
           // Fire hooks
           if (ctx?.hookRunner) {

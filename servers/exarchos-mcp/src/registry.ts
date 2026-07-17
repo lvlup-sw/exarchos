@@ -582,6 +582,9 @@ export function buildCompositeSchema(
 
   // Zod discriminatedUnion requires a tuple of [first, ...rest]
   const [first, ...rest] = schemas;
+  if (first === undefined) {
+    throw new Error('buildCompositeSchema requires at least 2 actions for a discriminated union');
+  }
   return z.discriminatedUnion('action', [first, ...rest]);
 }
 

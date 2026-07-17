@@ -64,6 +64,7 @@ function topoSortWorkflows(
     if (visited.has(name)) return;
     visited.add(name);
     const def = workflows[name];
+    if (!def) return;
     // If extends a sibling, visit parent first
     if (def.extends && nameSet.has(def.extends)) {
       visit(def.extends);

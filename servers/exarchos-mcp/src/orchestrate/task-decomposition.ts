@@ -201,7 +201,7 @@ export function parseTaskBlocks(content: string): TaskBlock[] {
       if (currentId !== null) {
         blocks.push({ id: currentId, content: currentLines.join('\n') });
       }
-      currentId = match[1];
+      currentId = match[1] ?? null;
       currentLines = [line];
     } else if (currentId !== null) {
       currentLines.push(line);
@@ -263,9 +263,10 @@ export function extractDescriptionSpan(lines: readonly string[]): string[] {
   // #1670: recognise both `###` and `####` task headings so the heading-tail
   // description is credited on the majority-4-hash corpus, not just legacy
   // 3-hash plans.
-  const start = lines.length > 0 && TASK_HEADING_LINE.test(lines[0]) ? 1 : 0;
-  if (start === 1) {
-    const headingTail = lines[0].replace(TASK_HEADING_PREFIX, '');
+  const firstLine = lines[0];
+  const start = firstLine !== undefined && TASK_HEADING_LINE.test(firstLine) ? 1 : 0;
+  if (start === 1 && firstLine !== undefined) {
+    const headingTail = firstLine.replace(TASK_HEADING_PREFIX, '');
     // Strip backtick-quoted spans (file paths like `src/a.ts`) before counting
     // the tail as description — a heading that is nothing but a file list must
     // NOT satisfy the description threshold (the F20/#1213 hole this comment
@@ -278,6 +279,7 @@ export function extractDescriptionSpan(lines: readonly string[]): string[] {
 
   for (let i = start; i < lines.length; i++) {
     const line = lines[i];
+    if (line === undefined) continue;
     // #1670: terminate the span at the next task-depth (`###`/`####`) heading —
     // previously only `###` broke the scan, so a 4-hash sub-heading leaked into
     // the description on the majority-4-hash corpus.
@@ -430,7 +432,7 @@ function extractTaskRiskTier(block: string): RiskTier | undefined {
   const stamp = /risk\s*tier\*{0,2}\s*:\s*\*{0,2}\s*(low|medium|high)(?![\w-])/i;
   for (const line of block.split('\n')) {
     const match = stamp.exec(line);
-    if (match) return match[1].toLowerCase() as RiskTier;
+    if (match && match[1] !== undefined) return match[1].toLowerCase() as RiskTier;
   }
   return undefined;
 }
@@ -615,6 +617,7 @@ export function checkParallelSafety(tasks: readonly ParallelTask[]): ParallelSaf
     for (let b = a + 1; b < parallelTasks.length; b++) {
       const taskA = parallelTasks[a];
       const taskB = parallelTasks[b];
+      if (taskA === undefined || taskB === undefined) continue;
 
       for (const fileA of taskA.files) {
         for (const fileB of taskB.files) {
@@ -772,7 +775,7 @@ export function extractFiles(block: string): string[] {
     const sectionPattern = new RegExp(FILE_PATH_PATTERN_SOURCE, 'g');
     let m: RegExpExecArray | null;
     while ((m = sectionPattern.exec(filesSection)) !== null) {
-      declared.push(m[1]);
+      if (m[1] !== undefined) declared.push(m[1]);
     }
     return declared;
   }
@@ -783,7 +786,7 @@ export function extractFiles(block: string): string[] {
   const files: string[] = [];
   let match: RegExpExecArray | null;
   while ((match = blockPattern.exec(block)) !== null) {
-    files.push(match[1]);
+    if (match[1] !== undefined) files.push(match[1]);
   }
   return files;
 }

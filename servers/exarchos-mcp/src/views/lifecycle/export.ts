@@ -218,7 +218,7 @@ export function buildExportBundle(
     exportFormatVersion: EXPORT_FORMAT_VERSION,
     phase: state.phase,
     workflowType: state.workflowType,
-    lastEventAt: domainEvents.length > 0 ? domainEvents[domainEvents.length - 1].timestamp : null,
+    lastEventAt: domainEvents.length > 0 ? (domainEvents[domainEvents.length - 1]?.timestamp ?? null) : null,
     artifacts: included.map((a) => a.entryName),
     missingArtifacts: missing,
   };
@@ -349,6 +349,7 @@ function findDanglingIntent(events: readonly WorkflowEvent[]): DanglingIntent | 
   }
   for (let i = events.length - 1; i >= 0; i--) {
     const e = events[i];
+    if (e === undefined) continue;
     if (e.type !== 'export.requested') continue;
     const data = e.data as { idempotencyKey?: unknown; outputPath?: unknown } | undefined;
     const key = data?.idempotencyKey;

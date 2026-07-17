@@ -10,6 +10,6 @@ export function percentile(values: number[], rank: number): number {
   if (values.length === 0) return 0;
 
   const sorted = [...values].sort((a, b) => a - b);
-  const index = Math.ceil(rank * sorted.length) - 1;
-  return sorted[Math.max(0, index)];
+  const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil(rank * sorted.length) - 1));
+  return sorted[index] ?? 0;
 }

@@ -285,7 +285,9 @@ async function findOrphanedWorktreeRemoveOnStream(
     executed.map((e) => (e.data as unknown as WorktreeRemoveExecutedData).operationId),
   );
   for (let i = requested.length - 1; i >= 0; i -= 1) {
-    const data = requested[i].data as unknown as WorktreeRemoveRequestedData;
+    const entry = requested[i];
+    if (entry === undefined) continue;
+    const data = entry.data as unknown as WorktreeRemoveRequestedData;
     if (executedOps.has(data.operationId)) continue;
     if (data.worktreePath === worktreePath) return data.operationId;
   }
@@ -457,7 +459,9 @@ async function recoverBranchDeleteOperationId(
     executed.map((e) => (e.data as unknown as BranchDeleteExecutedData).operationId),
   );
   for (let i = requested.length - 1; i >= 0; i -= 1) {
-    const data = requested[i].data as unknown as BranchDeleteRequestedData;
+    const entry = requested[i];
+    if (entry === undefined) continue;
+    const data = entry.data as unknown as BranchDeleteRequestedData;
     if (executedOps.has(data.operationId)) continue;
     if (data.branch === branch) return data.operationId;
   }

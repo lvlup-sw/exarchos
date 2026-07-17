@@ -547,7 +547,7 @@ export class AtomicAppender {
     // Tail version: the highest sequence among the read events. An empty
     // stream has version 0 (substrate convention — sequences start at 1).
     const tailVersion =
-      events.length === 0 ? 0 : (events[events.length - 1].sequence as number);
+      events.length === 0 ? 0 : ((events[events.length - 1]?.sequence ?? 0) as number);
 
     // ─── Step 4: invoke the decide closure ─────────────────────────────
     const ctx: DecideContext = {
@@ -650,7 +650,7 @@ export class AtomicAppender {
       state = (reducer as ProjectionReducer<unknown, unknown>).apply(state, ev);
     }
     const tailVersion =
-      events.length === 0 ? 0 : (events[events.length - 1].sequence as number);
+      events.length === 0 ? 0 : ((events[events.length - 1]?.sequence ?? 0) as number);
 
     // ─── Step 3: build the session ─────────────────────────────────────
     const pending: EventInput[] = [];
@@ -772,7 +772,7 @@ export class AtomicAppender {
       state = (reducer as ProjectionReducer<unknown, unknown>).apply(state, ev);
     }
     const tailVersion =
-      events.length === 0 ? 0 : (events[events.length - 1].sequence as number);
+      events.length === 0 ? 0 : ((events[events.length - 1]?.sequence ?? 0) as number);
     return { aggregate: state as TState, version: tailVersion };
   }
 

@@ -661,7 +661,7 @@ const IMMUTABLE_FIELDS = new Set<string>(RESERVED_FIELDS_DESCRIPTOR.topLevelImmu
 
 export function isReservedField(path: string): boolean {
   if (path === '') return false;
-  const topLevel = path.split('.')[0];
+  const topLevel = path.split('.')[0] ?? '';
   if (IMMUTABLE_FIELDS.has(topLevel)) return true;
   return path.startsWith('_') || path.split('.').some((part) => part.startsWith('_'));
 }

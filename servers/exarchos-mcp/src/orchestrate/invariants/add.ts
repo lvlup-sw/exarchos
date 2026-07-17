@@ -111,7 +111,7 @@ function splitCatalog(contents: string): {
     contents,
   );
   if (match) {
-    return { frontmatter: match[1], body: match[2] ?? '' };
+    return { frontmatter: match[1] ?? '', body: match[2] ?? '' };
   }
   return { frontmatter: contents, body: undefined };
 }

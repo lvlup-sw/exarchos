@@ -16,7 +16,7 @@ export async function loadJsonl<S extends z.ZodType>(
   const records: z.output<S>[] = [];
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
+    const line = (lines[i] ?? '').trim();
     if (line.length === 0) continue;
 
     const lineNumber = i + 1;
@@ -31,6 +31,9 @@ export async function loadJsonl<S extends z.ZodType>(
     const result = schema.safeParse(parsed);
     if (!result.success) {
       const firstIssue = result.error.issues[0];
+      if (firstIssue === undefined) {
+        throw new Error(`Schema validation failed at line ${lineNumber}`);
+      }
       const fieldPath = firstIssue.path.join('.');
       const fieldInfo = fieldPath ? ` (field: ${fieldPath})` : ` (field: ${firstIssue.code})`;
       throw new Error(

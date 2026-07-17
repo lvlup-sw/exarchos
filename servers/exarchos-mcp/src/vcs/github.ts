@@ -550,7 +550,7 @@ export class GitHubProvider implements VcsProvider {
     if (!match) {
       throw new Error(`Failed to parse issue number from gh output: ${url}`);
     }
-    return { url, number: parseInt(match[1], 10) };
+    return { url, number: parseInt(match[1] ?? '0', 10) };
   }
 
   async searchIssuesByMarker(operationId: string): Promise<IssueSearchSummary[]> {

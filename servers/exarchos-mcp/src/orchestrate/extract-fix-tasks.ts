@@ -201,7 +201,7 @@ export async function handleExtractFixTasks(args: ExtractFixTasksArgs): Promise<
   }
 
   // 5. Transform findings to fix tasks
-  const worktreeValue = worktrees.length === 1 ? worktrees[0].worktree : null;
+  const worktreeValue = worktrees.length === 1 ? (worktrees[0]?.worktree ?? null) : null;
   const tasks: FixTask[] = findings.map((finding, index) => ({
     id: `fix-${padId(index + 1)}`,
     file: finding.file,

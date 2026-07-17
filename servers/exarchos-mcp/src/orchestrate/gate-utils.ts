@@ -180,7 +180,7 @@ export async function resolveRepoRoot(
   if (taskId) {
     const events = await store.query(featureId, { type: 'worktree.created' });
     for (let i = events.length - 1; i >= 0; i--) {
-      const data = events[i].data as WorktreeCreatedData | undefined;
+      const data = events[i]?.data as WorktreeCreatedData | undefined;
       if (data?.taskId === taskId && data.path && data.path.trim().length > 0) {
         return { ok: true, repoRoot: data.path };
       }
