@@ -46,7 +46,7 @@ export interface AttributionResult {
 /** Parse a simple ISO 8601 duration string into milliseconds. Supports P<n>D format. */
 function parseIsoDuration(duration: string): number {
   const match = duration.match(/^P(\d+)D$/);
-  if (!match) return 0;
+  if (!match || match[1] === undefined) return 0;
   return parseInt(match[1], 10) * 24 * 60 * 60 * 1000;
 }
 
@@ -78,8 +78,11 @@ function pearsonCorrelation(xs: number[], ys: number[]): number {
   let denomY = 0;
 
   for (let i = 0; i < n; i++) {
-    const dx = xs[i] - meanX;
-    const dy = ys[i] - meanY;
+    const xi = xs[i];
+    const yi = ys[i];
+    if (xi === undefined || yi === undefined) continue;
+    const dx = xi - meanX;
+    const dy = yi - meanY;
     numerator += dx * dy;
     denomX += dx * dx;
     denomY += dy * dy;
@@ -110,12 +113,15 @@ function buildCorrelations(entries: AttributionEntry[]): AttributionCorrelation[
 
   for (let i = 0; i < factors.length; i++) {
     for (let j = i + 1; j < factors.length; j++) {
-      const r = pearsonCorrelation(factors[i].values, factors[j].values);
+      const fi = factors[i];
+      const fj = factors[j];
+      if (fi === undefined || fj === undefined) continue;
+      const r = pearsonCorrelation(fi.values, fj.values);
       // Clamp to [0, 1] to guard against floating-point overshoot
       const strength = Math.min(1, Math.max(0, Math.abs(r)));
       correlations.push({
-        factor1: factors[i].name,
-        factor2: factors[j].name,
+        factor1: fi.name,
+        factor2: fj.name,
         direction: correlationDirection(r),
         strength,
       });
@@ -143,12 +149,12 @@ function attributeBySkill(
 
     return {
       key: skillName,
-      gatePassRate: qualityMetrics.gatePassRate,
+      gatePassRate: qualityMetrics?.gatePassRate ?? 0,
       evalScore: evalMetrics?.latestScore ?? 0,
-      selfCorrectionRate: qualityMetrics.selfCorrectionRate,
+      selfCorrectionRate: qualityMetrics?.selfCorrectionRate ?? 0,
       regressionCount,
       trend: evalMetrics?.trend ?? 'stable',
-      sampleSize: qualityMetrics.totalExecutions,
+      sampleSize: qualityMetrics?.totalExecutions ?? 0,
     };
   });
 }

@@ -298,6 +298,7 @@ function validateTierModels(tierModels: Record<RiskTier, ModelId>): void {
   for (let i = 1; i < TIER_ORDER.length; i++) {
     const prevTier = TIER_ORDER[i - 1];
     const tier = TIER_ORDER[i];
+    if (prevTier === undefined || tier === undefined) continue;
     if (MODEL_STRENGTH[tierModels[tier]] < MODEL_STRENGTH[tierModels[prevTier]]) {
       throw new Error(
         `Invalid .exarchos.yml agents.tier-models: model strength must be monotone ` +

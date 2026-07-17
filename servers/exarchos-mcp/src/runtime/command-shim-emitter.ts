@@ -86,12 +86,12 @@ export const COMMAND_DESCRIPTIONS: Record<string, string> = {
   tag: 'Retroactively attribute the current session to a feature, project, or concern',
 };
 
-export const CANONICAL_COMMANDS: readonly CommandMapping[] = Object.keys(
+export const CANONICAL_COMMANDS: readonly CommandMapping[] = Object.entries(
   COMMAND_DESCRIPTIONS,
-).map((name) => ({
+).map(([name, description]) => ({
   name,
   skill: `exarchos:${name}`,
-  description: COMMAND_DESCRIPTIONS[name],
+  description,
 }));
 
 // ─── Default fs ─────────────────────────────────────────────────────────────

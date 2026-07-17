@@ -1096,7 +1096,7 @@ export async function handleSet(
       // Merge materialized state with checkpoint/version metadata from the
       // mutable state (checkpoint tracking is not event-sourced)
       const latestSequence = allEvents.length
-        ? allEvents[allEvents.length - 1].sequence
+        ? allEvents[allEvents.length - 1]?.sequence
         : mutableState._eventSequence;
       const snapshot = {
         ...(materialized as unknown as Record<string, unknown>),
@@ -1479,14 +1479,14 @@ function levenshtein(a: string, b: string): number {
     for (let j = 1; j <= b.length; j++) {
       const cost = a[i - 1] === b[j - 1] ? 0 : 1;
       curr[j] = Math.min(
-        curr[j - 1] + 1,
-        prev[j] + 1,
-        prev[j - 1] + cost,
+        curr[j - 1]! + 1,
+        prev[j]! + 1,
+        prev[j - 1]! + cost,
       );
     }
-    for (let j = 0; j <= b.length; j++) prev[j] = curr[j];
+    for (let j = 0; j <= b.length; j++) prev[j] = curr[j]!;
   }
-  return prev[b.length];
+  return prev[b.length]!;
 }
 
 // ─── handleCheckpoint ──────────────────────────────────────────────────────
@@ -1943,9 +1943,9 @@ function resolveDotPath(obj: Record<string, unknown>, dotPath: string): unknown 
     // Handle array bracket notation: "tasks[0]"
     const bracketMatch = segment.match(/^([^[]+)\[(\d+)\]$/);
     if (bracketMatch) {
-      current = (current as Record<string, unknown>)[bracketMatch[1]];
+      current = (current as Record<string, unknown>)[bracketMatch[1] ?? ''];
       if (!Array.isArray(current)) return undefined;
-      current = current[parseInt(bracketMatch[2], 10)];
+      current = current[parseInt(bracketMatch[2] ?? '0', 10)];
     } else {
       current = (current as Record<string, unknown>)[segment];
     }

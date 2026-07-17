@@ -293,15 +293,16 @@ export async function handleBatchAppend(
 
   // Validate all events have a type and no misplaced fields
   for (let i = 0; i < args.events.length; i++) {
-    const eventType = args.events[i]?.type as EventType | undefined;
-    if (!eventType) {
+    const event = args.events[i];
+    const eventType = event?.type as EventType | undefined;
+    if (!eventType || event === undefined) {
       return {
         success: false,
         error: { code: 'INVALID_INPUT', message: `events[${i}].type is required` },
       };
     }
 
-    const misplaced = detectMisplacedFields(args.events[i]);
+    const misplaced = detectMisplacedFields(event);
     if (misplaced.length > 0) {
       return {
         success: false,
@@ -406,9 +407,10 @@ export async function handleBatchAppend(
     .map((e) => e.idempotencyKey as string | undefined)
     .filter((k): k is string => typeof k === 'string');
   let batchIdempotencyKey: string;
-  if (perEventKeys.length === dedupedEvents.length && perEventKeys.length > 0) {
-    const allSame = perEventKeys.every((k) => k === perEventKeys[0]);
-    batchIdempotencyKey = allSame ? perEventKeys[0] : `batch:${randomUUID()}`;
+  const firstKey = perEventKeys[0];
+  if (perEventKeys.length === dedupedEvents.length && perEventKeys.length > 0 && firstKey !== undefined) {
+    const allSame = perEventKeys.every((k) => k === firstKey);
+    batchIdempotencyKey = allSame ? firstKey : `batch:${randomUUID()}`;
   } else {
     batchIdempotencyKey = `batch:${randomUUID()}`;
   }
@@ -444,7 +446,7 @@ export async function handleBatchAppend(
     ? result.persistedEvents.map((e, i) =>
         toEventAck({
           streamId: args.stream,
-          sequence: result.sequences[i],
+          sequence: result.sequences[i]!,
           type: e.type,
         }),
       )
@@ -452,7 +454,7 @@ export async function handleBatchAppend(
         toEventAck({
           streamId: args.stream,
           sequence,
-          type: validatedEvents[i].type,
+          type: validatedEvents[i]!.type,
         }),
       );
   return { success: true, data: acks };

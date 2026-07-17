@@ -87,7 +87,7 @@ function calculateTrend(scores: number[]): 'improving' | 'stable' | 'degrading' 
   const recent = scores.slice(-3);
   const diffs: number[] = [];
   for (let i = 1; i < recent.length; i++) {
-    diffs.push(recent[i] - recent[i - 1]);
+    diffs.push((recent[i] ?? 0) - (recent[i - 1] ?? 0));
   }
 
   const avgDiff = diffs.reduce((sum, d) => sum + d, 0) / diffs.length;

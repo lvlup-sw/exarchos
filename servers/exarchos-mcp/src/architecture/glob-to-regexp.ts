@@ -36,7 +36,7 @@ const REGEX_SPECIAL = '\\^$.|?+()[]{}';
 export function globToRegExp(pattern: string): RegExp {
   let out = '';
   for (let i = 0; i < pattern.length; i++) {
-    const ch = pattern[i];
+    const ch = pattern[i] ?? '';
     if (ch === '*') {
       if (pattern[i + 1] === '*') {
         i++; // consume the second `*`

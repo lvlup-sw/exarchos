@@ -92,15 +92,16 @@ export function parseDesignSections(markdown: string): string[] {
 
     // Collect #### headers under current ### (check BEFORE ### to avoid overwrite)
     const h4Match = line.match(/^####\s+(.+)/);
-    if (h4Match && currentH3Index >= 0) {
+    if (h4Match && h4Match[1] !== undefined && currentH3Index >= 0) {
       const subsectionName = h4Match[1].trim();
-      h4ByH3[currentH3Index].push(subsectionName);
+      const bucket = h4ByH3[currentH3Index];
+      if (bucket !== undefined) bucket.push(subsectionName);
       continue;
     }
 
     // Collect ### headers
     const h3Match = line.match(/^###\s+(.+)/);
-    if (h3Match) {
+    if (h3Match && h3Match[1] !== undefined) {
       const sectionName = h3Match[1].trim();
       h3Headers.push(sectionName);
       h4ByH3.push([]);
@@ -112,10 +113,12 @@ export function parseDesignSections(markdown: string): string[] {
   // Build sections: prefer #### when available, fall back to ###
   const sections: string[] = [];
   for (let i = 0; i < h3Headers.length; i++) {
-    if (h4ByH3[i].length > 0) {
-      sections.push(...h4ByH3[i]);
-    } else {
-      sections.push(h3Headers[i]);
+    const subs = h4ByH3[i];
+    const header = h3Headers[i];
+    if (subs !== undefined && subs.length > 0) {
+      sections.push(...subs);
+    } else if (header !== undefined) {
+      sections.push(header);
     }
   }
 
@@ -139,7 +142,7 @@ export function parsePlanTasks(markdown: string): PlanTask[] {
 
   for (const line of lines) {
     const match = line.match(taskPattern);
-    if (match) {
+    if (match && match[1] !== undefined && match[2] !== undefined) {
       tasks.push({
         id: match[1].trim(),
         title: match[2].trim(),
@@ -309,7 +312,7 @@ export function detectGwtSections(markdown: string): string[] {
   function extractGwtKeyword(line: string): string | null {
     const m = gwtPattern.exec(line);
     if (!m) return null;
-    const kw = (m[1] ?? m[2] ?? m[3] ?? m[4]).toLowerCase();
+    const kw = (m[1] ?? m[2] ?? m[3] ?? m[4] ?? '').toLowerCase();
     return kw;
   }
 
@@ -340,7 +343,7 @@ export function detectGwtSections(markdown: string): string[] {
 
     // New ### section
     const h3Match = line.match(/^###\s+(.+)/);
-    if (h3Match) {
+    if (h3Match && h3Match[1] !== undefined) {
       // Flush previous section
       if (currentSectionName && seenKeywords.size === 3) {
         gwtSections.push(currentSectionName);
@@ -397,7 +400,7 @@ export function parseAcceptanceTestTasks(planContent: string): AcceptanceTestTas
 
   for (const line of lines) {
     const taskMatch = line.match(taskPattern);
-    if (taskMatch) {
+    if (taskMatch && taskMatch[1] !== undefined && taskMatch[2] !== undefined) {
       // Flush previous task
       flushTask();
       currentTaskId = taskMatch[1].trim();
@@ -414,7 +417,7 @@ export function parseAcceptanceTestTasks(planContent: string): AcceptanceTestTas
     }
 
     const implMatch = line.match(implementsPattern);
-    if (implMatch) {
+    if (implMatch && implMatch[1] !== undefined) {
       // Parse comma-separated DR references like "DR-1, DR-2"
       implementsDrs = implMatch[1]
         .split(/,\s*/)

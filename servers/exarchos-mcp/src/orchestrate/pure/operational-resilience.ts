@@ -63,7 +63,7 @@ function parseDiff(diff: string): ParsedFile[] {
           addedText: addedLines.join('\n'),
         });
       }
-      currentName = headerMatch[1];
+      currentName = headerMatch[1] ?? '';
       currentAdded = [];
       continue;
     }
@@ -171,7 +171,7 @@ function checkSwallowedErrors(
     // Split added lines into segments around catch keywords and check each
     const lines = file.addedLines;
     for (let i = 0; i < lines.length; i++) {
-      if (!HAS_CATCH_RE.test(lines[i])) continue;
+      if (!HAS_CATCH_RE.test(lines[i] ?? '')) continue;
       // Skip empty catches (handled by check 1)
       if (EMPTY_CATCH_RE.test(lines.slice(i, i + 3).join(' '))) continue;
 
@@ -229,7 +229,7 @@ function checkUnboundedRetries(files: readonly ParsedFile[]): OperationalResilie
     // Scan line-by-line so we can check nearby context for bounds
     const lines = file.addedLines;
     for (let i = 0; i < lines.length; i++) {
-      if (!UNBOUNDED_LOOP_RE.test(lines[i])) continue;
+      if (!UNBOUNDED_LOOP_RE.test(lines[i] ?? '')) continue;
 
       // Check ~20 lines after the loop header for bounding patterns
       const loopContext = lines.slice(i, i + 20).join('\n');
@@ -268,7 +268,7 @@ export function checkOperationalResilience(diff: string): OperationalResilienceR
     emptyCatchFindings.map((f) => {
       // Extract file name from message: "`filename` — ..."
       const match = f.message.match(/^`(.+?)`/);
-      return match ? match[1] : '';
+      return match ? (match[1] ?? '') : '';
     }),
   );
 

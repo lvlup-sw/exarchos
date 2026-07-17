@@ -142,7 +142,9 @@ export function detectRuntimeCycles(
 
   const cycles: RuntimeCycle[] = [];
   for (const comp of components) {
-    const isSelfLoop = comp.length === 1 && (adj.get(comp[0])?.has(comp[0]) ?? false);
+    const first = comp[0];
+    const isSelfLoop =
+      comp.length === 1 && first !== undefined && (adj.get(first)?.has(first) ?? false);
     if (comp.length < 2 && !isSelfLoop) continue;
     const members = new Set(comp);
     const edges: ImportEdge[] = [];

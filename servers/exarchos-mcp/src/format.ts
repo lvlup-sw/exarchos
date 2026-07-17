@@ -616,12 +616,14 @@ export function pickFields<T extends Record<string, unknown>>(obj: T, fields: st
         let target = result;
         for (let i = 0; i < segments.length - 1; i++) {
           const seg = segments[i];
+          if (seg === undefined) continue;
           if (!Object.hasOwn(target, seg) || typeof target[seg] !== 'object' || target[seg] === null) {
             target[seg] = Object.create(null);
           }
           target = target[seg] as Record<string, unknown>;
         }
-        target[segments[segments.length - 1]] = source;
+        const lastSeg = segments[segments.length - 1];
+        if (lastSeg !== undefined) target[lastSeg] = source;
       }
     }
   }

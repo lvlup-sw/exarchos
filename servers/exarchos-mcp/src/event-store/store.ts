@@ -422,6 +422,9 @@ export class EventStore {
     // re-fired backend/outbox dual-writes; v2.11 removed those paths).
     if (result.kind === 'cache-hit') {
       const cached = result.persistedEvents[0];
+      if (cached === undefined) {
+        throw new Error('Append cache-hit reported no persisted event');
+      }
       return {
         streamId: cached.streamId,
         sequence: cached.sequence,
@@ -498,8 +501,9 @@ export class EventStore {
     //     cross-batch retries don't dedup against a partial overlap.
     //   - all events keyless → unkeyed append (no cache pollution).
     const eventKeys = deduped.map((e) => e.idempotencyKey).filter((k): k is string => !!k);
+    const firstKey = eventKeys[0];
     const allHaveKeys = eventKeys.length === deduped.length;
-    const allSameKey = allHaveKeys && eventKeys.every((k) => k === eventKeys[0]);
+    const allSameKey = allHaveKeys && eventKeys.every((k) => k === firstKey);
 
     const appender = this.getAppender();
     const eventInputs = deduped.map((e) => {
@@ -511,7 +515,8 @@ export class EventStore {
     if (eventKeys.length === 0) {
       result = await appender.appendUnkeyed(streamId, eventInputs);
     } else {
-      const batchKey = allSameKey ? eventKeys[0] : `batch:${randomUUIDFn()}`;
+      const batchKey =
+        allSameKey && firstKey !== undefined ? firstKey : `batch:${randomUUIDFn()}`;
       result = await appender.append(streamId, eventInputs, batchKey);
     }
 
@@ -553,11 +558,16 @@ export class EventStore {
       );
     }
 
-    const fullEvents: WorkflowEvent[] = deduped.map((event, i) => ({
-      ...event,
-      sequence: result.sequences[i],
-      timestamp: result.timestamps[i],
-    }));
+    const fullEvents: WorkflowEvent[] = deduped.map((event, i) => {
+      const sequence = result.sequences[i];
+      const timestamp = result.timestamps[i];
+      if (sequence === undefined || timestamp === undefined) {
+        throw new Error(
+          `Batch append result missing sequence/timestamp for event ${i}`,
+        );
+      }
+      return { ...event, sequence, timestamp };
+    });
 
     return fullEvents;
   }

@@ -66,13 +66,14 @@ function checkFile(
   const fileDir = dirname(filePath);
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+    const line = lines[i] ?? '';
     let match: RegExpExecArray | null;
     // Reset regex state for each line
     LINK_REGEX.lastIndex = 0;
 
     while ((match = LINK_REGEX.exec(line)) !== null) {
       const target = match[2];
+      if (target === undefined) continue;
 
       // Skip external URLs
       if (target.startsWith('http://') || target.startsWith('https://')) {

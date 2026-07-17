@@ -99,7 +99,7 @@ export async function bisect<State, Event>(
 
   while (lo < hi) {
     const mid = lo + Math.floor((hi - lo) / 2);
-    const candidate = events[mid];
+    const candidate = events[mid]!;
     const state = await projectAt<State, Event>(reducer, eventStore, streamId, {
       untilSequence: candidate.sequence,
     });
@@ -117,6 +117,6 @@ export async function bisect<State, Event>(
     return null;
   }
 
-  const boundary = events[lo];
+  const boundary = events[lo]!;
   return { sequence: boundary.sequence, event: boundary };
 }

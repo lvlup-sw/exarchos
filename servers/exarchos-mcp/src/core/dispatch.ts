@@ -195,6 +195,7 @@ export function extractSingleMissingRequiredField(
   const issues = error.issues;
   if (issues.length !== 1) return undefined;
   const only = issues[0];
+  if (only === undefined) return undefined;
   if (only.code !== 'invalid_type') return undefined;
   if (only.input !== undefined) return undefined;
   if (only.path.length !== 1) return undefined;

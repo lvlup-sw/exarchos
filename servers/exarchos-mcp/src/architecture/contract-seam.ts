@@ -39,14 +39,14 @@ export function lintSeamComments(
   const findings: PluginFinding[] = [];
 
   for (let i = 0; i < lines.length; i++) {
-    const match = EXPORTED_SCHEMA_RE.exec(lines[i]);
+    const match = EXPORTED_SCHEMA_RE.exec(lines[i] ?? '');
     if (!match) continue;
     const schemaName = match[1];
 
     // Walk back over blank lines to the nearest non-blank line.
     let j = i - 1;
-    while (j >= 0 && lines[j].trim() === '') j--;
-    const hasSeam = j >= 0 && SEAM_COMMENT_RE.test(lines[j]);
+    while (j >= 0 && lines[j]?.trim() === '') j--;
+    const hasSeam = j >= 0 && SEAM_COMMENT_RE.test(lines[j] ?? '');
 
     if (!hasSeam) {
       findings.push({

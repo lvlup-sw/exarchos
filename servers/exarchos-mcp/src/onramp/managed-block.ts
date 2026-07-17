@@ -181,7 +181,7 @@ function locateBlock(text: string): BlockLocation {
 /** Extract the embedded content hash from a complete block region, if present. */
 function parseEmbeddedHash(blockRegion: string): string | null {
   const match = blockRegion.match(new RegExp(`${HASH_TOKEN}([0-9a-f]+)`));
-  return match ? match[1] : null;
+  return match?.[1] ?? null;
 }
 
 /**

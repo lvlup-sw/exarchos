@@ -45,7 +45,7 @@ function formatTable(data: ReadonlyArray<Record<string, unknown>>): string {
   const lines: string[] = [];
   const rowCount = data.length + 1; // header + data rows
   for (let r = 0; r < rowCount; r++) {
-    const cells = columns.map((col, c) => col[r].padEnd(widths[c]));
+    const cells = columns.map((col, c) => (col[r] ?? '').padEnd(widths[c] ?? 0));
     lines.push(cells.join('  '));
   }
 

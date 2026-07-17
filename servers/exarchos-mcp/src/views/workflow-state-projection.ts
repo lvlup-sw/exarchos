@@ -145,7 +145,9 @@ function updateTask(
   if (idx < 0) return view;
 
   const updatedTasks = [...view.tasks];
-  updatedTasks[idx] = updater(updatedTasks[idx]);
+  const existing = updatedTasks[idx];
+  if (existing === undefined) return view;
+  updatedTasks[idx] = updater(existing);
   return { ...view, tasks: updatedTasks };
 }
 

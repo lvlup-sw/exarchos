@@ -58,7 +58,8 @@ export class StateStoreError extends Error {
  */
 export function resolveAlternateWritePath(dotPath: string): string | null {
   const segments = dotPath.split('.');
-  const topLevel = segments[0];
+  // `split` always yields at least one element; `?? ''` narrows to `string`.
+  const topLevel = segments[0] ?? '';
   const map = RESERVED_FIELDS_DESCRIPTOR.alternateWritePaths as Record<string, string>;
 
   // 1) Literal top-level key (`phase`, `workflowType`, ...).
@@ -136,7 +137,7 @@ function parsePath(dotPath: string): Array<string | number> {
   for (const part of parts) {
     // Check for array bracket notation: "tasks[0]"
     const bracketMatch = part.match(/^([^[]+)\[(\d+)\]$/);
-    if (bracketMatch) {
+    if (bracketMatch && bracketMatch[1] !== undefined && bracketMatch[2] !== undefined) {
       segments.push(bracketMatch[1]);
       segments.push(parseInt(bracketMatch[2], 10));
       continue;
@@ -144,7 +145,7 @@ function parsePath(dotPath: string): Array<string | number> {
 
     // Check for standalone bracket: "[0]"
     const standaloneBracket = part.match(/^\[(\d+)\]$/);
-    if (standaloneBracket) {
+    if (standaloneBracket && standaloneBracket[1] !== undefined) {
       segments.push(parseInt(standaloneBracket[1], 10));
       continue;
     }
@@ -153,7 +154,7 @@ function parsePath(dotPath: string): Array<string | number> {
     // any `[...]` whose body is NOT pure digits — covers `tasks[id=001]`,
     // `tasks[id=T-001]`, `tasks[name=foo]`, `tasks[*]`, etc.
     const nonNumericBracket = part.match(/^([^[]*)\[([^\]]*)\]$/);
-    if (nonNumericBracket && !/^\d+$/.test(nonNumericBracket[2])) {
+    if (nonNumericBracket && !/^\d+$/.test(nonNumericBracket[2] ?? '')) {
       throw new StateStoreError(
         ErrorCode.INVALID_INPUT,
         `keyed array access is not supported in dot-paths (got "${part}" in "${dotPath}"). ` +
@@ -213,7 +214,7 @@ export function applyDotPath(
   // message string (#1360).
   if (isReservedField(dotPath)) {
     const alternateWritePath = resolveAlternateWritePath(dotPath);
-    const topLevel = dotPath.split('.')[0];
+    const topLevel = dotPath.split('.')[0] ?? '';
     const isTopLevelImmutable = (RESERVED_FIELDS_DESCRIPTOR.topLevelImmutable as readonly string[]).includes(topLevel);
     const rule = isTopLevelImmutable
       ? `\`${topLevel}\` is top-level immutable — set once at init, never directly mutated thereafter.`
@@ -233,6 +234,7 @@ export function applyDotPath(
 
   for (let i = 0; i < segments.length - 1; i++) {
     const segment = segments[i];
+    if (segment === undefined) continue;
     const nextSegment = segments[i + 1];
 
     if (typeof segment === 'number') {
@@ -262,6 +264,7 @@ export function applyDotPath(
 
   // Set the final value
   const lastSegment = segments[segments.length - 1];
+  if (lastSegment === undefined) return;
   if (typeof lastSegment === 'number') {
     if (!Array.isArray(current)) {
       throw new StateStoreError(

@@ -261,6 +261,7 @@ function foldPlanTasks(
       continue;
     }
     const existing = next[existingIdx];
+    if (existing === undefined) continue;
     // Rank lookup is shared with the pipeline view via
     // `../shared/task-status-fold.ts` so both surfaces agree on the
     // precedence ladder (#1359 / PR4 T13).

@@ -465,7 +465,7 @@ function selectAxis(args: Record<string, unknown>): { axis: PredicateAxis } | { 
       ),
     };
   }
-  return { axis: present[0] };
+  return { axis: present[0]! };
 }
 
 /** Zod-field parse that treats empty/absent as "not provided". */
@@ -559,7 +559,7 @@ export async function handleViewWait(
   }
   // The precheck head: the subscription seeds its cursor here so the gap between
   // this fold and registration is closed by the initial drain (no missed event).
-  const headSequence = events[events.length - 1].sequence;
+  const headSequence = events[events.length - 1]?.sequence ?? 0;
 
   // ── Build the predicate (operation gates its surface here) ───────────────────
   let predicate: Predicate;

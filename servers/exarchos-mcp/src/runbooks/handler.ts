@@ -58,6 +58,7 @@ export async function handleRunbook(args: RunbookArgs): Promise<ToolResult> {
   const resolvedSteps: ResolvedRunbookStep[] = [];
   for (let index = 0; index < runbook.steps.length; index++) {
     const step = runbook.steps[index];
+    if (step === undefined) continue;
     const isNative = step.tool.startsWith('native:');
     const isDecision = step.tool === 'none';
 

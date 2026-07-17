@@ -49,7 +49,7 @@ export async function discoverSuites(
     if (!result.success) {
       const firstIssue = result.error.issues[0];
       throw new Error(
-        `Invalid suite config at ${suiteJsonPath}: ${firstIssue.path.join('.')} - ${firstIssue.message}`,
+        `Invalid suite config at ${suiteJsonPath}: ${firstIssue?.path.join('.') ?? '?'} - ${firstIssue?.message ?? 'schema validation failed'}`,
       );
     }
 
@@ -106,7 +106,7 @@ async function detectRegressions(
   if (runCompletedEvents.length === 0) return [];
 
   const lastRun = runCompletedEvents[runCompletedEvents.length - 1];
-  const lastRunId = lastRun.data?.['runId'] as string | undefined;
+  const lastRunId = lastRun?.data?.['runId'] as string | undefined;
 
   if (!lastRunId) return [];
 

@@ -306,7 +306,7 @@ async function main() {
   // former enforcement/control hooks were retired — enforcement now lives
   // entirely inside the MCP tools.
   const hookCommand = process.argv[2];
-  if (isHookCommand(hookCommand)) {
+  if (hookCommand !== undefined && isHookCommand(hookCommand)) {
     const result = await handleHookCommand(
       hookCommand,
       process.argv,

@@ -390,7 +390,7 @@ class Subscription {
       // STAGE (do not yet apply) the advance PAST every event read (matching or
       // not) so trailing non-matching events never force a re-scan. Contiguous
       // per-stream sequences make the tail the last element.
-      pendingCursors.push([streamId, events[events.length - 1].sequence]);
+      pendingCursors.push([streamId, events[events.length - 1]?.sequence ?? cursor]);
     }
 
     // Every read succeeded — now it is safe to commit the cursor advances.

@@ -63,7 +63,7 @@ export function buildOnboardEventCtx(ctx: DispatchContext): ReconcileEventCtx {
       // Cut to the current logical run: everything after the last executed half.
       let lastExecutedIdx = -1;
       for (let i = onboardEvents.length - 1; i >= 0; i--) {
-        if (onboardEvents[i].type === 'onboard.executed') {
+        if (onboardEvents[i]?.type === 'onboard.executed') {
           lastExecutedIdx = i;
           break;
         }

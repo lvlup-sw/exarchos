@@ -159,7 +159,7 @@ export class InMemoryBackend implements StorageBackend {
   getSequence(streamId: string): number {
     const stream = this.events.get(streamId);
     if (!stream || stream.length === 0) return 0;
-    return stream[stream.length - 1].sequence;
+    return stream[stream.length - 1]?.sequence ?? 0;
   }
 
   listStreams(): string[] {
@@ -278,9 +278,9 @@ export class InMemoryBackend implements StorageBackend {
       let createdAt: string | null = null;
       const events = this.events.get(featureId);
       if (events && events.length > 0) {
-        createdAt = events[0].timestamp;
+        createdAt = events[0]?.timestamp ?? null;
         for (const event of events) {
-          if (event.timestamp < createdAt) createdAt = event.timestamp;
+          if (createdAt === null || event.timestamp < createdAt) createdAt = event.timestamp;
         }
       }
 
@@ -448,9 +448,11 @@ export class InMemoryBackend implements StorageBackend {
 
     // Find the record with the highest sequence.
     let latest = records[0];
+    if (latest === undefined) return undefined;
     for (let i = 1; i < records.length; i++) {
-      if (records[i].sequence > latest.sequence) {
-        latest = records[i];
+      const rec = records[i];
+      if (rec !== undefined && rec.sequence > latest.sequence) {
+        latest = rec;
       }
     }
     // Defensive copy so callers cannot mutate the in-map record. SqliteBackend

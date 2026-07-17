@@ -147,7 +147,7 @@ function calculateTrend(
   const recent = values.slice(-3);
   const diffs = [];
   for (let i = 1; i < recent.length; i++) {
-    diffs.push(recent[i].value - recent[i - 1].value);
+    diffs.push((recent[i]?.value ?? 0) - (recent[i - 1]?.value ?? 0));
   }
 
   const avgDiff = diffs.reduce((sum, d) => sum + d, 0) / diffs.length;

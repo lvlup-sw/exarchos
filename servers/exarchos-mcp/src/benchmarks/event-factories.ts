@@ -118,7 +118,7 @@ export function createMixedEvents(
 ): WorkflowEvent[] {
   return Array.from({ length: count }, (_, i) => {
     const sequence = i + 1;
-    const type = MIXED_EVENT_TYPES[i % MIXED_EVENT_TYPES.length];
+    const type = MIXED_EVENT_TYPES[i % MIXED_EVENT_TYPES.length]!;
 
     return {
       streamId,

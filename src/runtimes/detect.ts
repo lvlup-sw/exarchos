@@ -100,6 +100,6 @@ export function detectRuntime(
   }
 
   if (pathMatches.length === 0) return null;
-  if (pathMatches.length === 1) return pathMatches[0];
+  if (pathMatches.length === 1) return pathMatches[0] ?? null;
   throw new AmbiguousRuntimeError(pathMatches.map((r) => r.name));
 }

@@ -38,6 +38,7 @@ export function checkCircuitBreaker(
   if (isOpen) {
     for (let i = events.length - 1; i >= 0; i--) {
       const evt = events[i];
+      if (evt === undefined) continue;
       if (
         evt.type === 'fix-cycle' &&
         evt.metadata?.compoundStateId === compoundStateId

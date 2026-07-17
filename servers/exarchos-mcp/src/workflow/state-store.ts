@@ -93,7 +93,7 @@ export const TEMP_FILE_PATTERN = /\.(tmp|init)\.(?:\d+\.)?(\d+)$/;
 export function extractTempFilePid(filename: string): number | null {
   const match = filename.match(TEMP_FILE_PATTERN);
   if (!match) return null;
-  const pid = parseInt(match[2], 10);
+  const pid = parseInt(match[2] ?? '', 10);
   return Number.isNaN(pid) ? null : pid;
 }
 
@@ -437,7 +437,7 @@ export async function writeStateFile(
         // Parse expected and actual from the error message
         const match = message.match(/expected (\d+), actual (\d+)/);
         if (match) {
-          throw new VersionConflictError(parseInt(match[1], 10), parseInt(match[2], 10));
+          throw new VersionConflictError(parseInt(match[1] ?? '0', 10), parseInt(match[2] ?? '0', 10));
         }
         throw new VersionConflictError(
           options?.expectedVersion ?? 0,

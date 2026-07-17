@@ -327,10 +327,9 @@ export function resolveEffectiveCapabilities(
       `Capability resolution failed: runtime YAML declares conflicting mcp:exarchos tiers (${yamlMcpTiers.join(', ')}). Pick exactly one.`,
     );
   }
-  if (handshakeMcpTiers.length === 1) {
-    effective.add(handshakeMcpTiers[0]);
-  } else if (yamlMcpTiers.length === 1) {
-    effective.add(yamlMcpTiers[0]);
+  const soleMcpTier = handshakeMcpTiers.length === 1 ? handshakeMcpTiers[0] : yamlMcpTiers.length === 1 ? yamlMcpTiers[0] : undefined;
+  if (soleMcpTier !== undefined) {
+    effective.add(soleMcpTier);
   }
 
   return freezeSet(effective);
