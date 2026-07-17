@@ -552,8 +552,8 @@ describe('Fix-cycle event schema validity (#1339)', () => {
     return {
       id: 'test-noncompound',
       states: {
-        a: { id: 'a', type: 'atomic' },
-        b: { id: 'b', type: 'atomic' },
+        a: { id: 'a', type: 'atomic', kind: 'GATHER' },
+        b: { id: 'b', type: 'atomic', kind: 'GATHER' },
       },
       transitions: [
         // No guard, marked as a fix cycle. `from` has no parent compound.

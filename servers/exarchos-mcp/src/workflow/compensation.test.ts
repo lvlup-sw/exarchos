@@ -112,9 +112,9 @@ describe('B4: delete-feature-branches two-event split', () => {
           return Promise.reject(
             new ConcurrencyError({
               streamId: streamId as string,
-              expected: 0,
-              actual: 1,
-              operation: 'append',
+              reducerId: 'append',
+              expectedVersion: 0,
+              actualVersion: 1,
             }),
           );
         }
@@ -131,7 +131,7 @@ describe('B4: delete-feature-branches two-event split', () => {
 
     await executeCompensation(state, 'delegate', makeEvents(1), 1, {
       dryRun: false,
-      eventStore: eventStore as unknown as Parameters<typeof executeCompensation>[4]['eventStore'],
+      eventStore: eventStore as unknown as NonNullable<Parameters<typeof executeCompensation>[4]['eventStore']>,
       featureId: 'test-feature',
     });
 
@@ -188,7 +188,7 @@ describe('B4: delete-feature-branches two-event split', () => {
 
     const result = await executeCompensation(state, 'delegate', makeEvents(1), 1, {
       dryRun: false,
-      eventStore: eventStore as unknown as Parameters<typeof executeCompensation>[4]['eventStore'],
+      eventStore: eventStore as unknown as NonNullable<Parameters<typeof executeCompensation>[4]['eventStore']>,
       featureId: 'test-feature',
     });
 
@@ -230,9 +230,9 @@ describe('B4: delete-feature-branches two-event split', () => {
           return Promise.reject(
             new ConcurrencyError({
               streamId: streamId as string,
-              expected: 0,
-              actual: 1,
-              operation: 'append',
+              reducerId: 'append',
+              expectedVersion: 0,
+              actualVersion: 1,
             }),
           );
         }
@@ -249,7 +249,7 @@ describe('B4: delete-feature-branches two-event split', () => {
 
     const result = await executeCompensation(state, 'delegate', makeEvents(1), 1, {
       dryRun: false,
-      eventStore: eventStore as unknown as Parameters<typeof executeCompensation>[4]['eventStore'],
+      eventStore: eventStore as unknown as NonNullable<Parameters<typeof executeCompensation>[4]['eventStore']>,
       featureId: 'test-feature',
     });
 
@@ -293,9 +293,9 @@ describe('B5: cleanup-worktrees two-event split', () => {
           return Promise.reject(
             new ConcurrencyError({
               streamId: streamId as string,
-              expected: 0,
-              actual: 1,
-              operation: 'append',
+              reducerId: 'append',
+              expectedVersion: 0,
+              actualVersion: 1,
             }),
           );
         }
@@ -333,7 +333,7 @@ describe('B5: cleanup-worktrees two-event split', () => {
 
     await executeCompensation(state, 'delegate', makeEvents(1), 1, {
       dryRun: false,
-      eventStore: eventStore as unknown as Parameters<typeof executeCompensation>[4]['eventStore'],
+      eventStore: eventStore as unknown as NonNullable<Parameters<typeof executeCompensation>[4]['eventStore']>,
       featureId: 'test-feature',
     });
 
@@ -385,7 +385,7 @@ describe('B5: cleanup-worktrees two-event split', () => {
 
     const result = await executeCompensation(state, 'delegate', makeEvents(1), 1, {
       dryRun: false,
-      eventStore: eventStore as unknown as Parameters<typeof executeCompensation>[4]['eventStore'],
+      eventStore: eventStore as unknown as NonNullable<Parameters<typeof executeCompensation>[4]['eventStore']>,
       featureId: 'test-feature',
     });
 
@@ -725,7 +725,7 @@ describe('#1352: compensation operationId recovery (reuse vs mint)', () => {
 
     const result = await executeCompensation(state, 'delegate', makeEvents(1), 1, {
       dryRun: false,
-      eventStore: eventStore as unknown as Parameters<typeof executeCompensation>[4]['eventStore'],
+      eventStore: eventStore as unknown as NonNullable<Parameters<typeof executeCompensation>[4]['eventStore']>,
       featureId: 'test-feature',
     });
 
@@ -769,7 +769,7 @@ describe('#1352: compensation operationId recovery (reuse vs mint)', () => {
 
     await executeCompensation(state, 'delegate', makeEvents(1), 1, {
       dryRun: false,
-      eventStore: eventStore as unknown as Parameters<typeof executeCompensation>[4]['eventStore'],
+      eventStore: eventStore as unknown as NonNullable<Parameters<typeof executeCompensation>[4]['eventStore']>,
       featureId: 'test-feature',
     });
 
@@ -804,7 +804,7 @@ describe('#1352: compensation operationId recovery (reuse vs mint)', () => {
 
     const result = await executeCompensation(state, 'delegate', makeEvents(1), 1, {
       dryRun: false,
-      eventStore: eventStore as unknown as Parameters<typeof executeCompensation>[4]['eventStore'],
+      eventStore: eventStore as unknown as NonNullable<Parameters<typeof executeCompensation>[4]['eventStore']>,
       featureId: 'test-feature',
     });
 
@@ -842,7 +842,7 @@ describe('#1352: compensation operationId recovery (reuse vs mint)', () => {
 
     await executeCompensation(state, 'delegate', makeEvents(1), 1, {
       dryRun: false,
-      eventStore: eventStore as unknown as Parameters<typeof executeCompensation>[4]['eventStore'],
+      eventStore: eventStore as unknown as NonNullable<Parameters<typeof executeCompensation>[4]['eventStore']>,
       featureId: 'test-feature',
     });
 
@@ -884,7 +884,7 @@ describe('#1352: compensation operationId recovery (reuse vs mint)', () => {
 
     await executeCompensation(state, 'delegate', makeEvents(1), 1, {
       dryRun: false,
-      eventStore: eventStore as unknown as Parameters<typeof executeCompensation>[4]['eventStore'],
+      eventStore: eventStore as unknown as NonNullable<Parameters<typeof executeCompensation>[4]['eventStore']>,
       featureId: 'test-feature',
     });
 
@@ -1041,7 +1041,7 @@ describe('compensation: operational git failures surface (CodeRabbit #3224631272
 
     const result = await executeCompensation(state, 'delegate', makeEvents(1), 1, {
       dryRun: false,
-      eventStore: eventStore as unknown as Parameters<typeof executeCompensation>[4]['eventStore'],
+      eventStore: eventStore as unknown as NonNullable<Parameters<typeof executeCompensation>[4]['eventStore']>,
       featureId: 'test-feature',
     });
 
@@ -1095,7 +1095,7 @@ describe('compensation: operational git failures surface (CodeRabbit #3224631272
 
     const result = await executeCompensation(state, 'delegate', makeEvents(1), 1, {
       dryRun: false,
-      eventStore: eventStore as unknown as Parameters<typeof executeCompensation>[4]['eventStore'],
+      eventStore: eventStore as unknown as NonNullable<Parameters<typeof executeCompensation>[4]['eventStore']>,
       featureId: 'test-feature',
     });
 
@@ -1154,7 +1154,7 @@ describe('compensation: operational git failures surface (CodeRabbit #3224631272
 
     const result = await executeCompensation(state, 'delegate', makeEvents(1), 1, {
       dryRun: false,
-      eventStore: eventStore as unknown as Parameters<typeof executeCompensation>[4]['eventStore'],
+      eventStore: eventStore as unknown as NonNullable<Parameters<typeof executeCompensation>[4]['eventStore']>,
       featureId: 'test-feature',
     });
 

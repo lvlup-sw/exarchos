@@ -33,6 +33,16 @@ const STATE_DIR = '/tmp/test-check-event-emissions';
 
 // ─── Task 5: PHASE_EXPECTED_EVENTS Registry Tests ──────────────────────────
 
+/** The emissions payload shape the assertions poke (data is untyped on ToolResult). */
+type EmissionsData = {
+  phase: string;
+  complete: boolean;
+  missing: number;
+  emitted?: unknown;
+  hints: Array<{ eventType: string; description: string }>;
+};
+const dataOf = (r: { data?: unknown }): EmissionsData => r.data as EmissionsData;
+
 describe('PHASE_EXPECTED_EVENTS', () => {
   it('PhaseExpectedEvents_DelegatePhase_ExpectsTeamEvents', () => {
     const delegateEvents = PHASE_EXPECTED_EVENTS['delegate'];
@@ -240,12 +250,12 @@ describe('handleCheckEventEmissions', () => {
     );
 
     expect(result.success).toBe(true);
-    expect(result.data.phase).toBe('delegate');
-    expect(result.data.complete).toBe(false);
-    expect(result.data.missing).toBe(1);
-    expect(result.data.hints).toHaveLength(1);
-    expect(result.data.hints[0].eventType).toBe('team.spawned');
-    expect(result.data.hints[0].description).toEqual(expect.any(String));
+    expect(dataOf(result).phase).toBe('delegate');
+    expect(dataOf(result).complete).toBe(false);
+    expect(dataOf(result).missing).toBe(1);
+    expect(dataOf(result).hints).toHaveLength(1);
+    expect(dataOf(result).hints[0].eventType).toBe('team.spawned');
+    expect(dataOf(result).hints[0].description).toEqual(expect.any(String));
   });
 
   it('CheckEventEmissions_MissingEvent_IncludesRequiredFields', async () => {
@@ -332,7 +342,7 @@ describe('handleCheckEventEmissions', () => {
     );
 
     expect(result.success).toBe(true);
-    expect(result.data.complete).toBe(false);
+    expect(dataOf(result).complete).toBe(false);
   });
 
   it('CheckEventEmissions_UsesWorkflowIdAsStreamId', async () => {

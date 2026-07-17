@@ -14,10 +14,22 @@ import { pathToFileURL } from 'node:url';
 import { EventStore } from '../event-store/store.js';
 import { InMemoryBackend } from '../storage/memory-backend.js';
 import { createInMemoryResolver } from '../capabilities/resolver.js';
-import type { RootsClient } from './discovery.js';
+import type { RootsClient, WorkspaceResolution } from './discovery.js';
 import { resolveWorkspace, isExarchosWorkspace } from './discovery.js';
 import type { WorkflowState } from '../workflow/types.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
+
+/** Narrow to the success branch of the resolution union (throw = test failure). */
+function resolved(r: WorkspaceResolution | undefined): Extract<WorkspaceResolution, { success: true }> {
+  if (!r || !r.success) throw new Error(`expected successful resolution, got ${JSON.stringify(r)}`);
+  return r;
+}
+
+/** Narrow to the failure branch of the resolution union (throw = test failure). */
+function unresolved(r: WorkspaceResolution | undefined): Extract<WorkspaceResolution, { success: false }> {
+  if (!r || r.success) throw new Error(`expected failed resolution, got ${JSON.stringify(r)}`);
+  return r;
+}
 
 async function mktemp(prefix: string): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), `discovery-${prefix}-`));
@@ -132,8 +144,8 @@ describe('resolveWorkspace backend-first featureId derivation (#1504)', () => {
 
       expect(result).toBeDefined();
       expect(result!.success).toBe(true);
-      expect(result!.source).toBe('cwd');
-      expect(result!.featureId).toBe('feat-from-backend');
+      expect(resolved(result).source).toBe('cwd');
+      expect(resolved(result).featureId).toBe('feat-from-backend');
     } finally {
       await rmrfAsync(tmp);
     }
@@ -170,9 +182,9 @@ describe('resolveWorkspace roots branch (#1290)', () => {
 
       expect(result).toBeDefined();
       expect(result!.success).toBe(true);
-      expect(result!.source).toBe('roots');
-      expect(result!.featureId).toBe('feat-alpha');
-      expect(result!.path).toBe(root);
+      expect(resolved(result).source).toBe('roots');
+      expect(resolved(result).featureId).toBe('feat-alpha');
+      expect(resolved(result).path).toBe(root);
 
       // `workspace.resolved` event landed on the resolved featureId's stream.
       const events = await eventStore.query('feat-alpha');
@@ -223,9 +235,9 @@ describe('resolveWorkspace roots branch (#1290)', () => {
 
       expect(result).toBeDefined();
       expect(result!.success).toBe(true);
-      expect(result!.source).toBe('cwd');
-      expect(result!.featureId).toBe('feat-cwd');
-      expect(result!.path).toBe(cwd);
+      expect(resolved(result).source).toBe('cwd');
+      expect(resolved(result).featureId).toBe('feat-cwd');
+      expect(resolved(result).path).toBe(cwd);
 
       const events = await eventStore.query('feat-cwd');
       const evt = events.find((e) => e.type === 'workspace.resolved');
@@ -303,11 +315,11 @@ describe('resolveWorkspace roots branch (#1290)', () => {
 
       expect(result).toBeDefined();
       expect(result!.success).toBe(false);
-      expect(result!.code).toBe('INVALID_INPUT');
-      expect(result!.validTargets).toBeDefined();
-      expect(result!.validTargets!.length).toBe(2);
+      expect(unresolved(result).code).toBe('INVALID_INPUT');
+      expect(unresolved(result).validTargets).toBeDefined();
+      expect(unresolved(result).validTargets.length).toBe(2);
 
-      const paths = result!.validTargets!.map((t) => t.path).sort();
+      const paths = unresolved(result).validTargets.map((t) => t.path).sort();
       expect(paths).toEqual([a, b].sort());
 
       // No event emitted on multi-match — there is no single featureId to
@@ -354,7 +366,7 @@ describe('resolveWorkspace roots branch (#1290)', () => {
       // First call: cache miss → fetch.
       const r1 = await resolveWorkspace({ resolver, rootsClient, cwd: tmp, eventStore });
       expect(r1?.success).toBe(true);
-      expect(r1?.featureId).toBe('feat-initial');
+      expect(resolved(r1).featureId).toBe('feat-initial');
       expect(fetchCount).toBe(1);
 
       // Second call: cache hit → no additional fetch. Even if the
@@ -363,7 +375,7 @@ describe('resolveWorkspace roots branch (#1290)', () => {
       nextList = [{ uri: fileUriFor(next) }];
       const r2 = await resolveWorkspace({ resolver, rootsClient, cwd: tmp, eventStore });
       expect(r2?.success).toBe(true);
-      expect(r2?.featureId).toBe('feat-initial');
+      expect(resolved(r2).featureId).toBe('feat-initial');
       expect(fetchCount).toBe(1);
 
       // Simulate `roots/list_changed` notification → cache invalidated.
@@ -371,7 +383,7 @@ describe('resolveWorkspace roots branch (#1290)', () => {
 
       const r3 = await resolveWorkspace({ resolver, rootsClient, cwd: tmp, eventStore });
       expect(r3?.success).toBe(true);
-      expect(r3?.featureId).toBe('feat-next');
+      expect(resolved(r3).featureId).toBe('feat-next');
       expect(fetchCount).toBe(2);
 
       await rmrfAsync(stateDir);
@@ -412,8 +424,8 @@ describe('resolveWorkspace roots branch (#1290)', () => {
       // Resolution falls back to cwd-walk. rootsClient is never called.
       expect(result).toBeDefined();
       expect(result!.success).toBe(true);
-      expect(result!.source).toBe('cwd');
-      expect(result!.featureId).toBe('feat-cwdonly');
+      expect(resolved(result).source).toBe('cwd');
+      expect(resolved(result).featureId).toBe('feat-cwdonly');
       expect(fetchCount).toBe(0);
 
       await rmrfAsync(stateDir);

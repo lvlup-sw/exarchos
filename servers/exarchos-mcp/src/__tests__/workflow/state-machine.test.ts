@@ -2433,11 +2433,13 @@ describe('Leaf-state onEntry/onExit effects', () => {
       alpha: {
         id: 'alpha',
         type: 'atomic',
+        kind: 'GATHER',
         onExit: ['log'],
       },
       beta: {
         id: 'beta',
         type: 'atomic',
+        kind: 'GATHER',
         onEntry: ['checkpoint'],
       },
       done: {
