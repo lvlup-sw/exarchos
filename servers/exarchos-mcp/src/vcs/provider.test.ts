@@ -1,8 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { GitLabProvider } from './gitlab.js';
 import { AzureDevOpsProvider } from './azure-devops.js';
-import { isResolvedKnown, windowPrComments, DEFAULT_PR_COMMENTS_LIMIT } from './provider.js';
-import type { PrComment, VcsProvider } from './provider.js';
+import {
+  isResolvedKnown,
+  windowPrComments,
+  DEFAULT_PR_COMMENTS_LIMIT,
+  computeOverallCiStatus,
+  UnsupportedOperationError,
+} from './provider.js';
+import type { PrComment, VcsProvider, CiCheck } from './provider.js';
 
 describe('VcsProvider', () => {
   it('VcsProvider_Interface_DefinesRequiredMethods', () => {
@@ -221,5 +227,110 @@ describe('windowPrComments', () => {
     const result = windowPrComments(makeComments(1), { fields: ['id', 'path'] });
 
     expect(Object.keys(result.comments[0] ?? {})).toEqual(['id']);
+  });
+});
+
+// ─── DR-10: shared computeOverallCiStatus helper ────────────────────────────
+//
+// The three VCS providers (GitHub / GitLab / Azure DevOps) previously carried
+// byte-identical private `computeOverallCiStatus` copies; DR-10 collapses them
+// into this one exported helper. These tests pin the aggregation contract
+// directly (the per-provider `checkCi` tests in the sibling suites continue to
+// exercise it through each provider's real pipeline-decode path).
+describe('computeOverallCiStatus (shared CI-status fold, DR-10)', () => {
+  it('ComputeOverallCiStatus_EmptyChecks_Passes', () => {
+    // No checks is a pass — the empty conjunction. Matches every provider's
+    // "no pipeline / no jobs" path collapsing to a non-blocking verdict.
+    expect(computeOverallCiStatus([])).toBe('pass');
+  });
+
+  it('ComputeOverallCiStatus_AnyFail_FailsFast', () => {
+    const checks: readonly CiCheck[] = [
+      { name: 'unit', status: 'pass' },
+      { name: 'lint', status: 'fail' },
+      { name: 'build', status: 'pending' },
+    ];
+    expect(computeOverallCiStatus(checks)).toBe('fail');
+  });
+
+  it('ComputeOverallCiStatus_PendingWithoutFail_IsPending', () => {
+    const checks: readonly CiCheck[] = [
+      { name: 'unit', status: 'pass' },
+      { name: 'build', status: 'pending' },
+      { name: 'optional', status: 'skipped' },
+    ];
+    expect(computeOverallCiStatus(checks)).toBe('pending');
+  });
+
+  it('ComputeOverallCiStatus_AllPassOrSkipped_Passes', () => {
+    const checks: readonly CiCheck[] = [
+      { name: 'unit', status: 'pass' },
+      { name: 'optional', status: 'skipped' },
+    ];
+    expect(computeOverallCiStatus(checks)).toBe('pass');
+  });
+
+  it('ComputeOverallCiStatus_FailPrecedesPending', () => {
+    // fail wins over pending regardless of ordering — the fail scan runs first.
+    expect(
+      computeOverallCiStatus([
+        { name: 'build', status: 'pending' },
+        { name: 'lint', status: 'fail' },
+      ]),
+    ).toBe('fail');
+  });
+});
+
+// ─── DR-10: partial-provider by-design throws survive the extraction ─────────
+//
+// GitLab and Azure DevOps are PARTIAL VcsProviders — several methods throw
+// `UnsupportedOperationError` by design (DR-7 follow-ups #1612 / #1613). The
+// shared CI-status helper only folds a check list a `checkCi` already built,
+// so extracting it must leave those by-design throws untouched. These tests
+// assert the throws are intact per provider so a helper that swallowed or
+// normalized them (a behavior change) would go red.
+describe('partial-provider by-design throws (DR-10 extraction preservation)', () => {
+  it('ComputeOverallCiStatus_GitLabPartialProvider_StillThrows', async () => {
+    const provider = new GitLabProvider({});
+    await expect(provider.addReply('1', '2', 'body')).rejects.toBeInstanceOf(
+      UnsupportedOperationError,
+    );
+    await expect(provider.listPrs()).rejects.toBeInstanceOf(
+      UnsupportedOperationError,
+    );
+    await expect(provider.getPrDiff('1')).rejects.toBeInstanceOf(
+      UnsupportedOperationError,
+    );
+    await expect(
+      provider.createIssue({ title: 't', body: 'b' }),
+    ).rejects.toBeInstanceOf(UnsupportedOperationError);
+    await expect(provider.searchIssuesByMarker('op')).rejects.toBeInstanceOf(
+      UnsupportedOperationError,
+    );
+    await expect(provider.getRepository()).rejects.toBeInstanceOf(
+      UnsupportedOperationError,
+    );
+  });
+
+  it('ComputeOverallCiStatus_AzureDevOpsPartialProvider_StillThrows', async () => {
+    const provider = new AzureDevOpsProvider({});
+    await expect(provider.addReply('1', '2', 'body')).rejects.toBeInstanceOf(
+      UnsupportedOperationError,
+    );
+    await expect(provider.listPrs()).rejects.toBeInstanceOf(
+      UnsupportedOperationError,
+    );
+    await expect(provider.getPrDiff('1')).rejects.toBeInstanceOf(
+      UnsupportedOperationError,
+    );
+    await expect(
+      provider.createIssue({ title: 't', body: 'b' }),
+    ).rejects.toBeInstanceOf(UnsupportedOperationError);
+    await expect(provider.searchIssuesByMarker('op')).rejects.toBeInstanceOf(
+      UnsupportedOperationError,
+    );
+    await expect(provider.getRepository()).rejects.toBeInstanceOf(
+      UnsupportedOperationError,
+    );
   });
 });

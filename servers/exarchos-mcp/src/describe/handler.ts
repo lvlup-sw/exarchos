@@ -29,7 +29,7 @@ import { RESERVED_FIELDS_DESCRIPTOR } from '../workflow/schemas.js';
 export async function handleDescribe(
   args: { actions?: string[]; topology?: string; playbook?: string; config?: boolean },
   toolActions: readonly ToolAction[],
-  options?: { includeStateSchema?: boolean; projectConfig?: ResolvedProjectConfig },
+  options?: { includeStateSchema?: boolean | undefined; projectConfig?: ResolvedProjectConfig | undefined },
 ): Promise<ToolResult> {
   // Guard clauses: reject malformed values before computing flags
   if (args.actions !== undefined && (!Array.isArray(args.actions) || !args.actions.every((a: unknown) => typeof a === 'string'))) {

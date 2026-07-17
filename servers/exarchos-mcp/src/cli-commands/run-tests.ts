@@ -34,8 +34,8 @@ import {
 /**
  * Benign-skip exit code for the unresolved leg: a repo with no detectable test
  * setup must not fail every post-Bash hook. The skip is visible (printed to
- * stderr) but never fatal — the distinguishing policy from the explicitly-
- * invoked verification verbs (run-mutation/run-contract), which exit non-zero.
+ * stderr) but never fatal — the distinguishing policy from an explicitly-
+ * invoked verification verb, which would exit non-zero on an unresolved runner.
  */
 const UNRESOLVED_EXIT_CODE = 0;
 

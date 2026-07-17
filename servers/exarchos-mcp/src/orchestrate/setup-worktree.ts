@@ -51,7 +51,7 @@ interface SetupWorktreeWorkflowState {
    * derivation so both isolation paths uphold the same base-correctness
    * guarantee across all six runtimes (INV-4).
    */
-  readonly synthesis?: { readonly integrationBranch?: string };
+  readonly synthesis?: { readonly integrationBranch?: string } | undefined;
 }
 
 type CheckStatus = 'pass' | 'fail' | 'skip';
@@ -572,7 +572,8 @@ function runSetupWorktreeSteps(
   checks.push(createWorktree(args.repoRoot, worktreePath, branchName));
 
   // Step 4: install (resolver-driven: picks npm/pnpm/yarn/bun based on lockfiles)
-  const worktreeReady = checks[2].status !== 'fail';
+  const worktreeStep = checks[2];
+  const worktreeReady = worktreeStep !== undefined && worktreeStep.status !== 'fail';
   if (worktreeReady) {
     checks.push(runInstallStep(worktreePath));
   } else {

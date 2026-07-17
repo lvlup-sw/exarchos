@@ -1133,6 +1133,50 @@ describe('classifyArtifactLayout (DR-9, task 020)', () => {
   });
 });
 
+// ─── DR-18 archival boundary (task 030) ───────────────────────────────────
+//
+// The wave-1 debloat archival (task 030) physically moves every superseded
+// dated `docs/designs/<date>.md` design doc into `docs/designs/archive/`. This
+// guards the `LEGACY_DESIGN_DIR` boundary: the classifier is FILESYSTEM-BLIND —
+// it discriminates on the event-folded *recorded* artifact path, never on where
+// the file happens to live on disk. Archiving the physical doc therefore cannot
+// change the classification, because the recorded artifact string is untouched.
+//
+// The forbidden edit this pins against: "helpfully" repointing
+// `LEGACY_DESIGN_DIR` from `'docs/designs/'` to `'docs/designs/archive/'` during
+// archival. That would make a resuming legacy workflow (whose recorded design
+// path is the original `docs/designs/<date>`) classify `'unified'`, forcing the
+// mid-flight migration the module explicitly forbids. So the constant MUST be
+// left alone — and this test goes red the moment it is repointed.
+describe('LEGACY_DESIGN_DIR archival-invariance (DR-18, task 030)', () => {
+  it('Rehydrate_LegacyDesignPath_ClassificationUnchangedByArchival', () => {
+    // A legacy two-artifact workflow's RECORDED design path is the original
+    // `docs/designs/<date>` — archival does not rewrite it. It must still
+    // classify `'two-artifact'`. (Repointing LEGACY_DESIGN_DIR to the archive
+    // subtree breaks this — the recorded original no longer prefix-matches.)
+    expect(
+      classifyArtifactLayout({
+        design: 'docs/designs/2026-05-30-legacy-feat.md',
+        plan: 'docs/plans/2026-05-30-legacy-feat.md',
+      }),
+    ).toBe('two-artifact');
+
+    // Belt-and-suspenders: because the constant is a PREFIX match on
+    // `docs/designs/`, a workflow whose recorded design path was itself archived
+    // in place (`docs/designs/archive/<date>`) still classifies two-artifact —
+    // so neither an in-place-archived record nor an untouched one is disturbed.
+    expect(
+      classifyArtifactLayout({
+        design: 'docs/designs/archive/2026-05-30-legacy-feat.md',
+      }),
+    ).toBe('two-artifact');
+
+    // The forward default is unchanged: a fresh feature (no legacy design
+    // artifact) still classifies unified — archival touched neither branch.
+    expect(classifyArtifactLayout({})).toBe('unified');
+  });
+});
+
 describe('handleRehydrate — in-flight backward-compat (DR-9, task 020)', () => {
   it('Resume_TwoArtifactInflightWorkflow_CompletesOldPath', async () => {
     // GIVEN: an in-flight feature authored under the pre-#1581 two-phase

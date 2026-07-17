@@ -118,7 +118,7 @@ function summarizeTranscript(transcript: string): string {
  */
 export function deriveIntent(
   changedFiles: readonly string[],
-  opts?: { transcript?: string },
+  opts?: { transcript?: string | undefined },
 ): WorkflowIntent {
   const files = changedFiles.map((f) => f.trim()).filter(Boolean);
   const surfaces = surfacesOf(files);

@@ -18,7 +18,7 @@
 // `SPAWN_AGENT_CALL` (Task 7b) decides whether to dispatch by name or
 // fall back to inline-prompt + `agent_type: "default"`.
 //
-// See docs/designs/2026-04-25-delegation-runtime-parity.md §4 and
+// See docs/designs/archive/2026-04-25-delegation-runtime-parity.md §4 and
 // docs/research/2026-04-25-delegation-platform-agnosticity.md §3.
 // ────────────────────────────────────────────────────────────────────────────
 

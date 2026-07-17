@@ -2,7 +2,7 @@
 //
 // The four append sites in the `merge_orchestrate` orchestrator surface
 // (`merge.preflight` in merge-orchestrate.ts; `merge.executed`,
-// `merge.completed`, and `merge.rollback` in execute-merge.ts) each need a
+// `merge.completed`, and `merge.recovered` in execute-merge.ts) each need a
 // deterministic idempotency key keyed on the (streamId, taskId, eventType)
 // tuple — or (streamId, eventType) when no taskId is in scope — so that
 //   • a crash-replay (same caller, same op, same event) dedups via the

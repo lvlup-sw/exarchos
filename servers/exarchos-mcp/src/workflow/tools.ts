@@ -605,9 +605,9 @@ export async function handleSet(
           error: {
             code: 'CHECKPOINT_REQUIRED' as typeof ErrorCode[keyof typeof ErrorCode],
             message: `Checkpoint required before phase transition: ${gateResult.operationsSince} operations since last checkpoint (threshold: ${gateResult.threshold})`,
-            gate: gateResult.gate,
-            operationsSince: gateResult.operationsSince,
-            threshold: gateResult.threshold,
+            ...(gateResult.gate !== undefined ? { gate: gateResult.gate } : {}),
+            ...(gateResult.operationsSince !== undefined ? { operationsSince: gateResult.operationsSince } : {}),
+            ...(gateResult.threshold !== undefined ? { threshold: gateResult.threshold } : {}),
           },
         };
       }
@@ -770,7 +770,7 @@ export async function handleSet(
     // ─── Phase transition — routed through HSMTransitionGuard ──────────
     // The dispatch contract for guarded phase transitions is owned by the
     // `HSMTransitionGuard` primitive (see `hsm-transition-guard.ts` /
-    // Primitive 3 in `docs/designs/2026-05-06-v29-bug-cluster-combined-fix.md`).
+    // Primitive 3 in `docs/designs/archive/2026-05-06-v29-bug-cluster-combined-fix.md`).
     // It evaluates the composite guard, emits exactly one of
     // `workflow.transition` or `workflow.guard-failed` per attempt, and
     // returns a structured result. `handleSet` is now responsible only
@@ -847,7 +847,7 @@ export async function handleSet(
         }
         return {
           success: false,
-          error: errorPayload as ToolResult['error'],
+          error: errorPayload as NonNullable<ToolResult['error']>,
         };
       }
 
@@ -917,7 +917,7 @@ export async function handleSet(
     }
 
     // Transition events are now emitted inside `hsmTransitionGuard.attempt`
-    // — see Primitive 3 in `docs/designs/2026-05-06-v29-bug-cluster-combined-fix.md`.
+    // — see Primitive 3 in `docs/designs/archive/2026-05-06-v29-bug-cluster-combined-fix.md`.
     //
     // ─── Idempotency contract for the `state.patched` append below ───
     //
@@ -1096,7 +1096,7 @@ export async function handleSet(
       // Merge materialized state with checkpoint/version metadata from the
       // mutable state (checkpoint tracking is not event-sourced)
       const latestSequence = allEvents.length
-        ? allEvents[allEvents.length - 1].sequence
+        ? allEvents[allEvents.length - 1]?.sequence
         : mutableState._eventSequence;
       const snapshot = {
         ...(materialized as unknown as Record<string, unknown>),
@@ -1479,14 +1479,14 @@ function levenshtein(a: string, b: string): number {
     for (let j = 1; j <= b.length; j++) {
       const cost = a[i - 1] === b[j - 1] ? 0 : 1;
       curr[j] = Math.min(
-        curr[j - 1] + 1,
-        prev[j] + 1,
-        prev[j - 1] + cost,
+        curr[j - 1]! + 1,
+        prev[j]! + 1,
+        prev[j - 1]! + cost,
       );
     }
-    for (let j = 0; j <= b.length; j++) prev[j] = curr[j];
+    for (let j = 0; j <= b.length; j++) prev[j] = curr[j]!;
   }
-  return prev[b.length];
+  return prev[b.length]!;
 }
 
 // ─── handleCheckpoint ──────────────────────────────────────────────────────
@@ -1943,9 +1943,9 @@ function resolveDotPath(obj: Record<string, unknown>, dotPath: string): unknown 
     // Handle array bracket notation: "tasks[0]"
     const bracketMatch = segment.match(/^([^[]+)\[(\d+)\]$/);
     if (bracketMatch) {
-      current = (current as Record<string, unknown>)[bracketMatch[1]];
+      current = (current as Record<string, unknown>)[bracketMatch[1] ?? ''];
       if (!Array.isArray(current)) return undefined;
-      current = current[parseInt(bracketMatch[2], 10)];
+      current = current[parseInt(bracketMatch[2] ?? '0', 10)];
     } else {
       current = (current as Record<string, unknown>)[segment];
     }

@@ -1,6 +1,6 @@
 # Projections Architecture
 
-> **Design reference:** [docs/designs/2026-04-23-rehydrate-foundation.md](../designs/2026-04-23-rehydrate-foundation.md)  
+> **Design reference:** [docs/designs/archive/2026-04-23-rehydrate-foundation.md](../designs/archive/2026-04-23-rehydrate-foundation.md)  
 > **Status:** Canonical — enforced by T062 doc-shape tests in `scripts/docs-check.test.ts`  
 > **Related tasks:** T001, T002, T022, T023, T024, T025, T026, T029, T031, T034, T054, T055, T056
 
@@ -306,7 +306,7 @@ previously cached snapshots.
 
 ## 4. Failure-Mode Conventions
 
-**Design reference:** DR-18 (see [docs/designs/2026-04-23-rehydrate-foundation.md](../designs/2026-04-23-rehydrate-foundation.md))  
+**Design reference:** DR-18 (see [docs/designs/archive/2026-04-23-rehydrate-foundation.md](../designs/archive/2026-04-23-rehydrate-foundation.md))  
 **Canonical implementation:** `servers/exarchos-mcp/src/workflow/rehydrate.ts` — `buildDegradedResponse`
 
 Any handler that drives a projection through `rehydrate.ts` MUST handle three

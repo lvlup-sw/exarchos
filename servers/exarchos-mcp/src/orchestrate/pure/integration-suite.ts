@@ -57,7 +57,7 @@ export interface RunIntegrationSuiteInput {
    * (#1537) so the monorepo-root / workspace layout — or a `.exarchos.yml`
    * override — picks the right command instead of a hardcoded `test:run`.
    */
-  readonly testScript?: string;
+  readonly testScript?: string | undefined;
   /**
    * Toolchain detector seam (defaults to {@link detectToolchain}). Injected in
    * tests; production may thread a config-aware detector so `.exarchos.yml`
@@ -114,7 +114,7 @@ export function resolveIntegrationCommand(
 
   const resolved = detect(repoRoot)?.commands.test;
   if (resolved && resolved.trim().length > 0) {
-    const [cmd, ...rest] = resolved.trim().split(/\s+/);
+    const [cmd = 'npm', ...rest] = resolved.trim().split(/\s+/);
     // Script runners (npm/pnpm/yarn/bun) need the reporter flag AFTER a `--`
     // passthrough; a direct runner (vitest, …) takes it inline.
     const isScriptRunner = cmd === 'npm' || cmd === 'pnpm' || cmd === 'yarn' || cmd === 'bun';

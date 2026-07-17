@@ -1,4 +1,4 @@
-// Source: docs/designs/2026-05-05-e2e-v29-revisited.md §4.2
+// Source: docs/designs/archive/2026-05-05-e2e-v29-revisited.md §4.2
 import type { SpawnedMcpClient } from './mcp-client.js';
 import { normalize } from './normalizers.js';
 

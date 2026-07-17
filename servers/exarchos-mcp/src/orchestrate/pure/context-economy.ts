@@ -55,7 +55,7 @@ function parseDiff(diff: string): ParsedFile[] {
       if (currentName) {
         files.push({ name: currentName, addedLines: currentAdded });
       }
-      currentName = headerMatch[1];
+      currentName = headerMatch[1] ?? '';
       currentAdded = [];
       continue;
     }

@@ -243,7 +243,7 @@ function resolveWarmStart(
   if (!isSequencePrefix(bounded, events)) return cold;
 
   const effectiveN =
-    bounded.length > 0 ? bounded[bounded.length - 1].sequence : 0;
+    bounded.length > 0 ? (bounded[bounded.length - 1]?.sequence ?? 0) : 0;
 
   const snapshot = readLatestSnapshot(
     eventStore.getReadBackend(),
@@ -276,7 +276,7 @@ function isSequencePrefix(
   bounded: readonly WorkflowEvent[],
   events: readonly WorkflowEvent[],
 ): boolean {
-  return bounded.every((e, i) => e.sequence === events[i].sequence);
+  return bounded.every((e, i) => e.sequence === events[i]?.sequence);
 }
 
 /**

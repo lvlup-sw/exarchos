@@ -26,7 +26,7 @@ import type { SessionManifestEntry } from '../session/types.js';
  * per-runtime hook command and threaded through by the hook adapter). */
 export interface SessionStartOptions {
   /** Orientation directive to emit as additionalContext (injection-capable hosts). */
-  readonly directive?: string;
+  readonly directive?: string | undefined;
 }
 
 function asString(value: unknown): string | undefined {

@@ -98,7 +98,8 @@ export type PhasePlaybook = z.infer<typeof PhasePlaybookSchema>;
  * `merge_orchestrate` verb (idempotency-keyed) without querying the event
  * store directly. Set by the rehydration reducer when a worktree-bearing
  * `task.completed` is observed (#1208 / DR-MO-1) and updated on
- * `merge.executed` / `merge.rollback` / `merge.aborted`.
+ * `merge.executed` / `merge.recovered` (or legacy `merge.rollback`) /
+ * `merge.aborted`.
  */
 export const RehydrationMergeOrchestratorSchema = z.object({
   /** Task whose worktree merge is pending / has terminated. */

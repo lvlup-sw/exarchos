@@ -134,14 +134,14 @@ Events are emitted directly to the orchestrator's event stream (stream id is the
 | `merge.preflight` | Always (after preflight runs, before any merge attempt) — except for the early-abort `target-checked-out-elsewhere` path, which emits nothing | Full structured guard sub-results + `failureReasons` if `passed: false` |
 | `merge.requested` | After preflight passes, before the executor runs (Phase A intent record from the two-event split) — suppressed on the early-abort `target-checked-out-elsewhere` path | `sourceBranch`, `targetBranch`, `strategy`, `taskId` |
 | `merge.executed`  | On successful local merge | `mergeSha`, `rollbackSha`, `taskId`, source/target branches |
-| `merge.rollback`  | On post-merge failure followed by recovery — **legacy** wire shape, kept during the v2.11.x deprecation window | `rollbackSha`, `reason`, `taskId`, source/target branches |
-| `merge.recovered` | On post-merge failure followed by recovery — the canonical **successor** to `merge.rollback`; dual-emitted alongside it during the deprecation window | `recoveryPointSha`, `reason`, `recoveryError?`, `recoveryErrorDetail?`, `taskId`, source/target branches |
+| `merge.recovered` | On post-merge failure followed by recovery — the canonical recovery event and, since DR-2, the **only** one emitted | `recoveryPointSha`, `reason`, `recoveryError?`, `recoveryErrorDetail?`, `taskId`, source/target branches |
+| `merge.rollback`  | **RETIRED** (DR-2) — legacy wire shape, read-tolerant-not-emittable: nothing writes it any more; it survives only in pre-DR-2 event logs, where it folds identically to `merge.recovered` | `rollbackSha`, `reason`, `taskId`, source/target branches |
 
-> **Recovery vocabulary.** The canonical frame is database-transaction, not saga: a **recovery point** (the recorded HEAD SHA, persisted before the merge as a write-ahead-log marker) and a **recovery event** (`merge.recovered`). `merge.recovered` is the additive successor to `merge.rollback`; during the v2.11.x deprecation window the executor **dual-emits** both for the same logical recovery. The legacy `merge.rollback` / `merge.executed` events keep their `rollbackSha` / `rollbackError` wire fields until v2.12 removes the legacy emission; `merge.recovered` carries the resolved `recoveryPointSha` / `recoveryErrorDetail` names alongside the unchanged INV-14 `recoveryError` discriminator. The phase value `'rolled-back'` is intentionally retained.
+> **Recovery vocabulary.** The canonical frame is database-transaction, not saga: a **recovery point** (the recorded HEAD SHA, persisted before the merge as a write-ahead-log marker) and a **recovery event** (`merge.recovered`). `merge.recovered` is the successor to `merge.rollback` and, since DR-2, the sole recovery event the executor emits; the legacy `merge.rollback` write path is retired (read-tolerant-not-emittable, kept only so pre-DR-2 logs replay identically). `merge.recovered` carries the resolved `recoveryPointSha` / `recoveryErrorDetail` names alongside the unchanged INV-14 `recoveryError` discriminator; the retained `merge.executed` event still carries its `rollbackSha` wire field. The phase value `'rolled-back'` is intentionally retained.
 
 These events are auto-emitted by the handler — do **not** manually append them via `exarchos:exarchos_event` during normal operation. Manual emission is only sanctioned during the documented manual-recovery flow in [`recovery-runbook.md`](references/recovery-runbook.md) when a merge has been completed out-of-band (e.g., conflict resolution) and the event log must be brought back in sync — follow that runbook's event-first sequencing.
 
-> Discover the event payload schemas via `exarchos:exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.requested", "merge.executed", "merge.rollback", "merge.recovered"] })`.
+> Discover the event payload schemas via `exarchos:exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.requested", "merge.executed", "merge.rollback", "merge.recovered"] })`. (`merge.rollback` is **legacy, read-tolerant** — retained so pre-DR-2 logs replay, no longer emitted.)
 
 ## Disambiguation: `merge_orchestrate` vs `merge_pr`
 
@@ -154,7 +154,7 @@ Two related actions, two distinct concerns:
 | **Identifier required** | `sourceBranch` + `targetBranch` | `prId` |
 | **Underlying operation** | `git merge` (local) | `provider.mergePr()` (remote API) |
 | **Recovery** | INV-14 recovery ladder: `git merge --abort` → `git reset --keep <recoveryPointSha>` (real, rewinds the merge; never `--hard`) | None — the VCS provider owns merge state |
-| **Events** | `merge.preflight` / `merge.requested` / `merge.executed` / `merge.rollback` (legacy) / `merge.recovered` (successor) | `pr.merged` |
+| **Events** | `merge.preflight` / `merge.requested` / `merge.executed` / `merge.recovered` (legacy `merge.rollback` retired — read-tolerant, not emitted) | `pr.merged` |
 
 If you reach for `merge_orchestrate` thinking "I want to merge a PR," you want `merge_pr` instead.
 
@@ -176,7 +176,7 @@ Note: the `target-checked-out-elsewhere` early-abort path runs *before* the resu
 |-------|------------|
 | Dispatch raw `merge_orchestrate` to land onto a **shared integration branch** | Route through `serialize_merge` (single-writer lease); raw `merge_orchestrate` is for a non-integration / lease-held merge — a live foreign lease makes it fail closed (`MERGE_LEASE_HELD`) |
 | Use this skill to merge a remote PR | Use the `merge_pr` skill |
-| Manually emit `merge.preflight` / `merge.requested` / `merge.executed` / `merge.rollback` / `merge.recovered` in normal flow | Let the handler auto-emit; manual emission causes duplicates (one exception: documented manual-recovery flow in [`recovery-runbook.md`](references/recovery-runbook.md)) |
+| Manually emit `merge.preflight` / `merge.requested` / `merge.executed` / `merge.recovered` in normal flow | Let the handler auto-emit; manual emission causes duplicates (one exception: documented manual-recovery flow in [`recovery-runbook.md`](references/recovery-runbook.md)) |
 | Wrap merge events under `gate.executed` | Direct stream append with the dedicated event type — these are state transitions, not gate executions |
 | Re-dispatch after a `rolled-back` outcome without inspecting the reason | Read `data.reason` and `data.recoveryErrorDetail` (with the `data.recoveryError` discriminator); address the root cause first |
 | Re-dispatch after `reason: 'target-checked-out-elsewhere'` without first freeing the sibling worktree | Remove or re-checkout the sibling worktree referenced by `data.siblingWorktreePath`, then re-dispatch |
@@ -212,7 +212,7 @@ Fail-closed: any individual git invocation that fails inside the debug helper de
 
 ## Schema Discovery
 
-For the argument schema, call `exarchos:exarchos_orchestrate({ action: "describe", actions: ["merge_orchestrate"] })`. Event payload shapes come from `exarchos:exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.requested", "merge.executed", "merge.rollback", "merge.recovered"] })`.
+For the argument schema, call `exarchos:exarchos_orchestrate({ action: "describe", actions: ["merge_orchestrate"] })`. Event payload shapes come from `exarchos:exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.requested", "merge.executed", "merge.rollback", "merge.recovered"] })` (`merge.rollback` is **legacy, read-tolerant** — retained so pre-DR-2 logs replay, no longer emitted).
 
 `mergeOrchestrator.*` fields on workflow state are written by this skill and `mergeOrchestrator.phase` is read by gates; the underlying `phase` workflow field is immutable and must be changed via `transition`, not `update`. See the [Reserved fields](../checkpoint/SKILL.md#reserved-fields) section in the `checkpoint` skill for the full immutable-key list and the typed `RESERVED_FIELD` error envelope.
 

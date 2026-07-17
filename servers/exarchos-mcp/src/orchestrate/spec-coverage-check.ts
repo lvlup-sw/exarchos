@@ -45,8 +45,9 @@ export function extractTestFiles(planContent: string): readonly string[] {
   const files: string[] = [];
   for (const line of planContent.split('\n')) {
     const match = TEST_FILE_PATTERN.exec(line);
-    if (match) {
-      files.push(match[1]);
+    const file = match?.[1];
+    if (file !== undefined) {
+      files.push(file);
     }
   }
   return files;

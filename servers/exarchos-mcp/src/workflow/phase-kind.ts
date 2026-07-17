@@ -5,7 +5,7 @@
 // by kind, never by workflow type, phase id, or transition. This is INV-6
 // (workload-agnosticism) made type-level: an obligation attaches to the *kind*,
 // so it composes across every workflow type — present and future — without new
-// playbook code. See `docs/designs/2026-06-16-phase-kind-binding.md` (DR-1).
+// playbook code. See `docs/designs/archive/2026-06-16-phase-kind-binding.md` (DR-1).
 //
 // INV-6 GUARD: no workflow names / phase ids / transitions here — only
 // kind-universal obligations. (The resolver wiring lives in later tasks.)
@@ -57,7 +57,8 @@ export type GateResolverName =
 // dimensions, and synthesis-readiness legs are different vocabularies — so they
 // are kept as distinct discriminated members rather than flattened into one
 // `GateName` namespace. The `family` tag makes downstream dispatch exhaustively
-// checkable (a missing arm is a compile error via the `assertNever` helper).
+// checkable — a `switch` over `family` narrows the remaining union to `never`,
+// so an unhandled family is a compile error.
 
 /**
  * Plan-structure gate names (PLAN kind). Sourced from `plan-depth-policy.ts`
@@ -95,15 +96,6 @@ export type ResolvedGate =
   | { readonly family: 'synthesis'; readonly gate: SynthesisLeg };
 
 export type { ReviewDimension };
-
-/**
- * Exhaustiveness guard for `ResolvedGate.family` dispatch: a `switch` over
- * `family` whose `default` calls `assertNever(g)` becomes a COMPILE error the
- * moment a new family is added without a handling arm.
- */
-export function assertNever(value: never): never {
-  throw new Error(`Unhandled ResolvedGate family: ${JSON.stringify(value)}`);
-}
 
 /**
  * Extract the ordered ladder `GateName` sequence from a resolved gate-set,
@@ -161,7 +153,7 @@ export const KIND_OBLIGATIONS = {
 export interface ResolveGateSetCtx {
   readonly riskTier: RiskTier;
   readonly boundaryTouching: boolean;
-  readonly config?: ResolvedProjectConfig;
+  readonly config?: ResolvedProjectConfig | undefined;
   /**
    * The workflow type of the phase being resolved (e.g. `'feature'`). The
    * REVIEW resolver keys its dimension roster off this (review dimensions vary

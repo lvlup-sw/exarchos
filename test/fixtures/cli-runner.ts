@@ -4,8 +4,8 @@ import { register, unregister } from './process-tracker.js';
 /**
  * Target-agnostic CLI invoker for the process-fidelity harness.
  *
- * Design: docs/designs/2026-04-19-process-fidelity-harness.md §5.3
- * v2.9 retarget: docs/designs/2026-05-05-e2e-v29-revisited.md
+ * Design: docs/designs/archive/2026-04-19-process-fidelity-harness.md §5.3
+ * v2.9 retarget: docs/designs/archive/2026-05-05-e2e-v29-revisited.md
  *
  * v2.9 collapsed the CLI surface into a single `exarchos` binary with
  * subcommands (e.g. `exarchos install-skills`, `exarchos version`,
@@ -68,8 +68,8 @@ const DEFAULT_TIMEOUT_MS = 30_000;
  * Tests that need to invoke another interpreter (e.g. `node -e '<script>'`)
  * pass `command` explicitly.
  *
- * Design: docs/designs/2026-04-19-process-fidelity-harness.md §5.3
- * v2.9 retarget: docs/designs/2026-05-05-e2e-v29-revisited.md
+ * Design: docs/designs/archive/2026-04-19-process-fidelity-harness.md §5.3
+ * v2.9 retarget: docs/designs/archive/2026-05-05-e2e-v29-revisited.md
  */
 export function runCli(opts: RunCliOpts): Promise<CliResult> {
   const {

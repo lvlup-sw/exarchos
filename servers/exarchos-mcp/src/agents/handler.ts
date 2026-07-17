@@ -46,8 +46,9 @@ function interpolatePrompt(
   let match: RegExpExecArray | null;
   const regex = new RegExp(TEMPLATE_VAR_PATTERN.source, 'g');
   while ((match = regex.exec(systemPrompt)) !== null) {
-    if (!unresolvedVars.includes(match[1])) {
-      unresolvedVars.push(match[1]);
+    const varName = match[1];
+    if (varName !== undefined && !unresolvedVars.includes(varName)) {
+      unresolvedVars.push(varName);
     }
   }
 

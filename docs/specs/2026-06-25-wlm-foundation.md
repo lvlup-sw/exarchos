@@ -1,7 +1,7 @@
 # Spec: Worktree Lifecycle Manager — Foundation (ownership + GC)
 
 **Date:** 2026-06-25 · **Feature:** `wlm-foundation` · **Depth:** standard
-**Inputs:** parent design [`docs/designs/2026-06-21-worktree-lifecycle-manager.md`](../designs/2026-06-21-worktree-lifecycle-manager.md) (DR-1/2/3, DR-6) · discovery [`docs/research/2026-06-21-treehouse-worktree-mining.md`](../research/2026-06-21-treehouse-worktree-mining.md) · roadmap epic #1574 (children #1575 WLM-1, #1576 WLM-2) · master tracker #1599 (Z2 / v2.12.0)
+**Inputs:** parent design [`docs/designs/archive/2026-06-21-worktree-lifecycle-manager.md`](../designs/archive/2026-06-21-worktree-lifecycle-manager.md) (DR-1/2/3, DR-6) · discovery [`docs/research/2026-06-21-treehouse-worktree-mining.md`](../research/2026-06-21-treehouse-worktree-mining.md) · roadmap epic #1574 (children #1575 WLM-1, #1576 WLM-2) · master tracker #1599 (Z2 / v2.12.0)
 
 > One unified artifact: `## Design & Rationale` is the DR-N source; `## Decomposition` (added by `/plan`) maps tasks → DR-N within this same document.
 >
@@ -20,11 +20,11 @@ The industry has converged on worktree-per-agent as the default isolation primit
 
 ### Chosen Approach
 
-**Approach A — event-sourced reconciler with on-demand ground-truth probe** (selected in the parent design over a periodic-scan supervisor and a guard-first MVP; see [parent §Approaches Considered](../designs/2026-06-21-worktree-lifecycle-manager.md#approaches-considered)).
+**Approach A — event-sourced reconciler with on-demand ground-truth probe** (selected in the parent design over a periodic-scan supervisor and a guard-first MVP; see [parent §Approaches Considered](../designs/archive/2026-06-21-worktree-lifecycle-manager.md#approaches-considered)).
 
 All durable worktree state is a **left-fold over a new `worktree.*` event family** (INV-1) — never a side file (rejecting treehouse's `treehouse-state.json`). Ownership is `{ownerPid, ownerStartedAt}` carried on `worktree.reserved`; `ownerStartedAt` (process create-time) defeats PID reuse, and "heal" is a **reconcile fold** — a reservation whose owner is provably dead is collapsed to `worktree.released` by a probe-fed event, not a mutating loop. Cross-process serialization reuses the existing **StreamLockManager + SQLite WAL** (INV-7) — *no `flock`, no PID lock file*. The GC is a **safety-ladder** (`prune_worktrees`) that defaults to dry-run and **fails closed** — it reports candidates and reclaimable bytes but deletes nothing it cannot prove is safe.
 
-This bundle is the design's own recommended first two slices ([parent Open Question 4](../designs/2026-06-21-worktree-lifecycle-manager.md#open-questions): *DR-1/3 events+ownership → DR-6 GC → …*). It is **gate-free** — independent of the #1316 lifecycle-verbs spike and the Z2 verbs track — which is why it can start now while the spike proceeds in parallel.
+This bundle is the design's own recommended first two slices ([parent Open Question 4](../designs/archive/2026-06-21-worktree-lifecycle-manager.md#open-questions): *DR-1/3 events+ownership → DR-6 GC → …*). It is **gate-free** — independent of the #1316 lifecycle-verbs spike and the Z2 verbs track — which is why it can start now while the spike proceeds in parallel.
 
 **This bundle delivers** the WLM-1 ownership substrate (DR-1/2/3) and the WLM-2 safe GC (DR-6), plus the minimal cross-cutting slices each needs: the surface for three composite actions (DR-10 slice), cross-platform process-identity + path containment (DR-11 slice), and the non-happy-path guarantees (DR-12 slice). It explicitly **defers** the full liveness protocol and process-cwd probe (DR-4/5, WLM-3 #1577 — gated on #1316 Q6), the merge serializer (DR-7/8, WLM-4), and capability-boundary enforcement (DR-9, WLM-5).
 
@@ -136,7 +136,7 @@ Covers the non-happy paths these two slices own. *(Required: at least one DR cov
 
 ### Technical Design
 
-**Module layout** (per [parent §Technical Design](../designs/2026-06-21-worktree-lifecycle-manager.md#technical-design)) — new `servers/exarchos-mcp/src/orchestrate/worktree/`:
+**Module layout** (per [parent §Technical Design](../designs/archive/2026-06-21-worktree-lifecycle-manager.md#technical-design)) — new `servers/exarchos-mcp/src/orchestrate/worktree/`:
 - `manager.ts` — in-process facade; the bundle's `acquire_worktree` / `release_worktree` / `prune_worktrees` / `worktrees` entry points fold behind it. **This bundle does NOT modify or absorb `setup-worktree.ts` / `worktree-baseref.ts` / `dispatch-guard.ts`** — `manager.ts` is introduced *alongside* them and only routes the four new actions. Folding those existing files behind the facade is the epic's larger consolidation and is **explicitly deferred** to a later WLM slice (it carries the blast radius of every existing worktree caller, out of scope here). No task in this bundle touches those three files.
 - `projections/worktrees.ts` — the `worktrees@v1` reducer (DR-1).
 - `pure/ownership.ts` — PID + create-time liveness check (DR-3), portable process source injected for tests (DR-11s).
@@ -146,7 +146,7 @@ Covers the non-happy paths these two slices own. *(Required: at least one DR cov
 
 **GC ladder.** `plan → reserve → re-verify → commit`: the ladder first computes a deletion plan (dry-run output), and on a real run re-verifies each candidate **under the stream lock** immediately before deletion (TOCTOU defense), so a worktree that became dirty/reserved between plan and commit is dropped from the set.
 
-**Invariants preserved:** INV-1 (state = event fold), INV-7 (StreamLockManager + WAL, no flock), INV-8 (idempotency keys), INV-14 (no `reset --hard` in any GC/recovery path), INV-5a/b/c/d + INV-2 (composite actions, schema-constrained, dry-run, parity), INV-15 (no daemon). Full conformance matrix: [parent §Invariant Conformance](../designs/2026-06-21-worktree-lifecycle-manager.md#invariant-conformance).
+**Invariants preserved:** INV-1 (state = event fold), INV-7 (StreamLockManager + WAL, no flock), INV-8 (idempotency keys), INV-14 (no `reset --hard` in any GC/recovery path), INV-5a/b/c/d + INV-2 (composite actions, schema-constrained, dry-run, parity), INV-15 (no daemon). Full conformance matrix: [parent §Invariant Conformance](../designs/archive/2026-06-21-worktree-lifecycle-manager.md#invariant-conformance).
 
 ### Integration Points
 
@@ -159,7 +159,7 @@ Covers the non-happy paths these two slices own. *(Required: at least one DR cov
 
 ### Alternatives considered
 
-Decided in the parent design ([§Approaches Considered](../designs/2026-06-21-worktree-lifecycle-manager.md#approaches-considered)); summarized for self-containment:
+Decided in the parent design ([§Approaches Considered](../designs/archive/2026-06-21-worktree-lifecycle-manager.md#approaches-considered)); summarized for self-containment:
 - **Option 2 — periodic-scan supervisor** (port treehouse `healState` as a reconcile loop). Rejected: it is *active polling*, which INV-10 explicitly replaces, and it trends toward a quasi-daemon (INV-15); scan-as-truth sits in tension with INV-1.
 - **Option 3 — guard-first MVP** (boundary enforcer + stateless GC, no durable ownership). Rejected as the *endpoint* but **retained as this bundle's spirit**: it is the natural first slice of Option A's roadmap. We take its fast safety-floor (the GC) but pair it with the durable, event-sourced ownership Option 3 lacks — so the foundation is holistic rather than a throwaway.
 

@@ -155,7 +155,7 @@ export function resolveCanonicalBlockPath(existsSync: (p: string) => boolean = f
   for (const candidate of candidates) {
     if (existsSync(candidate)) return candidate;
   }
-  return candidates[0];
+  return candidates[0]!;
 }
 
 /**

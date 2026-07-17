@@ -1,4 +1,4 @@
-// Source: docs/designs/2026-05-05-e2e-v29-revisited.md §4.2
+// Source: docs/designs/archive/2026-05-05-e2e-v29-revisited.md §4.2
 import { describe, it, expect, afterEach } from 'vitest';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';

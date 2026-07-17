@@ -9,6 +9,9 @@
  * - `changed` — paths present in both whose leaf value differs, mapped to
  *   `{ from, to }`.
  */
+
+// RESERVED(issue: #1475, owner: exarchos, expires: 2027-01-31) — reserved dead stub; deletion at expiry if unadopted (DR-7 module-intent gate)
+
 export interface StateDelta {
   added: Record<string, unknown>;
   removed: Record<string, unknown>;

@@ -16,7 +16,7 @@ import * as path from 'node:path';
 
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
-import { resolveWorkflowState } from './resolve-state.js';
+import { resolveOneshotState } from './oneshot-state.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -87,63 +87,23 @@ export async function handleRequestSynthesize(
       ? path.join(args.stateDir, `${featureId}.state.json`)
       : undefined);
 
-  const resolved = await resolveWorkflowState({
+  // Shared oneshot-state resolution + validation (DR-10): resolver-error
+  // translation, the empty-projection "no workflow exists" sentinel, and the
+  // oneshot workflow-type check all live in `resolveOneshotState`, matching
+  // `finalize-oneshot.ts`. The runtime phase guard below stays here — it
+  // differs (this action allows `plan` OR `implementing`).
+  const resolved = await resolveOneshotState({
     ...(stateFile !== undefined ? { stateFile } : {}),
     featureId,
     eventStore,
+    action: 'request_synthesize',
   });
 
-  if ('error' in resolved) {
-    // resolveWorkflowState returns NO_STATE_SOURCE when no source resolves;
-    // translate that into STATE_NOT_FOUND so the error taxonomy matches
-    // handleGet / cleanup / cancel.
-    const code = resolved.error.error?.code;
-    if (code === 'NO_STATE_SOURCE' || code === 'EVENT_STORE_ERROR') {
-      return {
-        success: false,
-        error: {
-          code: 'STATE_NOT_FOUND',
-          message: `State not found for feature: ${featureId}`,
-        },
-      };
-    }
+  if (!resolved.ok) {
     return resolved.error;
   }
 
   const state = resolved.state;
-  const workflowType = state.workflowType;
-
-  // The resolver falls back to the event-store projection when no state
-  // file exists, returning a zero-initialized view (`featureId: ''`,
-  // `createdAt: ''`, `workflowType: 'feature'`) even for feature IDs that
-  // have never emitted a single event. Treat the empty projection as
-  // "no workflow exists" so callers see a proper STATE_NOT_FOUND instead
-  // of tripping the downstream workflow-type check. Matches the sentinel
-  // used by `finalize-oneshot.ts`.
-  if (
-    state.workflowType === undefined ||
-    state.workflowType === null ||
-    state.createdAt === '' ||
-    state.featureId === ''
-  ) {
-    return {
-      success: false,
-      error: {
-        code: 'STATE_NOT_FOUND',
-        message: `State not found for feature: ${featureId}`,
-      },
-    };
-  }
-
-  if (workflowType !== 'oneshot') {
-    return {
-      success: false,
-      error: {
-        code: 'INVALID_WORKFLOW_TYPE',
-        message: `request_synthesize is only valid for oneshot workflows; got workflowType=${String(workflowType)}`,
-      },
-    };
-  }
 
   // Runtime phase guard. The registry layer gates this action at the MCP
   // tool boundary, but direct handler calls (e.g. from composite tests

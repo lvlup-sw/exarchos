@@ -394,7 +394,7 @@ function clearInFlightMerge(
   const operationId = extractString(event.data, 'operationId');
   if (!operationId) return state;
   const existing = state.inFlightMerges[integrationRef];
-  if (existing.operationId !== operationId) return state;
+  if (existing === undefined || existing.operationId !== operationId) return state;
   const nextInFlight: Record<string, InFlightMerge> = {};
   for (const [key, value] of Object.entries(state.inFlightMerges)) {
     if (key !== integrationRef) nextInFlight[key] = value;

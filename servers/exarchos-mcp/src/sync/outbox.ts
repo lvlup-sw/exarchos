@@ -17,7 +17,7 @@ export interface OutboxOptions {
 
 export class Outbox {
   private readonly locks = new Map<string, Promise<void>>();
-  private readonly backend?: StorageBackend;
+  private readonly backend?: StorageBackend | undefined;
 
   constructor(private readonly stateDir: string, options?: OutboxOptions) {
     this.backend = options?.backend;
@@ -134,8 +134,9 @@ export class Outbox {
   ): Promise<void> {
     const entries = await this.loadEntries(streamId);
     const index = entries.findIndex((e) => e.id === entryId);
-    if (index >= 0) {
-      entries[index] = { ...entries[index], ...updates };
+    const current = entries[index];
+    if (current !== undefined) {
+      entries[index] = { ...current, ...updates };
       await this.saveEntries(streamId, entries);
     }
   }
@@ -178,6 +179,7 @@ export class Outbox {
 
       for (const entry of pending) {
         const index = entries.findIndex((e) => e.id === entry.id);
+        const current = entries[index];
         try {
           await client.appendEvents(streamId, [
             {
@@ -196,9 +198,9 @@ export class Outbox {
             },
           ]);
 
-          if (index >= 0) {
+          if (current !== undefined) {
             entries[index] = {
-              ...entries[index],
+              ...current,
               status: 'confirmed',
               attempts: entry.attempts + 1,
               lastAttemptAt: new Date().toISOString(),
@@ -209,17 +211,17 @@ export class Outbox {
           const attempts = entry.attempts + 1;
           const maxRetries = 10;
 
-          if (index >= 0) {
+          if (current !== undefined) {
             if (attempts >= maxRetries) {
               entries[index] = {
-                ...entries[index],
+                ...current,
                 status: 'dead-letter',
                 error: err instanceof Error ? err.message : String(err),
                 lastAttemptAt: new Date().toISOString(),
               };
             } else {
               entries[index] = {
-                ...entries[index],
+                ...current,
                 attempts,
                 lastAttemptAt: new Date().toISOString(),
                 nextRetryAt: this.calculateNextRetry(attempts),

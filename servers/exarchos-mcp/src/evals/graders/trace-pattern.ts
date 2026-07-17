@@ -120,10 +120,8 @@ function countOrderedMatches(
   // Greedy ordered subsequence for simple patterns
   let patIdx = 0;
   for (const event of trace) {
-    if (
-      patIdx < simplePatterns.length &&
-      typeMatches(event.type, simplePatterns[patIdx].type)
-    ) {
+    const pat = simplePatterns[patIdx];
+    if (pat !== undefined && typeMatches(event.type, pat.type)) {
       patIdx++;
     }
   }

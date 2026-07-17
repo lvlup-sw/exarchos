@@ -47,8 +47,8 @@ the **manual/advanced** path for editing catalogs by hand or understanding the
 exact field shapes the verbs produce.
 
 - Wizard skill: `authoring-invariants` (entered via `/exarchos:invariants`).
-- Design: [`docs/designs/2026-05-25-invariants-authoring-wizard.md`](../designs/2026-05-25-invariants-authoring-wizard.md).
-- Plan: [`docs/plans/2026-05-25-invariants-authoring-wizard.md`](../plans/2026-05-25-invariants-authoring-wizard.md).
+- Design: [`docs/designs/archive/2026-05-25-invariants-authoring-wizard.md`](../designs/archive/2026-05-25-invariants-authoring-wizard.md).
+- Plan: [`docs/plans/archive/2026-05-25-invariants-authoring-wizard.md`](../plans/archive/2026-05-25-invariants-authoring-wizard.md).
 
 ## 0. The shipped SDLC baseline (default-on)
 
@@ -257,5 +257,5 @@ catalogs and reports a Warning that names the offending file or reserved id.
   new `.exarchos.yml` (see [§1](#1-register-a-catalog)).
 - `exarchos doctor` → `invariants-catalog` check — validates configured catalogs.
 - `invariants_effective` view — inspect the merged, projected catalog ([§5](#5-inspect-the-effective-catalog)).
-- Design: [`docs/designs/2026-05-23-invariants-projection-and-extensibility.md`](../designs/2026-05-23-invariants-projection-and-extensibility.md).
+- Design: [`docs/designs/archive/2026-05-23-invariants-projection-and-extensibility.md`](../designs/archive/2026-05-23-invariants-projection-and-extensibility.md).
 - Shipped catalog (worked examples of entries): [`.exarchos/invariants.md`](../../.exarchos/invariants.md).

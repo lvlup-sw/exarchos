@@ -9,14 +9,14 @@
  * substitution: every state transition is now an event, every state read is a
  * fold over the durable event log.
  *
- * ## Naming note (#1306 rename tracker)
+ * ## Naming note (#1306 rename / DR-2 retirement)
  *
- * This worktree's `event-store/schemas.ts` ships `merge.rollback` as the
- * canonical recovery event (the rename to `merge.recovered` is tracked
- * separately by #1306). The reducer's dispatcher handles `merge.rollback`
- * here; if/when #1306 lands, the case label switches alongside the schema.
- * The reducer's external contract (the `recovering` phase, the
- * {@link MergeRecoveryContext} field shape) does not change with the rename.
+ * `merge.recovered` is the canonical recovery event and, since DR-2 (task 006),
+ * the sole one emitted. The legacy `merge.rollback` is retired — read-tolerant-
+ * not-emittable — so the dispatcher below still handles it as a READER (old
+ * event logs replay identically), never as a live emission. The reducer's
+ * external contract (the `recovering` phase, the {@link MergeRecoveryContext}
+ * field shape) is identical whichever of the two event types folded it.
  *
  * ## Purity contract
  *
@@ -193,8 +193,9 @@ function applyMergeExecuted(
 }
 
 /**
- * Handler for `merge.rollback` (or post-#1306 `merge.recovered`) — `any →
- * recovering`. Captures the rollback reason + any reset-side error. Does NOT
+ * Handler for `merge.recovered` (and its read-tolerant legacy alias
+ * `merge.rollback`) — `any → recovering`. Captures the recovery reason + any
+ * reset-side error. Does NOT
  * overwrite earlier merge metadata; the recovery context is additive, and
  * downstream observability needs both the original merge identifiers and the
  * rollback rationale.
@@ -305,16 +306,15 @@ export const mergeOrchestratorReducer: ProjectionReducer<
         return applyMergeRequested(state, event);
       case 'merge.executed':
         return applyMergeExecuted(state, event);
-      // #1306 deprecation window — the recovery path DUAL-EMITS the canonical
-      // `merge.recovered` (emitted first) + the legacy `merge.rollback`. Fold
-      // BOTH into the `any → recovering` transition so the projection advances
-      // on whichever event lands. The two appends are NOT atomic: a concurrent
-      // writer between them (or a lost sequence race on the second) can leave a
-      // `merge.recovered`-only stream; keying the projection on the legacy
-      // second event alone would strand it at `executing` (Sentry review,
-      // #1571). Folding both is safe — `applyMergeRollback` sets
-      // `phase: 'recovering'` from any prior phase and the recovery context is
-      // identical across the pair. v2.12 (#1570) drops the `merge.rollback` case.
+      // DR-2 (task 006) — the recovery path now emits ONLY the canonical
+      // `merge.recovered`. The legacy `merge.rollback` case is KEPT (read
+      // tolerance): pre-DR-2 event logs that already contain `merge.rollback`
+      // (whether standalone or the second half of the old dual-emit) must still
+      // fold to the `any → recovering` transition, so old streams replay to
+      // identical state (INV-1). Folding both is safe and idempotent —
+      // `applyMergeRollback` sets `phase: 'recovering'` from any prior phase and
+      // the recovery context is identical across the pair. `merge.rollback` is
+      // read-tolerant-but-not-emittable: this case is a READER, never a writer.
       case 'merge.recovered':
       case 'merge.rollback':
         return applyMergeRollback(state, event);

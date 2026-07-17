@@ -103,8 +103,6 @@ describe('buildConfigDescription', () => {
 
   it('DescribeConfig_PruneDefaults_AllDefault', () => {
     const result = buildConfigDescription(DEFAULTS);
-    expect(result.prune.staleAfterDays.value).toBe(14);
-    expect(result.prune.staleAfterDays.source).toBe('default');
     expect(result.prune.maxBatchSize.value).toBe(25);
     expect(result.prune.requireDryRun.value).toBe(true);
     expect(result.prune.malformedHandling.value).toBe('report');
@@ -112,12 +110,22 @@ describe('buildConfigDescription', () => {
   });
 
   it('DescribeConfig_PruneOverride_ShowsSource', () => {
-    const config = resolveConfig({ prune: { 'stale-after-days': 7 } });
+    const config = resolveConfig({ prune: { 'max-batch-size': 7 } });
     const result = buildConfigDescription(config);
 
-    expect(result.prune.staleAfterDays.value).toBe(7);
-    expect(result.prune.staleAfterDays.source).toBe('.exarchos.yml');
-    expect(result.prune.maxBatchSize.source).toBe('default');
+    expect(result.prune.maxBatchSize.value).toBe(7);
+    expect(result.prune.maxBatchSize.source).toBe('.exarchos.yml');
+    expect(result.prune.requireDryRun.source).toBe('default');
+  });
+
+  it('DescribeConfig_StaleAfterDaysRemoved_OmitsAnnotatedField', () => {
+    // DR-9: the removed `staleAfterDays` knob must no longer appear in the
+    // annotated config description — the surface disappears with the config
+    // field, not just the value.
+    const result = buildConfigDescription(DEFAULTS);
+    expect('staleAfterDays' in result.prune).toBe(false);
+    // Surviving prune knobs are still annotated.
+    expect('maxBatchSize' in result.prune).toBe(true);
   });
 
   it('DescribeConfig_CheckpointDefaults_AllDefault', () => {

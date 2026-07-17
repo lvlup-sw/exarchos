@@ -509,10 +509,10 @@ export function burstStaggerDelayMs(
  */
 export async function burstStagger(
   options: {
-    readonly sleep?: SleepFn;
-    readonly jitter?: JitterFn;
-    readonly minMs?: number;
-    readonly maxMs?: number;
+    readonly sleep?: SleepFn | undefined;
+    readonly jitter?: JitterFn | undefined;
+    readonly minMs?: number | undefined;
+    readonly maxMs?: number | undefined;
   } = {},
 ): Promise<number> {
   const sleep = options.sleep ?? defaultSleep;

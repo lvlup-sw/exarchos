@@ -285,7 +285,9 @@ async function findOrphanedWorktreeRemoveOnStream(
     executed.map((e) => (e.data as unknown as WorktreeRemoveExecutedData).operationId),
   );
   for (let i = requested.length - 1; i >= 0; i -= 1) {
-    const data = requested[i].data as unknown as WorktreeRemoveRequestedData;
+    const entry = requested[i];
+    if (entry === undefined) continue;
+    const data = entry.data as unknown as WorktreeRemoveRequestedData;
     if (executedOps.has(data.operationId)) continue;
     if (data.worktreePath === worktreePath) return data.operationId;
   }
@@ -457,7 +459,9 @@ async function recoverBranchDeleteOperationId(
     executed.map((e) => (e.data as unknown as BranchDeleteExecutedData).operationId),
   );
   for (let i = requested.length - 1; i >= 0; i -= 1) {
-    const data = requested[i].data as unknown as BranchDeleteRequestedData;
+    const entry = requested[i];
+    if (entry === undefined) continue;
+    const data = entry.data as unknown as BranchDeleteRequestedData;
     if (executedOps.has(data.operationId)) continue;
     if (data.branch === branch) return data.operationId;
   }
@@ -502,7 +506,7 @@ export interface SkippedWorktreeTeardown {
 export interface CompensationOptions {
   readonly dryRun: boolean;
   readonly stateDir?: string;
-  readonly checkpoint?: CompensationCheckpoint;
+  readonly checkpoint?: CompensationCheckpoint | undefined;
   /** External event store for emitting two-event-split audit events (B4/B5). */
   readonly eventStore?: EventStore;
   /** Feature ID (stream ID) for event store appends. Required when eventStore is set. */

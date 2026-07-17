@@ -174,7 +174,7 @@ interface HostSettings {
     SessionEnd?: HookGroup[];
     SubagentStop?: HookGroup[];
     [event: string]: unknown;
-  };
+  } | undefined;
   [key: string]: unknown;
 }
 
@@ -242,12 +242,6 @@ function hasBinding(settings: HostSettings, event: HookEventName, marker: string
     }
   }
   return false;
-}
-
-/** Does any SessionStart command hook already reference the exarchos binding?
- * Retained as the SessionStart-specific predicate the doctor check mirrors. */
-export function hasExarchosBinding(settings: HostSettings): boolean {
-  return hasBinding(settings, 'SessionStart', SESSION_START_MARKER);
 }
 
 /**

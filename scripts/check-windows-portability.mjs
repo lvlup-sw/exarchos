@@ -120,6 +120,15 @@ const DYNAMIC_SPAWN_RE = /\b(?:execFile|execFileSync|spawn|spawnSync)\s*\(\s*[A-
 // The shell-aware spawn helpers legitimately call raw execFile/spawn with a
 // variable bin — that is their whole job. Exempt only this file.
 const SPAWN_HELPER_RE = /utils[/\\]process\.ts$/;
+// CI/build tooling under `scripts/` is NOT shipped runtime — it runs only on the
+// ubuntu CI host, and the audit gates that shell out a tool (knip-diff /
+// cycle-gate → `node_modules/.bin/*`) DEGRADE-TO-FAIL-CLOSED on a spawn error
+// (incl. win32, where Node can't exec a `.cmd`/`.ps1` shim directly): a spawn
+// failure returns `found:false` → the gate fails closed rather than mis-running.
+// So the dynamic-bin rule (rule 4), whose own scope is "Production files only",
+// does not apply to these. Rule 2 (url-pathname) is a genuine cross-platform
+// path bug and STILL applies to tooling.
+const CI_TOOLING_RE = /^scripts[/\\]/;
 
 function main() {
   const args = parseArgs(process.argv.slice(2));
@@ -159,6 +168,9 @@ function main() {
     // tests they may spawn a bin (the running `node` via process.execPath) the
     // shipped code wouldn't, so they're exempt from the dynamic-spawn rule.
     const isBench = /\.bench\.ts$/.test(file);
+    // CI/build tooling under scripts/ is exempt from the dynamic-spawn rule for
+    // the same reason as benches (dev/CI-only, fail-closed on spawn error).
+    const isCiTooling = CI_TOOLING_RE.test(path.relative(REPO_ROOT, file));
 
     // 2 — non-portable module path (anywhere)
     for (const m of src.matchAll(URL_PATHNAME_RE)) {
@@ -170,8 +182,9 @@ function main() {
       for (const m of src.matchAll(SPAWN_RE)) {
         record(file, raw, m.index, 'spawn-shim: route npm/npx via runCommandSync');
       }
-      // 4 — dynamic-bin spawn (production only; the spawn helper + benches exempt)
-      if (!SPAWN_HELPER_RE.test(file) && !isBench) {
+      // 4 — dynamic-bin spawn (production only; the spawn helper + benches +
+      // fail-closed CI tooling under scripts/ exempt)
+      if (!SPAWN_HELPER_RE.test(file) && !isBench && !isCiTooling) {
         for (const m of src.matchAll(DYNAMIC_SPAWN_RE)) {
           record(
             file,

@@ -90,7 +90,7 @@ export interface ResolveWorkspaceOpts {
    * removed). Optional: CLI/legacy callers that omit it fall back to the
    * file scan.
    */
-  readonly storage?: StorageBackend;
+  readonly storage?: StorageBackend | undefined;
 }
 
 // ─── Pure detector ──────────────────────────────────────────────────────────
@@ -187,7 +187,7 @@ async function deriveFeatureId(
     .filter((e) => e.endsWith('.state.json'))
     .sort();
   if (stateFiles.length === 0) return undefined;
-  return stateFiles[0].replace(/\.state\.json$/, '');
+  return stateFiles[0]?.replace(/\.state\.json$/, '');
 }
 
 /**
@@ -312,7 +312,7 @@ export async function resolveWorkspace(
     }
 
     if (matches.length === 1) {
-      const m = matches[0];
+      const m = matches[0]!;
       await emitResolved(eventStore, {
         source: 'roots',
         path: m.path,

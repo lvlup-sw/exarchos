@@ -122,7 +122,7 @@ function invalidInput(
 }
 
 /** Read `{ from, to }` off a transition-carrying event, tolerating loose data. */
-function transitionEnds(event: WorkflowEvent): { from?: string; to?: string } {
+function transitionEnds(event: WorkflowEvent): { from?: string | undefined; to?: string | undefined } {
   const data = event.data as Record<string, unknown> | undefined;
   const from = typeof data?.from === 'string' ? data.from : undefined;
   const to = typeof data?.to === 'string' ? data.to : undefined;
@@ -465,7 +465,7 @@ function selectAxis(args: Record<string, unknown>): { axis: PredicateAxis } | { 
       ),
     };
   }
-  return { axis: present[0] };
+  return { axis: present[0]! };
 }
 
 /** Zod-field parse that treats empty/absent as "not provided". */
@@ -559,7 +559,7 @@ export async function handleViewWait(
   }
   // The precheck head: the subscription seeds its cursor here so the gap between
   // this fold and registration is closed by the initial drain (no missed event).
-  const headSequence = events[events.length - 1].sequence;
+  const headSequence = events[events.length - 1]?.sequence ?? 0;
 
   // ── Build the predicate (operation gates its surface here) ───────────────────
   let predicate: Predicate;

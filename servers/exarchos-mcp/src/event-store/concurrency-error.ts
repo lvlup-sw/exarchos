@@ -19,7 +19,7 @@
  * pattern-match by `err.name` without importing the class — useful for
  * loose-coupling at the retry boundary.
  *
- * Per design `docs/designs/2026-05-10-v2-10-0-preview-2-marten-primitives.md`
+ * Per design `docs/designs/archive/2026-05-10-v2-10-0-preview-2-marten-primitives.md`
  * §"ConcurrencyError envelope" — the `wrap()` boundary maps this to
  * `CONCURRENCY_CONFLICT` with `validTargets: ['retry']` (INV-5b).
  */
@@ -34,7 +34,7 @@ export interface ConcurrencyErrorOptions {
    * downstream observers can correlate retries back to the originating
    * command id.
    */
-  readonly operationId?: string;
+  readonly operationId?: string | undefined;
 }
 
 export class ConcurrencyError extends Error {
@@ -42,7 +42,7 @@ export class ConcurrencyError extends Error {
   readonly reducerId: string;
   readonly expectedVersion: number;
   readonly actualVersion: number;
-  readonly operationId?: string;
+  readonly operationId?: string | undefined;
 
   constructor(opts: ConcurrencyErrorOptions) {
     super(

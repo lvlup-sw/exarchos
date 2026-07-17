@@ -23,7 +23,7 @@ import type {
   GetPrCommentsOptions,
   PrCommentsPage,
 } from './provider.js';
-import { windowPrComments } from './provider.js';
+import { windowPrComments, computeOverallCiStatus } from './provider.js';
 import { exec } from './shell.js';
 
 // `gh pr checks --json` fields. The `gh` CLI dropped the legacy `conclusion`
@@ -124,16 +124,6 @@ function mapState(state: string): CiCheck['status'] {
     default:
       return 'pending';
   }
-}
-
-function computeOverallCiStatus(checks: readonly CiCheck[]): CiStatus['status'] {
-  const hasFailure = checks.some((c) => c.status === 'fail');
-  if (hasFailure) return 'fail';
-
-  const hasPending = checks.some((c) => c.status === 'pending');
-  if (hasPending) return 'pending';
-
-  return 'pass';
 }
 
 function mapReviewState(ghState: string): ReviewerStatus['state'] {
@@ -560,7 +550,7 @@ export class GitHubProvider implements VcsProvider {
     if (!match) {
       throw new Error(`Failed to parse issue number from gh output: ${url}`);
     }
-    return { url, number: parseInt(match[1], 10) };
+    return { url, number: parseInt(match[1] ?? '0', 10) };
   }
 
   async searchIssuesByMarker(operationId: string): Promise<IssueSearchSummary[]> {

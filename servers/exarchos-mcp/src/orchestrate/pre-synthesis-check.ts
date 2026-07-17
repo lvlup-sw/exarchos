@@ -280,6 +280,7 @@ function checkReviewsPassed(
 
   for (const key of keys) {
     const entry = reviews[key];
+    if (entry === undefined) continue;
 
     if (typeof entry['status'] === 'string') {
       // Flat shape

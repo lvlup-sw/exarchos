@@ -11,7 +11,8 @@
         "src/install-skills.ts",
         "src/skills-guard.ts",
         "src/placeholder-lint.ts",
-        "scripts/*.test.ts",
+        "scripts/audit/knip-diff.ts",
+        "scripts/**/*.test.ts",
         "test/**/*.test.ts"
       ],
       "project": [
@@ -35,9 +36,6 @@
       ],
       "project": [
         "src/**/*.ts"
-      ],
-      "ignore": [
-        "src/telemetry/benchmarks/helpers.ts"
       ],
       "ignoreDependencies": [
         "patch-package",

@@ -11,6 +11,8 @@
  * The canonical command list is hardcoded from the known exarchos commands.
  */
 
+// RESERVED(issue: #1590, owner: exarchos, expires: 2027-01-31) — reserved dead stub; deletion at expiry if unadopted; see also #1609 (DR-7 module-intent gate)
+
 import { join } from 'node:path';
 import { toPosix } from '../utils/paths.js';
 import { promises as nodeFs } from 'node:fs';
@@ -84,12 +86,12 @@ export const COMMAND_DESCRIPTIONS: Record<string, string> = {
   tag: 'Retroactively attribute the current session to a feature, project, or concern',
 };
 
-export const CANONICAL_COMMANDS: readonly CommandMapping[] = Object.keys(
+export const CANONICAL_COMMANDS: readonly CommandMapping[] = Object.entries(
   COMMAND_DESCRIPTIONS,
-).map((name) => ({
+).map(([name, description]) => ({
   name,
   skill: `exarchos:${name}`,
-  description: COMMAND_DESCRIPTIONS[name],
+  description,
 }));
 
 // ─── Default fs ─────────────────────────────────────────────────────────────

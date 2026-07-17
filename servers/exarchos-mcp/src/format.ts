@@ -113,7 +113,7 @@ export interface ToolResult {
  * `Envelope<T>` in tasks T036–T039; `next_actions` population
  * lands in T040/T041.
  *
- * Design: docs/designs/2026-04-23-rehydrate-foundation.md (envelope wrapping)
+ * Design: docs/designs/archive/2026-04-23-rehydrate-foundation.md (envelope wrapping)
  */
 export interface Envelope<T> {
   readonly success: boolean;
@@ -350,7 +350,7 @@ export interface ErrorEnvelope {
  * audit (§F2.1) flagged the conflation of these two failure modes as a
  * blocker for the migration.
  *
- * Per design `docs/designs/2026-05-10-v2-10-0-preview-2-marten-primitives.md`
+ * Per design `docs/designs/archive/2026-05-10-v2-10-0-preview-2-marten-primitives.md`
  * §"ConcurrencyError envelope" and §"StorageBusyError envelope".
  *
  * Unknown error types fall through to a generic shape with
@@ -443,7 +443,7 @@ export function wrapError(
 /**
  * Bridge a dispatch-core {@link ToolResult} to the carrier-bound
  * {@link Envelope} | {@link ErrorEnvelope} shape (design
- * `docs/designs/2026-05-13-wave-0-carrier-swap.md` §2.3).
+ * `docs/designs/archive/2026-05-13-wave-0-carrier-swap.md` §2.3).
  *
  * Why this lives alongside (rather than replacing) `wrap` / `wrapError`:
  *
@@ -616,12 +616,14 @@ export function pickFields<T extends Record<string, unknown>>(obj: T, fields: st
         let target = result;
         for (let i = 0; i < segments.length - 1; i++) {
           const seg = segments[i];
+          if (seg === undefined) continue;
           if (!Object.hasOwn(target, seg) || typeof target[seg] !== 'object' || target[seg] === null) {
             target[seg] = Object.create(null);
           }
           target = target[seg] as Record<string, unknown>;
         }
-        target[segments[segments.length - 1]] = source;
+        const lastSeg = segments[segments.length - 1];
+        if (lastSeg !== undefined) target[lastSeg] = source;
       }
     }
   }

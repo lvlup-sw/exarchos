@@ -136,5 +136,5 @@ Because steps 2-4 are shared, the facades are equal by construction. CI enforces
 
 - [Platform Portability](/architecture/platform-portability) -- adapter layer details and path resolution
 - [Architecture Overview](/architecture/) -- system components and transport layers
-- [Design document](https://github.com/lvlup-sw/exarchos/blob/main/docs/designs/2026-04-14-cli-vs-mcp-facade-analysis.md) -- full analysis of the three options considered
+- [Design document](https://github.com/lvlup-sw/exarchos/blob/main/docs/designs/archive/2026-04-14-cli-vs-mcp-facade-analysis.md) -- full analysis of the three options considered
 - [#1081](https://github.com/lvlup-sw/exarchos/issues/1081) -- remote MCP deployment tracking issue

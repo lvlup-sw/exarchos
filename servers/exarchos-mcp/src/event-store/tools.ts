@@ -155,14 +155,14 @@ export async function handleEventAppend(
         const validatedEvent = buildValidatedEvent(args.stream, 1, {
           type: eventType,
           data: persistedData,
-          correlationId: args.event.correlationId as string | undefined,
-          causationId: args.event.causationId as string | undefined,
-          agentId: args.event.agentId as string | undefined,
-          agentRole: args.event.agentRole as string | undefined,
-          tenantId: args.event.tenantId as string | undefined,
-          organizationId: args.event.organizationId as string | undefined,
-          source: args.event.source as string | undefined,
-          timestamp: args.event.timestamp as string | undefined,
+          ...(args.event.correlationId !== undefined ? { correlationId: args.event.correlationId as string } : {}),
+          ...(args.event.causationId !== undefined ? { causationId: args.event.causationId as string } : {}),
+          ...(args.event.agentId !== undefined ? { agentId: args.event.agentId as string } : {}),
+          ...(args.event.agentRole !== undefined ? { agentRole: args.event.agentRole as string } : {}),
+          ...(args.event.tenantId !== undefined ? { tenantId: args.event.tenantId as string } : {}),
+          ...(args.event.organizationId !== undefined ? { organizationId: args.event.organizationId as string } : {}),
+          ...(args.event.source !== undefined ? { source: args.event.source as string } : {}),
+          ...(args.event.timestamp !== undefined ? { timestamp: args.event.timestamp as string } : {}),
         });
         const event = await store.appendValidated(
           args.stream,
@@ -213,15 +213,15 @@ export async function handleEventAppend(
     // Sequence 1 is a placeholder — appendValidated overwrites it with the real sequence
     const validatedEvent = buildValidatedEvent(args.stream, 1, {
       type: eventType,
-      data: args.event.data as Record<string, unknown> | undefined,
-      correlationId: args.event.correlationId as string | undefined,
-      causationId: args.event.causationId as string | undefined,
-      agentId: args.event.agentId as string | undefined,
-      agentRole: args.event.agentRole as string | undefined,
-      tenantId: args.event.tenantId as string | undefined,
-      organizationId: args.event.organizationId as string | undefined,
-      source: args.event.source as string | undefined,
-      timestamp: args.event.timestamp as string | undefined,
+      ...(args.event.data !== undefined ? { data: args.event.data as Record<string, unknown> } : {}),
+      ...(args.event.correlationId !== undefined ? { correlationId: args.event.correlationId as string } : {}),
+      ...(args.event.causationId !== undefined ? { causationId: args.event.causationId as string } : {}),
+      ...(args.event.agentId !== undefined ? { agentId: args.event.agentId as string } : {}),
+      ...(args.event.agentRole !== undefined ? { agentRole: args.event.agentRole as string } : {}),
+      ...(args.event.tenantId !== undefined ? { tenantId: args.event.tenantId as string } : {}),
+      ...(args.event.organizationId !== undefined ? { organizationId: args.event.organizationId as string } : {}),
+      ...(args.event.source !== undefined ? { source: args.event.source as string } : {}),
+      ...(args.event.timestamp !== undefined ? { timestamp: args.event.timestamp as string } : {}),
     });
 
     // Append without re-validating (already validated above)
@@ -293,15 +293,16 @@ export async function handleBatchAppend(
 
   // Validate all events have a type and no misplaced fields
   for (let i = 0; i < args.events.length; i++) {
-    const eventType = args.events[i]?.type as EventType | undefined;
-    if (!eventType) {
+    const event = args.events[i];
+    const eventType = event?.type as EventType | undefined;
+    if (!eventType || event === undefined) {
       return {
         success: false,
         error: { code: 'INVALID_INPUT', message: `events[${i}].type is required` },
       };
     }
 
-    const misplaced = detectMisplacedFields(args.events[i]);
+    const misplaced = detectMisplacedFields(event);
     if (misplaced.length > 0) {
       return {
         success: false,
@@ -406,9 +407,10 @@ export async function handleBatchAppend(
     .map((e) => e.idempotencyKey as string | undefined)
     .filter((k): k is string => typeof k === 'string');
   let batchIdempotencyKey: string;
-  if (perEventKeys.length === dedupedEvents.length && perEventKeys.length > 0) {
-    const allSame = perEventKeys.every((k) => k === perEventKeys[0]);
-    batchIdempotencyKey = allSame ? perEventKeys[0] : `batch:${randomUUID()}`;
+  const firstKey = perEventKeys[0];
+  if (perEventKeys.length === dedupedEvents.length && perEventKeys.length > 0 && firstKey !== undefined) {
+    const allSame = perEventKeys.every((k) => k === firstKey);
+    batchIdempotencyKey = allSame ? firstKey : `batch:${randomUUID()}`;
   } else {
     batchIdempotencyKey = `batch:${randomUUID()}`;
   }
@@ -444,7 +446,7 @@ export async function handleBatchAppend(
     ? result.persistedEvents.map((e, i) =>
         toEventAck({
           streamId: args.stream,
-          sequence: result.sequences[i],
+          sequence: result.sequences[i]!,
           type: e.type,
         }),
       )
@@ -452,7 +454,7 @@ export async function handleBatchAppend(
         toEventAck({
           streamId: args.stream,
           sequence,
-          type: validatedEvents[i].type,
+          type: validatedEvents[i]!.type,
         }),
       );
   return { success: true, data: acks };

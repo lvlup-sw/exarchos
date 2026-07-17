@@ -2,7 +2,11 @@ import type { ViewProjection } from './materializer.js';
 import type { WorkflowEvent, EventType } from '../event-store/schemas.js';
 import { isBuiltInEventType } from '../event-store/schemas.js';
 import { getInitialPhase, isBuiltInWorkflowType } from '../workflow/state-machine.js';
-import { isPlainObject, applyDotPath, StateStoreError } from '../workflow/state-store.js';
+// State-mutation primitives imported from the shared LEAF module, not from
+// `state-store.ts` (DR-4, task 009). `state-store.ts` value-imports THIS
+// projection's `apply` for `reconcileFromEvents`; importing these helpers from
+// the leaf keeps that a one-way edge instead of a runtime import cycle.
+import { isPlainObject, applyDotPath, StateStoreError } from '../workflow/state-mutation.js';
 import { ErrorCode } from '../workflow/schemas.js';
 import type { DesignDepth } from '../workflow/plan-depth-policy.js';
 
@@ -67,7 +71,8 @@ export interface WorkflowStateView {
   designDepth?: DesignDepth;
   /**
    * Terminal merge-orchestrator state (#1504/#1554). Folded from the
-   * `merge.preflight` / `merge.executed` / `merge.rollback` events, mirroring
+   * `merge.preflight` / `merge.executed` / `merge.recovered` (and legacy
+   * `merge.rollback`) events, mirroring
    * the file-path `applyEventToState` (state-store.ts) so `resolveWorkflowState`
    * reconstructs the block instead of silently dropping it. `undefined` until
    * the first terminal merge event is folded (matches the file's
@@ -83,12 +88,12 @@ interface MergeOrchestratorView {
   sourceBranch?: string;
   targetBranch?: string;
   taskId?: string;
-  strategy?: 'squash' | 'rebase' | 'merge';
+  strategy?: 'squash' | 'rebase' | 'merge' | undefined;
   rollbackSha?: string;
   mergeSha?: string;
-  reason?: 'merge-failed' | 'verification-failed' | 'timeout';
+  reason?: 'merge-failed' | 'verification-failed' | 'timeout' | undefined;
   rollbackError?: string;
-  recoveryError?: 'reset-keep-blocked' | 'reset-failed' | 'unexpected-mid-merge-drift';
+  recoveryError?: 'reset-keep-blocked' | 'reset-failed' | 'unexpected-mid-merge-drift' | undefined;
   abortReason?: string;
   preflight?: unknown;
   [key: string]: unknown;
@@ -112,8 +117,8 @@ interface TaskEntry {
   id: string;
   title: string;
   status: string;
-  branch?: string;
-  worktreePath?: string;
+  branch?: string | undefined;
+  worktreePath?: string | undefined;
   completedAt?: string;
   [key: string]: unknown;
 }
@@ -140,7 +145,9 @@ function updateTask(
   if (idx < 0) return view;
 
   const updatedTasks = [...view.tasks];
-  updatedTasks[idx] = updater(updatedTasks[idx]);
+  const existing = updatedTasks[idx];
+  if (existing === undefined) return view;
+  updatedTasks[idx] = updater(existing);
   return { ...view, tasks: updatedTasks };
 }
 
@@ -606,8 +613,9 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       case 'merge.recovered': {
         // #1306 successor to merge.rollback — same logical fold, reading the
         // renamed event fields (recoveryPointSha / recoveryErrorDetail) onto the
-        // existing view fields. Dual-emitted alongside merge.rollback during the
-        // v2.11.x deprecation window; folding both is idempotent (same view).
+        // existing view fields. Since DR-2 (task 006) this is the sole emitted
+        // recovery terminal; the merge.rollback case above is retained only to
+        // fold legacy logs, and folding both is idempotent (same view).
         const data = event.data as Record<string, unknown> | undefined;
         if (!data) return view;
         return {

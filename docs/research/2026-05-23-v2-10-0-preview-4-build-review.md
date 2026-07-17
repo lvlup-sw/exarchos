@@ -37,7 +37,7 @@ The substrate bundle is the user-visible feature increment. The epic-#1441 polis
 
 ## 2. Workstream A — Feature-freeze bundle (substrate)
 
-The reference design [`docs/designs/2026-05-15-v2-10-0-preview-4-feature-freeze.md`](../designs/2026-05-15-v2-10-0-preview-4-feature-freeze.md) clusters 11 issues into 4 waves. All 11 closed; every wave landed on main.
+The reference design [`docs/designs/archive/2026-05-15-v2-10-0-preview-4-feature-freeze.md`](../designs/archive/2026-05-15-v2-10-0-preview-4-feature-freeze.md) clusters 11 issues into 4 waves. All 11 closed; every wave landed on main.
 
 ### Wave A — Output contract completion
 
@@ -259,7 +259,7 @@ Preview.4 ships these net-new architectural commitments:
 ## 10. Source documents
 
 ### Designs
-- `docs/designs/2026-05-15-v2-10-0-preview-4-feature-freeze.md` — substrate bundle design
+- `docs/designs/archive/2026-05-15-v2-10-0-preview-4-feature-freeze.md` — substrate bundle design
 - `docs/designs/2026-05-15-v2-10-0-preview-4-feature-freeze.sidecar.yml` — gates sidecar
 - `docs/designs/2026-05-16-correlation-indexed-columns.md` — #1447 design
 - `docs/designs/2026-05-16-correlation-consumer-wiring.md` — #1449 design

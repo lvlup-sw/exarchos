@@ -75,8 +75,8 @@ export interface FieldMeta {
   name: string;
   type: 'string' | 'number' | 'boolean' | 'enum' | 'array' | 'object' | 'unknown';
   required: boolean;
-  description?: string;
-  enumValues?: string[];
+  description?: string | undefined;
+  enumValues?: string[] | undefined;
 }
 
 // ─── Schema Shape Extraction ────────────────────────────────────────────────

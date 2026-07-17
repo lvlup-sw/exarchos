@@ -18,7 +18,7 @@
  * obtain-paths exist at any given commit — preserve sequence integrity.
  *
  * Rationale: `docs/rca/2026-04-26-v29-event-projection-cluster.md`,
- * `docs/plans/2026-04-26-eventstore-constructor-injection.md`.
+ * `docs/plans/archive/2026-04-26-eventstore-constructor-injection.md`.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';

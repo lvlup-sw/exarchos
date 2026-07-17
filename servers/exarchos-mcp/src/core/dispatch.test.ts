@@ -470,6 +470,82 @@ describe('dispatch', () => {
     });
   });
 
+  // ─── DR-9 (#1334): removed prune knob — actionable rejection on the REAL ────
+  // dispatch seam. This is the ARBITER for the fix: it exercises the same
+  // `dispatch()` path a real MCP/CLI caller travels (per-action Zod validation
+  // at core/dispatch.ts), not a direct handler call casting past the type
+  // boundary. Pre-fix the prune action schema was a plain `z.object` that
+  // SILENTLY STRIPPED `thresholdMinutes`, so `parsed.data` reached the handler
+  // without it — a silent accept. The schema is now
+  // `.passthrough().superRefine(...)`, so the removed knob draws an ACTIONABLE
+  // removal error here, before the handler ever runs.
+  describe('DR-9 prune removed-knob rejection (real dispatch seam)', () => {
+    it('Dispatch_PruneLegacyThresholdMinutes_ActionableRemovalError', async () => {
+      const { dispatch } = await import('./dispatch.js');
+
+      const result = await dispatch(
+        'exarchos_orchestrate',
+        {
+          action: 'prune_stale_workflows',
+          dryRun: true,
+          // Legacy REMOVED knob (DR-9). A real caller reaches this through
+          // `dispatch()`; the parse must fail BEFORE the handler runs.
+          thresholdMinutes: 60,
+        },
+        { stateDir: tmpDir, eventStore, enableTelemetry: false },
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('INVALID_INPUT');
+      // The actionable message names the removed knob, the deprecation lineage
+      // (#1334), the removal marker (DR-9), and the real config surface
+      // (`topology.yaml`) — NOT an opaque `unrecognized_keys`.
+      const message = result.error?.message ?? '';
+      expect(message).toContain('thresholdMinutes');
+      expect(message).toContain('#1334');
+      expect(message).toContain('DR-9');
+      expect(message).toContain('topology.yaml');
+    });
+
+    it('Dispatch_PruneValidArgs_NotRejectedByRemovedKnobGuard', async () => {
+      // Premise guard: the surviving prune options still parse — the
+      // passthrough+refine mechanism must not reject valid callers. The handler
+      // may still fail on missing fixtures, but NOT with an INVALID_INPUT that
+      // mentions the removed-knob message.
+      const { dispatch } = await import('./dispatch.js');
+
+      const result = await dispatch(
+        'exarchos_orchestrate',
+        { action: 'prune_stale_workflows', dryRun: true, includeOneShot: false },
+        { stateDir: tmpDir, eventStore, enableTelemetry: false },
+      );
+
+      if (!result.success) {
+        expect(result.error?.message ?? '').not.toContain('was removed (DR-9)');
+      }
+    });
+
+    it('Dispatch_PruneNowOverride_ReachesHandlerClockValidation', async () => {
+      // `now` is a test-only ISO clock override the handler reads + validates.
+      // It is a passthrough key (PRUNE_ACTION_KNOWN_KEYS), NOT part of the
+      // schema shape, so the passthrough+superRefine seam must let it reach the
+      // handler rather than rejecting it as unrecognized. Proven by the
+      // HANDLER's ISO-validation error firing — not a schema rejection.
+      const { dispatch } = await import('./dispatch.js');
+
+      const result = await dispatch(
+        'exarchos_orchestrate',
+        { action: 'prune_stale_workflows', dryRun: true, now: 'not-a-date' },
+        { stateDir: tmpDir, eventStore, enableTelemetry: false },
+      );
+
+      expect(result.success).toBe(false);
+      const message = result.error?.message ?? '';
+      expect(message).toContain('now must be a valid ISO datetime string');
+      expect(message).not.toContain('unrecognized');
+    });
+  });
+
   describe('doctor action wiring', () => {
     it('Dispatch_ExarchosOrchestrateDoctor_RoutesToOrchestrateCompositeAndReturnsValidDoctorOutput', async () => {
       // Arrange
@@ -503,7 +579,7 @@ describe('dispatch', () => {
 
   // ─── T-12: session.machinery_consumed dispatch interceptor ─────────────────
   //
-  // Plan: docs/plans/2026-05-08-rehydration-machinery-plan.md (T-12)
+  // Plan: docs/plans/archive/2026-05-08-rehydration-machinery-plan.md (T-12)
   // Design: docs/research/2026-05-08-rehydrate-machinery-reinit.md §11.4 (P4)
   //
   // After a `workflow.rehydrated` event lands at sequence S on stream X, the
@@ -778,7 +854,7 @@ describe('dispatch', () => {
 
   // ─── T-13: session.machinery_consumed idempotency property ─────────────────
   //
-  // Plan: docs/plans/2026-05-08-rehydration-machinery-plan.md (T-13)
+  // Plan: docs/plans/archive/2026-05-08-rehydration-machinery-plan.md (T-13)
   // Design: docs/research/2026-05-08-rehydrate-machinery-reinit.md §11.4 (P4)
   //
   // Formalises the contract that T-12 implements:

@@ -55,6 +55,10 @@ jobs:
               - 'rules/**'
               - 'evals/**'
               - 'servers/exarchos-mcp/src/evals/**'
+              # Opt-in eval package (DR-3): owns the promptfoo dep the graders
+              # dynamic-import. A change here must still fire RUN_EVALS / the
+              # eval gate, so it is named alongside the eval sources above.
+              - 'servers/exarchos-mcp/evals-pkg/**'
               - 'servers/exarchos-mcp/src/workflow/playbooks.ts'
 
   test-root:
@@ -435,8 +439,11 @@ jobs:
   # Runs scripts/validate-no-legacy.sh, which rolls up two checks:
   #   1. The NoLegacy_* shell assertion suite (scripts/validate-no-legacy.test.sh)
   #      — pins obsolete v2.8 install artifacts as deleted/archived.
-  #   2. `knip` (files + dependencies scope) — detects unused modules and
-  #      unused dependencies against the entry-point allowlist in knip.json.
+  #   2. `knip` (files + dependencies + exports + types) via the allowlist-diff
+  #      wrapper (scripts/audit/knip-diff.ts) — detects unused modules, deps,
+  #      exported symbols, and types, diffed against
+  #      scripts/audit/knip-allowlist.json (fails closed on unallowlisted or
+  #      expired findings, a missing binary, or unparseable output).
   #
   # Runs in parallel with test-root / test-mcp on a GitHub-hosted
   # ubuntu-latest runner. All CI jobs run on ubuntu-latest — the
@@ -459,7 +466,17 @@ jobs:
             package-lock.json
             servers/exarchos-mcp/package-lock.json
 
-      - name: Install dependencies
+      - name: Install dependencies (root)
+        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
+
+      # The exports/types sweep resolves TypeScript across BOTH workspaces that
+      # knip.json declares (root + servers/exarchos-mcp), so the server's own
+      # node_modules must be present to type-resolve its source. This install
+      # stays light — promptfoo (the heavy eval-only dep whose Playwright/Chromium
+      # postinstall used to wedge `npm ci`) is out of the server's install
+      # closure, so this is a normal devDependency install.
+      - name: Install dependencies (servers/exarchos-mcp)
+        working-directory: servers/exarchos-mcp
         run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
 
       - name: Run validate-no-legacy rollup
@@ -542,6 +559,28 @@ jobs:
       - name: WLM wiring gate self-test (task-004)
         run: bash scripts/check-wlm-wiring.test.sh
 
+      # Enforcer-wiring gate (task 011, DR-5/DR-8). Zero-dependency node
+      # script: reconciles every scripts/check-*|lint-* primary against
+      # scripts/enforcer-wiring-manifest.json by TRANSITIVELY walking npm-script
+      # chains + workflow run-steps and inspecting per-term exit-code handling.
+      # Catches the four trap classes a name-grep cannot see — orphan,
+      # unreachable-via-uninvoked-npm-script, exit-code-swallowed (`|| true` /
+      # continue-on-error), and diff-dependent-gate-without-`synchronize`. Lives
+      # on this unfiltered host so it fires on every PR (DR-8: a gate in a
+      # path-filtered job is skipped-as-passed). Self-tests: the four
+      # `EnforcerWiring_*` cases in scripts/check-enforcer-wiring.test.ts, run by
+      # the root unit suite (test-root).
+      - name: Enforcer wiring gate (DR-5/DR-8, task 011)
+        run: node scripts/check-enforcer-wiring.mjs
+
+      # Cross-gate fail-closed self-test (task 015, DR-8). The gate's own
+      # `.test.ts` runs only in the path-filtered `test-root` job (excludes
+      # `scripts/**`), so a scripts-only PR skips it. This `.test.sh` re-asserts
+      # the tool-missing + unparseable-output fail-closed paths on THIS
+      # unfiltered host, where they fire on every PR. Pure node, no install.
+      - name: Enforcer-wiring gate self-test (DR-8, task 015)
+        run: bash scripts/check-enforcer-wiring.test.sh
+
       - name: npm-ci-retry helper tests
         run: bash scripts/npm-ci-retry.test.sh
 
@@ -561,6 +600,86 @@ jobs:
               --connect-timeout 15 --max-time 60 "$url" || echo "  FAILED/timeout: $url"
           done
           echo "probe complete"
+
+      # ─────────────────────────────────────────────────────────────────
+      # NOTE: the design's "grep-gates are root-only / zero-dependency" framing
+      # is inaccurate for this job as a whole — do not rely on it. The tsx-backed
+      # gates below shell `tsx` over the MCP TypeScript source, so this job
+      # installs BOTH the root and servers/exarchos-mcp deps (steps below).
+      #
+      # Rehydration prefix/prose gates (task 011, DR-8). These two gates
+      # previously ran ONLY via `npm run validate`, which no workflow invokes —
+      # so a real DR-12 fingerprint drift or DR-13 prose regression passed CI
+      # (the enforcer-wiring gate above flags this exact class-2 "unreachable"
+      # trap). They belong on this UNFILTERED host so they fire on every PR
+      # (DR-8). Unlike the grep-only gates above, each shells out to `tsx` on
+      # the MCP TypeScript source (fingerprint-cli.ts / prose-lint-cli.ts), so
+      # this job installs the root devDep (tsx) + the MCP runtime deps (pino,
+      # reached transitively by fingerprint-cli.ts) before running them. Kept at
+      # the end of the job so the fast install-free structural gates run first.
+      - name: Install root dependencies (for tsx-backed gates)
+        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
+
+      - name: Install MCP server dependencies (for tsx-backed gates)
+        working-directory: servers/exarchos-mcp
+        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
+
+      - name: Prefix-fingerprint gate — rehydration stable-prefix drift (DR-12)
+        run: node scripts/check-prefix-fingerprint.mjs
+
+      - name: Prose-lint gate — rehydration prose slop (DR-13)
+        run: node scripts/check-prose-lint.mjs
+
+      # No-circular runtime import-cycle ratchet (task 010, DR-4/DR-8). Runs the
+      # ROOT-hoisted dependency-cruiser over servers/exarchos-mcp/src, computes
+      # the runtime cycles (Tarjan, via architecture/import-cycles.ts), and diffs
+      # them against scripts/audit/cycle-baseline.json — failing CLOSED on an
+      # unbaselined cycle, an expired waiver, a PHANTOM entry (baselined edge with
+      # no live cycle — the no-mask tooth), or missing/unparseable depcruise output
+      # (exit 2). Blocking, NOT advisory: the shared config ships `no-circular` at
+      # `warn` so the dogfooded runBoundaryLint stays green; the ratchet lives here.
+      # Uses the root tsx + depcruise installed by the two steps above. Self-tests:
+      # the four named DR-4 failure-mode cases in scripts/audit/cycle-gate.test.ts,
+      # run by the root unit suite (test-root).
+      - name: No-circular cycle ratchet (DR-4/DR-8, task 010)
+        run: npx --no-install tsx scripts/audit/cycle-gate.ts
+
+      # Cross-gate fail-closed self-tests for the two tsx-backed audit gates
+      # (task 015, DR-8). Their own `.test.ts` cases run only in the
+      # path-filtered `test-root` job (excludes `scripts/**`), so a scripts-only
+      # PR skips them. These `.test.sh` re-assert the tool-missing +
+      # unparseable-output fail-closed paths here, driving the REAL CLI via the
+      # EXARCHOS_{DEPCRUISE,KNIP}_BIN seam (a missing path / a garbage-emitting
+      # stub) — so depcruise/knip need not even be resolvable. Uses the root tsx
+      # installed by the two steps above.
+      - name: Cycle-gate ratchet self-test (DR-8, task 015)
+        run: bash scripts/audit/cycle-gate.test.sh
+
+      - name: Knip-diff gate self-test (DR-8, task 015)
+        run: bash scripts/audit/knip-diff.test.sh
+
+      # Module-intent gate (task 013, DR-7/DR-8). Delegates reachability to the
+      # vendored scripts/audit/refgraph.mjs detector, then requires every
+      # dead-in-prod module (0 production importers) to declare intent: a
+      # RESERVED(issue, owner, expires) header with a future expiry, OR
+      # membership in a declared allowlist class (test-infra / build-shim /
+      # type-test entrypoint). Expired-and-unadopted RESERVED → FAIL (the DR-7
+      # "deletion happens at expiry" enforcement point). Fails CLOSED (exit 2) on
+      # a scan crash / unparseable detector output / unreadable module (DR-8) —
+      # never passes on partial evidence. Zero-dependency node; refgraph.mjs is
+      # itself pure node:fs. Self-tests: the DR-7/DR-8 cases in
+      # scripts/check-module-intent.test.ts, run by the root unit suite (test-root).
+      - name: Module-intent gate (DR-7/DR-8, task 013)
+        run: node scripts/check-module-intent.mjs
+
+      # Cross-gate fail-closed self-test (task 015, DR-8). The gate's own
+      # `.test.ts` runs only in the path-filtered `test-root` job (excludes
+      # `scripts/**`), so a scripts-only PR skips it. This `.test.sh` re-asserts
+      # the tool-missing + unparseable-output fail-closed paths here (via the
+      # `--refgraph` seam: a missing detector / a garbage-emitting stub). Pure
+      # node, no install.
+      - name: Module-intent gate self-test (DR-8, task 015)
+        run: bash scripts/check-module-intent.test.sh
 
   # ─────────────────────────────────────────────────────────────────────
   # e2e-process

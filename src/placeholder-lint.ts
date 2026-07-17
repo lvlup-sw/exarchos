@@ -256,6 +256,7 @@ export function lintPlaceholders(
       let match: RegExpExecArray | null;
       while ((match = PLACEHOLDER_REGEX.exec(body)) !== null) {
         const token = match[1];
+        if (token === undefined) continue;
         // Skip tokens that fall inside a CALL macro range.
         const offset = match.index;
         const insideCall = callRanges.some(

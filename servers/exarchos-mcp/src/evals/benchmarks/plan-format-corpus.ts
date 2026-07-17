@@ -201,8 +201,8 @@ function main(): void {
   for (const r of stampedRows) {
     modelDist[r.E.recommendedModel] = (modelDist[r.E.recommendedModel] ?? 0) + 1;
     agentDist[r.E.recommendedAgent] = (agentDist[r.E.recommendedAgent] ?? 0) + 1;
-    modelByTier[r.E.riskTier][r.E.recommendedModel] =
-      (modelByTier[r.E.riskTier][r.E.recommendedModel] ?? 0) + 1;
+    const tierDist = (modelByTier[r.E.riskTier] ??= {});
+    tierDist[r.E.recommendedModel] = (tierDist[r.E.recommendedModel] ?? 0) + 1;
     if (r.E.riskTier === 'high' && r.E.recommendedModel === 'haiku') highTierCheapModel++;
     if (r.E.riskTier === 'low' && r.E.recommendedModel === 'opus') lowTierExpensiveModel++;
     if (r.E.recommendedModel !== NATIVE_FLAT_MODEL && r.E.recommendedModel === 'haiku') {
@@ -253,7 +253,7 @@ function main(): void {
   out.push('| risk tier | haiku | sonnet | opus |');
   out.push('|---|---|---|---|');
   for (const tier of ['low', 'medium', 'high'] as const) {
-    const m = modelByTier[tier];
+    const m = modelByTier[tier] ?? {};
     out.push(`| ${tier} | ${m.haiku ?? 0} | ${m.sonnet ?? 0} | ${m.opus ?? 0} |`);
   }
   out.push('');

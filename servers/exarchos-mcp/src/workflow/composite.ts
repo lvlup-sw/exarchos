@@ -5,75 +5,27 @@ import { handleRehydrate } from './rehydrate.js';
 import { handleFeedback } from './feedback.js';
 import { handleDescribe } from '../describe/handler.js';
 import { TOOL_REGISTRY } from '../registry.js';
-import { applyCacheHints, wrap, wrapWithPassthrough, type Envelope, type ToolResult } from '../format.js';
+import { type ToolResult } from '../format.js';
 import type { DispatchContext } from '../core/dispatch.js';
-import { nextActionsFromResult } from '../next-actions-from-result.js';
-import type { CapabilityResolver } from '../capabilities/resolver.js';
+import { envelopeWrap } from '../envelope-wrap.js';
 import { deriveRepoKey } from '../utils/paths.js';
 import { workflowLogger } from '../logger.js';
 
 const workflowActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow')!.actions;
 
-/**
- * HATEOAS envelope wrapping for successful tool responses (T036 + T041, DR-7/DR-8).
- *
- * Successful results are re-shaped into `Envelope<T>` at the tool
- * boundary so agents see a stable contract with `next_actions`, `_meta`,
- * and `_perf` on every response. Internal callers of the underlying
- * handlers (e.g. orchestrate/prune-stale-workflows, orchestrate/finalize-
- * oneshot) continue to see the raw `ToolResult` they depend on.
- *
- * `next_actions` is populated by `nextActionsFromResult` whenever the
- * handler's response data contains both `phase` and `workflowType` (the
- * real `handleInit`/`handleGet`/`handleTransition` return both). Otherwise the
- * field defaults to `[]` so the envelope shape is stable — e.g. for
- * `describe`, `cleanup`, and `cancel` actions, or legacy responses that
- * omit `workflowType`.
- *
- * Error responses pass through unchanged so structured `error` payloads
- * (error codes, valid transition targets, suggested fixes) remain
- * accessible to callers for auto-correction flows.
- */
-function envelopeWrap(result: ToolResult, startedAt: number): ToolResult {
-  if (!result.success) return result;
-
-  const meta = (result._meta ?? {}) as Record<string, unknown>;
-  const perf = result._perf ?? { ms: Date.now() - startedAt };
-  // Compute once per composite call. `nextActionsFromResult` is a pure
-  // lookup over the HSM registry; no I/O.
-  const nextActions = nextActionsFromResult(result);
-  return wrapWithPassthrough(result, wrap(result.data, meta, perf, nextActions));
-}
-
-/**
- * Rehydrate-only envelope wrap (T051, DR-14): identical to `envelopeWrap`
- * but additionally applies `applyCacheHints` so the response carries a
- * `_cacheHints` field on runtimes that report `anthropic_native_caching`.
- *
- * Scoped to the rehydrate dispatch path because rehydrate is the only
- * action with a stable serialized prefix worth caching — other workflow
- * actions either mutate state (init/transition/cancel/cleanup/checkpoint) or
- * return small payloads where cache annotations carry no benefit. The
- * followups doc (T051) explicitly limits the wiring to this surface so
- * the cost-saving feature ships as designed without leaking
- * cache-control semantics into actions where they do not belong.
- */
-function envelopeWrapWithCacheHints(
-  result: ToolResult,
-  startedAt: number,
-  resolver: CapabilityResolver | undefined,
-): ToolResult {
-  if (!result.success) return result;
-
-  const meta = (result._meta ?? {}) as Record<string, unknown>;
-  const perf = result._perf ?? { ms: Date.now() - startedAt };
-  const nextActions = nextActionsFromResult(result);
-  let envelope: Envelope<unknown> = wrap(result.data, meta, perf, nextActions);
-  if (resolver !== undefined) {
-    envelope = applyCacheHints(envelope, resolver);
-  }
-  return wrapWithPassthrough(result, envelope);
-}
+// HATEOAS envelope wrapping is the shared `envelopeWrap` (../envelope-wrap.ts).
+// Successful workflow results are re-shaped into `Envelope<T>` at the tool
+// boundary; `next_actions` is populated whenever the handler's response carries
+// `{ phase, workflowType }` (handleInit / handleGet / handleTransition) and
+// otherwise defaults to `[]`. Internal callers of the underlying handlers
+// (e.g. orchestrate/prune-stale-workflows, orchestrate/finalize-oneshot) still
+// see the raw `ToolResult` they depend on. Error responses pass through
+// unchanged so structured `error` payloads stay accessible to callers.
+//
+// The `rehydrate` action alone additionally applies `applyCacheHints` (T051,
+// DR-14) via the shared helper's `cacheHintsResolver` knob: rehydrate is the
+// only action with a stable serialized prefix worth caching, so cache-control
+// semantics stay scoped to that surface. See the call site below.
 
 /**
  * Composite handler that routes `action` to the appropriate workflow handler.
@@ -225,13 +177,16 @@ export async function handleWorkflow(
       );
     }
     case 'rehydrate':
-      return envelopeWrapWithCacheHints(
+      // Rehydrate-only cache-hint wiring (T051, DR-14): pass the resolver so the
+      // shared helper applies `_cacheHints` on `anthropic_native_caching`
+      // runtimes. An undefined resolver leaves the envelope untouched.
+      return envelopeWrap(
         await handleRehydrate(
           rest as unknown as Parameters<typeof handleRehydrate>[0],
           { stateDir, eventStore },
         ),
         startedAt,
-        ctx.capabilityResolver,
+        { cacheHintsResolver: ctx.capabilityResolver },
       );
     case 'describe':
       return envelopeWrap(

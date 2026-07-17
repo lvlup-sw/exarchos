@@ -69,6 +69,15 @@ export const QUALITY_EVALUATION: RunbookDefinition = {
     { tool: 'exarchos_orchestrate', action: 'check_static_analysis', onFail: 'stop' },
     { tool: 'exarchos_orchestrate', action: 'check_security_scan', onFail: 'continue' },
     { tool: 'exarchos_orchestrate', action: 'check_convergence', onFail: 'continue' },
+    // DR-15 / task 027: invariant conformance as a review dimension. Now that
+    // INV-13/14/16 carry mode:check (alongside INV-4), this gate produces
+    // deterministic mechanical findings; a blocking-severity check violation
+    // (INV-4/14/16) folds to a HIGH → NEEDS_FIXES and halts (onFail:'stop').
+    // Audit-mode entries render into the review-subagent prompt, never gating
+    // here. Evaluates check-mode trees against the review `diff` (supplied at
+    // fill-in).
+    { tool: 'exarchos_orchestrate', action: 'check_invariant_conformance', onFail: 'stop',
+      note: 'DR-15: check-mode invariant findings gate; audit-mode entries stay advisory (prompt-only)' },
     { tool: 'exarchos_orchestrate', action: 'check_review_verdict', onFail: 'stop' },
   ],
   templateVars: ['featureId', 'high', 'medium', 'low'],
@@ -679,7 +688,9 @@ export const MERGE_ORCHESTRATION: RunbookDefinition = {
       note: 'HSM exits merge-pending back to delegate regardless of merge outcome.' },
   ],
   templateVars: ['featureId', 'taskId', 'sourceBranch', 'targetBranch', 'strategy', 'repoRoot'],
-  autoEmits: ['merge.preflight', 'merge.executed', 'merge.rollback', 'workflow.transition'],
+  // DR-2 (task 006): recovery emits ONLY `merge.recovered`; the legacy
+  // `merge.rollback` write path is retired (read-tolerant, not emittable).
+  autoEmits: ['merge.preflight', 'merge.executed', 'merge.recovered', 'workflow.transition'],
 };
 
 export const ALL_RUNBOOKS: readonly RunbookDefinition[] = [

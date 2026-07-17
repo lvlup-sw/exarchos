@@ -13,7 +13,7 @@
  * The fixed `code: 'STORAGE_BUSY'` field lets middleware match on the
  * code without importing the class.
  *
- * Per design `docs/designs/2026-05-10-v2-10-0-preview-2-marten-primitives.md`
+ * Per design `docs/designs/archive/2026-05-10-v2-10-0-preview-2-marten-primitives.md`
  * §"StorageBusyError envelope" — the `wrap()` boundary maps this to
  * `STORAGE_BUSY` with `validTargets: ['retry']` and a back-off
  * suggestedFix.

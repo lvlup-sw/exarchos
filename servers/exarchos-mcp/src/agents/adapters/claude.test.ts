@@ -5,7 +5,7 @@
 // by the snapshot suite in `generate-agents.test.ts` (pinned to the committed
 // `agents/*.md` fixtures), which is the canonical contract Claude users
 // depend on.
-// See docs/designs/2026-04-25-delegation-runtime-parity.md §4.
+// See docs/designs/archive/2026-04-25-delegation-runtime-parity.md §4.
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, vi, afterEach } from 'vitest';

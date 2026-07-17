@@ -125,6 +125,7 @@ export async function handleCancel(
       try {
         for (let i = 0; i < compensationResult.events.length; i++) {
           const event = compensationResult.events[i];
+          if (event === undefined) continue;
           const externalType = mapInternalToExternalType(event.type);
           await eventStore.append(input.featureId, {
             type: externalType as import('../event-store/schemas.js').EventType,
@@ -145,6 +146,7 @@ export async function handleCancel(
       try {
         for (let i = 0; i < compensationResult.events.length; i++) {
           const event = compensationResult.events[i];
+          if (event === undefined) continue;
           const externalType = mapInternalToExternalType(event.type);
           await eventStore.append(input.featureId, {
             type: externalType as import('../event-store/schemas.js').EventType,

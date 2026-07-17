@@ -347,7 +347,7 @@ function changedJavaClasses(files: readonly string[]): string[] {
     if (!posix.endsWith('.java')) continue;
     const noExt = posix.slice(0, -'.java'.length);
     const rooted = noExt.match(/(?:^|\/)(?:src\/(?:main|test)\/java|java)\/(.+)$/);
-    const rel = rooted ? rooted[1] : noExt;
+    const rel = (rooted ? rooted[1] : noExt) ?? noExt;
     classes.add(rel.replace(/\//g, '.'));
   }
   return [...classes];
@@ -654,8 +654,8 @@ export async function handleMutationAdequacy(
   // ── Run (injected seam). Bracket with the INV-10 liveness pair. ────────────
   //
   // DR-2 / DR-3: stamp a canonical `instanceId` on BOTH the start and terminal
-  // liveness emissions (mirroring `cli-commands/run-mutation.ts`) so a stuck
-  // mutation run is visible to `ps` and waitable via `wait --operation mutation`.
+  // liveness emissions (this handler is the sole live mutation emitter) so a
+  // stuck run is visible to `ps` and waitable via `wait --operation mutation`.
   // Without it the live emitter emitted keyless rows that `computeInFlightInstances`
   // could only pair via the DR-2 legacy singleton — one indistinguishable slot per
   // stream. Reuse the gate `operationId` when present (correlating the liveness

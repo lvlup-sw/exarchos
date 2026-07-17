@@ -32,6 +32,12 @@ import { ExportOutputSchema } from './views/lifecycle/export.js';
 import type { AgentPosture } from './agents/spec.js';
 export { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray, coercedIntArray } from './coerce.js';
 import { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray, coercedIntArray } from './coerce.js';
+import {
+  REMOVED_PRUNE_ACTION_KNOBS,
+  PRUNE_ACTION_KNOWN_KEYS,
+  removedPruneKnobMessage,
+  unrecognizedPruneKeyMessage,
+} from './config/prune-removed-knobs.js';
 
 // ─── Tool Registry Types ────────────────────────────────────────────────────
 
@@ -582,6 +588,9 @@ export function buildCompositeSchema(
 
   // Zod discriminatedUnion requires a tuple of [first, ...rest]
   const [first, ...rest] = schemas;
+  if (first === undefined) {
+    throw new Error('buildCompositeSchema requires at least 2 actions for a discriminated union');
+  }
   return z.discriminatedUnion('action', [first, ...rest]);
 }
 
@@ -1145,7 +1154,7 @@ export const WorkflowUpdateOutputSchema = EnvelopeSchema(z.unknown());
  * reject the full shape. `hints[]` items are also passthrough to leave
  * room for future hint flavours without re-cutting the schema.
  *
- * See [`docs/designs/2026-05-15-wave2-wave3-polish.md`](../docs/designs/2026-05-15-wave2-wave3-polish.md)
+ * See [`docs/designs/archive/2026-05-15-wave2-wave3-polish.md`](../docs/designs/archive/2026-05-15-wave2-wave3-polish.md)
  * `#1364 — split transport vs action-level errors` for context.
  */
 const TelemetryToolEntrySchema = z.object({
@@ -2265,7 +2274,11 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'merge.preflight', condition: 'always' },
       { event: 'merge.executed', condition: 'conditional', description: 'When preflight passes and execute succeeds' },
-      { event: 'merge.rollback', condition: 'conditional', description: 'When execute fails after a merge SHA was produced' },
+      // DR-2 (task 006): recovery emits ONLY the canonical `merge.recovered`.
+      // The legacy `merge.rollback` write path is retired (read-tolerant, not
+      // emittable) so it is NO LONGER declared here — a `retired` event must not
+      // appear in any `autoEmits` (RegistryDrift enforces `autoEmits ⊆ auto`).
+      { event: 'merge.recovered', condition: 'conditional', description: 'When execute fails and the INV-14 recovery ladder runs' },
     ],
     // T9 (#1440 Op 2, preview-4 design §4.3): multi-step git merge
     // orchestration (preflight → execute → optional rollback) is the
@@ -2714,7 +2727,16 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
-    gate: { blocking: false },
+    // DR-15 / task 027: this gate BLOCKS on check-mode findings only. Raising
+    // INV-13/14/16 to `mode:check` (alongside INV-4) gave the gate deterministic
+    // mechanical findings; a blocking-severity check violation (INV-4/14/16)
+    // folds to a HIGH → NEEDS_FIXES. The scope to check-mode is STRUCTURAL, not
+    // a flag knob: the 11 audit-mode entries render into the review subagent's
+    // PROMPT (never a programmatic finding in this handler), and an
+    // advisory-severity check finding (INV-13) surfaces as MEDIUM without
+    // gating — so declaring `blocking:true` cannot red CI on the unproven
+    // audit-mode rules.
+    gate: { blocking: true },
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
@@ -2774,12 +2796,40 @@ const orchestrateActions: readonly ToolAction[] = [
   {
     name: 'prune_stale_workflows',
     description: 'Find stale non-terminal workflows and cancel them. Defaults to dry-run; pass dryRun:false to actually prune. Auto-emits workflow.pruned event per pruned workflow.',
-    schema: z.object({
-      thresholdMinutes: z.number().int().positive().optional(),
-      dryRun: z.boolean().optional(),
-      force: z.boolean().optional(),
-      includeOneShot: z.boolean().optional(),
-    }),
+    // `thresholdMinutes` was removed in the debloat wave (DR-9): per-phase
+    // staleness has lived exclusively in `topology.yaml` `staleness` blocks
+    // since #1334 (v2.10.0-preview.1), so the field was accepted-but-ignored.
+    // Dropping it here also drops the auto-emitted `--threshold-minutes` CLI
+    // flag.
+    //
+    // The rejection lives HERE, on the real dispatch/CLI seam — NOT in the
+    // handler. A plain `z.object` SILENTLY STRIPS unknown keys before any
+    // refinement runs, so a legacy `thresholdMinutes` would be
+    // accepted-then-ignored (`dispatch()` forwards the stripped `parsed.data`
+    // and the handler never sees the key). `.passthrough()` keeps the extra key
+    // VISIBLE to the `.superRefine` below, which emits an ACTIONABLE removal
+    // issue (naming DR-9, #1334, and `topology.yaml`) — the actionable message
+    // WINS because passthrough never emits a competing generic
+    // `unrecognized_keys` for it. Genuinely-unknown keys (caller typos) are
+    // still rejected, preserving the per-action typo guard. `.shape` is retained
+    // (verified), so `buildRegistrationSchema` and the tolerant-dispatch
+    // sibling-key stripping (core/dispatch.ts) are undisturbed.
+    schema: z
+      .object({
+        dryRun: z.boolean().optional(),
+        force: z.boolean().optional(),
+        includeOneShot: z.boolean().optional(),
+      })
+      .passthrough()
+      .superRefine((val, ctx) => {
+        for (const key of Object.keys(val)) {
+          if (REMOVED_PRUNE_ACTION_KNOBS.has(key)) {
+            ctx.addIssue({ code: 'custom', path: [key], message: removedPruneKnobMessage(key) });
+          } else if (!PRUNE_ACTION_KNOWN_KEYS.has(key)) {
+            ctx.addIssue({ code: 'custom', path: [key], message: unrecognizedPruneKeyMessage(key) });
+          }
+        }
+      }),
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
     autoEmits: [

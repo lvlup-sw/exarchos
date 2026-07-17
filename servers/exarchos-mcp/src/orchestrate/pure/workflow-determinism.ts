@@ -90,7 +90,7 @@ export function checkWorkflowDeterminism(
     // Track current file from diff headers
     const fileMatch = line.match(/^diff --git a\/(.+) b\//);
     if (fileMatch) {
-      currentFile = fileMatch[1];
+      currentFile = fileMatch[1] ?? '';
       diffLineNum = 0;
       fileContext = '';
       continue;
@@ -99,7 +99,7 @@ export function checkWorkflowDeterminism(
     // Track line numbers from hunk headers
     const hunkMatch = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
     if (hunkMatch) {
-      diffLineNum = parseInt(hunkMatch[1], 10);
+      diffLineNum = parseInt(hunkMatch[1] ?? '0', 10);
       continue;
     }
 

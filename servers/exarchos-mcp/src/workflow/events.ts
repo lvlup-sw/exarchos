@@ -55,6 +55,7 @@ export function getFixCycleCount(events: readonly Event[], compoundStateId: stri
   let lastEntryIndex = -1;
   for (let i = events.length - 1; i >= 0; i--) {
     const evt = events[i];
+    if (evt === undefined) continue;
     if (
       evt.type === 'compound-entry' &&
       evt.metadata?.compoundStateId === compoundStateId
@@ -72,6 +73,7 @@ export function getFixCycleCount(events: readonly Event[], compoundStateId: stri
   let count = 0;
   for (let i = lastEntryIndex + 1; i < events.length; i++) {
     const evt = events[i];
+    if (evt === undefined) continue;
     if (
       evt.type === 'fix-cycle' &&
       evt.metadata?.compoundStateId === compoundStateId
@@ -104,6 +106,7 @@ export function getPhaseDuration(events: readonly Event[], phase: string): numbe
   // Scan from the end to find the most recent exit (from === phase)
   for (let i = events.length - 1; i >= 0; i--) {
     const evt = events[i];
+    if (evt === undefined) continue;
     if (evt.type === 'transition' && evt.from === phase && exitTimestamp === null) {
       exitTimestamp = evt.timestamp;
     }
@@ -114,6 +117,7 @@ export function getPhaseDuration(events: readonly Event[], phase: string): numbe
   // Find the most recent entry before or at the exit
   for (let i = events.length - 1; i >= 0; i--) {
     const evt = events[i];
+    if (evt === undefined) continue;
     if (evt.type === 'transition' && evt.to === phase) {
       // Ensure this entry is before the exit
       if (evt.timestamp <= exitTimestamp) {

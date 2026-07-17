@@ -8,7 +8,7 @@
 // against the committed `agents/*.md` fixtures. If any rendering helper
 // below changes behaviour, that test fails with a byte-level diff.
 //
-// See docs/designs/2026-04-25-delegation-runtime-parity.md §4.
+// See docs/designs/archive/2026-04-25-delegation-runtime-parity.md §4.
 // ────────────────────────────────────────────────────────────────────────────
 
 import { stringify as stringifyYaml } from 'yaml';

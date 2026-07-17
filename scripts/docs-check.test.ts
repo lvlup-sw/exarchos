@@ -9,7 +9,8 @@
  *   3. Mentions the canonical symbols: `ProjectionReducer`, `defaultRegistry`,
  *      `buildDegradedResponse`, `rebuildProjection`.
  *   4. Has at least one fenced code block.
- *   5. Has a link to the design doc `docs/designs/2026-04-23-rehydrate-foundation.md`.
+ *   5. Has a markdown link to the rehydrate-foundation design doc whose URL
+ *      RESOLVES to a file on disk (survives the DR-18 archive move).
  *
  * Phase: RED → the doc does not yet exist.
  * GREEN: `docs/architecture/projections.md` is created with all required content.
@@ -61,10 +62,36 @@ describe('ProjectionsArchDoc_ReferencesRequiredTestShape', () => {
     expect(content).toMatch(/snapshot/i);
   });
 
-  it('Doc_ContainsDesignDocLink', () => {
+  it('Doc_ContainsDesignDocLink_ThatResolvesOnDisk', () => {
     content = fs.readFileSync(DOC_PATH, 'utf8');
-    // Section 6: Link to design doc
-    expect(content).toContain('docs/designs/2026-04-23-rehydrate-foundation.md');
+    // Section 6: Link to the rehydrate-foundation design doc.
+    // Harden beyond a substring match. The previous `toContain(...)` assertion
+    // stayed GREEN after the design doc was archived (DR-18) even though the
+    // link URL dangled, because the pre-archive path still appeared as display
+    // text. Instead, find the markdown link that targets the design doc by
+    // basename, resolve its URL relative to this doc, and assert the target
+    // FILE EXISTS on disk — so a future broken/moved link FAILS this test.
+    const DESIGN_BASENAME = '2026-04-23-rehydrate-foundation.md';
+    const linkUrls: string[] = [];
+    for (const m of content.matchAll(/\]\(([^)]+)\)/g)) {
+      const url = m[1];
+      if (url !== undefined) linkUrls.push(url.trim());
+    }
+    const designLink = linkUrls.find(
+      (t) => path.basename(t.split('#')[0] ?? '') === DESIGN_BASENAME,
+    );
+    expect(
+      designLink,
+      `expected a markdown link to the ${DESIGN_BASENAME} design doc`,
+    ).toBeDefined();
+    const urlPath = (designLink ?? '').split('#')[0] ?? '';
+    const resolved = urlPath.startsWith('/')
+      ? path.join(REPO_ROOT, urlPath.slice(1))
+      : path.resolve(path.dirname(DOC_PATH), urlPath);
+    expect(
+      fs.existsSync(resolved),
+      `design doc link "${designLink}" resolves to ${resolved}, which does not exist on disk`,
+    ).toBe(true);
   });
 
   it('Doc_MentionsProjectionReducer', () => {

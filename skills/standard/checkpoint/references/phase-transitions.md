@@ -47,7 +47,7 @@ plan → plan-review → delegate ⇄ review → synthesize → completed
 | `plan-review` | `blocked` | `revisions-exhausted` | Plan-review revision budget exhausted |
 | `delegate` | `review` | `all-tasks-complete` + `team-disbanded` | All `tasks[].status = "complete"` and the team disbanded |
 | `delegate` | `merge-pending` | `merge-pending-entry` | A worktree task completed and an autonomous merge is required |
-| `merge-pending` | `delegate` | `merge-pending-exit` | `merge.executed` / `merge.rollback` / `merge.aborted` observed |
+| `merge-pending` | `delegate` | `merge-pending-exit` | `merge.executed` / `merge.recovered` (or legacy `merge.rollback`) / `merge.aborted` observed |
 | `review` | `synthesize` | `all-reviews-passed` | All `reviews.{name}.status` in `["pass", "passed", "approved"]` |
 | `review` | `delegate` | `any-review-failed` | Any `reviews.{name}.status` in `["fail", "failed", "needs_fixes"]` (fix cycle) |
 | `synthesize` | `delegate` | `synthesize-retryable` | Synthesis is retryable (e.g. a transient failure) |

@@ -43,6 +43,7 @@ export const workflowDefinitionSchema = z.object({
   // Validate transition from/to reference valid phases
   for (let i = 0; i < workflow.transitions.length; i++) {
     const t = workflow.transitions[i];
+    if (t === undefined) continue;
     if (!declaredPhases.has(t.from)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -156,7 +157,7 @@ export const exarchosConfigSchema = z.object({
             break;
           }
           visited.add(current);
-          current = workflows[current].extends;
+          current = workflows[current]?.extends;
         }
       }
     }),

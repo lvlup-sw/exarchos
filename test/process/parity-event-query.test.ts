@@ -1,4 +1,4 @@
-// Source: docs/plans/2026-05-05-e2e-v29-revisited.md §T3.5
+// Source: docs/plans/archive/2026-05-05-e2e-v29-revisited.md §T3.5
 //
 // Process-fidelity parity test for the `event.query` action. Mirrors
 // T3.4 (workflow.describe) but exercises the event-log surface: drive a

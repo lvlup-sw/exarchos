@@ -1,0 +1,20 @@
+{
+  "name": "@lvlup-sw/exarchos-evals",
+  "version": "2.12.0-preview.3",
+  "private": true,
+  "type": "module",
+  "description": "Opt-in eval surface for the Exarchos MCP server. Owns the heavy, eval-only `promptfoo` dependency so it stays OUT of the default MCP-server install (DR-3). Install this package (`npm install`) only to run the llm-rubric / llm-similarity graders or the eval gate. The graders live in ../src/evals/graders and resolve promptfoo from THIS package's node_modules at runtime (see ../src/evals/graders/promptfoo-loader.ts).",
+  "main": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "promptfoo": "^0.120.25"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

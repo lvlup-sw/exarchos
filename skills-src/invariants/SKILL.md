@@ -14,7 +14,7 @@ metadata:
 
 This skill turns an architectural rule in the author's head into a **registered,
 enforced catalog entry**. It is the on-ramp described in
-`docs/designs/2026-05-25-invariants-authoring-wizard.md` — an LLM-driven
+`docs/designs/archive/2026-05-25-invariants-authoring-wizard.md` — an LLM-driven
 authoring conversation, **not** a stdin question loop.
 
 The division of labor is strict and load-bearing:

@@ -35,6 +35,9 @@
  * `bisect` is an internal projection primitive — it is not exposed as a public
  * verb (no `get`/`view` action) yet.
  */
+
+// RESERVED(issue: #1555, owner: exarchos, expires: 2027-01-31) — reserved dead stub; deletion at expiry if unadopted (DR-7 module-intent gate)
+
 import type { EventStore } from '../event-store/store.js';
 import type { ProjectionReducer } from './types.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
@@ -96,7 +99,7 @@ export async function bisect<State, Event>(
 
   while (lo < hi) {
     const mid = lo + Math.floor((hi - lo) / 2);
-    const candidate = events[mid];
+    const candidate = events[mid]!;
     const state = await projectAt<State, Event>(reducer, eventStore, streamId, {
       untilSequence: candidate.sequence,
     });
@@ -114,6 +117,6 @@ export async function bisect<State, Event>(
     return null;
   }
 
-  const boundary = events[lo];
+  const boundary = events[lo]!;
   return { sequence: boundary.sequence, event: boundary };
 }

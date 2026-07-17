@@ -3,7 +3,7 @@
 // Mix of runtime assertions (RUNTIMES enumeration) and compile-time
 // assertions (`satisfies` and `@ts-expect-error`). If this file
 // type-checks AND the runtime tests pass, the contract holds.
-// See docs/designs/2026-04-25-delegation-runtime-parity.md §4.
+// See docs/designs/archive/2026-04-25-delegation-runtime-parity.md §4.
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect } from 'vitest';

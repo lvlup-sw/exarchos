@@ -36,6 +36,7 @@ export function correlateQualityAndEvals(
     const qualityMetrics = codeQuality.skills[skillName];
     if (!Object.hasOwn(evalResults.skills, skillName)) continue;
     const evalMetrics = evalResults.skills[skillName];
+    if (qualityMetrics === undefined || evalMetrics === undefined) continue;
 
     skills[skillName] = {
       skill: skillName,

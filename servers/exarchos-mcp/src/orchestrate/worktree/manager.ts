@@ -392,9 +392,9 @@ export interface PruneOptions {
    * content is unverifiable). Effective ONLY together with {@link yes} on an
    * `apply` run — `--prune-orphans --yes`.
    */
-  readonly pruneOrphans?: boolean;
+  readonly pruneOrphans?: boolean | undefined;
   /** Explicit confirmation required alongside {@link pruneOrphans} for orphans. */
-  readonly yes?: boolean;
+  readonly yes?: boolean | undefined;
 }
 
 /** Per-candidate line of a {@link PruneResult}. */
@@ -456,7 +456,7 @@ function probeBackingGitdir(worktreePath: string): boolean {
     return false;
   }
   const match = content.match(/^gitdir:\s*(.+)$/m);
-  if (!match) return false;
+  if (!match || match[1] === undefined) return false;
   const target = match[1].trim();
   const resolved = path.isAbsolute(target)
     ? target
@@ -1202,6 +1202,7 @@ export class WorktreeManager {
     if (apply) {
       for (let i = 0; i < reports.length; i += 1) {
         const report = reports[i];
+        if (report === undefined) continue;
         const eligible =
           report.classification.action === 'delete-eligible' ||
           (report.classification.action === 'orphan-unverifiable' && orphansOptedIn);
@@ -1342,7 +1343,7 @@ export class WorktreeManager {
     for (let i = 0; i < entries.length; i += 1) {
       const entry = entries[i];
       const finding = findings[i];
-      if (finding === undefined) continue;
+      if (entry === undefined || finding === undefined) continue;
       // Per-entry isolation: a transient append failure on ONE reclaim must not
       // abort the whole batch. An entry is counted as released/orphaned ONLY
       // after its event provably lands (INV-1) — never report a reclaim that

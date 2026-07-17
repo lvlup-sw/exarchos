@@ -154,10 +154,10 @@ interface WorktreeCreatedData {
  */
 export async function resolveRepoRoot(
   args: {
-    readonly repoRoot?: string;
-    readonly worktreePath?: string;
+    readonly repoRoot?: string | undefined;
+    readonly worktreePath?: string | undefined;
     readonly featureId: string;
-    readonly taskId?: string;
+    readonly taskId?: string | undefined;
   },
   store: EventStore,
 ): Promise<ResolveRepoRootResult> {
@@ -180,7 +180,7 @@ export async function resolveRepoRoot(
   if (taskId) {
     const events = await store.query(featureId, { type: 'worktree.created' });
     for (let i = events.length - 1; i >= 0; i--) {
-      const data = events[i].data as WorktreeCreatedData | undefined;
+      const data = events[i]?.data as WorktreeCreatedData | undefined;
       if (data?.taskId === taskId && data.path && data.path.trim().length > 0) {
         return { ok: true, repoRoot: data.path };
       }
@@ -449,9 +449,9 @@ export const SKIPPED_BY_POLICY = 'skipped-by-policy';
  */
 export function resolvePolicySkip(args: {
   readonly gateName: GateName;
-  readonly riskTier?: RiskTier;
-  readonly boundaryTouching?: boolean;
-  readonly config?: ResolvedProjectConfig;
+  readonly riskTier?: RiskTier | undefined;
+  readonly boundaryTouching?: boolean | undefined;
+  readonly config?: ResolvedProjectConfig | undefined;
 }): { readonly reason: string } | null {
   const { gateName, riskTier, boundaryTouching, config } = args;
   // Both stamps required — a partial stamp is treated as "no stamp" so we never

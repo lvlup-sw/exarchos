@@ -48,6 +48,7 @@ function findBottleneck(tasks: TimelineTask[]): Bottleneck | null {
   if (completedTasks.length === 0) return null;
 
   let longest = completedTasks[0];
+  if (longest === undefined) return null;
   for (const task of completedTasks) {
     if (task.durationMs > longest.durationMs) {
       longest = task;

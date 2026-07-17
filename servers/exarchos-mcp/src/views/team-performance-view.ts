@@ -49,7 +49,7 @@ export interface TeamPerformanceViewState {
 /** Extract module name from a file path (first segment after src/). */
 function extractModule(filePath: string): string | null {
   const match = filePath.match(/src\/([^/]+)/);
-  return match ? match[1] : null;
+  return match?.[1] ?? null;
 }
 
 /** Compute running average: newAvg = (oldAvg * (n-1) + newVal) / n */

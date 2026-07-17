@@ -150,15 +150,15 @@ export function parseCallMacro(raw: string): CallMacroAst {
   // Everything before the `{` must be "tool action ".
   const prefix = trimmed.slice(0, jsonStart).trim();
   const parts = prefix.split(/\s+/);
-  if (parts.length < 2) {
+  const tool = parts[0];
+  const action = parts[1];
+  if (tool === undefined || action === undefined) {
     throw new Error(
       `parseCallMacro: expected "tool action {json}" but got "${trimmed}" — ` +
         `found ${parts.length} token(s) before the JSON body`,
     );
   }
 
-  const tool = parts[0];
-  const action = parts[1];
   const jsonStr = trimmed.slice(jsonStart);
 
   // Validate the tool name against the known registry.
@@ -566,15 +566,18 @@ function substitute(
   opts: { sourcePath: string; runtimeName: string; throwOnUnknown: boolean },
 ): string {
   return body.replace(PLACEHOLDER_REGEX, (match, tokenName: string, argString: string | undefined, offset: number) => {
-    if (!Object.prototype.hasOwnProperty.call(values, tokenName)) {
+    // `Record<string, string>` lookup: a missing key yields `undefined`, which
+    // under `noUncheckedIndexedAccess` is the same signal an own-property check
+    // gives — an unknown token. Narrow on the looked-up value directly so the
+    // rest of the closure sees a concrete `string`.
+    let value = values[tokenName];
+    if (value === undefined) {
       if (!opts.throwOnUnknown) {
         return match;
       }
       const line = lineOf(body, offset);
       throw placeholderError(tokenName, opts.sourcePath, opts.runtimeName, line, Object.keys(values));
     }
-
-    let value = values[tokenName];
 
     // If the token carries arguments, parse them and run a nested pass
     // that substitutes `{{key}}` tokens inside the placeholder value with
@@ -624,13 +627,14 @@ export function parseTokenArgs(argString: string): Record<string, string> {
   const len = trimmed.length;
 
   while (i < len) {
-    // Skip whitespace between pairs.
-    while (i < len && /\s/.test(trimmed[i])) i++;
+    // Skip whitespace between pairs. `charAt` is used instead of `trimmed[i]`
+    // so the value is a plain `string` (never `undefined`) for `.test()`.
+    while (i < len && /\s/.test(trimmed.charAt(i))) i++;
     if (i >= len) break;
 
     // Read key identifier.
     const keyStart = i;
-    while (i < len && /[\w-]/.test(trimmed[i])) i++;
+    while (i < len && /[\w-]/.test(trimmed.charAt(i))) i++;
     if (i === keyStart) {
       throw new Error(
         `malformed token args: expected identifier at position ${i} in "${argString}"`,
@@ -770,7 +774,10 @@ export function applyRequiresGuards(
     const openIdx = openMatch.index;
     const openLen = openMatch[0].length;
     const nativeOnly = openMatch[1] !== undefined;
-    const cap = openMatch[2];
+    // Group 2 (the capability name) is required by the regex, so on a match it
+    // is always present; `?? ''` narrows to `string` and, in the impossible
+    // empty case, falls through to the "unknown capability" throw below.
+    const cap = openMatch[2] ?? '';
 
     // Validate the cap against the canonical enum. Typos are hard
     // errors at build time.
@@ -892,22 +899,27 @@ export function elideClaudeOnlyCodeBlocks(
   const openRegex = /^(\s*)(`{3,}|~{3,})(.*)$/;
   while (i < lines.length) {
     const line = lines[i];
+    if (line === undefined) break;
     const m = line.match(openRegex);
-    if (m && m[3].includes('runtime:claude-only')) {
+    // Group 2 (the fence run) and group 3 (info-string) are always present on
+    // a match of `openRegex`; guard group 2 so the fence metrics are `string`.
+    const fence = m?.[2];
+    if (m && fence !== undefined && m[3]?.includes('runtime:claude-only')) {
       // Skip lines until we find the matching closing fence: same
       // delimiter character at the same length, at any indentation,
       // with no further content beyond optional whitespace. Markdown's
       // fence-matching rules require the close to be at least as long
       // as the open, but the typical case is exact-match; we accept
       // any same-character fence of length >= the opening.
-      const fenceChar = m[2][0];
-      const fenceLen = m[2].length;
+      const fenceChar = fence[0];
+      const fenceLen = fence.length;
       const closeRegex = new RegExp(
         `^\\s*${fenceChar === '`' ? '`' : '~'}{${fenceLen},}\\s*$`,
       );
       i++;
       while (i < lines.length) {
-        if (closeRegex.test(lines[i])) {
+        const inner = lines[i];
+        if (inner !== undefined && closeRegex.test(inner)) {
           i++; // consume the closing fence
           break;
         }
@@ -1068,7 +1080,7 @@ export function classifySkill(body: string): SkillModel {
   let match: RegExpExecArray | null;
   while ((match = regex.exec(body)) !== null) {
     const name = match[1];
-    if (!isRuntimeToken(name)) continue;
+    if (name === undefined || !isRuntimeToken(name)) continue;
     tokensUsed.add(name);
     if (ORCHESTRATION_TOKENS.has(name)) orchestrationTokensUsed.add(name);
   }
@@ -1244,7 +1256,9 @@ export function assertNoUnresolvedPlaceholders(
   PLACEHOLDER_REGEX.lastIndex = 0;
   const match = PLACEHOLDER_REGEX.exec(rendered);
   if (match) {
-    const tokenName = match[1];
+    // Group 1 (the token name) is always present on a match; `?? ''` narrows to
+    // `string` for the error constructor.
+    const tokenName = match[1] ?? '';
     const line = lineOf(rendered, match.index);
     // Reset the regex state so the stateful /g instance doesn't leak into
     // later calls (matters because PLACEHOLDER_REGEX is module-scoped).
@@ -1693,6 +1707,7 @@ function extractDirectLinks(body: string, referencesDir: string): Set<string> {
   let match: RegExpExecArray | null;
   while ((match = regex.exec(body)) !== null) {
     let rel = match[1];
+    if (rel === undefined) continue;
     // Strip URL fragment (e.g. `foo.md#section`) — link targets the file.
     const hashIdx = rel.indexOf('#');
     if (hashIdx !== -1) rel = rel.slice(0, hashIdx);

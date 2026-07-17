@@ -240,18 +240,18 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
 /** Shape of a `.exarchos.yml` `toolchains:` entry (see exarchos-config-schema). */
 export interface ConfigToolchain {
   readonly id: string;
-  readonly projectType?: string;
+  readonly projectType?: string | undefined;
   readonly markers: readonly string[];
   readonly commands: {
-    readonly test?: string;
-    readonly typecheck?: string;
-    readonly install?: string;
-    readonly mutation?: string;
-    readonly lint?: string;
+    readonly test?: string | undefined;
+    readonly typecheck?: string | undefined;
+    readonly install?: string | undefined;
+    readonly mutation?: string | undefined;
+    readonly lint?: string | undefined;
     readonly contract?: {
-      readonly codegen?: string;
-      readonly diff?: string;
-    };
+      readonly codegen?: string | undefined;
+      readonly diff?: string | undefined;
+    } | undefined;
   };
 }
 

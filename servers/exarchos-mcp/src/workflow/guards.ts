@@ -147,7 +147,7 @@ function buildFailedReviewsExpectedShape(
     let skip = false;
     for (let i = 0; i < parts.length - 1; i += 1) {
       const key = parts[i];
-      if (UNSAFE_KEYS.has(key)) { skip = true; break; }
+      if (key === undefined || UNSAFE_KEYS.has(key)) { skip = true; break; }
       if (typeof cursor[key] !== 'object' || cursor[key] === null) {
         cursor[key] = Object.create(null) as Record<string, unknown>;
       }
@@ -155,7 +155,7 @@ function buildFailedReviewsExpectedShape(
     }
     if (skip) continue;
     const leafKey = parts[parts.length - 1];
-    if (!UNSAFE_KEYS.has(leafKey)) {
+    if (leafKey !== undefined && !UNSAFE_KEYS.has(leafKey)) {
       cursor[leafKey] = { status: 'pass' };
     }
   }

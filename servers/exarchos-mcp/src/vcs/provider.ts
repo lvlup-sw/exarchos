@@ -8,8 +8,8 @@ export interface CreatePrOpts {
   readonly body: string;
   readonly baseBranch: string;
   readonly headBranch: string;
-  readonly draft?: boolean;
-  readonly labels?: readonly string[];
+  readonly draft?: boolean | undefined;
+  readonly labels?: readonly string[] | undefined;
 }
 
 export interface PrResult {
@@ -20,12 +20,40 @@ export interface PrResult {
 export interface CiCheck {
   readonly name: string;
   readonly status: 'pass' | 'fail' | 'pending' | 'skipped';
-  readonly url?: string;
+  readonly url?: string | undefined;
 }
 
 export interface CiStatus {
   readonly status: 'pass' | 'fail' | 'pending';
   readonly checks: readonly CiCheck[];
+}
+
+/**
+ * Fold a provider's per-check statuses into a single overall CI verdict
+ * ({@link CiStatus.status}). Shared by GitHub / GitLab / Azure DevOps so the
+ * three `checkCi` implementations compute the aggregate identically (DR-10 —
+ * the three providers previously carried byte-identical private copies).
+ *
+ * Precedence is fail-fast then pending-blocks:
+ *   - any `fail` check ⇒ overall `fail`   (a terminal non-pass blocks gating);
+ *   - else any `pending` check ⇒ overall `pending` (not yet terminal);
+ *   - else `pass` (every check is `pass` or `skipped`, including the empty set).
+ *
+ * Pure: no I/O, no throws. Provider methods that throw by design (the GitLab /
+ * Azure DevOps partial-provider `UnsupportedOperationError` surfaces) are
+ * unaffected — this helper only aggregates the check list a `checkCi` already
+ * built and never sits on those throw paths.
+ */
+export function computeOverallCiStatus(
+  checks: readonly CiCheck[],
+): CiStatus['status'] {
+  const hasFailure = checks.some((c) => c.status === 'fail');
+  if (hasFailure) return 'fail';
+
+  const hasPending = checks.some((c) => c.status === 'pending');
+  if (hasPending) return 'pending';
+
+  return 'pass';
 }
 
 export interface MergeResult {
@@ -45,9 +73,9 @@ export interface ReviewStatus {
 }
 
 export interface PrFilter {
-  readonly state?: 'open' | 'closed' | 'merged' | 'all';
-  readonly head?: string;
-  readonly base?: string;
+  readonly state?: 'open' | 'closed' | 'merged' | 'all' | undefined;
+  readonly head?: string | undefined;
+  readonly base?: string | undefined;
 }
 
 export interface PrSummary {
@@ -95,8 +123,8 @@ export interface PrComment {
    * discriminant — see the interface doc for the three kinds.
    */
   readonly source: 'issue-comment' | 'review-inline' | 'review-summary';
-  readonly path?: string;
-  readonly line?: number;
+  readonly path?: string | undefined;
+  readonly line?: number | undefined;
   /**
    * Id of the top-level comment this one replies to (one-level threading).
    * Absent ⇒ this comment is top-level.
@@ -143,9 +171,9 @@ export const DEFAULT_PR_COMMENTS_LIMIT = 20;
  * omitted/empty `fields` returns every comment key.
  */
 export interface GetPrCommentsOptions {
-  readonly limit?: number;
-  readonly offset?: number;
-  readonly fields?: readonly string[];
+  readonly limit?: number | undefined;
+  readonly offset?: number | undefined;
+  readonly fields?: readonly string[] | undefined;
 }
 
 /**
@@ -260,8 +288,8 @@ export function windowPrComments(
 export interface CreateIssueOpts {
   readonly title: string;
   readonly body: string;
-  readonly labels?: readonly string[];
-  readonly assignees?: readonly string[];
+  readonly labels?: readonly string[] | undefined;
+  readonly assignees?: readonly string[] | undefined;
 }
 
 export interface IssueResult {

@@ -109,7 +109,7 @@ export async function handleCheckPrComments(
     const shownComments = topLevel.slice(0, UNADDRESSED_COMMENT_LIST_CAP);
     for (const c of shownComments) {
       const lineNum = c.line ?? '?';
-      const bodyPreview = c.body.split('\n')[0].slice(0, 100);
+      const bodyPreview = (c.body.split('\n')[0] ?? '').slice(0, 100);
       reportLines.push(`- [${c.author}] ${c.path ?? 'unknown'}:${lineNum}: ${bodyPreview}`);
     }
     if (topLevel.length > shownComments.length) {

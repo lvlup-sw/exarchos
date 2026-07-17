@@ -33,7 +33,7 @@ export interface AtomicAppendEvent {
   sequence: number;
   type: string;
   timestamp: string;
-  data?: Record<string, unknown>;
+  data?: Record<string, unknown> | undefined;
   /**
    * The full PublicPersistedEvent serialized as JSON. Persisted into
    * `events.payload` so `rowToEvent` can rehydrate the canonical shape on
@@ -1119,7 +1119,7 @@ export class SqliteBackend implements StorageBackend {
       // Advance the cursor past this chunk regardless of whether every
       // row picked up correlation data — rows whose payload lacked the
       // fields stay correlation_id IS NULL but won't be revisited.
-      cursor = rowids[rowids.length - 1];
+      cursor = rowids[rowids.length - 1]!;
 
       // Remaining work = rows still matching the cursor's forward
       // window. Use the same WHERE shape so the count is consistent

@@ -47,11 +47,11 @@ export function isExarchosRepo(repoRoot: string, deps: ScaffoldDeps): boolean {
 
 export interface DevTierGuardArgs {
   /** Target tier. `undefined` defaults to `user` downstream — nothing to guard. */
-  readonly tier?: 'dev' | 'user';
+  readonly tier?: 'dev' | 'user' | undefined;
   /** Repo root the `package.json` heuristic resolves against. */
   readonly repoRoot: string;
   /** Explicit opt-in for a genuine exarchos fork — bypasses the guard. */
-  readonly allowReservedTier?: boolean;
+  readonly allowReservedTier?: boolean | undefined;
   /**
    * The orchestrate action this guard is protecting. Echoed into
    * `suggestedFix.params.action` so the carrier-shape fix is directly

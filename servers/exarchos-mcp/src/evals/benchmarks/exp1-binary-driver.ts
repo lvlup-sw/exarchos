@@ -484,7 +484,11 @@ export async function runArmOverCorpus(
     command: ref.binaryPath,
     args: ['mcp'],
     cwd: serverRoot,
-    env: { ...process.env, WORKFLOW_STATE_DIR: stateDir },
+    env: Object.fromEntries(
+      Object.entries({ ...process.env, WORKFLOW_STATE_DIR: stateDir }).filter(
+        (entry): entry is [string, string] => entry[1] !== undefined,
+      ),
+    ),
   });
   const client = new Client({ name: 'exp1-driver', version: '0.0.0' }, { capabilities: {} });
 

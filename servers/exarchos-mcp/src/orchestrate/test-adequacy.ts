@@ -34,7 +34,7 @@ export interface SplitHunksOptions {
    * a "test file" is for that project). When omitted, {@link DEFAULT_TEST_GLOBS}
    * is used.
    */
-  readonly testGlobs?: readonly string[];
+  readonly testGlobs?: readonly string[] | undefined;
 }
 
 export interface SplitHunksResult {
@@ -56,7 +56,7 @@ export interface SplitHunksResult {
 function globToRegExp(glob: string): RegExp {
   let out = '^';
   for (let i = 0; i < glob.length; i++) {
-    const ch = glob[i];
+    const ch = glob[i] ?? '';
     if (ch === '*') {
       if (glob[i + 1] === '*') {
         // `**/` consumes zero-or-more leading segments; bare `**` matches all.

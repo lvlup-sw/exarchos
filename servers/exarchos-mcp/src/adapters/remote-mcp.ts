@@ -9,6 +9,8 @@
 // NOTE: This adapter is intentionally NOT wired into any handler or
 // registry. It exists purely as a future-use placeholder.
 
+// RESERVED(issue: #1081, owner: exarchos, expires: 2026-10-31) — DR-6 remote-MCP skeleton, intentionally not wired; see also #1713; delete-or-wire tracked in #1713 (DR-7 module-intent gate)
+
 /**
  * Error thrown by skeleton/placeholder implementations to signal that
  * the requested behavior has not yet been built.

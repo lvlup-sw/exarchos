@@ -5,7 +5,7 @@
 // adapter also exposes a `customAgentResolutionWorks` flag — Codex upstream
 // issues #15250/#14579 mean named-agent dispatch from tool sessions is
 // unreliable, so the flag is `false` by default until upstream lands a fix.
-// See docs/designs/2026-04-25-delegation-runtime-parity.md §4 and
+// See docs/designs/archive/2026-04-25-delegation-runtime-parity.md §4 and
 // docs/research/2026-04-25-delegation-platform-agnosticity.md §3.
 // ────────────────────────────────────────────────────────────────────────────
 

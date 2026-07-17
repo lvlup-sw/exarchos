@@ -35,6 +35,10 @@ import {
   type ExtractedPlanTask,
   type TaskStatus,
 } from '../shared/task-status-fold.js';
+import {
+  extractTaskId,
+  extractString,
+} from '../shared/event-data-extractors.js';
 
 /**
  * Task statuses surfaced by this reducer — post #1359 PR4 canonical
@@ -94,35 +98,13 @@ const initialRehydrationDocument: RehydrationDocument = RehydrationDocumentSchem
   phasePlaybook: null,
 });
 
-// ─── Shared extractors ──────────────────────────────────────────────────────
-
-/**
- * Narrow extractor — pulls a string `taskId` off an event's opaque `data` bag
- * without widening the reducer's type surface to `any`. The event-store base
- * schema types `data` as `Record<string, unknown> | undefined`, so this
- * performs the runtime check the type system cannot.
- */
-function extractTaskId(data: WorkflowEvent['data']): string | undefined {
-  if (!data) return undefined;
-  const raw = data['taskId'];
-  return typeof raw === 'string' && raw.length > 0 ? raw : undefined;
-}
-
-/**
- * Generic string-field extractor — mirrors {@link extractTaskId} for arbitrary
- * string-typed fields on the event's opaque `data` bag (e.g. `featureId`,
- * `workflowType`, `to`). Returns `undefined` for missing/non-string/empty
- * values so the reducer can short-circuit on malformed events without ever
- * writing `undefined` into the schema-validated workflowState.
- */
-function extractString(
-  data: WorkflowEvent['data'],
-  key: string,
-): string | undefined {
-  if (!data) return undefined;
-  const raw = data[key];
-  return typeof raw === 'string' && raw.length > 0 ? raw : undefined;
-}
+// ─── Local extractors ───────────────────────────────────────────────────────
+//
+// The generic string / taskId extractors live in
+// `../shared/event-data-extractors.ts` (DR-10) so this reducer and the
+// task-store reducer share one copy. The rehydration-specific decoders below
+// (`extractArtifactsPatch`, `extractHandoff`) stay local — they decode
+// projection-shaped subtrees only this document consumes.
 
 /**
  * Diff-style decoding of `data.patch.artifacts` from a `state.patched` event:
@@ -279,6 +261,7 @@ function foldPlanTasks(
       continue;
     }
     const existing = next[existingIdx];
+    if (existing === undefined) continue;
     // Rank lookup is shared with the pipeline view via
     // `../shared/task-status-fold.ts` so both surfaces agree on the
     // precedence ladder (#1359 / PR4 T13).
@@ -370,7 +353,7 @@ function applyTaskEvent(
     //
     //   1. `conflictsWithActiveOther` — an active pending merge already exists
     //      for a DIFFERENT task. Clobbering it would let a subsequent
-    //      merge.executed / merge.rollback / merge.aborted fire against the
+    //      merge.executed / merge.recovered / merge.aborted fire against the
     //      wrong taskId in `applyMergeTerminalEvent`. Preserve the active
     //      pending; the second task's worktree merge gets picked up after
     //      the first task's terminal event lands.
@@ -405,9 +388,10 @@ function applyTaskEvent(
 }
 
 /**
- * Handler for `merge.executed` / `merge.rollback` / `merge.aborted` — exits
- * the `merge-pending` substate by stamping the terminal phase on
- * `mergeOrchestrator` and reverting `workflowState.phase` to `delegate`.
+ * Handler for `merge.executed` / `merge.recovered` (and its read-tolerant
+ * legacy alias `merge.rollback`) / `merge.aborted` — exits the `merge-pending`
+ * substate by stamping the terminal phase on `mergeOrchestrator` and reverting
+ * `workflowState.phase` to `delegate`.
  *
  * The exit phase is derived from the event type (caller-provided). Mirrors
  * the HSM `mergePendingExit` guard in `workflow/hsm-definitions.ts` so the
@@ -424,7 +408,7 @@ function applyMergeTerminalEvent(
   const existing = state.workflowState.mergeOrchestrator;
   if (!existing) return state;
   // Idempotent no-op when this terminal event has already been folded — a
-  // duplicate merge.executed / merge.rollback / merge.aborted at the same
+  // duplicate merge.executed / merge.recovered / merge.aborted at the same
   // taskId + terminalPhase must NOT bump projectionSequence, otherwise replay
   // count diverges from the truth-of-events count and downstream consumers
   // (snapshot cadence, fingerprint comparisons) observe phantom mutations.
@@ -962,6 +946,15 @@ export const rehydrationReducer: ProjectionReducer<RehydrationDocument, Workflow
       // ── merge.* — merge-orchestrator lifecycle (#1208 / DR-MO-1) ─────────
       case 'merge.executed':
         return applyMergeTerminalEvent(state, event, 'completed');
+      // DR-2 (task 006): the recovery path now emits ONLY `merge.recovered`;
+      // `merge.rollback` is the read-tolerant legacy alias (KEPT so pre-DR-2
+      // logs still fold to `rolled-back`). Both drive the SAME terminal fold —
+      // `applyMergeTerminalEvent` reads only `existing.taskId`, so the two
+      // events are byte-equivalent here. Folding both is idempotent: on a legacy
+      // dual-emit stream the first (recovered) folds and the second (rollback)
+      // hits the idempotent no-op, so the final state + projectionSequence are
+      // identical whichever event drove the transition.
+      case 'merge.recovered':
       case 'merge.rollback':
         return applyMergeTerminalEvent(state, event, 'rolled-back');
       case 'merge.aborted':

@@ -323,7 +323,7 @@ describe('toCliResult', () => {
   // Regression guard pinning that `next_actions` survives the one-shot
   // dispatch pipeline (`toEnvelope` → `toCliResult` → JSON on stdout). The
   // T3 investigation (Branch B, see
-  // `docs/plans/2026-05-16-correlation-consumer-wiring.md` Wave 1 Task 3)
+  // `docs/plans/archive/2026-05-16-correlation-consumer-wiring.md` Wave 1 Task 3)
   // established that NO production auto-dispatch handler exists; the
   // CLI / MCP adapter is the one-shot exit point and the caller
   // (orchestrator / agent harness) is the next_actions consumer. This

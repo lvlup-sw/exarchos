@@ -1,3 +1,5 @@
+// RESERVED(issue: #1713, owner: exarchos, expires: 2026-10-31) — cascade orphan; dormant-benchmark Zod schema; delete-or-wire tracked in #1713 (DR-7 module-intent gate)
+
 import { z } from 'zod';
 
 // ─── Baseline Entry Schema ──────────────────────────────────────────────────

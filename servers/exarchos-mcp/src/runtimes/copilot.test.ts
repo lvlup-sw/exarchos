@@ -20,7 +20,7 @@
 //      justification block must be removed — the comment was load-bearing
 //      documentation for the wrong choice and is misleading once corrected.
 //
-// Implements: Task 7e of docs/plans/2026-04-25-delegation-runtime-parity.md.
+// Implements: Task 7e of docs/plans/archive/2026-04-25-delegation-runtime-parity.md.
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect } from 'vitest';

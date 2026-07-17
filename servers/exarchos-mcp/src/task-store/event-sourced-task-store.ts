@@ -122,9 +122,9 @@ interface ProjectedTask {
   task: Task;
   request: Request;
   requestId: RequestId;
-  result?: Result;
+  result?: Result | undefined;
   /** Wall-clock expiration; undefined when ttl is null (unlimited). */
-  expiresAt?: number;
+  expiresAt?: number | undefined;
   /**
    * FINDING-2 (#1438, PR 2): tail sequence at the last successful fold.
    * `loadTask` compares this against `EventStore.tailSequence(stream)` on
@@ -713,14 +713,15 @@ export class EventSourcedTaskStore implements TaskStore {
     // followed it in `afterCursor`. Encoding the LAST entry's
     // `(createdAt, taskId)` lets the next call resume exactly past
     // it.
+    const lastPageEntry = page[page.length - 1];
     const nextCursor =
-      page.length === PAGE_SIZE && afterCursor.length > PAGE_SIZE
+      page.length === PAGE_SIZE && afterCursor.length > PAGE_SIZE && lastPageEntry !== undefined
         ? encodeListTasksCursor({
-            createdAt: page[page.length - 1].task.createdAt,
-            taskId: page[page.length - 1].task.taskId,
+            createdAt: lastPageEntry.task.createdAt,
+            taskId: lastPageEntry.task.taskId,
           })
         : undefined;
-    return { tasks, nextCursor };
+    return { tasks, ...(nextCursor !== undefined ? { nextCursor } : {}) };
   }
 
   // ─── Internals ─────────────────────────────────────────────────────────
@@ -963,7 +964,7 @@ export class EventSourcedTaskStore implements TaskStore {
     if (!projected) return undefined;
     const full: ProjectedTask = {
       ...projected,
-      lastReadSequence: events[events.length - 1].sequence,
+      lastReadSequence: events[events.length - 1]?.sequence ?? 0,
     };
     this.tasks.set(taskId, full);
     return full;

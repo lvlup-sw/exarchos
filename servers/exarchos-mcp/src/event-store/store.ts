@@ -30,9 +30,9 @@ import {
 // `correlationId: 'my-feature-id'` (e.g. the workflow.started path that
 // uses featureId as the correlation anchor), the caller's value wins.
 function stampWithDispatchContext<T extends {
-  correlationId?: string;
-  causationId?: string;
-  operationId?: string;
+  correlationId?: string | undefined;
+  causationId?: string | undefined;
+  operationId?: string | undefined;
 }>(event: T): T {
   const ctx = getDispatchContext();
   if (ctx === undefined) return event;
@@ -68,19 +68,19 @@ export class SequenceConflictError extends Error {
 // ─── Append Options ─────────────────────────────────────────────────────────
 
 export interface AppendOptions {
-  expectedSequence?: number;
-  idempotencyKey?: string;
+  expectedSequence?: number | undefined;
+  idempotencyKey?: string | undefined;
 }
 
 // ─── Query Filters ──────────────────────────────────────────────────────────
 
 export interface QueryFilters {
-  type?: string;
-  sinceSequence?: number;
-  since?: string;
-  until?: string;
-  limit?: number;
-  offset?: number;
+  type?: string | undefined;
+  sinceSequence?: number | undefined;
+  since?: string | undefined;
+  until?: string | undefined;
+  limit?: number | undefined;
+  offset?: number | undefined;
   /**
    * Cross-stream prefix filter (DR-3, design 2026-05-08-durable-event-store-substrate).
    *
@@ -104,14 +104,14 @@ export interface QueryFilters {
 // ─── Event Store Options ────────────────────────────────────────────────────
 
 export interface EventStoreOptions {
-  backend?: StorageBackend;
+  backend?: StorageBackend | undefined;
   /**
    * Durability posture (DR-4) threaded to the lazily-constructed
    * AtomicAppender → SqliteBackend (`PRAGMA synchronous`). Resolved from
    * `.exarchos.yml` `storage.synchronous` by the lifecycle wiring. Omitted →
    * `'normal'` (unchanged default).
    */
-  synchronous?: 'normal' | 'full';
+  synchronous?: 'normal' | 'full' | undefined;
 }
 
 // ─── Integrity Result ───────────────────────────────────────────────────────
@@ -185,14 +185,14 @@ export class EventStore {
   private initialized = false;
 
   /** Optional storage backend for delegating reads */
-  private readonly backend?: StorageBackend;
+  private readonly backend?: StorageBackend | undefined;
 
   /** Lazily-instantiated AtomicAppender — single instance per stateDir so per-stream
    *  locks and sequence counters share state across handler calls. */
-  private atomicAppender?: AtomicAppender;
+  private atomicAppender?: AtomicAppender | undefined;
 
   /** Durability posture threaded to the lazily-created appender (DR-4). */
-  private synchronous?: 'normal' | 'full';
+  private synchronous?: 'normal' | 'full' | undefined;
 
   /**
    * DR-1 subscription registry (#1315). Lazily created on the first
@@ -201,7 +201,7 @@ export class EventStore {
    * the same moment, leaving `appendSqliteLocked` a single `undefined` guard
    * on the zero-subscriber path.
    */
-  private subscriptions?: SubscriptionRegistry;
+  private subscriptions?: SubscriptionRegistry | undefined;
 
   constructor(private readonly stateDir: string, options?: EventStoreOptions) {
     this.backend = options?.backend;
@@ -236,7 +236,7 @@ export class EventStore {
    * required — `append`, `appendValidated`, and `batchAppend` all delegate
    * through this instance, so a one-line swap here flips the entire write
    * substrate. The migration doc is at
-   * docs/designs/2026-05-08-eventstore-appender-consumer-migration.md.
+   * docs/designs/archive/2026-05-08-eventstore-appender-consumer-migration.md.
    */
   getAppender(): AtomicAppender {
     if (!this.atomicAppender) {
@@ -422,6 +422,9 @@ export class EventStore {
     // re-fired backend/outbox dual-writes; v2.11 removed those paths).
     if (result.kind === 'cache-hit') {
       const cached = result.persistedEvents[0];
+      if (cached === undefined) {
+        throw new Error('Append cache-hit reported no persisted event');
+      }
       return {
         streamId: cached.streamId,
         sequence: cached.sequence,
@@ -498,8 +501,9 @@ export class EventStore {
     //     cross-batch retries don't dedup against a partial overlap.
     //   - all events keyless → unkeyed append (no cache pollution).
     const eventKeys = deduped.map((e) => e.idempotencyKey).filter((k): k is string => !!k);
+    const firstKey = eventKeys[0];
     const allHaveKeys = eventKeys.length === deduped.length;
-    const allSameKey = allHaveKeys && eventKeys.every((k) => k === eventKeys[0]);
+    const allSameKey = allHaveKeys && eventKeys.every((k) => k === firstKey);
 
     const appender = this.getAppender();
     const eventInputs = deduped.map((e) => {
@@ -511,7 +515,8 @@ export class EventStore {
     if (eventKeys.length === 0) {
       result = await appender.appendUnkeyed(streamId, eventInputs);
     } else {
-      const batchKey = allSameKey ? eventKeys[0] : `batch:${randomUUIDFn()}`;
+      const batchKey =
+        allSameKey && firstKey !== undefined ? firstKey : `batch:${randomUUIDFn()}`;
       result = await appender.append(streamId, eventInputs, batchKey);
     }
 
@@ -553,11 +558,16 @@ export class EventStore {
       );
     }
 
-    const fullEvents: WorkflowEvent[] = deduped.map((event, i) => ({
-      ...event,
-      sequence: result.sequences[i],
-      timestamp: result.timestamps[i],
-    }));
+    const fullEvents: WorkflowEvent[] = deduped.map((event, i) => {
+      const sequence = result.sequences[i];
+      const timestamp = result.timestamps[i];
+      if (sequence === undefined || timestamp === undefined) {
+        throw new Error(
+          `Batch append result missing sequence/timestamp for event ${i}`,
+        );
+      }
+      return { ...event, sequence, timestamp };
+    });
 
     return fullEvents;
   }

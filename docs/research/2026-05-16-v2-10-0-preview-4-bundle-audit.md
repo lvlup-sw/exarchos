@@ -3,8 +3,8 @@
 **Feature ID:** `preview4-bundle-audit`
 **Date:** 2026-05-16
 **Bundle:** PRs #1421–#1435 (between c3a55f44 preview.3 close-out and 77c9d77b HEAD)
-**Reference design:** [`docs/designs/2026-05-15-v2-10-0-preview-4-feature-freeze.md`](../designs/2026-05-15-v2-10-0-preview-4-feature-freeze.md)
-**Reference plan:** [`docs/plans/2026-05-15-v2-10-0-preview-4-feature-freeze.md`](../plans/2026-05-15-v2-10-0-preview-4-feature-freeze.md)
+**Reference design:** [`docs/designs/archive/2026-05-15-v2-10-0-preview-4-feature-freeze.md`](../designs/archive/2026-05-15-v2-10-0-preview-4-feature-freeze.md)
+**Reference plan:** [`docs/plans/archive/2026-05-15-v2-10-0-preview-4-feature-freeze.md`](../plans/archive/2026-05-15-v2-10-0-preview-4-feature-freeze.md)
 
 ## TL;DR
 
@@ -172,8 +172,8 @@ The design declared PASS or PASS(+) on all 9 INV checks and all 8 DIM checks, wi
 
 ## Sources
 
-- Design: `docs/designs/2026-05-15-v2-10-0-preview-4-feature-freeze.md`
-- Plan: `docs/plans/2026-05-15-v2-10-0-preview-4-feature-freeze.md`
+- Design: `docs/designs/archive/2026-05-15-v2-10-0-preview-4-feature-freeze.md`
+- Plan: `docs/plans/archive/2026-05-15-v2-10-0-preview-4-feature-freeze.md`
 - Plan sidecar: `docs/plans/2026-05-15-v2-10-0-preview-4-feature-freeze.sidecar.yml`
 - Issues: #1088 (epic), #1238 #1244 #1260 #1261 #1262 #1272 #1273 #1274 #1290 #1291 #1298
 - PRs: #1421 #1422 #1423 #1424 #1425 #1426 #1427 #1428 #1429 #1430 #1432 #1433 #1435

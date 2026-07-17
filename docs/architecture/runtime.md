@@ -1,7 +1,7 @@
 # Runtime Architecture
 
 > **Status:** Canonical — see #1118 (codify principles), #1109 (cross-cutting invariants)
-> **Related:** [`projections.md`](projections.md), [`docs/designs/2026-05-08-durable-event-store-substrate.md`](../designs/2026-05-08-durable-event-store-substrate.md), [`docs/research/2026-05-08-1119-merge-orchestrator-audit.md`](../research/2026-05-08-1119-merge-orchestrator-audit.md), [`docs/designs/2026-05-11-marten-followups.md`](../designs/2026-05-11-marten-followups.md)
+> **Related:** [`projections.md`](projections.md), [`docs/designs/archive/2026-05-08-durable-event-store-substrate.md`](../designs/archive/2026-05-08-durable-event-store-substrate.md), [`docs/research/2026-05-08-1119-merge-orchestrator-audit.md`](../research/2026-05-08-1119-merge-orchestrator-audit.md), [`docs/designs/archive/2026-05-11-marten-followups.md`](../designs/archive/2026-05-11-marten-followups.md)
 > **Audience:** anyone making architectural decisions about Exarchos itself (not consumers of the plugin)
 
 ---
@@ -90,7 +90,7 @@ These guarantees come from database research (Mohan et al., *ARIES* 1992; Bernst
 
 ### L1 — Storage
 
-SQLite via `bun:sqlite`. ACID. WAL journal mode (`PRAGMA journal_mode = WAL`) with `busy_timeout = 5000ms` as the C-layer contention-absorption tier. Schema includes `events`, `workflow_state`, `outbox`, `view_cache`, `sequences`, `idempotency_claims`, `streams`, `projection_snapshots`, `schema_version`. Storage handle is injected via `DispatchContext`; nothing imports `Database` outside `storage/sqlite-backend.ts` (CI gate enforces). See [`docs/designs/2026-05-08-durable-event-store-substrate.md`](../designs/2026-05-08-durable-event-store-substrate.md) §C1.
+SQLite via `bun:sqlite`. ACID. WAL journal mode (`PRAGMA journal_mode = WAL`) with `busy_timeout = 5000ms` as the C-layer contention-absorption tier. Schema includes `events`, `workflow_state`, `outbox`, `view_cache`, `sequences`, `idempotency_claims`, `streams`, `projection_snapshots`, `schema_version`. Storage handle is injected via `DispatchContext`; nothing imports `Database` outside `storage/sqlite-backend.ts` (CI gate enforces). See [`docs/designs/archive/2026-05-08-durable-event-store-substrate.md`](../designs/archive/2026-05-08-durable-event-store-substrate.md) §C1.
 
 ### L2 — Event store
 
@@ -188,7 +188,7 @@ Prior to #1343 (Wave A), `EventStore.initialize()` acquired a per-`stateDir` PID
 
 What we do **not** need: distributed consensus, leader election, vector clocks, BFT — single-machine context eliminates the problems those primitives solve.
 
-> **See also:** `docs/designs/2026-05-11-marten-followups.md` §"Task A4 — PID lock demotion" and issue #1343 for the rationale and implementation history.
+> **See also:** `docs/designs/archive/2026-05-11-marten-followups.md` §"Task A4 — PID lock demotion" and issue #1343 for the rationale and implementation history.
 
 ### Process-manager handlers (two-event split)
 
@@ -310,7 +310,7 @@ Each invariant maps to one or more layers:
 
 ### Local vs remote tiers
 
-Per the [strategic framing memo](../designs/2026-04-18-strategic-framing-exarchos-basileus.md), Exarchos is the **local-tier** runtime: developer-attended, single-machine, cooperative-agents. Basileus is the **autonomous-platform** tier: VM-sandboxed agents, durable execution, remote MCP transport.
+Per the [strategic framing memo](../designs/archive/2026-04-18-strategic-framing-exarchos-basileus.md), Exarchos is the **local-tier** runtime: developer-attended, single-machine, cooperative-agents. Basileus is the **autonomous-platform** tier: VM-sandboxed agents, durable execution, remote MCP transport.
 
 This architecture document is therefore scoped to local-tier guarantees. Where designs need to cross the local/remote boundary, INV-3 (basileus-forward) governs: storage backends are transport-agnostic; capability resolution is handshake-authoritative; cross-stream queries are primitives that a remote backend can implement.
 
@@ -329,9 +329,9 @@ If you had to compress the architecture to one paragraph: Exarchos is a single S
 ## References
 
 - [`projections.md`](projections.md) — projection reducer contract
-- [`docs/designs/2026-05-08-durable-event-store-substrate.md`](../designs/2026-05-08-durable-event-store-substrate.md) — v2.10 substrate (#1259)
-- [`docs/designs/2026-05-11-marten-followups.md`](../designs/2026-05-11-marten-followups.md) — PID lock demotion + Marten leverage follow-ups (#1343, #1342)
-- [`docs/designs/2026-04-18-strategic-framing-exarchos-basileus.md`](../designs/2026-04-18-strategic-framing-exarchos-basileus.md) — local vs remote tiers
+- [`docs/designs/archive/2026-05-08-durable-event-store-substrate.md`](../designs/archive/2026-05-08-durable-event-store-substrate.md) — v2.10 substrate (#1259)
+- [`docs/designs/archive/2026-05-11-marten-followups.md`](../designs/archive/2026-05-11-marten-followups.md) — PID lock demotion + Marten leverage follow-ups (#1343, #1342)
+- [`docs/designs/archive/2026-04-18-strategic-framing-exarchos-basileus.md`](../designs/archive/2026-04-18-strategic-framing-exarchos-basileus.md) — local vs remote tiers
 - [`docs/research/2026-05-08-1119-merge-orchestrator-audit.md`](../research/2026-05-08-1119-merge-orchestrator-audit.md) — audit that surfaced the runtime-guarantee framing
 - [`.exarchos/invariants.md`](../../.exarchos/invariants.md) — INV-1..INV-15 catalog (relocated from `docs/architecture/invariants.md` in T-19); audit behavior is performed by the `check_invariant_conformance` gate (the `design-invariants` skill was retired in T-23)
 - Issues: #1109 (cross-cutting invariants), #1118 (codify principles), #1119 (merge orchestrator), #1259 (substrate spike), #1284 (EventSourcedTaskStore), #1302 (audit follow-up epic), #1343 (PID lock demotion), #1342 (Marten leverage epic)

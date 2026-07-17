@@ -123,7 +123,9 @@ async function recoverOperationId(
     executed.map((e) => (e.data as unknown as IssueExecutedData).operationId),
   );
   for (let i = requested.length - 1; i >= 0; i -= 1) {
-    const data = requested[i].data as unknown as IssueRequestedData;
+    const entry = requested[i];
+    if (entry === undefined) continue;
+    const data = entry.data as unknown as IssueRequestedData;
     if (executedOps.has(data.operationId)) continue;
     if (data.title === args.title && data.body === args.body) {
       return data.operationId;

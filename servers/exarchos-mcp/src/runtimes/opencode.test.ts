@@ -19,7 +19,7 @@
 //      plugin-prefix namespace, so no file of that name exists on disk —
 //      this is the broken-pointer issue called out in discovery §3.
 //
-// Implements: Task 7c of docs/plans/2026-04-25-delegation-runtime-parity.md.
+// Implements: Task 7c of docs/plans/archive/2026-04-25-delegation-runtime-parity.md.
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect } from 'vitest';

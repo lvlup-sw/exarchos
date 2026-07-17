@@ -29,7 +29,7 @@ import { globToRegExp } from './glob-to-regexp.js';
  * `evaluateTreeScoped`.
  */
 interface EvalScope {
-  fileGlob?: string;
+  fileGlob?: string | undefined;
 }
 
 /** Compile-time exhaustiveness guard (DR-9 total function). */
@@ -48,10 +48,10 @@ function assertNever(value: never): never {
  * (`diff --git`, `index`, `--- a/<path>`) into the PREVIOUS file's section,
  * which can misattribute a pattern match to the wrong file's glob.
  */
-function splitDiffByFile(diff: string): Array<{ path?: string; body: string }> {
+function splitDiffByFile(diff: string): Array<{ path?: string | undefined; body: string }> {
   const lines = diff.split('\n');
-  const sections: Array<{ path?: string; body: string }> = [];
-  let current: { path?: string; body: string } | undefined;
+  const sections: Array<{ path?: string | undefined; body: string }> = [];
+  let current: { path?: string | undefined; body: string } | undefined;
 
   const begin = (): void => {
     current = { path: undefined, body: '' };

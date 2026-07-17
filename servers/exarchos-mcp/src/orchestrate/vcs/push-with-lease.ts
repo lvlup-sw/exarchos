@@ -13,6 +13,8 @@
 // consolidation) adopt `buildPushWithLease` later — forward-compatible by
 // design.
 
+// RESERVED(issue: #1596, owner: exarchos, expires: 2027-01-31) — reserved dead stub; deletion at expiry if unadopted (DR-7 module-intent gate)
+
 import { execFileSync } from 'node:child_process';
 
 // ─── Validation ──────────────────────────────────────────────────────────────
@@ -132,7 +134,7 @@ export interface ResolveExpectedShaOptions {
    * PREFERRED when present — it avoids a redundant network round-trip and uses
    * the exact SHA the loop reasoned about.
    */
-  readonly observedSha?: string;
+  readonly observedSha?: string | undefined;
   /** Injectable git runner; defaults to a real `execFileSync`. */
   readonly runGit?: RunGit;
 }

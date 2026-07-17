@@ -6,7 +6,7 @@
 // hooks, session resume) are unsupported.
 //
 // See `types.ts` for the `SupportLevel` contract and Task 4f in
-// docs/designs/2026-04-25-delegation-runtime-parity.md §4.
+// docs/designs/archive/2026-04-25-delegation-runtime-parity.md §4.
 // ────────────────────────────────────────────────────────────────────────────
 
 import { Capability } from '../capabilities.js';

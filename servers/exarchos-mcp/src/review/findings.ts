@@ -5,6 +5,8 @@
 // or review triage) identifies actionable findings or escalation conditions.
 // ────────────────────────────────────────────────────────────────────────────
 
+// RESERVED(issue: #1713, owner: exarchos, expires: 2026-10-31) — cascade orphan; emits registered review.finding/review.escalated, named as the utility to wire by 2 design docs; delete-or-wire tracked in #1713 (DR-7 module-intent gate)
+
 import type { EventStore } from '../event-store/store.js';
 import type { ReviewFinding, ReviewEscalated } from '../event-store/schemas.js';
 

@@ -20,6 +20,8 @@
 //     brainstorming loop) is opt-in, never automatic.
 // ────────────────────────────────────────────────────────────────────────────
 
+// RESERVED(issue: #1581, owner: exarchos, expires: 2027-01-31) — reserved dead stub; deletion at expiry if unadopted (DR-7 module-intent gate)
+
 import type { DesignDepth } from './plan-depth-policy.js';
 
 /** Coarse ordinal magnitude for a brief signal. */

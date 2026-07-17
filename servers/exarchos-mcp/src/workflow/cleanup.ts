@@ -52,8 +52,8 @@ interface CleanupEventPayload {
     trigger: string;
     metadata?: Record<string, unknown>;
   }>;
-  prUrl?: string | string[];
-  mergedBranches?: string[];
+  prUrl?: string | string[] | undefined;
+  mergedBranches?: string[] | undefined;
 }
 
 /**

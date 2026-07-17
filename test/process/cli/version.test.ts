@@ -1,4 +1,4 @@
-// Source: docs/designs/2026-05-05-e2e-v29-revisited.md §4.4 (T4.1)
+// Source: docs/designs/archive/2026-05-05-e2e-v29-revisited.md §4.4 (T4.1)
 import { readFileSync, existsSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';

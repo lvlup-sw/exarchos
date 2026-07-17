@@ -40,7 +40,7 @@ export function tokenizeCommand(input: string): readonly string[] {
   let hasContent = false;
 
   for (let i = 0; i < input.length; i++) {
-    const ch = input[i];
+    const ch = input[i] ?? '';
 
     if (ch === '\\' && !inSingle) {
       // Backslash escapes the next character outside single quotes.

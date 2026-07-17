@@ -81,7 +81,6 @@ export interface ResolvedProjectConfig {
     readonly impeccable: ResolvedPluginConfig;
   };
   readonly prune: {
-    readonly staleAfterDays: number;
     readonly maxBatchSize: number;
     readonly phaseExclusions: readonly string[];
     readonly malformedHandling: 'report' | 'include' | 'skip';
@@ -229,7 +228,6 @@ export const DEFAULTS: ResolvedProjectConfig = deepFreeze({
     impeccable: { enabled: true },
   },
   prune: {
-    staleAfterDays: 14,
     maxBatchSize: 25,
     phaseExclusions: ['delegate', 'review', 'synthesize'],
     malformedHandling: 'report' as const,
@@ -300,6 +298,7 @@ function validateTierModels(tierModels: Record<RiskTier, ModelId>): void {
   for (let i = 1; i < TIER_ORDER.length; i++) {
     const prevTier = TIER_ORDER[i - 1];
     const tier = TIER_ORDER[i];
+    if (prevTier === undefined || tier === undefined) continue;
     if (MODEL_STRENGTH[tierModels[tier]] < MODEL_STRENGTH[tierModels[prevTier]]) {
       throw new Error(
         `Invalid .exarchos.yml agents.tier-models: model strength must be monotone ` +
@@ -317,7 +316,7 @@ function validateTierModels(tierModels: Record<RiskTier, ModelId>): void {
  * into a canonical `ResolvedDimensionConfig`.
  */
 function normalizeDimension(
-  value: string | { severity?: string; enabled?: boolean },
+  value: string | { severity?: string | undefined; enabled?: boolean | undefined },
 ): ResolvedDimensionConfig {
   if (typeof value === 'string') {
     return { severity: value as ResolvedDimensionConfig['severity'], enabled: true };
@@ -332,7 +331,7 @@ function normalizeDimension(
  * Normalizes a gate config into a canonical `ResolvedGateConfig`.
  */
 function normalizeGate(
-  value: { enabled?: boolean; blocking?: boolean; params?: Record<string, unknown> },
+  value: { enabled?: boolean | undefined; blocking?: boolean | undefined; params?: Record<string, unknown> | undefined },
 ): ResolvedGateConfig {
   return {
     enabled: value.enabled ?? true,
@@ -345,7 +344,7 @@ function normalizeGate(
  * Normalizes a hook action, applying default timeout.
  */
 function normalizeHookAction(
-  action: { command: string; timeout?: number },
+  action: { command: string; timeout?: number | undefined },
 ): { readonly command: string; readonly timeout: number } {
   return {
     command: action.command,
@@ -470,7 +469,8 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
   const impeccableEnabled = project.plugins?.impeccable?.enabled ?? DEFAULTS.plugins.impeccable.enabled;
 
   // ── Prune ──
-  const staleAfterDays = project.prune?.['stale-after-days'] ?? DEFAULTS.prune.staleAfterDays;
+  // `stale-after-days` was removed (DR-9): per-phase staleness lives in
+  // `topology.yaml` `staleness` blocks, so the knob was accepted-but-ignored.
   const maxBatchSize = project.prune?.['max-batch-size'] ?? DEFAULTS.prune.maxBatchSize;
   const phaseExclusions = [...(project.prune?.['phase-exclusions'] ?? DEFAULTS.prune.phaseExclusions)];
   const malformedHandling = project.prune?.['malformed-handling'] ?? DEFAULTS.prune.malformedHandling;
@@ -506,7 +506,7 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
     tools: { defaultBranch, commitStyle, prTemplate, autoMerge, prStrategy },
     hooks: { on: hooksOn },
     plugins: { impeccable: { enabled: impeccableEnabled } },
-    prune: { staleAfterDays, maxBatchSize, phaseExclusions, malformedHandling, requireDryRun },
+    prune: { maxBatchSize, phaseExclusions, malformedHandling, requireDryRun },
     checkpoint: { operationThreshold, enforceOnPhaseTransition, enforceOnWaveDispatch },
     verification: { policy: verificationPolicy },
     storage: {

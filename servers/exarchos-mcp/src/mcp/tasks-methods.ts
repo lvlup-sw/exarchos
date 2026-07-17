@@ -18,6 +18,9 @@
  * surface — `McpError(InvalidParams, ...)` for MCP, a structured
  * INVALID_INPUT envelope for the CLI.
  */
+
+// RESERVED(issue: #1273, owner: exarchos, expires: 2027-01-31) — reserved dead stub; deletion at expiry if unadopted (DR-7 module-intent gate)
+
 import type {
   Result,
   Task,

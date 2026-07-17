@@ -27,7 +27,7 @@ import { rmrfAsync } from '../test-helpers/temp-dir.js';
 // constructor-injection refactor (#1182) eliminated the registry
 // entirely; handlers receive EventStore via DispatchContext, and the
 // composition-root CI script enforces no rogue instantiations.
-// See docs/plans/2026-04-26-eventstore-constructor-injection.md.
+// See docs/plans/archive/2026-04-26-eventstore-constructor-injection.md.
 
 describe('Materializer Cache', () => {
   beforeEach(() => {

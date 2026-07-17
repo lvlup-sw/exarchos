@@ -6,7 +6,7 @@
  * was bare (`catch {}`), making T-12 regressions invisible to oncall.
  * This test pins the warn emission so the swallow path stays observable.
  *
- * Plan: docs/plans/2026-05-09-rehydration-machinery-fixes.md (F-05)
+ * Plan: docs/plans/archive/2026-05-09-rehydration-machinery-fixes.md (F-05)
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 

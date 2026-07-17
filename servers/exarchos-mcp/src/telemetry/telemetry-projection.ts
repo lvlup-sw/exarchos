@@ -180,7 +180,7 @@ export const telemetryProjection: ViewProjection<TelemetryViewState> = {
       // `tool.errored` continues to track transport/protocol failures
       // (JS throws); `tool.action_errored` carries `errorCode` so the
       // projection can report `actionErrorBreakdown` per tool. See
-      // [`docs/designs/2026-05-15-wave2-wave3-polish.md`](../../docs/designs/2026-05-15-wave2-wave3-polish.md).
+      // [`docs/designs/archive/2026-05-15-wave2-wave3-polish.md`](../../docs/designs/archive/2026-05-15-wave2-wave3-polish.md).
       case 'tool.action_errored': {
         const aeData = event.data as {
           tool?: unknown;

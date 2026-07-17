@@ -33,7 +33,7 @@ export interface ProjectCatalogKey {
    * phase is `'delegate'`, an invariant is included only if its `appliesTo`
    * patterns match at least one touched file.
    */
-  touchedFiles?: string[];
+  touchedFiles?: string[] | undefined;
 }
 
 /**

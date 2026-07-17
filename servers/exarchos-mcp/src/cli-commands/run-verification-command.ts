@@ -1,6 +1,8 @@
 /**
- * Shared execution core for the `exarchos run-*` verification verbs
- * (`run-tests`, `run-mutation`, `run-contract`).
+ * Shared execution core for the `exarchos run-*` verification verbs. `run-tests`
+ * is the only such verb shipping today (the `run-mutation` / `run-contract`
+ * shims were removed in the wave-1 debloat); the core stays verb-generic so any
+ * future explicitly-invoked verification verb can reuse it without drift.
  *
  * Each verb resolves a command from the verification runtime (in the consumer's
  * cwd) and then runs it with an identical exit-code contract:
@@ -11,8 +13,8 @@
  * The ONE policy that differs between verbs is what an UNRESOLVED command means:
  *   - `run-tests` treats it as a benign skip (exit 0) — a repo with no test
  *     setup must not fail every post-Bash hook, but the skip is visible.
- *   - `run-mutation` / `run-contract` are explicitly invoked, so an unresolved
- *     runner is a non-zero failure with remediation.
+ *   - an explicitly-invoked verb passes a non-zero code, so an unresolved
+ *     runner is a failure with remediation.
  * That single axis is the `unresolvedExitCode` parameter; everything else is
  * shared here so the verbs cannot drift apart. This module is extracted from
  * the original run-tests handler WITHOUT changing its behavior.
@@ -30,12 +32,12 @@ export interface RunCommandIo {
 }
 
 export interface RunResolvedCommandArgs {
-  /** Verb label for diagnostics, e.g. `run-mutation`. */
+  /** Verb label for diagnostics, e.g. `run-tests`. */
   readonly verb: string;
   /** The resolved command string, or null/empty when unresolved. */
   readonly command: string | null;
   /** Remediation text surfaced on the unresolved path. */
-  readonly remediation?: string;
+  readonly remediation?: string | undefined;
   /** Whether `--dry-run` was passed (print, do not execute). */
   readonly dryRun: boolean;
   /** Working directory to run in. */

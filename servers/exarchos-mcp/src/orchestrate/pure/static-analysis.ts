@@ -16,7 +16,7 @@
  *             recognized toolchain). When this status is returned, the
  *             `skipReason` field carries the reason code (currently only
  *             'no-toolchain'). See DR-4 in
- *             docs/plans/2026-05-04-v290-dogfood-bundle.md.
+ *             docs/plans/archive/2026-05-04-v290-dogfood-bundle.md.
  *   'error' = usage error (missing repo root, no package.json)
  */
 
@@ -59,9 +59,9 @@ export interface StaticAnalysisInput {
   /** Repository root to analyze. */
   readonly repoRoot: string;
   /** Skip lint check. */
-  readonly skipLint?: boolean;
+  readonly skipLint?: boolean | undefined;
   /** Skip typecheck. */
-  readonly skipTypecheck?: boolean;
+  readonly skipTypecheck?: boolean | undefined;
   /** External command runner (dependency injection). */
   readonly runCommand: RunCommandFn;
 }
@@ -97,7 +97,7 @@ export interface StaticAnalysisResult {
   /** Number of checks that failed. */
   readonly failCount: number;
   /** Detected project type (undefined if no recognized project). */
-  readonly projectType?: string;
+  readonly projectType?: string | undefined;
 }
 
 // ============================================================

@@ -187,7 +187,7 @@ describe('#1291 acceptance — causation chain across auto-dispatch', () => {
   // parallel `T17_Integration_*` variant — the substrate test below
   // remains load-bearing and distinct.
   //
-  // See `docs/plans/2026-05-16-correlation-consumer-wiring.md` Wave 1
+  // See `docs/plans/archive/2026-05-16-correlation-consumer-wiring.md` Wave 1
   // Task 3 investigation (Branch B) for the search evidence; the
   // companion field-integrity regression guard for the one-shot pipeline
   // lives in `src/adapters/cli-format.test.ts` under

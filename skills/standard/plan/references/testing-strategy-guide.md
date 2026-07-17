@@ -182,4 +182,4 @@ The planner MUST auto-determine `propertyTests`, `benchmarks`, `testLayer`, and 
 
 ## Reference
 
-See [Autonomous Code Verification design](../../../docs/designs/2026-02-15-autonomous-code-verification.md#when-to-require-property-based-tests) for the full rationale and category taxonomy.
+See [Autonomous Code Verification design](../../../docs/designs/archive/2026-02-15-autonomous-code-verification.md#when-to-require-property-based-tests) for the full rationale and category taxonomy.

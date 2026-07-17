@@ -1,4 +1,4 @@
-// Source: docs/designs/2026-05-05-e2e-v29-revisited.md §4.3 (T3.4)
+// Source: docs/designs/archive/2026-05-05-e2e-v29-revisited.md §4.3 (T3.4)
 //
 // Process-fidelity parity test for the `workflow.describe` action.
 // Drives a 3-step saga (init + 2 task.assigned events) over the MCP

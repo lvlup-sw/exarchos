@@ -15,8 +15,8 @@ What does Strategos need to ship for exarchos v3.1.0 to land?
 - [exarchos#1256 (P10)](https://github.com/lvlup-sw/exarchos/issues/1256) — Strategos integration (T1/T5/T6 + R4)
 - [exarchos#1125](https://github.com/lvlup-sw/exarchos/issues/1125) — consumer side of `Strategos.Contracts`
 - [strategos#36](https://github.com/lvlup-sw/strategos/issues/36) — `Strategos.Contracts` (events-only today, unmilestoned)
-- [`docs/designs/2026-05-06-workflow-builder-sdk.md`](../designs/2026-05-06-workflow-builder-sdk.md) — DR-1…DR-12, §Strategos Integration, R4
-- [`docs/designs/2026-04-18-strategic-framing-exarchos-basileus.md`](../designs/2026-04-18-strategic-framing-exarchos-basileus.md)
+- [`docs/designs/archive/2026-05-06-workflow-builder-sdk.md`](../designs/archive/2026-05-06-workflow-builder-sdk.md) — DR-1…DR-12, §Strategos Integration, R4
+- [`docs/designs/archive/2026-04-18-strategic-framing-exarchos-basileus.md`](../designs/archive/2026-04-18-strategic-framing-exarchos-basileus.md)
 - Strategos open milestones: `Ontology 2.5.0` (#1), `Ontology 2.6.0` (#2). No workflow milestone exists.
 
 ## Findings
@@ -125,7 +125,7 @@ Each issue below is a ready-to-file body. All carry `scope:workflow`, `type:feat
 > - [ ] Hand-authored `Definitions/*.cs` files deleted in the same PR (verified by file count, not just diff).
 >
 > **References.**
-> - exarchos design: `docs/designs/2026-05-06-workflow-builder-sdk.md` §The IR Substrate, DR-2
+> - exarchos design: `docs/designs/archive/2026-05-06-workflow-builder-sdk.md` §The IR Substrate, DR-2
 > - exarchos plan: T-001…T-006
 
 ---
@@ -268,7 +268,7 @@ Each issue below is a ready-to-file body. All carry `scope:workflow`, `type:feat
 >
 > **References.**
 > - Strategic framing: [`basileus/docs/decisions/2026-04-18-strategic-framing-exarchos-basileus.md`](https://github.com/lvlup-sw/basileus/blob/main/docs/decisions/2026-04-18-strategic-framing-exarchos-basileus.md)
-> - exarchos design: [`docs/designs/2026-05-06-workflow-builder-sdk.md`](https://github.com/lvlup-sw/exarchos/blob/main/docs/designs/2026-05-06-workflow-builder-sdk.md)
+> - exarchos design: [`docs/designs/archive/2026-05-06-workflow-builder-sdk.md`](https://github.com/lvlup-sw/exarchos/blob/main/docs/designs/archive/2026-05-06-workflow-builder-sdk.md)
 
 ---
 

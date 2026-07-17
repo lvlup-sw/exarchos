@@ -8,13 +8,15 @@
 //   3. persists the `executing` intermediate state (with rollbackSha) BEFORE
 //      the VCS merge call, so a crash mid-merge is recoverable
 //
-// T16 — rollback path. When the VCS merge rejects, the pure executor returns
-// `phase: 'rolled-back'` after running the INV-14 recovery ladder
+// T16 — rollback/recovery path. When the VCS merge rejects, the pure executor
+// returns `phase: 'rolled-back'` after running the INV-14 recovery ladder
 // (`git merge --abort` → `git reset --keep <rollbackSha>`, never `--hard`).
-// The handler must:
-//   1. emit `merge.rollback` to the workflow's event stream carrying the
-//      categorized reason ('merge-failed' | 'verification-failed' | 'timeout')
-//      and, on a non-clean recovery, the INV-14 `recoveryError` discriminator
+// DR-2 (task 006) retired the legacy `merge.rollback` write path; the handler
+// now must:
+//   1. emit ONLY the canonical `merge.recovered` to the workflow's event stream
+//      carrying the categorized reason ('merge-failed' | 'verification-failed'
+//      | 'timeout') and, on a non-clean recovery, the INV-14 `recoveryError`
+//      discriminator + `recoveryErrorDetail`. NO legacy `merge.rollback` append.
 //   2. rewind to `<rollbackSha>` via the ladder so HEAD matches the captured sha
 //   3. return a structured `ToolResult` failure with code `MERGE_ROLLED_BACK`
 
@@ -51,8 +53,8 @@ function makeMockEventStore(): EventStore {
       timestamp: new Date().toISOString(),
     }),
     // #1303: handler reads stream tail to compute expectedSequence before
-    // appending merge.executed / merge.completed / merge.rollback. Empty
-    // array → expectedSequence: 0.
+    // appending merge.executed / merge.completed / merge.recovered. Empty
+    // array → expectedSequence: 0. (DR-2 retired the merge.rollback append.)
     query: vi.fn().mockResolvedValue([]),
     getAppender: vi.fn().mockReturnValue({ decide }),
   } as unknown as EventStore;
@@ -353,7 +355,7 @@ describe('handleExecuteMerge rollback (T16)', () => {
     vi.clearAllMocks();
   });
 
-  it('handleExecuteMerge_PureExecuteMergeRollsBack_EmitsMergeRollbackWithReason', async () => {
+  it('executeMerge_RecoveryPath_EmitsOnlyMergeRecovered', async () => {
     const ctx = makeMockCtx();
     // vcsMerge rejects → categorized as 'merge-failed' (default bucket).
     const vcsMerge = vi.fn().mockRejectedValue(new Error('merge conflict'));
@@ -375,11 +377,11 @@ describe('handleExecuteMerge rollback (T16)', () => {
 
     expect(result.success).toBe(false);
     // #1309 prepends the `merge.executing_started` liveness append (BEFORE the
-    // first vcsMerge). #1306 T4 dual-emit then appends BOTH the canonical
-    // `merge.recovered` event AND the legacy `merge.rollback` event during the
-    // v2.11.x deprecation window. Order: liveness → canonical → legacy. The
-    // terminal recovery payloads are unchanged.
-    expect(ctx.eventStore.append).toHaveBeenCalledTimes(3);
+    // first vcsMerge). DR-2 (task 006) retired the legacy `merge.rollback`
+    // append: the recovery path now appends EXACTLY the canonical
+    // `merge.recovered` terminal. Order: liveness → canonical recovered.
+    // Exactly two appends — NO third legacy append.
+    expect(ctx.eventStore.append).toHaveBeenCalledTimes(2);
     // 1) #1309 liveness `merge.executing_started`, emitted before the merge.
     expect(ctx.eventStore.append).toHaveBeenNthCalledWith(
       1,
@@ -401,8 +403,9 @@ describe('handleExecuteMerge rollback (T16)', () => {
         idempotencyKey: 'feat-x:merge_orchestrate:T11:merge.executing_started',
       },
     );
-    // 2) canonical `merge.recovered` — renamed fields (recoveryPointSha), its
-    //    OWN idempotency key + its OWN fresh-tail CAS read.
+    // 2) canonical `merge.recovered` — the SOLE terminal recovery event, with
+    //    renamed fields (recoveryPointSha), its OWN idempotency key + fresh-tail
+    //    CAS read.
     expect(ctx.eventStore.append).toHaveBeenNthCalledWith(
       2,
       'feat-x',
@@ -421,34 +424,37 @@ describe('handleExecuteMerge rollback (T16)', () => {
         idempotencyKey: 'feat-x:merge_orchestrate:T11:merge.recovered',
       },
     );
-    // 3) legacy `merge.rollback` — kept during the deprecation window, carries
-    //    the `_meta.deprecation` envelope, its OWN independent idempotency key.
-    expect(ctx.eventStore.append).toHaveBeenNthCalledWith(
-      3,
-      'feat-x',
+  });
+
+  it('executeMerge_RecoveryPath_NoLegacyRollbackAppend', async () => {
+    // DR-2 (task 006): explicit non-emission proof — the retired legacy
+    // `merge.rollback` write path must NEVER append, regardless of how many
+    // other appends the recovery path makes.
+    const ctx = makeMockCtx();
+    const vcsMerge = vi.fn().mockRejectedValue(new Error('merge conflict'));
+    const persistState = vi.fn().mockResolvedValue(undefined);
+
+    const result = await handleExecuteMerge(
       {
-        type: 'merge.rollback',
-        data: {
-          taskId: 'T11',
-          sourceBranch: 'feat/x',
-          targetBranch: 'main',
-          rollbackSha: ROLLBACK_SHA,
-          reason: 'merge-failed',
-          _meta: {
-            deprecation: {
-              since: '2.11.0',
-              removeIn: '2.12.0',
-              replacement: 'merge.recovered',
-            },
-          },
-        },
+        featureId: 'feat-x',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        taskId: 'T11',
+        strategy: 'squash',
+        vcsMerge,
+        persistState,
+        gitExec: makeGitExec(),
       },
-      // #1303 α-05: idempotencyKey + expectedSequence wired on merge.rollback.
-      {
-        expectedSequence: 0,
-        idempotencyKey: 'feat-x:merge_orchestrate:T11:merge.rollback',
-      },
+      ctx,
     );
+
+    expect(result.success).toBe(false);
+    const appendedTypes = (ctx.eventStore.append as ReturnType<typeof vi.fn>).mock.calls.map(
+      (call) => (call[1] as { type: string }).type,
+    );
+    // The canonical successor IS emitted; the retired legacy event is NOT.
+    expect(appendedTypes).toContain('merge.recovered');
+    expect(appendedTypes).not.toContain('merge.rollback');
   });
 
   it('handleExecuteMerge_AfterRollback_HeadMatchesRecordedSha', async () => {
@@ -581,15 +587,12 @@ describe('handleExecuteMerge rollback (T16)', () => {
       'reset --keep',
     );
 
-    // Same signals must appear on BOTH dual-emitted events so event-stream
-    // consumers (projections, dashboards, alerting) see them without reading
-    // the state file. #1306 T4: the recovery path appends the canonical
-    // `merge.recovered` (renamed `recoveryErrorDetail` field) AND the legacy
-    // `merge.rollback` (which keeps its `rollbackError` wire field + the
-    // `_meta.deprecation` envelope during the deprecation window).
-    // #1309 prepends the liveness append, so the recovery terminal pair is the
-    // 2nd/3rd append. The terminal recovery payloads are unchanged.
-    expect(ctx.eventStore.append).toHaveBeenCalledTimes(3);
+    // The INV-14 discriminator must appear on the canonical `merge.recovered`
+    // event so event-stream consumers (projections, dashboards, alerting) see
+    // it without reading the state file. DR-2 (task 006) retired the legacy
+    // `merge.rollback` append: the recovery path now appends exactly the
+    // liveness marker then the canonical recovered terminal (two appends).
+    expect(ctx.eventStore.append).toHaveBeenCalledTimes(2);
     const calls = (ctx.eventStore.append as ReturnType<typeof vi.fn>).mock.calls;
     // 0) #1309 liveness merge.executing_started — emitted before the merge.
     const [, startedPayload] = calls[0];
@@ -599,17 +602,9 @@ describe('handleExecuteMerge rollback (T16)', () => {
     expect(recoveredPayload.type).toBe('merge.recovered');
     expect(recoveredPayload.data.recoveryError).toBe('reset-keep-blocked');
     expect(recoveredPayload.data.recoveryErrorDetail).toContain('reset --keep');
-    // 2) legacy merge.rollback — carries recoveryError + the legacy
-    //    `rollbackError` detail field, plus the `_meta.deprecation` envelope.
-    const [, rollbackPayload] = calls[2];
-    expect(rollbackPayload.type).toBe('merge.rollback');
-    expect(rollbackPayload.data.recoveryError).toBe('reset-keep-blocked');
-    expect(rollbackPayload.data.rollbackError).toContain('reset --keep');
-    expect(rollbackPayload.data._meta.deprecation).toEqual({
-      since: '2.11.0',
-      removeIn: '2.12.0',
-      replacement: 'merge.recovered',
-    });
+    // The retired legacy `merge.rollback` event must NOT be appended.
+    const appendedTypes = calls.map((call) => (call[1] as { type: string }).type);
+    expect(appendedTypes).not.toContain('merge.rollback');
   });
 });
 
@@ -828,7 +823,7 @@ describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
     ]);
   });
 
-  it('handleExecuteMerge_OnRolledBack_EmitsMergeRollbackBeforePersistingTerminalState', async () => {
+  it('handleExecuteMerge_OnRolledBack_EmitsMergeRecoveredBeforePersistingTerminalState', async () => {
     const ctx = makeMockCtx();
     const callOrder: string[] = [];
 
@@ -863,16 +858,15 @@ describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
     );
 
     // #1309: the liveness event leads, emitted inside the persistState wrapper on
-    // the `executing` payload (before the state write / first vcsMerge). #1306 T4
-    // dual-emit: BOTH the canonical `merge.recovered` and the legacy
-    // `merge.rollback` are appended (canonical-first) BEFORE the terminal
-    // state-file write (event-first commit point, #1109 §1).
+    // the `executing` payload (before the state write / first vcsMerge). DR-2
+    // (task 006) retired the legacy `merge.rollback` append: ONLY the canonical
+    // `merge.recovered` is appended BEFORE the terminal state-file write
+    // (event-first commit point, #1109 §1).
     expect(callOrder).toEqual([
       'event:merge.executing_started',
       'persist:executing',
       'vcsMerge',
       'event:merge.recovered',
-      'event:merge.rollback',
       'persist:rolled-back',
     ]);
   });
@@ -1039,9 +1033,9 @@ describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
   });
 
   it('ExecuteMerge_Timeline_ExecutingStartedBeforeRecoveryTerminal', async () => {
-    // On the rollback path the liveness event still lands first, before the
-    // recovery terminal pair (merge.recovered → merge.rollback). The terminal
-    // emission path stays byte-for-byte unchanged.
+    // On the recovery path the liveness event still lands first, before the
+    // recovery terminal. DR-2 (task 006) retired the legacy `merge.rollback`
+    // append: the terminal is now the single canonical `merge.recovered`.
     const ctx = makeMockCtx();
     const appendedTypes: string[] = [];
     (ctx.eventStore.append as ReturnType<typeof vi.fn>).mockImplementation(
@@ -1072,20 +1066,19 @@ describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
     expect(appendedTypes).toEqual([
       'merge.executing_started',
       'merge.recovered',
-      'merge.rollback',
     ]);
   });
 });
 
-// ─── #1306 T4 — dual-emit + deprecation envelope + CAS idempotency ──────────
+// ─── DR-2 (task 006) — single-emit recovery + CAS idempotency ───────────────
 //
-// During the v2.11.x deprecation window the recovery path dual-emits the
-// canonical `merge.recovered` AND the legacy `merge.rollback` for the same
-// logical event. The legacy event carries a `_meta.deprecation` envelope. The
-// two appends use INDEPENDENT idempotency keys (one per event type) so a
-// retried recovery is a no-op across BOTH types — and the new
-// `merge.recovered` append is NEVER re-pinned to the legacy append's returned
-// sequence (the CAS-pin trap from PR #1492 / `project_cas_pin_idempotency_trap`).
+// DR-2 RETIRED the legacy `merge.rollback` write path: the recovery path now
+// emits ONLY the canonical `merge.recovered` (read-tolerant-but-not-emittable
+// for `merge.rollback`). The append carries an idempotency key so a retried
+// recovery is a clean no-op — and the append is NEVER re-pinned to a stale
+// prior sequence (the CAS-pin trap from PR #1492 /
+// `project_cas_pin_idempotency_trap`). Retirement removed the second (legacy)
+// append entirely, so the cross-pin hazard now has one fewer surface.
 //
 // These tests run against a REAL `EventStore` (tmp-dir) so the SQLite
 // idempotency-claims dedup is exercised end-to-end, mirroring
@@ -1122,7 +1115,7 @@ function makeRealCtx(eventStore: EventStore, stateDir: string): DispatchContext 
   } as unknown as DispatchContext;
 }
 
-describe('handleExecuteMerge #1306 T4 — dual-emit recovery + deprecation envelope + CAS idempotency', () => {
+describe('handleExecuteMerge DR-2 (task 006) — single-emit recovery + CAS idempotency', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -1135,7 +1128,7 @@ describe('handleExecuteMerge #1306 T4 — dual-emit recovery + deprecation envel
     );
   });
 
-  it('ExecuteMerge_RecoveryPath_EmitsBothRecoveredAndLegacyRollback', async () => {
+  it('ExecuteMerge_RecoveryPath_EmitsOnlyMergeRecovered_NoLegacyRollback', async () => {
     const { eventStore, stateDir } = await makeRealScratchEventStore();
     const ctx = makeRealCtx(eventStore, stateDir);
 
@@ -1163,32 +1156,26 @@ describe('handleExecuteMerge #1306 T4 — dual-emit recovery + deprecation envel
     const recovered = events.filter((e) => e.type === 'merge.recovered');
     const rollback = events.filter((e) => e.type === 'merge.rollback');
 
-    // Exactly ONE of each — the recovery path dual-emits the canonical event
-    // and the legacy event for the same logical recovery.
+    // DR-2 (task 006): exactly ONE canonical `merge.recovered`, and ZERO legacy
+    // `merge.rollback` — the write path is retired end-to-end against the real
+    // SQLite substrate.
     expect(recovered).toHaveLength(1);
-    expect(rollback).toHaveLength(1);
+    expect(rollback).toHaveLength(0);
 
-    // Canonical event uses the renamed field `recoveryPointSha`.
+    // Canonical event carries the renamed field `recoveryPointSha`.
     const recoveredData = recovered[0].data as Record<string, unknown>;
     expect(recoveredData.recoveryPointSha).toBe(ROLLBACK_SHA);
     expect(recoveredData.reason).toBe('merge-failed');
-
-    // Legacy event keeps the `rollbackSha` wire field.
-    const rollbackData = rollback[0].data as Record<string, unknown>;
-    expect(rollbackData.rollbackSha).toBe(ROLLBACK_SHA);
-    expect(rollbackData.reason).toBe('merge-failed');
-
-    // Canonical event is appended BEFORE the legacy event.
-    expect(recovered[0].sequence).toBeLessThan(rollback[0].sequence);
   });
 
-  it('ExecuteMerge_DeprecationEnvelope_ByteEqualAcrossCliMcp', async () => {
-    // Both surfaces funnel through the SAME `handleExecuteMerge`, so the
-    // deprecation envelope on the legacy `merge.rollback` event MUST be
-    // byte-identical regardless of which surface drove the recovery. We
-    // drive the executor twice against two independent real event stores and
-    // compare the serialized `_meta.deprecation` block byte-for-byte.
-    async function driveRecoveryAndReadEnvelope(): Promise<unknown> {
+  it('ExecuteMerge_RecoveredPayload_ByteEqualAcrossRuns', async () => {
+    // Both dispatch surfaces funnel through the SAME `handleExecuteMerge`, so
+    // the emitted `merge.recovered` payload MUST be byte-identical regardless of
+    // which surface drove the recovery. We drive the executor twice against two
+    // independent real event stores and compare the serialized payload
+    // byte-for-byte (the DR-10 equivalence, retargeted from the retired legacy
+    // deprecation envelope to the sole recovery terminal).
+    async function driveRecoveryAndReadPayload(): Promise<unknown> {
       const { eventStore, stateDir } = await makeRealScratchEventStore();
       const ctx = makeRealCtx(eventStore, stateDir);
       await handleExecuteMerge(
@@ -1205,39 +1192,39 @@ describe('handleExecuteMerge #1306 T4 — dual-emit recovery + deprecation envel
         ctx,
       );
       const events = await eventStore.query('feat-envelope');
-      const legacy = events.find((e) => e.type === 'merge.rollback');
-      const data = legacy?.data as Record<string, unknown> | undefined;
-      return (data?._meta as Record<string, unknown> | undefined)?.deprecation;
+      return events.find((e) => e.type === 'merge.recovered')?.data;
     }
 
-    const cliEnvelope = await driveRecoveryAndReadEnvelope();
-    const mcpEnvelope = await driveRecoveryAndReadEnvelope();
+    const cliPayload = await driveRecoveryAndReadPayload();
+    const mcpPayload = await driveRecoveryAndReadPayload();
 
-    // The exact deprecation contract: since / removeIn / replacement.
+    // The exact recovery payload the shared code path emits.
     const expected = {
-      since: '2.11.0',
-      removeIn: '2.12.0',
-      replacement: 'merge.recovered',
+      taskId: 'T11',
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      recoveryPointSha: ROLLBACK_SHA,
+      reason: 'merge-failed',
     };
-    expect(cliEnvelope).toEqual(expected);
-    expect(mcpEnvelope).toEqual(expected);
+    expect(cliPayload).toEqual(expected);
+    expect(mcpPayload).toEqual(expected);
 
     // Byte-equality across surfaces (the parity invariant).
-    expect(JSON.stringify(cliEnvelope)).toEqual(JSON.stringify(mcpEnvelope));
-    expect(JSON.stringify(cliEnvelope)).toEqual(JSON.stringify(expected));
+    expect(JSON.stringify(cliPayload)).toEqual(JSON.stringify(mcpPayload));
+    expect(JSON.stringify(cliPayload)).toEqual(JSON.stringify(expected));
   });
 
-  it('ExecuteMerge_RetriedRecovery_IdempotentAcrossBothEventTypes', async () => {
-    // Re-running the SAME recovery (same featureId + taskId) must be a no-op
-    // across BOTH event types: the SQLite idempotency-claims UNIQUE INDEX
-    // dedups each append by its independent key. A retry must NOT append a
-    // duplicate `merge.recovered` OR a duplicate `merge.rollback`.
+  it('ExecuteMerge_RetriedRecovery_IdempotentOnMergeRecovered', async () => {
+    // Re-running the SAME recovery (same featureId + taskId) must be a clean
+    // no-op: the SQLite idempotency-claims UNIQUE INDEX dedups the append by its
+    // key. A retry must NOT append a duplicate `merge.recovered` (and never a
+    // `merge.rollback` — that write path is retired).
     //
-    // CAS-PIN TRAP GUARD (#1492): if the new `merge.recovered` append were
-    // re-pinned to the legacy `merge.rollback` append's returned sequence,
-    // the cache-hit on the second run would precede the CAS and the retry
-    // would conflict forever. This test fails loudly in that case (the second
-    // run would throw / surface STATE_CONFLICT instead of a clean no-op).
+    // CAS-PIN TRAP GUARD (#1492): if the `merge.recovered` append were re-pinned
+    // to a stale prior sequence, the cache-hit on the second run would precede
+    // the CAS and the retry would conflict forever. This test fails loudly in
+    // that case (the second run would throw / surface STATE_CONFLICT instead of
+    // a clean no-op).
     const { eventStore, stateDir } = await makeRealScratchEventStore();
     const ctx = makeRealCtx(eventStore, stateDir);
 
@@ -1260,7 +1247,7 @@ describe('handleExecuteMerge #1306 T4 — dual-emit recovery + deprecation envel
     expect(first.success).toBe(false);
     expect(first.error?.code).toBe('MERGE_ROLLED_BACK');
 
-    // Retry — same operation, same keys. Must be a clean no-op (not a
+    // Retry — same operation, same key. Must be a clean no-op (not a
     // permanent CAS conflict).
     const second = await invoke();
     expect(second.success).toBe(false);
@@ -1268,6 +1255,6 @@ describe('handleExecuteMerge #1306 T4 — dual-emit recovery + deprecation envel
 
     const events = await eventStore.query('feat-retry');
     expect(events.filter((e) => e.type === 'merge.recovered')).toHaveLength(1);
-    expect(events.filter((e) => e.type === 'merge.rollback')).toHaveLength(1);
+    expect(events.filter((e) => e.type === 'merge.rollback')).toHaveLength(0);
   });
 });

@@ -8,7 +8,7 @@
 // actually emits agent definition files.
 //
 // Codex's classification (see docs/research/2026-04-25-delegation-platform-
-// agnosticity.md §3 and docs/designs/2026-04-25-delegation-runtime-parity.md
+// agnosticity.md §3 and docs/designs/archive/2026-04-25-delegation-runtime-parity.md
 // §4):
 //
 //   native (5):

@@ -64,10 +64,14 @@ describe('Runbook definitions', () => {
     expect(TASK_COMPLETION.phase).toBe('delegate');
   });
 
-  it('QualityEvaluation_HasFourSteps', () => {
-    expect(QUALITY_EVALUATION.steps).toHaveLength(4);
+  it('QualityEvaluation_HasFiveSteps', () => {
+    // Task 027 / DR-15: check_invariant_conformance was wired in as a review
+    // dimension when it became a blocking gate (it now emits deterministic
+    // check-mode findings), so the review runbook grew from 4 → 5 steps.
+    expect(QUALITY_EVALUATION.steps).toHaveLength(5);
     expect(QUALITY_EVALUATION.steps[0].action).toBe('check_static_analysis');
-    expect(QUALITY_EVALUATION.steps[3].action).toBe('check_review_verdict');
+    expect(QUALITY_EVALUATION.steps[3].action).toBe('check_invariant_conformance');
+    expect(QUALITY_EVALUATION.steps[4].action).toBe('check_review_verdict');
     expect(QUALITY_EVALUATION.phase).toBe('review');
   });
 
@@ -149,14 +153,18 @@ describe('Runbook definitions', () => {
     expect(MERGE_ORCHESTRATION.id).toBe('merge-orchestration');
     expect(MERGE_ORCHESTRATION.phase).toBe('merge-pending');
     expect(MERGE_ORCHESTRATION.steps).toHaveLength(3);
+    // DR-2 (task 006): recovery emits ONLY `merge.recovered`; the legacy
+    // `merge.rollback` write path is retired (read-tolerant, not emittable), so
+    // it is no longer declared in autoEmits.
     expect(MERGE_ORCHESTRATION.autoEmits).toEqual(
       expect.arrayContaining([
         'merge.preflight',
         'merge.executed',
-        'merge.rollback',
+        'merge.recovered',
         'workflow.transition',
       ]),
     );
+    expect(MERGE_ORCHESTRATION.autoEmits).not.toContain('merge.rollback');
     // Step 1: preflight dryRun
     expect(MERGE_ORCHESTRATION.steps[0].tool).toBe('exarchos_orchestrate');
     expect(MERGE_ORCHESTRATION.steps[0].action).toBe('merge_orchestrate');

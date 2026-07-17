@@ -71,10 +71,10 @@ export interface OutboxEntry {
   event: WorkflowEvent;
   status: 'pending' | 'sent' | 'confirmed' | 'dead-letter';
   attempts: number;
-  lastAttemptAt?: string;
-  nextRetryAt?: string;
+  lastAttemptAt?: string | undefined;
+  nextRetryAt?: string | undefined;
   createdAt: string;
-  error?: string;
+  error?: string | undefined;
 }
 
 // ─── Wire Format (matches C# ExarchosEventDto) ──────────────────────────────
@@ -84,14 +84,14 @@ export interface ExarchosEventDto {
   sequence: number;
   timestamp: string;
   type: string;
-  correlationId?: string;
-  causationId?: string;
-  agentId?: string;
-  agentRole?: string;
-  source?: string;
-  schemaVersion?: string;
-  data?: Record<string, unknown>;
-  idempotencyKey?: string;
+  correlationId?: string | undefined;
+  causationId?: string | undefined;
+  agentId?: string | undefined;
+  agentRole?: string | undefined;
+  source?: string | undefined;
+  schemaVersion?: string | undefined;
+  data?: Record<string, unknown> | undefined;
+  idempotencyKey?: string | undefined;
 }
 
 // ─── Workflow Registration ───────────────────────────────────────────────────

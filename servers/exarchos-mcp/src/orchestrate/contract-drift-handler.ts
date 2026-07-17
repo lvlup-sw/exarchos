@@ -20,13 +20,8 @@
 import { runCommandSync } from '../utils/process.js';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
-import {
-  defaultGitExec,
-  emitGateEvent,
-  resolvePolicySkip,
-  resolveRepoRoot,
-  SKIPPED_BY_POLICY,
-} from './gate-utils.js';
+import { defaultGitExec, emitGateEvent, SKIPPED_BY_POLICY } from './gate-utils.js';
+import { emitPolicySkipIfNeeded, runGatePreflight } from './pure/gate-preflight.js';
 import type { RiskTier } from '../workflow/verification-policy.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 import { resolveVerificationRuntime } from '../config/test-runtime-resolver.js';
@@ -131,64 +126,39 @@ export async function handleContractDrift(
   _stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
-  if (!eventStore) {
-    return {
-      success: false,
-      error: { code: 'MISWIRED_CONTEXT', message: 'handleContractDrift: eventStore is required' },
-    };
-  }
-  if (!args.featureId) {
-    return { success: false, error: { code: 'INVALID_INPUT', message: 'featureId is required' } };
-  }
-  if (!args.taskId) {
-    return { success: false, error: { code: 'INVALID_INPUT', message: 'taskId is required' } };
-  }
-
-  // Resolve repoRoot — supports the worktree-aware 'auto' mode (#1330).
-  const resolved = await resolveRepoRoot(
+  // Preflight (DR-10): validate the DispatchContext + inputs and resolve the
+  // worktree-aware 'auto' repoRoot (#1330). Byte-preserves the prior envelopes.
+  const pre = await runGatePreflight(
     {
-      repoRoot: args.repoRoot,
-      worktreePath: args.worktreePath,
       featureId: args.featureId,
       taskId: args.taskId,
+      repoRoot: args.repoRoot,
+      worktreePath: args.worktreePath,
+      handlerName: 'handleContractDrift',
+      requireTaskId: true,
     },
     eventStore,
   );
-  if (!resolved.ok) {
-    return { success: false, error: { code: 'INVALID_INPUT', message: resolved.error } };
-  }
-  const repoRoot = resolved.repoRoot;
+  if (!pre.ok) return pre.result;
+  const repoRoot = pre.repoRoot;
   const baseRef = args.baseBranch || 'main';
 
   // ── FIX-1a: verification-ladder self-routing on the stamped profile ──────
-  const policySkip = resolvePolicySkip({
-    gateName: 'check_contract_drift',
+  const policySkip = await emitPolicySkipIfNeeded({
+    eventStore,
+    featureId: args.featureId,
+    taskId: args.taskId,
+    branch: args.branch,
+    operationId: args.operationId,
     riskTier: args.riskTier,
     boundaryTouching: args.boundaryTouching,
-    config: args.projectConfig,
+    projectConfig: args.projectConfig,
+    policyGateName: 'check_contract_drift',
+    emitGateName: 'contract-drift',
+    layer: 'delegate',
+    phase: 'delegate',
   });
   if (policySkip) {
-    try {
-      await emitGateEvent(
-        eventStore,
-        args.featureId,
-        'contract-drift',
-        'delegate',
-        true,
-        {
-          dimension: 'D1',
-          phase: 'delegate',
-          taskId: args.taskId,
-          ...(args.branch ? { branch: args.branch } : {}),
-          skipped: true,
-          discriminant: SKIPPED_BY_POLICY,
-          reason: policySkip.reason,
-        },
-        args.operationId,
-      );
-    } catch {
-      /* fire-and-forget */
-    }
     return {
       success: true,
       data: {
