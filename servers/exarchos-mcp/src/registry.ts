@@ -32,6 +32,12 @@ import { ExportOutputSchema } from './views/lifecycle/export.js';
 import type { AgentPosture } from './agents/spec.js';
 export { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray, coercedIntArray } from './coerce.js';
 import { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray, coercedIntArray } from './coerce.js';
+import {
+  REMOVED_PRUNE_ACTION_KNOBS,
+  PRUNE_ACTION_KNOWN_KEYS,
+  removedPruneKnobMessage,
+  unrecognizedPruneKeyMessage,
+} from './config/prune-removed-knobs.js';
 
 // ─── Tool Registry Types ────────────────────────────────────────────────────
 
@@ -2794,13 +2800,36 @@ const orchestrateActions: readonly ToolAction[] = [
     // staleness has lived exclusively in `topology.yaml` `staleness` blocks
     // since #1334 (v2.10.0-preview.1), so the field was accepted-but-ignored.
     // Dropping it here also drops the auto-emitted `--threshold-minutes` CLI
-    // flag. A legacy caller still passing it is rejected with an actionable
-    // removal error by the handler (see `handlePruneStaleWorkflows`).
-    schema: z.object({
-      dryRun: z.boolean().optional(),
-      force: z.boolean().optional(),
-      includeOneShot: z.boolean().optional(),
-    }),
+    // flag.
+    //
+    // The rejection lives HERE, on the real dispatch/CLI seam — NOT in the
+    // handler. A plain `z.object` SILENTLY STRIPS unknown keys before any
+    // refinement runs, so a legacy `thresholdMinutes` would be
+    // accepted-then-ignored (`dispatch()` forwards the stripped `parsed.data`
+    // and the handler never sees the key). `.passthrough()` keeps the extra key
+    // VISIBLE to the `.superRefine` below, which emits an ACTIONABLE removal
+    // issue (naming DR-9, #1334, and `topology.yaml`) — the actionable message
+    // WINS because passthrough never emits a competing generic
+    // `unrecognized_keys` for it. Genuinely-unknown keys (caller typos) are
+    // still rejected, preserving the per-action typo guard. `.shape` is retained
+    // (verified), so `buildRegistrationSchema` and the tolerant-dispatch
+    // sibling-key stripping (core/dispatch.ts) are undisturbed.
+    schema: z
+      .object({
+        dryRun: z.boolean().optional(),
+        force: z.boolean().optional(),
+        includeOneShot: z.boolean().optional(),
+      })
+      .passthrough()
+      .superRefine((val, ctx) => {
+        for (const key of Object.keys(val)) {
+          if (REMOVED_PRUNE_ACTION_KNOBS.has(key)) {
+            ctx.addIssue({ code: 'custom', path: [key], message: removedPruneKnobMessage(key) });
+          } else if (!PRUNE_ACTION_KNOWN_KEYS.has(key)) {
+            ctx.addIssue({ code: 'custom', path: [key], message: unrecognizedPruneKeyMessage(key) });
+          }
+        }
+      }),
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
     autoEmits: [

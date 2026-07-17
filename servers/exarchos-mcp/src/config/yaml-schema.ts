@@ -7,6 +7,12 @@ import {
   EscalationConfigSchema,
 } from './exarchos-config-schema.js';
 import { VERIFICATION_GATE_NAMES } from '../workflow/verification-policy.js';
+import {
+  REMOVED_PRUNE_CONFIG_KNOBS,
+  PRUNE_CONFIG_KNOWN_KEYS,
+  removedPruneKnobMessage,
+  unrecognizedPruneKeyMessage,
+} from './prune-removed-knobs.js';
 
 // ─── Dimension Configuration ────────────────────────────────────────────────
 
@@ -156,16 +162,31 @@ const PluginsConfig = z.object({
 
 // ─── Prune Configuration ──────────────────────────────────────────────────
 
-const PruneConfig = z.object({
-  // `stale-after-days` removed (DR-9): per-phase staleness lives in
-  // `topology.yaml` `staleness` blocks. `.strict()` (below) turns a legacy
-  // `stale-after-days:` into an actionable "unrecognized key" validation
-  // error rather than a silently-ignored knob.
-  'max-batch-size': z.number().int().min(1).max(100).default(25),
-  'phase-exclusions': z.array(z.string()).default(['delegate', 'review', 'synthesize']),
-  'malformed-handling': z.enum(['report', 'include', 'skip']).default('report'),
-  'require-dry-run': z.boolean().default(true),
-}).strict();
+const PruneConfig = z
+  .object({
+    // `stale-after-days` (and the legacy `threshold-minutes` alias) removed
+    // (DR-9): per-phase staleness lives in `topology.yaml` `staleness` blocks.
+    // A bare `.strict()` would surface a legacy `stale-after-days:` as an OPAQUE
+    // `unrecognized_keys` error that names neither the removal, #1334, nor the
+    // real config surface — the form DR-9 bars. `.passthrough().superRefine`
+    // keeps the removed key VISIBLE and emits the shared ACTIONABLE message
+    // instead (identical to the `prune_stale_workflows` action seam), while
+    // genuinely-unknown keys (typos) are still rejected.
+    'max-batch-size': z.number().int().min(1).max(100).default(25),
+    'phase-exclusions': z.array(z.string()).default(['delegate', 'review', 'synthesize']),
+    'malformed-handling': z.enum(['report', 'include', 'skip']).default('report'),
+    'require-dry-run': z.boolean().default(true),
+  })
+  .passthrough()
+  .superRefine((val, ctx) => {
+    for (const key of Object.keys(val)) {
+      if (REMOVED_PRUNE_CONFIG_KNOBS.has(key)) {
+        ctx.addIssue({ code: 'custom', path: [key], message: removedPruneKnobMessage(key) });
+      } else if (!PRUNE_CONFIG_KNOWN_KEYS.has(key)) {
+        ctx.addIssue({ code: 'custom', path: [key], message: unrecognizedPruneKeyMessage(key) });
+      }
+    }
+  });
 
 // ─── Checkpoint Configuration ─────────────────────────────────────────────
 
