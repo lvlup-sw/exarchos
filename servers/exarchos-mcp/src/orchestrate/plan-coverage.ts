@@ -58,10 +58,17 @@ const STOP_WORDS = new Set([
 /**
  * Parse design sections from a markdown document.
  * Extracts ### subsections under `## Technical Design`, `## Design Requirements`,
- * or `## Requirements` headers (case-insensitive).
+ * `## Requirements` (legacy shapes), or `## Design & Rationale` (the unified
+ * `docs/specs/` template) headers (case-insensitive).
  *
  * When a ### section has #### children, the #### headers are used instead
  * (more granular). When a ### has no #### children, the ### itself is used.
+ *
+ * DR-preference rule (#1654 / DR-1): when ANY collected section name is a
+ * `DR-N` requirement, ONLY the DR-N sections are the coverage units —
+ * narrative sections (Problem Statement, Technical Design, …) are context,
+ * not requirements. Designs with no DR-N sections keep the full section list
+ * (legacy behavior unchanged).
  */
 export function parseDesignSections(markdown: string): string[] {
   const lines = markdown.split('\n');
@@ -71,7 +78,7 @@ export function parseDesignSections(markdown: string): string[] {
   let inDesignSection = false;
   let currentH3Index = -1;
 
-  const designHeaderPattern = /^##\s+(technical\s+design|design\s+requirements|requirements)\s*$/i;
+  const designHeaderPattern = /^##\s+(technical\s+design|design\s+requirements|requirements|design\s+&\s+rationale)\s*$/i;
 
   for (const line of lines) {
     // Detect start of design section (case-insensitive)
@@ -122,23 +129,26 @@ export function parseDesignSections(markdown: string): string[] {
     }
   }
 
-  return sections;
+  // DR-preference: when DR-N sections exist they are the coverage units.
+  const drSections = sections.filter((s) => /^DR-\d+\b/.test(s));
+  return drSections.length > 0 ? drSections : sections;
 }
 
 // ─── Plan Task Parsing ──────────────────────────────────────────────────
 
 /**
  * Extract task headers from a plan markdown document.
- * Matches `### Task <id>: <title>` where id can be numeric (001)
- * or alphanumeric with dashes (T-01).
+ * Matches `### Task <id>: <title>` (legacy plans) or `#### Task <id>: <title>`
+ * (the unified `docs/specs/` template, tasks under a `### Tasks` grouping
+ * header) where id can be numeric (001) or alphanumeric with dashes (T-01).
  */
 export function parsePlanTasks(markdown: string): PlanTask[] {
   const tasks: PlanTask[] = [];
   const lines = markdown.split('\n');
 
-  // Match: ### Task <id>: <title>
+  // Match: ### Task <id>: <title> or #### Task <id>: <title>
   // id can be: 001, 1, T-01, T-05, etc.
-  const taskPattern = /^###\s+Task\s+([A-Za-z0-9-]+):\s+(.+)/;
+  const taskPattern = /^#{3,4}\s+Task\s+([A-Za-z0-9-]+):\s+(.+)/;
 
   for (const line of lines) {
     const match = line.match(taskPattern);
@@ -155,28 +165,43 @@ export function parsePlanTasks(markdown: string): PlanTask[] {
 
 /**
  * Extract task body content from a plan markdown document.
- * Each body is the text between consecutive `### Task` headers.
+ * Each body is the text between consecutive task headers (`### Task` or
+ * `#### Task`). A body ends at the next task header (either depth) or at any
+ * heading SHALLOWER than the task's own depth — so a legacy h3 task's body
+ * still ends at the next h2 (unchanged), while a unified-template h4 task's
+ * body also ends at a non-task h3 like `### Parallelization`.
  * Used for fallback coverage matching — restricts search to task
  * blocks only, avoiding false positives from intro/summary prose.
  */
 function extractTaskBodies(markdown: string): string[] {
   const bodies: string[] = [];
   const lines = markdown.split('\n');
-  const taskPattern = /^###\s+Task\s+[A-Za-z0-9-]+:\s+/;
+  const taskPattern = /^(#{3,4})\s+Task\s+[A-Za-z0-9-]+:\s+/;
   let currentBody: string[] = [];
   let inTask = false;
+  let taskDepth = 0;
 
   for (const line of lines) {
-    if (taskPattern.test(line)) {
+    const taskMatch = line.match(taskPattern);
+    if (taskMatch && taskMatch[1] !== undefined) {
       if (inTask && currentBody.length > 0) {
         bodies.push(currentBody.join('\n'));
       }
       currentBody = [];
       inTask = true;
+      taskDepth = taskMatch[1].length;
       continue;
     }
-    // Stop at next ## section (not ### or ####)
-    if (inTask && /^##\s/.test(line) && !/^###/.test(line)) {
+    // Stop at any heading shallower than the task's own depth. `#{2,6}`
+    // deliberately starts at h2 so a stray h1 line never terminates a body —
+    // preserving the legacy h3-task behavior (body ends at h2) byte-for-byte.
+    const headingMatch = line.match(/^(#{2,6})\s/);
+    if (
+      inTask &&
+      headingMatch &&
+      headingMatch[1] !== undefined &&
+      headingMatch[1].length < taskDepth
+    ) {
       bodies.push(currentBody.join('\n'));
       currentBody = [];
       inTask = false;
@@ -379,7 +404,7 @@ export function parseAcceptanceTestTasks(planContent: string): AcceptanceTestTas
   const result: AcceptanceTestTask[] = [];
   const lines = planContent.split('\n');
 
-  const taskPattern = /^###\s+Task\s+([A-Za-z0-9-]+):\s+(.+)/;
+  const taskPattern = /^#{3,4}\s+Task\s+([A-Za-z0-9-]+):\s+(.+)/;
   const testLayerPattern = /\*\*Test Layer:\*\*\s*acceptance/i;
   const implementsPattern = /\*\*Implements:\*\*\s*(.+)/i;
 
@@ -726,7 +751,10 @@ export async function handlePlanCoverage(
       success: false,
       error: {
         code: 'NO_DESIGN_SECTIONS',
-        message: "No design subsections found. Expected ### headers under '## Technical Design', '## Design Requirements', or '## Requirements'",
+        message:
+          "No design subsections found. Expected '### DR-N:'/'#### DR-N:' sections under " +
+          "'## Design & Rationale' (unified docs/specs/ shape), or ### headers under " +
+          "'## Technical Design', '## Design Requirements', or '## Requirements' (legacy shape)",
       },
     };
   }
@@ -738,7 +766,7 @@ export async function handlePlanCoverage(
       success: false,
       error: {
         code: 'NO_PLAN_TASKS',
-        message: `No '### Task' headers found in plan file: ${args.planPath}`,
+        message: `No '### Task' (h3, legacy plans) or '#### Task' (h4, unified docs/specs/ shape) headers found in plan file: ${args.planPath}`,
       },
     };
   }

@@ -15,7 +15,16 @@ vi.mock('node:fs', () => ({
 }));
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+// node:fs is mocked above; node:fs/promises stays REAL so corpus-regression
+// tests can read the shipped docs/specs/ fixture from disk.
+import { readFile as readFileReal } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { handleGenerateTraceability } from './generate-traceability.js';
+
+// Repo root: this file lives at servers/exarchos-mcp/src/orchestrate/.
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
+const WLM_SPEC_PATH = resolve(REPO_ROOT, 'docs/specs/2026-07-03-wlm-6-surface-and-workflow-fixes.md');
 
 const mockExistsSync = vi.mocked(existsSync);
 const mockReadFileSync = vi.mocked(readFileSync);
@@ -321,6 +330,134 @@ Build auth.
       };
       expect(data.report).toContain('Covered');
       expect(data.coveredCount).toBeGreaterThan(0);
+    });
+  });
+
+  // ─── Unified docs/specs/ template shape (#1654, DR-1) ────────────────────
+  describe('unified spec template shape (#1654, DR-1)', () => {
+    const UNIFIED_SPEC = [
+      '# Spec: Widget Pipeline',
+      '',
+      '## Design & Rationale',
+      '',
+      '### Problem Statement',
+      '',
+      'The widget pipeline drops records under load.',
+      '',
+      '### Requirements (DR-N)',
+      '',
+      '#### DR-1: Bounded queue backpressure',
+      '',
+      'Records queue with backpressure instead of dropping.',
+      '',
+      '#### DR-2: Structured drop metrics',
+      '',
+      'Rejected records emit a structured metric.',
+      '',
+      '### Technical Design',
+      '',
+      'A `BoundedQueue` wraps the ingest path.',
+      '',
+      '## Decomposition',
+      '',
+      '### Tasks',
+      '',
+      '#### Task 001: Add the bounded queue',
+      '',
+      '**Implements:** DR-1',
+      '',
+      '#### Task 002: Emit rejection counters',
+      '',
+      '**Implements:** DR-2',
+    ].join('\n');
+
+    it('UnifiedSpec_TemplateVerbatim_ParsesDrsAndTasks', () => {
+      // One unified artifact: designFile === planFile.
+      mockReadFileSync.mockReturnValue(UNIFIED_SPEC);
+
+      const result = handleGenerateTraceability({
+        designFile: '/tmp/spec.md',
+        planFile: '/tmp/spec.md',
+      });
+
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        passed: boolean;
+        sections: number;
+        coveredCount: number;
+        uncoveredCount: number;
+        report: string;
+      };
+      // DR-preference: only the two `#### DR-N:` sections become matrix rows —
+      // narrative headers (Problem Statement, Technical Design, …) do not.
+      expect(data.sections).toBe(2);
+      expect(data.coveredCount).toBe(2);
+      expect(data.uncoveredCount).toBe(0);
+      expect(data.passed).toBe(true);
+      // Real section names and the implementing task ids appear in the rows.
+      expect(data.report).toContain('DR-1: Bounded queue backpressure');
+      expect(data.report).toContain('DR-2: Structured drop metrics');
+      expect(data.report).toContain('001');
+      expect(data.report).toContain('002');
+    });
+
+    it('LegacyPair_TwoFileShape_Unchanged', () => {
+      // Legacy two-file shape with NO DR-N sections: ALL ##/### headers stay
+      // matrix rows and h3 tasks resolve them — pre-#1654 behavior unchanged.
+      mockReadFileSync
+        .mockReturnValueOnce(DESIGN_WITH_SECTIONS)
+        .mockReturnValueOnce(PLAN_WITH_MATCHING_TASKS);
+
+      const result = handleGenerateTraceability({
+        designFile: '/tmp/design.md',
+        planFile: '/tmp/plan.md',
+      });
+
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        passed: boolean;
+        sections: number;
+        coveredCount: number;
+        uncoveredCount: number;
+        report: string;
+      };
+      expect(data.sections).toBe(2);
+      expect(data.coveredCount).toBe(2);
+      expect(data.uncoveredCount).toBe(0);
+      expect(data.passed).toBe(true);
+      expect(data.report).toContain('| Authentication |');
+      expect(data.report).toContain('| Data Storage |');
+    });
+
+    it('WlmCorpusSpec_UnifiedShape_ParsesFourDrsSevenTasks', async () => {
+      // Regression pin against the real shipped corpus file (#1654 acceptance
+      // criterion): 4 DR rows, all covered by the 7 h4 tasks' Implements lines.
+      const wlmSpec = await readFileReal(WLM_SPEC_PATH, 'utf-8');
+      mockReadFileSync.mockReturnValue(wlmSpec);
+
+      const result = handleGenerateTraceability({
+        designFile: WLM_SPEC_PATH,
+        planFile: WLM_SPEC_PATH,
+      });
+
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        passed: boolean;
+        sections: number;
+        coveredCount: number;
+        uncoveredCount: number;
+        report: string;
+      };
+      expect(data.sections).toBe(4);
+      expect(data.coveredCount).toBe(4);
+      expect(data.uncoveredCount).toBe(0);
+      expect(data.passed).toBe(true);
+      for (const dr of ['DR-1', 'DR-2', 'DR-3', 'DR-4']) {
+        expect(data.report).toContain(dr);
+      }
+      // Task ids resolved from the h4 `#### Task NNN:` headers.
+      expect(data.report).toContain('001');
+      expect(data.report).toContain('007');
     });
   });
 });
