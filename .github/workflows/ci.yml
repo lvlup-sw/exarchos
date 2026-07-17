@@ -546,6 +546,20 @@ jobs:
       - name: WLM wiring gate self-test (task-004)
         run: bash scripts/check-wlm-wiring.test.sh
 
+      # Enforcer-wiring gate (task 011, DR-5/DR-8). Zero-dependency node
+      # script: reconciles every scripts/check-*|lint-* primary against
+      # scripts/enforcer-wiring-manifest.json by TRANSITIVELY walking npm-script
+      # chains + workflow run-steps and inspecting per-term exit-code handling.
+      # Catches the four trap classes a name-grep cannot see — orphan,
+      # unreachable-via-uninvoked-npm-script, exit-code-swallowed (`|| true` /
+      # continue-on-error), and diff-dependent-gate-without-`synchronize`. Lives
+      # on this unfiltered host so it fires on every PR (DR-8: a gate in a
+      # path-filtered job is skipped-as-passed). Self-tests: the four
+      # `EnforcerWiring_*` cases in scripts/check-enforcer-wiring.test.ts, run by
+      # the root unit suite (test-root).
+      - name: Enforcer wiring gate (DR-5/DR-8, task 011)
+        run: node scripts/check-enforcer-wiring.mjs
+
       - name: npm-ci-retry helper tests
         run: bash scripts/npm-ci-retry.test.sh
 
@@ -565,6 +579,30 @@ jobs:
               --connect-timeout 15 --max-time 60 "$url" || echo "  FAILED/timeout: $url"
           done
           echo "probe complete"
+
+      # ─────────────────────────────────────────────────────────────────
+      # Rehydration prefix/prose gates (task 011, DR-8). These two gates
+      # previously ran ONLY via `npm run validate`, which no workflow invokes —
+      # so a real DR-12 fingerprint drift or DR-13 prose regression passed CI
+      # (the enforcer-wiring gate above flags this exact class-2 "unreachable"
+      # trap). They belong on this UNFILTERED host so they fire on every PR
+      # (DR-8). Unlike the grep-only gates above, each shells out to `tsx` on
+      # the MCP TypeScript source (fingerprint-cli.ts / prose-lint-cli.ts), so
+      # this job installs the root devDep (tsx) + the MCP runtime deps (pino,
+      # reached transitively by fingerprint-cli.ts) before running them. Kept at
+      # the end of the job so the fast install-free structural gates run first.
+      - name: Install root dependencies (for tsx-backed gates)
+        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
+
+      - name: Install MCP server dependencies (for tsx-backed gates)
+        working-directory: servers/exarchos-mcp
+        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
+
+      - name: Prefix-fingerprint gate — rehydration stable-prefix drift (DR-12)
+        run: node scripts/check-prefix-fingerprint.mjs
+
+      - name: Prose-lint gate — rehydration prose slop (DR-13)
+        run: node scripts/check-prose-lint.mjs
 
   # ─────────────────────────────────────────────────────────────────────
   # e2e-process
