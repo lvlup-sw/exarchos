@@ -107,7 +107,10 @@ describe('EVENT_EMISSION_REGISTRY', () => {
     for (const eventType of EventTypes) {
       expect(EVENT_EMISSION_REGISTRY).toHaveProperty(eventType);
       const source = EVENT_EMISSION_REGISTRY[eventType];
-      expect(['auto', 'model', 'hook', 'planned']).toContain(source);
+      // DR-2 (task 006): `retired` joins the classification union — a
+      // read-tolerant-but-not-emittable source (schema kept for replay, never
+      // emitted). See `schemas_MergeRollback_ReadTolerantButNotEmittable`.
+      expect(['auto', 'model', 'hook', 'planned', 'retired']).toContain(source);
     }
   });
 
@@ -2948,6 +2951,46 @@ describe('MergeRollbackData', () => {
       recoveryError: 'bogus',
     });
     expect(result.success).toBe(false);
+  });
+
+  it('schemas_MergeRollback_ReadTolerantButNotEmittable', () => {
+    // DR-2 (task 006) — `merge.rollback` is RETIRED as a write path but stays
+    // READ-TOLERANT: old event logs that already carry it must still parse and
+    // fold (INV-1 replay safety), so the data schema + type-map entry are KEPT.
+    // But it is NON-EMITTABLE — its emission classification is `retired`, and it
+    // must never appear in any action/runbook `autoEmits` (the RegistryDrift
+    // test enforces `autoEmits ⊆ auto`).
+
+    // READ path intact: still a registered event type with a live data schema
+    // that parses a legacy payload.
+    expect(EventTypes).toContain('merge.rollback');
+    const schema = EVENT_DATA_SCHEMAS['merge.rollback' as typeof EventTypes[number]];
+    expect(schema).toBeDefined();
+    expect(
+      MergeRollbackData.safeParse({
+        taskId: 'T11',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        rollbackSha: 'b'.repeat(40),
+        reason: 'merge-failed',
+      }).success,
+    ).toBe(true);
+
+    // WRITE path retired: classified `retired`, distinct from every emittable
+    // source. The canonical successor `merge.recovered` remains `auto`.
+    expect(EVENT_EMISSION_REGISTRY['merge.rollback']).toBe('retired');
+    expect(EVENT_EMISSION_REGISTRY['merge.rollback']).not.toBe('auto');
+    expect(EVENT_EMISSION_REGISTRY['merge.recovered']).toBe('auto');
+
+    // The serialized catalog surfaces it under `bySource.retired` (never under
+    // an emittable bucket) while still reporting it has a schema.
+    const catalog = serializeEventCatalog();
+    expect(catalog.bySource.retired).toContain('merge.rollback');
+    expect(catalog.bySource.auto).not.toContain('merge.rollback');
+    expect(catalog.bySource.model).not.toContain('merge.rollback');
+    expect(catalog.bySource.hook).not.toContain('merge.rollback');
+    expect(catalog.bySource.planned).not.toContain('merge.rollback');
+    expect(catalog.types['merge.rollback'].hasSchema).toBe(true);
   });
 });
 

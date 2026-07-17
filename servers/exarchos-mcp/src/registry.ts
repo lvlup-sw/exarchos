@@ -2265,7 +2265,11 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'merge.preflight', condition: 'always' },
       { event: 'merge.executed', condition: 'conditional', description: 'When preflight passes and execute succeeds' },
-      { event: 'merge.rollback', condition: 'conditional', description: 'When execute fails after a merge SHA was produced' },
+      // DR-2 (task 006): recovery emits ONLY the canonical `merge.recovered`.
+      // The legacy `merge.rollback` write path is retired (read-tolerant, not
+      // emittable) so it is NO LONGER declared here — a `retired` event must not
+      // appear in any `autoEmits` (RegistryDrift enforces `autoEmits ⊆ auto`).
+      { event: 'merge.recovered', condition: 'conditional', description: 'When execute fails and the INV-14 recovery ladder runs' },
     ],
     // T9 (#1440 Op 2, preview-4 design §4.3): multi-step git merge
     // orchestration (preflight → execute → optional rollback) is the

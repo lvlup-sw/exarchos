@@ -405,9 +405,10 @@ function applyTaskEvent(
 }
 
 /**
- * Handler for `merge.executed` / `merge.rollback` / `merge.aborted` — exits
- * the `merge-pending` substate by stamping the terminal phase on
- * `mergeOrchestrator` and reverting `workflowState.phase` to `delegate`.
+ * Handler for `merge.executed` / `merge.recovered` (and its read-tolerant
+ * legacy alias `merge.rollback`) / `merge.aborted` — exits the `merge-pending`
+ * substate by stamping the terminal phase on `mergeOrchestrator` and reverting
+ * `workflowState.phase` to `delegate`.
  *
  * The exit phase is derived from the event type (caller-provided). Mirrors
  * the HSM `mergePendingExit` guard in `workflow/hsm-definitions.ts` so the
@@ -962,6 +963,15 @@ export const rehydrationReducer: ProjectionReducer<RehydrationDocument, Workflow
       // ── merge.* — merge-orchestrator lifecycle (#1208 / DR-MO-1) ─────────
       case 'merge.executed':
         return applyMergeTerminalEvent(state, event, 'completed');
+      // DR-2 (task 006): the recovery path now emits ONLY `merge.recovered`;
+      // `merge.rollback` is the read-tolerant legacy alias (KEPT so pre-DR-2
+      // logs still fold to `rolled-back`). Both drive the SAME terminal fold —
+      // `applyMergeTerminalEvent` reads only `existing.taskId`, so the two
+      // events are byte-equivalent here. Folding both is idempotent: on a legacy
+      // dual-emit stream the first (recovered) folds and the second (rollback)
+      // hits the idempotent no-op, so the final state + projectionSequence are
+      // identical whichever event drove the transition.
+      case 'merge.recovered':
       case 'merge.rollback':
         return applyMergeTerminalEvent(state, event, 'rolled-back');
       case 'merge.aborted':

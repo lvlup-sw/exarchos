@@ -679,7 +679,9 @@ export const MERGE_ORCHESTRATION: RunbookDefinition = {
       note: 'HSM exits merge-pending back to delegate regardless of merge outcome.' },
   ],
   templateVars: ['featureId', 'taskId', 'sourceBranch', 'targetBranch', 'strategy', 'repoRoot'],
-  autoEmits: ['merge.preflight', 'merge.executed', 'merge.rollback', 'workflow.transition'],
+  // DR-2 (task 006): recovery emits ONLY `merge.recovered`; the legacy
+  // `merge.rollback` write path is retired (read-tolerant, not emittable).
+  autoEmits: ['merge.preflight', 'merge.executed', 'merge.recovered', 'workflow.transition'],
 };
 
 export const ALL_RUNBOOKS: readonly RunbookDefinition[] = [

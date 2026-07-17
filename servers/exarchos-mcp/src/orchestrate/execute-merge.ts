@@ -665,32 +665,29 @@ export async function handleExecuteMerge(
     // `--hard`). Surface `recoveryError` + detail (when recovery was not clean)
     // so consumers can detect an indeterminate worktree.
     //
-    // #1306 T4 — DUAL-EMIT during the v2.11.x deprecation window. The recovery
-    // path appends TWO events for the same logical recovery:
+    // DR-2 (task 006) — the legacy `merge.rollback` WRITE path is RETIRED. The
+    // recovery path now appends exactly ONE terminal event, the canonical
+    // `merge.recovered` (successor; fields `recoveryPointSha` /
+    // `recoveryErrorDetail`). `merge.rollback` is no longer emitted here — it is
+    // read-tolerant-but-not-emittable: its data schema + type-map entry stay so
+    // legacy event logs that already contain `merge.rollback` still fold to
+    // identical workflow state (INV-1 replay safety), but nothing writes it.
     //
-    //   1) the canonical `merge.recovered` (successor; renamed fields
-    //      `recoveryPointSha` / `recoveryErrorDetail`), then
-    //   2) the legacy `merge.rollback` (kept until v2.12; carries the
-    //      `_meta.deprecation` envelope on its `data`).
+    // The `merge-orchestrator@v1`, workflow-state, and rehydration projections
+    // and the HSM merge-pending-exit guard all fold `merge.recovered` to the
+    // same terminal state the legacy event drove, so retiring the write path is
+    // a behavioural no-op for the live path while remaining replay-safe for old
+    // streams.
     //
-    // CAS HAZARD (project_cas_pin_idempotency_trap / PR #1492): each append
-    // reads the LIVE stream tail FRESH to compute its own `expectedSequence`
-    // and carries its OWN independent idempotency key (the trailing
-    // `:${eventType}` segment disambiguates). The `merge.recovered` append is
-    // NEVER re-pinned to the `merge.rollback` append's returned sequence — a
-    // cache-hit precedes the CAS, so a static cross-pin would make a retried
-    // recovery conflict FOREVER. Independent keys + independent fresh-tail CAS
-    // make a retried recovery a clean no-op across BOTH event types.
+    // CAS HAZARD (project_cas_pin_idempotency_trap / PR #1492): the append reads
+    // the LIVE stream tail FRESH to compute its own `expectedSequence` and
+    // carries its OWN idempotency key (the trailing `:${eventType}` segment
+    // disambiguates), so a retried recovery is a clean no-op.
     //
-    // #1303 (α-05): each append carries `idempotencyKey` + `expectedSequence`
-    // so the substrate guarantees from #1259 / #1323 reach both sites.
-    //
-    // The legacy event still drives the `merge-orchestrator@v1` projection's
-    // `recovering` phase (the reducer folds `merge.rollback`, NOT
-    // `merge.recovered`, during the deprecation window); emitting both does
-    // NOT double-advance the projection. The v2.12 swap is tracked separately.
+    // #1303 (α-05): the append carries `idempotencyKey` + `expectedSequence` so
+    // the substrate guarantees from #1259 / #1323 reach the site.
 
-    // ── 1) Canonical `merge.recovered` (fresh-tail CAS, own idempotency key) ──
+    // ── Canonical `merge.recovered` (fresh-tail CAS, own idempotency key) ──
     const tailEventsRecovered = await ctx.eventStore.query(args.featureId);
     const expectedSequenceRecovered =
       tailEventsRecovered.length > 0
@@ -737,82 +734,6 @@ export async function handleExecuteMerge(
           error: {
             code: 'STATE_CONFLICT',
             message: `merge.recovered append lost sequence race: expected=${err.expected} actual=${err.actual}`,
-          },
-        };
-      }
-      throw err;
-    }
-
-    // ── 2) Legacy `merge.rollback` (own FRESH-tail CAS — re-read so it sees
-    //       the `merge.recovered` we just appended; own idempotency key) ──────
-    const tailEventsRollback = await ctx.eventStore.query(args.featureId);
-    const expectedSequenceRollback =
-      tailEventsRollback.length > 0
-        ? Math.max(...tailEventsRollback.map((e) => e.sequence))
-        : 0;
-    // INV-8: always set an idempotency key (helper falls back to a
-    // featureId-only shape when taskId is absent) so concurrent invocations
-    // without a taskId dedup at the substrate layer.
-    const appendOptionsRollback: { idempotencyKey: string; expectedSequence: number } = {
-      expectedSequence: expectedSequenceRollback,
-      idempotencyKey: buildMergeOrchestrateIdempotencyKey(
-        args.featureId,
-        args.taskId,
-        'merge.rollback',
-      ),
-    };
-    try {
-      await ctx.eventStore.append(
-        args.featureId,
-        {
-          type: 'merge.rollback',
-          data: {
-            ...(args.taskId !== undefined ? { taskId: args.taskId } : {}),
-            sourceBranch: args.sourceBranch,
-            targetBranch: args.targetBranch,
-            rollbackSha: result.recoveryPointSha,
-            reason: result.reason,
-            // #1306 deprecation envelope — surfaced on the legacy event's
-            // `data` so consumers reading the legacy stream see the migration
-            // window and the canonical replacement. Lives under `data._meta`
-            // (the top-level event shape strips unknown keys); byte-identical
-            // across every emission surface because both CLI and MCP funnel
-            // through this single code path.
-            _meta: {
-              deprecation: {
-                since: '2.11.0',
-                removeIn: '2.12.0',
-                replacement: 'merge.recovered',
-              },
-            },
-            // INV-14 discriminator — the pure executor's recovery ladder
-            // (`git merge --abort` → `git reset --keep`, never `--hard`)
-            // classifies any indeterminate outcome so observability distinguishes
-            // a stranded worktree from a clean rollback. Forward the enum + detail
-            // verbatim under the LEGACY `rollbackError` wire field; both absent
-            // on a clean recovery.
-            ...(result.recoveryError !== undefined
-              ? {
-                  recoveryError: result.recoveryError,
-                  ...(result.recoveryErrorDetail !== undefined
-                    ? { rollbackError: result.recoveryErrorDetail }
-                    : {}),
-                }
-              : {}),
-          },
-        },
-        appendOptionsRollback,
-      );
-    } catch (err) {
-      // SequenceConflict here means a concurrent invocation already
-      // advanced this stream past our observed tail. Surface a structured
-      // STATE_CONFLICT rather than letting a raw substrate error escape.
-      if (err instanceof SequenceConflictError) {
-        return {
-          success: false,
-          error: {
-            code: 'STATE_CONFLICT',
-            message: `merge.rollback append lost sequence race: expected=${err.expected} actual=${err.actual}`,
           },
         };
       }
