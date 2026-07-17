@@ -11,7 +11,7 @@
  * The canonical command list is hardcoded from the known exarchos commands.
  */
 
-// RESERVED(issue: #1590, owner: exarchos, expires: 2027-01-31; see also #1609) — reserved dead stub; deletion at expiry if unadopted (DR-7 module-intent gate)
+// RESERVED(issue: #1590, owner: exarchos, expires: 2027-01-31) — reserved dead stub; deletion at expiry if unadopted; see also #1609 (DR-7 module-intent gate)
 
 import { join } from 'node:path';
 import { toPosix } from '../utils/paths.js';

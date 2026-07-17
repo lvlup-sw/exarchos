@@ -59,6 +59,13 @@
       "rationale": "Wired into pr-body-check.yml (task 011): asserts a GOLDEN-FIXTURE-UPDATE marker when a load-bearing fixture changes (DR-15). It reads the PR diff, so its host workflow MUST re-run on `synchronize` or a fixture pushed after open leaves a stale green."
     },
     {
+      "script": "scripts/check-module-intent.mjs",
+      "disposition": "gating",
+      "workflow": ".github/workflows/ci.yml",
+      "diffDependent": false,
+      "rationale": "grep-gates step (task 013): every dead-in-prod module must declare intent — a RESERVED(issue, owner, expires) header with a future expiry, or a declared allowlist class (DR-7). Fails closed on a reachability-scan crash (DR-8). Scans the whole tree (not a PR diff), so not diffDependent."
+    },
+    {
       "script": "scripts/check-no-state-json.mjs",
       "disposition": "gating",
       "workflow": ".github/workflows/ci.yml",

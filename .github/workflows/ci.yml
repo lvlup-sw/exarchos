@@ -631,6 +631,20 @@ jobs:
       - name: No-circular cycle ratchet (DR-4/DR-8, task 010)
         run: npx --no-install tsx scripts/audit/cycle-gate.ts
 
+      # Module-intent gate (task 013, DR-7/DR-8). Delegates reachability to the
+      # vendored scripts/audit/refgraph.mjs detector, then requires every
+      # dead-in-prod module (0 production importers) to declare intent: a
+      # RESERVED(issue, owner, expires) header with a future expiry, OR
+      # membership in a declared allowlist class (test-infra / build-shim /
+      # type-test entrypoint). Expired-and-unadopted RESERVED → FAIL (the DR-7
+      # "deletion happens at expiry" enforcement point). Fails CLOSED (exit 2) on
+      # a scan crash / unparseable detector output / unreadable module (DR-8) —
+      # never passes on partial evidence. Zero-dependency node; refgraph.mjs is
+      # itself pure node:fs. Self-tests: the DR-7/DR-8 cases in
+      # scripts/check-module-intent.test.ts, run by the root unit suite (test-root).
+      - name: Module-intent gate (DR-7/DR-8, task 013)
+        run: node scripts/check-module-intent.mjs
+
   # ─────────────────────────────────────────────────────────────────────
   # e2e-process
   # ─────────────────────────────────────────────────────────────────────
