@@ -42,6 +42,7 @@ import {
   checkAcceptanceTestCoverage,
 } from './plan-coverage.js';
 import { acceptanceCriteriaFinding } from './pure/design-completeness.js';
+import { verifyProvenanceChain } from './pure/provenance-chain.js';
 
 const STATE_DIR = '/tmp/test-plan-coverage';
 
@@ -1152,6 +1153,10 @@ function buildUnifiedSpec(taskDepth: '###' | '####'): string {
 // Repo root: this file lives at servers/exarchos-mcp/src/orchestrate/.
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 const WLM_SPEC_PATH = resolve(REPO_ROOT, 'docs/specs/2026-07-03-wlm-6-surface-and-workflow-fixes.md');
+const DEBLOAT_SPEC_PATH = resolve(
+  REPO_ROOT,
+  'docs/specs/2026-07-15-debloat-wave1-structural-enforcement.md',
+);
 
 describe('unified spec template shape (#1654, DR-1)', () => {
   it('UnifiedSpec_TemplateVerbatim_ParsesDrsAndTasks', () => {
@@ -1188,6 +1193,9 @@ describe('unified spec template shape (#1654, DR-1)', () => {
   it('UnifiedSpec_H4TaskBody_EndsAtShallowerHeading', () => {
     // An h4 task's body must end at the next SHALLOWER heading (here the h3
     // `### Parallelization`), so prose after it cannot fake body coverage.
+    // The task deliberately declares NO **Implements:** — with #1709's
+    // Implements-authoritative rule a declared task never rides the keyword
+    // path, so only an undeclared task exercises the body boundary.
     const spec = [
       '## Design & Rationale',
       '',
@@ -1203,7 +1211,7 @@ describe('unified spec template shape (#1654, DR-1)', () => {
       '',
       '#### Task 001: Unrelated title',
       '',
-      '**Implements:** DR-1',
+      'No metadata; the body ends before the h3 below.',
       '',
       '### Parallelization',
       '',
@@ -1215,8 +1223,6 @@ describe('unified spec template shape (#1654, DR-1)', () => {
     const result = computeCoverage(sections, tasks, spec, []);
 
     // The keyword-bearing prose sits OUTSIDE the task body, so DR-1 is a GAP.
-    // (Task 002 of this bundle makes **Implements:** authoritative; until
-    // then, body extraction must not leak past the h4 task's boundary.)
     expect(result.gapSections).toEqual(['DR-1: Bounded queue backpressure']);
   });
 
@@ -1364,5 +1370,235 @@ describe('unified spec template shape (#1654, DR-1)', () => {
     expect(result.success).toBe(true);
     expect(result.data?.passed).toBe(true);
     expect(result.data?.coverage).toEqual({ covered: 2, gaps: 0, deferred: 0, total: 2 });
+  });
+});
+
+// ─── Implements-authoritative DR coverage (#1709, DR-3) ──────────────────────
+//
+// For DR-N design sections, a task's `**Implements:**` declaration is
+// AUTHORITATIVE over keyword similarity:
+//   1. Tasks declaring the DR cover it (listed by title).
+//   2. A task declaring an Implements list WITHOUT the DR is never credited to
+//      it via title-substring/keyword/body match.
+//   3. Tasks declaring NO Implements at all keep the legacy keyword path
+//      (compatibility for old plans).
+//   4. The body-fallback obeys the same rule — only bodies of undeclared
+//      tasks are eligible.
+// Non-DR (narrative) sections are untouched — pinned by the parity suite.
+describe('Implements-authoritative DR coverage (#1709, DR-3)', () => {
+  it('ImplementsDeclared_NoKeywordOverlap_IsCovered', () => {
+    // The task title shares ZERO keywords with the DR section — pre-#1709
+    // this was a false GAP despite the explicit declaration.
+    const spec = [
+      '## Requirements',
+      '',
+      '### DR-7: Widget cache eviction policy',
+      '',
+      'Entries evict beyond the cap.',
+      '',
+      '## Decomposition',
+      '',
+      '### Task 001: Refactor the frobnicator pipeline',
+      '',
+      '**Implements:** DR-7',
+      '',
+      'Rework internals.',
+    ].join('\n');
+
+    const sections = parseDesignSections(spec);
+    expect(sections).toEqual(['DR-7: Widget cache eviction policy']);
+    const tasks = parsePlanTasks(spec);
+
+    const result = computeCoverage(sections, tasks, spec, []);
+    expect(result.passed).toBe(true);
+    expect(result.coverage).toEqual({ covered: 1, gaps: 0, deferred: 0, total: 1 });
+    // Declared coverage is credited BY TITLE, not as an anonymous body match.
+    expect(result.report).toContain(
+      '| DR-7: Widget cache eviction policy | Refactor the frobnicator pipeline | Covered |',
+    );
+  });
+
+  it('KeywordCollision_UndeclaredTask_NotCredited', () => {
+    // The task shares >= 2 title keywords with DR-14 ("ratchet",
+    // "enforcement") but declares Implements: DR-6 — pre-#1709 the keyword
+    // collision falsely credited it to DR-14.
+    const spec = [
+      '## Requirements',
+      '',
+      '### DR-14: Tsconfig strict ratchet enforcement',
+      '',
+      'Strict flags ratchet upward.',
+      '',
+      '### DR-6: Export hygiene ratchet enforcement',
+      '',
+      'Dead exports removed.',
+      '',
+      '## Decomposition',
+      '',
+      '### Task 001: Export hygiene ratchet enforcement gate',
+      '',
+      '**Implements:** DR-6',
+      '',
+      'Wire the knip ratchet.',
+    ].join('\n');
+
+    const sections = parseDesignSections(spec);
+    expect(sections).toEqual([
+      'DR-14: Tsconfig strict ratchet enforcement',
+      'DR-6: Export hygiene ratchet enforcement',
+    ]);
+    const tasks = parsePlanTasks(spec);
+
+    const result = computeCoverage(sections, tasks, spec, []);
+    // DR-6 is covered by declaration; DR-14 must NOT be credited to a task
+    // that declared a different Implements list.
+    expect(result.gapSections).toEqual(['DR-14: Tsconfig strict ratchet enforcement']);
+    expect(result.coverage).toEqual({ covered: 1, gaps: 1, deferred: 0, total: 2 });
+    expect(result.passed).toBe(false);
+  });
+
+  it('BodyKeywordCollision_DeclaredTask_NotCredited', () => {
+    // Rule 4: the body-fallback obeys the same precedence — a declared task's
+    // BODY sharing keywords with a foreign DR is never credited to it.
+    const spec = [
+      '## Requirements',
+      '',
+      '### DR-14: Tsconfig strict ratchet enforcement',
+      '',
+      'Strict flags ratchet upward.',
+      '',
+      '## Decomposition',
+      '',
+      '### Task 001: Unrelated cleanup work',
+      '',
+      '**Implements:** DR-6',
+      '',
+      'Applies the tsconfig strict ratchet enforcement groundwork.',
+    ].join('\n');
+
+    const sections = parseDesignSections(spec);
+    const tasks = parsePlanTasks(spec);
+
+    const result = computeCoverage(sections, tasks, spec, []);
+    expect(result.gapSections).toEqual(['DR-14: Tsconfig strict ratchet enforcement']);
+    expect(result.coverage).toEqual({ covered: 0, gaps: 1, deferred: 0, total: 1 });
+  });
+
+  it('NoImplementsAnywhere_LegacyKeywordPath_Unchanged', () => {
+    // Old plans carry no Implements declarations at all — the legacy
+    // title-keyword and body-keyword paths must keep working for them.
+    const spec = [
+      '## Requirements',
+      '',
+      '### DR-3: Widget cache eviction',
+      '',
+      'Entries evict beyond the cap.',
+      '',
+      '### DR-4: Structured audit logging',
+      '',
+      'Every mutation is logged.',
+      '',
+      '## Decomposition',
+      '',
+      '### Task 001: Implement widget cache eviction',
+      '',
+      'Bound the cache.',
+      '',
+      '### Task 002: Add logging sink',
+      '',
+      'Structured audit logging lands here.',
+    ].join('\n');
+
+    const sections = parseDesignSections(spec);
+    const tasks = parsePlanTasks(spec);
+
+    const result = computeCoverage(sections, tasks, spec, []);
+    expect(result.passed).toBe(true);
+    expect(result.coverage).toEqual({ covered: 2, gaps: 0, deferred: 0, total: 2 });
+    // DR-3 via the title-keyword path, DR-4 via the body-fallback.
+    expect(result.report).toContain(
+      '| DR-3: Widget cache eviction | Implement widget cache eviction | Covered |',
+    );
+    expect(result.report).toContain(
+      '| DR-4: Structured audit logging | (keyword match in task body) | Covered |',
+    );
+  });
+
+  it('DeclaredAndUndeclaredTasks_BothListedByTitle', () => {
+    // A declared task and an undeclared legacy-matching task can both credit
+    // the same DR — declared coverage does not suppress rule-3 compatibility.
+    const spec = [
+      '## Requirements',
+      '',
+      '### DR-5: Gate preflight consolidation',
+      '',
+      'One shared preflight helper.',
+      '',
+      '## Decomposition',
+      '',
+      '### Task 001: Completely different name',
+      '',
+      '**Implements:** DR-5',
+      '',
+      'Declared coverage.',
+      '',
+      '### Task 002: Gate preflight consolidation helper',
+      '',
+      'Legacy keyword coverage.',
+    ].join('\n');
+
+    const sections = parseDesignSections(spec);
+    const tasks = parsePlanTasks(spec);
+
+    const result = computeCoverage(sections, tasks, spec, []);
+    expect(result.coverage).toEqual({ covered: 1, gaps: 0, deferred: 0, total: 1 });
+    expect(result.report).toContain(
+      '| DR-5: Gate preflight consolidation | Completely different name, Gate preflight consolidation helper | Covered |',
+    );
+  });
+
+  it('DebloatCorpusSpec_CoverageAgreesWithProvenanceChain', () => {
+    // Corpus agreement pin (#1709): over the real shipped debloat spec
+    // (13 DRs / 25 tasks, every task declares Implements), the
+    // Implements-authoritative coverage gate and verifyProvenanceChain must
+    // agree exactly. Pre-#1709 they diverged in mechanism: DR-14 was credited
+    // via an anonymous "(keyword match in task body)" from a task declaring
+    // different DRs instead of by its declaring tasks.
+    const spec = readFileSync(DEBLOAT_SPEC_PATH, 'utf-8');
+
+    const sections = parseDesignSections(spec);
+    expect(sections).toHaveLength(13);
+    const tasks = parsePlanTasks(spec);
+    expect(tasks).toHaveLength(25);
+
+    const coverage = computeCoverage(sections, tasks, spec, parseDeferredSections(spec));
+    const provenance = verifyProvenanceChain({
+      designFile: DEBLOAT_SPEC_PATH,
+      planFile: DEBLOAT_SPEC_PATH,
+    });
+
+    // Agreement: both gates see the same requirement set, fully covered.
+    expect(provenance.status).toBe('pass');
+    expect(provenance.orphanRefs).toBe(0);
+    expect(coverage.passed).toBe(true);
+    expect(coverage.coverage.total).toBe(provenance.requirements);
+    expect(coverage.coverage.covered).toBe(provenance.covered);
+    expect(coverage.coverage.gaps).toBe(provenance.gaps);
+    expect(coverage.coverage).toEqual({ covered: 13, gaps: 0, deferred: 0, total: 13 });
+
+    // DR-10: covered by its three DECLARING tasks (017/018/019), by title.
+    const dr10Row = coverage.report.split('\n').find((l) => l.startsWith('| DR-10'));
+    expect(dr10Row).toContain('Collapse the test-runtime resolver duplication by table-driving it');
+    expect(dr10Row).toContain(
+      'Collapse the gate preflight + policy-skip duplication into a shared helper',
+    );
+    expect(dr10Row).toContain('Collapse the VCS, composite, projection, and oneshot-state duplication');
+
+    // DR-14: covered by its DECLARING tasks (024/025), by title — not by a
+    // keyword-colliding body of a task that declares different DRs.
+    const dr14Row = coverage.report.split('\n').find((l) => l.startsWith('| DR-14'));
+    expect(dr14Row).toContain('`noUncheckedIndexedAccess` ratchet (+346)');
+    expect(dr14Row).toContain('`exactOptionalPropertyTypes` ratchet (+186)');
+    expect(dr14Row).not.toContain('keyword match in task body');
   });
 });
