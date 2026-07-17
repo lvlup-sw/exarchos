@@ -9,10 +9,10 @@ Node lockfile / install-state marker to its package-manager agent.
 
 `package-manager-detector`'s `detect()` is **async-only** (it `await`s `fs.stat`
 / `fs.readFile` and crawls parent directories). Our toolchain resolver
-(`../../test-runtime-resolver.ts`) is **synchronous** and is called from ~6
+(`../../test-runtime-resolver.ts`) is **synchronous** and is called from ~5
 synchronous call sites (`setup-worktree`, `verify-worktree-baseline`,
-`pre-synthesis-check`, the `detect-test-commands` shim, and two injected
-defaults). Taking the dependency would force the resolver — and every one of
+`pre-synthesis-check`, and two injected defaults). Taking the dependency would
+force the resolver — and every one of
 those call sites and their pipelines — to become `async`, a sync→async shift
 with real blast radius and (via `deasync`-style workarounds) an event-loop
 blocking hazard for the MCP stdio server.
