@@ -99,7 +99,7 @@ describe('handleView', () => {
       // Assert — T039: successful responses are wrapped in Envelope<T>
       expect(result.success).toBe(true);
       expect(result.data).toEqual({ workflows: [], total: 0 });
-      expect((result as Record<string, unknown>).next_actions).toEqual([]);
+      expect((result as unknown as Record<string, unknown>).next_actions).toEqual([]);
       // DR-6 oracle update (intentional): the composite now threads a 5th arg —
       // the memoized caller repo key `deriveRepoKey(ctx.cwd ?? process.cwd())`.
       // CTX carries no `cwd`, so it resolves the serving process's repo key
@@ -136,7 +136,7 @@ describe('handleView', () => {
       // Assert — T039: envelope wrapping
       expect(result.success).toBe(true);
       expect(result.data).toEqual([]);
-      expect((result as Record<string, unknown>).next_actions).toEqual([]);
+      expect((result as unknown as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewTasks).toHaveBeenCalledWith(
         {
           workflowId: 'wf-1',
@@ -164,7 +164,7 @@ describe('handleView', () => {
       // Assert — T039: envelope wrapping
       expect(result.success).toBe(true);
       expect(result.data).toEqual({ phase: 'delegate' });
-      expect((result as Record<string, unknown>).next_actions).toEqual([]);
+      expect((result as unknown as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewWorkflowStatus).toHaveBeenCalledWith(
         { workflowId: 'wf-2' },
         STATE_DIR,
@@ -205,7 +205,7 @@ describe('handleView', () => {
       // Assert — T039: envelope wrapping
       expect(result.success).toBe(true);
       expect(result.data).toEqual([]);
-      expect((result as Record<string, unknown>).next_actions).toEqual([]);
+      expect((result as unknown as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleStackStatus).toHaveBeenCalledWith(
         { streamId: 'stream-1', limit: 3, offset: 1 },
         STATE_DIR,
@@ -237,7 +237,7 @@ describe('handleView', () => {
       // Assert — T039: envelope wrapping
       expect(result.success).toBe(true);
       expect(result.data).toEqual({ streamId: 's1', sequence: 1, type: 'stack.position-filled' });
-      expect((result as Record<string, unknown>).next_actions).toEqual([]);
+      expect((result as unknown as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleStackPlace).toHaveBeenCalledWith(
         {
           streamId: 'stream-1',
@@ -268,7 +268,7 @@ describe('handleView', () => {
       // Assert — T039: envelope wrapping
       expect(result.success).toBe(true);
       expect(result.data).toEqual({ session: { totalInvocations: 5 }, tools: [], hints: [] });
-      expect((result as Record<string, unknown>).next_actions).toEqual([]);
+      expect((result as unknown as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewTelemetry).toHaveBeenCalledWith(
         { compact: true, tool: 'workflow_get' },
         STATE_DIR,
@@ -298,7 +298,7 @@ describe('handleView', () => {
       // Assert — T039: envelope wrapping
       expect(result.success).toBe(true);
       expect(result.data).toEqual({ teammates: {}, modules: {}, teamSizing: { avgTasksPerTeammate: 0, dataPoints: 0 } });
-      expect((result as Record<string, unknown>).next_actions).toEqual([]);
+      expect((result as unknown as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewTeamPerformance).toHaveBeenCalledWith(
         { workflowId: 'wf-4' },
         STATE_DIR,
@@ -323,7 +323,7 @@ describe('handleView', () => {
       // Assert — T039: envelope wrapping
       expect(result.success).toBe(true);
       expect(result.data).toEqual({ featureId: '', tasks: [], bottleneck: null });
-      expect((result as Record<string, unknown>).next_actions).toEqual([]);
+      expect((result as unknown as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewDelegationTimeline).toHaveBeenCalledWith(
         { workflowId: 'test' },
         STATE_DIR,
@@ -348,7 +348,7 @@ describe('handleView', () => {
       // Assert — T039: envelope wrapping
       expect(result.success).toBe(true);
       expect(result.data).toEqual({ skills: {}, gates: {}, regressions: [], benchmarks: [] });
-      expect((result as Record<string, unknown>).next_actions).toEqual([]);
+      expect((result as unknown as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewCodeQuality).toHaveBeenCalledWith(
         { workflowId: 'wf-5' },
         STATE_DIR,
@@ -379,7 +379,7 @@ describe('handleView', () => {
         hints: [{ skill: 'my-skill', category: 'gate', severity: 'warning', hint: 'test hint' }],
         generatedAt: '2024-01-01T00:00:00.000Z',
       });
-      expect((result as Record<string, unknown>).next_actions).toEqual([]);
+      expect((result as unknown as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewQualityHints).toHaveBeenCalledWith(
         { workflowId: 'wf-6' },
         STATE_DIR,
@@ -408,7 +408,7 @@ describe('handleView', () => {
         hints: [{ skill: 'target-skill', category: 'gate', severity: 'warning', hint: 'filtered hint' }],
         generatedAt: '2024-01-01T00:00:00.000Z',
       });
-      expect((result as Record<string, unknown>).next_actions).toEqual([]);
+      expect((result as unknown as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewQualityHints).toHaveBeenCalledWith(
         { workflowId: 'wf-7', skill: 'target-skill' },
         STATE_DIR,
@@ -430,7 +430,7 @@ describe('handleView', () => {
 
       // Assert — T039: envelope wrapping (data field unwraps to original payload)
       expect(result.success).toBe(true);
-      expect((result as Record<string, unknown>).next_actions).toEqual([]);
+      expect((result as unknown as Record<string, unknown>).next_actions).toEqual([]);
       expect((result.data as { hints: unknown[] }).hints).toEqual([]);
     });
   });
@@ -451,7 +451,7 @@ describe('handleView', () => {
       // Assert — T039: envelope wrapping
       expect(result.success).toBe(true);
       expect(result.data).toEqual({ skills: {}, runs: [], regressions: [] });
-      expect((result as Record<string, unknown>).next_actions).toEqual([]);
+      expect((result as unknown as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewEvalResults).toHaveBeenCalledWith(
         { workflowId: 'eval-wf', skill: 'delegation', limit: 5 },
         STATE_DIR,
@@ -476,7 +476,7 @@ describe('handleView', () => {
       // Assert — T039: envelope wrapping
       expect(result.success).toBe(true);
       expect(result.data).toEqual({ skills: { delegation: { skill: 'delegation', gatePassRate: 0.9, evalScore: 0.85, evalTrend: 'stable', qualityTrend: 'stable', regressionCount: 0 } } });
-      expect((result as Record<string, unknown>).next_actions).toEqual([]);
+      expect((result as unknown as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewQualityCorrelation).toHaveBeenCalledWith(
         { workflowId: 'corr-wf' },
         STATE_DIR,
@@ -499,7 +499,7 @@ describe('handleView', () => {
       // Assert — T039: envelope wrapping
       expect(result.success).toBe(true);
       expect(result.data).toEqual({ skills: {} });
-      expect((result as Record<string, unknown>).next_actions).toEqual([]);
+      expect((result as unknown as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewQualityCorrelation).toHaveBeenCalledWith(
         {},
         STATE_DIR,
@@ -526,7 +526,7 @@ describe('handleView', () => {
       // Assert — T039: envelope wrapping
       expect(result.success).toBe(true);
       expect(result.data).toEqual(payload);
-      expect((result as Record<string, unknown>).next_actions).toEqual([]);
+      expect((result as unknown as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewSessionProvenance).toHaveBeenCalledWith(
         { sessionId: 'sess-1' },
         STATE_DIR,
@@ -549,7 +549,7 @@ describe('handleView', () => {
       // Assert — T039: envelope wrapping
       expect(result.success).toBe(true);
       expect(result.data).toEqual(payload);
-      expect((result as Record<string, unknown>).next_actions).toEqual([]);
+      expect((result as unknown as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewSessionProvenance).toHaveBeenCalledWith(
         { workflowId: 'wf-1' },
         STATE_DIR,
@@ -605,7 +605,7 @@ describe('handleView', () => {
         quality: { queried: false, gatePassRate: 0, regressions: 0 },
         worktrees: { expected: 0, ready: 0, failed: 0 },
       });
-      expect((result as Record<string, unknown>).next_actions).toEqual([]);
+      expect((result as unknown as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewDelegationReadiness).toHaveBeenCalledWith(
         { workflowId: 'wf-dr' },
         STATE_DIR,
@@ -644,7 +644,7 @@ describe('handleView', () => {
         tests: { lastRunPassed: false, typecheckPassed: false, coveragePercent: 0 },
         stack: { restacked: false, conflicts: 0 },
       });
-      expect((result as Record<string, unknown>).next_actions).toEqual([]);
+      expect((result as unknown as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewSynthesisReadiness).toHaveBeenCalledWith(
         { workflowId: 'wf-sr' },
         STATE_DIR,
@@ -679,7 +679,7 @@ describe('handleView', () => {
         iteration: 0,
         maxIterations: 5,
       });
-      expect((result as Record<string, unknown>).next_actions).toEqual([]);
+      expect((result as unknown as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewShepherdStatus).toHaveBeenCalledWith(
         { workflowId: 'wf-ss' },
         STATE_DIR,
@@ -714,7 +714,7 @@ describe('handleView', () => {
         coverage: 0,
         orphanTasks: [],
       });
-      expect((result as Record<string, unknown>).next_actions).toEqual([]);
+      expect((result as unknown as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewProvenance).toHaveBeenCalledWith(
         { workflowId: 'test-id' },
         STATE_DIR,
@@ -734,7 +734,7 @@ describe('handleView', () => {
       // Assert
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('UNKNOWN_ACTION');
-      const validTargets = (result.error as Record<string, unknown>)?.validTargets as string[];
+      const validTargets = (result.error as unknown as Record<string, unknown>)?.validTargets as string[];
       expect(validTargets).toContain('code_quality');
       expect(validTargets).toContain('quality_hints');
       expect(validTargets).toContain('eval_results');
@@ -788,7 +788,7 @@ describe('handleView', () => {
         ],
         totalExecutions: 30,
       });
-      expect((result as Record<string, unknown>).next_actions).toEqual([]);
+      expect((result as unknown as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewQualityAttribution).toHaveBeenCalledWith(
         { workflowId: 'test-wf', dimension: 'skill' },
         STATE_DIR,
@@ -841,7 +841,7 @@ describe('handleView', () => {
 
       // Assert — T039: envelope wrapping (data unwraps to original payload)
       expect(result.success).toBe(true);
-      expect((result as Record<string, unknown>).next_actions).toEqual([]);
+      expect((result as unknown as Record<string, unknown>).next_actions).toEqual([]);
       const data = result.data as { entries: Array<{ name: string }> };
       expect(data.entries).toHaveLength(1);
       expect(data.entries[0]!.name).toBe('delegation');

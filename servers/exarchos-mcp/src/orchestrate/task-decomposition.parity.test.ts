@@ -22,6 +22,7 @@ import {
   checkParallelSafety,
   handleTaskDecomposition,
 } from './task-decomposition.js';
+import type { EventStore } from '../event-store/store.js';
 
 /**
  * Behavioral parity tests for task-decomposition.ts against the original
@@ -214,6 +215,7 @@ describe('behavioral parity with check-task-decomposition.sh', () => {
       const result = await handleTaskDecomposition(
         { featureId: 'test-feature', planPath: '/tmp/plan.md' },
         '/tmp/state',
+        undefined as unknown as EventStore,
       );
 
       expect(result.success).toBe(true);
@@ -244,6 +246,7 @@ describe('behavioral parity with check-task-decomposition.sh', () => {
       const result = await handleTaskDecomposition(
         { featureId: 'test-feature', planPath: '/tmp/plan.md' },
         '/tmp/state',
+        undefined as unknown as EventStore,
       );
 
       expect(result.success).toBe(true);

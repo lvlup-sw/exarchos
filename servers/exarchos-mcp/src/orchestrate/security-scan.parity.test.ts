@@ -12,6 +12,7 @@ vi.mock('./gate-utils.js', () => ({
 }));
 
 import { handleSecurityScan } from './security-scan.js';
+import type { EventStore } from '../event-store/store.js';
 
 /**
  * Behavioral parity tests for security-scan.ts against the original
@@ -78,6 +79,7 @@ describe('behavioral parity with security-scan.sh', () => {
     const result = await handleSecurityScan(
       { featureId: 'test-feature', diffContent: CLEAN_DIFF },
       stateDir,
+        undefined as unknown as EventStore,
     );
 
     expect(result.success).toBe(true);
@@ -99,6 +101,7 @@ describe('behavioral parity with security-scan.sh', () => {
     const result = await handleSecurityScan(
       { featureId: 'test-feature', diffContent: APIKEY_DIFF },
       stateDir,
+        undefined as unknown as EventStore,
     );
 
     expect(result.success).toBe(true);
@@ -125,6 +128,7 @@ describe('behavioral parity with security-scan.sh', () => {
     const result = await handleSecurityScan(
       { featureId: 'test-feature', diffContent: EVAL_DIFF },
       stateDir,
+        undefined as unknown as EventStore,
     );
 
     expect(result.success).toBe(true);
@@ -146,6 +150,7 @@ describe('behavioral parity with security-scan.sh', () => {
     const result = await handleSecurityScan(
       { featureId: 'test-feature', diffContent: INNERHTML_DIFF },
       stateDir,
+        undefined as unknown as EventStore,
     );
 
     expect(result.success).toBe(true);
@@ -167,6 +172,7 @@ describe('behavioral parity with security-scan.sh', () => {
     const result = await handleSecurityScan(
       { featureId: 'test-feature', diffContent: '' },
       stateDir,
+        undefined as unknown as EventStore,
     );
 
     expect(result.success).toBe(true);

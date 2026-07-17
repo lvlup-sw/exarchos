@@ -103,6 +103,7 @@ describe('handleTaskClaim', () => {
     const result = await handleTaskClaim(
       { taskId: 't1', agentId: 'agent-1', streamId: 'wf-001' },
       '/nonexistent/path/claim-test',
+      undefined as unknown as EventStore, // absent store: the tested append failure
     );
 
     expect(result.success).toBe(false);
@@ -490,6 +491,7 @@ describe('handleTaskFail', () => {
     const result = await handleTaskFail(
       { taskId: 't1', error: 'some error', streamId: 'wf-001' },
       '/nonexistent/path/fail-test',
+      undefined as unknown as EventStore, // absent store: the tested append failure
     );
 
     expect(result.success).toBe(false);
