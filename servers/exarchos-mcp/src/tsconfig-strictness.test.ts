@@ -46,3 +46,21 @@ describe('DR-14: noUncheckedIndexedAccess ratchet (server)', () => {
     ).toBe(true);
   });
 });
+
+describe('DR-14: strict-flag ratchet (DR-3 eval workspace)', () => {
+  // DR-14 requires BOTH strict flags in EVERY tsconfig, including the opt-in
+  // eval workspace DR-3 creates (`evals-pkg/`) — a tsconfig that program named
+  // as "a strict-flag hole this program opened itself." Its single `src/index.ts`
+  // is proven clean under both flags via `evals-pkg` `npm run typecheck`
+  // (`tsc --noEmit`); this guard fails fast if either flag is ever dropped so the
+  // hole cannot silently reopen.
+  const EVAL_PKG_TSCONFIG = resolve(SERVER_ROOT, 'evals-pkg/tsconfig.json');
+
+  it('TsconfigEvalPkg_NoUncheckedIndexedAccessEnabled_TypecheckGreen', () => {
+    expect(readCompilerFlag(EVAL_PKG_TSCONFIG, 'noUncheckedIndexedAccess')).toBe(true);
+  });
+
+  it('TsconfigEvalPkg_ExactOptionalPropertyTypesEnabled_TypecheckGreen', () => {
+    expect(readCompilerFlag(EVAL_PKG_TSCONFIG, 'exactOptionalPropertyTypes')).toBe(true);
+  });
+});

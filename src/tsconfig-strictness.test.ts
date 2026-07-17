@@ -85,13 +85,15 @@ describe('DR-14: noUncheckedIndexedAccess ratchet (root)', () => {
       asCast: counts.asCast - BASELINE.asCast,
       asAny: counts.asAny - BASELINE.asAny,
     };
-    // `as any` is barred outright — the wave introduces none.
+    // `as any` is barred outright — the wave introduces none (zero-growth ceiling).
     expect(delta.asAny).toBeLessThanOrEqual(DELTA_BUDGET.asAny);
     // Non-null assertions and `as` casts stay within the declared budget.
     expect(delta.nonNull).toBeLessThanOrEqual(DELTA_BUDGET.nonNull);
     expect(delta.asCast).toBeLessThanOrEqual(DELTA_BUDGET.asCast);
     // The counts never fall BELOW baseline without a re-baseline (guards against
-    // a stale baseline silently masking a future regression).
+    // a stale baseline silently masking a future regression) — symmetric floors
+    // on BOTH escape-hatch axes, not just non-null assertions.
     expect(counts.nonNull).toBeGreaterThanOrEqual(BASELINE.nonNull);
+    expect(counts.asCast).toBeGreaterThanOrEqual(BASELINE.asCast);
   });
 });
