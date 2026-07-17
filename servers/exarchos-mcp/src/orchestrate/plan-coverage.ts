@@ -45,6 +45,27 @@ export interface AcceptanceTestTask {
   readonly implementsDrs: readonly string[];
 }
 
+export interface PlanTaskDetail {
+  readonly id: string;
+  readonly title: string;
+  /**
+   * DR references from the task's `**Implements:**` line, or `null` when the
+   * task declares no Implements line at all. The distinction is load-bearing
+   * (#1709 / DR-3): a declared list is authoritative — a list not containing
+   * a given DR excludes the task from keyword-crediting toward that DR —
+   * while `null` (no declaration) keeps the legacy keyword path.
+   */
+  readonly implementsDrs: readonly string[] | null;
+  /** True when the task declares `**Test Layer:** acceptance`. */
+  readonly isAcceptance: boolean;
+  /**
+   * Task body text, bounded exactly like `extractTaskBodies`: ends at the
+   * next task header (either depth) or at any heading shallower than the
+   * task's own depth.
+   */
+  readonly body: string;
+}
+
 // ─── Stop Words ──────────────────────────────────────────────────────────
 
 const STOP_WORDS = new Set([
@@ -396,46 +417,81 @@ export function detectGwtSections(markdown: string): string[] {
 }
 
 /**
- * Parse plan tasks that have `**Test Layer:** acceptance`.
- * For each such task, also extracts the `**Implements:** DR-N` references.
- * Returns structured objects mapping task to the DRs it covers.
+ * Parse every plan task into a per-task detail record: id, title, the
+ * `**Implements:**` declaration (or `null` when absent), the acceptance
+ * test-layer marker, and the (depth-bounded) body text.
+ *
+ * Single generalized parser (#1709): `parseAcceptanceTestTasks` and the
+ * DR-coverage precedence logic in `computeCoverage` both derive from it
+ * instead of re-parsing the plan. Task headers match `#{3,4}` — h3 legacy
+ * plans and h4 unified `docs/specs/` tasks (#1654 DR-1).
+ *
+ * Body capture stops at any heading SHALLOWER than the task's own depth
+ * (same rule as `extractTaskBodies`; `#{2,6}` starts at h2 so a stray h1
+ * never terminates a body). Metadata scanning (Test Layer / Implements)
+ * deliberately continues to the next task header — matching the
+ * pre-generalization `parseAcceptanceTestTasks` and the provenance-chain
+ * task parser.
  */
-export function parseAcceptanceTestTasks(planContent: string): AcceptanceTestTask[] {
-  const result: AcceptanceTestTask[] = [];
+export function parsePlanTaskDetails(planContent: string): PlanTaskDetail[] {
+  const result: PlanTaskDetail[] = [];
   const lines = planContent.split('\n');
 
-  const taskPattern = /^#{3,4}\s+Task\s+([A-Za-z0-9-]+):\s+(.+)/;
+  const taskPattern = /^(#{3,4})\s+Task\s+([A-Za-z0-9-]+):\s+(.+)/;
   const testLayerPattern = /\*\*Test Layer:\*\*\s*acceptance/i;
   const implementsPattern = /\*\*Implements:\*\*\s*(.+)/i;
 
-  let currentTaskId: string | null = null;
-  let currentTaskTitle: string | null = null;
+  let currentId: string | null = null;
+  let currentTitle = '';
+  let taskDepth = 0;
+  let bodyOpen = false;
+  let bodyLines: string[] = [];
   let isAcceptance = false;
-  let implementsDrs: string[] = [];
+  let implementsDrs: string[] | null = null;
 
   function flushTask(): void {
-    if (currentTaskId && currentTaskTitle && isAcceptance) {
+    if (currentId !== null && currentTitle) {
       result.push({
-        taskId: currentTaskId,
-        taskTitle: currentTaskTitle,
+        id: currentId,
+        title: currentTitle,
         implementsDrs,
+        isAcceptance,
+        body: bodyLines.join('\n'),
       });
     }
   }
 
   for (const line of lines) {
     const taskMatch = line.match(taskPattern);
-    if (taskMatch && taskMatch[1] !== undefined && taskMatch[2] !== undefined) {
+    if (
+      taskMatch &&
+      taskMatch[1] !== undefined &&
+      taskMatch[2] !== undefined &&
+      taskMatch[3] !== undefined
+    ) {
       // Flush previous task
       flushTask();
-      currentTaskId = taskMatch[1].trim();
-      currentTaskTitle = taskMatch[2].trim();
+      currentId = taskMatch[2].trim();
+      currentTitle = taskMatch[3].trim();
+      taskDepth = taskMatch[1].length;
+      bodyOpen = true;
+      bodyLines = [];
       isAcceptance = false;
-      implementsDrs = [];
+      implementsDrs = null;
       continue;
     }
 
-    if (!currentTaskId) continue;
+    if (currentId === null) continue;
+
+    const headingMatch = line.match(/^(#{2,6})\s/);
+    if (
+      bodyOpen &&
+      headingMatch &&
+      headingMatch[1] !== undefined &&
+      headingMatch[1].length < taskDepth
+    ) {
+      bodyOpen = false;
+    }
 
     if (testLayerPattern.test(line)) {
       isAcceptance = true;
@@ -449,6 +505,10 @@ export function parseAcceptanceTestTasks(planContent: string): AcceptanceTestTas
         .map(dr => dr.trim())
         .filter(dr => dr.length > 0);
     }
+
+    if (bodyOpen) {
+      bodyLines.push(line);
+    }
   }
 
   // Flush last task
@@ -457,11 +517,37 @@ export function parseAcceptanceTestTasks(planContent: string): AcceptanceTestTas
   return result;
 }
 
+/**
+ * Parse plan tasks that have `**Test Layer:** acceptance`.
+ * For each such task, also extracts the `**Implements:** DR-N` references.
+ * Returns structured objects mapping task to the DRs it covers.
+ */
+export function parseAcceptanceTestTasks(planContent: string): AcceptanceTestTask[] {
+  return parsePlanTaskDetails(planContent)
+    .filter((task) => task.isAcceptance)
+    .map((task) => ({
+      taskId: task.id,
+      taskTitle: task.title,
+      implementsDrs: task.implementsDrs ?? [],
+    }));
+}
+
 // ─── Coverage Computation ───────────────────────────────────────────────
 
 /**
  * Compute coverage of design sections against plan tasks.
  * Returns pass/fail result with metrics and gap details.
+ *
+ * For DR-N sections, `**Implements:**` declarations are AUTHORITATIVE over
+ * keyword similarity (#1709 / DR-3):
+ *   1. Tasks declaring the DR cover it, listed by title.
+ *   2. A task declaring an Implements list WITHOUT the DR is never credited
+ *      to it via title-substring/keyword/body match.
+ *   3. Tasks declaring NO Implements at all keep the legacy keyword path
+ *      (compatibility for old plans).
+ *   4. The body-fallback obeys the same rule — only bodies of undeclared
+ *      tasks are eligible.
+ * Non-DR sections (legacy designs) keep the keyword-only behavior unchanged.
  *
  * When `designContent` is provided, also checks that design requirements
  * with Given/When/Then acceptance criteria have corresponding acceptance
@@ -481,6 +567,10 @@ export function computeCoverage(
   const gapSections: string[] = [];
   const matrixRows: CoverageMatrixRow[] = [];
 
+  // Per-task {implementsDrs, body} details drive the DR-section precedence
+  // paths; parsed once for all sections.
+  const taskDetails = parsePlanTaskDetails(planContent);
+
   for (const section of designSections) {
     const sectionKeywords = extractKeywords(section);
 
@@ -496,41 +586,56 @@ export function computeCoverage(
       continue;
     }
 
-    // Try matching against task titles
     const matchedTasks: string[] = [];
+    // Same DR-detection pattern as parseDesignSections' DR-preference rule.
+    const drId = section.match(/^(DR-\d+)\b/)?.[1];
 
-    for (const task of tasks) {
-      // Exact case-insensitive substring match
-      if (task.title.toLowerCase().includes(section.toLowerCase())) {
-        matchedTasks.push(task.title);
-        continue;
+    if (drId !== undefined) {
+      // ── DR-N section: Implements declarations take precedence ──
+      for (const task of taskDetails) {
+        if (task.implementsDrs !== null) {
+          // Rule 1: declared coverage, by title. Rule 2: a declared list
+          // without this DR excludes the task from keyword-crediting.
+          if (implementsCoversDr(task.implementsDrs, drId)) {
+            matchedTasks.push(task.title);
+          }
+          continue;
+        }
+        // Rule 3: undeclared tasks keep the legacy title path.
+        if (titleMatches(section, sectionKeywords, task.title)) {
+          matchedTasks.push(task.title);
+        }
       }
-      if (section.toLowerCase().includes(task.title.toLowerCase())) {
-        matchedTasks.push(task.title);
-        continue;
-      }
-      // Keyword match
-      if (keywordMatch(sectionKeywords, task.title)) {
-        matchedTasks.push(task.title);
-      }
-    }
 
-    // If no task title matches, check individual task bodies only
-    // (not arbitrary plan prose, to avoid intro/summary false positives)
-    if (matchedTasks.length === 0) {
-      const taskBodies = extractTaskBodies(planContent);
-      for (const body of taskBodies) {
-        // Strip table rows within task body
-        const cleanBody = body
-          .split('\n')
-          .filter((line) => !line.trimStart().startsWith('|'))
-          .join('\n');
-        if (cleanBody.toLowerCase().includes(section.toLowerCase())) {
-          matchedTasks.push('(referenced in task body)');
-          break;
-        } else if (keywordMatch(sectionKeywords, cleanBody)) {
-          matchedTasks.push('(keyword match in task body)');
-          break;
+      // Rule 4: body-fallback restricted to undeclared tasks.
+      if (matchedTasks.length === 0) {
+        for (const task of taskDetails) {
+          if (task.implementsDrs !== null) continue;
+          const bodyMatched = bodyMatch(section, sectionKeywords, task.body);
+          if (bodyMatched !== null) {
+            matchedTasks.push(bodyMatched);
+            break;
+          }
+        }
+      }
+    } else {
+      // ── Non-DR (legacy narrative) section: behavior unchanged ──
+      for (const task of tasks) {
+        if (titleMatches(section, sectionKeywords, task.title)) {
+          matchedTasks.push(task.title);
+        }
+      }
+
+      // If no task title matches, check individual task bodies only
+      // (not arbitrary plan prose, to avoid intro/summary false positives)
+      if (matchedTasks.length === 0) {
+        const taskBodies = extractTaskBodies(planContent);
+        for (const body of taskBodies) {
+          const bodyMatched = bodyMatch(section, sectionKeywords, body);
+          if (bodyMatched !== null) {
+            matchedTasks.push(bodyMatched);
+            break;
+          }
         }
       }
     }
@@ -571,6 +676,48 @@ export function computeCoverage(
     gapSections,
     ...(advisories.length > 0 ? { advisories } : {}),
   };
+}
+
+// ─── Matching Helpers ───────────────────────────────────────────────────
+
+/**
+ * Legacy title match: case-insensitive substring (both directions) or
+ * keyword overlap.
+ */
+function titleMatches(section: string, sectionKeywords: string[], title: string): boolean {
+  if (title.toLowerCase().includes(section.toLowerCase())) return true;
+  if (section.toLowerCase().includes(title.toLowerCase())) return true;
+  return keywordMatch(sectionKeywords, title);
+}
+
+/**
+ * Legacy body-fallback match against one task body (table rows stripped).
+ * Returns the matrix-row credit string, or null when the body doesn't match.
+ */
+function bodyMatch(section: string, sectionKeywords: string[], body: string): string | null {
+  // Strip table rows within task body
+  const cleanBody = body
+    .split('\n')
+    .filter((line) => !line.trimStart().startsWith('|'))
+    .join('\n');
+  if (cleanBody.toLowerCase().includes(section.toLowerCase())) {
+    return '(referenced in task body)';
+  }
+  if (keywordMatch(sectionKeywords, cleanBody)) {
+    return '(keyword match in task body)';
+  }
+  return null;
+}
+
+/**
+ * True when a task's declared `**Implements:**` list covers the DR.
+ * Word-boundary comparison: `DR-1` must not match inside `DR-10`, while a
+ * decorated entry like `DR-4 (partial)` still declares DR-4 — mirroring the
+ * token-level reading `verifyProvenanceChain` applies to the same line.
+ */
+function implementsCoversDr(implementsDrs: readonly string[], drId: string): boolean {
+  const pattern = new RegExp(`\\b${drId}\\b`, 'i');
+  return implementsDrs.some((entry) => pattern.test(entry));
 }
 
 // ─── Deferred Check Helper ──────────────────────────────────────────────
