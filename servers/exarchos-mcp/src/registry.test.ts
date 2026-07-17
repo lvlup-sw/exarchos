@@ -1742,6 +1742,17 @@ describe('Gate Metadata', () => {
       ).toBe(true);
     }
   });
+
+  it('GateMetadata_CheckInvariantConformance_IsBlocking', () => {
+    // Task 027 / DR-15: after raising INV-13/14/16 to mode:check, this gate
+    // produces deterministic mechanical findings and BLOCKS on check-mode
+    // (blocking-severity) violations — so its registered gate metadata declares
+    // blocking:true (was false while it was purely advisory).
+    const action = findAction('exarchos_orchestrate', 'check_invariant_conformance');
+    expect(action, 'check_invariant_conformance must be registered').toBeDefined();
+    expect(action!.gate, 'check_invariant_conformance must carry gate metadata').toBeDefined();
+    expect(action!.gate!.blocking).toBe(true);
+  });
 });
 
 // ─── Slim Description Tests ───────────────────────────────────────────────────
