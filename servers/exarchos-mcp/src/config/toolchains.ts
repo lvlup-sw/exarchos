@@ -418,7 +418,17 @@ export type MutationDiffScope =
  * to scope) — resolves to the unscoped-warning arm.
  */
 const MUTATION_DIFF_SCOPE: Readonly<Record<string, (base: string) => MutationDiffScope>> = {
-  // Stryker (JS): value rides the flag.
+  // node: this repo's resolved mutation command is
+  // `node servers/exarchos-mcp/scripts/stryker-adapter.mjs` (DR-7, task
+  // 012) — NOT a bare StrykerJS invocation. `--since` is a Stryker.NET flag;
+  // StrykerJS itself has no such option. The node contract here is "the
+  // adapter consumes it": stryker-adapter.mjs parses `--since=<base>` and
+  // translates it into StrykerJS's own `--mutate <globs>` scoping, computed
+  // from `git diff --name-only <base>...HEAD` restricted to changed,
+  // still-existing `servers/exarchos-mcp/src/**` source files. This entry's
+  // shape (append a `--since=<base>` flag) is unchanged by that correction —
+  // only the target of the flag differs from a naive "StrykerJS understands
+  // --since" reading.
   node: (base) => ({ kind: 'append-flag', flag: `--since=${base}`, tokenized: false }),
   // Stryker (.NET): value is a separate token.
   dotnet: (base) => ({ kind: 'append-flag', flag: `--since ${base}`, tokenized: true }),
