@@ -124,7 +124,7 @@ describe('discoverSuites', () => {
 
     // Assert
     expect(suites).toHaveLength(1);
-    expect(suites[0].config.metadata.skill).toBe('delegate');
+    expect(suites[0]!.config.metadata.skill).toBe('delegate');
   });
 
   it('DiscoverSuites_InvalidSuiteConfig_ThrowsWithPath', async () => {
@@ -295,7 +295,7 @@ describe('runAll', () => {
 
     // Assert
     expect(summaries).toHaveLength(1);
-    expect(summaries[0].suiteId).toContain('delegate');
+    expect(summaries[0]!.suiteId).toContain('delegate');
   });
 });
 
@@ -308,11 +308,11 @@ describe('Integration — Real Eval Suites', () => {
 
     // Assert
     expect(suites).toHaveLength(1);
-    expect(suites[0].config.metadata.skill).toBe('delegate');
-    expect(suites[0].config.description).toBe('Delegation skill evaluation suite');
-    expect(Object.keys(suites[0].config.datasets)).toContain('regression');
-    expect(Object.keys(suites[0].config.datasets)).toContain('capability');
-    expect(suites[0].suiteDir).toContain('delegate');
+    expect(suites[0]!.config.metadata.skill).toBe('delegate');
+    expect(suites[0]!.config.description).toBe('Delegation skill evaluation suite');
+    expect(Object.keys(suites[0]!.config.datasets)).toContain('regression');
+    expect(Object.keys(suites[0]!.config.datasets)).toContain('capability');
+    expect(suites[0]!.suiteDir).toContain('delegate');
   });
 
   it.skipIf(!process.env.RUN_EVALS)('Integration_DelegationSuite_RunsWithoutError', { timeout: 120_000 }, async () => {
@@ -337,11 +337,11 @@ describe('Integration — Real Eval Suites', () => {
 
     // Assert
     expect(suites).toHaveLength(1);
-    expect(suites[0].config.metadata.skill).toBe('quality-review');
-    expect(suites[0].config.description).toBe('Quality review skill evaluation suite');
-    expect(Object.keys(suites[0].config.datasets)).toContain('regression');
-    expect(Object.keys(suites[0].config.datasets)).toContain('defect-detection');
-    expect(suites[0].suiteDir).toContain('quality-review');
+    expect(suites[0]!.config.metadata.skill).toBe('quality-review');
+    expect(suites[0]!.config.description).toBe('Quality review skill evaluation suite');
+    expect(Object.keys(suites[0]!.config.datasets)).toContain('regression');
+    expect(Object.keys(suites[0]!.config.datasets)).toContain('defect-detection');
+    expect(suites[0]!.suiteDir).toContain('quality-review');
   });
 
   it.skipIf(!process.env.RUN_EVALS)('Integration_QualityReviewSuite_RunsWithoutError', { timeout: 120_000 }, async () => {
@@ -388,7 +388,7 @@ describe('runSuite — event emission', () => {
       (call: unknown[]) => (call[1] as Record<string, unknown>).type === 'eval.run.started',
     );
     expect(startedCalls).toHaveLength(1);
-    const startedEvent = startedCalls[0][1] as Record<string, unknown>;
+    const startedEvent = startedCalls[0]![1] as Record<string, unknown>;
     const data = startedEvent.data as Record<string, unknown>;
     expect(data.suiteId).toBe('delegate');
     expect(data.caseCount).toBe(1);
@@ -440,7 +440,7 @@ describe('runSuite — event emission', () => {
       (call: unknown[]) => (call[1] as Record<string, unknown>).type === 'eval.run.completed',
     );
     expect(completedCalls).toHaveLength(1);
-    const data = (completedCalls[0][1] as Record<string, unknown>).data as Record<string, unknown>;
+    const data = (completedCalls[0]![1] as Record<string, unknown>).data as Record<string, unknown>;
     expect(data.total).toBe(2);
     expect(data.passed).toBe(1);
     expect(data.failed).toBe(1);
@@ -533,7 +533,7 @@ describe('runSuite — event emission', () => {
     const completedCalls = mockStore.append.mock.calls.filter(
       (call: unknown[]) => (call[1] as Record<string, unknown>).type === 'eval.run.completed',
     );
-    const data = (completedCalls[0][1] as Record<string, unknown>).data as Record<string, unknown>;
+    const data = (completedCalls[0]![1] as Record<string, unknown>).data as Record<string, unknown>;
     expect(data.regressions).toContain('c-2');
     expect(data.regressions).not.toContain('c-1');
   });
@@ -560,7 +560,7 @@ describe('runSuite — event emission', () => {
     const completedCalls = mockStore.append.mock.calls.filter(
       (call: unknown[]) => (call[1] as Record<string, unknown>).type === 'eval.run.completed',
     );
-    const data = (completedCalls[0][1] as Record<string, unknown>).data as Record<string, unknown>;
+    const data = (completedCalls[0]![1] as Record<string, unknown>).data as Record<string, unknown>;
     expect(data.regressions).toEqual([]);
   });
 
@@ -610,7 +610,7 @@ describe('runSuite — event emission', () => {
     const completedCalls = mockStore.append.mock.calls.filter(
       (call: unknown[]) => (call[1] as Record<string, unknown>).type === 'eval.run.completed',
     );
-    const data = (completedCalls[0][1] as Record<string, unknown>).data as Record<string, unknown>;
+    const data = (completedCalls[0]![1] as Record<string, unknown>).data as Record<string, unknown>;
     expect(data.regressions).toEqual([]);
   });
 
@@ -652,7 +652,7 @@ describe('runSuite — event emission', () => {
     const completedCalls = mockStore.append.mock.calls.filter(
       (call: unknown[]) => (call[1] as Record<string, unknown>).type === 'eval.run.completed',
     );
-    const data = (completedCalls[0][1] as Record<string, unknown>).data as Record<string, unknown>;
+    const data = (completedCalls[0]![1] as Record<string, unknown>).data as Record<string, unknown>;
     expect(data.regressions).toEqual([]);
   });
 
@@ -674,7 +674,7 @@ describe('runSuite — event emission', () => {
     const startedCalls = mockStore.append.mock.calls.filter(
       (call: unknown[]) => (call[1] as Record<string, unknown>).type === 'eval.run.started',
     );
-    const data = (startedCalls[0][1] as Record<string, unknown>).data as Record<string, unknown>;
+    const data = (startedCalls[0]![1] as Record<string, unknown>).data as Record<string, unknown>;
     expect(data.trigger).toBe('ci');
   });
 });
@@ -770,7 +770,7 @@ describe('runSuite — eval.judge.calibrated emission', () => {
     expect(calibratedCalls.length).toBeGreaterThanOrEqual(1);
 
     // Verify the event data shape matches the schema
-    const data = (calibratedCalls[0][1] as Record<string, unknown>).data as Record<string, unknown>;
+    const data = (calibratedCalls[0]![1] as Record<string, unknown>).data as Record<string, unknown>;
     expect(data).toHaveProperty('skill');
     expect(data).toHaveProperty('rubricName');
     expect(data).toHaveProperty('split');
@@ -905,6 +905,6 @@ describe('runSuite — layer filtering', () => {
 
     // Assert: c-1 (defaults to regression) should be included, c-2 (capability) excluded
     expect(summary.total).toBe(1);
-    expect(summary.results[0].caseId).toBe('c-1');
+    expect(summary.results[0]!.caseId).toBe('c-1');
   });
 });

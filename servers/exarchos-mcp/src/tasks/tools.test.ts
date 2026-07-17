@@ -349,7 +349,7 @@ describe('Task event idempotency keys', () => {
     expect(result.success).toBe(true);
     const completedCalls = appendCalls.filter((c) => c.type === 'task.completed');
     expect(completedCalls.length).toBe(1);
-    expect(completedCalls[0].idempotencyKey).toBe('wf-idem-comp:task.completed:t-idem-1');
+    expect(completedCalls[0]!.idempotencyKey).toBe('wf-idem-comp:task.completed:t-idem-1');
   });
 
   it('handleTaskFail_EventAppend_HasIdempotencyKey', async () => {
@@ -384,7 +384,7 @@ describe('Task event idempotency keys', () => {
     expect(result.success).toBe(true);
     const failedCalls = appendCalls.filter((c) => c.type === 'task.failed');
     expect(failedCalls.length).toBe(1);
-    expect(failedCalls[0].idempotencyKey).toBe('wf-idem-fail:task.failed:t-idem-2');
+    expect(failedCalls[0]!.idempotencyKey).toBe('wf-idem-fail:task.failed:t-idem-2');
   });
 });
 
@@ -1195,7 +1195,7 @@ describe('handleTaskComplete workflow state sync', () => {
     const state = await readStateFile(stateFile);
     const tasks = state.tasks as Array<{ id: string; status: string }>;
     expect(tasks).toHaveLength(1);
-    expect(tasks[0].status).toBe('complete');
+    expect(tasks[0]!.status).toBe('complete');
   });
 
   it('handleTaskComplete_WhenGatesPass_AllTasksCompleteGuardPasses', async () => {

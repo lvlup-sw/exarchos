@@ -723,7 +723,7 @@ describe('handleCheckpoint — handoff dispatch wiring (T4, #1240)', () => {
     expect(doc.latestHandoff?.context).toMatch(/WORKFLOW_STATE_DIR/);
     expect(doc.latestHandoff?.nextSteps).toEqual(['Rebase --onto origin/main <boundary>']);
     expect(doc.recentHandoffs).toHaveLength(1);
-    expect(doc.recentHandoffs[0].context).toMatch(/WORKFLOW_STATE_DIR/);
+    expect(doc.recentHandoffs[0]!.context).toMatch(/WORKFLOW_STATE_DIR/);
   });
 
   it('handleCheckpoint_RefinementSamePhase_LandsSecondEvent_1228Regression', async () => {

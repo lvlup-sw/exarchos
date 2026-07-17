@@ -137,9 +137,9 @@ describe('behavioral parity with security-scan.sh', () => {
 
     expect(data.passed).toBe(false);
     expect(data.findingCount).toBe(1);
-    expect(data.findings[0].severity).toBe('HIGH');
-    expect(data.findings[0].pattern).toBe('eval() usage');
-    expect(data.findings[0].file).toBe('src/handler.ts');
+    expect(data.findings[0]!.severity).toBe('HIGH');
+    expect(data.findings[0]!.pattern).toBe('eval() usage');
+    expect(data.findings[0]!.file).toBe('src/handler.ts');
   });
 
   it('innerHTML diff — fails with 1 MEDIUM finding (bash: exit 1, innerHTML assignment)', async () => {
@@ -158,9 +158,9 @@ describe('behavioral parity with security-scan.sh', () => {
 
     expect(data.passed).toBe(false);
     expect(data.findingCount).toBe(1);
-    expect(data.findings[0].severity).toBe('MEDIUM');
-    expect(data.findings[0].pattern).toBe('innerHTML assignment');
-    expect(data.findings[0].file).toBe('src/render.ts');
+    expect(data.findings[0]!.severity).toBe('MEDIUM');
+    expect(data.findings[0]!.pattern).toBe('innerHTML assignment');
+    expect(data.findings[0]!.file).toBe('src/render.ts');
   });
 
   it('empty diff content — passes with 0 findings', async () => {

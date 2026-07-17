@@ -79,7 +79,7 @@ function advertisedActions(slim: string | undefined): string[] {
   if (!slim) return [];
   const m = slim.match(/Actions:\s*([^\n]+)/);
   if (!m) return [];
-  return m[1].split(',').map((s) => s.trim()).filter(Boolean);
+  return m[1]!.split(',').map((s) => s.trim()).filter(Boolean);
 }
 
 describe('inspect (DR-4 single-workflow projection)', () => {
@@ -159,9 +159,9 @@ describe('inspect (DR-4 single-workflow projection)', () => {
     // Recent events: non-empty, ordered, and the tail carries the max sequence.
     const recentEvents = data.recentEvents as Array<{ type: string; sequence: number }>;
     expect(recentEvents.length).toBe(6);
-    expect(recentEvents[0].type).toBe('workflow.started');
-    expect(recentEvents[recentEvents.length - 1].type).toBe('task.assigned');
-    expect(recentEvents[recentEvents.length - 1].sequence).toBe(6);
+    expect(recentEvents[0]!.type).toBe('workflow.started');
+    expect(recentEvents[recentEvents.length - 1]!.type).toBe('task.assigned');
+    expect(recentEvents[recentEvents.length - 1]!.sequence).toBe(6);
     expect(data.eventCount).toBe(6);
 
     // Correlation tuple = the most recent stamped dispatch boundary.

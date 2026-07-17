@@ -251,7 +251,7 @@ describe('AzureDevOpsProvider', () => {
 
     const result = await provider.checkCi('100');
     expect(result.status).toBe('pending');
-    expect(result.checks[0].status).toBe('pending');
+    expect(result.checks[0]!.status).toBe('pending');
   });
 
   it('AzureDevOpsProvider_CheckCi_NoRuns', async () => {
@@ -423,8 +423,8 @@ describe('AzureDevOpsProvider', () => {
     ]);
     expect(result.state).toBe('approved');
     expect(result.reviewers).toHaveLength(1);
-    expect(result.reviewers[0].login).toBe('reviewer1@org.com');
-    expect(result.reviewers[0].state).toBe('approved');
+    expect(result.reviewers[0]!.login).toBe('reviewer1@org.com');
+    expect(result.reviewers[0]!.state).toBe('approved');
   });
 
   it('AzureDevOpsProvider_GetReviewStatus_ParsesRejected', async () => {
@@ -436,7 +436,7 @@ describe('AzureDevOpsProvider', () => {
 
     const result = await provider.getReviewStatus('100');
     expect(result.state).toBe('changes_requested');
-    expect(result.reviewers[0].state).toBe('changes_requested');
+    expect(result.reviewers[0]!.state).toBe('changes_requested');
   });
 
   it('AzureDevOpsProvider_GetReviewStatus_ParsesWaitingForAuthor', async () => {
@@ -448,7 +448,7 @@ describe('AzureDevOpsProvider', () => {
 
     const result = await provider.getReviewStatus('100');
     expect(result.state).toBe('changes_requested');
-    expect(result.reviewers[0].state).toBe('changes_requested');
+    expect(result.reviewers[0]!.state).toBe('changes_requested');
   });
 
   it('AzureDevOpsProvider_GetReviewStatus_ParsesPending', async () => {
@@ -462,7 +462,7 @@ describe('AzureDevOpsProvider', () => {
     const result = await provider.getReviewStatus('100');
     expect(result.state).toBe('pending');
     expect(result.reviewers).toHaveLength(2);
-    expect(result.reviewers[0].state).toBe('pending');
+    expect(result.reviewers[0]!.state).toBe('pending');
   });
 
   it('AzureDevOpsProvider_GetReviewStatus_MixedVotes', async () => {
@@ -475,8 +475,8 @@ describe('AzureDevOpsProvider', () => {
 
     const result = await provider.getReviewStatus('100');
     expect(result.state).toBe('pending');
-    expect(result.reviewers[0].state).toBe('approved');
-    expect(result.reviewers[1].state).toBe('pending');
+    expect(result.reviewers[0]!.state).toBe('approved');
+    expect(result.reviewers[1]!.state).toBe('pending');
   });
 
   it('AzureDevOpsProvider_GetReviewStatus_NoReviewers', async () => {
@@ -497,7 +497,7 @@ describe('AzureDevOpsProvider', () => {
     const result = await provider.getReviewStatus('100');
     // vote=5 is "approved with suggestions" — maps to approved
     expect(result.state).toBe('approved');
-    expect(result.reviewers[0].state).toBe('approved');
+    expect(result.reviewers[0]!.state).toBe('approved');
   });
 
   // ── getPrComments (#1613 — two-source PrComment harvesting) ───────────────
@@ -623,9 +623,9 @@ describe('AzureDevOpsProvider', () => {
 
     const result = await provider.getPrComments('100');
     expect(result).toHaveLength(1);
-    expect(result[0].source).toBe('review-inline');
-    expect(result[0].path).toBe('/src/bar.ts');
-    expect(result[0].line).toBe(13);
+    expect(result[0]!.source).toBe('review-inline');
+    expect(result[0]!.path).toBe('/src/bar.ts');
+    expect(result[0]!.line).toBe(13);
   });
 
   it('AzureDevOps_GetPrComments_ComposesPrUniqueIdsAcrossThreads', async () => {
@@ -671,9 +671,9 @@ describe('AzureDevOpsProvider', () => {
     const result = await provider.getPrComments('100');
     expect(result).toHaveLength(2);
     // Raw comment.id=1 collides across threads; composed ids must not.
-    expect(result[0].id).toBe(3 * 100000 + 1);
-    expect(result[1].id).toBe(4 * 100000 + 1);
-    expect(result[0].id).not.toBe(result[1].id);
+    expect(result[0]!.id).toBe(3 * 100000 + 1);
+    expect(result[1]!.id).toBe(4 * 100000 + 1);
+    expect(result[0]!.id).not.toBe(result[1]!.id);
   });
 
   it('AzureDevOps_GetPrComments_ExcludesSystemThreads', async () => {
@@ -718,7 +718,7 @@ describe('AzureDevOpsProvider', () => {
 
     const result = await provider.getPrComments('100');
     expect(result).toHaveLength(1);
-    expect(result[0].body).toBe('real feedback');
+    expect(result[0]!.body).toBe('real feedback');
   });
 
   it('AzureDevOps_GetPrComments_MapsDecidedStatusesToResolvedTrue', async () => {
@@ -820,10 +820,10 @@ describe('AzureDevOpsProvider', () => {
     expect(result).toHaveLength(2);
     const [top, reply] = result;
     // Top-level comment has no parent.
-    expect(top.parentId).toBeUndefined();
+    expect(top!.parentId).toBeUndefined();
     // Reply's parentId is the composed id of the top-level comment.
-    expect(reply.parentId).toBe(8 * 100000 + 1);
-    expect(reply.parentId).toBe(top.id);
+    expect(reply!.parentId).toBe(8 * 100000 + 1);
+    expect(reply!.parentId).toBe(top!.id);
   });
 
   it('AzureDevOps_GetPrComments_EmitsOnlyContractKeys', async () => {

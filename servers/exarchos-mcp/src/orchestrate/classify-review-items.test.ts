@@ -60,7 +60,7 @@ describe('handleClassifyReviewItems', () => {
     });
 
     expect(eventStore.append).toHaveBeenCalledTimes(1);
-    const [streamId, event] = (eventStore.append as ReturnType<typeof vi.fn>).mock.calls[0];
+    const [streamId, event] = (eventStore.append as ReturnType<typeof vi.fn>).mock.calls[0]!;
     expect(streamId).toBe('test-feature');
     expect(event.type).toBe('dispatch.classified');
     expect(event.data.severityDistribution).toEqual({ high: 1, medium: 1, low: 2 });
@@ -93,7 +93,7 @@ describe('handleClassifyReviewItems', () => {
       eventStore,
     });
 
-    const opts = (eventStore.append as ReturnType<typeof vi.fn>).mock.calls[0][2];
+    const opts = (eventStore.append as ReturnType<typeof vi.fn>).mock.calls[0]![2];
     expect(opts).toBeDefined();
     expect(opts.idempotencyKey).toBeDefined();
     expect(opts.idempotencyKey).toMatch(/^feat-x:dispatch\.classified:[0-9a-f]{16}$/);
@@ -109,8 +109,8 @@ describe('handleClassifyReviewItems', () => {
     await handleClassifyReviewItems({ featureId: 'feat-x', actionItems: items, eventStore: eventStore1 });
     await handleClassifyReviewItems({ featureId: 'feat-x', actionItems: items, eventStore: eventStore2 });
 
-    const key1 = (eventStore1.append as ReturnType<typeof vi.fn>).mock.calls[0][2].idempotencyKey;
-    const key2 = (eventStore2.append as ReturnType<typeof vi.fn>).mock.calls[0][2].idempotencyKey;
+    const key1 = (eventStore1.append as ReturnType<typeof vi.fn>).mock.calls[0]![2].idempotencyKey;
+    const key2 = (eventStore2.append as ReturnType<typeof vi.fn>).mock.calls[0]![2].idempotencyKey;
     expect(key1).toBe(key2);
   });
 
@@ -124,8 +124,8 @@ describe('handleClassifyReviewItems', () => {
     await handleClassifyReviewItems({ featureId: 'feat-x', actionItems: [a, b], eventStore: eventStoreA });
     await handleClassifyReviewItems({ featureId: 'feat-x', actionItems: [b, a], eventStore: eventStoreB });
 
-    const keyA = (eventStoreA.append as ReturnType<typeof vi.fn>).mock.calls[0][2].idempotencyKey;
-    const keyB = (eventStoreB.append as ReturnType<typeof vi.fn>).mock.calls[0][2].idempotencyKey;
+    const keyA = (eventStoreA.append as ReturnType<typeof vi.fn>).mock.calls[0]![2].idempotencyKey;
+    const keyB = (eventStoreB.append as ReturnType<typeof vi.fn>).mock.calls[0]![2].idempotencyKey;
     expect(keyA).toBe(keyB);
   });
 
@@ -144,8 +144,8 @@ describe('handleClassifyReviewItems', () => {
       eventStore: eventStoreB,
     });
 
-    const keyA = (eventStoreA.append as ReturnType<typeof vi.fn>).mock.calls[0][2].idempotencyKey;
-    const keyB = (eventStoreB.append as ReturnType<typeof vi.fn>).mock.calls[0][2].idempotencyKey;
+    const keyA = (eventStoreA.append as ReturnType<typeof vi.fn>).mock.calls[0]![2].idempotencyKey;
+    const keyB = (eventStoreB.append as ReturnType<typeof vi.fn>).mock.calls[0]![2].idempotencyKey;
     expect(keyA).not.toBe(keyB);
   });
 
@@ -164,8 +164,8 @@ describe('handleClassifyReviewItems', () => {
       eventStore: eventStoreB,
     });
 
-    const keyA = (eventStoreA.append as ReturnType<typeof vi.fn>).mock.calls[0][2].idempotencyKey;
-    const keyB = (eventStoreB.append as ReturnType<typeof vi.fn>).mock.calls[0][2].idempotencyKey;
+    const keyA = (eventStoreA.append as ReturnType<typeof vi.fn>).mock.calls[0]![2].idempotencyKey;
+    const keyB = (eventStoreB.append as ReturnType<typeof vi.fn>).mock.calls[0]![2].idempotencyKey;
     expect(keyA).not.toBe(keyB);
   });
 

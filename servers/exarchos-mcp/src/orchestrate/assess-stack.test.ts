@@ -292,8 +292,8 @@ describe('handleAssessStack', () => {
       };
       const ciFixItems = data.actionItems.filter(item => item.type === 'ci-fix');
       expect(ciFixItems.length).toBeGreaterThan(0);
-      expect(ciFixItems[0].pr).toBe(42);
-      expect(ciFixItems[0].severity).toBe('critical');
+      expect(ciFixItems[0]!.pr).toBe(42);
+      expect(ciFixItems[0]!.severity).toBe('critical');
     });
   });
 
@@ -321,7 +321,7 @@ describe('handleAssessStack', () => {
       };
       const commentItems = data.actionItems.filter(item => item.type === 'comment-reply');
       expect(commentItems.length).toBeGreaterThan(0);
-      expect(commentItems[0].pr).toBe(42);
+      expect(commentItems[0]!.pr).toBe(42);
     });
   });
 
@@ -348,7 +348,7 @@ describe('handleAssessStack', () => {
       const data = result.data as {
         status: { prs: Array<{ unresolvedComments: Array<{ body: string }> }> };
       };
-      const commentBody = data.status.prs[0].unresolvedComments[0].body;
+      const commentBody = data.status.prs[0]!.unresolvedComments[0]!.body;
       expect(commentBody.length).toBeLessThanOrEqual(203); // 200 + '...'
       expect(commentBody.endsWith('...')).toBe(true);
     });
@@ -373,7 +373,7 @@ describe('handleAssessStack', () => {
       const data = result.data as {
         status: { prs: Array<{ unresolvedComments: Array<{ body: string }> }> };
       };
-      const commentBody = data.status.prs[0].unresolvedComments[0].body;
+      const commentBody = data.status.prs[0]!.unresolvedComments[0]!.body;
       expect(commentBody).toBe(shortBody);
     });
   });
@@ -584,10 +584,10 @@ describe('handleAssessStack', () => {
         (call: unknown[]) => (call[1] as { type: string }).type === 'shepherd.started',
       );
       expect(shepherdStartedCalls.length).toBe(1);
-      expect(shepherdStartedCalls[0][0]).toBe('test-feature');
-      const startedData = (shepherdStartedCalls[0][1] as { data: Record<string, unknown> }).data;
+      expect(shepherdStartedCalls[0]![0]).toBe('test-feature');
+      const startedData = (shepherdStartedCalls[0]![1] as { data: Record<string, unknown> }).data;
       expect(startedData.featureId).toBe('test-feature');
-      const idempotencyKey = (shepherdStartedCalls[0][2] as { idempotencyKey: string })?.idempotencyKey;
+      const idempotencyKey = (shepherdStartedCalls[0]![2] as { idempotencyKey: string })?.idempotencyKey;
       expect(idempotencyKey).toBe('test-feature:shepherd.started');
     });
 
@@ -654,9 +654,9 @@ describe('handleAssessStack', () => {
         (call: unknown[]) => (call[1] as { type: string }).type === 'shepherd.approval_requested',
       );
       expect(approvalCalls.length).toBe(1);
-      const approvalData = (approvalCalls[0][1] as { data: Record<string, unknown> }).data;
+      const approvalData = (approvalCalls[0]![1] as { data: Record<string, unknown> }).data;
       expect(approvalData.prUrl).toBeDefined();
-      const idempotencyKey = (approvalCalls[0][2] as { idempotencyKey: string })?.idempotencyKey;
+      const idempotencyKey = (approvalCalls[0]![2] as { idempotencyKey: string })?.idempotencyKey;
       expect(idempotencyKey).toBe('test-feature:shepherd.approval_requested:0');
     });
 
@@ -703,9 +703,9 @@ describe('handleAssessStack', () => {
         (call: unknown[]) => (call[1] as { type: string }).type === 'shepherd.completed',
       );
       expect(completedCalls.length).toBe(1);
-      const completedData = (completedCalls[0][1] as { data: Record<string, unknown> }).data;
+      const completedData = (completedCalls[0]![1] as { data: Record<string, unknown> }).data;
       expect(completedData.outcome).toBe('merged');
-      const idempotencyKey = (completedCalls[0][2] as { idempotencyKey: string })?.idempotencyKey;
+      const idempotencyKey = (completedCalls[0]![2] as { idempotencyKey: string })?.idempotencyKey;
       expect(idempotencyKey).toBe('test-feature:shepherd.completed');
 
       // Assert — shepherd.approval_requested must NOT be emitted for merged PRs
@@ -788,14 +788,14 @@ describe('handleAssessStack', () => {
         (call: unknown[]) => (call[1] as { type: string }).type === 'shepherd.escalated',
       );
       expect(escalatedCalls.length).toBe(1);
-      expect(escalatedCalls[0][0]).toBe('test-feature');
-      const escalatedData = (escalatedCalls[0][1] as { data: Record<string, unknown> }).data;
+      expect(escalatedCalls[0]![0]).toBe('test-feature');
+      const escalatedData = (escalatedCalls[0]![1] as { data: Record<string, unknown> }).data;
       expect(escalatedData.featureId).toBe('test-feature');
       expect(escalatedData.prNumbers).toEqual([42, 43]);
       expect(escalatedData.iterationCount).toBe(5);
       expect(escalatedData.maxIterations).toBe(5);
       expect(escalatedData.reason).toBe('auto-fix bound (5) reached after 5 iterations');
-      const firstKey = (escalatedCalls[0][2] as { idempotencyKey: string })?.idempotencyKey;
+      const firstKey = (escalatedCalls[0]![2] as { idempotencyKey: string })?.idempotencyKey;
       expect(firstKey).toBe('test-feature:shepherd.escalated:5');
 
       // (c) Idempotency — re-assessing at the same count reuses the same key, so
@@ -813,7 +813,7 @@ describe('handleAssessStack', () => {
         (call: unknown[]) => (call[1] as { type: string }).type === 'shepherd.escalated',
       );
       expect(escalatedCalls2.length).toBe(1);
-      const secondKey = (escalatedCalls2[0][2] as { idempotencyKey: string })?.idempotencyKey;
+      const secondKey = (escalatedCalls2[0]![2] as { idempotencyKey: string })?.idempotencyKey;
       expect(secondKey).toBe(firstKey);
     });
   });
@@ -840,8 +840,8 @@ describe('handleAssessStack', () => {
         (call: unknown[]) => (call[1] as { type: string }).type === 'ci.status',
       );
       expect(ciStatusCalls.length).toBe(1);
-      expect(ciStatusCalls[0][0]).toBe('test-feature');
-      const eventData = (ciStatusCalls[0][1] as { data: { pr: number; status: string } }).data;
+      expect(ciStatusCalls[0]![0]).toBe('test-feature');
+      const eventData = (ciStatusCalls[0]![1] as { data: { pr: number; status: string } }).data;
       expect(eventData.pr).toBe(42);
       expect(eventData.status).toBe('passing');
     });
@@ -869,15 +869,15 @@ describe('handleAssessStack', () => {
       );
       expect(gateExecutedCalls.length).toBe(2);
 
-      const gateIdempotencyKey = (gateExecutedCalls[0][2] as { idempotencyKey: string })?.idempotencyKey;
+      const gateIdempotencyKey = (gateExecutedCalls[0]![2] as { idempotencyKey: string })?.idempotencyKey;
       expect(gateIdempotencyKey).toMatch(/iter-\d+$/);
 
-      const firstGate = (gateExecutedCalls[0][1] as { data: Record<string, unknown> }).data;
+      const firstGate = (gateExecutedCalls[0]![1] as { data: Record<string, unknown> }).data;
       expect(firstGate.gateName).toBe('ci/build');
       expect((firstGate.details as Record<string, unknown>).skill).toBe('shepherd');
       expect((firstGate.details as Record<string, unknown>).gate).toBe('ci/build');
 
-      const secondGate = (gateExecutedCalls[1][1] as { data: Record<string, unknown> }).data;
+      const secondGate = (gateExecutedCalls[1]![1] as { data: Record<string, unknown> }).data;
       expect(secondGate.gateName).toBe('ci/test');
       expect(secondGate.passed).toBe(false);
     });
@@ -909,7 +909,7 @@ describe('handleAssessStack', () => {
         (call: unknown[]) => (call[1] as { type: string }).type === 'provider.unknown-tier',
       );
       expect(unknownTierCalls.length).toBe(1);
-      const data = (unknownTierCalls[0][1] as { data: { reviewer: string; commentId: number } }).data;
+      const data = (unknownTierCalls[0]![1] as { data: { reviewer: string; commentId: number } }).data;
       expect(data.reviewer).toBe('coderabbit');
       expect(data.commentId).toBe(777);
     });
@@ -939,7 +939,7 @@ describe('handleAssessStack', () => {
         (call: unknown[]) => (call[1] as { type: string }).type === 'provider.unknown-tier',
       );
       expect(unknownTierCalls.length).toBe(1);
-      const data = (unknownTierCalls[0][1] as { data: { reviewer: string; commentId: number; rawTier?: string } }).data;
+      const data = (unknownTierCalls[0]![1] as { data: { reviewer: string; commentId: number; rawTier?: string } }).data;
       expect(data.rawTier).toBe('_:rocket: Brand new tier_');
     });
 
@@ -1032,12 +1032,12 @@ describe('handleAssessStack', () => {
       const data = result.data as {
         status: { prs: Array<{ unresolvedComments: Array<{ actionItem?: Record<string, unknown> }> }> };
       };
-      const comment = data.status.prs[0].unresolvedComments[0];
-      expect(comment.actionItem).toBeDefined();
-      expect(comment.actionItem?.reviewer).toBe('coderabbit');
-      expect(comment.actionItem?.normalizedSeverity).toBe('HIGH');
-      expect(comment.actionItem?.file).toBe('src/auth.ts');
-      expect(comment.actionItem?.line).toBe(42);
+      const comment = data.status.prs[0]!.unresolvedComments[0];
+      expect(comment!.actionItem).toBeDefined();
+      expect(comment!.actionItem?.reviewer).toBe('coderabbit');
+      expect(comment!.actionItem?.normalizedSeverity).toBe('HIGH');
+      expect(comment!.actionItem?.file).toBe('src/auth.ts');
+      expect(comment!.actionItem?.line).toBe(42);
     });
 
     it('QueryPrComments_HumanComment_PopulatesNormalizedMedium', async () => {
@@ -1063,9 +1063,9 @@ describe('handleAssessStack', () => {
       const data = result.data as {
         status: { prs: Array<{ unresolvedComments: Array<{ actionItem?: Record<string, unknown> }> }> };
       };
-      const comment = data.status.prs[0].unresolvedComments[0];
-      expect(comment.actionItem?.reviewer).toBe('human');
-      expect(comment.actionItem?.normalizedSeverity).toBe('MEDIUM');
+      const comment = data.status.prs[0]!.unresolvedComments[0];
+      expect(comment!.actionItem?.reviewer).toBe('human');
+      expect(comment!.actionItem?.normalizedSeverity).toBe('MEDIUM');
     });
 
     it('QueryPrComments_UnknownBot_RoutesToUnknownAdapter', async () => {
@@ -1091,9 +1091,9 @@ describe('handleAssessStack', () => {
       const data = result.data as {
         status: { prs: Array<{ unresolvedComments: Array<{ actionItem?: Record<string, unknown> }> }> };
       };
-      const comment = data.status.prs[0].unresolvedComments[0];
-      expect(comment.actionItem?.reviewer).toBe('unknown');
-      expect(comment.actionItem?.normalizedSeverity).toBe('MEDIUM');
+      const comment = data.status.prs[0]!.unresolvedComments[0];
+      expect(comment!.actionItem?.reviewer).toBe('unknown');
+      expect(comment!.actionItem?.normalizedSeverity).toBe('MEDIUM');
     });
   });
 
@@ -1121,10 +1121,10 @@ describe('handleAssessStack', () => {
       const data = result.data as {
         status: { prs: Array<{ unresolvedComments: Array<Record<string, unknown>> }> };
       };
-      const comment = data.status.prs[0].unresolvedComments[0];
+      const comment = data.status.prs[0]!.unresolvedComments[0];
       // The dead field must be absent — not merely undefined.
-      expect('fullBody' in comment).toBe(false);
-      expect((comment.body as string).length).toBeLessThanOrEqual(204);
+      expect('fullBody' in comment!).toBe(false);
+      expect((comment!.body as string).length).toBeLessThanOrEqual(204);
       // The untruncated 500-char body appears NOWHERE in the serialized result.
       expect(JSON.stringify(result.data).includes(longBody)).toBe(false);
     });
@@ -1211,11 +1211,11 @@ describe('handleAssessStack', () => {
         (call: unknown[]) => (call[1] as { type: string }).type === 'provider.parse-error',
       );
       expect(parseErrCalls.length).toBe(1);
-      const data = (parseErrCalls[0][1] as { data: Record<string, unknown> }).data;
+      const data = (parseErrCalls[0]![1] as { data: Record<string, unknown> }).data;
       expect(data.reviewer).toBe('coderabbit');
       expect(data.commentId).toBe(99);
       expect(data.errorMessage).toContain('bad body');
-      const idemKey = (parseErrCalls[0][2] as { idempotencyKey: string })?.idempotencyKey;
+      const idemKey = (parseErrCalls[0]![2] as { idempotencyKey: string })?.idempotencyKey;
       expect(idemKey).toBe('test-feature:provider.parse-error:42:99');
     });
 
@@ -1239,7 +1239,7 @@ describe('handleAssessStack', () => {
 
       expect(result.success).toBe(true);
       const status = (result.data as { status: { prs: Array<{ unresolvedComments: Array<{ body: string }> }> } }).status;
-      const bodies = status.prs[0].unresolvedComments.map((c) => c.body);
+      const bodies = status.prs[0]!.unresolvedComments.map((c) => c.body);
       expect(bodies).toContain('survives');
       expect(bodies).toContain('explodes');
     });
@@ -1321,7 +1321,7 @@ describe('handleAssessStack', () => {
       const commentReply = data.actionItems.find((i) => i.type === 'comment-reply');
       expect(commentReply).toBeDefined();
       // Threading is carried through for observability without branching.
-      expect(data.status.prs[0].unresolvedComments[0].parentId).toBe(1);
+      expect(data.status.prs[0]!.unresolvedComments[0]!.parentId).toBe(1);
     });
 
     it('AssessStack_ReviewSummaryBody_Surfaced', async () => {
@@ -1354,7 +1354,7 @@ describe('handleAssessStack', () => {
       };
       const commentReply = data.actionItems.find((i) => i.type === 'comment-reply');
       expect(commentReply).toBeDefined();
-      expect(data.status.prs[0].unresolvedComments[0].source).toBe('review-summary');
+      expect(data.status.prs[0]!.unresolvedComments[0]!.source).toBe('review-summary');
     });
 
     it('AssessStack_ResolvedComment_NotSurfaced', async () => {
@@ -1401,9 +1401,9 @@ describe('handleAssessStack', () => {
       const commentReplies = data.actionItems.filter((i) => i.type === 'comment-reply');
       // Only the absent-resolved comment is surfaced as an action item.
       expect(commentReplies).toHaveLength(1);
-      expect(commentReplies[0].file).toBe('src/b.ts');
+      expect(commentReplies[0]!.file).toBe('src/b.ts');
 
-      const surfacedBodies = data.status.prs[0].unresolvedComments.map((c) => c.body);
+      const surfacedBodies = data.status.prs[0]!.unresolvedComments.map((c) => c.body);
       expect(surfacedBodies).toContain('Unknown-resolution thread — still needs attention');
       expect(surfacedBodies).not.toContain('Resolved thread — already handled');
     });
@@ -1524,7 +1524,7 @@ describe('handleAssessStack', () => {
       expect(commentReplies.every((i) => i.pr === 42)).toBe(true);
       expect(commentReplies.some((i) => i.file === 'src/a.ts')).toBe(true);
 
-      const surfacedBodies = data.status.prs[0].unresolvedComments.map((c) => c.body);
+      const surfacedBodies = data.status.prs[0]!.unresolvedComments.map((c) => c.body);
       expect(surfacedBodies).toContain('Please address this finding');
       expect(surfacedBodies).toContain('Overall needs another pass on validation');
       expect(surfacedBodies).not.toContain('Already handled in a prior push');
@@ -1558,7 +1558,7 @@ describe('handleAssessStack', () => {
       expect(commentReplies.every((i) => i.pr === 42)).toBe(true);
       expect(commentReplies.some((i) => i.file === 'src/a.ts')).toBe(true);
 
-      const surfacedBodies = data.status.prs[0].unresolvedComments.map((c) => c.body);
+      const surfacedBodies = data.status.prs[0]!.unresolvedComments.map((c) => c.body);
       expect(surfacedBodies).toContain('Please address this finding');
       expect(surfacedBodies).toContain('Overall needs another pass on validation');
       expect(surfacedBodies).not.toContain('Already handled in a prior push');
@@ -1624,9 +1624,9 @@ describe('handleAssessStack', () => {
       const data = result.data as {
         status: { prs: Array<{ unresolvedComments: unknown[]; commentPage: { total: number; hasMore: boolean } }> };
       };
-      expect(data.status.prs[0].commentPage.total).toBe(25);
-      expect(data.status.prs[0].commentPage.hasMore).toBe(true);
-      expect(data.status.prs[0].unresolvedComments.length).toBeLessThan(25);
+      expect(data.status.prs[0]!.commentPage.total).toBe(25);
+      expect(data.status.prs[0]!.commentPage.hasMore).toBe(true);
+      expect(data.status.prs[0]!.unresolvedComments.length).toBeLessThan(25);
     });
 
     it('assessStack_UnresolvedComments_EachCommentSerializedOnce', async () => {
@@ -1651,7 +1651,7 @@ describe('handleAssessStack', () => {
       const data = result.data as {
         status: { prs: Array<{ unresolvedComments: Array<{ body: string }> }> };
       };
-      const rendered = data.status.prs[0].unresolvedComments;
+      const rendered = data.status.prs[0]!.unresolvedComments;
       expect(rendered).toHaveLength(3);
 
       for (const c of comments) {
@@ -1701,13 +1701,13 @@ describe('handleAssessStack', () => {
 
       pages.forEach((page, idx) => {
         const pr = page.status.prs[0];
-        expect(pr.commentPage.total).toBe(25);
-        expect(pr.commentPage.limit).toBe(10);
+        expect(pr!.commentPage.total).toBe(25);
+        expect(pr!.commentPage.limit).toBe(10);
         const expectedLen = idx < 2 ? 10 : 5;
-        expect(pr.unresolvedComments).toHaveLength(expectedLen);
-        expect(pr.commentPage.hasMore).toBe(idx < 2);
+        expect(pr!.unresolvedComments).toHaveLength(expectedLen);
+        expect(pr!.commentPage.hasMore).toBe(idx < 2);
 
-        const idsOnPage = new Set(pr.unresolvedComments.map((c) => c.id));
+        const idsOnPage = new Set(pr!.unresolvedComments.map((c) => c.id));
         const refs = page.actionItems
           .filter((i) => i.type === 'comment-reply')
           .map((i) => i.raw as CommentRefLike);

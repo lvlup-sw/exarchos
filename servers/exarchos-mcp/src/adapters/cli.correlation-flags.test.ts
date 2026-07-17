@@ -110,9 +110,9 @@ describe('CLI correlation filter flags — dispatch-args wiring (#1448 item 4)',
       // directly at the broken cell (subcommand × flag).
       const subcommandPascal = subcommand
         .split('_')
-        .map((s) => s[0].toUpperCase() + s.slice(1))
+        .map((s) => s[0]!.toUpperCase() + s.slice(1))
         .join('');
-      const argKeyPascal = argKey[0].toUpperCase() + argKey.slice(1);
+      const argKeyPascal = argKey[0]!.toUpperCase() + argKey.slice(1);
 
       it(`Cli_View${subcommandPascal}_${argKeyPascal}Flag_ProducesCamelCaseArg`, async () => {
         const program = buildCli(ctx);

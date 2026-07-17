@@ -953,8 +953,8 @@ describe('BenchmarkCompletedData', () => {
     });
     expect(data.taskId).toBe('task-001');
     expect(data.results).toHaveLength(1);
-    expect(data.results[0].operation).toBe('event-store-query');
-    expect(data.results[0].passed).toBe(true);
+    expect(data.results[0]!.operation).toBe('event-store-query');
+    expect(data.results[0]!.passed).toBe(true);
   });
 
   it('BenchmarkCompletedData_EmptyResults_Rejects', () => {
@@ -982,8 +982,8 @@ describe('BenchmarkCompletedData', () => {
         passed: true,
       }],
     });
-    expect(data.results[0].baseline).toBeUndefined();
-    expect(data.results[0].regressionPercent).toBeUndefined();
+    expect(data.results[0]!.baseline).toBeUndefined();
+    expect(data.results[0]!.regressionPercent).toBeUndefined();
   });
 });
 

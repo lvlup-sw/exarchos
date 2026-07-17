@@ -59,9 +59,9 @@ describe('Event Log', () => {
       expect(result.events).toHaveLength(100);
       expect(result.eventSequence).toBe(101);
       // The oldest event (sequence 1) should be gone
-      expect(result.events[0].sequence).toBe(2);
+      expect(result.events[0]!.sequence).toBe(2);
       // The newest event should be at the end
-      expect(result.events[result.events.length - 1].sequence).toBe(101);
+      expect(result.events[result.events.length - 1]!.sequence).toBe(101);
     });
 
     it('AppendEvent_AllEventTypes_CorrectSchema — Each event type produces valid event', () => {
@@ -275,9 +275,9 @@ describe('Event Log', () => {
 
       const recent = getRecentEvents(events, 3);
       expect(recent).toHaveLength(3);
-      expect(recent[0].sequence).toBe(8);
-      expect(recent[1].sequence).toBe(9);
-      expect(recent[2].sequence).toBe(10);
+      expect(recent[0]!.sequence).toBe(8);
+      expect(recent[1]!.sequence).toBe(9);
+      expect(recent[2]!.sequence).toBe(10);
     });
 
     it('should return all events when count exceeds length', () => {

@@ -70,14 +70,14 @@ describe('handleFeedback — local write contract', () => {
     // The durable event landed on the shared meta stream, NOT a feature stream.
     const events = await store.query(FEEDBACK_STREAM_ID);
     expect(events).toHaveLength(1);
-    expect(events[0].type).toBe('feedback.recorded');
-    expect(events[0].data).toMatchObject({
+    expect(events[0]!.type).toBe('feedback.recorded');
+    expect(events[0]!.data).toMatchObject({
       message: 'rehydrate dropped taskProgress when projection lagged',
       configuredEndpoint: null,
       upstreamDelivered: false,
     });
     // Event payload validates against the registered data schema.
-    expect(() => FeedbackRecordedData.parse(events[0].data)).not.toThrow();
+    expect(() => FeedbackRecordedData.parse(events[0]!.data)).not.toThrow();
   });
 
   it('Feedback_SessionContext_PersistedWhenProvided', async () => {
@@ -92,7 +92,7 @@ describe('handleFeedback — local write contract', () => {
     );
 
     const [event] = await store.query(FEEDBACK_STREAM_ID);
-    expect((event.data as { sessionContext?: unknown }).sessionContext).toEqual({
+    expect((event!.data as { sessionContext?: unknown }).sessionContext).toEqual({
       action: 'check_static_analysis',
       errorCode: 'GATE_FAILED',
       workflow: 'v2-11-0-rc1-build',
@@ -102,7 +102,7 @@ describe('handleFeedback — local write contract', () => {
   it('Feedback_NoSessionContext_OmitsKeyEntirely', async () => {
     await handleFeedback({ message: 'plain report' }, stateDir, store, localOnlyOptions());
     const [event] = await store.query(FEEDBACK_STREAM_ID);
-    expect(Object.prototype.hasOwnProperty.call(event.data as object, 'sessionContext')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(event!.data as object, 'sessionContext')).toBe(false);
   });
 });
 
@@ -146,8 +146,8 @@ describe('handleFeedback — optional upstream POST (offline-first / INV-15)', (
     );
 
     expect(posted).toHaveLength(1);
-    expect(posted[0].url).toBe('https://example.test/feedback');
-    expect(posted[0].payload).toEqual({ message: 'federated report', sessionContext: { action: 'feedback' } });
+    expect(posted[0]!.url).toBe('https://example.test/feedback');
+    expect(posted[0]!.payload).toEqual({ message: 'federated report', sessionContext: { action: 'feedback' } });
 
     const data = result.data as { upstreamConfigured: boolean; configuredEndpoint: string | null; upstreamDelivered: boolean };
     expect(data.upstreamConfigured).toBe(true);
@@ -155,7 +155,7 @@ describe('handleFeedback — optional upstream POST (offline-first / INV-15)', (
     expect(data.upstreamDelivered).toBe(true);
 
     const [event] = await store.query(FEEDBACK_STREAM_ID);
-    expect(event.data).toMatchObject({
+    expect(event!.data).toMatchObject({
       configuredEndpoint: 'https://example.test/feedback',
       upstreamDelivered: true,
     });
@@ -179,7 +179,7 @@ describe('handleFeedback — optional upstream POST (offline-first / INV-15)', (
     expect(result.success).toBe(true);
     const events = await store.query(FEEDBACK_STREAM_ID);
     expect(events).toHaveLength(1);
-    expect(events[0].data).toMatchObject({
+    expect(events[0]!.data).toMatchObject({
       configuredEndpoint: 'https://down.test/feedback',
       upstreamDelivered: false,
     });
@@ -243,7 +243,7 @@ describe('feedback dispatch seam — handleWorkflow envelope (INV-5b)', () => {
     // The event reached the shared meta stream through the real dispatch path.
     const events = await ctx.eventStore.query(FEEDBACK_STREAM_ID);
     expect(events).toHaveLength(1);
-    expect(events[0].type).toBe('feedback.recorded');
+    expect(events[0]!.type).toBe('feedback.recorded');
   });
 
   it('Feedback_UnknownAction_StillRejectsWithValidActions', async () => {

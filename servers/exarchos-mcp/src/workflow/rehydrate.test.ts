@@ -323,7 +323,7 @@ describe('handleRehydrate — emits workflow.rehydrated (T032, DR-4, DR-5)', () 
     // verbatim — no featureId / timestamp inside `data` (streamId + envelope
     // timestamp live on the outer event). Casting through the registered
     // type keeps the assertion schema-driven.
-    const data = rehydratedEvents[0].data as WorkflowRehydrated;
+    const data = rehydratedEvents[0]!.data as WorkflowRehydrated;
     expect(data.projectionSequence).toBe(4);
     expect(data.deliveryPath).toBe('direct');
     expect(typeof data.tokenEstimate).toBe('number');
@@ -354,7 +354,7 @@ describe('handleRehydrate — emits workflow.rehydrated (T032, DR-4, DR-5)', () 
       (e) => e.type === 'workflow.rehydrated',
     );
     expect(rehydratedEvents).toHaveLength(1);
-    const data = rehydratedEvents[0].data as WorkflowRehydrated;
+    const data = rehydratedEvents[0]!.data as WorkflowRehydrated;
     expect(data.deliveryPath).toBe('direct');
     expect(data.projectionSequence).toBe(1);
   });
@@ -501,7 +501,7 @@ describe('handleRehydrate — reducer throw degradation (T054, DR-18)', () => {
         (e) => e.type === 'workflow.projection_degraded',
       );
       expect(degraded).toHaveLength(1);
-      const payload = degraded[0].data as WorkflowProjectionDegraded;
+      const payload = degraded[0]!.data as WorkflowProjectionDegraded;
       expect(payload.projectionId).toBe('rehydration@v1');
       expect(payload.cause).toBe('reducer-throw');
       expect(payload.fallbackSource).toBe('state-store-only');
@@ -605,7 +605,7 @@ describe('handleRehydrate — corrupt-snapshot degradation (T055, DR-18)', () =>
       (e) => e.type === 'workflow.projection_degraded',
     );
     expect(degraded).toHaveLength(1);
-    const payload = degraded[0].data as WorkflowProjectionDegraded;
+    const payload = degraded[0]!.data as WorkflowProjectionDegraded;
     expect(payload.projectionId).toBe('rehydration@v1');
     expect(payload.cause).toBe('snapshot-corrupt');
     expect(payload.fallbackSource).toBe('full-replay');
@@ -698,7 +698,7 @@ describe('handleRehydrate — event-stream-unavailable degradation (T056, DR-18)
       (e) => e.type === 'workflow.projection_degraded',
     );
     expect(degraded).toHaveLength(1);
-    const payload = degraded[0].data as WorkflowProjectionDegraded;
+    const payload = degraded[0]!.data as WorkflowProjectionDegraded;
     expect(payload.projectionId).toBe('rehydration@v1');
     expect(payload.cause).toBe('event-stream-unavailable');
     expect(payload.fallbackSource).toBe('state-store-only');
@@ -835,7 +835,7 @@ describe('handleRehydrate — workflow.rehydrated extended fields (T-21)', () =>
       (e) => e.type === 'workflow.rehydrated',
     );
     expect(rehydratedEvents).toHaveLength(1);
-    const data = rehydratedEvents[0].data as WorkflowRehydrated;
+    const data = rehydratedEvents[0]!.data as WorkflowRehydrated;
     expect(data.phaseHasPlaybook).toBe(true);
     expect(data.phasePlaybookComposed).toBe(true);
   });
@@ -867,7 +867,7 @@ describe('handleRehydrate — workflow.rehydrated extended fields (T-21)', () =>
       (e) => e.type === 'workflow.rehydrated',
     );
     expect(rehydratedEvents).toHaveLength(1);
-    const data = rehydratedEvents[0].data as WorkflowRehydrated;
+    const data = rehydratedEvents[0]!.data as WorkflowRehydrated;
     expect(data.phaseHasPlaybook).toBe(false);
     expect(data.phasePlaybookComposed).toBe(false);
   });
@@ -1480,7 +1480,7 @@ const TRACER_TASK_ID = 'T-SNAPSHOT-TRACER';
 /** Highest event-store sequence currently in `streamId`, or 0 when empty. */
 async function tipSequence(eventStore: EventStore, streamId: string): Promise<number> {
   const events = await eventStore.query(streamId);
-  return events.length > 0 ? events[events.length - 1].sequence : 0;
+  return events.length > 0 ? events[events.length - 1]!.sequence : 0;
 }
 
 /** Sequence of the last event of `type` in `streamId`. Fails loudly if absent. */
@@ -1493,7 +1493,7 @@ async function lastSequenceOfType(
   if (matches.length === 0) {
     throw new Error(`expected at least one '${type}' event in stream '${streamId}'`);
   }
-  return matches[matches.length - 1].sequence;
+  return matches[matches.length - 1]!.sequence;
 }
 
 /** `taskProgress` as an `{ [id]: status }` map for order-insensitive asserts. */

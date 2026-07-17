@@ -356,8 +356,8 @@ describe('HandleCheckpoint_PayloadDigestIdempotencyKey (C3, closes #1241)', () =
     const events = await store.query(featureId, { type: 'workflow.checkpoint' });
     expect(events.length).toBe(2);
     const keys = events.map((e) => (e as unknown as { idempotencyKey?: string }).idempotencyKey ?? '');
-    expect(keys[0].endsWith(`:${firstDigest}`)).toBe(true);
-    expect(keys[1].endsWith(`:${secondDigest}`)).toBe(true);
+    expect(keys[0]!.endsWith(`:${firstDigest}`)).toBe(true);
+    expect(keys[1]!.endsWith(`:${secondDigest}`)).toBe(true);
     expect(keys[0]).not.toBe(keys[1]);
   });
 

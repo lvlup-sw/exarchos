@@ -221,7 +221,7 @@ describe('runLifecycle — launcher lifecycle integrator (real git + real event 
     // the observed exit code.
     const terminals = eventsOfType(store, LAUNCH_EXECUTED);
     expect(terminals).toHaveLength(1);
-    expect(terminals[0].data?.exitCode).toBe(0);
+    expect(terminals[0]!.data?.exitCode).toBe(0);
   }, 20_000);
 
   it('Lifecycle_NoHandleOutlivesChild', async () => {
@@ -273,18 +273,18 @@ describe('runLifecycle — launcher lifecycle integrator (real git + real event 
     const spawned = fake.calls[0];
     // ...whose cwd is the CREATED worktree path (the place step) — never the
     // descriptor's declarative default ('.').
-    expect(spawned.cwd).toBe(data.worktreePath);
-    expect(spawned.cwd).not.toBe('.');
+    expect(spawned!.cwd).toBe(data.worktreePath);
+    expect(spawned!.cwd).not.toBe('.');
     // The placed cwd is a real, on-disk worktree — the derived sibling of base.
-    expect(existsSync(spawned.cwd)).toBe(true);
+    expect(existsSync(spawned!.cwd)).toBe(true);
     expect(data.worktreePath).toBe(deriveWorktreePath(base, WT_SEGMENT));
 
     // The liveness CLAIM was emitted with the SUPERVISOR holderPid (task-016's
     // dead-holder anchor), BEFORE the terminal.
     const claim = eventsOfType(store, LAUNCH_EXECUTING_STARTED);
     expect(claim).toHaveLength(1);
-    expect(claim[0].data?.holderPid).toBe(HOLDER.holderPid);
-    expect(claim[0].data?.worktreeId).toBe(data.worktreeId);
+    expect(claim[0]!.data?.holderPid).toBe(HOLDER.holderPid);
+    expect(claim[0]!.data?.worktreeId).toBe(data.worktreeId);
   }, 20_000);
 
   it('Lifecycle_InstallsSignals_AfterSpawn_ThenUninstalls', async () => {
@@ -448,7 +448,7 @@ describe('runLifecycle — launcher lifecycle integrator (real git + real event 
     expect(result.error?.code).not.toBe('NOT_WIRED');
     // It actually spawned exactly one child...
     expect(fake.calls).toHaveLength(1);
-    expect(fake.calls[0].command).toBe('claude');
+    expect(fake.calls[0]!.command).toBe('claude');
     // ...into a real, created worktree that now exists on disk...
     const data = result.data as LifecycleResultData;
     expect(existsSync(data.worktreePath)).toBe(true);
@@ -484,18 +484,18 @@ describe('runLifecycle — launcher lifecycle integrator (real git + real event 
 
     const claims = eventsOfType(store, LAUNCH_EXECUTING_STARTED);
     expect(claims).toHaveLength(1);
-    const holderStartedAt = claims[0].data?.holderStartedAt;
+    const holderStartedAt = claims[0]!.data?.holderStartedAt;
     // The minted create-time is explicit null (the unresolvable-platform contract)…
     expect(holderStartedAt).toBeNull();
     // …and is NEVER the empty string — the forbidden invalid-raw-event value.
     expect(holderStartedAt).not.toBe('');
     // The holder PID is still a real liveness anchor (only the create-time is null).
-    expect(typeof claims[0].data?.holderPid).toBe('number');
+    expect(typeof claims[0]!.data?.holderPid).toBe('number');
 
     // The persisted claim satisfies the null-ready schema; '' is REJECTED by it.
-    expect(() => LaunchExecutingStartedData.parse(claims[0].data)).not.toThrow();
+    expect(() => LaunchExecutingStartedData.parse(claims[0]!.data)).not.toThrow();
     expect(() =>
-      LaunchExecutingStartedData.parse({ ...claims[0].data, holderStartedAt: '' }),
+      LaunchExecutingStartedData.parse({ ...claims[0]!.data, holderStartedAt: '' }),
     ).toThrow();
   }, 20_000);
 
@@ -537,7 +537,7 @@ describe('runLifecycle — launcher lifecycle integrator (real git + real event 
     expect(data.injection.degradation).toContain('construction failed');
     // …the child was actually spawned WITHOUT the failed native flag args…
     expect(fake.calls).toHaveLength(1);
-    expect(fake.calls[0].args).not.toContain('--append-system-prompt-file');
+    expect(fake.calls[0]!.args).not.toContain('--append-system-prompt-file');
     // …and the launch ran to its guaranteed terminal.
     expect(eventsOfType(store, LAUNCH_EXECUTED)).toHaveLength(1);
   }, 20_000);
@@ -564,9 +564,9 @@ describe('runLifecycle — launcher lifecycle integrator (real git + real event 
     expect(data.injection.degraded).toBe(false);
     expect(data.injection.channel).toBe('flag:--append-system-prompt-file');
     // The resolved native flag + temp-file path rode the SPAWNED descriptor…
-    expect(fake.calls[0].args).toEqual(['--append-system-prompt-file', '/tmp/orient/orientation.md']);
+    expect(fake.calls[0]!.args).toEqual(['--append-system-prompt-file', '/tmp/orient/orientation.md']);
     // …and the file-free orientation tag rode its env alongside.
-    expect(fake.calls[0].env?.EXARCHOS_ORIENTATION).toBe('ORIENTATION-BLOCK');
+    expect(fake.calls[0]!.env?.EXARCHOS_ORIENTATION).toBe('ORIENTATION-BLOCK');
   }, 20_000);
 
   // ── A materialized `file`-form temp path is removed once the launch is done ─
@@ -596,7 +596,7 @@ describe('runLifecycle — launcher lifecycle integrator (real git + real event 
     expect(result.success).toBe(true);
     const data = result.data as LifecycleResultData;
     expect(data.injection.channel).toBe('flag:--append-system-prompt-file');
-    createdPath = fake.calls[0].args[1];
+    createdPath = fake.calls[0]!.args[1];
     expect(createdPath).toBeDefined();
     expect(existsSync(createdPath as string)).toBe(false);
     // The parent ephemeral dir is gone too (recursive removal), not just the file.
@@ -621,7 +621,7 @@ describe('runLifecycle — launcher lifecycle integrator (real git + real event 
     expect(data.injection.channel).toBe('disabled');
     expect(data.injection.degraded).toBe(false);
     // No orientation env, no native flag args — the descriptor is untouched.
-    expect(fake.calls[0].args).toEqual([]);
-    expect(fake.calls[0].env?.EXARCHOS_ORIENTATION).toBeUndefined();
+    expect(fake.calls[0]!.args).toEqual([]);
+    expect(fake.calls[0]!.env?.EXARCHOS_ORIENTATION).toBeUndefined();
   }, 20_000);
 });

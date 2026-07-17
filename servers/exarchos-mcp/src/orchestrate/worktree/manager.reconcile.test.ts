@@ -111,18 +111,18 @@ describe('WorktreeManager (real event store)', () => {
 
     const event = reserved[0];
     // Lands on the dedicated singleton `worktrees` stream.
-    expect(event.streamId).toBe(WORKTREES_STREAM);
+    expect(event!.streamId).toBe(WORKTREES_STREAM);
     // reserve now routes through `decide` over worktrees@v1 (fold → validate
     // exclusive ownership → append under OCC), so the per-call idempotency key is
     // the decide-derived `<streamId>:<reducerId>:<operationId>` — one key per call,
     // still anchored on the payload's operationId.
-    const operationId = (event.data as { operationId?: unknown }).operationId;
+    const operationId = (event!.data as { operationId?: unknown }).operationId;
     expect(typeof operationId).toBe('string');
-    expect(event.idempotencyKey).toBe(
+    expect(event!.idempotencyKey).toBe(
       `${WORKTREES_STREAM}:${WORKTREES_REDUCER}:${operationId}`,
     );
     // Payload round-trips the reservation owner.
-    expect(event.data).toMatchObject({
+    expect(event!.data).toMatchObject({
       worktreeId: '/wt/alpha',
       path: '/wt/alpha',
       featureId: 'feat-1',
@@ -166,10 +166,10 @@ describe('WorktreeManager (real event store)', () => {
     // The fold shows a single live owner — whichever won.
     const proj = await projection(store);
     const entry = proj.worktrees['/wt/contended'];
-    expect(entry.state).toBe('reserved');
-    expect([100, 200]).toContain(entry.ownerPid);
+    expect(entry!.state).toBe('reserved');
+    expect([100, 200]).toContain(entry!.ownerPid);
     // The reported conflict owner is the one that actually holds the lease.
-    expect(loser.conflict?.ownerPid).toBe(entry.ownerPid);
+    expect(loser.conflict?.ownerPid).toBe(entry!.ownerPid);
   });
 
   it('Reserve_AlreadyReservedByLiveOwner_RejectsSecondClaim', async () => {
@@ -225,8 +225,8 @@ describe('WorktreeManager (real event store)', () => {
 
     // The reservation is intact — still held by owner 100.
     let proj = await projection(store);
-    expect(proj.worktrees['/wt/owned'].state).toBe('reserved');
-    expect(proj.worktrees['/wt/owned'].ownerPid).toBe(100);
+    expect(proj.worktrees['/wt/owned']!.state).toBe('reserved');
+    expect(proj.worktrees['/wt/owned']!.ownerPid).toBe(100);
 
     // The true owner CAN release it.
     const own = await manager.release('/wt/owned', {
@@ -236,7 +236,7 @@ describe('WorktreeManager (real event store)', () => {
     expect(own.rejectedForeignOwner).toBe(false);
     expect(own.released).toBe(true);
     proj = await projection(store);
-    expect(proj.worktrees['/wt/owned'].state).toBe('released');
+    expect(proj.worktrees['/wt/owned']!.state).toBe('released');
   });
 
   // ─── reconcile: dead owner ────────────────────────────────────────────────────
@@ -261,8 +261,8 @@ describe('WorktreeManager (real event store)', () => {
 
     // State folds to `released` — owner fields cleared.
     const proj = await projection(store);
-    expect(proj.worktrees['/wt/dead'].state).toBe('released');
-    expect(proj.worktrees['/wt/dead'].ownerPid).toBeNull();
+    expect(proj.worktrees['/wt/dead']!.state).toBe('released');
+    expect(proj.worktrees['/wt/dead']!.ownerPid).toBeNull();
   });
 
   // ─── reconcile: live owner ────────────────────────────────────────────────────
@@ -287,8 +287,8 @@ describe('WorktreeManager (real event store)', () => {
     expect(eventsOfType(store, 'worktree.released')).toHaveLength(0);
 
     const proj = await projection(store);
-    expect(proj.worktrees['/wt/live'].state).toBe('reserved');
-    expect(proj.worktrees['/wt/live'].ownerPid).toBe(4242);
+    expect(proj.worktrees['/wt/live']!.state).toBe('reserved');
+    expect(proj.worktrees['/wt/live']!.ownerPid).toBe(4242);
   });
 
   // ─── reconcile: idempotent on repeat ──────────────────────────────────────────
@@ -356,8 +356,8 @@ describe('WorktreeManager (real event store)', () => {
 
     // State is fully rebuildable from the event log alone.
     const proj = await projection(store);
-    expect(proj.worktrees['/wt/json'].state).toBe('released');
-    expect(proj.worktrees['/wt/json'].featureId).toBe('feat-json');
+    expect(proj.worktrees['/wt/json']!.state).toBe('released');
+    expect(proj.worktrees['/wt/json']!.featureId).toBe('feat-json');
   });
 
   // ─── concurrent reconcile: stream-lock serialization ──────────────────────────
@@ -389,6 +389,6 @@ describe('WorktreeManager (real event store)', () => {
     expect(releasedReports).toEqual(['/wt/race']);
 
     const proj = await projection(store);
-    expect(proj.worktrees['/wt/race'].state).toBe('released');
+    expect(proj.worktrees['/wt/race']!.state).toBe('released');
   });
 });

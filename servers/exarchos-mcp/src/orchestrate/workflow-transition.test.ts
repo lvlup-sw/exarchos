@@ -81,7 +81,7 @@ describe('WorkflowTransition_ValidTarget (T36, DR-4)', () => {
     const after = await ctx.eventStore.query(featureId);
     const transitions = after.filter((e) => e.type === 'workflow.transition');
     expect(transitions.length).toBe(1);
-    expect(transitions[0].data).toMatchObject({
+    expect(transitions[0]!.data).toMatchObject({
       from: 'plan',
       to: 'plan-review',
       featureId,

@@ -137,7 +137,7 @@ function orphanWorktree(wtPath: string): void {
   const dotGit = readFileSync(path.join(wtPath, '.git'), 'utf8');
   const match = dotGit.match(/^gitdir:\s*(.+)$/m);
   if (!match) throw new Error(`no gitdir pointer in ${wtPath}/.git`);
-  rmSync(match[1].trim(), { recursive: true, force: true });
+  rmSync(match[1]!.trim(), { recursive: true, force: true });
 }
 
 // ─── Suite ──────────────────────────────────────────────────────────────────
@@ -335,7 +335,7 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     const report = result.candidates.find((c) => c.worktreeId === wtId);
     expect(report?.classification).toEqual({ action: 'skip', reason: 'active' });
     // Still on disk + still tracked.
-    expect((await projection(store)).worktrees[wtId].state).toBe('adopted');
+    expect((await projection(store)).worktrees[wtId]!.state).toBe('adopted');
   });
 
   // ─── state-based, NOT mtime ───────────────────────────────────────────────
@@ -372,7 +372,7 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     expect(report?.classification).toEqual({ action: 'skip', reason: 'in-use' });
     expect(result.deleted).not.toContain(wtId);
     expect(eventsOfType(store, 'worktree.remove.executed')).toHaveLength(0);
-    expect((await projection(store)).worktrees[wtId].state).toBe('reserved');
+    expect((await projection(store)).worktrees[wtId]!.state).toBe('reserved');
   });
 
   // ─── per-worktree integration ref resolution ──────────────────────────────
@@ -557,12 +557,12 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     expect(requested).toHaveLength(1);
     expect(executed).toHaveLength(1);
     // requested is durable intent emitted BEFORE the side-effect's executed.
-    expect((requested[0].sequence as number)).toBeLessThan(
-      executed[0].sequence as number,
+    expect((requested[0]!.sequence as number)).toBeLessThan(
+      executed[0]!.sequence as number,
     );
     // Same operationId correlates the pair (1:1), and the worktree was removed.
-    const reqOp = (requested[0].data as { operationId?: unknown }).operationId;
-    const exeData = executed[0].data as { operationId?: unknown; removed?: unknown };
+    const reqOp = (requested[0]!.data as { operationId?: unknown }).operationId;
+    const exeData = executed[0]!.data as { operationId?: unknown; removed?: unknown };
     expect(typeof reqOp).toBe('string');
     expect(exeData.operationId).toBe(reqOp);
     expect(exeData.removed).toBe(true);
@@ -596,12 +596,12 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     expect(executed).toHaveLength(1);
 
     // Same operationId correlates the pair.
-    const startData = started[0].data as {
+    const startData = started[0]!.data as {
       operationId?: unknown;
       repoRoot?: unknown;
       holderPid?: unknown;
     };
-    const endData = executed[0].data as {
+    const endData = executed[0]!.data as {
       operationId?: unknown;
       deletedCount?: unknown;
     };
@@ -616,11 +616,11 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     // Started BRACKETS the whole pass: before the deletion intent, terminal after.
     const removeReq = eventsOfType(store, 'worktree.remove.requested')[0];
     const removeExe = eventsOfType(store, 'worktree.remove.executed')[0];
-    expect(started[0].sequence as number).toBeLessThan(
-      removeReq.sequence as number,
+    expect(started[0]!.sequence as number).toBeLessThan(
+      removeReq!.sequence as number,
     );
-    expect(executed[0].sequence as number).toBeGreaterThan(
-      removeExe.sequence as number,
+    expect(executed[0]!.sequence as number).toBeGreaterThan(
+      removeExe!.sequence as number,
     );
 
     // The terminal CLEARED the in-flight marker — no phantom prune survives.
@@ -643,7 +643,7 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     expect(started).toHaveLength(1);
     expect(executed).toHaveLength(1);
     // Nothing deleted on a dry-run ⇒ terminal reports 0.
-    expect((executed[0].data as { deletedCount?: unknown }).deletedCount).toBe(0);
+    expect((executed[0]!.data as { deletedCount?: unknown }).deletedCount).toBe(0);
     // In-flight marker cleared after the pass.
     expect((await projection(store)).inFlightPrunes).toEqual({});
   });
@@ -672,12 +672,12 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     expect(started).toHaveLength(1);
     expect(executed).toHaveLength(1);
     // The terminal correlates to the started even on the failure path.
-    const startOp = (started[0].data as { operationId?: unknown }).operationId;
-    expect((executed[0].data as { operationId?: unknown }).operationId).toBe(
+    const startOp = (started[0]!.data as { operationId?: unknown }).operationId;
+    expect((executed[0]!.data as { operationId?: unknown }).operationId).toBe(
       startOp,
     );
     // Deleted nothing ⇒ terminal reports 0; in-flight cleared (no phantom).
-    expect((executed[0].data as { deletedCount?: unknown }).deletedCount).toBe(0);
+    expect((executed[0]!.data as { deletedCount?: unknown }).deletedCount).toBe(0);
     expect((await projection(store)).inFlightPrunes).toEqual({});
   });
 
@@ -710,7 +710,7 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     // Exactly one of each, same operationId — no duplicate requested minted.
     expect(requested).toHaveLength(1);
     expect(executed).toHaveLength(1);
-    const exeData = executed[0].data as { operationId?: unknown; removed?: unknown };
+    const exeData = executed[0]!.data as { operationId?: unknown; removed?: unknown };
     expect(exeData.operationId).toBe(operationId);
     // Worktree already absent ⇒ executed once with removed:false (idempotent).
     expect(exeData.removed).toBe(false);
@@ -757,14 +757,14 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
       (e) => (e.data as { removed?: unknown }).removed === true,
     );
     expect(executedTrue).toHaveLength(1);
-    expect((executedTrue[0].data as { worktreePath?: unknown }).worktreePath).toBe(
+    expect((executedTrue[0]!.data as { worktreePath?: unknown }).worktreePath).toBe(
       delPath,
     );
     expect(pruneResult.deleted).toContain(delId);
 
     const proj = await projection(store);
     expect(proj.worktrees[delId]).toBeUndefined(); // dropped
-    expect(proj.worktrees[deadId].state).toBe('released'); // reconcile healed it
+    expect(proj.worktrees[deadId]!.state).toBe('released'); // reconcile healed it
   });
 
   // ─── fix 1: a dirty-probe FAILURE (backing present) fails closed ──────────

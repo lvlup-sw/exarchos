@@ -844,7 +844,7 @@ describe('handleView', () => {
       expect((result as Record<string, unknown>).next_actions).toEqual([]);
       const data = result.data as { entries: Array<{ name: string }> };
       expect(data.entries).toHaveLength(1);
-      expect(data.entries[0].name).toBe('delegation');
+      expect(data.entries[0]!.name).toBe('delegation');
       expect(handleViewQualityAttribution).toHaveBeenCalledWith(
         { workflowId: 'test-wf', dimension: 'skill', skill: 'delegation' },
         STATE_DIR,
@@ -1033,8 +1033,8 @@ describe('ps — launcher-session liveness (DR-7, Task 018)', () => {
       launchCount: number;
     };
     expect(inFlightData.launchCount).toBe(1);
-    expect(inFlightData.launches[0].worktreeId).toBe(worktreeId);
-    expect(inFlightData.launches[0].launch).toEqual({
+    expect(inFlightData.launches[0]!.worktreeId).toBe(worktreeId);
+    expect(inFlightData.launches[0]!.launch).toEqual({
       holderPid: 7777,
       holderStartedAt: 'boot-7777',
     });

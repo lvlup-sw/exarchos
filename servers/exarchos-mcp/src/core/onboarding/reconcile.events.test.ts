@@ -91,19 +91,19 @@ describe('reconcileWithEvents (DR-7 / DR-10 — two-event split + crash recovery
       (c) => c[0] as EmittedEvent,
     );
     expect(emits).toHaveLength(2);
-    expect(emits[0].type).toBe('onboard.requested');
-    expect(emits[1].type).toBe('onboard.executed');
+    expect(emits[0]!.type).toBe('onboard.requested');
+    expect(emits[1]!.type).toBe('onboard.executed');
 
     // Same idempotencyKey on both halves of the split.
-    const reqKey = (emits[0].data as { idempotencyKey: string }).idempotencyKey;
-    const exeKey = (emits[1].data as { idempotencyKey: string }).idempotencyKey;
+    const reqKey = (emits[0]!.data as { idempotencyKey: string }).idempotencyKey;
+    const exeKey = (emits[1]!.data as { idempotencyKey: string }).idempotencyKey;
     expect(reqKey).toBeTruthy();
     expect(exeKey).toBe(reqKey);
 
     // requested carries the plan; executed carries the result + durationMs.
-    expect((emits[0].data as { plan: { steps: PlanStep[] } }).plan.steps).toHaveLength(1);
-    expect((emits[1].data as { result: ReconcileResult }).result.applied).toHaveLength(1);
-    expect(typeof (emits[1].data as { durationMs: number }).durationMs).toBe('number');
+    expect((emits[0]!.data as { plan: { steps: PlanStep[] } }).plan.steps).toHaveLength(1);
+    expect((emits[1]!.data as { result: ReconcileResult }).result.applied).toHaveLength(1);
+    expect(typeof (emits[1]!.data as { durationMs: number }).durationMs).toBe('number');
 
     // The side effect ran exactly once.
     expect(seedSpy).toHaveBeenCalledTimes(1);

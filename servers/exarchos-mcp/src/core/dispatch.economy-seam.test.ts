@@ -40,9 +40,9 @@ describe('economy-seam no-bypass gate (INV-17 Axis-2)', () => {
     const findings = lintDispatchEconomyBypass(DISPATCH_PATH, source);
 
     expect(findings).toHaveLength(1);
-    expect(findings[0].line).toBe(8);
-    expect(findings[0].severity).toBe('HIGH');
-    expect(findings[0].message).toContain('outside the response-economy seam');
+    expect(findings[0]!.line).toBe(8);
+    expect(findings[0]!.severity).toBe('HIGH');
+    expect(findings[0]!.message).toContain('outside the response-economy seam');
   });
 
   // Proximity is not proof (CodeRabbit 3568453403): an UNRELATED preceding
@@ -59,8 +59,8 @@ describe('economy-seam no-bypass gate (INV-17 Axis-2)', () => {
     const findings = lintDispatchEconomyBypass(DISPATCH_PATH, source);
 
     expect(findings).toHaveLength(1);
-    expect(findings[0].line).toBe(4);
-    expect(findings[0].message).toContain('proximity');
+    expect(findings[0]!.line).toBe(4);
+    expect(findings[0]!.message).toContain('proximity');
   });
 
   // A guarded telemetry-OFF branch (the shipped fix) produces no finding.

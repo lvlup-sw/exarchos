@@ -158,29 +158,29 @@ describe('scanDiffContent', () => {
     const findings = scanDiffContent(makeEvalDiff());
     expect(findings.length).toBeGreaterThanOrEqual(1);
     expect(findings.some((f: SecurityFinding) => f.pattern === 'eval() usage')).toBe(true);
-    expect(findings[0].severity).toBe('HIGH');
-    expect(findings[0].file).toBe('src/handler.ts');
+    expect(findings[0]!.severity).toBe('HIGH');
+    expect(findings[0]!.file).toBe('src/handler.ts');
   });
 
   it('scanDiffContent_SqlConcatenation_DetectsFindings', () => {
     const findings = scanDiffContent(makeSqlDiff());
     expect(findings.length).toBeGreaterThanOrEqual(1);
     expect(findings.some((f: SecurityFinding) => f.pattern === 'SQL string concatenation')).toBe(true);
-    expect(findings[0].severity).toBe('HIGH');
+    expect(findings[0]!.severity).toBe('HIGH');
   });
 
   it('scanDiffContent_InnerHtml_DetectsFindings', () => {
     const findings = scanDiffContent(makeInnerHtmlDiff());
     expect(findings.length).toBeGreaterThanOrEqual(1);
     expect(findings.some((f: SecurityFinding) => f.pattern === 'innerHTML assignment')).toBe(true);
-    expect(findings[0].severity).toBe('MEDIUM');
+    expect(findings[0]!.severity).toBe('MEDIUM');
   });
 
   it('scanDiffContent_DangerouslySetInnerHTML_DetectsFindings', () => {
     const findings = scanDiffContent(makeDangerouslySetInnerHTMLDiff());
     expect(findings.length).toBeGreaterThanOrEqual(1);
     expect(findings.some((f: SecurityFinding) => f.pattern === 'dangerouslySetInnerHTML usage')).toBe(true);
-    expect(findings[0].severity).toBe('MEDIUM');
+    expect(findings[0]!.severity).toBe('MEDIUM');
   });
 
   it('scanDiffContent_MultipleIssues_DetectsAllPatterns', () => {
@@ -244,7 +244,7 @@ describe('scanDiffContent', () => {
     ].join('\n');
     const findings = scanDiffContent(diff);
     expect(findings.length).toBe(1);
-    expect(findings[0].line).toBe(10);
+    expect(findings[0]!.line).toBe(10);
   });
 
   it('scanDiffContent_TruncatesLongContext', () => {
@@ -260,8 +260,8 @@ describe('scanDiffContent', () => {
     ].join('\n');
     const findings = scanDiffContent(diff);
     expect(findings.length).toBe(1);
-    expect(findings[0].context.length).toBeLessThanOrEqual(120);
-    expect(findings[0].context.endsWith('...')).toBe(true);
+    expect(findings[0]!.context.length).toBeLessThanOrEqual(120);
+    expect(findings[0]!.context.endsWith('...')).toBe(true);
   });
 });
 
@@ -372,8 +372,8 @@ describe('handleSecurityScan', () => {
 
       expect(mockStore.append).toHaveBeenCalledTimes(1);
       const appendCall = mockStore.append.mock.calls[0];
-      expect(appendCall[0]).toBe('feat-1');
-      const event = appendCall[1] as {
+      expect(appendCall![0]).toBe('feat-1');
+      const event = appendCall![1] as {
         type: string;
         data: {
           gateName: string;
@@ -399,7 +399,7 @@ describe('handleSecurityScan', () => {
 
       expect(mockStore.append).toHaveBeenCalledTimes(1);
       const appendCall = mockStore.append.mock.calls[0];
-      const event = appendCall[1] as {
+      const event = appendCall![1] as {
         type: string;
         data: {
           passed: boolean;
@@ -420,7 +420,7 @@ describe('handleSecurityScan', () => {
 
       expect(mockStore.append).toHaveBeenCalledTimes(1);
       const appendCall = mockStore.append.mock.calls[0];
-      const event = appendCall[1] as {
+      const event = appendCall![1] as {
         type: string;
         data: { details: Record<string, unknown> };
       };

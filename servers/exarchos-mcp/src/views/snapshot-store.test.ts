@@ -82,8 +82,8 @@ describe('SnapshotStore atomic writes', () => {
     // Verify the write went to a tmp file, not the target directly
     expect(writeFileCalls.length).toBeGreaterThan(0);
     const lastWrite = writeFileCalls[writeFileCalls.length - 1];
-    expect(lastWrite.path).not.toBe(filePath);
-    expect(lastWrite.path).toContain('.tmp');
+    expect(lastWrite!.path).not.toBe(filePath);
+    expect(lastWrite!.path).toContain('.tmp');
   });
 });
 

@@ -222,8 +222,8 @@ describe('handleStaticAnalysis', () => {
       // Assert
       expect(mockStore.append).toHaveBeenCalledTimes(1);
       const appendCall = mockStore.append.mock.calls[0];
-      expect(appendCall[0]).toBe('feat-1');
-      const event = appendCall[1] as {
+      expect(appendCall![0]).toBe('feat-1');
+      const event = appendCall![1] as {
         type: string;
         data: {
           gateName: string;
@@ -260,7 +260,7 @@ describe('handleStaticAnalysis', () => {
       // Assert
       expect(mockStore.append).toHaveBeenCalledTimes(1);
       const appendCall = mockStore.append.mock.calls[0];
-      const event = appendCall[1] as {
+      const event = appendCall![1] as {
         type: string;
         data: {
           details: Record<string, unknown>;
@@ -321,8 +321,8 @@ describe('handleStaticAnalysis', () => {
       // Assert: gate.executed event reflects skip in details payload.
       expect(mockStore.append).toHaveBeenCalledTimes(1);
       const appendCall = mockStore.append.mock.calls[0];
-      expect(appendCall[0]).toBe('feat-1');
-      const event = appendCall[1] as {
+      expect(appendCall![0]).toBe('feat-1');
+      const event = appendCall![1] as {
         type: string;
         data: {
           gateName: string;
@@ -360,7 +360,7 @@ describe('handleStaticAnalysis', () => {
 
       // Assert
       expect(mockRunStaticAnalysis).toHaveBeenCalledTimes(1);
-      const callArgs = mockRunStaticAnalysis.mock.calls[0][0] as {
+      const callArgs = mockRunStaticAnalysis.mock.calls[0]![0] as {
         repoRoot: string;
         skipLint: boolean;
         skipTypecheck: boolean;
@@ -393,7 +393,7 @@ describe('handleStaticAnalysis', () => {
       // Assert: the pure analysis (which forwards repoRoot as the runCommand
       // cwd) was invoked against the worktree path.
       expect(mockRunStaticAnalysis).toHaveBeenCalledTimes(1);
-      const callArgs = mockRunStaticAnalysis.mock.calls[0][0] as { repoRoot: string };
+      const callArgs = mockRunStaticAnalysis.mock.calls[0]![0] as { repoRoot: string };
       expect(callArgs.repoRoot).toBe(worktreePath);
     });
 
@@ -414,7 +414,7 @@ describe('handleStaticAnalysis', () => {
 
       // Assert
       expect(mockRunStaticAnalysis).toHaveBeenCalledTimes(1);
-      const callArgs = mockRunStaticAnalysis.mock.calls[0][0] as { repoRoot: string };
+      const callArgs = mockRunStaticAnalysis.mock.calls[0]![0] as { repoRoot: string };
       expect(callArgs.repoRoot).toBe(worktreePath);
     });
 
@@ -438,7 +438,7 @@ describe('handleStaticAnalysis', () => {
 
       // Assert
       expect(mockRunStaticAnalysis).toHaveBeenCalledTimes(1);
-      const callArgs = mockRunStaticAnalysis.mock.calls[0][0] as { repoRoot: string };
+      const callArgs = mockRunStaticAnalysis.mock.calls[0]![0] as { repoRoot: string };
       expect(callArgs.repoRoot).toBe(worktreePath);
     });
 
@@ -472,7 +472,7 @@ describe('handleStaticAnalysis', () => {
 
       // Assert
       expect(mockRunStaticAnalysis).toHaveBeenCalledTimes(1);
-      const callArgs = mockRunStaticAnalysis.mock.calls[0][0] as { repoRoot: string };
+      const callArgs = mockRunStaticAnalysis.mock.calls[0]![0] as { repoRoot: string };
       expect(callArgs.repoRoot).toBe(process.cwd());
     });
   });
@@ -491,7 +491,7 @@ describe('handleStaticAnalysis', () => {
 
       // Assert
       expect(mockRunStaticAnalysis).toHaveBeenCalledTimes(1);
-      const callArgs = mockRunStaticAnalysis.mock.calls[0][0] as {
+      const callArgs = mockRunStaticAnalysis.mock.calls[0]![0] as {
         runCommand: unknown;
       };
       expect(typeof callArgs.runCommand).toBe('function');

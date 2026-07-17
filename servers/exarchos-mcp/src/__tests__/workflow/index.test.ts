@@ -263,9 +263,9 @@ describe('MCP Server Entry Point', () => {
 
       const typedResult = result as { content: Array<{ type: string; text: string }>; isError: boolean };
       expect(typedResult.content).toHaveLength(1);
-      expect(typedResult.content[0].type).toBe('text');
+      expect(typedResult.content[0]!.type).toBe('text');
       expect(typedResult.isError).toBe(false);
-      expect(JSON.parse(typedResult.content[0].text).success).toBe(true);
+      expect(JSON.parse(typedResult.content[0]!.text).success).toBe(true);
     });
 
     it('should set isError to true when handler returns success: false', async () => {
@@ -281,7 +281,7 @@ describe('MCP Server Entry Point', () => {
 
       const typedResult = result as { content: Array<{ type: string; text: string }>; isError: boolean };
       expect(typedResult.isError).toBe(true);
-      const parsed = JSON.parse(typedResult.content[0].text);
+      const parsed = JSON.parse(typedResult.content[0]!.text);
       expect(parsed.success).toBe(false);
       expect(parsed.error.code).toBe('STATE_ALREADY_EXISTS');
     });

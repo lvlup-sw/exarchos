@@ -65,7 +65,7 @@ describe('EnvelopeParity_OutputTokensHigh (#1262)', () => {
     };
     expect(parsed.next_actions).toBeDefined();
     expect(parsed.next_actions).toHaveLength(1);
-    expect(parsed.next_actions?.[0].verb).toBe('checkpoint');
-    expect(parsed.next_actions?.[0].reason).toMatch(/output tokens/i);
+    expect(parsed.next_actions?.[0]!.verb).toBe('checkpoint');
+    expect(parsed.next_actions?.[0]!.reason).toMatch(/output tokens/i);
   });
 });

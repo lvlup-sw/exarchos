@@ -185,8 +185,8 @@ describe('PipelineView', () => {
       // Should be capped at 100
       expect(view.stackPositions).toHaveLength(100);
       // Oldest (t0 through t9) should be evicted
-      expect(view.stackPositions[0].taskId).toBe('t10');
-      expect(view.stackPositions[99].taskId).toBe('t109');
+      expect(view.stackPositions[0]!.taskId).toBe('t10');
+      expect(view.stackPositions[99]!.taskId).toBe('t109');
     });
   });
 

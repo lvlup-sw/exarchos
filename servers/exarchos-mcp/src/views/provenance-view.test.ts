@@ -41,11 +41,11 @@ describe('ProvenanceView', () => {
     const next = provenanceProjection.apply(state, event);
 
     expect(next.requirements).toHaveLength(1);
-    expect(next.requirements[0].id).toBe('DR-1');
-    expect(next.requirements[0].status).toBe('covered');
-    expect(next.requirements[0].tasks).toEqual(['T-01']);
-    expect(next.requirements[0].tests).toEqual([{ name: 'TestFoo', file: 'foo.test.ts' }]);
-    expect(next.requirements[0].files).toEqual(['src/foo.ts']);
+    expect(next.requirements[0]!.id).toBe('DR-1');
+    expect(next.requirements[0]!.status).toBe('covered');
+    expect(next.requirements[0]!.tasks).toEqual(['T-01']);
+    expect(next.requirements[0]!.tests).toEqual([{ name: 'TestFoo', file: 'foo.test.ts' }]);
+    expect(next.requirements[0]!.files).toEqual(['src/foo.ts']);
     expect(next.coverage).toBe(1.0);
     expect(next.orphanTasks).toEqual([]);
   });
@@ -70,13 +70,13 @@ describe('ProvenanceView', () => {
     }, 2));
 
     expect(state.requirements).toHaveLength(1);
-    expect(state.requirements[0].id).toBe('DR-1');
-    expect(state.requirements[0].tasks).toEqual(['T-01', 'T-02']);
-    expect(state.requirements[0].tests).toEqual([
+    expect(state.requirements[0]!.id).toBe('DR-1');
+    expect(state.requirements[0]!.tasks).toEqual(['T-01', 'T-02']);
+    expect(state.requirements[0]!.tests).toEqual([
       { name: 'TestFoo', file: 'foo.test.ts' },
       { name: 'TestBar', file: 'bar.test.ts' },
     ]);
-    expect(state.requirements[0].files).toEqual(['src/foo.ts', 'src/bar.ts']);
+    expect(state.requirements[0]!.files).toEqual(['src/foo.ts', 'src/bar.ts']);
     expect(state.coverage).toBe(1.0);
   });
 
@@ -240,12 +240,12 @@ describe('ProvenanceView', () => {
 
     // The requirement DR-1 should now have acceptanceTests containing "T-01"
     expect(state.requirements).toHaveLength(1);
-    expect(state.requirements[0].id).toBe('DR-1');
-    expect(state.requirements[0].acceptanceTests).toContain('T-01');
-    expect(state.requirements[0].tasks).toEqual(['T-01', 'T-02']);
+    expect(state.requirements[0]!.id).toBe('DR-1');
+    expect(state.requirements[0]!.acceptanceTests).toContain('T-01');
+    expect(state.requirements[0]!.tasks).toEqual(['T-01', 'T-02']);
 
     // Tasks without acceptanceTestRef should not add to acceptanceTests
-    expect(state.requirements[0].acceptanceTests).toHaveLength(1);
+    expect(state.requirements[0]!.acceptanceTests).toHaveLength(1);
   });
 
   // ─── T12: acceptanceTestCoverage reports ratio ────────────────────────────
@@ -342,7 +342,7 @@ describe('ProvenanceView', () => {
 
     // The ref is stored but coverage should be 0 since T-00 doesn't exist
     expect(state.requirements).toHaveLength(1);
-    expect(state.requirements[0].acceptanceTests).toContain('T-00');
+    expect(state.requirements[0]!.acceptanceTests).toContain('T-00');
     expect(state.acceptanceTestCoverage).toBe(0);
   });
 });

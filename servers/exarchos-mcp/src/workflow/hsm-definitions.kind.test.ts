@@ -109,9 +109,9 @@ describe('HsmStates kind tagging (DR-2)', () => {
 
   it('HsmStates_ImplementSnowflakes_AllTaggedImplement', () => {
     for (const { hsm, state } of IMPLEMENT_SNOWFLAKES) {
-      const s = ALL_HSMS[hsm].states[state];
+      const s = ALL_HSMS[hsm]!.states[state];
       expect(s, `${hsm}.${state} must exist`).toBeDefined();
-      expect(s.type, `${hsm}.${state} must be atomic`).toBe('atomic');
+      expect(s!.type, `${hsm}.${state} must be atomic`).toBe('atomic');
       expect(kindOf(s), `${hsm}.${state} must be kind IMPLEMENT`).toBe('IMPLEMENT');
     }
   });
@@ -120,7 +120,7 @@ describe('HsmStates kind tagging (DR-2)', () => {
     for (const [hsmName, expectedMap] of Object.entries(LOCKED_CLASSIFICATION)) {
       const hsm = ALL_HSMS[hsmName];
       const actualMap: Record<string, string | undefined> = {};
-      for (const state of Object.values(hsm.states)) {
+      for (const state of Object.values(hsm!.states)) {
         if (state.type === 'atomic') {
           actualMap[state.id] = kindOf(state);
         }

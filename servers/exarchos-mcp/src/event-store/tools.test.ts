@@ -292,9 +292,9 @@ describe('handleBatchAppend', () => {
     expect(result.success).toBe(true);
     const sequences = result.data as Array<{ streamId: string; sequence: number; type: string }>;
     expect(sequences).toHaveLength(3);
-    expect(sequences[0].sequence).toBe(2);
-    expect(sequences[1].sequence).toBe(3);
-    expect(sequences[2].sequence).toBe(4);
+    expect(sequences[0]!.sequence).toBe(2);
+    expect(sequences[1]!.sequence).toBe(3);
+    expect(sequences[2]!.sequence).toBe(4);
 
     // Verify all events exist in the stream
     const queryResult = await handleEventQuery({ stream: 'my-workflow' }, tempDir, store);
@@ -415,7 +415,7 @@ describe('handleBatchAppend', () => {
     const acks = retry.data as Array<{ streamId: string; sequence: number; type: string }>;
     // Returns the ORIGINAL committed batch, not the truncated retry.
     expect(acks.length).toBeGreaterThanOrEqual(1);
-    expect(acks[0].sequence).toBe(1);
+    expect(acks[0]!.sequence).toBe(1);
   });
 
   it('batchAppend_ConcurrentWrite_RespectsStreamLock', async () => {
@@ -475,10 +475,10 @@ describe('handleBatchAppend', () => {
     expect(allSeqs).toEqual([1, 2, 3, 4, 5, 6]);
 
     // Each batch's sequences should be contiguous (no interleaving)
-    expect(batch1Seqs[1] - batch1Seqs[0]).toBe(1);
-    expect(batch1Seqs[2] - batch1Seqs[1]).toBe(1);
-    expect(batch2Seqs[1] - batch2Seqs[0]).toBe(1);
-    expect(batch2Seqs[2] - batch2Seqs[1]).toBe(1);
+    expect(batch1Seqs[1]! - batch1Seqs[0]!).toBe(1);
+    expect(batch1Seqs[2]! - batch1Seqs[1]!).toBe(1);
+    expect(batch2Seqs[1]! - batch2Seqs[0]!).toBe(1);
+    expect(batch2Seqs[2]! - batch2Seqs[1]!).toBe(1);
   });
 
   // ─── C2: AtomicAppender migration regression tests ────────────────────────
@@ -642,7 +642,7 @@ describe('handleBatchAppend', () => {
           { type: 'task.assigned', idempotencyKey: 'k1', data: { taskId: 't1' } },
         ]),
     );
-    expect(first[0].operationId).toBe('op-xyz');
+    expect(first[0]!.operationId).toBe('op-xyz');
 
     // Retry the SAME batch key WITHOUT any active dispatch context. The
     // appender hits the idempotency cache; the cache-hit branch must
@@ -651,7 +651,7 @@ describe('handleBatchAppend', () => {
     const replay = await store.batchAppend('s1', [
       { type: 'task.assigned', idempotencyKey: 'k1', data: { taskId: 't1' } },
     ]);
-    expect(replay[0].operationId).toBe('op-xyz');
+    expect(replay[0]!.operationId).toBe('op-xyz');
   });
 });
 
@@ -670,7 +670,7 @@ describe('handleEventQuery dot-path field projection', () => {
     expect(result.success).toBe(true);
     const events = queryEvents(result);
     expect(events).toHaveLength(1);
-    const eventData = events[0].data as Record<string, unknown>;
+    const eventData = events[0]!.data as Record<string, unknown>;
     expect(eventData).toBeDefined();
     expect(eventData.taskId).toBe('t1');
     expect(eventData.title).toBe('My Task');
@@ -693,8 +693,8 @@ describe('handleEventQuery dot-path field projection', () => {
     expect(result.success).toBe(true);
     const events = queryEvents(result);
     expect(events).toHaveLength(1);
-    expect(events[0].type).toBe('task.completed');
-    const eventData = events[0].data as Record<string, unknown>;
+    expect(events[0]!.type).toBe('task.completed');
+    const eventData = events[0]!.data as Record<string, unknown>;
     expect(eventData).toEqual({ taskId: 't1' });
   });
 });
@@ -722,8 +722,8 @@ describe('tenant field passthrough', () => {
     const query = await handleEventQuery({ stream: 'tenant-test' }, tempDir, eventStore);
     const events = queryEvents(query);
     expect(events).toHaveLength(1);
-    expect(events[0].tenantId).toBe('tenant-abc');
-    expect(events[0].organizationId).toBe('org-xyz');
+    expect(events[0]!.tenantId).toBe('tenant-abc');
+    expect(events[0]!.organizationId).toBe('org-xyz');
   });
 
   it('handleBatchAppend_WithTenantFields_PassesThroughToStore', async () => {

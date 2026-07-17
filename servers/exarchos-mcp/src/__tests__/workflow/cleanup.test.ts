@@ -131,9 +131,9 @@ describe('handleCleanup', () => {
 
       const state = await readRawState('cleanup-reviews');
       const reviews = state.reviews as Record<string, Record<string, unknown>>;
-      expect(reviews['task-1'].status).toBe('approved');
-      expect((reviews['task-2'].specReview as Record<string, unknown>).status).toBe('approved');
-      expect((reviews['task-2'].qualityReview as Record<string, unknown>).status).toBe('approved');
+      expect(reviews['task-1']!.status).toBe('approved');
+      expect((reviews['task-2']!.specReview as Record<string, unknown>).status).toBe('approved');
+      expect((reviews['task-2']!.qualityReview as Record<string, unknown>).status).toBe('approved');
     });
 
     it('should return dryRun preview without modifying state', async () => {
@@ -442,7 +442,7 @@ describe('handleCleanup', () => {
 
       // Assert — should have a state.patched event with synthesis/review data
       expect(patchEvents.length).toBeGreaterThanOrEqual(1);
-      const patchData = patchEvents[0].data as Record<string, unknown>;
+      const patchData = patchEvents[0]!.data as Record<string, unknown>;
       expect(patchData.featureId).toBe('v2-patch');
       expect(patchData.fields).toBeDefined();
       const fields = patchData.fields as string[];
@@ -460,7 +460,7 @@ describe('handleCleanup', () => {
       }
       if (patch.reviews) {
         const reviewsPatch = patch.reviews as Record<string, Record<string, unknown>>;
-        expect(reviewsPatch['task-1'].status).toBe('approved');
+        expect(reviewsPatch['task-1']!.status).toBe('approved');
       }
     });
 

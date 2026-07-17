@@ -2016,8 +2016,8 @@ describe('Plugin Integration Registry Wiring', () => {
       expect(Array.isArray(data.pluginFindings)).toBe(true);
       const findings = data.pluginFindings as Array<Record<string, unknown>>;
       expect(findings).toHaveLength(1);
-      expect(findings[0].source).toBe('impeccable');
-      expect(findings[0].severity).toBe('MEDIUM');
+      expect(findings[0]!.source).toBe('impeccable');
+      expect(findings[0]!.severity).toBe('MEDIUM');
     }
 
     // Should also accept without pluginFindings (optional)
@@ -3098,13 +3098,13 @@ describe('registry economy budgets (DR-1)', () => {
     // Verbose actions surface their declared budget; a default action
     // surfaces the registry default. The slot is present on every entry
     // (every action resolves a concrete budget), not only declared ones.
-    expect(data.describe.economyBudgetTokens).toBe(DESCRIBE_ECONOMY_BUDGET_TOKENS);
-    expect(data.runbook.economyBudgetTokens).toBe(RUNBOOK_ECONOMY_BUDGET_TOKENS);
-    expect(data.task_claim.economyBudgetTokens).toBe(DEFAULT_ECONOMY_BUDGET_TOKENS);
+    expect(data.describe!.economyBudgetTokens).toBe(DESCRIBE_ECONOMY_BUDGET_TOKENS);
+    expect(data.runbook!.economyBudgetTokens).toBe(RUNBOOK_ECONOMY_BUDGET_TOKENS);
+    expect(data.task_claim!.economyBudgetTokens).toBe(DEFAULT_ECONOMY_BUDGET_TOKENS);
 
     // The surfaced number is exactly what the resolver returns for the action.
     const taskClaim = orchestrate.actions.find((a) => a.name === 'task_claim')!;
-    expect(data.task_claim.economyBudgetTokens).toBe(resolveEconomyBudget(taskClaim));
+    expect(data.task_claim!.economyBudgetTokens).toBe(resolveEconomyBudget(taskClaim));
   });
 });
 

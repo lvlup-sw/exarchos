@@ -50,7 +50,7 @@ describe('runSessionMachineryConsumedInterceptor — F-05 swallow-path warn', ()
 
     // The swallow path MUST emit a structured warn so oncall sees regressions.
     expect(warnSpy).toHaveBeenCalledTimes(1);
-    const [ctx, message] = warnSpy.mock.calls[0];
+    const [ctx, message] = warnSpy.mock.calls[0]!;
     expect(ctx).toMatchObject({
       streamId: 'feature-xyz',
       actionVerb: 'task_complete',

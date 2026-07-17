@@ -258,16 +258,16 @@ describe('exarchos add_pr_comment CLI↔MCP parity (Wave B / B2.5)', () => {
     expect(mcpNorm).toHaveLength(2);
 
     // Both must have pr.comment.requested with the same body.
-    expect(cliNorm[0].type).toBe('pr.comment.requested');
-    expect(mcpNorm[0].type).toBe('pr.comment.requested');
-    expect((cliNorm[0].data as Record<string, unknown>).body).toBe(PARITY_ARGS.body);
-    expect((mcpNorm[0].data as Record<string, unknown>).body).toBe(PARITY_ARGS.body);
+    expect(cliNorm[0]!.type).toBe('pr.comment.requested');
+    expect(mcpNorm[0]!.type).toBe('pr.comment.requested');
+    expect((cliNorm[0]!.data as Record<string, unknown>).body).toBe(PARITY_ARGS.body);
+    expect((mcpNorm[0]!.data as Record<string, unknown>).body).toBe(PARITY_ARGS.body);
 
     // Both must have pr.comment.executed with the same commentId.
-    expect(cliNorm[1].type).toBe('pr.comment.executed');
-    expect(mcpNorm[1].type).toBe('pr.comment.executed');
-    expect((cliNorm[1].data as Record<string, unknown>).commentId).toBe(STUB_COMMENT_ID);
-    expect((mcpNorm[1].data as Record<string, unknown>).commentId).toBe(STUB_COMMENT_ID);
+    expect(cliNorm[1]!.type).toBe('pr.comment.executed');
+    expect(mcpNorm[1]!.type).toBe('pr.comment.executed');
+    expect((cliNorm[1]!.data as Record<string, unknown>).commentId).toBe(STUB_COMMENT_ID);
+    expect((mcpNorm[1]!.data as Record<string, unknown>).commentId).toBe(STUB_COMMENT_ID);
 
     // ── Assert — ToolResult parity across surfaces ────────────────────────────
     //
@@ -319,11 +319,11 @@ describe('exarchos add_pr_comment CLI↔MCP parity (Wave B / B2.5)', () => {
     expect(cliNorm).toHaveLength(2);
     expect(mcpNorm).toHaveLength(2);
     // requested intent records the reply target on both carriers.
-    expect((cliNorm[0].data as Record<string, unknown>).threadId).toBe(201);
-    expect((mcpNorm[0].data as Record<string, unknown>).threadId).toBe(201);
+    expect((cliNorm[0]!.data as Record<string, unknown>).threadId).toBe(201);
+    expect((mcpNorm[0]!.data as Record<string, unknown>).threadId).toBe(201);
     // executed carries the addReply-returned commentId on both carriers.
-    expect((cliNorm[1].data as Record<string, unknown>).commentId).toBe(STUB_COMMENT_ID);
-    expect((mcpNorm[1].data as Record<string, unknown>).commentId).toBe(STUB_COMMENT_ID);
+    expect((cliNorm[1]!.data as Record<string, unknown>).commentId).toBe(STUB_COMMENT_ID);
+    expect((mcpNorm[1]!.data as Record<string, unknown>).commentId).toBe(STUB_COMMENT_ID);
 
     // ToolResult parity across carriers.
     expect(normalize(cliResult)).toEqual(normalize(mcpResult));

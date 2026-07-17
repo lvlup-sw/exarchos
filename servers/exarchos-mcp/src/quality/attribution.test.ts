@@ -309,9 +309,9 @@ describe('computeAttribution', () => {
 
     // Assert: only the recent run should be included
     expect(result.entries).toHaveLength(1);
-    expect(result.entries[0].key).toBe('delegation');
-    expect(result.entries[0].evalScore).toBe(0.9);
-    expect(result.entries[0].sampleSize).toBe(1);
+    expect(result.entries[0]!.key).toBe('delegation');
+    expect(result.entries[0]!.evalScore).toBe(0.9);
+    expect(result.entries[0]!.sampleSize).toBe(1);
   });
 
   it('ComputeAttribution_EmptyData_ReturnsEmptyEntries', () => {
@@ -365,7 +365,7 @@ describe('computeAttribution', () => {
 
     // Assert
     expect(result.entries).toHaveLength(1);
-    expect(result.entries[0].sampleSize).toBe(42);
+    expect(result.entries[0]!.sampleSize).toBe(42);
   });
 
   it('ComputeAttribution_BySkill_FiltersBySkillName', () => {
@@ -423,7 +423,7 @@ describe('computeAttribution', () => {
 
     // Assert: only delegation returned
     expect(result.entries).toHaveLength(1);
-    expect(result.entries[0].key).toBe('delegation');
+    expect(result.entries[0]!.key).toBe('delegation');
   });
 
   it('ComputeCorrelations_TwoFactors_ReturnsStrength', () => {
@@ -576,10 +576,10 @@ describe('computeAttribution', () => {
     // Assert: still returns the skill with default eval values
     expect(result.entries).toHaveLength(1);
     const entry = result.entries[0];
-    expect(entry.key).toBe('delegation');
-    expect(entry.gatePassRate).toBe(0.85);
-    expect(entry.evalScore).toBe(0); // no eval data
-    expect(entry.sampleSize).toBe(20);
+    expect(entry!.key).toBe('delegation');
+    expect(entry!.gatePassRate).toBe(0.85);
+    expect(entry!.evalScore).toBe(0); // no eval data
+    expect(entry!.sampleSize).toBe(20);
   });
 });
 

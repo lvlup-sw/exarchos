@@ -59,7 +59,7 @@ describe('SqliteBackend WAL Concurrency (file-based)', () => {
     const db = (backend as unknown as { db: { query: (sql: string) => { all: () => Array<{ journal_mode: string }> } } }).db;
     const result = db.query('PRAGMA journal_mode').all();
 
-    expect(result[0].journal_mode).toBe('wal');
+    expect(result[0]!.journal_mode).toBe('wal');
   });
 
   it('SqliteBackend_twoInstances_ConcurrentReadWriteNoBlocking', () => {
@@ -92,7 +92,7 @@ describe('SqliteBackend WAL Concurrency (file-based)', () => {
 
     // Verify ordering is correct
     for (let i = 0; i < allEvents.length; i++) {
-      expect(allEvents[i].sequence).toBe(i + 1);
+      expect(allEvents[i]!.sequence).toBe(i + 1);
     }
   });
 

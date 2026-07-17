@@ -306,8 +306,8 @@ describe('createMcpServer', () => {
 
     // Assert — content[0].text is the JSON-serialized envelope (SHOULD).
     expect(result.content).toHaveLength(1);
-    expect(result.content[0].type).toBe('text');
-    expect(result.content[0].text).toBe(JSON.stringify(env));
+    expect(result.content[0]!.type).toBe('text');
+    expect(result.content[0]!.text).toBe(JSON.stringify(env));
     // structuredContent must carry the envelope as a JSON object.
     // We document this as same-object-reference: no clone, no normalization.
     expect(result.structuredContent).toBe(env);
@@ -327,7 +327,7 @@ describe('createMcpServer', () => {
     const result = toMcpResult(env);
 
     // Assert
-    expect(result.content[0].text).toBe(JSON.stringify(env));
+    expect(result.content[0]!.text).toBe(JSON.stringify(env));
     expect(result.structuredContent).toBe(env);
     expect(result.isError).toBe(true);
   });
@@ -391,8 +391,8 @@ describe('createMcpServer', () => {
         { type: 'text', text: JSON.stringify(env) },
       ]);
       expect(result.content).toHaveLength(1);
-      expect(result.content[0].type).toBe('text');
-      expect(result.content[0].text).toBe(JSON.stringify(env));
+      expect(result.content[0]!.type).toBe('text');
+      expect(result.content[0]!.text).toBe(JSON.stringify(env));
       // structuredContent stays the full envelope, unchanged (same reference).
       expect(result.structuredContent).toBe(env);
     }
@@ -438,7 +438,7 @@ describe('createMcpServer', () => {
       // Assert — D.7 cutover: handler emits structuredContent (the envelope),
       // not just the legacy text-only shape (content + isError only).
       expect(result.structuredContent).toBeDefined();
-      expect(result.content[0].type).toBe('text');
+      expect(result.content[0]!.type).toBe('text');
       // Envelope validates against the action's per-action outputSchema.
       const action = TOOL_REGISTRY.find(t => t.name === 'exarchos_view')!.actions.find(
         a => a.name === 'pipeline',

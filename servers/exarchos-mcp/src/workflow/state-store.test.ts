@@ -696,12 +696,12 @@ describe('hydrateEventsFromStore', () => {
     const result = await hydrateEventsFromStore('test-feature', mockEventStore);
 
     expect(result).toHaveLength(1);
-    expect(result[0].type).toBe('transition'); // mapped via mapExternalToInternalType
-    expect(result[0].timestamp).toBe('2026-03-09T10:00:00.000Z');
-    expect(result[0].from).toBe('ideate');
-    expect(result[0].to).toBe('plan');
-    expect(result[0].trigger).toBe('user');
-    expect(result[0].metadata).toEqual({ from: 'ideate', to: 'plan', trigger: 'user' });
+    expect(result[0]!.type).toBe('transition'); // mapped via mapExternalToInternalType
+    expect(result[0]!.timestamp).toBe('2026-03-09T10:00:00.000Z');
+    expect(result[0]!.from).toBe('ideate');
+    expect(result[0]!.to).toBe('plan');
+    expect(result[0]!.trigger).toBe('user');
+    expect(result[0]!.metadata).toEqual({ from: 'ideate', to: 'plan', trigger: 'user' });
   });
 
   it('HydrateEventsFromStore_TeamEvents_PreservesAllDataFields', async () => {
@@ -730,17 +730,17 @@ describe('hydrateEventsFromStore', () => {
     expect(result).toHaveLength(2);
 
     // team.spawned: type is NOT mapped (no workflow. prefix)
-    expect(result[0].type).toBe('team.spawned');
-    expect(result[0].featureId).toBe('test-feature');
-    expect(result[0].agentCount).toBe(3);
-    expect(result[0].metadata).toEqual({ featureId: 'test-feature', agentCount: 3 });
+    expect(result[0]!.type).toBe('team.spawned');
+    expect(result[0]!.featureId).toBe('test-feature');
+    expect(result[0]!.agentCount).toBe(3);
+    expect(result[0]!.metadata).toEqual({ featureId: 'test-feature', agentCount: 3 });
 
     // team.disbanded: ALL data fields at top level AND in metadata
-    expect(result[1].type).toBe('team.disbanded');
-    expect(result[1].totalDurationMs).toBe(5000);
-    expect(result[1].tasksCompleted).toBe(3);
-    expect(result[1].tasksFailed).toBe(0);
-    expect(result[1].metadata).toEqual({
+    expect(result[1]!.type).toBe('team.disbanded');
+    expect(result[1]!.totalDurationMs).toBe(5000);
+    expect(result[1]!.tasksCompleted).toBe(3);
+    expect(result[1]!.tasksFailed).toBe(0);
+    expect(result[1]!.metadata).toEqual({
       featureId: 'test-feature',
       totalDurationMs: 5000,
       tasksCompleted: 3,
@@ -764,22 +764,22 @@ describe('hydrateEventsFromStore', () => {
 
     expect(result).toHaveLength(6);
     // workflow.started maps via mapExternalToInternalType (no explicit mapping, returns 'workflow.started')
-    expect(result[0].type).toBe('workflow.started');
+    expect(result[0]!.type).toBe('workflow.started');
     // workflow.transition maps to 'transition'
-    expect(result[1].type).toBe('transition');
+    expect(result[1]!.type).toBe('transition');
     // team.spawned stays as-is
-    expect(result[2].type).toBe('team.spawned');
+    expect(result[2]!.type).toBe('team.spawned');
     // task.completed stays as-is
-    expect(result[3].type).toBe('task.completed');
+    expect(result[3]!.type).toBe('task.completed');
     // gate.executed stays as-is
-    expect(result[4].type).toBe('gate.executed');
+    expect(result[4]!.type).toBe('gate.executed');
     // team.disbanded stays as-is
-    expect(result[5].type).toBe('team.disbanded');
+    expect(result[5]!.type).toBe('team.disbanded');
 
     // Each event has its data fields at top level
-    expect(result[3].taskId).toBe('t1');
-    expect(result[4].gateName).toBe('design');
-    expect(result[5].totalDurationMs).toBe(5000);
+    expect(result[3]!.taskId).toBe('t1');
+    expect(result[4]!.gateName).toBe('design');
+    expect(result[5]!.totalDurationMs).toBe(5000);
   });
 
   it('HydrateEventsFromStore_EventStoreThrows_PropagatesError', async () => {
@@ -903,13 +903,13 @@ describe('applyDotPath array append syntax (T-17)', () => {
     // The legitimate task entry remains untouched (no silent
     // misapplication side-effect either).
     const tasks = obj.tasks as Array<Record<string, unknown>>;
-    expect(tasks[0].status).toBe('pending');
+    expect(tasks[0]!.status).toBe('pending');
     expect(obj['tasks[id=T-001]']).toBeUndefined();
 
     // The legitimate by-index form continues to work and is the only
     // supported way to update one task in place.
     applyDotPath(obj, 'tasks[0].status', 'complete');
-    expect(tasks[0].status).toBe('complete');
+    expect(tasks[0]!.status).toBe('complete');
   });
 
   // ─── #1213 / CodeRabbit #18: malformed/compound bracket forms ─────────

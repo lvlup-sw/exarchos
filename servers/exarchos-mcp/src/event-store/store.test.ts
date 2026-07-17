@@ -35,8 +35,8 @@ describe('EventStore Append', () => {
     // matches the returned event.
     const stored = await store.query('my-workflow');
     expect(stored).toHaveLength(1);
-    expect(stored[0].streamId).toBe('my-workflow');
-    expect(stored[0].sequence).toBe(1);
+    expect(stored[0]!.streamId).toBe('my-workflow');
+    expect(stored[0]!.sequence).toBe(1);
   });
 
   it('should auto-increment sequence numbers', async () => {
@@ -81,7 +81,7 @@ describe('EventStore Append', () => {
     // Event is now durable and readable.
     const after = await store.query('new-stream');
     expect(after).toHaveLength(1);
-    expect(after[0].streamId).toBe('new-stream');
+    expect(after[0]!.streamId).toBe('new-stream');
   });
 
   it('should initialize sequence from existing file', async () => {
@@ -148,8 +148,8 @@ describe('EventStore Query', () => {
 
     const events = await store.query('my-workflow');
     expect(events).toHaveLength(5);
-    expect(events[0].sequence).toBe(1);
-    expect(events[4].sequence).toBe(5);
+    expect(events[0]!.sequence).toBe(1);
+    expect(events[4]!.sequence).toBe(5);
   });
 
   it('should filter by event type', async () => {
@@ -174,8 +174,8 @@ describe('EventStore Query', () => {
 
     const events = await store.query('my-workflow', { sinceSequence: 3 });
     expect(events).toHaveLength(2);
-    expect(events[0].sequence).toBe(4);
-    expect(events[1].sequence).toBe(5);
+    expect(events[0]!.sequence).toBe(4);
+    expect(events[1]!.sequence).toBe(5);
   });
 
   it('should filter by time range', async () => {
@@ -198,7 +198,7 @@ describe('EventStore Query', () => {
       until: '2025-09-01T00:00:00.000Z',
     });
     expect(events).toHaveLength(1);
-    expect(events[0].type).toBe('task.assigned');
+    expect(events[0]!.type).toBe('task.assigned');
   });
 
   it('should return empty array for nonexistent stream', async () => {
@@ -311,7 +311,7 @@ describe('EventStore queryByType with streamPrefix (T25)', () => {
       streamPrefix: featureId,
     });
     expect(events).toHaveLength(1);
-    expect((events[0].data as { taskId?: string })?.taskId).toBe('parent-1');
+    expect((events[0]!.data as { taskId?: string })?.taskId).toBe('parent-1');
   });
 
   it('EventStore_QueryByTypeWithStreamPrefix_NoMatchingStreams_ReturnsEmpty', async () => {
@@ -421,7 +421,7 @@ describe('EventStore Query Pagination', () => {
 
     const events = await store.query('my-workflow', { offset: 2 });
     expect(events).toHaveLength(3);
-    expect(events[0].sequence).toBe(3);
+    expect(events[0]!.sequence).toBe(3);
   });
 
   it('query_WithLimitAndOffset_ReturnsPaginatedResults', async () => {
@@ -432,9 +432,9 @@ describe('EventStore Query Pagination', () => {
 
     const events = await store.query('my-workflow', { limit: 3, offset: 2 });
     expect(events).toHaveLength(3);
-    expect(events[0].sequence).toBe(3);
-    expect(events[1].sequence).toBe(4);
-    expect(events[2].sequence).toBe(5);
+    expect(events[0]!.sequence).toBe(3);
+    expect(events[1]!.sequence).toBe(4);
+    expect(events[2]!.sequence).toBe(5);
   });
 
   it('query_DefaultLimit_Returns50Events', async () => {
@@ -479,9 +479,9 @@ describe('EventStore Streaming Query', () => {
 
     const events = await store.query('my-workflow', { sinceSequence: 7 });
     expect(events).toHaveLength(3);
-    expect(events[0].sequence).toBe(8);
-    expect(events[1].sequence).toBe(9);
-    expect(events[2].sequence).toBe(10);
+    expect(events[0]!.sequence).toBe(8);
+    expect(events[1]!.sequence).toBe(9);
+    expect(events[2]!.sequence).toBe(10);
   });
 
   it('query_WithSinceSequenceAndLimit_CombinesFilters', async () => {
@@ -492,8 +492,8 @@ describe('EventStore Streaming Query', () => {
 
     const events = await store.query('my-workflow', { sinceSequence: 5, limit: 2 });
     expect(events).toHaveLength(2);
-    expect(events[0].sequence).toBe(6);
-    expect(events[1].sequence).toBe(7);
+    expect(events[0]!.sequence).toBe(6);
+    expect(events[1]!.sequence).toBe(7);
   });
 
   it('query_WithTypeFilterAndLimit_CombinesCorrectly', async () => {
@@ -509,8 +509,8 @@ describe('EventStore Streaming Query', () => {
     const events = await store.query('my-workflow', { type: 'task.assigned', limit: 2 });
     expect(events).toHaveLength(2);
     expect(events.every(e => e.type === 'task.assigned')).toBe(true);
-    expect(events[0].sequence).toBe(2);
-    expect(events[1].sequence).toBe(4);
+    expect(events[0]!.sequence).toBe(2);
+    expect(events[1]!.sequence).toBe(4);
   });
 
   it('query_WithSinceSequenceAndTypeAndLimit_CombinesAllFilters', async () => {
@@ -529,8 +529,8 @@ describe('EventStore Streaming Query', () => {
       limit: 1,
     });
     expect(events).toHaveLength(1);
-    expect(events[0].sequence).toBe(4);
-    expect(events[0].type).toBe('task.assigned');
+    expect(events[0]!.sequence).toBe(4);
+    expect(events[0]!.type).toBe('task.assigned');
   });
 
   it('query_WithOffsetAndLimit_InStreamingMode', async () => {
@@ -542,8 +542,8 @@ describe('EventStore Streaming Query', () => {
     // offset=3, limit=2 should return events at positions 4 and 5 (sequences 4,5)
     const events = await store.query('my-workflow', { offset: 3, limit: 2 });
     expect(events).toHaveLength(2);
-    expect(events[0].sequence).toBe(4);
-    expect(events[1].sequence).toBe(5);
+    expect(events[0]!.sequence).toBe(4);
+    expect(events[1]!.sequence).toBe(5);
   });
 
   it('query_EmptyFile_ReturnsEmpty', async () => {
@@ -568,8 +568,8 @@ describe('EventStore Query Fast-Skip', () => {
 
     const events = await store.query('my-workflow', { sinceSequence: 90 });
     expect(events).toHaveLength(10);
-    expect(events[0].sequence).toBe(91);
-    expect(events[9].sequence).toBe(100);
+    expect(events[0]!.sequence).toBe(91);
+    expect(events[9]!.sequence).toBe(100);
   });
 
   it('query_WithSinceSequenceAndLimit_CombinesCorrectly', async () => {
@@ -580,8 +580,8 @@ describe('EventStore Query Fast-Skip', () => {
 
     const events = await store.query('my-workflow', { sinceSequence: 90, limit: 5 });
     expect(events).toHaveLength(5);
-    expect(events[0].sequence).toBe(91);
-    expect(events[4].sequence).toBe(95);
+    expect(events[0]!.sequence).toBe(91);
+    expect(events[4]!.sequence).toBe(95);
   });
 
   it('query_WithSinceSequenceAndType_FallsBackToFullParse', async () => {
@@ -600,7 +600,7 @@ describe('EventStore Query Fast-Skip', () => {
     });
     expect(events).toHaveLength(25);
     expect(events.every(e => e.type === 'task.claimed')).toBe(true);
-    expect(events[0].sequence).toBe(51);
+    expect(events[0]!.sequence).toBe(51);
   });
 });
 
@@ -660,8 +660,8 @@ describe('EventStore Append Idempotency', () => {
     // Both should succeed (no dedup without key)
     const events = await store.query('my-workflow');
     expect(events).toHaveLength(2);
-    expect(events[0].sequence).toBe(1);
-    expect(events[1].sequence).toBe(2);
+    expect(events[0]!.sequence).toBe(1);
+    expect(events[1]!.sequence).toBe(2);
   });
 
   it('append_IdempotencyClaim_PersistsAcrossManyAppends', async () => {
@@ -792,8 +792,8 @@ describe('EventStore Query with Event Migration', () => {
     const events = await store.query('migration-test');
 
     expect(events).toHaveLength(1);
-    expect(events[0].schemaVersion).toBe('1.0');
-    expect(events[0].type).toBe('workflow.started');
+    expect(events[0]!.schemaVersion).toBe('1.0');
+    expect(events[0]!.type).toBe('workflow.started');
   });
 
   it('Query_AppliesMigrationTransform', async () => {
@@ -811,9 +811,9 @@ describe('EventStore Query with Event Migration', () => {
     const events = await store.query('migration-transform');
 
     expect(events).toHaveLength(1);
-    expect(events[0].type).toBe('task.assigned');
+    expect(events[0]!.type).toBe('task.assigned');
     // Event should pass through migrateEvent identity path
-    expect(events[0].streamId).toBe('migration-transform');
+    expect(events[0]!.streamId).toBe('migration-transform');
   });
 });
 
@@ -854,8 +854,8 @@ describe('EventStore appendValidated', () => {
     // matching shape.
     const stored = await store.query('my-workflow');
     expect(stored).toHaveLength(1);
-    expect(stored[0].streamId).toBe('my-workflow');
-    expect(stored[0].sequence).toBe(1);
+    expect(stored[0]!.streamId).toBe('my-workflow');
+    expect(stored[0]!.sequence).toBe(1);
   });
 
   it('appendValidated_RespectsIdempotencyKey', async () => {
@@ -923,7 +923,7 @@ describe('EventStore appendValidated', () => {
     // Substrate has exactly one persisted event for the key.
     const stored = await store.query('my-workflow');
     expect(stored).toHaveLength(1);
-    expect((stored[0].data as { payload: string }).payload).toBe('A');
+    expect((stored[0]!.data as { payload: string }).payload).toBe('A');
   });
 
   it('appendValidated_RespectsExpectedSequence', async () => {

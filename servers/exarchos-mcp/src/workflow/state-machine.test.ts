@@ -32,14 +32,14 @@ describe('serializeTopology', () => {
     // States should have id and type
     expect(result.states['ideate']).toBeUndefined();
     expect(result.states['plan']).toBeDefined();
-    expect(result.states['plan'].id).toBe('plan');
-    expect(result.states['plan'].type).toBe('atomic');
+    expect(result.states['plan']!.id).toBe('plan');
+    expect(result.states['plan']!.type).toBe('atomic');
 
     expect(result.states['completed']).toBeDefined();
-    expect(result.states['completed'].type).toBe('final');
+    expect(result.states['completed']!.type).toBe('final');
 
     expect(result.states['implementation']).toBeDefined();
-    expect(result.states['implementation'].type).toBe('compound');
+    expect(result.states['implementation']!.type).toBe('compound');
 
     // Transitions should have from and to
     expect(result.transitions.length).toBeGreaterThan(0);
@@ -94,22 +94,22 @@ describe('serializeTopology', () => {
     // The compound state should have initial and maxFixCycles
     const implementation = result.states['implementation'];
     expect(implementation).toBeDefined();
-    expect(implementation.type).toBe('compound');
-    expect(implementation.initial).toBe('delegate');
-    expect(implementation.maxFixCycles).toBe(3);
+    expect(implementation!.type).toBe('compound');
+    expect(implementation!.initial).toBe('delegate');
+    expect(implementation!.maxFixCycles).toBe(3);
 
     // Child states should have parent
     const delegate = result.states['delegate'];
     expect(delegate).toBeDefined();
-    expect(delegate.parent).toBe('implementation');
+    expect(delegate!.parent).toBe('implementation');
 
     const review = result.states['review'];
     expect(review).toBeDefined();
-    expect(review.parent).toBe('implementation');
+    expect(review!.parent).toBe('implementation');
 
     // Compound state should include onEntry and onExit
-    expect(implementation.onEntry).toEqual(['log']);
-    expect(implementation.onExit).toEqual(['log']);
+    expect(implementation!.onEntry).toEqual(['log']);
+    expect(implementation!.onExit).toEqual(['log']);
   });
 
   it('SerializeTopology_UnknownWorkflowType_Throws', () => {
@@ -261,7 +261,7 @@ describe('executeTransition resolve-then-freeze (DR-13)', () => {
     expect(entered).toHaveLength(1);
 
     const targetKind = (hsm.states['synthesizing'] as { kind: PhaseKind }).kind;
-    const md = entered[0].metadata as Record<string, unknown>;
+    const md = entered[0]!.metadata as Record<string, unknown>;
     expect(md.phase).toBe('synthesizing');
     expect(md.kind).toBe(targetKind);
     expect(md.resolver).toBe(KIND_OBLIGATIONS[targetKind].gates?.resolver ?? null);
@@ -368,7 +368,7 @@ describe('executeTransition resolve-then-freeze (DR-13)', () => {
 
     const entered = result.events.filter((e) => e.type === 'phase.entered');
     expect(entered).toHaveLength(1);
-    const md = entered[0].metadata as Record<string, unknown>;
+    const md = entered[0]!.metadata as Record<string, unknown>;
     expect(md.kind).toBe('IMPLEMENT');
     // Deferred: no phase-level sequence frozen for IMPLEMENT.
     expect(md.resolvedGates).toEqual([]);
@@ -393,7 +393,7 @@ describe('executeTransition resolve-then-freeze (DR-13)', () => {
     // Advancing a phase appends exactly one phase.exited for the LEFT phase.
     const exited = result.events.filter((e) => e.type === 'phase.exited');
     expect(exited).toHaveLength(1);
-    const md = exited[0].metadata as Record<string, unknown>;
+    const md = exited[0]!.metadata as Record<string, unknown>;
     expect(md.phase).toBe('gathering');
     // A forward advance (not a fix-cycle) means the phase's required gates passed.
     expect(md.allRequiredGatesPassed).toBe(true);
@@ -636,13 +636,13 @@ describe('Plan-revision counted event (DR-1)', () => {
 
     const revisionEvents = result.events.filter((e) => e.type === 'plan-revision');
     expect(revisionEvents).toHaveLength(1);
-    expect(revisionEvents[0].from).toBe('overhaul-plan-review');
-    expect(revisionEvents[0].to).toBe('overhaul-plan');
+    expect(revisionEvents[0]!.from).toBe('overhaul-plan-review');
+    expect(revisionEvents[0]!.to).toBe('overhaul-plan');
     // #1339 parity: a top-level phase has no parent compound, so no literal
     // `undefined` compoundStateId is emitted.
     expect(
       Object.prototype.hasOwnProperty.call(
-        revisionEvents[0].metadata ?? {},
+        revisionEvents[0]!.metadata ?? {},
         'compoundStateId',
       ),
     ).toBe(false);

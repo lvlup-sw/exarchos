@@ -176,7 +176,7 @@ describe('handleExtractFixTasks', () => {
 
     expect(result.success).toBe(true);
     const data = result.data as { tasks: Array<{ worktree: string | null }>; count: number };
-    expect(data.tasks[0].worktree).toBe('/worktree/only');
+    expect(data.tasks[0]!.worktree).toBe('/worktree/only');
   });
 
   it('generates zero-padded fix task IDs', async () => {
@@ -195,10 +195,10 @@ describe('handleExtractFixTasks', () => {
 
     expect(result.success).toBe(true);
     const data = result.data as { tasks: Array<{ id: string }>; count: number };
-    expect(data.tasks[0].id).toBe('fix-001');
-    expect(data.tasks[8].id).toBe('fix-009');
-    expect(data.tasks[9].id).toBe('fix-010');
-    expect(data.tasks[11].id).toBe('fix-012');
+    expect(data.tasks[0]!.id).toBe('fix-001');
+    expect(data.tasks[8]!.id).toBe('fix-009');
+    expect(data.tasks[9]!.id).toBe('fix-010');
+    expect(data.tasks[11]!.id).toBe('fix-012');
   });
 
   it('defaults severity to MEDIUM when not provided', async () => {
@@ -214,7 +214,7 @@ describe('handleExtractFixTasks', () => {
 
     expect(result.success).toBe(true);
     const data = result.data as { tasks: Array<{ severity: string }> };
-    expect(data.tasks[0].severity).toBe('MEDIUM');
+    expect(data.tasks[0]!.severity).toBe('MEDIUM');
   });
 
   it('defaults line to null when not provided', async () => {
@@ -230,7 +230,7 @@ describe('handleExtractFixTasks', () => {
 
     expect(result.success).toBe(true);
     const data = result.data as { tasks: Array<{ line: number | null }> };
-    expect(data.tasks[0].line).toBe(null);
+    expect(data.tasks[0]!.line).toBe(null);
   });
 
   it('returns error when review report not found', async () => {
@@ -398,6 +398,6 @@ describe('handleExtractFixTasks', () => {
     expect(result.success).toBe(true);
     const data = result.data as { count: number; tasks: Array<{ file: string }> };
     expect(data.count).toBe(1);
-    expect(data.tasks[0].file).toBe('src/bar.ts');
+    expect(data.tasks[0]!.file).toBe('src/bar.ts');
   });
 });

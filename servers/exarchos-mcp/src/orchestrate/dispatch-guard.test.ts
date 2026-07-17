@@ -267,7 +267,7 @@ describe('runPreflightGuards', () => {
     // Assert — emission shape + aggregate fail
     const preflightCalls = calls.filter((c) => c.event.type === 'dispatch.preflight');
     expect(preflightCalls).toHaveLength(1);
-    const data = preflightCalls[0].event.data as {
+    const data = preflightCalls[0]!.event.data as {
       guards: {
         ancestry: { passed: boolean };
         worktree: { passed: boolean };
@@ -305,7 +305,7 @@ describe('runPreflightGuards', () => {
     // Assert
     const preflightCalls = calls.filter((c) => c.event.type === 'dispatch.preflight');
     expect(preflightCalls).toHaveLength(1);
-    const data = preflightCalls[0].event.data as {
+    const data = preflightCalls[0]!.event.data as {
       guards: {
         ancestry: { passed: boolean };
         worktree: { passed: boolean };
@@ -354,7 +354,7 @@ describe('probeStashAndEmit', () => {
     // Assert
     const stashCalls = calls.filter((c) => c.event.type === 'stash.detected');
     expect(stashCalls).toHaveLength(1);
-    const data = stashCalls[0].event.data as {
+    const data = stashCalls[0]!.event.data as {
       worktreePath: string;
       stashRef: string;
     };

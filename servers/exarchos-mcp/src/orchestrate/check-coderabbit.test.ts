@@ -75,8 +75,8 @@ describe('handleCheckCoderabbit', () => {
     const data = result.data as { passed: boolean; results: PrReviewResult[] };
     expect(data.passed).toBe(true);
     expect(data.results).toHaveLength(2);
-    expect(data.results[0].verdict).toBe('pass');
-    expect(data.results[1].verdict).toBe('pass');
+    expect(data.results[0]!.verdict).toBe('pass');
+    expect(data.results[1]!.verdict).toBe('pass');
   });
 
   // ─── Uses VcsProvider ─────────────────────────────────────────────────
@@ -109,7 +109,7 @@ describe('handleCheckCoderabbit', () => {
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; results: PrReviewResult[] };
     expect(data.passed).toBe(false);
-    expect(data.results[0].verdict).toBe('fail');
+    expect(data.results[0]!.verdict).toBe('fail');
   });
 
   // ─── No CodeRabbit Review -> Pass (NONE) ────────────────────────────────
@@ -127,8 +127,8 @@ describe('handleCheckCoderabbit', () => {
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; results: PrReviewResult[] };
     expect(data.passed).toBe(true);
-    expect(data.results[0].state).toBe('NONE');
-    expect(data.results[0].verdict).toBe('pass');
+    expect(data.results[0]!.state).toBe('NONE');
+    expect(data.results[0]!.verdict).toBe('pass');
   });
 
   // ─── API Error -> Fail ──────────────────────────────────────────────────
@@ -144,8 +144,8 @@ describe('handleCheckCoderabbit', () => {
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; results: PrReviewResult[] };
     expect(data.passed).toBe(false);
-    expect(data.results[0].state).toBe('API_ERROR');
-    expect(data.results[0].verdict).toBe('fail');
+    expect(data.results[0]!.state).toBe('API_ERROR');
+    expect(data.results[0]!.verdict).toBe('fail');
   });
 
   // ─── Missing Owner -> Error ─────────────────────────────────────────────
@@ -177,10 +177,10 @@ describe('handleCheckCoderabbit', () => {
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; results: PrReviewResult[] };
     expect(data.passed).toBe(true);
-    expect(data.results[0].pr).toBe(-1);
-    expect(data.results[0].verdict).toBe('skip');
-    expect(data.results[1].pr).toBe(5);
-    expect(data.results[1].verdict).toBe('pass');
+    expect(data.results[0]!.pr).toBe(-1);
+    expect(data.results[0]!.verdict).toBe('skip');
+    expect(data.results[1]!.pr).toBe(5);
+    expect(data.results[1]!.verdict).toBe('pass');
   });
 
   // ─── Report Contains Markdown Table ────────────────────────────────────
@@ -219,7 +219,7 @@ describe('handleCheckCoderabbit', () => {
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; results: PrReviewResult[] };
     expect(data.passed).toBe(true);
-    expect(data.results[0].state).toBe('APPROVED');
+    expect(data.results[0]!.state).toBe('APPROVED');
   });
 
   // ─── Pending Review -> Fail ─────────────────────────────────────────────
@@ -237,6 +237,6 @@ describe('handleCheckCoderabbit', () => {
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; results: PrReviewResult[] };
     expect(data.passed).toBe(false);
-    expect(data.results[0].verdict).toBe('fail');
+    expect(data.results[0]!.verdict).toBe('fail');
   });
 });

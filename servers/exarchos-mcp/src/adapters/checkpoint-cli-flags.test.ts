@@ -307,9 +307,9 @@ describe('wf checkpoint — handoff convenience flags (T5, #1240)', () => {
     expect(exitCode).toBe(CLI_EXIT_CODES.INVALID_INPUT);
     expect(result.success).toBe(false);
     if (result.success === false) {
-      expect(result.error.code).toBe('INVALID_INPUT');
-      expect(result.error.message).toMatch(/--handoff/);
-      expect(result.error.message).toMatch(
+      expect(result.error!.code).toBe('INVALID_INPUT');
+      expect(result.error!.message).toMatch(/--handoff/);
+      expect(result.error!.message).toMatch(
         /--context|--next-steps|--suggestions|mutually exclusive/i,
       );
     }

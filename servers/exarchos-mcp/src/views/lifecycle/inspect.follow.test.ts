@@ -324,14 +324,14 @@ describe('inspect --follow — CLI NDJSON carrier (DR-4)', () => {
 
     // Live before abort — no process signal involved.
     expect(handle.disposed()).toBe(false);
-    expect(spy.calls[0].disposeCount).toBe(0);
+    expect(spy.calls[0]!.disposeCount).toBe(0);
 
     controller.abort();
     await handle.done;
 
     // The abort disposed the REAL DR-1 subscription (INV-15).
     expect(handle.disposed()).toBe(true);
-    expect(spy.calls[0].disposeCount).toBe(1);
+    expect(spy.calls[0]!.disposeCount).toBe(1);
   });
 });
 
@@ -367,10 +367,10 @@ describe('inspect --follow — MCP Tasks carrier (DR-4)', () => {
 
     // Both registered against the same contract.
     expect(spy.calls).toHaveLength(2);
-    expect(spy.calls[0].filter).toEqual({ streamId: FEATURE });
-    expect(spy.calls[1].filter).toEqual({ streamId: FEATURE });
-    expect(spy.calls[0].options).toEqual({ fromSequence: 0 });
-    expect(spy.calls[1].options).toEqual({ fromSequence: 0 });
+    expect(spy.calls[0]!.filter).toEqual({ streamId: FEATURE });
+    expect(spy.calls[1]!.filter).toEqual({ streamId: FEATURE });
+    expect(spy.calls[0]!.options).toEqual({ fromSequence: 0 });
+    expect(spy.calls[1]!.options).toEqual({ fromSequence: 0 });
 
     // Same live events → byte-identical event-frame streams (INV-2).
     await seed(FEATURE, 3);
@@ -385,11 +385,11 @@ describe('inspect --follow — MCP Tasks carrier (DR-4)', () => {
     mcp.cancel();
     await mcp.done;
     expect(mcp.disposed()).toBe(true);
-    expect(spy.calls[1].disposeCount).toBe(1);
+    expect(spy.calls[1]!.disposeCount).toBe(1);
 
     cliCtl.abort();
     await cli.done;
-    expect(spy.calls[0].disposeCount).toBe(1);
+    expect(spy.calls[0]!.disposeCount).toBe(1);
   });
 });
 

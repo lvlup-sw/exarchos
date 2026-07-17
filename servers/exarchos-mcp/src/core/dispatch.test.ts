@@ -663,7 +663,7 @@ describe('dispatch', () => {
         type: 'session.machinery_consumed',
       });
       expect(events.length).toBe(1);
-      const data = events[0].data as {
+      const data = events[0]!.data as {
         rehydrateSequence: number;
         firstActionVerb: string;
         firstActionAt: string;
@@ -752,8 +752,8 @@ describe('dispatch', () => {
       });
       expect(eventsA.length).toBe(1);
       expect(eventsB.length).toBe(1);
-      expect((eventsA[0].data as { rehydrateSequence: number }).rehydrateSequence).toBe(seqA);
-      expect((eventsB[0].data as { rehydrateSequence: number }).rehydrateSequence).toBe(seqB);
+      expect((eventsA[0]!.data as { rehydrateSequence: number }).rehydrateSequence).toBe(seqA);
+      expect((eventsB[0]!.data as { rehydrateSequence: number }).rehydrateSequence).toBe(seqB);
     });
 
     it('T12_RehydrateActionItself_DoesNotTriggerSessionMachineryConsumed', async () => {
@@ -847,7 +847,7 @@ describe('dispatch', () => {
         type: 'session.machinery_consumed',
       });
       expect(events.length).toBe(1);
-      const data = events[0].data as { firstActionVerb: string };
+      const data = events[0]!.data as { firstActionVerb: string };
       expect(data.firstActionVerb).toBe('get');
     });
   });
@@ -930,7 +930,7 @@ describe('dispatch', () => {
         type: 'session.machinery_consumed',
       });
       expect(eventsAfterFirst.length).toBe(1);
-      expect((eventsAfterFirst[0].data as { rehydrateSequence: number }).rehydrateSequence).toBe(seqS1);
+      expect((eventsAfterFirst[0]!.data as { rehydrateSequence: number }).rehydrateSequence).toBe(seqS1);
 
       // Second rehydrate (S2 > S1)
       const seqS2 = await seedRehydratedT13(featureId);
@@ -991,7 +991,7 @@ describe('dispatch', () => {
         type: 'session.machinery_consumed',
       });
       expect(events.length).toBe(1);
-      expect((events[0].data as { rehydrateSequence: number }).rehydrateSequence).toBe(seqS1);
+      expect((events[0]!.data as { rehydrateSequence: number }).rehydrateSequence).toBe(seqS1);
     });
 
     // ── TC-3: property test over interleaved rehydrate/activity sequences ─────
@@ -1126,7 +1126,7 @@ describe('dispatch', () => {
       });
       expect(eventsBeforeRestart.length).toBe(1);
       expect(
-        (eventsBeforeRestart[0].data as { rehydrateSequence: number }).rehydrateSequence,
+        (eventsBeforeRestart[0]!.data as { rehydrateSequence: number }).rehydrateSequence,
       ).toBe(seqS);
 
       // Simulate process restart: clear the per-stream cache. The event store
@@ -1158,7 +1158,7 @@ describe('dispatch', () => {
       });
       expect(eventsAfterRestart.length).toBe(1);
       expect(
-        (eventsAfterRestart[0].data as { rehydrateSequence: number }).rehydrateSequence,
+        (eventsAfterRestart[0]!.data as { rehydrateSequence: number }).rehydrateSequence,
       ).toBe(seqS);
     });
 
@@ -1574,10 +1574,10 @@ describe('dispatch', () => {
         expect(nextActions).toBeDefined();
         expect(nextActions!.length).toBeGreaterThanOrEqual(1);
         const hint = nextActions![0];
-        expect(hint.verb).toBe('retry_with_task');
-        expect(hint.ttl_suggestion_ms).toBe(60_000);
-        expect(typeof hint.reason).toBe('string');
-        expect(hint.reason).toMatch(/11000ms|Tasks-augmented/);
+        expect(hint!.verb).toBe('retry_with_task');
+        expect(hint!.ttl_suggestion_ms).toBe(60_000);
+        expect(typeof hint!.reason).toBe('string');
+        expect(hint!.reason).toMatch(/11000ms|Tasks-augmented/);
       } finally {
         restore();
       }
@@ -1619,7 +1619,7 @@ describe('dispatch', () => {
         expect(result.success).toBe(true);
         const nextActions = (result as ToolResult & { next_actions?: readonly { verb: string }[] }).next_actions;
         if (nextActions !== undefined && nextActions.length > 0) {
-          expect(nextActions[0].verb).not.toBe('retry_with_task');
+          expect(nextActions[0]!.verb).not.toBe('retry_with_task');
         }
         // Stronger: no entry anywhere in the array is the hint verb.
         const hasHint = (nextActions ?? []).some((n) => n.verb === 'retry_with_task');
@@ -1746,9 +1746,9 @@ describe('dispatch', () => {
         const nextActions = (result as ToolResult & { next_actions?: readonly { verb: string; ttl_suggestion_ms?: number }[] }).next_actions;
         expect(nextActions).toBeDefined();
         expect(nextActions!.length).toBe(2);
-        expect(nextActions![0].verb).toBe('retry_with_task');
-        expect(nextActions![0].ttl_suggestion_ms).toBe(60_000);
-        expect(nextActions![1].verb).toBe('completed');
+        expect(nextActions![0]!.verb).toBe('retry_with_task');
+        expect(nextActions![0]!.ttl_suggestion_ms).toBe(60_000);
+        expect(nextActions![1]!.verb).toBe('completed');
         // _meta correlation block must still be attached by attachMeta.
         const meta = (result as ToolResult & { _meta?: Record<string, unknown> })._meta;
         expect(meta).toBeDefined();

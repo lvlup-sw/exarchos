@@ -55,6 +55,6 @@ describe('CodeQualityView - promptVersion', () => {
 
     const next = codeQualityProjection.apply(state, event);
     expect(next.skills['delegation']).toBeDefined();
-    expect(next.skills['delegation'].latestPromptVersion).toBe('2.1.0');
+    expect(next.skills['delegation']!.latestPromptVersion).toBe('2.1.0');
   });
 });

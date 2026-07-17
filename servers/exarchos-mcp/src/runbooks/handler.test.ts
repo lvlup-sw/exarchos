@@ -55,7 +55,7 @@ describe('handleRunbook', () => {
     expect(data.steps.length).toBeGreaterThan(0);
     // Verify seq numbers are 1-based
     for (let i = 0; i < data.steps.length; i++) {
-      expect(data.steps[i].seq).toBe(i + 1);
+      expect(data.steps[i]!.seq).toBe(i + 1);
     }
   });
 

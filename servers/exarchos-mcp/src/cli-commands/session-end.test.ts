@@ -174,8 +174,8 @@ describe('session-end command', () => {
       // Assert
       expect(writeManifestCompletion).toHaveBeenCalledOnce();
       const callArgs = vi.mocked(writeManifestCompletion).mock.calls[0];
-      expect(callArgs[0]).toBe(stateDir);
-      const completion = callArgs[1];
+      expect(callArgs![0]).toBe(stateDir);
+      const completion = callArgs![1];
       expect(completion.sessionId).toBe(sessionId);
       expect(completion.endReason).toBe('user_exit');
       expect(completion.toolCalls).toBe(1); // 1 Read tool call
@@ -284,7 +284,7 @@ describe('session-end command', () => {
 
       // Assert
       const callArgs = vi.mocked(writeManifestCompletion).mock.calls[0];
-      expect(callArgs[1].endReason).toBe('unknown');
+      expect(callArgs![1].endReason).toBe('unknown');
     });
   });
 

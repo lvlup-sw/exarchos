@@ -138,7 +138,7 @@ describe('projectAt — cold bounded fold (T2)', () => {
     const events = await store.query(streamId);
     const pivot = events[3]; // sequence 4
 
-    const tsBound: AsOfBound = { untilTimestamp: pivot.timestamp };
+    const tsBound: AsOfBound = { untilTimestamp: pivot!.timestamp };
 
     // WHEN we project at the timestamp ceiling.
     const actual = await projectAt(countReducer, store, streamId, tsBound);
@@ -148,7 +148,7 @@ describe('projectAt — cold bounded fold (T2)', () => {
     //   fold at untilSequence: pivot.sequence.
     const oracleTs = foldOracle(countReducer, events, tsBound);
     const oracleSeq = foldOracle(countReducer, events, {
-      untilSequence: pivot.sequence,
+      untilSequence: pivot!.sequence,
     });
     expect(actual).toStrictEqual(oracleTs);
     expect(actual).toStrictEqual(oracleSeq);

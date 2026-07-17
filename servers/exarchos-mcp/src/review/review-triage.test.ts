@@ -354,7 +354,7 @@ describe('dispatchReviews', () => {
   it('should include score and threshold in reason', () => {
     const dispatches = dispatchReviews([highRiskPR], 'elevated');
     const dispatch = dispatches[0];
-    expect(dispatch.reason).toContain(dispatch.riskScore.score.toFixed(2));
-    expect(dispatch.reason).toContain(String(THRESHOLDS.elevated));
+    expect(dispatch!.reason).toContain(dispatch!.riskScore.score.toFixed(2));
+    expect(dispatch!.reason).toContain(String(THRESHOLDS.elevated));
   });
 });

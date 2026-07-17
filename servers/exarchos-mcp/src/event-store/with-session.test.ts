@@ -76,8 +76,8 @@ describe('withSession<TState> — happy path (Task 3.8)', () => {
 
     const events = await eventStore.query(streamId);
     expect(events).toHaveLength(5);
-    expect(events[3].type).toBe('task.assigned');
-    expect(events[4].type).toBe('task.completed');
+    expect(events[3]!.type).toBe('task.assigned');
+    expect(events[4]!.type).toBe('task.completed');
   });
 
   it('WithSession_AcceptsAllowNonIdempotentOptOut', async () => {

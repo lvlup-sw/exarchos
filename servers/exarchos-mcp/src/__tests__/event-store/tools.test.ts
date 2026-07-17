@@ -188,12 +188,12 @@ describe('handleEventAppend', () => {
 
     const events = queryEvents(queryResult);
     expect(events).toHaveLength(1);
-    expect(events[0].streamId).toBe('my-workflow');
-    expect(events[0].sequence).toBe(1);
-    expect(events[0].type).toBe('workflow.started');
-    expect(events[0].data).toEqual({ featureId: 'test-feature', workflowType: 'feature' });
-    expect(events[0].correlationId).toBe('corr-1');
-    expect(events[0].agentId).toBe('agent-1');
+    expect(events[0]!.streamId).toBe('my-workflow');
+    expect(events[0]!.sequence).toBe(1);
+    expect(events[0]!.type).toBe('workflow.started');
+    expect(events[0]!.data).toEqual({ featureId: 'test-feature', workflowType: 'feature' });
+    expect(events[0]!.correlationId).toBe('corr-1');
+    expect(events[0]!.agentId).toBe('agent-1');
   });
 
   it('should return conflict error for stale expectedSequence', async () => {
@@ -294,7 +294,7 @@ describe('handleEventQuery', () => {
     expect(result.success).toBe(true);
     const filtered = queryEvents(result);
     expect(filtered).toHaveLength(1);
-    expect(filtered[0].sequence).toBe(3);
+    expect(filtered[0]!.sequence).toBe(3);
   });
 
   it('should return empty for nonexistent stream', async () => {
@@ -404,8 +404,8 @@ describe('handleEventQuery Fields Projection', () => {
     // Only requested fields should be present
     const keys = Object.keys(events[0]).sort();
     expect(keys).toEqual(['sequence', 'type']);
-    expect(events[0].type).toBe('workflow.started');
-    expect(events[0].sequence).toBe(1);
+    expect(events[0]!.type).toBe('workflow.started');
+    expect(events[0]!.sequence).toBe(1);
   });
 
   it('handleEventQuery_WithFieldsTypeTimestamp_ReturnsMinimalEvents', async () => {

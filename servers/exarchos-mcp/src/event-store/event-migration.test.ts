@@ -112,8 +112,8 @@ describe('Event Migration', () => {
 
       const [result] = migrateEvents([old], [fixture]);
 
-      expect(result.schemaVersion).toBe(EVENT_SCHEMA_VERSION);
-      expect((result.data as { upgraded?: boolean }).upgraded).toBe(true);
+      expect(result!.schemaVersion).toBe(EVENT_SCHEMA_VERSION);
+      expect((result!.data as { upgraded?: boolean }).upgraded).toBe(true);
     });
 
     it('MigrateEvents_FixtureMigration_LeavesNonMatchingTypesUntouched', () => {
@@ -130,8 +130,8 @@ describe('Event Migration', () => {
       const [result] = migrateEvents([other], [fixture]);
 
       // No matching migration → forward-compat as-is (still 0.9, not rewritten).
-      expect(result.schemaVersion).toBe('0.9');
-      expect(result.rewritten).toBeUndefined();
+      expect(result!.schemaVersion).toBe('0.9');
+      expect(result!.rewritten).toBeUndefined();
     });
   });
 
@@ -543,8 +543,8 @@ describe('Event Migration', () => {
       }>;
 
       expect(events).toHaveLength(1);
-      expect(events[0].data).toBeTruthy();
-      const data = JSON.parse(events[0].data!) as { streamId?: string };
+      expect(events[0]!.data).toBeTruthy();
+      const data = JSON.parse(events[0]!.data!) as { streamId?: string };
       expect(data.streamId).toBe('feat-z');
     });
   });

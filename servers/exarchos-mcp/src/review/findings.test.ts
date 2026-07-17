@@ -82,8 +82,8 @@ describe('emitReviewFindings', () => {
     );
 
     expect(mockEventStore.append).toHaveBeenCalledTimes(2);
-    expect(mockEventStore.append.mock.calls[0][1].data.severity).toBe('critical');
-    expect(mockEventStore.append.mock.calls[1][1].data.severity).toBe('minor');
+    expect(mockEventStore.append.mock.calls[0]![1].data.severity).toBe('critical');
+    expect(mockEventStore.append.mock.calls[1]![1].data.severity).toBe('minor');
   });
 
   it('EmitReviewFinding_EmptyFindings_NoEvents', async () => {

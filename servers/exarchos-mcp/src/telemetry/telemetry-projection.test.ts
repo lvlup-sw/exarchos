@@ -58,10 +58,10 @@ describe('TelemetryProjection', () => {
       state = telemetryProjection.apply(state, event);
 
       expect(state.tools['workflow_get']).toBeDefined();
-      expect(state.tools['workflow_get'].invocations).toBe(1);
-      expect(state.tools['workflow_get'].totalDurationMs).toBe(15);
-      expect(state.tools['workflow_get'].totalBytes).toBe(400);
-      expect(state.tools['workflow_get'].totalTokens).toBe(100);
+      expect(state.tools['workflow_get']!.invocations).toBe(1);
+      expect(state.tools['workflow_get']!.totalDurationMs).toBe(15);
+      expect(state.tools['workflow_get']!.totalBytes).toBe(400);
+      expect(state.tools['workflow_get']!.totalTokens).toBe(100);
       expect(state.totalInvocations).toBe(1);
       expect(state.totalTokens).toBe(100);
     });
@@ -72,11 +72,11 @@ describe('TelemetryProjection', () => {
       state = telemetryProjection.apply(state, makeEvent('tool.completed', { tool: 't', durationMs: 20, responseBytes: 400, tokenEstimate: 100 }));
       state = telemetryProjection.apply(state, makeEvent('tool.completed', { tool: 't', durationMs: 30, responseBytes: 600, tokenEstimate: 150 }));
 
-      expect(state.tools['t'].invocations).toBe(3);
-      expect(state.tools['t'].totalDurationMs).toBe(60);
-      expect(state.tools['t'].totalTokens).toBe(300);
+      expect(state.tools['t']!.invocations).toBe(3);
+      expect(state.tools['t']!.totalDurationMs).toBe(60);
+      expect(state.tools['t']!.totalTokens).toBe(300);
       // p50 of [10, 20, 30] = 20
-      expect(state.tools['t'].p50DurationMs).toBe(20);
+      expect(state.tools['t']!.p50DurationMs).toBe(20);
     });
 
     it('should track separate entries for different tools', () => {
@@ -100,12 +100,12 @@ describe('TelemetryProjection', () => {
         }));
       }
 
-      expect(state.tools['perc'].p50DurationMs).toBe(50);
-      expect(state.tools['perc'].p95DurationMs).toBe(95);
-      expect(state.tools['perc'].p50Bytes).toBe(500);
-      expect(state.tools['perc'].p95Bytes).toBe(950);
-      expect(state.tools['perc'].p50Tokens).toBe(100);
-      expect(state.tools['perc'].p95Tokens).toBe(190);
+      expect(state.tools['perc']!.p50DurationMs).toBe(50);
+      expect(state.tools['perc']!.p95DurationMs).toBe(95);
+      expect(state.tools['perc']!.p50Bytes).toBe(500);
+      expect(state.tools['perc']!.p95Bytes).toBe(950);
+      expect(state.tools['perc']!.p50Tokens).toBe(100);
+      expect(state.tools['perc']!.p95Tokens).toBe(190);
     });
   });
 
@@ -114,8 +114,8 @@ describe('TelemetryProjection', () => {
       let state = telemetryProjection.init();
       state = telemetryProjection.apply(state, makeEvent('tool.errored', { tool: 'x', durationMs: 5, errorMessage: 'TIMEOUT' }));
 
-      expect(state.tools['x'].errors).toBe(1);
-      expect(state.tools['x'].invocations).toBe(0);
+      expect(state.tools['x']!.errors).toBe(1);
+      expect(state.tools['x']!.invocations).toBe(0);
     });
 
     it('should track errors alongside invocations', () => {
@@ -123,17 +123,17 @@ describe('TelemetryProjection', () => {
       state = telemetryProjection.apply(state, makeEvent('tool.completed', { tool: 'x', durationMs: 10, responseBytes: 100, tokenEstimate: 25 }));
       state = telemetryProjection.apply(state, makeEvent('tool.errored', { tool: 'x', durationMs: 5, errorMessage: 'ERR' }));
 
-      expect(state.tools['x'].invocations).toBe(1);
-      expect(state.tools['x'].errors).toBe(1);
+      expect(state.tools['x']!.invocations).toBe(1);
+      expect(state.tools['x']!.errors).toBe(1);
     });
 
     it('should not add to durations or sizes arrays for errored events', () => {
       let state = telemetryProjection.init();
       state = telemetryProjection.apply(state, makeEvent('tool.errored', { tool: 'x', durationMs: 5, errorMessage: 'ERR' }));
 
-      expect(state.tools['x'].durations).toEqual([]);
-      expect(state.tools['x'].sizes).toEqual([]);
-      expect(state.tools['x'].tokenEstimates).toEqual([]);
+      expect(state.tools['x']!.durations).toEqual([]);
+      expect(state.tools['x']!.sizes).toEqual([]);
+      expect(state.tools['x']!.tokenEstimates).toEqual([]);
     });
   });
 
@@ -168,11 +168,11 @@ describe('TelemetryProjection', () => {
         }));
       }
 
-      expect(state.tools['flood'].durations).toHaveLength(1000);
-      expect(state.tools['flood'].sizes).toHaveLength(1000);
-      expect(state.tools['flood'].tokenEstimates).toHaveLength(1000);
+      expect(state.tools['flood']!.durations).toHaveLength(1000);
+      expect(state.tools['flood']!.sizes).toHaveLength(1000);
+      expect(state.tools['flood']!.tokenEstimates).toHaveLength(1000);
       // Newest entries retained (oldest dropped)
-      expect(state.tools['flood'].durations[0]).toBe(5); // dropped 0-4
+      expect(state.tools['flood']!.durations[0]).toBe(5); // dropped 0-4
     });
 
     it('should still compute correct totals beyond window cap', () => {
@@ -187,10 +187,10 @@ describe('TelemetryProjection', () => {
       }
 
       // Totals accumulate beyond window
-      expect(state.tools['flood'].invocations).toBe(1005);
-      expect(state.tools['flood'].totalDurationMs).toBe(1005);
-      expect(state.tools['flood'].totalBytes).toBe(10050);
-      expect(state.tools['flood'].totalTokens).toBe(2010);
+      expect(state.tools['flood']!.invocations).toBe(1005);
+      expect(state.tools['flood']!.totalDurationMs).toBe(1005);
+      expect(state.tools['flood']!.totalBytes).toBe(10050);
+      expect(state.tools['flood']!.totalTokens).toBe(2010);
       expect(state.totalInvocations).toBe(1005);
       expect(state.totalTokens).toBe(2010);
     });
@@ -210,10 +210,10 @@ describe('TelemetryProjection', () => {
       state = telemetryProjection.apply(state, event);
 
       expect(state.tools['workflow_get']).toBeDefined();
-      expect(state.tools['workflow_get'].invocations).toBe(1);
-      expect(state.tools['workflow_get'].totalDurationMs).toBe(15);
-      expect(state.tools['workflow_get'].totalBytes).toBe(400);
-      expect(state.tools['workflow_get'].totalTokens).toBe(100);
+      expect(state.tools['workflow_get']!.invocations).toBe(1);
+      expect(state.tools['workflow_get']!.totalDurationMs).toBe(15);
+      expect(state.tools['workflow_get']!.totalBytes).toBe(400);
+      expect(state.tools['workflow_get']!.totalTokens).toBe(100);
       expect(state.totalInvocations).toBe(1);
       expect(state.totalTokens).toBe(100);
     });
@@ -276,8 +276,8 @@ describe('TelemetryProjection', () => {
         tokenEstimate: 'garbage',
       }));
 
-      expect(state.tools['test_tool'].totalBytes).toBe(0);
-      expect(state.tools['test_tool'].totalTokens).toBe(0);
+      expect(state.tools['test_tool']!.totalBytes).toBe(0);
+      expect(state.tools['test_tool']!.totalTokens).toBe(0);
     });
   });
 
@@ -294,8 +294,8 @@ describe('TelemetryProjection', () => {
       state = telemetryProjection.apply(state, event);
 
       expect(state.tools['workflow_set']).toBeDefined();
-      expect(state.tools['workflow_set'].errors).toBe(1);
-      expect(state.tools['workflow_set'].invocations).toBe(0);
+      expect(state.tools['workflow_set']!.errors).toBe(1);
+      expect(state.tools['workflow_set']!.invocations).toBe(0);
     });
 
     it('Apply_ToolErrored_MissingFields_ReturnsViewUnchanged', () => {
@@ -388,13 +388,13 @@ describe('TelemetryProjection_ActionErrored_AggregatesByTool', () => {
     const entry = state.tools['exarchos_orchestrate'];
     expect(entry).toBeDefined();
     // invocations counts tool.completed only (existing rule retained).
-    expect(entry.invocations).toBe(5);
+    expect(entry!.invocations).toBe(5);
     // errors counts transport (tool.errored) only.
-    expect(entry.errors).toBe(1);
+    expect(entry!.errors).toBe(1);
     // actionErrors = sum of action-errored events for this tool.
-    expect(entry.actionErrors).toBe(3);
+    expect(entry!.actionErrors).toBe(3);
     // Breakdown by errorCode.
-    expect(entry.actionErrorBreakdown).toEqual({
+    expect(entry!.actionErrorBreakdown).toEqual({
       MERGE_ROLLED_BACK: 2,
       PREFLIGHT_FAILED: 1,
     });
@@ -450,11 +450,11 @@ describe('TelemetryProjection_ActionErrored_AggregatesByTool', () => {
     }));
 
     expect(state.tools['fresh_tool']).toBeDefined();
-    expect(state.tools['fresh_tool'].actionErrors).toBe(1);
-    expect(state.tools['fresh_tool'].actionErrorBreakdown).toEqual({ INVALID_INPUT: 1 });
+    expect(state.tools['fresh_tool']!.actionErrors).toBe(1);
+    expect(state.tools['fresh_tool']!.actionErrorBreakdown).toEqual({ INVALID_INPUT: 1 });
     // No completed events folded — invocations stays 0.
-    expect(state.tools['fresh_tool'].invocations).toBe(0);
-    expect(state.tools['fresh_tool'].errors).toBe(0);
+    expect(state.tools['fresh_tool']!.invocations).toBe(0);
+    expect(state.tools['fresh_tool']!.errors).toBe(0);
   });
 });
 
@@ -478,8 +478,8 @@ describe('TelemetryProjection_OutputTokenHint', () => {
     // when a turn crosses the threshold (passed in tokens).
     const hints = computeOutputTokenHints(state, 25600);
     expect(hints).toHaveLength(1);
-    expect(hints[0].verb).toBe('checkpoint');
-    expect(hints[0].reason).toMatch(/output tokens/i);
+    expect(hints[0]!.verb).toBe('checkpoint');
+    expect(hints[0]!.reason).toMatch(/output tokens/i);
   });
 
   it('TelemetryProjection_BelowThreshold_NoHint', () => {
@@ -526,7 +526,7 @@ describe('TelemetryProjection_OutputTokenHint', () => {
 
     const hints = computeOutputTokenHints(state, 25600);
     expect(hints).toHaveLength(1);
-    expect(hints[0].verb).toBe('checkpoint');
+    expect(hints[0]!.verb).toBe('checkpoint');
   });
 
   it('TelemetryProjection_MultipleTurns_LatestBelowThreshold_EmitsNoHint', () => {

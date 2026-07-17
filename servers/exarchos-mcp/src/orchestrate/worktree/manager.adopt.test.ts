@@ -155,8 +155,8 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.adopt (real git +
     expect(eventsOfType(store, 'worktree.created')).toHaveLength(0);
     // Folds to state `adopted`, owner cleared.
     const proj = await projection(store);
-    expect(proj.worktrees[wtId].state).toBe('adopted');
-    expect(proj.worktrees[wtId].ownerPid).toBeNull();
+    expect(proj.worktrees[wtId]!.state).toBe('adopted');
+    expect(proj.worktrees[wtId]!.ownerPid).toBeNull();
   });
 
   // ─── adopt: no harness-specific creation assumption ───────────────────────
@@ -178,8 +178,8 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.adopt (real git +
     expect(adoptedIds.has(canonicalWorktreeId(agentPath))).toBe(true);
     expect(adoptedIds.has(canonicalWorktreeId(plainPath))).toBe(true);
     const proj = await projection(store);
-    expect(proj.worktrees[canonicalWorktreeId(agentPath)].state).toBe('adopted');
-    expect(proj.worktrees[canonicalWorktreeId(plainPath)].state).toBe('adopted');
+    expect(proj.worktrees[canonicalWorktreeId(agentPath)]!.state).toBe('adopted');
+    expect(proj.worktrees[canonicalWorktreeId(plainPath)]!.state).toBe('adopted');
   });
 
   // ─── adopt: hand-made worktree records featureId null ─────────────────────
@@ -202,7 +202,7 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.adopt (real git +
     expect(adoptedEvent).toBeDefined();
     expect(strField(adoptedEvent as WorkflowEvent, 'featureId')).toBeNull();
     const proj = await projection(store);
-    expect(proj.worktrees[wtId].featureId).toBeNull();
+    expect(proj.worktrees[wtId]!.featureId).toBeNull();
   });
 
   // ─── adopt: stale-after-push re-verify before mutation ────────────────────
@@ -274,7 +274,7 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.adopt (real git +
       ownerStartedAt: 'boot-4242',
     });
     await manager.release(wtId);
-    expect((await projection(store)).worktrees[wtId].state).toBe('released');
+    expect((await projection(store)).worktrees[wtId]!.state).toBe('released');
 
     // An adopt pass over the live repo must NOT recycle it: no warm pool means
     // the released entry stays `released` (GC-eligible), not re-adopted/reserved.
@@ -282,9 +282,9 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.adopt (real git +
     expect(result.adopted).not.toContain(wtId);
 
     const proj = await projection(store);
-    expect(proj.worktrees[wtId].state).toBe('released');
+    expect(proj.worktrees[wtId]!.state).toBe('released');
     // GC-eligibility is state-based: released ∈ {released, orphan}.
-    expect(['released', 'orphan']).toContain(proj.worktrees[wtId].state);
+    expect(['released', 'orphan']).toContain(proj.worktrees[wtId]!.state);
     // Adoption minted no second reservation (no pool checkout).
     expect(eventsOfType(store, 'worktree.reserved')).toHaveLength(1);
   });

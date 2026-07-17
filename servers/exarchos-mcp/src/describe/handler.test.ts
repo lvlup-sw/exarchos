@@ -41,7 +41,7 @@ describe('handleDescribe', () => {
     const result = await handleDescribe({ actions: ['init'] }, workflowTool.actions);
     expect(result.success).toBe(true);
     const data = result.data as Record<string, Record<string, unknown>>;
-    expect(data.init.autoEmits).toEqual([
+    expect(data.init!.autoEmits).toEqual([
       { event: 'workflow.started', condition: 'always' },
     ]);
   });
@@ -51,8 +51,8 @@ describe('handleDescribe', () => {
     expect(result.success).toBe(true);
     const data = result.data as Record<string, Record<string, unknown>>;
     // autoEmits should be omitted entirely (not null, not empty array)
-    expect(data.get.autoEmits).toBeUndefined();
-    expect('autoEmits' in data.get).toBe(false);
+    expect(data.get!.autoEmits).toBeUndefined();
+    expect('autoEmits' in data.get!).toBe(false);
   });
 
   // ─── T8 (#1440 Op 2, preview-4) — DispatchHints projection ───────────
@@ -87,7 +87,7 @@ describe('handleDescribe', () => {
     const result = await handleDescribe({ actions: ['fixture_with_dispatch'] }, [fixture]);
     expect(result.success).toBe(true);
     const data = result.data as Record<string, Record<string, unknown>>;
-    expect(data.fixture_with_dispatch.dispatch).toEqual({
+    expect(data.fixture_with_dispatch!.dispatch).toEqual({
       taskSuitable: true,
       taskTtlSuggestionMs: 60_000,
     });
@@ -114,8 +114,8 @@ describe('handleDescribe', () => {
     expect(result.success).toBe(true);
     const data = result.data as Record<string, Record<string, unknown>>;
     // dispatch should be omitted entirely (not null, not empty object)
-    expect(data.fixture_no_dispatch.dispatch).toBeUndefined();
-    expect('dispatch' in data.fixture_no_dispatch).toBe(false);
+    expect(data.fixture_no_dispatch!.dispatch).toBeUndefined();
+    expect('dispatch' in data.fixture_no_dispatch!).toBe(false);
   });
 
   it('HandleDescribe_GateMetadata_IncludedWhenPresent', async () => {
@@ -166,9 +166,9 @@ describe('handleEventTypeDescribe', () => {
     const data = result.data as Record<string, Record<string, unknown>>;
     expect(data).toHaveProperty('shepherd.iteration');
     const desc = data['shepherd.iteration'];
-    expect(desc.schema).not.toBeNull();
-    expect(desc.source).toBe('model');
-    expect(desc.isBuiltIn).toBe(true);
+    expect(desc!.schema).not.toBeNull();
+    expect(desc!.source).toBe('model');
+    expect(desc!.isBuiltIn).toBe(true);
   });
 
   it('EventTypeDescribe_MultipleTypes_ReturnsAll', async () => {
@@ -192,14 +192,14 @@ describe('handleEventTypeDescribe', () => {
     const result = await handleEventTypeDescribe(['workflow.started']);
     expect(result.success).toBe(true);
     const data = result.data as Record<string, Record<string, unknown>>;
-    expect(data['workflow.started'].source).toBe('auto');
+    expect(data['workflow.started']!.source).toBe('auto');
   });
 
   it('EventTypeDescribe_SchemaContainsProperties_HasJsonSchema', async () => {
     const result = await handleEventTypeDescribe(['task.completed']);
     expect(result.success).toBe(true);
     const data = result.data as Record<string, Record<string, unknown>>;
-    const schema = data['task.completed'].schema as Record<string, unknown>;
+    const schema = data['task.completed']!.schema as Record<string, unknown>;
     // JSON Schema should have type and properties
     expect(schema.type).toBe('object');
     expect(schema).toHaveProperty('properties');

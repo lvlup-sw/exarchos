@@ -86,7 +86,7 @@ describe('no hardcoded ~/.claude/ path constructions in production code', () => 
                 violations.push({
                   file: path.relative(srcDir, fullPath),
                   line: i + 1,
-                  content: lines[i].trim(),
+                  content: lines[i]!.trim(),
                 });
               }
             }

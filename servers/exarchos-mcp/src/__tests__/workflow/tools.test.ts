@@ -102,8 +102,8 @@ describe('Core Tools', () => {
 
       const events = await eventStore.query('emit-test');
       expect(events.length).toBe(1);
-      expect(events[0].type).toBe('workflow.started');
-      expect(events[0].data).toEqual({
+      expect(events[0]!.type).toBe('workflow.started');
+      expect(events[0]!.data).toEqual({
         featureId: 'emit-test',
         workflowType: 'feature',
       });
@@ -162,7 +162,7 @@ describe('Core Tools', () => {
 
       const events = await eventStore.query('corr-test');
       expect(events.length).toBe(1);
-      expect(events[0].correlationId).toBe('corr-test');
+      expect(events[0]!.correlationId).toBe('corr-test');
     });
   });
 
@@ -178,7 +178,7 @@ describe('Core Tools', () => {
 
       const events = await eventStore.query('src-test');
       expect(events.length).toBe(1);
-      expect(events[0].source).toBe('workflow');
+      expect(events[0]!.source).toBe('workflow');
     });
   });
 
@@ -216,8 +216,8 @@ describe('Core Tools', () => {
 
       const events = await eventStore.query('os-policy-event');
       expect(events).toHaveLength(1);
-      expect(events[0].type).toBe('workflow.started');
-      const data = events[0].data as {
+      expect(events[0]!.type).toBe('workflow.started');
+      const data = events[0]!.data as {
         workflowType?: string;
         synthesisPolicy?: string;
       };
@@ -244,7 +244,7 @@ describe('Core Tools', () => {
 
       const events = await eventStore.query('feat-policy-ignored');
       expect(events).toHaveLength(1);
-      const data = events[0].data as Record<string, unknown>;
+      const data = events[0]!.data as Record<string, unknown>;
       expect(data.synthesisPolicy).toBeUndefined();
     });
 
@@ -259,7 +259,7 @@ describe('Core Tools', () => {
 
       const events = await eventStore.query('os-default-event');
       expect(events).toHaveLength(1);
-      const data = events[0].data as Record<string, unknown>;
+      const data = events[0]!.data as Record<string, unknown>;
       expect(data.synthesisPolicy).toBeUndefined();
     });
   });
@@ -366,7 +366,7 @@ describe('Core Tools', () => {
       expect(result.success).toBe(true);
       const data = result.data as Array<Record<string, unknown>>;
       expect(data).toHaveLength(1);
-      expect(data[0].featureId).toBe('good-wf');
+      expect(data[0]!.featureId).toBe('good-wf');
 
       // Verify warnings are included
       const warnings = result.warnings as string[];
@@ -923,7 +923,7 @@ describe('Core Tools', () => {
 
       const events = await eventStore.query('set-corr-test', { type: 'workflow.transition' });
       expect(events.length).toBeGreaterThanOrEqual(1);
-      expect(events[0].correlationId).toBe('set-corr-test');
+      expect(events[0]!.correlationId).toBe('set-corr-test');
     });
   });
 
@@ -950,7 +950,7 @@ describe('Core Tools', () => {
 
       const events = await eventStore.query('set-src-test', { type: 'workflow.transition' });
       expect(events.length).toBeGreaterThanOrEqual(1);
-      expect(events[0].source).toBe('workflow');
+      expect(events[0]!.source).toBe('workflow');
     });
   });
 
@@ -1155,8 +1155,8 @@ describe('Core Tools', () => {
 
       const events = await eventStore.query('ckpt-meta', { type: 'workflow.checkpoint' });
       expect(events.length).toBe(1);
-      expect(events[0].correlationId).toBe('ckpt-meta');
-      expect(events[0].source).toBe('workflow');
+      expect(events[0]!.correlationId).toBe('ckpt-meta');
+      expect(events[0]!.source).toBe('workflow');
     });
   });
 });
@@ -1807,8 +1807,8 @@ describe('External Event Store Bridge', () => {
     // Query external event store for workflow.checkpoint events
     const events = await eventStore.query('cp-bridge', { type: 'workflow.checkpoint' });
     expect(events.length).toBe(1);
-    expect((events[0].data as Record<string, unknown>)?.phase).toBe('plan');
-    expect((events[0].data as Record<string, unknown>)?.featureId).toBe('cp-bridge');
+    expect((events[0]!.data as Record<string, unknown>)?.phase).toBe('plan');
+    expect((events[0]!.data as Record<string, unknown>)?.featureId).toBe('cp-bridge');
   });
 });
 
@@ -1834,7 +1834,7 @@ describe('Diagnostic Event Emission', () => {
     // Query external event store for workflow.guard-failed events
     const events = await eventStore.query('guard-diag', { type: 'workflow.guard-failed' });
     expect(events.length).toBe(1);
-    const data = events[0].data as Record<string, unknown>;
+    const data = events[0]!.data as Record<string, unknown>;
     expect(data.guard).toBe('plan-artifact-exists');
     expect(data.from).toBe('plan');
     expect(data.to).toBe('plan-review');
@@ -1910,7 +1910,7 @@ describe('Diagnostic Event Emission', () => {
     // Query external event store for workflow.circuit-open events
     const events = await eventStore.query('circuit-diag', { type: 'workflow.circuit-open' });
     expect(events.length).toBe(1);
-    const data = events[0].data as Record<string, unknown>;
+    const data = events[0]!.data as Record<string, unknown>;
     expect(data.featureId).toBe('circuit-diag');
     expect(data.compoundId).toBe('implementation');
   });
@@ -2040,7 +2040,7 @@ describe('Guaranteed Event Append', () => {
     // Assert: the checkpoint event should have an idempotency key
     const checkpointCalls = appendCalls.filter((c) => c.type === 'workflow.checkpoint');
     expect(checkpointCalls.length).toBe(1);
-    expect(checkpointCalls[0].idempotencyKey).toBeDefined();
+    expect(checkpointCalls[0]!.idempotencyKey).toBeDefined();
     // Key pattern: ${featureId}:checkpoint:${phase}:${version}:${handoffDigest}
     // The version used in the key is the state's version at read time (before checkpoint writes).
     // handleInit writes with version increment, so the on-disk version after init is 2,
@@ -2049,7 +2049,7 @@ describe('Guaranteed Event Append', () => {
     // is appended so refinement calls within the same phase land as
     // distinct events. No-handoff calls produce a stable digest (`{}`),
     // preserving prior dedup behavior.
-    expect(checkpointCalls[0].idempotencyKey).toMatch(
+    expect(checkpointCalls[0]!.idempotencyKey).toMatch(
       /^ckpt-idem-key:checkpoint:plan:\d+:[0-9a-f]{16}$/,
     );
   });
@@ -2228,8 +2228,8 @@ describe('Store-Based Event Consumers', () => {
 
     const recent = await getRecentEventsFromStore(eventStore, 'recent-test', 3);
     expect(recent).toHaveLength(3);
-    expect(recent[0].type).toBe('workflow.transition');
-    expect(recent[2].type).toBe('task.completed');
+    expect(recent[0]!.type).toBe('workflow.transition');
+    expect(recent[2]!.type).toBe('task.completed');
   });
 });
 
@@ -2349,12 +2349,12 @@ describe('handleInit_EventFirst', () => {
     // Assert — event should exist
     const events = await eventStore.query('ef-init');
     expect(events.length).toBe(1);
-    expect(events[0].type).toBe('workflow.started');
+    expect(events[0]!.type).toBe('workflow.started');
 
     // Assert — state file should exist with _eventSequence matching event
     const stateFile = path.join(tmpDir, 'ef-init.state.json');
     const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
-    expect(raw._eventSequence).toBe(events[0].sequence);
+    expect(raw._eventSequence).toBe(events[0]!.sequence);
   });
 
   it('should fail and NOT create state file if event append fails', async () => {
@@ -2416,17 +2416,17 @@ describe('handleSet_EventFirst', () => {
     const events = await eventStore.query('ef-set');
     const transitions = events.filter(e => e.type === 'workflow.transition');
     expect(transitions.length).toBe(1);
-    expect((transitions[0].data as Record<string, unknown>).from).toBe('plan');
-    expect((transitions[0].data as Record<string, unknown>).to).toBe('plan-review');
+    expect((transitions[0]!.data as Record<string, unknown>).from).toBe('plan');
+    expect((transitions[0]!.data as Record<string, unknown>).to).toBe('plan-review');
 
     // State _eventSequence advances to cover the DR-13 phase.entered freeze,
     // which is appended AFTER the transition (a higher sequence). The cursor
     // tracks the highest sequence on the stream, not the transition's own.
     const entered = events.filter((e) => e.type === 'phase.entered');
     expect(entered.length).toBe(1);
-    expect(entered[0].sequence).toBeGreaterThan(transitions[0].sequence);
+    expect(entered[0]!.sequence).toBeGreaterThan(transitions[0]!.sequence);
     const raw = JSON.parse(await fs.readFile(path.join(tmpDir, 'ef-set.state.json'), 'utf-8'));
-    expect(raw._eventSequence).toBe(entered[0].sequence);
+    expect(raw._eventSequence).toBe(entered[0]!.sequence);
 
     // No eventWarning in response
     expect((result.data as Record<string, unknown>).eventWarning).toBeUndefined();
@@ -2493,8 +2493,8 @@ describe('handleSet_EventFirst', () => {
     // Verify event has idempotencyKey set
     const events = await eventStore.query('ef-idem');
     const transitions = events.filter(e => e.type === 'workflow.transition');
-    expect(transitions[0].idempotencyKey).toBeDefined();
-    expect(transitions[0].idempotencyKey).toContain('ef-idem');
+    expect(transitions[0]!.idempotencyKey).toBeDefined();
+    expect(transitions[0]!.idempotencyKey).toContain('ef-idem');
   });
 
   it('should emit state.patched event for v2 field-only updates', async () => {
@@ -2641,8 +2641,8 @@ describe('reconcileTasks_DriftDetected_ReportsMismatch', () => {
       exarchosStatus: 'pending',
       nativeStatus: 'completed',
     });
-    expect(report.drift[0].recommendation).toBeDefined();
-    expect(report.drift[0].recommendation.length).toBeGreaterThan(0);
+    expect(report.drift[0]!.recommendation).toBeDefined();
+    expect(report.drift[0]!.recommendation.length).toBeGreaterThan(0);
   });
 });
 
@@ -2665,7 +2665,7 @@ describe('reconcileTasks_NativeCompleted_WorkflowPending_RecommendsUpdate', () =
 
     // Assert
     expect(report.drift).toHaveLength(1);
-    expect(report.drift[0].recommendation).toContain('complete');
+    expect(report.drift[0]!.recommendation).toContain('complete');
   });
 });
 
@@ -2734,7 +2734,7 @@ describe('reconcileTasks_UnmatchedNativeTask_ReportsUntracked', () => {
       exarchosStatus: null,
       nativeStatus: 'in_progress',
     });
-    expect(report.drift[0].recommendation).toContain('Untracked');
+    expect(report.drift[0]!.recommendation).toContain('Untracked');
   });
 });
 
@@ -2759,7 +2759,7 @@ describe('reconcileTasks_MissingNativeTask_ReportsMissing', () => {
       exarchosStatus: 'in_progress',
       nativeStatus: null,
     });
-    expect(report.drift[0].recommendation).toContain('missing');
+    expect(report.drift[0]!.recommendation).toContain('missing');
   });
 });
 
@@ -2798,8 +2798,8 @@ describe('ToolReconcile_WithNativeTaskId_IncludesTaskDrift', () => {
     const taskDrift = data.taskDrift as { skipped: boolean; drift: Array<Record<string, unknown>> };
     expect(taskDrift.skipped).toBe(false);
     expect(taskDrift.drift).toHaveLength(1);
-    expect(taskDrift.drift[0].exarchosStatus).toBe('pending');
-    expect(taskDrift.drift[0].nativeStatus).toBe('completed');
+    expect(taskDrift.drift[0]!.exarchosStatus).toBe('pending');
+    expect(taskDrift.drift[0]!.nativeStatus).toBe('completed');
   });
 });
 
@@ -2935,7 +2935,7 @@ describe('HandleSet CAS Diagnostic', () => {
     const events = await eventStore.query('cas-diag');
     const casFailedEvents = events.filter(e => e.type === 'workflow.cas-failed');
     expect(casFailedEvents).toHaveLength(1);
-    const casFailedData = casFailedEvents[0].data as Record<string, unknown>;
+    const casFailedData = casFailedEvents[0]!.data as Record<string, unknown>;
     expect(casFailedData.featureId).toBe('cas-diag');
     expect(casFailedData.phase).toBeDefined();
     expect(casFailedData.retries).toBeDefined();
@@ -2980,7 +2980,7 @@ describe('HandleSet CAS Diagnostic', () => {
       const casFailedEvents = events.filter(e => e.type === 'workflow.cas-failed');
       expect(casFailedEvents).toHaveLength(1);
 
-      const data = casFailedEvents[0].data as Record<string, unknown>;
+      const data = casFailedEvents[0]!.data as Record<string, unknown>;
 
       // Shape validation: parse through the Zod schema to confirm compliance
       const parseResult = WorkflowCasFailedData.safeParse(data);
@@ -3230,7 +3230,7 @@ describe('HandleSet_EsVersion2_FieldUpdates_EmitsStatePatchedEvent', () => {
     const patchedEvents = events.filter(e => e.type === 'state.patched');
     expect(patchedEvents).toHaveLength(1);
 
-    const patchedData = patchedEvents[0].data as Record<string, unknown>;
+    const patchedData = patchedEvents[0]!.data as Record<string, unknown>;
     expect(patchedData.featureId).toBe('es-set-patch');
     expect(patchedData.fields).toEqual(['tasks']);
     expect(patchedData.patch).toEqual({
@@ -3277,11 +3277,11 @@ describe('HandleSet_EsVersion2_PhaseAndFields_EmitsBothEvents', () => {
 
     // Verify the transition event
     const lastTransition = transitionEvents[transitionEvents.length - 1];
-    const transitionData = lastTransition.data as Record<string, unknown>;
+    const transitionData = lastTransition!.data as Record<string, unknown>;
     expect(transitionData.to).toBe('plan-review');
 
     // Verify the patched event
-    const patchedData = patchedEvents[0].data as Record<string, unknown>;
+    const patchedData = patchedEvents[0]!.data as Record<string, unknown>;
     expect(patchedData.fields).toEqual(['artifacts.plan']);
     expect(patchedData.patch).toEqual({ 'artifacts.plan': 'docs/specs/x.md' });
   });
@@ -3379,7 +3379,7 @@ describe('HandleSet_EsVersion2_IdempotencyKey_PreventsDuplicates', () => {
     expect(patchedEvents).toHaveLength(1);
 
     // The event should be the pre-seeded one, not the handleSet one
-    const data = patchedEvents[0].data as Record<string, unknown>;
+    const data = patchedEvents[0]!.data as Record<string, unknown>;
     expect(data.patch).toEqual({
       tasks: [{ id: 'pre-seeded', title: 'Pre-seeded', status: 'pending' }],
     });

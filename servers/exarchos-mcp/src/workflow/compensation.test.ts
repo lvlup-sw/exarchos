@@ -491,13 +491,13 @@ describe('B4.5: delete-feature-branches parity harness (two-event sequence)', ()
     expect(executedEvents.length).toBe(1);
 
     // Assert: requested appears BEFORE executed in the stream
-    const requestedSeq = requestedEvents[0].sequence;
-    const executedSeq = executedEvents[0].sequence;
+    const requestedSeq = requestedEvents[0]!.sequence;
+    const executedSeq = executedEvents[0]!.sequence;
     expect(requestedSeq).toBeLessThan(executedSeq);
 
     // Assert: both events carry the same operationId (correlation)
-    const reqData = requestedEvents[0].data as { operationId: string; branch: string };
-    const exeData = executedEvents[0].data as {
+    const reqData = requestedEvents[0]!.data as { operationId: string; branch: string };
+    const exeData = executedEvents[0]!.data as {
       operationId: string;
       branch: string;
       deletedLocally: boolean;
@@ -587,13 +587,13 @@ describe('B5.5: cleanup-worktrees parity harness (two-event sequence)', () => {
     expect(featureStream.some((e) => e.type === 'worktree.remove.executed')).toBe(false);
 
     // Assert: requested appears BEFORE executed in the stream
-    const requestedSeq = requestedEvents[0].sequence;
-    const executedSeq = executedEvents[0].sequence;
+    const requestedSeq = requestedEvents[0]!.sequence;
+    const executedSeq = executedEvents[0]!.sequence;
     expect(requestedSeq).toBeLessThan(executedSeq);
 
     // Assert: both events carry the same operationId and worktreePath
-    const reqData = requestedEvents[0].data as { operationId: string; worktreePath: string };
-    const exeData = executedEvents[0].data as {
+    const reqData = requestedEvents[0]!.data as { operationId: string; worktreePath: string };
+    const exeData = executedEvents[0]!.data as {
       operationId: string;
       worktreePath: string;
       removed: boolean;
@@ -1255,11 +1255,11 @@ describe('Task 009: worktree.remove unified onto the `worktrees` stream (DR-3/DR
     expect(adopted.length).toBe(1);
     expect(requested.length).toBe(1);
     expect(executed.length).toBe(1);
-    expect((adopted[0].data as { worktreeId: string }).worktreeId).toBe(worktreeId);
+    expect((adopted[0]!.data as { worktreeId: string }).worktreeId).toBe(worktreeId);
 
     // Ordering: adopted → requested → executed on the SAME stream.
-    expect(adopted[0].sequence).toBeLessThan(requested[0].sequence);
-    expect(requested[0].sequence).toBeLessThan(executed[0].sequence);
+    expect(adopted[0]!.sequence).toBeLessThan(requested[0]!.sequence);
+    expect(requested[0]!.sequence).toBeLessThan(executed[0]!.sequence);
 
     // The `featureId` stream carries NONE of the worktree lifecycle now.
     const featureEvents = await eventStore.query(featureId);
@@ -1326,11 +1326,11 @@ describe('Task 009: worktree.remove unified onto the `worktrees` stream (DR-3/DR
     expect(requested.length).toBe(1);
     expect(executed.length).toBe(1);
     expect(adopted.length).toBe(1);
-    expect((requested[0].data as { operationId: string }).operationId).toBe(crashedOperationId);
-    expect((executed[0].data as { operationId: string; removed: boolean }).operationId).toBe(
+    expect((requested[0]!.data as { operationId: string }).operationId).toBe(crashedOperationId);
+    expect((executed[0]!.data as { operationId: string; removed: boolean }).operationId).toBe(
       crashedOperationId,
     );
-    expect((executed[0].data as { removed: boolean }).removed).toBe(true);
+    expect((executed[0]!.data as { removed: boolean }).removed).toBe(true);
 
     // The view drops the entry after the resumed terminal.
     expect(worktreeId in foldWorktrees(worktreesEvents).worktrees).toBe(false);
@@ -1379,8 +1379,8 @@ describe('Task 009: worktree.remove unified onto the `worktrees` stream (DR-3/DR
     expect(adopted.length).toBe(1);
     expect(requested.length).toBe(1);
     expect(executed.length).toBe(1);
-    expect((requested[0].data as { operationId: string }).operationId).toBe(legacyOperationId);
-    expect((executed[0].data as { operationId: string }).operationId).toBe(legacyOperationId);
+    expect((requested[0]!.data as { operationId: string }).operationId).toBe(legacyOperationId);
+    expect((executed[0]!.data as { operationId: string }).operationId).toBe(legacyOperationId);
 
     // The legacy `featureId` stream is left as-is: its orphaned requested stays,
     // and NO executed is retro-fitted there (the pair now lives on `worktrees`).
@@ -1455,7 +1455,7 @@ describe('Task 009: worktree.remove unified onto the `worktrees` stream (DR-3/DR
       (e) => e.type === 'worktree.remove.executed',
     );
     expect(executed.length).toBe(1);
-    expect((executed[0].data as { removed: boolean }).removed).toBe(true);
+    expect((executed[0]!.data as { removed: boolean }).removed).toBe(true);
   });
 });
 
@@ -1632,7 +1632,7 @@ describe('Task 010: teardown dirty-guard (INV-14 / DR-3)', () => {
     const worktreesEvents = await eventStore.query(WORKTREES_STREAM);
     const executed = worktreesEvents.filter((e) => e.type === 'worktree.remove.executed');
     expect(executed.length).toBe(1);
-    expect((executed[0].data as { removed: boolean }).removed).toBe(true);
+    expect((executed[0]!.data as { removed: boolean }).removed).toBe(true);
   });
 
   it('Compensation_SkipResult_CarriesScannableReason', async () => {

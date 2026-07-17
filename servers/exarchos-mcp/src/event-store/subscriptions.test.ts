@@ -406,7 +406,7 @@ describe('SubscriptionRegistry (DR-1 invariants)', () => {
     expect(registry.size).toBe(0);
 
     // Idempotent + disposeAll safe on an already-empty registry.
-    handles[0].dispose();
+    handles[0]!.dispose();
     registry.disposeAll();
     expect(registry.size).toBe(0);
   });
@@ -865,8 +865,8 @@ describe('SubscriptionRegistry Tier-2 poll floor (DR-1 invariants)', () => {
           // wake or tick.
           for (let i = 0; i < k; i++) {
             const op = ops[i];
-            if (op.foreign) log.commitForeign(STREAM, op.type);
-            else log.commit(STREAM, op.type);
+            if (op!.foreign) log.commitForeign(STREAM, op!.type);
+            else log.commit(STREAM, op!.type);
           }
 
           const received: WorkflowEvent[] = [];
@@ -880,13 +880,13 @@ describe('SubscriptionRegistry Tier-2 poll floor (DR-1 invariants)', () => {
           // commit fires none (only a tick pulls it). A tick may follow any op.
           for (let i = k; i < ops.length; i++) {
             const op = ops[i];
-            if (op.foreign) {
-              log.commitForeign(STREAM, op.type);
+            if (op!.foreign) {
+              log.commitForeign(STREAM, op!.type);
             } else {
-              log.commit(STREAM, op.type);
+              log.commit(STREAM, op!.type);
               registry.wake(STREAM);
             }
-            if (op.tickAfter) clock.fireAll();
+            if (op!.tickAfter) clock.fireAll();
           }
           // Trailing flush: the real floor polls forever; the test polls once
           // more so any trailing foreign commit is observed.
@@ -896,7 +896,7 @@ describe('SubscriptionRegistry Tier-2 poll floor (DR-1 invariants)', () => {
             filterTypes.length === 0 || filterTypes.includes(t);
           const expectedSeqs: number[] = [];
           for (let i = k; i < ops.length; i++) {
-            if (matches(ops[i].type)) expectedSeqs.push(i + 1); // seq is 1-based op index
+            if (matches(ops[i]!.type)) expectedSeqs.push(i + 1); // seq is 1-based op index
           }
 
           const gotSeqs = received.map((e) => e.sequence);
@@ -1227,10 +1227,10 @@ describe('Concurrent waits on one stream resolve independently (DR-1/DR-8)', () 
               }
             }
             const op = ops[i];
-            if (op.foreign) {
-              log.commitForeign(STREAM, op.type); // no Tier-1 wake — only a tick pulls it
+            if (op!.foreign) {
+              log.commitForeign(STREAM, op!.type); // no Tier-1 wake — only a tick pulls it
             } else {
-              log.commit(STREAM, op.type);
+              log.commit(STREAM, op!.type);
               registry.wake(STREAM);
             }
             clock.fireAll(); // tick each op so foreign commits are flushed deterministically
@@ -1249,7 +1249,7 @@ describe('Concurrent waits on one stream resolve independently (DR-1/DR-8)', () 
               st.s.filterTypes.length === 0 || st.s.filterTypes.includes(t);
             const expected: number[] = [];
             for (let i = 0; i < st.disposeBefore; i++) {
-              if (matches(ops[i].type)) expected.push(i + 1); // seq is 1-based op index
+              if (matches(ops[i]!.type)) expected.push(i + 1); // seq is 1-based op index
             }
             const got = st.received.map((e) => e.sequence);
             expect(got).toEqual(expected); // only its matches, in order, none post-dispose
@@ -1279,7 +1279,7 @@ function readBusyTimeout(backend: SqliteBackend): number {
   const db = (backend as unknown as { db: Database }).db;
   const rows = db.query('PRAGMA busy_timeout').all() as Array<Record<string, number>>;
   const row = rows[0];
-  const value = row.timeout ?? row.busy_timeout ?? row[''];
+  const value = row!.timeout ?? row!.busy_timeout ?? row![''];
   return typeof value === 'number' ? value : Number(value);
 }
 

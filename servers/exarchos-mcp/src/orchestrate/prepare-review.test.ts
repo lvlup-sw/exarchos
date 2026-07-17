@@ -383,7 +383,7 @@ describe('plan-review bound at the provisioning seam (WLM-6 DR-2, task 004)', ()
 
     const events = await eventStore.query(featureId, { type: DISPATCH_EVENT });
     expect(events).toHaveLength(1);
-    expect((events[0].data as { ordinal: number }).ordinal).toBe(0);
+    expect((events[0]!.data as { ordinal: number }).ordinal).toBe(0);
     // The load-bearing contract: the initial did not increment the counter.
     expect(await revisionCount(featureId)).toBe(0);
   });
@@ -398,7 +398,7 @@ describe('plan-review bound at the provisioning seam (WLM-6 DR-2, task 004)', ()
 
     const events = await eventStore.query(featureId, { type: DISPATCH_EVENT });
     expect(events).toHaveLength(2);
-    expect((events[1].data as { ordinal: number }).ordinal).toBe(1);
+    expect((events[1]!.data as { ordinal: number }).ordinal).toBe(1);
     expect(await revisionCount(featureId)).toBe(1);
   });
 
@@ -442,7 +442,7 @@ describe('plan-review bound at the provisioning seam (WLM-6 DR-2, task 004)', ()
     const before = await eventStore.query(featureId, { type: DISPATCH_EVENT });
     expect(before).toHaveLength(2);
     // The handler used the deterministic key for ordinal 1.
-    expect(before[1].idempotencyKey).toBe(`${featureId}:plan-review-dispatch:1`);
+    expect(before[1]!.idempotencyKey).toBe(`${featureId}:plan-review-dispatch:1`);
 
     // Re-append the SAME-ordinal event (the crash-retry) with the same key.
     await eventStore.append(
@@ -553,7 +553,7 @@ describe('plan-review bound regressions (WLM-6 DR-2, task 005)', () => {
     // No re-dispatch → zero revisions consumed.
     const events = await eventStore.query(featureId, { type: DISPATCH_EVENT });
     expect(events).toHaveLength(1);
-    expect((events[0].data as { ordinal: number }).ordinal).toBe(0);
+    expect((events[0]!.data as { ordinal: number }).ordinal).toBe(0);
     expect(await revisionCount(featureId)).toBe(0);
   });
 });

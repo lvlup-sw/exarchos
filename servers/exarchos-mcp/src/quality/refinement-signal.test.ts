@@ -173,12 +173,12 @@ describe('evaluateRefinementSignals', () => {
 
     expect(signals.length).toBeGreaterThanOrEqual(1);
     const signal = signals[0];
-    expect(signal.evidence).toBeDefined();
-    expect(typeof signal.evidence.gatePassRate).toBe('number');
-    expect(typeof signal.evidence.evalScore).toBe('number');
-    expect(Array.isArray(signal.evidence.topFailureCategories)).toBe(true);
-    expect(typeof signal.evidence.selfCorrectionRate).toBe('number');
-    expect(typeof signal.evidence.recentRegressions).toBe('number');
+    expect(signal!.evidence).toBeDefined();
+    expect(typeof signal!.evidence.gatePassRate).toBe('number');
+    expect(typeof signal!.evidence.evalScore).toBe('number');
+    expect(Array.isArray(signal!.evidence.topFailureCategories)).toBe(true);
+    expect(typeof signal!.evidence.selfCorrectionRate).toBe('number');
+    expect(typeof signal!.evidence.recentRegressions).toBe('number');
   });
 });
 

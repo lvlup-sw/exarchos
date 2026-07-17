@@ -46,7 +46,7 @@ describe('handleSubagentStop (#1525 W2 H1-A)', () => {
     expect(result).toEqual({ continue: true });
     const emitted = await store.query('feat-1', { type: 'subagent.tokens_used' });
     expect(emitted).toHaveLength(1);
-    expect(emitted[0].data).toMatchObject({
+    expect(emitted[0]!.data).toMatchObject({
       agentId: 'agent-xyz',
       agentType: 'exarchos-implementer',
       outputTokens: 4200,

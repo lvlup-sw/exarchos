@@ -210,7 +210,7 @@ describe('exarchos <harness> launcher verb (DR-1)', () => {
     );
 
     expect(lifecycle).toHaveBeenCalledTimes(1);
-    const launchArg = lifecycle.mock.calls[0][0];
+    const launchArg = lifecycle.mock.calls[0]![0];
     expect(launchArg.harness).toBe('copilot');
     expect(launchArg.runtimeId).toBe('copilot');
     expect(launchArg.feature).toBe('x');

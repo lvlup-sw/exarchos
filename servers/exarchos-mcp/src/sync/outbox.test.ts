@@ -56,7 +56,7 @@ describe('Outbox drain idempotencyKey propagation', () => {
     expect(result.sent).toBe(1);
     expect(sentEvents).toHaveLength(1);
     expect(sentEvents[0]).toHaveLength(1);
-    expect(sentEvents[0][0].idempotencyKey).toBe('unique-key-123');
+    expect(sentEvents[0]![0]!.idempotencyKey).toBe('unique-key-123');
   });
 
   it('should not include idempotencyKey when event does not have one', async () => {
@@ -76,7 +76,7 @@ describe('Outbox drain idempotencyKey propagation', () => {
     await outbox.drain(mockClient, 'test-stream');
 
     // Assert
-    expect(sentEvents[0][0].idempotencyKey).toBeUndefined();
+    expect(sentEvents[0]![0]!.idempotencyKey).toBeUndefined();
   });
 });
 
@@ -192,7 +192,7 @@ describe('Outbox StorageBackend Integration', () => {
     // Verify JSON file was created
     const entries = await outbox.loadEntries('test-stream');
     expect(entries).toHaveLength(1);
-    expect(entries[0].event.type).toBe('task.completed');
+    expect(entries[0]!.event.type).toBe('task.completed');
   });
 
   it('Outbox_addEntry_WithBackend_ReturnsEntryWithId', async () => {

@@ -117,6 +117,6 @@ phases:
           thresholdMinutes: 60
 `);
     const topology = await loadTopology({ topologyPath: file });
-    expect(topology.phases.design.staleness).toBeDefined();
+    expect(topology.phases.design!.staleness).toBeDefined();
   });
 });

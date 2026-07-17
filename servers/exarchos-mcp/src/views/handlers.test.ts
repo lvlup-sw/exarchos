@@ -363,7 +363,7 @@ describe('View Handlers', () => {
       const allEvents = await store.query('regression-wf');
       const regressionEvents = allEvents.filter(e => e.type === 'quality.regression');
       expect(regressionEvents.length).toBeGreaterThanOrEqual(1);
-      const regressionData = regressionEvents[0].data as Record<string, unknown>;
+      const regressionData = regressionEvents[0]!.data as Record<string, unknown>;
       expect(regressionData).toMatchObject({
         skill: 'delegation',
         gate: 'typecheck',
@@ -721,7 +721,7 @@ describe('View Handlers', () => {
       // Only task-X should be visible; task-Y was tagged cor-Y and must be
       // filtered out by the indexed-correlation WHERE clause.
       expect(tasks).toHaveLength(1);
-      expect(tasks[0].taskId).toBe('task-X');
+      expect(tasks[0]!.taskId).toBe('task-X');
     });
   });
 
@@ -795,7 +795,7 @@ describe('View Handlers', () => {
       expect(skills).not.toHaveProperty('synthesis');
       const runs = data.runs as Array<{ runId: string }>;
       expect(runs).toHaveLength(1);
-      expect(runs[0].runId).toBe('run-X');
+      expect(runs[0]!.runId).toBe('run-X');
     });
 
     it('handleViewEvalResults_WithOperationIdFilter_ReturnsOnlyMatchingEvents', async () => {
@@ -851,7 +851,7 @@ describe('View Handlers', () => {
       const data = result.data as Record<string, unknown>;
       const runs = data.runs as Array<{ runId: string }>;
       expect(runs).toHaveLength(1);
-      expect(runs[0].runId).toBe('run-A');
+      expect(runs[0]!.runId).toBe('run-A');
     });
 
     it('handleViewQualityCorrelation_WithCorrelationIdFilter_ReturnsOnlyMatchingSlice', async () => {
@@ -946,8 +946,8 @@ describe('View Handlers', () => {
       const skills = data.skills as Record<string, Record<string, unknown>>;
       expect(skills).toHaveProperty('delegation');
       expect(skills).not.toHaveProperty('synthesis');
-      expect(skills['delegation'].evalScore).toBe(0.9);
-      expect(skills['delegation'].gatePassRate).toBe(1);
+      expect(skills['delegation']!.evalScore).toBe(0.9);
+      expect(skills['delegation']!.gatePassRate).toBe(1);
     });
 
     it('handleViewQualityAttribution_WithCorrelationIdFilter_AttributesOnlyMatchingSlice', async () => {
@@ -1241,8 +1241,8 @@ describe('View Handlers', () => {
       expect(data).toHaveProperty('skills');
       const skills = data.skills as Record<string, Record<string, unknown>>;
       expect(skills).toHaveProperty('delegation');
-      expect(skills['delegation'].evalScore).toBe(0.9);
-      expect(skills['delegation'].gatePassRate).toBe(1);
+      expect(skills['delegation']!.evalScore).toBe(0.9);
+      expect(skills['delegation']!.gatePassRate).toBe(1);
     });
   });
 
@@ -1568,8 +1568,8 @@ describe('Delta Query (sinceSequence)', () => {
       expect.objectContaining({ sinceSequence: expect.any(Number) }),
     );
     const callArgs = storeQuerySpy.mock.calls[0];
-    expect(callArgs[1]).toHaveProperty('sinceSequence');
-    expect((callArgs[1] as { sinceSequence: number }).sinceSequence).toBeGreaterThan(0);
+    expect(callArgs![1]).toHaveProperty('sinceSequence');
+    expect((callArgs![1] as { sinceSequence: number }).sinceSequence).toBeGreaterThan(0);
 
     storeQuerySpy.mockRestore();
   });
@@ -1793,7 +1793,7 @@ describe('Backend Integration (Task 12)', () => {
     // Assert
     expect(result.success).toBe(true);
     expect(querySpy).toHaveBeenCalled();
-    const queryCallStreamId = querySpy.mock.calls[0][0];
+    const queryCallStreamId = querySpy.mock.calls[0]![0];
     expect(queryCallStreamId).toBe('wf-backend');
 
     querySpy.mockRestore();
@@ -1854,7 +1854,7 @@ describe('Backend Integration (Task 12)', () => {
     // Assert
     expect(result.success).toBe(true);
     expect(querySpy).toHaveBeenCalled();
-    const queryCallStreamId = querySpy.mock.calls[0][0];
+    const queryCallStreamId = querySpy.mock.calls[0]![0];
     expect(queryCallStreamId).toBe('wf-tasks-backend');
 
     // Verify tasks are returned from the backend-delegated query

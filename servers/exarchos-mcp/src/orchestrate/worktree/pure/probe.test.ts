@@ -70,8 +70,8 @@ describe('probeWorktreeUsage', () => {
       identity,
     );
 
-    expect(usage.inUse).toBe(false);
-    expect(usage.occupantPids).toEqual([]);
+    expect(usage!.inUse).toBe(false);
+    expect(usage!.occupantPids).toEqual([]);
   });
 
   it('Probe_OwnerAncestryChain_FullyProtected', () => {
@@ -95,8 +95,8 @@ describe('probeWorktreeUsage', () => {
 
     // Parent (200) and grandparent (100) are protected; only the unrelated 500
     // marks W in-use.
-    expect(usage.occupantPids).toEqual([500]);
-    expect(usage.inUse).toBe(true);
+    expect(usage!.occupantPids).toEqual([500]);
+    expect(usage!.inUse).toBe(true);
   });
 
   it('Probe_SymlinkedWorktreePath_ContainmentMatches', () => {
@@ -122,8 +122,8 @@ describe('probeWorktreeUsage', () => {
       symlinkRealpath,
     );
 
-    expect(usage.inUse).toBe(true);
-    expect(usage.occupantPids).toEqual([700]);
+    expect(usage!.inUse).toBe(true);
+    expect(usage!.occupantPids).toEqual([700]);
   });
 });
 
@@ -149,17 +149,17 @@ describe('probeReservations', () => {
     const byPath = Object.fromEntries(findings.map((f) => [f.worktreePath, f]));
 
     // Live owner: present AND create-time matches -> never releasable.
-    expect(byPath['/wt/live'].liveness).toBe('alive');
-    expect(byPath['/wt/live'].releasable).toBe(false);
+    expect(byPath['/wt/live']!.liveness).toBe('alive');
+    expect(byPath['/wt/live']!.releasable).toBe(false);
 
     // PID present but create-time differs (reuse) -> dead -> releasable.
-    expect(byPath['/wt/reused'].liveness).toBe('dead');
-    expect(byPath['/wt/reused'].releasable).toBe(true);
+    expect(byPath['/wt/reused']!.liveness).toBe('dead');
+    expect(byPath['/wt/reused']!.releasable).toBe(true);
 
     // PID absent from a SUPPORTED table (owner exited) -> dead -> releasable.
     // (The table is non-empty / enumerated, so absence is authoritative.)
-    expect(byPath['/wt/gone'].liveness).toBe('dead');
-    expect(byPath['/wt/gone'].releasable).toBe(true);
+    expect(byPath['/wt/gone']!.liveness).toBe('dead');
+    expect(byPath['/wt/gone']!.releasable).toBe(true);
   });
 
   it('Probe_UnsupportedPlatformTable_FailsClosed_NeverReleasable', () => {
@@ -203,9 +203,9 @@ describe('probeWorktrees (composite)', () => {
       identity,
     );
 
-    expect(occupied.ownerLiveness).toBe('dead'); // owner PID 99 absent -> dead
-    expect(occupied.inUse).toBe(true); // but 808 is rooted inside
-    expect(occupied.releasable).toBe(false); // occupancy vetoes release
+    expect(occupied!.ownerLiveness).toBe('dead'); // owner PID 99 absent -> dead
+    expect(occupied!.inUse).toBe(true); // but 808 is rooted inside
+    expect(occupied!.releasable).toBe(false); // occupancy vetoes release
 
     // With no live occupant, the same dead-owner worktree IS an orphan candidate.
     const [free] = probeWorktrees(
@@ -216,8 +216,8 @@ describe('probeWorktrees (composite)', () => {
       tableSource([records[0]]), // only self remains
       identity,
     );
-    expect(free.inUse).toBe(false);
-    expect(free.releasable).toBe(true);
+    expect(free!.inUse).toBe(false);
+    expect(free!.releasable).toBe(true);
   });
 
   it('Probe_UnsupportedTable_OwnerUnknown_NotReleasableNorOrphan', () => {
@@ -236,11 +236,11 @@ describe('probeWorktrees (composite)', () => {
       identity,
     );
 
-    expect(finding.ownerLiveness).toBe('unknown'); // cannot prove dead off-Linux.
-    expect(finding.releasable).toBe(false); // no worktree.released.
-    expect(finding.inUse).toBe(false); // empty list → no occupant either.
+    expect(finding!.ownerLiveness).toBe('unknown'); // cannot prove dead off-Linux.
+    expect(finding!.releasable).toBe(false); // no worktree.released.
+    expect(finding!.inUse).toBe(false); // empty list → no occupant either.
     // Neither emit branch fires: not releasable, and ownerLiveness !== 'dead'.
-    expect(finding.ownerLiveness === 'dead' && finding.inUse).toBe(false);
+    expect(finding!.ownerLiveness === 'dead' && finding!.inUse).toBe(false);
   });
 
   it('reports ownerLiveness "none" for an unreserved worktree', () => {
@@ -249,9 +249,9 @@ describe('probeWorktrees (composite)', () => {
       tableSource([]),
       identity,
     );
-    expect(finding.ownerLiveness).toBe('none');
-    expect(finding.inUse).toBe(false);
-    expect(finding.releasable).toBe(false); // 'none' is not 'dead' -> not releasable
+    expect(finding!.ownerLiveness).toBe('none');
+    expect(finding!.inUse).toBe(false);
+    expect(finding!.releasable).toBe(false); // 'none' is not 'dead' -> not releasable
   });
 });
 
@@ -278,14 +278,14 @@ describe('probeLaunchHolders (DR-6)', () => {
 
     const byId = Object.fromEntries(findings.map((f) => [f.worktreeId, f]));
 
-    expect(byId['/wt/launch-live'].liveness).toBe('alive');
-    expect(byId['/wt/launch-live'].reconcilable).toBe(false);
+    expect(byId['/wt/launch-live']!.liveness).toBe('alive');
+    expect(byId['/wt/launch-live']!.reconcilable).toBe(false);
 
-    expect(byId['/wt/launch-reused'].liveness).toBe('dead');
-    expect(byId['/wt/launch-reused'].reconcilable).toBe(true);
+    expect(byId['/wt/launch-reused']!.liveness).toBe('dead');
+    expect(byId['/wt/launch-reused']!.reconcilable).toBe(true);
 
-    expect(byId['/wt/launch-gone'].liveness).toBe('dead');
-    expect(byId['/wt/launch-gone'].reconcilable).toBe(true);
+    expect(byId['/wt/launch-gone']!.liveness).toBe('dead');
+    expect(byId['/wt/launch-gone']!.reconcilable).toBe(true);
   });
 
   it('holds a launch whose holder identity was never captured (null)', () => {
@@ -382,9 +382,9 @@ describe('makeDefaultProcessTableSource (win32 process source — DR-5)', () => 
       source,
     );
     const byPath = Object.fromEntries(findings.map((f) => [f.worktreePath, f]));
-    expect(byPath['/wt/live'].liveness).toBe('alive');
-    expect(byPath['/wt/reused'].liveness).toBe('dead'); // create-time mismatch (PID reuse)
-    expect(byPath['/wt/gone'].liveness).toBe('dead'); // absent from a supported table
+    expect(byPath['/wt/live']!.liveness).toBe('alive');
+    expect(byPath['/wt/reused']!.liveness).toBe('dead'); // create-time mismatch (PID reuse)
+    expect(byPath['/wt/gone']!.liveness).toBe('dead'); // absent from a supported table
   });
 
   it('ProcessSource_UnsupportedPlatform_ReturnsUnknownFailClosed', () => {
@@ -409,8 +409,8 @@ describe('makeDefaultProcessTableSource (win32 process source — DR-5)', () => 
       [{ worktreePath: '/wt/a', ownerPid: 4242, ownerStartedAt: 'boot-4242' }],
       source,
     );
-    expect(findings[0].liveness).toBe('unknown');
-    expect(findings[0].releasable).toBe(false);
+    expect(findings[0]!.liveness).toBe('unknown');
+    expect(findings[0]!.releasable).toBe(false);
   });
 
   it('Win32ProcessTable_Parses_SkipsMalformed_KeepsEmptyCwd_PreservesSpaces', () => {

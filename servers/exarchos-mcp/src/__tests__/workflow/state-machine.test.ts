@@ -30,33 +30,33 @@ describe('HSM State Definitions', () => {
       expect(hsm.states['ideate']).toBeUndefined();
 
       expect(hsm.states['plan']).toBeDefined();
-      expect(hsm.states['plan'].type).toBe('atomic');
+      expect(hsm.states['plan']!.type).toBe('atomic');
 
       expect(hsm.states['synthesize']).toBeDefined();
-      expect(hsm.states['synthesize'].type).toBe('atomic');
+      expect(hsm.states['synthesize']!.type).toBe('atomic');
 
       expect(hsm.states['completed']).toBeDefined();
-      expect(hsm.states['completed'].type).toBe('final');
+      expect(hsm.states['completed']!.type).toBe('final');
 
       expect(hsm.states['cancelled']).toBeDefined();
-      expect(hsm.states['cancelled'].type).toBe('final');
+      expect(hsm.states['cancelled']!.type).toBe('final');
 
       expect(hsm.states['blocked']).toBeDefined();
-      expect(hsm.states['blocked'].type).toBe('atomic');
+      expect(hsm.states['blocked']!.type).toBe('atomic');
 
       // Compound state: Implementation
       expect(hsm.states['implementation']).toBeDefined();
-      expect(hsm.states['implementation'].type).toBe('compound');
-      expect(hsm.states['implementation'].initial).toBe('delegate');
+      expect(hsm.states['implementation']!.type).toBe('compound');
+      expect(hsm.states['implementation']!.initial).toBe('delegate');
 
       // Children of Implementation compound
       expect(hsm.states['delegate']).toBeDefined();
-      expect(hsm.states['delegate'].type).toBe('atomic');
-      expect(hsm.states['delegate'].parent).toBe('implementation');
+      expect(hsm.states['delegate']!.type).toBe('atomic');
+      expect(hsm.states['delegate']!.parent).toBe('implementation');
 
       expect(hsm.states['review']).toBeDefined();
-      expect(hsm.states['review'].type).toBe('atomic');
-      expect(hsm.states['review'].parent).toBe('implementation');
+      expect(hsm.states['review']!.type).toBe('atomic');
+      expect(hsm.states['review']!.parent).toBe('implementation');
 
       // integrate state should NOT exist
       expect(hsm.states['integrate']).toBeUndefined();
@@ -151,8 +151,8 @@ describe('HSM State Definitions', () => {
         (t) => t.guard?.id === 'plan-review-complete',
       );
       expect(approvalEdges).toHaveLength(1);
-      expect(approvalEdges[0].from).toBe('plan-review');
-      expect(approvalEdges[0].to).toBe('delegate');
+      expect(approvalEdges[0]!.from).toBe('plan-review');
+      expect(approvalEdges[0]!.to).toBe('delegate');
     });
   });
 
@@ -163,27 +163,27 @@ describe('HSM State Definitions', () => {
 
       // Atomic states
       expect(hsm.states['triage']).toBeDefined();
-      expect(hsm.states['triage'].type).toBe('atomic');
+      expect(hsm.states['triage']!.type).toBe('atomic');
 
       expect(hsm.states['investigate']).toBeDefined();
-      expect(hsm.states['investigate'].type).toBe('atomic');
+      expect(hsm.states['investigate']!.type).toBe('atomic');
 
       expect(hsm.states['synthesize']).toBeDefined();
-      expect(hsm.states['synthesize'].type).toBe('atomic');
+      expect(hsm.states['synthesize']!.type).toBe('atomic');
 
       expect(hsm.states['completed']).toBeDefined();
-      expect(hsm.states['completed'].type).toBe('final');
+      expect(hsm.states['completed']!.type).toBe('final');
 
       expect(hsm.states['cancelled']).toBeDefined();
-      expect(hsm.states['cancelled'].type).toBe('final');
+      expect(hsm.states['cancelled']!.type).toBe('final');
 
       expect(hsm.states['blocked']).toBeDefined();
-      expect(hsm.states['blocked'].type).toBe('atomic');
+      expect(hsm.states['blocked']!.type).toBe('atomic');
 
       // ThoroughTrack compound state
       expect(hsm.states['thorough-track']).toBeDefined();
-      expect(hsm.states['thorough-track'].type).toBe('compound');
-      expect(hsm.states['thorough-track'].maxFixCycles).toBe(2);
+      expect(hsm.states['thorough-track']!.type).toBe('compound');
+      expect(hsm.states['thorough-track']!.maxFixCycles).toBe(2);
 
       // ThoroughTrack children: rca, design, implement, validate, review
       for (const child of [
@@ -194,17 +194,17 @@ describe('HSM State Definitions', () => {
         'debug-review',
       ]) {
         expect(hsm.states[child]).toBeDefined();
-        expect(hsm.states[child].parent).toBe('thorough-track');
+        expect(hsm.states[child]!.parent).toBe('thorough-track');
       }
 
       // HotfixTrack compound state
       expect(hsm.states['hotfix-track']).toBeDefined();
-      expect(hsm.states['hotfix-track'].type).toBe('compound');
+      expect(hsm.states['hotfix-track']!.type).toBe('compound');
 
       // HotfixTrack children: implement, validate
       for (const child of ['hotfix-implement', 'hotfix-validate']) {
         expect(hsm.states[child]).toBeDefined();
-        expect(hsm.states[child].parent).toBe('hotfix-track');
+        expect(hsm.states[child]!.parent).toBe('hotfix-track');
       }
 
       // Key transitions
@@ -290,26 +290,26 @@ describe('HSM State Definitions', () => {
 
       // Atomic states
       expect(hsm.states['explore']).toBeDefined();
-      expect(hsm.states['explore'].type).toBe('atomic');
+      expect(hsm.states['explore']!.type).toBe('atomic');
 
       expect(hsm.states['brief']).toBeDefined();
-      expect(hsm.states['brief'].type).toBe('atomic');
+      expect(hsm.states['brief']!.type).toBe('atomic');
 
       expect(hsm.states['synthesize']).toBeDefined();
-      expect(hsm.states['synthesize'].type).toBe('atomic');
+      expect(hsm.states['synthesize']!.type).toBe('atomic');
 
       expect(hsm.states['completed']).toBeDefined();
-      expect(hsm.states['completed'].type).toBe('final');
+      expect(hsm.states['completed']!.type).toBe('final');
 
       expect(hsm.states['cancelled']).toBeDefined();
-      expect(hsm.states['cancelled'].type).toBe('final');
+      expect(hsm.states['cancelled']!.type).toBe('final');
 
       expect(hsm.states['blocked']).toBeDefined();
-      expect(hsm.states['blocked'].type).toBe('atomic');
+      expect(hsm.states['blocked']!.type).toBe('atomic');
 
       // PolishTrack compound state
       expect(hsm.states['polish-track']).toBeDefined();
-      expect(hsm.states['polish-track'].type).toBe('compound');
+      expect(hsm.states['polish-track']!.type).toBe('compound');
 
       // PolishTrack children: implement, validate, update-docs
       for (const child of [
@@ -318,13 +318,13 @@ describe('HSM State Definitions', () => {
         'polish-update-docs',
       ]) {
         expect(hsm.states[child]).toBeDefined();
-        expect(hsm.states[child].parent).toBe('polish-track');
+        expect(hsm.states[child]!.parent).toBe('polish-track');
       }
 
       // OverhaulTrack compound state
       expect(hsm.states['overhaul-track']).toBeDefined();
-      expect(hsm.states['overhaul-track'].type).toBe('compound');
-      expect(hsm.states['overhaul-track'].maxFixCycles).toBe(3);
+      expect(hsm.states['overhaul-track']!.type).toBe('compound');
+      expect(hsm.states['overhaul-track']!.maxFixCycles).toBe(3);
 
       // OverhaulTrack children: plan, plan-review, delegate, review, update-docs (no integrate)
       for (const child of [
@@ -335,7 +335,7 @@ describe('HSM State Definitions', () => {
         'overhaul-update-docs',
       ]) {
         expect(hsm.states[child]).toBeDefined();
-        expect(hsm.states[child].parent).toBe('overhaul-track');
+        expect(hsm.states[child]!.parent).toBe('overhaul-track');
       }
 
       // overhaul-integrate should NOT exist
@@ -444,44 +444,44 @@ describe('HSM State Definitions', () => {
       // Feature: Implementation compound
       const feature = getHSMDefinition('feature');
       const implementation = feature.states['implementation'];
-      expect(implementation.type).toBe('compound');
-      expect(implementation.maxFixCycles).toBe(3);
-      expect(implementation.onEntry).toBeDefined();
-      expect(implementation.onEntry).toContain('log');
-      expect(implementation.onExit).toBeDefined();
-      expect(implementation.onExit).toContain('log');
+      expect(implementation!.type).toBe('compound');
+      expect(implementation!.maxFixCycles).toBe(3);
+      expect(implementation!.onEntry).toBeDefined();
+      expect(implementation!.onEntry).toContain('log');
+      expect(implementation!.onExit).toBeDefined();
+      expect(implementation!.onExit).toContain('log');
 
       // Debug: ThoroughTrack compound
       const debug = getHSMDefinition('debug');
       const thoroughTrack = debug.states['thorough-track'];
-      expect(thoroughTrack.type).toBe('compound');
-      expect(thoroughTrack.maxFixCycles).toBe(2);
-      expect(thoroughTrack.onEntry).toBeDefined();
-      expect(thoroughTrack.onEntry).toContain('log');
-      expect(thoroughTrack.onExit).toBeDefined();
-      expect(thoroughTrack.onExit).toContain('log');
+      expect(thoroughTrack!.type).toBe('compound');
+      expect(thoroughTrack!.maxFixCycles).toBe(2);
+      expect(thoroughTrack!.onEntry).toBeDefined();
+      expect(thoroughTrack!.onEntry).toContain('log');
+      expect(thoroughTrack!.onExit).toBeDefined();
+      expect(thoroughTrack!.onExit).toContain('log');
 
       // Debug: HotfixTrack compound
       const hotfixTrack = debug.states['hotfix-track'];
-      expect(hotfixTrack.type).toBe('compound');
-      expect(hotfixTrack.onEntry).toBeDefined();
-      expect(hotfixTrack.onExit).toBeDefined();
+      expect(hotfixTrack!.type).toBe('compound');
+      expect(hotfixTrack!.onEntry).toBeDefined();
+      expect(hotfixTrack!.onExit).toBeDefined();
 
       // Refactor: PolishTrack compound
       const refactor = getHSMDefinition('refactor');
       const polishTrack = refactor.states['polish-track'];
-      expect(polishTrack.type).toBe('compound');
-      expect(polishTrack.onEntry).toBeDefined();
-      expect(polishTrack.onExit).toBeDefined();
+      expect(polishTrack!.type).toBe('compound');
+      expect(polishTrack!.onEntry).toBeDefined();
+      expect(polishTrack!.onExit).toBeDefined();
 
       // Refactor: OverhaulTrack compound
       const overhaulTrack = refactor.states['overhaul-track'];
-      expect(overhaulTrack.type).toBe('compound');
-      expect(overhaulTrack.maxFixCycles).toBe(3);
-      expect(overhaulTrack.onEntry).toBeDefined();
-      expect(overhaulTrack.onEntry).toContain('log');
-      expect(overhaulTrack.onExit).toBeDefined();
-      expect(overhaulTrack.onExit).toContain('log');
+      expect(overhaulTrack!.type).toBe('compound');
+      expect(overhaulTrack!.maxFixCycles).toBe(3);
+      expect(overhaulTrack!.onEntry).toBeDefined();
+      expect(overhaulTrack!.onEntry).toContain('log');
+      expect(overhaulTrack!.onExit).toBeDefined();
+      expect(overhaulTrack!.onExit).toContain('log');
     });
   });
 
@@ -512,7 +512,7 @@ describe('HSM Transition Algorithm', () => {
       expect(result.newPhase).toBe('plan-review');
       expect(result.idempotent).toBe(false);
       expect(result.events.length).toBeGreaterThan(0);
-      expect(result.events[0].type).toBe('transition');
+      expect(result.events[0]!.type).toBe('transition');
     });
 
     it('ExecuteTransition_IdempotentSamePhase_ReturnsNoOp', () => {
@@ -2125,11 +2125,11 @@ describe('Diagnostic Event Emission', () => {
       expect(result.success).toBe(false);
       expect(result.errorCode).toBe('GUARD_FAILED');
       expect(result.events.length).toBe(1);
-      expect(result.events[0].type).toBe('guard-failed');
-      expect(result.events[0].from).toBe('plan');
-      expect(result.events[0].to).toBe('plan-review');
-      expect(result.events[0].metadata).toBeDefined();
-      expect(result.events[0].metadata!.guard).toBe('plan-artifact-exists');
+      expect(result.events[0]!.type).toBe('guard-failed');
+      expect(result.events[0]!.from).toBe('plan');
+      expect(result.events[0]!.to).toBe('plan-review');
+      expect(result.events[0]!.metadata).toBeDefined();
+      expect(result.events[0]!.metadata!.guard).toBe('plan-artifact-exists');
     });
 
     it('should return guard-failed event when guard throws exception', () => {
@@ -2147,11 +2147,11 @@ describe('Diagnostic Event Emission', () => {
       expect(result.success).toBe(false);
       expect(result.errorCode).toBe('GUARD_FAILED');
       expect(result.events.length).toBe(1);
-      expect(result.events[0].type).toBe('guard-failed');
-      expect(result.events[0].from).toBe('delegate');
-      expect(result.events[0].to).toBe('review');
-      expect(result.events[0].metadata).toBeDefined();
-      expect(result.events[0].metadata!.guard).toBe('all-tasks-complete+team-disbanded');
+      expect(result.events[0]!.type).toBe('guard-failed');
+      expect(result.events[0]!.from).toBe('delegate');
+      expect(result.events[0]!.to).toBe('review');
+      expect(result.events[0]!.metadata).toBeDefined();
+      expect(result.events[0]!.metadata!.guard).toBe('all-tasks-complete+team-disbanded');
     });
   });
 
@@ -2183,13 +2183,13 @@ describe('Diagnostic Event Emission', () => {
       expect(result.success).toBe(false);
       expect(result.errorCode).toBe('CIRCUIT_OPEN');
       expect(result.events.length).toBe(1);
-      expect(result.events[0].type).toBe('circuit-open');
-      expect(result.events[0].from).toBe('review');
-      expect(result.events[0].to).toBe('delegate');
-      expect(result.events[0].metadata).toBeDefined();
-      expect(result.events[0].metadata!.compoundStateId).toBe('implementation');
-      expect(result.events[0].metadata!.fixCycleCount).toBe(3);
-      expect(result.events[0].metadata!.maxFixCycles).toBe(3);
+      expect(result.events[0]!.type).toBe('circuit-open');
+      expect(result.events[0]!.from).toBe('review');
+      expect(result.events[0]!.to).toBe('delegate');
+      expect(result.events[0]!.metadata).toBeDefined();
+      expect(result.events[0]!.metadata!.compoundStateId).toBe('implementation');
+      expect(result.events[0]!.metadata!.fixCycleCount).toBe(3);
+      expect(result.events[0]!.metadata!.maxFixCycles).toBe(3);
     });
 
     it('should return circuit-open event for overhaul-track compound', () => {
@@ -2220,8 +2220,8 @@ describe('Diagnostic Event Emission', () => {
       expect(result.success).toBe(false);
       expect(result.errorCode).toBe('CIRCUIT_OPEN');
       expect(result.events.length).toBe(1);
-      expect(result.events[0].type).toBe('circuit-open');
-      expect(result.events[0].metadata!.compoundStateId).toBe('overhaul-track');
+      expect(result.events[0]!.type).toBe('circuit-open');
+      expect(result.events[0]!.metadata!.compoundStateId).toBe('overhaul-track');
     });
   });
 });
@@ -2596,8 +2596,8 @@ describe('universal cleanup transition', () => {
     const hsm = getHSMDefinition('feature');
     const state = { phase: 'review', _cleanup: { mergeVerified: true }, _events: [], _history: {} };
     const result = executeTransition(hsm, state as Record<string, unknown>, 'completed');
-    expect(result.events[0].type).toBe('cleanup');
-    expect(result.events[0].trigger).toBe('cleanup');
+    expect(result.events[0]!.type).toBe('cleanup');
+    expect(result.events[0]!.trigger).toBe('cleanup');
   });
 
   it('should work for debug workflow', () => {
@@ -3149,13 +3149,13 @@ describe('Oneshot Workflow HSM', () => {
   it('oneshot_initialPhaseIsPlan', () => {
     const hsm = getHSMDefinition('oneshot');
     expect(hsm.states['plan']).toBeDefined();
-    expect(hsm.states['plan'].type).toBe('atomic');
+    expect(hsm.states['plan']!.type).toBe('atomic');
     expect(hsm.states['implementing']).toBeDefined();
     expect(hsm.states['synthesize']).toBeDefined();
     expect(hsm.states['completed']).toBeDefined();
-    expect(hsm.states['completed'].type).toBe('final');
+    expect(hsm.states['completed']!.type).toBe('final');
     expect(hsm.states['cancelled']).toBeDefined();
-    expect(hsm.states['cancelled'].type).toBe('final');
+    expect(hsm.states['cancelled']!.type).toBe('final');
   });
 
   it('oneshot_planToImplementing_requiresPlanArtifact', () => {

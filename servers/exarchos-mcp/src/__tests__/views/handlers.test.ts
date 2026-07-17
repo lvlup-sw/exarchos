@@ -141,7 +141,7 @@ describe('handleViewTasks', () => {
     expect(result.success).toBe(true);
     const data = result.data as Array<Record<string, unknown>>;
     expect(data).toHaveLength(1);
-    expect(data[0].taskId).toBe('t1');
+    expect(data[0]!.taskId).toBe('t1');
   });
 
   it('should return all tasks when filter is empty object', async () => {
@@ -183,7 +183,7 @@ describe('handleViewTasks', () => {
     expect(result.success).toBe(true);
     const data = result.data as Array<Record<string, unknown>>;
     expect(data).toHaveLength(1);
-    expect(data[0].taskId).toBe('dt1');
+    expect(data[0]!.taskId).toBe('dt1');
   });
 
   it('should return VIEW_ERROR when workflowId contains invalid characters', async () => {
@@ -257,7 +257,7 @@ describe('handleViewTasks limit', () => {
     expect(result.success).toBe(true);
     const data = result.data as Array<Record<string, unknown>>;
     expect(data).toHaveLength(1);
-    expect(data[0].taskId).toBe('t1');
+    expect(data[0]!.taskId).toBe('t1');
   });
 
   it('handleViewTasks_FilterAndLimit_AppliesBoth', async () => {
@@ -361,8 +361,8 @@ describe('handleViewTasks offset and fields', () => {
     const keys = Object.keys(data[0]);
     expect(keys).toEqual(expect.arrayContaining(['taskId', 'status']));
     expect(keys).toHaveLength(2);
-    expect(data[0].taskId).toBe('t1');
-    expect(data[0].status).toBe('assigned');
+    expect(data[0]!.taskId).toBe('t1');
+    expect(data[0]!.status).toBe('assigned');
   });
 
   it('handleViewTasks_WithFieldsAndFilter_AppliesBoth', async () => {
@@ -391,8 +391,8 @@ describe('handleViewTasks offset and fields', () => {
     expect(result.success).toBe(true);
     const data = result.data as Array<Record<string, unknown>>;
     expect(data).toHaveLength(1);
-    expect(data[0].taskId).toBe('t1');
-    expect(data[0].status).toBe('completed');
+    expect(data[0]!.taskId).toBe('t1');
+    expect(data[0]!.status).toBe('completed');
     const keys = Object.keys(data[0]);
     expect(keys).toHaveLength(2);
   });
@@ -704,7 +704,7 @@ describe('handleViewPipeline', () => {
     const data = result.data as { workflows: Array<Record<string, unknown>>; total: number };
     expect(data.total).toBe(1);
     expect(data.workflows).toHaveLength(1);
-    expect(data.workflows[0].featureId).toBe('active-feat');
+    expect(data.workflows[0]!.featureId).toBe('active-feat');
   });
 
   it('handleViewPipeline_IncludesTerminalPhases_WhenRequested', async () => {

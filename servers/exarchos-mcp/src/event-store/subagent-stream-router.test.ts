@@ -94,7 +94,7 @@ describe('SubagentStreamRouter retirement — observable parity (T27)', () => {
     // timestamp — same observable the old test asserted via per-stream
     // sequence ordering, generalized to the cross-stream namespace.
     for (const tc of taskCompleted) {
-      expect(tc.timestamp.localeCompare(disbanded.timestamp)).toBeLessThanOrEqual(0);
+      expect(tc.timestamp.localeCompare(disbanded!.timestamp)).toBeLessThanOrEqual(0);
     }
   });
 
@@ -150,7 +150,7 @@ describe('SubagentStreamRouter retirement — observable parity (T27)', () => {
     });
     expect(disbandedEvents).toHaveLength(1);
     const disbanded = disbandedEvents[0];
-    const data = (disbanded.data ?? {}) as Record<string, unknown>;
+    const data = (disbanded!.data ?? {}) as Record<string, unknown>;
     expect(data.teamId).toBe(teamId);
     expect(data.tasksCompleted).toBe(3);
   });

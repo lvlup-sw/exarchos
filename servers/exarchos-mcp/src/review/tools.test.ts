@@ -102,10 +102,10 @@ describe('handleReviewTriage', () => {
     const events = await mockEventStore.query('test-events');
 
     expect(events).toHaveLength(2);
-    expect(events[0].type).toBe('review.routed');
-    expect(events[1].type).toBe('review.routed');
-    const data0 = events[0].data as { pr: number; velocityTier: string; semanticAugmented: boolean };
-    const data1 = events[1].data as { pr: number };
+    expect(events[0]!.type).toBe('review.routed');
+    expect(events[1]!.type).toBe('review.routed');
+    const data0 = events[0]!.data as { pr: number; velocityTier: string; semanticAugmented: boolean };
+    const data1 = events[1]!.data as { pr: number };
     expect(data0.pr).toBe(10);
     expect(data1.pr).toBe(20);
     expect(data0.velocityTier).toBe('normal');
@@ -127,11 +127,11 @@ describe('handleReviewTriage', () => {
     const events = await mockEventStore.query('test-routed-shape');
 
     expect(events).toHaveLength(1);
-    expect(events[0].type).toBe('review.routed');
+    expect(events[0]!.type).toBe('review.routed');
 
     // Validate shape matches ReviewRoutedData schema
     const { ReviewRoutedData } = await import('../event-store/schemas.js');
-    const data = events[0].data as Record<string, unknown>;
+    const data = events[0]!.data as Record<string, unknown>;
     const parseResult = ReviewRoutedData.safeParse(data);
     expect(parseResult.success).toBe(true);
 
@@ -250,6 +250,6 @@ describe('orchestrate review_triage action', () => {
     };
     expect(data.velocity).toBe('normal');
     expect(data.dispatches).toHaveLength(1);
-    expect(data.dispatches[0].pr).toBe(100);
+    expect(data.dispatches[0]!.pr).toBe(100);
   });
 });

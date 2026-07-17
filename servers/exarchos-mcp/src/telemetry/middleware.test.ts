@@ -39,10 +39,10 @@ describe('withTelemetry', () => {
       // Assert
       const events = await eventStore.query(TELEMETRY_STREAM);
       expect(events).toHaveLength(2);
-      expect(events[0].type).toBe('tool.invoked');
-      expect((events[0].data as Record<string, unknown>).tool).toBe('test_tool');
-      expect(events[1].type).toBe('tool.completed');
-      const completedData = events[1].data as Record<string, unknown>;
+      expect(events[0]!.type).toBe('tool.invoked');
+      expect((events[0]!.data as Record<string, unknown>).tool).toBe('test_tool');
+      expect(events[1]!.type).toBe('tool.completed');
+      const completedData = events[1]!.data as Record<string, unknown>;
       expect(completedData.tool).toBe('test_tool');
       expect(completedData.durationMs).toBeGreaterThanOrEqual(0);
       expect(completedData.responseBytes).toBeGreaterThan(0);
@@ -120,9 +120,9 @@ describe('withTelemetry', () => {
 
       const events = await eventStore.query(TELEMETRY_STREAM);
       expect(events).toHaveLength(2);
-      expect(events[0].type).toBe('tool.invoked');
-      expect(events[1].type).toBe('tool.errored');
-      const errorData = events[1].data as Record<string, unknown>;
+      expect(events[0]!.type).toBe('tool.invoked');
+      expect(events[1]!.type).toBe('tool.errored');
+      const errorData = events[1]!.data as Record<string, unknown>;
       expect(errorData.tool).toBe('fail_tool');
       expect(errorData.errorMessage).toContain('Handler failed');
     });
@@ -337,7 +337,7 @@ describe('auto-correction integration', () => {
     // Response should include _corrections metadata directly on ToolResult
     expect(result._corrections).toBeDefined();
     expect(result._corrections!.applied).toHaveLength(1);
-    expect(result._corrections!.applied[0].param).toBe('fields');
+    expect(result._corrections!.applied[0]!.param).toBe('fields');
   });
 
   it('WithTelemetry_SkipAutoCorrection_BypassesCorrection', async () => {
@@ -391,7 +391,7 @@ describe('auto-correction integration', () => {
     const hintEvents = events.filter((e) => e.type === 'quality.hint.generated');
     expect(hintEvents).toHaveLength(1);
 
-    const hintData = hintEvents[0].data as Record<string, unknown>;
+    const hintData = hintEvents[0]!.data as Record<string, unknown>;
     expect(hintData.skill).toBe('exarchos_view');
     expect(hintData.hintCount).toBe(1);
     expect(hintData.categories).toEqual(['auto-correction']);
@@ -429,7 +429,7 @@ describe('D3 token-budget gate emission', () => {
     const gateEvents = workflowEvents.filter((e) => e.type === 'gate.executed');
     expect(gateEvents).toHaveLength(1);
 
-    const gateData = gateEvents[0].data as Record<string, unknown>;
+    const gateData = gateEvents[0]!.data as Record<string, unknown>;
     expect(gateData.gateName).toBe('token-budget');
     expect(gateData.passed).toBe(false);
 
@@ -477,8 +477,8 @@ describe('D3 token-budget gate emission', () => {
 
     // The telemetry stream should have tool.invoked and tool.completed only
     expect(telemetryEvents).toHaveLength(2);
-    expect(telemetryEvents[0].type).toBe('tool.invoked');
-    expect(telemetryEvents[1].type).toBe('tool.completed');
+    expect(telemetryEvents[0]!.type).toBe('tool.invoked');
+    expect(telemetryEvents[1]!.type).toBe('tool.completed');
   });
 });
 
@@ -538,12 +538,12 @@ describe('injectEventHints', () => {
     };
 
     const injected = injectEventHints(result, payload);
-    const parsed = JSON.parse(injected.content[0].text) as Record<string, unknown>;
+    const parsed = JSON.parse(injected.content[0]!.text) as Record<string, unknown>;
 
     expect(parsed._eventHints).toBeDefined();
     const eventHints = parsed._eventHints as EventHintsPayload;
     expect(eventHints.missing).toHaveLength(1);
-    expect(eventHints.missing[0].eventType).toBe('team.spawned');
+    expect(eventHints.missing[0]!.eventType).toBe('team.spawned');
     expect(eventHints.phase).toBe('delegate');
     expect(eventHints.checked).toBe(3);
   });
@@ -559,7 +559,7 @@ describe('injectEventHints', () => {
 
     // Should return the exact same object (identity check)
     expect(injected).toBe(result);
-    expect(injected.content[0].text).toBe('{"success":true}');
+    expect(injected.content[0]!.text).toBe('{"success":true}');
   });
 
   it('InjectEventHints_NonJsonResponse_ReturnsUnchanged', () => {
@@ -577,6 +577,6 @@ describe('injectEventHints', () => {
     const injected = injectEventHints(result, payload);
 
     // Should return unchanged, not crash
-    expect(injected.content[0].text).toBe('not valid json at all');
+    expect(injected.content[0]!.text).toBe('not valid json at all');
   });
 });

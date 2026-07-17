@@ -77,14 +77,14 @@ describe('pruner_integration_with_phase_contract_multi_phase_fixture', () => {
     expect(
       scoreStaleness(
         { lastActivityMinutes: 30, phaseTransitionMinutes: 30 },
-        topology.phases.design.staleness!,
+        topology.phases.design!.staleness!,
       ).isStale,
     ).toBe(false);
     // One signal stale → stale.
     expect(
       scoreStaleness(
         { lastActivityMinutes: 30, phaseTransitionMinutes: 9999 },
-        topology.phases.design.staleness!,
+        topology.phases.design!.staleness!,
       ).isStale,
     ).toBe(true);
 
@@ -93,14 +93,14 @@ describe('pruner_integration_with_phase_contract_multi_phase_fixture', () => {
     expect(
       scoreStaleness(
         { lastActivityMinutes: 9999, branchActivityMinutes: 600 },
-        topology.phases.implement.staleness!,
+        topology.phases.implement!.staleness!,
       ).isStale,
     ).toBe(false);
     // Both stale → stale.
     expect(
       scoreStaleness(
         { lastActivityMinutes: 9999, branchActivityMinutes: 99_999 },
-        topology.phases.implement.staleness!,
+        topology.phases.implement!.staleness!,
       ).isStale,
     ).toBe(true);
 
@@ -113,7 +113,7 @@ describe('pruner_integration_with_phase_contract_multi_phase_fixture', () => {
           phaseTransitionMinutes: 60,
           branchActivityMinutes: 60,
         },
-        topology.phases.review.staleness!,
+        topology.phases.review!.staleness!,
       ).isStale,
     ).toBe(false);
     // branchActivity (1440-min window) ages out → stale.
@@ -124,7 +124,7 @@ describe('pruner_integration_with_phase_contract_multi_phase_fixture', () => {
           phaseTransitionMinutes: 60,
           branchActivityMinutes: 9999,
         },
-        topology.phases.review.staleness!,
+        topology.phases.review!.staleness!,
       ).isStale,
     ).toBe(true);
   });
@@ -144,7 +144,7 @@ describe('pruner_integration_with_phase_contract_multi_phase_fixture', () => {
     ];
 
     for (const { phase, expectStale, state } of phasesUnderTest) {
-      const contract = topology.phases[phase].staleness!;
+      const contract = topology.phases[phase]!.staleness!;
       const result = scoreStaleness(state, contract);
       expect({ phase, isStale: result.isStale }).toEqual({ phase, isStale: expectStale });
     }

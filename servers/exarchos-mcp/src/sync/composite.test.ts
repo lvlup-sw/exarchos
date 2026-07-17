@@ -96,10 +96,10 @@ describe('handleSyncNow', () => {
     expect(data.streams).toBe(1);
     const results = data.results as Array<{ streamId: string; sent: number; failed: number }>;
     expect(results).toHaveLength(1);
-    expect(results[0].streamId).toBe('test-stream');
+    expect(results[0]!.streamId).toBe('test-stream');
     // The mock sender successfully "sends" each entry
-    expect(results[0].sent).toBe(2);
-    expect(results[0].failed).toBe(0);
+    expect(results[0]!.sent).toBe(2);
+    expect(results[0]!.failed).toBe(0);
   });
 
   it('handleSyncNow_NoStreams_ReturnsZeroCounts', async () => {

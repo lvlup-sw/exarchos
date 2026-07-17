@@ -102,7 +102,7 @@ describe('F.6 — output validation overhead', () => {
 
     expect(
       median,
-      `median ${median.toFixed(2)}ms > budget ${MEDIAN_BUDGET_MS}ms — full samples sorted: ${samples
+      `median ${median!.toFixed(2)}ms > budget ${MEDIAN_BUDGET_MS}ms — full samples sorted: ${samples
         .map((s) => s.toFixed(2))
         .join(', ')}`,
     ).toBeLessThan(MEDIAN_BUDGET_MS);

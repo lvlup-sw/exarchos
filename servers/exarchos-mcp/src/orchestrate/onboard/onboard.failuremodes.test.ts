@@ -124,7 +124,7 @@ function phasedChecks(
   return async () => {
     n += 1;
     const idx = n < phases.length ? n : phases.length - 1;
-    return [...phases[idx]];
+    return [...phases[idx]!];
   };
 }
 

@@ -422,8 +422,8 @@ describe('InMemoryBackend queryEvents correlation filters (Wave 4 / #1437)', () 
     });
 
     expect(results).toHaveLength(2);
-    expect(results[0].sequence).toBe(2);
-    expect(results[1].sequence).toBe(3);
+    expect(results[0]!.sequence).toBe(2);
+    expect(results[1]!.sequence).toBe(3);
     expect(results.every((e) => e.correlationId === 'cor-X')).toBe(true);
   });
 });

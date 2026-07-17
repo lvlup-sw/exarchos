@@ -58,8 +58,8 @@ describe('TopologyLoader_LoadOnce_ReturnsImmutableTopology', () => {
     const topology = await loadTopology({ topologyPath: file });
 
     expect(topology).toBeDefined();
-    expect(topology.phases.design.staleness?.expectedMaxDwellMinutes).toBe(60);
-    expect(topology.phases.implement.staleness?.freshnessRequires).toBe('any');
+    expect(topology.phases.design!.staleness?.expectedMaxDwellMinutes).toBe(60);
+    expect(topology.phases.implement!.staleness?.freshnessRequires).toBe('any');
 
     // Object is frozen.
     expect(Object.isFrozen(topology)).toBe(true);

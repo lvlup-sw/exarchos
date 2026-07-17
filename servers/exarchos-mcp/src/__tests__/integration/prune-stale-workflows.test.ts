@@ -291,7 +291,7 @@ describe('pruneIntegration_dryRunThenApply_cleansStaleWorkflows', () => {
     // Assert: both stale workflows cancelled on disk.
     expect(applyResult.success).toBe(true);
     const applyData = applyResult.data as PruneHandlerResult;
-    const prunedIds = applyData.pruned.map((p) => p.featureId).sort();
+    const prunedIds = applyData.pruned!.map((p) => p.featureId).sort();
     expect(prunedIds).toEqual(['stale-wf-2', 'stale-wf-3']);
     expect(applyData.skipped).toEqual([]);
 
@@ -357,7 +357,7 @@ describe('pruneIntegration_safeguardOpenPrSkipsOneCandidate', () => {
     // Assert: stale-wf-2 was skipped, the other two were pruned.
     expect(result.success).toBe(true);
     const data = result.data as PruneHandlerResult;
-    const prunedIds = data.pruned.map((p) => p.featureId).sort();
+    const prunedIds = data.pruned!.map((p) => p.featureId).sort();
     expect(prunedIds).toEqual(['stale-wf-1', 'stale-wf-3']);
 
     expect(data.skipped).toHaveLength(1);
@@ -425,7 +425,7 @@ describe('pruneIntegration_respectsThresholdInProduction', () => {
       // be pruned.
       expect(applyResult.success).toBe(true);
       const applyData = applyResult.data as PruneHandlerResult;
-      const prunedIds = applyData.pruned.map((p) => p.featureId).sort();
+      const prunedIds = applyData.pruned!.map((p) => p.featureId).sort();
       expect(prunedIds).toEqual(['stale-c']);
 
       expect(await readPhase(tmpDir, 'stale-c')).toBe('cancelled');

@@ -81,7 +81,7 @@ describe('AtomicAppender stream-version gate', () => {
     expect(new Set(seqs).size).toBe(N);
 
     // And the durable log holds exactly N events for the stream.
-    const events = appenders[0].ensureSqliteBackendSync().queryEvents(streamId);
+    const events = appenders[0]!.ensureSqliteBackendSync().queryEvents(streamId);
     expect(events).toHaveLength(N);
   });
 

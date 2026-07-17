@@ -171,7 +171,7 @@ describe('handleContextEconomy', () => {
       await handleContextEconomy(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(mockEmitGateEvent).toHaveBeenCalledTimes(1);
-      const details = mockEmitGateEvent.mock.calls[0][5] as Record<string, unknown>;
+      const details = mockEmitGateEvent.mock.calls[0]![5] as Record<string, unknown>;
       expect(details.phase).toBe('review');
     });
   });

@@ -142,7 +142,7 @@ describe('seeded-defect corpus', () => {
     // Concretely: the schema-boundary contract class derives HIGH, the source
     // classes derive MEDIUM — a genuine span, not an accident of one class.
     const tierOfClass = (c: string): string =>
-      loadSeededCorpus(c as SeededFixture['gateClass'])[0].manifest.riskTier;
+      loadSeededCorpus(c as SeededFixture['gateClass'])[0]!.manifest.riskTier;
     expect(tierOfClass('contract-drift')).toBe('high');
     expect(tierOfClass('test-adequacy')).toBe('medium');
 

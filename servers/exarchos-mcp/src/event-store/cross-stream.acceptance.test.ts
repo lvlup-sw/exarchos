@@ -102,7 +102,7 @@ describe('CrossStream acceptance (DR-3, T23)', () => {
     });
     expect(parentEvents).toHaveLength(1);
     const disbanded = parentEvents[0];
-    const data = (disbanded.data ?? {}) as Record<string, unknown>;
+    const data = (disbanded!.data ?? {}) as Record<string, unknown>;
     expect(data.teamId).toBe(teamId);
     expect(data.tasksCompleted).toBe(2);
     expect(data.tasksFailed).toBe(0);

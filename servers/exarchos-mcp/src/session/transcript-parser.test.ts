@@ -54,9 +54,9 @@ describe('Transcript Parser — Tool Call Extraction', () => {
     const events = extractToolCalls(lines, metadata);
 
     expect(events).toHaveLength(1);
-    expect(events[0].t).toBe('tool');
-    expect(events[0].tool).toBe('Write');
-    expect(events[0].sid).toBe('sess-1');
+    expect(events[0]!.t).toBe('tool');
+    expect(events[0]!.tool).toBe('Write');
+    expect(events[0]!.sid).toBe('sess-1');
   });
 
   it('extractToolCalls_MultipleToolUses_ReturnsAllToolEvents', async () => {
@@ -119,8 +119,8 @@ describe('Transcript Parser — Tool Call Extraction', () => {
 
     // Should still produce a tool event even without a matching result
     expect(events).toHaveLength(1);
-    expect(events[0].tool).toBe('Bash');
-    expect(events[0].outB).toBe(0);
+    expect(events[0]!.tool).toBe('Bash');
+    expect(events[0]!.outB).toBe(0);
   });
 
   it('extractToolCalls_CategorizesMcpVsNativeTools', async () => {
@@ -172,7 +172,7 @@ describe('Transcript Parser — Tool Call Extraction', () => {
             {
               type: 'tool_use',
               id: `toolu_${i}`,
-              name: tu.name,
+              name: tu!.name,
               input: {},
             },
           ],
@@ -219,11 +219,11 @@ describe('Transcript Parser — Turn Extraction', () => {
     const turns = extractTurns(lines, metadata);
 
     expect(turns).toHaveLength(1);
-    expect(turns[0].t).toBe('turn');
-    expect(turns[0].tokIn).toBe(100);
-    expect(turns[0].tokOut).toBe(50);
-    expect(turns[0].model).toBe('claude-opus-4-6');
-    expect(turns[0].sid).toBe('sess-1');
+    expect(turns[0]!.t).toBe('turn');
+    expect(turns[0]!.tokIn).toBe(100);
+    expect(turns[0]!.tokOut).toBe(50);
+    expect(turns[0]!.model).toBe('claude-opus-4-6');
+    expect(turns[0]!.sid).toBe('sess-1');
   });
 
   it('extractTurns_WithCacheTokens_IncludesCacheReadAndWrite', async () => {
@@ -245,8 +245,8 @@ describe('Transcript Parser — Turn Extraction', () => {
     const metadata: SessionMetadata = { sessionId: 'sess-1' };
     const turns = extractTurns(lines, metadata);
 
-    expect(turns[0].tokCacheR).toBe(5000);
-    expect(turns[0].tokCacheW).toBe(2000);
+    expect(turns[0]!.tokCacheR).toBe(5000);
+    expect(turns[0]!.tokCacheW).toBe(2000);
   });
 });
 

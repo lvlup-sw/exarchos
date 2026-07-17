@@ -56,11 +56,11 @@ describe('seedExarchosConfig', () => {
     expect(result.reason).toBe('created');
     expect(result.path).toBe(path.join('/repo', '.exarchos.yml'));
     expect(writes).toHaveLength(1);
-    expect(writes[0].p).toBe(path.join('/repo', '.exarchos.yml'));
-    expect(writes[0].contents).toContain('test: npm run test:run');
-    expect(writes[0].contents).toContain('typecheck: tsc --noEmit');
-    expect(writes[0].contents).toContain('install: npm install');
-    expect(writes[0].contents).toContain('# .exarchos.yml');
+    expect(writes[0]!.p).toBe(path.join('/repo', '.exarchos.yml'));
+    expect(writes[0]!.contents).toContain('test: npm run test:run');
+    expect(writes[0]!.contents).toContain('typecheck: tsc --noEmit');
+    expect(writes[0]!.contents).toContain('install: npm install');
+    expect(writes[0]!.contents).toContain('# .exarchos.yml');
   });
 
   it('seed_NoExistingConfig_BunDetection_WritesYamlWithBunCommands', () => {
@@ -74,8 +74,8 @@ describe('seedExarchosConfig', () => {
     expect(result.wrote).toBe(true);
     expect(result.reason).toBe('created');
     expect(writes).toHaveLength(1);
-    expect(writes[0].contents).toContain('test: bun test');
-    expect(writes[0].contents).toContain('install: bun install');
+    expect(writes[0]!.contents).toContain('test: bun test');
+    expect(writes[0]!.contents).toContain('install: bun install');
   });
 
   it('seed_ExistingConfig_DoesNotOverwrite', () => {
@@ -132,7 +132,7 @@ describe('seedExarchosConfig', () => {
 
     expect(result.wrote).toBe(true);
     expect(writes).toHaveLength(1);
-    const body = writes[0].contents;
+    const body = writes[0]!.contents;
     expect(body).toContain('test: pytest');
     expect(body).not.toMatch(/^typecheck:/m);
     expect(body).not.toMatch(/^install:/m);
@@ -157,7 +157,7 @@ describe('seedExarchosConfig', () => {
     });
 
     expect(result.wrote).toBe(true);
-    const body = writes[0].contents;
+    const body = writes[0]!.contents;
     expect(body).toContain('test: pytest');
     expect(body).toContain('mutation: mutmut run');
     expect(body).toContain('lint: ruff check');
@@ -187,7 +187,7 @@ describe('seedExarchosConfig', () => {
     });
 
     expect(result.wrote).toBe(true);
-    const body = writes[0].contents;
+    const body = writes[0]!.contents;
     expect(body).toContain('mutation: npx stryker run');
     expect(body).not.toMatch(/^test:/m);
   });
@@ -200,7 +200,7 @@ describe('seedExarchosConfig', () => {
       resolve: () => npmResolve(),
     });
 
-    const body = writes[0].contents;
+    const body = writes[0]!.contents;
     expect(body).toContain('# .exarchos.yml — Exarchos project configuration.');
     expect(body).toContain('# This file declares the commands Exarchos uses for gates and worktree setup —');
     expect(body).toContain('# test, typecheck, install, plus the verification-ladder commands mutation and');
@@ -218,7 +218,7 @@ describe('seedExarchosConfig', () => {
       resolve: () => npmResolve(),
     });
 
-    const body = writes[0].contents;
+    const body = writes[0]!.contents;
     // The stanza is emitted COMMENTED so it documents the opt-in without
     // changing behaviour (devCatalog stays effectively disabled until the
     // operator uncomments it). The block carries a one-line explanation, a
@@ -240,7 +240,7 @@ describe('seedExarchosConfig', () => {
       write: (p, contents) => writes.push({ p, contents }),
       resolve: () => npmResolve(),
     });
-    const body = writes[0].contents;
+    const body = writes[0]!.contents;
     // No ACTIVE (uncommented) invariants: key at column 0.
     expect(body).not.toMatch(/^invariants:/m);
   });

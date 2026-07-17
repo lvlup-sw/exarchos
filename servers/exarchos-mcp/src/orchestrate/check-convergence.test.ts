@@ -161,7 +161,7 @@ describe('handleCheckConvergence', () => {
     // Verify gate event includes phase: 'meta'
     expect(mockStore.append).toHaveBeenCalled();
     const appendCall = mockStore.append.mock.calls[0];
-    const event = appendCall[1] as {
+    const event = appendCall![1] as {
       type: string;
       data: { details: Record<string, unknown> };
     };

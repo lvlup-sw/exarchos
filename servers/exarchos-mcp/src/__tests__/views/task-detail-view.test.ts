@@ -49,15 +49,15 @@ describe('TaskDetailView', () => {
 
       const task = view.tasks['t1'];
       expect(task).toBeDefined();
-      expect(task.taskId).toBe('t1');
-      expect(task.title).toBe('Build auth');
-      expect(task.branch).toBe('feat/auth');
-      expect(task.worktree).toBe('/tmp/auth');
-      expect(task.status).toBe('completed');
-      expect(task.assignee).toBe('agent-1');
-      expect(task.tddPhase).toBe('green');
-      expect(task.artifacts).toEqual(['auth.ts']);
-      expect(task.duration).toBe(120);
+      expect(task!.taskId).toBe('t1');
+      expect(task!.title).toBe('Build auth');
+      expect(task!.branch).toBe('feat/auth');
+      expect(task!.worktree).toBe('/tmp/auth');
+      expect(task!.status).toBe('completed');
+      expect(task!.assignee).toBe('agent-1');
+      expect(task!.tddPhase).toBe('green');
+      expect(task!.artifacts).toEqual(['auth.ts']);
+      expect(task!.duration).toBe(120);
     });
   });
 
@@ -76,9 +76,9 @@ describe('TaskDetailView', () => {
         events,
       );
 
-      expect(view.tasks['t1'].status).toBe('completed');
-      expect(view.tasks['t2'].status).toBe('in-progress');
-      expect(view.tasks['t2'].tddPhase).toBe('red');
+      expect(view.tasks['t1']!.status).toBe('completed');
+      expect(view.tasks['t2']!.status).toBe('in-progress');
+      expect(view.tasks['t2']!.tddPhase).toBe('red');
     });
   });
 
@@ -95,8 +95,8 @@ describe('TaskDetailView', () => {
         events,
       );
 
-      expect(view.tasks['t1'].status).toBe('failed');
-      expect(view.tasks['t1'].error).toBe('build failure');
+      expect(view.tasks['t1']!.status).toBe('failed');
+      expect(view.tasks['t1']!.error).toBe('build failure');
     });
   });
 

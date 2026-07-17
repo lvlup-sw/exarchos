@@ -29,7 +29,7 @@ function diffStates(
       if (acc == null) return undefined;
       const m = seg.match(/^(.+)\[(\d+)\]$/);
       if (m) {
-        const arr = (acc as Record<string, unknown>)[m[1]];
+        const arr = (acc as Record<string, unknown>)[m[1]!];
         return Array.isArray(arr) ? arr[Number(m[2])] : undefined;
       }
       return (acc as Record<string, unknown>)[seg];

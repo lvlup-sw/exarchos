@@ -17,7 +17,7 @@ describe('evaluateLeaf', () => {
 
     const hit = evaluateLeaf(grep('TODO'), diff);
     expect(hit).toHaveLength(1);
-    expect(hit[0].message).toContain('TODO');
+    expect(hit[0]!.message).toContain('TODO');
 
     const miss = evaluateLeaf(grep('NOPE'), diff);
     expect(miss).toEqual([]);

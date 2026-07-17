@@ -81,7 +81,7 @@ describe('GitLabProvider', () => {
       headBranch: 'feat/test',
     });
 
-    const createArgs = mockExec.mock.calls[0][1] ?? [];
+    const createArgs = mockExec.mock.calls[0]![1] ?? [];
     expect(createArgs).toContain('mr');
     expect(createArgs).toContain('create');
     expect(createArgs).not.toContain('--json');
@@ -145,7 +145,7 @@ describe('GitLabProvider', () => {
       draft: true,
     });
 
-    const createArgs = mockExec.mock.calls[0][1] ?? [];
+    const createArgs = mockExec.mock.calls[0]![1] ?? [];
     expect(createArgs).toContain('--draft');
   });
 
@@ -164,7 +164,7 @@ describe('GitLabProvider', () => {
       labels: ['bug', 'priority'],
     });
 
-    const createArgs = mockExec.mock.calls[0][1] ?? [];
+    const createArgs = mockExec.mock.calls[0]![1] ?? [];
     expect(createArgs).toContain('--label');
     expect(createArgs).toContain('bug,priority');
   });
@@ -249,7 +249,7 @@ describe('GitLabProvider', () => {
 
     const result = await provider.checkCi('10');
     expect(result.status).toBe('pending');
-    expect(result.checks[0].status).toBe('pending');
+    expect(result.checks[0]!.status).toBe('pending');
   });
 
   it('GitLabProvider_CheckCi_SkippedJobs', async () => {
@@ -264,7 +264,7 @@ describe('GitLabProvider', () => {
     );
 
     const result = await provider.checkCi('10');
-    expect(result.checks[0].status).toBe('skipped');
+    expect(result.checks[0]!.status).toBe('skipped');
     expect(result.status).toBe('pass');
   });
 
@@ -394,8 +394,8 @@ describe('GitLabProvider', () => {
     ]);
     expect(result.state).toBe('approved');
     expect(result.reviewers).toHaveLength(1);
-    expect(result.reviewers[0].login).toBe('reviewer1');
-    expect(result.reviewers[0].state).toBe('approved');
+    expect(result.reviewers[0]!.login).toBe('reviewer1');
+    expect(result.reviewers[0]!.state).toBe('approved');
   });
 
   it('GitLabProvider_GetReviewStatus_ParsesPending', async () => {
@@ -409,8 +409,8 @@ describe('GitLabProvider', () => {
     const result = await provider.getReviewStatus('10');
     expect(result.state).toBe('pending');
     expect(result.reviewers).toHaveLength(2);
-    expect(result.reviewers[0].state).toBe('pending');
-    expect(result.reviewers[1].state).toBe('pending');
+    expect(result.reviewers[0]!.state).toBe('pending');
+    expect(result.reviewers[1]!.state).toBe('pending');
   });
 
   it('GitLabProvider_GetReviewStatus_PartialApproval', async () => {
@@ -424,8 +424,8 @@ describe('GitLabProvider', () => {
     const result = await provider.getReviewStatus('10');
     // Not all reviewers have approved, so still pending
     expect(result.state).toBe('pending');
-    expect(result.reviewers[0].state).toBe('approved');
-    expect(result.reviewers[1].state).toBe('pending');
+    expect(result.reviewers[0]!.state).toBe('approved');
+    expect(result.reviewers[1]!.state).toBe('pending');
   });
 
   it('GitLabProvider_GetReviewStatus_NoReviewers', async () => {
@@ -611,8 +611,8 @@ describe('GitLabProvider', () => {
     const result = await provider.getPrComments('42');
 
     const byId = Object.fromEntries(result.map((c) => [c.id, c]));
-    expect(byId[1].resolved).toBe(true);
-    expect(byId[2].resolved).toBe(false);
+    expect(byId[1]!.resolved).toBe(true);
+    expect(byId[2]!.resolved).toBe(false);
   });
 
   it('GitLab_GetPrComments_LeavesResolvedAbsentOnNonResolvableNote', async () => {
@@ -640,8 +640,8 @@ describe('GitLabProvider', () => {
     const result = await provider.getPrComments('42');
 
     expect(result).toHaveLength(1);
-    expect('resolved' in result[0]).toBe(false);
-    expect(result[0].resolved).toBeUndefined();
+    expect('resolved' in result[0]!).toBe(false);
+    expect(result[0]!.resolved).toBeUndefined();
   });
 
   it('GitLab_GetPrComments_ThreadsRepliesByParentId', async () => {
@@ -686,9 +686,9 @@ describe('GitLabProvider', () => {
     const result = await provider.getPrComments('42');
 
     expect(result).toHaveLength(3);
-    expect('parentId' in result[0]).toBe(false);
-    expect(result[1].parentId).toBe(100);
-    expect(result[2].parentId).toBe(100);
+    expect('parentId' in result[0]!).toBe(false);
+    expect(result[1]!.parentId).toBe(100);
+    expect(result[2]!.parentId).toBe(100);
   });
 
   it('GitLab_GetPrComments_PaginatesBeyondFirstPage', async () => {
@@ -818,7 +818,7 @@ describe('GitLabProvider', () => {
     expect(result).toHaveLength(1);
     // Per-field defensive: missing resolution leaves `resolved` absent, but the
     // rest of the comment still maps.
-    expect('resolved' in result[0]).toBe(false);
+    expect('resolved' in result[0]!).toBe(false);
     expect(result[0]).toMatchObject({
       id: 1,
       source: 'review-inline',
@@ -868,6 +868,6 @@ describe('GitLabProvider', () => {
     const result = await provider.getPrComments('42');
 
     expect(result).toHaveLength(1);
-    expect(result[0].id).toBe(2);
+    expect(result[0]!.id).toBe(2);
   });
 });

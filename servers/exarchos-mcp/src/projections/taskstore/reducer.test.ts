@@ -92,11 +92,11 @@ describe('taskStoreReducer.apply (Wave 2A.3, #1284)', () => {
     const next = taskStoreReducer.apply(seeded, claimEvent);
 
     expect(next.projectionSequence).toBe(2);
-    expect(next.tasks['T-1'].status).toBe('claimed');
-    expect(next.tasks['T-1'].agentId).toBe('agent-2');
-    expect(next.tasks['T-1'].claimedAt).toBe('2026-05-10T00:01:00.000Z');
+    expect(next.tasks['T-1']!.status).toBe('claimed');
+    expect(next.tasks['T-1']!.agentId).toBe('agent-2');
+    expect(next.tasks['T-1']!.claimedAt).toBe('2026-05-10T00:01:00.000Z');
     // Passthrough fields from prior assignment are preserved.
-    expect(next.tasks['T-1'].title).toBe('Implement');
+    expect(next.tasks['T-1']!.title).toBe('Implement');
   });
 
   it('Apply_TaskProgressed_UpdatesProgressMetadata', () => {
@@ -116,10 +116,10 @@ describe('taskStoreReducer.apply (Wave 2A.3, #1284)', () => {
     const next = taskStoreReducer.apply(seeded, progressEvent);
 
     expect(next.projectionSequence).toBe(2);
-    expect(next.tasks['T-1'].status).toBe('in-progress');
-    expect(next.tasks['T-1'].tddPhase).toBe('green');
-    expect(next.tasks['T-1'].detail).toBe('tests pass');
-    expect(next.tasks['T-1'].title).toBe('Implement');
+    expect(next.tasks['T-1']!.status).toBe('in-progress');
+    expect(next.tasks['T-1']!.tddPhase).toBe('green');
+    expect(next.tasks['T-1']!.detail).toBe('tests pass');
+    expect(next.tasks['T-1']!.title).toBe('Implement');
   });
 
   it('Apply_TaskCompleted_TransitionsToCompleted', () => {
@@ -143,12 +143,12 @@ describe('taskStoreReducer.apply (Wave 2A.3, #1284)', () => {
     const next = taskStoreReducer.apply(seeded, completedEvent);
 
     expect(next.projectionSequence).toBe(2);
-    expect(next.tasks['T-1'].status).toBe('completed');
-    expect(next.tasks['T-1'].artifacts).toEqual([
+    expect(next.tasks['T-1']!.status).toBe('completed');
+    expect(next.tasks['T-1']!.artifacts).toEqual([
       'src/foo.ts',
       'src/foo.test.ts',
     ]);
-    expect(next.tasks['T-1'].duration).toBe(1500);
+    expect(next.tasks['T-1']!.duration).toBe(1500);
   });
 
   it('Apply_TaskFailed_TransitionsToFailed', () => {
@@ -168,8 +168,8 @@ describe('taskStoreReducer.apply (Wave 2A.3, #1284)', () => {
     const next = taskStoreReducer.apply(seeded, failedEvent);
 
     expect(next.projectionSequence).toBe(2);
-    expect(next.tasks['T-1'].status).toBe('failed');
-    expect(next.tasks['T-1'].error).toBe('typecheck failed');
+    expect(next.tasks['T-1']!.status).toBe('failed');
+    expect(next.tasks['T-1']!.error).toBe('typecheck failed');
   });
 
   it('Apply_UnknownEvent_ReturnsStateUnchanged', () => {

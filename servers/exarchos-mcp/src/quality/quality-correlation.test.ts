@@ -48,10 +48,10 @@ describe('correlateQualityAndEvals', () => {
     // Assert
     expect(result.skills).toBeDefined();
     expect(result.skills['delegation']).toBeDefined();
-    expect(result.skills['delegation'].gatePassRate).toBe(0.9);
-    expect(result.skills['delegation'].evalScore).toBe(0.85);
-    expect(result.skills['delegation'].evalTrend).toBe('stable');
-    expect(result.skills['delegation'].regressionCount).toBe(0);
+    expect(result.skills['delegation']!.gatePassRate).toBe(0.9);
+    expect(result.skills['delegation']!.evalScore).toBe(0.85);
+    expect(result.skills['delegation']!.evalTrend).toBe('stable');
+    expect(result.skills['delegation']!.regressionCount).toBe(0);
   });
 
   it('CorrelateQualityAndEvals_NoOverlappingSkills_ReturnsEmptySkills', () => {
@@ -215,8 +215,8 @@ describe('correlateQualityAndEvals', () => {
 
     // Assert: only 'delegation' is in both
     expect(Object.keys(result.skills)).toEqual(['delegation']);
-    expect(result.skills['delegation'].gatePassRate).toBe(0.9);
-    expect(result.skills['delegation'].evalScore).toBe(0.85);
+    expect(result.skills['delegation']!.gatePassRate).toBe(0.9);
+    expect(result.skills['delegation']!.evalScore).toBe(0.85);
   });
 });
 
@@ -293,8 +293,8 @@ describe('correlateQualityAndEvals (property tests)', () => {
     (cq, er) => {
       const result = correlateQualityAndEvals(cq, er);
       for (const [skillName, correlation] of Object.entries(result.skills)) {
-        expect(correlation.evalScore).toBe(er.skills[skillName].latestScore);
-        expect(correlation.gatePassRate).toBe(cq.skills[skillName].gatePassRate);
+        expect(correlation.evalScore).toBe(er.skills[skillName]!.latestScore);
+        expect(correlation.gatePassRate).toBe(cq.skills[skillName]!.gatePassRate);
       }
     },
   );

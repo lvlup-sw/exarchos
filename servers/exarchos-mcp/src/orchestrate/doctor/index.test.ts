@@ -118,9 +118,9 @@ describe('handleDoctor — parallel execution + timeout', () => {
     const data = result.data as { checks: CheckResult[] };
     expect(data.checks).toHaveLength(1);
     const [c] = data.checks;
-    expect(c.status).toBe('Warning');
-    expect(c.fix).toBeDefined();
-    expect(c.fix).toContain('50ms timeout');
+    expect(c!.status).toBe('Warning');
+    expect(c!.fix).toBeDefined();
+    expect(c!.fix).toContain('50ms timeout');
   });
 
   it('HandleDoctor_MixedResults_ReturnsCorrectSummaryTally', async () => {

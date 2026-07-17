@@ -211,7 +211,7 @@ describe('handleSet checkpoint gate', () => {
     // Verify checkpoint.enforced event was emitted
     const events = await eventStore.query(featureId, { type: 'checkpoint.enforced' as never });
     expect(events.length).toBe(1);
-    const eventData = events[0].data as Record<string, unknown>;
+    const eventData = events[0]!.data as Record<string, unknown>;
     expect(eventData.operationsSince).toBe(25);
     expect(eventData.threshold).toBe(20);
     expect(eventData.blockedAction).toBe('phase-transition');
@@ -255,7 +255,7 @@ describe('handleSet checkpoint gate', () => {
 
     const events = await eventStore.query(featureId, { type: 'checkpoint.state_missing' as never });
     expect(events.length).toBe(1);
-    expect((events[0].data as Record<string, unknown>).action).toBe('set');
+    expect((events[0]!.data as Record<string, unknown>).action).toBe('set');
   });
 
   // ─── End-to-end checkpoint enforcement flow (Task 023, DR-5, DR-10) ─────
@@ -328,6 +328,6 @@ describe('handleSet checkpoint gate', () => {
     const checkpointEvents = await eventStore.query(featureId, { type: 'workflow.checkpoint' as never });
     expect(checkpointEvents.length).toBe(1);
     // Checkpoint happened at the initial phase (plan) before the gated transition.
-    expect((checkpointEvents[0].data as Record<string, unknown>).phase).toBe('plan');
+    expect((checkpointEvents[0]!.data as Record<string, unknown>).phase).toBe('plan');
   });
 });

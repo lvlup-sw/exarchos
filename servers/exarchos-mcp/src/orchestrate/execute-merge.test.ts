@@ -595,10 +595,10 @@ describe('handleExecuteMerge rollback (T16)', () => {
     expect(ctx.eventStore.append).toHaveBeenCalledTimes(2);
     const calls = (ctx.eventStore.append as ReturnType<typeof vi.fn>).mock.calls;
     // 0) #1309 liveness merge.executing_started — emitted before the merge.
-    const [, startedPayload] = calls[0];
+    const [, startedPayload] = calls[0]!;
     expect(startedPayload.type).toBe('merge.executing_started');
     // 1) canonical merge.recovered — carries recoveryError + recoveryErrorDetail.
-    const [, recoveredPayload] = calls[1];
+    const [, recoveredPayload] = calls[1]!;
     expect(recoveredPayload.type).toBe('merge.recovered');
     expect(recoveredPayload.data.recoveryError).toBe('reset-keep-blocked');
     expect(recoveredPayload.data.recoveryErrorDetail).toContain('reset --keep');
@@ -1163,7 +1163,7 @@ describe('handleExecuteMerge DR-2 (task 006) — single-emit recovery + CAS idem
     expect(rollback).toHaveLength(0);
 
     // Canonical event carries the renamed field `recoveryPointSha`.
-    const recoveredData = recovered[0].data as Record<string, unknown>;
+    const recoveredData = recovered[0]!.data as Record<string, unknown>;
     expect(recoveredData.recoveryPointSha).toBe(ROLLBACK_SHA);
     expect(recoveredData.reason).toBe('merge-failed');
   });

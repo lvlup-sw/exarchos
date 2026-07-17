@@ -374,10 +374,10 @@ describe('invariants-loader', () => {
     ];
     const entries = parseInvariantEntries(raw);
     expect(entries).toHaveLength(1);
-    expect(entries[0].id).toBe('SDLC-1');
-    expect(entries[0].integrityClass).toBe('sdlc');
-    expect(entries[0].workflowAffinity).toEqual(['feature', 'oneshot']);
-    expect(entries[0].enforcement?.mode).toBe('audit');
+    expect(entries[0]!.id).toBe('SDLC-1');
+    expect(entries[0]!.integrityClass).toBe('sdlc');
+    expect(entries[0]!.workflowAffinity).toEqual(['feature', 'oneshot']);
+    expect(entries[0]!.enforcement?.mode).toBe('audit');
   });
 
   it('parseInvariantEntries_duplicateIds_throws', () => {

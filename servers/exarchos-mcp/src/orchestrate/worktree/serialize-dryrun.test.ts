@@ -152,7 +152,7 @@ describe('serialize_merge — DR-1 dry-run default', () => {
     expect(result.success).toBe(true);
     // The real merge ran…
     expect(calls).toHaveLength(1);
-    expect(calls[0].featureId).toBe('F');
+    expect(calls[0]!.featureId).toBe('F');
     // …and the lease was claimed + released (NOT a dry-run no-op).
     expect(await leaseEvents(arm.eventStore)).toEqual([
       'worktree.merge_requested',

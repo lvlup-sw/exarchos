@@ -230,9 +230,9 @@ describe('AtomicAppender race fixtures', () => {
     // returns to its own caller.
     if (loserResult.kind !== 'cache-hit') return;
     expect(loserResult.persistedEvents).toHaveLength(1);
-    expect(loserResult.persistedEvents[0].type).toBe('task.assigned');
+    expect(loserResult.persistedEvents[0]!.type).toBe('task.assigned');
     expect(
-      (loserResult.persistedEvents[0].data as { winner?: boolean }).winner,
+      (loserResult.persistedEvents[0]!.data as { winner?: boolean }).winner,
     ).toBe(true);
   });
 

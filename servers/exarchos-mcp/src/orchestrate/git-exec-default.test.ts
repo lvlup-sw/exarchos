@@ -25,7 +25,7 @@ describe('git-exec-default', () => {
     const result = defaultGitExec(repoRoot, ['this-is-not-a-git-command']);
     expect(result.exitCode).not.toBe(0);
     // stderr is captured separately (the behavior #1401 added) ...
-    expect(result.stderr.length).toBeGreaterThan(0);
+    expect(result.stderr!.length).toBeGreaterThan(0);
     // ... and also folded into the stdout channel for backwards-compat with
     // callers that read `stdout` as the failure-message channel.
     expect(result.stdout.length).toBeGreaterThan(0);

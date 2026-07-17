@@ -232,7 +232,7 @@ describe('State Store', () => {
       applyDotPath(obj, 'tasks[1].status', 'complete');
 
       expect(
-        ((obj.tasks as Array<Record<string, unknown>>)[1]).status
+        ((obj.tasks as Array<Record<string, unknown>>)[1])!.status
       ).toBe('complete');
     });
 
@@ -299,7 +299,7 @@ describe('State Store', () => {
 
       const results = await listStateFiles(tmpDir);
       expect(results.valid).toHaveLength(1);
-      expect(results.valid[0].featureId).toBe('real-state');
+      expect(results.valid[0]!.featureId).toBe('real-state');
     });
   });
 
@@ -459,9 +459,9 @@ describe('State Store', () => {
 
       const results = await listStateFiles(tmpDir);
       expect(results.valid).toHaveLength(1);
-      expect(results.valid[0].featureId).toBe('valid-feature');
+      expect(results.valid[0]!.featureId).toBe('valid-feature');
       expect(results.corrupt).toHaveLength(1);
-      expect(results.corrupt[0].featureId).toBe('corrupt');
+      expect(results.corrupt[0]!.featureId).toBe('corrupt');
     });
 
     it('should return empty valid array when all state files are corrupt', async () => {
@@ -520,11 +520,11 @@ describe('State Store', () => {
 
       const result = await listStateFiles(tmpDir);
       expect(result.valid).toHaveLength(1);
-      expect(result.valid[0].featureId).toBe('valid-feature');
+      expect(result.valid[0]!.featureId).toBe('valid-feature');
       expect(result.corrupt).toHaveLength(1);
-      expect(result.corrupt[0].featureId).toBe('corrupt');
-      expect(result.corrupt[0].stateFile).toContain('corrupt.state.json');
-      expect(result.corrupt[0].error).toBeTruthy();
+      expect(result.corrupt[0]!.featureId).toBe('corrupt');
+      expect(result.corrupt[0]!.stateFile).toContain('corrupt.state.json');
+      expect(result.corrupt[0]!.error).toBeTruthy();
     });
 
     it('ListStateFiles_MixedFiles_SeparatesValidAndCorrupt', async () => {
@@ -539,7 +539,7 @@ describe('State Store', () => {
       const result = await listStateFiles(tmpDir);
       expect(result.valid).toHaveLength(2);
       expect(result.corrupt).toHaveLength(1);
-      expect(result.corrupt[0].featureId).toBe('bad');
+      expect(result.corrupt[0]!.featureId).toBe('bad');
     });
 
     it('ListStateFiles_AllCorrupt_ReturnsEmptyValidNonEmptyCorrupt', async () => {
@@ -739,7 +739,7 @@ describe('State Store', () => {
       applyDotPath(obj, 'tasks[0].name', 'task-1');
 
       expect(Array.isArray(obj.tasks)).toBe(true);
-      expect((obj.tasks as Array<Record<string, unknown>>)[0].name).toBe('task-1');
+      expect((obj.tasks as Array<Record<string, unknown>>)[0]!.name).toBe('task-1');
     });
 
     it('should create intermediate array for undefined array segment via dot notation', () => {
@@ -750,7 +750,7 @@ describe('State Store', () => {
       // Access matrix[2].[0] where matrix[2] doesn't exist — parsePath needs dot between brackets
       applyDotPath(obj, 'matrix[2].[0]', 99);
 
-      expect((obj.matrix as number[][])[2][0]).toBe(99);
+      expect((obj.matrix as number[][])[2]![0]).toBe(99);
     });
   });
 

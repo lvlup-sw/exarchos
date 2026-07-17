@@ -62,7 +62,7 @@ describe('generateQualityHints', () => {
       const hints = generateQualityHints(state, 'alpha');
       const skillHints = hints.filter(h => h.category === 'gate');
       expect(skillHints).toHaveLength(1);
-      expect(skillHints[0].skill).toBe('alpha');
+      expect(skillHints[0]!.skill).toBe('alpha');
     });
 
     it('should return hints for all skills when no targetSkill', () => {
@@ -116,13 +116,13 @@ describe('generateQualityHints', () => {
       const hints = generateQualityHints(state);
 
       expect(hints).toHaveLength(1);
-      expect(hints[0].skill).toBe('my-skill');
-      expect(hints[0].category).toBe('gate');
-      expect(hints[0].severity).toBe('warning');
-      expect(hints[0].hint).toContain('70%');
-      expect(hints[0].hint).toContain('lint');
-      expect(hints[0].hint).toContain('type-check');
-      expect(hints[0].hint).toContain('test');
+      expect(hints[0]!.skill).toBe('my-skill');
+      expect(hints[0]!.category).toBe('gate');
+      expect(hints[0]!.severity).toBe('warning');
+      expect(hints[0]!.hint).toContain('70%');
+      expect(hints[0]!.hint).toContain('lint');
+      expect(hints[0]!.hint).toContain('type-check');
+      expect(hints[0]!.hint).toContain('test');
     });
 
     it('should return no hint when gate pass rate is at threshold', () => {
@@ -653,7 +653,7 @@ describe('generateQualityHints', () => {
       expect(hints.length).toBeGreaterThan(0);
       expect(mockEventStore.append).toHaveBeenCalledTimes(1);
 
-      const [streamId, event] = mockEventStore.append.mock.calls[0];
+      const [streamId, event] = mockEventStore.append.mock.calls[0]!;
       expect(streamId).toBe('quality-hints');
       expect(event.type).toBe('quality.hint.generated');
       expect(event.data.skill).toBe('my-skill');
@@ -808,8 +808,8 @@ describe('generateQualityHints', () => {
       // Assert
       const telemetryHints = hints.filter(h => h.category === 'telemetry');
       expect(telemetryHints.length).toBeGreaterThan(0);
-      expect(telemetryHints[0].skill).toBe('global');
-      expect(telemetryHints[0].severity).toBe('info');
+      expect(telemetryHints[0]!.skill).toBe('global');
+      expect(telemetryHints[0]!.severity).toBe('info');
     });
 
     it('GenerateQualityHints_WithoutTelemetryState_OmitsTelemetryHints', () => {

@@ -34,12 +34,12 @@ describe('BaselinesFile', () => {
     expect(Object.keys(parsed.baselines)).toHaveLength(2);
 
     const entry = parsed.baselines['event-store-query-1000-type-filter'];
-    expect(entry.p50_ms).toBe(12.3);
-    expect(entry.p95_ms).toBe(28.7);
-    expect(entry.p99_ms).toBe(45.2);
-    expect(entry.measured_at).toBe('2026-02-10T14:30:00Z');
-    expect(entry.commit).toBe('abc123');
-    expect(entry.iterations).toBe(100);
+    expect(entry!.p50_ms).toBe(12.3);
+    expect(entry!.p95_ms).toBe(28.7);
+    expect(entry!.p99_ms).toBe(45.2);
+    expect(entry!.measured_at).toBe('2026-02-10T14:30:00Z');
+    expect(entry!.commit).toBe('abc123');
+    expect(entry!.iterations).toBe(100);
   });
 
   // ─── Missing Required Fields ─────────────────────────────────────────────

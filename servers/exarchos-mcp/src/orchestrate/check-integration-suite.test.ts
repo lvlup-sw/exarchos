@@ -174,7 +174,7 @@ describe('handleCheckIntegrationSuite', () => {
 
     // Assert
     expect(runner).toHaveBeenCalledTimes(1);
-    const opts = runner.mock.calls[0][2];
+    const opts = runner.mock.calls[0]![2];
     expect(opts?.cwd).toBe('/worktrees/agent-x');
   });
 
@@ -409,9 +409,9 @@ describe('check_integration_suite command resolution (#1537, DR-15)', () => {
     });
     // The command comes from the toolchain resolver, not a hardcoded test:run.
     expect(seen).toHaveLength(1);
-    expect(seen[0].cmd).toBe('npm');
-    expect(seen[0].args).toContain('ws:test');
-    expect(seen[0].args).toContain('--reporter=json');
+    expect(seen[0]!.cmd).toBe('npm');
+    expect(seen[0]!.args).toContain('ws:test');
+    expect(seen[0]!.args).toContain('--reporter=json');
   });
 
   it('checkIntegrationSuite_TestScriptOverride_HonorsExplicit', () => {
@@ -425,8 +425,8 @@ describe('check_integration_suite command resolution (#1537, DR-15)', () => {
       },
       detectToolchain: () => stubToolchain('npm run should-not-be-used'),
     });
-    expect(seen[0].args).toContain('test:ci');
-    expect(seen[0].args).not.toContain('should-not-be-used');
+    expect(seen[0]!.args).toContain('test:ci');
+    expect(seen[0]!.args).not.toContain('should-not-be-used');
   });
 
   it('checkIntegrationSuite_MonorepoRoot_ResolvesCommandAndParses', () => {

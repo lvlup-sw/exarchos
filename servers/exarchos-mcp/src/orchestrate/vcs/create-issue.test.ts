@@ -80,7 +80,7 @@ describe('handleCreateIssue', () => {
       assignees: undefined,
     });
     // Verify the marker is embedded in the body.
-    const call = vi.mocked(mockProvider.createIssue).mock.calls[0][0];
+    const call = vi.mocked(mockProvider.createIssue).mock.calls[0]![0];
     expect(call.body).toMatch(/<!-- exarchos-op:[0-9a-f-]{36} -->/);
   });
 
@@ -143,21 +143,21 @@ describe('handleCreateIssue', () => {
     expect(appendCalls.length).toBe(2);
 
     // Phase A — durable intent.
-    expect(appendCalls[0][0]).toBe('vcs');
-    expect(appendCalls[0][1]).toMatchObject({
+    expect(appendCalls[0]![0]).toBe('vcs');
+    expect(appendCalls[0]![1]).toMatchObject({
       type: 'issue.create.requested',
       data: { title: 'Bug' },
     });
 
     // Phase C — execution record.
-    const executedCall = appendCalls[1][1] as { type: string; data: { operationId: string; issueNumber: number; url: string } };
-    expect(appendCalls[1][0]).toBe('vcs');
+    const executedCall = appendCalls[1]![1] as { type: string; data: { operationId: string; issueNumber: number; url: string } };
+    expect(appendCalls[1]![0]).toBe('vcs');
     expect(executedCall.type).toBe('issue.create.executed');
     expect(executedCall.data.issueNumber).toBe(123);
     expect(executedCall.data.url).toBe('https://github.com/repo/issues/123');
 
     // Both events share the same operationId.
-    const requestedData = appendCalls[0][1] as { data: { operationId: string } };
+    const requestedData = appendCalls[0]![1] as { data: { operationId: string } };
     expect(executedCall.data.operationId).toBe(requestedData.data.operationId);
   });
 

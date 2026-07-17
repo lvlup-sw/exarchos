@@ -148,14 +148,14 @@ describe('EvalResultsView — eval.judge.calibrated handler', () => {
 
     // Assert
     expect(result.calibrations).toHaveLength(1);
-    expect(result.calibrations[0].skill).toBe('code-review');
-    expect(result.calibrations[0].rubricName).toBe('correctness');
-    expect(result.calibrations[0].split).toBe('validation');
-    expect(result.calibrations[0].tpr).toBe(0.92);
-    expect(result.calibrations[0].tnr).toBe(0.88);
-    expect(result.calibrations[0].accuracy).toBe(0.90);
-    expect(result.calibrations[0].f1).toBe(0.91);
-    expect(result.calibrations[0].calibratedAt).toBe('2025-06-01T10:00:01.000Z');
+    expect(result.calibrations[0]!.skill).toBe('code-review');
+    expect(result.calibrations[0]!.rubricName).toBe('correctness');
+    expect(result.calibrations[0]!.split).toBe('validation');
+    expect(result.calibrations[0]!.tpr).toBe(0.92);
+    expect(result.calibrations[0]!.tnr).toBe(0.88);
+    expect(result.calibrations[0]!.accuracy).toBe(0.90);
+    expect(result.calibrations[0]!.f1).toBe(0.91);
+    expect(result.calibrations[0]!.calibratedAt).toBe('2025-06-01T10:00:01.000Z');
   });
 
   it('EvalResultsView_JudgeCalibratedEvent_UpdatesLatestCalibration', () => {
@@ -193,8 +193,8 @@ describe('EvalResultsView — eval.judge.calibrated handler', () => {
     // Assert — latest calibration is the most recent one appended
     expect(state2.calibrations).toHaveLength(2);
     const latest = state2.calibrations[state2.calibrations.length - 1];
-    expect(latest.tpr).toBe(0.92);
-    expect(latest.calibratedAt).toBe('2025-06-01T10:00:02.000Z');
+    expect(latest!.tpr).toBe(0.92);
+    expect(latest!.calibratedAt).toBe('2025-06-01T10:00:02.000Z');
   });
 
   it('EvalResultsView_MultipleCalibrations_KeepsHistory', () => {
@@ -247,12 +247,12 @@ describe('EvalResultsView — eval.judge.calibrated handler', () => {
 
     // Assert — all three calibrations are preserved in order
     expect(state.calibrations).toHaveLength(3);
-    expect(state.calibrations[0].skill).toBe('code-review');
-    expect(state.calibrations[0].tpr).toBe(0.80);
-    expect(state.calibrations[1].skill).toBe('debugging');
-    expect(state.calibrations[1].tpr).toBe(0.85);
-    expect(state.calibrations[2].skill).toBe('code-review');
-    expect(state.calibrations[2].tpr).toBe(0.95);
+    expect(state.calibrations[0]!.skill).toBe('code-review');
+    expect(state.calibrations[0]!.tpr).toBe(0.80);
+    expect(state.calibrations[1]!.skill).toBe('debugging');
+    expect(state.calibrations[1]!.tpr).toBe(0.85);
+    expect(state.calibrations[2]!.skill).toBe('code-review');
+    expect(state.calibrations[2]!.tpr).toBe(0.95);
   });
 
   it('EvalResultsView_JudgeCalibratedEvent_NoData_ReturnsUnchanged', () => {

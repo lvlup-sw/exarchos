@@ -39,10 +39,10 @@ function parseSkill(raw: string): ParsedSkill {
   // assertions we need — we explicitly do NOT want to depend on a YAML
   // library here for a tiny structural sniff).
   const fields: Record<string, string> = {};
-  for (const line of frontmatter.split('\n')) {
+  for (const line of frontmatter!.split('\n')) {
     const m = line.match(/^([a-zA-Z0-9_-]+):\s*(.*)$/);
     if (m) {
-      fields[m[1]] = m[2].trim();
+      fields[m[1]!] = m[2]!.trim();
     }
   }
 

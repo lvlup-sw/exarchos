@@ -151,7 +151,7 @@ describe('CrossStream bundle (DR-3, T28)', () => {
 
     const events = await eventStore.query(featureId, { type: 'team.disbanded' });
     expect(events).toHaveLength(1);
-    const data = (events[0].data ?? {}) as Record<string, unknown>;
+    const data = (events[0]!.data ?? {}) as Record<string, unknown>;
     // Only `feat-bundle-2/subagent-a` matches; the lookalike flat stream
     // doesn't share the namespaced prefix structure and stays out.
     expect(data.tasksCompleted).toBe(1);

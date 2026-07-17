@@ -83,9 +83,9 @@ describe('handleVerifyDocLinks', () => {
     };
     expect(data.passed).toBe(false);
     expect(data.brokenCount).toBe(1);
-    expect(data.brokenLinks[0].file).toBe(filePath);
-    expect(data.brokenLinks[0].line).toBe(1);
-    expect(data.brokenLinks[0].target).toBe('./missing.md');
+    expect(data.brokenLinks[0]!.file).toBe(filePath);
+    expect(data.brokenLinks[0]!.line).toBe(1);
+    expect(data.brokenLinks[0]!.target).toBe('./missing.md');
   });
 
   it('skips external URLs (http:// and https://)', () => {

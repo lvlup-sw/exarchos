@@ -74,7 +74,7 @@ describe('CompositeViewTelemetry_OutputTokenHint_EndToEnd (#1262)', () => {
       (a) => a.verb === 'checkpoint',
     );
     expect(hintEntries).toHaveLength(1);
-    expect(hintEntries[0].reason).toMatch(/output tokens/i);
+    expect(hintEntries[0]!.reason).toMatch(/output tokens/i);
   });
 
   it('CompositeViewTelemetry_BelowThreshold_NoHint', async () => {

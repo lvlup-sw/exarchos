@@ -42,10 +42,10 @@ describe('AgentSpec Types', () => {
     expect(spec.model).toBe('inherit');
     expect(spec.isolation).toBe('worktree');
     expect(spec.skills).toHaveLength(1);
-    expect(spec.skills[0].name).toBe('test-skill');
+    expect(spec.skills[0]!.name).toBe('test-skill');
     expect(spec.validationRules).toHaveLength(2);
-    expect(spec.validationRules[0].command).toBe('test');
-    expect(spec.validationRules[1].command).toBeUndefined();
+    expect(spec.validationRules[0]!.command).toBe('test');
+    expect(spec.validationRules[1]!.command).toBeUndefined();
     expect(spec.resumable).toBe(true);
     expect(spec.memoryScope).toBe('project');
     expect(spec.maxTurns).toBe(50);

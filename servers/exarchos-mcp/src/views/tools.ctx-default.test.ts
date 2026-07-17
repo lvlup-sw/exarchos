@@ -149,7 +149,7 @@ describe('Wave 2 — handlers honor AsyncLocalStorage ctx-default (#1448)', () =
     };
     // Only tool_X (stamped cor-X) is rolled up; tool_Y must be absent.
     expect(data.tools).toHaveLength(1);
-    expect(data.tools[0].tool).toBe('tool_X');
+    expect(data.tools[0]!.tool).toBe('tool_X');
     expect(data.session.totalInvocations).toBe(1);
   });
 

@@ -70,8 +70,8 @@ describe('MigrateState_MissingVersion_TreatedAsV1_0', () => {
     expect(result._checkpoint).toBeDefined();
     const history = result._migrationHistory as Array<{ from: string; to: string }>;
     expect(history).toHaveLength(1);
-    expect(history[0].from).toBe('1.0');
-    expect(history[0].to).toBe('1.1');
+    expect(history[0]!.from).toBe('1.0');
+    expect(history[0]!.to).toBe('1.1');
   });
 });
 
@@ -103,11 +103,11 @@ describe('Migration Metadata', () => {
     expect(history).toBeDefined();
     expect(Array.isArray(history)).toBe(true);
     expect(history).toHaveLength(1);
-    expect(history[0].from).toBe('1.0');
-    expect(history[0].to).toBe('1.1');
-    expect(typeof history[0].timestamp).toBe('string');
+    expect(history[0]!.from).toBe('1.0');
+    expect(history[0]!.to).toBe('1.1');
+    expect(typeof history[0]!.timestamp).toBe('string');
     // Verify it's a valid ISO date
-    expect(new Date(history[0].timestamp).toISOString()).toBe(history[0].timestamp);
+    expect(new Date(history[0]!.timestamp).toISOString()).toBe(history[0]!.timestamp);
   });
 
   it('MigrateState_AlreadyCurrent_NoMigrationHistory', () => {

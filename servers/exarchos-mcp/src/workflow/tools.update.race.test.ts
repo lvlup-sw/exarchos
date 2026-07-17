@@ -130,7 +130,7 @@ describe('exarchos_workflow.update — concurrency (Wave 0, Task 0.5)', () => {
 
     // Strictly increasing sequences — per-stream lock invariant.
     for (let i = 1; i < patched.length; i += 1) {
-      expect(patched[i].sequence).toBeGreaterThan(patched[i - 1].sequence);
+      expect(patched[i]!.sequence).toBeGreaterThan(patched[i - 1]!.sequence);
     }
 
     // Both patch payloads (artifacts and planReview) must be observable

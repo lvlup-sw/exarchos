@@ -824,7 +824,7 @@ describe('handlePruneStaleWorkflows', () => {
       (call: unknown[]) => (call[1] as { type: string }).type === 'workflow.pruned',
     );
     expect(prunedCalls).toHaveLength(1);
-    const [streamId, payload] = prunedCalls[0];
+    const [streamId, payload] = prunedCalls[0]!;
     expect(streamId).toBe('a');
     const envelope = payload as { type: string; data: Record<string, unknown> };
     expect(envelope.type).toBe('workflow.pruned');

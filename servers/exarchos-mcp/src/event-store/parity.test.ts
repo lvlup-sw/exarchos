@@ -90,10 +90,10 @@ async function callCli(
   const structured: Record<string, unknown> = {};
   for (let i = 0; i < flags.length; i++) {
     const token = flags[i];
-    if (!token.startsWith('--')) continue;
+    if (!token!.startsWith('--')) continue;
     // Drop the leading `--`, convert kebab-case back to camelCase so the
     // harness's own camelCase→kebab mapping is a no-op.
-    const kebabKey = token.slice(2);
+    const kebabKey = token!.slice(2);
     const camelKey = kebabKey.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
     const next = flags[i + 1];
     if (next !== undefined && !next.startsWith('--')) {

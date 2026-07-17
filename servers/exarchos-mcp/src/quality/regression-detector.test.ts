@@ -28,12 +28,12 @@ describe('detectRegressions', () => {
     const regressions = detectRegressions(viewState);
 
     expect(regressions).toHaveLength(1);
-    expect(regressions[0].gate).toBe('typecheck');
-    expect(regressions[0].skill).toBe('delegation');
-    expect(regressions[0].consecutiveFailures).toBe(3);
-    expect(regressions[0].firstFailureCommit).toBe('abc123');
-    expect(regressions[0].lastFailureCommit).toBe('def456');
-    expect(regressions[0].detectedAt).toBeDefined();
+    expect(regressions[0]!.gate).toBe('typecheck');
+    expect(regressions[0]!.skill).toBe('delegation');
+    expect(regressions[0]!.consecutiveFailures).toBe(3);
+    expect(regressions[0]!.firstFailureCommit).toBe('abc123');
+    expect(regressions[0]!.lastFailureCommit).toBe('def456');
+    expect(regressions[0]!.detectedAt).toBeDefined();
   });
 
   it('detectRegressions_TwoFailures_ReturnsEmpty', async () => {

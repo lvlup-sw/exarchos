@@ -100,16 +100,16 @@ describe('TaskDetailView_ReflectsTaskStoreProjection (Wave 2A.7, #1284)', () => 
     expect(viewTask).toBeDefined();
 
     // Status is the canonical reducer's authority for both surfaces.
-    expect(viewTask.status).toBe('completed');
+    expect(viewTask!.status).toBe('completed');
     expect(projectionTask?.status).toBe('completed');
 
     // Passthrough fields preserved across the fold path.
-    expect(viewTask.title).toBe(projectionTask?.title);
-    expect(viewTask.branch).toBe(projectionTask?.branch);
-    expect(viewTask.worktree).toBe(projectionTask?.worktree);
-    expect(viewTask.assignee).toBe(projectionTask?.assignee);
-    expect(viewTask.artifacts).toEqual(projectionTask?.artifacts);
-    expect(viewTask.duration).toBe(projectionTask?.duration);
+    expect(viewTask!.title).toBe(projectionTask?.title);
+    expect(viewTask!.branch).toBe(projectionTask?.branch);
+    expect(viewTask!.worktree).toBe(projectionTask?.worktree);
+    expect(viewTask!.assignee).toBe(projectionTask?.assignee);
+    expect(viewTask!.artifacts).toEqual(projectionTask?.artifacts);
+    expect(viewTask!.duration).toBe(projectionTask?.duration);
   });
 
   it('TaskDetailView_ReflectsTaskStoreProjection_StatusAcrossLifecycle', async () => {
@@ -151,15 +151,15 @@ describe('TaskDetailView_ReflectsTaskStoreProjection (Wave 2A.7, #1284)', () => 
       streamId,
     );
 
-    expect(view.tasks['task-lc-1'].status).toBe('failed');
+    expect(view.tasks['task-lc-1']!.status).toBe('failed');
     expect(projection.tasks['task-lc-1']?.status).toBe('failed');
-    expect(view.tasks['task-lc-1'].status).toBe(
+    expect(view.tasks['task-lc-1']!.status).toBe(
       projection.tasks['task-lc-1']?.status,
     );
-    expect(view.tasks['task-lc-1'].error).toBe(
+    expect(view.tasks['task-lc-1']!.error).toBe(
       projection.tasks['task-lc-1']?.error,
     );
-    expect(view.tasks['task-lc-1'].tddPhase).toBe(
+    expect(view.tasks['task-lc-1']!.tddPhase).toBe(
       projection.tasks['task-lc-1']?.tddPhase,
     );
   });

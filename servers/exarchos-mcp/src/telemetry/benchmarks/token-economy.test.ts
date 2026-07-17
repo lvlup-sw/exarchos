@@ -78,7 +78,7 @@ describe('Token Economy Benchmarks', () => {
 
     // Assert
     const withPerfBytes = Buffer.byteLength(withPerf.content[0].text, 'utf-8');
-    const withoutPerfBytes = Buffer.byteLength(withoutPerf.content[0].text, 'utf-8');
+    const withoutPerfBytes = Buffer.byteLength(withoutPerf.content[0]!.text, 'utf-8');
     const overheadBytes = withPerfBytes - withoutPerfBytes;
     const overheadTokens = Math.ceil(overheadBytes / 4);
     expect(overheadTokens).toBeLessThan(15);

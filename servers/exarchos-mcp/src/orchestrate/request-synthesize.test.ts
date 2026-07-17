@@ -108,9 +108,9 @@ describe('handleRequestSynthesize', () => {
 
     expect(result.success).toBe(true);
     expect(calls).toHaveLength(1);
-    expect(calls[0].streamId).toBe('feat-oneshot-1');
-    expect(calls[0].event.type).toBe('synthesize.requested');
-    const data = calls[0].event.data as Record<string, unknown>;
+    expect(calls[0]!.streamId).toBe('feat-oneshot-1');
+    expect(calls[0]!.event.type).toBe('synthesize.requested');
+    const data = calls[0]!.event.data as Record<string, unknown>;
     expect(data.featureId).toBe('feat-oneshot-1');
     expect(typeof data.timestamp).toBe('string');
 
@@ -136,8 +136,8 @@ describe('handleRequestSynthesize', () => {
     // Two events appended; downstream guard uses count >= 1 semantics,
     // so replays remain safe even with multiple requests.
     expect(calls).toHaveLength(2);
-    expect(calls[0].event.type).toBe('synthesize.requested');
-    expect(calls[1].event.type).toBe('synthesize.requested');
+    expect(calls[0]!.event.type).toBe('synthesize.requested');
+    expect(calls[1]!.event.type).toBe('synthesize.requested');
   });
 
   it('handleRequestSynthesize_rejectsNonOneshotWorkflow', async () => {
@@ -166,7 +166,7 @@ describe('handleRequestSynthesize', () => {
 
     expect(result.success).toBe(true);
     expect(calls).toHaveLength(1);
-    const data = calls[0].event.data as Record<string, unknown>;
+    const data = calls[0]!.event.data as Record<string, unknown>;
     expect(data.reason).toBe(reason);
 
     const resultData = result.data as { eventAppended: boolean; reason?: string };
@@ -197,7 +197,7 @@ describe('handleRequestSynthesize', () => {
     });
 
     expect(calls).toHaveLength(1);
-    const data = calls[0].event.data as Record<string, unknown>;
+    const data = calls[0]!.event.data as Record<string, unknown>;
     const ts = data.timestamp as string;
     const parsed = new Date(ts);
     expect(Number.isNaN(parsed.getTime())).toBe(false);

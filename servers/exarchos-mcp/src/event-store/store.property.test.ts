@@ -71,12 +71,12 @@ describe('EventStore Property Tests', () => {
 
           // Verify ascending sequence order
           for (let i = 0; i < queried.length; i++) {
-            expect(queried[i].sequence).toBe(i + 1);
+            expect(queried[i]!.sequence).toBe(i + 1);
           }
 
           // Verify each pair is strictly ascending
           for (let i = 1; i < queried.length; i++) {
-            expect(queried[i].sequence).toBeGreaterThan(queried[i - 1].sequence);
+            expect(queried[i]!.sequence).toBeGreaterThan(queried[i - 1]!.sequence);
           }
         }),
         { numRuns: 50 },

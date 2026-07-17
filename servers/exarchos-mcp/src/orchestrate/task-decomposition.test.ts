@@ -132,22 +132,22 @@ describe('parseTaskBlocks', () => {
     const blocks = parseTaskBlocks(WELL_DECOMPOSED_PLAN);
 
     expect(blocks).toHaveLength(3);
-    expect(blocks[0].id).toBe('T-01');
-    expect(blocks[1].id).toBe('T-02');
-    expect(blocks[2].id).toBe('T-03');
+    expect(blocks[0]!.id).toBe('T-01');
+    expect(blocks[1]!.id).toBe('T-02');
+    expect(blocks[2]!.id).toBe('T-03');
     // Each block should contain its content
-    expect(blocks[0].content).toContain('widget rendering component');
-    expect(blocks[1].content).toContain('HTTP client wrapper');
+    expect(blocks[0]!.content).toContain('widget rendering component');
+    expect(blocks[1]!.content).toContain('HTTP client wrapper');
   });
 
   it('ParseTaskBlocks_NumericFormat_ExtractsBlocks', () => {
     const blocks = parseTaskBlocks(NUMERIC_FORMAT_PLAN);
 
     expect(blocks).toHaveLength(2);
-    expect(blocks[0].id).toBe('1');
-    expect(blocks[1].id).toBe('2');
-    expect(blocks[0].content).toContain('widget rendering component');
-    expect(blocks[1].content).toContain('HTTP client wrapper');
+    expect(blocks[0]!.id).toBe('1');
+    expect(blocks[1]!.id).toBe('2');
+    expect(blocks[0]!.content).toContain('widget rendering component');
+    expect(blocks[1]!.content).toContain('HTTP client wrapper');
   });
 });
 
@@ -219,8 +219,8 @@ describe('parseTaskBlocks — #1670 majority-4-hash corpus (DR-5)', () => {
 
     const blocks = parseTaskBlocks(plan);
     expect(blocks.map((b) => b.id)).toEqual(['T-01', '2']);
-    expect(validateTaskStructure(blocks[0].content).riskTier).toBe('medium');
-    expect(validateTaskStructure(blocks[1].content).riskTier).toBe('high');
+    expect(validateTaskStructure(blocks[0]!.content).riskTier).toBe('medium');
+    expect(validateTaskStructure(blocks[1]!.content).riskTier).toBe('high');
   });
 
   // Property/matrix: heading depth ∈ {3,4} × id ∈ {`T-NN`, `NN`} — all four
@@ -247,8 +247,8 @@ describe('parseTaskBlocks — #1670 majority-4-hash corpus (DR-5)', () => {
 
       const blocks = parseTaskBlocks(plan);
       expect(blocks).toHaveLength(1);
-      expect(blocks[0].id).toBe(id);
-      expect(validateTaskStructure(blocks[0].content).riskTier).toBe('high');
+      expect(blocks[0]!.id).toBe(id);
+      expect(validateTaskStructure(blocks[0]!.content).riskTier).toBe('high');
     },
   );
 

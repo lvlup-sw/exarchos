@@ -164,7 +164,7 @@ describe('event query --follow (T042, DR-9)', () => {
     // The last frame must be an `end` frame — written after all events.
     expect(frames.length).toBeGreaterThanOrEqual(2);
     const last = frames[frames.length - 1];
-    expect(last.type).toBe('end');
+    expect(last!.type).toBe('end');
   });
 
   it('EventQueryCli_IdleFollow_EmitsHeartbeat', async () => {

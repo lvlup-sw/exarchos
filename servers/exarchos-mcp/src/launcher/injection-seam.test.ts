@@ -135,13 +135,13 @@ const OPENCODE_ENV = HARNESS_DESCRIPTORS.opencode.injection[0];
 
 /** Narrow a registry candidate into a `flag` resolved channel (throws if not a flag). */
 function flagChannel(candidate: (typeof CLAUDE_FILE)): ResolvedInjectionChannel {
-  if (candidate.kind !== 'flag') throw new Error('expected a flag candidate');
+  if (candidate!.kind !== 'flag') throw new Error('expected a flag candidate');
   return { kind: 'flag', candidate };
 }
 
 /** Narrow a registry candidate into an `env` resolved channel (throws if not env). */
 function envChannel(candidate: (typeof COPILOT_ENV)): ResolvedInjectionChannel {
-  if (candidate.kind !== 'env') throw new Error('expected an env candidate');
+  if (candidate!.kind !== 'env') throw new Error('expected an env candidate');
   return { kind: 'env', candidate };
 }
 
