@@ -40,7 +40,7 @@
  *     intentionally divergent semantics (phase='' on start, merge-pending
  *     detour, minimal mergeOrchestrator shape, merge.aborted) that the
  *     file-equivalent canonical fold must not reproduce. See the §3.3 addendum
- *     in docs/designs/2026-06-20-w3-event-sourcing-read-path.md.
+ *     in docs/designs/archive/2026-06-20-w3-event-sourcing-read-path.md.
  *
  * Excluded automatically (test/bench surface):
  *   - **\/*.test.ts, **\/*.bench.ts, **\/__tests__/**, **\/benchmarks/**

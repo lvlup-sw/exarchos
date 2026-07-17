@@ -145,7 +145,7 @@ describe('exarchos merge-orchestrate CLI', () => {
   it('cliMergeOrchestrate_MissingStrategy_ExitCode1', async () => {
     // Strategy is required-no-default (#1127, #1109 §2). Omitting --strategy
     // must produce INVALID_INPUT at the boundary, not silently apply a
-    // schema default. See docs/designs/2026-04-26-autonomous-merge-orchestrator.md.
+    // schema default. See docs/designs/archive/2026-04-26-autonomous-merge-orchestrator.md.
     const program = buildCli(ctx);
 
     await program.parseAsync([

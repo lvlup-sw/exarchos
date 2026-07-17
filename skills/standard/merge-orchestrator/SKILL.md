@@ -141,7 +141,7 @@ Events are emitted directly to the orchestrator's event stream (stream id is the
 
 These events are auto-emitted by the handler — do **not** manually append them via `exarchos:exarchos_event` during normal operation. Manual emission is only sanctioned during the documented manual-recovery flow in [`recovery-runbook.md`](references/recovery-runbook.md) when a merge has been completed out-of-band (e.g., conflict resolution) and the event log must be brought back in sync — follow that runbook's event-first sequencing.
 
-> Discover the event payload schemas via `exarchos:exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.requested", "merge.executed", "merge.rollback", "merge.recovered"] })`.
+> Discover the event payload schemas via `exarchos:exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.requested", "merge.executed", "merge.rollback", "merge.recovered"] })`. (`merge.rollback` is **legacy, read-tolerant** — retained so pre-DR-2 logs replay, no longer emitted.)
 
 ## Disambiguation: `merge_orchestrate` vs `merge_pr`
 
@@ -212,7 +212,7 @@ Fail-closed: any individual git invocation that fails inside the debug helper de
 
 ## Schema Discovery
 
-For the argument schema, call `exarchos:exarchos_orchestrate({ action: "describe", actions: ["merge_orchestrate"] })`. Event payload shapes come from `exarchos:exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.requested", "merge.executed", "merge.rollback", "merge.recovered"] })`.
+For the argument schema, call `exarchos:exarchos_orchestrate({ action: "describe", actions: ["merge_orchestrate"] })`. Event payload shapes come from `exarchos:exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.requested", "merge.executed", "merge.rollback", "merge.recovered"] })` (`merge.rollback` is **legacy, read-tolerant** — retained so pre-DR-2 logs replay, no longer emitted).
 
 `mergeOrchestrator.*` fields on workflow state are written by this skill and `mergeOrchestrator.phase` is read by gates; the underlying `phase` workflow field is immutable and must be changed via `transition`, not `update`. See the [Reserved fields](../checkpoint/SKILL.md#reserved-fields) section in the `checkpoint` skill for the full immutable-key list and the typed `RESERVED_FIELD` error envelope.
 

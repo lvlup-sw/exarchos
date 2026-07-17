@@ -1,4 +1,4 @@
-// Source: docs/designs/2026-05-05-e2e-v29-revisited.md §4.4 (T4.6)
+// Source: docs/designs/archive/2026-05-05-e2e-v29-revisited.md §4.4 (T4.6)
 import { describe, it, expect } from 'vitest';
 import { withHermeticEnv } from '../../fixtures/hermetic.js';
 import { runCli } from '../../fixtures/cli-runner.js';

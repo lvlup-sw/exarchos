@@ -1,4 +1,4 @@
-// Source: docs/designs/2026-06-06-onboard-doctor-consolidation.md (DR-2/DR-5)
+// Source: docs/designs/archive/2026-06-06-onboard-doctor-consolidation.md (DR-2/DR-5)
 //
 // Process-fidelity smoke tests for `exarchos onboard --runtime claude` — the
 // consolidated first-run verb that superseded the v2.9 `install-skills` /

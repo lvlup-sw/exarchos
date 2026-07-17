@@ -1118,7 +1118,7 @@ describe('buildAllSkills — task 009: render-time CALL macro failures', () => {
 
 // -----------------------------------------------------------------------------
 // Wave A — P4 prose layer: capability-aware renderer (Task 8/9 of
-// docs/plans/2026-04-25-delegation-runtime-parity.md).
+// docs/plans/archive/2026-04-25-delegation-runtime-parity.md).
 //
 // These tests cover the new behaviors layered on top of the existing renderer:
 //   - SUBAGENT_COMPLETION_HOOK / SUBAGENT_RESULT_API token vocabulary

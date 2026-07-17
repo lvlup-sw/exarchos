@@ -3,7 +3,7 @@
 // Cursor 2.5+ ships native sub-agents defined as Markdown with YAML
 // frontmatter at `.cursor/agents/<name>.md`. The adapter lowers an
 // AgentSpec into that file format and validates capability support.
-// See docs/designs/2026-04-25-delegation-runtime-parity.md §4.
+// See docs/designs/archive/2026-04-25-delegation-runtime-parity.md §4.
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, vi, afterEach } from 'vitest';

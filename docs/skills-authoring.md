@@ -116,7 +116,7 @@ A tier-1 smoke harness at `test/smoke/runtime-smoke.test.ts` covers per-runtime 
 
 ## Where to look next
 
-- Design: [`docs/designs/2026-04-08-platform-agnostic-skills.md`](designs/2026-04-08-platform-agnostic-skills.md)
-- Plan: [`docs/plans/2026-04-08-platform-agnostic-skills.md`](plans/2026-04-08-platform-agnostic-skills.md)
+- Design: [`docs/designs/archive/2026-04-08-platform-agnostic-skills.md`](designs/archive/2026-04-08-platform-agnostic-skills.md)
+- Plan: [`docs/plans/archive/2026-04-08-platform-agnostic-skills.md`](plans/archive/2026-04-08-platform-agnostic-skills.md)
 - Placeholder vocabulary: [`docs/references/placeholder-vocabulary.md`](references/placeholder-vocabulary.md)
 - Runtime notes: [`docs/references/runtime-notes.md`](references/runtime-notes.md)

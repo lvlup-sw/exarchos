@@ -222,7 +222,7 @@ describe('DR-3: exarchos_event CLI/MCP parity', () => {
 
 // ─── DR-11 / T53 — workflow.set({phase}) deprecation envelope parity ────────
 //
-// Plan goal (docs/plans/2026-05-08-durable-event-store-substrate.md §T53):
+// Plan goal (docs/plans/archive/2026-05-08-durable-event-store-substrate.md §T53):
 // "Parity test ensuring `_meta.deprecation` envelope is byte-equivalent
 // across CLI and MCP carriers per output-contract registration."
 //

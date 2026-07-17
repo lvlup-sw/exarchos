@@ -8,7 +8,7 @@ import { listAlive, clear, killAll } from './process-tracker.js';
 /**
  * Tests for the target-agnostic CLI invoker `runCli`.
  *
- * Design: docs/designs/2026-04-19-process-fidelity-harness.md §5.3
+ * Design: docs/designs/archive/2026-04-19-process-fidelity-harness.md §5.3
  *
  * These tests deliberately invoke `node -e '<inline script>'` rather than any
  * project binary so that the suite has no dependency beyond `node` itself.

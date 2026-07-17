@@ -150,7 +150,7 @@ describe('escalation-policy (DR-3, #1595)', () => {
   //
   // This is the DR-6 divergence guard. It pins the interim escalation defaults
   // to the documented Workflow SDK (#1258) combinator semantics recorded in
-  // `docs/designs/2026-06-23-ship-gate-sdk-migration.md` ("SDK-contract
+  // `docs/designs/archive/2026-06-23-ship-gate-sdk-migration.md` ("SDK-contract
   // values"), mirrored as `SDK_MIGRATION_CONTRACT`. The assertions run the LIVE
   // policy and compare it to that constant — never to hardcoded literals — so a
   // FAILURE here means the interim policy and the documented SDK semantics have

@@ -10,7 +10,7 @@ import { PARITY_CONTRACT, assertParity, type ParitySpec } from './parity-contrac
  * and call `assertParity(cli, mcp, spec)` to enforce equality on the
  * fields the spec lists.
  *
- * Design: docs/designs/2026-05-05-e2e-v29-revisited.md §4.3
+ * Design: docs/designs/archive/2026-05-05-e2e-v29-revisited.md §4.3
  */
 
 describe('PARITY_CONTRACT', () => {

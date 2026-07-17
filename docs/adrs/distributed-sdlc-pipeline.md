@@ -1065,7 +1065,7 @@ type RemediationExhausted = WorkflowEvent & {
 
 #### Verification Events
 
-Emitted by CI gates and the CodeQualityView when benchmark or quality data is available. See the [verification design](../designs/2026-02-15-autonomous-code-verification.md) for full context on property-based testing and benchmark infrastructure.
+Emitted by CI gates and the CodeQualityView when benchmark or quality data is available. See the [verification design](../designs/archive/2026-02-15-autonomous-code-verification.md) for full context on property-based testing and benchmark infrastructure.
 
 ```typescript
 type BenchmarkCompleted = WorkflowEvent & {
@@ -1413,7 +1413,7 @@ interface CodeQualityView {
 
 **Answers:** "What is the quality trend across my workflows?"
 
-See the [verification design](../designs/2026-02-15-autonomous-code-verification.md) for full interface definitions (`SkillQualityMetrics`, `ModelQualityMetrics`, `GateMetrics`, `BenchmarkTrend`, `QualityRegression`) and attribution analysis.
+See the [verification design](../designs/archive/2026-02-15-autonomous-code-verification.md) for full interface definitions (`SkillQualityMetrics`, `ModelQualityMetrics`, `GateMetrics`, `BenchmarkTrend`, `QualityRegression`) and attribution analysis.
 
 > **Implementation status:** Not implemented. Planned as part of the verification infrastructure — requires `BenchmarkCompleted` event type and sufficient workflow history for statistically meaningful trends.
 
@@ -1727,7 +1727,7 @@ The agent runs a subset of gates pre-PR; CI re-runs the full suite. Redundancy i
 
 ### Verification Gates
 
-Two additional gate types extend the quality gate framework with systematic code verification. Both are planned — see the [verification design](../designs/2026-02-15-autonomous-code-verification.md) for full specifications.
+Two additional gate types extend the quality gate framework with systematic code verification. Both are planned — see the [verification design](../designs/archive/2026-02-15-autonomous-code-verification.md) for full specifications.
 
 #### Property-Based Testing
 
@@ -2114,7 +2114,7 @@ Deployments ────────── DeploymentRolledBack ─────�
 
 **Feedback target 5: Production Risk Scoring (Loop 6, automated)** — `IncidentResolved` events correlate causal commits with `StrategyOutcomeRecorded` events, applying delayed Thompson Sampling penalties (`productionPenaltyWeight: 2.0`, heavier than gate failures because production incidents represent real user impact). `DeploymentRolledBack` events aggregate rollback rates per task category, feeding Task Router scoring adjustments. `IncidentResolved.lessonsLearned` are indexed into an `incident-patterns` RAG collection for Knowledge Enrichment (Loop 5). CodeQualityView gains a `production` dimension: incidents per strategy, rollback rate per task category, MTTR per profile, error rate trends. See [Panoptikon §8](../designs/2026-02-24-panoptikon-production-observability.md#8-loop-6-production-feedback) and [Platform Architecture §13](./platform-architecture.md#13-future-considerations).
 
-**Attribution dimensions** — When quality degrades, the CodeQualityView enables multi-dimensional analysis: per-skill mutation scores, per-model first-pass rates, per-task-type gate failures, per-complexity-tier trends, and per-prompt-version comparisons. When a regression is detected (consecutive gate failures), the flywheel emits a `QualityRegression` event that surfaces alongside eval regressions and may trigger `ProfileAdaptationEscalated` for affected profiles. See the [verification design](../designs/2026-02-15-autonomous-code-verification.md) for full attribution analysis and flywheel integration points.
+**Attribution dimensions** — When quality degrades, the CodeQualityView enables multi-dimensional analysis: per-skill mutation scores, per-model first-pass rates, per-task-type gate failures, per-complexity-tier trends, and per-prompt-version comparisons. When a regression is detected (consecutive gate failures), the flywheel emits a `QualityRegression` event that surfaces alongside eval regressions and may trigger `ProfileAdaptationEscalated` for affected profiles. See the [verification design](../designs/archive/2026-02-15-autonomous-code-verification.md) for full attribution analysis and flywheel integration points.
 
 **Cross-loop amplification** — These five feedback targets do not operate in isolation. Improvement in any one target cascades into the others because they share CodeQualityView as a signal hub (e.g., better strategy selection → higher quality outputs → richer Knowledge RAG collections → better context for all future executions; production incident patterns → agents avoid repeating failure modes → fewer incidents → cleaner Thompson Sampling signal). See [Platform Architecture §13 — Cross-Loop Dynamics](./platform-architecture.md#cross-loop-dynamics) for the full reinforcing cascade analysis (including Loop 6) and damping mechanisms that ensure stable convergence.
 
@@ -2558,7 +2558,7 @@ The autonomous invocation path (Path B) integrates with CI/CD systems:
 
 ### Verification Infrastructure
 
-See [Autonomous Code Verification](../designs/2026-02-15-autonomous-code-verification.md) for full design.
+See [Autonomous Code Verification](../designs/archive/2026-02-15-autonomous-code-verification.md) for full design.
 
 | Component | Status | Summary |
 |-----------|--------|---------|
@@ -2571,7 +2571,7 @@ See [Autonomous Code Verification](../designs/2026-02-15-autonomous-code-verific
 
 ### Content Hardening
 
-See [Content Hardening](../designs/2026-02-15-content-hardening-trigger-harness.md) for full design.
+See [Content Hardening](../designs/archive/2026-02-15-content-hardening-trigger-harness.md) for full design.
 
 | Component | Status | Summary |
 |-----------|--------|---------|
@@ -2713,9 +2713,9 @@ See [Productization Roadmap ADR](./productization-roadmap.md) for full roadmap.
 | [Productization Roadmap](./productization-roadmap.md) | Roadmap for OSS local tool and optional remote backend tier |
 | [`docs/designs/2026-01-18-agentic-coder.md`](../designs/2026-01-18-agentic-coder.md) | Full Agentic Coder design (remote tier) |
 | [`docs/designs/2026-02-07-graphite-sdlc-integration.md`](../designs/2026-02-07-graphite-sdlc-integration.md) | Stacked PR Integration design (historical — originally Graphite-based, now GitHub-native) |
-| [`docs/designs/2026-02-15-autonomous-code-verification.md`](../designs/2026-02-15-autonomous-code-verification.md) | Verification flywheel design (property-based testing, benchmarks, CodeQualityView) |
+| [`docs/designs/archive/2026-02-15-autonomous-code-verification.md`](../designs/archive/2026-02-15-autonomous-code-verification.md) | Verification flywheel design (property-based testing, benchmarks, CodeQualityView) |
 | [`docs/designs/2026-02-15-productization-assessment.md`](../designs/2026-02-15-productization-assessment.md) | Architecture assessment (source for Productization Roadmap ADR) |
-| [`docs/designs/2026-02-15-content-hardening.md`](../designs/2026-02-15-content-hardening-trigger-harness.md) | Content hardening trigger harness design (fully implemented) |
+| [`docs/designs/2026-02-15-content-hardening.md`](../designs/archive/2026-02-15-content-hardening-trigger-harness.md) | Content hardening trigger harness design (fully implemented) |
 | [`docs/designs/2026-02-19-remote-notification-bridge.md`](../designs/2026-02-19-remote-notification-bridge.md) | Remote Notification Bridge: MCP streaming sync, three-layer notification delivery, watcher teammate. Supersedes Phases 4-5 transport design (polling → MCP streaming). |
 
 ## References

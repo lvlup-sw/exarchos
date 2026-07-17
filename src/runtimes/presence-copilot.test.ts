@@ -14,7 +14,7 @@
  * this presence test only covers the load-bearing field smoke checks.
  *
  * Implements: DR-4, DR-5 (copilot branch); Task 7e of
- * docs/plans/2026-04-25-delegation-runtime-parity.md
+ * docs/plans/archive/2026-04-25-delegation-runtime-parity.md
  */
 
 import { describe, it, expect } from 'vitest';

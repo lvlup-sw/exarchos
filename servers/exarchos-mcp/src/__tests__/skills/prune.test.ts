@@ -3,7 +3,7 @@
  *
  * Validates the skills-src/prune/SKILL.md frontmatter and body
  * against the conventions documented in CLAUDE.md and the T5 task spec
- * in docs/plans/2026-04-11-oneshot-and-pruning.md:
+ * in docs/plans/archive/2026-04-11-oneshot-and-pruning.md:
  *
  *   - name is kebab-case
  *   - description is <= 1024 chars

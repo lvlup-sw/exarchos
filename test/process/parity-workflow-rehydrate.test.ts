@@ -1,4 +1,4 @@
-// Source: docs/plans/2026-05-05-e2e-v29-revisited.md §T3.6
+// Source: docs/plans/archive/2026-05-05-e2e-v29-revisited.md §T3.6
 //
 // Process-fidelity parity test for the `workflow.rehydrate` action AND
 // the F6.1 reconstructability invariant — the operational closure of

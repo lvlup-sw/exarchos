@@ -80,7 +80,7 @@ the check DSL, and a worked example.
 ## See also
 
 - **[Authoring invariants](authoring-invariants.md)** — consumer-facing how-to.
-- Design: [`docs/designs/2026-05-23-invariants-projection-and-extensibility.md`](../designs/2026-05-23-invariants-projection-and-extensibility.md).
+- Design: [`docs/designs/archive/2026-05-23-invariants-projection-and-extensibility.md`](../designs/archive/2026-05-23-invariants-projection-and-extensibility.md).
 - v2 framing: [`docs/proposals/2026-05-20-invariants-catalog-v2-spec.md`](../proposals/2026-05-20-invariants-catalog-v2-spec.md) §1.1, §4.0.
 - Catalog: [`.exarchos/invariants.md`](../../.exarchos/invariants.md).
 - Loader: [`servers/exarchos-mcp/src/architecture/invariants-loader.ts`](../../servers/exarchos-mcp/src/architecture/invariants-loader.ts).

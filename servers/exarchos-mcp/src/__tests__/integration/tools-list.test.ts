@@ -26,7 +26,7 @@ import { EventStore } from '../../event-store/store.js';
 import { TOOL_REGISTRY } from '../../registry.js';
 import type { DispatchContext } from '../../core/dispatch.js';
 
-// Per design `docs/designs/2026-05-13-wave-0-carrier-swap.md` §2.6 the
+// Per design `docs/designs/archive/2026-05-13-wave-0-carrier-swap.md` §2.6 the
 // advertised tool schemas SHOULD carry the JSON Schema 2020-12 `$schema`
 // URL. In practice the MCP SDK (1.26.x) drives its OWN internal
 // Zod-v3 → JSON Schema converter for `tools/list` and that converter emits

@@ -19,8 +19,8 @@
 // exit code. We seed the sandbox with a minimal `.claude-plugin/plugin.json`
 // because the composition root refuses to run without one.
 //
-// See docs/plans/2026-04-25-delegation-runtime-parity.md Task 6 and
-// docs/designs/2026-04-25-delegation-runtime-parity.md §5.
+// See docs/plans/archive/2026-04-25-delegation-runtime-parity.md Task 6 and
+// docs/designs/archive/2026-04-25-delegation-runtime-parity.md §5.
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';

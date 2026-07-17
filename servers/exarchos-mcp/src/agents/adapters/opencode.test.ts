@@ -5,7 +5,7 @@
 // Claude's: `tools` is a boolean object/map (not an array), and the
 // agent kind is declared via `mode: subagent`.
 //
-// See docs/designs/2026-04-25-delegation-runtime-parity.md §4.
+// See docs/designs/archive/2026-04-25-delegation-runtime-parity.md §4.
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
