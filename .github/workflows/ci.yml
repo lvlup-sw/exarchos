@@ -55,6 +55,10 @@ jobs:
               - 'rules/**'
               - 'evals/**'
               - 'servers/exarchos-mcp/src/evals/**'
+              # Opt-in eval package (DR-3): owns the promptfoo dep the graders
+              # dynamic-import. A change here must still fire RUN_EVALS / the
+              # eval gate, so it is named alongside the eval sources above.
+              - 'servers/exarchos-mcp/evals-pkg/**'
               - 'servers/exarchos-mcp/src/workflow/playbooks.ts'
 
   test-root:
