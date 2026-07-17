@@ -36,6 +36,10 @@ afterEach(async () => {
 
 // ─── Event Append Tool ──────────────────────────────────────────────────────
 
+/** The append-ack shape the assertions poke (data is loosely typed on the result). */
+const ackOf = (r: { data?: unknown }): { streamId: string; sequence: number; type: string } =>
+  r.data as { streamId: string; sequence: number; type: string };
+
 describe('handleEventAppend', () => {
   it('should append a valid event and return success', async () => {
     const result = await handleEventAppend(
@@ -52,9 +56,9 @@ describe('handleEventAppend', () => {
 
     expect(result.success).toBe(true);
     expect(result.data).toBeDefined();
-    expect(result.data!.streamId).toBe('my-workflow');
-    expect(result.data!.sequence).toBe(1);
-    expect(result.data!.type).toBe('workflow.started');
+    expect(ackOf(result).streamId).toBe('my-workflow');
+    expect(ackOf(result).sequence).toBe(1);
+    expect(ackOf(result).type).toBe('workflow.started');
   });
 
   it('should increment sequence on multiple appends', async () => {
@@ -70,7 +74,7 @@ describe('handleEventAppend', () => {
     );
 
     expect(result.success).toBe(true);
-    expect(result.data!.sequence).toBe(2);
+    expect(ackOf(result).sequence).toBe(2);
   });
 
   it('should return error for missing stream', async () => {
@@ -113,7 +117,7 @@ describe('handleEventAppend', () => {
       eventStore,
     );
     expect(result.success).toBe(true);
-    expect(result.data!.sequence).toBe(2);
+    expect(ackOf(result).sequence).toBe(2);
   });
 
   it('should return an EventAck with only streamId, sequence, type keys', async () => {
@@ -402,7 +406,7 @@ describe('handleEventQuery Fields Projection', () => {
     expect(events).toHaveLength(1);
 
     // Only requested fields should be present
-    const keys = Object.keys(events[0]).sort();
+    const keys = Object.keys(events[0]!).sort();
     expect(keys).toEqual(['sequence', 'type']);
     expect(events[0]!.type).toBe('workflow.started');
     expect(events[0]!.sequence).toBe(1);
@@ -504,7 +508,7 @@ describe('handleEventQuery Fields Projection', () => {
     expect(events).toHaveLength(1);
 
     // Only 'type' should be present; 'nonexistent' is skipped
-    const keys = Object.keys(events[0]);
+    const keys = Object.keys(events[0]!);
     expect(keys).toEqual(['type']);
   });
 });

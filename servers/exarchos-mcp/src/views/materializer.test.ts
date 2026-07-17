@@ -1,3 +1,4 @@
+import type { SnapshotStore } from './snapshot-store.js';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ViewMaterializer, type ViewProjection } from './materializer.js';
 import { materializeFiltered } from './tools.js';
@@ -185,7 +186,7 @@ describe('ViewMaterializer LRU Eviction', () => {
       };
       const materializer = new ViewMaterializer({
         maxCacheEntries: 2,
-        snapshotStore: mockSnapshotStore,
+        snapshotStore: mockSnapshotStore as unknown as SnapshotStore,
       });
       materializer.register(VIEW_NAME, counterProjection);
 
@@ -406,7 +407,7 @@ describe('ViewMaterializer Configurable Snapshot Interval', () => {
       load: vi.fn().mockResolvedValue(undefined),
       delete: vi.fn().mockResolvedValue(undefined),
     };
-    const materializer = new ViewMaterializer({ snapshotStore });
+    const materializer = new ViewMaterializer({ snapshotStore: snapshotStore as unknown as SnapshotStore });
     materializer.register(VIEW_NAME, counterProjection);
 
     const events50 = Array.from({ length: 50 }, (_, i) =>
@@ -429,7 +430,7 @@ describe('ViewMaterializer Configurable Snapshot Interval', () => {
       load: vi.fn().mockResolvedValue(undefined),
       delete: vi.fn().mockResolvedValue(undefined),
     };
-    const materializer = new ViewMaterializer({ snapshotStore });
+    const materializer = new ViewMaterializer({ snapshotStore: snapshotStore as unknown as SnapshotStore });
     materializer.register(VIEW_NAME, counterProjection);
 
     const events50 = Array.from({ length: 50 }, (_, i) =>
@@ -446,7 +447,7 @@ describe('ViewMaterializer Configurable Snapshot Interval', () => {
       load: vi.fn().mockResolvedValue(undefined),
       delete: vi.fn().mockResolvedValue(undefined),
     };
-    const materializer = new ViewMaterializer({ snapshotStore });
+    const materializer = new ViewMaterializer({ snapshotStore: snapshotStore as unknown as SnapshotStore });
     materializer.register(VIEW_NAME, counterProjection);
 
     const events50 = Array.from({ length: 50 }, (_, i) =>
@@ -463,7 +464,7 @@ describe('ViewMaterializer Configurable Snapshot Interval', () => {
       load: vi.fn().mockResolvedValue(undefined),
       delete: vi.fn().mockResolvedValue(undefined),
     };
-    const materializer = new ViewMaterializer({ snapshotStore });
+    const materializer = new ViewMaterializer({ snapshotStore: snapshotStore as unknown as SnapshotStore });
     materializer.register(VIEW_NAME, counterProjection);
 
     const events50 = Array.from({ length: 50 }, (_, i) =>
@@ -480,7 +481,7 @@ describe('ViewMaterializer Configurable Snapshot Interval', () => {
       load: vi.fn().mockResolvedValue(undefined),
       delete: vi.fn().mockResolvedValue(undefined),
     };
-    const materializer = new ViewMaterializer({ snapshotStore, snapshotInterval: 30 });
+    const materializer = new ViewMaterializer({ snapshotStore: snapshotStore as unknown as SnapshotStore, snapshotInterval: 30 });
     materializer.register(VIEW_NAME, counterProjection);
 
     const events30 = Array.from({ length: 30 }, (_, i) =>
@@ -543,7 +544,7 @@ describe('ViewMaterializer StorageBackend Integration', () => {
     // Both backend and snapshotStore provided — backend should be preferred
     const materializer = new ViewMaterializer({
       backend,
-      snapshotStore,
+      snapshotStore: snapshotStore as unknown as SnapshotStore,
       snapshotInterval: 5,
     });
     materializer.register(VIEW_NAME, counterProjection);
@@ -575,7 +576,7 @@ describe('ViewMaterializer StorageBackend Integration', () => {
     };
 
     // No backend — should use snapshotStore
-    const materializer = new ViewMaterializer({ snapshotStore });
+    const materializer = new ViewMaterializer({ snapshotStore: snapshotStore as unknown as SnapshotStore });
     materializer.register(VIEW_NAME, counterProjection);
 
     const loaded = await materializer.loadFromSnapshot('stream-1', VIEW_NAME);

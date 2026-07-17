@@ -156,19 +156,20 @@ describe('AtomicAppender_SqliteBackend_DropsInBehindExistingInterface', () => {
     expect(retry.ok).toBe(true);
     if (!retry.ok) return;
     expect(retry.kind).toBe('cache-hit');
+    if (retry.kind !== 'cache-hit') return;
     expect(retry.sequences).toEqual([1, 2]);
     expect(retry.eventIds).toEqual(first.eventIds);
     expect(retry.timestamps).toEqual(first.timestamps);
     // PublicPersistedEvent shape: must reflect the originally-persisted
     // events, not the current request body.
     expect(retry.persistedEvents).toHaveLength(2);
-    expect(retry.persistedEvents[0].streamId).toBe(streamId);
-    expect(retry.persistedEvents[0].sequence).toBe(1);
-    expect(retry.persistedEvents[0].type).toBe('task.assigned');
-    expect((retry.persistedEvents[0].data as { n: number }).n).toBe(1); // original, NOT 99
-    expect(retry.persistedEvents[0].idempotencyKey).toBe(key);
-    expect(retry.persistedEvents[1].sequence).toBe(2);
-    expect(retry.persistedEvents[1].type).toBe('task.completed');
+    expect(retry.persistedEvents[0]!.streamId).toBe(streamId);
+    expect(retry.persistedEvents[0]!.sequence).toBe(1);
+    expect(retry.persistedEvents[0]!.type).toBe('task.assigned');
+    expect((retry.persistedEvents[0]!.data as { n: number }).n).toBe(1); // original, NOT 99
+    expect(retry.persistedEvents[0]!.idempotencyKey).toBe(key);
+    expect(retry.persistedEvents[1]!.sequence).toBe(2);
+    expect(retry.persistedEvents[1]!.type).toBe('task.completed');
   });
 
   // ─── PublicPersistedEvent shape ──────────────────────────────────────────
@@ -192,13 +193,14 @@ describe('AtomicAppender_SqliteBackend_DropsInBehindExistingInterface', () => {
     expect(retry.ok).toBe(true);
     if (!retry.ok) return;
     expect(retry.kind).toBe('cache-hit');
+    if (retry.kind !== 'cache-hit') return;
     const evt = retry.persistedEvents[0];
     // Required fields per PublicPersistedEvent interface.
-    expect(typeof evt.streamId).toBe('string');
-    expect(typeof evt.sequence).toBe('number');
-    expect(typeof evt.type).toBe('string');
-    expect(typeof evt.timestamp).toBe('string');
-    expect(typeof evt.eventId).toBe('string');
+    expect(typeof evt!.streamId).toBe('string');
+    expect(typeof evt!.sequence).toBe('number');
+    expect(typeof evt!.type).toBe('string');
+    expect(typeof evt!.timestamp).toBe('string');
+    expect(typeof evt!.eventId).toBe('string');
   });
 
   // ─── appendUnkeyed bypasses idempotency cache ────────────────────────────
