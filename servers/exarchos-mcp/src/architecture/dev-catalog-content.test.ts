@@ -108,11 +108,13 @@ describe('dev-catalog v3 content — CR-2 mode:check enforcement', () => {
     expect(audits.length).toBeGreaterThanOrEqual(1);
   });
 
-  // INV-4 is the lone precise mode:check. INV-6's operational projection
+  // INV-4 is the original diff-precise mode:check; task 027 (DR-15) raised
+  // INV-13/14/16 to mode:check too (each with a deterministic anti-pattern grep
+  // + both-direction self-tests below). INV-6's operational projection
   // (scripts/lint-inv6.mjs) is a deliberately-advisory literal scan with a
   // frontmatter-declaration escape hatch a diff-grep cannot replicate, and
-  // INV-5a/5d tool-COUNT facts require the whole file, not a diff — so all
-  // three are mode:audit (Approach-B "audit the rest"). See CR-6 below.
+  // INV-5a/5d tool-COUNT facts require the whole file, not a diff — so those
+  // three stay mode:audit (Approach-B "audit the rest"). See CR-6 below.
 
   it('inv4_editingGeneratedSkillsRuntimeFile_fires', () => {
     const e = entry('INV-4');
@@ -137,6 +139,86 @@ describe('dev-catalog v3 content — CR-2 mode:check enforcement', () => {
       clean,
     );
     expect(findings).toEqual([]);
+  });
+
+  // ─── INV-13/14/16 raised audit→check (task 027 / DR-15): both-direction proofs ─
+  //
+  // Each raised invariant is CALIBRATED: a synthetic violation fires (>=1
+  // finding) AND the conforming form produces zero findings — a check that
+  // cannot fail is vacuous. The anti-pattern literals are ASSEMBLED from
+  // fragments so this test's OWN source neither trips
+  // scripts/check-windows-portability.mjs (the INV-16 module-path literal) nor
+  // the invariant's own diff-grep when the review gate runs on this PR's diff.
+
+  function checkTreeOf(id: string): never {
+    const e = entry(id);
+    expect(e.enforcement?.mode, `${id} must be mode:check (task 027)`).toBe('check');
+    return (e.enforcement as { mode: 'check'; check: never }).check;
+  }
+
+  it('inv14_addsDestructiveResetHard_fires', () => {
+    // The forbidden git-args invocation `['reset', '--hard', …]`.
+    const resetHard = `['reset', ` + `'--hard', sha]`;
+    const violating = diffFor(
+      'servers/exarchos-mcp/src/orchestrate/pure/execute-merge.ts',
+      [`    gitExec(repoRoot, ${resetHard});`],
+    );
+    expect(evaluateTree(checkTreeOf('INV-14'), violating).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('inv14_usesResetKeepRecoveryLadder_producesNoFinding', () => {
+    // The conforming INV-14 ladder: merge --abort → reset --keep, never --hard.
+    const conforming = diffFor(
+      'servers/exarchos-mcp/src/orchestrate/pure/execute-merge.ts',
+      [
+        `    gitExec(repoRoot, ['merge', '--abort']);`,
+        `    gitExec(repoRoot, ['reset', '--keep', sha]);`,
+      ],
+    );
+    expect(evaluateTree(checkTreeOf('INV-14'), conforming)).toEqual([]);
+  });
+
+  it('inv16_addsUrlPathnameModulePath_fires', () => {
+    const antipattern = `new URL(import.meta.url)` + `.pathname`;
+    const violating = diffFor('servers/exarchos-mcp/src/utils/paths.ts', [
+      `    const here = ${antipattern};`,
+    ]);
+    expect(evaluateTree(checkTreeOf('INV-16'), violating).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('inv16_usesFileUrlToPath_producesNoFinding', () => {
+    const conforming = diffFor('servers/exarchos-mcp/src/utils/paths.ts', [
+      `    const here = fileURLToPath(import.meta.url);`,
+    ]);
+    expect(evaluateTree(checkTreeOf('INV-16'), conforming)).toEqual([]);
+  });
+
+  it('inv13_addsExecutedWithoutRequested_fires', () => {
+    const violating = diffFor(
+      'servers/exarchos-mcp/src/orchestrate/execute-merge.ts',
+      [`    await emit(eventStore, featureId, 'merge.executed', { mergeSha });`],
+    );
+    expect(evaluateTree(checkTreeOf('INV-13'), violating).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('inv13_addsBothRequestedAndExecuted_producesNoFinding', () => {
+    const conforming = diffFor(
+      'servers/exarchos-mcp/src/orchestrate/execute-merge.ts',
+      [
+        `    await emit(eventStore, featureId, 'merge.requested', { payload });`,
+        `    await emit(eventStore, featureId, 'merge.executed', { mergeSha });`,
+      ],
+    );
+    expect(evaluateTree(checkTreeOf('INV-13'), conforming)).toEqual([]);
+  });
+
+  it('inv13_executedOutsideOrchestrateScope_producesNoFinding', () => {
+    // Scope guard: an executed emission outside the orchestrate handler tree is
+    // out of range, so the two-event proxy does not fire on it.
+    const outOfScope = diffFor('servers/exarchos-mcp/src/telemetry/foo.ts', [
+      `    await emit(eventStore, featureId, 'merge.executed', { mergeSha });`,
+    ]);
+    expect(evaluateTree(checkTreeOf('INV-13'), outOfScope)).toEqual([]);
   });
 });
 
@@ -288,6 +370,144 @@ describe('dev-catalog v3 content — CR-5 end-to-end gate bite', () => {
         type: 'gate.executed',
       });
       expect(gates.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      await rmrfAsync(stateDir);
+    }
+  });
+});
+
+// ─── Task 027 (DR-15): gate blocks on check-mode findings only ───────────────
+//
+// Drives handleCheckInvariantConformance against the REAL authored catalog
+// (repoRoot=REPO_ROOT + enabled config, no injected loader) to prove:
+//   1. a synthetic check-mode (blocking) violation fails the gate;
+//   2. a conforming diff over the anti-pattern zones passes;
+//   3. audit-mode entries never produce a gating finding here (they render into
+//      the review-subagent PROMPT) — the blocking scope is check-mode only.
+
+describe('dev-catalog v3 content — task 027 gate blocking (DR-15)', () => {
+  async function arm(): Promise<{ stateDir: string; eventStore: EventStore }> {
+    const stateDir = await mkdtemp(path.join(tmpdir(), 'task027-gate-'));
+    const eventStore = new EventStore(stateDir);
+    await eventStore.initialize();
+    return { stateDir, eventStore };
+  }
+
+  it('InvariantGate_SyntheticViolation_FailsForCheckMode', async () => {
+    const { stateDir, eventStore } = await arm();
+    try {
+      // A blocking check-mode violation: INV-16's non-portable module path.
+      const antipattern = `new URL(import.meta.url)` + `.pathname`;
+      const violating = diffFor('servers/exarchos-mcp/src/utils/paths.ts', [
+        `    const here = ${antipattern};`,
+      ]);
+      const result = await handleCheckInvariantConformance(
+        {
+          featureId: 'feat-027-violating',
+          workflowType: 'feature',
+          phase: 'review',
+          diff: violating,
+          repoRoot: REPO_ROOT,
+          config: ENABLED_CONFIG,
+        },
+        stateDir,
+        eventStore,
+      );
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        verdict: string;
+        high: number;
+        findings: Array<{ dimension?: string; severity: string }>;
+      };
+      expect(data.verdict).toBe('NEEDS_FIXES');
+      expect(data.high).toBeGreaterThanOrEqual(1);
+      expect(data.findings.some((f) => f.dimension === 'INV-16')).toBe(true);
+    } finally {
+      await rmrfAsync(stateDir);
+    }
+  });
+
+  it('InvariantGate_ConformingTree_Passes', async () => {
+    const { stateDir, eventStore } = await arm();
+    try {
+      // A diff touching every anti-pattern zone in its CONFORMING form: the
+      // INV-14 reset --keep ladder, both INV-13 two-event emissions, and the
+      // INV-16 fileURLToPath module path. No check-mode invariant fires.
+      const conforming = [
+        diffFor('servers/exarchos-mcp/src/orchestrate/pure/execute-merge.ts', [
+          `    gitExec(repoRoot, ['merge', '--abort']);`,
+          `    gitExec(repoRoot, ['reset', '--keep', sha]);`,
+        ]),
+        diffFor('servers/exarchos-mcp/src/orchestrate/execute-merge.ts', [
+          `    await emit(store, id, 'merge.requested', { payload });`,
+          `    await emit(store, id, 'merge.executed', { mergeSha });`,
+        ]),
+        diffFor('servers/exarchos-mcp/src/utils/paths.ts', [
+          `    const here = fileURLToPath(import.meta.url);`,
+        ]),
+      ].join('\n');
+      const result = await handleCheckInvariantConformance(
+        {
+          featureId: 'feat-027-conforming',
+          workflowType: 'feature',
+          phase: 'review',
+          diff: conforming,
+          repoRoot: REPO_ROOT,
+          config: ENABLED_CONFIG,
+        },
+        stateDir,
+        eventStore,
+      );
+      expect(result.success).toBe(true);
+      const data = result.data as { verdict: string; high: number };
+      expect(data.verdict).toBe('APPROVED');
+      expect(data.high).toBe(0);
+    } finally {
+      await rmrfAsync(stateDir);
+    }
+  });
+
+  it('InvariantGate_AuditModeFinding_StaysAdvisory', async () => {
+    const { stateDir, eventStore } = await arm();
+    try {
+      const auditIds = new Set(
+        loadCatalog()
+          .filter((e) => e.enforcement?.mode === 'audit')
+          .map((e) => e.id),
+      );
+      expect(auditIds.size).toBeGreaterThanOrEqual(1);
+
+      // A benign diff: no check-mode invariant fires.
+      const benign = diffFor('servers/exarchos-mcp/src/example.ts', [
+        'export const answer = 42;',
+      ]);
+      const result = await handleCheckInvariantConformance(
+        {
+          featureId: 'feat-027-audit-advisory',
+          workflowType: 'feature',
+          phase: 'review',
+          diff: benign,
+          repoRoot: REPO_ROOT,
+          config: ENABLED_CONFIG,
+        },
+        stateDir,
+        eventStore,
+      );
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        verdict: string;
+        auditPrompt: string;
+        findings: Array<{ dimension?: string }>;
+      };
+      // Audit-mode entries render into the review-subagent PROMPT ...
+      const promptedAudit = [...auditIds].filter((id) => data.auditPrompt.includes(id));
+      expect(promptedAudit.length).toBeGreaterThanOrEqual(1);
+      // ... and NEVER as a programmatic (gating) finding in this handler.
+      expect(
+        data.findings.some((f) => f.dimension !== undefined && auditIds.has(f.dimension)),
+      ).toBe(false);
+      // The benign diff gates nothing.
+      expect(data.verdict).toBe('APPROVED');
     } finally {
       await rmrfAsync(stateDir);
     }

@@ -2718,7 +2718,16 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
-    gate: { blocking: false },
+    // DR-15 / task 027: this gate BLOCKS on check-mode findings only. Raising
+    // INV-13/14/16 to `mode:check` (alongside INV-4) gave the gate deterministic
+    // mechanical findings; a blocking-severity check violation (INV-4/14/16)
+    // folds to a HIGH → NEEDS_FIXES. The scope to check-mode is STRUCTURAL, not
+    // a flag knob: the 11 audit-mode entries render into the review subagent's
+    // PROMPT (never a programmatic finding in this handler), and an
+    // advisory-severity check finding (INV-13) surfaces as MEDIUM without
+    // gating — so declaring `blocking:true` cannot red CI on the unproven
+    // audit-mode rules.
+    gate: { blocking: true },
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],

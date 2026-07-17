@@ -84,6 +84,26 @@ invariants:
       - event-store
       - withSession
       - dispatch-boundary
+    enforcement:
+      # LEFT mode:audit (task 027 / DR-15) — a DETERMINISTIC idempotency check is
+      # out of reach for the diff-grep DSL, so this stays a reviewer judgment
+      # rather than shipping a flaky one. Idempotency-at-the-boundary is a
+      # cross-line, semantic property ("this append carries an idempotency key" /
+      # "this withSession supplies an operationId") whose subject spans a
+      # multi-line options object. The evaluator greps line-oriented over a diff
+      # (no multi-line / `s`-flag regex, no dataflow), so any grep either flags
+      # every `withSession(` (false-positives) or demands the key on one physical
+      # line (misses the multi-line form). A flaky check is worse than an honest
+      # advisory one. The mechanical backstops that DO hold are the
+      # UNIQUE(idempotency_key) storage index and the withSession retry tests.
+      mode: audit
+      audit-prompt: >
+        Does every append carry an idempotency key, and does every external side
+        effect run at most once across retries? A handler retried via
+        withSession({operationId}) must re-emit the requested event as a no-op
+        when the key matches. Flag an append with no idempotency key, a
+        withSession retry path missing operationId, or an external mutation that
+        can run twice on retry.
     summary: >
       Every append carries an idempotency key. The UNIQUE INDEX on
       idempotency_key collapses duplicates at the storage layer. Handler retries
@@ -236,12 +256,32 @@ invariants:
     integrity-class: substrate
     phase-affinity: [ review ]
     enforcement:
-      mode: audit
-      audit-prompt: >
-        Does every non-idempotent external side effect emit a *.requested intent
-        before and a *.executed result after, so a crash between them is
-        recoverable by an idempotent precheck? Flag single-event external
-        mutators.
+      # Raised audit→check (task 027 / DR-15). Deterministic proxy for the
+      # two-event split: within the external-mutator handler tree, a diff that
+      # ADDS a mutator `*.executed` result event must also add the paired
+      # `*.requested` intent. Encoded as any-of[ no-added-executed OR
+      # added-requested ] — it fires only when an added `(merge|onboard).executed`
+      # emission appears with no added matching `.requested`. Added-line-anchored
+      # (`\n\+`) so a REMOVAL never false-fires; scoped to the orchestrate handler
+      # tree so unrelated `.executed` events (gate/diagnostic) are out of range.
+      # The `(merge|onboard)` alternation names the known two-event mutator
+      # families — extend it when a new external-mutator family is introduced.
+      # Severity stays advisory (NO `severity` block): the proxy cannot see a
+      # `.requested` already resident in the tree (diff-only visibility), so a
+      # refactor touching only the executed emission is a known false-positive —
+      # this is an honest advisory finding (MEDIUM, non-gating), never a blocking
+      # one.
+      mode: check
+      check:
+        scope:
+          fileGlob: "servers/exarchos-mcp/src/orchestrate/**"
+        node:
+          any-of:
+            - kind: grep
+              pattern: "\\n\\+[^\\n]*'(merge|onboard)\\.executed'"
+            - not:
+                kind: grep
+                pattern: "\\n\\+[^\\n]*'(merge|onboard)\\.requested'"
     axis: substrate
     cost-of-load: reference-only
     applies-to:
@@ -276,13 +316,26 @@ invariants:
     dimension: native-primitive-first-recovery
     integrity-class: substrate
     phase-affinity: [ review ]
+    severity:
+      default: blocking
+      by-workflow:
+        oneshot: advisory
     enforcement:
-      mode: audit
-      audit-prompt: >
-        On reversal, does the handler prefer the operation's own recovery
-        primitive, then a refuse-to-discard substrate undo, and never a
-        destructive overwrite? Flag any reset-hard-style path or a recovery that
-        can silently lose work.
+      # Raised audit→check (task 027 / DR-15). Destructive-overwrite backstop:
+      # the INV-14 recovery ladder is `git merge --abort` → `git reset --keep`,
+      # NEVER `git reset --hard`. Fires when a diff ADDS the destructive git-args
+      # invocation `['reset', '--hard', …]` under the server source tree. It
+      # matches the array-invocation signature (`'reset', '--hard'`), NOT the
+      # prose form `reset --hard` that appears in comments/docstrings/discriminator
+      # strings — so a "never reset --hard" note cannot trip it (near-zero
+      # false-positive). Added-line-anchored (`\n\+`) so removing the destructive
+      # call never false-fires. Blocking severity: the anti-pattern is precise and
+      # the violation (silent work loss) is severe.
+      mode: check
+      check:
+        kind: grep
+        pattern: "\\n\\+[^\\n]*'reset', *'--hard'"
+        fileGlob: "servers/exarchos-mcp/src/**"
     axis: substrate
     cost-of-load: reference-only
     applies-to:
@@ -662,19 +715,22 @@ invariants:
       by-workflow:
         oneshot: advisory
     enforcement:
-      # mode:audit — OS portability is a cross-cutting runtime property no
-      # single diff-grep can capture. The mechanical backstops are the blocking
-      # windows-latest CI job and the check-windows-portability.mjs grep-gate;
-      # this entry carries the design-time judgment.
-      mode: audit
-      audit-prompt: >
-        Does the change stay correct on Windows as well as POSIX? Paths that are
-        stored / compared / returned are POSIX-normalized (toPosix); paths are
-        built with path.join, never separator string-concatenation; tests
-        release SQLite handles before removing a temp dir (rmrf / rmrfAsync or
-        close()); package-manager spawns go through resolveExecutable (npm/npx
-        .cmd shims); module-relative paths use fileURLToPath, not URL.pathname;
-        nothing relies on POSIX-only file modes (chmod).
+      # Raised audit→check (task 027 / DR-15). OS portability is broad, but its
+      # single highest-signal, zero-legitimate-use anti-pattern IS diff-precise:
+      # `new URL(import.meta.url).pathname` yields `/D:/…` on Windows and doubles
+      # to `D:\D:\…` under path.resolve — the correct form is
+      # fileURLToPath(import.meta.url). This check fires when a diff ADDS that
+      # construct under the server source tree; added-line-anchored (`\n\+`) so a
+      # REMOVAL (a fix) never false-fires. The broader portability surface
+      # (path.join, SQLite-handle release before rm, .cmd-shim spawns) stays
+      # covered by the blocking windows-latest CI job and
+      # scripts/check-windows-portability.mjs — this check is the diff-precise,
+      # front-of-pipeline slice of that backstop. Blocking severity (unchanged).
+      mode: check
+      check:
+        kind: grep
+        pattern: "\\n\\+[^\\n]*new +URL *\\( *import\\.meta\\.url *\\) *\\.pathname"
+        fileGlob: "servers/exarchos-mcp/src/**"
     axis: substrate
     cost-of-load: reference-only
     applies-to:
