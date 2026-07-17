@@ -10,11 +10,13 @@
 //   • mutation → operationId
 //   • prune    → the existing per-pass operationId
 //
-// merge / launch / prune append to a REAL EventStore (per-test tmp dir); the
-// mutation verb emits through its structural `{append}` seam. `EventStore.append`
-// validates only the envelope, so every emitted `data` is re-parsed here with the
-// surface's exported schema — that is the real validator the boundary note asks
-// for.
+// All four surfaces append to a REAL EventStore (per-test tmp dir): merge / launch
+// / prune through their own emission seams, and mutation through the LIVE
+// `orchestrate/mutation-adequacy.ts` handler, which brackets the injected run with
+// the INV-10 liveness pair and stamps the canonical `operationId` as `instanceId`.
+// `EventStore.append` validates only the envelope, so every emitted `data` is
+// re-parsed here with the surface's exported schema — that is the real validator
+// the boundary note asks for.
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
@@ -46,7 +48,10 @@ import {
   emitLaunchExecuted,
 } from '../launcher/liveness.js';
 import { WorktreeManager, WORKTREES_STREAM } from '../orchestrate/worktree/manager.js';
-import { handleRunMutation } from '../cli-commands/run-mutation.js';
+import {
+  handleMutationAdequacy,
+  type MutationRunResult,
+} from '../orchestrate/mutation-adequacy.js';
 import type { ResolvedVerificationRuntime } from '../config/test-runtime-resolver.js';
 
 const scratchDirs: string[] = [];
@@ -192,32 +197,41 @@ describe('DR-2 liveness emitters', () => {
       expect(terminal.instanceId).toBe(worktreeId);
     }
 
-    // ── mutation: instanceId = operationId (through the structural seam) ───────
+    // ── mutation: instanceId = operationId (through the LIVE emission path) ────
+    // Drive the genuinely-live emitter — `orchestrate/mutation-adequacy.ts`
+    // brackets the injected mutation run with the INV-10 liveness pair, stamping
+    // `args.operationId` as the canonical `instanceId` on BOTH events (mirroring the
+    // now-deleted run-mutation CLI shim, whose liveness surface this handler owns —
+    // see `event-store/liveness-registry.ts`). Every seam is injected so no real
+    // toolchain resolution, git diff, or mutation subprocess runs.
     {
-      const emitted: Array<{ type: string; data: unknown }> = [];
-      const eventStore = {
-        append: (_stream: string, event: { type: string; data: unknown }) => {
-          emitted.push({ type: event.type, data: event.data });
+      const { store, stateDir } = await makeStore('dr2-mutation-');
+      const result = await handleMutationAdequacy(
+        {
+          featureId: 'feat-mutation',
+          base: 'main',
+          operationId: 'op-mutation-run',
+          resolve: () => RESOLVED_MUTATION,
+          detectToolchainId: () => 'node',
+          runMutation: (): MutationRunResult => ({ ok: true, report: '{}' }),
+          runDiff: () => [],
         },
-      };
-      const code = handleRunMutation([], {
-        cwd: '/repo',
-        resolve: () => RESOLVED_MUTATION,
-        run: () => 0,
-        stdout: () => {},
-        stderr: () => {},
-        eventStore,
-        stream: 'feat-mutation',
-        operationId: 'op-mutation-run',
-      });
-      expect(code).toBe(0);
+        stateDir,
+        store,
+      );
+      // Advisory carrier — always success:true. The `{}` report is intentionally
+      // unparseable, degrading to a warning AFTER the terminal liveness emit, so the
+      // START+TERMINAL pair lands on the stream regardless of the parse verdict.
+      expect(result.success).toBe(true);
 
+      const events = await store.query('feat-mutation');
       const started = MutationExecutingStartedData.parse(
-        emitted.find((e) => e.type === 'mutation.executing_started')?.data,
+        findByType(events, 'mutation.executing_started').data,
       );
       const terminal = MutationExecutedData.parse(
-        emitted.find((e) => e.type === 'mutation.executed')?.data,
+        findByType(events, 'mutation.executed').data,
       );
+      // operationId is the canonical mutation instance key, on START and TERMINAL.
       expect(started.instanceId).toBe('op-mutation-run');
       expect(terminal.instanceId).toBe('op-mutation-run');
     }
