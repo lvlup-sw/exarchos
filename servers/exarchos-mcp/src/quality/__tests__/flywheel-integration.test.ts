@@ -1,11 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 
 // Views
 import { codeQualityProjection } from '../../views/code-quality-view.js';
-import type { CodeQualityViewState, QualityRegression, GateMetrics } from '../../views/code-quality-view.js';
+import type { CodeQualityViewState } from '../../views/code-quality-view.js';
 import { evalResultsProjection } from '../../views/eval-results-view.js';
 import type { EvalResultsViewState } from '../../views/eval-results-view.js';
 
@@ -14,8 +11,6 @@ import { correlateWithCalibration, deriveSignalConfidence } from '../calibrated-
 import type { JudgeCalibration, SignalConfidenceInput } from '../calibrated-correlation.js';
 import { evaluateRefinementSignals } from '../refinement-signal.js';
 import type { RefinementSignalInput } from '../refinement-signal.js';
-import { generateRegressionEval, writeAutoRegressionCase } from '../regression-eval-generator.js';
-import type { SignalConfidence } from '../regression-eval-generator.js';
 import { generateQualityHints } from '../hints.js';
 import type { CalibrationContext } from '../hints.js';
 
@@ -294,61 +289,6 @@ describe('Flywheel Integration', () => {
 
   // ─── Test 4 ──────────────────────────────────────────────────────────────
 
-  it('FlywheelLoop_CapturedTrace_GeneratesRegressionEval', async () => {
-    // Arrange: Set up a regression
-    const regression: QualityRegression = {
-      skill: 'delegation',
-      gate: 'typecheck',
-      consecutiveFailures: 4,
-      firstFailureCommit: 'commit-1',
-      lastFailureCommit: 'commit-4',
-      detectedAt: '2026-02-25T00:00:00.000Z',
-    };
-
-    const traces: WorkflowEvent[] = [
-      makeGateEvent(1, { gateName: 'typecheck', skill: 'delegation', passed: false }),
-      makeGateEvent(2, { gateName: 'typecheck', skill: 'delegation', passed: false }),
-    ];
-
-    const gateMetrics: GateMetrics = {
-      gate: 'typecheck',
-      executionCount: 10,
-      passRate: 0.6,
-      avgDuration: 1500,
-      failureReasons: [{ reason: 'Type error in module', count: 4 }],
-    };
-
-    // Act: generateRegressionEval with high confidence
-    const evalCase = generateRegressionEval(regression, traces, gateMetrics, 'high');
-
-    // Assert: returns a GeneratedRegressionCase
-    expect(evalCase).not.toBeNull();
-    expect(evalCase!.source).toBe('auto-generated');
-    expect(evalCase!.trigger).toEqual(regression);
-    expect(evalCase!.evalCase).toBeDefined();
-    expect(evalCase!.evalCase.tags).toContain('auto-generated');
-
-    // Act: writeAutoRegressionCase with a temp directory
-    const tempDir = await mkdtemp(join(tmpdir(), 'flywheel-test-'));
-    try {
-      const result = await writeAutoRegressionCase(evalCase!, tempDir);
-
-      // Assert: file is written with valid JSONL
-      expect(result.written).toBe(true);
-      const content = await readFile(result.path, 'utf-8');
-      expect(content.trim()).not.toBe('');
-
-      // Verify it's valid JSON (JSONL is one JSON object per line)
-      const parsed = JSON.parse(content.trim());
-      expect(parsed.id).toBeDefined();
-      expect(parsed.type).toBeDefined();
-    } finally {
-      await rm(tempDir, { recursive: true });
-    }
-  });
-
-  // ─── Test 5 ──────────────────────────────────────────────────────────────
-
   it('FlywheelLoop_AttributionOutlier_SuggestsModelChange', () => {
     // Arrange: Attribution data with strong negative correlation in prompt-version dimension
     const attribution = {
@@ -379,7 +319,7 @@ describe('Flywheel Integration', () => {
     expect(outlierSignal!.suggestedAction).toBeDefined();
   });
 
-  // ─── Test 6 ──────────────────────────────────────────────────────────────
+  // ─── Test 5 ──────────────────────────────────────────────────────────────
 
   it('FlywheelLoop_EndToEnd_EventsFlowThroughAllComponents', () => {
     // Step 1: Create events

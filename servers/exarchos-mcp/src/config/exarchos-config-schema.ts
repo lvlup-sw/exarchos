@@ -4,7 +4,7 @@ import { z } from 'zod';
  * Schema for `.exarchos.yml` (Stage 2 of the test-runtime resolver).
  *
  * Mirrors the SAFE_COMMAND_PATTERN allowlist used by
- * `orchestrate/detect-test-commands.ts` and `config/test-runtime-resolver.ts`.
+ * `config/test-runtime-resolver.ts`.
  * Any field omitted from the file falls back to detection (Stage 3).
  */
 // Intentionally allow plain space (` `) but reject control whitespace
