@@ -8,7 +8,8 @@
 import { runCommandSync } from '../utils/process.js';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
-import { emitGateEvent, resolveRepoRoot } from './gate-utils.js';
+import { emitGateEvent } from './gate-utils.js';
+import { runGatePreflight } from './pure/gate-preflight.js';
 import { runStaticAnalysis } from './pure/static-analysis.js';
 import type { RunCommandFn, CommandResult } from './pure/static-analysis.js';
 
@@ -84,46 +85,24 @@ export async function handleStaticAnalysis(
   _stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
-  // Fail-fast on miswired DispatchContext: a missing eventStore here is a
-  // wiring bug, not a transient error. Without this guard the fire-and-forget
-  // emit below silently swallows the failure and the gate runs without
-  // telemetry. See PR #1185 / CR review 4177990662.
-  if (!eventStore) {
-    return {
-      success: false,
-      error: {
-        code: 'MISWIRED_CONTEXT',
-        message: 'handleStaticAnalysis: eventStore is required',
-      },
-    };
-  }
-
-  // Input validation
-  if (!args.featureId) {
-    return {
-      success: false,
-      error: { code: 'INVALID_INPUT', message: 'featureId is required' },
-    };
-  }
-
-  // Resolve repoRoot — supports worktree-aware 'auto' mode (#1330). A literal
-  // path or the process.cwd() default is preserved for existing callers.
-  const resolved = await resolveRepoRoot(
+  // Preflight (DR-10): fail-fast on a miswired DispatchContext (a missing
+  // eventStore is a wiring bug — without this guard the fire-and-forget emit
+  // below silently swallows the failure and the gate runs without telemetry; see
+  // PR #1185 / CR review 4177990662) / absent featureId, then resolve the
+  // worktree-aware 'auto' repoRoot (#1330 — a literal path or the process.cwd()
+  // default is preserved for existing callers).
+  const pre = await runGatePreflight(
     {
-      repoRoot: args.repoRoot,
-      worktreePath: args.worktreePath,
       featureId: args.featureId,
       taskId: args.taskId,
+      repoRoot: args.repoRoot,
+      worktreePath: args.worktreePath,
+      handlerName: 'handleStaticAnalysis',
     },
     eventStore,
   );
-  if (!resolved.ok) {
-    return {
-      success: false,
-      error: { code: 'INVALID_INPUT', message: resolved.error },
-    };
-  }
-  const repoRoot = resolved.repoRoot;
+  if (!pre.ok) return pre.result;
+  const repoRoot = pre.repoRoot;
 
   // Run the pure TypeScript static analysis function
   const analysisResult = runStaticAnalysis({
