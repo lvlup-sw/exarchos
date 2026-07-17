@@ -617,6 +617,20 @@ jobs:
       - name: Prose-lint gate — rehydration prose slop (DR-13)
         run: node scripts/check-prose-lint.mjs
 
+      # No-circular runtime import-cycle ratchet (task 010, DR-4/DR-8). Runs the
+      # ROOT-hoisted dependency-cruiser over servers/exarchos-mcp/src, computes
+      # the runtime cycles (Tarjan, via architecture/import-cycles.ts), and diffs
+      # them against scripts/audit/cycle-baseline.json — failing CLOSED on an
+      # unbaselined cycle, an expired waiver, a PHANTOM entry (baselined edge with
+      # no live cycle — the no-mask tooth), or missing/unparseable depcruise output
+      # (exit 2). Blocking, NOT advisory: the shared config ships `no-circular` at
+      # `warn` so the dogfooded runBoundaryLint stays green; the ratchet lives here.
+      # Uses the root tsx + depcruise installed by the two steps above. Self-tests:
+      # the four named DR-4 failure-mode cases in scripts/audit/cycle-gate.test.ts,
+      # run by the root unit suite (test-root).
+      - name: No-circular cycle ratchet (DR-4/DR-8, task 010)
+        run: npx --no-install tsx scripts/audit/cycle-gate.ts
+
   # ─────────────────────────────────────────────────────────────────────
   # e2e-process
   # ─────────────────────────────────────────────────────────────────────

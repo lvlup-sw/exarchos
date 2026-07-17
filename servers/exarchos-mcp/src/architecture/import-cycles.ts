@@ -224,3 +224,31 @@ export function unbaselinedCycleEdges(
   }
   return out;
 }
+
+/** The set of edge keys exercised by the currently-detected runtime cycles. */
+function liveCycleEdgeKeys(cycles: readonly RuntimeCycle[]): Set<string> {
+  const live = new Set<string>();
+  for (const cycle of cycles) {
+    for (const edge of cycle.edges) live.add(edgeKey(edge));
+  }
+  return live;
+}
+
+/**
+ * PHANTOM baseline entries: the ones whose `from -> to` edge matches NO current
+ * runtime cycle edge. The symmetric partner to {@link unbaselinedCycleEdges}, and
+ * the sharpest tooth of the ratchet (DR-4 no-mask): a baselined edge that no live
+ * cycle exercises is stale cover — it silently pre-authorizes a future cycle on
+ * that exact seam, so the gate must fail on it rather than let it linger. (Unlike
+ * knip's `stale`, which is a mere hygiene warning, a phantom cycle-baseline entry
+ * is a hard failure.)
+ */
+export function phantomBaselineEntries(
+  cycles: readonly RuntimeCycle[],
+  baseline: CycleBaseline,
+): CycleBaselineEntry[] {
+  const live = liveCycleEdgeKeys(cycles);
+  return baseline.entries.filter(
+    (entry) => !live.has(edgeKey({ from: toPosix(entry.from), to: toPosix(entry.to) })),
+  );
+}
