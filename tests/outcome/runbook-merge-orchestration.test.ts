@@ -76,7 +76,7 @@ describe('MERGE_ORCHESTRATION runbook outcome (#1363)', () => {
       expect.arrayContaining([
         'merge.preflight',
         'merge.executed',
-        'merge.rollback',
+        'merge.recovered',
         'workflow.transition',
       ]),
     );
