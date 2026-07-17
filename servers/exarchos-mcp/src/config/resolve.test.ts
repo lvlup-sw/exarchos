@@ -270,13 +270,14 @@ describe('resolveConfig', () => {
 
   it('resolveConfig_EmptyInput_ReturnsPruneDefaults', () => {
     const resolved = resolveConfig({});
+    // `staleAfterDays` removed (DR-9): staleness lives in topology.yaml.
     expect(resolved.prune).toEqual({
-      staleAfterDays: 14,
       maxBatchSize: 25,
       phaseExclusions: ['delegate', 'review', 'synthesize'],
       malformedHandling: 'report',
       requireDryRun: true,
     });
+    expect('staleAfterDays' in resolved.prune).toBe(false);
   });
 
   it('resolveConfig_EmptyInput_ReturnsCheckpointDefaults', () => {
@@ -289,9 +290,10 @@ describe('resolveConfig', () => {
   });
 
   it('resolveConfig_PartialPrune_MergesWithDefaults', () => {
-    const resolved = resolveConfig({ prune: { 'stale-after-days': 30 } });
-    expect(resolved.prune.staleAfterDays).toBe(30);
-    expect(resolved.prune.maxBatchSize).toBe(25);
+    // `stale-after-days` removed (DR-9) — exercise partial-merge via a
+    // surviving prune knob instead.
+    const resolved = resolveConfig({ prune: { 'max-batch-size': 10 } });
+    expect(resolved.prune.maxBatchSize).toBe(10);
     expect(resolved.prune.phaseExclusions).toEqual(['delegate', 'review', 'synthesize']);
     expect(resolved.prune.malformedHandling).toBe('report');
     expect(resolved.prune.requireDryRun).toBe(true);

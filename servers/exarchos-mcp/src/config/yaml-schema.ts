@@ -157,7 +157,10 @@ const PluginsConfig = z.object({
 // ─── Prune Configuration ──────────────────────────────────────────────────
 
 const PruneConfig = z.object({
-  'stale-after-days': z.number().int().min(1).default(14),
+  // `stale-after-days` removed (DR-9): per-phase staleness lives in
+  // `topology.yaml` `staleness` blocks. `.strict()` (below) turns a legacy
+  // `stale-after-days:` into an actionable "unrecognized key" validation
+  // error rather than a silently-ignored knob.
   'max-batch-size': z.number().int().min(1).max(100).default(25),
   'phase-exclusions': z.array(z.string()).default(['delegate', 'review', 'synthesize']),
   'malformed-handling': z.enum(['report', 'include', 'skip']).default('report'),

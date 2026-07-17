@@ -31,7 +31,8 @@ import { scoreEntryThroughTopology } from '../pruner/coordinator.js';
 import type { StalenessState } from '../pruner/score.js';
 export type { PruneSafeguards } from './prune-safeguards.js';
 
-// 14 days in minutes — matches ResolvedProjectConfig.prune.staleAfterDays default.
+// 14 days in minutes — the default staleness threshold applied when a phase's
+// topology `staleness` contract does not narrow it further.
 const DEFAULT_THRESHOLD_MINUTES = 20_160;
 
 /**
@@ -265,23 +266,19 @@ const RECENT_COMMITS_WINDOW_HOURS = 24;
 
 /**
  * Input args accepted by the handler. All fields optional with safe defaults:
- *   thresholdMinutes → deprecated since #1334 (v2.10.0-preview.1); ignored.
- *                     Configure per-phase staleness in `topology.yaml`
- *                     `staleness` blocks. Still validated for shape so
- *                     legacy `-1` callers fail closed instead of silently
- *                     accepting an ignored value.
  *   dryRun           → true   (refuses to mutate unless explicitly disabled)
  *   force            → false  (bypass safeguards)
  *   includeOneShot   → true
  *   now              → current time (injectable as ISO string for tests)
+ *
+ * NOTE — `thresholdMinutes` was REMOVED in the debloat wave (DR-9). Per-phase
+ * staleness has lived exclusively in `topology.yaml` `staleness` blocks since
+ * #1334 (v2.10.0-preview.1), so the field was accepted-but-ignored. A legacy
+ * caller still passing it is rejected up front with an actionable removal
+ * error (see `handlePruneStaleWorkflows`) rather than silently ignored —
+ * INV-5b honest contract.
  */
 export interface PruneHandlerArgs {
-  /**
-   * @deprecated since #1334 (v2.10.0-preview.1). Per-phase staleness now lives
-   * in `topology.yaml` `staleness` blocks; supplying this field emits a
-   * deprecation warn and has no effect on candidate selection.
-   */
-  thresholdMinutes?: number;
   dryRun?: boolean;
   force?: boolean;
   includeOneShot?: boolean;
@@ -752,28 +749,24 @@ export async function handlePruneStaleWorkflows(
   ctx?: DispatchContext,
   deps: PruneHandlerDeps = productionDeps(ctx),
 ): Promise<ToolResult> {
-  // ─── F2: up-front input validation ──────────────────────────────────────
-  // We reject invalid inputs BEFORE touching `handleList`, cancel, or the
-  // event store. A negative/NaN/Infinity `thresholdMinutes` or unparsable
-  // `now` would otherwise skew selection semantics — in apply mode, a
-  // `thresholdMinutes: -1` would classify every workflow as stale and
-  // bulk-cancel them. Fail closed with a structured error instead.
-  if (args.thresholdMinutes !== undefined) {
-    const t = args.thresholdMinutes;
-    if (
-      typeof t !== 'number' ||
-      !Number.isFinite(t) ||
-      !Number.isInteger(t) ||
-      t <= 0
-    ) {
-      return {
-        success: false,
-        error: {
-          code: 'INVALID_INPUT',
-          message: `thresholdMinutes must be a positive integer (got: ${String(t)})`,
-        },
-      };
-    }
+  // ─── DR-9: reject the REMOVED `thresholdMinutes` knob up front ────────────
+  // Per-phase staleness has lived exclusively in `topology.yaml` `staleness`
+  // blocks since #1334 (v2.10.0-preview.1); `thresholdMinutes` was
+  // accepted-but-ignored until the debloat wave removed it. A legacy caller
+  // still passing it gets an actionable removal error — pointing at the real
+  // configuration surface — instead of a silently-ignored value that a `-1`
+  // could once have turned into a bulk-cancel. Detected off the raw args
+  // object because the field is no longer on `PruneHandlerArgs`.
+  // INV-5b: honest contract; fail closed BEFORE touching handleList/cancel.
+  if ('thresholdMinutes' in (args as Record<string, unknown>)) {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message:
+          'prune_stale_workflows: `thresholdMinutes` was removed (deprecated and ignored since #1334, v2.10.0-preview.1). Per-phase staleness now lives in `topology.yaml` `staleness` blocks — set `expectedMaxDwellMinutes` / `signals[].thresholdMinutes` there instead.',
+      },
+    };
   }
   if (args.now !== undefined) {
     if (typeof args.now !== 'string' || Number.isNaN(new Date(args.now).valueOf())) {
@@ -786,31 +779,13 @@ export async function handlePruneStaleWorkflows(
       };
     }
   }
-
-  // Per-phase staleness thresholds are now sourced from `topology.yaml`
-  // (`staleness` blocks with `freshnessRequires`) — #1334 made the typed
-  // PhaseContract the single source of staleness policy. The legacy
-  // `args.thresholdMinutes` / `ctx.projectConfig.prune.staleAfterDays`
-  // overrides are still validated above (to reject -1, NaN, etc.) but
-  // are no longer threaded into the selector. Emit a deprecation warn
-  // when an explicit caller-side override is supplied so operators see
-  // why their tuning is ignored and can migrate the threshold into
-  // `topology.yaml`. DIM-1: single source of truth; INV-5b: honest contract.
-  const pruneConfig = ctx?.projectConfig?.prune;
-  if (args.thresholdMinutes !== undefined || pruneConfig?.staleAfterDays !== undefined) {
-    orchestrateLogger.warn(
-      {
-        action: 'prune_stale_workflows',
-        argsThresholdMinutes: args.thresholdMinutes,
-        configStaleAfterDays: pruneConfig?.staleAfterDays,
-      },
-      'prune-stale-workflows: `thresholdMinutes` / `prune.staleAfterDays` are deprecated and ignored since #1334 (v2.10.0-preview.1); per-phase staleness now lives in topology.yaml `staleness` blocks',
-    );
-  }
   const includeOneShot = args.includeOneShot;
   const dryRun = args.dryRun ?? true;
   const force = args.force ?? false;
   const now = args.now ? new Date(args.now) : new Date();
+  // Surviving prune config knobs (maxBatchSize / phaseExclusions /
+  // malformedHandling / requireDryRun). `staleAfterDays` was removed (DR-9).
+  const pruneConfig = ctx?.projectConfig?.prune;
 
   // Apply-mode precondition: we MUST have an eventStore to emit the
   // `workflow.pruned` audit event. Silently no-opping on the append (the

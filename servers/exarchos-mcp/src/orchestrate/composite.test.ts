@@ -610,7 +610,6 @@ describe('handleOrchestrate', () => {
       vi.mocked(handlePruneStaleWorkflows).mockResolvedValue(expected);
       const args = {
         action: 'prune_stale_workflows',
-        thresholdMinutes: 10080,
         dryRun: true,
         includeOneShot: false,
       };
@@ -623,7 +622,6 @@ describe('handleOrchestrate', () => {
       expect(handlePruneStaleWorkflows).toHaveBeenCalledTimes(1);
       const call = vi.mocked(handlePruneStaleWorkflows).mock.calls[0];
       expect(call[0]).toEqual({
-        thresholdMinutes: 10080,
         dryRun: true,
         includeOneShot: false,
       });

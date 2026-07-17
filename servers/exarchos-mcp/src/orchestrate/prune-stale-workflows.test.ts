@@ -653,16 +653,16 @@ describe('handlePruneStaleWorkflows', () => {
     warnSpy.mockRestore();
   });
 
-  // ─── #1334 (CodeRabbit #1338 review): thresholdMinutes deprecation warn ───
+  // ─── DR-9: the removed `thresholdMinutes` knob is REJECTED, not warned ─────
   //
-  // After #1334 made `topology.yaml` `staleness` blocks the single source of
-  // staleness policy, `thresholdMinutes` (handler arg) and `staleAfterDays`
-  // (project config) are accepted at the wire layer for back-compat but are
-  // no longer threaded into the selector. The handler MUST emit a
-  // `orchestrateLogger.warn` when either is supplied so operators discover
-  // their tuning is silently ignored — DIM-5 hygiene, INV-5b honest contract.
-  it('PruneStaleWorkflows_DeprecatedThresholdMinutesSupplied_EmitsDeprecationWarn', async () => {
-    const { ctx } = makeEventStoreStub();
+  // #1334 made `topology.yaml` `staleness` blocks the single source of
+  // staleness policy; `thresholdMinutes` was accepted-but-ignored until the
+  // debloat wave removed it. A legacy caller still passing it now gets an
+  // actionable removal error (pointing at topology.yaml) BEFORE the handler
+  // touches handleList/cancel/event-store — INV-5b honest contract, not a
+  // silent no-op.
+  it('PruneAction_LegacyKnobPassed_ActionableRemovalError', async () => {
+    const { append, ctx } = makeEventStoreStub();
     const deps = makeDeps();
     deps.listSpy.mockResolvedValue(
       makeListResult([
@@ -670,33 +670,49 @@ describe('handlePruneStaleWorkflows', () => {
       ]),
     );
 
-    const warnSpy = vi
-      .spyOn(orchestrateLogger, 'warn')
-      .mockImplementation((() => {}) as never);
-
     const result = await handlePruneStaleWorkflows(
-      // thresholdMinutes is a valid value — handler should NOT reject it,
-      // but MUST warn that it's ignored.
-      { thresholdMinutes: 60, dryRun: true, now: NOW_ISO },
+      // `thresholdMinutes` is no longer part of `PruneHandlerArgs`; a legacy
+      // caller supplies it off-contract, so cast through the raw arg shape.
+      { thresholdMinutes: 60, dryRun: true, now: NOW_ISO } as unknown as Parameters<
+        typeof handlePruneStaleWorkflows
+      >[0],
       STATE_DIR,
       ctx,
       deps,
     );
 
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    // Actionable: names the removed knob AND the replacement surface.
+    expect(result.error?.message).toContain('thresholdMinutes');
+    expect(result.error?.message).toContain('topology.yaml');
+    // Fail-closed: rejected before any list / cancel / event-append side effect.
+    expect(deps.listSpy).not.toHaveBeenCalled();
+    expect(deps.cancelSpy).not.toHaveBeenCalled();
+    expect(append).not.toHaveBeenCalled();
+  });
 
-    const warnedWithDeprecation = warnSpy.mock.calls.some((call) => {
-      const meta = call[0];
-      const msg = call[1];
-      return (
-        typeof meta === 'object' &&
-        meta !== null &&
-        (meta as Record<string, unknown>).action === 'prune_stale_workflows' &&
-        typeof msg === 'string' &&
-        msg.toLowerCase().includes('deprecated')
-      );
-    });
-    expect(warnedWithDeprecation).toBe(true);
+  it('PruneAction_LegacyKnobPassedInApplyMode_RejectedBeforeAnyCancel', async () => {
+    // Even in apply mode (dryRun:false) — where a legacy `-1` could once have
+    // classified every workflow as stale and bulk-cancelled — the knob is
+    // rejected up front regardless of its value.
+    const { append, ctx } = makeEventStoreStub();
+    const deps = makeDeps();
+
+    const result = await handlePruneStaleWorkflows(
+      { thresholdMinutes: -1, dryRun: false, now: NOW_ISO } as unknown as Parameters<
+        typeof handlePruneStaleWorkflows
+      >[0],
+      STATE_DIR,
+      ctx,
+      deps,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(deps.listSpy).not.toHaveBeenCalled();
+    expect(deps.cancelSpy).not.toHaveBeenCalled();
+    expect(append).not.toHaveBeenCalled();
   });
 
   it('dry run returns candidates without calling cancel', async () => {
@@ -1162,91 +1178,12 @@ describe('handlePruneStaleWorkflows', () => {
     ).toBe('valid-stale');
   });
 
-  // ─── F2: thresholdMinutes + now input validation ──────────────────────────
-  // Shepherd iter 2 (CodeRabbit finding): invalid `thresholdMinutes` or
-  // `now` must be rejected up front with a structured INVALID_INPUT error,
-  // BEFORE touching handleList, cancel, or the event store. A negative or
-  // NaN threshold would otherwise cause bulk-cancel in apply mode.
-  it('handlePruneStaleWorkflows_rejectsNegativeThreshold', async () => {
-    const { ctx } = makeEventStoreStub();
-    const deps = makeDeps();
-
-    const result = await handlePruneStaleWorkflows(
-      { thresholdMinutes: -1, dryRun: false, now: NOW_ISO },
-      STATE_DIR,
-      ctx,
-      deps,
-    );
-
-    expect(result.success).toBe(false);
-    expect(result.error?.code).toBe('INVALID_INPUT');
-    expect(result.error?.message).toContain('thresholdMinutes');
-    // Refuses BEFORE touching handleList — no partial state changes.
-    expect(deps.listSpy).not.toHaveBeenCalled();
-    expect(deps.cancelSpy).not.toHaveBeenCalled();
-  });
-
-  it('handlePruneStaleWorkflows_rejectsZeroThreshold', async () => {
-    const { ctx } = makeEventStoreStub();
-    const deps = makeDeps();
-
-    const result = await handlePruneStaleWorkflows(
-      { thresholdMinutes: 0, dryRun: false, now: NOW_ISO },
-      STATE_DIR,
-      ctx,
-      deps,
-    );
-
-    expect(result.success).toBe(false);
-    expect(result.error?.code).toBe('INVALID_INPUT');
-    expect(deps.listSpy).not.toHaveBeenCalled();
-  });
-
-  it('handlePruneStaleWorkflows_rejectsNaNThreshold', async () => {
-    const { ctx } = makeEventStoreStub();
-    const deps = makeDeps();
-
-    const result = await handlePruneStaleWorkflows(
-      { thresholdMinutes: Number.NaN, dryRun: false, now: NOW_ISO },
-      STATE_DIR,
-      ctx,
-      deps,
-    );
-
-    expect(result.success).toBe(false);
-    expect(result.error?.code).toBe('INVALID_INPUT');
-    expect(deps.listSpy).not.toHaveBeenCalled();
-  });
-
-  it('handlePruneStaleWorkflows_rejectsInfiniteThreshold', async () => {
-    const { ctx } = makeEventStoreStub();
-    const deps = makeDeps();
-
-    const result = await handlePruneStaleWorkflows(
-      { thresholdMinutes: Number.POSITIVE_INFINITY, dryRun: false, now: NOW_ISO },
-      STATE_DIR,
-      ctx,
-      deps,
-    );
-
-    expect(result.success).toBe(false);
-    expect(result.error?.code).toBe('INVALID_INPUT');
-  });
-
-  it('handlePruneStaleWorkflows_rejectsNonIntegerThreshold', async () => {
-    const { ctx } = makeEventStoreStub();
-    const deps = makeDeps();
-
-    const result = await handlePruneStaleWorkflows(
-      { thresholdMinutes: 1.5, dryRun: false, now: NOW_ISO },
-      STATE_DIR,
-      ctx,
-      deps,
-    );
-
-    expect(result.success).toBe(false);
-    expect(result.error?.code).toBe('INVALID_INPUT');
-  });
+  // ─── F2: `now` input validation ────────────────────────────────────────────
+  // Shepherd iter 2 (CodeRabbit finding): an invalid `now` must be rejected up
+  // front with a structured INVALID_INPUT error, BEFORE touching handleList,
+  // cancel, or the event store. (The `thresholdMinutes` shape-validation cases
+  // this block once carried were removed with the knob itself — DR-9 — and are
+  // now covered by the `PruneAction_LegacyKnobPassed_*` removal tests above.)
 
   it('handlePruneStaleWorkflows_rejectsInvalidNow', async () => {
     const { ctx } = makeEventStoreStub();
@@ -1571,15 +1508,14 @@ describe('handlePruneStaleWorkflows', () => {
 
   it('handlePrune_WithConfig_UsesConfiguredThreshold', async () => {
     const { append, ctx: baseCtx } = makeEventStoreStub();
-    // Provide projectConfig with staleAfterDays = 30 (= 43200 minutes).
-    // #1334 (β-07): per-phase staleness thresholds now live on the
-    // typed PhaseContract, so the topology fixture must mirror the
-    // intended threshold for this assertion to be meaningful.
+    // #1334 (β-07): per-phase staleness thresholds live on the typed
+    // PhaseContract, so the topology fixture drives the 30-day threshold
+    // this assertion exercises. (DR-9: the legacy `staleAfterDays` config
+    // knob was removed — the topology contract is the sole source now.)
     const ctx = {
       ...baseCtx,
       projectConfig: {
         prune: {
-          staleAfterDays: 30,
           maxBatchSize: 25,
           phaseExclusions: [],
           malformedHandling: 'report' as const,
@@ -1645,7 +1581,6 @@ describe('handlePruneStaleWorkflows', () => {
       ...baseCtx,
       projectConfig: {
         prune: {
-          staleAfterDays: 14,
           maxBatchSize: 3,
           phaseExclusions: [],
           malformedHandling: 'report' as const,
@@ -1686,7 +1621,6 @@ describe('handlePruneStaleWorkflows', () => {
       ...baseCtx,
       projectConfig: {
         prune: {
-          staleAfterDays: 14,
           maxBatchSize: 25,
           phaseExclusions: [],
           malformedHandling: 'report' as const,
@@ -1726,7 +1660,6 @@ describe('handlePruneStaleWorkflows', () => {
       ...baseCtx,
       projectConfig: {
         prune: {
-          staleAfterDays: 14,
           maxBatchSize: 2,
           phaseExclusions: [],
           malformedHandling: 'report' as const,
@@ -1771,7 +1704,6 @@ describe('handlePruneStaleWorkflows', () => {
       ...baseCtx,
       projectConfig: {
         prune: {
-          staleAfterDays: 14,
           maxBatchSize: 25,
           phaseExclusions: [],
           malformedHandling: 'report' as const,
@@ -1825,7 +1757,6 @@ describe('handlePruneStaleWorkflows', () => {
       ...baseCtx,
       projectConfig: {
         prune: {
-          staleAfterDays: 14,
           maxBatchSize: 25,
           phaseExclusions: [],
           malformedHandling: 'include' as const,
@@ -1880,7 +1811,6 @@ describe('handlePruneStaleWorkflows', () => {
       ...baseCtx,
       projectConfig: {
         prune: {
-          staleAfterDays: 14,
           maxBatchSize: 25,
           phaseExclusions: [],
           malformedHandling: 'skip' as const,
@@ -1937,7 +1867,6 @@ describe('handlePruneStaleWorkflows', () => {
       eventStore: { append, query },
       projectConfig: {
         prune: {
-          staleAfterDays: 14,
           maxBatchSize: 25,
           phaseExclusions: [],
           malformedHandling: 'report' as const,
@@ -1978,7 +1907,6 @@ describe('handlePruneStaleWorkflows', () => {
       eventStore: { append, query },
       projectConfig: {
         prune: {
-          staleAfterDays: 14,
           maxBatchSize: 25,
           phaseExclusions: [],
           malformedHandling: 'report' as const,
@@ -2010,18 +1938,18 @@ describe('handlePruneStaleWorkflows', () => {
     // config knobs take effect simultaneously in a single pipeline run.
     //
     // Config under test (all non-default):
-    //   staleAfterDays:    30   (default 14) → threshold = 43200 minutes
     //   maxBatchSize:       5   (default 25)
     //   phaseExclusions:  ['ideate']  (default ['delegate','review','synthesize'])
     //   malformedHandling: 'include'  (default 'report')
     //   requireDryRun:     false      (default true)
+    // (DR-9: the 30-day staleness window is driven by the topology fixture
+    // below — the `staleAfterDays` config knob was removed.)
 
     const append = vi.fn().mockResolvedValue({ sequence: 1, type: 'workflow.pruned' });
     const ctx = {
       eventStore: { append },
       projectConfig: {
         prune: {
-          staleAfterDays: 30,
           maxBatchSize: 5,
           phaseExclusions: ['ideate'] as readonly string[],
           malformedHandling: 'include' as const,
@@ -2157,7 +2085,7 @@ describe('handlePruneStaleWorkflows', () => {
       totalCandidates?: number;
     };
 
-    // ── Knob 1: staleAfterDays=30 (threshold = 43200 minutes) ──
+    // ── Knob 1: topology 30-day threshold (43200 minutes) ──
     // 'fresh-20d' (20 days) must be excluded — it's under the 30-day threshold.
     // All entries >= 31 days should be candidates (before batch cap).
     const candidateIds = data.candidates.map((c) => c.featureId);
@@ -2225,7 +2153,6 @@ describe('handlePruneStaleWorkflows', () => {
       eventStore: { append, query },
       projectConfig: {
         prune: {
-          staleAfterDays: 14,
           maxBatchSize: 25,
           phaseExclusions: [],
           malformedHandling: 'report' as const,
