@@ -70,6 +70,47 @@ be repointed; each is pinned by a guard test that goes red if the constant is ed
   never reads `DATED_RECORD_TREES`. Archiving `docs/plans` + `docs/designs` cannot change the scan;
   editing the constant is a vacuous no-op. Test: `VocabularyLint_ScanRoots_UnchangedByArchival`.
 
-## T8.031 / T8.032 — (reserved)
+## T8.031 — duplicate-basename dedup across `docs/{plans,designs,proposals}` (this task)
+
+**Scope re-measured, not cited.** The debloat audit's week-old figure was 105 groups / 211 files;
+a fresh scan of the post-030 tree (dated records now under `**/archive/`) yields **102 duplicate-
+basename groups / 205 member files**. Every group is **cross-tree** and **content-divergent** — a
+feature's *design* record and its *implementation plan* record sharing a slug (101 two-member
+`designs/archive` ↔ `plans/archive` pairs, plus one three-member group that also carries the seed
+`docs/proposals/2026-05-23-invariants-projection-and-extensibility.md`). Zero groups were byte-
+identical copies; the plan already links its design as *Source Design*, and the triple forms a
+proposal → design → plan chain.
+
+**Canonicalization scheme — the design wins.** For each group the `docs/designs/archive/<slug>.md`
+record is kept as the **single canonical file** (higher-level artifact, target of the plan's own
+back-reference, middle of the seed→design→plan chain, and the more-referenced path). The 102 plan
+records and the 1 seed proposal — **103 non-canonical members** — are rewritten in place to a short
+**discoverability stub** (original H1 preserved for search; a DR-18 notice; a resolving relative link
+to the canonical design; and the `git log --follow` recovery path for the full historical content).
+Stubs are **not deletions**: every path still exists so inbound links keep resolving. Canonical
+designs are left byte-for-byte unchanged (0 design files modified).
+
+### Dedup delta (non-canonical members collapsed to stubs)
+
+| Metric | Before (HEAD) | After (stubs) | Delta |
+| --- | ---: | ---: | ---: |
+| Duplicate-basename groups | 102 | 102 | — |
+| Group-member files | 205 | 205 | 0 (stubs, not deletions) |
+| Canonical designs | 102 | 102 | 0 (unchanged) |
+| Non-canonical members | 103 | 103 (stubs) | 0 files |
+| Non-canonical lines | 48,420 | 1,133 | **−47,287** |
+| Non-canonical bytes | 2,329,663 (2.22 MB) | 69,495 (67.9 KB) | **−2,260,168 (−2.16 MB, −97.0%)** |
+
+**File count: unchanged.** DR-18 dedup collapses *content*, not paths — the 103 members remain on
+disk as stubs, so the active-surface **byte/line** footprint drops 2.16 MB / 47,287 lines (97.0% of
+the non-canonical surface) while discoverability is preserved and no history is lost (full content
+recoverable via `git log --follow` on each stub path).
+
+**Diff-scoped link check: green.** Restricted to the 103 changed files: all 103 outbound canonical
+links resolve, and the 2 inbound markdown links that point at a now-stubbed path still resolve (the
+files persist). No whole-tree link check was attempted (the repo's ~190 pre-existing historical-link
+breaks are out of this task's bar).
+
+## T8.032 — (reserved)
 
 Subsequent archival tasks append their measured before/after deltas here.
