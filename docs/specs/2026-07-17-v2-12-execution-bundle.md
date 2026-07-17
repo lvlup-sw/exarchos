@@ -352,7 +352,7 @@ Each task carries a `**Risk Tier:**` stamp selecting verification depth per the 
 **Risk Tier:** low · **Boundary Touching:** false
 **Implements:** DR-7
 **Verification (low):** static — `npm run build:skills` + `npm run skills:guard` green; grep proves zero `discovery.` append examples remain. Regenerated per-runtime trees and snapshot baselines committed alongside the source edit (skills:guard fails otherwise).
-**Files:** `skills-src/discover/SKILL.md`, `skills/claude/discover/SKILL.md`, `src/build-skills.test.ts`
+**Files:** `skills-src/discover/SKILL.md`, `skills/standard/discover/SKILL.md`, `src/build-skills.test.ts`
 **Dependencies:** None · **Parallelizable:** Yes
 
 ### Task 007: Implement MCP caller-posture handshake resolution
@@ -387,7 +387,7 @@ Each task carries a `**Risk Tier:**` stamp selecting verification depth per the 
 **Risk Tier:** high · **Boundary Touching:** true
 **Implements:** DR-11
 **Verification (high):** medium set + both-backend integration parity (INV-2); adds the multi-type filter task 011 consumes.
-**Files:** `servers/exarchos-mcp/src/event-store/store.ts`, `servers/exarchos-mcp/src/event-store/storage/backend.ts`, `servers/exarchos-mcp/src/event-store/storage/sqlite-backend.ts`, `servers/exarchos-mcp/src/event-store/storage/memory-backend.ts`, `servers/exarchos-mcp/src/event-store/store.test.ts`
+**Files:** `servers/exarchos-mcp/src/event-store/store.ts`, `servers/exarchos-mcp/src/storage/backend.ts`, `servers/exarchos-mcp/src/storage/sqlite-backend.ts`, `servers/exarchos-mcp/src/storage/memory-backend.ts`, `servers/exarchos-mcp/src/event-store/store.test.ts`
 **Expected tests:** `DefaultQuery_BoundedSql_BothBackends`, `Pagination_TotalHasMore_Preserved`, `MultiTypeFilter_SingleQuery_BothBackends`
 **Dependencies:** None · **Parallelizable:** Yes (011 serialized behind it)
 
