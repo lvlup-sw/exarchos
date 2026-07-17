@@ -26,7 +26,7 @@ Three distinct failure modes require different fixes — code changes, documenta
 
 ### Platform-Agnosticity
 
-Per `docs/designs/2026-03-09-platform-agnosticity.md`: the MCP server is the self-sufficient, platform-agnostic core. The debug trace relies entirely on MCP tools — not conversation introspection — so it works for any MCP client. Conversation scanning is supplementary.
+Per `docs/designs/archive/2026-03-09-platform-agnosticity.md`: the MCP server is the self-sufficient, platform-agnostic core. The debug trace relies entirely on MCP tools — not conversation introspection — so it works for any MCP client. Conversation scanning is supplementary.
 
 **Diagnostic self-service tools:** `describe(topology)` for HSM verification, `describe(playbook)` for adherence checks, `describe(eventTypes, emissionGuide)` for event schema/catalog comparison, `describe(actions)` for schema/gate metadata, `runbook(phase)` for step conformance, `pipeline`/`convergence`/`telemetry` views for health metrics.
 
