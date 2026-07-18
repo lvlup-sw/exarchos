@@ -26,6 +26,8 @@ import {
   DEFAULT_CONTEXT_ROT_HARD_THRESHOLD,
   DEFAULT_CONTEXT_ROT_SOFT_THRESHOLD,
   PHASE_MUTATING_DISPATCHES,
+  WORKFLOW_REHYDRATED_EVENT,
+  WORKTREE_CREATED_EVENT,
   applyContextRotEvent,
   applyContextRotSoftSignal,
   foldContextRot,
@@ -379,6 +381,127 @@ describe('context-rot hard gate (INV-9 — phase mutations only)', () => {
       ctx(),
     );
     expect(released.error?.code).not.toBe(CONTEXT_ROT_ERROR_CODE);
+  });
+});
+
+// ─── Bounded read (INV-17 — never materialize the whole stream) ─────────────
+
+describe('context-rot interceptor bounded read (INV-17 — no whole-stream load)', () => {
+  it('UnanchoredStream_LongHistory_TailReadBounded', async () => {
+    // The defect this pins: for an un-anchored stream (no workflow.rehydrated,
+    // no qualifying launcher worktree.created) `anchorSequence` is 0, so the
+    // old `query({ sinceSequence: 0 })` tail read materialized the ENTIRE
+    // stream on EVERY dispatch — an O(stream) per-dispatch tax contradicting
+    // INV-17 and DR-11. The rot magnitude is now a `SELECT COUNT(*)` over the
+    // post-anchor window: zero rows materialized, gate decision unchanged.
+    const streamId = 'rot-bounded-tail';
+    await eventStore.append(streamId, {
+      type: 'workflow.started',
+      data: { featureId: streamId, workflowType: 'feature' },
+    });
+    const hard = 5;
+    const historyLen = hard * 40; // far more than the hard threshold
+    await seedCheckpoints(streamId, historyLen);
+    const totalEvents = historyLen + 1; // workflow.started + checkpoints
+
+    // Spy-through: record the filters each read is invoked with while still
+    // running the real store.
+    const querySpy = vi.spyOn(eventStore, 'query');
+    const countSpy = vi.spyOn(eventStore, 'count');
+
+    const assessment = await runContextRotInterceptor(
+      eventStore,
+      streamId,
+      'exarchos_workflow',
+      'transition',
+      { soft: 1, hard },
+    );
+
+    // Gate decision is unchanged: an un-anchored long stream hard-blocks the
+    // phase-mutating verb, and rot is the EXACT post-anchor event count.
+    expect(assessment).toBeDefined();
+    expect(assessment!.anchorSequence).toBe(0); // no freshness anchor
+    expect(assessment!.rot).toBe(totalEvents);
+    expect(assessment!.rot).toBeGreaterThanOrEqual(hard);
+    expect(assessment!.blocked).not.toBeNull();
+    expect(assessment!.blocked?.error?.code).toBe(CONTEXT_ROT_ERROR_CODE);
+
+    // The rot magnitude came from a bounded COUNT over the post-anchor window
+    // (materializes no rows), not a tail materialization.
+    expect(countSpy).toHaveBeenCalledWith(streamId, { sinceSequence: 0 });
+
+    // The ONLY `query` the interceptor issues is the type-filtered anchor scan
+    // — bounded to anchor-typed events, never the whole stream. Crucially,
+    // NO `query` call is an unbounded `{ sinceSequence }`-only tail read.
+    expect(querySpy).toHaveBeenCalled();
+    for (const [, filters] of querySpy.mock.calls) {
+      expect(filters?.types).toEqual([
+        WORKFLOW_REHYDRATED_EVENT,
+        WORKTREE_CREATED_EVENT,
+      ]);
+      expect(filters?.sinceSequence).toBeUndefined();
+    }
+  });
+
+  it('LauncherAnchor_TailReadStaysBounded_ResetIsNoOp', async () => {
+    // Anchor-in-tail edge: a launcher worktree.created whose projectionSequence
+    // EQUALS the current anchor sits strictly after it in the tail. The bound
+    // must still be exact — the reset re-derives rot to its own contiguous
+    // post-anchor position, identical to a plain increment (fold-rot ≡ count).
+    const streamId = 'rot-bounded-anchor-tail';
+    await eventStore.append(streamId, {
+      type: 'workflow.started',
+      data: { featureId: streamId, workflowType: 'feature' },
+    });
+    // A launcher spawn anchors freshness at its projectionSequence (= 1, the
+    // workflow.started fold position).
+    await eventStore.append(streamId, {
+      type: WORKTREE_CREATED_EVENT,
+      data: {
+        path: '/tmp/wt',
+        worktreeId: 'wt-1',
+        treeHash: 'abc123',
+        commit: 'def456',
+        projectionSequence: 1,
+        posture: 'task-isolated',
+      },
+    });
+    // A SECOND launcher spawn with projectionSequence == the current anchor (1)
+    // lands later — a qualifying reset event sitting in the tail.
+    await eventStore.append(streamId, {
+      type: WORKTREE_CREATED_EVENT,
+      data: {
+        path: '/tmp/wt2',
+        worktreeId: 'wt-2',
+        treeHash: 'aaa',
+        commit: 'bbb',
+        projectionSequence: 1,
+        posture: 'task-isolated',
+      },
+    });
+    await seedCheckpoints(streamId, 20);
+
+    // Ground truth: fold the whole stream directly. The bounded interceptor
+    // must agree with it exactly.
+    const allEvents = await eventStore.query(streamId);
+    const foldTruth = foldContextRot(allEvents);
+
+    const countSpy = vi.spyOn(eventStore, 'count');
+    const assessment = await runContextRotInterceptor(
+      eventStore,
+      streamId,
+      'exarchos_workflow',
+      'transition',
+      { soft: 1, hard: 5 },
+    );
+
+    expect(assessment).toBeDefined();
+    expect(assessment!.anchorSequence).toBe(foldTruth.anchorSequence);
+    expect(assessment!.rot).toBe(foldTruth.rot); // count ≡ fold, reset is a no-op
+    // Bounded: rot came from a COUNT over the post-anchor window.
+    expect(countSpy).toHaveBeenCalledWith(streamId, {
+      sinceSequence: foldTruth.anchorSequence,
+    });
   });
 });
 

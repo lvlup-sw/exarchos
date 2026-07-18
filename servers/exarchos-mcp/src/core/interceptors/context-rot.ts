@@ -28,8 +28,10 @@
  *
  * The derivation is `foldContextRot(events)` — a deterministic reducer over
  * the ordered event list. No hidden mutable state, no clock reads, no I/O
- * inside the fold; the interceptor's only side effects are the two
- * event-store READS that fetch the fold's input.
+ * inside the fold. The interceptor's only side effects are two BOUNDED
+ * event-store READS: a type-filtered anchor scan folded for the anchor
+ * position, and a `SELECT COUNT(*)` over the post-anchor window for the rot
+ * magnitude (the count equals the tail fold's rot — see the interceptor body).
  *
  * ## The hard gate is scoped to phase-mutating verbs only (INV-9)
  *
@@ -302,11 +304,15 @@ function buildBlockedResult(
  *   signal (if any) is applied to the RESULT via
  *   {@link applyContextRotSoftSignal}.
  *
- * Read cost: two storage queries — a type-filtered anchor scan
+ * Read cost: two BOUNDED storage reads — a type-filtered anchor scan
  * (`types IN (workflow.rehydrated, worktree.created)`, DR-11 multi-type
- * filter) and a `sinceSequence` tail window from the anchor. The full
- * stream is never materialized; the tail fold seeded at the anchor equals
- * the whole-stream fold by the incremental-fold identity.
+ * filter) that materializes only anchor-typed events, and a
+ * `SELECT COUNT(*)` over the post-anchor window (DR-11 `countEvents`) that
+ * materializes NO rows. The full stream is never materialized — by
+ * construction, not by convention: the count equals the whole-stream fold's
+ * rot by the anchor-in-tail argument in the interceptor body (a tail reset
+ * can only re-derive rot to its own contiguous post-anchor position, so
+ * fold-rot ≡ post-anchor event count).
  */
 export async function runContextRotInterceptor(
   eventStore: EventStore,
@@ -327,27 +333,59 @@ export async function runContextRotInterceptor(
   try {
     // Anchor scan: only anchor-typed events can move `anchorSequence`, so
     // folding the type-filtered subset yields the same anchor as the full
-    // fold (non-anchor events only ever increment rot).
+    // fold (non-anchor events only ever increment rot). This read is bounded
+    // to anchor-typed events (`type IN (...)`) — never the whole stream.
     const anchorEvents = await eventStore.query(streamId, {
       types: [WORKFLOW_REHYDRATED_EVENT, WORKTREE_CREATED_EVENT],
     });
     const { anchorSequence } = foldContextRot(anchorEvents);
 
-    // Tail window: events strictly after the anchor (`sinceSequence` is
-    // exclusive in both backends). Seeding the fold at the anchor makes
-    // this equal to folding the entire stream (incremental-fold identity).
-    const tail = await eventStore.query(streamId, { sinceSequence: anchorSequence });
-    const state = foldContextRot(tail, { anchorSequence, rot: 0 });
+    // Rot = the number of events strictly after the anchor. We COUNT that
+    // window (`SELECT COUNT(*)`, DR-11 `countEvents`) instead of materializing
+    // and folding the tail. The previous `query({ sinceSequence })` here
+    // loaded the ENTIRE stream whenever `anchorSequence` was 0 (no freshness
+    // anchor) — an unbounded O(stream) heap+serialization tax on EVERY
+    // dispatch carrying a streamId, exactly the whole-stream load INV-17 and
+    // DR-11 exist to eliminate. `sinceSequence` is exclusive in both backends,
+    // so the count spans the same window the fold consumed; a COUNT
+    // materializes NO rows.
+    //
+    // The count is EXACT — not merely a bound — because the tail fold's rot
+    // provably equals the raw post-anchor event count for every valid stream
+    // (anchor-in-tail argument):
+    //   • No `workflow.rehydrated` can sit in the tail. The fold's anchor is
+    //     monotonically non-decreasing and rehydrated pins it to the event's
+    //     OWN sequence, so a rehydrated after `anchorSequence` would itself
+    //     have raised the anchor scan's result past its own position — a
+    //     contradiction. It would have become the anchor.
+    //   • A `worktree.created` resets rot only when its `projectionSequence >=
+    //     anchorSequence`. Any such qualifier in the tail must have
+    //     `projectionSequence === anchorSequence` EXACTLY: a strictly-greater
+    //     value would have advanced the anchor scan's result past
+    //     `anchorSequence` (contradiction). With the store's contiguous
+    //     per-stream sequences (appender assigns `base + i + 1`), that reset
+    //     sets rot to `event.sequence - anchorSequence` = the event's own
+    //     post-anchor position — identical to the plain increment it replaces.
+    //     So no tail event ever drives rot below the raw count; fold-rot ≡
+    //     post-anchor event count. (`foldContextRot` itself is unchanged, so
+    //     `Fold_LauncherSpawnAnchor_SeedsRotFromProjectionSequence` and the
+    //     other fold pins stay green — this identity only justifies swapping
+    //     the interceptor's tail-fold for a count.)
+    //
+    // The exact rot magnitude above `hard` is display-only: the gate is binary
+    // (`rot >= hard` block, `rot >= soft` signal), so a count is
+    // behaviour-preserving.
+    const rot = await eventStore.count(streamId, { sinceSequence: anchorSequence });
 
     const blocked =
-      isPhaseMutatingDispatch(tool, actionVerb) && state.rot >= thresholds.hard
-        ? buildBlockedResult(tool, actionVerb, streamId, state.rot, thresholds.hard)
+      isPhaseMutatingDispatch(tool, actionVerb) && rot >= thresholds.hard
+        ? buildBlockedResult(tool, actionVerb, streamId, rot, thresholds.hard)
         : null;
 
     return {
       streamId,
-      rot: state.rot,
-      anchorSequence: state.anchorSequence,
+      rot,
+      anchorSequence,
       thresholds,
       blocked,
     };
