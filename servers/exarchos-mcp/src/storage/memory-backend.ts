@@ -105,10 +105,21 @@ export class InMemoryBackend implements StorageBackend {
     return this.appendVersion;
   }
 
-  queryEvents(streamId: string, filters?: QueryFilters): WorkflowEvent[] {
-    const stream = this.events.get(streamId);
-    if (!stream) return [];
-
+  /**
+   * Shared window-filter predicate for {@link queryEvents} and
+   * {@link countEvents} (DR-11, #1685) — the in-memory counterpart to
+   * SqliteBackend's `buildEventWhere`, so the row query and the count can
+   * never disagree about which events match. Applies the window filters
+   * only; ordering and pagination are layered on by `queryEvents`, and
+   * `countEvents` ignores them by construction.
+   *
+   * Returns `null` when the filter can match nothing (`types: []`) —
+   * mirroring the SQLite short-circuit for the empty `IN ()` list (INV-2).
+   */
+  private applyWindowFilters(
+    stream: WorkflowEvent[],
+    filters?: QueryFilters,
+  ): WorkflowEvent[] | null {
     let result = stream;
 
     if (filters?.sinceSequence !== undefined) {
@@ -117,6 +128,16 @@ export class InMemoryBackend implements StorageBackend {
 
     if (filters?.type) {
       result = result.filter((e) => e.type === filters.type);
+    }
+
+    // DR-11 multi-type filter (#1685 — the DR-12 enabler). Parity with
+    // SqliteBackend's `type IN (...)`: composes with `type` as AND, and an
+    // EMPTY array matches nothing (SQLite has no valid empty `IN ()` list;
+    // both backends short-circuit identically — INV-2).
+    if (filters?.types !== undefined) {
+      if (filters.types.length === 0) return null;
+      const wanted = new Set(filters.types);
+      result = result.filter((e) => wanted.has(e.type));
     }
 
     if (filters?.since) {
@@ -145,6 +166,26 @@ export class InMemoryBackend implements StorageBackend {
       result = result.filter((e) => e.causationId === filters.causationId);
     }
 
+    return result;
+  }
+
+  queryEvents(streamId: string, filters?: QueryFilters): WorkflowEvent[] {
+    const stream = this.events.get(streamId);
+    if (!stream) return [];
+
+    let result = this.applyWindowFilters(stream, filters);
+    if (result === null) return [];
+
+    // DR-11 (#1685) — newest-first ordering BEFORE offset/limit, matching
+    // SQLite's `ORDER BY sequence DESC LIMIT ? OFFSET ?` semantics exactly:
+    // `offset` counts from the newest event. The stream array is ascending
+    // by construction (appends allocate monotonic sequences), so descending
+    // is a reversed copy. `.slice()` first because `result` may still alias
+    // the live stream array when no filter ran.
+    if (filters?.order === 'desc') {
+      result = result.slice().reverse();
+    }
+
     if (filters?.offset) {
       result = result.slice(filters.offset);
     }
@@ -154,6 +195,24 @@ export class InMemoryBackend implements StorageBackend {
     }
 
     return result;
+  }
+
+  /**
+   * Filtered event count (DR-11, #1685). Capability-equivalent counterpart
+   * to {@link SqliteBackend.countEvents}: applies the SAME window-filter
+   * predicate as {@link queryEvents} (shared {@link applyWindowFilters}) and
+   * returns the size of the matching set. Pagination fields
+   * (`limit`/`offset`) and `order` are ignored by construction so the count
+   * is always over the FULL matching set — the invariant pagination
+   * metadata (`total`, `hasMore`) needs (INV-2 facade equivalence with the
+   * SQLite `SELECT COUNT(*)` path).
+   */
+  countEvents(streamId: string, filters?: QueryFilters): number {
+    const stream = this.events.get(streamId);
+    if (!stream) return 0;
+
+    const matching = this.applyWindowFilters(stream, filters);
+    return matching === null ? 0 : matching.length;
   }
 
   getSequence(streamId: string): number {

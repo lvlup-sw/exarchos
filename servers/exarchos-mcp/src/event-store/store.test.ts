@@ -1,9 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach, assertType } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, assertType, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { EventStore, SequenceConflictError, type QueryFilters } from './store.js';
+import type { WorkflowEvent } from './schemas.js';
+import { InMemoryBackend } from '../storage/memory-backend.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 let tempDir: string;
@@ -1028,5 +1030,201 @@ describe('QueryFilters correlation tuple (Wave 4 / #1437)', () => {
     expect(roundTripped.operationId).toBe('op-1');
     expect(roundTripped.correlationId).toBe('c-1');
     expect(roundTripped.causationId).toBe('ca-1');
+  });
+});
+
+// ─── DR-11 (#1685) — bounded default queries at the storage layer ───────────
+
+describe('DR-11 bounded default queries (#1685)', () => {
+  /**
+   * Minimal in-memory event fixture. `timestamp` is deterministic and
+   * ascending with `sequence` so ordering assertions are unambiguous; the
+   * cast mirrors the established pattern in storage/backend.test.ts (the
+   * backend persists whatever envelope it is handed — schema validation
+   * lives at the EventStore boundary, which the memory-injection path
+   * bypasses by design).
+   */
+  function makeMemEvent(streamId: string, sequence: number, type: string): WorkflowEvent {
+    return {
+      streamId,
+      sequence,
+      timestamp: `2026-01-01T00:${String(Math.floor(sequence / 60)).padStart(2, '0')}:${String(sequence % 60).padStart(2, '0')}.000Z`,
+      type,
+      schemaVersion: '1.0',
+    } as WorkflowEvent;
+  }
+
+  it('DefaultQuery_BoundedSql_BothBackends', async () => {
+    // The DR-11 acceptance criterion, asserted via call capture on both
+    // backends: the default query path (`queryPage` with no explicit page)
+    // must reach the storage layer ALREADY bounded — a LIMIT/OFFSET +
+    // newest-first order in the filters, and at most `limit` rows
+    // materialized by the backend — never "load the whole stream, slice in
+    // JS" (CodeRabbit #3 on PR #1682).
+
+    // SQLite path (production wiring: reads via the appender's owned backend).
+    const sqliteStore = new EventStore(tempDir);
+    for (let i = 0; i < 30; i++) {
+      await sqliteStore.append('bounded', { type: 'task.assigned' });
+    }
+    const sqliteBackend = sqliteStore.getReadBackend();
+    const sqliteQuerySpy = vi.spyOn(sqliteBackend, 'queryEvents');
+    const sqliteCountSpy = vi.spyOn(sqliteBackend, 'countEvents');
+
+    const sqliteResult = await sqliteStore.queryPage('bounded');
+
+    // Call capture: exactly one row query, carrying the bound.
+    expect(sqliteQuerySpy).toHaveBeenCalledTimes(1);
+    expect(sqliteQuerySpy).toHaveBeenCalledWith(
+      'bounded',
+      expect.objectContaining({ limit: 20, offset: 0, order: 'desc' }),
+    );
+    // The backend materialized only the bounded page — 20 rows, not 30.
+    expect(sqliteQuerySpy.mock.results[0]!.value).toHaveLength(20);
+    // `total` came from COUNT(*), not from loading rows.
+    expect(sqliteCountSpy).toHaveBeenCalledTimes(1);
+
+    expect(sqliteResult.events).toHaveLength(20);
+    expect(sqliteResult.events[0]!.sequence).toBe(30); // newest first
+    expect(sqliteResult.events[19]!.sequence).toBe(11);
+
+    // In-memory path (test-affordance wiring: injected read backend).
+    const mem = new InMemoryBackend();
+    mem.initialize();
+    for (let i = 1; i <= 30; i++) {
+      mem.appendEvent('bounded', makeMemEvent('bounded', i, 'task.assigned'));
+    }
+    const memStore = new EventStore(tempDir, { backend: mem });
+    const memQuerySpy = vi.spyOn(mem, 'queryEvents');
+    const memCountSpy = vi.spyOn(mem, 'countEvents');
+
+    const memResult = await memStore.queryPage('bounded');
+
+    expect(memQuerySpy).toHaveBeenCalledTimes(1);
+    expect(memQuerySpy).toHaveBeenCalledWith(
+      'bounded',
+      expect.objectContaining({ limit: 20, offset: 0, order: 'desc' }),
+    );
+    expect(memQuerySpy.mock.results[0]!.value).toHaveLength(20);
+    expect(memCountSpy).toHaveBeenCalledTimes(1);
+
+    // INV-2 both-backend parity: identical page metadata and identical
+    // newest-first sequence window for the identical scenario.
+    expect(memResult.page).toEqual(sqliteResult.page);
+    expect(memResult.events.map((e) => e.sequence)).toEqual(
+      sqliteResult.events.map((e) => e.sequence),
+    );
+
+    sqliteStore.close();
+  });
+
+  it('Pagination_TotalHasMore_Preserved', async () => {
+    // DR-11 acceptance criterion 2: the bounded path preserves the exact
+    // pagination semantics the unbounded handler produced — `total` over
+    // the full matching set, newest-first offset walk with no gaps or
+    // duplicates, `hasMore` = offset + shown < total.
+    const store = new EventStore(tempDir);
+    for (let i = 0; i < 25; i++) {
+      await store.append('paged', { type: 'task.assigned' });
+    }
+
+    // Default page: the 20 newest.
+    const first = await store.queryPage('paged');
+    expect(first.page).toEqual({ total: 25, offset: 0, limit: 20, hasMore: true });
+    expect(first.events.map((e) => e.sequence)).toEqual(
+      Array.from({ length: 20 }, (_, i) => 25 - i),
+    );
+
+    // Second page: the remaining 5, hasMore flips off.
+    const second = await store.queryPage('paged', undefined, { limit: 20, offset: 20 });
+    expect(second.page).toEqual({ total: 25, offset: 20, limit: 20, hasMore: false });
+    expect(second.events.map((e) => e.sequence)).toEqual([5, 4, 3, 2, 1]);
+
+    // No gaps, no duplicates across the walk.
+    const walked = [...first.events, ...second.events].map((e) => e.sequence);
+    expect(new Set(walked).size).toBe(25);
+
+    // queryPage OWNS pagination: limit/offset/order sneaking in via the
+    // window filters are ignored in favour of the explicit page argument
+    // (a caller-supplied `limit: -1` must never reach SQL as "no limit").
+    const owned = await store.queryPage(
+      'paged',
+      { type: 'task.assigned', limit: -1, offset: 999, order: 'asc' },
+      { limit: 3 },
+    );
+    expect(owned.page).toEqual({ total: 25, offset: 0, limit: 3, hasMore: true });
+    expect(owned.events.map((e) => e.sequence)).toEqual([25, 24, 23]);
+
+    store.close();
+  });
+
+  it('MultiTypeFilter_SingleQuery_BothBackends', async () => {
+    // The DR-12 enabler: gathering N event types from a stream is ONE
+    // storage query (`type IN (...)`), not a per-type loop — task 011 pins
+    // `gatherOperationEvents`' query count on this contract.
+    const pattern = [
+      'workflow.started',
+      'task.assigned',
+      'task.completed',
+      'task.assigned',
+      'workflow.transition',
+      'task.completed',
+    ];
+    const wanted = ['task.assigned', 'task.completed'];
+    const expected: Array<[number, string]> = [
+      [2, 'task.assigned'],
+      [3, 'task.completed'],
+      [4, 'task.assigned'],
+      [6, 'task.completed'],
+    ];
+
+    // SQLite path.
+    const sqliteStore = new EventStore(tempDir);
+    for (const type of pattern) {
+      await sqliteStore.append('multi', { type });
+    }
+    const sqliteBackend = sqliteStore.getReadBackend();
+    const sqliteQuerySpy = vi.spyOn(sqliteBackend, 'queryEvents');
+
+    const sqliteEvents = await sqliteStore.query('multi', { types: wanted });
+    expect(sqliteQuerySpy).toHaveBeenCalledTimes(1); // single query, both types
+    expect(sqliteEvents.map((e) => [e.sequence, e.type])).toEqual(expected);
+
+    // count shares the same matching set (shared WHERE builder).
+    expect(await sqliteStore.count('multi', { types: wanted })).toBe(4);
+    // `type` + `types` compose as AND.
+    expect(
+      (await sqliteStore.query('multi', { type: 'task.assigned', types: wanted })).map(
+        (e) => e.sequence,
+      ),
+    ).toEqual([2, 4]);
+    // Empty list matches nothing (no SQL issued — no valid empty IN ()).
+    expect(await sqliteStore.query('multi', { types: [] })).toEqual([]);
+    expect(await sqliteStore.count('multi', { types: [] })).toBe(0);
+
+    // In-memory path — identical scenario, row-for-row parity (INV-2).
+    const mem = new InMemoryBackend();
+    mem.initialize();
+    pattern.forEach((type, i) => {
+      mem.appendEvent('multi', makeMemEvent('multi', i + 1, type));
+    });
+    const memStore = new EventStore(tempDir, { backend: mem });
+    const memQuerySpy = vi.spyOn(mem, 'queryEvents');
+
+    const memEvents = await memStore.query('multi', { types: wanted });
+    expect(memQuerySpy).toHaveBeenCalledTimes(1);
+    expect(memEvents.map((e) => [e.sequence, e.type])).toEqual(
+      sqliteEvents.map((e) => [e.sequence, e.type]),
+    );
+    expect(await memStore.count('multi', { types: wanted })).toBe(4);
+    expect(
+      (await memStore.query('multi', { type: 'task.assigned', types: wanted })).map(
+        (e) => e.sequence,
+      ),
+    ).toEqual([2, 4]);
+    expect(await memStore.query('multi', { types: [] })).toEqual([]);
+    expect(await memStore.count('multi', { types: [] })).toBe(0);
+
+    sqliteStore.close();
   });
 });

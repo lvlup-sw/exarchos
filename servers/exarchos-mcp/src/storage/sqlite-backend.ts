@@ -1479,8 +1479,23 @@ export class SqliteBackend implements StorageBackend {
     insertFn();
   }
 
-  queryEvents(streamId: string, filters?: QueryFilters): WorkflowEvent[] {
-    // Build dynamic query based on filters
+  /**
+   * Shared WHERE builder for the per-stream event queries (DR-11, #1685).
+   * Used by BOTH {@link queryEvents} and {@link countEvents} so the row
+   * query and the COUNT can never disagree about which events match — the
+   * invariant `queryPage`'s `total`/`hasMore` metadata rests on. Handles the
+   * window filters only; ORDER BY and LIMIT/OFFSET are appended by
+   * `queryEvents`, and `countEvents` ignores them by construction.
+   *
+   * Returns `null` when the filter can match nothing (`types: []`) so
+   * callers short-circuit without issuing SQL — SQLite has no valid empty
+   * `IN ()` list, and the in-memory backend mirrors the same "empty matches
+   * nothing" semantics (INV-2).
+   */
+  private buildEventWhere(
+    streamId: string,
+    filters?: QueryFilters,
+  ): { conditions: string[]; params: unknown[] } | null {
     const conditions: string[] = ['streamId = ?'];
     const params: unknown[] = [streamId];
 
@@ -1492,6 +1507,16 @@ export class SqliteBackend implements StorageBackend {
     if (filters?.type) {
       conditions.push('type = ?');
       params.push(filters.type);
+    }
+
+    // DR-11 multi-type filter (#1685 — the DR-12 enabler): `type IN (...)`
+    // against the (streamId, type) index. Composes with `type` as AND when
+    // both are supplied. Placeholder count varies with the list length, so
+    // the SQL-string statement cache naturally keys distinct arities.
+    if (filters?.types !== undefined) {
+      if (filters.types.length === 0) return null;
+      conditions.push(`type IN (${filters.types.map(() => '?').join(', ')})`);
+      params.push(...filters.types);
     }
 
     if (filters?.since) {
@@ -1507,21 +1532,10 @@ export class SqliteBackend implements StorageBackend {
     // #1437 (Wave 4) — indexed-WHERE fast path for the V6 correlation
     // columns. The column is the filter handle (INV-1); the canonical
     // value still travels with `payload` JSON and is rehydrated by
-    // `rowToEvent` on read. The dynamic SQL+cache pattern below uses the
+    // `rowToEvent` on read. The dynamic SQL+cache pattern uses the
     // SQL string as the cache key, so adding/omitting these clauses
     // produces distinct cache entries automatically — no manual cache
     // bookkeeping required.
-    //
-    // #1448 item 5 — bump the correlationFilteredQueries counter once per
-    // query (not once per clause) so silent index regressions surface via
-    // `getStats()` rather than via user-visible latency.
-    if (
-      filters?.operationId !== undefined ||
-      filters?.correlationId !== undefined ||
-      filters?.causationId !== undefined
-    ) {
-      this.correlationFilteredQueries++;
-    }
     if (filters?.operationId !== undefined) {
       conditions.push('operation_id = ?');
       params.push(filters.operationId);
@@ -1535,7 +1549,30 @@ export class SqliteBackend implements StorageBackend {
       params.push(filters.causationId);
     }
 
-    let sql = `SELECT streamId, sequence, type, timestamp, data, payload FROM events WHERE ${conditions.join(' AND ')} ORDER BY sequence`;
+    return { conditions, params };
+  }
+
+  queryEvents(streamId: string, filters?: QueryFilters): WorkflowEvent[] {
+    // #1448 item 5 — bump the correlationFilteredQueries counter once per
+    // query (not once per clause) so silent index regressions surface via
+    // `getStats()` rather than via user-visible latency.
+    if (
+      filters?.operationId !== undefined ||
+      filters?.correlationId !== undefined ||
+      filters?.causationId !== undefined
+    ) {
+      this.correlationFilteredQueries++;
+    }
+
+    const where = this.buildEventWhere(streamId, filters);
+    if (where === null) return [];
+    const { conditions, params } = where;
+
+    // DR-11 (#1685): `order: 'desc'` flips to newest-first so LIMIT/OFFSET
+    // carve the newest window directly in SQL. Ascending keeps the bare
+    // `ORDER BY sequence` string so pre-existing cached statements match.
+    const direction = filters?.order === 'desc' ? ' DESC' : '';
+    let sql = `SELECT streamId, sequence, type, timestamp, data, payload FROM events WHERE ${conditions.join(' AND ')} ORDER BY sequence${direction}`;
 
     if (filters?.limit !== undefined && filters?.offset !== undefined) {
       sql += ` LIMIT ? OFFSET ?`;
@@ -1565,6 +1602,30 @@ export class SqliteBackend implements StorageBackend {
     }>;
 
     return rows.map((row) => this.rowToEvent(row));
+  }
+
+  /**
+   * Filtered event count (DR-11, #1685). `SELECT COUNT(*)` over the SAME
+   * WHERE clause {@link queryEvents} builds ({@link buildEventWhere}), so the
+   * count and the row query can never disagree about which events match. No
+   * rows are materialized — SQLite folds the count over the (streamId,
+   * type)/(streamId, timestamp) indexes. Pagination fields (`limit`/`offset`)
+   * and `order` in `filters` are ignored by construction: only window
+   * filters reach the WHERE.
+   */
+  countEvents(streamId: string, filters?: QueryFilters): number {
+    const where = this.buildEventWhere(streamId, filters);
+    if (where === null) return 0;
+
+    const sql = `SELECT COUNT(*) AS n FROM events WHERE ${where.conditions.join(' AND ')}`;
+    let stmt = this.queryStmtCache.get(sql);
+    if (!stmt) {
+      stmt = this.db.prepare(sql);
+      this.queryStmtCache.set(sql, stmt);
+    }
+
+    const row = stmt.get(...where.params) as { n: number };
+    return row.n;
   }
 
   getSequence(streamId: string): number {
