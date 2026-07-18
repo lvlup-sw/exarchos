@@ -273,6 +273,16 @@ export const EventTypes = [
   'worktree.create.executed',
   'launch.executing_started',
   'launch.executed',
+  // DR-13 (#1644) — the launcher spawn/teardown CONTRACT's teardown-boundary
+  // lifecycle terminal. The spawn boundary re-uses the already-registered
+  // `worktree.created` (a LAUNCHER-shaped variant joins its data union:
+  // path/worktreeId/treeHash/commit/projectionSequence/posture — see
+  // `WorktreeCreatedData`); `worktree.finalized` is its teardown pair,
+  // recording the observed `{treeHash, dirty}` of the finalized worktree
+  // (finalize is never destructive — INV-14). Both land on the launch's
+  // WORKFLOW stream so `inspect` surfaces them; emitted by the launcher
+  // contract seam (`launcher/contract.ts`).
+  'worktree.finalized',
   // #1290 — emitted by `resolveWorkspace` (servers/exarchos-mcp/src/workspace/
   // discovery.ts) when the dispatch boundary resolves a missing `featureId`
   // from MCP roots or via the cwd-walk fallback. Records the source so audit
@@ -729,6 +739,9 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   // is emitted around the spawned child process — none is model-authored.
   'worktree.create.requested': 'auto',
   'worktree.create.executed': 'auto',
+  // DR-13 (#1644) — teardown-boundary contract lifecycle terminal, emitted
+  // deterministically by the launcher teardown seam (`launcher/contract.ts`).
+  'worktree.finalized': 'auto',
   'launch.executing_started': 'auto',
   'launch.executed': 'auto',
 
@@ -1777,21 +1790,52 @@ export type SessionMachineryConsumedData = z.infer<typeof SessionMachineryConsum
 // ─── Readiness Event Data ───────────────────────────────────────────────────
 
 /**
- * worktree.created — the TASK-worktree terminal (UNCHANGED). Requires
- * `taskId` + `branch`: it records the per-task worktree an implementer boots into
- * and is classified `'model'` (the readiness path, not deterministic plumbing).
+ * worktree.created — a UNION of two variants, tried in order:
  *
- * Deliberately distinct from the launcher's top-level create pair
- * `worktree.create.requested`/`worktree.create.executed` (harness-launcher, DR-2):
- * that pair is the INV-13 intent/terminal for a task-LESS top-level worktree and
- * carries no `taskId`. Two different KINDS of worktree, two different terminals —
- * do NOT reuse this task terminal for the launcher's top-level creation.
+ * 1. **Task-worktree terminal (UNCHANGED contract).** Requires `taskId` +
+ *    `branch`: it records the per-task worktree an implementer boots into and
+ *    is classified `'model'` (the readiness path, not deterministic plumbing).
+ *    A payload missing `taskId` or `branch` still fails to parse unless it is
+ *    a complete launcher-contract shape — the task contract is not weakened.
+ * 2. **DR-13 launcher-contract spawn event (#1644).** The launcher's
+ *    spawn-boundary lifecycle event, emitted by `launcher/contract.ts` AFTER
+ *    fail-closed tree-hash verification passes. Task-LESS by design; requires
+ *    the verified `treeHash` + `worktreeId` + envelope provenance
+ *    (`commit`/`projectionSequence`/`posture`), so it can never be confused
+ *    with (or spoof) the task shape.
+ *
+ * The launcher's top-level create AUDIT pair
+ * `worktree.create.requested`/`worktree.create.executed` (harness-launcher,
+ * DR-2) remains distinct: that is the INV-13 intent/terminal on the singleton
+ * `worktrees` stream; the DR-13 variant here is the CONTRACT lifecycle event
+ * on the launch's workflow stream.
  */
-export const WorktreeCreatedData = z.object({
+const TaskWorktreeCreatedData = z.object({
   taskId: z.string().describe('Task this worktree was created for'),
   path: z.string().describe('Absolute filesystem path to the worktree'),
   branch: z.string().describe('Git branch checked out in the worktree'),
 });
+
+/** DR-13 launcher-contract spawn variant — see the `WorktreeCreatedData` doc. */
+const LauncherWorktreeCreatedData = z.object({
+  path: z.string().describe('Absolute filesystem path to the launch worktree'),
+  worktreeId: z.string().min(1).describe('Canonical worktrees@v1 key of the launch worktree'),
+  treeHash: z.string().min(1).describe('Verified git tree-hash at the spawn boundary (DR-13)'),
+  commit: z.string().min(1).describe('Commit the workspace was materialized at (workspaceRef.commit)'),
+  projectionSequence: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe('DR-16 fold-position anchor from the spawn envelope'),
+  posture: z
+    .enum(['read-only', 'task-isolated', 'shared-mutating'])
+    .describe('INV-11 trust posture the session spawns under'),
+});
+
+export const WorktreeCreatedData = z.union([
+  TaskWorktreeCreatedData,
+  LauncherWorktreeCreatedData,
+]);
 
 export const WorktreeBaselineData = z.object({
   taskId: z.string().describe('Task whose worktree was baselined'),
@@ -2581,6 +2625,37 @@ export const LaunchExecutedData = z.object({
   exitCode: z.number().int().nullable().describe('Child process exit code, or null when signalled / not captured'),
   // DR-2 — canonical liveness instance key (launch: worktreeId).
   ...livenessInstanceFields,
+});
+
+/**
+ * worktree.finalized — the DR-13 launcher-contract teardown-boundary terminal
+ * (#1644), paired with the launcher-shaped `worktree.created` spawn event by
+ * `worktreeId`. Records the worktree's OBSERVED final state — `treeHash` +
+ * `dirty` (both `null` when the pure-read probe cannot observe, e.g. a non-git
+ * target) — so "was work left uncommitted?" is answerable from events alone.
+ * Finalize is never destructive (INV-14): WIP is reported here, never
+ * discarded. Emitted `auto` by the launcher teardown seam
+ * (`launcher/contract.ts#finalizeLaunchWorkspace`), idempotency-keyed
+ * `worktree.finalized:<worktreeId>` so signal + teardown paths collapse to one
+ * persisted row.
+ */
+export const WorktreeFinalizedData = z.object({
+  path: z.string().min(1).describe('Absolute filesystem path of the finalized launch worktree'),
+  worktreeId: z.string().min(1).describe('Canonical worktrees@v1 key of the launch worktree'),
+  treeHash: z
+    .string()
+    .min(1)
+    .nullable()
+    .describe('Observed git tree-hash at teardown; null when unprobeable'),
+  dirty: z
+    .boolean()
+    .nullable()
+    .describe('Uncommitted work present at teardown; null when unprobeable'),
+  exitCode: z
+    .number()
+    .int()
+    .nullable()
+    .describe('Child exit code; null when signalled / not captured'),
 });
 
 // ─── Command Resolver Event Data (#1199 T15) ────────────────────────────────
@@ -3492,6 +3567,9 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'launch.executing_started': LaunchExecutingStartedData,
   'launch.executed': LaunchExecutedData,
 
+  // DR-13 (#1644) — launcher spawn/teardown contract teardown terminal.
+  'worktree.finalized': WorktreeFinalizedData,
+
   // #1290 — workspace discovery resolution
   'workspace.resolved': WorkspaceResolvedData,
 
@@ -3648,6 +3726,8 @@ export type WorktreeCreateRequested = z.infer<typeof WorktreeCreateRequestedData
 export type WorktreeCreateExecuted = z.infer<typeof WorktreeCreateExecutedData>;
 export type LaunchExecutingStarted = z.infer<typeof LaunchExecutingStartedData>;
 export type LaunchExecuted = z.infer<typeof LaunchExecutedData>;
+// DR-13 (#1644) — launcher spawn/teardown contract teardown terminal.
+export type WorktreeFinalized = z.infer<typeof WorktreeFinalizedData>;
 
 // #1290 — workspace discovery
 export type WorkspaceResolved = z.infer<typeof WorkspaceResolvedData>;
@@ -3800,6 +3880,8 @@ export type EventDataMap = {
   'worktree.create.executed': WorktreeCreateExecuted;
   'launch.executing_started': LaunchExecutingStarted;
   'launch.executed': LaunchExecuted;
+  // DR-13 (#1644) — launcher spawn/teardown contract teardown terminal.
+  'worktree.finalized': WorktreeFinalized;
   // #1290 — workspace discovery
   'workspace.resolved': WorkspaceResolved;
   // #1274 — dispatch elicitation hand-off

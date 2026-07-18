@@ -789,6 +789,12 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       case 'worktree.create.executed':
       case 'launch.executing_started':
       case 'launch.executed':
+      // DR-13 (#1644) — the launcher contract's teardown-boundary lifecycle
+      // terminal. It lands on the launch's WORKFLOW stream (so `inspect`
+      // surfaces it) but carries no workflow_state-affecting fields — the
+      // observed treeHash/dirty are audit facts, not phase inputs — so the
+      // projection folds it to identity like the rest of the worktree family.
+      case 'worktree.finalized':
       case 'test.result':
       case 'typecheck.result':
       case 'ci.status':
