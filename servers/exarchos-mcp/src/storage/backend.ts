@@ -178,6 +178,25 @@ export interface StorageBackend {
   // Event operations
   appendEvent(streamId: string, event: WorkflowEvent): void;
   queryEvents(streamId: string, filters?: QueryFilters): WorkflowEvent[];
+
+  /**
+   * Filtered event count (DR-11, #1685). Returns how many events on
+   * `streamId` match the window filters (`type`/`types`/`sinceSequence`/
+   * `since`/`until`/correlation tuple). Pagination fields (`limit`/`offset`)
+   * and `order` are ignored — the count is always over the full matching
+   * set, which is what pagination metadata (`total`, `hasMore`) needs.
+   *
+   * Required (not optional): both production backends implement it and the
+   * bounded default-query path (`EventStore.queryPage`) relies on it.
+   * Backend obligations (INV-2 facade equivalence, INV-17 economy):
+   *  - {@link SqliteBackend}: `SELECT COUNT(*)` sharing the exact WHERE
+   *    builder `queryEvents` uses — no row materialization, and the count
+   *    and the row query can never disagree about which events match.
+   *  - {@link InMemoryBackend}: capability-equivalent JS count over the
+   *    same window-filter predicate.
+   */
+  countEvents(streamId: string, filters?: QueryFilters): number;
+
   getSequence(streamId: string): number;
   listStreams(): string[];
 

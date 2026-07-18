@@ -76,11 +76,33 @@ export interface AppendOptions {
 
 export interface QueryFilters {
   type?: string | undefined;
+  /**
+   * Multi-type filter (DR-11, #1685 — the DR-12 enabler). Matches events
+   * whose `type` is ANY of the listed values (SQL `type IN (...)`), letting a
+   * consumer gather several event types from a stream in ONE storage query
+   * instead of a per-type loop. Composes with the other window filters as
+   * AND; when `type` is also supplied both must hold (an event's type must
+   * equal `type` AND be a member of `types`).
+   *
+   * An EMPTY array matches nothing: both backends short-circuit to zero
+   * results without issuing SQL (SQLite has no valid empty `IN ()` list, and
+   * the in-memory backend mirrors the same semantics — INV-2).
+   */
+  types?: string[] | undefined;
   sinceSequence?: number | undefined;
   since?: string | undefined;
   until?: string | undefined;
   limit?: number | undefined;
   offset?: number | undefined;
+  /**
+   * Result ordering by `sequence` (DR-11, #1685). `'asc'` (the default)
+   * preserves the historical ascending replay order every fold consumer
+   * relies on. `'desc'` returns newest-first so `limit`/`offset` carve the
+   * newest window directly at the storage layer — the bounded default-query
+   * page path (`EventStore.queryPage`) uses it to avoid materializing whole
+   * streams just to slice the tail.
+   */
+  order?: 'asc' | 'desc' | undefined;
   /**
    * Cross-stream prefix filter (DR-3, design 2026-05-08-durable-event-store-substrate).
    *
@@ -99,6 +121,38 @@ export interface QueryFilters {
   correlationId?: string;
   /** Filter to events stamped with this causationId (causal predecessor). */
   causationId?: string;
+}
+
+// ─── Bounded Query Page (DR-11, #1685) ──────────────────────────────────────
+
+/**
+ * Default page size for the bounded default-query path
+ * ({@link EventStore.queryPage}). Matches `EVENT_QUERY_DEFAULT_LIMIT` in
+ * `event-store/tools.ts` (DR-5) so the storage-layer default and the
+ * handler-facing default stay one number.
+ */
+export const DEFAULT_QUERY_PAGE_LIMIT = 20;
+
+/**
+ * Paging metadata returned by {@link EventStore.queryPage}. Field-compatible
+ * with the `EventQueryPage` shape `handleEventQuery` returns (DR-5) so the
+ * handler can adopt the bounded path without changing its response contract.
+ */
+export interface QueryPageMeta {
+  /** Total events matching the window filters, before limit/offset. */
+  readonly total: number;
+  /** Zero-based offset into the newest-first ordering this page starts at. */
+  readonly offset: number;
+  /** Effective page size — the explicit limit, else {@link DEFAULT_QUERY_PAGE_LIMIT}. */
+  readonly limit: number;
+  /** True when events outside this page remain, i.e. `offset + shown < total`. */
+  readonly hasMore: boolean;
+}
+
+/** A bounded, newest-first page of events plus its pagination metadata. */
+export interface PagedQueryResult {
+  readonly events: WorkflowEvent[];
+  readonly page: QueryPageMeta;
 }
 
 // ─── Event Store Options ────────────────────────────────────────────────────
@@ -582,6 +636,66 @@ export class EventStore {
     // every reader. Identity no-op today (eventMigrations === []).
     const events = this.getReadBackend().queryEvents(streamId, filters);
     return migrateEvents(events);
+  }
+
+  /**
+   * Filtered event count (DR-11, #1685). Returns how many events on
+   * `streamId` match the window filters (`type`/`types`/`sinceSequence`/
+   * `since`/`until`/correlation tuple) WITHOUT materializing any rows —
+   * the SQLite backend issues `SELECT COUNT(*)`; the in-memory backend
+   * counts in JS (capability-equivalent, INV-2). Pagination fields
+   * (`limit`/`offset`) and `order` in `filters` are ignored: the count is
+   * always over the full matching set, which is what pagination metadata
+   * (`total`, `hasMore`) needs.
+   */
+  async count(streamId: string, filters?: QueryFilters): Promise<number> {
+    return this.getReadBackend().countEvents(streamId, filters);
+  }
+
+  /**
+   * Bounded default-query path (DR-11, #1685). Returns ONE newest-first page
+   * of events plus pagination metadata, issuing only bounded storage queries:
+   *
+   *   1. `countEvents` — `SELECT COUNT(*)` over the window filters (no rows).
+   *   2. `queryEvents` with `order: 'desc'` + `LIMIT`/`OFFSET` — at most
+   *      `limit` rows materialized, carved at the storage layer.
+   *
+   * This replaces the load-everything-then-`.slice().reverse()` pattern the
+   * default `event query` handler used (CodeRabbit #3 on PR #1682): the
+   * response was bounded but SQLite I/O and heap were not. Ordering and
+   * pagination semantics are preserved exactly — newest-first by descending
+   * `sequence`, `offset` counted from the newest event, `hasMore` true when
+   * `offset + shown < total`.
+   *
+   * `filters` carries the window filters only; any `limit`/`offset`/`order`
+   * set on it are ignored in favour of the explicit `page` argument (this
+   * method owns pagination). Reads route through `migrateEvents` for parity
+   * with `query()` (#1556 upcast choke point; identity today).
+   */
+  async queryPage(
+    streamId: string,
+    filters?: QueryFilters,
+    page?: { limit?: number | undefined; offset?: number | undefined },
+  ): Promise<PagedQueryResult> {
+    // Normalize to non-negative integers so a pathological caller value can
+    // never reach SQL as `LIMIT -1` (SQLite's "no limit" — the exact
+    // unbounded read this path exists to prevent).
+    const limit = Math.max(0, Math.trunc(page?.limit ?? DEFAULT_QUERY_PAGE_LIMIT));
+    const offset = Math.max(0, Math.trunc(page?.offset ?? 0));
+
+    // Strip caller-supplied pagination/order — queryPage owns them.
+    const { limit: _limit, offset: _offset, order: _order, ...window } = filters ?? {};
+
+    const backend = this.getReadBackend();
+    const total = backend.countEvents(streamId, window);
+    const events = migrateEvents(
+      backend.queryEvents(streamId, { ...window, order: 'desc', limit, offset }),
+    );
+
+    return {
+      events,
+      page: { total, offset, limit, hasMore: offset + events.length < total },
+    };
   }
 
   /**
