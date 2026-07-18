@@ -236,24 +236,25 @@ function livenessEventTypes(): readonly string[] {
  * {@link OperationEventLike} structurally (including `streamId`, load-bearing for
  * the DR-2 per-stream pairing) — no adapter needed.
  *
- * Perf (DR-3): rather than loading the FULL event log of every stream and
- * global-sorting it on each `ps --scope all`, this pushes the type filter down
- * to the backend — only the registry's liveness start/terminal types are
- * materialized (`query(streamId, { type })`, which the SqliteBackend and
- * InMemoryBackend both honor at the storage layer). The remaining sort is over
- * the small liveness slice, not the whole log.
+ * Perf (DR-3 + DR-12, #1691): rather than loading the FULL event log of every
+ * stream and global-sorting it on each `ps --scope all`, this pushes the type
+ * filter down to the backend — only the registry's liveness start/terminal
+ * types are materialized. The whole type set rides ONE storage query per
+ * stream via the DR-11 multi-type filter (`query(streamId, { types })`, SQL
+ * `type IN (...)`, honored by both the SqliteBackend and the InMemoryBackend),
+ * so the query count is pinned to the STREAM count — independent of how many
+ * liveness types the registry declares (no per-type inner loop). The remaining
+ * sort is over the small liveness slice, not the whole log.
  */
 async function gatherOperationEvents(
   eventStore: DispatchContext['eventStore'],
 ): Promise<OperationEventLike[]> {
   const streams = eventStore.listStreams();
-  const types = livenessEventTypes();
+  const types = [...livenessEventTypes()];
   const all: WorkflowEvent[] = [];
   for (const streamId of streams) {
-    for (const type of types) {
-      const events = await eventStore.query(streamId, { type });
-      for (const event of events) all.push(event);
-    }
+    const events = await eventStore.query(streamId, { types });
+    for (const event of events) all.push(event);
   }
   all.sort((a, b) => {
     const byTs = a.timestamp.localeCompare(b.timestamp);
