@@ -536,3 +536,21 @@ Each task carries a `**Risk Tier:**` stamp selecting verification depth per the 
 - **Serialized chains (shared files, encoded in Dependencies):** T-001→T-002 (`plan-coverage.ts`); T-004→T-005→T-024 (`ci.yml`); T-007→T-008→T-009 (`adapters/mcp.ts`, then the error seam); T-015→T-012→T-013→T-025→T-026 (`schemas.ts` → launcher → `core/dispatch.ts` → `prepare-synthesis.ts`); T-015→T-008 and T-008→T-017 (`schemas.ts` registrations, then the rollback rename over the same file); T-015→T-021 (`schemas.test.ts` relocation); T-010→T-011 (multi-type storage filter).
 - **Fully parallel:** 003, 006, 014, 016, 018, 019, 020, 022, 023 — plus chain roots 001, 004, 007, 010, 015.
 - **Dispatch priority (not a graph edge):** Wave A (001–006) first, per Scope.
+
+## Review Closeout (2026-07-18)
+
+One adversarial review pass over the integrated diff returned **NEEDS_FIXES** (4 HIGH / 5 MEDIUM / 7 LOW); every load-bearing finding was verified against the tree by a precision pass. Resolution:
+
+**Fixed in the review cycle (code changes on the integration branch):**
+- Context-rot interceptor unbounded tail read (HIGH perf) — `core/interceptors/context-rot.ts` bounded so it never materializes the whole stream; docstring guarantee made true by construction. (#1647)
+- Checkpoint `--context @<path>` traversal (security) — `workflow/checkpoint.ts` now contains the resolved real-path to the workspace root and rejects symlink/`..`/absolute escapes; closes a read-any-file-into-the-durable-log primitive. (#1245)
+- **DR-11** wired to acceptance — the live `event query` handler (`event-store/tools.ts`) now routes through the bounded `queryPage` path instead of loading the whole matching set. (#1685)
+- Hardening: sqlite limit-only LIMIT/OFFSET parity vs the in-memory backend (INV-2, #1685); explicit `STATE_CONFLICT`/`VALIDATION_ERROR` JSON-RPC boundary rows (#1278/#1693); launcher `finalizeLaunchWorkspace` probe wrapped so a throwing injected probe cannot abort teardown (#1632).
+
+**Accepted as capability-only — NOT credited as delivered-to-acceptance; wiring deferred to filed follow-ups:**
+- **DR-16** (task 015): `stateFingerprint` schema ratchet + drift detector shipped and tested, but no live emitter stamps `schemaVersion 1.1`/`stateFingerprint` and the crash-recovery precheck does not consume the detector. Deferred wiring: **#1722**.
+- **DR-19** (task 018): the token-capture proof run **failed its own acceptance** (RCA verdict table: 3/4 criteria Failed — 11/11 unregistered dispatches silently dropped; `team_performance` + `delegation_timeline` fold empty). DR-19 is **not** counted as delivered; #1561 stays open. Follow-ups: **#1723** (skip/dead-letter on attribution miss), **#1724** (view-fold audit), **#1725** (state-DB split footgun).
+- **DR-25** (task 024): `typecheck:test` shipped `continue-on-error` with 332 errors remaining (advisory-red, non-blocking — the vacuous-gate pattern DR-5 legislates against). Baseline recorded and flip-to-blocking tracked: **#1726**.
+- **DR-7** stretch lint (registered-catalog check over SKILL event examples): the core `discover` instance was fixed; the class-level lint is deferred: **#1727**.
+
+Infra note: the `check_static_analysis` import-boundaries sub-check OOMs (~4 GB heap) and ignores an explicit `cwd`, scanning the main checkout — filed as **#1721**; typecheck (the meaningful D2 signal) is clean.
