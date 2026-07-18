@@ -350,7 +350,19 @@ export async function finalizeLaunchWorkspace(
     return { emitted: false, reason: 'invalid-envelope', treeHash: null, dirty: null };
   }
   const probe = deps.probe ?? binding.probe ?? defaultWorkspaceProbe;
-  const observed = probe(identity.worktreePath);
+  // Never throws on the probe path (see docstring): teardown must always
+  // complete. The production makeGitWorkspaceProbe maps git failures to the
+  // unprobeable observation internally, but the probe/GitRunner seam is
+  // injectable and the teardown caller (teardown.ts step (1b)) awaits this
+  // OUTSIDE any try/catch, ahead of the safety gates and reservation release —
+  // so a throwing probe maps to the SAME unprobeable arm a non-git target
+  // would, making the guarantee true by construction.
+  let observed: WorkspaceObservation;
+  try {
+    observed = probe(identity.worktreePath);
+  } catch {
+    observed = { treeHash: null, dirty: null };
+  }
   await withStateRetry(() =>
     eventStore.append(
       binding.streamId,

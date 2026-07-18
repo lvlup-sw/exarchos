@@ -812,6 +812,18 @@ describe('createMcpServer', () => {
     expect(toJsonRpcErrorCode('STORAGE_BUSY')).toBe(-32603);
     expect(toJsonRpcErrorCode('INTERNAL_ERROR')).toBe(-32603);
 
+    // #1278/#1693 (v2-12 review fix): STATE_CONFLICT and VALIDATION_ERROR are
+    // caller-visible boundary-minted codes that `errors/retry-class.ts`
+    // (BOUNDARY_CODE_RETRY_CLASS) classifies but this map previously left to
+    // the -32603 default. They now resolve via EXPLICIT rows, not fallthrough:
+    //  - STATE_CONFLICT (merge-path OCC exhaustion, execute-merge /
+    //    merge-orchestrate) is the sibling of VERSION_CONFLICT /
+    //    CONCURRENCY_CONFLICT → -32603, deterministic by contract.
+    //  - VALIDATION_ERROR (schema-to-flags / event-store tools) is
+    //    caller-fixable input, matching INVALID_INPUT → -32602.
+    expect(toJsonRpcErrorCode('STATE_CONFLICT')).toBe(-32603);
+    expect(toJsonRpcErrorCode('VALIDATION_ERROR')).toBe(-32602);
+
     // Default fallback for handler-domain codes outside both maps (#1278
     // acceptance: "default fallback to -32603").
     expect(toJsonRpcErrorCode('SOME_UNMAPPED_DOMAIN_CODE')).toBe(-32603);
