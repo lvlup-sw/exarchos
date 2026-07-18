@@ -910,6 +910,65 @@ describe('handleEventQuery DR-5 default limit + page metadata', () => {
     expect(queryEvents(a)).toEqual(queryEvents(b));
     expect(queryPage(a)).toEqual(queryPage(b));
   });
+
+  // ─── DR-11 (#1685): the LIVE handler must be bounded at the storage layer ───
+  //
+  // The DR-11 machinery (`EventStore.queryPage` + `countEvents`) shipped with
+  // strong store-level tests, but the live `event query` handler still called
+  // `store.query` — an UNBOUNDED full scan — then reversed + sliced the whole
+  // matching set in memory. That satisfied the response contract but not the
+  // acceptance ("the default query path issues bounded SQL"): SQLite I/O and
+  // heap were still O(stream). This test pins the wiring through `queryPage` by
+  // capturing calls on the SAME read backend the handler reads through — it is
+  // the kill-probe for a regression back to the load-everything-then-slice path.
+  it('HandleEventQuery_DefaultPath_UsesBoundedQueryPage', async () => {
+    const TOTAL = 30; // > EVENT_QUERY_DEFAULT_LIMIT so a full scan is observable
+    await seed('dr11-live', TOTAL);
+
+    // Spy AFTER seeding so only the handler's reads are captured, on the exact
+    // backend instance the handler reaches via `store.queryPage`.
+    const backend = eventStore.getReadBackend();
+    const querySpy = vi.spyOn(backend, 'queryEvents');
+    const countSpy = vi.spyOn(backend, 'countEvents');
+
+    try {
+      const result = await handleEventQuery({ stream: 'dr11-live' }, tempDir, eventStore);
+      expect(result.success).toBe(true);
+
+      // `total` came from COUNT(*), never from materializing rows.
+      expect(countSpy).toHaveBeenCalledTimes(1);
+
+      // Exactly ONE row query, and it carried the bound — newest-first
+      // LIMIT/OFFSET, not the old unbounded `store.query(stream, filters)`.
+      expect(querySpy).toHaveBeenCalledTimes(1);
+      expect(querySpy).toHaveBeenCalledWith(
+        'dr11-live',
+        expect.objectContaining({
+          limit: EVENT_QUERY_DEFAULT_LIMIT,
+          offset: 0,
+          order: 'desc',
+        }),
+      );
+
+      // The backend materialized ONLY the bounded page (20 rows), never the
+      // full 30-event stream the old in-handler slice loaded.
+      expect(querySpy.mock.results[0]!.value).toHaveLength(EVENT_QUERY_DEFAULT_LIMIT);
+
+      // The bounded page contract is unchanged (newest-first, page metadata).
+      const events = queryEvents(result) as Array<{ sequence: number }>;
+      expect(events).toHaveLength(EVENT_QUERY_DEFAULT_LIMIT);
+      expect(events[0]!.sequence).toBe(TOTAL); // newest first
+      expect(queryPage(result)).toEqual({
+        total: TOTAL,
+        offset: 0,
+        limit: EVENT_QUERY_DEFAULT_LIMIT,
+        hasMore: true,
+      });
+    } finally {
+      querySpy.mockRestore();
+      countSpy.mockRestore();
+    }
+  });
 });
 
 // ─── C11: SubagentStreamRouter wiring on team.disbanded (#1224) ─────────────
