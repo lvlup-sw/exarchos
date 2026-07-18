@@ -67,9 +67,10 @@ import {
   MAX_STATE_RETRIES,
 } from '../workflow/state-retry.js';
 import {
-  ConcurrencyError,
-  StorageBusyError,
-} from '../event-store/index.js';
+  describeTransientError,
+  toRetryClass,
+  RETRY_CLASS_GUIDANCE,
+} from '../errors/retry-class.js';
 import type { MergeOrchestratorState } from '../projections/merge-orchestrator/index.js';
 // DR-2 lease guard: fold the singleton `worktrees` stream to look up the
 // in-flight merge lease on the target integration ref. `WORKTREES_STREAM` /
@@ -762,11 +763,15 @@ export async function handleMergeOrchestrate(
       );
     } catch (err) {
       if (err instanceof VersionConflictError) {
+        // DR-10: retry posture sourced from the shared map, not re-derived.
+        const retryClass = toRetryClass('STATE_CONFLICT');
         return {
           success: false,
           error: {
             code: 'STATE_CONFLICT',
             message: `Workflow state version conflict after ${MAX_STATE_RETRIES} retries`,
+            retryClass,
+            guidance: RETRY_CLASS_GUIDANCE[retryClass],
           },
         };
       }
@@ -887,21 +892,18 @@ export async function handleMergeOrchestrate(
     // VersionConflictError above). After `MAX_STATE_RETRIES` exhaustion
     // we surface a structured failure rather than letting the typed
     // error escape past the handler boundary.
-    if (err instanceof ConcurrencyError) {
+    // DR-10 (#1693): transient-vs-conflict discrimination flows through the
+    // shared retry-class contract (`errors/retry-class.ts`) — code, class,
+    // and guidance are sourced there, never re-derived locally.
+    const transient = describeTransientError(err);
+    if (transient !== undefined) {
       return {
         success: false,
         error: {
-          code: 'CONCURRENCY_CONFLICT',
-          message: `merge.requested decide lost OCC race after ${MAX_STATE_RETRIES} retries: ${err.message}`,
-        },
-      };
-    }
-    if (err instanceof StorageBusyError) {
-      return {
-        success: false,
-        error: {
-          code: 'STORAGE_BUSY',
-          message: `merge.requested decide hit storage contention after ${MAX_STATE_RETRIES} retries: ${err.message}`,
+          code: transient.code,
+          message: `merge.requested decide ${transient.summary} after ${MAX_STATE_RETRIES} retries: ${transient.causeMessage}`,
+          retryClass: transient.retryClass,
+          guidance: transient.guidance,
         },
       };
     }

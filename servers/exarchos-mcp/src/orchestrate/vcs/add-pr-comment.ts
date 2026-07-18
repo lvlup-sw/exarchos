@@ -29,6 +29,7 @@ import {
   ConcurrencyError,
   StorageBusyError,
 } from '../../event-store/index.js';
+import { describeTransientError } from '../../errors/retry-class.js';
 import {
   withStateRetry,
   MAX_STATE_RETRIES,
@@ -177,21 +178,18 @@ export async function handleAddPrComment(
         }
       });
     } catch (err) {
-      if (err instanceof ConcurrencyError) {
+      // DR-10 (#1693): transient-vs-conflict discrimination flows through
+      // the shared retry-class contract (`errors/retry-class.ts`) — code,
+      // class, and guidance are sourced there, never re-derived locally.
+      const transient = describeTransientError(err);
+      if (transient !== undefined) {
         return {
           success: false,
           error: {
-            code: 'CONCURRENCY_CONFLICT',
-            message: `pr.comment.requested append lost OCC race after ${MAX_STATE_RETRIES} retries: ${err.message}`,
-          },
-        };
-      }
-      if (err instanceof StorageBusyError) {
-        return {
-          success: false,
-          error: {
-            code: 'STORAGE_BUSY',
-            message: `pr.comment.requested append hit storage contention after ${MAX_STATE_RETRIES} retries: ${err.message}`,
+            code: transient.code,
+            message: `pr.comment.requested append ${transient.summary} after ${MAX_STATE_RETRIES} retries: ${transient.causeMessage}`,
+            retryClass: transient.retryClass,
+            guidance: transient.guidance,
           },
         };
       }

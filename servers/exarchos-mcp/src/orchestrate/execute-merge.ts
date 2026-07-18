@@ -50,9 +50,10 @@ import {
   MAX_STATE_RETRIES,
 } from '../workflow/state-retry.js';
 import {
-  ConcurrencyError,
-  StorageBusyError,
-} from '../event-store/index.js';
+  describeTransientError,
+  toRetryClass,
+  RETRY_CLASS_GUIDANCE,
+} from '../errors/retry-class.js';
 import type { MergeOrchestratorState } from '../projections/merge-orchestrator/index.js';
 // Side-effect import — registers `merge-orchestrator@v1` with `defaultRegistry`
 // so the Wave 3 primitive (`AtomicAppender.decide`) can resolve the reducer
@@ -383,21 +384,18 @@ export async function handleExecuteMerge(
       ),
     );
   } catch (err) {
-    if (err instanceof ConcurrencyError) {
+    // DR-10 (#1693): transient-vs-conflict discrimination flows through the
+    // shared retry-class contract (`errors/retry-class.ts`) — code, class,
+    // and guidance are sourced there, never re-derived locally.
+    const transient = describeTransientError(err);
+    if (transient !== undefined) {
       return {
         success: false,
         error: {
-          code: 'CONCURRENCY_CONFLICT',
-          message: `merge.requested decide lost OCC race after ${MAX_STATE_RETRIES} retries: ${err.message}`,
-        },
-      };
-    }
-    if (err instanceof StorageBusyError) {
-      return {
-        success: false,
-        error: {
-          code: 'STORAGE_BUSY',
-          message: `merge.requested decide hit storage contention after ${MAX_STATE_RETRIES} retries: ${err.message}`,
+          code: transient.code,
+          message: `merge.requested decide ${transient.summary} after ${MAX_STATE_RETRIES} retries: ${transient.causeMessage}`,
+          retryClass: transient.retryClass,
+          guidance: transient.guidance,
         },
       };
     }
@@ -470,12 +468,16 @@ export async function handleExecuteMerge(
   } catch (err) {
     // T29: optimistic-concurrency exhaustion → structured STATE_CONFLICT
     // ToolResult so callers see a categorized failure (not a raw exception).
+    // DR-10: retry posture sourced from the shared map, not re-derived.
     if (err instanceof VersionConflictError) {
+      const retryClass = toRetryClass('STATE_CONFLICT');
       return {
         success: false,
         error: {
           code: 'STATE_CONFLICT',
           message: `Workflow state version conflict after ${MAX_STATE_RETRIES} retries: ${err.message}`,
+          retryClass,
+          guidance: RETRY_CLASS_GUIDANCE[retryClass],
         },
       };
     }
@@ -764,11 +766,15 @@ export async function handleExecuteMerge(
     }
   } catch (err) {
     if (err instanceof VersionConflictError) {
+      // DR-10: retry posture sourced from the shared map, not re-derived.
+      const retryClass = toRetryClass('STATE_CONFLICT');
       return {
         success: false,
         error: {
           code: 'STATE_CONFLICT',
           message: `Workflow state version conflict after ${MAX_STATE_RETRIES} retries: ${err.message}`,
+          retryClass,
+          guidance: RETRY_CLASS_GUIDANCE[retryClass],
         },
       };
     }
