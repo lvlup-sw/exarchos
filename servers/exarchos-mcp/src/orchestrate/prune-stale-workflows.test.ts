@@ -9,7 +9,16 @@ import {
 import { orchestrateLogger } from '../logger.js';
 import type { ToolResult } from '../format.js';
 import type { DispatchContext } from '../core/dispatch.js';
-import type { Topology } from '../topology/phase-contract.js';
+import { TopologySchema, type Topology } from '../topology/phase-contract.js';
+// DR-23 (#1545): the topology-load seam moved into `core/context.ts` —
+// `resolveStalenessTopology()` serves the explicit `topology.yaml` load when
+// present and falls back to the built-in TS topology when absent. The
+// presence hook lets these tests simulate present/absent repos without a
+// full `initializeContext` run.
+import {
+  getBuiltinTopology,
+  __setTopologyYamlPresenceForTesting,
+} from '../core/context.js';
 
 // #1334 (β-07/β-08): the handler now calls `getTopology()` to obtain the
 // typed phase contracts that drive staleness scoring. The handler test
@@ -577,10 +586,14 @@ describe('handlePruneStaleWorkflows', () => {
 
   // Reset the topology mock between tests; default to a successfully-loaded
   // fixture so the handler stays on its happy path. β-08 tests opt out
-  // by reassigning the mock to throw "load before".
+  // by reassigning the mock to throw "load before". DR-23: also reset the
+  // `topology.yaml` presence flag on the context seam — default to "absent"
+  // (the built-in fallback is armed but unreached while the mock returns a
+  // loaded topology).
   beforeEach(() => {
     mockGetTopology.mockReset();
     mockGetTopology.mockImplementation(() => buildTestTopology());
+    __setTopologyYamlPresenceForTesting(false);
   });
 
   // Restore all spies between tests (e.g. orchestrateLogger.warn spies in
@@ -590,22 +603,26 @@ describe('handlePruneStaleWorkflows', () => {
     vi.restoreAllMocks();
   });
 
-  // ─── #1334 β-08: graceful skip when topology not loaded ────────────────────
+  // ─── #1334 β-08 / DR-23: graceful skip when the EXPLICIT topology failed ───
   //
-  // The CLI fast path (e.g. running `prune` outside a fully-bootstrapped
-  // MCP server) may invoke this handler before the lifecycle has called
-  // `loadTopology()`. Rather than letting the loader's "Topology not
-  // loaded: call loadTopology() before getTopology()" throw escape and
-  // surface as an unhandled rejection, the handler must catch it,
-  // return a structured `{ aborted: true, reason: 'topology_not_loaded' }`
-  // envelope, and emit a warning log so operators see why the prune ran
-  // produced no candidates. Field is `aborted` (not `skipped`) so it
-  // doesn't collide with `PruneHandlerResult.skipped: PruneSkipped[]`.
-  it('PruneStaleWorkflows_TopologyNotLoaded_SkipsPruningWithLoggedReason', async () => {
+  // DR-23 (#1545) narrowed this abort path: a repo WITHOUT `topology.yaml`
+  // now falls back to the built-in TS topology (see the two DR-23 tests
+  // below). The `{ aborted: true, reason: 'topology_not_loaded' }` envelope
+  // remains ONLY for the fail-closed case where a `topology.yaml` is
+  // PRESENT but failed to load (DR-7 hard-cut throw swallowed at startup)
+  // — an explicit-but-broken operator contract must not be silently
+  // replaced by built-in defaults. The handler must catch the resolver's
+  // rethrow, return the structured envelope, and emit a warning log so
+  // operators see why the prune run produced no candidates. Field is
+  // `aborted` (not `skipped`) so it doesn't collide with
+  // `PruneHandlerResult.skipped: PruneSkipped[]`.
+  it('PruneStaleWorkflows_TopologyYamlPresentButNotLoaded_SkipsPruningWithLoggedReason', async () => {
     const { ctx } = makeEventStoreStub();
     const deps = makeDeps();
-    // Simulate loadTopology() never having been called: getTopology()
-    // throws the canonical "load before" error from `topology/loader.ts`.
+    // Simulate a present-but-malformed topology.yaml: startup detected the
+    // file (presence flag set) but the loader threw, so getTopology()
+    // still throws the canonical "load before" error from `topology/loader.ts`.
+    __setTopologyYamlPresenceForTesting(true);
     mockGetTopology.mockImplementationOnce(() => {
       throw new Error(
         'Topology not loaded: call loadTopology() before getTopology()',
@@ -653,6 +670,108 @@ describe('handlePruneStaleWorkflows', () => {
     expect(deps.cancelSpy).not.toHaveBeenCalled();
 
     warnSpy.mockRestore();
+  });
+
+  // ─── DR-23 (#1545): built-in topology fallback when topology.yaml absent ───
+  //
+  // Repos without a `topology.yaml` (including the exarchos repo itself)
+  // previously hit `{ aborted: true, reason: 'topology_not_loaded' }` and
+  // could never prune their stale dogfooding workflows. The
+  // `core/context.ts` topology-load seam now serves the built-in TS
+  // topology (default 14-day `lastActivity` contracts derived from the
+  // same HSM registry that drives phase transitions), so prune completes
+  // and reports. Closes the prune symptom shared with #1566.
+  it('NoTopologyYaml_BuiltinFallback_PruneCompletes', async () => {
+    const { ctx } = makeEventStoreStub();
+    const deps = makeDeps();
+    // Simulate a repo with NO topology.yaml: presence flag false (set in
+    // beforeEach) and the loader never ran — getTopology() throws the
+    // canonical "load before" error. The context seam must fall back to
+    // the built-in TS topology instead of rethrowing.
+    mockGetTopology.mockImplementation(() => {
+      throw new Error(
+        'Topology not loaded: call loadTopology() before getTopology()',
+      );
+    });
+
+    deps.listSpy.mockResolvedValue(
+      makeListResult([
+        // 'plan' is a real built-in phase (feature HSM). ~20.8 days stale —
+        // beyond the built-in 14-day default threshold → candidate.
+        { featureId: 'wf-stale', phase: 'plan', lastActivityTimestamp: staleIso(30_000) },
+        // 'implementing' is a real built-in phase (oneshot HSM). 1h old —
+        // fresh under the built-in contract → excluded, not a candidate.
+        { featureId: 'wf-fresh', phase: 'implementing', lastActivityTimestamp: staleIso(60) },
+      ]),
+    );
+
+    const result = await handlePruneStaleWorkflows(
+      { dryRun: true, now: NOW_ISO },
+      STATE_DIR,
+      ctx,
+      deps,
+    );
+
+    // Prune COMPLETES: no abort envelope, candidates reported.
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.aborted).toBeUndefined();
+    const candidates = data.candidates as Array<{ featureId: string }>;
+    expect(candidates.map((c) => c.featureId)).toEqual(['wf-stale']);
+    // Reporting shape intact — diagnostics ride along as in any dry run.
+    expect(data.diagnostics).toMatchObject({ malformedCount: 0, candidateCount: 1 });
+    // Dry run stays read-only.
+    expect(deps.cancelSpy).not.toHaveBeenCalled();
+  });
+
+  it('TopologyYamlPresent_ExplicitLoad_Unchanged', async () => {
+    const { ctx } = makeEventStoreStub();
+    const deps = makeDeps();
+    // Simulate a repo WITH a loaded topology.yaml: presence flag true and
+    // getTopology() returns the explicit topology. The explicit contract
+    // declares ONLY 'implementing', with a 60-minute threshold — both
+    // facts diverge from the built-in topology (which covers 'plan' and
+    // uses a 14-day threshold), so the assertions below discriminate
+    // "explicit load drives the verdict" from any built-in interference.
+    __setTopologyYamlPresenceForTesting(true);
+    mockGetTopology.mockImplementation(() =>
+      buildTestTopology({
+        implementing: {
+          staleness: {
+            expectedMaxDwellMinutes: 60,
+            signals: [{ name: 'lastActivity', thresholdMinutes: 60 }],
+            freshnessRequires: 'all',
+          },
+        },
+      }),
+    );
+
+    deps.listSpy.mockResolvedValue(
+      makeListResult([
+        // 2h stale vs the explicit 60-min contract → candidate. Under the
+        // built-in 14-day default this would be FRESH — selection proves
+        // the explicit topology governs.
+        { featureId: 'impl-explicit', phase: 'implementing', lastActivityTimestamp: staleIso(120) },
+        // 'plan' is NOT in the explicit topology (though it IS in the
+        // built-in one). It must be excluded as phase-not-in-topology —
+        // NOT scored against built-in defaults — proving the fallback
+        // never merges into an explicitly-loaded topology.
+        { featureId: 'plan-orphan', phase: 'plan', lastActivityTimestamp: staleIso(30_000) },
+      ]),
+    );
+
+    const result = await handlePruneStaleWorkflows(
+      { dryRun: true, now: NOW_ISO },
+      STATE_DIR,
+      ctx,
+      deps,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.aborted).toBeUndefined();
+    const candidates = data.candidates as Array<{ featureId: string }>;
+    expect(candidates.map((c) => c.featureId)).toEqual(['impl-explicit']);
   });
 
   // ─── DR-9: the removed `thresholdMinutes` knob is REJECTED at the schema ───
@@ -2132,5 +2251,50 @@ describe('handlePruneStaleWorkflows', () => {
     expect(result.success).toBe(true);
     // query should not have been called for enforcement
     expect(query).not.toHaveBeenCalled();
+  });
+});
+
+// ─── DR-23 (#1545): built-in topology shape (context topology-load seam) ────
+//
+// Direct probe of `getBuiltinTopology()` in `core/context.ts` — the fallback
+// the pruner scores against when no `topology.yaml` exists. The topology is
+// DERIVED from the built-in HSM registry, so these assertions pin the
+// derivation contract rather than a hard-coded phase list:
+//   - every atomic phase of every built-in workflow type is present
+//   - every included phase declares a `staleness` contract (loader-invariant
+//     parity: `scoreEntryThroughTopology` throws on a missing contract)
+//   - terminal phases are excluded (the pruner short-circuits them upstream)
+//   - the whole object validates against the strict `TopologySchema`
+describe('getBuiltinTopology (DR-23 fallback seam)', () => {
+  it('BuiltinTopology_DerivedFromHsmRegistry_AtomicPhasesCarryStalenessContracts', () => {
+    const topology = getBuiltinTopology();
+
+    // Spot-check atomic phases across all five built-in workflow types:
+    // feature, oneshot, debug, refactor, discovery.
+    const expectedPhases = [
+      'plan', 'plan-review', 'delegate', 'review', 'merge-pending',
+      'synthesize', 'blocked',           // feature
+      'implementing',                    // oneshot
+      'triage', 'investigate', 'rca', 'design',  // debug
+      'explore',                         // refactor (initial phase)
+      'gathering',                       // discovery
+    ];
+    for (const phase of expectedPhases) {
+      expect(topology.phases[phase]?.staleness, `phase: ${phase}`).toBeDefined();
+    }
+
+    // Terminal phases carry no dwell contract and must be excluded.
+    expect(topology.phases['completed']).toBeUndefined();
+    expect(topology.phases['cancelled']).toBeUndefined();
+
+    // EVERY included phase declares a staleness contract — parity with the
+    // loader's DR-7 hard-cut invariant, so the scorer can never throw
+    // missing-contract against the built-in topology.
+    for (const [name, entry] of Object.entries(topology.phases)) {
+      expect(entry.staleness, `phase missing staleness: ${name}`).toBeDefined();
+    }
+
+    // Structurally valid under the same strict schema the YAML loader uses.
+    expect(() => TopologySchema.parse(topology)).not.toThrow();
   });
 });

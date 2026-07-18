@@ -21,7 +21,13 @@ import {
 // EventStore is now threaded via DispatchContext — no module-level injection needed
 import { configureCleanupSnapshotStore } from '../workflow/cleanup.js';
 import { configureStateStoreBackend } from '../workflow/state-store.js';
-import { loadTopology } from '../topology/loader.js';
+import { loadTopology, getTopology } from '../topology/loader.js';
+import type { Topology } from '../topology/phase-contract.js';
+import {
+  getHSMDefinition,
+  isBuiltInWorkflowType,
+  listWorkflowTypes,
+} from '../workflow/state-machine.js';
 
 // ─── Config Detection ──────────────────────────────────────────────────────
 
@@ -67,6 +73,105 @@ function buildDefaultCapabilityResolver(): CapabilityResolver {
     return createInMemoryResolver([]);
   }
   return createInMemoryResolver([ANTHROPIC_NATIVE_CACHING]);
+}
+
+// ─── Built-in Topology Fallback (DR-23, #1545) ─────────────────────────────
+
+/**
+ * Default per-phase staleness threshold for the built-in topology — 14 days
+ * in minutes, matching the pre-topology single-signal default the pruner
+ * applied before `topology.yaml` staleness contracts existed (#1334).
+ */
+const BUILTIN_STALENESS_THRESHOLD_MINUTES = 20_160;
+
+/**
+ * Tracks whether a `topology.yaml` file was DETECTED at the project root
+ * during lifecycle wiring (`loadTopologyIfPresent`). Presence — not load
+ * success — is the signal: a present-but-malformed topology must keep the
+ * pruner fail-closed (abort) rather than silently overriding the operator's
+ * expressed contract with built-in defaults.
+ */
+let topologyYamlPresent = false;
+
+let builtinTopologyCache: Topology | undefined;
+
+/** Recursively freeze — mirrors the loader's immutable-Topology contract. */
+function deepFreeze<T>(value: T): T {
+  if (value === null || typeof value !== 'object') return value;
+  for (const key of Object.keys(value as object)) {
+    deepFreeze((value as Record<string, unknown>)[key]);
+  }
+  return Object.freeze(value);
+}
+
+/**
+ * Build the built-in TS topology from the same HSM registry that drives
+ * phase transitions (DR-23, #1545). Every atomic phase across the built-in
+ * workflow types gets a default single-signal `lastActivity` staleness
+ * contract at 14 days. Final states (completed/cancelled) are excluded —
+ * the pruner short-circuits terminal phases before consulting the topology —
+ * and compound states are excluded because a workflow's recorded phase is
+ * always an atomic leaf.
+ *
+ * Derived (not hard-coded) so a new built-in phase is automatically
+ * coverable by the pruner without a second list to maintain.
+ */
+export function getBuiltinTopology(): Topology {
+  if (builtinTopologyCache !== undefined) return builtinTopologyCache;
+  const phases: Topology['phases'] = {};
+  for (const { name } of listWorkflowTypes().workflowTypes) {
+    if (!isBuiltInWorkflowType(name)) continue;
+    for (const state of Object.values(getHSMDefinition(name).states)) {
+      if (state.type !== 'atomic') continue;
+      if (phases[state.id] !== undefined) continue;
+      phases[state.id] = {
+        staleness: {
+          expectedMaxDwellMinutes: BUILTIN_STALENESS_THRESHOLD_MINUTES,
+          signals: [
+            {
+              name: 'lastActivity',
+              thresholdMinutes: BUILTIN_STALENESS_THRESHOLD_MINUTES,
+            },
+          ],
+          freshnessRequires: 'all',
+        },
+      };
+    }
+  }
+  builtinTopologyCache = deepFreeze({ phases });
+  return builtinTopologyCache;
+}
+
+/**
+ * Resolve the topology used for staleness scoring (DR-23, #1545).
+ *
+ * - `topology.yaml` loaded → the explicit topology, unchanged.
+ * - `topology.yaml` absent (loader never ran) → the built-in TS topology,
+ *   so `prune_stale_workflows` completes instead of aborting
+ *   `topology_not_loaded` in repos without a topology file (#1545 root
+ *   cause; shared prune symptom in #1566).
+ * - `topology.yaml` PRESENT but failed to load (DR-7 hard-cut throw,
+ *   swallowed at startup) → rethrow, preserving the fail-closed abort:
+ *   an explicit-but-broken contract must not be silently replaced by
+ *   built-in defaults.
+ */
+export function resolveStalenessTopology(): Topology {
+  try {
+    return getTopology();
+  } catch (err) {
+    if (topologyYamlPresent) throw err;
+    return getBuiltinTopology();
+  }
+}
+
+/**
+ * Test-only override for the `topology.yaml` presence flag. The flag is
+ * module-level state normally set by `loadTopologyIfPresent`; tests that
+ * exercise `resolveStalenessTopology` directly (without a real
+ * `initializeContext` run) use this to simulate present/absent repos.
+ */
+export function __setTopologyYamlPresenceForTesting(present: boolean): void {
+  topologyYamlPresent = present;
 }
 
 // ─── Context Options ────────────────────────────────────────────────────────
@@ -209,11 +314,15 @@ export async function initializeContext(
  * The loader itself owns the cache; this helper is the wiring step that
  * supplies the canonical project topology path (`<projectRoot>/topology.yaml`).
  *
- * v2.11 (Phase 5c, DR-7) behavior:
- *   - File absent → silent no-op. Repos without a `topology.yaml` see no
- *     startup error and `getTopology()` continues to throw "load before".
+ * v2.11 (Phase 5c, DR-7) behavior, amended by DR-23 (#1545):
+ *   - File absent → no load. Repos without a `topology.yaml` see no
+ *     startup error and `getTopology()` continues to throw "load before" —
+ *     but `resolveStalenessTopology()` falls back to the built-in TS
+ *     topology, so the pruner no longer aborts `topology_not_loaded`.
  *   - File present + complete → call `loadTopology()`; the loader's cache
- *     makes the parse fire exactly once per process.
+ *     makes the parse fire exactly once per process. Presence is recorded
+ *     on `topologyYamlPresent` so the fallback never overrides an explicit
+ *     (even malformed) topology.
  *   - File present + missing-contract → loader THROWS (DR-7 hard-cut).
  *     We swallow the throw here so a malformed topology does not bring
  *     down the substrate-bearing startup path; operators see the
@@ -234,8 +343,15 @@ async function loadTopologyIfPresent(
     await fs.promises.access(topologyPath);
   } catch {
     // File absent (or unreadable) → skip topology loading entirely.
+    // `resolveStalenessTopology()` will serve the built-in TS topology
+    // to the pruner (DR-23, #1545).
     return;
   }
+
+  // DR-23: record that an explicit topology.yaml exists. From here on the
+  // built-in fallback is disabled — if the load below fails, staleness
+  // consumers stay fail-closed on the operator's expressed contract.
+  topologyYamlPresent = true;
 
   try {
     await loadTopology({ topologyPath });

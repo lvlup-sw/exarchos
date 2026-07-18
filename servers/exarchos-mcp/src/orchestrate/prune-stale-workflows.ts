@@ -25,15 +25,15 @@ import { readStateFile } from '../workflow/state-store.js';
 import { isTerminalPhase as baseIsTerminalPhase } from '../workflow/terminal-phases.js';
 import { orchestrateLogger } from '../logger.js';
 import { defaultSafeguards, type PruneSafeguards } from './prune-safeguards.js';
-import { getTopology } from '../topology/loader.js';
+import { resolveStalenessTopology } from '../core/context.js';
 import type { Topology } from '../topology/phase-contract.js';
 import { scoreEntryThroughTopology } from '../pruner/coordinator.js';
 import type { StalenessState } from '../pruner/score.js';
 export type { PruneSafeguards } from './prune-safeguards.js';
 
-// 14 days in minutes — the default staleness threshold applied when a phase's
-// topology `staleness` contract does not narrow it further.
-const DEFAULT_THRESHOLD_MINUTES = 20_160;
+// Per-phase staleness thresholds live on the topology: either the explicit
+// `topology.yaml` contracts, or — when that file is absent — the built-in
+// TS topology's 14-day default (`core/context.ts`, DR-23 / #1545).
 
 /**
  * Minimal subset of a workflow list entry needed for prune selection.
@@ -877,19 +877,25 @@ export async function handlePruneStaleWorkflows(
 
   // #1334 (β-07/β-08): load the typed topology for staleness scoring.
   // The selector now reads per-phase `PhaseContract`s off the topology
-  // and delegates verdicts to `scoreEntryThroughTopology`. The CLI fast
-  // path (e.g. running `prune` outside a fully-bootstrapped MCP server)
-  // may invoke this handler before the lifecycle has called
-  // `loadTopology()`. Rather than letting the loader's "Topology not
-  // loaded" throw escape and surface as an unhandled rejection, return
-  // a structured `{ aborted: true, reason: 'topology_not_loaded' }`
-  // envelope and emit a warning log so operators see why the prune ran
-  // produced no candidates. Field is `aborted` (not `skipped`) so it
-  // doesn't collide with `PruneHandlerResult.skipped: PruneSkipped[]` —
-  // INV-5b spec-aligned output contract.
+  // and delegates verdicts to `scoreEntryThroughTopology`.
+  //
+  // DR-23 (#1545): the topology is resolved through the `core/context.ts`
+  // topology-load seam. When `topology.yaml` is absent the seam serves the
+  // built-in TS topology (default 14-day `lastActivity` contracts derived
+  // from the same HSM registry that drives phase transitions), so prune
+  // completes in repos without a topology file instead of aborting —
+  // closes the prune symptom shared with #1566. The abort path below is
+  // now reachable ONLY when a `topology.yaml` is PRESENT but failed to
+  // load (DR-7 hard-cut throw swallowed at startup): an explicit-but-
+  // broken contract stays fail-closed. Return the structured
+  // `{ aborted: true, reason: 'topology_not_loaded' }` envelope and emit
+  // a warning log so operators see why the prune run produced no
+  // candidates. Field is `aborted` (not `skipped`) so it doesn't collide
+  // with `PruneHandlerResult.skipped: PruneSkipped[]` — INV-5b
+  // spec-aligned output contract.
   let topologyForSelection: Topology;
   try {
-    topologyForSelection = getTopology();
+    topologyForSelection = resolveStalenessTopology();
   } catch (err) {
     const reason = 'topology_not_loaded';
     orchestrateLogger.warn(
@@ -936,9 +942,10 @@ export async function handlePruneStaleWorkflows(
   );
 
   // 2. Pure selection. #1334 (β-07): topology now drives staleness verdicts
-  // through the typed `PhaseContract`. The handler retrieves the loaded
-  // topology via `getTopology()`; if the loader has not run, the
-  // accessor throws and β-08 turns that into a structured skip envelope.
+  // through the typed `PhaseContract`. The handler retrieves the topology
+  // via `resolveStalenessTopology()` (DR-23): the explicit `topology.yaml`
+  // load when present, the built-in TS topology otherwise; a present-but-
+  // failed load throws and β-08 turns that into a structured skip envelope.
   const topology = topologyForSelection;
   const { candidates: selectedCandidates } = selectPruneCandidates(
     enrichedEntries,
