@@ -33,10 +33,8 @@ import { describe, it, expect } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import {
   copyFileSync,
-  existsSync,
   mkdirSync,
   mkdtempSync,
-  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -58,8 +56,6 @@ import {
 const REAL_SERVER_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const REPO_ROOT = path.resolve(REAL_SERVER_DIR, '..', '..');
 const ADAPTER_SCRIPT = path.join(REAL_SERVER_DIR, 'scripts', 'stryker-adapter.mjs');
-const STRYKER_BIN_NAME = process.platform === 'win32' ? 'stryker.cmd' : 'stryker';
-const REAL_STRYKER_BIN = path.join(REAL_SERVER_DIR, 'node_modules', '.bin', STRYKER_BIN_NAME);
 
 function runNode(args: readonly string[], cwd: string): { status: number | null; stdout: string; stderr: string } {
   try {
@@ -174,25 +170,29 @@ describe('stryker-adapter composed path — empty mutatable surface', () => {
 
 // ─── Composed path — devDep absent (fail-closed direction) ─────────────────
 //
-// Linux/macOS only (DR-7 frames the composed-path smoke test as a
-// Linux-only lane): the rename-based simulation below is POSIX-specific.
+// Linux/macOS only (DR-7 frames the composed-path smoke test as a Linux-only
+// lane). Runs the adapter against an ISOLATED temp root whose server dir has
+// no pinned binary — never renaming the SHARED `node_modules/.bin/stryker`
+// (which would race concurrent test files and leave node_modules corrupted if
+// the process died before restoring it, #1719).
 
 describe.skipIf(process.platform === 'win32')('stryker-adapter composed path — devDep absent', () => {
   it('fails CLOSED (non-zero exit, no parseable report) when the local pinned binary is missing', () => {
-    expect(existsSync(REAL_STRYKER_BIN)).toBe(true); // sanity: the pinned devDep is really installed
-    const backupPath = `${REAL_STRYKER_BIN}.smoke-backup`;
-    renameSync(REAL_STRYKER_BIN, backupPath);
+    // The adapter's missing-binary branch fires purely on
+    // `existsSync(<root>/servers/exarchos-mcp/node_modules/.bin/stryker)`, so
+    // an empty temp root exercises it with zero effect on shared state.
+    const tmpRoot = mkdtempSync(path.join(tmpdir(), 'stryker-missing-bin-'));
     try {
-      // No `--since`: the full-tree lane, which invokes Stryker immediately
+      // No `--since`: the full-tree lane, which invokes runStryker immediately
       // (no diff computation) — the fastest deterministic way to reach the
       // "binary missing" branch without depending on repo git history.
-      const result = runNode([], REPO_ROOT);
+      const result = runNode([], tmpRoot);
       expect(result.status).not.toBe(0);
       expect(result.stdout.trim()).toBe('');
       const parsed = parseMutationReport(result.stdout);
       expect(parsed.ok).toBe(false);
     } finally {
-      renameSync(backupPath, REAL_STRYKER_BIN);
+      rmSync(tmpRoot, { recursive: true, force: true });
     }
   });
 });
