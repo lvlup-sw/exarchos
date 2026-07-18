@@ -95,9 +95,17 @@ import {
   MutationExecutedData,
   PruneExecutingStartedData,
   PruneExecutedData,
+  // DR-16 (task 015 / #1645) — INV-13 stateFingerprint surface.
+  INTENT_RESULT_PAIR_EVENT_TYPES,
+  INTENT_RESULT_PAIR_SCHEMA_VERSION,
+  StateFingerprintSchema,
+  requiresStateFingerprint,
+  detectStateFingerprintDrift,
+  type EventType,
   type WorkflowEvent,
 } from './schemas.js';
 import { workflowStateProjection } from '../views/workflow-state-projection.js';
+import { mergeOrchestratorReducer } from '../projections/merge-orchestrator/reducer.js';
 import { randomUUID } from 'node:crypto';
 
 // ─── T1: EventEmissionSource + EVENT_EMISSION_REGISTRY ──────────────────────
@@ -4698,5 +4706,310 @@ describe('Export event contract (DR-6, lifecycle-verbs task 012)', () => {
       const roundTripped = JSON.parse(JSON.stringify(c.payload));
       expect(c.schema.safeParse(roundTripped).success, c.label).toBe(false);
     }
+  });
+});
+
+// ─── DR-16 (task 015 / #1645): INV-13 stateFingerprint version ratchet ───────
+//
+// The INV-13 `*.requested`/`*.executed` intent/result pair carries a
+// `stateFingerprint {treeHash, projectionSequence}` (WLM tree-hash source),
+// REQUIRED once the event's `schemaVersion` reaches
+// `INTENT_RESULT_PAIR_SCHEMA_VERSION`. Three contract halves pinned here:
+//   1. the append boundary (`WorkflowEventBase`) REJECTS a new-version pair
+//      event without (or with a malformed) fingerprint — nothing
+//      unfingerprinted enters the log at the bumped version;
+//   2. old-version events still parse AND fold to identical projection state
+//      (INV-1 fold compatibility — no migration, optional at the data layer);
+//   3. the crash-recovery precheck consumes the fingerprint to turn
+//      external-state drift detection into a lookup (INV-13).
+
+describe('DR-16 INV-13 stateFingerprint ratchet', () => {
+  const VALID_FINGERPRINT = {
+    treeHash: 'c0ffee1234'.repeat(4),
+    projectionSequence: 7,
+  };
+
+  /** Minimal valid envelope for `WorkflowEventBase.parse`. */
+  const envelope = (
+    type: string,
+    overrides: Record<string, unknown> = {},
+  ): Record<string, unknown> => ({
+    streamId: 'feature-dr16',
+    sequence: 1,
+    type,
+    ...overrides,
+  });
+
+  // Verbatim pre-DR-16 payload shapes (characterization — no stateFingerprint),
+  // mirroring what the live emitters persist today at schemaVersion '1.0'.
+  const LEGACY_MERGE_REQUESTED = {
+    sourceBranch: 'task/v2-12-015',
+    targetBranch: 'feat/v2-12-bundle',
+    strategy: 'merge',
+    taskId: 'T15',
+  };
+  const LEGACY_MERGE_EXECUTED = {
+    taskId: 'T15',
+    sourceBranch: 'task/v2-12-015',
+    targetBranch: 'feat/v2-12-bundle',
+    strategy: 'merge',
+    mergeSha: 'a'.repeat(40),
+    rollbackSha: 'b'.repeat(40),
+  };
+
+  it('IntentResultPairRegistry_DerivedFromEventTypes_MatchesKnownFamilies', () => {
+    // The membership is DERIVED (both dot-form halves registered). Pin the
+    // exact families so accidental widening (e.g. a bare `gate.executed`
+    // joining) or narrowing is visible at review time.
+    const expected = [
+      'branch.delete.executed',
+      'branch.delete.requested',
+      'export.executed',
+      'export.requested',
+      'issue.create.executed',
+      'issue.create.requested',
+      'merge.executed',
+      'merge.requested',
+      'onboard.executed',
+      'onboard.requested',
+      'pr.comment.executed',
+      'pr.comment.requested',
+      'pr.create.executed',
+      'pr.create.requested',
+      'worktree.create.executed',
+      'worktree.create.requested',
+      'worktree.remove.executed',
+      'worktree.remove.requested',
+    ];
+    expect([...INTENT_RESULT_PAIR_EVENT_TYPES].sort()).toEqual(expected);
+
+    // Unpaired terminals and underscore forms stay OUT by construction.
+    const excluded = [
+      'gate.executed',
+      'diagnostic.executed',
+      'preflight.executed',
+      'mutation.executed',
+      'launch.executed',
+      'prune.executed',
+      'merge.executing_started',
+      'synthesize.requested',
+      'worktree.merge_requested',
+      'worktree.merge_executed',
+      'workflow.checkpoint_requested',
+      'shepherd.approval_requested',
+    ];
+    for (const type of excluded) {
+      expect(INTENT_RESULT_PAIR_EVENT_TYPES as readonly string[], type).not.toContain(type);
+    }
+  });
+
+  it('IntentResultPair_MissingFingerprint_Rejected', () => {
+    // EVERY pair member at the bumped version without data.stateFingerprint is
+    // rejected at the WorkflowEventBase boundary — the append layer parses this
+    // schema, so an unfingerprinted new-version pair event cannot enter the log.
+    for (const type of INTENT_RESULT_PAIR_EVENT_TYPES) {
+      const missing = WorkflowEventBase.safeParse(
+        envelope(type, { schemaVersion: INTENT_RESULT_PAIR_SCHEMA_VERSION, data: {} }),
+      );
+      expect(missing.success, `${type}: fingerprint-less data must be rejected`).toBe(false);
+      expect(
+        missing.error?.issues.some((i) => i.path.join('.') === 'data.stateFingerprint'),
+        `${type}: issue path names data.stateFingerprint`,
+      ).toBe(true);
+
+      // Absent data record entirely → same rejection.
+      const noData = WorkflowEventBase.safeParse(
+        envelope(type, { schemaVersion: INTENT_RESULT_PAIR_SCHEMA_VERSION }),
+      );
+      expect(noData.success, `${type}: absent data must be rejected`).toBe(false);
+
+      // WITH the fingerprint the same envelope parses.
+      const withFingerprint = WorkflowEventBase.safeParse(
+        envelope(type, {
+          schemaVersion: INTENT_RESULT_PAIR_SCHEMA_VERSION,
+          data: { stateFingerprint: VALID_FINGERPRINT },
+        }),
+      );
+      expect(withFingerprint.success, `${type}: fingerprinted event must parse`).toBe(true);
+
+      // The ratchet holds across FUTURE version bumps (>=, not ===).
+      const futureVersion = WorkflowEventBase.safeParse(
+        envelope(type, { schemaVersion: '2.0', data: {} }),
+      );
+      expect(futureVersion.success, `${type}: ratchet must hold at 2.0`).toBe(false);
+    }
+
+    // Malformed fingerprints are rejected at the new version — the field is
+    // TYPED, not a stripped unknown (kill-probe adequacy: reverting the ratchet
+    // silently accepts all of these).
+    const malformedFingerprints: unknown[] = [
+      { treeHash: 42, projectionSequence: 7 },
+      { treeHash: '', projectionSequence: 7 },
+      { treeHash: 'abc' },
+      { projectionSequence: 7 },
+      { treeHash: 'abc', projectionSequence: -1 },
+      { treeHash: 'abc', projectionSequence: 1.5 },
+      'not-an-object',
+    ];
+    for (const stateFingerprint of malformedFingerprints) {
+      const result = WorkflowEventBase.safeParse(
+        envelope('merge.requested', {
+          schemaVersion: INTENT_RESULT_PAIR_SCHEMA_VERSION,
+          data: { stateFingerprint },
+        }),
+      );
+      expect(result.success, `malformed fingerprint ${JSON.stringify(stateFingerprint)}`).toBe(false);
+    }
+  });
+
+  it('IntentResultPair_NonPairTypesAtNewVersion_Unaffected', () => {
+    // The ratchet is scoped to the INV-13 pair: unpaired terminals, liveness
+    // events, and underscore forms parse fingerprint-less at ANY version.
+    const nonPairSpotChecks = [
+      'gate.executed',
+      'diagnostic.executed',
+      'merge.executing_started',
+      'synthesize.requested',
+      'worktree.merge_requested',
+    ];
+    for (const type of nonPairSpotChecks) {
+      const result = WorkflowEventBase.safeParse(
+        envelope(type, { schemaVersion: INTENT_RESULT_PAIR_SCHEMA_VERSION, data: {} }),
+      );
+      expect(result.success, `${type} must stay exempt`).toBe(true);
+    }
+  });
+
+  it('RequiresStateFingerprint_VersionBoundary_SegmentwiseNumeric', () => {
+    // The version gate is segment-wise numeric, not lexicographic.
+    expect(requiresStateFingerprint('merge.requested', '1.0')).toBe(false);
+    expect(requiresStateFingerprint('merge.requested', '0.9')).toBe(false);
+    expect(requiresStateFingerprint('merge.requested', '1.1')).toBe(true);
+    expect(requiresStateFingerprint('merge.requested', '1.10')).toBe(true);
+    expect(requiresStateFingerprint('merge.requested', '1.2')).toBe(true);
+    expect(requiresStateFingerprint('merge.requested', '2.0')).toBe(true);
+    // Unparseable segments read as 0 → legacy arm (an emitter opts IN by
+    // stamping a numeric bumped version; garbage cannot accidentally ratchet).
+    expect(requiresStateFingerprint('merge.requested', 'not-a-version')).toBe(false);
+    // Non-pair types never require it, at any version.
+    expect(requiresStateFingerprint('gate.executed', '9.9')).toBe(false);
+  });
+
+  it('OldVersionEvents_Fold_Compatible', () => {
+    // 1) Legacy envelopes (explicit '1.0' AND absent-version default) parse
+    //    unchanged — the compatibility arm of the ratchet.
+    const legacyRequested = WorkflowEventBase.parse(
+      envelope('merge.requested', { schemaVersion: '1.0', data: LEGACY_MERGE_REQUESTED }),
+    );
+    const legacyExecuted = WorkflowEventBase.parse(
+      envelope('merge.executed', { sequence: 2, data: LEGACY_MERGE_EXECUTED }),
+    );
+    expect(legacyExecuted.schemaVersion).toBe('1.0'); // default applied
+
+    // 2) The per-type data schemas keep accepting the verbatim pre-DR-16
+    //    payloads (field is OPTIONAL at the data layer — no migration).
+    expect(MergeExecutedData.safeParse(LEGACY_MERGE_EXECUTED).success).toBe(true);
+    const parsedLegacy = MergeExecutedData.parse(LEGACY_MERGE_EXECUTED) as {
+      stateFingerprint?: unknown;
+    };
+    expect(parsedLegacy.stateFingerprint).toBeUndefined(); // no default injected — replay byte-stable
+
+    // 3) EVERY pair member's data schema declares the field as a TYPED OPTIONAL
+    //    key: undefined accepted (legacy rows), valid fingerprint accepted,
+    //    wrong-typed value rejected (not silently stripped).
+    for (const type of INTENT_RESULT_PAIR_EVENT_TYPES) {
+      const schema = EVENT_DATA_SCHEMAS[type as EventType];
+      expect(schema, `${type}: data schema registered`).toBeDefined();
+      expect(schema, `${type}: data schema is an object schema`).toBeInstanceOf(z.ZodObject);
+      const fieldSchema = (schema as z.ZodObject<z.ZodRawShape>).shape.stateFingerprint as
+        | z.ZodType
+        | undefined;
+      expect(fieldSchema, `${type}: stateFingerprint declared`).toBeDefined();
+      expect(fieldSchema!.safeParse(undefined).success, `${type}: optional (legacy rows fold)`).toBe(true);
+      expect(fieldSchema!.safeParse(VALID_FINGERPRINT).success, `${type}: valid fingerprint accepted`).toBe(true);
+      expect(fieldSchema!.safeParse({ treeHash: 42 }).success, `${type}: malformed rejected`).toBe(false);
+    }
+
+    // 4) FOLD compatibility (INV-1): a legacy fingerprint-less stream and a
+    //    new-version fingerprinted stream fold to the SAME merge-orchestrator
+    //    terminal state — the ratchet changes admission, never fold semantics.
+    const foldStream = (events: WorkflowEvent[]) =>
+      events.reduce(
+        (state, event) => mergeOrchestratorReducer.apply(state, event),
+        mergeOrchestratorReducer.initial,
+      );
+
+    const legacyState = foldStream([legacyRequested, legacyExecuted]);
+    expect(legacyState.phase).toBe('executed');
+    expect(legacyState.merge?.mergeSha).toBe('a'.repeat(40));
+
+    const newRequested = WorkflowEventBase.parse(
+      envelope('merge.requested', {
+        schemaVersion: INTENT_RESULT_PAIR_SCHEMA_VERSION,
+        data: { ...LEGACY_MERGE_REQUESTED, stateFingerprint: VALID_FINGERPRINT },
+      }),
+    );
+    const newExecuted = WorkflowEventBase.parse(
+      envelope('merge.executed', {
+        sequence: 2,
+        schemaVersion: INTENT_RESULT_PAIR_SCHEMA_VERSION,
+        data: { ...LEGACY_MERGE_EXECUTED, stateFingerprint: VALID_FINGERPRINT },
+      }),
+    );
+    const newState = foldStream([newRequested, newExecuted]);
+    expect(newState.phase).toBe(legacyState.phase);
+    expect(newState.merge?.mergeSha).toBe(legacyState.merge?.mergeSha);
+    expect(newState.merge?.sourceBranch).toBe(legacyState.merge?.sourceBranch);
+  });
+
+  it('CrashRecovery_FingerprintDrift_Detected', () => {
+    // INV-13 crash recovery: the next invocation observes `*.requested`
+    // without `*.executed` and runs an idempotent precheck against external
+    // state. The fingerprint turns that drift check into a lookup.
+    const intent = WorkflowEventBase.parse(
+      envelope('merge.requested', {
+        schemaVersion: INTENT_RESULT_PAIR_SCHEMA_VERSION,
+        data: { ...LEGACY_MERGE_REQUESTED, stateFingerprint: VALID_FINGERPRINT },
+      }),
+    );
+
+    // External state moved since the intent was recorded → DRIFT, with both
+    // sides of the comparison surfaced for the recovery path / observability.
+    const drifted = detectStateFingerprintDrift(intent, 'deadbeef'.repeat(5));
+    expect(drifted.status).toBe('drift');
+    if (drifted.status === 'drift') {
+      expect(drifted.recorded).toEqual(VALID_FINGERPRINT);
+      expect(drifted.observedTreeHash).toBe('deadbeef'.repeat(5));
+    }
+
+    // Tree byte-identical to what the intent saw → MATCH, recorded fingerprint
+    // (incl. the projectionSequence causal anchor) handed back to the caller.
+    const matched = detectStateFingerprintDrift(intent, VALID_FINGERPRINT.treeHash);
+    expect(matched.status).toBe('match');
+    if (matched.status === 'match') {
+      expect(matched.recorded.projectionSequence).toBe(VALID_FINGERPRINT.projectionSequence);
+    }
+
+    // Legacy pre-bump intent (no fingerprint) → UNFINGERPRINTED: the precheck
+    // falls back to the existing external-state probe instead of guessing.
+    const legacyIntent = WorkflowEventBase.parse(
+      envelope('merge.requested', { data: LEGACY_MERGE_REQUESTED }),
+    );
+    expect(detectStateFingerprintDrift(legacyIntent, 'any-hash').status).toBe('unfingerprinted');
+    expect(detectStateFingerprintDrift({ data: undefined }, 'any-hash').status).toBe('unfingerprinted');
+    expect(
+      detectStateFingerprintDrift({ data: { stateFingerprint: { treeHash: 42 } } }, 'any-hash').status,
+    ).toBe('unfingerprinted');
+  });
+
+  it('StateFingerprintSchema_Contract_TreeHashAndProjectionSequence', () => {
+    // The fingerprint shape itself: both fields required, non-empty / integer.
+    expect(StateFingerprintSchema.safeParse(VALID_FINGERPRINT).success).toBe(true);
+    expect(StateFingerprintSchema.safeParse({ treeHash: 'x', projectionSequence: 0 }).success).toBe(true);
+    expect(StateFingerprintSchema.safeParse({ treeHash: '', projectionSequence: 0 }).success).toBe(false);
+    expect(StateFingerprintSchema.safeParse({ treeHash: 'x', projectionSequence: -1 }).success).toBe(false);
+    expect(StateFingerprintSchema.safeParse({ treeHash: 'x', projectionSequence: 2.5 }).success).toBe(false);
+    expect(StateFingerprintSchema.safeParse({ treeHash: 'x' }).success).toBe(false);
+    expect(StateFingerprintSchema.safeParse({ projectionSequence: 3 }).success).toBe(false);
   });
 });
