@@ -307,6 +307,20 @@ const BOUNDARY_CODE_TO_JSON_RPC: Record<string, JsonRpcErrorCode> = {
   // the issue's mapping sketch ("recoverable" → -32603).
   CONCURRENCY_CONFLICT: JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
   STORAGE_BUSY: JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
+  // #1693 (v2-12 review fix): merge-path OCC exhaustion. execute-merge.ts /
+  // merge-orchestrate.ts mint STATE_CONFLICT from VersionConflictError and it
+  // crosses this adapter, so it needs an EXPLICIT row rather than falling to
+  // the -32603 default. It is the caller-visible sibling of VERSION_CONFLICT /
+  // CONCURRENCY_CONFLICT (all three classify `re-read` in
+  // errors/retry-class.ts), so it takes the same -32603 row.
+  STATE_CONFLICT: JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
+  // #1278 (v2-12 review fix): CLI-flag / event-tool input validation
+  // (adapters/schema-to-flags.ts, event-store/tools.ts). Caller-fixable input,
+  // so it maps to -32602 like INVALID_INPUT — matching its `invalid-input`
+  // retry class in errors/retry-class.ts (BOUNDARY_CODE_RETRY_CLASS). The two
+  // boundary maps classify the same codes on orthogonal axes and must stay in
+  // step; see errors/retry-class.ts when auditing this table.
+  VALIDATION_ERROR: JSON_RPC_ERROR_CODES.INVALID_PARAMS,
 };
 
 function isErrorCodeValue(code: string): code is ErrorCodeValue {
