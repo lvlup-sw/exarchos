@@ -8,7 +8,8 @@
 #   - synthetic regression beyond epsilon → FAILS (exit 1)
 #   - identical summary                   → PASSES (exit 0)
 #   - missing/unparseable summary          → FAILS CLOSED (exit 2)
-#   - provenance-less baseline (no run-ids / no variance) → FAILS CLOSED (exit 2)
+#   - provenance-less baseline (no run-ids / no variance / <3 distinct runs)
+#       → FAILS CLOSED (exit 2)
 #
 # Plus the `--observe` soak-window contract (DR-7-symmetric): the same
 # regression / fail-closed conditions never block the exit code in observe
@@ -115,12 +116,30 @@ cat > "$BASELINE_NO_RUNIDS" <<'EOF'
 }
 EOF
 
+# 3 distinct run-ids (satisfies the ≥3-distinct provenance floor) so this
+# fixture isolates the MISSING-VARIANCE (spread) fail-closed path specifically.
 BASELINE_NO_VARIANCE="$TMP/baseline-no-variance.json"
 cat > "$BASELINE_NO_VARIANCE" <<'EOF'
 {
-  "runIds": ["1111111111"],
+  "runIds": ["1111111111", "1111111112", "1111111113"],
   "metrics": {
     "lines": { "pct": 80.0 },
+    "statements": { "pct": 79.0, "spread": 0.03 },
+    "functions": { "pct": 75.0, "spread": 0.0 },
+    "branches": { "pct": 70.0, "spread": 0.12 }
+  }
+}
+EOF
+
+# Provenance floor (DR-5): fewer than 3 DISTINCT run-ids — here 3 entries but
+# only 2 distinct values (one repeated) — carries no real cross-run variance
+# and must FAIL CLOSED even though the metrics/spreads are otherwise well-formed.
+BASELINE_TOO_FEW_RUNS="$TMP/baseline-too-few-runs.json"
+cat > "$BASELINE_TOO_FEW_RUNS" <<'EOF'
+{
+  "runIds": ["1111111111", "1111111111", "1111111112"],
+  "metrics": {
+    "lines": { "pct": 80.0, "spread": 0.05 },
     "statements": { "pct": 79.0, "spread": 0.03 },
     "functions": { "pct": 75.0, "spread": 0.0 },
     "branches": { "pct": 70.0, "spread": 0.12 }
@@ -184,6 +203,15 @@ no_variance_exit=$?
 set -e
 check "BaselineMissingVariance_FailsClosed" 2 "$no_variance_exit"
 grep_cause "no-variance" "variance" "$TMP/no-variance.err"
+
+# ── direction 4b: fewer than 3 DISTINCT run-ids → FAILS CLOSED (exit 2) ─────
+set +e
+node "$GATE" --summary "$SUMMARY_IDENTICAL" --baseline "$BASELINE_TOO_FEW_RUNS" \
+  >/dev/null 2>"$TMP/too-few-runs.err"
+too_few_runs_exit=$?
+set -e
+check "BaselineTooFewDistinctRuns_FailsClosed" 2 "$too_few_runs_exit"
+grep_cause "too-few-runs" "distinct run-id" "$TMP/too-few-runs.err"
 
 # ── bonus fail-closed direction: baseline file itself missing ───────────────
 set +e

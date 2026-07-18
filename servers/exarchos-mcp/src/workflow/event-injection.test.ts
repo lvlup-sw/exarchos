@@ -609,68 +609,82 @@ describe('handleSet_MaxNoCoverageInjection', () => {
 
   it('BlockMode_NoCoverageExceedsInjectedBudget_TransitionGuarded', async () => {
     const eventStore = new EventStore(tmpDir);
-    await driveToReviewHighTier('noco-block', eventStore, {
-      status: 'pass',
-      passed: true,
-      mutationScore: 1.0,
-      noCoverage: 2,
-    });
+    try {
+      await driveToReviewHighTier('noco-block', eventStore, {
+        status: 'pass',
+        passed: true,
+        mutationScore: 1.0,
+        noCoverage: 2,
+      });
 
-    // Budget 0 + 2 uncovered mutants → the injected axis blocks the transition,
-    // even though the score (1.0) passes — proving config → guard reach.
-    const result = await handleSet(
-      { featureId: 'noco-block', phase: 'synthesize' },
-      tmpDir,
-      eventStore,
-      enforceOpts(0),
-    );
+      // Budget 0 + 2 uncovered mutants → the injected axis blocks the transition,
+      // even though the score (1.0) passes — proving config → guard reach.
+      const result = await handleSet(
+        { featureId: 'noco-block', phase: 'synthesize' },
+        tmpDir,
+        eventStore,
+        enforceOpts(0),
+      );
 
-    expect(result.success).toBe(false);
-    expect((result.error as Record<string, unknown>).code).toBe('GUARD_FAILED');
-    expect((result.error as Record<string, unknown>).message).toContain('NoCoverage');
+      expect(result.success).toBe(false);
+      expect((result.error as Record<string, unknown>).code).toBe('GUARD_FAILED');
+      expect((result.error as Record<string, unknown>).message).toContain('NoCoverage');
+    } finally {
+      // Release the SQLite handle before afterEach removes tmpDir (Windows
+      // EPERM/EBUSY otherwise — the EventStore contract, #1719).
+      eventStore.close();
+    }
   });
 
   it('BlockMode_NoCoverageWithinInjectedBudget_TransitionSucceeds', async () => {
     const eventStore = new EventStore(tmpDir);
-    await driveToReviewHighTier('noco-ok', eventStore, {
-      status: 'pass',
-      passed: true,
-      mutationScore: 1.0,
-      noCoverage: 2,
-    });
+    try {
+      await driveToReviewHighTier('noco-ok', eventStore, {
+        status: 'pass',
+        passed: true,
+        mutationScore: 1.0,
+        noCoverage: 2,
+      });
 
-    // Budget 5 ≥ 2 uncovered → within budget → the transition proceeds.
-    const result = await handleSet(
-      { featureId: 'noco-ok', phase: 'synthesize' },
-      tmpDir,
-      eventStore,
-      enforceOpts(5),
-    );
+      // Budget 5 ≥ 2 uncovered → within budget → the transition proceeds.
+      const result = await handleSet(
+        { featureId: 'noco-ok', phase: 'synthesize' },
+        tmpDir,
+        eventStore,
+        enforceOpts(5),
+      );
 
-    expect(result.success).toBe(true);
-    expect((result.data as Record<string, unknown>).phase).toBe('synthesize');
+      expect(result.success).toBe(true);
+      expect((result.data as Record<string, unknown>).phase).toBe('synthesize');
+    } finally {
+      eventStore.close();
+    }
   });
 
   it('BlockMode_InjectedBudget_NotPersisted_INV1', async () => {
     const eventStore = new EventStore(tmpDir);
-    await driveToReviewHighTier('noco-strip', eventStore, {
-      status: 'pass',
-      passed: true,
-      mutationScore: 1.0,
-      noCoverage: 0,
-    });
+    try {
+      await driveToReviewHighTier('noco-strip', eventStore, {
+        status: 'pass',
+        passed: true,
+        mutationScore: 1.0,
+        noCoverage: 0,
+      });
 
-    await handleSet(
-      { featureId: 'noco-strip', phase: 'synthesize' },
-      tmpDir,
-      eventStore,
-      enforceOpts(0),
-    );
+      await handleSet(
+        { featureId: 'noco-strip', phase: 'synthesize' },
+        tmpDir,
+        eventStore,
+        enforceOpts(0),
+      );
 
-    // INV-1: the injected config budget is transient — never folded into state.
-    const raw = JSON.parse(
-      await fs.readFile(path.join(tmpDir, 'noco-strip.state.json'), 'utf-8'),
-    );
-    expect(raw._maxNoCoverage).toBeUndefined();
+      // INV-1: the injected config budget is transient — never folded into state.
+      const raw = JSON.parse(
+        await fs.readFile(path.join(tmpDir, 'noco-strip.state.json'), 'utf-8'),
+      );
+      expect(raw._maxNoCoverage).toBeUndefined();
+    } finally {
+      eventStore.close();
+    }
   });
 });

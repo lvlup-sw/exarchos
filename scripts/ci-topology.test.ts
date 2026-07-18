@@ -115,28 +115,43 @@ function evaluateScript(workflow: Workflow): string {
 }
 
 /**
- * True if `script` contains a `needs.<jobName>.result` occurrence within
- * whose surrounding text window the token `failure` or `cancelled` also
- * appears (structural containment, not exact-regex bash parsing).
+ * Extract the CONDITION text of every `if [[ ... ]]` test in a bash script,
+ * with whole-line comments removed and `\`-continued lines joined. Matching an
+ * EXECUTABLE condition — rather than a proximity window — is what stops an
+ * explanatory comment, a `needs.<job>.result` echo line, or an adjacent job's
+ * clause from standing in for a removed guard: a `#`-comment naming a job +
+ * "skipped", or `echo "job=${{ needs.job.result }}"`, is not an `if [[ ]]`
+ * test and so never contributes a match.
  */
-function scriptHasResultClauseNear(
-  script: string,
-  jobName: string,
-  extraTokens: string[],
-  window = 240,
-): boolean {
-  const needle = `needs.${jobName}.result`;
-  let idx = script.indexOf(needle);
-  while (idx !== -1) {
-    const start = Math.max(0, idx - window);
-    const end = Math.min(script.length, idx + needle.length + window);
-    const slice = script.slice(start, end);
-    if (extraTokens.every((tok) => slice.includes(tok) || new RegExp(tok).test(slice))) {
-      return true;
-    }
-    idx = script.indexOf(needle, idx + needle.length);
+function extractIfConditions(script: string): string[] {
+  const noComments = script
+    .split('\n')
+    .filter((line) => !/^\s*#/.test(line))
+    .join('\n');
+  // Join `\`-continued lines so a multi-line `[[ … \` <newline> `… ]]`
+  // condition (the skip-guards) becomes one logical clause.
+  const joined = noComments.replace(/\\\n/g, ' ');
+  const conditions: string[] = [];
+  const re = /if\s+\[\[([\s\S]*?)\]\]/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(joined)) !== null) {
+    conditions.push(m[1] as string);
   }
-  return false;
+  return conditions;
+}
+
+/**
+ * True iff SOME executable `if [[ ... ]]` condition references
+ * `needs.<jobName>.result` AND contains every one of `requiredTokens`. Binds
+ * the tokens to a SINGLE executable clause — never scattered across comments,
+ * echo lines, or an adjacent job's guard (the failure mode a proximity window
+ * admitted).
+ */
+function scriptHasResultClause(script: string, jobName: string, requiredTokens: string[]): boolean {
+  const needle = `needs.${jobName}.result`;
+  return extractIfConditions(script).some(
+    (cond) => cond.includes(needle) && requiredTokens.every((tok) => cond.includes(tok)),
+  );
 }
 
 interface CheckResult {
@@ -164,7 +179,7 @@ function checkEvaluateCoverage(workflow: Workflow): CheckResult {
   const jobs = needsList(workflow.jobs[AGGREGATOR_JOB]).filter((j) => j !== AGGREGATOR_JOB);
   const violations: string[] = [];
   for (const jobName of jobs) {
-    if (!scriptHasResultClauseNear(script, jobName, ['failure|cancelled'])) {
+    if (!scriptHasResultClause(script, jobName, ['failure|cancelled'])) {
       violations.push(jobName);
     }
   }
@@ -196,7 +211,7 @@ function checkSkipGuardCoverage(workflow: Workflow): CheckResult {
     const keys = pathFilterKeys(workflow.jobs[jobName]);
     if (keys.length === 0) continue; // not path-filtered — no skip-guard required
     for (const key of keys) {
-      const hasGuard = scriptHasResultClauseNear(script, jobName, [
+      const hasGuard = scriptHasResultClause(script, jobName, [
         `needs.changes.outputs.${key}`,
         'skipped',
       ]);
@@ -244,5 +259,21 @@ describe('CI-topology conformance (DR-2)', () => {
     const result = checkEvaluateCoverage(workflow);
     expect(result.pass).toBe(false);
     expect(result.violations).toContain('validate-no-legacy');
+  });
+
+  // ── Finding 7 decoys: a removed guard whose tokens survive only in an echo
+  // line or a comment must STILL be detected (a proximity window would not).
+  it('Topology_EvaluateGuardReplacedByEchoAndComment_Fails', () => {
+    const workflow = loadWorkflow(join(FIXTURES_DIR, 'decoy-evaluate-echo-comment.yml'));
+    const result = checkEvaluateCoverage(workflow);
+    expect(result.pass).toBe(false);
+    expect(result.violations).toContain('validate-no-legacy');
+  });
+
+  it('Topology_SkipGuardReplacedByComment_Fails', () => {
+    const workflow = loadWorkflow(join(FIXTURES_DIR, 'decoy-skip-guard-comment.yml'));
+    const result = checkSkipGuardCoverage(workflow);
+    expect(result.pass).toBe(false);
+    expect(result.violations.some((v) => v.startsWith('test-root'))).toBe(true);
   });
 });

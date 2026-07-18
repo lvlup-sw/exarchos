@@ -128,11 +128,15 @@ const SPAWN_HELPER_RE = /utils[/\\]process\.ts$/;
 // rather than mis-running. So the dynamic-bin rule (rule 4), whose own scope
 // is "Production files only", does not apply to these. Rule 2 (url-pathname)
 // is a genuine cross-platform path bug and STILL applies to tooling.
-// Matches a `scripts/` path segment at ANY depth (not just repo-root
-// `scripts/`) — nested build-tool dirs such as `servers/*/scripts/` (e.g. the
-// DR-7 stryker-adapter, which runs only in CI on Linux per DR-7) are the same
-// "CI-only, fail-closed" class and are covered by the same rationale.
-const CI_TOOLING_RE = /(?:^|[/\\])scripts[/\\]/;
+// Scoped to the KNOWN CI-tooling roots ONLY — repo-root `scripts/` and
+// `servers/<name>/scripts/` (e.g. the DR-7 stryker-adapter, CI-only/Linux-only
+// per DR-7). A blanket "`scripts/` at any depth" match would also exempt a
+// SHIPPED runtime path such as `src/scripts/` or
+// `servers/*/src/scripts/`, letting a production dynamic-bin spawn bypass rule
+// 4 on directory name alone. Paths here are `path.relative(REPO_ROOT, file)`;
+// out-of-repo self-test fixtures carry a `../` prefix, so the `servers/…`
+// alternative uses a `(?:^|[/\\])` boundary rather than a hard `^` anchor.
+const CI_TOOLING_RE = /^scripts[/\\]|(?:^|[/\\])servers[/\\][^/\\]+[/\\]scripts[/\\]/;
 
 function main() {
   const args = parseArgs(process.argv.slice(2));

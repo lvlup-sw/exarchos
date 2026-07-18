@@ -165,12 +165,30 @@ function isExcluded(rel) {
   return EXCLUSION_RES.some((re) => re.test(rel));
 }
 
+/**
+ * A configured census root is unavailable in a way that is NOT "legitimately
+ * absent" (ENOENT) — it exists but can't be read, or isn't a directory. Failing
+ * closed here (exit 2) keeps an I/O failure or path drift from silently dropping
+ * an entire source tree from enforcement (DR-9/DR-10).
+ */
+export class CensusError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'CensusError';
+  }
+}
+
 function collectCensusFiles(dir, repoRoot, out) {
   let entries;
   try {
     entries = readdirSync(dir);
-  } catch {
-    return; // a missing census root is treated as empty, not a gate error
+  } catch (err) {
+    // A subdirectory that vanished mid-walk (ENOENT — a race) is benign. Any
+    // other read failure on a directory we already confirmed exists is a real
+    // I/O fault — fail closed rather than under-count (DR-10). Configured
+    // ROOTS are validated up-front in `enumerateCensus`.
+    if (err && err.code === 'ENOENT') return;
+    throw new CensusError(`census directory ${dir} is unreadable (${err && err.message ? err.message : String(err)})`);
   }
   for (const entry of entries) {
     const full = path.join(dir, entry);
@@ -196,7 +214,30 @@ function collectCensusFiles(dir, repoRoot, out) {
 export function enumerateCensus(repoRoot) {
   const out = [];
   for (const root of CENSUS_ROOTS) {
-    collectCensusFiles(path.join(repoRoot, ...root.split('/')), repoRoot, out);
+    const rootPath = path.join(repoRoot, ...root.split('/'));
+    let stat;
+    try {
+      stat = statSync(rootPath);
+    } catch (err) {
+      // ENOENT — a configured root that simply does not exist in THIS tree is
+      // legitimately absent (empty), not a gate error: partial trees (a
+      // repo-root check with no `servers/exarchos-mcp/src`, or a fixture with
+      // only `src/`) depend on this. Any OTHER stat failure (EACCES, EIO, …)
+      // means the root IS present but unreadable — fail closed rather than
+      // silently drop an entire source tree from enforcement (DR-10).
+      if (err && err.code === 'ENOENT') continue;
+      throw new CensusError(
+        `census root "${root}" is unreadable at ${rootPath} ` +
+          `(${err && err.message ? err.message : String(err)}) — refusing to under-count type debt`,
+      );
+    }
+    if (!stat.isDirectory()) {
+      throw new CensusError(
+        `census root "${root}" at ${rootPath} is not a directory — a configured census root must resolve ` +
+          'to a directory; refusing to under-count type debt from a drifted/misconfigured root',
+      );
+    }
+    collectCensusFiles(rootPath, repoRoot, out);
   }
   out.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
   return out;
@@ -389,7 +430,16 @@ function failUsage(msg) {
 
 function main() {
   const args = parseArgs(process.argv);
-  const actualCounts = measureTree(args.repoRoot);
+  let actualCounts;
+  try {
+    actualCounts = measureTree(args.repoRoot);
+  } catch (err) {
+    if (err instanceof CensusError) {
+      process.stderr.write(`check-type-debt: FAIL CLOSED — ${err.message}\n`);
+      process.exit(EXIT_GATE_ERROR);
+    }
+    throw err;
+  }
   const total = [...actualCounts.values()].reduce((a, b) => a + b, 0);
 
   if (args.update) {

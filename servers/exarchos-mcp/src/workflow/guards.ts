@@ -425,11 +425,17 @@ export const guards = {
         const dim = isPlainObject(rawDim) ? rawDim : undefined;
         if (dim && dim.skipped !== true && dim.degraded !== true) {
           const noCoverage = dim.noCoverage;
-          if (
-            typeof noCoverage === 'number' &&
-            Number.isFinite(noCoverage) &&
-            noCoverage > maxNoCoverage
-          ) {
+          if (typeof noCoverage !== 'number' || !Number.isInteger(noCoverage) || noCoverage < 0) {
+            // A REAL (non-skipped, non-degraded) dimension under block mode must
+            // carry a verifiable NoCoverage COUNT. `undefined`/NaN/nonnumeric/
+            // negative/fractional is unverifiable — `noCoverage > budget` would
+            // be silently false and pass the axis by default, so fail closed
+            // instead (DR-10 mirrors the non-finite-score guard in Check 4a).
+            reasons.push(
+              `mutation-adequacy produced no verifiable NoCoverage count ` +
+                `(review.mutationEnforcement: block)`,
+            );
+          } else if (noCoverage > maxNoCoverage) {
             reasons.push(
               `mutation-adequacy has ${noCoverage} uncovered (NoCoverage) mutant(s), ` +
                 `exceeding the enforced budget of ${state._maxNoCoverage} ` +

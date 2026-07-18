@@ -884,16 +884,25 @@ function resolveThreshold(args: MutationAdequacyArgs): number {
 
 /**
  * DR-6: resolve the effective NoCoverage budget — arg override > config
- * (`review.gates['mutation-adequacy'].params.maxNoCoverage`) > default (0). A
- * non-finite value at any layer is rejected in favour of the next (a NaN budget
- * would make `noCoverage > NaN` always false, silently disarming the axis).
+ * (`review.gates['mutation-adequacy'].params.maxNoCoverage`) > default (0). The
+ * budget is a COUNT, so only a NON-NEGATIVE INTEGER is valid at any layer; a
+ * value that is not (NaN — which would make `noCoverage > NaN` always false,
+ * silently disarming the axis; a negative — which would block every nontrivial
+ * diff; or a fraction — meaningless for a count) is rejected in favour of the
+ * next layer, and ultimately the default.
  */
 function resolveMaxNoCoverage(args: MutationAdequacyArgs): number {
-  if (typeof args.maxNoCoverage === 'number' && Number.isFinite(args.maxNoCoverage)) {
+  if (
+    typeof args.maxNoCoverage === 'number' &&
+    Number.isInteger(args.maxNoCoverage) &&
+    args.maxNoCoverage >= 0
+  ) {
     return args.maxNoCoverage;
   }
   const configured = args.projectConfig?.review.gates[MUTATION_GATE_NAME]?.params?.maxNoCoverage;
-  if (typeof configured === 'number' && Number.isFinite(configured)) return configured;
+  if (typeof configured === 'number' && Number.isInteger(configured) && configured >= 0) {
+    return configured;
+  }
   return DEFAULT_MAX_NO_COVERAGE;
 }
 

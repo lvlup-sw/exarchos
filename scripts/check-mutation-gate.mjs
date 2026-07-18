@@ -102,6 +102,16 @@ const EXIT_PASS = 0;
 const EXIT_GATE_FAILED = 1;
 const EXIT_FAILCLOSED = 2;
 
+// Bounded deadlines (ms) for every subprocess this gate spawns. A stalled git
+// fetch, an unresponsive `bun` probe, or a wedged mutation runner must never
+// hang the CI job indefinitely — spawnSync's `timeout` kills the child and
+// populates `result.error` (code `ETIMEDOUT`), which every call site below
+// already routes to a FAIL-CLOSED path (DR-10: a deadline expiry is an
+// attributable fail-closed, never a silent block).
+const GIT_TIMEOUT_MS = 120_000; // includes the network-backed base-ref fetch
+const BUN_PROBE_TIMEOUT_MS = 30_000; // `bun --version` availability probe
+const MUTATION_RUN_TIMEOUT_MS = 20 * 60_000; // the bun-run mutation invocation
+
 const RESULT_START_MARKER = '<<<CHECK_MUTATION_GATE_RESULT_START>>>';
 const RESULT_END_MARKER = '<<<CHECK_MUTATION_GATE_RESULT_END>>>';
 
@@ -178,9 +188,15 @@ function runGit(repoRoot, gitArgs) {
     cwd: repoRoot,
     encoding: 'utf-8',
     stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: GIT_TIMEOUT_MS,
+    killSignal: 'SIGKILL',
   });
   if (result.error) {
-    return { ok: false, stdout: '', detail: result.error.message };
+    const detail =
+      result.error.code === 'ETIMEDOUT'
+        ? `git ${gitArgs.join(' ')} exceeded the ${GIT_TIMEOUT_MS}ms deadline`
+        : result.error.message;
+    return { ok: false, stdout: '', detail };
   }
   if (result.status !== 0) {
     return { ok: false, stdout: result.stdout ?? '', detail: (result.stderr || result.stdout || '').trim() };
@@ -209,6 +225,38 @@ function resolveBaseRef(repoRoot, remote, base) {
     };
   }
   return { ok: true, ref: 'FETCH_HEAD' };
+}
+
+/**
+ * The preflight diff scopes `base...args.head`, but the handler bridge mutates
+ * the WORKING TREE (whatever is checked out at `HEAD`) — it is not given
+ * `args.head`. If `--head` resolves to a commit OTHER than the checkout's
+ * `HEAD`, the gate would compute its diff scope from one change set but score a
+ * DIFFERENT one. Resolve both to SHAs and fail closed on a mismatch (DR-10):
+ * in production `--head` defaults to `HEAD`, so this is a guard, not a
+ * behaviour change. Returns `{ ok }` or `{ ok:false, reason }` — never throws.
+ */
+function assertHeadIsCheckout(repoRoot, head) {
+  const headSha = runGit(repoRoot, ['rev-parse', '--verify', `${head}^{commit}`]);
+  if (!headSha.ok) {
+    return { ok: false, reason: `could not resolve --head '${head}' to a commit: ${headSha.detail}` };
+  }
+  const checkoutSha = runGit(repoRoot, ['rev-parse', '--verify', 'HEAD^{commit}']);
+  if (!checkoutSha.ok) {
+    return { ok: false, reason: `could not resolve the checkout's HEAD to a commit: ${checkoutSha.detail}` };
+  }
+  const resolvedHead = headSha.stdout.trim();
+  const resolvedCheckout = checkoutSha.stdout.trim();
+  if (resolvedHead !== resolvedCheckout) {
+    return {
+      ok: false,
+      reason:
+        `--head '${head}' (${resolvedHead.slice(0, 12)}) does not resolve to the checked-out HEAD ` +
+        `(${resolvedCheckout.slice(0, 12)}); the mutation handler mutates the working tree at HEAD, so ` +
+        `evaluating a different --head would score the wrong change set — refusing to run`,
+    };
+  }
+  return { ok: true };
 }
 
 /** `git diff --name-only <base>...<head> -- servers/exarchos-mcp/src`. */
@@ -268,9 +316,18 @@ try {
  * only the exit code / verdict this function derives from stdout survives.
  */
 function invokeHandlerViaBun(bunBin, repoRoot, base) {
-  const versionCheck = spawnSync(bunBin, ['--version'], { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const versionCheck = spawnSync(bunBin, ['--version'], {
+    encoding: 'utf-8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: BUN_PROBE_TIMEOUT_MS,
+    killSignal: 'SIGKILL',
+  });
   if (versionCheck.error || versionCheck.status !== 0) {
-    const detail = versionCheck.error ? versionCheck.error.message : (versionCheck.stderr || '').trim();
+    const detail = versionCheck.error
+      ? versionCheck.error.code === 'ETIMEDOUT'
+        ? `bun --version exceeded the ${BUN_PROBE_TIMEOUT_MS}ms deadline`
+        : versionCheck.error.message
+      : (versionCheck.stderr || '').trim();
     throw new FailClosed(
       `bun executable ${JSON.stringify(bunBin)} is not usable (required to invoke the mutation-adequacy ` +
         `handler through a real EventStore — bun:sqlite only resolves under Bun, see this script's header): ${detail}`,
@@ -299,9 +356,17 @@ function invokeHandlerViaBun(bunBin, repoRoot, base) {
       cwd: SERVER_DIR,
       encoding: 'utf-8',
       env: { ...process.env, CHECK_MUTATION_GATE_ARGS: JSON.stringify(bridgeArgs) },
+      timeout: MUTATION_RUN_TIMEOUT_MS,
+      killSignal: 'SIGKILL',
     });
 
     if (run.error) {
+      if (run.error.code === 'ETIMEDOUT') {
+        throw new FailClosed(
+          `bun run ${bridgePath} exceeded the ${MUTATION_RUN_TIMEOUT_MS}ms mutation-run deadline ` +
+            `(a stalled runner was killed rather than left to hang CI)`,
+        );
+      }
       throw new FailClosed(`bun run ${bridgePath} failed to launch: ${run.error.message}`);
     }
 
@@ -361,6 +426,28 @@ function computeVerdict(result) {
   if (data.degraded === true) {
     throw new GateFailed(`mutation-adequacy degraded (no verifiable verdict): ${data.reason ?? '(no reason given)'}`);
   }
+  // Past every degrade/skip marker, the ONLY carriers left are real scored
+  // runs — which the handler always emits with finite numeric axes
+  // (mutation-adequacy.ts §INV-5b carrier). A carrier claiming to be a clean
+  // scored pass but MISSING those fields (`ToolResult.data` is `unknown`, so
+  // `{ success:true, data:{ passed:true } }` would otherwise sail through and
+  // log `undefined` metrics as a pass) is malformed — fail closed rather than
+  // trust an unverifiable verdict (DR-10). Placed AFTER the degrade guards on
+  // purpose: warning/skip/deferred carriers legitimately omit
+  // threshold/maxNoCoverage and are already caught above with their own,
+  // more-specific reasons.
+  const hasVerdict =
+    typeof data.passed === 'boolean' &&
+    Number.isFinite(data.mutationScore) &&
+    Number.isFinite(data.threshold) &&
+    Number.isFinite(data.noCoverage) &&
+    Number.isFinite(data.maxNoCoverage);
+  if (!hasVerdict) {
+    throw new FailClosed(
+      'bridge result carried an invalid mutation verdict (a non-degrade carrier without finite ' +
+        'passed/mutationScore/threshold/noCoverage/maxNoCoverage axes)',
+    );
+  }
   if (data.passed !== true) {
     throw new GateFailed(
       `mutation-adequacy FAILED — mutationScore ${data.mutationScore} (threshold ${data.threshold}), ` +
@@ -413,6 +500,14 @@ function main() {
           `${SERVER_SRC_SCOPE}/**; nothing to mutation-gate\n`,
       );
       process.exit(EXIT_PASS);
+    }
+
+    // The handler mutates the checked-out working tree, not `args.head`. Refuse
+    // to run if `--head` names a different commit than HEAD, so the scored
+    // change set is always the one the diff scope was computed from (DR-10).
+    const headCheck = assertHeadIsCheckout(args.repoRoot, args.head);
+    if (!headCheck.ok) {
+      throw new FailClosed(headCheck.reason);
     }
 
     process.stdout.write(

@@ -776,6 +776,35 @@ describe('allReviewsPassed (synthesis ready)', () => {
     expect(guards.allReviewsPassed.evaluate(state)).toBe(true);
   });
 
+  it('GuardCheckFour_RealRunMissingNoCoverage_FailsClosed', () => {
+    // A REAL (non-skipped, non-degraded) dimension under block mode with a budget
+    // injected but NO verifiable NoCoverage count (undefined here) must fail
+    // closed — `undefined > budget` is silently false, which would pass the axis
+    // by default (#1719, mirrors the non-finite-score guard).
+    const state = mutationBase(
+      1.0,
+      { _mutationEnforcement: 'block', _maxNoCoverage: 0 },
+      {}, // scored, non-skipped, non-degraded, but no `noCoverage` field
+    );
+    const result = guards.allReviewsPassed.evaluate(state);
+    expect(result).not.toBe(true);
+    expect((result as GuardFailure).reason).toContain('no verifiable NoCoverage count');
+  });
+
+  it('GuardCheckFour_RealRunNegativeOrFractionalNoCoverage_FailsClosed', () => {
+    // A negative or fractional NoCoverage is not a valid count — fail closed.
+    for (const bad of [-1, 2.5]) {
+      const state = mutationBase(
+        1.0,
+        { _mutationEnforcement: 'block', _maxNoCoverage: 0 },
+        { noCoverage: bad },
+      );
+      const result = guards.allReviewsPassed.evaluate(state);
+      expect(result).not.toBe(true);
+      expect((result as GuardFailure).reason).toContain('no verifiable NoCoverage count');
+    }
+  });
+
   it('SynthesisReadyGuard_RequiredDimensionPresentButFailed_ReturnsFailed', () => {
     const state: Record<string, unknown> = {
       featureId: 'test-feature',
