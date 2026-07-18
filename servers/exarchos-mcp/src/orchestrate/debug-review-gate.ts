@@ -8,6 +8,8 @@ import { execFileSync } from 'node:child_process';
 import { runCommandSync } from '../utils/process.js';
 import { existsSync } from 'node:fs';
 import type { ToolResult } from '../format.js';
+import { resolveTestRuntime } from '../config/test-runtime-resolver.js';
+import { splitCommand } from '../config/tokenize-command.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -100,12 +102,17 @@ export function handleDebugReviewGate(args: DebugReviewGateArgs): ToolResult {
     results.push('- **SKIP**: Tests pass (--skip-run)');
     checks.skip++;
   } else if (changedFiles.length > 0) {
-    const testsPass = runTests(args.repoRoot);
-    if (testsPass) {
+    const run = runTests(args.repoRoot);
+    if (run.outcome === 'skip') {
+      // Graceful skip (#1174 contract): an unresolved test runtime is a SKIP
+      // with remediation, never a guessed package-manager invocation.
+      results.push(`- **SKIP**: Tests pass — ${run.detail}`);
+      checks.skip++;
+    } else if (run.outcome === 'pass') {
       results.push('- **PASS**: Tests pass');
       checks.pass++;
     } else {
-      results.push('- **FAIL**: Tests pass — npm run test:run failed');
+      results.push(`- **FAIL**: Tests pass — ${run.detail}`);
       checks.fail++;
     }
   } else {
@@ -156,15 +163,48 @@ function getChangedFiles(repoRoot: string, baseBranch: string): string[] | null 
   }
 }
 
-function runTests(repoRoot: string): boolean {
+/** Outcome of the resolver-routed test run. `detail` carries the resolved command or remediation. */
+interface RunTestsResult {
+  readonly outcome: 'pass' | 'fail' | 'skip';
+  readonly detail: string;
+}
+
+/**
+ * DR-26: the test command resolves through the layered toolchain resolver
+ * (`resolveTestRuntime`, INV-6) instead of a hardcoded `npm run test:run` —
+ * so a non-node repo, a monorepo root, or a `.exarchos.yml` override all run
+ * the right command (#1537 class). Unresolved → graceful SKIP (#1174).
+ */
+function runTests(repoRoot: string): RunTestsResult {
+  let resolved: ReturnType<typeof resolveTestRuntime>;
   try {
-    runCommandSync('npm', ['run', 'test:run'], {
+    resolved = resolveTestRuntime(repoRoot);
+  } catch (err) {
+    return { outcome: 'fail', detail: err instanceof Error ? err.message : String(err) };
+  }
+
+  if (resolved.source === 'unresolved') {
+    return { outcome: 'skip', detail: resolved.remediation ?? 'no test runtime resolved' };
+  }
+  if (resolved.test === null) {
+    return { outcome: 'skip', detail: 'no test runner detected' };
+  }
+
+  const { cmd, args } = splitCommand(resolved.test);
+  if (cmd === '') {
+    return { outcome: 'fail', detail: 'empty test command' };
+  }
+  try {
+    // runCommandSync (not raw execFileSync): the resolved command may be a
+    // package-manager shim whose `.cmd` launcher execFile refuses to start on
+    // Windows since CVE-2024-27980 (#1623).
+    runCommandSync(cmd, args as string[], {
       cwd: repoRoot,
       stdio: 'pipe',
     });
-    return true;
+    return { outcome: 'pass', detail: resolved.test };
   } catch {
-    return false;
+    return { outcome: 'fail', detail: `${resolved.test} failed` };
   }
 }
 

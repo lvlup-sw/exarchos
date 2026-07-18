@@ -14,8 +14,17 @@ vi.mock('node:fs', () => ({
   existsSync: vi.fn(),
 }));
 
+// DR-26: the gate's test command routes through the layered toolchain
+// resolver. Mock the resolver module (its fs probes would collide with the
+// node:fs mock above) and pin the node default so the command path the
+// assertions drive is unchanged.
+vi.mock('../config/test-runtime-resolver.js', () => ({
+  resolveTestRuntime: vi.fn(),
+}));
+
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { resolveTestRuntime } from '../config/test-runtime-resolver.js';
 import { handleDebugReviewGate } from './debug-review-gate.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -30,6 +39,14 @@ function mockOutput(s: string): never {
 describe('handleDebugReviewGate', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default: the resolver detects the node toolchain — the same command the
+    // pre-DR-26 hardcode ran, so existing assertions drive an unchanged path.
+    vi.mocked(resolveTestRuntime).mockReturnValue({
+      test: 'npm run test:run',
+      typecheck: null,
+      install: null,
+      source: 'detection',
+    });
   });
 
   // ─── Test 1: Test files found + tests pass → passed: true ───────────────
@@ -200,6 +217,41 @@ describe('handleDebugReviewGate', () => {
     };
     expect(data.passed).toBe(true);
     expect(data.report).toContain('5 test file(s)');
+  });
+
+  // ─── DR-26: unresolved test runtime → graceful SKIP, never a guessed run ──
+
+  it('DebugReviewGate_UnresolvedRuntime_SkipsTestRunWithRemediation', () => {
+    vi.mocked(existsSync).mockReturnValue(true);
+    vi.mocked(resolveTestRuntime).mockReturnValue({
+      test: null,
+      typecheck: null,
+      install: null,
+      source: 'unresolved',
+      remediation: 'No project markers detected.',
+    });
+
+    vi.mocked(execFileSync).mockReturnValueOnce(
+      mockOutput('src/widget.ts\nsrc/widget.test.ts\n'),
+    );
+
+    const result = handleDebugReviewGate({
+      repoRoot: '/repo',
+      baseBranch: 'main',
+    });
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      passed: boolean;
+      report: string;
+      checks: { pass: number; fail: number; skip: number };
+    };
+    // Skip, not fail: no guessed package-manager command runs (#1174).
+    expect(data.passed).toBe(true);
+    expect(data.checks.skip).toBe(1);
+    expect(data.report).toContain('No project markers detected');
+    // Only the git diff ran — no test command was spawned.
+    expect(execFileSync).toHaveBeenCalledTimes(1);
   });
 
   // ─── Test 8: Missing baseBranch → error ─────────────────────────────────

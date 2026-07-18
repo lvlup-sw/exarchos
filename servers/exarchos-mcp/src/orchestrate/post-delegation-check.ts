@@ -13,6 +13,8 @@ import { join, resolve } from 'node:path';
 import { toPosix } from '../utils/paths.js';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
+import { resolveTestRuntime } from '../config/test-runtime-resolver.js';
+import { splitCommand } from '../config/tokenize-command.js';
 import { resolveWorkflowState } from './resolve-state.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -132,8 +134,30 @@ function checkWorktreeTests(
       continue;
     }
 
+    // DR-26: resolve the per-worktree test command through the layered
+    // toolchain resolver (INV-6) — never a hardcoded package-manager literal.
+    // Unresolved (e.g. a package.json without the conventional test script)
+    // degrades to a graceful SKIP with remediation (#1174), not a false red.
+    let testCommand: string | null;
     try {
-      runCommandSync('npm', ['run', 'test:run'], {
+      const resolved = resolveTestRuntime(wtPath);
+      testCommand = resolved.source === 'unresolved' ? null : resolved.test;
+    } catch {
+      testCommand = null;
+    }
+    if (testCommand === null) {
+      results.push(checkSkip(`Worktree tests: ${wt} (no test runtime resolved)`));
+      continue;
+    }
+
+    const { cmd, args: cmdArgs } = splitCommand(testCommand);
+    if (cmd === '') {
+      results.push(checkFail(`Worktree tests: ${wt}`, 'empty test command'));
+      continue;
+    }
+
+    try {
+      runCommandSync(cmd, cmdArgs as string[], {
         cwd: wtPath,
         encoding: 'utf-8',
         timeout: 120_000,
@@ -141,7 +165,7 @@ function checkWorktreeTests(
       });
       results.push(checkPass(`Worktree tests: ${wt}`));
     } catch {
-      results.push(checkFail(`Worktree tests: ${wt}`, 'npm run test:run failed'));
+      results.push(checkFail(`Worktree tests: ${wt}`, `${testCommand} failed`));
     }
   }
 
