@@ -10,6 +10,13 @@ import {
 import { STABLE_PREFIX_KEYS } from './projections/rehydration/serialize.js';
 import { ConcurrencyError } from './event-store/concurrency-error.js';
 import { StorageBusyError } from './event-store/storage-busy-error.js';
+import {
+  RETRY_CLASS_GUIDANCE,
+  TRANSIENT_ERROR_CODES,
+  isRetryableClass,
+  toRetryClass,
+  type RetryClassValue,
+} from './errors/retry-class.js';
 
 export interface PerfMetrics {
   readonly ms: number;
@@ -86,6 +93,15 @@ export interface ToolResult {
     // without parsing the message string. INV-5a (input ergonomics) — the
     // hard-cut error envelope must surface the canonical action name.
     validActions?: readonly string[];
+    // DR-10 (#1693): retry-class contract. `retryClass` carries the
+    // machine-readable recovery posture (`backoff` | `re-read` |
+    // `invalid-input` | `fatal`) sourced from the single shared map
+    // (`errors/retry-class.ts`); `guidance` carries the matching canonical
+    // prose. Stamped by the seven discrimination sites so scripted
+    // consumers can tell "back off" from "re-read then retry" without
+    // parsing message strings.
+    retryClass?: RetryClassValue;
+    guidance?: string;
   };
   readonly warnings?: readonly string[];
   readonly _meta?: unknown;
@@ -374,11 +390,16 @@ export function wrapError(
     tokens: perf?.tokens ?? 0,
   };
 
+  // DR-10 (#1693): the retry posture (`retryClass`), the `retryable` flag,
+  // and the guidance prose are all sourced from the shared retry-class map
+  // (`errors/retry-class.ts`) so this boundary cannot disagree with the
+  // other six discrimination sites.
   if (err instanceof ConcurrencyError) {
+    const retryClass = toRetryClass(TRANSIENT_ERROR_CODES.CONCURRENCY_CONFLICT);
     return {
       success: false,
       error: {
-        code: 'CONCURRENCY_CONFLICT',
+        code: TRANSIENT_ERROR_CODES.CONCURRENCY_CONFLICT,
         message: err.message,
         streamId: err.streamId,
         reducerId: err.reducerId,
@@ -386,54 +407,76 @@ export function wrapError(
         actualVersion: err.actualVersion,
         ...(err.operationId !== undefined ? { operationId: err.operationId } : {}),
         validTargets: ['retry'] as const,
+        retryClass,
         suggestedFix: {
           tool: 'retry',
           params: {
-            reason: 'Re-fetch state and retry the operation — the stream tail advanced during decide.',
+            reason: RETRY_CLASS_GUIDANCE[retryClass],
           },
         },
       },
-      _meta: { degraded: false, retryable: true, ...(meta ?? {}) },
+      _meta: {
+        degraded: false,
+        retryable: isRetryableClass(retryClass),
+        retryClass,
+        ...(meta ?? {}),
+      },
       _perf,
     };
   }
 
   if (err instanceof StorageBusyError) {
+    const retryClass = toRetryClass(TRANSIENT_ERROR_CODES.STORAGE_BUSY);
     return {
       success: false,
       error: {
-        code: 'STORAGE_BUSY',
+        code: TRANSIENT_ERROR_CODES.STORAGE_BUSY,
         message: err.message,
         streamId: err.streamId,
         attempts: err.attempts,
         validTargets: ['retry'] as const,
+        retryClass,
         suggestedFix: {
           tool: 'retry',
           params: {
-            reason: 'Retry after brief delay; back off — substrate is under cross-process write contention.',
+            reason: RETRY_CLASS_GUIDANCE[retryClass],
           },
         },
       },
-      _meta: { degraded: false, retryable: true, ...(meta ?? {}) },
+      _meta: {
+        degraded: false,
+        retryable: isRetryableClass(retryClass),
+        retryClass,
+        ...(meta ?? {}),
+      },
       _perf,
     };
   }
 
   // Generic fallthrough: do not leak the stack; surface a stable
   // INTERNAL_ERROR code with the error's message (if Error-shaped).
+  // DR-10: INTERNAL_ERROR resolves through the shared map (fail-open
+  // default → `fatal`, retryable: false) so even the fallthrough cannot
+  // disagree with the retry-class contract.
   const message =
     err instanceof Error
       ? err.message
       : typeof err === 'string'
         ? err
         : 'Unknown error';
+  const fallthroughClass = toRetryClass('INTERNAL_ERROR');
   return {
     success: false,
     error: {
       code: 'INTERNAL_ERROR',
       message,
     },
-    _meta: { degraded: false, retryable: false, ...(meta ?? {}) },
+    _meta: {
+      degraded: false,
+      retryable: isRetryableClass(fallthroughClass),
+      retryClass: fallthroughClass,
+      ...(meta ?? {}),
+    },
     _perf,
   };
 }
@@ -536,6 +579,13 @@ export function toEnvelope(result: ToolResult): Envelope<unknown> | ErrorEnvelop
     ...(sourceError.tool !== undefined ? { tool: sourceError.tool } : {}),
     ...(sourceError.action !== undefined ? { action: sourceError.action } : {}),
     ...(sourceError.validActions !== undefined ? { validActions: sourceError.validActions } : {}),
+    // DR-10 (#1693): thread the retry-class contract through the shared
+    // carrier boundary so BOTH facades (CLI `toCliResult` and MCP
+    // `toMcpResult` call this adapter) surface the machine-readable
+    // recovery posture — the CLI never calls `wrapError`, so this is the
+    // seam where the class reaches CLI consumers.
+    ...(sourceError.retryClass !== undefined ? { retryClass: sourceError.retryClass } : {}),
+    ...(sourceError.guidance !== undefined ? { guidance: sourceError.guidance } : {}),
   };
   const failure: ErrorEnvelope = {
     success: false,

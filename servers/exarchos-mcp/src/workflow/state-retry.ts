@@ -28,6 +28,10 @@ import { VersionConflictError } from './state-store.js';
 import { ConcurrencyError } from '../event-store/concurrency-error.js';
 import { StorageBusyError } from '../event-store/storage-busy-error.js';
 import { SequenceConflictError } from '../event-store/store.js';
+import {
+  TRANSIENT_ERROR_CODES,
+  isRetryableErrorCode,
+} from '../errors/retry-class.js';
 
 /** Maximum number of attempts (initial + retries) before bubbling out. */
 export const MAX_STATE_RETRIES = 3;
@@ -61,14 +65,28 @@ export const STATE_BASE_DELAY_MS = 50;
  * add-pr-comment, branch.delete, worktree.remove) would surface a transient
  * substrate or OCC signal as a terminal failure to the operator. Four classes,
  * one retry policy — the recovery posture (back off, re-decide) is identical.
+ *
+ * DR-10 (#1693): the retry DECISION flows through the shared retry-class
+ * map (`errors/retry-class.ts:isRetryableErrorCode`), not a local list —
+ * the instanceof checks below only EXTRACT the structured code each typed
+ * error surfaces as; whether that code retries is the map's call.
  */
+function retryErrorCode(err: unknown): string | undefined {
+  // State-store CAS OCC loss — surfaces as VERSION_CONFLICT (the class
+  // carries `code: 'VERSION_CONFLICT'` via StateStoreError).
+  if (err instanceof VersionConflictError) return err.code;
+  // R-2 primitive OCC loss and the legacy `EventStore.append()` OCC signal
+  // both surface as CONCURRENCY_CONFLICT at the wrap boundary.
+  if (err instanceof ConcurrencyError) return TRANSIENT_ERROR_CODES.CONCURRENCY_CONFLICT;
+  if (err instanceof SequenceConflictError) return TRANSIENT_ERROR_CODES.CONCURRENCY_CONFLICT;
+  // Substrate contention — the class carries `code: 'STORAGE_BUSY'`.
+  if (err instanceof StorageBusyError) return err.code;
+  return undefined;
+}
+
 function isRetryable(err: unknown): boolean {
-  return (
-    err instanceof VersionConflictError ||
-    err instanceof ConcurrencyError ||
-    err instanceof StorageBusyError ||
-    err instanceof SequenceConflictError
-  );
+  const code = retryErrorCode(err);
+  return code !== undefined && isRetryableErrorCode(code);
 }
 
 /**
