@@ -575,7 +575,7 @@ ${riskLine}
   // field-header encountered (e.g. `**Goal:**` or `**Description:**`) is
   // *included* as the description introducer; the SECOND field-header (e.g.
   // `**Files:**`, `**Acceptance criteria:**`) terminates the span. This lets
-  // plans authored to the standard `@skills/implementation-planning` shape
+  // plans authored to the standard `@skills/plan` shape
   // (which uses `**Goal:**`, not `**Description:**`) score correctly.
 
   it('validateTaskStructure_TaskWithGoalSection_CountsGoalProseAsDescription', () => {

@@ -5,8 +5,8 @@
 // `exarchos-issue-check_task_decomposition-parser-false-positives.md`. It runs
 // `handleTaskDecomposition` against a real-shape plan fixture captured from the
 // `agency-csl-auto-pr` dogfood and asserts the parser does NOT produce false
-// positives. The fixture follows the standard `@skills/implementation-planning`
-// shape (Goal / TDD steps / Acceptance criteria / Dependencies / Parallelizable)
+// positives. The fixture follows the standard `@skills/plan` shape
+// (Goal / TDD steps / Acceptance criteria / Dependencies / Parallelizable)
 // rather than a literal `**Description:**` field.
 //
 // **All three tests in this file are regression tests — these should now
@@ -91,7 +91,7 @@ describe('check_task_decomposition / agency-csl-auto-pr fixture', () => {
 
   it('taskDecomposition_AgencyCslAutoPr_AllTasksWellDecomposed', async () => {
     // Bug 1 — Description span parsing. Every fixture task uses **Goal:**
-    // (the standard implementation-planning shape) and has substantive prose.
+    // (the standard `@skills/plan` shape) and has substantive prose.
     // The parser must count those words as the description; otherwise every
     // task reports descriptionWordCount === 0 and fails the structure check.
     // Fixed by T-12.
