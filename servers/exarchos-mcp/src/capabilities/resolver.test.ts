@@ -1,19 +1,32 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import {
   createInMemoryResolver,
   resolveEffectiveCapabilities,
   resolvePosture,
+  enforceSharedMutatingGate,
   ANTHROPIC_NATIVE_CACHING,
+  POSTURE_HANDSHAKE_KEY,
   getQualityHintThreshold,
   DEFAULT_OUTPUT_TOKEN_THRESHOLD_FRACTION,
   OUTPUT_TOKENS_PER_TURN_CAP,
   mintCapabilitiesForKind,
   requireMutationCapabilities,
 } from './resolver.js';
+import type { CapabilityResolver, PostureResolution } from './resolver.js';
 import type { Capability } from '../agents/capabilities.js';
 import { KIND_OBLIGATIONS } from '../workflow/phase-kind.js';
 import { getHSMDefinition } from '../workflow/state-machine.js';
 import { findActionInRegistry } from '../registry.js';
+import { createMcpServer } from '../adapters/mcp.js';
+import { stubCompositeHandler } from '../core/dispatch.js';
+import type { DispatchContext } from '../core/dispatch.js';
+import { EventStore } from '../event-store/store.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 describe('CapabilityResolver (T017, DR-14)', () => {
   it('CapabilityResolver_AnthropicNative_ReturnsTrue', () => {
@@ -371,5 +384,318 @@ describe('merge_orchestrate posture (#1305 T13)', () => {
     expect(effective.has('shell:exec')).toBe(true);
     expect(effective.has('fs:read')).toBe(true);
     expect(effective.has('isolation:worktree')).toBe(false);
+  });
+});
+
+// ─── DR-8 / INV-11 — caller-posture handshake resolution (#1688) ────────────
+//
+// The initialize handshake's namespaced declaration
+// (`capabilities.experimental['exarchos/posture']`) resolves a LIVE caller's
+// trust tier: handshake-authoritative merge with the agent-spec posture,
+// read-only default when neither half declares. Unit tests pin the resolver
+// semantics; the integration block below drives the REAL
+// initialize → snapshot → dispatch-gate seam over the SDK's InMemoryTransport.
+
+describe('caller-posture handshake resolution (DR-8, INV-11, #1688)', () => {
+  const sharedMutatingDeclaration = {
+    experimental: { [POSTURE_HANDSHAKE_KEY]: { posture: 'shared-mutating' } },
+  };
+
+  it('HandshakeMismatch_AgentSpec_HandshakeWins', () => {
+    // Agent-spec half declares task-isolated: that tier is in force from
+    // construction, so the shared-mutating gate DENIES (worktree-confined).
+    const resolver = createInMemoryResolver([], { specPosture: 'task-isolated' });
+    expect(resolver.has('isolation:worktree')).toBe(true);
+    expect(resolver.getPostureResolution()).toMatchObject({
+      effectivePosture: 'task-isolated',
+      source: 'agent-spec',
+    });
+    expect(
+      enforceSharedMutatingGate('exarchos_orchestrate', 'serialize_merge', 'shared-mutating', resolver),
+    ).not.toBeNull();
+
+    // Live handshake declares shared-mutating → mismatch resolves to the
+    // handshake (INV-11 handshake-authoritative).
+    resolver.snapshot({ capabilities: sharedMutatingDeclaration });
+    const resolution = resolver.getPostureResolution();
+    expect(resolution.effectivePosture).toBe('shared-mutating');
+    expect(resolution.source).toBe('handshake');
+    expect(resolution.handshakePosture).toBe('shared-mutating');
+    expect(resolution.specPosture).toBe('task-isolated');
+    expect(resolver.has('fs:write')).toBe(true);
+    // The load-bearing INV-11 assertion: tier REPLACEMENT, not union — the
+    // spec's isolation:worktree must NOT leak into the handshake tier (a
+    // union would re-deny the shared-mutating caller on the isolation branch).
+    expect(resolver.has('isolation:worktree')).toBe(false);
+    expect(
+      enforceSharedMutatingGate('exarchos_orchestrate', 'serialize_merge', 'shared-mutating', resolver),
+    ).toBeNull();
+  });
+
+  it('HandshakeMismatch_NarrowerHandshake_StillWins', () => {
+    // Handshake-authoritative even when NARROWER than the spec: the runtime
+    // is the source of truth for what is actually mounted, so a read-only
+    // declaration revokes the spec's shared-mutating tier.
+    const resolver = createInMemoryResolver([], { specPosture: 'shared-mutating' });
+    expect(
+      enforceSharedMutatingGate('exarchos_orchestrate', 'serialize_merge', 'shared-mutating', resolver),
+    ).toBeNull();
+
+    resolver.snapshot({
+      capabilities: { experimental: { [POSTURE_HANDSHAKE_KEY]: { posture: 'read-only' } } },
+    });
+    expect(resolver.has('fs:write')).toBe(false);
+    // An EXPLICIT read-only declaration mints the readonly allowlist tier
+    // (opt-in) — unlike the undeclared default, which enforces by absence.
+    expect(resolver.has('mcp:exarchos:readonly')).toBe(true);
+    const denied = enforceSharedMutatingGate(
+      'exarchos_orchestrate', 'serialize_merge', 'shared-mutating', resolver,
+    );
+    expect(denied?.error?.code).toBe('CAPABILITY_DENIED');
+  });
+
+  it('HandshakeMalformedPosture_IgnoredFailClosed', () => {
+    const resolver = createInMemoryResolver([]);
+
+    // Unknown posture string → ignored, flagged, default tier.
+    resolver.snapshot({
+      capabilities: { experimental: { [POSTURE_HANDSHAKE_KEY]: { posture: 'root' } } },
+    });
+    expect(resolver.getPostureResolution()).toMatchObject({
+      effectivePosture: 'read-only',
+      source: 'default',
+      invalidHandshakeDeclaration: true,
+    });
+    expect(resolver.has('fs:write')).toBe(false);
+
+    // Non-object entry (bare string) → same fail-closed handling.
+    resolver.snapshot({
+      capabilities: { experimental: { [POSTURE_HANDSHAKE_KEY]: 'shared-mutating' } },
+    });
+    expect(resolver.getPostureResolution().invalidHandshakeDeclaration).toBe(true);
+    expect(resolver.has('fs:write')).toBe(false);
+
+    // Array entry → typeof [] === 'object', must still be rejected.
+    resolver.snapshot({
+      capabilities: { experimental: { [POSTURE_HANDSHAKE_KEY]: ['shared-mutating'] } },
+    });
+    expect(resolver.getPostureResolution().invalidHandshakeDeclaration).toBe(true);
+    expect(resolver.has('fs:write')).toBe(false);
+  });
+
+  it('RepeatedSnapshot_LatestHandshakeWins_NoAccumulation', () => {
+    const resolver = createInMemoryResolver([ANTHROPIC_NATIVE_CACHING]);
+    resolver.snapshot({ capabilities: sharedMutatingDeclaration });
+    expect(resolver.has('fs:write')).toBe(true);
+    expect(resolver.list()).toContain('fs:write');
+
+    // A second handshake WITHOUT a declaration reverts wholesale to the
+    // default tier — posture caps never accumulate across handshakes.
+    resolver.snapshot({ capabilities: {} });
+    expect(resolver.has('fs:write')).toBe(false);
+    expect(resolver.getPostureResolution()).toMatchObject({
+      effectivePosture: 'read-only',
+      source: 'default',
+    });
+    // Non-tier seed capabilities (cache hints) survive posture churn.
+    expect(resolver.has(ANTHROPIC_NATIVE_CACHING)).toBe(true);
+  });
+
+  it('UndeclaredSnapshot_DoesNotActivateReadonlyAllowlistTier', () => {
+    // The undeclared default enforces read-only by ABSENCE (no fs:write ⇒
+    // shared-mutating verbs stay denied) — NOT by minting
+    // `capabilitiesForPosture('read-only')`, whose mcp:exarchos:readonly
+    // member would flip `enforceReadonlyGate` for every undeclared live
+    // session's ordinary mutating actions (task_claim, workflow appends, …).
+    const resolver = createInMemoryResolver([]);
+    resolver.snapshot({ capabilities: {} });
+    expect(resolver.has('mcp:exarchos:readonly')).toBe(false);
+    expect(resolver.getPostureResolution().mintedCapabilities).toEqual([]);
+  });
+
+  it('SharedMutatingDenial_CarriesPostureResolutionMeta', () => {
+    // INV-5b: the CAPABILITY_DENIED envelope carries the posture-resolution
+    // record so a denied caller can diagnose its derived tier from the
+    // error alone.
+    const resolver = createInMemoryResolver([]);
+    resolver.snapshot({ capabilities: {} });
+    const denied = enforceSharedMutatingGate(
+      'exarchos_orchestrate', 'prune_worktrees', 'shared-mutating', resolver,
+    );
+    expect(denied).not.toBeNull();
+    expect(denied!.error?.code).toBe('CAPABILITY_DENIED');
+    const meta = denied!._meta as { postureResolution?: PostureResolution };
+    expect(meta.postureResolution).toMatchObject({
+      effectivePosture: 'read-only',
+      source: 'default',
+    });
+  });
+});
+
+// ─── DR-8 integration: initialize → capability-resolver → dispatch seam ─────
+//
+// Drives the REAL seam the unit tests above can only approximate: a live MCP
+// client performs the initialize handshake over the SDK's InMemoryTransport
+// pair, the server's `oninitialized` hook snapshots `getClientCapabilities()`
+// into the resolver (adapters/mcp.ts), and a subsequent `tools/call` for
+// `serialize_merge` crosses `enforceSharedMutatingGate` inside dispatch. The
+// composite handler is a spy: its invocation (or provable non-invocation) is
+// the load-bearing "gate passed / gate held" evidence.
+
+describe('DR-8 integration — initialize handshake resolves live tiers (#1688)', () => {
+  let tmpDir: string;
+  let eventStore: EventStore;
+  let client: Client | undefined;
+
+  const SERIALIZE_MERGE_ARGS = {
+    action: 'serialize_merge',
+    featureId: 'feat-x',
+    integrationRef: 'integration',
+    sourceBranch: 'feat/x',
+    strategy: 'squash',
+  } as const;
+
+  interface CallToolEnvelopeResult {
+    content?: Array<{ type: string; text: string }>;
+    structuredContent?: Record<string, unknown>;
+    isError?: boolean;
+  }
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'posture-handshake-'));
+    eventStore = new EventStore(tmpDir);
+    await eventStore.initialize();
+  });
+
+  afterEach(async () => {
+    if (client !== undefined) {
+      try {
+        await client.close();
+      } catch {
+        /* ignore */
+      }
+      client = undefined;
+    }
+    eventStore.close();
+    await rmrfAsync(tmpDir);
+  });
+
+  async function waitFor(predicate: () => boolean, timeoutMs = 2000): Promise<void> {
+    const start = Date.now();
+    while (!predicate()) {
+      if (Date.now() - start > timeoutMs) {
+        throw new Error('timed out waiting for handshake snapshot');
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+
+  /**
+   * Connect a real Client ↔ createMcpServer pair over InMemoryTransport and
+   * wait until the server-side `oninitialized` hook has snapshotted the
+   * client's capabilities into `resolver` (the initialized notification is
+   * fire-and-forget, so client.connect() resolving does not guarantee the
+   * server has processed it yet).
+   */
+  async function connectClient(
+    resolver: CapabilityResolver,
+    clientCapabilities: Record<string, unknown>,
+  ): Promise<void> {
+    const snapshotSpy = vi.spyOn(resolver, 'snapshot');
+    const ctx: DispatchContext = {
+      stateDir: tmpDir,
+      eventStore,
+      enableTelemetry: false,
+      capabilityResolver: resolver,
+    };
+    const server = createMcpServer(ctx);
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    client = new Client(
+      { name: 'posture-handshake-test', version: '1.0.0' },
+      { capabilities: clientCapabilities },
+    );
+    await Promise.all([
+      server.connect(serverTransport),
+      client.connect(clientTransport),
+    ]);
+    await waitFor(() => snapshotSpy.mock.calls.length > 0);
+    snapshotSpy.mockRestore();
+  }
+
+  it('SharedMutatingHandshake_SerializeMerge_Executes', async () => {
+    const resolver = createInMemoryResolver([]);
+    await connectClient(resolver, {
+      experimental: { [POSTURE_HANDSHAKE_KEY]: { posture: 'shared-mutating' } },
+    });
+
+    // INV-5b: the resolution is queryable and names the handshake as source.
+    expect(resolver.getPostureResolution()).toMatchObject({
+      effectivePosture: 'shared-mutating',
+      source: 'handshake',
+    });
+
+    const compositeSpy = vi.fn(async () => ({
+      success: true as const,
+      data: { dryRun: true, integrationRef: 'integration' },
+    }));
+    const restore = stubCompositeHandler('exarchos_orchestrate', compositeSpy);
+    try {
+      const result = (await client!.callTool({
+        name: 'exarchos_orchestrate',
+        arguments: { ...SERIALIZE_MERGE_ARGS },
+      })) as CallToolEnvelopeResult;
+
+      // The gate let the live shared-mutating caller through: the handler
+      // EXECUTED and the envelope is a success — no CAPABILITY_DENIED.
+      expect(compositeSpy).toHaveBeenCalledTimes(1);
+      const envelope = result.structuredContent as {
+        success?: boolean;
+        error?: { code?: string };
+      };
+      expect(envelope.success).toBe(true);
+      expect(envelope.error).toBeUndefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it('UndeclaredCaller_PostureDefault_ReadOnly', async () => {
+    const resolver = createInMemoryResolver([]);
+    await connectClient(resolver, {});
+
+    expect(resolver.getPostureResolution()).toMatchObject({
+      effectivePosture: 'read-only',
+      source: 'default',
+    });
+
+    const compositeSpy = vi.fn(async () => ({ success: true as const, data: {} }));
+    const restore = stubCompositeHandler('exarchos_orchestrate', compositeSpy);
+    try {
+      const result = (await client!.callTool({
+        name: 'exarchos_orchestrate',
+        arguments: { ...SERIALIZE_MERGE_ARGS },
+      })) as CallToolEnvelopeResult;
+
+      // Regression (#1688 acceptance): an undeclared caller stays read-only
+      // — CAPABILITY_DENIED before the handler, which must never fire.
+      expect(compositeSpy).not.toHaveBeenCalled();
+      const envelope = result.structuredContent as {
+        success?: boolean;
+        error?: { code?: string };
+        _meta?: Record<string, unknown>;
+      };
+      expect(envelope.success).toBe(false);
+      expect(envelope.error?.code).toBe('CAPABILITY_DENIED');
+
+      // INV-5b: the denial envelope carries the posture-resolution record
+      // end-to-end across the MCP carrier.
+      const postureResolution = envelope._meta?.['postureResolution'] as
+        | { effectivePosture?: string; source?: string }
+        | undefined;
+      expect(postureResolution?.effectivePosture).toBe('read-only');
+      expect(postureResolution?.source).toBe('default');
+    } finally {
+      restore();
+    }
   });
 });
