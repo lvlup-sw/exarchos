@@ -41,12 +41,14 @@
  *   - `--since=<base>` absent   → full-tree run: Stryker's own configured
  *     `mutate` default applies (the long-running offline/nightly lane,
  *     DR-6 `scope:'full'`; out of scope for the inline/CI-blocking lane).
- *   - A missing local pinned binary, a Stryker run that throws, or a
- *     completed run with no report file on disk are all FAIL-CLOSED: stderr
- *     names the artifact and the reason, nothing is written to stdout, and
- *     the process exits 1. `defaultRunMutation` folds a non-zero exit with
- *     empty stdout into a degrade (never a false pass) — this is the
- *     "devDep absent" direction the composed-path smoke test exercises.
+ *   - A missing local pinned binary, a Stryker run that throws, a completed
+ *     run with no report file on disk, or a diff whose qualifying mutatable
+ *     surface EXCEEDS `MAX_MUTATE_FILES` are all FAIL-CLOSED: stderr names the
+ *     artifact and the reason, nothing is written to stdout, and the process
+ *     exits 1. `defaultRunMutation` folds a non-zero exit with empty stdout
+ *     into a degrade (never a false pass) — this is the "devDep absent"
+ *     direction the composed-path smoke test exercises. An oversized diff fails
+ *     closed rather than silently mutating only a bounded subset (#1720).
  *   - `git diff` failing (bad `--since` ref, not a git repo, …) is also
  *     fail-closed — distinct from a genuinely empty diff, which is a
  *     logged, exit-0, valid-empty-report outcome, not an error.
@@ -57,7 +59,7 @@
  * invoked directly (not when imported by a test).
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
@@ -82,9 +84,12 @@ const NON_MUTATABLE_SUFFIXES = [
 /**
  * Mutant-count bound (DR-7 acceptance criteria): StrykerJS has no native
  * "max mutants" flag, so the bound is enforced upstream, on the input file
- * set, before Stryker ever runs — a diff touching more than this many
- * qualifying files is capped (alphabetically, for determinism), keeping a
- * single run's worst-case wall-clock bounded regardless of PR size.
+ * set, before Stryker ever runs. A diff touching more than this many
+ * qualifying files FAILS CLOSED (`main` returns 1) rather than silently
+ * evaluating only a bounded subset — a mutant in an omitted file could survive
+ * unseen, so a partial run is not an adequate one (#1720). `computeMutateGlobs`
+ * still reports the `truncated`/`totalQualifying` count so `main` can name the
+ * exact overflow in its fail-closed message.
  */
 export const MAX_MUTATE_FILES = 40;
 
@@ -202,6 +207,15 @@ function runStryker(serverDir, mutateFiles) {
     args.push('--mutate', mutateFiles.join(','));
   }
 
+  // Delete any pre-existing report BEFORE launching Stryker (correctness,
+  // #1720): the "no report on disk" branch below is the fail-closed signal for
+  // a run that produced nothing this invocation. A stale `mutation.json` left
+  // by a previous run would otherwise be read as THIS run's output if Stryker
+  // exits 0 without rewriting it, silently passing the current diff on old
+  // results. Absence-after-execution must mean "this run produced no report".
+  const reportPath = path.join(serverDir, 'reports', 'mutation', 'mutation.json');
+  rmSync(reportPath, { force: true });
+
   // Captured on the SUCCESS path too (DR-10): `execFileSync` only returns
   // stdout when the child exits 0 — stderr on success is not exposed at all
   // — so this is the one chance to tail Stryker's own console output if the
@@ -237,7 +251,6 @@ function runStryker(serverDir, mutateFiles) {
     return 1;
   }
 
-  const reportPath = path.join(serverDir, 'reports', 'mutation', 'mutation.json');
   let reportContent;
   try {
     reportContent = readFileSync(reportPath, 'utf-8');
@@ -287,12 +300,19 @@ export function main(argv) {
     existsSync(path.join(repoRoot, file)),
   );
 
+  // FAIL CLOSED on an oversized scope (DR-10: no silent truncation, #1720).
+  // Evaluating only the first MAX_MUTATE_FILES would let a surviving/uncovered
+  // mutant in an OMITTED file pass unseen — a partial result is not an adequate
+  // one. Reject the whole diff instead of silently mutating a bounded subset;
+  // the mutant-count wall-clock bound is preserved by refusing, not by
+  // dropping files. (Handling an oversized diff — e.g. sharding — is #1720.)
   if (truncated) {
     process.stderr.write(
-      `stryker-adapter: diff touched ${totalQualifying} mutatable server files; ` +
-        `capping to the first ${MAX_MUTATE_FILES} (mutant-count bound, see ` +
-        `stryker.conf.mjs's documented runtime budget)\n`,
+      `stryker-adapter: diff touched ${totalQualifying} mutatable server files, exceeding the maximum ` +
+        `supported scope of ${MAX_MUTATE_FILES}; refusing to evaluate only a bounded subset (a mutant in ` +
+        `an omitted file could survive unseen) — fail closed rather than silently truncate (#1720)\n`,
     );
+    return 1;
   }
 
   // Empty mutatable surface: never a degrade. Print the empty-valid report
