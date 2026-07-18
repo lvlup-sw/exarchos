@@ -992,17 +992,20 @@ function registerActionCommand(
   // The flags map to the `handoff` field on the dispatch surface
   // (which `addFlagsFromSchema` already exposes as
   // `--handoff <json-or-csv>` for power-user / scripting parity).
-  // `--context` accepts inline strings only — the `@<path>` substitution
-  // sugar is OUT OF SCOPE here (#1245, scheduled v2.12.0). The
-  // variadic syntax `<step...>` lets agents repeat `--next-steps a
-  // --next-steps b` to build the array, mirroring how the MCP arm
-  // would receive `nextSteps: ['a', 'b']`.
+  // `--context` accepts an inline string or `@<path>` file substitution
+  // (DR-20, #1245) — the `@<path>` token passes through this reshape
+  // UNCHANGED; the read + validation live at the handler seam
+  // (`workflow/checkpoint.ts:resolveContextArgument`, invoked by
+  // `handleCheckpoint`) so the MCP arm observes identical behavior
+  // (INV-4 parity). The variadic syntax `<step...>` lets agents repeat
+  // `--next-steps a --next-steps b` to build the array, mirroring how
+  // the MCP arm would receive `nextSteps: ['a', 'b']`.
   const isWorkflowCheckpoint =
     tool.name === 'exarchos_workflow' && action.name === 'checkpoint';
   if (isWorkflowCheckpoint) {
     actionCmd.option(
       '--context <string>',
-      'Handoff context (single inline string, max 2KB). Maps to handoff.context.',
+      'Handoff context: inline string or @<path> to read a file (max 2KB either way). Maps to handoff.context.',
     );
     actionCmd.option(
       '--next-steps <step...>',
