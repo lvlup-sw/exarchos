@@ -172,12 +172,24 @@ function extractBaselineProvenance(baseline, baselinePath) {
   const runIds = baseline.runIds;
   if (
     !Array.isArray(runIds) ||
-    runIds.length === 0 ||
     !runIds.every((id) => typeof id === 'string' && id.trim() !== '')
   ) {
     throw new RatchetFailClosed(
       `baseline at ${baselinePath} is missing run-ids (no CI provenance) — rejecting per DR-10; a ` +
         'coverage baseline must record the originating CI run-ids',
+    );
+  }
+  // DR-5 requires the baseline's variance be measured across ≥3 CI runs, so
+  // the provenance must record ≥3 DISTINCT run-ids. A single (or repeated) run
+  // id carries no cross-run variance — accepting it would let a one-run
+  // baseline govern the ratchet with an unmeasured spread. Fail closed.
+  const distinctRunIds = new Set(runIds.map((id) => id.trim()));
+  if (distinctRunIds.size < 3) {
+    throw new RatchetFailClosed(
+      `baseline at ${baselinePath} records only ${distinctRunIds.size} distinct run-id(s) ` +
+        `(${runIds.length} entr${runIds.length === 1 ? 'y' : 'ies'} total) — rejecting per DR-10/DR-5; a ` +
+        'coverage baseline must be measured across at least 3 distinct CI runs so its variance is real, ' +
+        'not a single-run guess',
     );
   }
 
