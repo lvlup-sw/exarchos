@@ -484,6 +484,34 @@ describe('launcher spawn/teardown typed contract (DR-13) — real git + real eve
     expect(eventsOfType(store, 'feat-double-finalize', WORKTREE_FINALIZED)).toHaveLength(1);
   });
 
+  it('FinalizeLaunchWorkspace_ThrowingProbe_NeverThrows_MapsUnprobeable', async () => {
+    // #1632/#1644 (v2-12 review fix): finalize's docstring guarantees it NEVER
+    // throws on the probe path — teardown (teardown.ts step (1b), which awaits
+    // this OUTSIDE any try/catch) must always reach its safety gates and
+    // reservation release. The production makeGitWorkspaceProbe reads git
+    // status codes and can't throw, but the probe seam is injectable; a probe
+    // that throws must map to the unprobeable observation, not propagate.
+    const binding: LaunchContractBinding = {
+      envelope: makeEnvelope(),
+      streamId: 'feat-throwing-probe',
+      probe: () => {
+        throw new Error('git seam blew up');
+      },
+    };
+    const identity = { worktreeId: '/wt/throw', worktreePath: base, exitCode: 0 };
+
+    const outcome = await finalizeLaunchWorkspace(store, binding, identity);
+
+    // Did not throw; the terminal still emitted with the unprobeable state.
+    expect(outcome.emitted).toBe(true);
+    expect(outcome.treeHash).toBeNull();
+    expect(outcome.dirty).toBeNull();
+
+    const finalized = eventsOfType(store, 'feat-throwing-probe', WORKTREE_FINALIZED);
+    expect(finalized).toHaveLength(1);
+    expect(finalized[0]?.data).toMatchObject({ treeHash: null, dirty: null, exitCode: 0 });
+  });
+
   // ── Registration + schema-union pins ───────────────────────────────────────
 
   it('WorktreeFinalized_Registered_AutoClassified', () => {
