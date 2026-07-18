@@ -1506,6 +1506,16 @@ export interface HandleCheckpointOptions {
   readonly handoffLint?: {
     readonly hardFail?: boolean;
   };
+  /**
+   * Containment root for `@<path>` context substitution (DR-20 security,
+   * #1245). The resolved (and symlink-canonicalized) context path must
+   * live inside this root or the substitution is rejected with a
+   * structured `PATH_ESCAPE`. The composite handler threads
+   * `ctx.cwd ?? process.cwd()` — the canonical project entry point — so
+   * the CLI and MCP arms share one root. Defaults to `process.cwd()` when
+   * absent (direct-handler callers / legacy tests).
+   */
+  readonly workspaceRoot?: string;
 }
 
 export async function handleCheckpoint(
@@ -1550,7 +1560,10 @@ export async function handleCheckpoint(
   // other pre-write rejections. Living at the handler seam (not in the
   // CLI flag layer) gives the MCP arm the identical behavior (INV-4).
   if (validated.handoff?.context !== undefined) {
-    const resolvedContext = await resolveContextArgument(validated.handoff.context);
+    const resolvedContext = await resolveContextArgument(
+      validated.handoff.context,
+      options?.workspaceRoot ?? process.cwd(),
+    );
     if (!resolvedContext.ok) {
       return {
         success: false,

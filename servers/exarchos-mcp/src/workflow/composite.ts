@@ -1,4 +1,4 @@
-import { handleInit, handleGet, handleTransition, handleReconcileState, handleCheckpoint, handleUpdate } from './tools.js';
+import { handleInit, handleGet, handleTransition, handleReconcileState, handleCheckpoint, handleUpdate, type HandleCheckpointOptions } from './tools.js';
 import { handleCancel } from './cancel.js';
 import { handleCleanup } from './cleanup.js';
 import { handleRehydrate } from './rehydrate.js';
@@ -142,13 +142,18 @@ export async function handleWorkflow(
       // walks worktree → git-repo-root from there, matching the CLI's own
       // discovery algorithm in yaml-loader.ts.
       const { loadExarchosConfig } = await import('../config/load-exarchos-config.js');
-      const worktreePath = process.cwd();
-      let checkpointOptions: { handoffLint?: { hardFail: boolean } } | undefined;
+      const worktreePath = ctx.cwd ?? process.cwd();
+      // DR-20 security (#1245, v2-12 review): the `@<path>` context reader is
+      // contained to the caller's project root. `worktreePath` is the
+      // canonical project entry point (matches the config-discovery root and
+      // the init case's `ctx.cwd ?? process.cwd()`), so both the CLI and MCP
+      // arms reject any context file outside the workspace.
+      let checkpointOptions: HandleCheckpointOptions = { workspaceRoot: worktreePath };
       try {
         const result = loadExarchosConfig(worktreePath);
         const hardFail = result?.config.handoffLint?.hardFail;
         if (typeof hardFail === 'boolean') {
-          checkpointOptions = { handoffLint: { hardFail } };
+          checkpointOptions = { ...checkpointOptions, handoffLint: { hardFail } };
         }
       } catch (err) {
         // CodeRabbit MAJOR #1244: do NOT silently fail-open. A config
