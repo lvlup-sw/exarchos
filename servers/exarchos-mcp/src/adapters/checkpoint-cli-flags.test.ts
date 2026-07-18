@@ -454,7 +454,11 @@ describe('wf checkpoint — --context @<path> substitution (DR-20, #1245)', () =
     contextDir = await fs.mkdtemp(path.join(os.tmpdir(), 'dr20-cli-ctx-'));
     eventStore = new EventStore(stateDir);
     await eventStore.initialize();
-    ctx = { stateDir, eventStore, enableTelemetry: false };
+    // DR-20 security (#1245, v2-12 review): the composite handler contains
+    // `@<path>` substitution to `ctx.cwd ?? process.cwd()`. Declare the
+    // temp context dir as the caller's workspace so these fixtures are
+    // legitimately in-root; escape coverage lives in checkpoint.test.ts.
+    ctx = { stateDir, eventStore, enableTelemetry: false, cwd: contextDir };
   });
 
   afterEach(async () => {

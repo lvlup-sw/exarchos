@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import type { CheckpointState } from './types.js';
@@ -935,6 +935,8 @@ describe('handleCheckpoint — @path context substitution (DR-20, #1245)', () =>
     await writeFile(contextFile, fileContent, 'utf8');
 
     // WHEN: the checkpoint dispatch carries `@<path>` as the context.
+    // `contextDir` is the declared workspace containment root (DR-20 security,
+    // #1245) — the fixture lives inside it, so the read is legitimate.
     const result = await handleCheckpoint(
       {
         featureId,
@@ -942,6 +944,7 @@ describe('handleCheckpoint — @path context substitution (DR-20, #1245)', () =>
       },
       stateDir,
       store,
+      { workspaceRoot: contextDir },
     );
 
     // THEN: the call succeeds and the persisted event carries the FILE
@@ -969,11 +972,14 @@ describe('handleCheckpoint — @path context substitution (DR-20, #1245)', () =>
 
     const missingFile = path.join(contextDir, 'does-not-exist.md');
 
-    // WHEN: the checkpoint dispatch references the missing file.
+    // WHEN: the checkpoint dispatch references the missing file (inside the
+    // declared workspace root, so containment passes and the failure is a
+    // genuine ENOENT rather than a PATH_ESCAPE).
     const result = await handleCheckpoint(
       { featureId, handoff: { context: `@${missingFile}` } },
       stateDir,
       store,
+      { workspaceRoot: contextDir },
     );
 
     // THEN: a structured INV-5b envelope — FILE_IO_ERROR, message naming
@@ -1004,11 +1010,13 @@ describe('handleCheckpoint — @path context substitution (DR-20, #1245)', () =>
     const oversizeFile = path.join(contextDir, 'oversize.md');
     await writeFile(oversizeFile, 'x'.repeat(CONTEXT_AT_PATH_MAX_BYTES + 1), 'utf8');
 
-    // WHEN: the checkpoint dispatch references the oversize file.
+    // WHEN: the checkpoint dispatch references the oversize file (inside the
+    // declared workspace root, so the failure is a genuine OVERSIZE).
     const result = await handleCheckpoint(
       { featureId, handoff: { context: `@${oversizeFile}` } },
       stateDir,
       store,
+      { workspaceRoot: contextDir },
     );
 
     // THEN: structured INVALID_INPUT with actual/max byte counts in the
@@ -1068,8 +1076,10 @@ describe('handleCheckpoint — @path context substitution (DR-20, #1245)', () =>
 
   it('ContextAtPath_Directory_StructuredInvalidInput', async () => {
     // A path that resolves to a directory is rejected as NOT_A_FILE
-    // rather than surfacing a raw EISDIR from readFile.
-    const result = await resolveContextArgument(`@${contextDir}`);
+    // rather than surfacing a raw EISDIR from readFile. `contextDir` is
+    // both the containment root AND the target here, so it passes
+    // containment (a root is "within" itself) and fails on NOT_A_FILE.
+    const result = await resolveContextArgument(`@${contextDir}`, contextDir);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.code).toBe('INVALID_INPUT');
@@ -1077,4 +1087,108 @@ describe('handleCheckpoint — @path context substitution (DR-20, #1245)', () =>
       expect(result.details.path).toBe(contextDir);
     }
   });
+
+  // ─── DR-20 security (#1245, v2-12 review): path containment ────────────────
+  //
+  // Without containment, `@<path>` is a read-any-file-into-the-durable-log
+  // primitive: an absolute path, a `..`-traversal, or an in-workspace symlink
+  // pointing outside would read ANY file the server can access and persist up
+  // to CONTEXT_AT_PATH_MAX_BYTES of it into the append-only, syncable event
+  // store (re-surfaced later by rehydrate). Each escape must return a
+  // structured PATH_ESCAPE and must NOT read the target file.
+
+  it('ContextAtPath_AbsoluteOutsideRoot_Rejected', async () => {
+    // GIVEN: a workspace root and a small secret file OUTSIDE it. The file is
+    // deliberately under the byte cap so that only containment — not the size
+    // check — can stop the read (proving the security boundary, not a
+    // coincidental OVERSIZE rejection as a large /etc/passwd would give).
+    const workspaceRoot = await mkdtemp(path.join(tmpdir(), 'dr20-contain-ws-'));
+    const outsideDir = await mkdtemp(path.join(tmpdir(), 'dr20-contain-out-'));
+    const secretFile = path.join(outsideDir, 'secret.txt');
+    const secretContent = 'SECRET=hunter2\n';
+    await writeFile(secretFile, secretContent, 'utf8');
+
+    try {
+      const result = await resolveContextArgument(`@${secretFile}`, workspaceRoot);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('INVALID_INPUT');
+        expect(result.details.reason).toBe('PATH_ESCAPE');
+        expect(result.details.path).toBe(secretFile);
+      }
+      // The escaping absolute path must NOT be read into context. The error
+      // branch of the union carries no `context` field at all — the secret
+      // never reaches the handoff — but assert the shape explicitly so a
+      // regression that flips to the success branch fails loudly here.
+      expect('context' in result).toBe(false);
+    } finally {
+      await rmrfAsync(workspaceRoot);
+      await rmrfAsync(outsideDir);
+    }
+  });
+
+  it('ContextAtPath_DotDotEscape_Rejected', async () => {
+    // GIVEN: a workspace root two levels deep and a `..`-traversal that climbs
+    // out of it to a sibling file. Even though the traversal target exists and
+    // is small, the lexical containment check rejects it before any fs read.
+    const base = await mkdtemp(path.join(tmpdir(), 'dr20-dotdot-'));
+    const workspaceRoot = path.join(base, 'a', 'b');
+    await mkdir(workspaceRoot, { recursive: true });
+    const siblingSecret = path.join(base, 'outside.txt');
+    await writeFile(siblingSecret, 'OUTSIDE\n', 'utf8');
+
+    try {
+      // `../../outside.txt` from <base>/a/b resolves to <base>/outside.txt.
+      const result = await resolveContextArgument(
+        '@../../outside.txt',
+        workspaceRoot,
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('INVALID_INPUT');
+        expect(result.details.reason).toBe('PATH_ESCAPE');
+      }
+      expect('context' in result).toBe(false);
+    } finally {
+      await rmrfAsync(base);
+    }
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'ContextAtPath_SymlinkEscape_Rejected',
+    async () => {
+      // GIVEN: a workspace root containing a symlink that LEXICALLY sits inside
+      // the root but whose real target is an out-of-root file. The lexical
+      // check passes (the link path is inside the root); the fs.realpath layer
+      // must canonicalize the symlink and reject the escape.
+      const workspaceRoot = await mkdtemp(path.join(tmpdir(), 'dr20-symlink-ws-'));
+      const outsideDir = await mkdtemp(path.join(tmpdir(), 'dr20-symlink-out-'));
+      const outsideTarget = path.join(outsideDir, 'target.txt');
+      await writeFile(outsideTarget, 'ESCAPED VIA SYMLINK\n', 'utf8');
+
+      const linkInside = path.join(workspaceRoot, 'link.md');
+      try {
+        await symlink(outsideTarget, linkInside);
+      } catch {
+        // Platform/permission can't create symlinks — treat as skip.
+        await rmrfAsync(workspaceRoot);
+        await rmrfAsync(outsideDir);
+        return;
+      }
+
+      try {
+        const result = await resolveContextArgument(`@${linkInside}`, workspaceRoot);
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('INVALID_INPUT');
+          expect(result.details.reason).toBe('PATH_ESCAPE');
+        }
+        expect('context' in result).toBe(false);
+      } finally {
+        await rmrfAsync(workspaceRoot);
+        await rmrfAsync(outsideDir);
+      }
+    },
+  );
 });
