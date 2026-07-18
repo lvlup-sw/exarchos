@@ -120,15 +120,19 @@ const DYNAMIC_SPAWN_RE = /\b(?:execFile|execFileSync|spawn|spawnSync)\s*\(\s*[A-
 // The shell-aware spawn helpers legitimately call raw execFile/spawn with a
 // variable bin — that is their whole job. Exempt only this file.
 const SPAWN_HELPER_RE = /utils[/\\]process\.ts$/;
-// CI/build tooling under `scripts/` is NOT shipped runtime — it runs only on the
-// ubuntu CI host, and the audit gates that shell out a tool (knip-diff /
-// cycle-gate → `node_modules/.bin/*`) DEGRADE-TO-FAIL-CLOSED on a spawn error
-// (incl. win32, where Node can't exec a `.cmd`/`.ps1` shim directly): a spawn
-// failure returns `found:false` → the gate fails closed rather than mis-running.
-// So the dynamic-bin rule (rule 4), whose own scope is "Production files only",
-// does not apply to these. Rule 2 (url-pathname) is a genuine cross-platform
-// path bug and STILL applies to tooling.
-const CI_TOOLING_RE = /^scripts[/\\]/;
+// CI/build tooling under a `scripts/` dir is NOT shipped runtime — it runs
+// only on the ubuntu CI host, and the audit gates that shell out a tool
+// (knip-diff / cycle-gate → `node_modules/.bin/*`) DEGRADE-TO-FAIL-CLOSED on a
+// spawn error (incl. win32, where Node can't exec a `.cmd`/`.ps1` shim
+// directly): a spawn failure returns `found:false` → the gate fails closed
+// rather than mis-running. So the dynamic-bin rule (rule 4), whose own scope
+// is "Production files only", does not apply to these. Rule 2 (url-pathname)
+// is a genuine cross-platform path bug and STILL applies to tooling.
+// Matches a `scripts/` path segment at ANY depth (not just repo-root
+// `scripts/`) — nested build-tool dirs such as `servers/*/scripts/` (e.g. the
+// DR-7 stryker-adapter, which runs only in CI on Linux per DR-7) are the same
+// "CI-only, fail-closed" class and are covered by the same rationale.
+const CI_TOOLING_RE = /(?:^|[/\\])scripts[/\\]/;
 
 function main() {
   const args = parseArgs(process.argv.slice(2));

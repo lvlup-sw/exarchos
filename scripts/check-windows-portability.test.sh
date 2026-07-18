@@ -127,5 +127,21 @@ tooling_exit=$?
 set -e
 check "scripts/audit CI tooling is exempt from rule 4" 0 "$tooling_exit"
 
+# ── Nested CI-tooling exemption (#1719, wave-S task 012): a build-tool dir
+# nested below repo-root, e.g. `servers/*/scripts/` (the DR-7 stryker-adapter,
+# CI-only/Linux-only, fail-closed on spawn error), must ALSO be exempt from
+# rule 4 — CI_TOOLING_RE matches a `scripts/` segment at ANY depth, not just
+# the repo-root `scripts/` prefix.
+mkdir -p "$TMP/nested/servers/fake-mcp/scripts"
+cat > "$TMP/nested/servers/fake-mcp/scripts/adapter.mjs" <<'EOF'
+import { execFileSync } from 'node:child_process';
+export function run(binPath, args) { return execFileSync(binPath, args); }
+EOF
+set +e
+node "$GATE" --src-root "$TMP/nested" >/dev/null 2>&1
+nested_tooling_exit=$?
+set -e
+check "nested servers/*/scripts/ CI tooling is exempt from rule 4" 0 "$nested_tooling_exit"
+
 echo "check-windows-portability self-test: $pass passed, $fail failed"
 [[ "$fail" == "0" ]]
