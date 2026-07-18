@@ -213,6 +213,82 @@ describe('handlePrepareSynthesis', () => {
     expect((data.blockers ?? []).some((b: string) => b.includes('024'))).toBe(false);
   });
 
+  // ─── DR-27: #1536 re-repro post task-store retirement — NON-REPRO ─────────
+  it('PrepareSynthesis_PostRetirementFold_NoPhantomBlockers', async () => {
+    // #1536 (2026-06-10, verification-ladder-slice1): prepare_synthesis
+    // reported phantom blockers "Task '024' is in-progress" / "Task '027' is
+    // in-progress" while BOTH canonical surfaces (exarchos_workflow get and the
+    // event log's task.completed at seq ~90/91) showed the tasks complete. The
+    // readiness fold read the OLD task-detail materializer, whose divergent
+    // fold + 'in-progress'/'completed' vocabulary disagreed with the canonical
+    // projection ('in_progress'/'complete').
+    //
+    // Re-repro against post-#1697/#1712 main (task-store retirement + the task
+    // 025 merge): NON-REPRO. The merged handler resolves task status through
+    // resolveWorkflowState → workflowStateProjection — the SAME source
+    // exarchos_workflow get reads — and checkTaskCompletion compares against
+    // the canonical 'complete'. The divergent materializer source is retired
+    // from the readiness path entirely, which is what closed the defect. This
+    // test pins that closure with the exact #1536 event shape: a task.assigned
+    // wave, a LATER state.patched whole-tasks-array planner re-stamp
+    // (in_progress), then task.completed for both tasks — and a POISONED
+    // materializer seam that still reports the phantom 'in-progress' view.
+    const phantomView = mockTaskDetailView({
+      '024': { status: 'in-progress' },
+      '027': { status: 'in-progress' },
+    });
+    vi.mocked(getOrCreateMaterializer).mockReturnValue(
+      createMockMaterializer(phantomView) as unknown as ReturnType<typeof getOrCreateMaterializer>,
+    );
+
+    const events: unknown[] = [
+      // Wave-1 assignment batch (the #1536 repro pointer).
+      { type: 'task.assigned', timestamp: '2026-06-10T00:00:01Z', data: { taskId: '024', title: 'Task 024' } },
+      { type: 'task.assigned', timestamp: '2026-06-10T00:00:02Z', data: { taskId: '027', title: 'Task 027' } },
+      // Later planner re-stamp: whole-tasks-array state.patched (replaces the
+      // array — statuses in_progress at stamp time).
+      {
+        type: 'state.patched',
+        timestamp: '2026-06-10T00:10:00Z',
+        data: {
+          fields: ['tasks'],
+          patch: {
+            tasks: [
+              { id: '024', title: 'Task 024', status: 'in_progress' },
+              { id: '027', title: 'Task 027', status: 'in_progress' },
+            ],
+          },
+        },
+      },
+      // Execution truth: both tasks complete (seq ~90/91 in the live stream).
+      { type: 'task.completed', timestamp: '2026-06-10T01:00:00Z', data: { taskId: '024' } },
+      { type: 'task.completed', timestamp: '2026-06-10T01:00:01Z', data: { taskId: '027' } },
+    ];
+    const mockStore = createMockEventStore(events);
+    vi.mocked(execFileSync).mockReturnValue(Buffer.from('')); // git diff: no changes
+
+    const result = await handlePrepareSynthesis(
+      { featureId: 'verification-ladder-slice1', skipTests: true, skipStack: true },
+      tmpDir,
+      mockStore as unknown as EventStore,
+    );
+
+    // No phantom blockers — readiness derives from the canonical fold.
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      ready: boolean;
+      readiness: { tasksComplete: boolean };
+      blockers?: string[];
+    };
+    expect(data.readiness.tasksComplete).toBe(true);
+    expect((data.blockers ?? []).some((b) => b.includes('024') || b.includes('027'))).toBe(false);
+    expect(data.ready).toBe(true);
+
+    // The retirement pin: the poisoned task-detail materializer seam is never
+    // consulted by the readiness path — the phantom source is structurally gone.
+    expect(vi.mocked(getOrCreateMaterializer)).not.toHaveBeenCalled();
+  });
+
   // ─── Test 3: Tests run and emit test result event ─────────────────────────
 
   it('PrepareSynthesis_TestsRun_EmitsTestResultEvent', async () => {
