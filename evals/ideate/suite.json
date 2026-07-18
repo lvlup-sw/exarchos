@@ -1,5 +1,5 @@
 {
-  "description": "Brainstorming skill evaluation suite — one-artifact flow (#1581)",
+  "description": "Ideate skill evaluation suite — one-artifact flow (#1581)",
   "metadata": {
     "skill": "ideate",
     "phaseAffinity": "plan",
@@ -47,11 +47,11 @@
   "datasets": {
     "regression": {
       "path": "./datasets/regression.jsonl",
-      "description": "Known-good brainstorming traces that must not regress (one-artifact flow)"
+      "description": "Known-good ideation traces that must not regress (one-artifact flow)"
     },
     "capability": {
       "path": "./datasets/golden.jsonl",
-      "description": "Brainstorming capability scenarios (one-artifact flow)"
+      "description": "Ideation capability scenarios (one-artifact flow)"
     },
     "capability-llm": {
       "path": "./datasets/capability-llm.jsonl",
