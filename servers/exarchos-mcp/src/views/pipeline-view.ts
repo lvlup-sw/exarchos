@@ -17,13 +17,18 @@ export const PIPELINE_VIEW = 'pipeline';
  * materializer lookup, `BUILTIN_VIEW_NAMES`, telemetry, and benchmarks are all
  * keyed on it and MUST NOT move. Only the persisted snapshot FILENAME is
  * versioned, via the SnapshotStore namespace map wired at the registration seam
- * (`views/tools.ts`), so new servers read/write `<streamId>.pipeline-v2.snapshot.json`
- * and simply ignore pre-upgrade `<streamId>.pipeline.snapshot.json` files — the
- * stream re-folds once and picks up `repoRoot`. This deliberately avoids
- * bumping `EVENT_SCHEMA_VERSION` (which drives event-migration, not view
- * snapshots) and avoids mixed-version servers thrashing a shared snapshot file.
+ * (`views/tools.ts`), so new servers read/write `<streamId>.pipeline-v3.snapshot.json`
+ * and simply ignore pre-upgrade snapshot files — the stream re-folds once under
+ * the current fold. This deliberately avoids bumping `EVENT_SCHEMA_VERSION`
+ * (which drives event-migration, not view snapshots) and avoids mixed-version
+ * servers thrashing a shared snapshot file.
+ *
+ * Lineage: v2 picked up `repoRoot` (DR-5/DR-6); v3 picks up the terminal-event
+ * fold (DR-27 / #1566 remainder — `workflow.cancel` / `workflow.cleanup` now
+ * fold the terminal phase, so pre-v3 snapshots frozen at a pre-terminal phase
+ * must re-fold).
  */
-export const PIPELINE_SNAPSHOT_NAME = 'pipeline-v2';
+export const PIPELINE_SNAPSHOT_NAME = 'pipeline-v3';
 
 // ─── Bounds ─────────────────────────────────────────────────────────────────
 
@@ -162,6 +167,38 @@ export const pipelineProjection: ViewProjection<PipelineViewState> = {
           // Only set featureId if not already populated by workflow.started
           featureId: view.featureId || data?.featureId || view.featureId,
           phase: data?.to ?? view.phase,
+          _asOf: nextAsOf,
+        };
+      }
+
+      // ── Terminal events (DR-27 / #1566 remainder) ─────────────────────
+      // The HSM cancel path maps its transition through internal type 'cancel'
+      // → external `workflow.cancel`, and the universal mergeVerified→completed
+      // transition emits 'cleanup' → `workflow.cleanup` — NEITHER path appends
+      // a `workflow.transition`. Pre-fix these fell to the identity default and
+      // cancelled/completed workflows stayed frozen at their last pre-terminal
+      // phase in the pipeline view forever (live repro: stream
+      // `wave-a-gate-correctness`, phase 'started' after `workflow.cancel`).
+      // Both events carry `{ from, to }` (workflow/cancel.ts,
+      // workflow/state-machine.ts); the terminal-phase fallbacks cover
+      // defensive/legacy payloads without `to`.
+
+      case 'workflow.cancel': {
+        const data = event.data as { featureId?: string; to?: string } | undefined;
+        return {
+          ...view,
+          featureId: view.featureId || data?.featureId || view.featureId,
+          phase: data?.to ?? 'cancelled',
+          _asOf: nextAsOf,
+        };
+      }
+
+      case 'workflow.cleanup': {
+        const data = event.data as { featureId?: string; to?: string } | undefined;
+        return {
+          ...view,
+          featureId: view.featureId || data?.featureId || view.featureId,
+          phase: data?.to ?? 'completed',
           _asOf: nextAsOf,
         };
       }

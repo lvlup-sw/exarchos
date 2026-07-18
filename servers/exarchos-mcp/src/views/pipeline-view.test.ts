@@ -14,7 +14,11 @@
  * paths share a single source of truth.
  */
 import { describe, it, expect } from 'vitest';
-import { pipelineProjection, type PipelineViewState } from './pipeline-view.js';
+import {
+  pipelineProjection,
+  PIPELINE_SNAPSHOT_NAME,
+  type PipelineViewState,
+} from './pipeline-view.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 
 /**
@@ -165,5 +169,78 @@ describe('pipelineProjection — repoRoot fold (DR-5)', () => {
     // Legacy stream (no repoRoot on the event) stays unscoped — never looked up.
     expect(view.repoRoot).toBeUndefined();
     expect(view.featureId).toBe('feat-legacy');
+  });
+});
+
+// ─── DR-27: terminal-event fold (#1566 remainder) ────────────────────────────
+
+describe('pipelineProjection — terminal-event fold (DR-27 / #1566)', () => {
+  it('PipelineView_TerminalEvents_Folded', () => {
+    // LIVE repro (stream `wave-a-gate-correctness`, cancelled 2026-07-17):
+    // `handleCancel` maps the HSM cancel transition through internal type
+    // 'cancel' → external `workflow.cancel` — NO `workflow.transition` is ever
+    // appended on the cancel path — so the ONLY phase-bearing events after
+    // `workflow.started` are `workflow.cancel { from, to: 'cancelled' }`.
+    // Pre-fix, the projection had no case for them (default: identity) and the
+    // pipeline listed the cancelled workflow frozen at phase 'started' forever.
+    const initial = pipelineProjection.init();
+    const started = makeEvent(
+      'workflow.started',
+      { featureId: 'wave-a-cancel', workflowType: 'feature' },
+      1,
+    );
+    // handleCancel appends the mapped HSM transition event, then the cancel
+    // metadata event — BOTH arrive as `workflow.cancel` (live seq 2 + 3).
+    const cancelTransition = makeEvent(
+      'workflow.cancel',
+      { featureId: 'wave-a-cancel', from: 'plan', to: 'cancelled', trigger: 'user-cancel' },
+      2,
+    );
+    const cancelMetadata = makeEvent(
+      'workflow.cancel',
+      {
+        featureId: 'wave-a-cancel',
+        from: 'plan',
+        to: 'cancelled',
+        trigger: 'user-cancel',
+        compensationActions: 0,
+        compensationSuccess: true,
+      },
+      3,
+    );
+
+    let view: PipelineViewState = pipelineProjection.apply(initial, started);
+    view = pipelineProjection.apply(view, cancelTransition);
+    view = pipelineProjection.apply(view, cancelMetadata);
+
+    expect(view.phase).toBe('cancelled');
+    // The fold touched the event, so projection freshness must advance too.
+    expect(view._asOf).toBe('2026-05-15T00:00:00.000Z');
+
+    // Completion terminal: the universal mergeVerified→completed transition
+    // emits internal 'cleanup' → external `workflow.cleanup { to: 'completed' }`
+    // (state-machine.ts) — likewise never a `workflow.transition`.
+    let done: PipelineViewState = pipelineProjection.apply(
+      pipelineProjection.init(),
+      makeEvent('workflow.started', { featureId: 'wave-a-done', workflowType: 'feature' }, 1),
+    );
+    done = pipelineProjection.apply(
+      done,
+      makeEvent(
+        'workflow.cleanup',
+        { featureId: 'wave-a-done', from: 'mergeVerified', to: 'completed', trigger: 'cleanup' },
+        2,
+      ),
+    );
+    expect(done.phase).toBe('completed');
+  });
+
+  it('PipelineView_SnapshotLineage_RefoldsPreFixSnapshots', () => {
+    // A fold change only affects events folded AFTER it ships; a pre-fix
+    // `pipeline-v2` snapshot has already consumed its terminal events with the
+    // stale fold, so without a lineage bump the cancelled-workflow phase stays
+    // frozen in the field (the exact #1566 symptom). Pin the v3 lineage so the
+    // fix re-folds existing streams.
+    expect(PIPELINE_SNAPSHOT_NAME).toBe('pipeline-v3');
   });
 });
