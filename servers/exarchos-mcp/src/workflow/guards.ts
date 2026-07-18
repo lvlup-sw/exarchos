@@ -1,3 +1,5 @@
+import { isPlainObject } from './state-mutation.js';
+
 // ─── Guard Types ────────────────────────────────────────────────────────────
 
 export interface GuardFailure {
@@ -416,13 +418,17 @@ export const guards = {
         typeof state._maxNoCoverage === 'number' &&
         Number.isFinite(state._maxNoCoverage)
       ) {
-        const dim = reviews['mutation-adequacy'] as Record<string, unknown> | undefined;
+        // Capture the narrowed budget right after the `typeof` check above
+        // (real narrowing, not an escape-hatch cast — DR-14).
+        const maxNoCoverage = state._maxNoCoverage;
+        const rawDim = reviews['mutation-adequacy'];
+        const dim = isPlainObject(rawDim) ? rawDim : undefined;
         if (dim && dim.skipped !== true && dim.degraded !== true) {
           const noCoverage = dim.noCoverage;
           if (
             typeof noCoverage === 'number' &&
             Number.isFinite(noCoverage) &&
-            noCoverage > (state._maxNoCoverage as number)
+            noCoverage > maxNoCoverage
           ) {
             reasons.push(
               `mutation-adequacy has ${noCoverage} uncovered (NoCoverage) mutant(s), ` +
