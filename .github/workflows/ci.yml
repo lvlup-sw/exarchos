@@ -204,14 +204,17 @@ jobs:
           RUN_EVALS: ''
         run: npm run test:coverage
 
-      # DR-5 coverage non-regression ratchet, OBSERVE MODE (logs the verdict,
-      # never fails — task 009 flips it to blocking after a CI soak). The path
-      # is $GITHUB_WORKSPACE-absolute because this job's default
-      # working-directory is servers/exarchos-mcp; the script resolves its own
-      # inputs from its location, not the cwd. DR-1 host class: deps, filtered
-      # on `mcp`. See docs/guides/ci-gate-hosting.md.
-      - name: Coverage ratchet — observe mode (DR-5)
-        run: node "$GITHUB_WORKSPACE/scripts/check-coverage-ratchet.mjs" --observe
+      # DR-5 coverage non-regression ratchet, BLOCKING (task 009: the CI soak
+      # is complete — 3 green observe-mode runs on this feature branch fed the
+      # measured, floored-epsilon baseline at
+      # servers/exarchos-mcp/coverage-baseline.json — so `--observe` is
+      # dropped and a regression beyond the floored epsilon now fails this
+      # job). The path is $GITHUB_WORKSPACE-absolute because this job's
+      # default working-directory is servers/exarchos-mcp; the script resolves
+      # its own inputs from its location, not the cwd. DR-1 host class: deps,
+      # filtered on `mcp`. See docs/guides/ci-gate-hosting.md.
+      - name: Coverage ratchet — blocking (DR-5)
+        run: node "$GITHUB_WORKSPACE/scripts/check-coverage-ratchet.mjs"
 
       # DR-5: publish the coverage summary as a run artifact so task 009 can
       # capture the live baseline (totals + run-ids) from ≥3 CI runs. `path` is
@@ -244,7 +247,10 @@ jobs:
       # shallow PR base ref (origin/$GITHUB_BASE_REF) and invokes the in-tree
       # mutation-adequacy handler via bun (set up above); an empty server diff
       # is a logged skip, a git failure is fail-closed. Observe mode logs the
-      # verdict and always exits 0 — task 009 flips it to blocking. DR-1 host
+      # verdict and always exits 0 — this step STAYS observe (task 009
+      # deliberately deferred its flip: the diff-scoped mutation gate degrades
+      # in CI because StrykerJS dry-run fails on the full server suite;
+      # tracked in #1720). It flips to blocking once #1720 resolves. DR-1 host
       # class: deps, filtered on `mcp` — scan surface servers/** ⊆ the mcp
       # filter; the scripts/ impl is re-asserted unfiltered in grep-gates
       # (DR-10). See docs/guides/ci-gate-hosting.md.

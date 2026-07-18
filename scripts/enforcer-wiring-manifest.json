@@ -34,9 +34,10 @@
     },
     {
       "script": "scripts/check-coverage-ratchet.mjs",
-      "disposition": "advisory",
+      "disposition": "gating",
       "workflow": ".github/workflows/ci.yml",
-      "rationale": "test-mcp step (DR-5), OBSERVE MODE: `node scripts/check-coverage-ratchet.mjs --observe` logs the coverage non-regression verdict and always exits 0 during the CI soak window. Intentionally non-failable now; task 009 flips it to `gating` once the live coverage baseline (totals + run-ids from >=3 CI runs) is captured. Advisory disposition MATCHES the actual non-blocking state per the manifest honesty contract; its scripts/ self-test (check-coverage-ratchet.test.sh) re-asserts unfiltered in grep-gates (DR-10)."
+      "diffDependent": false,
+      "rationale": "test-mcp step (DR-5), BLOCKING (task 009): `node scripts/check-coverage-ratchet.mjs` (no `--observe`) now fails the job on a coverage regression beyond its floored epsilon. The live coverage baseline (servers/exarchos-mcp/coverage-baseline.json — totals + run-ids + measured spread from 3 green CI runs on this feature branch: 29622454248, 29623082084, 29624088763) was captured and the observe flag dropped in the same change. Its scripts/ self-test (check-coverage-ratchet.test.sh) re-asserts unfiltered in grep-gates (DR-10)."
     },
     {
       "script": "scripts/check-design-completeness.sh",
@@ -75,7 +76,7 @@
       "script": "scripts/check-mutation-gate.mjs",
       "disposition": "advisory",
       "workflow": ".github/workflows/ci.yml",
-      "rationale": "test-mcp step (DR-7), OBSERVE MODE, pull_request events only: `node scripts/check-mutation-gate.mjs --observe` logs the diff-scoped mutation-adequacy verdict and always exits 0 during the CI soak window. Intentionally non-failable now; task 009 flips it to `gating` after the observe step has run green on a non-empty server diff from this feature's own pushes. Advisory disposition MATCHES the actual non-blocking state per the manifest honesty contract; its scripts/ self-test (check-mutation-gate.test.sh) re-asserts unfiltered in grep-gates (DR-10)."
+      "rationale": "test-mcp step (DR-7), OBSERVE MODE, pull_request events only: `node scripts/check-mutation-gate.mjs --observe` logs the diff-scoped mutation-adequacy verdict and always exits 0 during the CI soak window. DEFERRED (task 009 scope change, #1720): the flip to `gating` does NOT land alongside the coverage ratchet's flip — the diff-scoped mutation gate degrades in CI because StrykerJS dry-run fails on the full server suite. Stays advisory/observe until #1720 resolves; that issue is this entry's exit condition. Advisory disposition MATCHES the actual non-blocking state per the manifest honesty contract; its scripts/ self-test (check-mutation-gate.test.sh) re-asserts unfiltered in grep-gates (DR-10)."
     },
     {
       "script": "scripts/check-no-state-json.mjs",
