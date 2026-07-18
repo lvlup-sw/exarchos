@@ -1,18 +1,22 @@
 /**
- * Capability resolver (T017, DR-14)
+ * Capability resolver (T017, DR-14; live posture handshake per DR-8 #1688)
  *
- * Stub for runtime capability detection. Real runtime handshake wiring is a
- * follow-up task; this module provides only an in-memory lookup surface.
+ * Runtime capability detection for MCP callers. The initialize handshake is
+ * snapshotted into this resolver: protocol capabilities (roots / elicitation
+ * / tasks) become booleans, and the namespaced caller-posture declaration
+ * (`capabilities.experimental['exarchos/posture']`) resolves a live trust
+ * tier per INV-11 — handshake-authoritative merge with the agent-spec
+ * posture, defaulting to read-only when neither half declares.
  *
  * Consumers should depend on the {@link CapabilityResolver} interface rather
- * than the concrete factory so that the resolver can be swapped for a real
- * handshake-based implementation later.
+ * than the concrete factory so that the resolver can be swapped for an
+ * alternative implementation.
  */
 
 import type { Capability } from '../agents/capabilities.js';
 import type { AgentPosture } from '../agents/spec.js';
 import type { ToolResult } from '../format.js';
-import { capabilitiesForPosture } from './posture-mapping.js';
+import { capabilitiesForPosture, listPostures } from './posture-mapping.js';
 import { KIND_OBLIGATIONS } from '../workflow/phase-kind.js';
 import type { PhaseKind } from '../workflow/phase-kind.js';
 
@@ -56,8 +60,134 @@ export interface ClientHandshake {
      * a malformed array declaration.
      */
     readonly tasks?: Readonly<Record<string, unknown>> | undefined;
+    /**
+     * DR-8 (#1688) — the MCP spec's designated channel for non-standard
+     * client capabilities. Exarchos reads ONE namespaced key from it:
+     * `experimental['exarchos/posture'] = { posture: <AgentPosture> }`
+     * (see {@link POSTURE_HANDSHAKE_KEY}). This is the runtime half of
+     * INV-11's `agent-spec ⊕ handshake` posture merge.
+     */
+    readonly experimental?: Readonly<Record<string, unknown>> | undefined;
     readonly [k: string]: unknown;
   } | undefined;
+}
+
+// ─── DR-8 / INV-11: caller-posture handshake declaration (#1688) ───────────
+
+/**
+ * The namespaced `capabilities.experimental` key a live MCP caller uses to
+ * declare its trust posture during the initialize handshake:
+ *
+ * ```jsonc
+ * // Client → initialize request
+ * { "capabilities": { "experimental": {
+ *     "exarchos/posture": { "posture": "shared-mutating" } } } }
+ * ```
+ *
+ * `experimental` is the MCP spec's escape hatch for capabilities the protocol
+ * does not model natively — clients that do not understand the key simply
+ * omit it and resolve to the default read-only tier, so the channel is
+ * backwards-compatible by construction.
+ */
+export const POSTURE_HANDSHAKE_KEY = 'exarchos/posture' as const;
+
+/**
+ * The INV-5b diagnosability record for a posture resolution: which posture
+ * became effective, WHY (source), and what each half of the INV-11 merge
+ * declared. Queryable via {@link CapabilityResolver.getPostureResolution},
+ * logged by the MCP adapter after every initialize snapshot, and stamped
+ * onto CAPABILITY_DENIED envelopes (`_meta.postureResolution`) by
+ * {@link enforceSharedMutatingGate} so a denied caller can see exactly what
+ * tier the server derived for it.
+ */
+export interface PostureResolution {
+  /** The posture whose trust tier is in force for this session. */
+  readonly effectivePosture: AgentPosture;
+  /**
+   * Which half of INV-11's merge won: `handshake` (a valid live declaration
+   * — always authoritative), `agent-spec` (the spec's yaml posture, used
+   * only when the handshake is silent), or `default` (neither declared —
+   * the read-only fail-closed tier).
+   */
+  readonly source: 'handshake' | 'agent-spec' | 'default';
+  /** The posture the handshake validly declared, when it did. */
+  readonly handshakePosture?: AgentPosture;
+  /** The agent-spec posture the resolver was constructed with, when set. */
+  readonly specPosture?: AgentPosture;
+  /**
+   * True when the handshake carried a `POSTURE_HANDSHAKE_KEY` entry that was
+   * malformed (wrong shape or an unknown posture string). Malformed
+   * declarations are IGNORED — fail closed to spec/default — but flagged
+   * here so a misconfigured client is diagnosable rather than silent.
+   */
+  readonly invalidHandshakeDeclaration?: boolean;
+  /**
+   * The trust-tier capabilities minted from `effectivePosture` and folded
+   * into the live resolver set. Empty for `source: 'default'` — see
+   * {@link createInMemoryResolver} for why the default tier enforces by
+   * ABSENCE rather than by minting the read-only capability set.
+   */
+  readonly mintedCapabilities: readonly Capability[];
+}
+
+/**
+ * Union of every capability that appears in ANY posture's trust tier
+ * (`POSTURE_CAPABILITY_MAP`). When a posture has been resolved from a live
+ * declaration, membership questions about THESE capabilities are answered
+ * exclusively by the posture-derived tier (tier REPLACEMENT — INV-11
+ * handshake-authoritative), while non-tier capabilities (cache hints,
+ * per-agent overlays) keep answering from the constructor seed.
+ */
+const TRUST_TIER_CAPABILITIES: ReadonlySet<Capability> = (() => {
+  const union = new Set<Capability>();
+  for (const posture of listPostures()) {
+    for (const cap of capabilitiesForPosture(posture)) union.add(cap);
+  }
+  return union;
+})();
+
+/** Type guard: is `value` one of the three canonical postures? */
+function isAgentPosture(value: unknown): value is AgentPosture {
+  return (
+    typeof value === 'string'
+    && (listPostures() as readonly string[]).includes(value)
+  );
+}
+
+/**
+ * Outcome of reading the posture declaration out of an initialize handshake.
+ * `declared` is the valid posture when one was present; `invalid` marks a
+ * present-but-malformed declaration (ignored, fail closed).
+ */
+interface HandshakePostureExtraction {
+  readonly declared: AgentPosture | undefined;
+  readonly invalid: boolean;
+}
+
+function extractHandshakePosture(
+  handshake: ClientHandshake,
+): HandshakePostureExtraction {
+  const experimental = handshake.capabilities?.experimental;
+  if (
+    experimental === undefined
+    || experimental === null
+    || typeof experimental !== 'object'
+    || Array.isArray(experimental)
+  ) {
+    return { declared: undefined, invalid: false };
+  }
+  const entry = (experimental as Record<string, unknown>)[POSTURE_HANDSHAKE_KEY];
+  if (entry === undefined) {
+    return { declared: undefined, invalid: false };
+  }
+  if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+    return { declared: undefined, invalid: true };
+  }
+  const posture = (entry as Record<string, unknown>)['posture'];
+  if (isAgentPosture(posture)) {
+    return { declared: posture, invalid: false };
+  }
+  return { declared: undefined, invalid: true };
 }
 
 /**
@@ -123,22 +253,128 @@ export interface CapabilityResolver {
    * returns `undefined` and forces a refetch.
    */
   invalidateRootsCache(): void;
+
+  // ─── DR-8 / INV-11: caller-posture handshake resolution (#1688) ───────
+  /**
+   * The INV-5b diagnosability record for the current posture resolution:
+   * effective posture, winning source (handshake > agent-spec > default),
+   * both declared halves, and the minted trust-tier capabilities. Never
+   * `undefined` — before any snapshot it reflects the construction-time
+   * resolution (agent-spec posture when supplied, else the read-only
+   * default).
+   */
+  getPostureResolution(): PostureResolution;
+}
+
+/**
+ * Construction options for {@link createInMemoryResolver}.
+ */
+export interface InMemoryResolverOptions {
+  /**
+   * The agent-spec posture (the yaml half of INV-11's merge). When set, its
+   * trust tier is in force from construction; a live handshake declaring a
+   * DIFFERENT posture replaces it wholesale (handshake-authoritative). The
+   * live MCP server constructs its resolver without this — the field exists
+   * for embedding contexts that dispatch on behalf of a spec'd agent.
+   */
+  readonly specPosture?: AgentPosture;
 }
 
 export function createInMemoryResolver(
   capabilities: Iterable<string>,
+  options?: InMemoryResolverOptions,
 ): CapabilityResolver {
   const set = new Set(capabilities);
+  const specPosture = options?.specPosture;
   let clientRootsDeclared = false;
   let clientElicitationDeclared = false;
   let clientTaskSupportDeclared = false;
   let cachedRoots: readonly CachedRoot[] | undefined;
+
+  // ─── DR-8 / INV-11 (#1688): posture-derived trust tier ────────────────
+  // `postureCaps` is the capability set minted from the effective posture,
+  // or `undefined` when no posture was declared by EITHER half (the
+  // legacy/default state, in which the constructor seed answers alone).
+  //
+  // Precedence (INV-11, handshake-authoritative): a valid handshake
+  // declaration ALWAYS wins — even when narrower than the agent-spec
+  // posture — because the runtime is the source of truth for what is
+  // actually mounted. The merge is tier REPLACEMENT, not union: unioning a
+  // task-isolated spec with a shared-mutating handshake would leak
+  // `isolation:worktree` into the effective set and flip
+  // `enforceSharedMutatingGate` the wrong way.
+  //
+  // Default (neither half declares): NOTHING is minted. The undeclared
+  // caller's read-only tier is enforced by ABSENCE — no `fs:write` means
+  // every `posture: 'shared-mutating'` action stays CAPABILITY_DENIED —
+  // rather than by minting `capabilitiesForPosture('read-only')`, because
+  // that set contains `mcp:exarchos:readonly`, which would activate the
+  // `enforceReadonlyGate` allowlist and break every undeclared live
+  // session's ordinary mutating actions (task_claim, workflow appends, …).
+  // An EXPLICIT read-only declaration does mint the tier (opt-in).
+  let postureCaps: ReadonlySet<Capability> | undefined;
+  let postureResolution: PostureResolution;
+
+  const recomputePosture = (extraction: HandshakePostureExtraction): void => {
+    const invalidFlag = extraction.invalid
+      ? { invalidHandshakeDeclaration: true as const }
+      : {};
+    if (extraction.declared !== undefined) {
+      postureCaps = capabilitiesForPosture(extraction.declared);
+      postureResolution = {
+        effectivePosture: extraction.declared,
+        source: 'handshake',
+        handshakePosture: extraction.declared,
+        ...(specPosture !== undefined ? { specPosture } : {}),
+        mintedCapabilities: [...postureCaps],
+      };
+    } else if (specPosture !== undefined) {
+      postureCaps = capabilitiesForPosture(specPosture);
+      postureResolution = {
+        effectivePosture: specPosture,
+        source: 'agent-spec',
+        specPosture,
+        ...invalidFlag,
+        mintedCapabilities: [...postureCaps],
+      };
+    } else {
+      postureCaps = undefined;
+      postureResolution = {
+        effectivePosture: 'read-only',
+        source: 'default',
+        ...invalidFlag,
+        mintedCapabilities: [],
+      };
+    }
+  };
+  // Construction-time resolution: the agent-spec half (or default) is in
+  // force until the first handshake snapshot arrives.
+  recomputePosture({ declared: undefined, invalid: false });
+
   return {
     has(capability) {
+      // Tier replacement (INV-11): once a posture is resolved, trust-tier
+      // capability membership is answered EXCLUSIVELY by the minted tier —
+      // a constructor-seeded trust cap must not survive a narrower live
+      // declaration. Non-tier capabilities (cache hints, per-agent
+      // overlays) keep answering from the seed. The cast is safe: `.has`
+      // on a non-member simply returns false.
+      if (
+        postureCaps !== undefined
+        && TRUST_TIER_CAPABILITIES.has(capability as Capability)
+      ) {
+        return postureCaps.has(capability as Capability);
+      }
       return set.has(capability);
     },
     list() {
-      return [...set];
+      if (postureCaps === undefined) return [...set];
+      const merged = new Set<string>();
+      for (const c of set) {
+        if (!TRUST_TIER_CAPABILITIES.has(c as Capability)) merged.add(c);
+      }
+      for (const c of postureCaps) merged.add(c);
+      return [...merged];
     },
     snapshot(handshake) {
       clientRootsDeclared = handshake.capabilities?.roots?.listChanged === true;
@@ -172,6 +408,13 @@ export function createInMemoryResolver(
         && tasks !== null
         && typeof tasks === 'object'
         && !Array.isArray(tasks);
+      // DR-8 / INV-11 (#1688) — derive the caller's trust posture from the
+      // namespaced `experimental['exarchos/posture']` declaration and
+      // recompute the effective tier. Snapshot-wholesale semantics apply
+      // here too: a second handshake WITHOUT a declaration reverts the
+      // session to the spec/default tier — posture-derived capabilities
+      // never accumulate across handshakes.
+      recomputePosture(extractHandshakePosture(handshake));
     },
     isRootsDeclared() {
       return clientRootsDeclared;
@@ -190,6 +433,9 @@ export function createInMemoryResolver(
     },
     invalidateRootsCache() {
       cachedRoots = undefined;
+    },
+    getPostureResolution() {
+      return postureResolution;
     },
   };
 }
@@ -375,6 +621,7 @@ function sharedMutatingDenial(
   tool: string,
   action: string,
   reason: string,
+  postureResolution: PostureResolution,
 ): ToolResult {
   return {
     success: false,
@@ -385,6 +632,12 @@ function sharedMutatingDenial(
       tool,
       action,
     },
+    // DR-8 / INV-5b (#1688): the denial carries the full posture-resolution
+    // record so a rejected caller can see WHAT tier the server derived for
+    // it and WHY (source + both declared halves) without a server-side log
+    // dig. Dispatch's `attachMeta` merges correlation IDs around this
+    // non-destructively (caller-supplied `_meta` wins on conflict).
+    _meta: { postureResolution },
   };
 }
 
@@ -415,6 +668,7 @@ export function enforceSharedMutatingGate(
       tool,
       action,
       'a task-isolated (isolation:worktree) caller cannot mutate shared, un-isolated state',
+      resolver.getPostureResolution(),
     );
   }
 
@@ -424,6 +678,7 @@ export function enforceSharedMutatingGate(
       tool,
       action,
       'a read-only caller (no fs:write) cannot mutate shared, un-isolated state',
+      resolver.getPostureResolution(),
     );
   }
 

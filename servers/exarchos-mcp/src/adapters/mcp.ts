@@ -442,6 +442,17 @@ export function createMcpServer(ctx: DispatchContext): McpServer {
       try {
         const capabilities = server.server.getClientCapabilities();
         resolver.snapshot({ capabilities });
+        // DR-8 / INV-5b (#1688) — posture resolution must be LOGGED for
+        // diagnosis: the snapshot above just derived the caller's trust
+        // tier from the initialize handshake (INV-11 handshake-
+        // authoritative), and a later CAPABILITY_DENIED is only
+        // debuggable if this session's derivation is on record. The same
+        // record is queryable via `resolver.getPostureResolution()` and
+        // stamped onto shared-mutating denials (`_meta.postureResolution`).
+        logger.child({ subsystem: 'mcp-handshake' }).info(
+          { postureResolution: resolver.getPostureResolution() },
+          'caller posture resolved from initialize handshake (DR-8, INV-11)',
+        );
       } catch (err) {
         // Snapshot must never throw out of an MCP lifecycle hook —
         // failure here only degrades discovery to the cwd-walk fallback.
