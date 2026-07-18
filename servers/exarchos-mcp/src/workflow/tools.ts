@@ -29,6 +29,7 @@ import {
   resetCounter,
   isStale,
   shouldEnforceCheckpoint,
+  resolveContextArgument,
   type CheckpointEnforcementConfig,
 } from './checkpoint.js';
 import { workflowLogger } from '../logger.js';
@@ -1535,7 +1536,35 @@ export async function handleCheckpoint(
       },
     };
   }
-  const validated = parsed.data;
+  let validated = parsed.data;
+
+  // DR-20 (#1245) — `@<path>` argument substitution on `handoff.context`.
+  // Runs AFTER schema validation (an `@<path>` string is short enough to
+  // pass the 2048-char cap) and BEFORE the handoff lint, so the lint
+  // operates on the substituted prose rather than the raw path token.
+  // The resolver's byte cap equals the schema's char cap, so the
+  // substituted value still satisfies `CheckpointHandoffSchema.context`
+  // and the persisted-event mirror. Failures (missing file, oversize,
+  // non-regular file) return structured INV-5b envelopes here — no event
+  // is appended and the counter stays un-reset, matching the handler's
+  // other pre-write rejections. Living at the handler seam (not in the
+  // CLI flag layer) gives the MCP arm the identical behavior (INV-4).
+  if (validated.handoff?.context !== undefined) {
+    const resolvedContext = await resolveContextArgument(validated.handoff.context);
+    if (!resolvedContext.ok) {
+      return {
+        success: false,
+        error: resolvedContext.error,
+        data: resolvedContext.details,
+      };
+    }
+    if (resolvedContext.substituted) {
+      validated = {
+        ...validated,
+        handoff: { ...validated.handoff, context: resolvedContext.context },
+      };
+    }
+  }
 
   // #1244 — markdown-aware handoff lint. Runs over the validated payload
   // BEFORE any state-file read or event-store write so the hard-fail

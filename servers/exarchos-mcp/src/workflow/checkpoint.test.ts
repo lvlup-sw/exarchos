@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import type { CheckpointState } from './types.js';
 import {
   shouldEnforceCheckpoint,
+  resolveContextArgument,
+  CONTEXT_AT_PATH_MAX_BYTES,
   type CheckpointEnforcementConfig,
   type CheckpointGateResult,
 } from './checkpoint.js';
@@ -885,5 +887,194 @@ describe('handleCheckpoint — handoff dispatch wiring (T4, #1240)', () => {
       type: 'workflow.checkpoint',
     });
     expect(eventsAfter.length).toBe(0);
+  });
+});
+
+// ─── DR-20 (#1245): @path context argument substitution ─────────────────────
+//
+// `workflow checkpoint --context @<path>` (and the MCP-arm equivalent,
+// `handoff.context: '@<path>'`) reads the file at `<path>` into the handoff
+// context field. The substitution lives at the handler seam
+// (`resolveContextArgument` in checkpoint.ts, invoked by `handleCheckpoint`
+// post-validation / pre-lint), NOT in the CLI flag layer — CLI flags
+// auto-emit from the action schema, so one resolver serves both arms
+// (INV-4 parity). Failures are structured INV-5b envelopes: a missing file
+// is a FILE_IO_ERROR naming ENOENT, an oversize or non-regular-file path is
+// an INVALID_INPUT — never a raw thrown exception. On any failure no
+// workflow.checkpoint event lands and the operation counter stays un-reset.
+
+describe('handleCheckpoint — @path context substitution (DR-20, #1245)', () => {
+  let stateDir: string;
+  let contextDir: string;
+  let store: EventStore;
+
+  beforeEach(async () => {
+    stateDir = await mkdtemp(path.join(tmpdir(), 'checkpoint-dr20-state-'));
+    contextDir = await mkdtemp(path.join(tmpdir(), 'checkpoint-dr20-ctx-'));
+    store = new EventStore(stateDir);
+  });
+
+  afterEach(async () => {
+    await rmrfAsync(stateDir);
+    await rmrfAsync(contextDir);
+  });
+
+  it('ContextAtPath_ValidFile_Substitutes', async () => {
+    // GIVEN: an initialized workflow and a context file under the byte cap.
+    const featureId = 'wf-dr20-valid-file';
+    const init = await handleInit(
+      { featureId, workflowType: 'feature' },
+      stateDir,
+      store,
+    );
+    expect(init.success).toBe(true);
+
+    const fileContent =
+      'Wave 2 handoff: tasks 017-018 merged; 019 checkpoint-context next.\n';
+    const contextFile = path.join(contextDir, 'handoff-notes.md');
+    await writeFile(contextFile, fileContent, 'utf8');
+
+    // WHEN: the checkpoint dispatch carries `@<path>` as the context.
+    const result = await handleCheckpoint(
+      {
+        featureId,
+        handoff: { context: `@${contextFile}`, nextSteps: ['dispatch 020'] },
+      },
+      stateDir,
+      store,
+    );
+
+    // THEN: the call succeeds and the persisted event carries the FILE
+    // CONTENT (verbatim, trailing newline included) — not the raw
+    // `@<path>` token. Sibling handoff fields pass through untouched.
+    expect(result.success).toBe(true);
+    const events = await store.query(featureId, { type: 'workflow.checkpoint' });
+    expect(events.length).toBe(1);
+    const data = events[0]!.data as {
+      handoff?: { context?: string; nextSteps?: string[] };
+    };
+    expect(data.handoff?.context).toBe(fileContent);
+    expect(data.handoff?.nextSteps).toEqual(['dispatch 020']);
+  });
+
+  it('ContextAtPath_MissingFile_StructuredEnoent', async () => {
+    // GIVEN: an initialized workflow and a path that does not exist.
+    const featureId = 'wf-dr20-missing-file';
+    const init = await handleInit(
+      { featureId, workflowType: 'feature' },
+      stateDir,
+      store,
+    );
+    expect(init.success).toBe(true);
+
+    const missingFile = path.join(contextDir, 'does-not-exist.md');
+
+    // WHEN: the checkpoint dispatch references the missing file.
+    const result = await handleCheckpoint(
+      { featureId, handoff: { context: `@${missingFile}` } },
+      stateDir,
+      store,
+    );
+
+    // THEN: a structured INV-5b envelope — FILE_IO_ERROR, message naming
+    // ENOENT and the resolved path, structured details on `data` — and
+    // NOT a raw thrown exception (reaching this assertion at all proves
+    // the handler did not throw).
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('FILE_IO_ERROR');
+    expect(result.error?.message).toMatch(/ENOENT/);
+    expect(result.error?.message).toContain(missingFile);
+    expect(result.data).toMatchObject({ path: missingFile, reason: 'ENOENT' });
+
+    // No event landed on the rejection path.
+    const events = await store.query(featureId, { type: 'workflow.checkpoint' });
+    expect(events.length).toBe(0);
+  });
+
+  it('ContextAtPath_OversizeFile_StructuredError', async () => {
+    // GIVEN: an initialized workflow and a file ONE byte over the cap.
+    const featureId = 'wf-dr20-oversize-file';
+    const init = await handleInit(
+      { featureId, workflowType: 'feature' },
+      stateDir,
+      store,
+    );
+    expect(init.success).toBe(true);
+
+    const oversizeFile = path.join(contextDir, 'oversize.md');
+    await writeFile(oversizeFile, 'x'.repeat(CONTEXT_AT_PATH_MAX_BYTES + 1), 'utf8');
+
+    // WHEN: the checkpoint dispatch references the oversize file.
+    const result = await handleCheckpoint(
+      { featureId, handoff: { context: `@${oversizeFile}` } },
+      stateDir,
+      store,
+    );
+
+    // THEN: structured INVALID_INPUT with actual/max byte counts in the
+    // `data` details — mirroring the inline-context cap rejection, but
+    // with the size evidence an operator needs to trim the file.
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toMatch(new RegExp(String(CONTEXT_AT_PATH_MAX_BYTES)));
+    expect(result.data).toMatchObject({
+      path: oversizeFile,
+      reason: 'OVERSIZE',
+      sizeBytes: CONTEXT_AT_PATH_MAX_BYTES + 1,
+      maxBytes: CONTEXT_AT_PATH_MAX_BYTES,
+    });
+
+    const events = await store.query(featureId, { type: 'workflow.checkpoint' });
+    expect(events.length).toBe(0);
+  });
+
+  it('ContextAtPath_InlineString_PassesThroughVerbatim', async () => {
+    // GIVEN: an initialized workflow. WHEN: the context is a plain inline
+    // string (no leading `@`). THEN: it persists verbatim — the resolver
+    // must not touch the filesystem for non-@ values, so pre-DR-20
+    // callers observe byte-identical behavior.
+    const featureId = 'wf-dr20-inline-passthrough';
+    const init = await handleInit(
+      { featureId, workflowType: 'feature' },
+      stateDir,
+      store,
+    );
+    expect(init.success).toBe(true);
+
+    const inline = 'inline context mentioning a path like ./notes.md but not @-prefixed';
+    const result = await handleCheckpoint(
+      { featureId, handoff: { context: inline } },
+      stateDir,
+      store,
+    );
+
+    expect(result.success).toBe(true);
+    const events = await store.query(featureId, { type: 'workflow.checkpoint' });
+    expect(events.length).toBe(1);
+    const data = events[0]!.data as { handoff?: { context?: string } };
+    expect(data.handoff?.context).toBe(inline);
+  });
+
+  it('ContextAtPath_EmptyPath_StructuredInvalidInput', async () => {
+    // A bare `@` (or `@` + whitespace) fails path validation with a
+    // structured INVALID_INPUT — resolver-level unit assertion.
+    const result = await resolveContextArgument('@');
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('INVALID_INPUT');
+      expect(result.details.reason).toBe('EMPTY_PATH');
+    }
+  });
+
+  it('ContextAtPath_Directory_StructuredInvalidInput', async () => {
+    // A path that resolves to a directory is rejected as NOT_A_FILE
+    // rather than surfacing a raw EISDIR from readFile.
+    const result = await resolveContextArgument(`@${contextDir}`);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('INVALID_INPUT');
+      expect(result.details.reason).toBe('NOT_A_FILE');
+      expect(result.details.path).toBe(contextDir);
+    }
   });
 });

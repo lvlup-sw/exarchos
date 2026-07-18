@@ -23,8 +23,10 @@
 //     and the new CLI shape.
 //   - The flags are CLI-only sugar. The MCP path continues to accept the
 //     full `handoff: { context, nextSteps, suggestions }` object directly.
-//   - `@<path>` substitution for `--context` is OUT OF SCOPE for T5
-//     (#1245, scheduled for v2.12.0). `--context` accepts inline strings.
+//   - `@<path>` substitution for `--context` was OUT OF SCOPE for T5 and
+//     landed in v2.12.0 (DR-20, #1245) — at the HANDLER seam, so the
+//     `@<path>` token still passes through this reshape unchanged. See
+//     the DR-20 suite at the bottom of this file.
 //
 // Tests drive Commander in-process (the same harness `parity.test.ts` uses
 // for the C9 parity suites) so we exercise the actual auto-generated flag
@@ -39,6 +41,8 @@ import * as path from 'node:path';
 import type { DispatchContext } from '../core/dispatch.js';
 import { EventStore } from '../event-store/store.js';
 import type { ToolResult } from '../format.js';
+import { handleInit } from '../workflow/tools.js';
+import { CONTEXT_AT_PATH_MAX_BYTES } from '../workflow/checkpoint.js';
 import { buildCli, applyExitOverrideRecursively, CLI_EXIT_CODES } from './cli.js';
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────
@@ -352,5 +356,232 @@ describe('wf checkpoint — handoff convenience flags (T5, #1240)', () => {
       'handoff',
     );
     expect(hasHandoffKey).toBe(false);
+  });
+});
+
+// ─── DR-20 (#1245): `--context @<path>` substitution ────────────────────────
+//
+// v2.12.0 lifts the T5 out-of-scope note: `wf checkpoint --context @<path>`
+// now reads the file at `<path>` into `handoff.context`. The substitution
+// lives at the HANDLER seam (`resolveContextArgument` in
+// workflow/checkpoint.ts, invoked by `handleCheckpoint`) — NOT in the CLI
+// reshape block — because CLI flags auto-emit from the action schema and
+// the MCP arm must observe identical behavior (INV-4 parity). These tests
+// therefore drive the REAL dispatch (no spy): the `@<path>` token flows
+// through the convenience-flag reshape and the schema parse unchanged, and
+// the handler performs the read. Assertions land on the persisted event
+// (success) and on the rendered INV-5b error envelope + exit code
+// (failure paths).
+
+/**
+ * Drive `wf checkpoint` through Commander with the REAL dispatch chain
+ * (composite handler → handleCheckpoint). Unlike `runWfCheckpointCli`
+ * above, nothing is mocked — the workflow must already exist in
+ * `ctx.stateDir`. Returns the parsed stdout envelope and exit code.
+ */
+async function runWfCheckpointCliRealDispatch(
+  ctx: DispatchContext,
+  argv: readonly string[],
+): Promise<Omit<RunResult, 'dispatchedArgs'>> {
+  const program = buildCli(ctx);
+  applyExitOverrideRecursively(program);
+
+  const stdoutBuf: string[] = [];
+  const stderrBuf: string[] = [];
+  const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+    stdoutBuf.push(typeof chunk === 'string' ? chunk : String(chunk));
+    return true;
+  });
+  const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => {
+    stderrBuf.push(typeof chunk === 'string' ? chunk : String(chunk));
+    return true;
+  });
+
+  const savedExit = process.exitCode;
+  process.exitCode = undefined;
+
+  let commanderErr: CommanderError | undefined;
+  let exitCode = 0;
+  try {
+    await program.parseAsync([...argv]);
+  } catch (err) {
+    if (err instanceof CommanderError) {
+      commanderErr = err;
+    } else {
+      exitCode = typeof process.exitCode === 'number' ? process.exitCode : 0;
+      throw err;
+    }
+  } finally {
+    if (commanderErr !== undefined || exitCode === 0) {
+      exitCode =
+        typeof process.exitCode === 'number'
+          ? process.exitCode
+          : commanderErr?.exitCode ?? exitCode;
+    }
+    process.exitCode = savedExit;
+    stdoutSpy.mockRestore();
+    stderrSpy.mockRestore();
+  }
+
+  const stdout = stdoutBuf.join('');
+  const stderr = stderrBuf.join('');
+  let parsed: ToolResult = {
+    success: false,
+    error: { code: 'TEST_HARNESS_NO_OUTPUT', message: 'no stdout' },
+  };
+  if (stdout.trim().length > 0) {
+    const firstBrace = stdout.indexOf('{');
+    if (firstBrace >= 0) {
+      try {
+        parsed = JSON.parse(stdout.slice(firstBrace)) as ToolResult;
+      } catch {
+        // leave default
+      }
+    }
+  }
+
+  return { result: parsed, exitCode, stdout, stderr };
+}
+
+describe('wf checkpoint — --context @<path> substitution (DR-20, #1245)', () => {
+  let stateDir: string;
+  let contextDir: string;
+  let eventStore: EventStore;
+  let ctx: DispatchContext;
+
+  beforeEach(async () => {
+    stateDir = await fs.mkdtemp(path.join(os.tmpdir(), 'dr20-cli-state-'));
+    contextDir = await fs.mkdtemp(path.join(os.tmpdir(), 'dr20-cli-ctx-'));
+    eventStore = new EventStore(stateDir);
+    await eventStore.initialize();
+    ctx = { stateDir, eventStore, enableTelemetry: false };
+  });
+
+  afterEach(async () => {
+    await fs.rm(stateDir, { recursive: true, force: true });
+    await fs.rm(contextDir, { recursive: true, force: true });
+  });
+
+  it('CheckpointCli_ContextAtPath_ValidFile_Substitutes', async () => {
+    // GIVEN: an existing workflow and a context file under the byte cap.
+    const featureId = 'cli-dr20-valid';
+    const init = await handleInit(
+      { featureId, workflowType: 'feature' },
+      stateDir,
+      eventStore,
+    );
+    expect(init.success).toBe(true);
+
+    const fileContent = 'CLI-arm handoff: read from disk, not typed inline.\n';
+    const contextFile = path.join(contextDir, 'notes.md');
+    await fs.writeFile(contextFile, fileContent, 'utf8');
+
+    // WHEN: `wf checkpoint --context @<path>` runs against real dispatch.
+    const { result, exitCode } = await runWfCheckpointCliRealDispatch(ctx, [
+      'node',
+      'exarchos',
+      'wf',
+      'checkpoint',
+      '--feature-id',
+      featureId,
+      '--context',
+      `@${contextFile}`,
+      '--json',
+    ]);
+
+    // THEN: success, and the persisted workflow.checkpoint event carries
+    // the FILE CONTENT — the raw `@<path>` token never reaches disk.
+    expect(exitCode).toBe(CLI_EXIT_CODES.SUCCESS);
+    expect(result.success).toBe(true);
+    const events = await eventStore.query(featureId, {
+      type: 'workflow.checkpoint',
+    });
+    expect(events.length).toBe(1);
+    const data = events[0]!.data as { handoff?: { context?: string } };
+    expect(data.handoff?.context).toBe(fileContent);
+  });
+
+  it('CheckpointCli_ContextAtPath_MissingFile_StructuredEnoent', async () => {
+    // GIVEN: an existing workflow and a path with no file behind it.
+    const featureId = 'cli-dr20-missing';
+    const init = await handleInit(
+      { featureId, workflowType: 'feature' },
+      stateDir,
+      eventStore,
+    );
+    expect(init.success).toBe(true);
+
+    const missingFile = path.join(contextDir, 'nope.md');
+
+    const { result, exitCode } = await runWfCheckpointCliRealDispatch(ctx, [
+      'node',
+      'exarchos',
+      'wf',
+      'checkpoint',
+      '--feature-id',
+      featureId,
+      '--context',
+      `@${missingFile}`,
+      '--json',
+    ]);
+
+    // THEN: a structured FILE_IO_ERROR envelope naming ENOENT rendered on
+    // stdout (INV-5b) with the generic handler-error exit code — the CLI
+    // process must NOT die on an uncaught exception (exit 3).
+    expect(exitCode).toBe(CLI_EXIT_CODES.HANDLER_ERROR);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('FILE_IO_ERROR');
+    expect(result.error?.message).toMatch(/ENOENT/);
+    expect(result.error?.message).toContain(missingFile);
+
+    // Rejection is pre-write: no checkpoint event landed.
+    const events = await eventStore.query(featureId, {
+      type: 'workflow.checkpoint',
+    });
+    expect(events.length).toBe(0);
+  });
+
+  it('CheckpointCli_ContextAtPath_OversizeFile_StructuredError', async () => {
+    // GIVEN: an existing workflow and a file one byte over the cap.
+    const featureId = 'cli-dr20-oversize';
+    const init = await handleInit(
+      { featureId, workflowType: 'feature' },
+      stateDir,
+      eventStore,
+    );
+    expect(init.success).toBe(true);
+
+    const oversizeFile = path.join(contextDir, 'oversize.md');
+    await fs.writeFile(
+      oversizeFile,
+      'x'.repeat(CONTEXT_AT_PATH_MAX_BYTES + 1),
+      'utf8',
+    );
+
+    const { result, exitCode } = await runWfCheckpointCliRealDispatch(ctx, [
+      'node',
+      'exarchos',
+      'wf',
+      'checkpoint',
+      '--feature-id',
+      featureId,
+      '--context',
+      `@${oversizeFile}`,
+      '--json',
+    ]);
+
+    // THEN: structured INVALID_INPUT with the byte cap in the message,
+    // mapped to the INVALID_INPUT exit code.
+    expect(exitCode).toBe(CLI_EXIT_CODES.INVALID_INPUT);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toMatch(
+      new RegExp(String(CONTEXT_AT_PATH_MAX_BYTES)),
+    );
+
+    const events = await eventStore.query(featureId, {
+      type: 'workflow.checkpoint',
+    });
+    expect(events.length).toBe(0);
   });
 });
