@@ -99,9 +99,13 @@ export interface ProcessTableSource {
    * OPTIONAL purely for backward-compatibility with in-memory test doubles that
    * supply a concrete records list: an absent predicate is read as `true`
    * (supported) by {@link isTableSupported}, because such a double IS asserting
-   * a real enumerated table. The real {@link defaultProcessTableSource} always
-   * declares it explicitly (`true` on Linux and win32 — both COMPLETE
-   * enumerations, DR-5; `false` on every other platform).
+   * a real enumerated table. The real {@link defaultProcessTableSource} declares
+   * it explicitly: `false` on every platform without an enumerator, and on
+   * Linux / win32 (both COMPLETE enumerations, DR-5) it reflects whether the
+   * most recent `list()` snapshot actually ENUMERATED — a transiently failed
+   * enumeration (e.g. a `Get-CimInstance` spawn error yielding `[]`) reads as
+   * unsupported/indeterminate rather than "every owner provably dead"
+   * (fail-open→fail-closed, DR-17 / #1641).
    */
   isSupported?(): boolean;
 }
@@ -636,7 +640,11 @@ function defaultWin32ProcessTableReader(): string {
   return typeof out === 'string' ? out : out.toString('utf8');
 }
 
-/** Enumerate the win32 process table; a failed spawn/parse yields an empty table. */
+/**
+ * Enumerate the win32 process table; a failed spawn/parse yields an empty
+ * table, which {@link makeDefaultProcessTableSource} reads as an INDETERMINATE
+ * snapshot (`isSupported() === false`) — never as "no processes" (DR-17/#1641).
+ */
 function enumerateWin32(read: Win32ProcessTableReader): ProcessRecord[] {
   try {
     return parseWin32ProcessTable(read());
@@ -673,21 +681,49 @@ export interface ProcessTableSourceDeps {
  *
  * `isSupported()` is `true` on linux AND win32 because BOTH enumerations are
  * complete: a PID absent from the parsed table is provably gone, so owner
- * liveness is authoritative (`alive`/`dead`) there. The platform/reader seams
- * keep the real OS calls out of the unit tests — the pure probe core is never
- * exercised against a real table.
+ * liveness is authoritative (`alive`/`dead`) there — **but only when the
+ * enumeration actually ran** (DR-17 / #1641). A supported platform's enumerator
+ * can transiently FAIL (a `Get-CimInstance` spawn error, an unreadable `/proc`)
+ * and yield `[]`; a static `isSupported() === true` would then read that empty
+ * snapshot as "every PID provably absent → every owner dead" and reclaim LIVE
+ * holders — a silent fail-open in the single-writer-lease liveness path. So
+ * `isSupported()` reflects the outcome of the MOST RECENT `list()` snapshot:
+ * an INDETERMINATE enumeration (zero records) flips it to `false`, every PID
+ * lookup resolves `'unknown'`, and every reclaim consumer fails closed. The
+ * zero-records predicate is sound because a REAL enumeration can never be
+ * empty — the enumerating process itself is always visible (its own `/proc`
+ * entry on Linux; the PowerShell child plus System processes in
+ * `Win32_Process` on win32) — so `[]` always means "could not enumerate",
+ * never "no processes". A later successful `list()` restores the supported /
+ * authoritative verdict. Every probe consumer snapshots `list()` and THEN
+ * reads `isSupported()` within one synchronous pass, so the verdict is always
+ * coupled to the snapshot it describes.
+ *
+ * The platform/reader seams keep the real OS calls out of the unit tests — the
+ * pure probe core is never exercised against a real table.
  */
 export function makeDefaultProcessTableSource(deps: ProcessTableSourceDeps = {}): ProcessTableSource {
   const platform = deps.platform ?? process.platform;
   const readWin32 = deps.readWin32ProcessTable ?? defaultWin32ProcessTableReader;
+  // DR-17 / #1641 fail-closed conversion: `true` after a snapshot that
+  // provably enumerated; `true` initially (no snapshot yet — consumers always
+  // list() before reading the verdict); flipped `false` by an indeterminate
+  // (empty) snapshot so its absences are never read as authoritative deaths.
+  let lastSnapshotIndeterminate = false;
   return {
     list(): readonly ProcessRecord[] {
-      if (platform === 'linux') return enumerateProcLinux();
-      if (platform === 'win32') return enumerateWin32(readWin32);
+      if (platform === 'linux' || platform === 'win32') {
+        const records =
+          platform === 'linux' ? enumerateProcLinux() : enumerateWin32(readWin32);
+        // Zero records from a supported platform ⇒ the enumeration FAILED
+        // (the enumerating process itself is always visible in a real table).
+        lastSnapshotIndeterminate = records.length === 0;
+        return records;
+      }
       return [];
     },
     isSupported(): boolean {
-      return platform === 'linux' || platform === 'win32';
+      return (platform === 'linux' || platform === 'win32') && !lastSnapshotIndeterminate;
     },
   };
 }

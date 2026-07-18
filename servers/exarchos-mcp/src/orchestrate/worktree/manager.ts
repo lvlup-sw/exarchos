@@ -1039,7 +1039,11 @@ export class WorktreeManager {
    * (DR-3). Mints a per-pass `operationId`, appends `prune.executing_started`
    * BEFORE the safety ladder runs, and appends the paired terminal
    * `prune.executed` in a `finally` so a throw mid-pass still terminates the pair
-   * exactly once — a phantom in-flight prune can never persist. The
+   * exactly once — a phantom in-flight prune can never persist. The finally-path
+   * append is GUARDED (DR-17 / #1641): its own failure never masks a primary
+   * ladder error (it is swallowed on the double-fault path, where the unpaired
+   * START is later healed by dead-holder reconciliation), while on a successful
+   * pass an append failure still surfaces as the only error. The
    * `worktrees@v1` projection folds the pair into `inFlightPrunes`, so an
    * in-flight prune is `ps`/`wait`-visible (the rolled-forward foundation
    * deferral). Delegates the actual ladder work to {@link runPruneLadder}.
@@ -1054,7 +1058,19 @@ export class WorktreeManager {
       result = await this.runPruneLadder(options);
       return result;
     } finally {
-      await this.appendPruneExecuted(operationId, result?.deleted.length ?? 0);
+      try {
+        await this.appendPruneExecuted(operationId, result?.deleted.length ?? 0);
+      } catch (terminalAppendError) {
+        // DR-17 / #1641: an `await` throwing inside a `finally` REPLACES an
+        // exception already propagating from the `try` — the terminal-append
+        // failure would MASK the primary ladder error. `result` is assigned
+        // iff the ladder completed, so: ladder succeeded → the append failure
+        // is the only error and must surface; ladder threw → swallow the
+        // append failure so the primary error propagates unmasked (the
+        // unpaired `prune.executing_started` is then healed by the standard
+        // dead-holder liveness reconciliation, not by masking the root cause).
+        if (result !== undefined) throw terminalAppendError;
+      }
     }
   }
 

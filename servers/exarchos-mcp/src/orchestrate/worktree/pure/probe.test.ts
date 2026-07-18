@@ -413,6 +413,93 @@ describe('makeDefaultProcessTableSource (win32 process source — DR-5)', () => 
     expect(findings[0]!.releasable).toBe(false);
   });
 
+  it('WinLiveness_IndeterminateEnum_FailsClosed', () => {
+    // DR-17 / #1641: a TRANSIENTLY failed win32 enumeration must never read as
+    // "every owner provably dead". Both indeterminate shapes — the reader
+    // THROWING (PowerShell spawn failure) and the reader returning EMPTY
+    // stdout (`Get-CimInstance` silent failure under SilentlyContinue) — must
+    // flip the snapshot to unsupported, so every liveness verdict over it is
+    // 'unknown' (a structured fail-closed outcome), NEVER 'dead'. The old
+    // static `isSupported() === platform === 'win32'` read the empty table as
+    // authoritative and would have reclaimed a LIVE holder's worktree.
+    const liveHolder = { worktreePath: '/wt/live-holder', ownerPid: 4242, ownerStartedAt: 'ct-4242' };
+
+    for (const readWin32ProcessTable of [
+      (): string => {
+        throw new Error('transient CIM enumeration failure');
+      },
+      (): string => '', // spawn succeeded, enumeration silently produced nothing
+    ]) {
+      const source = makeDefaultProcessTableSource({ platform: 'win32', readWin32ProcessTable });
+
+      // The snapshot is empty AND flagged indeterminate — not a real table.
+      expect(source.list()).toEqual([]);
+      expect(source.isSupported?.()).toBe(false);
+
+      // Reservation probe: the holder LOOKS absent, but absence off an
+      // indeterminate snapshot is not proof of death → unknown, never released.
+      const [reservation] = probeReservations([liveHolder], source);
+      expect(reservation!.liveness).toBe('unknown');
+      expect(reservation!.releasable).toBe(false);
+
+      // Launch-holder probe (DR-6): same fail-closed contract — never reconciled.
+      const [launch] = probeLaunchHolders(
+        [{ worktreeId: '/wt/launch', holderPid: 4242, holderStartedAt: 'ct-4242' }],
+        source,
+      );
+      expect(launch!.liveness).toBe('unknown');
+      expect(launch!.reconcilable).toBe(false);
+
+      // Composite probe: neither releasable nor an orphan candidate.
+      const [composite] = probeWorktrees(
+        {
+          targets: [{ worktreePath: '/wt/w', owner: { ownerPid: 4242, ownerStartedAt: 'ct-4242' } }],
+          selfPid: 999999,
+        },
+        source,
+        identity,
+      );
+      expect(composite!.ownerLiveness).toBe('unknown');
+      expect(composite!.releasable).toBe(false);
+    }
+  });
+
+  it('WinLiveness_TransientFailure_RecoversToDeterminateVerdicts', () => {
+    // The indeterminate verdict is PER-SNAPSHOT, not sticky: after a failed
+    // enumeration (probe 1 → 'unknown'), a subsequent SUCCESSFUL `list()`
+    // restores the authoritative supported table — a live FILETIME match reads
+    // 'alive' and an absent PID is again provably 'dead'.
+    let calls = 0;
+    const source = makeDefaultProcessTableSource({
+      platform: 'win32',
+      readWin32ProcessTable: () => {
+        calls += 1;
+        if (calls === 1) throw new Error('transient CIM enumeration failure');
+        return WIN32_RAW;
+      },
+    });
+
+    const owners = [
+      { worktreePath: '/wt/live', ownerPid: 4242, ownerStartedAt: '133600000000000000' },
+      { worktreePath: '/wt/gone', ownerPid: 999, ownerStartedAt: 'boot-999' },
+    ];
+
+    // Probe 1: enumeration fails → both owners 'unknown', nothing releasable.
+    for (const finding of probeReservations(owners, source)) {
+      expect(finding.liveness).toBe('unknown');
+      expect(finding.releasable).toBe(false);
+    }
+
+    // Probe 2: enumeration succeeds → determinate verdicts return.
+    const byPath = Object.fromEntries(
+      probeReservations(owners, source).map((f) => [f.worktreePath, f]),
+    );
+    expect(byPath['/wt/live']!.liveness).toBe('alive');
+    expect(byPath['/wt/live']!.releasable).toBe(false);
+    expect(byPath['/wt/gone']!.liveness).toBe('dead'); // absent from a REAL table
+    expect(byPath['/wt/gone']!.releasable).toBe(true);
+  });
+
   it('Win32ProcessTable_Parses_SkipsMalformed_KeepsEmptyCwd_PreservesSpaces', () => {
     // Parser contract: numeric pid/ppid/createTime required (else the row is a
     // vanished/malformed process → skipped); cwd is field 4 onward, preserved

@@ -1661,3 +1661,131 @@ describe('Task 010: teardown dirty-guard (INV-14 / DR-3)', () => {
     expect(cleanup!.message).toContain(worktreePath);
   });
 });
+
+// ─── DR-17 (#1641): compensation stream-scan perf bound ─────────────────────
+
+describe('DR-17: compensation worktree-teardown scan is bounded (#1641)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // All git commands succeed with EMPTY stdout: `git worktree list` reports
+    // nothing registered, so Phase B never fires a real remove — the test
+    // isolates the STREAM-READ pattern of the teardown pass.
+    mockedExecFile.mockImplementation((_cmd: unknown, _args: unknown, opts: unknown, cb?: unknown) => {
+      const callback = typeof opts === 'function' ? opts : cb;
+      (callback as (err: null, stdout: string, stderr: string) => void)(null, '', '');
+      return undefined as never;
+    });
+  });
+
+  /**
+   * Seed a WIDE singleton `worktrees` stream: `noise` unrelated lifecycle
+   * events plus ONE orphaned (never-paired) `worktree.remove.requested` for
+   * `orphanPath` — the crashed removal whose operationId must be resumed.
+   */
+  function seedWideWorktreesStream(noise: number, orphanPath: string): unknown[] {
+    const events: unknown[] = [];
+    for (let i = 0; i < noise; i++) {
+      events.push({
+        sequence: i + 1,
+        type: 'worktree.adopted',
+        timestamp: new Date().toISOString(),
+        data: {
+          worktreeId: `/wt/noise-${i}`,
+          path: `/wt/noise-${i}`,
+          featureId: null,
+          ownerPid: null,
+          ownerStartedAt: null,
+          operationId: `noise-op-${i}`,
+        },
+      });
+    }
+    events.push({
+      sequence: noise + 1,
+      type: 'worktree.remove.requested',
+      timestamp: new Date().toISOString(),
+      data: { operationId: 'op-orphaned-crash', worktreePath: orphanPath, worktreeId: orphanPath },
+    });
+    return events;
+  }
+
+  it('CompensationScan_WideStream_Bounded', async () => {
+    // Pre-fix, `unifyWorktreeRemove` re-read the project-wide singleton
+    // `worktrees` stream ≥3 times PER worktree (projection fold + two orphan
+    // scans) — O(worktrees_torn_down × stream_size), unbounded on long-lived
+    // projects. The measured bound: on a seeded WIDE stream, the number of
+    // `eventStore.query` reads is a small CONSTANT, independent of how many
+    // worktrees the pass tears down. Query count is the deterministic proxy
+    // for the O(stream_size) work each read costs.
+    const orphanPath = '/tmp/wt-scan-bound-0';
+    const wide = seedWideWorktreesStream(3000, orphanPath);
+
+    const run = async (worktreeCount: number) => {
+      let queryCalls = 0;
+      const appended: Array<{ type: string; data: Record<string, unknown> }> = [];
+      const eventStore = {
+        append: vi.fn().mockImplementation((_streamId: string, event: unknown) => {
+          const ev = event as { type: string; data: Record<string, unknown> };
+          appended.push(ev);
+          return Promise.resolve({ sequence: appended.length, type: ev.type });
+        }),
+        query: vi.fn().mockImplementation((streamId: string, filter?: { type?: string }) => {
+          queryCalls += 1;
+          if (streamId !== WORKTREES_STREAM) return Promise.resolve([]);
+          if (filter?.type !== undefined) {
+            return Promise.resolve(
+              wide.filter((e) => (e as { type: string }).type === filter.type),
+            );
+          }
+          return Promise.resolve(wide);
+        }),
+        initialize: vi.fn().mockResolvedValue(undefined),
+      };
+
+      const worktrees: Record<string, Record<string, unknown>> = {};
+      for (let i = 0; i < worktreeCount; i++) {
+        worktrees[`t${i}`] = {
+          branch: `feature/scan-${i}`,
+          taskId: `t${i}`,
+          status: 'active',
+          path: `/tmp/wt-scan-bound-${i}`, // nonexistent on disk → dirty-guard skipped
+        };
+      }
+      const state = makeState({
+        synthesis: { integrationBranch: null, mergeOrder: [], mergedBranches: [], prUrl: null, prFeedback: [] },
+        worktrees,
+        tasks: [],
+      });
+
+      const result = await executeCompensation(state, 'delegate', makeEvents(1), 1, {
+        dryRun: false,
+        eventStore: eventStore as unknown as NonNullable<Parameters<typeof executeCompensation>[4]['eventStore']>,
+        featureId: 'test-feature',
+        realpath: identityRealpath,
+      });
+      const cleanup = result.actions.find((a) => a.actionId === 'delegate:cleanup-worktrees');
+      expect(cleanup?.status).toBe('executed');
+      return { queryCalls, appended };
+    };
+
+    const one = await run(1);
+    const many = await run(30);
+
+    // The bound: a CONSTANT number of stream reads — 1 full `worktrees` read
+    // (serving projection fold AND orphan lookup) + 2 typed legacy-stream
+    // reads — INDEPENDENT of worktree count. Pre-fix the 30-worktree pass did
+    // ≥90 stream reads.
+    expect(one.queryCalls).toBeLessThanOrEqual(3);
+    expect(many.queryCalls).toBe(one.queryCalls);
+
+    // Semantics preserved through the hoist:
+    // (a) every torn-down worktree still emits its terminal executed event;
+    const executed = many.appended.filter((e) => e.type === 'worktree.remove.executed');
+    expect(executed).toHaveLength(30);
+    // (b) the crashed removal seeded on the wide stream is RESUMED under its
+    //     original operationId (1:1 audit pair), never re-minted.
+    const requestedForOrphan = many.appended.find(
+      (e) => e.type === 'worktree.remove.requested' && e.data['worktreePath'] === orphanPath,
+    );
+    expect(requestedForOrphan?.data['operationId']).toBe('op-orphaned-crash');
+  });
+});
