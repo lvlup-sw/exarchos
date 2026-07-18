@@ -14,7 +14,7 @@
 // EventStore's read backend (the operations read) so one seeded corpus feeds both
 // sections coherently.
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
@@ -366,5 +366,82 @@ describe('ps scope:"worktree" — WLM-6 capabilities preserved (consumed, not du
     expect(result.success).toBe(true);
     const data = result.data as { probe?: { probed: number } };
     expect(data.probe).toBeDefined();
+  });
+});
+
+// ─── DR-12: operations gather — pinned query count + byte-identical output ─────
+//
+// Task 011 (#1691): `gatherOperationEvents` drops its per-type inner query loop
+// and rides the DR-11 multi-type storage filter (`QueryFilters.types`) — ONE
+// storage query per stream, so the query count is pinned to the stream count
+// independent of how many liveness types the registry declares. The output
+// contract is UNCHANGED: the fixture test byte-compares the full `ps` result
+// against a capture taken on the pre-change per-type-loop implementation.
+
+/**
+ * The full `JSON.stringify(result)` of `ps` (scope:'all', fixed clock) over the
+ * seeded fixture below, captured on the PRE-change implementation (the per-type
+ * inner query loop, integration tip ef940c52) — the DR-12 acceptance baseline.
+ * The post-change gather MUST reproduce these bytes exactly.
+ */
+const PS_FIXTURE_EXPECTED =
+  '{"success":true,"data":{"scope":"all","workflows":[{"featureId":"feat-alpha","workflowType":"feature","phase":"delegate","status":"active","ageMs":10000},{"featureId":"dbg-beta","workflowType":"debug","phase":"triage","status":"active","ageMs":9000}],"workflowCount":2,"operations":[{"surface":"merge","instanceKey":"M1","streamScope":"feature","streamId":"feat-alpha","featureId":"feat-alpha","startType":"merge.executing_started","startedAt":"2026-07-13T00:00:03.000Z","ageMs":7000},{"surface":"launch","instanceKey":"/wt/alpha","streamScope":"worktrees","streamId":"worktrees","startType":"launch.executing_started","startedAt":"2026-07-13T00:00:05.000Z","ageMs":5000},{"surface":"mutation","instanceKey":"MU1","streamScope":"feature","streamId":"dbg-beta","featureId":"dbg-beta","startType":"mutation.executing_started","startedAt":"2026-07-13T00:00:04.000Z","ageMs":6000}],"operationCount":3}}';
+
+/** Seed the deterministic DR-12 fixture corpus: three workflows (one terminal),
+ *  in-flight merge / mutation / launch, a completed prune, a completed merge. */
+function seedDr12Fixture(backend: InMemoryBackend): void {
+  seedWorkflow(backend, { featureId: 'feat-alpha', workflowType: 'feature', phase: 'delegate', createdAt: '2026-07-13T00:00:00.000Z' });
+  seedWorkflow(backend, { featureId: 'dbg-beta', workflowType: 'debug', phase: 'triage', createdAt: '2026-07-13T00:00:01.000Z' });
+  seedWorkflow(backend, { featureId: 'feat-omega', workflowType: 'feature', phase: 'completed', createdAt: '2026-07-13T00:00:02.000Z' });
+
+  // In flight: a merge (feat-alpha), a mutation (dbg-beta), a launch (worktrees).
+  seedEvent(backend, 'feat-alpha', 'merge.executing_started', { instanceId: 'M1', sourceBranch: 'feat/alpha', targetBranch: 'main' }, '2026-07-13T00:00:03.000Z');
+  seedEvent(backend, 'dbg-beta', 'mutation.executing_started', { instanceId: 'MU1', operationId: 'MU1' }, '2026-07-13T00:00:04.000Z');
+  seedEvent(backend, WORKTREES_STREAM, 'launch.executing_started', { instanceId: '/wt/alpha', worktreeId: '/wt/alpha' }, '2026-07-13T00:00:05.000Z');
+
+  // Terminated (must NOT appear): a prune that executed, a merge that executed.
+  seedEvent(backend, WORKTREES_STREAM, 'prune.executing_started', { instanceId: 'P1', operationId: 'P1' }, '2026-07-13T00:00:06.000Z');
+  seedEvent(backend, WORKTREES_STREAM, 'prune.executed', { instanceId: 'P1', operationId: 'P1' }, '2026-07-13T00:00:07.000Z');
+  seedEvent(backend, 'feat-omega', 'merge.executing_started', { instanceId: 'M2' }, '2026-07-13T00:00:06.500Z');
+  seedEvent(backend, 'feat-omega', 'merge.executed', { instanceId: 'M2' }, '2026-07-13T00:00:08.000Z');
+}
+
+describe('ps operations gather — pinned query count + fixture bytes (DR-12)', () => {
+  it('GatherOperationEvents_QueryCount_AtMostStreams', async () => {
+    const arm = await createArm();
+    seedDr12Fixture(arm.backend);
+
+    // Instrument the REAL store: count every storage-layer event query the
+    // `scope:'all'` gather issues. The workflows section reads the backend's
+    // summary rows directly (never `eventStore.query`), so every counted call
+    // is the operations gather's.
+    const querySpy = vi.spyOn(arm.ctx.eventStore, 'query');
+
+    const result = await handleViewPs({}, arm.ctx, FIXED_DEPS);
+    expect(result.success).toBe(true);
+
+    // Behavior unchanged: the three in-flight operations are found, terminated
+    // instances excluded — the pinning must not be bought with a wrong fold.
+    const data = result.data as { operations: InFlightOperation[] };
+    expect(data.operations.map((o) => o.surface).sort()).toEqual(['launch', 'merge', 'mutation']);
+
+    // DR-12 acceptance: query count ≤ number of streams, independent of how
+    // many liveness event types the registry declares (9 today — the pre-change
+    // per-type loop issued streams × types queries).
+    const streamCount = arm.ctx.eventStore.listStreams().length;
+    expect(streamCount).toBeGreaterThan(0);
+    expect(querySpy.mock.calls.length).toBeGreaterThan(0);
+    expect(querySpy.mock.calls.length).toBeLessThanOrEqual(streamCount);
+
+    querySpy.mockRestore();
+  });
+
+  it('PsOutput_Fixture_ByteIdentical', async () => {
+    const arm = await createArm();
+    seedDr12Fixture(arm.backend);
+
+    const result = await handleViewPs({}, arm.ctx, FIXED_DEPS);
+    const actual = JSON.stringify(result);
+    expect(actual).toBe(PS_FIXTURE_EXPECTED);
   });
 });
