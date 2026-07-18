@@ -153,6 +153,14 @@ jobs:
         working-directory: servers/exarchos-mcp
     steps:
       - uses: actions/checkout@v4
+        with:
+          # fetch-depth: 0 — the DR-7 mutation gate (check-mutation-gate.mjs,
+          # observe→blocking) diffs `<base>...HEAD` (merge-base three-dot) to
+          # scope changed `servers/exarchos-mcp/src`. A shallow checkout lacks
+          # the merge-base commit, so `git diff FETCH_HEAD...HEAD` fails with
+          # "no merge base" (fail-closed). Full history makes the base-ref diff
+          # resolvable in CI. Mirrors the fetch-depth:0 jobs elsewhere here.
+          fetch-depth: 0
 
       - uses: actions/setup-node@v6
         with:
