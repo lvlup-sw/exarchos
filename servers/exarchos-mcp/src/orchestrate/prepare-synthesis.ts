@@ -3,11 +3,21 @@
 // Orchestrates pre-synthesis readiness checks: task completion, test suite,
 // typecheck, and branch stack health. Emits gate.executed events for both
 // SynthesisReadinessView and CodeQualityView flywheel integration.
+//
+// DR-26: this is the MERGED synthesis-readiness gate — the former
+// `pre_synthesis_check` action is a deprecated alias that routes here (see
+// `composite.ts`). Test/typecheck commands resolve through the layered
+// toolchain resolver (`resolveTestRuntime`, INV-6) — never a hardcoded
+// package-manager literal — so monorepo roots, non-node toolchains, and
+// `.exarchos.yml` overrides all pick the right command (#1537 class).
 // ────────────────────────────────────────────────────────────────────────────
 
 import { execSync, execFileSync } from 'node:child_process';
+import { runCommandSync } from '../utils/process.js';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
+import { resolveTestRuntime } from '../config/test-runtime-resolver.js';
+import { splitCommand } from '../config/tokenize-command.js';
 import { resolveWorkflowState } from './resolve-state.js';
 import { emitGateEvent } from './gate-utils.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
@@ -28,18 +38,28 @@ interface TestResult {
   passCount: number;
   failCount: number;
   output?: string;
+  /** True when the leg did not run (skipTests, or no resolvable test command). */
+  skipped?: boolean;
+  /** The resolver-routed command that ran (null when skipped). */
+  command?: string | null;
 }
 
 interface TypecheckResult {
   passed: boolean;
   errorCount: number;
   errors?: string[];
+  /** True when the leg did not run (skipTests, or no resolvable typecheck command). */
+  skipped?: boolean;
+  /** The resolver-routed command that ran (null when skipped). */
+  command?: string | null;
 }
 
 interface StackResult {
   healthy: boolean;
   branches?: string[];
   error?: string;
+  /** True when the caller asked to skip the stack check (skipStack). */
+  skipped?: boolean;
 }
 
 interface PrepareSynthesisResult {
@@ -52,26 +72,93 @@ interface PrepareSynthesisResult {
   stack: StackResult;
 }
 
+// ─── Command Resolution (DR-26 / #1537) ────────────────────────────────────
+//
+// Test + typecheck commands come from the layered toolchain resolver — the
+// single source of truth for toolchain identity (`config/toolchains.ts`). An
+// explicit `testCommand` rides the resolver's override tier; `unresolved`
+// degrades to a graceful SKIP (the #1174 contract: never run a guessed
+// package-manager command against an unknown project layout).
+
+interface ResolvedGateCommands {
+  readonly test: string | null;
+  readonly typecheck: string | null;
+  readonly remediation?: string;
+}
+
+function resolveGateCommands(repoRoot: string, testCommand?: string): ResolvedGateCommands {
+  try {
+    const resolved = resolveTestRuntime(
+      repoRoot,
+      testCommand ? { override: { test: testCommand } } : undefined,
+    );
+    if (resolved.source === 'unresolved') {
+      return {
+        test: null,
+        typecheck: null,
+        remediation: resolved.remediation ?? 'no test runtime resolved',
+      };
+    }
+    return { test: resolved.test, typecheck: resolved.typecheck };
+  } catch (err) {
+    return {
+      test: null,
+      typecheck: null,
+      remediation: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+/** Decode a runCommandSync return (string | Buffer) to utf-8 text. */
+function commandOutputText(output: string | Buffer): string {
+  return typeof output === 'string' ? output : output.toString('utf-8');
+}
+
+/** Collect stdout+stderr text from a thrown exec error. */
+function execErrorText(err: unknown): string {
+  const execError = err as { stdout?: Buffer | string; stderr?: Buffer | string };
+  return [execError.stdout, execError.stderr]
+    .filter((chunk): chunk is Buffer | string => chunk instanceof Buffer || typeof chunk === 'string')
+    .map((chunk) => commandOutputText(chunk))
+    .join('\n');
+}
+
 // ─── Test Runner ───────────────────────────────────────────────────────────
 
-function runTestSuite(): TestResult {
+function runTestSuite(command: string | null, cwd: string, remediation?: string): TestResult {
+  if (command === null) {
+    // Graceful skip (#1174): no resolvable test command is a SKIP with
+    // remediation, never a guessed hardcoded invocation.
+    return {
+      passed: true,
+      passCount: 0,
+      failCount: 0,
+      skipped: true,
+      command: null,
+      ...(remediation !== undefined ? { output: remediation } : {}),
+    };
+  }
+  const { cmd, args } = splitCommand(command);
+  if (cmd === '') {
+    return { passed: false, passCount: 0, failCount: 0, command, output: 'empty test command' };
+  }
   try {
-    const output = execSync('npm run test:run', {
+    // runCommandSync (not raw execSync): the resolved test command may be a
+    // package-manager shim whose `.cmd` launcher execFile refuses to start on
+    // Windows since CVE-2024-27980 (#1623); argv-form also removes the shell.
+    const output = runCommandSync(cmd, args as string[], {
+      cwd,
       encoding: 'buffer',
       timeout: 120_000,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
-    const text = output.toString('utf-8');
+    const text = commandOutputText(output);
     const { passCount, failCount } = parseTestOutput(text);
-    return { passed: true, passCount, failCount, output: text };
+    return { passed: true, passCount, failCount, output: text, command };
   } catch (err: unknown) {
-    const execError = err as { stdout?: Buffer; stderr?: Buffer; status?: number };
-    const text = [execError.stdout, execError.stderr]
-      .filter((chunk): chunk is Buffer => chunk instanceof Buffer)
-      .map((chunk) => chunk.toString('utf-8'))
-      .join('\n');
+    const text = execErrorText(err);
     const { passCount, failCount } = parseTestOutput(text);
-    return { passed: false, passCount, failCount, output: text };
+    return { passed: false, passCount, failCount, output: text, command };
   }
 }
 
@@ -87,22 +174,27 @@ function parseTestOutput(output: string): { passCount: number; failCount: number
 
 // ─── Typecheck Runner ──────────────────────────────────────────────────────
 
-function runTypecheck(): TypecheckResult {
+function runTypecheck(command: string | null, cwd: string): TypecheckResult {
+  if (command === null) {
+    // No resolvable typecheck command (many toolchains have none) — skip.
+    return { passed: true, errorCount: 0, skipped: true, command: null };
+  }
+  const { cmd, args } = splitCommand(command);
+  if (cmd === '') {
+    return { passed: false, errorCount: 1, errors: ['empty typecheck command'], command };
+  }
   try {
-    execSync('npm run typecheck', {
+    runCommandSync(cmd, args as string[], {
+      cwd,
       encoding: 'buffer',
       timeout: 60_000,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
-    return { passed: true, errorCount: 0 };
+    return { passed: true, errorCount: 0, command };
   } catch (err: unknown) {
-    const execError = err as { stdout?: Buffer; stderr?: Buffer; status?: number };
-    const text = [execError.stdout, execError.stderr]
-      .filter((chunk): chunk is Buffer => chunk instanceof Buffer)
-      .map((chunk) => chunk.toString('utf-8'))
-      .join('\n');
+    const text = execErrorText(err);
     const errors = parseTypecheckErrors(text);
-    return { passed: false, errorCount: errors.length, errors };
+    return { passed: false, errorCount: errors.length, errors, command };
   }
 }
 
@@ -114,9 +206,10 @@ function parseTypecheckErrors(output: string): string[] {
 
 // ─── Default Branch Detection ─────────────────────────────────────────────
 
-function detectDefaultBranch(): string {
+function detectDefaultBranch(cwd: string): string {
   try {
     const ref = execSync('git symbolic-ref refs/remotes/origin/HEAD', {
+      cwd,
       encoding: 'utf-8',
       timeout: 5_000,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -131,10 +224,11 @@ function detectDefaultBranch(): string {
 
 // ─── Stack Verifier ────────────────────────────────────────────────────────
 
-function verifyStack(): StackResult {
+function verifyStack(cwd: string): StackResult {
   try {
-    const baseBranch = detectDefaultBranch();
+    const baseBranch = detectDefaultBranch(cwd);
     const output = execSync(`git log --oneline --graph ${baseBranch}..HEAD`, {
+      cwd,
       encoding: 'buffer',
       timeout: 15_000,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -228,10 +322,11 @@ export function documentLegBlocks(result: DocumentLegResult): boolean {
  * `execFileSync` (not shell-form `execSync`) eliminates the shell surface even
  * though `baseBranch` is already sanitized by `detectDefaultBranch`.
  */
-function changedFilesAgainstBase(): string[] | null {
+function changedFilesAgainstBase(cwd: string): string[] | null {
   try {
-    const baseBranch = detectDefaultBranch();
+    const baseBranch = detectDefaultBranch(cwd);
     const output = execFileSync('git', ['diff', '--name-only', `${baseBranch}...HEAD`], {
+      cwd,
       encoding: 'buffer',
       timeout: 15_000,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -277,20 +372,41 @@ function checkTaskCompletion(
 
 // ─── Handler ───────────────────────────────────────────────────────────────
 
+/**
+ * Args for the merged synthesis-readiness gate (DR-26). `featureId` OR
+ * `stateFile` — the handler enforces "at least one source" (#1499 contract,
+ * inherited from the merged-away `pre_synthesis_check`). The skip flags +
+ * `repoRoot`/`testCommand` are the alias-compat surface: `testCommand` rides
+ * the toolchain resolver's override tier.
+ */
+export interface PrepareSynthesisArgs {
+  featureId?: string;
+  stateFile?: string;
+  repoRoot?: string;
+  skipTests?: boolean;
+  skipStack?: boolean;
+  testCommand?: string;
+  projectConfig?: ResolvedProjectConfig;
+}
+
 export async function handlePrepareSynthesis(
-  args: { featureId: string; projectConfig?: ResolvedProjectConfig },
+  args: PrepareSynthesisArgs,
   stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
-  // 1. Validate input
-  if (!args.featureId) {
+  // 1. Validate input — at least one state source (#1499: stateFile-only
+  //    callers stay supported through the deprecation window).
+  if (!args.featureId && !args.stateFile) {
     return {
       success: false,
-      error: { code: 'INVALID_INPUT', message: 'featureId is required' },
+      error: { code: 'INVALID_INPUT', message: 'featureId or stateFile is required' },
     };
   }
 
+  // The event stream to emit gates on. Absent for stateFile-only callers —
+  // gate emission is skipped in that case (no stream to append to).
   const streamId = args.featureId;
+  const repoRoot = args.repoRoot ?? process.cwd();
 
   try {
     const store = eventStore;
@@ -299,8 +415,13 @@ export async function handlePrepareSynthesis(
     //    the same event-store projection exarchos_workflow get reads (#1536).
     //    The old task-detail materializer could fold a divergent task array
     //    (phantom in-progress), phantom-blocking synthesis on tasks the
-    //    canonical state showed complete.
-    const resolved = await resolveWorkflowState({ featureId: streamId, eventStore: store });
+    //    canonical state showed complete. An explicit `stateFile` still wins
+    //    inside the resolver (file → event-store fallback).
+    const resolved = await resolveWorkflowState({
+      stateFile: args.stateFile,
+      featureId: streamId,
+      eventStore: store,
+    });
     if ('error' in resolved) {
       return resolved.error;
     }
@@ -330,30 +451,48 @@ export async function handlePrepareSynthesis(
       return { success: true, data: result };
     }
 
-    // 4. Run test suite
-    const tests = runTestSuite();
+    // 4. Resolve the test/typecheck commands ONCE via the layered toolchain
+    //    resolver (DR-26 / INV-6) and run the suite. `skipTests` skips both
+    //    command legs (the alias-compat contract of the merged-away
+    //    `pre_synthesis_check`); a skipped leg counts as non-blocking and
+    //    emits NO gate.executed (no fake CI greens in the flywheel).
+    const commands: ResolvedGateCommands = args.skipTests
+      ? { test: null, typecheck: null, remediation: 'skipped (skipTests)' }
+      : resolveGateCommands(repoRoot, args.testCommand);
+    const tests = args.skipTests
+      ? { passed: true, passCount: 0, failCount: 0, skipped: true, command: null } satisfies TestResult
+      : runTestSuite(commands.test, repoRoot, commands.remediation);
 
-    // 5. Emit gate.executed event for test-suite (feeds flywheel)
-    await emitGateEvent(store, streamId, 'test-suite', 'CI', tests.passed, {
-      dimension: 'D1',
-      phase: 'synthesize',
-      passCount: tests.passCount,
-      failCount: tests.failCount,
-    });
+    // 5. Emit gate.executed event for test-suite (feeds flywheel) — only when
+    //    the leg actually ran and a stream exists to emit on.
+    if (streamId !== undefined && tests.skipped !== true) {
+      await emitGateEvent(store, streamId, 'test-suite', 'CI', tests.passed, {
+        dimension: 'D1',
+        phase: 'synthesize',
+        passCount: tests.passCount,
+        failCount: tests.failCount,
+      });
+    }
 
-    // 6. Run typecheck
-    const typecheck = runTypecheck();
+    // 6. Run typecheck (resolver-routed; skipped alongside tests)
+    const typecheck = args.skipTests
+      ? { passed: true, errorCount: 0, skipped: true, command: null } satisfies TypecheckResult
+      : runTypecheck(commands.typecheck, repoRoot);
 
     // 7. Emit gate.executed event for typecheck (feeds flywheel)
-    await emitGateEvent(store, streamId, 'typecheck', 'CI', typecheck.passed, {
-      dimension: 'D1',
-      phase: 'synthesize',
-      errorCount: typecheck.errorCount,
-      errors: typecheck.errors,
-    });
+    if (streamId !== undefined && typecheck.skipped !== true) {
+      await emitGateEvent(store, streamId, 'typecheck', 'CI', typecheck.passed, {
+        dimension: 'D1',
+        phase: 'synthesize',
+        errorCount: typecheck.errorCount,
+        errors: typecheck.errors,
+      });
+    }
 
     // 8. Verify branch stack
-    const stack = verifyStack();
+    const stack: StackResult = args.skipStack === true
+      ? { healthy: true, skipped: true }
+      : verifyStack(repoRoot);
 
     // 9. Evaluate the document-readiness leg (DR-2, #1594) and emit its gate.
     //    Roster order is task-completion→tests→typecheck→document→stack; gate
@@ -362,7 +501,7 @@ export async function handlePrepareSynthesis(
     //    `passed` reflects structural coverage; whether an uncovered leg BLOCKS
     //    readiness is the severity decision (documentLegBlocks).
     const docCfg = args.projectConfig?.synthesis?.documentLeg ?? DEFAULT_DOCUMENT_LEG;
-    const changedFiles = changedFilesAgainstBase();
+    const changedFiles = changedFilesAgainstBase(repoRoot);
     // Fail CLOSED when git detection is unavailable: report the leg as
     // evaluated-but-uncovered so a `blocking` severity blocks readiness instead
     // of being silently auto-waived (an empty-list waive would bypass the gate).
@@ -378,14 +517,16 @@ export async function handlePrepareSynthesis(
             + 'could not be verified. Re-run synthesis, or waive via synthesis.documentLeg.',
         }
       : evaluateDocumentLeg(changedFiles, docCfg);
-    await emitGateEvent(store, streamId, 'document-coverage', 'synthesize', documentLeg.covered, {
-      dimension: 'D1',
-      phase: 'synthesize',
-      evaluated: documentLeg.evaluated,
-      severity: documentLeg.severity,
-      surfaceFiles: documentLeg.surfaceFiles,
-      ...(documentLeg.message !== undefined ? { message: documentLeg.message } : {}),
-    });
+    if (streamId !== undefined) {
+      await emitGateEvent(store, streamId, 'document-coverage', 'synthesize', documentLeg.covered, {
+        dimension: 'D1',
+        phase: 'synthesize',
+        evaluated: documentLeg.evaluated,
+        severity: documentLeg.severity,
+        surfaceFiles: documentLeg.surfaceFiles,
+        ...(documentLeg.message !== undefined ? { message: documentLeg.message } : {}),
+      });
+    }
 
     // 10. Build readiness state
     const readiness: SynthesisReadinessState = {

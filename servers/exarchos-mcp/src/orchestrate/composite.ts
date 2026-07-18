@@ -65,7 +65,6 @@ import { handleSetupWorktree, type SetupWorktreeArgs } from './setup-worktree.js
 import { handleVerifyDelegationSaga } from './verify-delegation-saga.js';
 import { handlePostDelegationCheck } from './post-delegation-check.js';
 import { handleReconcileState } from './reconcile-state.js';
-import { handlePreSynthesisCheck } from './pre-synthesis-check.js';
 import { handleCheckCoderabbit } from './check-coderabbit.js';
 import { handleCheckPolishScope } from './check-polish-scope.js';
 import { handleNeedsSchemaSync } from './needs-schema-sync.js';
@@ -184,6 +183,51 @@ function adaptWithEventStoreAndConfig<T>(
         ? { ...(args as Record<string, unknown>), projectConfig: ctx.projectConfig }
         : args;
     return handler(enrichedArgs as unknown as T, stateDir, ctx.eventStore);
+  };
+}
+
+// ─── DR-26: pre_synthesis_check deprecation alias ───────────────────────────
+//
+// The redundant `prepare_synthesis` / `pre_synthesis_check` pair is merged
+// behind ONE handler (`handlePrepareSynthesis`, the synthesis-readiness gate).
+// `pre_synthesis_check` stays registered as a deprecation alias for one
+// release window: it routes to the merged handler, stamps the typed
+// `_meta.deprecation` sub-shape (the same rerouting surface the HSM
+// single-path consolidation used, `MetaDeprecationSchema`), and mirrors the
+// merged `ready` verdict as `passed` so legacy gate consumers keep reading a
+// boolean at the same key.
+
+const PRE_SYNTHESIS_CHECK_DEPRECATION = Object.freeze({
+  since: '2.12.0',
+  removeIn: '2.13.0',
+  replacement: 'prepare_synthesis',
+});
+
+function adaptDeprecatedSynthesisAlias(inner: ActionHandler): ActionHandler {
+  return async (args, stateDir, ctx) => {
+    const result = await inner(args, stateDir, ctx);
+    const notice =
+      'pre_synthesis_check is deprecated (since v2.12, removed in v2.13) — use prepare_synthesis.';
+    const data =
+      result.success &&
+      typeof result.data === 'object' &&
+      result.data !== null &&
+      'ready' in result.data
+        ? {
+            ...(result.data as Record<string, unknown>),
+            // Alias-compat: legacy consumers read `passed`.
+            passed: (result.data as { ready?: unknown }).ready === true,
+          }
+        : result.data;
+    return {
+      ...result,
+      ...(result.success ? { data } : {}),
+      warnings: [...(result.warnings ?? []), notice],
+      _meta: {
+        ...((result._meta ?? {}) as Record<string, unknown>),
+        deprecation: PRE_SYNTHESIS_CHECK_DEPRECATION,
+      },
+    };
   };
 }
 
@@ -445,7 +489,12 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   verify_delegation_saga: adaptArgs(handleVerifyDelegationSaga),
   post_delegation_check: adaptArgsWithEventStore(handlePostDelegationCheck),
   reconcile_state: adaptArgsWithEventStore(handleReconcileState),
-  pre_synthesis_check: adaptArgsWithStateDirAndEventStore(handlePreSynthesisCheck),
+  // DR-26: deprecated alias — routes to the MERGED synthesis-readiness
+  // handler (`handlePrepareSynthesis`) with a `_meta.deprecation` notice.
+  // Registry entry + schema + this branch agree on the merged arg surface.
+  pre_synthesis_check: adaptDeprecatedSynthesisAlias(
+    adaptWithEventStoreAndConfig(handlePrepareSynthesis),
+  ),
   check_coderabbit: adaptArgs(handleCheckCoderabbit),
   check_polish_scope: adaptArgs(handleCheckPolishScope),
   needs_schema_sync: adaptArgs(handleNeedsSchemaSync),

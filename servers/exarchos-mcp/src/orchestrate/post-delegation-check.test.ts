@@ -14,15 +14,25 @@ vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(),
 }));
 
+// DR-26: the per-worktree test command now routes through the layered
+// toolchain resolver. Mock the resolver module (its own fs probes would
+// otherwise collide with the node:fs mock above) and pin the node default so
+// the command path the assertions drive is unchanged.
+vi.mock('../config/test-runtime-resolver.js', () => ({
+  resolveTestRuntime: vi.fn(),
+}));
+
 // ─── Import after mocks ────────────────────────────────────────────────────
 
 import { existsSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { resolveTestRuntime } from '../config/test-runtime-resolver.js';
 import { handlePostDelegationCheck } from './post-delegation-check.js';
 
 const mockExistsSync = vi.mocked(existsSync);
 const mockReadFileSync = vi.mocked(readFileSync);
 const mockExecFileSync = vi.mocked(execFileSync);
+const mockResolveTestRuntime = vi.mocked(resolveTestRuntime);
 
 // ─── Test Helpers ───────────────────────────────────────────────────────────
 
@@ -43,6 +53,14 @@ function makeIncompleteTask(id: string, status = 'in-progress') {
 describe('handlePostDelegationCheck', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default: the resolver detects the node toolchain — the same command the
+    // pre-DR-26 hardcode ran, so existing assertions drive an unchanged path.
+    mockResolveTestRuntime.mockReturnValue({
+      test: 'npm run test:run',
+      typecheck: null,
+      install: null,
+      source: 'detection',
+    });
   });
 
   // ─── Test 1: All tasks complete, tests pass → passed: true ────────────

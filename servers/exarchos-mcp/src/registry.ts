@@ -1703,17 +1703,25 @@ const orchestrateActions: readonly ToolAction[] = [
   },
   {
     name: 'prepare_synthesis',
-    description: 'Run pre-synthesis checks: tests, typecheck, stack health. Emits events for readiness views and eval flywheel.',
+    description: 'Run the merged synthesis-readiness gate (DR-26): task completion, resolver-routed test suite + typecheck, document leg, stack health. Emits events for readiness views and eval flywheel. Supersedes pre_synthesis_check (deprecated alias).',
     schema: z.object({
-      featureId: z.string().min(1),
+      // featureId OR stateFile — the handler enforces "at least one source"
+      // (#1499 contract inherited from the merged-away pre_synthesis_check).
+      featureId: z.string().min(1).optional(),
+      stateFile: z.string().min(1).optional(),
+      repoRoot: z.string().optional(),
+      skipTests: z.boolean().optional(),
+      skipStack: z.boolean().optional(),
+      // Rides the toolchain resolver's override tier (DR-26 / INV-6).
+      testCommand: z.string().optional(),
     }),
     phases: SYNTHESIS_REVIEW_PHASES,
     roles: ROLE_LEAD,
-    // DR-5: invokes `npm run test:run` + typecheck under the hood; seconds
-    // to minutes on non-trivial repos.  CLI adapter emits heartbeats.
+    // DR-5: invokes the resolver-routed test + typecheck commands under the
+    // hood; seconds to minutes on non-trivial repos. CLI adapter emits heartbeats.
     longRunning: true,
     autoEmits: [
-      { event: 'gate.executed', condition: 'always' },
+      { event: 'gate.executed', condition: 'conditional', description: 'When a featureId (event stream) is supplied' },
     ],
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: LOCAL_MUTATION,
@@ -2619,7 +2627,11 @@ const orchestrateActions: readonly ToolAction[] = [
   },
   {
     name: 'pre_synthesis_check',
-    description: 'Run pre-synthesis checks: task completion, reviews, tests, and stack health',
+    // DR-26: the redundant prepare_synthesis / pre_synthesis_check pair is
+    // MERGED behind prepare_synthesis. This entry is the one-release
+    // deprecation alias: same schema surface as the merged action, routed to
+    // the merged handler with a `_meta.deprecation` notice (composite.ts).
+    description: 'DEPRECATED alias for prepare_synthesis (merged, DR-26; removed in v2.13). Routes to the merged synthesis-readiness gate and stamps _meta.deprecation.',
     schema: z.object({
       // featureId OR stateFile — the handler enforces "at least one source".
       featureId: z.string().min(1).optional(),
@@ -2635,11 +2647,12 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: new Set<string>(['synthesize']),
     roles: ROLE_LEAD,
     gate: { blocking: true },
-    // DR-5: runs the full project test suite + typecheck + build + stack
+    deprecated: true,
+    // DR-5: runs the resolver-routed test suite + typecheck + stack
     // assessment; routinely seconds-to-minutes on real repos.
     longRunning: true,
     autoEmits: [
-      { event: 'gate.executed', condition: 'always' },
+      { event: 'gate.executed', condition: 'conditional', description: 'When a featureId (event stream) is supplied' },
     ],
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: LOCAL_MUTATION,
