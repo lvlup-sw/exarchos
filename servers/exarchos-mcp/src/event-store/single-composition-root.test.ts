@@ -24,7 +24,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { rmrfAsync } from '../../test-helpers/temp-dir.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 describe('EventStore single composition root (#1182, Fix 1)', () => {
   let tmpDir: string;
@@ -47,7 +47,7 @@ describe('EventStore single composition root (#1182, Fix 1)', () => {
     // any handler should see — there is no module-global factory to
     // create a competing instance. This test asserts that invariant: the
     // `getOrCreateEventStore` factory has been deleted.
-    const toolsModule = await import('../../views/tools.js');
+    const toolsModule = await import('../views/tools.js');
     expect(
       (toolsModule as Record<string, unknown>).getOrCreateEventStore,
       'getOrCreateEventStore must not exist — handlers receive EventStore via DispatchContext',
@@ -62,7 +62,7 @@ describe('EventStore single composition root (#1182, Fix 1)', () => {
     // Production wiring: one EventStore per process, threaded everywhere.
     // Concurrent appends serialize through the in-memory `withLock` chain,
     // so sequences are unique and contiguous regardless of arrival order.
-    const { initializeContext } = await import('../../core/context.js');
+    const { initializeContext } = await import('../core/context.js');
     const ctx = await initializeContext(tmpDir);
 
     const streamId = 'integrity-test';
