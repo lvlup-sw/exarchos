@@ -11,8 +11,9 @@
 //     `mergeOrchestrator` field (T01+T02 schema)
 //   • on `phase: 'completed'`, emits `merge.executed` to the workflow's
 //     event stream (stream id = featureId) carrying both the post-merge
-//     `mergeSha` and the pre-merge recovery point sha (the legacy
-//     `rollbackSha` event field — kept during the #1306 deprecation window)
+//     `mergeSha` and the pre-merge `recoveryPointSha` (DR-18 renamed the
+//     wire field from the legacy `rollbackSha` the deprecation window kept;
+//     historical rows fold via the schema's legacy read-arm)
 //
 // The merge adapter is injectable via `args.vcsMerge` so tests bypass real
 // git operations. Same for `gitExec` and `persistState`. In production,
@@ -558,7 +559,7 @@ export async function handleExecuteMerge(
             targetBranch: args.targetBranch,
             strategy: args.strategy,
             mergeSha: result.mergeSha,
-            rollbackSha: result.recoveryPointSha,
+            recoveryPointSha: result.recoveryPointSha,
             // DR-2 — canonical liveness instance key (additive), paired to the
             // `merge.executing_started` START by the same value.
             instanceId,

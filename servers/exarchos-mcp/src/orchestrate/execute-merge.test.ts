@@ -4,20 +4,20 @@
 // VCS provider adapter and event-store emission. Asserts:
 //   1. delegates to the underlying VCS merge (handleMergePr / vcs.mergePr)
 //   2. emits `merge.executed` to the workflow's event stream with both the
-//      mergeSha and the rollbackSha captured pre-merge
-//   3. persists the `executing` intermediate state (with rollbackSha) BEFORE
-//      the VCS merge call, so a crash mid-merge is recoverable
+//      mergeSha and the recoveryPointSha captured pre-merge (DR-18 wire name)
+//   3. persists the `executing` intermediate state (with recoveryPointSha)
+//      BEFORE the VCS merge call, so a crash mid-merge is recoverable
 //
 // T16 — rollback/recovery path. When the VCS merge rejects, the pure executor
 // returns `phase: 'rolled-back'` after running the INV-14 recovery ladder
-// (`git merge --abort` → `git reset --keep <rollbackSha>`, never `--hard`).
+// (`git merge --abort` → `git reset --keep <recoveryPointSha>`, never `--hard`).
 // DR-2 (task 006) retired the legacy `merge.rollback` write path; the handler
 // now must:
 //   1. emit ONLY the canonical `merge.recovered` to the workflow's event stream
 //      carrying the categorized reason ('merge-failed' | 'verification-failed'
 //      | 'timeout') and, on a non-clean recovery, the INV-14 `recoveryError`
 //      discriminator + `recoveryErrorDetail`. NO legacy `merge.rollback` append.
-//   2. rewind to `<rollbackSha>` via the ladder so HEAD matches the captured sha
+//   2. rewind to `<recoveryPointSha>` via the ladder so HEAD matches the captured sha
 //   3. return a structured `ToolResult` failure with code `MERGE_ROLLED_BACK`
 
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
@@ -174,7 +174,8 @@ describe('handleExecuteMerge (T15)', () => {
           targetBranch: 'main',
           strategy: 'squash',
           mergeSha: MERGE_SHA,
-          rollbackSha: ROLLBACK_SHA,
+          // DR-18 — canonical wire name (renamed from the legacy rollbackSha).
+          recoveryPointSha: ROLLBACK_SHA,
           // DR-2 — canonical liveness instance key (taskId present).
           instanceId: 'T11',
         },
@@ -490,7 +491,7 @@ describe('handleExecuteMerge rollback (T16)', () => {
       ctx,
     );
 
-    // INV-14: the pure executor invokes `git reset --keep <rollbackSha>` on
+    // INV-14: the pure executor invokes `git reset --keep <recoveryPointSha>` on
     // failure (after `git merge --abort`), never the destructive `--hard`.
     const resetCall = gitCalls.find(
       (a) => a[0] === 'reset' && a[1] === '--keep',

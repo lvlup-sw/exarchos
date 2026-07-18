@@ -5,12 +5,12 @@
  * folds one event over an explicit initial state and asserts a transition on
  * the phase machine documented in `types.ts`.
  *
- * Naming note: this worktree's `event-store/schemas.ts` ships `merge.rollback`
- * as the canonical recovery event (the #1306 rename to `merge.recovered` is
- * a separate epic; preview.2 keeps `merge.rollback`). The reducer's `any →
- * recovering` transition is exercised with `merge.rollback` here; if/when
- * #1306 lands the rename, the test will switch event types alongside the
- * schema and the reducer's case label.
+ * Naming note: `merge.recovered` (#1306) is the canonical recovery event and
+ * `merge.rollback` is retired (read-tolerant-not-emittable). DR-18 completed
+ * the wire rename: live `merge.executed` rows carry `recoveryPointSha`; the
+ * legacy `rollbackSha` / `rollbackError` names survive only in historical
+ * rows, which the reducer folds via its legacy read-arms (INV-1). Tests below
+ * exercise BOTH the canonical names and the historical fixtures.
  */
 import { describe, it, expect } from 'vitest';
 import { mergeOrchestratorReducer } from './reducer.js';
@@ -177,7 +177,7 @@ describe('mergeOrchestratorReducer.apply — phase transitions (Wave 2B.2)', () 
         2,
       ),
     );
-    // WHEN we fold a merge.executed event.
+    // WHEN we fold a merge.executed event (canonical wire names, DR-18).
     const event = makeEvent(
       'merge.executed',
       {
@@ -186,19 +186,43 @@ describe('mergeOrchestratorReducer.apply — phase transitions (Wave 2B.2)', () 
         targetBranch: 'main',
         strategy: 'squash',
         mergeSha: 'abc1234',
-        rollbackSha: 'def5678',
+        recoveryPointSha: 'def5678',
       },
       3,
     );
     const next = mergeOrchestratorReducer.apply(state, event);
-    // THEN phase advances to 'executed'; mergeSha + rollbackSha are captured.
+    // THEN phase advances to 'executed'; mergeSha + recoveryPointSha captured.
     expect(next.phase).toBe('executed');
     expect(next.merge?.mergeSha).toBe('abc1234');
-    expect(next.merge?.rollbackSha).toBe('def5678');
+    expect(next.merge?.recoveryPointSha).toBe('def5678');
     // Earlier merge fields are preserved (taskId, branches, strategy).
     expect(next.merge?.taskId).toBe('task-1');
     expect(next.merge?.strategy).toBe('squash');
     expect(next.projectionSequence).toBe(3);
+  });
+
+  it('Apply_LegacyMergeExecuted_RollbackShaFoldsAsRecoveryPoint', () => {
+    // INV-1 / DR-18 fold-compatibility: historical merge.executed rows carry
+    // the legacy `rollbackSha` wire name. The reducer folds them onto the
+    // renamed `recoveryPointSha` state field so old streams replay to the
+    // same projection shape as new ones.
+    const event = makeEvent(
+      'merge.executed',
+      {
+        taskId: 'task-1',
+        sourceBranch: 'feature/x',
+        targetBranch: 'main',
+        mergeSha: 'abc1234',
+        rollbackSha: 'def5678',
+      },
+      1,
+    );
+    const next = mergeOrchestratorReducer.apply(
+      mergeOrchestratorReducer.initial,
+      event,
+    );
+    expect(next.phase).toBe('executed');
+    expect(next.merge?.recoveryPointSha).toBe('def5678');
   });
 
   it('Apply_MergeRollback_TransitionsToRecovering', () => {
@@ -218,8 +242,8 @@ describe('mergeOrchestratorReducer.apply — phase transitions (Wave 2B.2)', () 
         1,
       ),
     );
-    // WHEN we fold a merge.rollback event (#1306 may rename this to
-    // merge.recovered; the reducer handles whichever name is canonical).
+    // WHEN we fold a legacy merge.rollback event (retired write path; the
+    // reducer keeps this read-arm so historical logs fold — INV-1).
     const event = makeEvent(
       'merge.rollback',
       {
@@ -275,6 +299,33 @@ describe('mergeOrchestratorReducer.apply — phase transitions (Wave 2B.2)', () 
     expect(next.phase).toBe('recovering');
     expect(next.recovery?.reason).toBe('verification-failed');
     expect(next.projectionSequence).toBe(2);
+  });
+
+  it('Apply_MergeRecovered_FoldsRecoveryErrorDetail', () => {
+    // DR-18: the canonical `merge.recovered` carries `recoveryErrorDetail`
+    // (not the legacy `rollbackError`). Pre-rename the reducer only read the
+    // legacy name, silently dropping the canonical event's detail — this pins
+    // the canonical read.
+    const event = makeEvent(
+      'merge.recovered',
+      {
+        taskId: 'task-1',
+        sourceBranch: 'feature/x',
+        targetBranch: 'main',
+        recoveryPointSha: 'def5678',
+        reason: 'verification-failed',
+        recoveryError: 'reset-failed',
+        recoveryErrorDetail: 'git reset --keep def5678 exited 128',
+      },
+      1,
+    );
+    const next = mergeOrchestratorReducer.apply(
+      mergeOrchestratorReducer.initial,
+      event,
+    );
+    expect(next.phase).toBe('recovering');
+    expect(next.recovery?.recoveryError).toBe('reset-failed');
+    expect(next.recovery?.error).toBe('git reset --keep def5678 exited 128');
   });
 
   it('Apply_MergeRollback_FoldsRecoveryErrorDiscriminator', () => {

@@ -125,12 +125,12 @@ describe('handleExecuteMerge — Wave 4 / Task 4.3 two-event split', () => {
     // is covered by the executor's race test, not this migration test).
     expect(vcsMerge).toHaveBeenCalledTimes(1);
 
-    // Outcome-data parity: `merge.executed` carries mergeSha + rollbackSha
-    // as before the migration.
+    // Outcome-data parity: `merge.executed` carries mergeSha + the pre-merge
+    // anchor — under the canonical `recoveryPointSha` wire name (DR-18).
     const executedEvent = events.find((e) => e.type === 'merge.executed');
     expect(executedEvent).toBeDefined();
     const data = executedEvent?.data as Record<string, unknown> | undefined;
     expect(data?.mergeSha).toBe(MERGE_SHA);
-    expect(data?.rollbackSha).toBe(ROLLBACK_SHA);
+    expect(data?.recoveryPointSha).toBe(ROLLBACK_SHA);
   });
 });

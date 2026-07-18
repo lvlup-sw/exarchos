@@ -34,8 +34,9 @@ const TASK_ID = 'T1';
 const SOURCE_BRANCH = 'feat/x';
 const TARGET_BRANCH = 'main';
 // The SAME sha is used as the legacy `rollbackSha` and the canonical
-// `recoveryPointSha` so the two events fold to a byte-identical `rollbackSha`
-// in the workflow-state view (the projection maps recoveryPointSha → rollbackSha).
+// `recoveryPointSha` so the two events fold to a byte-identical
+// `recoveryPointSha` in the workflow-state view (DR-18 renamed the view field;
+// the projection folds the legacy wire name onto it as a compat arm).
 const RECOVERY_SHA = 'a'.repeat(40);
 const REASON = 'merge-failed' as const;
 
@@ -176,13 +177,14 @@ describe('merge.rollback replay-safety (DR-2, task 006)', () => {
     const folded = foldRecoveryTerminal('merge.rollback', LEGACY_ROLLBACK_DATA);
 
     // 1) workflow-state-projection folds the legacy event to the rolled-back
-    //    block — the exact shape the pre-DR-2 code produced.
+    //    block — same logical shape as pre-DR-2, with the anchor under the
+    //    DR-18-renamed `recoveryPointSha` view field.
     expect(folded.view).toEqual({
       phase: 'rolled-back',
       taskId: TASK_ID,
       sourceBranch: SOURCE_BRANCH,
       targetBranch: TARGET_BRANCH,
-      rollbackSha: RECOVERY_SHA,
+      recoveryPointSha: RECOVERY_SHA,
       reason: REASON,
     });
 

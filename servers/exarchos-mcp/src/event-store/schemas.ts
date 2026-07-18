@@ -2072,12 +2072,21 @@ export const livenessInstanceFields = {
 
 /**
  * merge.executed — records that a merge has been performed. `mergeSha` is
- * the resulting commit on the target branch; `rollbackSha` is the parent
- * commit captured prior to merge so a downstream rollback handler can rewind
+ * the resulting commit on the target branch; `recoveryPointSha` is the parent
+ * commit captured prior to merge so a downstream recovery handler can rewind
  * to it deterministically via the INV-14 ladder (`git merge --abort` →
- * `git reset --keep <rollbackSha>`, never `--hard`).
+ * `git reset --keep <recoveryPointSha>`, never `--hard`).
+ *
+ * Wire-field rename (DR-18): `recoveryPointSha` replaces the legacy
+ * `rollbackSha` wire field that the deprecation window retained. Both are
+ * OPTIONAL at the field level with an at-least-one refinement so historical
+ * rows (which carry only `rollbackSha`) still validate (INV-1 read
+ * tolerance), while the live emitter writes only the canonical name.
+ *
+ * The base object is split out so `MergeCompletedData` can derive via
+ * `.pick(...)` from a plain `ZodObject` (object methods drop refinements).
  */
-export const MergeExecutedData = z.object({
+const MergeExecutedBaseData = z.object({
   taskId: z.string().optional(),
   sourceBranch: z.string().min(1),
   targetBranch: z.string().min(1),
@@ -2085,11 +2094,37 @@ export const MergeExecutedData = z.object({
    * observability and replay don't have to re-derive it from state. */
   strategy: z.enum(['squash', 'rebase', 'merge']).optional(),
   mergeSha: z.string().min(1),
-  rollbackSha: z.string().min(1),
+  recoveryPointSha: z
+    .string()
+    .min(1)
+    .optional()
+    .describe('Pre-merge anchor the INV-14 recovery ladder rewinds to'),
+  // Legacy read-arm (INV-1): historical rows carry the old wire name. Never
+  // written by the live emitter — readers fold it as a recoveryPointSha
+  // fallback. Live references are confined to fold-compatibility arms (the
+  // grep gate in workflow-state-projection.test.ts pins this).
+  rollbackSha: z
+    .string()
+    .min(1)
+    .optional()
+    .describe('LEGACY name for recoveryPointSha; read-tolerant only'),
   // DR-2 — canonical liveness instance key (merge: taskId ?? `src→tgt`).
   ...livenessInstanceFields,
   // DR-16 — INV-13 state fingerprint (required at pair schemaVersion >= 1.1).
   ...stateFingerprintFields,
+});
+
+export const MergeExecutedData = MergeExecutedBaseData.superRefine((data, ctx) => {
+  // At-least-one anchor: preserves the pre-rename admission strength (the
+  // anchor was a required field) across the optional-pair encoding.
+  if (data.recoveryPointSha === undefined && data.rollbackSha === undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['recoveryPointSha'],
+      message:
+        'merge.executed requires recoveryPointSha (or the legacy rollbackSha on historical rows)',
+    });
+  }
 });
 
 /**
@@ -2184,13 +2219,13 @@ export const MergeRetryAttemptData = z.object({
  * verification between them, at which point the `executed → completed`
  * transition gains operational meaning.
  */
-// Derived from `MergeExecutedData` to keep the adjacent event-pair contracts
-// in lockstep — any field-shape change to the executed payload (e.g., a
-// tighter mergeSha pattern, a renamed taskId) automatically propagates to
-// the terminal marker. Adds `featureId` (optional) for cross-stream
-// observability; merge.executed doesn't carry it because the executor's
-// stream context already pins the feature.
-export const MergeCompletedData = MergeExecutedData.pick({
+// Derived from `MergeExecutedBaseData` to keep the adjacent event-pair
+// contracts in lockstep — any field-shape change to the executed payload
+// (e.g., a tighter mergeSha pattern, a renamed taskId) automatically
+// propagates to the terminal marker. Adds `featureId` (optional) for
+// cross-stream observability; merge.executed doesn't carry it because the
+// executor's stream context already pins the feature.
+export const MergeCompletedData = MergeExecutedBaseData.pick({
   taskId: true,
   sourceBranch: true,
   targetBranch: true,
@@ -2211,7 +2246,7 @@ export const MergeCompletedData = MergeExecutedData.pick({
  * `mutation.executing_started`.
  *
  * `recoveryPointSha` is the anchor HEAD the merge can be rewound to (the same
- * sha the terminal events carry as `rollbackSha` / `recoveryPointSha`).
+ * sha the terminal events carry as `recoveryPointSha`).
  * `startedAt` is the ISO timestamp at which the merge attempt began. `taskId`
  * is optional (CLI direct-invocation has no task context), matching the other
  * merge events.
