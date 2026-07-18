@@ -17,7 +17,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -423,6 +423,59 @@ describe('mutation-adequacy action (dispatch-through handleOrchestrate)', () => 
   });
 });
 
+// ─── DR-10: real-runner degrade attributes the runner's stderr (#1719) ─────
+//
+// Every test above injects `runMutation`, so none of them ever exercise the
+// PRODUCTION default (`defaultRunMutation`) — the one that actually shells
+// out and catches `execFileSync`'s thrown error. On PR #1719,
+// `check-mutation-gate.mjs --observe` surfaced `mutation run produced no
+// report (exit 1)` with no underlying reason because that catch read
+// `e.stdout` but never `e.stderr`, silently dropping the runner's actual
+// diagnostic. This test drives the UNMOCKED default runner (no `runMutation`
+// seam) against a real child process that fails with a KNOWN stderr marker
+// and nothing parseable on stdout, then asserts the degrade `reason` the
+// handler surfaces CONTAINS that marker — proving the underlying failure is
+// now attributable (DR-10), not silently dropped.
+
+describe('mutation-adequacy real runner — DR-10 stderr attribution (#1719)', () => {
+  it('HandleOrchestrate_MutationAdequacy_RealRunnerFailure_DegradeReasonContainsStderrTail', async () => {
+    const marker = 'MUTATION_DR10_STDERR_MARKER_9f3c1a';
+    const fixtureDir = mkdtempSync(path.join(os.tmpdir(), 'mutadq-fixture-'));
+    cleanups.push(() => rmrf(fixtureDir));
+    const script = path.join(fixtureDir, 'fail-runner.mjs');
+    writeFileSync(
+      script,
+      `process.stderr.write(${JSON.stringify(marker)});\nprocess.exit(3);\n`,
+    );
+
+    const { stateDir, eventStore } = await newStore();
+    const ctx = makeCtx(stateDir, eventStore);
+    const result = (await handleOrchestrate(
+      {
+        action: 'mutation-adequacy',
+        featureId: 'feat-mutadq',
+        base: 'main',
+        // No `runMutation` injected — exercises the real, unmocked
+        // `defaultRunMutation` shell-out + catch path.
+        resolve: () => runtimeWith(`${process.execPath} ${script}`),
+        // An unrecognised toolchain has no diff-scope augmentation
+        // (`resolveMutationDiffScope` → 'unscoped-warning'), so the command
+        // runs EXACTLY as resolved — no `--since` flag appended.
+        detectToolchainId: () => 'no-such-toolchain-xyz',
+      },
+      ctx,
+    )) as { success: boolean; data: MutationData; warnings?: string[] };
+
+    expect(result.success).toBe(true);
+    // A run-level degrade (no parseable report) surfaces as a Warning carrier
+    // — never a throw / error envelope.
+    expect(typeof result.data.warning).toBe('string');
+    // DR-10: the reason names WHY the run produced no report, not just THAT
+    // it did — the runner's captured stderr must be attributable in it.
+    expect(result.data.warning).toContain(marker);
+    expect(result.data.warning).toContain('mutation run produced no report');
+  });
+});
 
 // ─── Diff-scope applier resolution (DR-5 / Gap C) ────────────────────────────
 //
