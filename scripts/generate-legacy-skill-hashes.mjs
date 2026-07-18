@@ -35,10 +35,12 @@
  *
  * RELEASE ENUMERATION
  * -------------------
- * Release tags are discovered with `git tag --list 'v2.*'` and filtered to
- * those whose numeric (major, minor, patch) is >= (2, 9, 0). A pre-release
- * tag whose base version qualifies (e.g. `v2.9.0-rc.1`, `v2.10.0-preview.2`)
- * is INCLUDED — installs were published from those pre-releases, and covering
+ * Release tags are discovered with `git tag --list 'v*'` and filtered to the
+ * structured window `[MIN_RELEASE, MAX_RELEASE_EXCLUSIVE)` — the comparator
+ * bounds are the ONLY version filter, so a widened window can never silently
+ * drift from a narrower hardcoded glob (#1649 L3). A pre-release tag whose
+ * base version qualifies (e.g. `v2.9.0-rc.1`, `v2.10.0-preview.2`) is
+ * INCLUDED — installs were published from those pre-releases, and covering
  * them is the same provenance-safe superset.
  *
  * The manifest enumerates ONLY immutable release tags — never a `HEAD`
@@ -186,7 +188,7 @@ export function compareVersionTags(tagA, tagB) {
 }
 
 /**
- * Enumerate the release refs the manifest covers: every `v2.*` tag whose base
+ * Enumerate the release refs the manifest covers: every version tag whose base
  * version is in the frozen legacy window `[MIN_RELEASE, MAX_RELEASE_EXCLUSIVE)`
  * (pre-releases of a qualifying base included), sorted ascending. Only immutable
  * release tags are enumerated — the current HEAD is deliberately NOT appended,
@@ -196,11 +198,16 @@ export function compareVersionTags(tagA, tagB) {
  * release tags exist in the checkout, so a `v2.12.x`+ tag (from this rename
  * onward) is excluded rather than silently added.
  *
+ * The glob is the loose `v*` — the structured `[MIN_RELEASE,
+ * MAX_RELEASE_EXCLUSIVE)` comparator window is the ONLY version filter, so a
+ * future widening of the window (e.g. past a major bump) cannot silently drift
+ * against a narrower hardcoded glob (#1649 L3).
+ *
  * @param {{ cwd?: string }} [opts]
  * @returns {string[]}
  */
 export function enumerateReleaseRefs(opts = {}) {
-  const raw = git(['tag', '--list', 'v2.*'], opts);
+  const raw = git(['tag', '--list', 'v*'], opts);
   const tags = raw
     .split('\n')
     .map((t) => t.trim())

@@ -191,6 +191,7 @@ describe('generate-legacy-skill-hashes (Task 023, DR-8)', () => {
         'v2.11.0', // in-window release
         'v2.12.0-preview.1', // == MAX base — excluded (the rename release)
         'v2.13.5', // above MAX — excluded
+        'v3.0.0', // above MAX, next major — excluded by the WINDOW, not a glob (#1649 L3)
       ]) {
         g('tag', t);
       }
@@ -202,6 +203,10 @@ describe('generate-legacy-skill-hashes (Task 023, DR-8)', () => {
       expect(refs).not.toContain('v2.8.9');
       expect(refs).not.toContain('v2.12.0-preview.1');
       expect(refs).not.toContain('v2.13.5');
+      // The structured comparator window is the ONLY version filter — a v3.x tag
+      // is excluded by MAX_RELEASE_EXCLUSIVE, not silently dropped by a
+      // hardcoded 'v2.*' glob that a widened window could drift against.
+      expect(refs).not.toContain('v3.0.0');
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }

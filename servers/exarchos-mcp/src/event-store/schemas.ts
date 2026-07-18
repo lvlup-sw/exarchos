@@ -2332,6 +2332,13 @@ export const WorktreeCreateExecutedData = z.object({
  * Emitted BEFORE the child is observed as terminated, so a long-running launch is
  * observable as "started but not yet terminated" — the INV-10
  * `<surface>.executing_started` + paired terminal pattern.
+ *
+ * The optional `injection*` fields persist the spawn-time orientation-injection
+ * record (DR-6/DR-8) on the claim itself, so a fail-open degradation is
+ * answerable from events alone — the DR-6 acceptance's "recorded on
+ * `launch.executing_started`" is literally met, not just surfaced on the
+ * lifecycle result. Optional: pre-existing claims (and emitters that predate the
+ * fields) simply omit them.
  */
 export const LaunchExecutingStartedData = z.object({
   worktreeId: z.string().min(1).describe('Canonical worktrees@v1 key of the launch top-level worktree'),
@@ -2343,6 +2350,20 @@ export const LaunchExecutingStartedData = z.object({
     .describe(
       'Supervisor process start time (ISO 8601) — disambiguates PID reuse; non-empty when resolved, or null when the platform cannot resolve create-time (DR-6, never the empty string)',
     ),
+  injectionChannel: z
+    .string()
+    .min(1)
+    .optional()
+    .describe('Resolved spawn-time orientation channel label (DR-6) — `flag:<flag>` / `env:<var>` / `none` / `disabled`'),
+  injectionDegraded: z
+    .boolean()
+    .optional()
+    .describe('True when the launch proceeded WITHOUT native orientation (DR-8 fail-open)'),
+  injectionDegradation: z
+    .string()
+    .min(1)
+    .optional()
+    .describe('Human/log-safe degradation reason — present iff injectionDegraded'),
   // DR-2 — canonical liveness instance key (launch: worktreeId).
   ...livenessInstanceFields,
 });
