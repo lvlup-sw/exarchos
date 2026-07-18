@@ -34,7 +34,7 @@ function splitFrontmatter(contents: string): {
   if (!match) {
     throw new Error('contents missing YAML frontmatter');
   }
-  const data = parseYaml(match[1]) as Record<string, unknown>;
+  const data = parseYaml(match[1]!) as Record<string, unknown>;
   return { data, body: match[2] };
 }
 

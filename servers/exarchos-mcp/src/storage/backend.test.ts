@@ -91,8 +91,8 @@ describe('InMemoryBackend Event Operations', () => {
 
     const result = backend.queryEvents('test-stream', { sinceSequence: 1 });
     expect(result).toHaveLength(2);
-    expect(result[0].sequence).toBe(2);
-    expect(result[1].sequence).toBe(3);
+    expect(result[0]!.sequence).toBe(2);
+    expect(result[1]!.sequence).toBe(3);
   });
 
   it('InMemoryBackend_queryEvents_FiltersByType', async () => {

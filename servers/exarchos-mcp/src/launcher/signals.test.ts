@@ -201,8 +201,8 @@ describe('installSignalHandlers — signal handling + orphan prevention (DR-6)',
       // to the launch and carrying the signal-terminated `exitCode: null`.
       const rows = terminals();
       expect(rows).toHaveLength(1);
-      expect(rows[0].data?.worktreeId).toBe(WT_ID);
-      expect(rows[0].data?.exitCode).toBeNull();
+      expect(rows[0]!.data?.worktreeId).toBe(WT_ID);
+      expect(rows[0]!.data?.exitCode).toBeNull();
     });
   });
 

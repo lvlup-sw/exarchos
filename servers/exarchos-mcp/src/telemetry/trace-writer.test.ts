@@ -83,8 +83,8 @@ describe('TraceWriter', () => {
     const content = await fs.readFile(expectedFile, 'utf-8');
     const lines = content.trim().split('\n');
     expect(lines).toHaveLength(2);
-    expect(JSON.parse(lines[0]).action).toBe('get');
-    expect(JSON.parse(lines[1]).action).toBe('set');
+    expect(JSON.parse(lines[0]!).action).toBe('get');
+    expect(JSON.parse(lines[1]!).action).toBe('set');
   });
 
   it('TraceWriter_WriteFailure_DoesNotThrowOrBlockToolCall', async () => {
@@ -149,7 +149,7 @@ describe('withTelemetry trace capture', () => {
     expect(traceFiles).toHaveLength(1);
     expect(traceFiles[0]).toBe('feat-abc-sess-xyz.trace.jsonl');
 
-    const content = await fs.readFile(path.join(tmpDir, traceFiles[0]), 'utf-8');
+    const content = await fs.readFile(path.join(tmpDir, traceFiles[0]!), 'utf-8');
     const entry = JSON.parse(content.trim());
     expect(entry.toolName).toBe('exarchos_workflow');
     expect(entry.action).toBe('get');
@@ -196,7 +196,7 @@ describe('withTelemetry trace capture', () => {
     const traceFiles = files.filter((f) => f.endsWith('.trace.jsonl'));
     expect(traceFiles).toHaveLength(1);
 
-    const content = await fs.readFile(path.join(tmpDir, traceFiles[0]), 'utf-8');
+    const content = await fs.readFile(path.join(tmpDir, traceFiles[0]!), 'utf-8');
     const entry = JSON.parse(content.trim());
     expect(entry.input.length).toBeLessThanOrEqual(2048);
   });
@@ -222,7 +222,7 @@ describe('withTelemetry trace capture', () => {
     const traceFiles = files.filter((f) => f.endsWith('.trace.jsonl'));
     expect(traceFiles).toHaveLength(1);
 
-    const content = await fs.readFile(path.join(tmpDir, traceFiles[0]), 'utf-8');
+    const content = await fs.readFile(path.join(tmpDir, traceFiles[0]!), 'utf-8');
     const entry = JSON.parse(content.trim());
     expect(entry.skillContext).toBe('delegation');
   });

@@ -56,6 +56,7 @@ describe('shepherd → classifier integration (#1159)', () => {
         createdAt: '2026-01-01T00:00:00Z',
         path: 'src/auth.ts',
         line: 42,
+        source: 'review-inline',
       },
       // Sentry Medium → MEDIUM → direct
       {
@@ -65,6 +66,7 @@ describe('shepherd → classifier integration (#1159)', () => {
         createdAt: '2026-01-01T00:00:00Z',
         path: 'src/handler.ts',
         line: 17,
+        source: 'review-inline',
       },
       // Human nit → MEDIUM → direct
       {
@@ -74,6 +76,7 @@ describe('shepherd → classifier integration (#1159)', () => {
         createdAt: '2026-01-01T00:00:00Z',
         path: 'src/util.ts',
         line: 5,
+        source: 'review-inline',
       },
     ];
 

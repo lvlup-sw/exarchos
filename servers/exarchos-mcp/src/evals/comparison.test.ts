@@ -71,7 +71,7 @@ describe('compareRuns', () => {
 
     // Assert
     expect(report.regressions).toHaveLength(1);
-    expect(report.regressions[0].caseId).toBe('c-1');
+    expect(report.regressions[0]!.caseId).toBe('c-1');
     expect(report.verdict).toBe('regressions-detected');
   });
 
@@ -91,7 +91,7 @@ describe('compareRuns', () => {
 
     // Assert
     expect(report.improvements).toHaveLength(1);
-    expect(report.improvements[0].caseId).toBe('c-1');
+    expect(report.improvements[0]!.caseId).toBe('c-1');
     expect(report.verdict).toBe('safe');
   });
 
@@ -134,7 +134,7 @@ describe('compareRuns', () => {
 
     // Assert
     expect(report.newCases).toHaveLength(1);
-    expect(report.newCases[0].caseId).toBe('c-new');
+    expect(report.newCases[0]!.caseId).toBe('c-new');
   });
 
   it('compareRuns_RemovedCases_MarkedAsRemoved', () => {
@@ -152,6 +152,6 @@ describe('compareRuns', () => {
 
     // Assert
     expect(report.removedCases).toHaveLength(1);
-    expect(report.removedCases[0].caseId).toBe('c-removed');
+    expect(report.removedCases[0]!.caseId).toBe('c-removed');
   });
 });

@@ -91,7 +91,7 @@ function parseFrontmatter(contents: string): { data: Record<string, unknown>; bo
   const match = contents.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
   if (!match) throw new Error('No YAML frontmatter delimiters found');
   return {
-    data: parseYaml(match[1]) as Record<string, unknown>,
+    data: parseYaml(match[1]!) as Record<string, unknown>,
     body: match[2] ?? '',
   };
 }

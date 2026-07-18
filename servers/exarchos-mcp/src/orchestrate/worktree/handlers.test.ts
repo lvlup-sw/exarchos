@@ -160,8 +160,8 @@ describe('DR-5 null-ready ownerStartedAt (acquire_worktree)', () => {
     const events = await arm.ctx.eventStore.query(WORKTREES_STREAM);
     const reserved = events.filter((e) => e.type === 'worktree.reserved');
     expect(reserved).toHaveLength(1);
-    expect(reserved[0].data?.ownerStartedAt).toBeNull();
-    expect(reserved[0].data?.ownerStartedAt).not.toBe('');
+    expect(reserved[0]!.data?.ownerStartedAt).toBeNull();
+    expect(reserved[0]!.data?.ownerStartedAt).not.toBe('');
 
     // The folded projection agrees: the reserved entry holds ownerStartedAt: null.
     const view = await handleViewWorktrees({}, arm.ctx, {});
@@ -350,8 +350,8 @@ describe('ps — in-flight liveness read (DR-4)', () => {
     expect(result.success).toBe(true);
     const data = result.data as { inFlight: InFlightMerge[]; count: number };
     expect(data.count).toBe(1);
-    expect(data.inFlight[0].integrationRef).toBe('main');
-    expect(data.inFlight[0].sourceBranch).toBe('feat/x');
+    expect(data.inFlight[0]!.integrationRef).toBe('main');
+    expect(data.inFlight[0]!.sourceBranch).toBe('feat/x');
     expect(listSpy).not.toHaveBeenCalled();
   });
 
@@ -430,8 +430,8 @@ describe('ps — in-flight liveness read (DR-4)', () => {
       launchCount: number;
     };
     expect(inFlightData.launchCount).toBe(1);
-    expect(inFlightData.launches[0].worktreeId).toBe('/wlm/launch-wt');
-    expect(inFlightData.launches[0].launch).toEqual({
+    expect(inFlightData.launches[0]!.worktreeId).toBe('/wlm/launch-wt');
+    expect(inFlightData.launches[0]!.launch).toEqual({
       holderPid: 7777,
       holderStartedAt: 'boot-7777',
     });
@@ -511,7 +511,7 @@ describe('ps — in-flight liveness read (DR-4)', () => {
       (e) => e.type === 'launch.executed',
     );
     expect(after).toHaveLength(1);
-    expect(after[0].data?.worktreeId).toBe('/wlm/phantom-launch-wt');
+    expect(after[0]!.data?.worktreeId).toBe('/wlm/phantom-launch-wt');
 
     // A follow-up ps shows the launch column cleared — no permanent phantom.
     const cleared = await handleView({ action: 'ps', scope: 'worktree' }, arm.ctx, { realpath: (p) => p });
@@ -675,9 +675,9 @@ describe('ps — in-flight prune surface (DR-3)', () => {
     expect(result.success).toBe(true);
     const data = result.data as { prunes: InFlightPrune[]; pruneCount: number };
     expect(data.pruneCount).toBe(1);
-    expect(data.prunes[0].operationId).toBe('op-prune');
-    expect(data.prunes[0].repoRoot).toBe('/wlm/repo');
-    expect(data.prunes[0].holderPid).toBe(4242);
+    expect(data.prunes[0]!.operationId).toBe('op-prune');
+    expect(data.prunes[0]!.repoRoot).toBe('/wlm/repo');
+    expect(data.prunes[0]!.holderPid).toBe(4242);
     expect(listSpy).not.toHaveBeenCalled();
 
     // After the paired terminal folds, ps reports a cleared prune column — the
@@ -758,8 +758,8 @@ describe("wait — until: 'idle' prune-idle poll (DR-3)", () => {
     expect(data.reason).toBe('wait-idle-timeout');
     expect(data.timeoutMs).toBe(100);
     expect(data.holders).toHaveLength(1);
-    expect(data.holders[0].operationId).toBe('op-stuck-prune');
-    expect(data.holders[0].repoRoot).toBe('/wlm/repo');
+    expect(data.holders[0]!.operationId).toBe('op-stuck-prune');
+    expect(data.holders[0]!.repoRoot).toBe('/wlm/repo');
   });
 });
 

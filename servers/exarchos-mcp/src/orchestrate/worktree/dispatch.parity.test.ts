@@ -299,7 +299,7 @@ describe('worktree surface conformance (registry-driven, DR-1)', () => {
         const mcpArm = await createArm(`wlm-parity-mcp-${name}-`);
         arms.push(cliArm, mcpArm);
 
-        const { result: cliResult, exitCode } = await harnessCallCli(cliArm.ctx, cliAlias, name, args);
+        const { result: cliResult, exitCode } = await harnessCallCli(cliArm.ctx, cliAlias, name, args!);
         const mcpResult = await harnessCallMcp(mcpArm.ctx, tool, { action: name, ...args });
 
         // (1) routed, not UNKNOWN_ACTION / DOA.

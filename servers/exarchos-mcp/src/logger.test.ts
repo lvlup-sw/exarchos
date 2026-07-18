@@ -75,8 +75,8 @@ describe('No Console in Production Code', () => {
       const lines = content.split('\n');
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
-        if (/console\.(log|error|warn|info|debug)\s*\(/.test(line) && !line.trimStart().startsWith('//')) {
-          violations.push(`${path.relative(srcDir, file)}:${i + 1}: ${line.trim()}`);
+        if (/console\.(log|error|warn|info|debug)\s*\(/.test(line!) && !line!.trimStart().startsWith('//')) {
+          violations.push(`${path.relative(srcDir, file)}:${i + 1}: ${line!.trim()}`);
         }
       }
     }

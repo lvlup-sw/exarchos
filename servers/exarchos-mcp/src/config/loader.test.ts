@@ -46,8 +46,8 @@ describe('loadConfig', () => {
 
     // Assert
     expect(result.workflows).toBeDefined();
-    expect(result.workflows?.deploy.phases).toEqual(['build', 'test', 'deploy']);
-    expect(result.workflows?.deploy.initialPhase).toBe('build');
+    expect(result.workflows?.deploy!.phases).toEqual(['build', 'test', 'deploy']);
+    expect(result.workflows?.deploy!.initialPhase).toBe('build');
   });
 
   it('LoadConfig_InvalidConfig_Throws', async () => {
@@ -191,8 +191,8 @@ describe('loadConfig', () => {
     // Assert
     expect(result.views).toBeDefined();
     expect(result.views?.['my-metrics']).toBeDefined();
-    expect(result.views?.['my-metrics'].events).toEqual(['task.completed', 'task.failed']);
-    expect(result.views?.['my-metrics'].handler).toBe('./views/my-metrics.js');
+    expect(result.views?.['my-metrics']!.events).toEqual(['task.completed', 'task.failed']);
+    expect(result.views?.['my-metrics']!.handler).toBe('./views/my-metrics.js');
   });
 
   it('LoadConfig_WithInvalidViews_Throws', async () => {
@@ -243,10 +243,10 @@ describe('loadConfig', () => {
     // Assert
     expect(result.tools).toBeDefined();
     expect(result.tools?.['exarchos_deploy']).toBeDefined();
-    expect(result.tools?.['exarchos_deploy'].description).toBe('Custom deployment tool');
-    expect(result.tools?.['exarchos_deploy'].actions).toHaveLength(2);
-    expect(result.tools?.['exarchos_deploy'].actions[0].name).toBe('trigger');
-    expect(result.tools?.['exarchos_deploy'].actions[0].handler).toBe('./tools/deploy-trigger.js');
+    expect(result.tools?.['exarchos_deploy']!.description).toBe('Custom deployment tool');
+    expect(result.tools?.['exarchos_deploy']!.actions).toHaveLength(2);
+    expect(result.tools?.['exarchos_deploy']!.actions[0]!.name).toBe('trigger');
+    expect(result.tools?.['exarchos_deploy']!.actions[0]!.handler).toBe('./tools/deploy-trigger.js');
   });
 
   it('LoadConfig_WithInvalidTools_Throws', async () => {

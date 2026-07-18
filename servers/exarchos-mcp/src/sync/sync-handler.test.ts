@@ -215,8 +215,8 @@ describe('handleSyncNow', () => {
     );
     const entries = JSON.parse(raw) as OutboxEntry[];
     expect(entries).toHaveLength(2);
-    expect(entries[0].status).toBe('pending');
-    expect(entries[1].status).toBe('pending');
+    expect(entries[0]!.status).toBe('pending');
+    expect(entries[1]!.status).toBe('pending');
   });
 
   it('should drain outbox when a sender is provided', async () => {
@@ -255,8 +255,8 @@ describe('handleSyncNow', () => {
     expect(result.success).toBe(true);
     const data = result.data as { streams: number; results: Array<{ sent: number; failed: number }> };
     expect(data.streams).toBe(1);
-    expect(data.results[0].sent).toBe(1);
-    expect(data.results[0].failed).toBe(0);
+    expect(data.results[0]!.sent).toBe(1);
+    expect(data.results[0]!.failed).toBe(0);
 
     // Assert: sender was actually called
     expect(mockSender.appendEvents).toHaveBeenCalledTimes(1);
@@ -267,6 +267,6 @@ describe('handleSyncNow', () => {
       'utf-8',
     );
     const entries = JSON.parse(raw) as OutboxEntry[];
-    expect(entries[0].status).toBe('confirmed');
+    expect(entries[0]!.status).toBe('confirmed');
   });
 });

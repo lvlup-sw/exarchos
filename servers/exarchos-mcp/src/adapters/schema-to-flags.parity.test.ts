@@ -5,7 +5,7 @@ import * as path from 'node:path';
 
 import { type DispatchContext } from '../core/dispatch.js';
 import { EventStore } from '../event-store/store.js';
-import type { ToolResult } from '../format.js';
+import type { ToolResult, Envelope, ErrorEnvelope } from '../format.js';
 import { callCli, callMcp } from '../__tests__/parity-harness.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
@@ -35,10 +35,18 @@ function makeCtx(stateDir: string): DispatchContext {
   };
 }
 
+/** Both facades' result shapes: the CLI's ToolResult and the MCP envelope union. */
+type FacadeResult = ToolResult | Envelope<unknown> | ErrorEnvelope;
+
+/** The error block, if present ({@link Envelope} carries none on success). */
+function errorOf(result: FacadeResult): { code?: string; message?: string } | undefined {
+  return 'error' in result ? (result.error as { code?: string; message?: string }) : undefined;
+}
+
 /** Extract just the error code (success payloads flagged as 'OK' sentinel). */
-function errorCode(result: ToolResult): string {
+function errorCode(result: FacadeResult): string {
   if (result.success) return '__SUCCESS__';
-  return result.error?.code ?? '__MISSING_ERROR__';
+  return errorOf(result)?.code ?? '__MISSING_ERROR__';
 }
 
 // ─── Fixture Harness ─────────────────────────────────────────────────────────
@@ -108,8 +116,8 @@ describe('CLI/MCP argument coercion failure parity (DR-5)', () => {
     // Messages must reference the failing field so UX is equivalent.
     // Loose substring match — wording may differ but `featureId` (or its
     // kebab form) must appear in both.
-    const cliMsg = cliResult.error?.message ?? '';
-    const mcpMsg = mcpResult.error?.message ?? '';
+    const cliMsg = errorOf(cliResult)?.message ?? '';
+    const mcpMsg = errorOf(mcpResult)?.message ?? '';
     expect(cliMsg.toLowerCase()).toMatch(/feature-?id/);
     expect(mcpMsg.toLowerCase()).toMatch(/feature-?id/);
   });
@@ -148,8 +156,8 @@ describe('CLI/MCP argument coercion failure parity (DR-5)', () => {
     expect(cliExitCode).toBe(1);
 
     // Messages should reference the offending field in both.
-    const cliMsg = cliResult.error?.message ?? '';
-    const mcpMsg = mcpResult.error?.message ?? '';
+    const cliMsg = errorOf(cliResult)?.message ?? '';
+    const mcpMsg = errorOf(mcpResult)?.message ?? '';
     expect(cliMsg.toLowerCase()).toMatch(/feature-?id/);
     expect(mcpMsg.toLowerCase()).toMatch(/feature-?id/);
   });
@@ -306,8 +314,8 @@ describe.each(TOOL_FIXTURES)(
       expect(errorCode(mcpResult)).toBe('INVALID_INPUT');
       expect(cliExitCode).toBe(1);
 
-      const cliMsg = cliResult.error?.message ?? '';
-      const mcpMsg = mcpResult.error?.message ?? '';
+      const cliMsg = errorOf(cliResult)?.message ?? '';
+      const mcpMsg = errorOf(mcpResult)?.message ?? '';
       expect(cliMsg).toMatch(fixtureDef.fieldPattern);
       expect(mcpMsg).toMatch(fixtureDef.fieldPattern);
     });
@@ -354,7 +362,7 @@ describe.each(TOOL_FIXTURES)(
       // leaks for obviously bad input.
       if (!cliResult.success) {
         expect(['INVALID_INPUT', 'HANDLER_ERROR']).toContain(
-          cliResult.error?.code,
+          errorOf(cliResult)?.code,
         );
       }
     });

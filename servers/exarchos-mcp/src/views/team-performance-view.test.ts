@@ -45,7 +45,7 @@ describe('TeamPerformanceView', () => {
       });
 
       const next = teamPerformanceProjection.apply(state, event);
-      expect(next.teammates['worker-1'].tasksCompleted).toBe(1);
+      expect(next.teammates['worker-1']!.tasksCompleted).toBe(1);
     });
 
     it('apply_TeamTaskCompleted_UpdatesAvgDuration', () => {
@@ -72,7 +72,7 @@ describe('TeamPerformanceView', () => {
       state = teamPerformanceProjection.apply(state, event1);
       state = teamPerformanceProjection.apply(state, event2);
 
-      expect(state.teammates['worker-1'].avgDurationMs).toBe(5000);
+      expect(state.teammates['worker-1']!.avgDurationMs).toBe(5000);
     });
 
     it('apply_TeamTaskCompleted_TracksModuleExpertise', () => {
@@ -87,8 +87,8 @@ describe('TeamPerformanceView', () => {
       });
 
       const next = teamPerformanceProjection.apply(state, event);
-      expect(next.teammates['worker-1'].moduleExpertise).toContain('auth');
-      expect(next.teammates['worker-1'].moduleExpertise).toContain('api');
+      expect(next.teammates['worker-1']!.moduleExpertise).toContain('auth');
+      expect(next.teammates['worker-1']!.moduleExpertise).toContain('api');
     });
 
     it('apply_TeamTaskFailed_IncrementsFailCount', () => {
@@ -101,7 +101,7 @@ describe('TeamPerformanceView', () => {
       });
 
       const next = teamPerformanceProjection.apply(state, event);
-      expect(next.teammates['worker-1'].tasksFailed).toBe(1);
+      expect(next.teammates['worker-1']!.tasksFailed).toBe(1);
     });
 
     it('apply_TeamTaskCompleted_CalculatesPassRate', () => {
@@ -127,7 +127,7 @@ describe('TeamPerformanceView', () => {
         gateResults: {},
       }, 4));
 
-      expect(state.teammates['worker-1'].qualityGatePassRate).toBe(0.75);
+      expect(state.teammates['worker-1']!.qualityGatePassRate).toBe(0.75);
     });
   });
 
@@ -145,7 +145,7 @@ describe('TeamPerformanceView', () => {
 
       const next = teamPerformanceProjection.apply(state, event);
       // Module 'auth' should only be counted once despite two files in the same directory
-      expect(next.modules['auth'].totalTasks).toBe(1);
+      expect(next.modules['auth']!.totalTasks).toBe(1);
     });
 
     it('apply_TeamTaskCompleted_TracksModuleDuration', () => {
@@ -169,8 +169,8 @@ describe('TeamPerformanceView', () => {
         qualityGateResults: {},
       }, 2));
 
-      expect(state.modules['auth'].avgTaskDurationMs).toBe(5000);
-      expect(state.modules['auth'].totalTasks).toBe(2);
+      expect(state.modules['auth']!.avgTaskDurationMs).toBe(5000);
+      expect(state.modules['auth']!.totalTasks).toBe(2);
     });
 
     it('apply_WorkflowFixCycle_IncrementsModuleFixCycleRate', () => {
@@ -192,8 +192,8 @@ describe('TeamPerformanceView', () => {
         featureId: 'test',
       }, 2));
 
-      expect(state.modules['auth'].fixCycleRate).toBeGreaterThan(0);
-      expect(state.modules['auth'].fixCycleCount).toBe(1);
+      expect(state.modules['auth']!.fixCycleRate).toBeGreaterThan(0);
+      expect(state.modules['auth']!.fixCycleCount).toBe(1);
     });
   });
 
@@ -247,9 +247,9 @@ describe('TeamPerformanceView', () => {
 
       const alice = state.teammates['alice'];
       expect(alice).toBeDefined();
-      expect(alice.totalOutputTokens).toBe(4000);
-      expect(alice.subagentRuns).toBe(2);
-      expect(alice.avgOutputTokensPerRun).toBe(2000);
+      expect(alice!.totalOutputTokens).toBe(4000);
+      expect(alice!.subagentRuns).toBe(2);
+      expect(alice!.avgOutputTokensPerRun).toBe(2000);
     });
 
     it('TeamPerformance_TokenAtom_SurvivesSubsequentTaskCompleted', () => {
@@ -264,8 +264,8 @@ describe('TeamPerformanceView', () => {
         filesChanged: ['src/x.ts'], testsPassed: true, qualityGateResults: {},
       }, 2));
 
-      expect(state.teammates['bob'].totalOutputTokens).toBe(500);
-      expect(state.teammates['bob'].tasksCompleted).toBe(1);
+      expect(state.teammates['bob']!.totalOutputTokens).toBe(500);
+      expect(state.teammates['bob']!.tasksCompleted).toBe(1);
     });
 
     it('TeamPerformance_TokenAtom_IgnoresMissingTeammateOrTokens', () => {

@@ -47,8 +47,8 @@ describe('CodeQualityView', () => {
 
       const next = codeQualityProjection.apply(state, event);
       expect(next.gates['typecheck']).toBeDefined();
-      expect(next.gates['typecheck'].executionCount).toBe(1);
-      expect(next.gates['typecheck'].passRate).toBe(1);
+      expect(next.gates['typecheck']!.executionCount).toBe(1);
+      expect(next.gates['typecheck']!.passRate).toBe(1);
     });
 
     it('Apply_GateExecuted_Failed_UpdatesGateMetrics', () => {
@@ -63,9 +63,9 @@ describe('CodeQualityView', () => {
 
       const next = codeQualityProjection.apply(state, event);
       expect(next.gates['typecheck']).toBeDefined();
-      expect(next.gates['typecheck'].executionCount).toBe(1);
-      expect(next.gates['typecheck'].passRate).toBe(0);
-      expect(next.gates['typecheck'].failureReasons).toEqual(
+      expect(next.gates['typecheck']!.executionCount).toBe(1);
+      expect(next.gates['typecheck']!.passRate).toBe(0);
+      expect(next.gates['typecheck']!.failureReasons).toEqual(
         expect.arrayContaining([expect.objectContaining({ reason: 'TS2345' })]),
       );
     });
@@ -82,8 +82,8 @@ describe('CodeQualityView', () => {
 
       const next = codeQualityProjection.apply(state, event);
       expect(next.skills['delegation']).toBeDefined();
-      expect(next.skills['delegation'].totalExecutions).toBe(1);
-      expect(next.skills['delegation'].gatePassRate).toBe(1);
+      expect(next.skills['delegation']!.totalExecutions).toBe(1);
+      expect(next.skills['delegation']!.gatePassRate).toBe(1);
     });
 
     it('Apply_GateExecuted_MultipleEvents_CalculatesAverageDuration', () => {
@@ -103,8 +103,8 @@ describe('CodeQualityView', () => {
         duration: 3000,
       }, 2));
 
-      expect(state.gates['typecheck'].executionCount).toBe(2);
-      expect(state.gates['typecheck'].avgDuration).toBe(2000);
+      expect(state.gates['typecheck']!.executionCount).toBe(2);
+      expect(state.gates['typecheck']!.avgDuration).toBe(2000);
     });
   });
 
@@ -126,10 +126,10 @@ describe('CodeQualityView', () => {
 
       const next = codeQualityProjection.apply(state, event);
       expect(next.benchmarks).toHaveLength(1);
-      expect(next.benchmarks[0].operation).toBe('event-append');
-      expect(next.benchmarks[0].metric).toBe('p99-latency');
-      expect(next.benchmarks[0].values).toHaveLength(1);
-      expect(next.benchmarks[0].values[0].value).toBe(42);
+      expect(next.benchmarks[0]!.operation).toBe('event-append');
+      expect(next.benchmarks[0]!.metric).toBe('p99-latency');
+      expect(next.benchmarks[0]!.values).toHaveLength(1);
+      expect(next.benchmarks[0]!.values[0]!.value).toBe(42);
     });
 
     it('Apply_BenchmarkCompleted_UpdatesTrendDirection', () => {
@@ -175,11 +175,11 @@ describe('CodeQualityView', () => {
       }
 
       expect(state.regressions).toHaveLength(1);
-      expect(state.regressions[0].skill).toBe('delegation');
-      expect(state.regressions[0].gate).toBe('typecheck');
-      expect(state.regressions[0].consecutiveFailures).toBe(3);
-      expect(state.regressions[0].firstFailureCommit).toBe('commit-1');
-      expect(state.regressions[0].lastFailureCommit).toBe('commit-3');
+      expect(state.regressions[0]!.skill).toBe('delegation');
+      expect(state.regressions[0]!.gate).toBe('typecheck');
+      expect(state.regressions[0]!.consecutiveFailures).toBe(3);
+      expect(state.regressions[0]!.firstFailureCommit).toBe('commit-1');
+      expect(state.regressions[0]!.lastFailureCommit).toBe('commit-3');
     });
 
     it('Apply_GatePass_ResetsFailureCounter', () => {
@@ -235,8 +235,8 @@ describe('CodeQualityView', () => {
 
       const next = codeQualityProjection.apply(state, event);
       expect(next.models['claude-opus-4-6']).toBeDefined();
-      expect(next.models['claude-opus-4-6'].totalExecutions).toBe(1);
-      expect(next.models['claude-opus-4-6'].gatePassRate).toBe(1);
+      expect(next.models['claude-opus-4-6']!.totalExecutions).toBe(1);
+      expect(next.models['claude-opus-4-6']!.gatePassRate).toBe(1);
     });
 
     it('Apply_GateExecuted_WithoutModel_DoesNotCreateModelEntry', () => {
@@ -272,10 +272,10 @@ describe('CodeQualityView', () => {
         details: { model: 'claude-sonnet-4-6', reason: 'TS2345' },
       }, 2));
 
-      expect(state.models['claude-opus-4-6'].totalExecutions).toBe(1);
-      expect(state.models['claude-opus-4-6'].gatePassRate).toBe(1);
-      expect(state.models['claude-sonnet-4-6'].totalExecutions).toBe(1);
-      expect(state.models['claude-sonnet-4-6'].gatePassRate).toBe(0);
+      expect(state.models['claude-opus-4-6']!.totalExecutions).toBe(1);
+      expect(state.models['claude-opus-4-6']!.gatePassRate).toBe(1);
+      expect(state.models['claude-sonnet-4-6']!.totalExecutions).toBe(1);
+      expect(state.models['claude-sonnet-4-6']!.gatePassRate).toBe(0);
     });
 
     it('Init_IncludesEmptyModelsRecord', () => {
@@ -298,7 +298,7 @@ describe('CodeQualityView', () => {
       });
 
       const next = codeQualityProjection.apply(state, event);
-      expect(next.skills['delegation'].topFailureCategories).toEqual([
+      expect(next.skills['delegation']!.topFailureCategories).toEqual([
         { category: 'TS2345', count: 1 },
       ]);
     });
@@ -328,7 +328,7 @@ describe('CodeQualityView', () => {
         }, i));
       }
 
-      const categories = state.skills['delegation'].topFailureCategories;
+      const categories = state.skills['delegation']!.topFailureCategories;
       expect(categories[0]).toEqual({ category: 'TS1234', count: 3 });
       expect(categories[1]).toEqual({ category: 'TS2345', count: 2 });
     });
@@ -348,7 +348,7 @@ describe('CodeQualityView', () => {
         }, seq++));
       }
 
-      const categories = state.skills['delegation'].topFailureCategories;
+      const categories = state.skills['delegation']!.topFailureCategories;
       expect(categories.length).toBe(10);
     });
 
@@ -363,7 +363,7 @@ describe('CodeQualityView', () => {
       });
 
       const next = codeQualityProjection.apply(state, event);
-      expect(next.skills['delegation'].topFailureCategories).toEqual([]);
+      expect(next.skills['delegation']!.topFailureCategories).toEqual([]);
     });
 
     it('CodeQualityView_FailureNoReason_UsesGateNameAsCategory', () => {
@@ -377,7 +377,7 @@ describe('CodeQualityView', () => {
       });
 
       const next = codeQualityProjection.apply(state, event);
-      expect(next.skills['delegation'].topFailureCategories).toEqual([
+      expect(next.skills['delegation']!.topFailureCategories).toEqual([
         { category: 'typecheck', count: 1 },
       ]);
     });
@@ -395,7 +395,7 @@ describe('CodeQualityView', () => {
         }, i));
       }
 
-      expect(state.skills['delegation'].topFailureCategories).toEqual([
+      expect(state.skills['delegation']!.topFailureCategories).toEqual([
         { category: 'TS2345', count: 3 },
       ]);
     });
@@ -419,8 +419,8 @@ describe('CodeQualityView', () => {
         skill: 'delegation', totalAttempts: 2,
       }, 3));
 
-      expect(next.skills['delegation'].selfCorrectionRate).toBeGreaterThan(0);
-      expect(next.skills['delegation'].selfCorrectionRate).toBeLessThanOrEqual(1);
+      expect(next.skills['delegation']!.selfCorrectionRate).toBeGreaterThan(0);
+      expect(next.skills['delegation']!.selfCorrectionRate).toBeLessThanOrEqual(1);
     });
 
     it('CodeQualityView_RemediationSucceeded_UpdatesAvgRemediationAttempts', () => {
@@ -434,7 +434,7 @@ describe('CodeQualityView', () => {
         skill: 'delegation', totalAttempts: 3,
       }, 2));
 
-      expect(next.skills['delegation'].avgRemediationAttempts).toBe(3);
+      expect(next.skills['delegation']!.avgRemediationAttempts).toBe(3);
     });
 
     it('CodeQualityView_MultipleRemediations_CorrectRunningAverage', () => {
@@ -453,7 +453,7 @@ describe('CodeQualityView', () => {
         skill: 'delegation', totalAttempts: 4,
       }, 5));
 
-      expect(state.skills['delegation'].avgRemediationAttempts).toBe(3);
+      expect(state.skills['delegation']!.avgRemediationAttempts).toBe(3);
     });
 
     it('CodeQualityView_RemediationForUnknownSkill_CreatesSkillEntry', () => {
@@ -463,7 +463,7 @@ describe('CodeQualityView', () => {
       }, 1));
 
       expect(next.skills['unknown-skill']).toBeDefined();
-      expect(next.skills['unknown-skill'].avgRemediationAttempts).toBe(1);
+      expect(next.skills['unknown-skill']!.avgRemediationAttempts).toBe(1);
     });
 
     it('CodeQualityView_NoRemediations_RateRemainsZero', () => {
@@ -473,8 +473,8 @@ describe('CodeQualityView', () => {
         details: { skill: 'delegation' },
       }, 1));
 
-      expect(state.skills['delegation'].selfCorrectionRate).toBe(0);
-      expect(state.skills['delegation'].avgRemediationAttempts).toBe(0);
+      expect(state.skills['delegation']!.selfCorrectionRate).toBe(0);
+      expect(state.skills['delegation']!.avgRemediationAttempts).toBe(0);
     });
 
     it('CodeQualityView_RemediationAfterGateFailure_CorrelatesCorrectly', () => {
@@ -500,18 +500,18 @@ describe('CodeQualityView', () => {
         skill: 'planning', totalAttempts: 2,
       }, 5));
 
-      const rate = state.skills['planning'].selfCorrectionRate;
+      const rate = state.skills['planning']!.selfCorrectionRate;
       expect(rate).toBeGreaterThan(0);
       expect(rate).toBeLessThanOrEqual(1);
-      expect(state.skills['planning'].avgRemediationAttempts).toBe(2);
+      expect(state.skills['planning']!.avgRemediationAttempts).toBe(2);
 
       state = codeQualityProjection.apply(state, makeEvent('remediation.succeeded', {
         skill: 'planning', totalAttempts: 1,
       }, 6));
 
-      const rate2 = state.skills['planning'].selfCorrectionRate;
+      const rate2 = state.skills['planning']!.selfCorrectionRate;
       expect(rate2).toBeGreaterThan(rate);
-      expect(state.skills['planning'].avgRemediationAttempts).toBe(1.5);
+      expect(state.skills['planning']!.avgRemediationAttempts).toBe(1.5);
     });
   });
 
@@ -533,8 +533,8 @@ describe('CodeQualityView', () => {
         skill: 'prop-skill', totalAttempts,
       }, failCount + 1));
 
-      expect(state.skills['prop-skill'].selfCorrectionRate).toBeGreaterThanOrEqual(0);
-      expect(state.skills['prop-skill'].selfCorrectionRate).toBeLessThanOrEqual(1);
+      expect(state.skills['prop-skill']!.selfCorrectionRate).toBeGreaterThanOrEqual(0);
+      expect(state.skills['prop-skill']!.selfCorrectionRate).toBeLessThanOrEqual(1);
     });
 
     fcTest.prop([
@@ -554,7 +554,7 @@ describe('CodeQualityView', () => {
         }, seq++));
       }
 
-      expect(state.skills['prop-skill'].avgRemediationAttempts).toBeGreaterThanOrEqual(1);
+      expect(state.skills['prop-skill']!.avgRemediationAttempts).toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -619,10 +619,10 @@ describe('CodeQualityView - mutation-score trend (W2-6, #1525)', () => {
     const skill = state.skills['delegation'];
     expect(skill).toBeDefined();
     // Ordered samples folded as a left-fold trend (mirrors BenchmarkTrend; INV-1, no side table).
-    expect(skill.mutationScoreTrend).toBeDefined();
-    expect(skill.mutationScoreTrend!.values.map((v) => v.value)).toEqual([0.5, 0.6, 0.72]);
+    expect(skill!.mutationScoreTrend).toBeDefined();
+    expect(skill!.mutationScoreTrend!.values.map((v) => v.value)).toEqual([0.5, 0.6, 0.72]);
     // Rising mutation score = improving (higher-is-better — inverse of the latency trend).
-    expect(skill.mutationScoreTrend!.trend).toBe('improving');
+    expect(skill!.mutationScoreTrend!.trend).toBe('improving');
   });
 
   it('CodeQuality_MutationScore_AttributesPerSkillIndependently', () => {
@@ -630,8 +630,8 @@ describe('CodeQualityView - mutation-score trend (W2-6, #1525)', () => {
     state = codeQualityProjection.apply(state, mutationGate('delegation', 0.4, 1));
     state = codeQualityProjection.apply(state, mutationGate('review', 0.9, 2));
 
-    expect(state.skills['delegation'].mutationScoreTrend!.values.map((v) => v.value)).toEqual([0.4]);
-    expect(state.skills['review'].mutationScoreTrend!.values.map((v) => v.value)).toEqual([0.9]);
+    expect(state.skills['delegation']!.mutationScoreTrend!.values.map((v) => v.value)).toEqual([0.4]);
+    expect(state.skills['review']!.mutationScoreTrend!.values.map((v) => v.value)).toEqual([0.9]);
   });
 
   it('CodeQuality_GateWithoutMutationScore_LeavesTrendUntouched', () => {
@@ -648,7 +648,7 @@ describe('CodeQualityView - mutation-score trend (W2-6, #1525)', () => {
     );
 
     expect(state.skills['delegation']).toBeDefined();
-    expect(state.skills['delegation'].mutationScoreTrend).toBeUndefined();
+    expect(state.skills['delegation']!.mutationScoreTrend).toBeUndefined();
   });
 
   it('CodeQuality_NonMutationGateWithNumericMutationScore_IsIgnored', () => {
@@ -668,6 +668,6 @@ describe('CodeQualityView - mutation-score trend (W2-6, #1525)', () => {
     );
 
     expect(state.skills['delegation']).toBeDefined();
-    expect(state.skills['delegation'].mutationScoreTrend).toBeUndefined();
+    expect(state.skills['delegation']!.mutationScoreTrend).toBeUndefined();
   });
 });

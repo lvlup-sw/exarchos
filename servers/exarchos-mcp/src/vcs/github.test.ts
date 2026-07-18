@@ -233,7 +233,7 @@ describe('GitHubProvider', () => {
     );
 
     const result = await provider.checkCi('42');
-    expect(result.checks[0].status).toBe('pending');
+    expect(result.checks[0]!.status).toBe('pending');
     expect(result.status).toBe('pending');
   });
 
@@ -251,7 +251,7 @@ describe('GitHubProvider', () => {
     );
 
     const result = await provider.checkCi('42');
-    expect(result.checks[0].status).toBe('skipped');
+    expect(result.checks[0]!.status).toBe('skipped');
     // Skipped-only should be pass.
     expect(result.status).toBe('pass');
   });
@@ -385,8 +385,8 @@ describe('GitHubProvider', () => {
     const result = await provider.getReviewStatus('42');
     expect(result.state).toBe('approved');
     expect(result.reviewers).toHaveLength(1);
-    expect(result.reviewers[0].login).toBe('reviewer1');
-    expect(result.reviewers[0].state).toBe('approved');
+    expect(result.reviewers[0]!.login).toBe('reviewer1');
+    expect(result.reviewers[0]!.state).toBe('approved');
   });
 
   it('GitHubProvider_GetReviewStatus_ParsesChangesRequested', async () => {
@@ -403,8 +403,8 @@ describe('GitHubProvider', () => {
     const result = await provider.getReviewStatus('42');
     expect(result.state).toBe('changes_requested');
     expect(result.reviewers).toHaveLength(2);
-    expect(result.reviewers[0].state).toBe('changes_requested');
-    expect(result.reviewers[1].state).toBe('approved');
+    expect(result.reviewers[0]!.state).toBe('changes_requested');
+    expect(result.reviewers[1]!.state).toBe('approved');
   });
 
   it('GitHubProvider_GetReviewStatus_ParsesPending', async () => {
@@ -488,7 +488,7 @@ describe('GitHubProvider', () => {
       ])
     );
     expect(result).toHaveLength(1);
-    expect(result[0].headRefName).toBe('feat/specific');
+    expect(result[0]!.headRefName).toBe('feat/specific');
   });
 
   it('GitHubProvider_ListPrs_NoFilter_ReturnsAll', async () => {
@@ -750,7 +750,7 @@ describe('GitHubProvider', () => {
 
     const result = await provider.getPrComments('42');
     expect(result).toHaveLength(1);
-    expect(result[0].author).toBe('coderabbitai[bot]');
+    expect(result[0]!.author).toBe('coderabbitai[bot]');
   });
 
   // Pins the post-then-verify contract: a comment posted via `gh pr comment`
@@ -804,8 +804,8 @@ describe('GitHubProvider', () => {
 
     const result = await provider.getPrComments('42');
     expect(result).toHaveLength(1);
-    expect(result[0].id).toBe(402);
-    expect(result[0].source).toBe('review-summary');
+    expect(result[0]!.id).toBe(402);
+    expect(result[0]!.source).toBe('review-summary');
   });
 
   it('GetPrComments_ResolvedStatus_GraphqlEnrichmentFailSoft', async () => {
@@ -828,7 +828,7 @@ describe('GitHubProvider', () => {
 
     const failSoft = await provider.getPrComments('42');
     expect(failSoft).toHaveLength(1);
-    expect(failSoft[0].resolved).toBeUndefined();
+    expect(failSoft[0]!.resolved).toBeUndefined();
 
     // (b) GraphQL succeeds: id 500 is in a resolved thread → resolved:true;
     // id 501 is in no thread → resolved stays absent (unknown, not false).
@@ -957,7 +957,7 @@ index abc123..def456 100644
         '--label', 'bug,priority',
       ])
     );
-    const callArgs = mockExec.mock.calls[0][1];
+    const callArgs = mockExec.mock.calls[0]![1];
     expect(callArgs).not.toContain('--json');
     expect(result).toEqual({
       url: 'https://github.com/test/repo/issues/99',
@@ -974,7 +974,7 @@ index abc123..def456 100644
     });
 
     // Should NOT include --label flag
-    const callArgs = mockExec.mock.calls[0][1];
+    const callArgs = mockExec.mock.calls[0]![1];
     expect(callArgs).not.toContain('--label');
     expect(result.number).toBe(100);
   });

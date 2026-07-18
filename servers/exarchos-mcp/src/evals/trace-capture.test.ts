@@ -142,9 +142,9 @@ describe('captureTrace', () => {
 
     // Assert — should capture both the pair AND the trailing unmatched input
     expect(cases).toHaveLength(2);
-    expect(cases[0].id).toBe('trace-1-2');
-    expect(cases[1].id).toBe('trace-3-unmatched');
-    expect(cases[1].description).toContain('unmatched');
+    expect(cases[0]!.id).toBe('trace-1-2');
+    expect(cases[1]!.id).toBe('trace-3-unmatched');
+    expect(cases[1]!.description).toContain('unmatched');
   });
 
   it('captureTrace_EmptyStream_ReturnsEmptyArray', () => {

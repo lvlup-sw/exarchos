@@ -31,7 +31,7 @@ describe('writeHookEvent', () => {
     const lines = content.trim().split('\n').filter(Boolean);
     expect(lines).toHaveLength(1);
 
-    const parsed = JSON.parse(lines[0]);
+    const parsed = JSON.parse(lines[0]!);
     expect(parsed.type).toBe('team.task.completed');
     expect(parsed.data.taskId).toBe('task-001');
     expect(parsed.data.teammateName).toBe('worker-1');

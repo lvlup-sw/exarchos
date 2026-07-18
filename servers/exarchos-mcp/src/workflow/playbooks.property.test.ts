@@ -31,8 +31,8 @@ describe('HSM-Playbook Coverage', () => {
         const playbook = getPlaybook(workflowType, phase);
         expect(playbook).not.toBeNull();
         if (playbook!.tools.length > 0) {
-          const mentionsTool = playbook.tools.some((t) =>
-            playbook.compactGuidance.includes(t.tool),
+          const mentionsTool = playbook!.tools.some((t) =>
+            playbook!.compactGuidance.includes(t.tool),
           );
           expect(mentionsTool).toBe(true);
         }
@@ -42,7 +42,7 @@ describe('HSM-Playbook Coverage', () => {
         const playbook = getPlaybook(workflowType, phase);
         expect(playbook).not.toBeNull();
         const rendered = renderPlaybook(playbook!);
-        for (const tool of playbook.tools) {
+        for (const tool of playbook!.tools) {
           expect(rendered).toContain(tool.tool);
         }
       });
@@ -51,7 +51,7 @@ describe('HSM-Playbook Coverage', () => {
         const playbook = getPlaybook(workflowType, phase);
         expect(playbook).not.toBeNull();
         const rendered = renderPlaybook(playbook!);
-        for (const event of playbook.events) {
+        for (const event of playbook!.events) {
           expect(rendered).toContain(event.type);
         }
       });

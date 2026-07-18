@@ -228,7 +228,7 @@ describe('CalibrationReportSchema', () => {
 
     // Assert
     expect(result.disagreements).toHaveLength(1);
-    expect(result.disagreements[0].caseId).toBe('case-003');
+    expect(result.disagreements[0]!.caseId).toBe('case-003');
   });
 });
 
@@ -293,10 +293,10 @@ describe('loadGoldStandard', () => {
 
     // Assert
     expect(result).toHaveLength(2);
-    expect(result[0].caseId).toBe('c-1');
-    expect(result[1].caseId).toBe('c-2');
-    expect(result[1].humanVerdict).toBe(false);
-    expect(result[1].humanScore).toBe(0.1);
+    expect(result[0]!.caseId).toBe('c-1');
+    expect(result[1]!.caseId).toBe('c-2');
+    expect(result[1]!.humanVerdict).toBe(false);
+    expect(result[1]!.humanScore).toBe(0.1);
   });
 
   it('LoadGoldStandard_EmptyFile_ReturnsEmptyArray', async () => {
@@ -351,8 +351,8 @@ describe('loadGoldStandard', () => {
 
     // Assert
     expect(result).toHaveLength(2);
-    expect(result[0].caseId).toBe('c-1');
-    expect(result[1].caseId).toBe('c-2');
+    expect(result[0]!.caseId).toBe('c-1');
+    expect(result[1]!.caseId).toBe('c-2');
   });
 
   it('LoadGoldStandard_FileNotFound_ThrowsError', async () => {
@@ -440,12 +440,12 @@ describe('HumanGradedCase Property Tests', () => {
 
           expect(loaded).toHaveLength(cases.length);
           for (let i = 0; i < cases.length; i++) {
-            expect(loaded[i].caseId).toBe(cases[i].caseId);
-            expect(loaded[i].skill).toBe(cases[i].skill);
-            expect(loaded[i].rubricName).toBe(cases[i].rubricName);
-            expect(loaded[i].humanVerdict).toBe(cases[i].humanVerdict);
-            expect(loaded[i].humanScore).toBe(cases[i].humanScore);
-            expect(loaded[i].humanRationale).toBe(cases[i].humanRationale);
+            expect(loaded[i]!.caseId).toBe(cases[i]!.caseId);
+            expect(loaded[i]!.skill).toBe(cases[i]!.skill);
+            expect(loaded[i]!.rubricName).toBe(cases[i]!.rubricName);
+            expect(loaded[i]!.humanVerdict).toBe(cases[i]!.humanVerdict);
+            expect(loaded[i]!.humanScore).toBe(cases[i]!.humanScore);
+            expect(loaded[i]!.humanRationale).toBe(cases[i]!.humanRationale);
           }
         },
       ),

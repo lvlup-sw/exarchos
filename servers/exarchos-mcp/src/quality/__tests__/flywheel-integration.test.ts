@@ -198,9 +198,9 @@ describe('Flywheel Integration', () => {
     // Act: Materialize EvalResultsView — verify calibration is recorded
     const evalState = materializeEvalResults([calibrationEvent, ...evalRunEvents]);
     expect(evalState.calibrations.length).toBe(1);
-    expect(evalState.calibrations[0].skill).toBe('delegation');
-    expect(evalState.calibrations[0].tpr).toBe(0.90);
-    expect(evalState.calibrations[0].tnr).toBe(0.85);
+    expect(evalState.calibrations[0]!.skill).toBe('delegation');
+    expect(evalState.calibrations[0]!.tpr).toBe(0.90);
+    expect(evalState.calibrations[0]!.tnr).toBe(0.85);
 
     // Arrange: Sufficient gate events to trigger high data volume
     const gateEvents: WorkflowEvent[] = [];
@@ -245,7 +245,7 @@ describe('Flywheel Integration', () => {
 
     // Assert: signal has signalConfidence: 'high'
     expect(signals.length).toBeGreaterThanOrEqual(1);
-    expect(signals[0].signalConfidence).toBe('high');
+    expect(signals[0]!.signalConfidence).toBe('high');
   });
 
   // ─── Test 3 ──────────────────────────────────────────────────────────────

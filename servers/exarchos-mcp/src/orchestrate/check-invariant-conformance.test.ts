@@ -20,7 +20,7 @@ import * as path from 'node:path';
 
 import { EventStore } from '../event-store/store.js';
 import type { InvariantEntry } from '../architecture/invariants-loader.js';
-import type { ExarchosConfig } from '../config/exarchos-config-schema.js';
+import type { ExarchosConfigInput } from '../config/exarchos-config-schema.js';
 import { handleCheckInvariantConformance } from './check-invariant-conformance.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
@@ -374,7 +374,7 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
     const fixture = await makeRepoFixture({ devCatalog: DEV_CATALOG_SDLC3_BLOCKING });
     try {
       // Baseline: devCatalog enabled, no override → SDLC-3 fires → NEEDS_FIXES.
-      const baseConfig: ExarchosConfig = {
+      const baseConfig: ExarchosConfigInput = {
         invariants: { devCatalog: 'enabled' },
       };
       const baseline = await handleCheckInvariantConformance(
@@ -394,7 +394,7 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
       expect(baseData.verdict).toBe('NEEDS_FIXES');
 
       // With the disable override the invariant is dropped → APPROVED, 0 HIGH.
-      const overrideConfig: ExarchosConfig = {
+      const overrideConfig: ExarchosConfigInput = {
         invariants: {
           devCatalog: 'enabled',
           overrides: { 'SDLC-3': { enabled: false } },
@@ -464,7 +464,7 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
       userCatalogName: 'invariants.user.yml',
     });
     try {
-      const config: ExarchosConfig = {
+      const config: ExarchosConfigInput = {
         invariants: {
           devCatalog: 'enabled',
           catalogs: [fixture.userCatalogPath as string],
@@ -583,7 +583,7 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
     const arm = await createArm('inv-conformance-advisory-');
     const fixture = await makeRepoFixture({ devCatalog: DEV_CATALOG_SDLC3_BLOCKING });
     try {
-      const config: ExarchosConfig = {
+      const config: ExarchosConfigInput = {
         invariants: {
           devCatalog: 'enabled',
           enforcement: { review: 'advisory' },

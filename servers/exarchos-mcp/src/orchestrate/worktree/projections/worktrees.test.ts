@@ -580,7 +580,7 @@ describe('worktreesReducer.apply — in-flight merges + orphan folding (DR-4)', 
       worktreeId: null,
     });
     // The pre-existing, unrelated worktree entry is left untouched.
-    expect(merged.worktrees[WT_A].state).toBe('adopted');
+    expect(merged.worktrees[WT_A]!.state).toBe('adopted');
   });
 
   it('WorktreesProjection_MergeExecuted_MismatchedOperationId_DoesNotClobberClaim', () => {
@@ -612,7 +612,7 @@ describe('worktreesReducer.apply — in-flight merges + orphan folding (DR-4)', 
       }),
     );
     expect(stale).toBe(requested);
-    expect(stale.inFlightMerges[INT_REF].operationId).toBe('op-current');
+    expect(stale.inFlightMerges[INT_REF]!.operationId).toBe('op-current');
   });
 
   it('WorktreesProjection_MergeExecuted_MissingOperationId_DoesNotClearLease', () => {
@@ -648,7 +648,7 @@ describe('worktreesReducer.apply — in-flight merges + orphan folding (DR-4)', 
     );
     // Identity return (no sequence bump), lease untouched.
     expect(noOp).toBe(requested);
-    expect(noOp.inFlightMerges[INT_REF].operationId).toBe('op-current');
+    expect(noOp.inFlightMerges[INT_REF]!.operationId).toBe('op-current');
   });
 
   it('WorktreesProjection_ProbeFinding_EmitsAndFoldsOrphanDetected', () => {
@@ -670,8 +670,8 @@ describe('worktreesReducer.apply — in-flight merges + orphan folding (DR-4)', 
         },
       }),
     );
-    expect(reserved.worktrees[WT_A].state).toBe('reserved');
-    expect(reserved.worktrees[WT_A].ownerPid).toBe(8484);
+    expect(reserved.worktrees[WT_A]!.state).toBe('reserved');
+    expect(reserved.worktrees[WT_A]!.ownerPid).toBe(8484);
 
     // A probe finds the holder dead → `worktree.orphan_detected`. Folding the
     // finding flips the entry's liveness: state becomes `orphan`, owner cleared.
@@ -690,9 +690,9 @@ describe('worktreesReducer.apply — in-flight merges + orphan folding (DR-4)', 
         },
       }),
     );
-    expect(orphaned.worktrees[WT_A].state).toBe('orphan');
-    expect(orphaned.worktrees[WT_A].ownerPid).toBeNull();
-    expect(orphaned.worktrees[WT_A].ownerStartedAt).toBeNull();
+    expect(orphaned.worktrees[WT_A]!.state).toBe('orphan');
+    expect(orphaned.worktrees[WT_A]!.ownerPid).toBeNull();
+    expect(orphaned.worktrees[WT_A]!.ownerStartedAt).toBeNull();
     expect(orphaned.projectionSequence).toBe(2);
 
     // A subsequent release folds liveness to `released` (owner stays cleared).
@@ -704,8 +704,8 @@ describe('worktreesReducer.apply — in-flight merges + orphan folding (DR-4)', 
         data: { worktreeId: WT_A, path: WT_A, featureId: 'feat-a', operationId: 'op-rel' },
       }),
     );
-    expect(released.worktrees[WT_A].state).toBe('released');
-    expect(released.worktrees[WT_A].ownerPid).toBeNull();
+    expect(released.worktrees[WT_A]!.state).toBe('released');
+    expect(released.worktrees[WT_A]!.ownerPid).toBeNull();
   });
 
   it('WorktreesProjection_ColdRebuild_EqualsLiveState', () => {
@@ -772,9 +772,9 @@ describe('worktreesReducer.apply — in-flight merges + orphan folding (DR-4)', 
     expect(cold).toEqual(live);
     // INT_REF was requested then executed → cleared; INT_REF_OTHER still live.
     expect(Object.keys(cold.inFlightMerges)).toEqual([INT_REF_OTHER]);
-    expect(cold.inFlightMerges[INT_REF_OTHER].worktreeId).toBe(WT_A);
+    expect(cold.inFlightMerges[INT_REF_OTHER]!.worktreeId).toBe(WT_A);
     // WT_A's liveness folded to orphan.
-    expect(cold.worktrees[WT_A].state).toBe('orphan');
+    expect(cold.worktrees[WT_A]!.state).toBe('orphan');
   });
 
   it('WorktreesReducer_AssertReducerImmutable_Passes', () => {
@@ -863,7 +863,7 @@ describe('worktreesReducer.apply — launcher launch liveness folding (DR-2)', (
     const reducer = createWorktreesReducer(identityRealpath);
     const reserved = reserveWtA(reducer);
     // No launch yet → the entry carries no in-flight marker.
-    expect(reserved.worktrees[WT_A].launch).toBeUndefined();
+    expect(reserved.worktrees[WT_A]!.launch).toBeUndefined();
 
     const started = reducer.apply(
       reserved,
@@ -880,11 +880,11 @@ describe('worktreesReducer.apply — launcher launch liveness folding (DR-2)', (
 
     // The launcher worktree entry now reflects launch-in-flight, carrying the
     // live-child liveness ground truth. The reservation lifecycle is untouched.
-    expect(started.worktrees[WT_A].launch).toEqual({
+    expect(started.worktrees[WT_A]!.launch).toEqual({
       holderPid: 5151,
       holderStartedAt: '2026-06-25T04:30:00.000Z',
     });
-    expect(started.worktrees[WT_A].state).toBe('reserved');
+    expect(started.worktrees[WT_A]!.state).toBe('reserved');
     expect(started.projectionSequence).toBe(2);
 
     // A launch event for an unknown worktree is a lax no-op (identity) — no
@@ -915,7 +915,7 @@ describe('worktreesReducer.apply — launcher launch liveness folding (DR-2)', (
         },
       }),
     );
-    expect(started.worktrees[WT_A].launch).toBeDefined();
+    expect(started.worktrees[WT_A]!.launch).toBeDefined();
 
     const executed = reducer.apply(
       started,
@@ -928,8 +928,8 @@ describe('worktreesReducer.apply — launcher launch liveness folding (DR-2)', (
 
     // The terminal CLEARS the in-flight marker — so a permanent launch phantom
     // cannot survive a real child exit. The entry itself remains governed.
-    expect(executed.worktrees[WT_A].launch).toBeUndefined();
-    expect(executed.worktrees[WT_A].state).toBe('reserved');
+    expect(executed.worktrees[WT_A]!.launch).toBeUndefined();
+    expect(executed.worktrees[WT_A]!.state).toBe('reserved');
     expect(executed.projectionSequence).toBe(3);
     // A cleared entry deep-equals a never-launched one (no phantom `launch` key).
     expect(executed.worktrees[WT_A]).toEqual(reserved.worktrees[WT_A]);
@@ -972,8 +972,8 @@ describe('worktreesReducer.apply — launcher launch liveness folding (DR-2)', (
     );
 
     // Lifecycle state advanced, but the launch marker carried forward untouched.
-    expect(released.worktrees[WT_A].state).toBe('released');
-    expect(released.worktrees[WT_A].launch).toEqual({
+    expect(released.worktrees[WT_A]!.state).toBe('released');
+    expect(released.worktrees[WT_A]!.launch).toEqual({
       holderPid: 5151,
       holderStartedAt: 'boot',
     });
@@ -1130,7 +1130,7 @@ describe('worktreesReducer.apply — prune-run liveness folding (DR-3 / INV-10)'
     // Prune still in flight (no terminal yet); merge still live; entry released.
     expect(cold.inFlightPrunes[PRUNE_OP]).toBeDefined();
     expect(cold.inFlightMerges[INT_REF]).toBeDefined();
-    expect(cold.worktrees[WT_A].state).toBe('released');
+    expect(cold.worktrees[WT_A]!.state).toBe('released');
   });
 
   it('WorktreesReducer_PrunePair_PassesAssertReducerImmutable', () => {

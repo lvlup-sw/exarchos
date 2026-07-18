@@ -195,7 +195,7 @@ describe('initializeContext', () => {
     // Assert
     expect(ctx.config).toBeDefined();
     expect(ctx.config?.workflows?.deploy).toBeDefined();
-    expect(ctx.config?.workflows?.deploy.phases).toEqual(['build', 'ship']);
+    expect(ctx.config?.workflows?.deploy!.phases).toEqual(['build', 'ship']);
 
     // Cleanup
     await rmrfAsync(projectRoot);

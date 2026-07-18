@@ -68,7 +68,7 @@ describe('Latency Benchmarks', () => {
 
     // Act
     const start = performance.now();
-    const result = await handleViewTelemetry({}, stateDir);
+    const result = await handleViewTelemetry({}, stateDir, undefined as unknown as EventStore);
     const elapsed = performance.now() - start;
 
     // Assert

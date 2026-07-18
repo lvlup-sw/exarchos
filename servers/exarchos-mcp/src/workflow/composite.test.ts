@@ -75,7 +75,7 @@ describe('handleWorkflow', () => {
       // T036: successful responses are wrapped in Envelope<T>
       expect(result.success).toBe(true);
       expect(result.data).toEqual({ phase: 'init-result' });
-      expect((result as Record<string, unknown>).next_actions).toEqual([]);
+      expect((result as unknown as Record<string, unknown>).next_actions).toEqual([]);
     }, 20000);
   });
 
@@ -92,7 +92,7 @@ describe('handleWorkflow', () => {
       );
       expect(result.success).toBe(true);
       expect(result.data).toEqual({ phase: 'get-result' });
-      expect((result as Record<string, unknown>).next_actions).toEqual([]);
+      expect((result as unknown as Record<string, unknown>).next_actions).toEqual([]);
     });
   });
 
@@ -115,7 +115,7 @@ describe('handleWorkflow', () => {
       );
       expect(result.success).toBe(true);
       expect(result.data).toEqual({ phase: 'transition-result' });
-      expect((result as Record<string, unknown>).next_actions).toEqual([]);
+      expect((result as unknown as Record<string, unknown>).next_actions).toEqual([]);
     });
   });
 
@@ -147,7 +147,7 @@ describe('handleWorkflow', () => {
       );
       expect(result.success).toBe(true);
       expect(result.data).toEqual({ phase: 'cancel-result' });
-      expect((result as Record<string, unknown>).next_actions).toEqual([]);
+      expect((result as unknown as Record<string, unknown>).next_actions).toEqual([]);
     });
   });
 
@@ -164,7 +164,7 @@ describe('handleWorkflow', () => {
       );
       expect(result.success).toBe(true);
       expect(result.data).toEqual({ reconciled: true, eventsApplied: 3 });
-      expect((result as Record<string, unknown>).next_actions).toEqual([]);
+      expect((result as unknown as Record<string, unknown>).next_actions).toEqual([]);
     });
   });
 

@@ -333,7 +333,7 @@ describe('#1291 acceptance — operationId uniqueness across many dispatches', (
       expect(expectedEvents!.length).toBeGreaterThan(0);
 
       // All events for a single dispatch land on a single stream.
-      const streamId = expectedEvents![0].streamId;
+      const streamId = expectedEvents![0]!.streamId;
       const queried = await eventStore.query(streamId);
       // The stream was created in this dispatch only — so every event
       // on it is from the same operation.

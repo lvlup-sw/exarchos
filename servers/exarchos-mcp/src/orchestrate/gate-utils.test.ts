@@ -80,7 +80,7 @@ describe('emitGateEvent', () => {
     await emitGateEvent(mockStore as any, 'stream-4', 'post-merge', 'post-merge', true);
 
     // Assert
-    const calledEvent = mockStore.append.mock.calls[0][1];
+    const calledEvent = mockStore.append.mock.calls[0]![1];
     expect(calledEvent.data).not.toHaveProperty('details');
   });
 });

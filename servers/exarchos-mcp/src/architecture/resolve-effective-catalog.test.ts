@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { resolveEffectiveCatalog } from './resolve-effective-catalog.js';
-import type { ExarchosConfig } from '../config/exarchos-config-schema.js';
+import type { ExarchosConfigInput } from '../config/exarchos-config-schema.js';
 
 /**
  * Build an isolated repo fixture with a dev invariants catalog at
@@ -90,7 +90,7 @@ describe('resolveEffectiveCatalog', () => {
   });
 
   it('ResolveEffectiveCatalog_DevSdlcUser_ReturnsMergedProjectedPayload', () => {
-    const config: ExarchosConfig = {
+    const config: ExarchosConfigInput = {
       invariants: {
         devCatalog: 'enabled',
         catalogs: [fixture.userCatalogPath],
@@ -148,7 +148,7 @@ describe('resolveEffectiveCatalog', () => {
       'utf8',
     );
 
-    const config: ExarchosConfig = {
+    const config: ExarchosConfigInput = {
       invariants: {
         devCatalog: 'enabled',
         catalogs: ['invariants.user.yml'],
@@ -203,7 +203,7 @@ describe('resolveEffectiveCatalog', () => {
       'utf8',
     );
 
-    const config: ExarchosConfig = {
+    const config: ExarchosConfigInput = {
       invariants: {
         devCatalog: 'enabled',
         catalogs: ['reserved.user.md'],
@@ -234,7 +234,7 @@ describe('resolveEffectiveCatalog', () => {
   it('ResolveEffectiveCatalog_MissingUserCatalogPath_WarnsNotSilent', () => {
     // A configured-but-missing catalog path is almost always a typo/rename. It
     // must surface a warning rather than silently disabling intended checks.
-    const config: ExarchosConfig = {
+    const config: ExarchosConfigInput = {
       invariants: {
         devCatalog: 'enabled',
         catalogs: ['does/not/exist.md'],
@@ -292,7 +292,7 @@ describe('resolveEffectiveCatalog', () => {
       'utf8',
     );
 
-    const config: ExarchosConfig = {
+    const config: ExarchosConfigInput = {
       invariants: {
         devCatalog: 'enabled',
         catalogs: [fixture.userCatalogPath],
@@ -322,7 +322,7 @@ describe('resolveEffectiveCatalog', () => {
   it('ResolveEffectiveCatalog_DevCatalogDisabled_StillReturnsSdlcEntries', () => {
     // Consumer scenario: devCatalog NOT enabled ⇒ dev layer empty, but the
     // shipped SDLC-* baseline still resolves (default-on, no gate).
-    const config: ExarchosConfig = {
+    const config: ExarchosConfigInput = {
       invariants: { devCatalog: 'disabled' },
     };
     const { entries } = resolveEffectiveCatalog({
@@ -384,7 +384,7 @@ describe('resolveEffectiveCatalog', () => {
     // surface the dev catalog's INV-* entries through the same source loop the
     // user catalogs use. The fixture's invariants.md lives at the default dev
     // path, so register it explicitly with tier:dev and leave devCatalog unset.
-    const config: ExarchosConfig = {
+    const config: ExarchosConfigInput = {
       invariants: {
         catalogs: [{ path: '.exarchos/invariants.md', tier: 'dev' }],
       },
@@ -404,7 +404,7 @@ describe('resolveEffectiveCatalog', () => {
     // A registered dev source whose file is absent must degrade to a warning
     // (parity with the user-catalog DR-9 behavior), not throw, and the other
     // layers (sdlc) still resolve.
-    const config: ExarchosConfig = {
+    const config: ExarchosConfigInput = {
       invariants: {
         catalogs: [{ path: 'docs/architecture/does-not-exist.md', tier: 'dev' }],
       },
@@ -459,7 +459,7 @@ describe('resolveEffectiveCatalog', () => {
     // `devCatalog: enabled` in this repo's `.exarchos.yml` is equivalent to the
     // explicit registered-catalog pattern (design §4.3).
 
-    const devIdSet = (config: ExarchosConfig): { ids: string[]; tags: string[] } => {
+    const devIdSet = (config: ExarchosConfigInput): { ids: string[]; tags: string[] } => {
       const { entries } = resolveEffectiveCatalog({
         config,
         phase: 'ideate',
@@ -510,7 +510,7 @@ describe('resolveEffectiveCatalog', () => {
     //
     // Resolve against the real repo catalog via the module-relative default
     // (no `repoRoot` override), the same path the running gate uses.
-    const devIdSet = (config: ExarchosConfig): string[] => {
+    const devIdSet = (config: ExarchosConfigInput): string[] => {
       const { entries } = resolveEffectiveCatalog({
         config,
         phase: 'ideate',

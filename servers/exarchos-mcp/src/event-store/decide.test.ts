@@ -84,8 +84,8 @@ describe('decide<TState> — happy-path round-trip (Task 3.3)', () => {
     // Tail is now at 3; the appended event is observable via query.
     const events = await eventStore.query(streamId);
     expect(events).toHaveLength(3);
-    expect(events[2].type).toBe('task.completed');
-    expect(events[2].sequence).toBe(3);
+    expect(events[2]!.type).toBe('task.completed');
+    expect(events[2]!.sequence).toBe(3);
   });
 
   it('Decide_PassesNowFunctionForDeterministicTimestamps', async () => {

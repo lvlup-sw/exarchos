@@ -82,7 +82,7 @@ describe('buildOnboardEventCtx (shared seam, RF-3 #1510)', () => {
 
     const tail = await seam.readStreamTail();
     expect(tail.map((e) => e.type)).toEqual(['onboard.requested']);
-    expect((tail[0].data as OnboardRequested).idempotencyKey).toBe('new');
+    expect((tail[0]!.data as OnboardRequested).idempotencyKey).toBe('new');
   });
 
   it('readStreamTail is empty when the most recent event is an onboard.executed', async () => {

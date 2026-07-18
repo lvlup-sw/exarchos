@@ -57,8 +57,8 @@ describe('ShepherdStatusView', () => {
     );
 
     expect(view.prs).toHaveLength(1);
-    expect(view.prs[0].pr).toBe(42);
-    expect(view.prs[0].ci).toBe('passing');
+    expect(view.prs[0]!.pr).toBe(42);
+    expect(view.prs[0]!.ci).toBe('passing');
   });
 
   it('Apply_CiStatus_Failing_UpdatesPrCi', () => {
@@ -73,8 +73,8 @@ describe('ShepherdStatusView', () => {
     );
 
     expect(view.prs).toHaveLength(1);
-    expect(view.prs[0].pr).toBe(42);
-    expect(view.prs[0].ci).toBe('failing');
+    expect(view.prs[0]!.pr).toBe(42);
+    expect(view.prs[0]!.ci).toBe('failing');
   });
 
   it('Apply_ReviewFinding_Minor_UpdatesCommentCounts', () => {
@@ -95,8 +95,8 @@ describe('ShepherdStatusView', () => {
     );
 
     expect(view.prs).toHaveLength(1);
-    expect(view.prs[0].comments.unresolved).toBe(1);
-    expect(view.prs[0].unresolvedBySeverity['minor']).toBe(1);
+    expect(view.prs[0]!.comments.unresolved).toBe(1);
+    expect(view.prs[0]!.unresolvedBySeverity['minor']).toBe(1);
   });
 
   it('Apply_ReviewFinding_Critical_UpdatesSeverityCounts', () => {
@@ -117,8 +117,8 @@ describe('ShepherdStatusView', () => {
     );
 
     expect(view.prs).toHaveLength(1);
-    expect(view.prs[0].comments.unresolved).toBe(1);
-    expect(view.prs[0].unresolvedBySeverity['critical']).toBe(1);
+    expect(view.prs[0]!.comments.unresolved).toBe(1);
+    expect(view.prs[0]!.unresolvedBySeverity['critical']).toBe(1);
   });
 
   it('Apply_CommentPosted_IncrementsTotal', () => {
@@ -134,7 +134,7 @@ describe('ShepherdStatusView', () => {
     );
 
     expect(view.prs).toHaveLength(1);
-    expect(view.prs[0].comments.total).toBe(2);
+    expect(view.prs[0]!.comments.total).toBe(2);
   });
 
   it('Apply_CommentResolved_DecrementsUnresolved', () => {
@@ -162,7 +162,7 @@ describe('ShepherdStatusView', () => {
       events,
     );
 
-    expect(view.prs[0].comments.unresolved).toBe(1);
+    expect(view.prs[0]!.comments.unresolved).toBe(1);
   });
 
   it('Apply_CommentResolved_DoesNotGoBelowZero', () => {
@@ -176,7 +176,7 @@ describe('ShepherdStatusView', () => {
       events,
     );
 
-    expect(view.prs[0].comments.unresolved).toBe(0);
+    expect(view.prs[0]!.comments.unresolved).toBe(0);
   });
 
   // DR-3 (#1595): the view's `iteration` is the COUNT of `shepherd.iteration`
@@ -348,7 +348,7 @@ describe('ShepherdStatusView', () => {
     expect(view.escalation!.reason).toBe('auto-fix bound (5) reached after 5 iterations');
     expect(view.escalation!.iterationCount).toBe(5);
     expect(view.escalation!.maxIterations).toBe(5);
-    expect(view.escalation!.escalatedAt).toBe(events[1].timestamp);
+    expect(view.escalation!.escalatedAt).toBe(events[1]!.timestamp);
     expect(view.overallStatus).toBe('escalate');
   });
 

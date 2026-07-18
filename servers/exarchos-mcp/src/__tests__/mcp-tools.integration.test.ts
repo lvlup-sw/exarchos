@@ -164,9 +164,9 @@ describe('Task 7: Workflow + Event Round-Trip Tests', () => {
 
       const acks = batchResult.data as Array<{ streamId: string; sequence: number; type: string }>;
       expect(acks).toHaveLength(3);
-      expect(acks[0].sequence).toBe(1);
-      expect(acks[1].sequence).toBe(2);
-      expect(acks[2].sequence).toBe(3);
+      expect(acks[0]!.sequence).toBe(1);
+      expect(acks[1]!.sequence).toBe(2);
+      expect(acks[2]!.sequence).toBe(3);
 
       // Act: query
       const queryResult = await handleEvent(
@@ -180,14 +180,14 @@ describe('Task 7: Workflow + Event Round-Trip Tests', () => {
       expect(events).toHaveLength(3);
 
       // Assert: deterministic newest-first ordering (3, 2, 1).
-      expect(events[0].sequence).toBe(3);
-      expect(events[1].sequence).toBe(2);
-      expect(events[2].sequence).toBe(1);
+      expect(events[0]!.sequence).toBe(3);
+      expect(events[1]!.sequence).toBe(2);
+      expect(events[2]!.sequence).toBe(1);
 
       // Assert: data integrity (taskIds track their sequence).
-      expect((events[0].data as Record<string, unknown>).taskId).toBe('3');
-      expect((events[1].data as Record<string, unknown>).taskId).toBe('2');
-      expect((events[2].data as Record<string, unknown>).taskId).toBe('1');
+      expect((events[0]!.data as Record<string, unknown>).taskId).toBe('3');
+      expect((events[1]!.data as Record<string, unknown>).taskId).toBe('2');
+      expect((events[2]!.data as Record<string, unknown>).taskId).toBe('1');
     });
   });
 

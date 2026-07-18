@@ -28,12 +28,12 @@ describe('detectRegressions', () => {
     const regressions = detectRegressions(viewState);
 
     expect(regressions).toHaveLength(1);
-    expect(regressions[0].gate).toBe('typecheck');
-    expect(regressions[0].skill).toBe('delegation');
-    expect(regressions[0].consecutiveFailures).toBe(3);
-    expect(regressions[0].firstFailureCommit).toBe('abc123');
-    expect(regressions[0].lastFailureCommit).toBe('def456');
-    expect(regressions[0].detectedAt).toBeDefined();
+    expect(regressions[0]!.gate).toBe('typecheck');
+    expect(regressions[0]!.skill).toBe('delegation');
+    expect(regressions[0]!.consecutiveFailures).toBe(3);
+    expect(regressions[0]!.firstFailureCommit).toBe('abc123');
+    expect(regressions[0]!.lastFailureCommit).toBe('def456');
+    expect(regressions[0]!.detectedAt).toBeDefined();
   });
 
   it('detectRegressions_TwoFailures_ReturnsEmpty', async () => {
@@ -99,7 +99,7 @@ describe('emitRegressionEvents', () => {
     );
 
     expect(mockEventStore.append).toHaveBeenCalledTimes(1);
-    const [streamId, event] = mockEventStore.append.mock.calls[0];
+    const [streamId, event] = mockEventStore.append.mock.calls[0]!;
     expect(streamId).toBe('test-stream');
     expect(event.type).toBe('quality.regression');
     expect(event.data.skill).toBe('delegation');

@@ -227,7 +227,7 @@ describe('handlePostMerge', () => {
 
     // Assert
     expect(mockCheckPostMerge).toHaveBeenCalledTimes(1);
-    const callArgs = mockCheckPostMerge.mock.calls[0][0] as {
+    const callArgs = mockCheckPostMerge.mock.calls[0]![0] as {
       prUrl: string;
       mergeSha: string;
       runCommand: unknown;

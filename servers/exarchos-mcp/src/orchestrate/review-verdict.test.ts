@@ -256,8 +256,8 @@ describe('handleReviewVerdict', () => {
 
       expect(mockStore.append).toHaveBeenCalledTimes(1);
       const appendCall = mockStore.append.mock.calls[0];
-      expect(appendCall[0]).toBe('feat-1');
-      const event = appendCall[1] as {
+      expect(appendCall![0]).toBe('feat-1');
+      const event = appendCall![1] as {
         type: string;
         data: {
           gateName: string;
@@ -284,7 +284,7 @@ describe('handleReviewVerdict', () => {
       await handleReviewVerdict(args, STATE_DIR, mockStore as unknown as EventStore);
 
       const appendCall = mockStore.append.mock.calls[0];
-      const event = appendCall[1] as {
+      const event = appendCall![1] as {
         type: string;
         data: {
           passed: boolean;
@@ -313,7 +313,7 @@ describe('handleReviewVerdict', () => {
 
       // Per-dimension event includes phase
       const perDimCall = mockStore.append.mock.calls[0];
-      const perDimEvent = perDimCall[1] as {
+      const perDimEvent = perDimCall![1] as {
         type: string;
         data: { details: Record<string, unknown> };
       };
@@ -326,7 +326,7 @@ describe('handleReviewVerdict', () => {
 
       expect(mockStore.append).toHaveBeenCalledTimes(1);
       const summaryCall = mockStore.append.mock.calls[0];
-      const summaryEvent = summaryCall[1] as {
+      const summaryEvent = summaryCall![1] as {
         type: string;
         data: { details: Record<string, unknown> };
       };
@@ -432,8 +432,8 @@ describe('handleReviewVerdict', () => {
 
       // D1 dimension event
       const d1Call = mockStore.append.mock.calls[0];
-      expect(d1Call[0]).toBe('feat-1');
-      const d1Event = d1Call[1] as {
+      expect(d1Call![0]).toBe('feat-1');
+      const d1Event = d1Call![1] as {
         type: string;
         data: {
           gateName: string;
@@ -454,8 +454,8 @@ describe('handleReviewVerdict', () => {
 
       // D2 dimension event
       const d2Call = mockStore.append.mock.calls[1];
-      expect(d2Call[0]).toBe('feat-1');
-      const d2Event = d2Call[1] as {
+      expect(d2Call![0]).toBe('feat-1');
+      const d2Event = d2Call![1] as {
         type: string;
         data: {
           gateName: string;
@@ -476,8 +476,8 @@ describe('handleReviewVerdict', () => {
 
       // Summary event
       const summaryCall = mockStore.append.mock.calls[2];
-      expect(summaryCall[0]).toBe('feat-1');
-      const summaryEvent = summaryCall[1] as {
+      expect(summaryCall![0]).toBe('feat-1');
+      const summaryEvent = summaryCall![1] as {
         type: string;
         data: {
           gateName: string;

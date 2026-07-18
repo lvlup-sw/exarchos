@@ -153,7 +153,7 @@ describe('workflow-fold view (DR-3)', () => {
 
     const delegate = foldWorkflowSummaries(backend, { phase: 'delegate' });
     expect(delegate.map((r) => r.featureId)).toEqual(['feat-active']);
-    expect(delegate[0].phase).toBe('delegate');
+    expect(delegate[0]!.phase).toBe('delegate');
 
     const triage = foldWorkflowSummaries(backend, { phase: 'triage' });
     expect(triage.map((r) => r.featureId)).toEqual(['dbg-active']);
@@ -207,7 +207,7 @@ describe('workflow-fold view (DR-3)', () => {
       expect(row.ageMs).toBe(10_000);
     }
     // Oldest-first ordering with equal ages falls back to featureId.
-    expect(rows[0].featureId).toBe('dbg-active');
+    expect(rows[0]!.featureId).toBe('dbg-active');
   });
 });
 
@@ -277,8 +277,8 @@ describe('listWorkflowSummaries backend contract', () => {
         phase: 'delegate',
       };
       // A registered sibling, so the JOIN has a matching row to find as well.
-      seed(sqlite.backend, CORPUS[0]);
-      seed(memory.backend, CORPUS[0]);
+      seed(sqlite.backend, CORPUS[0]!);
+      seed(memory.backend, CORPUS[0]!);
       seed(sqlite.backend, orphan, true);
       seed(memory.backend, orphan, true);
 

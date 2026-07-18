@@ -261,9 +261,9 @@ describe('WorkflowStateProjection task events', () => {
       );
 
       expect(state.tasks).toHaveLength(1);
-      expect(state.tasks[0].title).toBe('Updated title');
-      expect(state.tasks[0].branch).toBe('feat/new');
-      expect(state.tasks[0].worktreePath).toBe('/tmp/wt-new');
+      expect(state.tasks[0]!.title).toBe('Updated title');
+      expect(state.tasks[0]!.branch).toBe('feat/new');
+      expect(state.tasks[0]!.worktreePath).toBe('/tmp/wt-new');
     });
   });
 
@@ -285,8 +285,8 @@ describe('WorkflowStateProjection task events', () => {
         ),
       );
 
-      expect(state.tasks[0].status).toBe('complete');
-      expect(state.tasks[0].completedAt).toBe(ts);
+      expect(state.tasks[0]!.status).toBe('complete');
+      expect(state.tasks[0]!.completedAt).toBe(ts);
     });
   });
 
@@ -313,7 +313,7 @@ describe('WorkflowStateProjection task events', () => {
         makeEvent('task.failed', { taskId: 'task-1', error: 'build failed' }),
       );
 
-      expect(state.tasks[0].status).toBe('failed');
+      expect(state.tasks[0]!.status).toBe('failed');
     });
   });
 });
@@ -496,7 +496,7 @@ describe('WorkflowStateProjection stack/review events', () => {
         }),
       );
 
-      expect(state.tasks[0].branch).toBe('new-branch');
+      expect(state.tasks[0]!.branch).toBe('new-branch');
     });
   });
 
@@ -587,10 +587,10 @@ describe('WorkflowStateProjection team events', () => {
 
       expect(next._events).toHaveLength(1);
       const entry = next._events[0];
-      expect(entry.type).toBe('team.spawned');
-      expect(entry.timestamp).toBe(ts);
-      expect(entry.data).toBeDefined();
-      expect((entry.data as Record<string, unknown>).teamSize).toBe(3);
+      expect(entry!.type).toBe('team.spawned');
+      expect(entry!.timestamp).toBe(ts);
+      expect(entry!.data).toBeDefined();
+      expect((entry!.data as Record<string, unknown>).teamSize).toBe(3);
     });
   });
 });
@@ -617,7 +617,7 @@ describe('WorkflowStateProjection oneshot/pruning events', () => {
         type: 'synthesize.requested',
         timestamp: ts,
       });
-      expect((next._events[0].data as Record<string, unknown>).featureId).toBe(
+      expect((next._events[0]!.data as Record<string, unknown>).featureId).toBe(
         'oneshot-feature',
       );
     });
@@ -687,7 +687,7 @@ describe('WorkflowStateProjection oneshot/pruning events', () => {
         type: 'workflow.pruned',
         timestamp: ts,
       });
-      expect((next._events[0].data as Record<string, unknown>).reason).toBe(
+      expect((next._events[0]!.data as Record<string, unknown>).reason).toBe(
         'stale-timeout',
       );
     });

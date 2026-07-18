@@ -12,6 +12,7 @@ vi.mock('./gate-utils.js', () => ({
 }));
 
 import { handleSecurityScan } from './security-scan.js';
+import type { EventStore } from '../event-store/store.js';
 
 /**
  * Behavioral parity tests for security-scan.ts against the original
@@ -78,6 +79,7 @@ describe('behavioral parity with security-scan.sh', () => {
     const result = await handleSecurityScan(
       { featureId: 'test-feature', diffContent: CLEAN_DIFF },
       stateDir,
+        undefined as unknown as EventStore,
     );
 
     expect(result.success).toBe(true);
@@ -99,6 +101,7 @@ describe('behavioral parity with security-scan.sh', () => {
     const result = await handleSecurityScan(
       { featureId: 'test-feature', diffContent: APIKEY_DIFF },
       stateDir,
+        undefined as unknown as EventStore,
     );
 
     expect(result.success).toBe(true);
@@ -125,6 +128,7 @@ describe('behavioral parity with security-scan.sh', () => {
     const result = await handleSecurityScan(
       { featureId: 'test-feature', diffContent: EVAL_DIFF },
       stateDir,
+        undefined as unknown as EventStore,
     );
 
     expect(result.success).toBe(true);
@@ -137,15 +141,16 @@ describe('behavioral parity with security-scan.sh', () => {
 
     expect(data.passed).toBe(false);
     expect(data.findingCount).toBe(1);
-    expect(data.findings[0].severity).toBe('HIGH');
-    expect(data.findings[0].pattern).toBe('eval() usage');
-    expect(data.findings[0].file).toBe('src/handler.ts');
+    expect(data.findings[0]!.severity).toBe('HIGH');
+    expect(data.findings[0]!.pattern).toBe('eval() usage');
+    expect(data.findings[0]!.file).toBe('src/handler.ts');
   });
 
   it('innerHTML diff — fails with 1 MEDIUM finding (bash: exit 1, innerHTML assignment)', async () => {
     const result = await handleSecurityScan(
       { featureId: 'test-feature', diffContent: INNERHTML_DIFF },
       stateDir,
+        undefined as unknown as EventStore,
     );
 
     expect(result.success).toBe(true);
@@ -158,15 +163,16 @@ describe('behavioral parity with security-scan.sh', () => {
 
     expect(data.passed).toBe(false);
     expect(data.findingCount).toBe(1);
-    expect(data.findings[0].severity).toBe('MEDIUM');
-    expect(data.findings[0].pattern).toBe('innerHTML assignment');
-    expect(data.findings[0].file).toBe('src/render.ts');
+    expect(data.findings[0]!.severity).toBe('MEDIUM');
+    expect(data.findings[0]!.pattern).toBe('innerHTML assignment');
+    expect(data.findings[0]!.file).toBe('src/render.ts');
   });
 
   it('empty diff content — passes with 0 findings', async () => {
     const result = await handleSecurityScan(
       { featureId: 'test-feature', diffContent: '' },
       stateDir,
+        undefined as unknown as EventStore,
     );
 
     expect(result.success).toBe(true);

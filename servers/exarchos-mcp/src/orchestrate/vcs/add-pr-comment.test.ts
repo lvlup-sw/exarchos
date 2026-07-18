@@ -72,7 +72,7 @@ describe('handleAddPrComment', () => {
         // calls .includes(marker) which matches if the body contains it.
         // Capture the body actually sent via addComment.
         const calls = vi.mocked(mockProvider.addComment).mock.calls;
-        const lastBody = calls.length > 0 ? (calls[calls.length - 1][1] as string) : '';
+        const lastBody = calls.length > 0 ? (calls[calls.length - 1]![1] as string) : '';
         return [{
           id: 555,
           author: 'tester',
@@ -92,7 +92,7 @@ describe('handleAddPrComment', () => {
 
     // addComment is still called; body now includes the operationId marker
     expect(mockProvider.addComment).toHaveBeenCalledTimes(1);
-    const [calledPrId, calledBody] = vi.mocked(mockProvider.addComment).mock.calls[0];
+    const [calledPrId, calledBody] = vi.mocked(mockProvider.addComment).mock.calls[0]!;
     expect(calledPrId).toBe('42');
     expect(calledBody).toContain('Great work!');
   });
@@ -125,7 +125,7 @@ describe('handleAddPrComment', () => {
     expect(result.success).toBe(true);
     // addReply called with the PR id, thread id, and marker-embedded body.
     expect(replyProvider.addReply).toHaveBeenCalledTimes(1);
-    const [calledPrId, calledThreadId, calledBody] = vi.mocked(replyProvider.addReply).mock.calls[0];
+    const [calledPrId, calledThreadId, calledBody] = vi.mocked(replyProvider.addReply).mock.calls[0]!;
     expect(calledPrId).toBe('42');
     expect(calledThreadId).toBe('201');
     expect(calledBody).toContain('Addressed in latest push.');
@@ -170,10 +170,10 @@ describe('handleAddPrComment', () => {
     );
 
     const appender = replyCtx.eventStore.getAppender();
-    const [, , computeFn] = vi.mocked(appender.appendComputed).mock.calls[0];
+    const [, , computeFn] = vi.mocked(appender.appendComputed).mock.calls[0]!;
     const events = await computeFn();
-    expect(events[0].type).toBe('pr.comment.requested');
-    expect((events[0].data as Record<string, unknown>).threadId).toBe(201);
+    expect(events[0]!.type).toBe('pr.comment.requested');
+    expect((events[0]!.data as Record<string, unknown>).threadId).toBe(201);
   });
 
   it('handleAddPrComment_InvalidThreadId_ReturnsInvalidInput', async () => {
@@ -194,12 +194,12 @@ describe('handleAddPrComment', () => {
     // Phase A — pr.comment.requested must be committed via appendComputed
     const appender = ctx.eventStore.getAppender();
     expect(appender.appendComputed).toHaveBeenCalledTimes(1);
-    const [streamId, , computeFn] = vi.mocked(appender.appendComputed).mock.calls[0];
+    const [streamId, , computeFn] = vi.mocked(appender.appendComputed).mock.calls[0]!;
     expect(streamId).toBe('vcs');
     // The compute function should produce a pr.comment.requested event
     const events = await computeFn();
     expect(events).toHaveLength(1);
-    expect(events[0].type).toBe('pr.comment.requested');
+    expect(events[0]!.type).toBe('pr.comment.requested');
 
     // Phase C — pr.comment.executed must also be appended
     expect(ctx.eventStore.append).toHaveBeenCalledWith(
@@ -339,7 +339,7 @@ describe('handleAddPrComment — B2.2 Phase-A retry non-refire', () => {
         getCallCount += 1;
         if (getCallCount === 1) return [];
         const calls = vi.mocked(mockProvider.addComment).mock.calls;
-        const lastBody = calls.length > 0 ? (calls[calls.length - 1][1] as string) : '';
+        const lastBody = calls.length > 0 ? (calls[calls.length - 1]![1] as string) : '';
         return [{
           id: 777,
           author: 'tester',

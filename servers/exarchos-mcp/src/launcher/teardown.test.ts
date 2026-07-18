@@ -451,7 +451,7 @@ describe('teardownLaunch — launcher teardown safety + recovery (DR-6)', () => 
 
     // DR-2 precheck finished the half-created worktree: the create pair is 1:1.
     expect(result.recoveredCreations).toHaveLength(1);
-    expect(result.recoveredCreations[0].operationId).toBe(op);
+    expect(result.recoveredCreations[0]!.operationId).toBe(op);
     expect(
       worktreeEvents(store).some(
         (e) => e.type === CREATE_EXECUTED && e.data?.operationId === op,

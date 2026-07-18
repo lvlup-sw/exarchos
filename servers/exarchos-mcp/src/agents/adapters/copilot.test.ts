@@ -24,7 +24,7 @@ function parseFrontmatter(contents: string): { data: Record<string, unknown>; bo
   if (!match) {
     throw new Error('No YAML frontmatter delimiters found');
   }
-  const data = parseYaml(match[1]) as Record<string, unknown>;
+  const data = parseYaml(match[1]!) as Record<string, unknown>;
   const body = match[2] ?? '';
   return { data, body };
 }

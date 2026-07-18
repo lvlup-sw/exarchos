@@ -59,16 +59,16 @@ describe('launcher liveness emitters (DR-2)', () => {
     // Exactly one of each, both on the singleton worktrees stream, both carrying
     // the schema-required liveness fields.
     expect(started).toHaveLength(1);
-    expect(started[0].streamId).toBe(WORKTREES_STREAM);
-    expect(started[0].data).toMatchObject({
+    expect(started[0]!.streamId).toBe(WORKTREES_STREAM);
+    expect(started[0]!.data).toMatchObject({
       worktreeId: WT_ID,
       holderPid: 4242,
       holderStartedAt: 'boot-4242',
     });
 
     expect(terminal).toHaveLength(1);
-    expect(terminal[0].streamId).toBe(WORKTREES_STREAM);
-    expect(terminal[0].data).toMatchObject({ worktreeId: WT_ID, exitCode: 0 });
+    expect(terminal[0]!.streamId).toBe(WORKTREES_STREAM);
+    expect(terminal[0]!.data).toMatchObject({ worktreeId: WT_ID, exitCode: 0 });
 
     // The first terminal emission reports it wrote the row.
     expect(executed).toEqual({ appended: true, worktreeId: WT_ID, exitCode: 0 });
@@ -95,7 +95,7 @@ describe('launcher liveness emitters (DR-2)', () => {
     // is idempotent across the signal + teardown paths.
     expect(terminals).toHaveLength(1);
     // The first terminal wins; its exitCode is the one that persisted.
-    expect(terminals[0].data).toMatchObject({ worktreeId: WT_ID, exitCode: null });
+    expect(terminals[0]!.data).toMatchObject({ worktreeId: WT_ID, exitCode: null });
 
     // The first call wrote it; the second short-circuited on the existing terminal.
     expect(first.appended).toBe(true);

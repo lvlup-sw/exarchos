@@ -36,7 +36,7 @@ describe('Manifest Writer', () => {
     const lines = content.trim().split('\n');
     expect(lines).toHaveLength(1);
 
-    const parsed = JSON.parse(lines[0]);
+    const parsed = JSON.parse(lines[0]!);
     expect(parsed.sessionId).toBe('test-session-001');
     expect(parsed.transcriptPath).toBe('/home/user/.claude/projects/abc/session.jsonl');
     expect(parsed.startedAt).toBe('2026-02-24T10:00:00.000Z');
@@ -72,9 +72,9 @@ describe('Manifest Writer', () => {
 
     const result = await readManifestEntries(tmpDir);
     expect(result).toHaveLength(3);
-    expect(result[0].sessionId).toBe('session-1');
-    expect(result[1].sessionId).toBe('session-2');
-    expect(result[2].sessionId).toBe('session-3');
+    expect(result[0]!.sessionId).toBe('session-1');
+    expect(result[1]!.sessionId).toBe('session-2');
+    expect(result[2]!.sessionId).toBe('session-3');
   });
 
   it('readManifestEntries_EmptyFile_ReturnsEmptyArray', async () => {
@@ -100,6 +100,6 @@ describe('Manifest Writer', () => {
 
     const result = await findUnextractedSessions(tmpDir);
     expect(result).toHaveLength(1);
-    expect(result[0].sessionId).toBe('unextracted-session');
+    expect(result[0]!.sessionId).toBe('unextracted-session');
   });
 });

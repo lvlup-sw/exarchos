@@ -248,9 +248,9 @@ describe('OperationsFold — generic in-flight operations (DR-3)', () => {
     // are per-(stream,key); worktrees-scoped surfaces are per-key (stream elided).
     const refId = (surfaceIndex: number, stream: string, key: string): string => {
       const descriptor = LIVENESS_DESCRIPTORS[surfaceIndex];
-      return descriptor.streamScope === 'feature'
-        ? `${descriptor.surface}:${stream}:${key}`
-        : `${descriptor.surface}:${key}`;
+      return descriptor!.streamScope === 'feature'
+        ? `${descriptor!.surface}:${stream}:${key}`
+        : `${descriptor!.surface}:${key}`;
     };
 
     fc.assert(
@@ -258,7 +258,7 @@ describe('OperationsFold — generic in-flight operations (DR-3)', () => {
         const events: OperationEventLike[] = ops.map(({ surfaceIndex, op, key, stream }, i) => {
           const descriptor = LIVENESS_DESCRIPTORS[surfaceIndex];
           return {
-            type: op === 'start' ? descriptor.startType : descriptor.terminalTypes[0],
+            type: op === 'start' ? descriptor!.startType : descriptor!.terminalTypes[0],
             data: { instanceId: key },
             streamId: stream,
             timestamp: new Date(2026, 0, 1, 0, 0, i).toISOString(),
@@ -450,13 +450,13 @@ describe('OperationsFold — generic in-flight operations (DR-3)', () => {
         const key = `k-${i}`;
         const isInFlight = i % 3 === 0;
         batch.push({
-          type: descriptor.startType,
+          type: descriptor!.startType,
           data: { instanceId: key },
           timestamp: new Date(2026, 0, 1, 0, 0, 0, i).toISOString(),
         });
         if (!isInFlight) {
           batch.push({
-            type: descriptor.terminalTypes[0],
+            type: descriptor!.terminalTypes[0],
             data: { instanceId: key },
             timestamp: new Date(2026, 0, 1, 0, 0, 1, i).toISOString(),
           });

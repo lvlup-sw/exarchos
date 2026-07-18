@@ -236,9 +236,9 @@ describe('apply', () => {
       // The cli-only step landed in advisories, not applied.
       expect(result.applied).toHaveLength(0);
       expect(result.advisories).toHaveLength(1);
-      expect(result.advisories[0].surface).toBe('cli-only');
+      expect(result.advisories[0]!.surface).toBe('cli-only');
       // The advisory points the operator at the CLI.
-      expect(result.advisories[0].commands?.length ?? 0).toBeGreaterThan(0);
+      expect(result.advisories[0]!.commands?.length ?? 0).toBeGreaterThan(0);
     } finally {
       await cleanup(fx);
     }

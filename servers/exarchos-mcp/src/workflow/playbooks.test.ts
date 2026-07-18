@@ -488,7 +488,7 @@ describe('review.completed in review phase', () => {
     const playbooks = serializePlaybooks('feature');
     const reviewPhase = playbooks.phases['review'];
     expect(reviewPhase).toBeDefined();
-    const hasReviewCompleted = reviewPhase.events.some((e) => e.type === 'review.completed');
+    const hasReviewCompleted = reviewPhase!.events.some((e) => e.type === 'review.completed');
     expect(hasReviewCompleted).toBe(true);
   });
 });

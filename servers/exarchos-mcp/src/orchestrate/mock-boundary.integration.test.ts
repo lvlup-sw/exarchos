@@ -271,7 +271,7 @@ describe('check_mock_boundary acceptance (through handleOrchestrate)', () => {
       const events = await eventStore.query(featureId, { type: 'gate.executed' });
       expect(events.length).toBeGreaterThan(0);
       const gateEvent = events[events.length - 1];
-      const eventData = gateEvent.data as {
+      const eventData = gateEvent!.data as {
         gateName: string;
         details?: { escapeHatch?: { acknowledged: boolean; reason: string } };
       };

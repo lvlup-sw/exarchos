@@ -203,8 +203,8 @@ describe('CreatePr_Parity_BothCarriersObserveTwoEventSequence (B1.5)', () => {
     expect(mcpEvents.length).toBeGreaterThanOrEqual(2);
 
     // Verify Phase A (pr.create.requested) is first.
-    expect(cliEvents[0].type).toBe('pr.create.requested');
-    expect(mcpEvents[0].type).toBe('pr.create.requested');
+    expect(cliEvents[0]!.type).toBe('pr.create.requested');
+    expect(mcpEvents[0]!.type).toBe('pr.create.requested');
 
     // Verify Phase B (pr.create.executed) follows.
     const cliExecuted = cliEvents.find((e) => e.type === 'pr.create.executed');
@@ -213,8 +213,8 @@ describe('CreatePr_Parity_BothCarriersObserveTwoEventSequence (B1.5)', () => {
     expect(mcpExecuted).toBeDefined();
 
     // Assert — event data shapes are identical modulo operationId (UUID).
-    const cliRequestedData = normalize(cliEvents[0].data);
-    const mcpRequestedData = normalize(mcpEvents[0].data);
+    const cliRequestedData = normalize(cliEvents[0]!.data);
+    const mcpRequestedData = normalize(mcpEvents[0]!.data);
     expect(cliRequestedData).toEqual(mcpRequestedData);
 
     const cliExecutedData = normalize(cliExecuted!.data);

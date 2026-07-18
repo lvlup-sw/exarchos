@@ -95,9 +95,9 @@ describe('EventStore cross-process attach (#1343, Wave A5)', () => {
     expect(seqsB).toEqual([1, 2, 3]);
 
     // Event types must reflect the correct append order (per-step tag).
-    expect(eventsFromA[0].type).toBe('task.assigned');
-    expect(eventsFromA[1].type).toBe('task.completed');
-    expect(eventsFromA[2].type).toBe('workflow.transition');
+    expect(eventsFromA[0]!.type).toBe('task.assigned');
+    expect(eventsFromA[1]!.type).toBe('task.completed');
+    expect(eventsFromA[2]!.type).toBe('workflow.transition');
 
     // ─── Assert: no .event-store.lock file ───────────────────────────────────
     //

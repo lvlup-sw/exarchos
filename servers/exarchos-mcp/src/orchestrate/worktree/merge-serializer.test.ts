@@ -531,7 +531,7 @@ describe('serialize_merge — the lease IS the serialization', () => {
       .replace(/(^|[^:])\/\/.*$/gm, '$1'); // line comments (keep "://" in URLs)
     const importSpecifiers = [...code.matchAll(/from\s+['"]([^'"]+)['"]/g)].map((m) => m[1]);
     for (const spec of importSpecifiers) {
-      expect(spec.toLowerCase()).not.toContain('lock');
+      expect(spec!.toLowerCase()).not.toContain('lock');
     }
     expect(code).not.toMatch(/flockSync|O_EXLOCK|proper-lockfile|lockfile|\.lock\b/i);
 
@@ -584,8 +584,8 @@ describe('serialize_merge — unresolvable create-time (Sentry #15023070/1)', ()
     // The stored raw event validates against the canonical data schema — null is
     // in-contract now (z.string().min(1).nullable()); '' would still be rejected.
     const schema = EVENT_DATA_SCHEMAS['worktree.merge_requested'];
-    expect(() => schema.parse(claim!.data)).not.toThrow();
-    expect(() => schema.parse({ ...claim!.data, holderStartedAt: '' })).toThrow();
+    expect(() => schema!.parse(claim!.data)).not.toThrow();
+    expect(() => schema!.parse({ ...claim!.data, holderStartedAt: '' })).toThrow();
   });
 
   it('SerializeMerge_Release_EmitsSchemaValidStatus_NoStraySourceBranch', async () => {
@@ -613,7 +613,7 @@ describe('serialize_merge — unresolvable create-time (Sentry #15023070/1)', ()
     expect(data.status).toBe('merged'); // truthful terminal for a successful merge
     expect('sourceBranch' in data).toBe(false); // CLAIM-only field, not on the release
     // The raw stored event validates against the canonical release schema.
-    expect(() => EVENT_DATA_SCHEMAS['worktree.merge_executed'].parse(data)).not.toThrow();
+    expect(() => EVENT_DATA_SCHEMAS['worktree.merge_executed']!.parse(data)).not.toThrow();
   });
 });
 

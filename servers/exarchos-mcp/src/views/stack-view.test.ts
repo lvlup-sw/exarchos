@@ -80,10 +80,10 @@ describe('StackView', () => {
     );
 
     expect(view.positions).toHaveLength(3);
-    expect(view.positions[0].position).toBe(1);
-    expect(view.positions[1].position).toBe(2);
-    expect(view.positions[2].position).toBe(3);
-    expect(view.positions[2].taskId).toBe('t3');
+    expect(view.positions[0]!.position).toBe(1);
+    expect(view.positions[1]!.position).toBe(2);
+    expect(view.positions[2]!.position).toBe(3);
+    expect(view.positions[2]!.taskId).toBe('t3');
   });
 
   it('stackViewProjection_Apply_UnrelatedEvent_ReturnsUnchanged', () => {

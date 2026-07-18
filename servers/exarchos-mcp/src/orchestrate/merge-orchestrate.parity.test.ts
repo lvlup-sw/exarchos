@@ -50,6 +50,9 @@ import type { MergePreflightResult } from './pure/merge-preflight.js';
 import type { HandleExecuteMergeInput } from './execute-merge.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
+/** Structural view of the failure envelope's error block (test-only). */
+type ErrEnv = { error?: { code?: string; message?: string } & Record<string, unknown> };
+
 // ─── Fixtures ──────────────────────────────────────────────────────────────
 
 const MERGE_SHA = 'a'.repeat(40);
@@ -288,8 +291,8 @@ describe('exarchos merge-orchestrate CLI↔MCP parity (T22, DR-MO-1)', () => {
     // Assert — both surfaces report the rollback failure.
     expect(cliRollback.success).toBe(false);
     expect(mcpRollback.success).toBe(false);
-    expect(cliRollback.error?.code).toBe('MERGE_ROLLED_BACK');
-    expect(mcpRollback.error?.code).toBe('MERGE_ROLLED_BACK');
+    expect((cliRollback as ErrEnv).error?.code).toBe('MERGE_ROLLED_BACK');
+    expect((mcpRollback as ErrEnv).error?.code).toBe('MERGE_ROLLED_BACK');
 
     // CLI maps any handler-reported failure to HANDLER_ERROR (exit 2);
     // MCP is transport-agnostic and has no exit code. We pin the CLI

@@ -64,11 +64,11 @@ describe('diffClassifications — pure diff core (property)', () => {
         const rev = diffClassifications(b, a);
         expect(rev.map((d) => d.taskId)).toEqual(fwd.map((d) => d.taskId));
         for (let i = 0; i < fwd.length; i++) {
-          expect(rev[i].changed).toBe(fwd[i].changed);
-          expect(rev[i].beforeTier).toBe(fwd[i].afterTier);
-          expect(rev[i].afterTier).toBe(fwd[i].beforeTier);
-          expect(rev[i].beforeSteps).toBe(fwd[i].afterSteps);
-          expect(rev[i].afterSteps).toBe(fwd[i].beforeSteps);
+          expect(rev[i]!.changed).toBe(fwd[i]!.changed);
+          expect(rev[i]!.beforeTier).toBe(fwd[i]!.afterTier);
+          expect(rev[i]!.afterTier).toBe(fwd[i]!.beforeTier);
+          expect(rev[i]!.beforeSteps).toBe(fwd[i]!.afterSteps);
+          expect(rev[i]!.afterSteps).toBe(fwd[i]!.beforeSteps);
         }
       }),
     );
@@ -202,21 +202,21 @@ describe('buildPairRows + toCsv', () => {
     const rows = buildPairRows('causal', before, after, beforeRuns, afterRuns, corpus);
     expect(rows).toHaveLength(1);
     const r = rows[0];
-    expect(r.pair).toBe('causal');
-    expect(r.spec).toBe('spec-a.md');
-    expect(r.task).toBe('001');
-    expect(r.beforeTier).toBe('medium');
-    expect(r.afterTier).toBe('high');
-    expect(r.beforeSteps).toBe(2);
-    expect(r.afterSteps).toBe(3);
-    expect(r.changed).toBe(true);
-    expect(r.beforeSha).toBe('585c154cb978013b82264b8502d9226bb92ed49c');
-    expect(r.afterSha).toBe('a240b4d84c932fcbe1fa8519fb8efbb04a2fa4d8');
+    expect(r!.pair).toBe('causal');
+    expect(r!.spec).toBe('spec-a.md');
+    expect(r!.task).toBe('001');
+    expect(r!.beforeTier).toBe('medium');
+    expect(r!.afterTier).toBe('high');
+    expect(r!.beforeSteps).toBe(2);
+    expect(r!.afterSteps).toBe(3);
+    expect(r!.changed).toBe(true);
+    expect(r!.beforeSha).toBe('585c154cb978013b82264b8502d9226bb92ed49c');
+    expect(r!.afterSha).toBe('a240b4d84c932fcbe1fa8519fb8efbb04a2fa4d8');
 
     const csv = toCsv(rows);
     expect(csv.split('\n')[0]).toBe(CSV_COLUMNS.join(','));
     // No stray commas inside a field would corrupt the column count.
-    expect(csv.trim().split('\n')[1].split(',')).toHaveLength(CSV_COLUMNS.length);
+    expect(csv.trim().split('\n')[1]!.split(',')).toHaveLength(CSV_COLUMNS.length);
   });
 
   it('emits a fail-honest BLOCKED row (never a fabricated diff) when an arm did not dispatch', () => {
@@ -228,8 +228,8 @@ describe('buildPairRows + toCsv', () => {
     ]);
     const rows = buildPairRows('causal', before, after, beforeRuns, afterRuns, corpus);
     expect(rows).toHaveLength(1);
-    expect(rows[0].beforeTier).toBe('BLOCKED');
-    expect(rows[0].changed).toBe(false);
+    expect(rows[0]!.beforeTier).toBe('BLOCKED');
+    expect(rows[0]!.changed).toBe(false);
   });
 });
 
@@ -246,9 +246,9 @@ describe('loadCorpusTasks', () => {
       fs.writeFileSync(path.join(dir, 'unstamped.md'), '# Notes\nno task headers here\n');
       const corpus = loadCorpusTasks(dir);
       expect(corpus).toHaveLength(1);
-      expect(corpus[0].specId).toBe('stamped.md');
-      expect(corpus[0].tasks.map((t) => t.id)).toEqual(['001', '002']);
-      expect(corpus[0].tasks[0].title).toBe('Do a thing');
+      expect(corpus[0]!.specId).toBe('stamped.md');
+      expect(corpus[0]!.tasks.map((t) => t.id)).toEqual(['001', '002']);
+      expect(corpus[0]!.tasks[0]!.title).toBe('Do a thing');
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

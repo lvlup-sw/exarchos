@@ -29,7 +29,7 @@ afterEach(() => {
 function splitFrontmatter(contents: string): { data: Record<string, unknown>; body: string } {
   const match = contents.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
   if (!match) throw new Error('No frontmatter found');
-  const data = parseYaml(match[1]) as Record<string, unknown>;
+  const data = parseYaml(match[1]!) as Record<string, unknown>;
   return { data, body: match[2] };
 }
 

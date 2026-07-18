@@ -174,8 +174,8 @@ describe('detectRuntimeCycles', () => {
     ]);
     const cycles = detectRuntimeCycles(json, 'src');
     expect(cycles).toHaveLength(1);
-    expect(cycles[0].members).toEqual(['src/a.ts', 'src/b.ts']);
-    expect(cycles[0].edges.map(edgeKey).sort()).toEqual([
+    expect(cycles[0]!.members).toEqual(['src/a.ts', 'src/b.ts']);
+    expect(cycles[0]!.edges.map(edgeKey).sort()).toEqual([
       'src/a.ts -> src/b.ts',
       'src/b.ts -> src/a.ts',
     ]);

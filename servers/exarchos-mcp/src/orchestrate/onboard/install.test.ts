@@ -202,7 +202,7 @@ describe('installStep (DR-2/DR-6 — skills + deps install)', () => {
       // Project deps installed via the Bundle-B-resolved command (`npm ci`),
       // run in the repo root (not a real spawn).
       expect(runCommand).toHaveBeenCalledTimes(1);
-      const [installCmd, installCwd] = runCommand.mock.calls[0];
+      const [installCmd, installCwd] = runCommand.mock.calls[0]!;
       expect(installCmd).toContain('npm');
       expect(installCwd).toBe(fx.repoRoot);
 
@@ -219,7 +219,7 @@ describe('installStep (DR-2/DR-6 — skills + deps install)', () => {
 
       // The npx fallback shelled out; the local copy did not run.
       expect(spawn2).toHaveBeenCalled();
-      const [npxCmd, npxArgs] = spawn2.mock.calls[0];
+      const [npxCmd, npxArgs] = spawn2.mock.calls[0]!;
       expect(npxCmd).toBe('npx');
       expect((npxArgs as string[]).join(' ')).toContain('skills');
       expect(copyDir2).not.toHaveBeenCalled();

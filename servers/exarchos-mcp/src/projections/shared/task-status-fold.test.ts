@@ -87,7 +87,7 @@ describe('promoteStatus + rankOf (monotonic ladder)', () => {
     const initial: Record<string, string> = { 'T-001': 'in_progress' };
     const next = promoteStatus(initial, 'T-001', normalizeTaskStatus('completed'));
     expect(next['T-001']).toBe('complete');
-    expect(rankOf(next['T-001'])).toBe(2);
+    expect(rankOf(next['T-001']!)).toBe(2);
   });
 
   it('PromoteStatus_TerminalNeverRegresses', () => {

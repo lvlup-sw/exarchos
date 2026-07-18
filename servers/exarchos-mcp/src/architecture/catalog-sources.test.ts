@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { resolveCatalogSources } from './catalog-sources.js';
-import type { ExarchosConfig } from '../config/exarchos-config-schema.js';
+import type { ExarchosConfigInput } from '../config/exarchos-config-schema.js';
 
 /**
  * P1, T2 — `resolveCatalogSources` normalizes `invariants.catalogs`
@@ -11,7 +11,7 @@ import type { ExarchosConfig } from '../config/exarchos-config-schema.js';
  */
 describe('resolveCatalogSources (T2)', () => {
   it('resolveCatalogSources_BareString_DefaultsUserTier', () => {
-    const config: ExarchosConfig = {
+    const config: ExarchosConfigInput = {
       invariants: { catalogs: ['team-invariants.md'] },
     };
     const sources = resolveCatalogSources(config);
@@ -19,7 +19,7 @@ describe('resolveCatalogSources (T2)', () => {
   });
 
   it('resolveCatalogSources_DevCatalogEnabled_RegistersDevSource', () => {
-    const config: ExarchosConfig = {
+    const config: ExarchosConfigInput = {
       invariants: { devCatalog: 'enabled' },
     };
     const sources = resolveCatalogSources(config);
@@ -33,7 +33,7 @@ describe('resolveCatalogSources (T2)', () => {
     // (relocated from `docs/architecture/invariants.md`). The `devCatalog:
     // 'enabled'` sugar must desugar to the NEW location so the resolver picks
     // up the move with no logic change beyond the path constant.
-    const config: ExarchosConfig = {
+    const config: ExarchosConfigInput = {
       invariants: { devCatalog: 'enabled' },
     };
     const sources = resolveCatalogSources(config);
@@ -57,7 +57,7 @@ describe('resolveCatalogSources (T2)', () => {
     // tier: dev }` registration must produce exactly ONE dev source (deduped
     // by resolved path). The explicit registration wins its place; the sugar
     // does not double-register it.
-    const config: ExarchosConfig = {
+    const config: ExarchosConfigInput = {
       invariants: {
         devCatalog: 'enabled',
         catalogs: [{ path: '.exarchos/invariants.md', tier: 'dev' }],
@@ -84,7 +84,7 @@ describe('resolveCatalogSources (T2)', () => {
       // sugar. Without a dev-tier source the dev catalog would load as user
       // tier and its reserved `INV-*` ids would be rejected by the
       // reserved-namespace check. Dedupe is keyed on (path, tier:'dev').
-      const config: ExarchosConfig = {
+      const config: ExarchosConfigInput = {
         invariants: {
           devCatalog: 'enabled',
           catalogs: [...catalogs],
@@ -99,7 +99,7 @@ describe('resolveCatalogSources (T2)', () => {
   );
 
   it('resolveCatalogSources_ObjectFormTierlessDefaultsUser', () => {
-    const config: ExarchosConfig = {
+    const config: ExarchosConfigInput = {
       invariants: { catalogs: [{ path: 'team.yml' }] },
     };
     expect(resolveCatalogSources(config)).toEqual([
@@ -108,7 +108,7 @@ describe('resolveCatalogSources (T2)', () => {
   });
 
   it('resolveCatalogSources_MixedFormsAndDevSugar_AllNormalized', () => {
-    const config: ExarchosConfig = {
+    const config: ExarchosConfigInput = {
       invariants: {
         devCatalog: 'enabled',
         catalogs: ['team.yml', { path: 'design.yml', tier: 'dev' }],

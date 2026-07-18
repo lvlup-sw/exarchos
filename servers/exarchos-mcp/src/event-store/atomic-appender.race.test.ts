@@ -230,9 +230,9 @@ describe('AtomicAppender race fixtures', () => {
     // returns to its own caller.
     if (loserResult.kind !== 'cache-hit') return;
     expect(loserResult.persistedEvents).toHaveLength(1);
-    expect(loserResult.persistedEvents[0].type).toBe('task.assigned');
+    expect(loserResult.persistedEvents[0]!.type).toBe('task.assigned');
     expect(
-      (loserResult.persistedEvents[0].data as { winner?: boolean }).winner,
+      (loserResult.persistedEvents[0]!.data as { winner?: boolean }).winner,
     ).toBe(true);
   });
 
@@ -316,10 +316,10 @@ describe('AtomicAppender race fixtures', () => {
 
     try {
       const appender = new AtomicAppender({ stateDir });
-      type WithEnsure = AtomicAppender & {
+      type WithEnsure = {
         ensureSqliteBackend?: () => Promise<SqliteBackend>;
       };
-      const internals = appender as WithEnsure;
+      const internals = appender as unknown as WithEnsure;
       // Sanity: the production helper must be a Promise-returning
       // function (post-T63). If it returns a bare SqliteBackend
       // synchronously (legacy shape), the field-check pattern is
@@ -371,11 +371,11 @@ describe('AtomicAppender race fixtures', () => {
 
     try {
       const appender = new AtomicAppender({ stateDir });
-      type WithEnsure = AtomicAppender & {
+      type WithEnsure = {
         ensureSqliteBackend?: () => Promise<SqliteBackend>;
         ensureSqliteBackendSync?: () => SqliteBackend;
       };
-      const internals = appender as WithEnsure;
+      const internals = appender as unknown as WithEnsure;
       expect(typeof internals.ensureSqliteBackend).toBe('function');
       expect(typeof internals.ensureSqliteBackendSync).toBe('function');
 
@@ -400,7 +400,7 @@ describe('AtomicAppender race fixtures', () => {
       // call must hit the Promise cache and resolve to the same
       // handle without re-initializing.
       const appender2 = new AtomicAppender({ stateDir });
-      const internals2 = appender2 as WithEnsure;
+      const internals2 = appender2 as unknown as WithEnsure;
       const syncFirst = (
         internals2.ensureSqliteBackendSync as () => SqliteBackend
       ).call(appender2);

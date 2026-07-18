@@ -24,9 +24,9 @@ describe('QualityHintCatalog', () => {
     const types = getQualityHintTypes();
     const hint = types['output_tokens_high'];
     expect(hint).toBeDefined();
-    expect(hint.verb).toBe('checkpoint');
-    expect(typeof hint.reasonTemplate).toBe('string');
-    expect(hint.reasonTemplate.length).toBeGreaterThan(0);
+    expect(hint!.verb).toBe('checkpoint');
+    expect(typeof hint!.reasonTemplate).toBe('string');
+    expect(hint!.reasonTemplate.length).toBeGreaterThan(0);
   });
 
   it('QualityHint_GetByName_ReturnsTypedEntry', () => {

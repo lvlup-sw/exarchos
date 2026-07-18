@@ -29,7 +29,7 @@ describe('Idempotency', () => {
       // Arrange: init a feature workflow
       const initResult = await handleInit(
         { featureId: 'idem-phase', workflowType: 'feature' },
-        stateDir,
+        stateDir, null,
       );
       expect(initResult.success).toBe(true);
 
@@ -39,14 +39,14 @@ describe('Idempotency', () => {
           featureId: 'idem-phase',
           updates: { 'artifacts.design': 'docs/design.md' },
         },
-        stateDir,
+        stateDir, null,
       );
       expect(guardResult.success).toBe(true);
 
       // Act: transition ideate→plan (first time)
       const firstTransition = await handleSet(
         { featureId: 'idem-phase', phase: 'plan' },
-        stateDir,
+        stateDir, null,
       );
       expect(firstTransition.success).toBe(true);
 
@@ -61,7 +61,7 @@ describe('Idempotency', () => {
       // Act: transition plan→plan (already at plan, should be idempotent)
       const secondTransition = await handleSet(
         { featureId: 'idem-phase', phase: 'plan' },
-        stateDir,
+        stateDir, null,
       );
       expect(secondTransition.success).toBe(true);
 
@@ -81,7 +81,7 @@ describe('Idempotency', () => {
       // Arrange: init a feature workflow
       const initResult = await handleInit(
         { featureId: 'idem-field', workflowType: 'feature' },
-        stateDir,
+        stateDir, null,
       );
       expect(initResult.success).toBe(true);
 
@@ -91,7 +91,7 @@ describe('Idempotency', () => {
           featureId: 'idem-field',
           updates: { 'artifacts.design': 'docs/design.md' },
         },
-        stateDir,
+        stateDir, null,
       );
       expect(firstSet.success).toBe(true);
 
@@ -101,7 +101,7 @@ describe('Idempotency', () => {
           featureId: 'idem-field',
           updates: { 'artifacts.design': 'docs/design.md' },
         },
-        stateDir,
+        stateDir, null,
       );
       expect(secondSet.success).toBe(true);
 
@@ -125,21 +125,21 @@ describe('Idempotency', () => {
       // Arrange: init a feature workflow
       const initResult = await handleInit(
         { featureId: 'idem-cancel', workflowType: 'feature' },
-        stateDir,
+        stateDir, null,
       );
       expect(initResult.success).toBe(true);
 
       // Act: cancel the workflow (first time)
       const firstCancel = await handleCancel(
         { featureId: 'idem-cancel', reason: 'testing idempotency' },
-        stateDir,
+        stateDir, null,
       );
       expect(firstCancel.success).toBe(true);
 
       // Act: cancel the workflow again
       const secondCancel = await handleCancel(
         { featureId: 'idem-cancel', reason: 'testing idempotency again' },
-        stateDir,
+        stateDir, null,
       );
 
       // Assert: second cancel returns error with ALREADY_CANCELLED code
@@ -156,7 +156,7 @@ describe('Idempotency', () => {
       // Arrange: init a feature workflow
       const initResult = await handleInit(
         { featureId: 'idem-checkpoint', workflowType: 'feature' },
-        stateDir,
+        stateDir, null,
       );
       expect(initResult.success).toBe(true);
 
@@ -166,20 +166,20 @@ describe('Idempotency', () => {
           featureId: 'idem-checkpoint',
           updates: { 'artifacts.design': 'docs/design.md' },
         },
-        stateDir,
+        stateDir, null,
       );
       await handleSet(
         {
           featureId: 'idem-checkpoint',
           updates: { 'artifacts.plan': 'docs/plan.md' },
         },
-        stateDir,
+        stateDir, null,
       );
 
       // Verify operationsSince is now 2
       const getBeforeFirstCheckpoint = await handleGet(
         { featureId: 'idem-checkpoint', query: '_checkpoint.operationsSince' },
-        stateDir,
+        stateDir, null,
       );
       expect(getBeforeFirstCheckpoint.success).toBe(true);
       expect(getBeforeFirstCheckpoint.data).toBe(2);
@@ -187,14 +187,14 @@ describe('Idempotency', () => {
       // Act: first checkpoint
       const firstCheckpoint = await handleCheckpoint(
         { featureId: 'idem-checkpoint', summary: 'First checkpoint' },
-        stateDir,
+        stateDir, null,
       );
       expect(firstCheckpoint.success).toBe(true);
 
       // Assert: operationsSince should be 0 after checkpoint
       const getAfterFirstCheckpoint = await handleGet(
         { featureId: 'idem-checkpoint', query: '_checkpoint.operationsSince' },
-        stateDir,
+        stateDir, null,
       );
       expect(getAfterFirstCheckpoint.success).toBe(true);
       expect(getAfterFirstCheckpoint.data).toBe(0);
@@ -205,27 +205,27 @@ describe('Idempotency', () => {
           featureId: 'idem-checkpoint',
           updates: { 'artifacts.review': 'docs/review.md' },
         },
-        stateDir,
+        stateDir, null,
       );
       await handleSet(
         {
           featureId: 'idem-checkpoint',
           updates: { 'artifacts.notes': 'some notes' },
         },
-        stateDir,
+        stateDir, null,
       );
       await handleSet(
         {
           featureId: 'idem-checkpoint',
           updates: { 'artifacts.extra': 'extra data' },
         },
-        stateDir,
+        stateDir, null,
       );
 
       // Verify operationsSince is now 3
       const getBeforeSecondCheckpoint = await handleGet(
         { featureId: 'idem-checkpoint', query: '_checkpoint.operationsSince' },
-        stateDir,
+        stateDir, null,
       );
       expect(getBeforeSecondCheckpoint.success).toBe(true);
       expect(getBeforeSecondCheckpoint.data).toBe(3);
@@ -233,14 +233,14 @@ describe('Idempotency', () => {
       // Act: second checkpoint
       const secondCheckpoint = await handleCheckpoint(
         { featureId: 'idem-checkpoint', summary: 'Second checkpoint' },
-        stateDir,
+        stateDir, null,
       );
       expect(secondCheckpoint.success).toBe(true);
 
       // Assert: operationsSince should be 0 after second checkpoint
       const getAfterSecondCheckpoint = await handleGet(
         { featureId: 'idem-checkpoint', query: '_checkpoint.operationsSince' },
-        stateDir,
+        stateDir, null,
       );
       expect(getAfterSecondCheckpoint.success).toBe(true);
       expect(getAfterSecondCheckpoint.data).toBe(0);

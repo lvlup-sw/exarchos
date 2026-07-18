@@ -178,7 +178,7 @@ describe('DR-8 inventory view contract (Task 013)', () => {
 
     // Only the cor-X task is in scope, but the pre-scope total is still perceivable.
     expect(data.tasks).toHaveLength(1);
-    expect(data.tasks[0].taskId).toBe('task-X');
+    expect(data.tasks[0]!.taskId).toBe('task-X');
     expect(data.scope).toBe('correlation');
     expect(data.page.total).toBe(1);
     expect(data.unscopedTotal).toBe(2);

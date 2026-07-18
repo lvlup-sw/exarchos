@@ -80,7 +80,7 @@ describe('startPeriodicMerge', () => {
       // Assert: sidecar event should already be merged
       const events = await eventStore.query('imm-stream');
       expect(events).toHaveLength(1);
-      expect(events[0].type).toBe('team.task.completed');
+      expect(events[0]!.type).toBe('team.task.completed');
 
       // The original sidecar file should be gone (processed and unlinked)
       const sidecarFiles = await listFiles(tempDir, SIDECAR_SUFFIX);
@@ -119,8 +119,8 @@ describe('startPeriodicMerge', () => {
       // Assert: events merged into EventStore
       const events = await eventStore.query('drain-stream');
       expect(events).toHaveLength(1);
-      expect(events[0].type).toBe('team.task.completed');
-      expect(events[0].idempotencyKey).toBe('drain-stream:team.task.completed:task-drain-1');
+      expect(events[0]!.type).toBe('team.task.completed');
+      expect(events[0]!.idempotencyKey).toBe('drain-stream:team.task.completed:task-drain-1');
     } finally {
       handle.stop();
     }

@@ -78,7 +78,7 @@ describe('handleDesignCompleteness (deprecated alias → check_plan_coverage, #1
       // Delegated to plan-coverage with the unified artifact path as BOTH
       // designPath and planPath; no state re-resolution when path is explicit.
       expect(mockPlanCoverage).toHaveBeenCalledTimes(1);
-      const [args] = mockPlanCoverage.mock.calls[0];
+      const [args] = mockPlanCoverage.mock.calls[0]!;
       expect(args).toEqual({
         featureId: 'feat-1',
         designPath: '/tmp/specs/feat.md',
@@ -126,7 +126,7 @@ describe('handleDesignCompleteness (deprecated alias → check_plan_coverage, #1
       );
 
       expect(result.success).toBe(true);
-      const [args] = mockPlanCoverage.mock.calls[0];
+      const [args] = mockPlanCoverage.mock.calls[0]!;
       expect(args.designPath).toBe('/tmp/specs/from-state.md');
       expect(args.planPath).toBe('/tmp/specs/from-state.md');
     });

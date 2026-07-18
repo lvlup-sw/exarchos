@@ -62,7 +62,7 @@ function advertisedActions(slim: string | undefined): string[] {
   if (!slim) return [];
   const m = slim.match(/Actions:\s*([^\n]+)/);
   if (!m) return [];
-  return m[1]
+  return m[1]!
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);

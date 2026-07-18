@@ -69,7 +69,10 @@ const EXPECTED_CATALOG_SIZE = 21;
  * suite) pass their own config inline. The dependency-injection pattern
  * keeps the gating contract explicit at every call site.
  */
-const ENABLED_CONFIG = { invariants: { devCatalog: 'enabled' as const } };
+const ENABLED_CONFIG = {
+  invariants: { devCatalog: 'enabled' as const },
+  ownership: { firstParty: [] as string[] },
+};
 
 describe('invariants-loader', () => {
   it('Invariants_StructuredFrontmatter_ParsesAllRequiredFields', () => {
@@ -374,10 +377,10 @@ describe('invariants-loader', () => {
     ];
     const entries = parseInvariantEntries(raw);
     expect(entries).toHaveLength(1);
-    expect(entries[0].id).toBe('SDLC-1');
-    expect(entries[0].integrityClass).toBe('sdlc');
-    expect(entries[0].workflowAffinity).toEqual(['feature', 'oneshot']);
-    expect(entries[0].enforcement?.mode).toBe('audit');
+    expect(entries[0]!.id).toBe('SDLC-1');
+    expect(entries[0]!.integrityClass).toBe('sdlc');
+    expect(entries[0]!.workflowAffinity).toEqual(['feature', 'oneshot']);
+    expect(entries[0]!.enforcement?.mode).toBe('audit');
   });
 
   it('parseInvariantEntries_duplicateIds_throws', () => {

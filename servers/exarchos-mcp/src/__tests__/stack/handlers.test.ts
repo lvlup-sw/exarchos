@@ -107,7 +107,7 @@ describe('handleStackPlace', () => {
     // Verify event was emitted
     const events = await store.query('wf-001', { type: 'stack.position-filled' });
     expect(events).toHaveLength(1);
-    expect(events[0].data).toEqual(
+    expect(events[0]!.data).toEqual(
       expect.objectContaining({
         position: 1,
         taskId: 't1',
@@ -127,7 +127,7 @@ describe('handleStackPlace', () => {
 
     const events = await store.query('wf-001', { type: 'stack.position-filled' });
     expect(events).toHaveLength(1);
-    expect(events[0].data).toEqual(
+    expect(events[0]!.data).toEqual(
       expect.objectContaining({
         position: 2,
         taskId: 't2',
@@ -212,9 +212,9 @@ describe('handleStackPlace', () => {
     expect(status.success).toBe(true);
     const positions = status.data as Array<{ position: number; taskId: string }>;
     expect(positions).toHaveLength(3);
-    expect(positions[0].position).toBe(1);
-    expect(positions[1].position).toBe(2);
-    expect(positions[2].position).toBe(3);
+    expect(positions[0]!.position).toBe(1);
+    expect(positions[1]!.position).toBe(2);
+    expect(positions[2]!.position).toBe(3);
   });
 
   it('negative position returns INVALID_INPUT', async () => {
@@ -264,9 +264,9 @@ describe('handleStackPlace', () => {
 
     const events = await store.query('wf-001', { type: 'stack.position-filled' });
     expect(events).toHaveLength(1);
-    expect(events[0].data).toEqual({ position: 0, taskId: 't1' });
-    expect(events[0].data).not.toHaveProperty('branch');
-    expect(events[0].data).not.toHaveProperty('prUrl');
+    expect(events[0]!.data).toEqual({ position: 0, taskId: 't1' });
+    expect(events[0]!.data).not.toHaveProperty('branch');
+    expect(events[0]!.data).not.toHaveProperty('prUrl');
   });
 
   it('when store.append() throws returns PLACE_FAILED', async () => {
@@ -332,9 +332,9 @@ describe('handleStackStatus pagination', () => {
     expect(result.success).toBe(true);
     const positions = result.data as Array<{ position: number; taskId: string }>;
     expect(positions).toHaveLength(3);
-    expect(positions[0].taskId).toBe('t1');
-    expect(positions[1].taskId).toBe('t2');
-    expect(positions[2].taskId).toBe('t3');
+    expect(positions[0]!.taskId).toBe('t1');
+    expect(positions[1]!.taskId).toBe('t2');
+    expect(positions[2]!.taskId).toBe('t3');
   });
 
   it('with offset and limit skips and returns correct positions', async () => {
@@ -352,9 +352,9 @@ describe('handleStackStatus pagination', () => {
     expect(result.success).toBe(true);
     const positions = result.data as Array<{ position: number; taskId: string }>;
     expect(positions).toHaveLength(3);
-    expect(positions[0].taskId).toBe('t6');
-    expect(positions[1].taskId).toBe('t7');
-    expect(positions[2].taskId).toBe('t8');
+    expect(positions[0]!.taskId).toBe('t6');
+    expect(positions[1]!.taskId).toBe('t7');
+    expect(positions[2]!.taskId).toBe('t8');
   });
 
   it('without pagination params returns all positions', async () => {
@@ -406,8 +406,8 @@ describe('handleStackStatus pagination', () => {
     expect(result.success).toBe(true);
     const positions = result.data as Array<{ position: number; taskId: string }>;
     expect(positions).toHaveLength(2);
-    expect(positions[0].taskId).toBe('t4');
-    expect(positions[1].taskId).toBe('t5');
+    expect(positions[0]!.taskId).toBe('t4');
+    expect(positions[1]!.taskId).toBe('t5');
   });
 });
 

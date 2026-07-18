@@ -179,12 +179,12 @@ describe('resolveConfig', () => {
     };
     const result = resolveConfig(project);
     expect(result.hooks.on['workflow.transition']).toHaveLength(1);
-    expect(result.hooks.on['workflow.transition'][0].command).toBe('echo hello');
-    expect(result.hooks.on['workflow.transition'][0].timeout).toBe(5000);
+    expect(result.hooks.on['workflow.transition']![0]!.command).toBe('echo hello');
+    expect(result.hooks.on['workflow.transition']![0]!.timeout).toBe(5000);
     expect(result.hooks.on['review.complete']).toHaveLength(1);
-    expect(result.hooks.on['review.complete'][0].command).toBe('echo done');
+    expect(result.hooks.on['review.complete']![0]!.command).toBe('echo done');
     // Default timeout for hooks without explicit timeout
-    expect(result.hooks.on['review.complete'][0].timeout).toBe(30000);
+    expect(result.hooks.on['review.complete']![0]!.timeout).toBe(30000);
   });
 
   it('resolveConfig_Result_IsFrozen', () => {

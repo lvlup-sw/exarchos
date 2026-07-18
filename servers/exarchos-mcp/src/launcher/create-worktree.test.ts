@@ -178,7 +178,7 @@ describe('createLauncherWorktree (real git + real event store)', () => {
     expect(reservedIdx).toBeLessThan(requestedIdx);
     // Folds to state `reserved`.
     if (result.ok) {
-      expect((await projection(store)).worktrees[result.worktreeId].state).toBe('reserved');
+      expect((await projection(store)).worktrees[result.worktreeId]!.state).toBe('reserved');
     }
   });
 
@@ -201,7 +201,7 @@ describe('createLauncherWorktree (real git + real event store)', () => {
     expect(requestedIdx).toBeLessThan(executedIdx);
     // Terminal records a fresh creation.
     const executed = eventsOfType(store, CREATE_EXECUTED)[0];
-    expect(executed.data?.created).toBe(true);
+    expect(executed!.data?.created).toBe(true);
     // The worktree physically exists on disk.
     if (result.ok) expect(existsSync(result.worktreePath)).toBe(true);
   });
@@ -222,12 +222,12 @@ describe('createLauncherWorktree (real git + real event store)', () => {
     expect(requested).toHaveLength(1);
     expect(executed).toHaveLength(1);
     // Both events live on the singleton `worktrees` stream.
-    expect(requested[0].streamId).toBe(WORKTREES_STREAM);
-    expect(executed[0].streamId).toBe(WORKTREES_STREAM);
+    expect(requested[0]!.streamId).toBe(WORKTREES_STREAM);
+    expect(executed[0]!.streamId).toBe(WORKTREES_STREAM);
     // Correlated by the SAME operationId, which is the returned correlator.
-    expect(strField(requested[0], 'operationId')).toBe(result.operationId);
-    expect(strField(executed[0], 'operationId')).toBe(result.operationId);
-    expect(strField(requested[0], 'operationId')).toBe(strField(executed[0], 'operationId'));
+    expect(strField(requested[0]!, 'operationId')).toBe(result.operationId);
+    expect(strField(executed[0]!, 'operationId')).toBe(result.operationId);
+    expect(strField(requested[0]!, 'operationId')).toBe(strField(executed[0]!, 'operationId'));
   });
 
   // ─── crash between intent and terminal — precheck resumes or skips ─────────
@@ -256,14 +256,14 @@ describe('createLauncherWorktree (real git + real event store)', () => {
     };
     const recoveredPresent = await recoverPendingCreations(store, repo, { gitRunner: noAddRunner });
     expect(recoveredPresent).toHaveLength(1);
-    expect(recoveredPresent[0].operationId).toBe(opPresent);
+    expect(recoveredPresent[0]!.operationId).toBe(opPresent);
     // Precheck SKIPPED the add (worktree already on disk) → created: false.
-    expect(recoveredPresent[0].created).toBe(false);
+    expect(recoveredPresent[0]!.created).toBe(false);
     const presentTerminal = eventsOfType(store, CREATE_EXECUTED).filter(
       (e) => strField(e, 'operationId') === opPresent,
     );
     expect(presentTerminal).toHaveLength(1);
-    expect(presentTerminal[0].data?.created).toBe(false);
+    expect(presentTerminal[0]!.data?.created).toBe(false);
 
     // ── Case 2: worktree ABSENT (crash before add) — resume RE-RUNS the add. ──
     const absentPath = path.join(workdir, 'resumed-absent');
@@ -389,8 +389,8 @@ describe('createLauncherWorktree (real git + real event store)', () => {
     expect(b.worktreePath).toBe(deriveWorktreePath(base, 'sib-b'));
     // Both tracked as reserved in the projection.
     const proj = await projection(store);
-    expect(proj.worktrees[a.worktreeId].state).toBe('reserved');
-    expect(proj.worktrees[b.worktreeId].state).toBe('reserved');
+    expect(proj.worktrees[a.worktreeId]!.state).toBe('reserved');
+    expect(proj.worktrees[b.worktreeId]!.state).toBe('reserved');
   });
 
   // ─── all worktree-mutating git routes through the injected runner ─────────
@@ -452,7 +452,7 @@ describe('createLauncherWorktree (real git + real event store)', () => {
     );
     expect(result.ok).toBe(true);
     // The durable intent captures the `-b` branch so recovery can replay it (INV-13).
-    expect(strField(eventsOfType(store, CREATE_REQUESTED)[0], 'branch')).toBe('launch-persist');
+    expect(strField(eventsOfType(store, CREATE_REQUESTED)[0]!, 'branch')).toBe('launch-persist');
   });
 
   // ─── crash-resume replays the ORIGINAL branch, not a path-derived one ──────

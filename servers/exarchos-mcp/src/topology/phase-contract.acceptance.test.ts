@@ -60,11 +60,11 @@ phases:
     const topology = await loadTopology({ topologyPath: path.join(tmp, 'topology.yaml') });
 
     // Every phase has a typed contract.
-    expect(topology.phases.design.staleness).toBeDefined();
-    expect(topology.phases.implement.staleness).toBeDefined();
+    expect(topology.phases.design!.staleness).toBeDefined();
+    expect(topology.phases.implement!.staleness).toBeDefined();
 
     // Scorer with `freshnessRequires: 'all'`: stale iff ANY declared signal is stale.
-    const designContract = topology.phases.design.staleness!;
+    const designContract = topology.phases.design!.staleness!;
     const allFresh = scoreStaleness(
       {
         lastActivityMinutes: 10,
@@ -84,7 +84,7 @@ phases:
     expect(oneStale.isStale).toBe(true);
 
     // Scorer with `freshnessRequires: 'any'`: stale iff ALL declared signals stale.
-    const implementContract = topology.phases.implement.staleness!;
+    const implementContract = topology.phases.implement!.staleness!;
     const anyFresh = scoreStaleness(
       {
         lastActivityMinutes: 9999,

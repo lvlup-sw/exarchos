@@ -68,10 +68,10 @@ describe('DelegationTimelineView', () => {
 
       const next = delegationTimelineProjection.apply(state, event);
       expect(next.tasks).toHaveLength(1);
-      expect(next.tasks[0].taskId).toBe('task-1');
-      expect(next.tasks[0].teammateName).toBe('worker-1');
-      expect(next.tasks[0].status).toBe('assigned');
-      expect(next.tasks[0].assignedAt).toBe(ts);
+      expect(next.tasks[0]!.taskId).toBe('task-1');
+      expect(next.tasks[0]!.teammateName).toBe('worker-1');
+      expect(next.tasks[0]!.status).toBe('assigned');
+      expect(next.tasks[0]!.assignedAt).toBe(ts);
     });
 
     it('apply_TeamTaskCompleted_UpdatesTaskStatus', () => {
@@ -95,9 +95,9 @@ describe('DelegationTimelineView', () => {
         qualityGateResults: {},
       }, 2, completeTs));
 
-      expect(state.tasks[0].status).toBe('completed');
-      expect(state.tasks[0].completedAt).toBe(completeTs);
-      expect(state.tasks[0].durationMs).toBe(300000);
+      expect(state.tasks[0]!.status).toBe('completed');
+      expect(state.tasks[0]!.completedAt).toBe(completeTs);
+      expect(state.tasks[0]!.durationMs).toBe(300000);
     });
 
     it('apply_TeamTaskFailed_UpdatesTaskStatus', () => {
@@ -119,8 +119,8 @@ describe('DelegationTimelineView', () => {
         gateResults: {},
       }, 2, failTs));
 
-      expect(state.tasks[0].status).toBe('failed');
-      expect(state.tasks[0].completedAt).toBe(failTs);
+      expect(state.tasks[0]!.status).toBe('failed');
+      expect(state.tasks[0]!.completedAt).toBe(failTs);
     });
 
     it('apply_TeamDisbanded_CalculatesTotalDuration', () => {
@@ -166,8 +166,8 @@ describe('DelegationTimelineView', () => {
       // Should be capped at 200
       expect(state.tasks).toHaveLength(200);
       // Oldest (task-0 through task-9) should be evicted
-      expect(state.tasks[0].taskId).toBe('task-10');
-      expect(state.tasks[199].taskId).toBe('task-209');
+      expect(state.tasks[0]!.taskId).toBe('task-10');
+      expect(state.tasks[199]!.taskId).toBe('task-209');
     });
 
     // ─── T20: hasMore indicator for delegation timeline ──────────────
@@ -269,10 +269,10 @@ describe('DelegationTimelineView', () => {
 
       const next = delegationTimelineProjection.apply(state, event);
       expect(next.tasks).toHaveLength(1);
-      expect(next.tasks[0].taskId).toBe('task-1');
-      expect(next.tasks[0].teammateName).toBe('worker-1');
-      expect(next.tasks[0].status).toBe('assigned');
-      expect(next.tasks[0].assignedAt).toBe(ts);
+      expect(next.tasks[0]!.taskId).toBe('task-1');
+      expect(next.tasks[0]!.teammateName).toBe('worker-1');
+      expect(next.tasks[0]!.status).toBe('assigned');
+      expect(next.tasks[0]!.assignedAt).toBe(ts);
     });
 
     it('Apply_TaskEviction_BottleneckEvicted_BottleneckResetToNull', () => {
@@ -319,7 +319,7 @@ describe('DelegationTimelineView', () => {
 
       // 210 total tasks assigned → capped at 200, task-0 through task-9 evicted
       expect(state.tasks).toHaveLength(200);
-      expect(state.tasks[0].taskId).toBe('task-10');
+      expect(state.tasks[0]!.taskId).toBe('task-10');
       expect(state.hasMore).toBe(true);
 
       // bottleneck referenced task-0 which was evicted — must be reset to null

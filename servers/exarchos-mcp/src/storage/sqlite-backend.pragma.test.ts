@@ -64,9 +64,9 @@ describe('SqliteBackend connection PRAGMAs', () => {
     // or unnamed. Tolerate all three shapes so the assertion is portable.
     const firstRow = rows[0];
     const value =
-      firstRow.timeout ??
-      firstRow.busy_timeout ??
-      firstRow[''] ??
+      firstRow!.timeout ??
+      firstRow!.busy_timeout ??
+      firstRow![''] ??
       undefined;
 
     expect(value).toBe(5000);

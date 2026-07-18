@@ -92,6 +92,6 @@ describe('exarchos_workflow.feedback CLI/MCP parity (INV-2, #1319)', () => {
     expect(normalize(cliResult)).toEqual(normalize(mcpResult));
 
     const [cliEvent] = await cliCtx.eventStore.query(FEEDBACK_STREAM_ID);
-    expect((cliEvent.data as { sessionContext?: unknown }).sessionContext).toEqual(sessionContext);
+    expect((cliEvent!.data as { sessionContext?: unknown }).sessionContext).toEqual(sessionContext);
   });
 });

@@ -148,27 +148,27 @@ describe('diffStates (T4) — pure structural delta of two projected States', ()
         let cursor: Record<string, unknown> | unknown[];
         if (typeof target !== 'object' || target === null) {
           // The first segment dictates whether the container is an array or object.
-          cursor = /^\d+$/.test(segments[0]) ? [] : {};
+          cursor = /^\d+$/.test(segments[0]!) ? [] : {};
         } else {
           cursor = target as Record<string, unknown> | unknown[];
         }
         const head = cursor;
         for (let i = 0; i < segments.length - 1; i++) {
           const seg = segments[i];
-          const next = (cursor as Record<string, unknown>)[seg];
+          const next = (cursor as Record<string, unknown>)[seg!];
           if (typeof next !== 'object' || next === null) {
             const child: Record<string, unknown> | unknown[] = /^\d+$/.test(
-              segments[i + 1],
+              segments[i + 1]!,
             )
               ? []
               : {};
-            (cursor as Record<string, unknown>)[seg] = child;
+            (cursor as Record<string, unknown>)[seg!] = child;
             cursor = child;
           } else {
             cursor = next as Record<string, unknown> | unknown[];
           }
         }
-        (cursor as Record<string, unknown>)[segments[segments.length - 1]] = value;
+        (cursor as Record<string, unknown>)[segments[segments.length - 1]!] = value;
         return head;
       };
 
@@ -184,7 +184,7 @@ describe('diffStates (T4) — pure structural delta of two projected States', ()
         const segments = path.split('.');
         let cursor = target as Record<string, unknown> | unknown[];
         for (let i = 0; i < segments.length - 1; i++) {
-          const next = (cursor as Record<string, unknown>)[segments[i]];
+          const next = (cursor as Record<string, unknown>)[segments[i]!];
           if (typeof next !== 'object' || next === null) return;
           cursor = next as Record<string, unknown> | unknown[];
         }
@@ -192,7 +192,7 @@ describe('diffStates (T4) — pure structural delta of two projected States', ()
         if (Array.isArray(cursor)) {
           (cursor as unknown[]).splice(Number(leaf), 1);
         } else {
-          delete (cursor as Record<string, unknown>)[leaf];
+          delete (cursor as Record<string, unknown>)[leaf!];
         }
       };
 

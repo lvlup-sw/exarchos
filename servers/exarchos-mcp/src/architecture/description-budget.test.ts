@@ -69,7 +69,7 @@ describe('auditDescriptionBudgets — planted over-budget descriptions', () => {
       name: 'exarchos_planted.bloated',
       overBudget: true,
     });
-    expect(report.offenders[0].tokens).toBeGreaterThan(DESCRIPTION_BUDGETS['action']!);
+    expect(report.offenders[0]!.tokens).toBeGreaterThan(DESCRIPTION_BUDGETS['action']!);
   });
 
   it('FAILS when a slim tool description exceeds the slim budget', () => {

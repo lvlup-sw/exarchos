@@ -196,9 +196,9 @@ describe('harness-registry injection channels (DR-6, Task 014)', () => {
     const cursor = injectionOf('cursor');
     // Cursor exposes no native channel: a single `none` candidate.
     expect(cursor).toHaveLength(1);
-    expect(cursor[0].kind).toBe('none');
+    expect(cursor[0]!.kind).toBe('none');
     // …documenting the managed-block fallback.
-    expect(cursor[0].note.toLowerCase()).toContain('managed-block');
+    expect(cursor[0]!.note.toLowerCase()).toContain('managed-block');
 
     // Cursor is the ONLY `none` harness — every other harness has a real channel.
     for (const target of TIER1_HARNESSES) {

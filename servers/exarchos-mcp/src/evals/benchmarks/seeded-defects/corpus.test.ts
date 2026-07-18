@@ -59,8 +59,8 @@ describe('seeded-defect corpus', () => {
     const classOrder = a.map((f) => f.gateClass);
     const firstIndexOf = (c: string) => classOrder.indexOf(c);
     for (let i = 1; i < MECHANICAL_GATE_CLASSES.length; i++) {
-      expect(firstIndexOf(MECHANICAL_GATE_CLASSES[i])).toBeGreaterThan(
-        firstIndexOf(MECHANICAL_GATE_CLASSES[i - 1]),
+      expect(firstIndexOf(MECHANICAL_GATE_CLASSES[i]!)).toBeGreaterThan(
+        firstIndexOf(MECHANICAL_GATE_CLASSES[i - 1]!),
       );
     }
     expect(firstIndexOf('dropped-edge-case')).toBe(
@@ -142,7 +142,7 @@ describe('seeded-defect corpus', () => {
     // Concretely: the schema-boundary contract class derives HIGH, the source
     // classes derive MEDIUM — a genuine span, not an accident of one class.
     const tierOfClass = (c: string): string =>
-      loadSeededCorpus(c as SeededFixture['gateClass'])[0].manifest.riskTier;
+      loadSeededCorpus(c as SeededFixture['gateClass'])[0]!.manifest.riskTier;
     expect(tierOfClass('contract-drift')).toBe('high');
     expect(tierOfClass('test-adequacy')).toBe('medium');
 

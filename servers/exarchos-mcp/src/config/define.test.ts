@@ -40,9 +40,9 @@ describe('defineConfig', () => {
 
     // Assert
     expect(result).toBe(config);
-    expect(result.workflows?.deploy.phases).toEqual(['build', 'test', 'deploy']);
-    expect(result.workflows?.deploy.initialPhase).toBe('build');
-    expect(result.workflows?.deploy.transitions).toHaveLength(2);
+    expect(result.workflows?.deploy!.phases).toEqual(['build', 'test', 'deploy']);
+    expect(result.workflows?.deploy!.initialPhase).toBe('build');
+    expect(result.workflows?.deploy!.transitions).toHaveLength(2);
   });
 
   it('DefineConfig_WithGuards_ReturnsPassthrough', () => {
@@ -74,8 +74,8 @@ describe('defineConfig', () => {
 
     // Assert
     expect(result).toBe(config);
-    expect(result.workflows?.pipeline.guards?.run_tests.command).toBe('npm run test:run');
-    expect(result.workflows?.pipeline.guards?.run_tests.timeout).toBe(60000);
+    expect(result.workflows?.pipeline!.guards?.run_tests!.command).toBe('npm run test:run');
+    expect(result.workflows?.pipeline!.guards?.run_tests!.timeout).toBe(60000);
   });
 
   it('DefineConfig_WithExtends_ReturnsPassthrough', () => {
@@ -97,6 +97,6 @@ describe('defineConfig', () => {
     const result = defineConfig(config);
 
     // Assert
-    expect(result.workflows?.['custom-feature'].extends).toBe('feature');
+    expect(result.workflows?.['custom-feature']!.extends).toBe('feature');
   });
 });

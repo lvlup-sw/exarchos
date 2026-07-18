@@ -46,13 +46,13 @@ describe('EvalResultsView', () => {
 
       const next = evalResultsProjection.apply(state, event);
       expect(next.runs).toHaveLength(1);
-      expect(next.runs[0].runId).toBe('run-001');
-      expect(next.runs[0].suiteId).toBe('delegation');
-      expect(next.runs[0].total).toBe(10);
-      expect(next.runs[0].passed).toBe(8);
-      expect(next.runs[0].failed).toBe(2);
-      expect(next.runs[0].avgScore).toBe(0.85);
-      expect(next.runs[0].duration).toBe(5000);
+      expect(next.runs[0]!.runId).toBe('run-001');
+      expect(next.runs[0]!.suiteId).toBe('delegation');
+      expect(next.runs[0]!.total).toBe(10);
+      expect(next.runs[0]!.passed).toBe(8);
+      expect(next.runs[0]!.failed).toBe(2);
+      expect(next.runs[0]!.avgScore).toBe(0.85);
+      expect(next.runs[0]!.duration).toBe(5000);
     });
 
     it('evalResultsProjection_EvalRunCompleted_UpdatesSkillMetrics', () => {
@@ -70,9 +70,9 @@ describe('EvalResultsView', () => {
 
       const next = evalResultsProjection.apply(state, event);
       expect(next.skills['delegation']).toBeDefined();
-      expect(next.skills['delegation'].latestScore).toBe(0.85);
-      expect(next.skills['delegation'].lastRunId).toBe('run-001');
-      expect(next.skills['delegation'].totalRuns).toBe(1);
+      expect(next.skills['delegation']!.latestScore).toBe(0.85);
+      expect(next.skills['delegation']!.lastRunId).toBe('run-001');
+      expect(next.skills['delegation']!.totalRuns).toBe(1);
     });
 
     it('evalResultsProjection_MultipleRuns_SameSkill_IncrementsTotalRuns', () => {
@@ -100,9 +100,9 @@ describe('EvalResultsView', () => {
         regressions: [],
       }, 2));
 
-      expect(state.skills['delegation'].totalRuns).toBe(2);
-      expect(state.skills['delegation'].latestScore).toBe(0.9);
-      expect(state.skills['delegation'].lastRunId).toBe('run-002');
+      expect(state.skills['delegation']!.totalRuns).toBe(2);
+      expect(state.skills['delegation']!.latestScore).toBe(0.9);
+      expect(state.skills['delegation']!.lastRunId).toBe('run-002');
       expect(state.runs).toHaveLength(2);
     });
 
@@ -115,15 +115,15 @@ describe('EvalResultsView', () => {
           runId: `run-00${i + 1}`,
           suiteId: 'delegation',
           total: 10,
-          passed: Math.round(scores[i] * 10),
-          failed: 10 - Math.round(scores[i] * 10),
+          passed: Math.round(scores[i]! * 10),
+          failed: 10 - Math.round(scores[i]! * 10),
           avgScore: scores[i],
           duration: 5000,
           regressions: [],
         }, i + 1));
       }
 
-      expect(state.skills['delegation'].trend).toBe('improving');
+      expect(state.skills['delegation']!.trend).toBe('improving');
     });
 
     it('evalResultsProjection_ThreeDegradingRuns_TrendIsDegrading', () => {
@@ -135,15 +135,15 @@ describe('EvalResultsView', () => {
           runId: `run-00${i + 1}`,
           suiteId: 'delegation',
           total: 10,
-          passed: Math.round(scores[i] * 10),
-          failed: 10 - Math.round(scores[i] * 10),
+          passed: Math.round(scores[i]! * 10),
+          failed: 10 - Math.round(scores[i]! * 10),
           avgScore: scores[i],
           duration: 5000,
           regressions: [],
         }, i + 1));
       }
 
-      expect(state.skills['delegation'].trend).toBe('degrading');
+      expect(state.skills['delegation']!.trend).toBe('degrading');
     });
 
     it('evalResultsProjection_StableScores_TrendIsStable', () => {
@@ -163,7 +163,7 @@ describe('EvalResultsView', () => {
         }, i + 1));
       }
 
-      expect(state.skills['delegation'].trend).toBe('stable');
+      expect(state.skills['delegation']!.trend).toBe('stable');
     });
 
     it('evalResultsProjection_LessThanThreeRuns_TrendIsStable', () => {
@@ -191,7 +191,7 @@ describe('EvalResultsView', () => {
         regressions: [],
       }, 2));
 
-      expect(state.skills['delegation'].trend).toBe('stable');
+      expect(state.skills['delegation']!.trend).toBe('stable');
     });
   });
 
@@ -239,10 +239,10 @@ describe('EvalResultsView', () => {
       }, 2));
 
       expect(state.regressions).toHaveLength(1);
-      expect(state.regressions[0].caseId).toBe('case-001');
-      expect(state.regressions[0].suiteId).toBe('delegation');
-      expect(state.regressions[0].firstFailedRunId).toBe('run-002');
-      expect(state.regressions[0].consecutiveFailures).toBe(1);
+      expect(state.regressions[0]!.caseId).toBe('case-001');
+      expect(state.regressions[0]!.suiteId).toBe('delegation');
+      expect(state.regressions[0]!.firstFailedRunId).toBe('run-002');
+      expect(state.regressions[0]!.consecutiveFailures).toBe(1);
     });
 
     it('evalResultsProjection_CaseFailsThenPasses_ClearsRegression', () => {
@@ -322,8 +322,8 @@ describe('EvalResultsView', () => {
       }, 3));
 
       expect(state.regressions).toHaveLength(1);
-      expect(state.regressions[0].consecutiveFailures).toBe(2);
-      expect(state.regressions[0].firstFailedRunId).toBe('run-002');
+      expect(state.regressions[0]!.consecutiveFailures).toBe(2);
+      expect(state.regressions[0]!.firstFailedRunId).toBe('run-002');
     });
   });
 
@@ -405,17 +405,17 @@ describe('EvalResultsView', () => {
 
       // Assert: skill metrics are materialized with correct values
       expect(state.skills['delegation']).toBeDefined();
-      expect(state.skills['delegation'].latestScore).toBe(0.7);
-      expect(state.skills['delegation'].lastRunId).toBe('run-abc');
-      expect(state.skills['delegation'].totalRuns).toBe(1);
-      expect(state.skills['delegation'].capabilityPassRate).toBeCloseTo(2 / 3, 5);
+      expect(state.skills['delegation']!.latestScore).toBe(0.7);
+      expect(state.skills['delegation']!.lastRunId).toBe('run-abc');
+      expect(state.skills['delegation']!.totalRuns).toBe(1);
+      expect(state.skills['delegation']!.capabilityPassRate).toBeCloseTo(2 / 3, 5);
 
       // Assert: run record is present
       expect(state.runs).toHaveLength(1);
-      expect(state.runs[0].runId).toBe('run-abc');
-      expect(state.runs[0].total).toBe(3);
-      expect(state.runs[0].passed).toBe(2);
-      expect(state.runs[0].failed).toBe(1);
+      expect(state.runs[0]!.runId).toBe('run-abc');
+      expect(state.runs[0]!.total).toBe(3);
+      expect(state.runs[0]!.passed).toBe(2);
+      expect(state.runs[0]!.failed).toBe(1);
     });
 
     it('EvalResultsView_MultipleRuns_TracksRegression', () => {
@@ -475,15 +475,15 @@ describe('EvalResultsView', () => {
 
       // Assert: regression detected for case-1
       expect(state.regressions).toHaveLength(1);
-      expect(state.regressions[0].caseId).toBe('case-1');
-      expect(state.regressions[0].suiteId).toBe('quality-review');
-      expect(state.regressions[0].firstFailedRunId).toBe('run-002');
-      expect(state.regressions[0].consecutiveFailures).toBe(1);
+      expect(state.regressions[0]!.caseId).toBe('case-1');
+      expect(state.regressions[0]!.suiteId).toBe('quality-review');
+      expect(state.regressions[0]!.firstFailedRunId).toBe('run-002');
+      expect(state.regressions[0]!.consecutiveFailures).toBe(1);
 
       // Assert: two runs tracked
       expect(state.runs).toHaveLength(2);
-      expect(state.skills['quality-review'].totalRuns).toBe(2);
-      expect(state.skills['quality-review'].latestScore).toBe(0.0);
+      expect(state.skills['quality-review']!.totalRuns).toBe(2);
+      expect(state.skills['quality-review']!.latestScore).toBe(0.0);
     });
   });
 });

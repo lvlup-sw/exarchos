@@ -106,7 +106,7 @@ describe('applyCorrections', () => {
     // Assert
     expect(result.args).toEqual({ action: 'tasks', fields: ['id', 'title'] });
     expect(result.applied).toHaveLength(1);
-    expect(result.applied[0].param).toBe('fields');
+    expect(result.applied[0]!.param).toBe('fields');
   });
 });
 

@@ -65,8 +65,8 @@ describe('handleViewTelemetry', () => {
       expect(data.session.totalInvocations).toBe(2);
       expect(data.session.totalTokens).toBe(150);
       expect(data.tools).toHaveLength(1);
-      expect(data.tools[0].tool).toBe('workflow_get');
-      expect(data.tools[0].invocations).toBe(2);
+      expect(data.tools[0]!.tool).toBe('workflow_get');
+      expect(data.tools[0]!.invocations).toBe(2);
       // Compact mode: rolling window arrays should be stripped
       expect(data.tools[0]).not.toHaveProperty('durations');
       expect(data.tools[0]).not.toHaveProperty('sizes');
@@ -92,9 +92,9 @@ describe('handleViewTelemetry', () => {
       expect(data.tools[0]).toHaveProperty('durations');
       expect(data.tools[0]).toHaveProperty('sizes');
       expect(data.tools[0]).toHaveProperty('tokenEstimates');
-      expect(data.tools[0].durations).toEqual([15]);
-      expect(data.tools[0].sizes).toEqual([300]);
-      expect(data.tools[0].tokenEstimates).toEqual([75]);
+      expect(data.tools[0]!.durations).toEqual([15]);
+      expect(data.tools[0]!.sizes).toEqual([300]);
+      expect(data.tools[0]!.tokenEstimates).toEqual([75]);
     });
   });
 
@@ -116,7 +116,7 @@ describe('handleViewTelemetry', () => {
         tools: Array<{ tool: string }>;
       };
       expect(data.tools).toHaveLength(1);
-      expect(data.tools[0].tool).toBe('event_query');
+      expect(data.tools[0]!.tool).toBe('event_query');
     });
   });
 
@@ -137,9 +137,9 @@ describe('handleViewTelemetry', () => {
       const data = result.data as {
         tools: Array<{ tool: string; totalTokens: number }>;
       };
-      expect(data.tools[0].tool).toBe('large');
-      expect(data.tools[1].tool).toBe('medium');
-      expect(data.tools[2].tool).toBe('small');
+      expect(data.tools[0]!.tool).toBe('large');
+      expect(data.tools[1]!.tool).toBe('medium');
+      expect(data.tools[2]!.tool).toBe('small');
     });
   });
 
@@ -163,12 +163,12 @@ describe('handleViewTelemetry', () => {
       const data = result.data as {
         tools: Array<{ tool: string; invocations: number }>;
       };
-      expect(data.tools[0].tool).toBe('many');
-      expect(data.tools[0].invocations).toBe(3);
-      expect(data.tools[1].tool).toBe('some');
-      expect(data.tools[1].invocations).toBe(2);
-      expect(data.tools[2].tool).toBe('few');
-      expect(data.tools[2].invocations).toBe(1);
+      expect(data.tools[0]!.tool).toBe('many');
+      expect(data.tools[0]!.invocations).toBe(3);
+      expect(data.tools[1]!.tool).toBe('some');
+      expect(data.tools[1]!.invocations).toBe(2);
+      expect(data.tools[2]!.tool).toBe('few');
+      expect(data.tools[2]!.invocations).toBe(1);
     });
   });
 
@@ -189,9 +189,9 @@ describe('handleViewTelemetry', () => {
       const data = result.data as {
         tools: Array<{ tool: string; totalDurationMs: number }>;
       };
-      expect(data.tools[0].tool).toBe('slow');
-      expect(data.tools[1].tool).toBe('mid');
-      expect(data.tools[2].tool).toBe('fast');
+      expect(data.tools[0]!.tool).toBe('slow');
+      expect(data.tools[1]!.tool).toBe('mid');
+      expect(data.tools[2]!.tool).toBe('fast');
     });
   });
 
@@ -218,8 +218,8 @@ describe('handleViewTelemetry', () => {
         tools: Array<{ tool: string }>;
       };
       expect(data.tools).toHaveLength(2);
-      expect(data.tools[0].tool).toBe('d');
-      expect(data.tools[1].tool).toBe('c');
+      expect(data.tools[0]!.tool).toBe('d');
+      expect(data.tools[1]!.tool).toBe('c');
     });
   });
 
@@ -262,7 +262,7 @@ describe('handleViewTelemetry', () => {
         hints: Array<{ tool: string; hint: string }>;
       };
       expect(data.hints.length).toBeGreaterThan(0);
-      expect(data.hints[0].tool).toBe('view_tasks');
+      expect(data.hints[0]!.tool).toBe('view_tasks');
     });
   });
 
@@ -429,9 +429,9 @@ describe('toToolEntry — action-error fields (Sentry follow-up #1364)', () => {
     expect(data.tools).toHaveLength(1);
     // No action errors seeded → both fields present, but zero-valued.
     expect(data.tools[0]).toHaveProperty('actionErrors');
-    expect(data.tools[0].actionErrors).toBe(0);
+    expect(data.tools[0]!.actionErrors).toBe(0);
     expect(data.tools[0]).toHaveProperty('actionErrorBreakdown');
-    expect(data.tools[0].actionErrorBreakdown).toEqual({});
+    expect(data.tools[0]!.actionErrorBreakdown).toEqual({});
   });
 
   it('handleViewTelemetry_CompactEntry_ConformsToTelemetryViewOutputSchema', async () => {
@@ -492,8 +492,6 @@ describe('Wave 5 — handleViewTelemetry honors correlation filters (#1437)', ()
     // cor-X: two invocations of `tool_X`
     for (let i = 1; i <= 2; i++) {
       await store.append(TELEMETRY_STREAM_NAME, {
-        streamId: TELEMETRY_STREAM_NAME,
-        sequence: i,
         timestamp: new Date().toISOString(),
         type: 'tool.completed',
         operationId: 'op-X',
@@ -509,8 +507,6 @@ describe('Wave 5 — handleViewTelemetry honors correlation filters (#1437)', ()
     }
     // cor-Y: one invocation of `tool_Y`
     await store.append(TELEMETRY_STREAM_NAME, {
-      streamId: TELEMETRY_STREAM_NAME,
-      sequence: 3,
       timestamp: new Date().toISOString(),
       type: 'tool.completed',
       operationId: 'op-Y',
@@ -538,16 +534,14 @@ describe('Wave 5 — handleViewTelemetry honors correlation filters (#1437)', ()
       tools: Array<{ tool: string; invocations: number }>;
     };
     expect(data.tools).toHaveLength(1);
-    expect(data.tools[0].tool).toBe('tool_X');
-    expect(data.tools[0].invocations).toBe(2);
+    expect(data.tools[0]!.tool).toBe('tool_X');
+    expect(data.tools[0]!.invocations).toBe(2);
     expect(data.session.totalInvocations).toBe(2);
   });
 
   it('handleViewTelemetry_WithOperationIdFilter_RolsUpOnlyMatchingEvents', async () => {
     const store = new EventStore(stateDir);
     await store.append(TELEMETRY_STREAM_NAME, {
-      streamId: TELEMETRY_STREAM_NAME,
-      sequence: 1,
       timestamp: new Date().toISOString(),
       type: 'tool.completed',
       operationId: 'op-A',
@@ -556,8 +550,6 @@ describe('Wave 5 — handleViewTelemetry honors correlation filters (#1437)', ()
       schemaVersion: '1.0',
     });
     await store.append(TELEMETRY_STREAM_NAME, {
-      streamId: TELEMETRY_STREAM_NAME,
-      sequence: 2,
       timestamp: new Date().toISOString(),
       type: 'tool.completed',
       operationId: 'op-B',
@@ -575,14 +567,12 @@ describe('Wave 5 — handleViewTelemetry honors correlation filters (#1437)', ()
     expect(result.success).toBe(true);
     const data = result.data as { tools: Array<{ tool: string }> };
     expect(data.tools).toHaveLength(1);
-    expect(data.tools[0].tool).toBe('tool_A');
+    expect(data.tools[0]!.tool).toBe('tool_A');
   });
 
   it('handleViewTelemetry_WithCausationIdFilter_RolsUpOnlyMatchingEvents', async () => {
     const store = new EventStore(stateDir);
     await store.append(TELEMETRY_STREAM_NAME, {
-      streamId: TELEMETRY_STREAM_NAME,
-      sequence: 1,
       timestamp: new Date().toISOString(),
       type: 'tool.completed',
       causationId: 'cause-A',
@@ -591,8 +581,6 @@ describe('Wave 5 — handleViewTelemetry honors correlation filters (#1437)', ()
       schemaVersion: '1.0',
     });
     await store.append(TELEMETRY_STREAM_NAME, {
-      streamId: TELEMETRY_STREAM_NAME,
-      sequence: 2,
       timestamp: new Date().toISOString(),
       type: 'tool.completed',
       causationId: 'cause-B',
@@ -610,7 +598,7 @@ describe('Wave 5 — handleViewTelemetry honors correlation filters (#1437)', ()
     expect(result.success).toBe(true);
     const data = result.data as { tools: Array<{ tool: string }> };
     expect(data.tools).toHaveLength(1);
-    expect(data.tools[0].tool).toBe('tool_A');
+    expect(data.tools[0]!.tool).toBe('tool_A');
   });
 });
 

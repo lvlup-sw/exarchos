@@ -501,7 +501,7 @@ describe('Compensation', () => {
 
       // Should only have 1 remove call (for task-2 which has a path)
       expect(worktreeRemoveCalls.length).toBe(1);
-      const removeArgs = worktreeRemoveCalls[0][1] as string[];
+      const removeArgs = worktreeRemoveCalls[0]![1] as string[];
       expect(removeArgs).toContain('/tmp/worktree-2');
     });
   });
@@ -1003,7 +1003,7 @@ describe('Compensation', () => {
 
       // Events should have incrementing sequence numbers
       for (let i = 1; i < result.events.length; i++) {
-        expect(result.events[i].sequence).toBeGreaterThan(result.events[i - 1].sequence);
+        expect(result.events[i]!.sequence).toBeGreaterThan(result.events[i - 1]!.sequence);
       }
     });
   });

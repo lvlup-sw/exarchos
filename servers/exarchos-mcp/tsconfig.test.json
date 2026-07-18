@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    // Some tests exercise the repo-root bridge modules (../../src/install-skills.ts etc.).
+    // noEmit makes rootDir layout irrelevant, so widen it to silence TS6059.
+    "rootDir": "../.."
+  },
+  "include": ["src/**/*"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.bench.ts",
+    "src/evals/benchmarks/seeded-defects/fixtures/**"
+  ]
+}

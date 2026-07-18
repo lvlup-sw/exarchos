@@ -228,10 +228,10 @@ describe('gate-preflight (DR-10 shared helper)', () => {
       expect(events).toHaveLength(1);
       const evt = events[0];
       // The emission preserves the test-adequacy handler's exact shape.
-      expect((evt.data as { gateName: string }).gateName).toBe('test-adequacy');
-      expect((evt.data as { layer: string }).layer).toBe('testing');
-      expect((evt.data as { passed: boolean }).passed).toBe(true);
-      const details = (evt.data as { details: Record<string, unknown> }).details;
+      expect((evt!.data as { gateName: string }).gateName).toBe('test-adequacy');
+      expect((evt!.data as { layer: string }).layer).toBe('testing');
+      expect((evt!.data as { passed: boolean }).passed).toBe(true);
+      const details = (evt!.data as { details: Record<string, unknown> }).details;
       expect(details).toEqual({
         dimension: 'D1',
         phase: 'delegate',
@@ -263,9 +263,9 @@ describe('gate-preflight (DR-10 shared helper)', () => {
       const events = await gateEvents(store, 'feat-nb', 'contract-drift');
       expect(events).toHaveLength(1);
       const evt = events[0];
-      expect((evt.data as { gateName: string }).gateName).toBe('contract-drift');
-      expect((evt.data as { layer: string }).layer).toBe('delegate');
-      const details = (evt.data as { details: { phase: string; branch?: string } }).details;
+      expect((evt!.data as { gateName: string }).gateName).toBe('contract-drift');
+      expect((evt!.data as { layer: string }).layer).toBe('delegate');
+      const details = (evt!.data as { details: { phase: string; branch?: string } }).details;
       expect(details.phase).toBe('delegate');
       // No branch supplied → the key is OMITTED (not emitted as undefined).
       expect('branch' in details).toBe(false);

@@ -20,6 +20,9 @@ import { STABLE_PREFIX_KEYS } from './projections/rehydration/serialize.js';
 import { ConcurrencyError } from './event-store/concurrency-error.js';
 import { StorageBusyError } from './event-store/storage-busy-error.js';
 
+/** Structural view of the failure envelope's error block (test-only). */
+type ErrEnv = { error?: { code?: string; message?: string } & Record<string, unknown> };
+
 describe('pickFields', () => {
   it('pickFields_TopLevelField_ReturnsValue', () => {
     const obj = { type: 'task.completed', data: { taskId: 't1' }, sequence: 1 };
@@ -422,8 +425,8 @@ describe('toEnvelope', () => {
     const env = toEnvelope(result);
     expect(env.success).toBe(false);
     if (!env.success) {
-      expect(env.error.code).toBe('X');
-      expect(env.error.message).toBe('y');
+      expect((env as ErrEnv).error!.code).toBe('X');
+      expect((env as ErrEnv).error!.message).toBe('y');
     }
   });
 
@@ -443,8 +446,8 @@ describe('toEnvelope', () => {
     const env = toEnvelope(result);
     expect(env.success).toBe(false);
     if (!env.success) {
-      expect(env.error.validTargets).toEqual(['design', 'plan']);
-      expect(env.error.suggestedFix).toEqual({
+      expect((env as ErrEnv).error!.validTargets).toEqual(['design', 'plan']);
+      expect((env as ErrEnv).error!.suggestedFix).toEqual({
         tool: 'workflow_status',
         params: { featureId: 'abc' },
       });
@@ -558,7 +561,7 @@ describe('toEnvelope', () => {
     const env = toEnvelope(result);
     expect(env.success).toBe(false);
     if (!env.success) {
-      expect(env.error.validTargets).toEqual(['plan', 'tdd', 'design']);
+      expect((env as ErrEnv).error!.validTargets).toEqual(['plan', 'tdd', 'design']);
       const parsed = ErrorEnvelopeSchema.safeParse(env);
       expect(parsed.success).toBe(true);
     }

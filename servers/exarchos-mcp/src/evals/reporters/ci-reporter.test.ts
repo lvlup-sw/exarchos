@@ -71,7 +71,8 @@ describe('formatCIReport', () => {
             passed: false,
             score: 0.0,
             assertions: [
-              { name: 'check-1', type: 'exact-match', passed: false, score: 0.0, reason: 'mismatch', threshold: 1.0 },
+              { name: 'check-1', type: 'exact-match', passed: false, score: 0.0, reason: 'mismatch', threshold: 1.0,
+              skipped: false },
             ],
           }),
         ],
@@ -98,7 +99,8 @@ describe('formatCIReport', () => {
             passed: false,
             score: 0.0,
             assertions: [
-              { name: 'check-1', type: 'exact-match', passed: false, score: 0.0, reason: 'wrong', threshold: 1.0 },
+              { name: 'check-1', type: 'exact-match', passed: false, score: 0.0, reason: 'wrong', threshold: 1.0,
+              skipped: false },
             ],
           }),
         ],
@@ -127,7 +129,8 @@ describe('formatCIReport', () => {
             passed: false,
             score: 0.0,
             assertions: [
-              { name: 'tool-call', type: 'tool-call', passed: false, score: 0.0, reason: 'Expected exarchos_orchestrate', threshold: 1.0 },
+              { name: 'tool-call', type: 'tool-call', passed: false, score: 0.0, reason: 'Expected exarchos_orchestrate', threshold: 1.0,
+              skipped: false },
             ],
           }),
         ],
@@ -243,7 +246,8 @@ describe('formatFailedAssertions', () => {
       passed: false,
       score: 0.0,
       assertions: [
-        { name: 'tool-call', type: 'tool-call', passed: false, score: 0.0, reason: 'Missing tool invocation', threshold: 1.0 },
+        { name: 'tool-call', type: 'tool-call', passed: false, score: 0.0, reason: 'Missing tool invocation', threshold: 1.0,
+        skipped: false },
       ],
     });
 
@@ -261,9 +265,12 @@ describe('formatFailedAssertions', () => {
       passed: false,
       score: 0.0,
       assertions: [
-        { name: 'exact-match', type: 'exact-match', passed: false, score: 0.0, reason: 'Field mismatch', threshold: 1.0 },
-        { name: 'schema', type: 'schema', passed: false, score: 0.0, reason: 'Invalid structure', threshold: 1.0 },
-        { name: 'passing-one', type: 'exact-match', passed: true, score: 1.0, reason: 'OK', threshold: 1.0 },
+        { name: 'exact-match', type: 'exact-match', passed: false, score: 0.0, reason: 'Field mismatch', threshold: 1.0,
+        skipped: false },
+        { name: 'schema', type: 'schema', passed: false, score: 0.0, reason: 'Invalid structure', threshold: 1.0,
+        skipped: false },
+        { name: 'passing-one', type: 'exact-match', passed: true, score: 1.0, reason: 'OK', threshold: 1.0,
+        skipped: false },
       ],
     });
 
@@ -315,7 +322,8 @@ describe('formatCIReport escaping', () => {
             passed: false,
             score: 0.0,
             assertions: [
-              { name: 'check', type: 'exact-match', passed: false, score: 0.0, reason: 'fail\nreason', threshold: 1.0 },
+              { name: 'check', type: 'exact-match', passed: false, score: 0.0, reason: 'fail\nreason', threshold: 1.0,
+              skipped: false },
             ],
           }),
         ],

@@ -60,7 +60,7 @@ describe('Agent Spec Drift Prevention', () => {
       const regex = new RegExp(TEMPLATE_VAR_PATTERN.source, 'g');
       while ((match = regex.exec(spec.systemPrompt)) !== null) {
         const rawToken = match[1];
-        const trimmed = rawToken.trim();
+        const trimmed = rawToken!.trim();
         expect(
           VALID_IDENTIFIER.test(trimmed),
           `${spec.id}: template var '{{${rawToken}}}' is malformed — token must be a valid identifier (got '${trimmed}')`,

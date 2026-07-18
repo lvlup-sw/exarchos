@@ -243,7 +243,7 @@ describe('handleReconcile', () => {
     const data = result.data as Record<string, unknown>;
     const worktrees = data.worktrees as Array<Record<string, unknown>>;
     expect(worktrees).toHaveLength(1);
-    expect(worktrees[0].pathStatus).toBe('OK');
+    expect(worktrees[0]!.pathStatus).toBe('OK');
   });
 
   it('handleReconcile_MissingWorktree_ReportsInaccessible', async () => {
@@ -262,7 +262,7 @@ describe('handleReconcile', () => {
     const data = result.data as Record<string, unknown>;
     const worktrees = data.worktrees as Array<Record<string, unknown>>;
     expect(worktrees).toHaveLength(1);
-    expect(worktrees[0].pathStatus).toBe('MISSING');
+    expect(worktrees[0]!.pathStatus).toBe('MISSING');
   });
 
   it('handleReconcile_NativeTaskDrift_ReportsDriftEntries', async () => {
@@ -346,7 +346,7 @@ describe('handleReconcile', () => {
     const data = result.data as Record<string, unknown>;
     const worktrees = data.worktrees as Array<Record<string, unknown>>;
     expect(worktrees).toHaveLength(1);
-    expect(worktrees[0].pathStatus).toBe('OK');
+    expect(worktrees[0]!.pathStatus).toBe('OK');
     const taskDrift = data.taskDrift as Record<string, unknown>;
     expect(taskDrift).toBeDefined();
     const drift = taskDrift.drift as Array<Record<string, unknown>>;
@@ -445,7 +445,7 @@ describe('HandleQuery edge cases', () => {
     const worktrees = data.worktrees as Array<Record<string, unknown>>;
     expect(worktrees).toHaveLength(1);
     // fs.access rejects for inaccessible paths -> status is MISSING
-    expect(worktrees[0].pathStatus).toBe('MISSING');
+    expect(worktrees[0]!.pathStatus).toBe('MISSING');
   });
 
   // (Removed HandleQuery_RawStateJsonParseFailure_SkipsDriftGracefully:

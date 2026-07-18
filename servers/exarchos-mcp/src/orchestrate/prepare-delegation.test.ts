@@ -416,9 +416,9 @@ describe('handlePrepareDelegation', () => {
     expect(data.ready).toBe(true);
     expect(data.qualityHints).toBeDefined();
     expect(data.qualityHints).toHaveLength(2);
-    expect(data.qualityHints[0].category).toBe('gate');
-    expect(data.qualityHints[0].severity).toBe('warning');
-    expect(data.qualityHints[1].category).toBe('review');
+    expect(data.qualityHints[0]!.category).toBe('gate');
+    expect(data.qualityHints[0]!.severity).toBe('warning');
+    expect(data.qualityHints[1]!.category).toBe('review');
   });
 
   it('PrepareDelegation_Ready_EmitsPlanCoverageGateEvent', async () => {
@@ -461,7 +461,7 @@ describe('handlePrepareDelegation', () => {
     // Assert
     expect(emitGateEvent).toHaveBeenCalledOnce();
     const callArgs = vi.mocked(emitGateEvent).mock.calls[0];
-    const details = callArgs[5] as Record<string, unknown>;
+    const details = callArgs![5] as Record<string, unknown>;
     expect(details.phase).toBe('delegate');
   });
 
@@ -1760,8 +1760,8 @@ describe('handlePrepareDelegation', () => {
       expect(data.ready).toBe(true);
       expect(data.taskClassifications).toBeDefined();
       expect(data.taskClassifications).toHaveLength(2);
-      expect(data.taskClassifications[0].taskId).toBe('task-1');
-      expect(data.taskClassifications[1].taskId).toBe('task-2');
+      expect(data.taskClassifications[0]!.taskId).toBe('task-1');
+      expect(data.taskClassifications[1]!.taskId).toBe('task-2');
     });
 
     it('TaskClassification_ScaffoldingTitle_ReturnsLowScaffolder', () => {
@@ -2298,13 +2298,13 @@ describe('handlePrepareDelegation', () => {
         const c = data.taskClassifications[0];
 
         // The plan stamp threaded through: high tier, boundary-touching.
-        expect(c.riskTier).toBe('high');
-        expect(c.boundaryTouching).toBe(true);
-        expect(c.verificationNoteKey).toBe('high|true');
+        expect(c!.riskTier).toBe('high');
+        expect(c!.boundaryTouching).toBe(true);
+        expect(c!.verificationNoteKey).toBe('high|true');
 
         // …and it drives the HIGH-tier note (integration-suite rung + boundary
         // steer), reconstructed losslessly.
-        const note = (data.verificationNotes as Record<string, string>)[c.verificationNoteKey];
+        const note = (data.verificationNotes as Record<string, string>)[c!.verificationNoteKey];
         expect(note).toContain('check_integration_suite');
         const reconstructed = (data.implementerPromptTemplate as string).replaceAll(
           VERIFICATION_NOTE_PLACEHOLDER,
@@ -2336,7 +2336,7 @@ describe('handlePrepareDelegation', () => {
       expect(result.success).toBe(true);
       const data = result.data as DedupeData;
       const c = data.taskClassifications[0];
-      expect(c.implementerPrompt).toBe(
+      expect(c!.implementerPrompt).toBe(
         renderImplementerPrompt({ riskTier: 'high', boundaryTouching: true }),
       );
     });
@@ -2390,8 +2390,8 @@ describe('handlePrepareDelegation', () => {
       expect(result.success).toBe(true);
       const data = result.data as { taskClassifications: TaskClassification[] };
       const stamped = data.taskClassifications[0];
-      expect(stamped.riskTier).toBe('medium');
-      expect(stamped.verificationSequence).toEqual(customSequence);
+      expect(stamped!.riskTier).toBe('medium');
+      expect(stamped!.verificationSequence).toEqual(customSequence);
     });
 
     it('PrepareDelegation_WithTasks_ClassificationsIncludeRecommendedModel', async () => {

@@ -22,6 +22,7 @@
  * success envelope when a `__migration__` stream is present alongside a
  * normal user-facing stream.
  */
+import type { SnapshotStore } from './snapshot-store.js';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -114,7 +115,7 @@ describe('ViewMaterializer_IteratesStreams_SkipsDunderPrefixedSentinels', () => 
       }),
       delete: vi.fn().mockResolvedValue(undefined),
     };
-    const materializer = new ViewMaterializer({ snapshotStore });
+    const materializer = new ViewMaterializer({ snapshotStore: snapshotStore as unknown as SnapshotStore });
     materializer.register(VIEW_NAME, counterProjection);
 
     const loaded = await materializer.loadFromSnapshot('__migration__', VIEW_NAME);

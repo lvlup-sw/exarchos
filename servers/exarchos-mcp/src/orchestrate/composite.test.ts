@@ -621,12 +621,12 @@ describe('handleOrchestrate', () => {
       expectEnvelopedSuccess(result, expected);
       expect(handlePruneStaleWorkflows).toHaveBeenCalledTimes(1);
       const call = vi.mocked(handlePruneStaleWorkflows).mock.calls[0];
-      expect(call[0]).toEqual({
+      expect(call![0]).toEqual({
         dryRun: true,
         includeOneShot: false,
       });
-      expect(call[1]).toBe(STATE_DIR);
-      expect(call[2]).toBe(CTX);
+      expect(call![1]).toBe(STATE_DIR);
+      expect(call![2]).toBe(CTX);
     });
 
     it('compositeHandler_requestSynthesizeAction_dispatches', async () => {
@@ -648,7 +648,7 @@ describe('handleOrchestrate', () => {
       // fallback inside the handler.
       expectEnvelopedSuccess(result, expected);
       expect(handleRequestSynthesize).toHaveBeenCalledTimes(1);
-      const call = vi.mocked(handleRequestSynthesize).mock.calls[0][0];
+      const call = vi.mocked(handleRequestSynthesize).mock.calls[0]![0];
       expect(call.featureId).toBe('feat-oneshot-1');
       expect(call.reason).toBe('user requested PR review');
       expect(call.eventStore).toBe(CTX.eventStore);
@@ -674,7 +674,7 @@ describe('handleOrchestrate', () => {
       // Assert — adapter injects BOTH stateDir and eventStore from ctx into args
       expectEnvelopedSuccess(result, expected);
       expect(handleFinalizeOneshot).toHaveBeenCalledTimes(1);
-      const call = vi.mocked(handleFinalizeOneshot).mock.calls[0][0];
+      const call = vi.mocked(handleFinalizeOneshot).mock.calls[0]![0];
       expect(call.featureId).toBe('feat-oneshot-2');
       expect(call.stateDir).toBe(STATE_DIR);
       expect(call.eventStore).toBe(CTX.eventStore);
@@ -700,8 +700,8 @@ describe('handleOrchestrate', () => {
       expectEnvelopedSuccess(result, expected);
       expect(handleDoctor).toHaveBeenCalledTimes(1);
       const call = vi.mocked(handleDoctor).mock.calls[0];
-      expect(call[0]).toEqual({ timeoutMs: 1500 });
-      expect(call[1]).toBe(CTX);
+      expect(call![0]).toEqual({ timeoutMs: 1500 });
+      expect(call![1]).toBe(CTX);
     });
 
     it('OrchestrateRegistry_ActionList_IncludesDoctor', () => {
@@ -736,8 +736,8 @@ describe('handleOrchestrate', () => {
       expectEnvelopedSuccess(result, expected);
       expect(handleCreatePr).toHaveBeenCalledTimes(1);
       const call = vi.mocked(handleCreatePr).mock.calls[0];
-      expect(call[0]).toEqual({ title: 'feat: test', body: 'body', base: 'main', head: 'feat/test' });
-      expect(call[1]).toBe(CTX);
+      expect(call![0]).toEqual({ title: 'feat: test', body: 'body', base: 'main', head: 'feat/test' });
+      expect(call![1]).toBe(CTX);
     });
 
     it('OrchestrateComposite_MergePr_RoutesToHandler', async () => {
@@ -750,8 +750,8 @@ describe('handleOrchestrate', () => {
       expectEnvelopedSuccess(result, expected);
       expect(handleMergePr).toHaveBeenCalledTimes(1);
       const call = vi.mocked(handleMergePr).mock.calls[0];
-      expect(call[0]).toEqual({ prId: '42', strategy: 'squash' });
-      expect(call[1]).toBe(CTX);
+      expect(call![0]).toEqual({ prId: '42', strategy: 'squash' });
+      expect(call![1]).toBe(CTX);
     });
 
     it('OrchestrateComposite_CheckCi_RoutesToHandler', async () => {
@@ -764,8 +764,8 @@ describe('handleOrchestrate', () => {
       expectEnvelopedSuccess(result, expected);
       expect(handleCheckCi).toHaveBeenCalledTimes(1);
       const call = vi.mocked(handleCheckCi).mock.calls[0];
-      expect(call[0]).toEqual({ prId: '42' });
-      expect(call[1]).toBe(CTX);
+      expect(call![0]).toEqual({ prId: '42' });
+      expect(call![1]).toBe(CTX);
     });
 
     it('OrchestrateComposite_ListPrs_RoutesToHandler', async () => {
@@ -778,8 +778,8 @@ describe('handleOrchestrate', () => {
       expectEnvelopedSuccess(result, expected);
       expect(handleListPrs).toHaveBeenCalledTimes(1);
       const call = vi.mocked(handleListPrs).mock.calls[0];
-      expect(call[0]).toEqual({ state: 'open' });
-      expect(call[1]).toBe(CTX);
+      expect(call![0]).toEqual({ state: 'open' });
+      expect(call![1]).toBe(CTX);
     });
 
     it('OrchestrateComposite_GetPrComments_RoutesToHandler', async () => {
@@ -792,8 +792,8 @@ describe('handleOrchestrate', () => {
       expectEnvelopedSuccess(result, expected);
       expect(handleGetPrComments).toHaveBeenCalledTimes(1);
       const call = vi.mocked(handleGetPrComments).mock.calls[0];
-      expect(call[0]).toEqual({ prId: '42' });
-      expect(call[1]).toBe(CTX);
+      expect(call![0]).toEqual({ prId: '42' });
+      expect(call![1]).toBe(CTX);
     });
 
     it('OrchestrateComposite_AddPrComment_RoutesToHandler', async () => {
@@ -806,8 +806,8 @@ describe('handleOrchestrate', () => {
       expectEnvelopedSuccess(result, expected);
       expect(handleAddPrComment).toHaveBeenCalledTimes(1);
       const call = vi.mocked(handleAddPrComment).mock.calls[0];
-      expect(call[0]).toEqual({ prId: '42', body: 'comment' });
-      expect(call[1]).toBe(CTX);
+      expect(call![0]).toEqual({ prId: '42', body: 'comment' });
+      expect(call![1]).toBe(CTX);
     });
 
     it('OrchestrateComposite_CreateIssue_RoutesToHandler', async () => {
@@ -822,9 +822,9 @@ describe('handleOrchestrate', () => {
       const call = vi.mocked(handleCreateIssue).mock.calls[0];
       // The composite injects `listIssuesByMarker` (provider-backed) into the
       // handler args — see CodeRabbit #3224631237.
-      expect(call[0]).toMatchObject({ title: 'Bug', body: 'Details' });
-      expect(typeof (call[0] as { listIssuesByMarker?: unknown }).listIssuesByMarker).toBe('function');
-      expect(call[1]).toBe(CTX);
+      expect(call![0]).toMatchObject({ title: 'Bug', body: 'Details' });
+      expect(typeof (call![0] as { listIssuesByMarker?: unknown }).listIssuesByMarker).toBe('function');
+      expect(call![1]).toBe(CTX);
     });
 
     it('OrchestrateRegistry_ActionList_IncludesVcsActions', () => {
@@ -888,13 +888,13 @@ describe('handleOrchestrate', () => {
       expectEnvelopedSuccess(result, expected);
       expect(handleMergeOrchestrate).toHaveBeenCalledTimes(1);
       const call = vi.mocked(handleMergeOrchestrate).mock.calls[0];
-      expect(call[0]).toEqual({
+      expect(call![0]).toEqual({
         featureId: 'feat-x',
         sourceBranch: 'feat/x',
         targetBranch: 'main',
         strategy: 'squash',
       });
-      expect(call[1]).toBe(CTX);
+      expect(call![1]).toBe(CTX);
     });
 
     it('OrchestrateRegistry_ActionList_IncludesMergeOrchestrate', () => {

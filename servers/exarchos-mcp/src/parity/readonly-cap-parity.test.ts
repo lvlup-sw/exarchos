@@ -51,6 +51,9 @@ import {
 } from '../__tests__/parity-harness.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
+/** Structural view of the failure envelope's error block (test-only). */
+type ErrEnv = { error?: { code?: string; message?: string } & Record<string, unknown> };
+
 // ─── Fixture ──────────────────────────────────────────────────────────────
 
 interface ReadonlyFixture {
@@ -135,8 +138,8 @@ describe('CLI/MCP parity under mcp:exarchos:readonly (Issue #1192, T12)', () => 
     expect(exitCode).toBe(CLI_EXIT_CODES.SUCCESS);
     expect(mcpResult.success).toBe(true);
     expect(cliResult.success).toBe(true);
-    expect(mcpResult.error?.code).not.toBe('CAPABILITY_DENIED');
-    expect(cliResult.error?.code).not.toBe('CAPABILITY_DENIED');
+    expect((mcpResult as ErrEnv).error?.code).not.toBe('CAPABILITY_DENIED');
+    expect((cliResult as ErrEnv).error?.code).not.toBe('CAPABILITY_DENIED');
     expect(normalize(cliResult)).toEqual(normalize(mcpResult));
   });
 
@@ -173,12 +176,12 @@ describe('CLI/MCP parity under mcp:exarchos:readonly (Issue #1192, T12)', () => 
     // of the gate's contract too — they're built from those three fields
     // by `enforceReadonlyGate` so any divergence in message text would
     // imply two different gate code paths, defeating the parity check.
-    expect(mcpResult.error?.code).toBe('CAPABILITY_DENIED');
-    expect(cliResult.error?.code).toBe('CAPABILITY_DENIED');
-    expect(mcpResult.error?.tool).toBe('exarchos_workflow');
-    expect(cliResult.error?.tool).toBe('exarchos_workflow');
-    expect(mcpResult.error?.action).toBe('transition');
-    expect(cliResult.error?.action).toBe('transition');
+    expect((mcpResult as ErrEnv).error?.code).toBe('CAPABILITY_DENIED');
+    expect((cliResult as ErrEnv).error?.code).toBe('CAPABILITY_DENIED');
+    expect((mcpResult as ErrEnv).error?.tool).toBe('exarchos_workflow');
+    expect((cliResult as ErrEnv).error?.tool).toBe('exarchos_workflow');
+    expect((mcpResult as ErrEnv).error?.action).toBe('transition');
+    expect((cliResult as ErrEnv).error?.action).toBe('transition');
 
     // Strongest assertion: the entire normalized error envelope matches.
     // If a future change adds a facade-specific field (e.g. CLI tacks on

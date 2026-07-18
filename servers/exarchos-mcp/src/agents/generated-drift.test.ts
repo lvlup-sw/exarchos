@@ -24,7 +24,7 @@ import { ALL_AGENT_SPECS } from './definitions.js';
 function parseFrontmatter(content: string): Record<string, unknown> {
   const match = content.match(/^---\n([\s\S]*?)\n---/);
   if (!match) return {};
-  return (parseYaml(match[1]) ?? {}) as Record<string, unknown>;
+  return (parseYaml(match[1]!) ?? {}) as Record<string, unknown>;
 }
 
 // ─── Shared Setup ───────────────────────────────────────────────────────────

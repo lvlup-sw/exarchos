@@ -71,8 +71,8 @@ describe('Runbook types', () => {
       },
     };
     expect(step.decide?.question).toBe('Is the bug reproducible?');
-    expect(step.decide?.branches['yes'].nextStep).toBe('check-scope');
-    expect(step.decide?.branches['no'].escalate).toBe(true);
+    expect(step.decide?.branches['yes']!.nextStep).toBe('check-scope');
+    expect(step.decide?.branches['no']!.escalate).toBe(true);
   });
 
   it('RunbookStep_WithoutDecide_StillValid', () => {
@@ -125,6 +125,6 @@ describe('Runbook types', () => {
       templateVars: [],
       autoEmits: [],
     };
-    expect(definition.steps[0].decide?.branches['b'].escalate).toBe(true);
+    expect(definition.steps[0]!.decide?.branches['b']!.escalate).toBe(true);
   });
 });

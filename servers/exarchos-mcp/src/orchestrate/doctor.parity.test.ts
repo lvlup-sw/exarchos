@@ -46,6 +46,9 @@ import type { CheckFn } from './doctor/checks/__shared__/make-stub-probes.js';
 import type { CheckResult } from './doctor/schema.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
+/** Structural view of the failure envelope's error block (test-only). */
+type ErrEnv = { error?: { code?: string; message?: string } & Record<string, unknown> };
+
 // ─── Deterministic check list ──────────────────────────────────────────────
 //
 // Two checks covering every status the schema accepts: Pass, Warning, Fail,
@@ -264,10 +267,10 @@ describe.skipIf(process.platform === 'win32')('exarchos doctor CLI↔MCP parity'
     // Assert — identical error shape: success:false, same code, same message.
     expect(cliResult.success).toBe(false);
     expect(mcpResult.success).toBe(false);
-    expect(cliResult.error?.code).toBe('INTERNAL_ERROR');
-    expect(mcpResult.error?.code).toBe('INTERNAL_ERROR');
-    expect(cliResult.error?.message).toContain(errorMessage);
-    expect(mcpResult.error?.message).toContain(errorMessage);
+    expect((cliResult as ErrEnv).error?.code).toBe('INTERNAL_ERROR');
+    expect((mcpResult as ErrEnv).error?.code).toBe('INTERNAL_ERROR');
+    expect((cliResult as ErrEnv).error?.message).toContain(errorMessage);
+    expect((mcpResult as ErrEnv).error?.message).toContain(errorMessage);
 
     // Byte-equal ToolResult after normalization — the full error projection
     // must match between adapters.

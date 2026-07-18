@@ -207,13 +207,13 @@ describe('exarchos <harness> launcher CLI wiring (DR-1 / DR-6, R-1)', () => {
 
     // The spawn seam was invoked exactly once, with the resolved harness command.
     expect(fake.calls).toHaveLength(1);
-    expect(fake.calls[0].command).toBe('claude');
+    expect(fake.calls[0]!.command).toBe('claude');
     // ...and the child was placed IN the created sibling worktree (not '.').
     const expectedPath = deriveWorktreePath(base, 'exarchos-claude-code');
     // `.native` on both sides so Windows 8.3 short names are expanded consistently
     // (see `initRepo`/`addBaseWorktree`) — matching production's `defaultRealpath`.
-    expect(realpathSync.native(fake.calls[0].cwd)).toBe(realpathSync.native(expectedPath));
-    expect(existsSync(fake.calls[0].cwd)).toBe(true);
+    expect(realpathSync.native(fake.calls[0]!.cwd)).toBe(realpathSync.native(expectedPath));
+    expect(existsSync(fake.calls[0]!.cwd)).toBe(true);
 
     // The launch ran to its guaranteed terminal.
     expect(terminalCount()).toBe(1);
@@ -222,7 +222,7 @@ describe('exarchos <harness> launcher CLI wiring (DR-1 / DR-6, R-1)', () => {
     const manager = new WorktreeManager({ eventStore: store });
     const worktrees = await manager.list();
     expect(worktrees).toHaveLength(1);
-    expect(worktrees[0].state).toBe('released');
+    expect(worktrees[0]!.state).toBe('released');
   }, 30_000);
 
   // ── Dry-run still spawns nothing (regression guard on the safe path) ─────────

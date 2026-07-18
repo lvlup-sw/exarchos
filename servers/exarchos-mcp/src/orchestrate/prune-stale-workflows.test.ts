@@ -8,6 +8,7 @@ import {
 } from './prune-stale-workflows.js';
 import { orchestrateLogger } from '../logger.js';
 import type { ToolResult } from '../format.js';
+import type { DispatchContext } from '../core/dispatch.js';
 import type { Topology } from '../topology/phase-contract.js';
 
 // #1334 (β-07/β-08): the handler now calls `getTopology()` to obtain the
@@ -519,10 +520,11 @@ function makeListResult(
 /** Minimal append-spy stubbing the shape handler reaches through `ctx.eventStore`. */
 function makeEventStoreStub(): {
   append: ReturnType<typeof vi.fn>;
-  ctx: { eventStore: { append: ReturnType<typeof vi.fn> } };
+  ctx: DispatchContext;
 } {
   const append = vi.fn().mockResolvedValue({ sequence: 1, type: 'workflow.pruned' });
-  return { append, ctx: { eventStore: { append } } };
+  // Partial stub: the prune handler only touches ctx.eventStore.append.
+  return { append, ctx: { eventStore: { append } } as unknown as DispatchContext };
 }
 
 /** Build a DI bundle with stubs. Defaults: safeguards always pass, branchName present. */
@@ -824,7 +826,7 @@ describe('handlePruneStaleWorkflows', () => {
       (call: unknown[]) => (call[1] as { type: string }).type === 'workflow.pruned',
     );
     expect(prunedCalls).toHaveLength(1);
-    const [streamId, payload] = prunedCalls[0];
+    const [streamId, payload] = prunedCalls[0]!;
     expect(streamId).toBe('a');
     const envelope = payload as { type: string; data: Record<string, unknown> };
     expect(envelope.type).toBe('workflow.pruned');

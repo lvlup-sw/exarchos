@@ -487,7 +487,7 @@ describe('CreatePr_Body_ReferencesIntent (DR-1 task 006)', () => {
     expect(result.success).toBe(true);
 
     // The created PR body carries the grounded `## Intent` section + marker.
-    const createArg = vi.mocked(provider.createPr).mock.calls[0][0];
+    const createArg = vi.mocked(provider.createPr).mock.calls[0]![0];
     expect(createArg.body).toContain('## Intent');
     expect(createArg.body).toContain(INTENT_GROUNDING_MARKER);
     expect(createArg.body).toContain(intent.summary);
@@ -515,7 +515,7 @@ describe('CreatePr_Body_ReferencesIntent (DR-1 task 006)', () => {
       ctx,
     );
 
-    const createArg = vi.mocked(provider.createPr).mock.calls[0][0];
+    const createArg = vi.mocked(provider.createPr).mock.calls[0]![0];
     expect(createArg.body).toBe(body);
     expect(createArg.body).not.toContain(INTENT_GROUNDING_MARKER);
   });
@@ -535,7 +535,7 @@ describe('CreatePr_Body_ReferencesIntent (DR-1 task 006)', () => {
       ctx,
     );
 
-    const createArg = vi.mocked(provider.createPr).mock.calls[0][0];
+    const createArg = vi.mocked(provider.createPr).mock.calls[0]![0];
     expect(createArg.body).toBe(body);
     expect(createArg.body).not.toContain(INTENT_GROUNDING_MARKER);
   });
@@ -555,7 +555,7 @@ describe('CreatePr_Body_ReferencesIntent (DR-1 task 006)', () => {
       ctx,
     );
 
-    const createArg = vi.mocked(provider.createPr).mock.calls[0][0];
+    const createArg = vi.mocked(provider.createPr).mock.calls[0]![0];
     expect(createArg.body).toBe(body);
     // Marker appears exactly once.
     expect(createArg.body.split(INTENT_GROUNDING_MARKER).length - 1).toBe(1);

@@ -169,7 +169,7 @@ describe('ClaudeAdapter_GenerateMarkdown_HandlesYamlSpecialChars', () => {
     }>>;
     expect(hooks).toBeDefined();
     expect(hooks.PostToolUse).toBeDefined();
-    expect(hooks.PostToolUse[0].hooks[0].command).toBe(command);
+    expect(hooks.PostToolUse![0]!.hooks[0]!.command).toBe(command);
   });
 
   it('ClaudeAdapter_HookCommand_WithSubshell_RendersValidYaml', () => {
@@ -201,7 +201,7 @@ describe('ClaudeAdapter_GenerateMarkdown_HandlesYamlSpecialChars', () => {
     expect(hooks).toBeDefined();
     expect(hooks.PostToolUse).toBeDefined();
     expect(hooks.PostToolUse).toHaveLength(1);
-    expect(hooks.PostToolUse[0].hooks[0].command).toBe(command);
+    expect(hooks.PostToolUse![0]!.hooks[0]!.command).toBe(command);
   });
 
   it('ClaudeAdapter_PreWriteRuleWithCommand_RendersWorktreeBoundaryDenyHook', () => {
@@ -219,8 +219,8 @@ describe('ClaudeAdapter_GenerateMarkdown_HandlesYamlSpecialChars', () => {
       hooks: Array<{ type: string; command: string }>;
     }>>;
     expect(hooks.PreToolUse).toBeDefined();
-    expect(hooks.PreToolUse[0].matcher).toBe('Write|Edit|MultiEdit|NotebookEdit');
-    expect(hooks.PreToolUse[0].hooks[0].command).toBe(command);
+    expect(hooks.PreToolUse![0]!.matcher).toBe('Write|Edit|MultiEdit|NotebookEdit');
+    expect(hooks.PreToolUse![0]!.hooks[0]!.command).toBe(command);
   });
 
   it('ClaudeAdapter_PreWriteRuleWithoutCommand_RendersNoHook', () => {

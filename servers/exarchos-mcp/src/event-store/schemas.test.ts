@@ -2177,8 +2177,8 @@ describe('serializeEventCatalog', () => {
 
   it('SerializeEventCatalog_IncludesEmissionSource', () => {
     const catalog = serializeEventCatalog();
-    expect(catalog.types['workflow.started'].source).toBe('auto');
-    expect(catalog.types['team.spawned'].source).toBe('model');
+    expect(catalog.types['workflow.started']!.source).toBe('auto');
+    expect(catalog.types['team.spawned']!.source).toBe('model');
   });
 
   it('SerializeEventCatalog_GroupsBySource', () => {
@@ -2189,17 +2189,17 @@ describe('serializeEventCatalog', () => {
 
   it('SerializeEventCatalog_IncludesBuiltInFlag', () => {
     const catalog = serializeEventCatalog();
-    expect(catalog.types['workflow.started'].isBuiltIn).toBe(true);
-    expect(catalog.types['task.completed'].isBuiltIn).toBe(true);
-    expect(catalog.types['team.spawned'].isBuiltIn).toBe(true);
+    expect(catalog.types['workflow.started']!.isBuiltIn).toBe(true);
+    expect(catalog.types['task.completed']!.isBuiltIn).toBe(true);
+    expect(catalog.types['team.spawned']!.isBuiltIn).toBe(true);
   });
 
   it('SerializeEventCatalog_IncludesHasSchemaFlag', () => {
     const catalog = serializeEventCatalog();
     // task.completed has a schema in EVENT_DATA_SCHEMAS
-    expect(catalog.types['task.completed'].hasSchema).toBe(true);
+    expect(catalog.types['task.completed']!.hasSchema).toBe(true);
     // state.patched does NOT have a schema in EVENT_DATA_SCHEMAS
-    expect(catalog.types['state.patched'].hasSchema).toBe(false);
+    expect(catalog.types['state.patched']!.hasSchema).toBe(false);
   });
 
   it('SerializeEventCatalog_TotalCount_MatchesTypeCount', () => {
@@ -2285,7 +2285,7 @@ describe('review.completed event type', () => {
     const schemas = await import('./schemas.js');
     const ReviewCompletedData = (schemas as Record<string, z.ZodSchema>)['ReviewCompletedData'];
     expect(ReviewCompletedData).toBeDefined();
-    const result = ReviewCompletedData.safeParse({
+    const result = ReviewCompletedData!.safeParse({
       stage: 'spec-review',
       verdict: 'pass',
       findingsCount: 0,
@@ -2298,7 +2298,7 @@ describe('review.completed event type', () => {
     const schemas = await import('./schemas.js');
     const ReviewCompletedData = (schemas as Record<string, z.ZodSchema>)['ReviewCompletedData'];
     expect(ReviewCompletedData).toBeDefined();
-    const result = ReviewCompletedData.safeParse({
+    const result = ReviewCompletedData!.safeParse({
       stage: 'spec-review',
       verdict: 'maybe',
       findingsCount: 0,
@@ -2993,7 +2993,7 @@ describe('MergeRollbackData', () => {
     expect(catalog.bySource.model).not.toContain('merge.rollback');
     expect(catalog.bySource.hook).not.toContain('merge.rollback');
     expect(catalog.bySource.planned).not.toContain('merge.rollback');
-    expect(catalog.types['merge.rollback'].hasSchema).toBe(true);
+    expect(catalog.types['merge.rollback']!.hasSchema).toBe(true);
   });
 });
 
@@ -4099,8 +4099,8 @@ describe('WLM worktree lifecycle schemas', () => {
     expect(new Set(keys).size).toBe(3);
     // The two reserve keys share the event-type prefix but differ by operationId.
     expect(keys[0]).not.toBe(keys[2]);
-    expect(keys[0].startsWith('worktree.reserved:')).toBe(true);
-    expect(keys[2].startsWith('worktree.reserved:')).toBe(true);
+    expect(keys[0]!.startsWith('worktree.reserved:')).toBe(true);
+    expect(keys[2]!.startsWith('worktree.reserved:')).toBe(true);
   });
 
   it('WorktreeSchemas_MalformedPayload_RejectedByZod', () => {

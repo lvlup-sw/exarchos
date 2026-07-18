@@ -55,12 +55,12 @@ describe('Runbook definitions', () => {
     // gate), taking the runbook from 7 back to 6 steps; `check_test_adequacy`
     // is the sole per-task verification gate.
     expect(TASK_COMPLETION.steps).toHaveLength(6);
-    expect(TASK_COMPLETION.steps[0].action).toBe('check_test_adequacy');
-    expect(TASK_COMPLETION.steps[1].action).toBe('check_contract_drift');
-    expect(TASK_COMPLETION.steps[2].action).toBe('check_mock_boundary');
-    expect(TASK_COMPLETION.steps[3].action).toBe('check_static_analysis');
-    expect(TASK_COMPLETION.steps[4].action).toBe('task_complete');
-    expect(TASK_COMPLETION.steps[5].action).toBe('check_integration_suite');
+    expect(TASK_COMPLETION.steps[0]!.action).toBe('check_test_adequacy');
+    expect(TASK_COMPLETION.steps[1]!.action).toBe('check_contract_drift');
+    expect(TASK_COMPLETION.steps[2]!.action).toBe('check_mock_boundary');
+    expect(TASK_COMPLETION.steps[3]!.action).toBe('check_static_analysis');
+    expect(TASK_COMPLETION.steps[4]!.action).toBe('task_complete');
+    expect(TASK_COMPLETION.steps[5]!.action).toBe('check_integration_suite');
     expect(TASK_COMPLETION.phase).toBe('delegate');
   });
 
@@ -69,9 +69,9 @@ describe('Runbook definitions', () => {
     // dimension when it became a blocking gate (it now emits deterministic
     // check-mode findings), so the review runbook grew from 4 → 5 steps.
     expect(QUALITY_EVALUATION.steps).toHaveLength(5);
-    expect(QUALITY_EVALUATION.steps[0].action).toBe('check_static_analysis');
-    expect(QUALITY_EVALUATION.steps[3].action).toBe('check_invariant_conformance');
-    expect(QUALITY_EVALUATION.steps[4].action).toBe('check_review_verdict');
+    expect(QUALITY_EVALUATION.steps[0]!.action).toBe('check_static_analysis');
+    expect(QUALITY_EVALUATION.steps[3]!.action).toBe('check_invariant_conformance');
+    expect(QUALITY_EVALUATION.steps[4]!.action).toBe('check_review_verdict');
     expect(QUALITY_EVALUATION.phase).toBe('review');
   });
 
@@ -79,25 +79,25 @@ describe('Runbook definitions', () => {
     expect(AGENT_TEAMS_SAGA.steps).toHaveLength(12);
     expect(AGENT_TEAMS_SAGA.phase).toBe('delegate');
     // First step should be event-first: team.spawned
-    expect(AGENT_TEAMS_SAGA.steps[0].tool).toBe('exarchos_event');
-    expect(AGENT_TEAMS_SAGA.steps[0].params?.type).toBe('team.spawned');
+    expect(AGENT_TEAMS_SAGA.steps[0]!.tool).toBe('exarchos_event');
+    expect(AGENT_TEAMS_SAGA.steps[0]!.params?.type).toBe('team.spawned');
     // Last step should be workflow transition.
     // T5a.1/DR-4 (#1259, v2.11): the prior `set({phase: 'review'})` step
     // is replaced with `transition({target: 'review'})` after the `set`
     // action's hard-cut.
-    expect(AGENT_TEAMS_SAGA.steps[11].tool).toBe('exarchos_workflow');
-    expect(AGENT_TEAMS_SAGA.steps[11].action).toBe('transition');
+    expect(AGENT_TEAMS_SAGA.steps[11]!.tool).toBe('exarchos_workflow');
+    expect(AGENT_TEAMS_SAGA.steps[11]!.action).toBe('transition');
   });
 
   it('SynthesisFlow_HasFiveSteps', () => {
     expect(SYNTHESIS_FLOW.steps).toHaveLength(5);
-    expect(SYNTHESIS_FLOW.steps[0].action).toBe('prepare_synthesis');
+    expect(SYNTHESIS_FLOW.steps[0]!.action).toBe('prepare_synthesis');
     expect(SYNTHESIS_FLOW.phase).toBe('synthesize');
   });
 
   it('ShepherdIteration_HasSixSteps', () => {
     expect(SHEPHERD_ITERATION.steps).toHaveLength(6);
-    expect(SHEPHERD_ITERATION.steps[0].action).toBe('assess_stack');
+    expect(SHEPHERD_ITERATION.steps[0]!.action).toBe('assess_stack');
     expect(SHEPHERD_ITERATION.phase).toBe('synthesize');
   });
 
@@ -106,8 +106,8 @@ describe('Runbook definitions', () => {
   });
 
   it('TaskFixRunbook_FirstStepIsResumeOrSpawn_NativeTask', () => {
-    expect(TASK_FIX.steps[0].tool).toBe('native:Task');
-    expect(TASK_FIX.steps[0].action).toBe('resume_or_spawn');
+    expect(TASK_FIX.steps[0]!.tool).toBe('native:Task');
+    expect(TASK_FIX.steps[0]!.action).toBe('resume_or_spawn');
   });
 
   it('TaskFixRunbook_IncludesAdequacyAndStaticGates_NoRetiredTddGate', () => {
@@ -166,16 +166,16 @@ describe('Runbook definitions', () => {
     );
     expect(MERGE_ORCHESTRATION.autoEmits).not.toContain('merge.rollback');
     // Step 1: preflight dryRun
-    expect(MERGE_ORCHESTRATION.steps[0].tool).toBe('exarchos_orchestrate');
-    expect(MERGE_ORCHESTRATION.steps[0].action).toBe('merge_orchestrate');
-    expect(MERGE_ORCHESTRATION.steps[0].params?.dryRun).toBe(true);
+    expect(MERGE_ORCHESTRATION.steps[0]!.tool).toBe('exarchos_orchestrate');
+    expect(MERGE_ORCHESTRATION.steps[0]!.action).toBe('merge_orchestrate');
+    expect(MERGE_ORCHESTRATION.steps[0]!.params?.dryRun).toBe(true);
     // Step 2: real merge
-    expect(MERGE_ORCHESTRATION.steps[1].tool).toBe('exarchos_orchestrate');
-    expect(MERGE_ORCHESTRATION.steps[1].action).toBe('merge_orchestrate');
+    expect(MERGE_ORCHESTRATION.steps[1]!.tool).toBe('exarchos_orchestrate');
+    expect(MERGE_ORCHESTRATION.steps[1]!.action).toBe('merge_orchestrate');
     // Step 3: HSM transition back to delegate
-    expect(MERGE_ORCHESTRATION.steps[2].tool).toBe('exarchos_workflow');
-    expect(MERGE_ORCHESTRATION.steps[2].action).toBe('transition');
-    expect(MERGE_ORCHESTRATION.steps[2].params?.target).toBe('delegate');
+    expect(MERGE_ORCHESTRATION.steps[2]!.tool).toBe('exarchos_workflow');
+    expect(MERGE_ORCHESTRATION.steps[2]!.action).toBe('transition');
+    expect(MERGE_ORCHESTRATION.steps[2]!.params?.target).toBe('delegate');
   });
 
   it('TaskClassification_HasCorrectPhase_Delegate', () => {
@@ -185,11 +185,11 @@ describe('Runbook definitions', () => {
   it('TaskClassification_HasThreeSteps_ScaffoldingThenComplexityThenContext', () => {
     expect(TASK_CLASSIFICATION.steps).toHaveLength(3);
     // Step 1: scaffolding check
-    expect(TASK_CLASSIFICATION.steps[0].decide?.question).toMatch(/scaffolding/i);
+    expect(TASK_CLASSIFICATION.steps[0]!.decide?.question).toMatch(/scaffolding/i);
     // Step 2: complexity assessment
-    expect(TASK_CLASSIFICATION.steps[1].decide?.question).toMatch(/edge case|algorithm|multi-dependenc|complex/i);
+    expect(TASK_CLASSIFICATION.steps[1]!.decide?.question).toMatch(/edge case|algorithm|multi-dependenc|complex/i);
     // Step 3: context size check
-    expect(TASK_CLASSIFICATION.steps[2].decide?.question).toMatch(/context|token|size/i);
+    expect(TASK_CLASSIFICATION.steps[2]!.decide?.question).toMatch(/context|token|size/i);
   });
 
   it('ReviewStrategy_HasCorrectPhase_Review', () => {
@@ -199,9 +199,9 @@ describe('Runbook definitions', () => {
   it('ReviewStrategy_HasTwoSteps_SizeThenFailures', () => {
     expect(REVIEW_STRATEGY.steps).toHaveLength(2);
     // Step 1: change size / file count
-    expect(REVIEW_STRATEGY.steps[0].decide?.question).toMatch(/file|module|diff|size/i);
+    expect(REVIEW_STRATEGY.steps[0]!.decide?.question).toMatch(/file|module|diff|size/i);
     // Step 2: prior failures (single adversarial review — no spec/quality stage split)
-    expect(REVIEW_STRATEGY.steps[1].decide?.question).toMatch(/fail|fix cycle|prior/i);
+    expect(REVIEW_STRATEGY.steps[1]!.decide?.question).toMatch(/fail|fix cycle|prior/i);
   });
 
   it('DesignRefinement_HasCorrectPhase_Plan', () => {
@@ -211,8 +211,8 @@ describe('Runbook definitions', () => {
 
   it('DesignRefinement_HasTwoSteps_ComplexityThenCompression', () => {
     expect(DESIGN_REFINEMENT.steps).toHaveLength(2);
-    expect(DESIGN_REFINEMENT.steps[0].decide?.question).toMatch(/requirement|trade-off|complex/i);
-    expect(DESIGN_REFINEMENT.steps[1].decide?.question).toMatch(/compress|summary/i);
+    expect(DESIGN_REFINEMENT.steps[0]!.decide?.question).toMatch(/requirement|trade-off|complex/i);
+    expect(DESIGN_REFINEMENT.steps[1]!.decide?.question).toMatch(/compress|summary/i);
   });
 
   it('PlanCoverageCheck_HasCorrectPhase_PlanReview', () => {
@@ -221,10 +221,10 @@ describe('Runbook definitions', () => {
 
   it('PlanCoverageCheck_HasFourSteps_ThreeFramingsPlusConvergence', () => {
     expect(PLAN_COVERAGE_CHECK.steps).toHaveLength(4);
-    expect(PLAN_COVERAGE_CHECK.steps[0].decide?.question).toMatch(/DR-N.*NO corresponding|gap/i);
-    expect(PLAN_COVERAGE_CHECK.steps[1].decide?.question).toMatch(/FULLY address/i);
-    expect(PLAN_COVERAGE_CHECK.steps[2].decide?.question).toMatch(/orphan|trace back/i);
-    expect(PLAN_COVERAGE_CHECK.steps[3].decide?.question).toMatch(/agree|convergence/i);
+    expect(PLAN_COVERAGE_CHECK.steps[0]!.decide?.question).toMatch(/DR-N.*NO corresponding|gap/i);
+    expect(PLAN_COVERAGE_CHECK.steps[1]!.decide?.question).toMatch(/FULLY address/i);
+    expect(PLAN_COVERAGE_CHECK.steps[2]!.decide?.question).toMatch(/orphan|trace back/i);
+    expect(PLAN_COVERAGE_CHECK.steps[3]!.decide?.question).toMatch(/agree|convergence/i);
   });
 
   it('PhaseCompression_HasCorrectPhase_Delegate', () => {
@@ -233,8 +233,8 @@ describe('Runbook definitions', () => {
 
   it('PhaseCompression_HasTwoSteps_ArtifactTypeThenVerification', () => {
     expect(PHASE_COMPRESSION.steps).toHaveLength(2);
-    expect(PHASE_COMPRESSION.steps[0].decide?.question).toMatch(/source artifact|compress/i);
-    expect(PHASE_COMPRESSION.steps[1].decide?.question).toMatch(/load-bearing|preserve/i);
+    expect(PHASE_COMPRESSION.steps[0]!.decide?.question).toMatch(/source artifact|compress/i);
+    expect(PHASE_COMPRESSION.steps[1]!.decide?.question).toMatch(/load-bearing|preserve/i);
   });
 
   // ─── #1330 / T-05: worktree-aware task-completion gate ─────────────────────
@@ -292,11 +292,11 @@ describe('Runbook definitions', () => {
     expect(integrationIndex).toBeGreaterThan(completeIndex);
 
     const integrationStep = TASK_COMPLETION.steps[integrationIndex];
-    expect(integrationStep.tool).toBe('exarchos_orchestrate');
+    expect(integrationStep!.tool).toBe('exarchos_orchestrate');
     // onFail must be 'stop' — a broken integration tip is a hard halt.
-    expect(integrationStep.onFail).toBe('stop');
+    expect(integrationStep!.onFail).toBe('stop');
 
-    const params = integrationStep.params as
+    const params = integrationStep!.params as
       | { repoRoot?: unknown; worktreePath?: unknown }
       | undefined;
     expect(params, 'check_integration_suite step must pre-fill params').toBeDefined();

@@ -22,6 +22,7 @@ import {
   checkParallelSafety,
   handleTaskDecomposition,
 } from './task-decomposition.js';
+import type { EventStore } from '../event-store/store.js';
 
 /**
  * Behavioral parity tests for task-decomposition.ts against the original
@@ -93,24 +94,24 @@ describe('behavioral parity with check-task-decomposition.sh', () => {
       const blocks = parseTaskBlocks(WELL_DECOMPOSED_PLAN);
 
       expect(blocks).toHaveLength(3);
-      expect(blocks[0].id).toBe('T-01');
-      expect(blocks[1].id).toBe('T-02');
-      expect(blocks[2].id).toBe('T-03');
+      expect(blocks[0]!.id).toBe('T-01');
+      expect(blocks[1]!.id).toBe('T-02');
+      expect(blocks[2]!.id).toBe('T-03');
     });
 
     it('each block contains its full content', () => {
       const blocks = parseTaskBlocks(WELL_DECOMPOSED_PLAN);
 
-      expect(blocks[0].content).toContain('widget rendering component');
-      expect(blocks[1].content).toContain('HTTP client wrapper');
-      expect(blocks[2].content).toContain('centralized state management');
+      expect(blocks[0]!.content).toContain('widget rendering component');
+      expect(blocks[1]!.content).toContain('HTTP client wrapper');
+      expect(blocks[2]!.content).toContain('centralized state management');
     });
 
     it('missing description plan — parses 1 task block', () => {
       const blocks = parseTaskBlocks(MISSING_DESCRIPTION_PLAN);
 
       expect(blocks).toHaveLength(1);
-      expect(blocks[0].id).toBe('T-01');
+      expect(blocks[0]!.id).toBe('T-01');
     });
 
     it('plan with no tasks — returns empty array', () => {
@@ -143,7 +144,7 @@ describe('behavioral parity with check-task-decomposition.sh', () => {
       // the false-FAIL #1544 targets. status now gates on files+tests; the
       // description stays informational (hasDescription/wordCount unchanged).
       const blocks = parseTaskBlocks(MISSING_DESCRIPTION_PLAN);
-      const result = validateTaskStructure(blocks[0].content);
+      const result = validateTaskStructure(blocks[0]!.content);
 
       expect(result.status).toBe('PASS');
       expect(result.hasFiles).toBe(true);
@@ -214,6 +215,7 @@ describe('behavioral parity with check-task-decomposition.sh', () => {
       const result = await handleTaskDecomposition(
         { featureId: 'test-feature', planPath: '/tmp/plan.md' },
         '/tmp/state',
+        undefined as unknown as EventStore,
       );
 
       expect(result.success).toBe(true);
@@ -244,6 +246,7 @@ describe('behavioral parity with check-task-decomposition.sh', () => {
       const result = await handleTaskDecomposition(
         { featureId: 'test-feature', planPath: '/tmp/plan.md' },
         '/tmp/state',
+        undefined as unknown as EventStore,
       );
 
       expect(result.success).toBe(true);

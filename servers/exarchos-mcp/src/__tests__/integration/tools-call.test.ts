@@ -109,12 +109,12 @@ describe('F.2 — tools/call carrier round-trip (Wave 0 §7)', () => {
       expect(Array.isArray(result.content)).toBe(true);
       expect(result.content!.length).toBeGreaterThan(0);
       const textBlock = result.content![0];
-      expect(textBlock.type).toBe('text');
-      expect(typeof textBlock.text).toBe('string');
+      expect(textBlock!.type).toBe('text');
+      expect(typeof textBlock!.text).toBe('string');
       expect(result.structuredContent).toBeDefined();
 
       // 2. Exact mirror: parsed legacy text equals structuredContent.
-      const parsed = JSON.parse(textBlock.text) as Record<string, unknown>;
+      const parsed = JSON.parse(textBlock!.text) as Record<string, unknown>;
       expect(parsed).toEqual(result.structuredContent);
 
       // 3. Envelope schema conformance — the per-action contract surface.

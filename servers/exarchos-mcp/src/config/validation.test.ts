@@ -25,7 +25,7 @@ describe('validateConfig', () => {
     });
 
     expect(result.success).toBe(true);
-    expect(result.data?.workflows?.deploy.phases).toHaveLength(3);
+    expect(result.data?.workflows?.deploy!.phases).toHaveLength(3);
   });
 
   it('ValidateConfig_WithGuardsAndRefs_Succeeds', () => {

@@ -41,11 +41,11 @@ describe('#1636 registered schema retains per-task stamps', () => {
 
     const t = parsed.tasks[0];
     // The exact fields that #1636 reported as silently stripped MUST survive.
-    expect(t.riskTier).toBe('high');
-    expect(t.boundaryTouching).toBe(true);
-    expect(t.files).toEqual(['servers/exarchos-mcp/src/orchestrate/worktree/manager.ts']);
-    expect(t.blockedBy).toEqual(['002']);
-    expect(t.testLayer).toBe('integration');
+    expect(t!.riskTier).toBe('high');
+    expect(t!.boundaryTouching).toBe(true);
+    expect(t!.files).toEqual(['servers/exarchos-mcp/src/orchestrate/worktree/manager.ts']);
+    expect(t!.blockedBy).toEqual(['002']);
+    expect(t!.testLayer).toBe('integration');
   });
 
   it('RegisteredSchema_UnknownTaskField_StillStripped', () => {
@@ -55,7 +55,7 @@ describe('#1636 registered schema retains per-task stamps', () => {
       featureId: 'f',
       tasks: [{ id: '001', title: 'x', bogusField: 42 }],
     }) as { tasks: Array<Record<string, unknown>> };
-    expect(parsed.tasks[0].bogusField).toBeUndefined();
+    expect(parsed.tasks[0]!.bogusField).toBeUndefined();
   });
 
   it('RegisteredSchema_PlanPath_Accepted', () => {
@@ -83,10 +83,10 @@ describe('#1636 applyPlanStamps lifts markdown stamps onto bare tasks', () => {
     );
     // The orchestrator passes only {id, title} today — that is the bug's input.
     const { tasks } = applyPlanStamps([{ id: 'task-001', title: 'Wrap the remove path' }], stamps);
-    expect(tasks[0].riskTier).toBe('high');
-    expect(tasks[0].boundaryTouching).toBe(true);
+    expect(tasks[0]!.riskTier).toBe('high');
+    expect(tasks[0]!.boundaryTouching).toBe(true);
 
-    const c = classifyTask(tasks[0]);
+    const c = classifyTask(tasks[0]!);
     expect(c.riskTier).toBe('high');
     expect(c.boundaryTouching).toBe(true);
     expect(c.verificationSequence).toContain('check_integration_suite');
@@ -95,7 +95,7 @@ describe('#1636 applyPlanStamps lifts markdown stamps onto bare tasks', () => {
   it('ApplyPlanStamps_ExplicitCallerField_WinsOverStamp', () => {
     const stamps = parseTaskStamps('#### Task 001: x\n**Risk Tier:** high');
     const { tasks, advisories } = applyPlanStamps([{ id: '001', title: 'x', riskTier: 'low' }], stamps);
-    expect(tasks[0].riskTier).toBe('low'); // caller-supplied value is never overridden
+    expect(tasks[0]!.riskTier).toBe('low'); // caller-supplied value is never overridden
     // The caller's own value must NOT be misattributed to the plan stamp — the
     // advisory only fires for a stamp-sourced tier (CodeRabbit/Sentry).
     expect(advisories).toHaveLength(0);
@@ -123,7 +123,7 @@ describe('#1636 applyPlanStamps lifts markdown stamps onto bare tasks', () => {
   it('ApplyPlanStamps_UnmatchedTask_PassesThroughUnchanged', () => {
     const stamps = parseTaskStamps('#### Task 001: x\n**Risk Tier:** high');
     const { tasks } = applyPlanStamps([{ id: '999', title: 'orphan' }], stamps);
-    expect(tasks[0].riskTier).toBeUndefined();
-    expect(tasks[0].boundaryTouching).toBeUndefined();
+    expect(tasks[0]!.riskTier).toBeUndefined();
+    expect(tasks[0]!.boundaryTouching).toBeUndefined();
   });
 });

@@ -7,9 +7,9 @@ describe('applyPhaseSkips', () => {
   const testHsm: HSMDefinition = {
     id: 'test',
     states: {
-      A: { id: 'A', type: 'atomic' as const },
-      B: { id: 'B', type: 'atomic' as const },
-      C: { id: 'C', type: 'atomic' as const },
+      A: { id: 'A', type: 'atomic' as const, kind: 'GATHER' as const },
+      B: { id: 'B', type: 'atomic' as const, kind: 'GATHER' as const },
+      C: { id: 'C', type: 'atomic' as const, kind: 'GATHER' as const },
       D: { id: 'D', type: 'final' as const },
     },
     transitions: [
@@ -65,10 +65,10 @@ describe('applyPhaseSkips', () => {
     const hsmWithCompound: HSMDefinition = {
       id: 'test-compound',
       states: {
-        start: { id: 'start', type: 'atomic' as const },
+        start: { id: 'start', type: 'atomic' as const, kind: 'GATHER' as const },
         impl: { id: 'impl', type: 'compound' as const, initial: 'delegate' },
-        delegate: { id: 'delegate', type: 'atomic' as const, parent: 'impl' },
-        review: { id: 'review', type: 'atomic' as const, parent: 'impl' },
+        delegate: { id: 'delegate', type: 'atomic' as const, kind: 'GATHER' as const, parent: 'impl' },
+        review: { id: 'review', type: 'atomic' as const, kind: 'GATHER' as const, parent: 'impl' },
         done: { id: 'done', type: 'final' as const },
       },
       transitions: [
@@ -91,8 +91,8 @@ describe('applyPhaseSkips', () => {
     const hsmWithGuardOnPredecessor: HSMDefinition = {
       id: 'test-guard-preserve',
       states: {
-        X: { id: 'X', type: 'atomic' as const },
-        Y: { id: 'Y', type: 'atomic' as const },
+        X: { id: 'X', type: 'atomic' as const, kind: 'GATHER' as const },
+        Y: { id: 'Y', type: 'atomic' as const, kind: 'GATHER' as const },
         Z: { id: 'Z', type: 'final' as const },
       },
       transitions: [
@@ -120,10 +120,10 @@ describe('applyPhaseSkips', () => {
     const multiBranchHsm: HSMDefinition = {
       id: 'test-multi-branch',
       states: {
-        A: { id: 'A', type: 'atomic' as const },
-        B: { id: 'B', type: 'atomic' as const },
-        C: { id: 'C', type: 'atomic' as const },
-        E: { id: 'E', type: 'atomic' as const },
+        A: { id: 'A', type: 'atomic' as const, kind: 'GATHER' as const },
+        B: { id: 'B', type: 'atomic' as const, kind: 'GATHER' as const },
+        C: { id: 'C', type: 'atomic' as const, kind: 'GATHER' as const },
+        E: { id: 'E', type: 'atomic' as const, kind: 'GATHER' as const },
         D: { id: 'D', type: 'final' as const },
       },
       transitions: [

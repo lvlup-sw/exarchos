@@ -39,7 +39,7 @@ describe('Telemetry Integration', () => {
     };
     expect(data.session.totalInvocations).toBe(1);
     expect(data.tools).toHaveLength(1);
-    expect(data.tools[0].tool).toBe('test_tool');
+    expect(data.tools[0]!.tool).toBe('test_tool');
   });
 
   it('should emit tool.invoked and tool.completed events when instrumented handler runs', async () => {
@@ -95,8 +95,8 @@ describe('Telemetry Integration', () => {
     };
     expect(data.session.totalInvocations).toBe(5);
     expect(data.session.totalTokens).toBe(250);
-    expect(data.tools[0].invocations).toBe(5);
-    expect(data.tools[0].p50DurationMs).toBeGreaterThan(0);
-    expect(data.tools[0].p95DurationMs).toBeGreaterThanOrEqual(data.tools[0].p50DurationMs);
+    expect(data.tools[0]!.invocations).toBe(5);
+    expect(data.tools[0]!.p50DurationMs).toBeGreaterThan(0);
+    expect(data.tools[0]!.p95DurationMs).toBeGreaterThanOrEqual(data.tools[0]!.p50DurationMs);
   });
 });

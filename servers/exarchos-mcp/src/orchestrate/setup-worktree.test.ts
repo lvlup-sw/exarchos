@@ -46,7 +46,7 @@ describe('handleSetupWorktree', () => {
 
   // ── Test 9: Derived paths are correct ───────────────────────────────────
 
-  it('DerivedPaths_AreCorrect', () => {
+  it('DerivedPaths_AreCorrect', async () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
       const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
@@ -64,7 +64,7 @@ describe('handleSetupWorktree', () => {
       return false;
     });
 
-    const result = handleSetupWorktree({
+    const result = await handleSetupWorktree({
       repoRoot: '/repo',
       taskId: 'task-001',
       taskName: 'user-model',
@@ -78,7 +78,7 @@ describe('handleSetupWorktree', () => {
 
   // ── Test 1: Full setup succeeds ─────────────────────────────────────────
 
-  it('FullSetup_AllStepsPass', () => {
+  it('FullSetup_AllStepsPass', async () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
       const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
@@ -101,7 +101,7 @@ describe('handleSetupWorktree', () => {
       return false;
     });
 
-    const result = handleSetupWorktree({
+    const result = await handleSetupWorktree({
       repoRoot: '/repo',
       taskId: 'task-001',
       taskName: 'setup',
@@ -116,7 +116,7 @@ describe('handleSetupWorktree', () => {
 
   // ── Test 2: Branch already exists ───────────────────────────────────────
 
-  it('BranchExists_SkipsCreation_StepPasses', () => {
+  it('BranchExists_SkipsCreation_StepPasses', async () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
       const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
@@ -134,7 +134,7 @@ describe('handleSetupWorktree', () => {
       return false;
     });
 
-    const result = handleSetupWorktree({
+    const result = await handleSetupWorktree({
       repoRoot: '/repo',
       taskId: 'task-002',
       taskName: 'auth',
@@ -148,7 +148,7 @@ describe('handleSetupWorktree', () => {
 
   // ── Test 3: Worktree already exists ─────────────────────────────────────
 
-  it('WorktreeExists_SkipsCreation_StepPasses', () => {
+  it('WorktreeExists_SkipsCreation_StepPasses', async () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
       const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
@@ -166,7 +166,7 @@ describe('handleSetupWorktree', () => {
       return false;
     });
 
-    const result = handleSetupWorktree({
+    const result = await handleSetupWorktree({
       repoRoot: '/repo',
       taskId: 'task-003',
       taskName: 'db',
@@ -180,7 +180,7 @@ describe('handleSetupWorktree', () => {
 
   // ── Test 4: .worktrees not gitignored → adds to .gitignore ─────────────
 
-  it('WorktreesNotGitignored_AddsToGitignore', () => {
+  it('WorktreesNotGitignored_AddsToGitignore', async () => {
     let gitignoreCheckCallCount = 0;
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
       const cmdStr = String(cmd).replace(/\.cmd$/, '');
@@ -214,7 +214,7 @@ describe('handleSetupWorktree', () => {
       return '';
     });
 
-    const result = handleSetupWorktree({
+    const result = await handleSetupWorktree({
       repoRoot: '/repo',
       taskId: 'task-004',
       taskName: 'api',
@@ -229,7 +229,7 @@ describe('handleSetupWorktree', () => {
 
   // ── #1213 / CodeRabbit #7: gitignore append must preserve line boundary ─
 
-  it('WorktreesNotGitignored_ExistingGitignoreNoTrailingNewline_PrependsNewline', () => {
+  it('WorktreesNotGitignored_ExistingGitignoreNoTrailingNewline_PrependsNewline', async () => {
     // Existing .gitignore lacks trailing newline (ends with "dist", no \n).
     // A bare append would produce "dist.worktrees/\n" — a single
     // concatenated line that no longer ignores either path. The fix
@@ -258,7 +258,7 @@ describe('handleSetupWorktree', () => {
       return '';
     });
 
-    const result = handleSetupWorktree({
+    const result = await handleSetupWorktree({
       repoRoot: '/repo',
       taskId: 'task-004b',
       taskName: 'newline',
@@ -275,7 +275,7 @@ describe('handleSetupWorktree', () => {
 
   // ── Test 5: install fails ───────────────────────────────────────────────
 
-  it('NpmInstallFails_Step4Fails', () => {
+  it('NpmInstallFails_Step4Fails', async () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
       const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
@@ -296,7 +296,7 @@ describe('handleSetupWorktree', () => {
       return false;
     });
 
-    const result = handleSetupWorktree({
+    const result = await handleSetupWorktree({
       repoRoot: '/repo',
       taskId: 'task-005',
       taskName: 'fail',
@@ -310,7 +310,7 @@ describe('handleSetupWorktree', () => {
 
   // ── Test 6: skipTests=true → step 5 skipped ────────────────────────────
 
-  it('SkipTests_Step5Skipped', () => {
+  it('SkipTests_Step5Skipped', async () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
       const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
@@ -330,7 +330,7 @@ describe('handleSetupWorktree', () => {
       return false;
     });
 
-    const result = handleSetupWorktree({
+    const result = await handleSetupWorktree({
       repoRoot: '/repo',
       taskId: 'task-006',
       taskName: 'skip',
@@ -345,7 +345,7 @@ describe('handleSetupWorktree', () => {
 
   // ── Test 7: Tests fail → step 5 fails, overall passed=false ────────────
 
-  it('TestsFail_Step5Fails_OverallFails', () => {
+  it('TestsFail_Step5Fails_OverallFails', async () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
       const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
@@ -367,7 +367,7 @@ describe('handleSetupWorktree', () => {
       return false;
     });
 
-    const result = handleSetupWorktree({
+    const result = await handleSetupWorktree({
       repoRoot: '/repo',
       taskId: 'task-007',
       taskName: 'tests',
@@ -381,8 +381,8 @@ describe('handleSetupWorktree', () => {
 
   // ── Test 8: Missing repoRoot → error ───────────────────────────────────
 
-  it('MissingRepoRoot_ReturnsError', () => {
-    const result = handleSetupWorktree({
+  it('MissingRepoRoot_ReturnsError', async () => {
+    const result = await handleSetupWorktree({
       repoRoot: '',
       taskId: 'task-008',
       taskName: 'missing',
@@ -393,8 +393,8 @@ describe('handleSetupWorktree', () => {
     expect(result.error?.code).toBe('INVALID_INPUT');
   });
 
-  it('MissingTaskId_ReturnsError', () => {
-    const result = handleSetupWorktree({
+  it('MissingTaskId_ReturnsError', async () => {
+    const result = await handleSetupWorktree({
       repoRoot: '/repo',
       taskId: '',
       taskName: 'missing',
@@ -404,8 +404,8 @@ describe('handleSetupWorktree', () => {
     expect(result.error?.code).toBe('INVALID_INPUT');
   });
 
-  it('MissingTaskName_ReturnsError', () => {
-    const result = handleSetupWorktree({
+  it('MissingTaskName_ReturnsError', async () => {
+    const result = await handleSetupWorktree({
       repoRoot: '/repo',
       taskId: 'task-009',
       taskName: '',
@@ -417,7 +417,7 @@ describe('handleSetupWorktree', () => {
 
   // ── T09 install-step tests (resolver-driven, lockfile-aware) ────────────
 
-  it('runInstallStep_NoPackageJson_SkipsWithReason', () => {
+  it('runInstallStep_NoPackageJson_SkipsWithReason', async () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
       const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
@@ -437,7 +437,7 @@ describe('handleSetupWorktree', () => {
       return false;
     });
 
-    const result = handleSetupWorktree({
+    const result = await handleSetupWorktree({
       repoRoot: '/repo',
       taskId: 'task-100',
       taskName: 'empty',
@@ -451,7 +451,7 @@ describe('handleSetupWorktree', () => {
     expect(data.report).toMatch(/SKIP.*install/);
   });
 
-  it('runInstallStep_NpmProject_RunsNpmInstall', () => {
+  it('runInstallStep_NpmProject_RunsNpmInstall', async () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
       const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
@@ -467,7 +467,7 @@ describe('handleSetupWorktree', () => {
       return false;
     });
 
-    const result = handleSetupWorktree({
+    const result = await handleSetupWorktree({
       repoRoot: '/repo',
       taskId: 'task-101',
       taskName: 'npm',
@@ -484,7 +484,7 @@ describe('handleSetupWorktree', () => {
     );
   });
 
-  it('runInstallStep_PnpmLockfilePresent_DoesNotRunNpmInstall_RunsPnpmInstall', () => {
+  it('runInstallStep_PnpmLockfilePresent_DoesNotRunNpmInstall_RunsPnpmInstall', async () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
       const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
@@ -512,7 +512,7 @@ describe('handleSetupWorktree', () => {
       return '';
     });
 
-    const result = handleSetupWorktree({
+    const result = await handleSetupWorktree({
       repoRoot: '/repo',
       taskId: 'task-102',
       taskName: 'pnpm',
@@ -532,7 +532,7 @@ describe('handleSetupWorktree', () => {
     expect(npmInstallCalls).toHaveLength(0);
   });
 
-  it('runInstallStep_YarnClassicLockfilePresent_RunsYarnInstallFrozen', () => {
+  it('runInstallStep_YarnClassicLockfilePresent_RunsYarnInstallFrozen', async () => {
     // No Berry signals → Classic. `--immutable` is Berry-only; Classic must
     // get `--frozen-lockfile`.
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
@@ -561,7 +561,7 @@ describe('handleSetupWorktree', () => {
       return '';
     });
 
-    const result = handleSetupWorktree({
+    const result = await handleSetupWorktree({
       repoRoot: '/repo',
       taskId: 'task-103',
       taskName: 'yarn',
@@ -576,7 +576,7 @@ describe('handleSetupWorktree', () => {
     );
   });
 
-  it('runInstallStep_YarnBerryViaYarnrcYml_RunsYarnInstallImmutable', () => {
+  it('runInstallStep_YarnBerryViaYarnrcYml_RunsYarnInstallImmutable', async () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
       const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
@@ -604,7 +604,7 @@ describe('handleSetupWorktree', () => {
       return '';
     });
 
-    const result = handleSetupWorktree({
+    const result = await handleSetupWorktree({
       repoRoot: '/repo',
       taskId: 'task-103',
       taskName: 'berry',
@@ -619,7 +619,7 @@ describe('handleSetupWorktree', () => {
     );
   });
 
-  it('runInstallStep_BunLockfilePresent_RunsBunInstall', () => {
+  it('runInstallStep_BunLockfilePresent_RunsBunInstall', async () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
       const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
@@ -636,7 +636,7 @@ describe('handleSetupWorktree', () => {
       return false;
     });
 
-    const result = handleSetupWorktree({
+    const result = await handleSetupWorktree({
       repoRoot: '/repo',
       taskId: 'task-104',
       taskName: 'bun',
@@ -653,7 +653,7 @@ describe('handleSetupWorktree', () => {
 
   // ── T10 baseline-tests tests (resolver-driven) ─────────────────────────
 
-  it('runBaselineTests_PnpmProject_RunsPnpmTest', () => {
+  it('runBaselineTests_PnpmProject_RunsPnpmTest', async () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
       const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
@@ -680,7 +680,7 @@ describe('handleSetupWorktree', () => {
       return '';
     });
 
-    const result = handleSetupWorktree({
+    const result = await handleSetupWorktree({
       repoRoot: '/repo',
       taskId: 'task-200',
       taskName: 'pnpm-test',
@@ -694,7 +694,7 @@ describe('handleSetupWorktree', () => {
     );
   });
 
-  it('runBaselineTests_BunProject_RunsBunTest', () => {
+  it('runBaselineTests_BunProject_RunsBunTest', async () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
       const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
@@ -711,7 +711,7 @@ describe('handleSetupWorktree', () => {
       return false;
     });
 
-    const result = handleSetupWorktree({
+    const result = await handleSetupWorktree({
       repoRoot: '/repo',
       taskId: 'task-201',
       taskName: 'bun-test',
@@ -725,7 +725,7 @@ describe('handleSetupWorktree', () => {
     );
   });
 
-  it('runBaselineTests_NpmMissingTestRunScript_SkipsWithRemediation', () => {
+  it('runBaselineTests_NpmMissingTestRunScript_SkipsWithRemediation', async () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
       const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
@@ -756,7 +756,7 @@ describe('handleSetupWorktree', () => {
       return '';
     });
 
-    const result = handleSetupWorktree({
+    const result = await handleSetupWorktree({
       repoRoot: '/repo',
       taskId: 'task-202',
       taskName: 'no-testrun',
@@ -769,7 +769,7 @@ describe('handleSetupWorktree', () => {
     expect(data.report).toMatch(/Baseline tests pass.*(test:run|\.exarchos\.yml)/);
   });
 
-  it('runBaselineTests_PythonProject_RunsPytest', () => {
+  it('runBaselineTests_PythonProject_RunsPytest', async () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
       const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
@@ -786,7 +786,7 @@ describe('handleSetupWorktree', () => {
       return false;
     });
 
-    const result = handleSetupWorktree({
+    const result = await handleSetupWorktree({
       repoRoot: '/repo',
       taskId: 'task-203',
       taskName: 'python',
@@ -800,7 +800,7 @@ describe('handleSetupWorktree', () => {
     );
   });
 
-  it('runBaselineTests_NoMarkers_SkipsWithRemediation', () => {
+  it('runBaselineTests_NoMarkers_SkipsWithRemediation', async () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
       const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
@@ -820,7 +820,7 @@ describe('handleSetupWorktree', () => {
       return false;
     });
 
-    const result = handleSetupWorktree({
+    const result = await handleSetupWorktree({
       repoRoot: '/repo',
       taskId: 'task-204',
       taskName: 'bare',
@@ -834,7 +834,7 @@ describe('handleSetupWorktree', () => {
     expect(data.report).toMatch(/Baseline tests pass.*(\.exarchos\.yml|override|markers)/);
   });
 
-  it('runInstallStep_BunPriorityOverPnpm_BunWins', () => {
+  it('runInstallStep_BunPriorityOverPnpm_BunWins', async () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
       const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
@@ -853,7 +853,7 @@ describe('handleSetupWorktree', () => {
       return false;
     });
 
-    const result = handleSetupWorktree({
+    const result = await handleSetupWorktree({
       repoRoot: '/repo',
       taskId: 'task-105',
       taskName: 'priority',
@@ -888,7 +888,7 @@ describe('handleSetupWorktree', () => {
       });
     }
 
-    it('ensureGitignored_AlreadyPresent_ReportsAlreadyPresent', () => {
+    it('ensureGitignored_AlreadyPresent_ReportsAlreadyPresent', async () => {
       setupBaseExecMocks();
       vi.mocked(existsSync).mockImplementation((p: unknown) => {
         const path = String(p);
@@ -904,7 +904,7 @@ describe('handleSetupWorktree', () => {
         return '';
       });
 
-      const result = handleSetupWorktree({
+      const result = await handleSetupWorktree({
         repoRoot: '/repo', taskId: 'T-001', taskName: 'x',
       });
 
@@ -914,7 +914,7 @@ describe('handleSetupWorktree', () => {
       expect(appendFileSync).not.toHaveBeenCalledWith('/repo/.gitignore', expect.anything());
     });
 
-    it('ensureGitignored_NotPresent_AppendsAndReportsAdded', () => {
+    it('ensureGitignored_NotPresent_AppendsAndReportsAdded', async () => {
       setupBaseExecMocks();
       vi.mocked(existsSync).mockImplementation((p: unknown) => {
         const path = String(p);
@@ -930,7 +930,7 @@ describe('handleSetupWorktree', () => {
         return '';
       });
 
-      const result = handleSetupWorktree({
+      const result = await handleSetupWorktree({
         repoRoot: '/repo', taskId: 'T-002', taskName: 'y',
       });
 
@@ -940,7 +940,7 @@ describe('handleSetupWorktree', () => {
       expect(appendFileSync).toHaveBeenCalledWith('/repo/.gitignore', '.worktrees/\n');
     });
 
-    it('ensureGitignored_FileMissing_CreatesWithEntry', () => {
+    it('ensureGitignored_FileMissing_CreatesWithEntry', async () => {
       setupBaseExecMocks();
       vi.mocked(existsSync).mockImplementation((p: unknown) => {
         const path = String(p);
@@ -955,7 +955,7 @@ describe('handleSetupWorktree', () => {
         return '';
       });
 
-      const result = handleSetupWorktree({
+      const result = await handleSetupWorktree({
         repoRoot: '/repo', taskId: 'T-003', taskName: 'z',
       });
 
@@ -965,7 +965,7 @@ describe('handleSetupWorktree', () => {
       expect(appendFileSync).toHaveBeenCalledWith('/repo/.gitignore', '.worktrees/\n');
     });
 
-    it('ensureGitignored_GlobalIgnoreOnlyMatch_StillReportsHonestlyAndUpdatesRepoGitignore', () => {
+    it('ensureGitignored_GlobalIgnoreOnlyMatch_StillReportsHonestlyAndUpdatesRepoGitignore', async () => {
       // Critical regression coverage for #1203: a non-repo source (e.g.,
       // global gitignore, .git/info/exclude) might tell `git check-ignore`
       // the path is ignored. Repo `.gitignore` itself is empty of this entry
@@ -987,7 +987,7 @@ describe('handleSetupWorktree', () => {
         return '';
       });
 
-      const result = handleSetupWorktree({
+      const result = await handleSetupWorktree({
         repoRoot: '/repo', taskId: 'T-004', taskName: 'a',
       });
 
@@ -1004,7 +1004,7 @@ describe('handleSetupWorktree', () => {
       expect(checkIgnoreCalls).toHaveLength(0);
     });
 
-    it('ensureGitignored_AppendThrows_ReportsFail', () => {
+    it('ensureGitignored_AppendThrows_ReportsFail', async () => {
       setupBaseExecMocks();
       vi.mocked(existsSync).mockImplementation((p: unknown) => {
         const path = String(p);
@@ -1020,7 +1020,7 @@ describe('handleSetupWorktree', () => {
         throw new Error('EACCES: permission denied');
       });
 
-      const result = handleSetupWorktree({
+      const result = await handleSetupWorktree({
         repoRoot: '/repo', taskId: 'T-005', taskName: 'b',
       });
 
@@ -1070,7 +1070,7 @@ describe('handleSetupWorktree', () => {
       });
     }
 
-    it('setupWorktree_WorkflowTasksHasBranch_UsesItOverDefault', () => {
+    it('setupWorktree_WorkflowTasksHasBranch_UsesItOverDefault', async () => {
       setupHappyPathMocks();
       const workflowState = {
         tasks: [
@@ -1078,7 +1078,7 @@ describe('handleSetupWorktree', () => {
         ],
       };
 
-      const result = handleSetupWorktree(
+      const result = await handleSetupWorktree(
         {
           repoRoot: '/repo',
           taskId: 'T-001',
@@ -1099,7 +1099,7 @@ describe('handleSetupWorktree', () => {
       expect(branchCalls.length).toBeGreaterThan(0);
     });
 
-    it('setupWorktree_ArgBranchOverridesWorkflowState', () => {
+    it('setupWorktree_ArgBranchOverridesWorkflowState', async () => {
       setupHappyPathMocks();
       const workflowState = {
         tasks: [
@@ -1107,7 +1107,7 @@ describe('handleSetupWorktree', () => {
         ],
       };
 
-      const result = handleSetupWorktree(
+      const result = await handleSetupWorktree(
         {
           repoRoot: '/repo',
           taskId: 'T-002',
@@ -1124,10 +1124,10 @@ describe('handleSetupWorktree', () => {
       expect(data.report).toMatch(/Branch created.*from arg/i);
     });
 
-    it('setupWorktree_NoBranchAnywhere_UsesLegacyDefault', () => {
+    it('setupWorktree_NoBranchAnywhere_UsesLegacyDefault', async () => {
       setupHappyPathMocks();
 
-      const result = handleSetupWorktree({
+      const result = await handleSetupWorktree({
         repoRoot: '/repo',
         taskId: 'T-003',
         taskName: 'db',
@@ -1195,7 +1195,7 @@ describe('handleSetupWorktree', () => {
       return a?.[a.length - 1];
     }
 
-    it('BaseBranch_ExplicitArg_Wins', () => {
+    it('BaseBranch_ExplicitArg_Wins', async () => {
       setupBaseResolutionMocks('feat/head');
       handleSetupWorktree(
         { repoRoot: '/repo', taskId: 'T1', taskName: 'x', skipTests: true, baseBranch: 'release/x' },
@@ -1204,7 +1204,7 @@ describe('handleSetupWorktree', () => {
       expect(createdBranchBase()).toBe('release/x');
     });
 
-    it('BaseBranch_SynthesisIntegrationBranch_WhenNoArg', () => {
+    it('BaseBranch_SynthesisIntegrationBranch_WhenNoArg', async () => {
       setupBaseResolutionMocks('feat/head');
       handleSetupWorktree(
         { repoRoot: '/repo', taskId: 'T1', taskName: 'x', skipTests: true },
@@ -1213,7 +1213,7 @@ describe('handleSetupWorktree', () => {
       expect(createdBranchBase()).toBe('feat/int');
     });
 
-    it('BaseBranch_CurrentHead_WhenNoArgOrSynthesis', () => {
+    it('BaseBranch_CurrentHead_WhenNoArgOrSynthesis', async () => {
       // The regression guard: a stacked integration branch must NOT silently
       // base on main. With no arg and no synthesis state, HEAD is the tip.
       setupBaseResolutionMocks('feat/stacked');
@@ -1225,7 +1225,7 @@ describe('handleSetupWorktree', () => {
       expect(createdBranchBase()).not.toBe('main');
     });
 
-    it('BaseBranch_FallsBackToMain_WhenHeadUnresolvable', () => {
+    it('BaseBranch_FallsBackToMain_WhenHeadUnresolvable', async () => {
       // Detached HEAD with no resolvable ref/SHA → safe legacy default.
       setupBaseResolutionMocks('HEAD');
       handleSetupWorktree(
@@ -1288,7 +1288,7 @@ describe('handleSetupWorktree', () => {
       // recorded delays exercise both edges of the configured window.
       const jitterSweep = [-1, -0.5, 0, 0.5, 1];
       let jitterCall = 0;
-      const jitter = (): number => jitterSweep[jitterCall++ % jitterSweep.length];
+      const jitter = (): number => jitterSweep[jitterCall++ % jitterSweep.length]!;
 
       // A burst = a multi-task delegation. Each task's creation is one
       // setup_worktree call racing for the git index; run the whole burst.
@@ -1332,7 +1332,7 @@ describe('handleSetupWorktree', () => {
         return Promise.resolve();
       };
       // Real jitter must never be consulted — assert it stays untouched too.
-      const jitter = vi.fn<[], number>(() => 0);
+      const jitter = vi.fn<() => number>(() => 0);
 
       // A single-task workflow is not a burst → no stagger.
       const workflowState = { tasks: [{ id: 'T-001' }] };

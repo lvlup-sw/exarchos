@@ -28,6 +28,6 @@ describe('lintSeamComments', () => {
 
     const findings = lintSeamComments(SCHEMA_PATH, source);
     expect(findings).toHaveLength(1);
-    expect(findings[0].message).toContain('BadSchema');
+    expect(findings[0]!.message).toContain('BadSchema');
   });
 });

@@ -936,8 +936,8 @@ describe('handlePlanCoverage', () => {
 
       expect(mockStore.append).toHaveBeenCalledTimes(1);
       const appendCall = mockStore.append.mock.calls[0];
-      expect(appendCall[0]).toBe('feat-1');
-      const event = appendCall[1] as {
+      expect(appendCall![0]).toBe('feat-1');
+      const event = appendCall![1] as {
         type: string;
         data: {
           gateName: string;

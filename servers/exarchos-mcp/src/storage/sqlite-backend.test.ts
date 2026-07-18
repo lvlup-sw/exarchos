@@ -150,7 +150,7 @@ describe('SqliteBackend Schema', () => {
     const db = (backend as unknown as { db: { pragma: (sql: string) => Array<{ journal_mode: string }> } }).db;
     const result = db.pragma('journal_mode');
     // In-memory databases cannot use WAL; they report 'memory'
-    expect(result[0].journal_mode).toBe('memory');
+    expect(result[0]!.journal_mode).toBe('memory');
   });
 
   it('SqliteBackend_concurrentReadWrite_WALMode_NoBlocking', () => {
@@ -189,9 +189,9 @@ describe('SqliteBackend Event Operations', () => {
 
     const events = backend.queryEvents('test-stream');
     expect(events).toHaveLength(1);
-    expect(events[0].streamId).toBe('test-stream');
-    expect(events[0].sequence).toBe(1);
-    expect(events[0].type).toBe('workflow.started');
+    expect(events[0]!.streamId).toBe('test-stream');
+    expect(events[0]!.sequence).toBe(1);
+    expect(events[0]!.type).toBe('workflow.started');
   });
 
   it('SqliteBackend_queryEvents_NoFilter_ReturnsAll', () => {
@@ -218,8 +218,8 @@ describe('SqliteBackend Event Operations', () => {
 
     const events = backend.queryEvents('test-stream', { sinceSequence: 1 });
     expect(events).toHaveLength(2);
-    expect(events[0].sequence).toBe(2);
-    expect(events[1].sequence).toBe(3);
+    expect(events[0]!.sequence).toBe(2);
+    expect(events[1]!.sequence).toBe(3);
   });
 
   it('SqliteBackend_queryEvents_ByType_FiltersCorrectly', () => {
@@ -250,7 +250,7 @@ describe('SqliteBackend Event Operations', () => {
       until: '2024-09-01T00:00:00.000Z',
     });
     expect(events).toHaveLength(1);
-    expect(events[0].sequence).toBe(2);
+    expect(events[0]!.sequence).toBe(2);
   });
 
   it('SqliteBackend_queryEvents_WithLimitAndOffset_Paginates', () => {
@@ -264,9 +264,9 @@ describe('SqliteBackend Event Operations', () => {
     // Get page 2 (offset=3, limit=3) => sequences 4, 5, 6
     const events = backend.queryEvents('test-stream', { offset: 3, limit: 3 });
     expect(events).toHaveLength(3);
-    expect(events[0].sequence).toBe(4);
-    expect(events[1].sequence).toBe(5);
-    expect(events[2].sequence).toBe(6);
+    expect(events[0]!.sequence).toBe(4);
+    expect(events[1]!.sequence).toBe(5);
+    expect(events[2]!.sequence).toBe(6);
   });
 
   it('SqliteBackend_getSequence_ReturnsMaxSequenceForStream', () => {
@@ -651,22 +651,22 @@ describe('SqliteBackend rowToEvent Round-Trip', () => {
     const retrieved = events[0];
 
     // Core fields (already persisted)
-    expect(retrieved.streamId).toBe('test-stream');
-    expect(retrieved.sequence).toBe(1);
-    expect(retrieved.type).toBe('workflow.started');
-    expect(retrieved.timestamp).toBe('2026-02-21T00:00:00.000Z');
-    expect(retrieved.data).toEqual({ key: 'value', nested: { a: 1 } });
+    expect(retrieved!.streamId).toBe('test-stream');
+    expect(retrieved!.sequence).toBe(1);
+    expect(retrieved!.type).toBe('workflow.started');
+    expect(retrieved!.timestamp).toBe('2026-02-21T00:00:00.000Z');
+    expect(retrieved!.data).toEqual({ key: 'value', nested: { a: 1 } });
 
     // Fields that were previously DROPPED by rowToEvent:
-    expect(retrieved.schemaVersion).toBe('2.0');
-    expect(retrieved.correlationId).toBe('corr-123');
-    expect(retrieved.causationId).toBe('cause-456');
-    expect(retrieved.agentId).toBe('agent-789');
-    expect(retrieved.agentRole).toBe('implementer');
-    expect(retrieved.source).toBe('mcp-tool');
-    expect(retrieved.tenantId).toBe('tenant-1');
-    expect(retrieved.organizationId).toBe('org-1');
-    expect(retrieved.idempotencyKey).toBe('idem-key-001');
+    expect(retrieved!.schemaVersion).toBe('2.0');
+    expect(retrieved!.correlationId).toBe('corr-123');
+    expect(retrieved!.causationId).toBe('cause-456');
+    expect(retrieved!.agentId).toBe('agent-789');
+    expect(retrieved!.agentRole).toBe('implementer');
+    expect(retrieved!.source).toBe('mcp-tool');
+    expect(retrieved!.tenantId).toBe('tenant-1');
+    expect(retrieved!.organizationId).toBe('org-1');
+    expect(retrieved!.idempotencyKey).toBe('idem-key-001');
   });
 
   it('rowToEvent_RoundTrip_PreservesMinimalEvent', () => {
@@ -683,11 +683,11 @@ describe('SqliteBackend rowToEvent Round-Trip', () => {
 
     expect(events).toHaveLength(1);
     const retrieved = events[0];
-    expect(retrieved.streamId).toBe('test-stream');
-    expect(retrieved.sequence).toBe(1);
-    expect(retrieved.type).toBe('workflow.started');
-    expect(retrieved.timestamp).toBe('2026-02-21T00:00:00.000Z');
-    expect(retrieved.schemaVersion).toBe('1.0');
+    expect(retrieved!.streamId).toBe('test-stream');
+    expect(retrieved!.sequence).toBe(1);
+    expect(retrieved!.type).toBe('workflow.started');
+    expect(retrieved!.timestamp).toBe('2026-02-21T00:00:00.000Z');
+    expect(retrieved!.schemaVersion).toBe('1.0');
   });
 
   it('rowToEvent_RoundTrip_PreservesFieldsThroughFilteredQuery', () => {
@@ -704,9 +704,9 @@ describe('SqliteBackend rowToEvent Round-Trip', () => {
     const events = backend.queryEvents('test-stream', { type: 'workflow.started' });
 
     expect(events).toHaveLength(1);
-    expect(events[0].agentId).toBe('agent-filtered');
-    expect(events[0].correlationId).toBe('corr-filtered');
-    expect(events[0].source).toBe('filtered-source');
+    expect(events[0]!.agentId).toBe('agent-filtered');
+    expect(events[0]!.correlationId).toBe('corr-filtered');
+    expect(events[0]!.source).toBe('filtered-source');
   });
 });
 
@@ -801,9 +801,9 @@ describe('SqliteBackend Property Tests', () => {
           const queried = propBackend.queryEvents(streamId);
           expect(queried).toHaveLength(appended.length);
           for (let i = 0; i < appended.length; i++) {
-            expect(queried[i].sequence).toBe(appended[i].sequence);
-            expect(queried[i].type).toBe(appended[i].type);
-            expect(queried[i].streamId).toBe(appended[i].streamId);
+            expect(queried[i]!.sequence).toBe(appended[i]!.sequence);
+            expect(queried[i]!.type).toBe(appended[i]!.type);
+            expect(queried[i]!.streamId).toBe(appended[i]!.streamId);
           }
 
           propBackend.close();
@@ -1380,8 +1380,8 @@ describe('SqliteBackend queryEvents correlation filters (Wave 4 / #1437)', () =>
     });
 
     expect(results).toHaveLength(2);
-    expect(results[0].sequence).toBe(2);
-    expect(results[1].sequence).toBe(3);
+    expect(results[0]!.sequence).toBe(2);
+    expect(results[1]!.sequence).toBe(3);
     expect(results.every((e) => e.correlationId === 'cor-X')).toBe(true);
   });
 });

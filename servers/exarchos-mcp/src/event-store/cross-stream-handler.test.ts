@@ -86,7 +86,7 @@ describe('TeamCoordinator — disbanded emission queries events table (T26)', ()
 
     const events = await eventStore.query(featureId, { type: 'team.disbanded' });
     expect(events).toHaveLength(1);
-    const data = (events[0].data ?? {}) as Record<string, unknown>;
+    const data = (events[0]!.data ?? {}) as Record<string, unknown>;
     expect(data.teamId).toBe(teamId);
     // Two task.completed events span the two subagent streams; the
     // cross-stream query reducer recovers both.
@@ -132,7 +132,7 @@ describe('TeamCoordinator — disbanded emission queries events table (T26)', ()
     expect(result.success).toBe(true);
     const events = await eventStore.query(featureId, { type: 'team.disbanded' });
     expect(events).toHaveLength(1);
-    const data = (events[0].data ?? {}) as Record<string, unknown>;
+    const data = (events[0]!.data ?? {}) as Record<string, unknown>;
     expect(data.tasksCompleted).toBe(1); // only teamA's task.completed counts
   });
 });

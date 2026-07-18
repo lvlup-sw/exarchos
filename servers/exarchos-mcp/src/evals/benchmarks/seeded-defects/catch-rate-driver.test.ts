@@ -118,11 +118,11 @@ describe('gate catch-rate driver', () => {
       const oneDefect = loadSeededCorpus('static-analysis').filter((f) => f.kind === 'defect').slice(0, 1);
       const crashed = await runCatchRate({ corpus: oneDefect, tmpRoot: crashTmp, dispatch: crashDispatch });
       const row = crashed.rows[0];
-      expect(row.verdict).toBe('invalid');
-      expect(row.verdict).not.toBe('fail');
-      expect(row.verdict).not.toBe('pass');
-      expect(row.note).toContain('threw');
-      expect(row.correct).toBe(false);
+      expect(row!.verdict).toBe('invalid');
+      expect(row!.verdict).not.toBe('fail');
+      expect(row!.verdict).not.toBe('pass');
+      expect(row!.note).toContain('threw');
+      expect(row!.correct).toBe(false);
       // And the aggregate counts it as invalid, not as a catch.
       const agg = crashed.aggregates.find((a) => a.gateClass === 'static-analysis');
       expect(agg!.invalidCells).toBeGreaterThanOrEqual(1);
@@ -156,11 +156,11 @@ describe('gate catch-rate driver', () => {
       const oneDefect = loadSeededCorpus('static-analysis').filter((f) => f.kind === 'defect').slice(0, 1);
       const out = await runCatchRate({ corpus: oneDefect, tmpRoot: matTmp, git: failingGit });
       const row = out.rows[0];
-      expect(row.verdict).toBe('invalid');
-      expect(row.verdict).not.toBe('fail');
-      expect(row.verdict).not.toBe('pass');
-      expect(row.note).toContain('materialize-failed');
-      expect(row.correct).toBe(false);
+      expect(row!.verdict).toBe('invalid');
+      expect(row!.verdict).not.toBe('fail');
+      expect(row!.verdict).not.toBe('pass');
+      expect(row!.note).toContain('materialize-failed');
+      expect(row!.correct).toBe(false);
       const agg = out.aggregates.find((a) => a.gateClass === 'static-analysis');
       expect(agg!.invalidCells).toBeGreaterThanOrEqual(1);
       expect(agg!.defectsCaught).toBe(0);

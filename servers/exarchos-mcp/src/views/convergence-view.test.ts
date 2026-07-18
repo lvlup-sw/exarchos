@@ -49,12 +49,12 @@ describe('ConvergenceView', () => {
       const next = convergenceProjection.apply(state, event);
 
       expect(next.dimensions['D1']).toBeDefined();
-      expect(next.dimensions['D1'].dimension).toBe('D1');
-      expect(next.dimensions['D1'].label).toBe('Design Completeness');
-      expect(next.dimensions['D1'].gateResults).toHaveLength(1);
-      expect(next.dimensions['D1'].gateResults[0].gateName).toBe('design-completeness');
-      expect(next.dimensions['D1'].gateResults[0].passed).toBe(true);
-      expect(next.dimensions['D1'].lastChecked).toBe(event.timestamp);
+      expect(next.dimensions['D1']!.dimension).toBe('D1');
+      expect(next.dimensions['D1']!.label).toBe('Design Completeness');
+      expect(next.dimensions['D1']!.gateResults).toHaveLength(1);
+      expect(next.dimensions['D1']!.gateResults[0]!.gateName).toBe('design-completeness');
+      expect(next.dimensions['D1']!.gateResults[0]!.passed).toBe(true);
+      expect(next.dimensions['D1']!.lastChecked).toBe(event.timestamp);
       expect(next.uncheckedDimensions).not.toContain('D1');
       expect(next.uncheckedDimensions).toEqual(['D2', 'D3', 'D4', 'D5']);
     });
@@ -74,7 +74,7 @@ describe('ConvergenceView', () => {
         details: { dimension: 'D1' },
       }, 1));
 
-      expect(state.dimensions['D1'].converged).toBe(true);
+      expect(state.dimensions['D1']!.converged).toBe(true);
     });
   });
 
@@ -102,10 +102,10 @@ describe('ConvergenceView', () => {
         details: { dimension: 'D1' },
       }, 2));
 
-      expect(state.dimensions['D1'].converged).toBe(false);
-      expect(state.dimensions['D1'].gateResults).toHaveLength(2);
-      expect(state.dimensions['D1'].gateResults[0].passed).toBe(true);
-      expect(state.dimensions['D1'].gateResults[1].passed).toBe(false);
+      expect(state.dimensions['D1']!.converged).toBe(false);
+      expect(state.dimensions['D1']!.gateResults).toHaveLength(2);
+      expect(state.dimensions['D1']!.gateResults[0]!.passed).toBe(true);
+      expect(state.dimensions['D1']!.gateResults[1]!.passed).toBe(false);
     });
   });
 
@@ -150,8 +150,8 @@ describe('ConvergenceView', () => {
 
       // Verify each dimension is converged
       dimensions.forEach((dim) => {
-        expect(state.dimensions[dim].converged).toBe(true);
-        expect(state.dimensions[dim].gateResults).toHaveLength(1);
+        expect(state.dimensions[dim]!.converged).toBe(true);
+        expect(state.dimensions[dim]!.gateResults).toHaveLength(1);
       });
     });
   });
@@ -169,7 +169,7 @@ describe('ConvergenceView', () => {
 
       const result = convergenceProjection.apply(state, event);
 
-      expect(result.dimensions.D1.gateResults[0].phase).toBe('review');
+      expect(result.dimensions.D1!.gateResults[0]!.phase).toBe('review');
     });
 
     it('handleGateExecuted_WithoutPhase_StoresUndefinedPhase', () => {
@@ -182,7 +182,7 @@ describe('ConvergenceView', () => {
 
       const result = convergenceProjection.apply(state, event);
 
-      expect(result.dimensions.D1.gateResults[0].phase).toBeUndefined();
+      expect(result.dimensions.D1!.gateResults[0]!.phase).toBeUndefined();
     });
   });
 
@@ -233,16 +233,16 @@ describe('ConvergenceView', () => {
       // D2 must be present (the event was applied) but NOT converged —
       // skip is inconclusive, not green.
       expect(next.dimensions['D2']).toBeDefined();
-      expect(next.dimensions['D2'].converged).toBe(false);
+      expect(next.dimensions['D2']!.converged).toBe(false);
 
       // The single gate result must surface the skipped flag so
       // downstream rendering can distinguish skip from fail.
-      expect(next.dimensions['D2'].gateResults).toHaveLength(1);
-      const gateResult = next.dimensions['D2'].gateResults[0];
-      expect(gateResult.gateName).toBe('static-analysis');
-      expect(gateResult.passed).toBe(false);
-      expect(gateResult.skipped).toBe(true);
-      expect(gateResult.skipReason).toBe('no-toolchain');
+      expect(next.dimensions['D2']!.gateResults).toHaveLength(1);
+      const gateResult = next.dimensions['D2']!.gateResults[0];
+      expect(gateResult!.gateName).toBe('static-analysis');
+      expect(gateResult!.passed).toBe(false);
+      expect(gateResult!.skipped).toBe(true);
+      expect(gateResult!.skipReason).toBe('no-toolchain');
 
       // Overall convergence cannot be true when D2 is skipped.
       expect(next.overallConverged).toBe(false);

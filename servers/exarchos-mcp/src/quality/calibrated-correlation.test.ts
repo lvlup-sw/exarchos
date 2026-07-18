@@ -202,14 +202,14 @@ describe('correlateWithCalibration', () => {
     // Assert
     expect(result).toHaveLength(1);
     const delegation = result[0];
-    expect(delegation.skill).toBe('delegation');
-    expect(delegation.judgeTPR).toBe(0.90);
-    expect(delegation.judgeTNR).toBe(0.85);
-    expect(delegation.judgeCalibrated).toBe(true);
-    expect(delegation.signalConfidence).toBe('high');
+    expect(delegation!.skill).toBe('delegation');
+    expect(delegation!.judgeTPR).toBe(0.90);
+    expect(delegation!.judgeTNR).toBe(0.85);
+    expect(delegation!.judgeCalibrated).toBe(true);
+    expect(delegation!.signalConfidence).toBe('high');
     // Preserves base correlation fields
-    expect(delegation.gatePassRate).toBe(0.9);
-    expect(delegation.evalScore).toBe(0.85);
+    expect(delegation!.gatePassRate).toBe(0.9);
+    expect(delegation!.evalScore).toBe(0.85);
   });
 
   it('CorrelateWithCalibration_UncalibratedJudge_ReturnsLowConfidence', () => {
@@ -229,10 +229,10 @@ describe('correlateWithCalibration', () => {
     // Assert
     expect(result).toHaveLength(1);
     const delegation = result[0];
-    expect(delegation.judgeCalibrated).toBe(false);
-    expect(delegation.judgeTPR).toBe(0);
-    expect(delegation.judgeTNR).toBe(0);
-    expect(delegation.signalConfidence).toBe('low');
+    expect(delegation!.judgeCalibrated).toBe(false);
+    expect(delegation!.judgeTPR).toBe(0);
+    expect(delegation!.judgeTNR).toBe(0);
+    expect(delegation!.signalConfidence).toBe('low');
   });
 
   it('CorrelateWithCalibration_CalibratedButLowData_ReturnsMediumConfidence', () => {
@@ -260,8 +260,8 @@ describe('correlateWithCalibration', () => {
     // Assert
     expect(result).toHaveLength(1);
     const delegation = result[0];
-    expect(delegation.judgeCalibrated).toBe(true);
-    expect(delegation.signalConfidence).toBe('medium');
+    expect(delegation!.judgeCalibrated).toBe(true);
+    expect(delegation!.signalConfidence).toBe('medium');
   });
 
   it('CorrelateWithCalibration_BelowThresholdTPR_ReturnsLowConfidence', () => {
@@ -288,7 +288,7 @@ describe('correlateWithCalibration', () => {
 
     // Assert
     expect(result).toHaveLength(1);
-    expect(result[0].signalConfidence).toBe('low');
+    expect(result[0]!.signalConfidence).toBe('low');
   });
 
   it('CorrelateWithCalibration_NoEvalResults_SkillExcluded', () => {
@@ -373,9 +373,9 @@ describe('correlateWithCalibration', () => {
 
     // Assert
     expect(result).toHaveLength(1);
-    expect(result[0].judgeTPR).toBe(0.92);
-    expect(result[0].judgeTNR).toBe(0.88);
-    expect(result[0].signalConfidence).toBe('high');
+    expect(result[0]!.judgeTPR).toBe(0.92);
+    expect(result[0]!.judgeTNR).toBe(0.88);
+    expect(result[0]!.signalConfidence).toBe('high');
   });
 
   it('CorrelateWithCalibration_PreservesBaseCorrelationFields', () => {
@@ -403,12 +403,12 @@ describe('correlateWithCalibration', () => {
     // Assert
     expect(result).toHaveLength(1);
     const corr = result[0];
-    expect(corr.skill).toBe('delegation');
-    expect(corr.gatePassRate).toBe(0.75);
-    expect(corr.evalScore).toBe(0.82);
-    expect(corr.evalTrend).toBe('improving');
-    expect(corr.regressionCount).toBe(0);
+    expect(corr!.skill).toBe('delegation');
+    expect(corr!.gatePassRate).toBe(0.75);
+    expect(corr!.evalScore).toBe(0.82);
+    expect(corr!.evalTrend).toBe('improving');
+    expect(corr!.regressionCount).toBe(0);
     // qualityTrend derives from gatePassRate via existing logic
-    expect(corr.qualityTrend).toBe('stable');
+    expect(corr!.qualityTrend).toBe('stable');
   });
 });

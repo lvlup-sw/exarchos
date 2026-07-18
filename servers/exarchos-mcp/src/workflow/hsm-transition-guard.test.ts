@@ -212,7 +212,7 @@ describe('HSMTransitionGuard phase.entered freeze (DR-13)', () => {
     expect(toReview).toHaveLength(1);
 
     // It carries the frozen REVIEW obligation and validates against the schema.
-    const data = toReview[0].data as Record<string, unknown>;
+    const data = toReview[0]!.data as Record<string, unknown>;
     expect(data.kind).toBe('REVIEW');
     expect(data.resolver).toBe('review-contract');
     expect(data.policySource).toBe('builtin');
@@ -278,7 +278,7 @@ describe('HSMTransitionGuard phase.blocked fail-closed (DR-7)', () => {
     // ...with a schema-valid PhaseBlockedData payload (would THROW at the
     // emission boundary pre-fix, since buildHsmEventData had no phase.blocked
     // case and the default shape is missing `phase`/`error`).
-    const data = blocked[0].data as Record<string, unknown>;
+    const data = blocked[0]!.data as Record<string, unknown>;
     expect(EVENT_DATA_SCHEMAS['phase.blocked']?.safeParse(data).success).toBe(true);
     expect(data.kind).toBe('REVIEW');
     expect(data.phase).toBe('review');

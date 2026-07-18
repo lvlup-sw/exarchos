@@ -125,7 +125,7 @@ describe('exarchos_workflow.update — canonical state-mutation action (Wave 0)'
     const events = await eventStore.query(featureId);
     const patched = events.filter((e) => e.type === 'state.patched');
     expect(patched.length).toBeGreaterThanOrEqual(1);
-    const patch = (patched[patched.length - 1].data as Record<string, unknown>).patch as
+    const patch = (patched[patched.length - 1]!.data as Record<string, unknown>).patch as
       | Record<string, unknown>
       | undefined;
     const patchedArtifacts = patch?.artifacts as Record<string, unknown> | undefined;

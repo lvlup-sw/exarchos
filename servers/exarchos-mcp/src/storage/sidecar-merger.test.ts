@@ -38,8 +38,8 @@ describe('mergeSidecarEvents', () => {
     expect(result.merged).toBe(1);
     const events = await eventStore.query('my-feature');
     expect(events).toHaveLength(1);
-    expect(events[0].type).toBe('team.task.completed');
-    expect(events[0].idempotencyKey).toBe('my-feature:team.task.completed:task-001');
+    expect(events[0]!.type).toBe('team.task.completed');
+    expect(events[0]!.idempotencyKey).toBe('my-feature:team.task.completed:task-001');
   });
 
   it('mergeSidecarEvents_WithIdempotencyKey_DeduplicatesOnRetry', async () => {
@@ -127,7 +127,7 @@ describe('mergeSidecarEvents', () => {
 
     const events = await eventStore.query('corrupt-stream');
     expect(events).toHaveLength(1);
-    expect(events[0].type).toBe('team.task.completed');
+    expect(events[0]!.type).toBe('team.task.completed');
   });
 
   it('mergeSidecarEvents_NoSidecarFiles_ReturnsZero', async () => {

@@ -73,7 +73,7 @@ describe('Outbox', () => {
 
       const entries = await outbox.loadEntries('test-stream');
       expect(entries).toHaveLength(1);
-      expect(entries[0].event).toEqual(event);
+      expect(entries[0]!.event).toEqual(event);
     });
 
     it('should return empty array when file does not exist', async () => {
@@ -108,9 +108,9 @@ describe('Outbox', () => {
       });
 
       const entries = await outbox.loadEntries('test-stream');
-      expect(entries[0].status).toBe('sent');
-      expect(entries[0].attempts).toBe(1);
-      expect(entries[0].lastAttemptAt).toBe('2026-02-08T01:00:00Z');
+      expect(entries[0]!.status).toBe('sent');
+      expect(entries[0]!.attempts).toBe(1);
+      expect(entries[0]!.lastAttemptAt).toBe('2026-02-08T01:00:00Z');
     });
 
     it('should not affect other entries', async () => {
@@ -145,7 +145,7 @@ describe('Outbox', () => {
 
       const entries = await outbox.loadEntries('test-stream');
       expect(entries).toHaveLength(1);
-      expect(entries[0].event.sequence).toBe(2);
+      expect(entries[0]!.event.sequence).toBe(2);
     });
   });
 
@@ -172,7 +172,7 @@ describe('Outbox', () => {
       expect(client.appendEvents).toHaveBeenCalledOnce();
 
       const entries = await outbox.loadEntries('test-stream');
-      expect(entries[0].status).toBe('confirmed');
+      expect(entries[0]!.status).toBe('confirmed');
     });
 
     it('should increment attempts on failure and calculate backoff', async () => {
@@ -187,9 +187,9 @@ describe('Outbox', () => {
       expect(result.failed).toBe(1);
 
       const entries = await outbox.loadEntries('test-stream');
-      expect(entries[0].attempts).toBe(1);
-      expect(entries[0].nextRetryAt).toBeTruthy();
-      expect(entries[0].error).toBe('network error');
+      expect(entries[0]!.attempts).toBe(1);
+      expect(entries[0]!.nextRetryAt).toBeTruthy();
+      expect(entries[0]!.error).toBe('network error');
     });
 
     it('should dead-letter after 10 attempts', async () => {
@@ -204,7 +204,7 @@ describe('Outbox', () => {
       await outbox.drain(client, 'test-stream');
 
       const entries = await outbox.loadEntries('test-stream');
-      expect(entries[0].status).toBe('dead-letter');
+      expect(entries[0]!.status).toBe('dead-letter');
     });
 
     it('should return noop when no pending entries', async () => {
@@ -292,7 +292,7 @@ describe('Outbox', () => {
 
       const entries = await outbox.loadEntries('test-stream');
       expect(entries).toHaveLength(1);
-      expect(entries[0].status).toBe('dead-letter');
+      expect(entries[0]!.status).toBe('dead-letter');
     });
 
     it('should preserve recent confirmed entries', async () => {
@@ -395,11 +395,11 @@ describe('Outbox', () => {
       // Assert
       const entries = await outbox.loadEntries('test-stream');
       const recovered = entries[0];
-      expect(recovered.status).toBe('pending');
-      expect(recovered.attempts).toBe(0);
-      expect(recovered.error).toBeUndefined();
-      expect(recovered.nextRetryAt).toBeUndefined();
-      expect(recovered.lastAttemptAt).toBeUndefined();
+      expect(recovered!.status).toBe('pending');
+      expect(recovered!.attempts).toBe(0);
+      expect(recovered!.error).toBeUndefined();
+      expect(recovered!.nextRetryAt).toBeUndefined();
+      expect(recovered!.lastAttemptAt).toBeUndefined();
     });
 
     it('should replay all dead-letter entries and return the count', async () => {

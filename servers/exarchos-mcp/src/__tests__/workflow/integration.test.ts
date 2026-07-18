@@ -628,7 +628,7 @@ describe('Integration', () => {
 
       // Verify all sequence numbers are monotonically increasing
       for (let i = 1; i < events.length; i++) {
-        expect(events[i].sequence).toBeGreaterThan(events[i - 1].sequence);
+        expect(events[i]!.sequence).toBeGreaterThan(events[i - 1]!.sequence);
       }
     });
   });
@@ -707,8 +707,8 @@ describe('Integration', () => {
 
       const tasks = state.tasks as Array<Record<string, unknown>>;
       expect(tasks).toHaveLength(2);
-      expect(tasks[0].status).toBe('complete');
-      expect(tasks[1].status).toBe('in_progress');
+      expect(tasks[0]!.status).toBe('complete');
+      expect(tasks[1]!.status).toBe('in_progress');
     });
   });
 
@@ -944,8 +944,8 @@ describe('Integration', () => {
       const transitions = events.filter((e) => e.type === 'workflow.transition');
 
       expect(transitions.length).toBe(1);
-      expect(transitions[0].idempotencyKey).toBeDefined();
-      expect(transitions[0].idempotencyKey).toContain('idem-verify');
+      expect(transitions[0]!.idempotencyKey).toBeDefined();
+      expect(transitions[0]!.idempotencyKey).toContain('idem-verify');
     });
   });
 });

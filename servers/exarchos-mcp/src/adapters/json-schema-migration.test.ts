@@ -54,7 +54,7 @@ describe('EmittedSchemas_Use2020_12ForAllCallSites_PerFile', () => {
     expect(result.success).toBe(true);
 
     const data = result.data as Record<string, Record<string, unknown>>;
-    const schema = data.init.schema as Record<string, unknown>;
+    const schema = data.init!.schema as Record<string, unknown>;
     expect(schema).toBeDefined();
     expect(schema.$schema).toBe(JSON_SCHEMA_2020_12_URI);
   });

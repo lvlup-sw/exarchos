@@ -166,8 +166,8 @@ describe.each([
     const results = b.queryEvents('stream-a', { sinceSequence: 1 });
 
     expect(results).toHaveLength(2);
-    expect(results[0].sequence).toBe(2);
-    expect(results[1].sequence).toBe(3);
+    expect(results[0]!.sequence).toBe(2);
+    expect(results[1]!.sequence).toBe(3);
   });
 
   it('queryEvents_LimitAndOffset_PaginatesCorrectly', () => {
@@ -182,8 +182,8 @@ describe.each([
     const results = b.queryEvents('stream-a', { limit: 2, offset: 1 });
 
     expect(results).toHaveLength(2);
-    expect(results[0].sequence).toBe(2);
-    expect(results[1].sequence).toBe(3);
+    expect(results[0]!.sequence).toBe(2);
+    expect(results[1]!.sequence).toBe(3);
   });
 
   // ─── Wave 4 (#1437) — Correlation-tuple filter contract parity ───────────
@@ -311,7 +311,7 @@ describe.each([
 
     const byCause = b.queryEventsByType('workflow.started', 'parent', { causationId: 'cause-Y' });
     expect(byCause).toHaveLength(1);
-    expect(byCause[0].causationId).toBe('cause-Y');
+    expect(byCause[0]!.causationId).toBe('cause-Y');
 
     const byNone = b.queryEventsByType('workflow.started', 'parent', { correlationId: 'nope' });
     expect(byNone).toEqual([]);
@@ -526,7 +526,7 @@ describe.each([
 
     const remaining = b.queryEvents('stream-a');
     expect(remaining).toHaveLength(1);
-    expect(remaining[0].sequence).toBe(3);
+    expect(remaining[0]!.sequence).toBe(3);
   });
 
   // ─── View Cache Operations ─────────────────────────────────────────────

@@ -188,20 +188,20 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     expect(events).toHaveLength(2);
 
     // Verify first event fields are reconstructed correctly
-    expect(events[0].streamId).toBe('stream-1');
-    expect(events[0].sequence).toBe(1);
-    expect(events[0].type).toBe('workflow.started');
-    expect(events[0].timestamp).toBe('2024-01-01T00:00:00.000Z');
-    expect(events[0].data).toEqual({
+    expect(events[0]!.streamId).toBe('stream-1');
+    expect(events[0]!.sequence).toBe(1);
+    expect(events[0]!.type).toBe('workflow.started');
+    expect(events[0]!.timestamp).toBe('2024-01-01T00:00:00.000Z');
+    expect(events[0]!.data).toEqual({
       featureId: 'my-feature',
       workflowType: 'feature',
     });
 
     // Verify second event
-    expect(events[1].streamId).toBe('stream-1');
-    expect(events[1].sequence).toBe(2);
-    expect(events[1].type).toBe('task.assigned');
-    expect(events[1].data).toEqual({
+    expect(events[1]!.streamId).toBe('stream-1');
+    expect(events[1]!.sequence).toBe(2);
+    expect(events[1]!.type).toBe('task.assigned');
+    expect(events[1]!.data).toEqual({
       taskId: 'task-1',
       title: 'Implement feature',
     });
@@ -240,22 +240,22 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     expect(events).toHaveLength(2);
 
     // V1 event (reconstructed from fields)
-    expect(events[0].streamId).toBe('stream-mixed');
-    expect(events[0].sequence).toBe(1);
-    expect(events[0].type).toBe('workflow.started');
-    expect(events[0].data).toEqual({
+    expect(events[0]!.streamId).toBe('stream-mixed');
+    expect(events[0]!.sequence).toBe(1);
+    expect(events[0]!.type).toBe('workflow.started');
+    expect(events[0]!.data).toEqual({
       featureId: 'mixed-feature',
       workflowType: 'feature',
     });
 
     // V2 event (deserialized from payload — preserves all fields)
-    expect(events[1].streamId).toBe('stream-mixed');
-    expect(events[1].sequence).toBe(2);
-    expect(events[1].type).toBe('task.assigned');
-    expect(events[1].correlationId).toBe('corr-v2');
-    expect(events[1].agentId).toBe('agent-v2');
-    expect(events[1].source).toBe('mcp-tool');
-    expect(events[1].data).toEqual({ taskId: 'task-2', title: 'V2 task' });
+    expect(events[1]!.streamId).toBe('stream-mixed');
+    expect(events[1]!.sequence).toBe(2);
+    expect(events[1]!.type).toBe('task.assigned');
+    expect(events[1]!.correlationId).toBe('corr-v2');
+    expect(events[1]!.agentId).toBe('agent-v2');
+    expect(events[1]!.source).toBe('mcp-tool');
+    expect(events[1]!.data).toEqual({ taskId: 'task-2', title: 'V2 task' });
   });
 
   it('migrateSchema_CalledTwice_IsIdempotent', () => {
@@ -287,8 +287,8 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     // All data should still be intact
     const events = backend2.queryEvents('stream-idem');
     expect(events).toHaveLength(2);
-    expect(events[0].sequence).toBe(1);
-    expect(events[1].sequence).toBe(2);
+    expect(events[0]!.sequence).toBe(1);
+    expect(events[1]!.sequence).toBe(2);
 
     // Verify the payload column still exists (only one)
     const db = (backend2 as unknown as { db: Database }).db;
@@ -709,9 +709,9 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     const seqByStream = new Map<string, number>(STREAMS.map((s) => [s, 0]));
     for (let i = 0; i < TOTAL_EVENTS; i++) {
       const streamId = STREAMS[i % STREAMS.length];
-      const seq = (seqByStream.get(streamId) ?? 0) + 1;
-      seqByStream.set(streamId, seq);
-      insertV5Event(rawDb, streamId, seq, 'task.assigned', '2024-01-01T00:00:00.000Z', {
+      const seq = (seqByStream.get(streamId!) ?? 0) + 1;
+      seqByStream.set(streamId!, seq);
+      insertV5Event(rawDb, streamId!, seq, 'task.assigned', '2024-01-01T00:00:00.000Z', {
         streamId,
         sequence: seq,
         type: 'task.assigned',
@@ -835,7 +835,7 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
       .prepare('SELECT version FROM schema_version ORDER BY version DESC')
       .all() as Array<{ version: number }>;
     expect(versionRows.length).toBeGreaterThanOrEqual(1);
-    expect(versionRows[0].version).toBe(6);
+    expect(versionRows[0]!.version).toBe(6);
   });
 
   it('SchemaMigration_V2ToV3_AppliesIdempotently', () => {

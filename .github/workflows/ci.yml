@@ -170,6 +170,13 @@ jobs:
 
       - run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
       - run: npx tsc --noEmit
+      # #1684 (task 024): typecheck test files via tsconfig.test.json.
+      # Measured remainder at wiring time: 332 errors (down from 2,797).
+      # Advisory (continue-on-error) until the burn-down completes; flip
+      # to blocking by deleting continue-on-error once typecheck:test is 0.
+      - name: typecheck:test (MCP server)
+        run: npm run typecheck:test
+        continue-on-error: true
       - run: npm run test:run
 
       # cli:vocab-guard (#1317) — mechanical gate against CLI vocabulary drift

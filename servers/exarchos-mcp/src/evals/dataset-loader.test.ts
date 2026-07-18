@@ -53,8 +53,8 @@ describe('loadDataset', () => {
 
     // Assert
     expect(result).toHaveLength(2);
-    expect(result[0].id).toBe('c-1');
-    expect(result[1].id).toBe('c-2');
+    expect(result[0]!.id).toBe('c-1');
+    expect(result[1]!.id).toBe('c-2');
   });
 
   it('LoadDataset_InvalidJson_ThrowsWithLineNumber', async () => {
@@ -138,8 +138,8 @@ describe('loadDataset', () => {
 
     // Assert
     expect(result).toHaveLength(2);
-    expect(result[0].id).toBe('c-1');
-    expect(result[1].id).toBe('c-2');
+    expect(result[0]!.id).toBe('c-1');
+    expect(result[1]!.id).toBe('c-2');
   });
 
   it('LoadDataset_MultipleValidCases_ReturnsAll', async () => {
@@ -155,7 +155,7 @@ describe('loadDataset', () => {
     // Assert
     expect(result).toHaveLength(10);
     for (let i = 0; i < 10; i++) {
-      expect(result[i].id).toBe(`c-${i + 1}`);
+      expect(result[i]!.id).toBe(`c-${i + 1}`);
     }
   });
 });
@@ -236,12 +236,12 @@ describe('loadDataset Property Tests', () => {
 
         expect(loaded).toHaveLength(cases.length);
         for (let i = 0; i < cases.length; i++) {
-          expect(loaded[i].id).toBe(cases[i].id);
-          expect(loaded[i].type).toBe(cases[i].type);
-          expect(loaded[i].description).toBe(cases[i].description);
-          expect(loaded[i].input).toEqual(cases[i].input);
-          expect(loaded[i].expected).toEqual(cases[i].expected);
-          expect(loaded[i].tags).toEqual(cases[i].tags);
+          expect(loaded[i]!.id).toBe(cases[i]!.id);
+          expect(loaded[i]!.type).toBe(cases[i]!.type);
+          expect(loaded[i]!.description).toBe(cases[i]!.description);
+          expect(loaded[i]!.input).toEqual(cases[i]!.input);
+          expect(loaded[i]!.expected).toEqual(cases[i]!.expected);
+          expect(loaded[i]!.tags).toEqual(cases[i]!.tags);
         }
       }),
       { numRuns: 20 }

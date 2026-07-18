@@ -38,8 +38,8 @@ describe('buildConfigDescription', () => {
     });
     const result = buildConfigDescription(config);
 
-    expect(result.review.gates['tdd-compliance'].blocking.value).toBe(true);
-    expect(result.review.gates['tdd-compliance'].blocking.source).toBe('.exarchos.yml');
+    expect(result.review.gates['tdd-compliance']!.blocking.value).toBe(true);
+    expect(result.review.gates['tdd-compliance']!.blocking.source).toBe('.exarchos.yml');
   });
 
   it('DescribeConfig_VcsOverride_ShowsSource', () => {

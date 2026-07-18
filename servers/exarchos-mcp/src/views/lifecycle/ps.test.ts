@@ -289,8 +289,8 @@ describe('ps scope:"worktree" — WLM-6 capabilities preserved (consumed, not du
       operations?: unknown;
     };
     expect(data.count).toBe(1);
-    expect(data.inFlight[0].integrationRef).toBe('main');
-    expect(data.inFlight[0].sourceBranch).toBe('feat/x');
+    expect(data.inFlight[0]!.integrationRef).toBe('main');
+    expect(data.inFlight[0]!.sourceBranch).toBe('feat/x');
     expect(data.launchCount).toBe(0);
     expect(data.pruneCount).toBe(0);
     // It is the worktree fold, not the composed one.

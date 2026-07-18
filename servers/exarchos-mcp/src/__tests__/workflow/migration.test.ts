@@ -80,9 +80,9 @@ describe('Migration', () => {
       const result = migrateState(v1_0) as Record<string, unknown>;
       const tasks = result.tasks as Array<Record<string, unknown>>;
 
-      expect(tasks[0].assignee).toBe('subagent');
-      expect(tasks[1].assignee).toBe('subagent');
-      expect(tasks[2].assignee).toBe('manual');
+      expect(tasks[0]!.assignee).toBe('subagent');
+      expect(tasks[1]!.assignee).toBe('subagent');
+      expect(tasks[2]!.assignee).toBe('manual');
     });
   });
 

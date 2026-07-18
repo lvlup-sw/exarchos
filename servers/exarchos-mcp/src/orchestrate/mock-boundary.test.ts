@@ -41,11 +41,11 @@ describe('detectMockFindings', () => {
 
       expect(findings).toHaveLength(1);
       const f = findings[0];
-      expect(f.file).toBe('servers/exarchos-mcp/src/orchestrate/foo.test.ts');
-      expect(f.mockedTarget).toBe('axios');
-      expect(f.unowned).toBe(true);
-      expect(f.identifier).toBe('mock');
-      expect(f.line).toBe(12);
+      expect(f!.file).toBe('servers/exarchos-mcp/src/orchestrate/foo.test.ts');
+      expect(f!.mockedTarget).toBe('axios');
+      expect(f!.unowned).toBe(true);
+      expect(f!.identifier).toBe('mock');
+      expect(f!.line).toBe(12);
     });
 
     it('flags jest.mock of an npm package the same way', () => {
@@ -56,8 +56,8 @@ describe('detectMockFindings', () => {
       const findings = detectMockFindings(diff, { firstPartyGlobs: FIRST_PARTY });
 
       expect(findings).toHaveLength(1);
-      expect(findings[0].mockedTarget).toBe('lodash');
-      expect(findings[0].unowned).toBe(true);
+      expect(findings[0]!.mockedTarget).toBe('lodash');
+      expect(findings[0]!.unowned).toBe(true);
     });
   });
 
@@ -142,8 +142,8 @@ describe('detectMockFindings', () => {
       const findings = detectMockFindings(diff, { firstPartyGlobs: FIRST_PARTY });
 
       expect(findings).toHaveLength(1);
-      expect(findings[0].identifier).toBe('stub');
-      expect(findings[0].mockedTarget).toBe('axios');
+      expect(findings[0]!.identifier).toBe('stub');
+      expect(findings[0]!.mockedTarget).toBe('axios');
     });
   });
 
@@ -169,7 +169,7 @@ describe('detectMockFindings', () => {
       const findings = detectMockFindings(diff, { firstPartyGlobs: FIRST_PARTY });
 
       expect(findings).toHaveLength(1);
-      expect(findings[0].file).toBe('src/orchestrate/foo.test.ts');
+      expect(findings[0]!.file).toBe('src/orchestrate/foo.test.ts');
     });
   });
 
@@ -184,8 +184,8 @@ describe('detectMockFindings', () => {
       ];
       const outsideFindings = detectMockFindings(outside, { firstPartyGlobs: FIRST_PARTY });
       expect(outsideFindings).toHaveLength(1);
-      expect(outsideFindings[0].mockedTarget).toBe('scripts/tools/bar.js');
-      expect(outsideFindings[0].unowned).toBe(true);
+      expect(outsideFindings[0]!.mockedTarget).toBe('scripts/tools/bar.js');
+      expect(outsideFindings[0]!.unowned).toBe(true);
 
       // From a test INSIDE the first-party tree, a relative mock of a sibling
       // resolves under src/** → owned, filtered out.
@@ -216,7 +216,7 @@ describe('detectMockFindings', () => {
         firstPartyGlobs: [...FIRST_PARTY, '@scope/**'],
       });
       expect(withWorkspace).toHaveLength(1);
-      expect(withWorkspace[0].mockedTarget).toBe('axios');
+      expect(withWorkspace[0]!.mockedTarget).toBe('axios');
     });
   });
 

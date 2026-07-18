@@ -382,7 +382,7 @@ describe('generateAgents', () => {
         );
         const expected = fs.readFileSync(fixturePath, 'utf-8');
         const spec = SPEC_BY_ID[specId];
-        const actual = claudeAdapter.lowerSpec(spec).contents;
+        const actual = claudeAdapter.lowerSpec(spec!).contents;
         expect(actual).toBe(expected);
       },
     );
@@ -442,7 +442,7 @@ describe('generateAgents', () => {
     // The capability strings themselves should not surface as tool
     // entries (the runtime body may still mention them in the system
     // prompt, but the structured tool map must not include them).
-    const toolsMatch = frontmatter.match(/tools:\s*\n([\s\S]*?)(?:\n[a-zA-Z]|$)/);
+    const toolsMatch = frontmatter!.match(/tools:\s*\n([\s\S]*?)(?:\n[a-zA-Z]|$)/);
     const toolsBlock = toolsMatch ? toolsMatch[1] : '';
     expect(toolsBlock).not.toContain('isolation:worktree');
     expect(toolsBlock).not.toContain('session:resume');

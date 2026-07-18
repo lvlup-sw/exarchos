@@ -30,6 +30,15 @@ const STATE_DIR = '/tmp/test-check-convergence';
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
+/** The convergence payload shape the assertions poke (data is untyped on ToolResult). */
+type ConvergenceData = {
+  passed: boolean;
+  overallConverged: boolean;
+  uncheckedDimensions: string[];
+  dimensions: Record<string, unknown>;
+};
+const dataOf = (r: { data?: unknown }): ConvergenceData => r.data as ConvergenceData;
+
 describe('handleCheckConvergence', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -97,7 +106,7 @@ describe('handleCheckConvergence', () => {
       passed: false,
       overallConverged: false,
     });
-    expect(result.data.uncheckedDimensions).toEqual(['D3', 'D4', 'D5']);
+    expect(dataOf(result).uncheckedDimensions).toEqual(['D3', 'D4', 'D5']);
   });
 
   it('CheckConvergence_EmptyView_ReturnsNotPassed', async () => {
@@ -119,7 +128,7 @@ describe('handleCheckConvergence', () => {
       passed: false,
       overallConverged: false,
     });
-    expect(result.data.uncheckedDimensions).toEqual(['D1', 'D2', 'D3', 'D4', 'D5']);
+    expect(dataOf(result).uncheckedDimensions).toEqual(['D1', 'D2', 'D3', 'D4', 'D5']);
   });
 
   it('CheckConvergence_EmitsGateEvent_FireAndForget', async () => {
@@ -161,7 +170,7 @@ describe('handleCheckConvergence', () => {
     // Verify gate event includes phase: 'meta'
     expect(mockStore.append).toHaveBeenCalled();
     const appendCall = mockStore.append.mock.calls[0];
-    const event = appendCall[1] as {
+    const event = appendCall![1] as {
       type: string;
       data: { details: Record<string, unknown> };
     };
@@ -187,7 +196,7 @@ describe('handleCheckConvergence', () => {
 
     // Handler should still succeed despite emission failure
     expect(result.success).toBe(true);
-    expect(result.data.passed).toBe(false);
+    expect(dataOf(result).passed).toBe(false);
   });
 
   it('CheckConvergence_UsesWorkflowIdAsStreamId', async () => {
@@ -261,27 +270,27 @@ describe('handleCheckConvergence', () => {
 
     expect(result.success).toBe(true);
     // D1 should have 1 gate (plan-coverage with phase: 'review'), converged
-    expect(result.data.dimensions.D1).toEqual({
+    expect(dataOf(result).dimensions.D1).toEqual({
       converged: true,
       gateCount: 1,
       lastChecked: '2026-01-02',
     });
     // D2 should have 1 gate (lint with phase: 'review'), converged (the failing one was delegate)
-    expect(result.data.dimensions.D2).toEqual({
+    expect(dataOf(result).dimensions.D2).toEqual({
       converged: true,
       gateCount: 1,
       lastChecked: '2026-01-02',
     });
     // D3 should have 0 gates (only ideate), so it should be unchecked
-    expect(result.data.dimensions.D3).toEqual({
+    expect(dataOf(result).dimensions.D3).toEqual({
       converged: false,
       gateCount: 0,
       lastChecked: '2026-01-01',
     });
     // D3 should appear in uncheckedDimensions (no review-phase gates)
-    expect(result.data.uncheckedDimensions).toContain('D3');
+    expect(dataOf(result).uncheckedDimensions).toContain('D3');
     // Overall: D4, D5 unchecked + D3 has no review gates = not converged
-    expect(result.data.overallConverged).toBe(false);
+    expect(dataOf(result).overallConverged).toBe(false);
   });
 
   it('CheckConvergence_WithoutPhaseFilter_ReturnsAllResults', async () => {
@@ -321,17 +330,17 @@ describe('handleCheckConvergence', () => {
 
     expect(result.success).toBe(true);
     // Without phase filter, all gate results should be included
-    expect(result.data.dimensions.D1).toEqual({
+    expect(dataOf(result).dimensions.D1).toEqual({
       converged: true,
       gateCount: 2,
       lastChecked: '2026-01-02',
     });
-    expect(result.data.dimensions.D2).toEqual({
+    expect(dataOf(result).dimensions.D2).toEqual({
       converged: false,
       gateCount: 2,
       lastChecked: '2026-01-02',
     });
-    expect(result.data.uncheckedDimensions).toEqual(['D3', 'D4', 'D5']);
+    expect(dataOf(result).uncheckedDimensions).toEqual(['D3', 'D4', 'D5']);
   });
 
   it('CheckConvergence_DimensionSummary_IncludesGateCounts', async () => {
@@ -366,12 +375,12 @@ describe('handleCheckConvergence', () => {
       mockStore as unknown as EventStore,
     );
 
-    expect(result.data.dimensions.D1).toEqual({
+    expect(dataOf(result).dimensions.D1).toEqual({
       converged: true,
       gateCount: 2,
       lastChecked: '2026-01-02',
     });
-    expect(result.data.dimensions.D2).toEqual({
+    expect(dataOf(result).dimensions.D2).toEqual({
       converged: false,
       gateCount: 1,
       lastChecked: '2026-01-01',

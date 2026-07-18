@@ -24,8 +24,8 @@ describe('generateHints', () => {
       const state = makeState({ view_tasks: { p95Bytes: 1500 } });
       const hints = generateHints(state);
       expect(hints).toHaveLength(1);
-      expect(hints[0].tool).toBe('view_tasks');
-      expect(hints[0].hint).toContain('fields');
+      expect(hints[0]!.tool).toBe('view_tasks');
+      expect(hints[0]!.hint).toContain('fields');
     });
 
     it('should not hint when p95Bytes < 800', () => {
@@ -40,8 +40,8 @@ describe('generateHints', () => {
       const state = makeState({ workflow_get: { p95Bytes: 800 } });
       const hints = generateHints(state);
       expect(hints).toHaveLength(1);
-      expect(hints[0].tool).toBe('workflow_get');
-      expect(hints[0].hint).toContain('query');
+      expect(hints[0]!.tool).toBe('workflow_get');
+      expect(hints[0]!.hint).toContain('query');
     });
 
     it('should not hint when p95Bytes < 400', () => {
@@ -56,8 +56,8 @@ describe('generateHints', () => {
       const state = makeState({ event_query: { p95Bytes: 2500 } });
       const hints = generateHints(state);
       expect(hints).toHaveLength(1);
-      expect(hints[0].tool).toBe('event_query');
-      expect(hints[0].hint).toContain('limit');
+      expect(hints[0]!.tool).toBe('event_query');
+      expect(hints[0]!.hint).toContain('limit');
     });
 
     it('should not hint when p95Bytes < 800', () => {
@@ -72,8 +72,8 @@ describe('generateHints', () => {
       const state = makeState({ workflow_set: { p95DurationMs: 250 } });
       const hints = generateHints(state);
       expect(hints).toHaveLength(1);
-      expect(hints[0].tool).toBe('workflow_set');
-      expect(hints[0].hint).toContain('Batch multiple field updates into a single `set` call');
+      expect(hints[0]!.tool).toBe('workflow_set');
+      expect(hints[0]!.hint).toContain('Batch multiple field updates into a single `set` call');
     });
 
     it('should not hint when p95DurationMs <= 200', () => {
@@ -106,9 +106,9 @@ describe('generateHints', () => {
       const state = makeState({ some_tool: { invocations: 10, errors: 3 } });
       const hints = generateHints(state);
       expect(hints).toHaveLength(1);
-      expect(hints[0].tool).toBe('some_tool');
-      expect(hints[0].hint).toContain('Tool `some_tool` is failing frequently');
-      expect(hints[0].hint).toContain('check parameters');
+      expect(hints[0]!.tool).toBe('some_tool');
+      expect(hints[0]!.hint).toContain('Tool `some_tool` is failing frequently');
+      expect(hints[0]!.hint).toContain('check parameters');
     });
 
     it('should not hint when error rate is 10%', () => {
@@ -129,8 +129,8 @@ describe('generateHints', () => {
       const state = makeState({ team_status: { invocations: 15 } });
       const hints = generateHints(state);
       expect(hints).toHaveLength(1);
-      expect(hints[0].tool).toBe('team_status');
-      expect(hints[0].hint).toContain('Use `summary: true` for counts-only during orchestration');
+      expect(hints[0]!.tool).toBe('team_status');
+      expect(hints[0]!.hint).toContain('Use `summary: true` for counts-only during orchestration');
     });
 
     it('should not hint when invocations <= 10', () => {

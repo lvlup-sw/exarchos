@@ -43,13 +43,13 @@ describe('handleTaskClaim', () => {
 
     const events = await store.query('wf-001', { type: 'task.claimed' });
     expect(events).toHaveLength(1);
-    expect(events[0].data).toEqual(
+    expect(events[0]!.data).toEqual(
       expect.objectContaining({
         taskId: 't1',
         agentId: 'agent-1',
       }),
     );
-    expect((events[0].data as Record<string, unknown>).claimedAt).toBeDefined();
+    expect((events[0]!.data as Record<string, unknown>).claimedAt).toBeDefined();
   });
 
   it('missing taskId returns error', async () => {
@@ -103,6 +103,7 @@ describe('handleTaskClaim', () => {
     const result = await handleTaskClaim(
       { taskId: 't1', agentId: 'agent-1', streamId: 'wf-001' },
       '/nonexistent/path/claim-test',
+      undefined as unknown as EventStore, // absent store: the tested append failure
     );
 
     expect(result.success).toBe(false);
@@ -190,7 +191,7 @@ describe('handleTaskComplete', () => {
 
     const events = await store.query('wf-001', { type: 'task.completed' });
     expect(events).toHaveLength(1);
-    expect(events[0].data).toEqual(
+    expect(events[0]!.data).toEqual(
       expect.objectContaining({
         taskId: 't1',
         artifacts: ['login.ts', 'login.test.ts'],
@@ -220,7 +221,7 @@ describe('handleTaskComplete', () => {
 
     const events = await store.query('wf-001', { type: 'task.completed' });
     expect(events).toHaveLength(1);
-    expect(events[0].data).toEqual(
+    expect(events[0]!.data).toEqual(
       expect.objectContaining({ taskId: 't1' }),
     );
   });
@@ -274,13 +275,13 @@ describe('handleTaskComplete', () => {
 
     const events = await store.query('wf-002', { type: 'task.completed' });
     expect(events).toHaveLength(1);
-    expect(events[0].data).toEqual(
+    expect(events[0]!.data).toEqual(
       expect.objectContaining({
         taskId: 't1',
         artifacts: ['auth.ts', 'auth.test.ts'],
       }),
     );
-    expect((events[0].data as Record<string, unknown>).duration).toBeUndefined();
+    expect((events[0]!.data as Record<string, unknown>).duration).toBeUndefined();
   });
 
   it('success returns EventAck with only streamId, sequence, type keys', async () => {
@@ -336,7 +337,7 @@ describe('handleTaskComplete manual evidence bypass', () => {
 
     const events = await store.query('wf-manual', { type: 'task.completed' });
     expect(events).toHaveLength(1);
-    expect(events[0].data).toEqual(
+    expect(events[0]!.data).toEqual(
       expect.objectContaining({ taskId: 't-manual' }),
     );
   });
@@ -410,7 +411,7 @@ describe('handleTaskFail', () => {
 
     const events = await store.query('wf-001', { type: 'task.failed' });
     expect(events).toHaveLength(1);
-    expect(events[0].data).toEqual(
+    expect(events[0]!.data).toEqual(
       expect.objectContaining({
         taskId: 't1',
         error: 'Compilation error',
@@ -430,7 +431,7 @@ describe('handleTaskFail', () => {
 
     const events = await store.query('wf-001', { type: 'task.failed' });
     expect(events).toHaveLength(1);
-    expect(events[0].data).toEqual(
+    expect(events[0]!.data).toEqual(
       expect.objectContaining({
         taskId: 't1',
         error: 'Unknown error',
@@ -490,6 +491,7 @@ describe('handleTaskFail', () => {
     const result = await handleTaskFail(
       { taskId: 't1', error: 'some error', streamId: 'wf-001' },
       '/nonexistent/path/fail-test',
+      undefined as unknown as EventStore, // absent store: the tested append failure
     );
 
     expect(result.success).toBe(false);

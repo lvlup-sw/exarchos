@@ -151,9 +151,9 @@ describe('LauncherWlm — WLM composition (real git + real event store)', () => 
     const proj = await projection(store);
     const entry = proj.worktrees[result.worktreeId];
     expect(entry).toBeDefined();
-    expect(entry.state).toBe('reserved');
-    expect(entry.featureId).toBe('feat-fold');
-    expect(entry.ownerPid).toBe(OWNER.selfPid);
+    expect(entry!.state).toBe('reserved');
+    expect(entry!.featureId).toBe('feat-fold');
+    expect(entry!.ownerPid).toBe(OWNER.selfPid);
   });
 
   // ─── retain adopt: harness-created nested worktree is tracked ──────────────
@@ -179,8 +179,8 @@ describe('LauncherWlm — WLM composition (real git + real event store)', () => 
     expect(eventsOfType(store, 'worktree.reserved')).toHaveLength(0);
     // Folds to state `adopted`, owner cleared.
     const proj = await projection(store);
-    expect(proj.worktrees[nestedId].state).toBe('adopted');
-    expect(proj.worktrees[nestedId].ownerPid).toBeNull();
+    expect(proj.worktrees[nestedId]!.state).toBe('adopted');
+    expect(proj.worktrees[nestedId]!.ownerPid).toBeNull();
   });
 
   // ─── create-vs-adopt boundary: a reserved launcher worktree is NOT re-adopted ─
@@ -213,8 +213,8 @@ describe('LauncherWlm — WLM composition (real git + real event store)', () => 
     // Its state is untouched by adopt — still the launcher's `reserved`, never
     // flipped to `adopted`.
     const proj = await projection(store);
-    expect(proj.worktrees[ownedId].state).toBe('reserved');
-    expect(proj.worktrees[ownedId].ownerPid).toBe(OWNER.selfPid);
+    expect(proj.worktrees[ownedId]!.state).toBe('reserved');
+    expect(proj.worktrees[ownedId]!.ownerPid).toBe(OWNER.selfPid);
     // The main/base worktrees (untracked) WERE adopted — proving adopt ran and
     // only skipped the already-tracked one (not a no-op adopt).
     expect(eventsOfType(store, 'worktree.adopted').length).toBeGreaterThan(

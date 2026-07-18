@@ -11,7 +11,13 @@ import {
   resolveVerificationRuntime,
 } from './test-runtime-resolver.js';
 import { ExarchosConfigSchema } from './exarchos-config-schema.js';
+import type { LoadResult } from './load-exarchos-config.js';
 import { FullExarchosConfigSchema } from './yaml-schema.js';
+
+/** Stub the .exarchos.yml loader: partial fixture configs, cast at one seam. */
+function stubLoad(r: { config: Record<string, unknown>; source: string }): LoadResult {
+  return { config: r.config as LoadResult['config'], source: r.source };
+}
 
 describe('resolveTestRuntime', () => {
   const tmpDirs: string[] = [];
@@ -479,7 +485,7 @@ describe('resolveTestRuntime', () => {
     );
 
     const result = resolveTestRuntime(dir, {
-      loadConfig: () => ({ config: { test: 'jest' }, source: '/x/.exarchos.yml' }),
+      loadConfig: () => stubLoad({ config: { test: 'jest' }, source: '/x/.exarchos.yml' }),
     });
 
     expect(result.test).toBe('jest');
@@ -497,7 +503,7 @@ describe('resolveTestRuntime', () => {
     );
 
     const result = resolveTestRuntime(dir, {
-      loadConfig: () => ({ config: { test: 'jest' }, source: '/x/.exarchos.yml' }),
+      loadConfig: () => stubLoad({ config: { test: 'jest' }, source: '/x/.exarchos.yml' }),
     });
 
     expect(result.test).toBe('jest');
@@ -532,7 +538,7 @@ describe('resolveTestRuntime', () => {
 
     const result = resolveTestRuntime(dir, {
       override: { test: 'bun test' },
-      loadConfig: () => ({ config: { test: 'jest' }, source: '/x/.exarchos.yml' }),
+      loadConfig: () => stubLoad({ config: { test: 'jest' }, source: '/x/.exarchos.yml' }),
     });
 
     expect(result.test).toBe('bun test');
@@ -548,7 +554,7 @@ describe('resolveTestRuntime', () => {
 
     const result = resolveTestRuntime(dir, {
       override: { test: 'bun test' },
-      loadConfig: () => ({ config: { typecheck: 'tsc --strict' }, source: '/x/.exarchos.yml' }),
+      loadConfig: () => stubLoad({ config: { typecheck: 'tsc --strict' }, source: '/x/.exarchos.yml' }),
     });
 
     expect(result.test).toBe('bun test');
@@ -572,7 +578,7 @@ describe('resolveTestRuntime', () => {
     );
 
     const result = resolveTestRuntime(dir, {
-      loadConfig: () => ({
+      loadConfig: () => stubLoad({
         config: { typecheck: 'tsc --noEmit', install: 'npm ci' },
         source: '/x/.exarchos.yml',
       }),
@@ -590,7 +596,7 @@ describe('resolveTestRuntime', () => {
     const dir = makeTmpDir();
 
     const result = resolveTestRuntime(dir, {
-      loadConfig: () => ({ config: { test: 'pytest' }, source: '/x/.exarchos.yml' }),
+      loadConfig: () => stubLoad({ config: { test: 'pytest' }, source: '/x/.exarchos.yml' }),
     });
 
     expect(result).toEqual({
@@ -705,9 +711,9 @@ describe('resolveTestRuntime', () => {
     const append = vi.fn();
 
     resolveTestRuntime(dir, {
-      loadConfig: () => ({
+      loadConfig: () => stubLoad({
         config: { test: 'cfg-test', typecheck: 'cfg-typecheck' },
-        path: '/x/.exarchos.yml',
+        source: '/x/.exarchos.yml',
       }),
       eventStore: { append },
       stream: 'feat-cfg',
@@ -878,7 +884,7 @@ describe('resolveTestRuntime', () => {
       const dir = makeTmpDir();
       writeFileSync(join(dir, 'package.json'), '{}'); // built-in would say node
       const result = resolveTestRuntime(dir, {
-        loadConfig: () => ({
+        loadConfig: () => stubLoad({
           config: {
             toolchains: [
               { id: 'node-custom', markers: ['package.json'], commands: { test: 'just test' } },
@@ -913,7 +919,7 @@ describe('resolveTestRuntime', () => {
       const dir = makeTmpDir();
       writeFileSync(join(dir, 'build.zig'), '');
       const result = resolveTestRuntime(dir, {
-        loadConfig: () => ({
+        loadConfig: () => stubLoad({
           config: {
             test: 'jest',
             toolchains: [
@@ -953,7 +959,7 @@ describe('resolveTestRuntime', () => {
       writeFileSync(join(dir, 'build.zig'), '');
       writeFileSync(join(dir, 'justfile'), 'test:\n\techo hi\n');
       const result = resolveTestRuntime(dir, {
-        loadConfig: () => ({
+        loadConfig: () => stubLoad({
           config: {
             toolchains: [
               { id: 'zig', markers: ['build.zig'], commands: { test: 'zig build test' } },
@@ -996,7 +1002,7 @@ describe('resolveVerificationRuntime', () => {
     const userTc = makeTmpDir();
     writeFileSync(join(userTc, 'Cargo.toml'), '[package]');
     const tc3 = resolveVerificationRuntime(userTc, {
-      loadConfig: () => ({
+      loadConfig: () => stubLoad({
         config: {
           toolchains: [
             { id: 'rust-custom', markers: ['Cargo.toml'], commands: { test: 'cargo test', mutation: 'cargo mutants --workspace' } },
@@ -1011,7 +1017,7 @@ describe('resolveVerificationRuntime', () => {
     const cfg = makeTmpDir();
     writeFileSync(join(cfg, 'Cargo.toml'), '[package]');
     const tc2 = resolveVerificationRuntime(cfg, {
-      loadConfig: () => ({ config: { mutation: 'config-mutation' }, source: '/x/.exarchos.yml' }),
+      loadConfig: () => stubLoad({ config: { mutation: 'config-mutation' }, source: '/x/.exarchos.yml' }),
     });
     expect(tc2.mutation).toBe('config-mutation');
 
@@ -1020,7 +1026,7 @@ describe('resolveVerificationRuntime', () => {
     writeFileSync(join(ovr, 'Cargo.toml'), '[package]');
     const tc1 = resolveVerificationRuntime(ovr, {
       override: { mutation: 'override-mutation' },
-      loadConfig: () => ({ config: { mutation: 'config-mutation' }, source: '/x/.exarchos.yml' }),
+      loadConfig: () => stubLoad({ config: { mutation: 'config-mutation' }, source: '/x/.exarchos.yml' }),
     });
     expect(tc1.mutation).toBe('override-mutation');
   });
@@ -1036,7 +1042,7 @@ describe('resolveVerificationRuntime', () => {
     writeFileSync(join(cfg, 'go.mod'), 'module example.com/x\n');
     expect(
       resolveVerificationRuntime(cfg, {
-        loadConfig: () => ({ config: { lint: 'golangci-lint run' }, source: '/x/.exarchos.yml' }),
+        loadConfig: () => stubLoad({ config: { lint: 'golangci-lint run' }, source: '/x/.exarchos.yml' }),
       }).lint,
     ).toBe('golangci-lint run');
 
@@ -1046,7 +1052,7 @@ describe('resolveVerificationRuntime', () => {
     expect(
       resolveVerificationRuntime(ovr, {
         override: { lint: 'override-lint' },
-        loadConfig: () => ({ config: { lint: 'golangci-lint run' }, source: '/x/.exarchos.yml' }),
+        loadConfig: () => stubLoad({ config: { lint: 'golangci-lint run' }, source: '/x/.exarchos.yml' }),
       }).lint,
     ).toBe('override-lint');
   });
@@ -1055,7 +1061,7 @@ describe('resolveVerificationRuntime', () => {
     const dir = makeTmpDir();
     // config-direct structured contract: { codegen, diff }.
     const result = resolveVerificationRuntime(dir, {
-      loadConfig: () => ({
+      loadConfig: () => stubLoad({
         config: { contract: { codegen: 'buf generate', diff: 'buf breaking' } },
         source: '/x/.exarchos.yml',
       }),
@@ -1066,7 +1072,7 @@ describe('resolveVerificationRuntime', () => {
     const ovr = makeTmpDir();
     const overridden = resolveVerificationRuntime(ovr, {
       override: { contract: { codegen: 'override-codegen', diff: 'override-diff' } },
-      loadConfig: () => ({
+      loadConfig: () => stubLoad({
         config: { contract: { codegen: 'buf generate', diff: 'buf breaking' } },
         source: '/x/.exarchos.yml',
       }),
@@ -1122,7 +1128,7 @@ describe('resolveVerificationRuntime', () => {
           writeFileSync(join(dir, 'Cargo.toml'), '[package]'); // detection baseline
           const result = resolveVerificationRuntime(dir, {
             override: { [overrideField]: overrideVal },
-            loadConfig: () => ({ config: { [configField]: configVal }, source: '/x/.exarchos.yml' }),
+            loadConfig: () => stubLoad({ config: { [configField]: configVal }, source: '/x/.exarchos.yml' }),
           });
           // The override field always wins on its own field (first non-null layer).
           const r = result as unknown as Record<string, string | null>;

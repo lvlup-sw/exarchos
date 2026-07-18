@@ -132,9 +132,9 @@ describe('spawnHarnessChild — cross-OS async spawn (DR-4 / DR-8)', () => {
     const handle = await pending;
     expect(handle.pid).toBe(4242);
     expect(capture.calls).toHaveLength(1);
-    expect(capture.calls[0].file.toLowerCase()).toContain('cmd');
-    expect(capture.calls[0].options.shell).not.toBe(true);
-    expect(capture.calls[0].options.windowsVerbatimArguments).toBe(true);
+    expect(capture.calls[0]!.file.toLowerCase()).toContain('cmd');
+    expect(capture.calls[0]!.options.shell).not.toBe(true);
+    expect(capture.calls[0]!.options.windowsVerbatimArguments).toBe(true);
   });
 
   it('AsyncSpawn_MetacharArg_PassedLiterally_NoShellInterpolation', async () => {
