@@ -4,16 +4,39 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { fileURLToPath } from 'node:url';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
+import type { DispatchContext } from '../core/dispatch.js';
 
-// ─── Mock child_process ────────────────────────────────────────────────────
+// ─── Mock child_process (git legs: symbolic-ref / log / diff) ──────────────
 
-vi.mock('node:child_process', () => ({
-  execSync: vi.fn(),
-}));
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  return { ...actual, execSync: vi.fn(), execFileSync: vi.fn() };
+});
 
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
+
+// ─── Mock the resolver-routed command seams (DR-26) ─────────────────────────
+//
+// Test/typecheck commands now resolve through `resolveTestRuntime` and run
+// via `runCommandSync`. Mock ONLY those two seams (spread-real so the rest of
+// each module keeps working across the wider composite graph the alias test
+// loads).
+
+vi.mock('../utils/process.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../utils/process.js')>();
+  return { ...actual, runCommandSync: vi.fn() };
+});
+
+vi.mock('../config/test-runtime-resolver.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../config/test-runtime-resolver.js')>();
+  return { ...actual, resolveTestRuntime: vi.fn() };
+});
+
+import { runCommandSync } from '../utils/process.js';
+import { resolveTestRuntime } from '../config/test-runtime-resolver.js';
 
 // ─── Mock views/tools to control materializer and event store ──────────────
 
@@ -31,6 +54,8 @@ import {
   documentLegBlocks,
   type DocumentLegConfig,
 } from './prepare-synthesis.js';
+import { handleCheckIntegrationSuite } from './check-integration-suite.js';
+import type { CommandResult } from './pure/static-analysis.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 
 // ─── Test Helpers ──────────────────────────────────────────────────────────
@@ -107,6 +132,16 @@ describe('handlePrepareSynthesis', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'prepare-synthesis-'));
+    // DR-26 default: the resolver detects the node toolchain — the same
+    // commands the pre-resolver hardcodes ran, so the command-leg mocks below
+    // drive an unchanged path. Individual tests override per scenario.
+    vi.mocked(resolveTestRuntime).mockReturnValue({
+      test: 'npm run test:run',
+      typecheck: 'npm run typecheck',
+      install: null,
+      source: 'detection',
+    });
+    vi.mocked(runCommandSync).mockReturnValue(Buffer.from(''));
   });
 
   afterEach(async () => {
@@ -166,7 +201,7 @@ describe('handlePrepareSynthesis', () => {
     );
     // Canonical event log: task 024 assigned then completed.
     const mockStore = createMockEventStore(tasksToEvents({ '024': { status: 'completed' } }));
-    vi.mocked(execSync).mockReturnValue(Buffer.from('Tests: 1 passed, 0 failed'));
+    vi.mocked(runCommandSync).mockReturnValue(Buffer.from('Tests: 1 passed, 0 failed'));
 
     const result = await handlePrepareSynthesis(
       { featureId: 'f' },
@@ -188,7 +223,7 @@ describe('handlePrepareSynthesis', () => {
     const mockMaterializer = createMockMaterializer(taskView);
     const mockStore = createMockEventStore();
     vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
-    vi.mocked(execSync).mockReturnValue(Buffer.from('Tests: 10 passed, 0 failed'));
+    vi.mocked(runCommandSync).mockReturnValue(Buffer.from('Tests: 10 passed, 0 failed'));
 
     // Act
     await handlePrepareSynthesis({ featureId: 'test-feature' }, tmpDir, mockStore as unknown as EventStore);
@@ -205,6 +240,12 @@ describe('handlePrepareSynthesis', () => {
     const testEvent = testGateCall![1] as { data: { passed: boolean; layer: string } };
     expect(testEvent.data.passed).toBe(true);
     expect(testEvent.data.layer).toBe('CI');
+
+    // DR-26: the suite ran the RESOLVER-routed command, not a hardcode.
+    const [cmd, cmdArgs] = vi.mocked(runCommandSync).mock.calls[0]!;
+    expect(cmd).toBe('npm');
+    expect(cmdArgs).toEqual(['run', 'test:run']);
+    expect(vi.mocked(resolveTestRuntime)).toHaveBeenCalled();
   });
 
   // ─── Test 4: Typecheck run and emit typecheck event ───────────────────────
@@ -217,7 +258,7 @@ describe('handlePrepareSynthesis', () => {
     const mockMaterializer = createMockMaterializer(taskView);
     const mockStore = createMockEventStore();
     vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
-    vi.mocked(execSync).mockReturnValue(Buffer.from(''));
+    vi.mocked(runCommandSync).mockReturnValue(Buffer.from(''));
 
     // Act
     await handlePrepareSynthesis({ featureId: 'test-feature' }, tmpDir, mockStore as unknown as EventStore);
@@ -274,7 +315,7 @@ describe('handlePrepareSynthesis', () => {
     const mockMaterializer = createMockMaterializer(taskView);
     const mockStore = createMockEventStore();
     vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
-    vi.mocked(execSync).mockReturnValue(Buffer.from(''));
+    vi.mocked(runCommandSync).mockReturnValue(Buffer.from(''));
 
     // Act
     await handlePrepareSynthesis({ featureId: 'test-feature' }, tmpDir, mockStore as unknown as EventStore);
@@ -302,10 +343,10 @@ describe('handlePrepareSynthesis', () => {
     const mockMaterializer = createMockMaterializer(taskView);
     const mockStore = createMockEventStore();
     vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
-    // Tests and typecheck pass, then detect default branch, then git log returns commit info
+    // Tests and typecheck pass (resolver-routed via runCommandSync); execSync
+    // now only serves the git legs: detect default branch, then git log.
+    vi.mocked(runCommandSync).mockReturnValue(Buffer.from('Tests: 5 passed'));
     vi.mocked(execSync)
-      .mockReturnValueOnce(Buffer.from('Tests: 5 passed'))      // test suite
-      .mockReturnValueOnce(Buffer.from(''))                       // typecheck
       .mockReturnValueOnce('refs/remotes/origin/main\n' as unknown as Buffer) // detectDefaultBranch
       .mockReturnValueOnce(Buffer.from('* abc1234 feat: add feature\n* def5678 fix: bug fix')); // git log
 
@@ -338,10 +379,10 @@ describe('handlePrepareSynthesis', () => {
     const mockMaterializer = createMockMaterializer(taskView);
     const mockStore = createMockEventStore();
     vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
-    // Tests and typecheck pass, then detect default branch returns 'trunk', then git log
+    // Tests and typecheck pass (resolver-routed via runCommandSync); execSync
+    // serves the git legs: detect default branch returns 'trunk', then git log.
+    vi.mocked(runCommandSync).mockReturnValue(Buffer.from('Tests: 5 passed'));
     vi.mocked(execSync)
-      .mockReturnValueOnce(Buffer.from('Tests: 5 passed'))       // test suite
-      .mockReturnValueOnce(Buffer.from(''))                        // typecheck
       .mockReturnValueOnce('refs/remotes/origin/trunk\n' as unknown as Buffer) // detectDefaultBranch → trunk
       .mockReturnValueOnce(Buffer.from('* abc1234 feat: add feature')); // git log
 
@@ -369,10 +410,12 @@ describe('handlePrepareSynthesis', () => {
     const mockMaterializer = createMockMaterializer(taskView);
     const mockStore = createMockEventStore();
     vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
-    // Tests pass, typecheck passes, detect default branch, stack healthy
+    // Tests pass, typecheck passes (resolver-routed); git legs: detect default
+    // branch, stack healthy.
+    vi.mocked(runCommandSync)
+      .mockReturnValueOnce(Buffer.from('Tests: 10 passed, 0 failed')) // test suite
+      .mockReturnValueOnce(Buffer.from(''));                          // typecheck
     vi.mocked(execSync)
-      .mockReturnValueOnce(Buffer.from('Tests: 10 passed, 0 failed'))
-      .mockReturnValueOnce(Buffer.from(''))
       .mockReturnValueOnce('refs/remotes/origin/main\n' as unknown as Buffer) // detectDefaultBranch
       .mockReturnValueOnce(Buffer.from('main\n  feature-branch'));
 
@@ -403,7 +446,7 @@ describe('handlePrepareSynthesis', () => {
     const mockMaterializer = createMockMaterializer(taskView);
     const mockStore = createMockEventStore();
     vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
-    vi.mocked(execSync).mockReturnValue(Buffer.from(''));
+    vi.mocked(runCommandSync).mockReturnValue(Buffer.from(''));
 
     // Act
     const result = await handlePrepareSynthesis({ featureId: 'test-feature' }, tmpDir, mockStore as unknown as EventStore);
@@ -433,7 +476,7 @@ describe('handlePrepareSynthesis', () => {
     const mockMaterializer = createMockMaterializer(taskView);
     const mockStore = createMockEventStore();
     vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
-    vi.mocked(execSync).mockReturnValue(Buffer.from('Tests: 5 passed, 2 failed'));
+    vi.mocked(runCommandSync).mockReturnValue(Buffer.from('Tests: 5 passed, 2 failed'));
 
     // Act
     await handlePrepareSynthesis({ featureId: 'test-feature' }, tmpDir, mockStore as unknown as EventStore);
@@ -459,7 +502,7 @@ describe('handlePrepareSynthesis', () => {
     const mockMaterializer = createMockMaterializer(taskView);
     const mockStore = createMockEventStore();
     vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
-    vi.mocked(execSync).mockReturnValue(Buffer.from(''));
+    vi.mocked(runCommandSync).mockReturnValue(Buffer.from(''));
 
     // Act
     await handlePrepareSynthesis({ featureId: 'test-feature' }, tmpDir, mockStore as unknown as EventStore);
@@ -485,13 +528,14 @@ describe('handlePrepareSynthesis', () => {
     const mockMaterializer = createMockMaterializer(taskView);
     const mockStore = createMockEventStore();
     vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
-    // execSync throws on test failure (non-zero exit code)
+    // runCommandSync throws on test failure (non-zero exit code)
     const testError = new Error('Tests failed') as Error & { stdout: Buffer; status: number };
     testError.stdout = Buffer.from('Tests: 3 passed, 2 failed');
     testError.status = 1;
-    vi.mocked(execSync)
+    vi.mocked(runCommandSync)
       .mockImplementationOnce(() => { throw testError; })  // test suite fails
-      .mockReturnValueOnce(Buffer.from(''))                  // typecheck passes
+      .mockReturnValueOnce(Buffer.from(''));                 // typecheck passes
+    vi.mocked(execSync)
       .mockReturnValueOnce('refs/remotes/origin/main\n' as unknown as Buffer) // detectDefaultBranch
       .mockReturnValueOnce(Buffer.from('main'));             // git log
 
@@ -518,9 +562,10 @@ describe('handlePrepareSynthesis', () => {
     const typecheckError = new Error('Typecheck failed') as Error & { stdout: Buffer; status: number };
     typecheckError.stdout = Buffer.from('error TS2322: Type string not assignable\nerror TS2345: Argument mismatch');
     typecheckError.status = 1;
-    vi.mocked(execSync)
+    vi.mocked(runCommandSync)
       .mockReturnValueOnce(Buffer.from('Tests: 5 passed'))     // test suite passes
-      .mockImplementationOnce(() => { throw typecheckError; })  // typecheck fails
+      .mockImplementationOnce(() => { throw typecheckError; }); // typecheck fails
+    vi.mocked(execSync)
       .mockReturnValueOnce('refs/remotes/origin/main\n' as unknown as Buffer) // detectDefaultBranch
       .mockReturnValueOnce(Buffer.from('main'));                // git log
 
@@ -546,7 +591,8 @@ describe('handlePrepareSynthesis', () => {
     vi.mocked(getOrCreateMaterializer).mockReturnValue(
       mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>,
     );
-    vi.mocked(execSync).mockReturnValue(Buffer.from('src/registry.ts'));
+    // git diff --name-only (execFileSync) reports a doc-bearing surface file.
+    vi.mocked(execFileSync).mockReturnValue(Buffer.from('src/registry.ts\n'));
 
     // Act
     const result = await handlePrepareSynthesis(
@@ -583,7 +629,8 @@ describe('handlePrepareSynthesis', () => {
     vi.mocked(getOrCreateMaterializer).mockReturnValue(
       mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>,
     );
-    vi.mocked(execSync).mockReturnValue(Buffer.from('src/registry.ts'));
+    // git diff --name-only (execFileSync) reports a doc-bearing surface file.
+    vi.mocked(execFileSync).mockReturnValue(Buffer.from('src/registry.ts\n'));
 
     const result = await handlePrepareSynthesis(
       {
@@ -642,6 +689,230 @@ describe('evaluateDocumentLeg (DR-2)', () => {
     expect(r.covered).toBe(false);
     expect(r.surfaceFiles).toContain('servers/exarchos-mcp/src/registry.ts');
     expect(r.message).toMatch(/without a documentation update/);
+  });
+});
+
+// ─── DR-26: phase gates route through the toolchain resolver ─────────────────
+
+describe('DR-26: phase-gate toolchain routing', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(resolveTestRuntime).mockReturnValue({
+      test: 'npm run test:run',
+      typecheck: 'npm run typecheck',
+      install: null,
+      source: 'detection',
+    });
+  });
+
+  /** Recursively collect non-test .ts sources under a directory. */
+  async function collectTsSources(dir: string): Promise<string[]> {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    const files: string[] = [];
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        files.push(...(await collectTsSources(full)));
+      } else if (
+        entry.isFile() &&
+        entry.name.endsWith('.ts') &&
+        !entry.name.endsWith('.test.ts') &&
+        !entry.name.endsWith('.d.ts')
+      ) {
+        files.push(full);
+      }
+    }
+    return files;
+  }
+
+  /** Strip block + line comments so prose mentioning a command can't false-positive. */
+  function stripComments(src: string): string {
+    return src
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n')
+      .map((line) => {
+        const idx = line.indexOf('//');
+        return idx === -1 ? line : line.slice(0, idx);
+      })
+      .join('\n');
+  }
+
+  it('PhaseGates_NoHardcodedCommands_GrepAsserted', async () => {
+    // DR-26 acceptance: no gate in orchestrate/ holds an independent toolchain
+    // command literal — i.e. no direct process invocation whose command token
+    // is a hardcoded package MANAGER (`npm run test:run`-class, the defect the
+    // DR names). Commands must flow from the layered resolver
+    // (`resolveTestRuntime` / `detectToolchain`), where a package manager may
+    // legitimately appear as REGISTRY data, never as an inline invocation at a
+    // gate call site. (Single-file runner invocations — e.g.
+    // spec_coverage_check's per-file `npx vitest run <file>` — are a separate
+    // class: the resolver has no per-file surface to route them through.)
+    const orchestrateDir = path.dirname(fileURLToPath(import.meta.url));
+    const files = await collectTsSources(orchestrateDir);
+    expect(files.length).toBeGreaterThan(0);
+
+    const HARDCODED_INVOCATION =
+      /(execSync|execFileSync|runCommandSync|spawnCommandSync|spawnSync)\(\s*[`'"](npm|pnpm|yarn|bun)\b/;
+
+    const offenders: string[] = [];
+    for (const file of files) {
+      const src = stripComments(await fs.readFile(file, 'utf-8'));
+      if (HARDCODED_INVOCATION.test(src)) {
+        offenders.push(path.relative(orchestrateDir, file));
+      }
+    }
+    expect(
+      offenders,
+      `gates must resolve toolchain commands via resolveTestRuntime — hardcoded invocation found in: ${offenders.join(', ')}`,
+    ).toEqual([]);
+  });
+
+  it('MonorepoRoot_GreenSuites_IntegrationGatePasses', async () => {
+    // #1537 repro: check_integration_suite at a MONOREPO ROOT (workspaces
+    // layout). The gate resolves the test command through the toolchain
+    // registry against the monorepo root and a green-suite vitest JSON run
+    // parses to PASS — no hardcoded command, no vitest-JSON fail-closed.
+    const monoRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'monorepo-root-1537-'));
+    try {
+      await fs.writeFile(
+        path.join(monoRoot, 'package.json'),
+        JSON.stringify({
+          name: 'mono-root',
+          private: true,
+          workspaces: ['packages/*'],
+          scripts: { 'test:run': 'vitest run' },
+        }),
+        'utf-8',
+      );
+      await fs.mkdir(path.join(monoRoot, 'packages', 'a'), { recursive: true });
+
+      const greenJson = JSON.stringify({
+        numTotalTestSuites: 12,
+        numFailedTestSuites: 0,
+        numTotalTests: 84,
+        numFailedTests: 0,
+        success: true,
+        testResults: [],
+      });
+      const invocations: Array<{ cmd: string; args: readonly string[]; cwd?: string }> = [];
+      const runner = (
+        cmd: string,
+        args: readonly string[],
+        options?: { cwd?: string },
+      ): CommandResult => {
+        invocations.push({ cmd, args, ...(options?.cwd !== undefined ? { cwd: options.cwd } : {}) });
+        return { exitCode: 0, stdout: greenJson, stderr: '' };
+      };
+
+      const mockStore = createMockEventStore();
+      const result = await handleCheckIntegrationSuite(
+        { featureId: 'feat-1537', repoRoot: monoRoot },
+        '/tmp/test-state-dr26',
+        mockStore as unknown as EventStore,
+        runner,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as { passed: boolean; failCount: number; parseError: boolean };
+      expect(data.passed).toBe(true);
+      expect(data.failCount).toBe(0);
+      expect(data.parseError).toBe(false);
+
+      // The command was RESOLVED at the monorepo root (node toolchain from the
+      // registry) and executed there — resolver-routed, not inlined.
+      expect(invocations).toHaveLength(1);
+      expect(invocations[0]!.cwd).toBe(monoRoot);
+      expect(invocations[0]!.cmd).toBe('npm');
+      expect(invocations[0]!.args).toEqual(['run', 'test:run', '--', '--reporter=json']);
+    } finally {
+      await fs.rm(monoRoot, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it('SynthesisChecks_MergedAction_DeprecationAliasWorks', async () => {
+    // DR-26: prepare_synthesis / pre_synthesis_check are merged behind ONE
+    // handler. Dispatching the DEPRECATED alias routes to the merged handler
+    // (same data shape, plus an alias-compat `passed` mirror) and stamps the
+    // typed `_meta.deprecation` notice naming the canonical replacement.
+    const { handleOrchestrate } = await import('./composite.js');
+    const mockStore = createMockEventStore(tasksToEvents({ t1: { status: 'in-progress' } }));
+    const ctx = {
+      stateDir: '/tmp/test-state-dr26',
+      eventStore: mockStore,
+      enableTelemetry: false,
+    } as unknown as DispatchContext;
+
+    const result = await handleOrchestrate(
+      { action: 'pre_synthesis_check', featureId: 'feat-alias' },
+      ctx,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as { ready: boolean; passed: boolean; blockers?: string[] };
+    // Merged handler shape (tasks incomplete → not ready)…
+    expect(data.ready).toBe(false);
+    expect(data.blockers?.some((b) => b.includes('t1'))).toBe(true);
+    // …with the alias-compat mirror for legacy `passed` consumers.
+    expect(data.passed).toBe(false);
+
+    const meta = result._meta as Record<string, unknown>;
+    const deprecation = meta['deprecation'] as {
+      since: string;
+      removeIn: string;
+      replacement: string;
+    };
+    expect(deprecation).toBeDefined();
+    expect(deprecation.replacement).toBe('prepare_synthesis');
+    expect(deprecation.since).toBe('2.12.0');
+    expect(deprecation.removeIn).toBe('2.13.0');
+    expect(result.warnings?.some((w) => w.includes('deprecated'))).toBe(true);
+
+    // The CANONICAL action returns the same merged shape with NO deprecation
+    // stamp — the notice is alias-only.
+    const canonical = await handleOrchestrate(
+      { action: 'prepare_synthesis', featureId: 'feat-alias' },
+      ctx,
+    );
+    expect(canonical.success).toBe(true);
+    expect((canonical._meta as Record<string, unknown>)['deprecation']).toBeUndefined();
+    expect((canonical.data as { ready: boolean }).ready).toBe(false);
+  });
+
+  it('PrepareSynthesis_SkipFlags_SkipLegsWithoutGateEmission', async () => {
+    // Alias-compat surface on the merged handler: skipTests skips BOTH command
+    // legs (no resolver call, no command run, no fake-green gate.executed) and
+    // skipStack skips the stack probe; skipped legs never block readiness.
+    const mockStore = createMockEventStore(tasksToEvents({ t1: { status: 'completed' } }));
+    vi.mocked(execFileSync).mockReturnValue(Buffer.from('')); // git diff: no changes
+
+    const result = await handlePrepareSynthesis(
+      { featureId: 'feat-skip', skipTests: true, skipStack: true },
+      '/tmp/test-state-dr26',
+      mockStore as unknown as EventStore,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      ready: boolean;
+      tests: { passed: boolean; skipped?: boolean };
+      typecheck: { passed: boolean; skipped?: boolean };
+      stack: { healthy: boolean; skipped?: boolean };
+    };
+    expect(data.tests.skipped).toBe(true);
+    expect(data.typecheck.skipped).toBe(true);
+    expect(data.stack.skipped).toBe(true);
+    expect(data.ready).toBe(true);
+
+    // No command ran and no test-suite/typecheck gate was emitted.
+    expect(vi.mocked(runCommandSync)).not.toHaveBeenCalled();
+    const gateNames = mockStore.append.mock.calls
+      .map((call: unknown[]) => (call[1] as { type: string; data: { gateName?: string } }))
+      .filter((e) => e.type === 'gate.executed')
+      .map((e) => e.data.gateName);
+    expect(gateNames).not.toContain('test-suite');
+    expect(gateNames).not.toContain('typecheck');
+    // The structural document leg still records its gate (featureId present).
+    expect(gateNames).toContain('document-coverage');
   });
 });
 

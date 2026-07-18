@@ -260,7 +260,9 @@ export const READ_ONLY_ACTIONS = {
   // `merge_orchestrate`, `merge_pr`, `create_pr`, `create_issue`,
   // `add_pr_comment`, `init`, `prune_stale_workflows`,
   // `request_synthesize`, `finalize_oneshot`, `reconcile_state`,
-  // `extract_fix_tasks`, `pre_synthesis_check`, `post_delegation_check`,
+  // `extract_fix_tasks`, `pre_synthesis_check` (DR-26: deprecated alias of
+  // `prepare_synthesis` — routes to the same merged, event-emitting
+  // synthesis-readiness handler, so it stays excluded), `post_delegation_check`,
   // `debug_review_gate`, `check_pr_comments` (queries gh state but is
   // grouped with synthesis review actions and may emit), and the
   // `review_triage` orchestrator. Also excluded from the readonly
