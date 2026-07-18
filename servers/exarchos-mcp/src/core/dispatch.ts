@@ -29,6 +29,11 @@ import {
 } from '../adapters/schema-to-flags.js';
 import { runSessionMachineryConsumedInterceptor } from './interceptors/session-machinery.js';
 import {
+  runContextRotInterceptor,
+  applyContextRotSoftSignal,
+  type ContextRotAssessment,
+} from './interceptors/context-rot.js';
+import {
   mintDispatchContext,
   runWithDispatchContext,
   type IncomingCorrelation,
@@ -681,6 +686,11 @@ export async function dispatch(
   return runWithDispatchContext(dispatchCtx, async () => {
   try {
 
+  // DR-14 (#1647, v2-12-bundle task 013): context-rot assessment computed at
+  // the pre-handler seam (inside the built-in block below), consumed twice —
+  // hard gate before the handler, soft signal on the result before return.
+  let contextRot: ContextRotAssessment | undefined;
+
   const isBuiltIn = Object.prototype.hasOwnProperty.call(COMPOSITE_HANDLERS, tool);
   if (isBuiltIn && registeredTool) {
     const actionName = args.action;
@@ -957,6 +967,21 @@ export async function dispatch(
       return typeof fid === 'string' && fid.length > 0 ? fid : undefined;
     })();
     await runSessionMachineryConsumedInterceptor(ctx.eventStore, streamId, actionName);
+
+    // DR-14 (#1647, v2-12-bundle task 013): context-rot counter — a pure
+    // fold over the stream (INV-1) computed server-side at this seam. Hard
+    // gate: phase-mutating verbs ONLY (INV-9 — exarchos_workflow/transition)
+    // at rot ≥ hard threshold, returned as a structured envelope naming the
+    // rehydrate affordance. Reads/views are never blocked at any rot level.
+    // Fail-open on read errors (interceptor returns undefined and logs);
+    // the soft signal is applied to the result just before the final return.
+    contextRot = await runContextRotInterceptor(
+      ctx.eventStore,
+      streamId,
+      tool,
+      actionName,
+    );
+    if (contextRot?.blocked) return attachMeta(contextRot.blocked);
   }
 
   const coreHandler = builtInHandler
@@ -1079,6 +1104,12 @@ export async function dispatch(
       }
     }
   }
+
+  // DR-14 soft signal: at rot ≥ soft threshold, promote the rehydrate
+  // affordance to the top of `next_actions` and surface the counter on
+  // `_meta.contextRot`. No-op (same reference) when the assessment is
+  // absent, the result failed, or rot is below the soft threshold.
+  result = applyContextRotSoftSignal(result, contextRot);
 
   return attachMeta(result);
   } catch (error) {
