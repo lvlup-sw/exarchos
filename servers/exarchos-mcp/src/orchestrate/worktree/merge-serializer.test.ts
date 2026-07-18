@@ -30,7 +30,7 @@ import {
   handleMergeOrchestrate,
   type HandleMergeOrchestrateInput,
 } from '../merge-orchestrate.js';
-import { serializeMerge } from './merge-serializer.js';
+import { serializeMerge, MergeExecutedReleaseData } from './merge-serializer.js';
 import { handleSerializeMerge } from './handlers.js';
 import { WORKTREES_STREAM, WORKTREES_REDUCER } from './manager.js';
 import type { WorktreesProjection } from './projections/worktrees.js';
@@ -102,11 +102,16 @@ const UNSUPPORTED_TABLE: ProcessTableSource = {
   isSupported: () => false,
 };
 
-/** A merge_orchestrate stub that records the featureIds it ran for. */
+/**
+ * A merge_orchestrate stub that records the featureIds it ran for. Surfaces a
+ * `mergeSha` like the REAL `merge_orchestrate` does on every fresh-run success,
+ * so releases stamped from this stub honor the merged⇒mergeSha contract
+ * (`MergeExecutedReleaseData`, #1633 item 2).
+ */
 function recordingMerge(into: string[]): (input: { featureId: string }) => Promise<ToolResult> {
   return async (input) => {
     into.push(input.featureId);
-    return { success: true, data: { phase: 'completed' } };
+    return { success: true, data: { phase: 'completed', mergeSha: 'stub-merge-sha' } };
   };
 }
 
@@ -614,6 +619,182 @@ describe('serialize_merge — unresolvable create-time (Sentry #15023070/1)', ()
     expect('sourceBranch' in data).toBe(false); // CLAIM-only field, not on the release
     // The raw stored event validates against the canonical release schema.
     expect(() => EVENT_DATA_SCHEMAS['worktree.merge_executed']!.parse(data)).not.toThrow();
+  });
+});
+
+// ─── Test 5c: #1633 deferred hardening (DR-15) ────────────────────────────────
+
+describe('serialize_merge — #1633 deferred hardening (DR-15)', () => {
+  it('ReservePath_NullStartTime_Modeled', async () => {
+    // #1633 item 1 — the serializer's CLAIM (its reserve path — the lease
+    // mirrors the manager's `reserve` pattern) models an unresolvable
+    // create-time as an EXPLICIT null end-to-end. An injected
+    // `selfStartedAt: null` is a MODELED value ("this process's create-time is
+    // unresolvable"), not an absence: it must be honored verbatim — never
+    // erased by `??` and re-resolved against the process table — so the raw
+    // stored claim carries `holderStartedAt: null` (schema-valid), never ''
+    // and never a table-resolved string the caller deliberately declined.
+    const arm = await createArm();
+    const merged: string[] = [];
+    const result = await serializeMerge(
+      { featureId: 'F', integrationRef: 'integration/null-modeled', sourceBranch: 'feat/x', strategy: 'merge', timeoutMs: 10_000 },
+      arm.ctx,
+      {
+        selfPid: 606,
+        selfStartedAt: null, // explicit modeled null …
+        // … while the process table COULD resolve a create-time for 606 — an
+        // erased null would come back as this string on the stored claim.
+        processSource: { getStartTime: () => ({ status: 'present' as const, startedAt: 'resolved-from-table' }) },
+        mergeOrchestrate: recordingMerge(merged),
+        readIntegrationHead: () => 'head-sha',
+      },
+    );
+    expect(result.success).toBe(true);
+    expect(merged).toEqual(['F']);
+
+    const events = await arm.eventStore.query(WORKTREES_STREAM);
+    const claim = events.find((e) => e.type === 'worktree.merge_requested');
+    expect(claim).toBeDefined();
+    const holderStartedAt = (claim!.data as { holderStartedAt?: unknown }).holderStartedAt;
+    expect(holderStartedAt).toBeNull(); // NOT 'resolved-from-table', NOT ''.
+    // The raw stored claim stays in-contract with the null-ready schema.
+    expect(() => EVENT_DATA_SCHEMAS['worktree.merge_requested']!.parse(claim!.data)).not.toThrow();
+  });
+
+  it('MergeSha_SuperRefine_TwoStepEnforced', async () => {
+    // #1633 item 2 — the two-step enforcement, in the review-mandated order:
+    // STEP 1 (plumbing): every merged release carries a REAL mergeSha —
+    // composed merge_orchestrate result first, post-merge integration-HEAD
+    // read (under the still-held lease) as fallback.
+    // STEP 2 (guard): the write-site superRefine rejects a merged release
+    // without a mergeSha, closing the invalid-raw-event class at the emit seam
+    // (the decide/append write-path does not validate `data`).
+
+    // STEP 2 — the refined contract itself.
+    const base = { integrationRef: 'integration/x', operationId: 'op-1' };
+    expect(() => MergeExecutedReleaseData.parse({ ...base, status: 'merged' })).toThrow();
+    expect(() =>
+      MergeExecutedReleaseData.parse({ ...base, status: 'merged', mergeSha: 'cafe1234' }),
+    ).not.toThrow();
+    // Non-merged terminals stay sha-free (the dead-holder reclaim shape).
+    expect(() =>
+      MergeExecutedReleaseData.parse({ ...base, status: 'aborted', recoveryError: 'dead-holder-reclaimed' }),
+    ).not.toThrow();
+
+    // STEP 1a — the composed result surfaces the sha: it wins verbatim.
+    const armA = await createArm();
+    const resultA = await serializeMerge(
+      { featureId: 'F', integrationRef: 'integration/sha-from-result', sourceBranch: 'feat/x', strategy: 'merge', timeoutMs: 10_000 },
+      armA.ctx,
+      {
+        selfPid: 701,
+        selfStartedAt: 'self-701',
+        mergeOrchestrate: async () => ({
+          success: true,
+          data: { phase: 'completed', mergeSha: 'c0ffee42'.repeat(5) },
+        }),
+        readIntegrationHead: () => 'not-the-merge-commit',
+      },
+    );
+    expect(resultA.success).toBe(true);
+    const eventsA = await armA.eventStore.query(WORKTREES_STREAM);
+    const releaseA = eventsA.find((e) => e.type === 'worktree.merge_executed');
+    expect(releaseA).toBeDefined();
+    expect((releaseA!.data as { status?: unknown }).status).toBe('merged');
+    expect((releaseA!.data as { mergeSha?: unknown }).mergeSha).toBe('c0ffee42'.repeat(5));
+    expect(() => MergeExecutedReleaseData.parse(releaseA!.data)).not.toThrow();
+
+    // STEP 1b — no surfaced sha: the post-merge integration HEAD names OUR
+    // merge commit (we are the ref's only writer under the lease).
+    const armB = await createArm();
+    const resultB = await serializeMerge(
+      { featureId: 'F', integrationRef: 'integration/sha-from-head', sourceBranch: 'feat/x', strategy: 'merge', timeoutMs: 10_000 },
+      armB.ctx,
+      {
+        selfPid: 702,
+        selfStartedAt: 'self-702',
+        mergeOrchestrate: async () => ({ success: true, data: { phase: 'completed' } }),
+        readIntegrationHead: () => 'post-merge-head',
+      },
+    );
+    expect(resultB.success).toBe(true);
+    const eventsB = await armB.eventStore.query(WORKTREES_STREAM);
+    const releaseB = eventsB.find((e) => e.type === 'worktree.merge_executed');
+    expect(releaseB).toBeDefined();
+    expect((releaseB!.data as { status?: unknown }).status).toBe('merged');
+    expect((releaseB!.data as { mergeSha?: unknown }).mergeSha).toBe('post-merge-head');
+    expect(() => MergeExecutedReleaseData.parse(releaseB!.data)).not.toThrow();
+  });
+
+  it('FinallyMask_ErrorPath_Guarded', async () => {
+    // #1633 item 3 — the finally-mask guard: EVERY release-path effect (sha
+    // sourcing, write-site validation, the terminal append) is contained so it
+    // can never shadow the try block's own outcome.
+
+    // (a) ERROR path — the merge throws AND the release append also throws:
+    // the caller must see the MERGE's error, never the release's.
+    const armA = await createArm();
+    const appender = armA.eventStore.getAppender();
+    const realAppend = appender.append.bind(appender);
+    vi.spyOn(appender, 'append').mockImplementation(async (streamId, events, idempotencyKey, options) => {
+      if (events.some((e) => e.type === 'worktree.merge_executed')) {
+        throw new Error('release append exploded');
+      }
+      return realAppend(streamId, events, idempotencyKey, options);
+    });
+    await expect(
+      serializeMerge(
+        { featureId: 'F', integrationRef: 'integration/mask-error', sourceBranch: 'feat/x', strategy: 'merge', timeoutMs: 10_000 },
+        armA.ctx,
+        {
+          selfPid: 801,
+          selfStartedAt: 'self-801',
+          mergeOrchestrate: async () => {
+            throw new Error('merge exploded');
+          },
+          readIntegrationHead: () => 'head-sha',
+        },
+      ),
+    ).rejects.toThrow('merge exploded'); // the ORIGINAL error, unmasked.
+    // The failed release leaves the slot HELD — the documented crash-safety-net
+    // shape (the dead-holder reclaim frees it once this process exits).
+    expect((await foldWorktrees(armA)).inFlightMerges['integration/mask-error']).toBeDefined();
+    vi.restoreAllMocks();
+
+    // (b) SUCCESS path — sha sourcing itself throws post-merge: the successful
+    // merge result must survive unmasked, and NO contract-violating
+    // merged-without-sha release may be stored; the lease still terminates via
+    // the abnormal-termination shape (no wedged slot, no invalid raw event).
+    const armB = await createArm();
+    let headCalls = 0;
+    const result = await serializeMerge(
+      { featureId: 'F', integrationRef: 'integration/mask-success', sourceBranch: 'feat/x', strategy: 'merge', timeoutMs: 10_000 },
+      armB.ctx,
+      {
+        selfPid: 802,
+        selfStartedAt: 'self-802',
+        mergeOrchestrate: async () => ({ success: true, data: { phase: 'completed' } }), // no surfaced sha …
+        readIntegrationHead: () => {
+          headCalls += 1;
+          if (headCalls > 1) throw new Error('post-merge head read exploded'); // … and the fallback read throws.
+          return 'pre-merge-head';
+        },
+      },
+    );
+    expect(result.success).toBe(true); // the merge outcome, unmasked.
+    expect(headCalls).toBe(2); // pre-merge read + the throwing post-merge sourcing read.
+
+    const eventsB = await armB.eventStore.query(WORKTREES_STREAM);
+    const releases = eventsB.filter((e) => e.type === 'worktree.merge_executed');
+    expect(releases).toHaveLength(1);
+    // Every stored release honors the refined contract (merged ⇒ mergeSha) —
+    // the unnameable-sha release rode the abnormal-termination shape instead.
+    const releaseData = releases[0]!.data as Record<string, unknown>;
+    expect(() => MergeExecutedReleaseData.parse(releaseData)).not.toThrow();
+    expect(releaseData.status).toBe('aborted');
+    expect(releaseData.recoveryError).toBe('merge-sha-unresolved');
+    // The lease still terminated — no wedged slot.
+    expect((await foldWorktrees(armB)).inFlightMerges['integration/mask-success']).toBeUndefined();
   });
 });
 

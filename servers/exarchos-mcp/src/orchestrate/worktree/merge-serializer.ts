@@ -39,6 +39,7 @@ import type { ToolResult } from '../../format.js';
 import type { AtomicAppender } from '../../event-store/atomic-appender.js';
 import type { EventStore } from '../../event-store/store.js';
 import { ConcurrencyError, StorageBusyError } from '../../event-store/index.js';
+import { WorktreeMergeExecutedData } from '../../event-store/schemas.js';
 import { withStateRetry } from '../../workflow/state-retry.js';
 import {
   handleMergeOrchestrate,
@@ -185,38 +186,82 @@ function isHolderProvablyDead(
 // ─── Lease appends (CLAIM / RELEASE / dead-holder reclaim) ───────────────────
 
 /**
+ * Write-site ENFORCING contract for the RELEASE (#1633 item 2, step 2 of the
+ * two-step): `status: 'merged'` REQUIRES `mergeSha` — a merged release must
+ * name the resulting integration commit. Step 1 (threading a REAL sha into
+ * every merged release — composed `merge_orchestrate` result first, post-merge
+ * integration-HEAD read as fallback) lives in {@link serializeMerge}; only with
+ * that plumbing in place is this refinement safe to enforce (a bare refinement
+ * would have made sha-less merged releases fail the schema and re-open the
+ * invalid-raw-event class the #1631 fixes closed).
+ *
+ * It is applied HERE — at the serializer, the sole production writer of
+ * `worktree.merge_executed` — because the `decide`/append write-path does not
+ * validate `data`; validating at the emit seam ({@link appendMergeExecuted})
+ * closes the gap for every release site (normal, dead-holder reclaim,
+ * reconcile) without widening the shared schema catalog.
+ */
+export const MergeExecutedReleaseData = WorktreeMergeExecutedData.superRefine((data, ctx) => {
+  if (data.status === 'merged' && data.mergeSha === undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['mergeSha'],
+      message:
+        "mergeSha is required when status is 'merged' — a merged release must name the resulting integration commit",
+    });
+  }
+});
+
+/**
+ * Terminal release outcome — a DISCRIMINATED union so the merged⇒mergeSha
+ * contract is enforced at COMPILE time at every call site, mirroring the
+ * runtime {@link MergeExecutedReleaseData} guard (#1633 item 2).
+ */
+type MergeExecutedOutcome =
+  | { readonly status: 'merged'; readonly mergeSha: string }
+  | { readonly status: 'aborted' | 'failed'; readonly recoveryError?: string };
+
+/**
  * Terminal `worktree.merge_executed` as a PLAIN keyed append — keyed by
  * `<eventType>:<operationId>` for idempotency, but NOT CAS-pinned to any prior
  * sequence. Used for BOTH the normal release (caller's own `operationId`) and
  * dead-holder reclamation (the holder's ORIGINAL `operationId`), so two racing
  * reclaimers converge on ONE release and the reducer's `operationId` guard
  * correlates the release to exactly the claim it terminates.
+ *
+ * The payload is validated against {@link MergeExecutedReleaseData} BEFORE the
+ * append (the write-path itself does not validate `data`), so an out-of-contract
+ * release can never be stored as a raw event. A validation throw surfaces to the
+ * caller like any other append failure — every release site either guards it
+ * (the `finally` release, per-holder reconcile isolation) or can only emit
+ * trivially-valid non-merged payloads (dead-holder reclaim).
  */
 async function appendMergeExecuted(
   appender: AtomicAppender,
   merge: { integrationRef: string; operationId: string; worktreeId?: string | null },
-  outcome: {
-    status: 'merged' | 'aborted' | 'failed';
-    mergeSha?: string;
-    recoveryError?: string;
-  },
+  outcome: MergeExecutedOutcome,
 ): Promise<void> {
+  const data = {
+    integrationRef: merge.integrationRef,
+    operationId: merge.operationId,
+    status: outcome.status,
+    ...(outcome.status === 'merged' ? { mergeSha: outcome.mergeSha } : {}),
+    ...(outcome.status !== 'merged' && outcome.recoveryError != null
+      ? { recoveryError: outcome.recoveryError }
+      : {}),
+    ...(merge.worktreeId != null ? { worktreeId: merge.worktreeId } : {}),
+  };
+  // Enforce the release contract at the emit seam (merged ⇒ mergeSha).
+  MergeExecutedReleaseData.parse(data);
   await appender.append(
     WORKTREES_STREAM,
     [
       {
         type: 'worktree.merge_executed',
-        // Schema-conformant payload (WorktreeMergeExecutedData): `status` is
-        // REQUIRED; `sourceBranch` is NOT part of the release contract (it lives
-        // on the CLAIM) and the reducer correlates by integrationRef+operationId.
-        data: {
-          integrationRef: merge.integrationRef,
-          operationId: merge.operationId,
-          status: outcome.status,
-          ...(outcome.mergeSha != null ? { mergeSha: outcome.mergeSha } : {}),
-          ...(outcome.recoveryError != null ? { recoveryError: outcome.recoveryError } : {}),
-          ...(merge.worktreeId != null ? { worktreeId: merge.worktreeId } : {}),
-        },
+        // Schema-conformant payload (validated above): `status` is REQUIRED;
+        // `sourceBranch` is NOT part of the release contract (it lives on the
+        // CLAIM) and the reducer correlates by integrationRef+operationId.
+        data,
       },
     ],
     `worktree.merge_executed:${merge.operationId}`,
@@ -371,8 +416,15 @@ export async function serializeMerge(
   }
 
   const selfPid = deps.selfPid ?? process.pid;
+  // Reserve-path null modeling (#1633 item 1): an EXPLICIT `selfStartedAt: null`
+  // is a MODELED value — "this process's create-time is unresolvable" — not an
+  // absence. `??` would erase it and re-resolve against the process table,
+  // stamping a fingerprint the caller deliberately declined; only `undefined`
+  // (the seam not supplied at all) falls through to resolution.
   const selfStartedAt =
-    deps.selfStartedAt ?? resolveSelfStartedAt(selfPid, processSource);
+    deps.selfStartedAt !== undefined
+      ? deps.selfStartedAt
+      : resolveSelfStartedAt(selfPid, processSource);
 
   const appender = ctx.eventStore.getAppender();
   const operationId = randomUUID();
@@ -408,9 +460,16 @@ export async function serializeMerge(
   //
   // We hold the lease. RELEASE in `finally` so a thrown / failed merge never
   // wedges the slot (the dead-holder reclaim is only a crash safety net).
-  // `terminalStatus` records the truthful release disposition; it stays 'failed'
-  // if the merge throws (the honest terminal for a wedged-then-reclaimed slot).
-  let terminalStatus: 'merged' | 'failed' = 'failed';
+  // `terminalOutcome` records the truthful release disposition; it stays
+  // 'failed' if the merge throws (the honest terminal for a
+  // wedged-then-reclaimed slot). On success it carries the REAL `mergeSha`
+  // (#1633 item 2 step 1) — composed result first, post-merge integration-HEAD
+  // read as fallback — or, when the sha is genuinely unsourceable, the
+  // abnormal-termination shape ('aborted' + `merge-sha-unresolved`) so the
+  // stored release NEVER violates the merged⇒mergeSha contract while the slot
+  // still terminates (no wedge). The caller's ToolResult is unaffected either
+  // way — the release disposition is event-log bookkeeping, not the result.
+  let terminalOutcome: MergeExecutedOutcome = { status: 'failed' };
   try {
     const integrationHead = readIntegrationHead(input);
     const mergeResult = await mergeOrchestrate(
@@ -435,7 +494,11 @@ export async function serializeMerge(
     // serializer's own lease metadata under a dedicated key so the composed
     // per-featureId `merge.*` events are byte-identical to a direct call.
     if (mergeResult.success) {
-      terminalStatus = 'merged';
+      const mergeSha = resolveReleaseMergeSha(mergeResult, readIntegrationHead, input);
+      terminalOutcome =
+        mergeSha !== null
+          ? { status: 'merged', mergeSha }
+          : { status: 'aborted', recoveryError: 'merge-sha-unresolved' };
       return {
         ...mergeResult,
         data: {
@@ -451,18 +514,57 @@ export async function serializeMerge(
     return mergeResult;
   } finally {
     // ─── 5. RELEASE — plain keyed append (NOT CAS-pinned to the claim seq) ──
-    // Best-effort: a failed release leaves a stuck slot the dead-holder
-    // reclaim path clears once this process exits; surfacing it here would
-    // mask the merge's own result/error.
+    // FINALLY-MASK GUARD (#1633 item 3): EVERY release-path effect — the
+    // write-site schema validation inside `appendMergeExecuted` and the append
+    // itself — runs inside this try/catch, and sha sourcing is internally
+    // guarded in `resolveReleaseMergeSha`, so a release-path throw can NEVER
+    // shadow the `try` block's own outcome (a thrown merge error stays the
+    // caller's error; a successful merge result is still returned). Best-effort
+    // by design: a failed release leaves a stuck slot the dead-holder reclaim
+    // path clears once this process exits; surfacing it here would mask the
+    // merge's own result/error.
     try {
       await appendMergeExecuted(
         appender,
         { integrationRef: input.integrationRef, operationId },
-        { status: terminalStatus },
+        terminalOutcome,
       );
     } catch {
-      /* best-effort release — see note above */
+      /* best-effort release — see the finally-mask guard note above */
     }
+  }
+}
+
+/**
+ * Source the resulting integration commit SHA for a MERGED release (#1633
+ * item 2 step 1). Preference order:
+ *
+ *   1. the composed `merge_orchestrate` result's own `mergeSha` (the executor's
+ *      recorded merge commit — authoritative on every real fresh-run success);
+ *   2. a fresh post-merge read of the integration HEAD — under the still-held
+ *      lease we are the ref's ONLY writer, so HEAD names OUR merge commit
+ *      (covers composed results that do not surface a sha, e.g. the
+ *      already-applied idempotent path).
+ *
+ * Internally guarded (finally-mask doctrine, #1633 item 3): sha sourcing must
+ * never turn a successful merge into a thrown error, so a throwing HEAD read
+ * yields `null` — the caller then releases via the abnormal-termination shape
+ * rather than storing a contract-violating merged-without-sha event.
+ */
+function resolveReleaseMergeSha(
+  mergeResult: ToolResult,
+  readIntegrationHead: (input: SerializeMergeInput) => string | null,
+  input: SerializeMergeInput,
+): string | null {
+  const surfaced = (mergeResult.data as { mergeSha?: unknown } | undefined)?.mergeSha;
+  if (typeof surfaced === 'string' && surfaced.length > 0) {
+    return surfaced;
+  }
+  try {
+    const head = readIntegrationHead(input);
+    return head !== null && head.length > 0 ? head : null;
+  } catch {
+    return null;
   }
 }
 
