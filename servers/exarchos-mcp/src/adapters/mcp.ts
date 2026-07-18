@@ -19,6 +19,10 @@ import { logger } from '../logger.js';
 import { EventSourcedTaskStore } from '../task-store/event-sourced-task-store.js';
 import type { NextAction } from '../next-action.js';
 import type { ToolResult } from '../format.js';
+import { ErrorCode } from '../workflow/schemas.js';
+import type { ErrorCodeValue } from '../workflow/types.js';
+import { TELEMETRY_STREAM } from '../core/infra-streams.js';
+import type { EventStore } from '../event-store/store.js';
 
 // ─── DR-6: onboard CLI/MCP parity split — surface stamp + advisory carrier ───
 //
@@ -212,6 +216,194 @@ export function toMcpResult(env: Envelope<unknown> | ErrorEnvelope) {
     isError: env.success === false,
   };
 }
+
+// ─── DR-9 (#1278): JSON-RPC error model — ErrorCode → -32xxx mapping ────────
+//
+// MCP 2025-11-25 says servers SHOULD attach `_meta.errorCode` and use the
+// JSON-RPC `-32xxx` code range so models reading `tools/call` results can
+// programmatically distinguish "I sent bad input" from "the server crashed".
+// Pre-DR-9 every Exarchos tool error rode `isError: true` with the structured
+// `error.code` embedded in JSON text — JSON-RPC saw one undifferentiated
+// server fault.
+//
+// This section is the single source of truth for the mapping (DIM-1): one
+// pure function (`toJsonRpcErrorCode`), exhaustive at the TYPE level over the
+// registered `ErrorCode` taxonomy (`Record<ErrorCodeValue, …>` — adding a new
+// ErrorCode without a mapping fails typecheck), plus explicit entries for the
+// well-known boundary-minted codes (dispatch core + `wrapError` envelope
+// codes) and a documented `-32603` default fallback for everything else
+// (issue #1278 acceptance).
+//
+// Scope note (bundle spec DR-9 vs issue #1278 item 2): the issue sketched
+// routing INVALID_INPUT / RESERVED_FIELD through the SDK's JSON-RPC protocol
+// throw path. The v2-12 bundle spec deliberately narrowed that to
+// "map + stamp `_meta`, zero handler changes (adapter-only per INV-2)": a
+// protocol throw would DROP the structured envelope (validTargets,
+// suggestedFix, expectedShape) on the MCP surface while the CLI kept it —
+// breaking exactly the envelope parity INV-2 demands and hiding the error
+// from the model (MCP tool-execution errors SHOULD be in-result so the LLM
+// can see them). The numeric mapping instead rides `_meta.jsonRpcCode`
+// alongside `_meta.errorCode` on the error envelope.
+
+/** JSON-RPC 2.0 reserved codes used by the DR-9 mapping. */
+export const JSON_RPC_ERROR_CODES = {
+  /** -32601 — the addressed thing does not exist (unknown tool/action/state). */
+  METHOD_NOT_FOUND: -32601,
+  /** -32602 — the caller sent bad input; fix the params and retry. */
+  INVALID_PARAMS: -32602,
+  /** -32603 — server-side fault or recoverable persistence failure. */
+  INTERNAL_ERROR: -32603,
+  /** -32000 — implementation-defined application error (domain refusal). */
+  APPLICATION_ERROR: -32000,
+} as const;
+
+export type JsonRpcErrorCode =
+  (typeof JSON_RPC_ERROR_CODES)[keyof typeof JSON_RPC_ERROR_CODES];
+
+// Exhaustive over the registered taxonomy (workflow/schemas.ts:ErrorCode).
+// The Record type makes exhaustiveness a COMPILE-TIME guarantee: a new
+// ErrorCode entry without a row here fails `npm run typecheck`.
+const ERROR_CODE_TO_JSON_RPC: Record<ErrorCodeValue, JsonRpcErrorCode> = {
+  // -32602 InvalidParams — caller-fixable input problems.
+  [ErrorCode.INVALID_INPUT]: JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+  [ErrorCode.RESERVED_FIELD]: JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+  [ErrorCode.STATE_ALREADY_EXISTS]: JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+  // -32601 MethodNotFound — the addressed workflow does not exist.
+  [ErrorCode.STATE_NOT_FOUND]: JSON_RPC_ERROR_CODES.METHOD_NOT_FOUND,
+  // -32000 application errors — domain-level refusals: the input was
+  // well-formed but the workflow's current state forbids the operation.
+  [ErrorCode.INVALID_TRANSITION]: JSON_RPC_ERROR_CODES.APPLICATION_ERROR,
+  [ErrorCode.GUARD_FAILED]: JSON_RPC_ERROR_CODES.APPLICATION_ERROR,
+  [ErrorCode.CIRCUIT_OPEN]: JSON_RPC_ERROR_CODES.APPLICATION_ERROR,
+  [ErrorCode.PHASE_BLOCKED]: JSON_RPC_ERROR_CODES.APPLICATION_ERROR,
+  [ErrorCode.ALREADY_CANCELLED]: JSON_RPC_ERROR_CODES.APPLICATION_ERROR,
+  [ErrorCode.ALREADY_COMPLETED]: JSON_RPC_ERROR_CODES.APPLICATION_ERROR,
+  // -32603 InternalError — substrate faults and recoverable persistence
+  // failures (the caller cannot fix these by changing the params).
+  [ErrorCode.STATE_CORRUPT]: JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
+  [ErrorCode.MIGRATION_FAILED]: JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
+  [ErrorCode.COMPENSATION_PARTIAL]: JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
+  [ErrorCode.FILE_IO_ERROR]: JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
+  [ErrorCode.EVENT_APPEND_FAILED]: JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
+  [ErrorCode.VERSION_CONFLICT]: JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
+  [ErrorCode.EVENT_MIGRATION_FAILED]: JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
+  [ErrorCode.EVENT_STORE_NOT_CONFIGURED]: JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
+  [ErrorCode.SNAPSHOT_WRITE_FAILED]: JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
+  [ErrorCode.PROJECTION_REPLAY_FAILED]: JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
+};
+
+// Boundary-minted codes that never enter the workflow taxonomy: the dispatch
+// core's own rejections (core/dispatch.ts) and the `wrapError` envelope codes
+// (format.ts). Explicit rows so their mapping is deterministic-by-contract
+// rather than falling through the default.
+const BOUNDARY_CODE_TO_JSON_RPC: Record<string, JsonRpcErrorCode> = {
+  MISSING_ACTION: JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+  UNKNOWN_ACTION: JSON_RPC_ERROR_CODES.METHOD_NOT_FOUND,
+  UNKNOWN_TOOL: JSON_RPC_ERROR_CODES.METHOD_NOT_FOUND,
+  CAPABILITY_DENIED: JSON_RPC_ERROR_CODES.APPLICATION_ERROR,
+  COMPOSITE_LOAD_FAILED: JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
+  INTERNAL_ERROR: JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
+  // Recoverable persistence conflicts — grouped with VERSION_CONFLICT per
+  // the issue's mapping sketch ("recoverable" → -32603).
+  CONCURRENCY_CONFLICT: JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
+  STORAGE_BUSY: JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
+};
+
+function isErrorCodeValue(code: string): code is ErrorCodeValue {
+  return Object.prototype.hasOwnProperty.call(ERROR_CODE_TO_JSON_RPC, code);
+}
+
+/**
+ * Map an Exarchos structured `error.code` to its JSON-RPC `-32xxx` code.
+ *
+ * Deterministic and total: taxonomy codes resolve via the type-exhaustive
+ * map, well-known boundary codes via the supplementary map, and any other
+ * handler-domain code falls back to `-32603` (issue #1278 acceptance:
+ * "default fallback to -32603").
+ */
+export function toJsonRpcErrorCode(code: string): JsonRpcErrorCode {
+  if (isErrorCodeValue(code)) {
+    return ERROR_CODE_TO_JSON_RPC[code];
+  }
+  return BOUNDARY_CODE_TO_JSON_RPC[code] ?? JSON_RPC_ERROR_CODES.INTERNAL_ERROR;
+}
+
+/**
+ * Stamp the DR-9 `_meta` error markers onto an error envelope:
+ * `_meta.errorCode` (the Exarchos structured code, per the MCP 2025-11-25
+ * SHOULD) and `_meta.jsonRpcCode` (its deterministic `-32xxx` mapping).
+ *
+ * Non-mutating; the `error` block is untouched so the CLI↔MCP envelope
+ * parity contract (INV-2 — same `error.code` for the same failure on both
+ * surfaces) is preserved by construction: the stamp is derived FROM
+ * `error.code`, never a second opinion about it.
+ */
+export function stampJsonRpcErrorMeta(env: ErrorEnvelope): ErrorEnvelope {
+  return {
+    ...env,
+    _meta: {
+      ...env._meta,
+      errorCode: env.error.code,
+      jsonRpcCode: toJsonRpcErrorCode(env.error.code),
+    },
+  };
+}
+
+/**
+ * Append `dispatch.error_surfaced` for a surfaced error envelope (DR-9 /
+ * audit §17.2 reconstructability): `{operationId, code, jsonRpcCode, action}`
+ * on the `telemetry` stream, alongside the `tool.*` family, so telemetry
+ * views attribute failures by category without parsing prose.
+ *
+ * `operationId` is read from the envelope's `_meta` because the dispatch
+ * AsyncLocalStorage context has already unwound by the time the adapter
+ * boundary sees the result — `stampWithDispatchContext` cannot recover it.
+ * Best-effort: an append failure is swallowed (audit drop) and never blocks
+ * or reshapes the error response.
+ */
+async function emitDispatchErrorSurfaced(
+  eventStore: EventStore,
+  env: ErrorEnvelope,
+  args: Record<string, unknown>,
+): Promise<void> {
+  const operationId =
+    typeof env._meta.operationId === 'string' ? env._meta.operationId : undefined;
+  const action =
+    typeof args.action === 'string' && args.action.length > 0 ? args.action : undefined;
+  await eventStore
+    .append(TELEMETRY_STREAM, {
+      type: 'dispatch.error_surfaced',
+      data: {
+        ...(operationId !== undefined ? { operationId } : {}),
+        code: env.error.code,
+        jsonRpcCode: toJsonRpcErrorCode(env.error.code),
+        ...(action !== undefined ? { action } : {}),
+      },
+    })
+    .catch(() => { /* audit drop — non-fatal, never block the error response */ });
+}
+
+/**
+ * DR-9 error-surfacing seam: on an error envelope, stamp the `_meta`
+ * markers and emit `dispatch.error_surfaced`; success envelopes pass
+ * through untouched. Applied to BOTH mcpHandler return paths (structured
+ * dispatch failures AND the unhandled-throw fallback) so every surfaced
+ * error carries the mapping and lands in the audit trail.
+ */
+async function surfaceErrorEnvelope(
+  env: Envelope<unknown> | ErrorEnvelope,
+  eventStore: EventStore,
+  args: Record<string, unknown>,
+): Promise<Envelope<unknown> | ErrorEnvelope> {
+  if (env.success !== false) return env;
+  // `success === false` uniquely identifies the ErrorEnvelope branch of the
+  // union at runtime; the cast mirrors `envelopeToToolResult` (cli-format.ts)
+  // — `Envelope<T>.success` is typed `boolean` so TS cannot narrow it.
+  const stamped = stampJsonRpcErrorMeta(env as ErrorEnvelope);
+  await emitDispatchErrorSurfaced(eventStore, stamped, args);
+  return stamped;
+}
+
 // Server identity constants. These must stay in lock-step with the canonical
 // SERVER_NAME / SERVER_VERSION exports in src/index.ts — task 1.6's compiled
 // binary integration test asserts that the version advertised over MCP's
@@ -531,8 +723,11 @@ export function createMcpServer(ctx: DispatchContext): McpServer {
           },
         });
         // Skip per-action validation on the unhandled-throw path — there is
-        // no action contract to enforce against an out-of-band crash.
-        return toMcpResult(env);
+        // no action contract to enforce against an out-of-band crash. The
+        // DR-9 error surface (stamp + dispatch.error_surfaced) still applies.
+        return toMcpResult(
+          await surfaceErrorEnvelope(env, dispatchCtx.eventStore, dispatchArgs),
+        );
       }
 
       // D.5 — per-action output schema enforcement. Looks up the action via
@@ -541,6 +736,11 @@ export function createMcpServer(ctx: DispatchContext): McpServer {
       // carrying the Zod issue list under `_meta.outputSchemaViolation` so
       // callers can self-diagnose contract drift without re-running.
       env = validateAgainstActionSchema(toolName, tool.actions, args, env);
+      // DR-9 (#1278) — on error envelopes (including a D.5 replacement
+      // envelope), stamp `_meta.errorCode` + `_meta.jsonRpcCode` and emit
+      // `dispatch.error_surfaced`. Runs AFTER validation so the stamp is
+      // applied to the envelope that actually goes over the wire.
+      env = await surfaceErrorEnvelope(env, dispatchCtx.eventStore, dispatchArgs);
       return toMcpResult(env);
     };
 

@@ -761,4 +761,195 @@ describe('createMcpServer', () => {
     const server = createMcpServer(slimCtx);
     expect(server).toBeDefined();
   });
+
+  // ─── DR-9 (#1278, v2-12 task 008): JSON-RPC error model ──────────────────
+  //
+  // The MCP adapter maps the Exarchos `ErrorCode` taxonomy to JSON-RPC
+  // `-32xxx` codes (one pure function, type-exhaustive over the taxonomy),
+  // stamps `_meta.errorCode` + `_meta.jsonRpcCode` on error envelopes at the
+  // adapter boundary (zero handler changes, INV-2), and emits
+  // `dispatch.error_surfaced {operationId, code, jsonRpcCode, action}` on the
+  // telemetry stream for every surfaced error.
+
+  it('ErrorCodeTaxonomy_EveryCode_MapsJsonRpc', async () => {
+    // Arrange
+    const { toJsonRpcErrorCode, JSON_RPC_ERROR_CODES } = await import('./mcp.js');
+    const { ErrorCode } = await import('../workflow/schemas.js');
+    const knownJsonRpcCodes = new Set<number>(Object.values(JSON_RPC_ERROR_CODES));
+
+    // Act + Assert — every registered taxonomy code maps deterministically to
+    // a known JSON-RPC code (no undefined for any entry; property test per
+    // issue #1278). Exhaustiveness is ALSO enforced at the type level
+    // (Record<ErrorCodeValue, JsonRpcErrorCode>) — this runtime sweep guards
+    // the map's VALUES and determinism.
+    for (const code of Object.values(ErrorCode)) {
+      const mapped = toJsonRpcErrorCode(code);
+      expect(typeof mapped, `${code} must map to a number`).toBe('number');
+      expect(knownJsonRpcCodes.has(mapped), `${code} → ${mapped} must be a known -32xxx code`).toBe(
+        true,
+      );
+      // Deterministic: same input, same output on repeat calls.
+      expect(toJsonRpcErrorCode(code)).toBe(mapped);
+    }
+
+    // Issue-pinned anchors (the #1278 mapping sketch).
+    expect(toJsonRpcErrorCode(ErrorCode.INVALID_INPUT)).toBe(-32602);
+    expect(toJsonRpcErrorCode(ErrorCode.RESERVED_FIELD)).toBe(-32602);
+    expect(toJsonRpcErrorCode(ErrorCode.STATE_ALREADY_EXISTS)).toBe(-32602);
+    expect(toJsonRpcErrorCode(ErrorCode.STATE_NOT_FOUND)).toBe(-32601);
+    expect(toJsonRpcErrorCode(ErrorCode.GUARD_FAILED)).toBe(-32000);
+    expect(toJsonRpcErrorCode(ErrorCode.INVALID_TRANSITION)).toBe(-32000);
+    expect(toJsonRpcErrorCode(ErrorCode.STATE_CORRUPT)).toBe(-32603);
+    expect(toJsonRpcErrorCode(ErrorCode.VERSION_CONFLICT)).toBe(-32603);
+
+    // Boundary-minted codes (dispatch core + wrapError envelopes) are
+    // deterministic-by-contract, not fallthrough.
+    expect(toJsonRpcErrorCode('UNKNOWN_ACTION')).toBe(-32601);
+    expect(toJsonRpcErrorCode('UNKNOWN_TOOL')).toBe(-32601);
+    expect(toJsonRpcErrorCode('MISSING_ACTION')).toBe(-32602);
+    expect(toJsonRpcErrorCode('CAPABILITY_DENIED')).toBe(-32000);
+    expect(toJsonRpcErrorCode('CONCURRENCY_CONFLICT')).toBe(-32603);
+    expect(toJsonRpcErrorCode('STORAGE_BUSY')).toBe(-32603);
+    expect(toJsonRpcErrorCode('INTERNAL_ERROR')).toBe(-32603);
+
+    // Default fallback for handler-domain codes outside both maps (#1278
+    // acceptance: "default fallback to -32603").
+    expect(toJsonRpcErrorCode('SOME_UNMAPPED_DOMAIN_CODE')).toBe(-32603);
+  });
+
+  it('CliMcpEnvelope_SameFailure_SameErrorCode', async () => {
+    // INV-2 envelope parity integration: the SAME failure driven through the
+    // CLI envelope seam and the real MCP adapter handler must carry the SAME
+    // errorCode. The CLI's `--format json` path is literally
+    // `toCliResult(toEnvelope(await dispatch(...)), 'json')` (adapters/cli.ts),
+    // which serializes the toEnvelope output verbatim — so `toEnvelope(await
+    // dispatch(...))` IS the CLI arm's envelope. The MCP arm goes through the
+    // registered mcpHandler (dispatch → toEnvelope → D.5 validation → DR-9
+    // stamp → toMcpResult).
+    const { toJsonRpcErrorCode } = await import('./mcp.js');
+    const failingArgs = {
+      action: 'transition',
+      featureId: 'dr9-parity-nonexistent-feature',
+      target: 'plan',
+    };
+
+    // CLI arm.
+    const cliEnv = toEnvelope(await dispatch('exarchos_workflow', failingArgs, ctx));
+    expect(cliEnv.success).toBe(false);
+    const cliError = (cliEnv as { error: { code: string } }).error;
+
+    // MCP arm — capture the registered handler and invoke it directly.
+    const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
+    const spy = vi.spyOn(McpServer.prototype, 'registerTool');
+    try {
+      const { createMcpServer } = await import('./mcp.js');
+      createMcpServer(ctx);
+      const call = spy.mock.calls.find(c => c[0] === 'exarchos_workflow');
+      expect(call).toBeDefined();
+      const handler = call![2] as (args: Record<string, unknown>) => Promise<unknown>;
+
+      // Act
+      const result = (await handler(failingArgs)) as {
+        structuredContent: {
+          success: boolean;
+          error: { code: string };
+          _meta: { errorCode?: string; jsonRpcCode?: number };
+        };
+        isError: boolean;
+      };
+
+      // Assert — same structured failure on both surfaces.
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent.success).toBe(false);
+      // The failure identity: transition on a nonexistent workflow surfaces
+      // the taxonomy's STATE_NOT_FOUND through BOTH facades.
+      expect(cliError.code).toBe('STATE_NOT_FOUND');
+      expect(result.structuredContent.error.code).toBe(cliError.code);
+      // DR-9 stamp: `_meta.errorCode` mirrors the canonical `error.code`
+      // (never a second opinion), and `_meta.jsonRpcCode` is its
+      // deterministic -32xxx mapping.
+      expect(result.structuredContent._meta.errorCode).toBe(cliError.code);
+      expect(result.structuredContent._meta.jsonRpcCode).toBe(
+        toJsonRpcErrorCode(cliError.code),
+      );
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('DispatchErrorSurfaced_OnError_Emitted', async () => {
+    // Arrange — capture the real mcpHandler; drive a failing call through it.
+    const { toJsonRpcErrorCode } = await import('./mcp.js');
+    const { TELEMETRY_STREAM } = await import('../core/infra-streams.js');
+    const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
+    const spy = vi.spyOn(McpServer.prototype, 'registerTool');
+    try {
+      const { createMcpServer } = await import('./mcp.js');
+      createMcpServer(ctx);
+      const call = spy.mock.calls.find(c => c[0] === 'exarchos_workflow');
+      const handler = call![2] as (args: Record<string, unknown>) => Promise<unknown>;
+
+      // Act — surfaced error (transition on a nonexistent workflow).
+      const result = (await handler({
+        action: 'transition',
+        featureId: 'dr9-emit-nonexistent-feature',
+        target: 'plan',
+      })) as {
+        structuredContent: {
+          error: { code: string };
+          _meta: { operationId?: string };
+        };
+        isError: boolean;
+      };
+      expect(result.isError).toBe(true);
+
+      // Assert — the DR-9 audit event landed on the telemetry stream with
+      // the #1278 payload contract {operationId, code, jsonRpcCode, action}.
+      const events = await ctx.eventStore.query(TELEMETRY_STREAM);
+      const surfaced = events.filter(e => e.type === 'dispatch.error_surfaced');
+      expect(surfaced).toHaveLength(1);
+      const data = surfaced[0]!.data as {
+        operationId?: string;
+        code: string;
+        jsonRpcCode: number;
+        action?: string;
+      };
+      expect(data.code).toBe(result.structuredContent.error.code);
+      expect(data.jsonRpcCode).toBe(toJsonRpcErrorCode(data.code));
+      expect(data.action).toBe('transition');
+      // The dispatch boundary minted a correlation block; the adapter reads
+      // `_meta.operationId` from the envelope (the ALS dispatch context has
+      // already unwound at the adapter boundary) and threads it into data so
+      // the failure is reconstructable from the event stream alone.
+      expect(typeof data.operationId).toBe('string');
+      expect(data.operationId!.length).toBeGreaterThan(0);
+      expect(data.operationId).toBe(result.structuredContent._meta.operationId);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('DispatchErrorSurfaced_OnSuccess_NotEmitted', async () => {
+    // Regression guard — the DR-9 seam must be error-only: a successful
+    // dispatch through the same handler must NOT append the audit event.
+    const { TELEMETRY_STREAM } = await import('../core/infra-streams.js');
+    const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
+    const spy = vi.spyOn(McpServer.prototype, 'registerTool');
+    try {
+      const { createMcpServer } = await import('./mcp.js');
+      createMcpServer(ctx);
+      const call = spy.mock.calls.find(c => c[0] === 'exarchos_view');
+      const handler = call![2] as (args: Record<string, unknown>) => Promise<unknown>;
+
+      // Act — `pipeline` succeeds against an empty store.
+      const result = (await handler({ action: 'pipeline' })) as { isError: boolean };
+      expect(result.isError).toBe(false);
+
+      // Assert
+      const events = await ctx.eventStore.query(TELEMETRY_STREAM);
+      expect(events.filter(e => e.type === 'dispatch.error_surfaced')).toHaveLength(0);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
