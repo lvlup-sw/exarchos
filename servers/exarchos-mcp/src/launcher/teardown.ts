@@ -71,6 +71,10 @@ import {
 } from '../orchestrate/worktree/pure/path-containment.js';
 import { emitLaunchExecuted } from './liveness.js';
 import {
+  finalizeLaunchWorkspace,
+  type LaunchContractBinding,
+} from './contract.js';
+import {
   recoverPendingCreations,
   type RecoveredCreation,
 } from './create-worktree.js';
@@ -147,6 +151,18 @@ export interface TeardownContext {
   readonly exitCode: number | null;
   /** Idempotent Task-006 terminal emitter; defaults to {@link emitLaunchExecuted}. */
   readonly emitExecuted?: EmitExecutedFn;
+  /**
+   * DR-13 launch contract binding — present iff the launch carried a typed
+   * spawn envelope. When present, teardown finalizes the workspace right after
+   * the guaranteed terminal: the envelope is RE-validated (the contract is
+   * checked at both boundaries), the final `{treeHash, dirty}` is observed via
+   * a pure read (never destructive — INV-14), and the paired
+   * `worktree.finalized` terminal is emitted on the contract stream
+   * (idempotency-keyed, at-most-once across signal + teardown paths). It runs
+   * BEFORE the safety gates below so the lifecycle terminal pair is complete
+   * on every catchable path, even when the release is later refused.
+   */
+  readonly contract?: LaunchContractBinding;
 }
 
 /** Injectable dependencies for {@link teardownLaunch} / {@link makeLifecycleTeardown}. */
@@ -190,6 +206,14 @@ export interface TeardownOutcome {
   readonly exitCode: number | null;
   /** True iff THIS teardown appended the terminal (false ⇒ a signal path already did). */
   readonly terminalAppended: boolean;
+  /**
+   * DR-13: present iff the launch carried a contract binding — true when the
+   * `worktree.finalized` terminal is durably present after this pass (freshly
+   * appended, or collapsed onto an earlier append by the idempotency key);
+   * false when the emission was refused (envelope failed teardown-boundary
+   * re-validation).
+   */
+  readonly finalized?: boolean;
   /** True iff the reservation was cleanly released. */
   readonly released: boolean;
   /** INV-14 discriminator on an unclean release; absent on a clean teardown. */
@@ -226,7 +250,27 @@ export async function teardownLaunch(
 
   // ── (1) Guaranteed terminal — FIRST, on every catchable path, idempotent. ──
   const terminal = await emitExecuted(eventStore, { worktreeId, exitCode });
-  const base = { worktreeId, exitCode, terminalAppended: terminal.appended };
+
+  // ── (1b) DR-13 contract finalize — right after the terminal, BEFORE the
+  //     safety gates, so the `worktree.created`/`worktree.finalized` lifecycle
+  //     pair completes on every catchable path (even a later refused release).
+  //     Re-validates the envelope at the teardown boundary; observes the final
+  //     `{treeHash, dirty}` via a pure read (never destructive — INV-14);
+  //     idempotency-keyed so a signal path and this path persist ONE row. ──
+  const finalize =
+    ctx.contract !== undefined
+      ? await finalizeLaunchWorkspace(eventStore, ctx.contract, {
+          worktreeId,
+          worktreePath,
+          exitCode,
+        })
+      : undefined;
+  const base = {
+    worktreeId,
+    exitCode,
+    terminalAppended: terminal.appended,
+    ...(finalize !== undefined ? { finalized: finalize.emitted } : {}),
+  };
 
   // ── (2) Fail-closed safety gate: non-git target / unreachable origin. The
   //     origin-reachability probe is AWAITED through the async, NON-BLOCKING
@@ -287,6 +331,9 @@ export function makeLifecycleTeardown(deps: TeardownDeps = {}): LifecycleTeardow
         worktreePath: lifecycleCtx.worktreePath,
         exitCode: lifecycleCtx.exitCode,
         emitExecuted: lifecycleCtx.emitExecuted,
+        // DR-13: thread the contract binding so the teardown finalizes the
+        // workspace (envelope re-validated, `worktree.finalized` emitted).
+        ...(lifecycleCtx.contract !== undefined ? { contract: lifecycleCtx.contract } : {}),
       },
       deps,
     );

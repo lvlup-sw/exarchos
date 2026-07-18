@@ -79,6 +79,17 @@ import {
   emitLaunchExecuted,
   type EmitLaunchExecutedResult,
 } from './liveness.js';
+import {
+  parseLaunchEnvelope,
+  verifyLaunchWorkspace,
+  emitLaunchWorktreeCreated,
+  finalizeLaunchWorkspace,
+  LAUNCH_ENVELOPE_EXPECTED_SHAPE,
+  type LaunchContractBinding,
+  type LaunchWorkspaceVerification,
+  type WorkspaceProbe,
+} from './contract.js';
+import { WORKTREES_STREAM } from '../orchestrate/worktree/manager.js';
 import type {
   CreateLauncherWorktreeDeps,
   CreateLauncherWorktreeResult,
@@ -121,6 +132,16 @@ export interface LifecycleTeardownContext {
   readonly exitCode: number | null;
   /** The idempotent Task-006 terminal emitter (guaranteed at-most-once). */
   readonly emitExecuted: EmitExecutedFn;
+  /**
+   * DR-13 launch contract binding — present iff the launch carried a typed
+   * spawn envelope that passed validation + tree-hash verification. A teardown
+   * seam that honors the contract (the {@link defaultTeardown} here and
+   * `teardown.ts#teardownLaunch`) finalizes the workspace through it: the
+   * envelope is RE-validated at the teardown boundary and the paired
+   * `worktree.finalized` terminal is emitted (idempotency-keyed, so signal +
+   * teardown paths collapse to one row).
+   */
+  readonly contract?: LaunchContractBinding;
 }
 
 /**
@@ -132,7 +153,10 @@ export type LifecycleTeardown = (ctx: LifecycleTeardownContext) => Promise<void>
 
 /**
  * Default teardown: emit the guaranteed `launch.executed` terminal through the
- * idempotent Task-006 seam. Kept minimal on purpose — later tasks compose extra
+ * idempotent Task-006 seam, then — when the launch carried a DR-13 contract —
+ * finalize the workspace (re-validate the envelope, observe `{treeHash,
+ * dirty}` via a pure read, emit the paired `worktree.finalized` terminal;
+ * never destructive). Kept minimal on purpose — later tasks compose extra
  * teardown-safety edges around it, they do not replace this emit.
  */
 export async function defaultTeardown(ctx: LifecycleTeardownContext): Promise<void> {
@@ -140,6 +164,13 @@ export async function defaultTeardown(ctx: LifecycleTeardownContext): Promise<vo
     worktreeId: ctx.worktreeId,
     exitCode: ctx.exitCode,
   });
+  if (ctx.contract !== undefined) {
+    await finalizeLaunchWorkspace(ctx.eventStore, ctx.contract, {
+      worktreeId: ctx.worktreeId,
+      worktreePath: ctx.worktreePath,
+      exitCode: ctx.exitCode,
+    });
+  }
 }
 
 // ============================================================
@@ -479,6 +510,26 @@ export interface RunLifecycleDeps {
    * seams (or `{ disabled: true }`).
    */
   readonly orientation?: OrientationInjectionDeps;
+  /**
+   * DR-13 typed spawn envelope (untrusted; `workspaceRef` / `rehydrationDoc` /
+   * `posture`). When present the launch runs under the spawn/teardown contract:
+   * the envelope is validated FAIL-CLOSED before anything is created, the
+   * materialized worktree's tree-hash is verified against
+   * `workspaceRef.{treeHash,projectionSequence}` (the DR-16 fingerprint — a
+   * mismatch refuses the spawn with a structured error), `worktree.created` /
+   * `worktree.finalized` lifecycle events land on the launch's workflow stream
+   * (`params.feature`, or the singleton worktrees stream for an unattached
+   * launch), the worktree is materialized at `workspaceRef.commit` (unless
+   * {@link startPoint} overrides), and `rehydrationDoc` becomes the default
+   * orientation-injection content. Absent → the pre-DR-13 behavior, unchanged.
+   */
+  readonly envelope?: unknown;
+  /**
+   * DR-13 workspace-observation probe (tree-hash + dirty), used for both the
+   * spawn-boundary verification and the teardown finalize. Defaults to the
+   * real git probe; injected in tests for determinism.
+   */
+  readonly workspaceProbe?: WorkspaceProbe;
 }
 
 /**
@@ -534,6 +585,32 @@ export async function runLifecycle(
   const processSource = deps.processSource ?? defaultProcessSource;
   const wlm = deps.wlm ?? createLauncherWlm({ ctx: deps.ctx });
 
+  // ── (0) DR-13: validate the typed spawn envelope FIRST — fail closed. ──────
+  // Nothing is created against an invalid envelope: the refusal is a structured
+  // INV-5b error carrying the documented shape, before any side effect.
+  let contract: LaunchContractBinding | undefined;
+  if (deps.envelope !== undefined) {
+    const parsed = parseLaunchEnvelope(deps.envelope);
+    if (!parsed.ok) {
+      return {
+        success: false,
+        error: {
+          code: 'LAUNCH_ENVELOPE_INVALID',
+          message: `DR-13 spawn envelope rejected (fail-closed): ${parsed.issues.join('; ')}`,
+          expectedShape: LAUNCH_ENVELOPE_EXPECTED_SHAPE,
+        },
+      };
+    }
+    contract = {
+      envelope: parsed.envelope,
+      // The contract lifecycle events land on the launch's WORKFLOW stream so
+      // `inspect` surfaces them; an unattached launch falls back to the
+      // singleton worktrees stream (they are never dropped).
+      streamId: params.feature ?? WORKTREES_STREAM,
+      ...(deps.workspaceProbe !== undefined ? { probe: deps.workspaceProbe } : {}),
+    };
+  }
+
   // ── (1) Resolve the declarative descriptor. ────────────────────────────────
   const resolution = resolveHarnessFn(params.harness);
   if (!resolution.success) {
@@ -552,13 +629,16 @@ export async function runLifecycle(
   const holderStartedAt =
     deps.holderStartedAt ?? resolveHolderStartedAt(holderPid, processSource);
 
+  // DR-13: a contract launch materializes the workspace AT `workspaceRef.commit`
+  // (an explicit `deps.startPoint` still wins — it is the narrower override).
+  const startPoint = deps.startPoint ?? contract?.envelope.workspaceRef.commit;
   const created = await wlm.createWorktree(
     {
       baseWorktree: params.base,
       id: params.worktreeId,
       featureId: params.feature,
       ...(deps.newBranch !== undefined ? { newBranch: deps.newBranch } : {}),
-      ...(deps.startPoint !== undefined ? { startPoint: deps.startPoint } : {}),
+      ...(startPoint !== undefined ? { startPoint } : {}),
       ...(deps.repoRoot !== undefined ? { repoRoot: deps.repoRoot } : {}),
     },
     {
@@ -572,6 +652,28 @@ export async function runLifecycle(
   }
   const { worktreeId, worktreePath } = created;
 
+  // ── (2b) DR-13: fail-closed tree-hash verification + spawn lifecycle event. ─
+  // A contract launch must NEVER spawn against an unverified workspace: the
+  // materialized tree is probed and compared against the envelope's
+  // workspaceRef fingerprint via the DR-16 drift detector. Any non-match —
+  // drift OR an unprobeable tree — refuses the spawn with a structured error
+  // BEFORE the liveness claim, so no unpaired claim/terminal is minted. The
+  // created worktree is left intact (never destructive; the live launcher
+  // still owns the reservation, and the WLM dead-owner reconcile reclaims it
+  // once this process exits). On success the spawn-boundary `worktree.created`
+  // lands on the contract stream carrying the VERIFIED treeHash.
+  if (contract !== undefined) {
+    const verification = verifyLaunchWorkspace(
+      contract.envelope,
+      worktreePath,
+      contract.probe !== undefined ? { probe: contract.probe } : {},
+    );
+    if (!verification.ok) {
+      return treeHashFailureResult(verification, worktreePath);
+    }
+    await emitLaunchWorktreeCreated(eventStore, contract, { worktreeId, worktreePath });
+  }
+
   // ── (3) Place: overlay the descriptor cwd so the child runs IN the worktree. ─
   const placed: AsyncSpawnRequest = { ...resolution.descriptor, cwd: worktreePath };
 
@@ -579,17 +681,36 @@ export async function runLifecycle(
   // The channel is probed at spawn time (cached per process) and applied via the
   // injection seam. Any edge — missing content, none/failed channel, construction
   // throw — yields the unmodified descriptor + a degradation; the launch proceeds.
+  // DR-13: a contract launch injects its `rehydrationDoc` as the orientation
+  // content by default (the envelope's compiled session context reaches the
+  // child's native channel); an explicit `orientation.content` still wins.
+  const orientationDeps: OrientationInjectionDeps | undefined =
+    contract !== undefined
+      ? {
+          ...deps.orientation,
+          content: deps.orientation?.content ?? contract.envelope.rehydrationDoc,
+        }
+      : deps.orientation;
   const injection = resolveOrientationInjection(
     placed,
     resolution.descriptor.injection,
-    deps.orientation,
+    orientationDeps,
   );
   const descriptor = injection.descriptor;
 
   // The guaranteed-terminal-once teardown: memoized so the normal-exit path and
-  // the defensive `finally` collapse to a single teardown body invocation.
+  // the defensive `finally` collapse to a single teardown body invocation. A
+  // DR-13 contract launch threads its binding so the teardown seam finalizes
+  // the workspace (envelope re-validated, `worktree.finalized` emitted).
   const teardownOnce = once((exitCode: number | null) =>
-    teardown({ eventStore, worktreeId, worktreePath, exitCode, emitExecuted }),
+    teardown({
+      eventStore,
+      worktreeId,
+      worktreePath,
+      exitCode,
+      emitExecuted,
+      ...(contract !== undefined ? { contract } : {}),
+    }),
   );
 
   let exitCode: number | null = null;
@@ -785,4 +906,36 @@ function spawnFailureResult(err: unknown): ToolResult {
   const code = err instanceof SpawnError ? err.code : 'SPAWN_FAILED';
   const message = err instanceof Error ? err.message : String(err);
   return { success: false, error: { code, message } };
+}
+
+/**
+ * Map a failed DR-13 workspace verification to a structured fail-closed
+ * ToolResult. `LAUNCH_TREEHASH_MISMATCH` names both hashes so the refusal is
+ * self-diagnosing; `LAUNCH_WORKSPACE_UNVERIFIABLE` covers the unprobeable-tree
+ * arm (also fail-closed — an unverifiable workspace never hosts a session).
+ */
+function treeHashFailureResult(
+  verification: Extract<LaunchWorkspaceVerification, { ok: false }>,
+  worktreePath: string,
+): ToolResult {
+  if (verification.reason === 'tree-hash-mismatch') {
+    return {
+      success: false,
+      error: {
+        code: 'LAUNCH_TREEHASH_MISMATCH',
+        message:
+          `DR-13 fail-closed: materialized worktree '${worktreePath}' hashes to ` +
+          `'${verification.observedTreeHash}' but the spawn envelope pinned ` +
+          `'${verification.expectedTreeHash}' — no session spawns against an ` +
+          `unverified workspace (worktree left intact, nothing spawned)`,
+      },
+    };
+  }
+  return {
+    success: false,
+    error: {
+      code: 'LAUNCH_WORKSPACE_UNVERIFIABLE',
+      message: `DR-13 fail-closed: ${verification.detail} (worktree left intact, nothing spawned)`,
+    },
+  };
 }

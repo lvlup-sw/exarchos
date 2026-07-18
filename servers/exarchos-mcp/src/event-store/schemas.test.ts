@@ -660,7 +660,10 @@ describe('EventTypes', () => {
     //   INV-8 idempotency; export.requested carries the RESOLVED path intent before
     //   the zip write, export.executed carries the written bundle's content hash
     //   after, emitted `auto` by the `export` composite handler in task 013).
-    expect(EventTypes).toHaveLength(148);
+    // Bumped 148 → 149: DR-13 (#1644, v2-12 task 012) — worktree.finalized (the
+    //   launcher spawn/teardown contract's teardown-boundary terminal, paired
+    //   with the launcher-shaped worktree.created spawn event by worktreeId).
+    expect(EventTypes).toHaveLength(149);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');
@@ -1729,9 +1732,14 @@ describe('WorktreeCreatedData', () => {
     });
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.taskId).toBe('task-001');
-      expect(result.data.path).toBe('/tmp/.worktrees/wt-001');
-      expect(result.data.branch).toBe('feature/task-001');
+      // DR-13 made WorktreeCreatedData a union (task shape | launcher shape);
+      // a task payload parses through the TASK variant, whose fields we assert
+      // via toMatchObject (property access on the union type would not narrow).
+      expect(result.data).toMatchObject({
+        taskId: 'task-001',
+        path: '/tmp/.worktrees/wt-001',
+        branch: 'feature/task-001',
+      });
     }
   });
 
@@ -4208,18 +4216,20 @@ describe('WLM operational-core merge lease schemas', () => {
     expect(EventTypes).toContain('worktree.merge_executed');
   });
 
-  it('EventTypes_CountPins_148_AllThreeSites', () => {
+  it('EventTypes_CountPins_149_AllThreeSites', () => {
     // The single canonical count after adding the two operational-core merge
     // types (136 foundation → 138), main's `workflow.plan-revision` merged in
     // (138 → 139), the harness-launcher (DR-2) create pair + launch liveness
     // pair (139 → 143), the WLM slice 3 (DR-3) prune-run liveness pair
     // prune.executing_started / prune.executed (143 → 145), WLM-6 (DR-2)
-    // `workflow.plan-review-dispatched` (145 → 146), and the DR-6 (lifecycle-verbs
+    // `workflow.plan-review-dispatched` (145 → 146), the DR-6 (lifecycle-verbs
     // task 012) two-event `export` contract export.requested / export.executed
-    // (146 → 148). The pinned literal at ALL THREE toHaveLength sites (all in
-    // this file since the DR-22 co-location merged the former mirror suite in)
-    // must agree with this — a divergence means one pin was missed.
-    expect(EventTypes).toHaveLength(148);
+    // (146 → 148), and the DR-13 (#1644, v2-12 task 012) launcher-contract
+    // teardown terminal worktree.finalized (148 → 149). The pinned literal at
+    // ALL THREE toHaveLength sites (all in this file since the DR-22
+    // co-location merged the former mirror suite in) must agree with this — a
+    // divergence means one pin was missed.
+    expect(EventTypes).toHaveLength(149);
     // No duplicate slipped in while bumping the count.
     expect(new Set(EventTypes).size).toBe(EventTypes.length);
   });
@@ -5534,7 +5544,11 @@ describe('EventTypes', () => {
     // `export.executed` (result + content hash), the INV-13 two-event split for
     // the non-idempotent zip-bundle write, emitted `auto` by the `export`
     // composite handler (task 013), idempotency-keyed per INV-8.
-    expect(EventTypes).toHaveLength(148);
+    // DR-13 (#1644, v2-12 task 012): bumped 148 → 149 to include
+    // `worktree.finalized`, the launcher spawn/teardown contract's
+    // teardown-boundary terminal (paired with the launcher-shaped
+    // `worktree.created` spawn event by worktreeId).
+    expect(EventTypes).toHaveLength(149);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');
