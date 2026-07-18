@@ -1,12 +1,19 @@
 # Synthetic fixture (finding 7 decoy, evaluate-coverage): `validate-no-legacy`
 # is in `ci-gate.needs` and is NOT path-filtered, and its executable
 # `if [[ needs.validate-no-legacy.result =~ failure|cancelled ]]` guard has been
-# REMOVED. Left behind are two decoys a proximity scan would accept:
-#   1. an `echo` line that still prints `needs.validate-no-legacy.result`, and
-#   2. a prose comment naming "failure"/"cancelled" right beside it.
-# A 240-char window would find every token near the echo and FALSE-PASS; the
-# structural matcher only inspects `if [[ ... ]]` conditions, so it still trips
-# the EVALUATE-COVERAGE assertion.
+# REMOVED. Left behind are three decoys a looser scan would accept:
+#   1. an `echo` line that still prints `needs.validate-no-legacy.result`,
+#   2. a prose comment naming "failure"/"cancelled" right beside it, and
+#   3. an `echo '...'` STRING containing a full fake `if [[ ... ]]` condition
+#      naming `needs.validate-no-legacy.result` + `failure|cancelled` — never
+#      executed, just printed.
+# A 240-char window would find every token near the echo and FALSE-PASS on (1)
+# and (2). An `if`-matcher that isn't anchored to a line/command boundary would
+# ALSO false-pass on (3): it would extract the echoed string's `[[ ... ]]` text
+# as if it were a real, executable guard (CodeRabbit round 2, #1719 finding B).
+# The structural matcher anchors `if` to `^\s*if` (line start), so none of the
+# three decoys contribute a match, and it still trips the EVALUATE-COVERAGE
+# assertion.
 name: CI Fixture - Decoy Echo/Comment (Evaluate)
 on: push
 
@@ -40,4 +47,5 @@ jobs:
           if [[ "${{ needs.changes.result }}" =~ ^(failure|cancelled)$ ]]; then
             exit 1
           fi
+          echo 'if [[ "${{ needs.validate-no-legacy.result }}" =~ ^(failure|cancelled)$ ]]'
           echo "validate-no-legacy result is never inspected by a real guard"

@@ -130,13 +130,15 @@ const SPAWN_HELPER_RE = /utils[/\\]process\.ts$/;
 // is a genuine cross-platform path bug and STILL applies to tooling.
 // Scoped to the KNOWN CI-tooling roots ONLY — repo-root `scripts/` and
 // `servers/<name>/scripts/` (e.g. the DR-7 stryker-adapter, CI-only/Linux-only
-// per DR-7). A blanket "`scripts/` at any depth" match would also exempt a
-// SHIPPED runtime path such as `src/scripts/` or
-// `servers/*/src/scripts/`, letting a production dynamic-bin spawn bypass rule
-// 4 on directory name alone. Paths here are `path.relative(REPO_ROOT, file)`;
-// out-of-repo self-test fixtures carry a `../` prefix, so the `servers/…`
-// alternative uses a `(?:^|[/\\])` boundary rather than a hard `^` anchor.
-const CI_TOOLING_RE = /^scripts[/\\]|(?:^|[/\\])servers[/\\][^/\\]+[/\\]scripts[/\\]/;
+// per DR-7). Hard-anchored (`^`) on BOTH alternatives: a `(?:^|[/\\])`
+// boundary on the `servers/…` alternative (the pre-round-2 form) would match
+// at ANY depth — e.g. a SHIPPED runtime path such as `src/servers/foo/scripts/`
+// — wrongly exempting a production dynamic-bin spawn from rule 4 on directory
+// name alone (CodeRabbit round-2, #1719). The string tested against this
+// regex must therefore be the file's position relative to the SCAN ROOT, not
+// always `path.relative(REPO_ROOT, file)` — see the `ciToolingRel` comment at
+// the call site for why.
+const CI_TOOLING_RE = /^(?:scripts[/\\]|servers[/\\][^/\\]+[/\\]scripts[/\\])/;
 
 function main() {
   const args = parseArgs(process.argv.slice(2));
@@ -178,7 +180,21 @@ function main() {
     const isBench = /\.bench\.ts$/.test(file);
     // CI/build tooling under scripts/ is exempt from the dynamic-spawn rule for
     // the same reason as benches (dev/CI-only, fail-closed on spawn error).
-    const isCiTooling = CI_TOOLING_RE.test(path.relative(REPO_ROOT, file));
+    //
+    // CI_TOOLING_RE is now hard-anchored (`^`) so it only matches at the START
+    // of the string tested against it — that string must be the file's
+    // position in the tree the anchor is meant to describe. A real repo file
+    // is always a descendant of REPO_ROOT, so `path.relative(REPO_ROOT, file)`
+    // is that position (e.g. `servers/exarchos-mcp/scripts/stryker-adapter.mjs`).
+    // The self-test's synthetic fixtures pass `--src-root` OUTSIDE the repo (a
+    // mktemp dir standing in for "a repo subtree"), so their
+    // `path.relative(REPO_ROOT, file)` is a long, irrelevant `../…` climb — for
+    // those, `args.root` itself stands in for "repo root", so fall back to
+    // root-relative. `record()` above stays REPO_ROOT-relative always — that is
+    // purely for the human-readable violation path, not this anchor decision.
+    const repoRootRel = path.relative(REPO_ROOT, file);
+    const ciToolingRel = repoRootRel.startsWith('..') ? path.relative(args.root, file) : repoRootRel;
+    const isCiTooling = CI_TOOLING_RE.test(ciToolingRel);
 
     // 2 — non-portable module path (anywhere)
     for (const m of src.matchAll(URL_PATHNAME_RE)) {

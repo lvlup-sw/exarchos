@@ -122,6 +122,14 @@ function evaluateScript(workflow: Workflow): string {
  * clause from standing in for a removed guard: a `#`-comment naming a job +
  * "skipped", or `echo "job=${{ needs.job.result }}"`, is not an `if [[ ]]`
  * test and so never contributes a match.
+ *
+ * The `if` keyword is anchored to a line/command boundary (`^\s*if`, `m` flag)
+ * rather than matched anywhere in the joined text — otherwise a REMOVED guard
+ * whose tokens survive only inside an `echo '...'` string (e.g.
+ * `echo 'if [[ "${{ needs.job.result }}" =~ ^(failure|cancelled)$ ]]'`, a
+ * print statement, never executed) would still be picked up as if it were a
+ * real, executable `if [[ ]]` test, false-passing the coverage assertions
+ * (CodeRabbit round 2, #1719 finding B).
  */
 function extractIfConditions(script: string): string[] {
   const noComments = script
@@ -132,7 +140,7 @@ function extractIfConditions(script: string): string[] {
   // condition (the skip-guards) becomes one logical clause.
   const joined = noComments.replace(/\\\n/g, ' ');
   const conditions: string[] = [];
-  const re = /if\s+\[\[([\s\S]*?)\]\]/g;
+  const re = /^\s*if\s+\[\[([\s\S]*?)\]\]/gm;
   let m: RegExpExecArray | null;
   while ((m = re.exec(joined)) !== null) {
     conditions.push(m[1] as string);

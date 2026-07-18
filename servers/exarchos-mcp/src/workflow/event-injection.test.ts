@@ -671,18 +671,24 @@ describe('handleSet_MaxNoCoverageInjection', () => {
         noCoverage: 0,
       });
 
-      await handleSet(
+      const result = await handleSet(
         { featureId: 'noco-strip', phase: 'synthesize' },
         tmpDir,
         eventStore,
         enforceOpts(0),
       );
 
+      // Assert the transition actually SUCCEEDED before trusting the stripping
+      // check below — otherwise an early, unrelated failure could pass this
+      // invariant vacuously without ever exercising persistence (CodeRabbit
+      // round 2, #1719 finding C).
+      expect(result.success).toBe(true);
+
       // INV-1: the injected config budget is transient — never folded into state.
-      const raw = JSON.parse(
+      const raw: unknown = JSON.parse(
         await fs.readFile(path.join(tmpDir, 'noco-strip.state.json'), 'utf-8'),
       );
-      expect(raw._maxNoCoverage).toBeUndefined();
+      expect(raw).not.toHaveProperty('_maxNoCoverage');
     } finally {
       eventStore.close();
     }
