@@ -1030,4 +1030,65 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     expect(eventsOfType(store, 'worktree.remove.executed')).toHaveLength(0);
     expect((await projection(store)).worktrees[wtId]).toBeDefined();
   });
+
+  // ─── DR-17 (#1641): the finally-path terminal append never masks the primary ──
+
+  it('PruneFinally_ErrorPath_Unmasked', async () => {
+    // Double fault: the ladder throws (primary) AND the `prune.executed`
+    // terminal append in the `finally` ALSO throws. An unguarded `await` in a
+    // `finally` REPLACES the propagating exception, so the caller would see the
+    // append failure and lose the root cause. The guard must surface the
+    // PRIMARY ladder error, unmasked.
+    const primary = new Error('primary-ladder-failure');
+    const throwingProbe: GitWorktreeProbe = {
+      listWorktrees: () => {
+        throw primary; // step-0 adopt-gate → the ladder's first ground-truth read
+      },
+      verifyHead: () => {
+        throw new Error('unreachable — listWorktrees already threw');
+      },
+    };
+    const manager = new WorktreeManager({ eventStore: store, gitProbe: throwingProbe });
+
+    // Sabotage ONLY the terminal append; the START (and everything else) is real.
+    const originalAppend = store.append.bind(store);
+    store.append = (async (streamId, event, options) => {
+      if ((event as { type?: string }).type === 'prune.executed') {
+        throw new Error('terminal-append-failure');
+      }
+      return originalAppend(streamId, event, options);
+    }) as typeof store.append;
+
+    await expect(manager.prune({ repoRoot: '/nonexistent' })).rejects.toThrow(
+      'primary-ladder-failure',
+    );
+
+    // The liveness pair is left OPEN (started, no terminal) — healed later by
+    // dead-holder reconciliation, never by masking the root cause.
+    expect(eventsOfType(store, 'prune.executing_started')).toHaveLength(1);
+    expect(eventsOfType(store, 'prune.executed')).toHaveLength(0);
+  });
+
+  it('PruneFinally_SuccessPath_TerminalAppendFailureStillSurfaces', async () => {
+    // The non-masking guard must NOT swallow unconditionally: when the ladder
+    // SUCCEEDS, a failed terminal append is the ONLY error and must surface —
+    // otherwise a silently-unpaired `prune.executing_started` would be reported
+    // as a clean pass.
+    const repo = await initRepo(path.join(workdir, 'repo-finally-ok'));
+    const manager = new WorktreeManager({ eventStore: store });
+
+    const originalAppend = store.append.bind(store);
+    store.append = (async (streamId, event, options) => {
+      if ((event as { type?: string }).type === 'prune.executed') {
+        throw new Error('terminal-append-failure');
+      }
+      return originalAppend(streamId, event, options);
+    }) as typeof store.append;
+
+    await expect(manager.prune({ repoRoot: repo })).rejects.toThrow(
+      'terminal-append-failure',
+    );
+    expect(eventsOfType(store, 'prune.executing_started')).toHaveLength(1);
+    expect(eventsOfType(store, 'prune.executed')).toHaveLength(0);
+  });
 });
