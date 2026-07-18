@@ -177,6 +177,22 @@ export function matchesWorkflowSummaryFilter(
 export interface StorageBackend {
   // Event operations
   appendEvent(streamId: string, event: WorkflowEvent): void;
+
+  /**
+   * Filtered event read. Applies the window filters
+   * (`type`/`types`/`sinceSequence`/`since`/`until`/correlation tuple), then
+   * `order` (DR-11 `'desc'` = newest-first), then pagination.
+   *
+   * Pagination contract (INV-2 backend parity — both backends MUST agree):
+   * `limit` and `offset` are honored INDEPENDENTLY, not only when supplied
+   * together. A limit-only call bounds the window (it does NOT return the full
+   * stream); an offset-only call skips `offset` rows from the ordered window
+   * start and returns the remainder; both compose with `order`. The
+   * shared-contract parity suite
+   * (`storage/__tests__/backend-contract.test.ts`) pins limit-only and
+   * offset-only equivalence across {@link SqliteBackend} and
+   * {@link InMemoryBackend}.
+   */
   queryEvents(streamId: string, filters?: QueryFilters): WorkflowEvent[];
 
   /**

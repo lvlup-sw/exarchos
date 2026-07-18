@@ -186,6 +186,51 @@ describe.each([
     expect(results[1]!.sequence).toBe(3);
   });
 
+  // ─── #1685 (v2-12 review fix) — limit-only / offset-only parity ──────────
+  //
+  // Regression pin for the INV-2 backend-parity contract: `limit` and
+  // `offset` must be honored INDEPENDENTLY on both backends, not only when
+  // supplied together. A limit-only call must bound the window (it must NOT
+  // silently return the full stream), and an offset-only call must skip from
+  // the ordered window start. These fixed expected sequences run once per
+  // backend via the parametric `describe.each` above, so any SQLite ↔
+  // in-memory divergence on the limit-only / offset-only paths fails here.
+  //
+  // The `order: 'desc'` (DR-11) variants pin the composition the review
+  // flagged: limit-only descending must carve the NEWEST window, not reverse
+  // the whole stream.
+  it('queryEvents_LimitOnly_BoundsWindowIdenticallyAcrossBackends', () => {
+    const b = setup();
+
+    for (const seq of [1, 2, 3, 4, 5]) {
+      b.appendEvent('stream-a', makeEvent({ sequence: seq }));
+    }
+
+    // Ascending: the first `limit` events — NOT the full stream.
+    const asc = b.queryEvents('stream-a', { limit: 2 });
+    expect(asc.map((e) => e.sequence)).toEqual([1, 2]);
+
+    // Descending (DR-11): the newest `limit` events.
+    const desc = b.queryEvents('stream-a', { limit: 2, order: 'desc' });
+    expect(desc.map((e) => e.sequence)).toEqual([5, 4]);
+  });
+
+  it('queryEvents_OffsetOnly_SkipsIdenticallyAcrossBackends', () => {
+    const b = setup();
+
+    for (const seq of [1, 2, 3, 4, 5]) {
+      b.appendEvent('stream-a', makeEvent({ sequence: seq }));
+    }
+
+    // Ascending: skip 2 from the window start, return the remainder.
+    const asc = b.queryEvents('stream-a', { offset: 2 });
+    expect(asc.map((e) => e.sequence)).toEqual([3, 4, 5]);
+
+    // Descending (DR-11): offset counts from the newest event.
+    const desc = b.queryEvents('stream-a', { offset: 2, order: 'desc' });
+    expect(desc.map((e) => e.sequence)).toEqual([3, 2, 1]);
+  });
+
   // ─── Wave 4 (#1437) — Correlation-tuple filter contract parity ───────────
 
   it('BackendContract_QueryEventsCorrelationFilter_IdenticalAcrossBackends', () => {
