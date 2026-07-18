@@ -213,7 +213,15 @@ jobs:
       # default working-directory is servers/exarchos-mcp; the script resolves
       # its own inputs from its location, not the cwd. DR-1 host class: deps,
       # filtered on `mcp`. See docs/guides/ci-gate-hosting.md.
+      # `if: !cancelled()` (not the implicit `success()`): the ratchet is
+      # EVIDENCE that must be captured even when the coverage suite above went
+      # red — vitest writes coverage-summary.json on failure too
+      # (reportOnFailure), so the ratchet still has a summary to inspect. A red
+      # suite already fails the job on its own step; running the ratchet anyway
+      # does not mask that (it can only ADD a reason), it just ensures the
+      # non-regression signal is never silently skipped after an unrelated flake.
       - name: Coverage ratchet — blocking (DR-5)
+        if: ${{ !cancelled() }}
         run: node "$GITHUB_WORKSPACE/scripts/check-coverage-ratchet.mjs"
 
       # DR-5: publish the coverage summary as a run artifact so task 009 can
@@ -221,6 +229,7 @@ jobs:
       # workspace-relative — upload-artifact ignores the job's run
       # default-directory.
       - name: Upload coverage summary (DR-5)
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: coverage-summary
@@ -237,7 +246,12 @@ jobs:
       # prompts-touching PRs exactly as before. DR-1 host class: deps, filtered
       # on `mcp`. See docs/guides/ci-gate-hosting.md.
       - name: Eval lane (RUN_EVALS-gated, prompts-touching PRs only) (DR-5)
-        if: needs.changes.outputs.prompts == 'true'
+        # `!cancelled() &&` the SAME prompts predicate: the eval lane is the
+        # preserved evidence surface for the RUN_EVALS-gated tests — a red
+        # coverage suite above must not silently skip it on a prompts-touching
+        # PR. The prompts predicate is unchanged (only prompts-touching PRs run
+        # it); adding `!cancelled()` only lets it survive an earlier step failure.
+        if: ${{ !cancelled() && needs.changes.outputs.prompts == 'true' }}
         env:
           RUN_EVALS: '1'
         run: npx vitest run src/evals/harness.test.ts src/evals/graders/llm-rubric.test.ts
