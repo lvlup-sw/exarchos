@@ -265,74 +265,96 @@ interface BranchDeleteExecutedData {
 }
 
 /**
- * Scan ONE stream for a `worktree.remove.requested` matching `worktreePath` with
- * no paired `worktree.remove.executed` (operationId-correlated) — the crashed
- * removal whose operationId must be reused. Returns the most recent unmatched
- * operationId, or `undefined` when none is orphaned on this stream.
+ * Point-in-time scan context for a compensation worktree-teardown pass — the
+ * DR-17 (#1641) perf bound. Previously EACH `unifyWorktreeRemove` call re-read
+ * the project-wide singleton `worktrees` stream ≥3 times (projection fold + two
+ * orphan-lookup scans), making cleanup `O(worktrees_torn_down × stream_size)`
+ * and unbounded on long-lived projects. This context hoists every stream read
+ * to ONCE per action invocation; the per-worktree teardown then works off the
+ * in-memory snapshot.
+ *
+ * Snapshot-staleness is safe within one pass: each worktree's teardown appends
+ * only events keyed to ITS OWN `worktreeId` / `operationId`, so a prior
+ * iteration's appends can never change a later worktree's adopt-gate or orphan
+ * verdict — and every append is idempotency-keyed, so even a re-derived
+ * duplicate folds to a no-op.
  */
-async function findOrphanedWorktreeRemoveOnStream(
-  eventStore: EventStore,
-  streamId: string,
-  worktreePath: string,
-): Promise<string | undefined> {
-  const requested = await eventStore.query(streamId, {
-    type: 'worktree.remove.requested',
-  });
-  const executed = await eventStore.query(streamId, {
-    type: 'worktree.remove.executed',
-  });
+interface WorktreeRemoveScan {
+  /** Live `worktrees@v1` fold of the singleton stream (adopt-gate input). */
+  readonly projection: WorktreesProjection;
+  /**
+   * Most recent UNMATCHED `worktree.remove.requested` operationId per
+   * `worktreePath` on the UNIFIED singleton `worktrees` stream (DR-3 — the
+   * post-unification home of the remove pair): the crashed removal whose
+   * operationId must be reused so the audit pair stays 1:1.
+   */
+  readonly orphanedOnWorktreesStream: ReadonlyMap<string, string>;
+  /**
+   * Same, on the LEGACY `featureId` stream — a compensation that crashed
+   * PRE-unification (its `worktree.remove.requested` stranded there, never
+   * paired) still resumes under that original operationId. The resumed
+   * `worktree.remove.executed` lands on the `worktrees` stream (per-stream
+   * idempotency keeps the re-emit isolated), healing the crash across the
+   * deploy boundary rather than double-recording it.
+   */
+  readonly orphanedOnLegacyStream: ReadonlyMap<string, string>;
+}
+
+/**
+ * Fold requested/executed remove events into a `worktreePath → operationId` map
+ * of ORPHANED removals (a requested with no operationId-paired executed). Later
+ * unmatched entries overwrite earlier ones, so each path resolves to its MOST
+ * RECENT unmatched operationId — the same verdict the old per-worktree
+ * reverse-scan produced. Pure over its inputs.
+ */
+function orphanedOperationIdsByPath(
+  requested: readonly { readonly data?: unknown }[],
+  executed: readonly { readonly data?: unknown }[],
+): Map<string, string> {
   const executedOps = new Set(
     executed.map((e) => (e.data as unknown as WorktreeRemoveExecutedData).operationId),
   );
-  for (let i = requested.length - 1; i >= 0; i -= 1) {
-    const entry = requested[i];
-    if (entry === undefined) continue;
+  const byPath = new Map<string, string>();
+  for (const entry of requested) {
     const data = entry.data as unknown as WorktreeRemoveRequestedData;
     if (executedOps.has(data.operationId)) continue;
-    if (data.worktreePath === worktreePath) return data.operationId;
+    byPath.set(data.worktreePath, data.operationId);
   }
-  return undefined;
+  return byPath;
 }
 
 /**
- * Recover the operationId of a crashed worktree removal so the resumed removal
- * completes the ORIGINAL 1:1 audit pair instead of minting a second one.
- *
- * Scans the UNIFIED singleton `worktrees` stream first (DR-3 — the post-unification
- * home of the remove pair). Falls back to the LEGACY `featureId` stream so a
- * compensation that crashed PRE-unification — with its `worktree.remove.requested`
- * stranded on the old `featureId` stream and never paired — still resumes under
- * that original operationId. The resumed `worktree.remove.executed` now lands on
- * the `worktrees` stream (per-stream idempotency keeps the re-emit isolated), so
- * the crash is healed across the deploy boundary rather than double-recorded.
+ * Build the {@link WorktreeRemoveScan} with a BOUNDED number of stream reads —
+ * exactly three `eventStore.query` calls regardless of how many worktrees the
+ * pass tears down (DR-17 / #1641): ONE full read of the singleton `worktrees`
+ * stream (serving BOTH the `worktrees@v1` projection fold and the unified-
+ * stream orphan lookup, over the same reducer the {@link WorktreeManager}
+ * uses), plus the two typed legacy reads of the `featureId` stream. A pure
+ * read — appends nothing.
  */
-async function recoverWorktreeRemoveOperationId(
+async function loadWorktreeRemoveScan(
   eventStore: EventStore,
   featureId: string,
-  worktreePath: string,
-): Promise<string | undefined> {
-  const onWorktreesStream = await findOrphanedWorktreeRemoveOnStream(
-    eventStore,
-    WORKTREES_STREAM,
-    worktreePath,
-  );
-  if (onWorktreesStream !== undefined) return onWorktreesStream;
-  return findOrphanedWorktreeRemoveOnStream(eventStore, featureId, worktreePath);
-}
-
-/**
- * Fold the singleton `worktrees` stream through `worktrees@v1` into its live
- * {@link WorktreesProjection}. Used by the compensation adopt-gate to decide
- * whether a to-be-removed worktree already has a governed entry. A pure read —
- * appends nothing — over the same reducer the {@link WorktreeManager} uses.
- */
-async function loadWorktreesProjection(
-  eventStore: EventStore,
   realpath: RealpathResolver,
-): Promise<WorktreesProjection> {
+): Promise<WorktreeRemoveScan> {
   const reducer = createWorktreesReducer(realpath);
-  const events = (await eventStore.query(WORKTREES_STREAM)) as readonly WorkflowEvent[];
-  return events.reduce((acc, event) => reducer.apply(acc, event), reducer.initial);
+  const worktreesEvents = (await eventStore.query(WORKTREES_STREAM)) as readonly WorkflowEvent[];
+  const projection = worktreesEvents.reduce(
+    (acc, event) => reducer.apply(acc, event),
+    reducer.initial,
+  );
+  const orphanedOnWorktreesStream = orphanedOperationIdsByPath(
+    worktreesEvents.filter((e) => e.type === 'worktree.remove.requested'),
+    worktreesEvents.filter((e) => e.type === 'worktree.remove.executed'),
+  );
+  const legacyRequested = await eventStore.query(featureId, {
+    type: 'worktree.remove.requested',
+  });
+  const legacyExecuted = await eventStore.query(featureId, {
+    type: 'worktree.remove.executed',
+  });
+  const orphanedOnLegacyStream = orphanedOperationIdsByPath(legacyRequested, legacyExecuted);
+  return { projection, orphanedOnWorktreesStream, orphanedOnLegacyStream };
 }
 
 /**
@@ -345,8 +367,8 @@ async function loadWorktreesProjection(
  *      remove would drop nothing and the `worktrees@v1` view would keep showing a
  *      live entry for a worktree that was actually removed (a vacuous pass).
  *   A. **Durable intent.** `worktree.remove.requested` on the `worktrees` stream,
- *      reusing a crashed removal's operationId (see
- *      {@link recoverWorktreeRemoveOperationId}) so the audit pair stays 1:1.
+ *      reusing a crashed removal's operationId (from the hoisted
+ *      {@link WorktreeRemoveScan} orphan maps) so the audit pair stays 1:1.
  *   B. **Idempotent side-effect OUTSIDE the retry boundary.** `git worktree
  *      remove` only when still registered, wrapped in {@link withIndexLockRetry}
  *      (DR-1) so a transient burst `index.lock` contention is retried without
@@ -362,6 +384,7 @@ async function unifyWorktreeRemove(
   eventStore: EventStore,
   featureId: string,
   options: CompensationOptions,
+  scan: WorktreeRemoveScan,
 ): Promise<void> {
   const realpath = options.realpath ?? defaultRealpath;
   // Canonical key derived the SAME way the manager keys its entries so the
@@ -369,9 +392,10 @@ async function unifyWorktreeRemove(
   const worktreeId = canonicalWorktreeId(worktreePath, realpath);
 
   // ── Step 0: adopt-gate — an untracked worktree needs a governed entry BEFORE
-  // the remove pair, or the terminal drop is vacuous (no-op) and the view lies. ──
-  const projection = await loadWorktreesProjection(eventStore, realpath);
-  if (projection.worktrees[worktreeId] === undefined) {
+  // the remove pair, or the terminal drop is vacuous (no-op) and the view lies.
+  // Reads the HOISTED per-invocation snapshot (DR-17/#1641), not a fresh
+  // per-worktree stream fold. ──
+  if (scan.projection.worktrees[worktreeId] === undefined) {
     await withStateRetry(() =>
       eventStore.append(
         WORKTREES_STREAM,
@@ -392,8 +416,11 @@ async function unifyWorktreeRemove(
   }
 
   // ── Phase A: durable intent on the UNIFIED stream, reusing a crashed op. ──
+  // Orphan recovery reads the hoisted scan: unified `worktrees` stream first
+  // (DR-3), then the legacy `featureId` stream (pre-unification crash healing).
   const operationId =
-    (await recoverWorktreeRemoveOperationId(eventStore, featureId, worktreePath)) ??
+    scan.orphanedOnWorktreesStream.get(worktreePath) ??
+    scan.orphanedOnLegacyStream.get(worktreePath) ??
     randomUUID();
   await withStateRetry(() =>
     eventStore.append(
@@ -685,6 +712,20 @@ function createCleanupWorktreesAction(): CompensationAction {
       let removed = 0;
 
       try {
+        // ── DR-17 (#1641) perf bound: hoist the stream scan ONCE per action
+        // invocation. The per-worktree teardown below reads this snapshot, so
+        // cleanup does a CONSTANT number of stream reads (3) regardless of
+        // worktree count — previously ≥3 full singleton-stream reads PER
+        // worktree, O(worktrees × stream_size) on long-lived projects.
+        const scan =
+          options.eventStore && options.featureId
+            ? await loadWorktreeRemoveScan(
+                options.eventStore,
+                options.featureId,
+                options.realpath ?? defaultRealpath,
+              )
+            : null;
+
         for (const worktree of Object.values(worktrees)) {
           const worktreePath = worktree.path as string | undefined;
           if (!worktreePath) continue;
@@ -705,7 +746,7 @@ function createCleanupWorktreesAction(): CompensationAction {
             continue;
           }
 
-          if (options.eventStore && options.featureId) {
+          if (scan !== null && options.eventStore && options.featureId) {
             // ─── DR-3: unified `worktrees`-stream removal ────────────────────
             // Adopt-then-remove on the SINGLETON stream (retry-wrapped remove),
             // so a compensation teardown genuinely reaches the `worktrees@v1`
@@ -715,6 +756,7 @@ function createCleanupWorktreesAction(): CompensationAction {
               options.eventStore,
               options.featureId,
               options,
+              scan,
             );
           } else {
             // Legacy path (no event store wired) — preserve existing behavior
