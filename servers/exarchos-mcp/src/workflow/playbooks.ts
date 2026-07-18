@@ -467,7 +467,7 @@ register({
     {
       type: 'merge.executed',
       when: 'After merge commit lands successfully on the target branch',
-      fields: ['taskId', 'sourceBranch', 'targetBranch', 'mergeSha', 'rollbackSha', 'strategy'],
+      fields: ['taskId', 'sourceBranch', 'targetBranch', 'mergeSha', 'recoveryPointSha', 'strategy'],
     },
     {
       type: 'merge.recovered',
@@ -482,7 +482,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'Local-git merge handoff. Call exarchos_orchestrate merge_orchestrate to land the subagent worktree branch on the integration branch via local git merge with recorded rollback sha. NOT a remote PR merge — that is merge_pr in synthesize. Runs preflight (ancestry / current-branch / main-worktree / drift), records HEAD as rollback anchor, runs git merge per strategy, and on failure runs the INV-14 recovery ladder (git merge --abort → git reset --keep <rollbackSha>, never --hard). Strategy required (no default). Resumable: terminal phases (completed / rolled-back / aborted) short-circuit on re-entry. Events auto-emitted: merge.preflight carries structured guard sub-results + failureReasons; merge.executed records mergeSha; merge.recovered records reason + optional recoveryError/recoveryErrorDetail. Use exarchos_event describe before any manual emission. HSM exits merge-pending back to delegate on terminal merge event. Full guidance: @skills/merge-orchestrator/SKILL.md.',
+    'Local-git merge handoff. Call exarchos_orchestrate merge_orchestrate to land the subagent worktree branch on the integration branch via local git merge. NOT a remote PR merge — that is merge_pr in synthesize. Runs preflight (ancestry / current-branch / main-worktree / drift), records HEAD as the recovery point, runs git merge per strategy, and on failure runs the INV-14 recovery ladder (git merge --abort → git reset --keep <recoveryPointSha>, never --hard). Strategy required (no default). Resumable: terminal phases (completed / rolled-back / aborted) short-circuit on re-entry. Events auto-emitted: merge.preflight carries structured guard sub-results + failureReasons; merge.executed records mergeSha + recoveryPointSha; merge.recovered records reason + optional recoveryError/recoveryErrorDetail. Use exarchos_event describe before any manual emission. HSM exits merge-pending back to delegate on terminal merge event. Full guidance: @skills/merge-orchestrator/SKILL.md.',
 });
 
 register({

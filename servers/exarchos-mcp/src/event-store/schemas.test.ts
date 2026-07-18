@@ -2905,9 +2905,10 @@ describe('MergePreflightData', () => {
 
 describe('MergeExecutedData', () => {
   it('MergeExecutedEventSchema_ValidPayload_Parses', () => {
-    // DR-MO-2: merge.executed payload — records the post-merge SHA along with
-    // the rollbackSha (the parent commit on the target branch prior to merge)
-    // so a subsequent rollback handler can `git reset --hard <rollbackSha>`.
+    // DR-MO-2 / DR-18: merge.executed payload — records the post-merge SHA
+    // along with the recoveryPointSha (the parent commit on the target branch
+    // prior to merge) so the INV-14 recovery ladder can rewind to it via
+    // `git reset --keep <recoveryPointSha>`.
     expect(EventTypes).toContain('merge.executed');
 
     const schema = EVENT_DATA_SCHEMAS['merge.executed' as typeof EventTypes[number]];
@@ -2918,13 +2919,44 @@ describe('MergeExecutedData', () => {
       sourceBranch: 'feat/x',
       targetBranch: 'main',
       mergeSha: 'a'.repeat(40),
-      rollbackSha: 'b'.repeat(40),
+      recoveryPointSha: 'b'.repeat(40),
     });
     expect(result.success, JSON.stringify(result)).toBe(true);
     if (result.success) {
       expect(result.data.mergeSha).toBe('a'.repeat(40));
-      expect(result.data.rollbackSha).toBe('b'.repeat(40));
+      expect(result.data.recoveryPointSha).toBe('b'.repeat(40));
     }
+  });
+
+  it('MergeExecutedEventSchema_LegacyRollbackSha_StillParses', () => {
+    // INV-1 read tolerance (DR-18): historical rows carry the legacy
+    // `rollbackSha` wire name only. They must keep validating — the rename is
+    // on the live wire surface, not a rewrite of stored history.
+    const result = MergeExecutedData.safeParse({
+      taskId: 'T11',
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      mergeSha: 'a'.repeat(40),
+      rollbackSha: 'b'.repeat(40),
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+    if (result.success) {
+      expect(result.data.rollbackSha).toBe('b'.repeat(40));
+      expect(result.data.recoveryPointSha).toBeUndefined();
+    }
+  });
+
+  it('MergeExecutedEventSchema_NoRecoveryAnchor_Rejects', () => {
+    // The at-least-one refinement preserves the pre-rename admission strength
+    // (the anchor was a required field): a merge.executed with NEITHER the
+    // canonical nor the legacy anchor is malformed.
+    const result = MergeExecutedData.safeParse({
+      taskId: 'T11',
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      mergeSha: 'a'.repeat(40),
+    });
+    expect(result.success).toBe(false);
   });
 });
 

@@ -72,10 +72,12 @@ export interface WorkflowStateView {
   /**
    * Terminal merge-orchestrator state (#1504/#1554). Folded from the
    * `merge.preflight` / `merge.executed` / `merge.recovered` (and legacy
-   * `merge.rollback`) events, mirroring
-   * the file-path `applyEventToState` (state-store.ts) so `resolveWorkflowState`
-   * reconstructs the block instead of silently dropping it. `undefined` until
-   * the first terminal merge event is folded (matches the file's
+   * `merge.rollback`) events, mirroring the executor's
+   * `ExecutorPersistStatePayload` file shape (orchestrate/execute-merge.ts) so
+   * `resolveWorkflowState` reconstructs the block instead of silently dropping
+   * it — DR-18 renamed the anchor/detail fields to the canonical recovery
+   * frame (`recoveryPointSha` / `recoveryErrorDetail`) to match. `undefined`
+   * until the first terminal merge event is folded (matches the file's
    * absence-until-merge). Each terminal event REPLACES the block so no stale
    * fields leak across phases.
    */
@@ -89,10 +91,17 @@ interface MergeOrchestratorView {
   targetBranch?: string;
   taskId?: string;
   strategy?: 'squash' | 'rebase' | 'merge' | undefined;
-  rollbackSha?: string;
+  /**
+   * Pre-merge anchor the INV-14 recovery ladder rewinds to. DR-18 renamed
+   * this view field from the legacy `rollbackSha`, aligning the fold with the
+   * executor's `ExecutorPersistStatePayload` file shape (fold ≡ write).
+   * Historical events carrying the old wire names fold onto it (INV-1).
+   */
+  recoveryPointSha?: string;
   mergeSha?: string;
   reason?: 'merge-failed' | 'verification-failed' | 'timeout' | undefined;
-  rollbackError?: string;
+  /** Human-readable recovery-failure detail (was `rollbackError`, DR-18). */
+  recoveryErrorDetail?: string;
   recoveryError?: 'reset-keep-blocked' | 'reset-failed' | 'unexpected-mid-merge-drift' | undefined;
   abortReason?: string;
   preflight?: unknown;
@@ -576,6 +585,9 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       case 'merge.executed': {
         const data = event.data as Record<string, unknown> | undefined;
         if (!data) return view;
+        // Canonical `recoveryPointSha` first; the `rollbackSha` read is the
+        // fold-compatibility arm for historical rows (INV-1 / DR-18).
+        const anchor = data.recoveryPointSha ?? data.rollbackSha;
         return {
           ...view,
           updatedAt: event.timestamp,
@@ -586,12 +598,17 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
             ...(data.targetBranch !== undefined ? { targetBranch: data.targetBranch as string } : {}),
             ...(data.strategy !== undefined ? { strategy: data.strategy as MergeOrchestratorView['strategy'] } : {}),
             ...(data.mergeSha !== undefined ? { mergeSha: data.mergeSha as string } : {}),
-            ...(data.rollbackSha !== undefined ? { rollbackSha: data.rollbackSha as string } : {}),
+            ...(anchor !== undefined ? { recoveryPointSha: anchor as string } : {}),
           },
         };
       }
 
       case 'merge.rollback': {
+        // Fold-compatibility arm (INV-1 / DR-18): `merge.rollback` is retired
+        // (read-tolerant-not-emittable) and its legacy wire fields
+        // (`rollbackSha` / `rollbackError`) survive only in historical logs.
+        // They fold onto the RENAMED view fields so replayed streams project
+        // the same shape the live `merge.recovered` fold produces.
         const data = event.data as Record<string, unknown> | undefined;
         if (!data) return view;
         return {
@@ -602,20 +619,21 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
             ...(data.taskId !== undefined ? { taskId: data.taskId as string } : {}),
             ...(data.sourceBranch !== undefined ? { sourceBranch: data.sourceBranch as string } : {}),
             ...(data.targetBranch !== undefined ? { targetBranch: data.targetBranch as string } : {}),
-            ...(data.rollbackSha !== undefined ? { rollbackSha: data.rollbackSha as string } : {}),
+            ...(data.rollbackSha !== undefined ? { recoveryPointSha: data.rollbackSha as string } : {}),
             ...(data.reason !== undefined ? { reason: data.reason as MergeOrchestratorView['reason'] } : {}),
             ...(data.recoveryError !== undefined ? { recoveryError: data.recoveryError as MergeOrchestratorView['recoveryError'] } : {}),
-            ...(data.rollbackError !== undefined ? { rollbackError: data.rollbackError as string } : {}),
+            ...(data.rollbackError !== undefined ? { recoveryErrorDetail: data.rollbackError as string } : {}),
           },
         };
       }
 
       case 'merge.recovered': {
-        // #1306 successor to merge.rollback — same logical fold, reading the
-        // renamed event fields (recoveryPointSha / recoveryErrorDetail) onto the
-        // existing view fields. Since DR-2 (task 006) this is the sole emitted
-        // recovery terminal; the merge.rollback case above is retained only to
-        // fold legacy logs, and folding both is idempotent (same view).
+        // #1306 successor to merge.rollback — same logical fold. Since DR-2
+        // (task 006) this is the sole emitted recovery terminal; the
+        // merge.rollback case above is retained only to fold legacy logs, and
+        // folding both is idempotent (same view). DR-18 renamed the view
+        // fields to the canonical frame, so this arm now reads and writes the
+        // same names — no cross-mapping.
         const data = event.data as Record<string, unknown> | undefined;
         if (!data) return view;
         return {
@@ -626,10 +644,10 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
             ...(data.taskId !== undefined ? { taskId: data.taskId as string } : {}),
             ...(data.sourceBranch !== undefined ? { sourceBranch: data.sourceBranch as string } : {}),
             ...(data.targetBranch !== undefined ? { targetBranch: data.targetBranch as string } : {}),
-            ...(data.recoveryPointSha !== undefined ? { rollbackSha: data.recoveryPointSha as string } : {}),
+            ...(data.recoveryPointSha !== undefined ? { recoveryPointSha: data.recoveryPointSha as string } : {}),
             ...(data.reason !== undefined ? { reason: data.reason as MergeOrchestratorView['reason'] } : {}),
             ...(data.recoveryError !== undefined ? { recoveryError: data.recoveryError as MergeOrchestratorView['recoveryError'] } : {}),
-            ...(data.recoveryErrorDetail !== undefined ? { rollbackError: data.recoveryErrorDetail as string } : {}),
+            ...(data.recoveryErrorDetail !== undefined ? { recoveryErrorDetail: data.recoveryErrorDetail as string } : {}),
           },
         };
       }

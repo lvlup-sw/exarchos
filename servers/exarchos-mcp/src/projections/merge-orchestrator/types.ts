@@ -91,7 +91,7 @@ export interface MergePreflightMetadata {
  *
  *   - `taskId`, `sourceBranch`, `targetBranch`, `strategy` are first set on
  *     `merge.requested` (Wave 4) OR `merge.executed` (legacy / preview.1).
- *   - `mergeSha`, `rollbackSha` are first set on `merge.executed`.
+ *   - `mergeSha`, `recoveryPointSha` are first set on `merge.executed`.
  *
  * All fields are `readonly` on `MergeOrchestratorState`; mutation only occurs
  * via a fresh reducer output (DR-1 purity contract).
@@ -110,11 +110,14 @@ export interface MergeActionMetadata {
   /** Resulting commit sha on the target branch (set on `merge.executed`). */
   readonly mergeSha?: string;
   /**
-   * Parent commit captured prior to the merge so a rollback can rewind to
-   * `<rollbackSha>` deterministically via the INV-14 ladder (`git merge --abort`
-   * → `git reset --keep`, never `--hard`).
+   * Parent commit captured prior to the merge so a recovery can rewind to
+   * `<recoveryPointSha>` deterministically via the INV-14 ladder
+   * (`git merge --abort` → `git reset --keep`, never `--hard`).
+   *
+   * DR-18 renamed this from the legacy `rollbackSha`; the reducer folds
+   * historical rows carrying the old wire name onto this field (INV-1).
    */
-  readonly rollbackSha?: string;
+  readonly recoveryPointSha?: string;
 }
 
 /**

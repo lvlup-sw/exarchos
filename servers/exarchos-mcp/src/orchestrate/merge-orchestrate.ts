@@ -251,7 +251,7 @@ function buildDefaultPersistState(
     const expectedVersion = (state as Record<string, unknown>)._version as number | undefined ?? 1;
     // REPLACE the `mergeOrchestrator` block instead of shallow-merging onto
     // any prior attempt. Spreading the previous object would carry stale
-    // `mergeSha`, `rollbackSha`, or old failure metadata into a fresh
+    // `mergeSha`, `recoveryPointSha`, or old failure metadata into a fresh
     // terminal write (e.g., `aborted` after a previous `executing`),
     // leaving contradictory state for resume/status consumers.
     const updated = {
@@ -460,7 +460,7 @@ export async function handleMergeOrchestrate(
   // the same repository, the executor's local `git merge` against the
   // target would fail with a confusing "fatal: '<branch>' is already
   // checked out at '<other-worktree-path>'", and worse — the executor
-  // captures `rollbackSha` from the cwd's HEAD (which is on a different
+  // captures `recoveryPointSha` from the cwd's HEAD (which is on a different
   // branch), so a rollback would `git reset --keep` to the wrong commit.
   //
   // Detect this topology BEFORE any event emission or executor delegation
@@ -594,7 +594,7 @@ export async function handleMergeOrchestrate(
     // Any non-terminal phase (`pending`, `executing`, or undefined) falls
     // through to a fresh preflight + executor run. The mid-run `executing`
     // case is the most subtle: a crash during a previous attempt left state
-    // at `executing` with a `rollbackSha` pinned, but the merge itself may
+    // at `executing` with a `recoveryPointSha` pinned, but the merge itself may
     // or may not have applied. Re-running is safe because the underlying
     // VCS handlers are idempotent on already-merged branches and a
     // re-recorded rollback sha from the fresh `git rev-parse HEAD` will

@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import {
@@ -1202,6 +1205,8 @@ describe('WorkflowStateProjection mergeOrchestrator fold', () => {
   });
 
   it('MergeRollback_FoldsRolledBackBlockWithRecoveryError', () => {
+    // Legacy `merge.rollback` data (old wire names) folds onto the RENAMED
+    // view fields (DR-18) — the fold-compatibility arm.
     let view = workflowStateProjection.init();
     view = workflowStateProjection.apply(view, makeEvent('merge.rollback', {
       taskId: 't2', sourceBranch: 'task/t2', targetBranch: 'integration',
@@ -1212,7 +1217,7 @@ describe('WorkflowStateProjection mergeOrchestrator fold', () => {
     expect(view.mergeOrchestrator).toMatchObject({
       phase: 'rolled-back',
       taskId: 't2',
-      rollbackSha: 'def456',
+      recoveryPointSha: 'def456',
       reason: 'verification-failed',
       recoveryError: 'reset-keep-blocked',
     });
@@ -1240,6 +1245,120 @@ describe('WorkflowStateProjection mergeOrchestrator fold', () => {
     // A passing preflight is observation; the executor's merge.executed produces
     // the next terminal write. Mirrors applyEventToState (returns false → no-op).
     expect(view.mergeOrchestrator).toBeUndefined();
+  });
+});
+
+// ─── DR-18 — rollback wire-field rename (#1570) ─────────────────────────────
+// The `rollbackSha` / `rollbackError` wire fields are renamed to the canonical
+// recovery frame (`recoveryPointSha` / `recoveryErrorDetail`) across the live
+// read surface. Historical events carrying the OLD names must still fold
+// (INV-1) — the rename touches the read/wire surface, never stored history.
+
+describe('WorkflowStateProjection rollback-field rename (DR-18)', () => {
+  it('HistoricalRollbackEvents_Fold_Works', () => {
+    // 1) A historical `merge.executed` row carrying the legacy `rollbackSha`
+    //    wire name folds onto the renamed `recoveryPointSha` view field.
+    let executedView = workflowStateProjection.init();
+    executedView = workflowStateProjection.apply(executedView, makeEvent('merge.executed', {
+      taskId: 't1', sourceBranch: 'task/t1', targetBranch: 'integration',
+      strategy: 'squash', mergeSha: 'abc123', rollbackSha: 'aaa111',
+    }));
+    expect(executedView.mergeOrchestrator).toMatchObject({
+      phase: 'completed',
+      mergeSha: 'abc123',
+      recoveryPointSha: 'aaa111',
+    });
+
+    // 2) A historical `merge.rollback` row (retired event, legacy wire names
+    //    throughout) folds onto the renamed view fields.
+    let rollbackView = workflowStateProjection.init();
+    rollbackView = workflowStateProjection.apply(rollbackView, makeEvent('merge.rollback', {
+      taskId: 't1', sourceBranch: 'task/t1', targetBranch: 'integration',
+      rollbackSha: 'bbb222', reason: 'merge-failed',
+      recoveryError: 'reset-failed', rollbackError: 'git reset --keep bbb222 exited 128',
+    }));
+    expect(rollbackView.mergeOrchestrator).toMatchObject({
+      phase: 'rolled-back',
+      recoveryPointSha: 'bbb222',
+      reason: 'merge-failed',
+      recoveryError: 'reset-failed',
+      recoveryErrorDetail: 'git reset --keep bbb222 exited 128',
+    });
+
+    // 3) Fold parity: the canonical `merge.recovered` twin (same recovery
+    //    context under the new wire names) projects the IDENTICAL block, so
+    //    pre- and post-rename streams replay to the same state (INV-1).
+    let recoveredView = workflowStateProjection.init();
+    recoveredView = workflowStateProjection.apply(recoveredView, makeEvent('merge.recovered', {
+      taskId: 't1', sourceBranch: 'task/t1', targetBranch: 'integration',
+      recoveryPointSha: 'bbb222', reason: 'merge-failed',
+      recoveryError: 'reset-failed', recoveryErrorDetail: 'git reset --keep bbb222 exited 128',
+    }));
+    expect(recoveredView.mergeOrchestrator).toEqual(rollbackView.mergeOrchestrator);
+
+    // 4) The legacy view-field names are GONE from the folded block — the
+    //    rename is total on the read surface, not additive.
+    for (const block of [executedView, rollbackView, recoveredView]) {
+      expect(block.mergeOrchestrator).not.toHaveProperty('rollbackSha');
+      expect(block.mergeOrchestrator).not.toHaveProperty('rollbackError');
+    }
+  });
+
+  it('RollbackFields_RenamedSurface_NoLiveReferences', () => {
+    // DR-18 acceptance: grep finds no LIVE references to the legacy
+    // `rollbackSha` / `rollbackError` names outside the sanctioned
+    // fold-compatibility arms (and tests, which fix historical rows).
+    //
+    // "Live" means code — comment-only lines are prose, not references, so
+    // they are stripped before matching (rename annotations are allowed to
+    // say what the old name was). Non-test source files outside the allowlist
+    // must carry ZERO code references; a regression that reintroduces a
+    // legacy write or read anywhere else fails here.
+    const FOLD_COMPAT_ALLOWLIST = new Set([
+      // Legacy MergeRollbackData schema + the merge.executed legacy read-arm.
+      'event-store/schemas.ts',
+      // merge.rollback case + rollbackSha/rollbackError fallback extractors.
+      'projections/merge-orchestrator/reducer.ts',
+      // merge.rollback fold arm + merge.executed legacy-anchor read.
+      'views/workflow-state-projection.ts',
+    ]);
+    const LEGACY_NAME = /rollbackSha|rollbackError/;
+    const isCommentOnly = (line: string): boolean => {
+      const trimmed = line.trimStart();
+      return (
+        trimmed.startsWith('//') ||
+        trimmed.startsWith('/*') ||
+        trimmed.startsWith('*')
+      );
+    };
+
+    const srcRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+    const offenders: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (entry.name === 'node_modules' || entry.name === 'dist') continue;
+          walk(full);
+          continue;
+        }
+        if (!entry.name.endsWith('.ts') || entry.name.endsWith('.test.ts')) continue;
+        const rel = path.relative(srcRoot, full).split(path.sep).join('/');
+        if (FOLD_COMPAT_ALLOWLIST.has(rel)) continue;
+        const lines = readFileSync(full, 'utf8').split('\n');
+        lines.forEach((line, i) => {
+          if (LEGACY_NAME.test(line) && !isCommentOnly(line)) {
+            offenders.push(`${rel}:${i + 1}: ${line.trim()}`);
+          }
+        });
+      }
+    };
+    walk(srcRoot);
+
+    expect(
+      offenders,
+      `live rollbackSha/rollbackError references outside fold-compat arms:\n${offenders.join('\n')}`,
+    ).toEqual([]);
   });
 });
 

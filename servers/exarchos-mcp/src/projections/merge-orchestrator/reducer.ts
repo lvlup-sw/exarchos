@@ -176,9 +176,9 @@ function applyMergeRequested(
 
 /**
  * Handler for `merge.executed` — records the merge's outcome (mergeSha,
- * rollbackSha) and advances the phase to `executed`. Preserves earlier merge
- * fields (taskId, branches, strategy) so observability replay never loses
- * them across the requested → executed split.
+ * recoveryPointSha) and advances the phase to `executed`. Preserves earlier
+ * merge fields (taskId, branches, strategy) so observability replay never
+ * loses them across the requested → executed split.
  */
 function applyMergeExecuted(
   state: MergeOrchestratorState,
@@ -205,7 +205,12 @@ function applyMergeRollback(
   event: WorkflowEvent,
 ): MergeOrchestratorState {
   const reason = extractString(event.data, 'reason');
-  const error = extractString(event.data, 'rollbackError');
+  // Canonical `recoveryErrorDetail` (merge.recovered) first; the legacy
+  // `rollbackError` read is the fold-compatibility arm for historical
+  // `merge.rollback` rows (INV-1 / DR-18).
+  const error =
+    extractString(event.data, 'recoveryErrorDetail') ??
+    extractString(event.data, 'rollbackError');
   const recoveryError = extractRecoveryError(event.data);
   const recovery: MergeRecoveryContext = {
     ...(reason !== undefined ? { reason } : {}),
@@ -256,7 +261,11 @@ function mergeFromEvent(
   const strategy = extractStrategy(event.data);
   const prNumber = extractNumber(event.data, 'prNumber');
   const mergeSha = extractString(event.data, 'mergeSha');
-  const rollbackSha = extractString(event.data, 'rollbackSha');
+  // Canonical `recoveryPointSha` first; the legacy `rollbackSha` read is the
+  // fold-compatibility arm for historical rows (INV-1 / DR-18).
+  const recoveryPointSha =
+    extractString(event.data, 'recoveryPointSha') ??
+    extractString(event.data, 'rollbackSha');
 
   const anyPresent =
     taskId !== undefined ||
@@ -265,7 +274,7 @@ function mergeFromEvent(
     strategy !== undefined ||
     prNumber !== undefined ||
     mergeSha !== undefined ||
-    rollbackSha !== undefined;
+    recoveryPointSha !== undefined;
   if (!anyPresent) return existing;
 
   return {
@@ -276,7 +285,7 @@ function mergeFromEvent(
     ...(strategy !== undefined ? { strategy } : {}),
     ...(prNumber !== undefined ? { prNumber } : {}),
     ...(mergeSha !== undefined ? { mergeSha } : {}),
-    ...(rollbackSha !== undefined ? { rollbackSha } : {}),
+    ...(recoveryPointSha !== undefined ? { recoveryPointSha } : {}),
   };
 }
 
