@@ -150,6 +150,25 @@ check "TypeDebt_CensusHashMismatch_FailsClosed" 2 "$mismatch_exit"
 grep_cause "hash-mismatch" "census-hash mismatch" "$TMP/mismatch.err"
 grep_cause "hash-mismatch" "baseline.json" "$TMP/mismatch.err"
 
+# ── unavailable census root (exists but not a directory) → FAIL CLOSED (2) ──
+# A configured census root that is PRESENT but unreadable (here `src` is a
+# regular file, not a directory) must fail closed, not be silently treated as
+# empty — otherwise an I/O fault / path drift would drop an entire source tree
+# from enforcement. (A genuinely-absent root — ENOENT — stays tolerated: every
+# fixture above lacks `servers/exarchos-mcp/src` and still runs.)
+mkdir -p "$TMP/badroot"
+printf 'not a directory\n' > "$TMP/badroot/src"
+cat > "$TMP/badroot/baseline.json" <<'EOF'
+{ "version": 1, "censusHash": "deadbeef", "files": {} }
+EOF
+set +e
+node "$GATE" --repo-root "$TMP/badroot" --baseline "$TMP/badroot/baseline.json" \
+  >/dev/null 2>"$TMP/badroot.err"
+badroot_exit=$?
+set -e
+check "TypeDebt_CensusRootNotADirectory_FailsClosed" 2 "$badroot_exit"
+grep_cause "badroot" "not a directory" "$TMP/badroot.err"
+
 # ── exclusion proof: seeded .d.ts/__shims__/.bench.ts/evals casts NOT counted ──
 mkdir -p "$TMP/excluded/src/__tests__" "$TMP/excluded/src/__shims__" \
   "$TMP/excluded/servers/exarchos-mcp/src/evals"
