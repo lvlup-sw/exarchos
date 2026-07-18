@@ -327,6 +327,15 @@ export const EventTypes = [
   // `operationId` from the active `DispatchContext` (#1291 / B1).
   'dispatch.preflight',
   'stash.detected',
+  // DR-9 (#1278, v2-12 task 008) — JSON-RPC error-model observability. Emitted
+  // by the MCP adapter (`adapters/mcp.ts`) once per surfaced error envelope,
+  // carrying the Exarchos `error.code`, its deterministic JSON-RPC `-32xxx`
+  // mapping (`jsonRpcCode`, via `toJsonRpcErrorCode`), and the dispatched
+  // composite `action`, so telemetry views (code_quality, convergence) can
+  // attribute failures by category without parsing prose (#1109 Constraint 1
+  // reconstructability). Lands on the `telemetry` stream alongside the
+  // `tool.*` family.
+  'dispatch.error_surfaced',
   // invariants-catalog-wizard (P2 / #1479 follow-up) — invariant-authoring
   // lifecycle. `invariant.authored` is appended by the `invariants_add`
   // composite handler on commit (dryRun:false). `catalog.registered` is
@@ -767,6 +776,11 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   // in the worktree under dispatch.
   'dispatch.preflight': 'auto',
   'stash.detected': 'auto',
+  // DR-9 (#1278) — JSON-RPC error-model observability. Auto-emitted by the
+  // MCP adapter boundary (`adapters/mcp.ts`) on every surfaced error
+  // envelope; the adapter owns the append deterministically, so the model
+  // is never asked to hand-emit it.
+  'dispatch.error_surfaced': 'auto',
 
   // auto — emitted by the invariant-authoring composite handlers
   // (invariants-catalog-wizard, P2). `invariant.authored` lands on commit
@@ -3184,6 +3198,34 @@ export const StashDetectedData = z.object({
   stashRef: z.string().min(1),
 });
 
+// ─── JSON-RPC error-model observability (DR-9 / #1278) ──────────────────────
+
+/**
+ * Emitted by the MCP adapter (`adapters/mcp.ts`) once per surfaced error
+ * envelope — the DR-9 JSON-RPC error-model seam. Records the Exarchos
+ * `error.code` (`code`), its deterministic JSON-RPC `-32xxx` mapping
+ * (`jsonRpcCode`, per `toJsonRpcErrorCode`), and the dispatched composite
+ * `action`, so telemetry views can attribute failures by category without
+ * parsing prose (#1109 Constraint 1 reconstructability).
+ *
+ * `operationId` mirrors the dispatch-boundary correlation id read from the
+ * error envelope's `_meta` block. It rides in `data` (not just the event
+ * envelope's top-level correlation triple) because the append fires AFTER
+ * `dispatch()` has returned — the AsyncLocalStorage dispatch context is no
+ * longer active, so `stampWithDispatchContext` cannot recover it. Optional
+ * because the unhandled-throw path can surface an envelope with no minted
+ * correlation block.
+ */
+export const DispatchErrorSurfacedData = z.object({
+  operationId: z.string().max(200).optional(),
+  /** The Exarchos structured `error.code` (taxonomy or boundary-minted). */
+  code: z.string().min(1),
+  /** The deterministic JSON-RPC `-32xxx` mapping of `code`. */
+  jsonRpcCode: z.number().int().negative(),
+  /** The dispatched composite action, when the caller supplied one. */
+  action: z.string().min(1).optional(),
+});
+
 // ─── Mutation-run liveness (verification-ladder slice 1, task 020 / INV-10) ──
 //
 // `mutation.executing_started` records the start of a mutation run driven by
@@ -3586,6 +3628,8 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   // #1261 — dispatch-guard preflight observability
   'dispatch.preflight': DispatchPreflightData,
   'stash.detected': StashDetectedData,
+  // DR-9 (#1278) — JSON-RPC error-model observability
+  'dispatch.error_surfaced': DispatchErrorSurfacedData,
 
   // WLM slice 3 (DR-3 / INV-10) — prune-run liveness pair.
   'prune.executing_started': PruneExecutingStartedData,
@@ -3745,6 +3789,8 @@ export type TaskCancelled = z.infer<typeof TaskCancelledData>;
 // #1261 — dispatch-guard preflight observability
 export type DispatchPreflight = z.infer<typeof DispatchPreflightData>;
 export type StashDetected = z.infer<typeof StashDetectedData>;
+// DR-9 (#1278) — JSON-RPC error-model observability
+export type DispatchErrorSurfaced = z.infer<typeof DispatchErrorSurfacedData>;
 export type FeedbackRecorded = z.infer<typeof FeedbackRecordedData>;
 
 // WLM slice 3 (DR-3 / INV-10) — prune-run liveness pair.
@@ -3896,6 +3942,8 @@ export type EventDataMap = {
   // #1261 — dispatch-guard preflight observability
   'dispatch.preflight': DispatchPreflight;
   'stash.detected': StashDetected;
+  // DR-9 (#1278) — JSON-RPC error-model observability
+  'dispatch.error_surfaced': DispatchErrorSurfaced;
   'feedback.recorded': FeedbackRecorded;
   // WLM slice 3 (DR-3 / INV-10) — prune-run liveness pair.
   'prune.executing_started': PruneExecutingStarted;

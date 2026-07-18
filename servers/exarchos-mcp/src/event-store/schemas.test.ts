@@ -663,7 +663,12 @@ describe('EventTypes', () => {
     // Bumped 148 → 149: DR-13 (#1644, v2-12 task 012) — worktree.finalized (the
     //   launcher spawn/teardown contract's teardown-boundary terminal, paired
     //   with the launcher-shaped worktree.created spawn event by worktreeId).
-    expect(EventTypes).toHaveLength(149);
+    // Bumped 149 → 150: DR-9 (#1278, v2-12 task 008) — dispatch.error_surfaced
+    //   (JSON-RPC error-model observability; emitted by the MCP adapter once
+    //   per surfaced error envelope with {operationId, code, jsonRpcCode,
+    //   action} so telemetry views attribute failures by category).
+    expect(EventTypes).toHaveLength(150);
+    expect(EventTypes).toContain('dispatch.error_surfaced');
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');
@@ -4224,12 +4229,14 @@ describe('WLM operational-core merge lease schemas', () => {
     // prune.executing_started / prune.executed (143 → 145), WLM-6 (DR-2)
     // `workflow.plan-review-dispatched` (145 → 146), the DR-6 (lifecycle-verbs
     // task 012) two-event `export` contract export.requested / export.executed
-    // (146 → 148), and the DR-13 (#1644, v2-12 task 012) launcher-contract
-    // teardown terminal worktree.finalized (148 → 149). The pinned literal at
+    // (146 → 148), the DR-13 (#1644, v2-12 task 012) launcher-contract
+    // teardown terminal worktree.finalized (148 → 149), and the DR-9 (#1278,
+    // v2-12 task 008) JSON-RPC error-model observability event
+    // dispatch.error_surfaced (149 → 150). The pinned literal at
     // ALL THREE toHaveLength sites (all in this file since the DR-22
     // co-location merged the former mirror suite in) must agree with this — a
     // divergence means one pin was missed.
-    expect(EventTypes).toHaveLength(149);
+    expect(EventTypes).toHaveLength(150);
     // No duplicate slipped in while bumping the count.
     expect(new Set(EventTypes).size).toBe(EventTypes.length);
   });
@@ -5548,7 +5555,10 @@ describe('EventTypes', () => {
     // `worktree.finalized`, the launcher spawn/teardown contract's
     // teardown-boundary terminal (paired with the launcher-shaped
     // `worktree.created` spawn event by worktreeId).
-    expect(EventTypes).toHaveLength(149);
+    // DR-9 (#1278, v2-12 task 008): bumped 149 → 150 to include
+    // `dispatch.error_surfaced`, the JSON-RPC error-model observability
+    // event auto-emitted by the MCP adapter on every surfaced error envelope.
+    expect(EventTypes).toHaveLength(150);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');

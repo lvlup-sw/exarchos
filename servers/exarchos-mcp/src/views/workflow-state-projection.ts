@@ -821,6 +821,10 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       case 'provider.parse-error':
       case 'dispatch.classified':
       case 'dispatch.preflight':
+      // DR-9 (#1278) — JSON-RPC error-model observability. Lands on the
+      // `telemetry` stream (alongside the `tool.*` family), never a feature
+      // stream, so it has no effect on any workflow's projected state.
+      case 'dispatch.error_surfaced':
       case 'merge.requested':
       case 'merge.completed':
       // #1308 — audit-only retry record; it does not transition the
