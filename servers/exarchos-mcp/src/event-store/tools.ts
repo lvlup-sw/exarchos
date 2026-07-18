@@ -506,10 +506,11 @@ export async function handleEventQuery(
   const store = eventStore;
 
   // Window filters (type/time/sequence) narrow WHICH events match and are
-  // pushed to the store. Pagination (limit/offset) is applied in-handler over a
-  // newest-first ordering: the store orders ascending by sequence, so deriving
-  // both `page.total` and a deterministic newest-first window requires the full
-  // matching set. `limit`/`offset` are therefore NOT forwarded to the store.
+  // pushed to the store. Pagination (limit/offset) is delegated to
+  // `EventStore.queryPage` (DR-11, #1685): it issues a bounded newest-first
+  // storage query — `COUNT(*)` for `total` plus a `LIMIT`/`OFFSET` page ordered
+  // `desc` — instead of loading the ENTIRE matching set into the handler and
+  // slicing it in memory. `limit`/`offset` ARE forwarded to the store.
   const hasWindowFilter =
     args.filter?.type !== undefined ||
     args.filter?.sinceSequence !== undefined ||
@@ -525,28 +526,20 @@ export async function handleEventQuery(
     : undefined;
 
   try {
-    const matching = await store.query(args.stream, filters);
-    const total = matching.length;
+    // Bounded, newest-first page carved at the storage layer. `queryPage` owns
+    // the `COUNT(*)` `total`, the descending order (`sequence` is unique +
+    // monotonic per stream, so descending is a total deterministic order), and
+    // the `LIMIT`/`OFFSET` carve. Its `QueryPageMeta` is field-identical to
+    // `EventQueryPage` (`total`/`offset`/`limit`/`hasMore`), so the response
+    // contract is unchanged: default page size is EVENT_QUERY_DEFAULT_LIMIT when
+    // no explicit `limit`, `offset` counts from the newest event, and
+    // `hasMore = offset + shown < total`.
+    const { events: windowed, page } = await store.queryPage(args.stream, filters, {
+      limit: args.limit ?? EVENT_QUERY_DEFAULT_LIMIT,
+      offset: args.offset ?? 0,
+    });
 
-    // Newest-first, stable: `sequence` is unique + monotonic per stream, so the
-    // ascending set reversed is a total, deterministic descending order.
-    const newestFirst = matching.slice().reverse();
-
-    // Default to the 20 newest when no explicit limit; explicit `limit`/`offset`
-    // page deterministically through the same descending order (no gaps, no
-    // duplicates). `offset` counts from the newest event.
-    const limit = args.limit ?? EVENT_QUERY_DEFAULT_LIMIT;
-    const offset = args.offset ?? 0;
-    const windowed = newestFirst.slice(offset, offset + limit);
-
-    const page: EventQueryPage = {
-      total,
-      offset,
-      limit,
-      hasMore: offset + windowed.length < total,
-    };
-
-    // Apply field projection if requested — over the windowed page only.
+    // Apply field projection if requested — over the bounded page only.
     let events: unknown[] = windowed;
     if (args.fields && args.fields.length > 0) {
       const safeFields = args.fields.filter(
