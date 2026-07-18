@@ -504,8 +504,8 @@ describe('runLifecycle — launcher lifecycle integrator (real git + real event 
   // A native-channel construction failure (here: the `file`-form temp-file write
   // throws) must NOT abort the launch. The launch PROCEEDS — spawn happens, the
   // guaranteed terminal is emitted — and a degradation is RECORDED on the result
-  // (surfaced at the launch.executing_started phase), the descriptor spawned
-  // WITHOUT the failed native orientation.
+  // AND persisted on the launch.executing_started claim itself (#1649 L2), the
+  // descriptor spawned WITHOUT the failed native orientation.
   it('runLifecycle_InjectionConstructionFails_LaunchProceedsWithDegradationRecorded', async () => {
     const fake = makeFakeSpawn({ code: 0, signal: null });
 
@@ -538,8 +538,17 @@ describe('runLifecycle — launcher lifecycle integrator (real git + real event 
     // …the child was actually spawned WITHOUT the failed native flag args…
     expect(fake.calls).toHaveLength(1);
     expect(fake.calls[0]!.args).not.toContain('--append-system-prompt-file');
-    // …and the launch ran to its guaranteed terminal.
+    // …the launch ran to its guaranteed terminal…
     expect(eventsOfType(store, LAUNCH_EXECUTED)).toHaveLength(1);
+    // …and the degradation is PERSISTED on the launch.executing_started claim
+    // itself (#1649 L2), so it is answerable from events alone.
+    const claims = eventsOfType(store, LAUNCH_EXECUTING_STARTED);
+    expect(claims).toHaveLength(1);
+    expect(claims[0]!.data).toMatchObject({
+      injectionChannel: 'none',
+      injectionDegraded: true,
+    });
+    expect(String(claims[0]!.data?.injectionDegradation)).toContain('construction failed');
   }, 20_000);
 
   // ── A resolved channel is APPLIED to the spawned descriptor (happy path) ────
@@ -567,6 +576,12 @@ describe('runLifecycle — launcher lifecycle integrator (real git + real event 
     expect(fake.calls[0]!.args).toEqual(['--append-system-prompt-file', '/tmp/orient/orientation.md']);
     // …and the file-free orientation tag rode its env alongside.
     expect(fake.calls[0]!.env?.EXARCHOS_ORIENTATION).toBe('ORIENTATION-BLOCK');
+    // The resolved (non-degraded) channel is persisted on the claim too (#1649 L2).
+    const claims = eventsOfType(store, LAUNCH_EXECUTING_STARTED);
+    expect(claims[0]!.data).toMatchObject({
+      injectionChannel: 'flag:--append-system-prompt-file',
+      injectionDegraded: false,
+    });
   }, 20_000);
 
   // ── A materialized `file`-form temp path is removed once the launch is done ─

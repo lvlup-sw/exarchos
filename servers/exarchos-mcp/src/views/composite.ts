@@ -72,10 +72,11 @@ function wrapView(result: ToolResult, startedAt: number): ToolResult {
  * probe/no-launch cases pass through unchanged.
  *
  * Known limitation (documented follow-up, out of scope here): injection
- * *degradation* is computed on the launcher lifecycle result at the
- * `launch.executing_started` phase but is NOT yet persisted as a field on the
- * event, so `ps` can answer launch *liveness* from events alone but cannot yet
- * surface *degradation* from events alone.
+ * *degradation* IS now persisted on the `launch.executing_started` claim (the
+ * optional `injectionChannel` / `injectionDegraded` / `injectionDegradation`
+ * data fields — #1649 L2), but the `ps` fold does not yet read or surface those
+ * fields, so `ps` answers launch *liveness* from events alone while
+ * *degradation* remains surfaced only on the launcher lifecycle result.
  */
 function withLaunchLivenessAffordance(result: ToolResult): ToolResult {
   if (!result.success) return result;

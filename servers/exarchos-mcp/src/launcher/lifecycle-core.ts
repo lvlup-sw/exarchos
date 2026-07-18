@@ -605,7 +605,22 @@ export async function runLifecycle(
   let liveChild: ChildHandle | undefined;
   try {
     // ── (4) Liveness CLAIM (supervisor holderPid), BEFORE the spawn. ──────────
-    await emitExecutingStarted(eventStore, { worktreeId, holderPid, holderStartedAt });
+    // The claim carries the injection record (channel + any fail-open
+    // degradation) so the DR-6 acceptance — degradation "recorded on
+    // `launch.executing_started`" — holds on the persisted event itself, not
+    // just the in-memory lifecycle result (#1649 L2).
+    await emitExecutingStarted(eventStore, {
+      worktreeId,
+      holderPid,
+      holderStartedAt,
+      injection: {
+        channel: injection.channel,
+        degraded: injection.degraded,
+        ...(injection.degradation !== undefined
+          ? { degradation: injection.degradation }
+          : {}),
+      },
+    });
 
     // ── (5) Spawn the child into the placed worktree. ─────────────────────────
     let child: ChildHandle;

@@ -58,6 +58,22 @@ export interface EmitLaunchExecutingStartedInput {
    * null-ready `LaunchExecutingStartedData.holderStartedAt` schema contract.
    */
   readonly holderStartedAt: string | null;
+  /**
+   * Spawn-time orientation-injection record (DR-6/DR-8), persisted on the claim
+   * as the optional `injectionChannel` / `injectionDegraded` /
+   * `injectionDegradation` data fields so a fail-open degradation is answerable
+   * from events alone (#1649 L2). Structurally mirrors the lifecycle's
+   * `LaunchInjectionInfo` (defined there — lifecycle-core imports this module,
+   * so the shape is restated here rather than imported, avoiding a cycle).
+   */
+  readonly injection?: {
+    /** Resolved-channel label — `flag:<flag>` / `env:<var>` / `none` / `disabled`. */
+    readonly channel: string;
+    /** True when the launch proceeded WITHOUT native orientation (fail-open). */
+    readonly degraded: boolean;
+    /** Degradation reason — present iff `degraded`. */
+    readonly degradation?: string;
+  };
 }
 
 /** Arguments for {@link emitLaunchExecuted}. */
@@ -102,6 +118,18 @@ export async function emitLaunchExecutingStarted(
           worktreeId: input.worktreeId,
           holderPid: input.holderPid,
           holderStartedAt: input.holderStartedAt,
+          // DR-6/DR-8 — persist the injection record on the claim (#1649 L2),
+          // so degradation is answerable from events alone. Optional: callers
+          // without an injection outcome (e.g. crash-resume re-claims) omit it.
+          ...(input.injection
+            ? {
+                injectionChannel: input.injection.channel,
+                injectionDegraded: input.injection.degraded,
+                ...(input.injection.degradation !== undefined
+                  ? { injectionDegradation: input.injection.degradation }
+                  : {}),
+              }
+            : {}),
           // DR-2 — canonical liveness instance key (launch: worktreeId).
           instanceId: input.worktreeId,
         },
