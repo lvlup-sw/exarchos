@@ -464,6 +464,20 @@ export function composeScopedCommand(
   }
 }
 
+/**
+ * Bound a captured-output tail to a fixed character budget (DR-10
+ * attributability, #1719) — keeps the LAST `maxChars` (a runner's actual
+ * failure is almost always at the tail, not the head, of its output),
+ * prefixed with a truncation marker when it clips, so a degrade reason or log
+ * line never floods CI output with a full mutation-runner transcript.
+ */
+function boundedTail(text: string, maxChars = 1500): string {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return '';
+  if (trimmed.length <= maxChars) return trimmed;
+  return `…(truncated)…${trimmed.slice(-maxChars)}`;
+}
+
 /** Default production runner: shell out, capturing stdout as the Stryker report. */
 function defaultRunMutation(args: MutationRunArgs): MutationRunResult {
   const tokens = args.command.split(/\s+/).filter((t) => t.length > 0);
@@ -482,13 +496,27 @@ function defaultRunMutation(args: MutationRunArgs): MutationRunResult {
     }).toString();
     return { ok: true, report: stdout };
   } catch (err) {
-    const e = err as { stdout?: string | Buffer; status?: number };
+    const e = err as { stdout?: string | Buffer; stderr?: string | Buffer; status?: number };
     const out = typeof e.stdout === 'string' ? e.stdout : e.stdout?.toString('utf-8') ?? '';
     // A non-zero exit with a parseable report on stdout is still a usable run
     // (mutation runners exit non-zero below their own threshold). Hand the
     // stdout to the parser; an empty/unparseable stdout degrades to a Warning.
     if (out.trim().length > 0) return { ok: true, report: out };
-    return { ok: false, reason: `mutation run produced no report (exit ${e.status ?? 'unknown'})` };
+    // DR-10: the "no report" branch above told the caller THAT the run
+    // produced nothing usable but dropped WHY — the runner's own diagnostic
+    // (a missing devDep, a thrown adapter error, a bad `--since` ref) lands on
+    // its stderr, which `execFileSync`/`runCommandSync` attaches to the thrown
+    // error but this catch previously never read. Surface a bounded tail of it
+    // (falling back to stdout, e.g. a runner that logs to stdout instead) so
+    // the degrade reason names the underlying failure (#1719).
+    const errOut = typeof e.stderr === 'string' ? e.stderr : e.stderr?.toString('utf-8') ?? '';
+    const tail = boundedTail(errOut.length > 0 ? errOut : out);
+    return {
+      ok: false,
+      reason:
+        `mutation run produced no report (exit ${e.status ?? 'unknown'})` +
+        (tail.length > 0 ? `; runner stderr (tail): ${tail}` : ''),
+    };
   }
 }
 

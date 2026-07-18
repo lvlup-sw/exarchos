@@ -165,6 +165,20 @@ function gitDiffNames(base, repoRoot) {
 }
 
 /**
+ * Bound a captured-output tail to a fixed character budget (DR-10
+ * attributability, #1719) — keeps the LAST `maxChars` (a runner's actual
+ * failure is almost always at the tail, not the head, of its output),
+ * prefixed with a truncation marker when it clips, so a stderr line never
+ * floods CI output with a full Stryker transcript.
+ */
+function boundedTail(text, maxChars = 1500) {
+  const trimmed = (text ?? '').trim();
+  if (trimmed.length === 0) return '';
+  if (trimmed.length <= maxChars) return trimmed;
+  return `…(truncated)…${trimmed.slice(-maxChars)}`;
+}
+
+/**
  * Run the local pinned Stryker binary (never `npx`) with `cwd: serverDir`,
  * then read+print its JSON report file. Fail-closed on a missing binary, a
  * throwing run, or a completed run with no report on disk: stderr names the
@@ -188,8 +202,13 @@ function runStryker(serverDir, mutateFiles) {
     args.push('--mutate', mutateFiles.join(','));
   }
 
+  // Captured on the SUCCESS path too (DR-10): `execFileSync` only returns
+  // stdout when the child exits 0 — stderr on success is not exposed at all
+  // — so this is the one chance to tail Stryker's own console output if the
+  // "exited cleanly but no report" branch below is reached.
+  let strykerStdout = '';
   try {
-    execFileSync(binPath, args, {
+    strykerStdout = execFileSync(binPath, args, {
       cwd: serverDir,
       encoding: 'utf-8',
       // Stryker's own console output (progress, warnings) is captured but
@@ -199,8 +218,22 @@ function runStryker(serverDir, mutateFiles) {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
   } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`stryker-adapter: stryker run failed: ${detail}\n`);
+    const e = /** @type {{ message?: string, stdout?: string | Buffer, stderr?: string | Buffer }} */ (
+      err
+    );
+    const detail = e?.message ?? (err instanceof Error ? err.message : String(err));
+    // `execFileSync`'s thrown error carries the child's actual captured
+    // output on `.stderr`/`.stdout` — `.message` for a failed exec is just
+    // the generic "Command failed: …" wrapper, dropping Stryker's real
+    // diagnostic entirely. Surface a bounded tail of it (#1719).
+    const stderrText = typeof e?.stderr === 'string' ? e.stderr : e?.stderr?.toString('utf-8') ?? '';
+    const stdoutText = typeof e?.stdout === 'string' ? e.stdout : e?.stdout?.toString('utf-8') ?? '';
+    const tail = boundedTail(stderrText.length > 0 ? stderrText : stdoutText);
+    process.stderr.write(
+      `stryker-adapter: stryker run failed: ${detail}` +
+        (tail.length > 0 ? `; captured output (tail): ${tail}` : '') +
+        '\n',
+    );
     return 1;
   }
 
@@ -210,9 +243,12 @@ function runStryker(serverDir, mutateFiles) {
     reportContent = readFileSync(reportPath, 'utf-8');
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
+    const tail = boundedTail(strykerStdout);
     process.stderr.write(
       `stryker-adapter: stryker exited cleanly but no report was found at ` +
-        `${reportPath}: ${detail}\n`,
+        `${reportPath}: ${detail}` +
+        (tail.length > 0 ? `; stryker output (tail): ${tail}` : '') +
+        '\n',
     );
     return 1;
   }
