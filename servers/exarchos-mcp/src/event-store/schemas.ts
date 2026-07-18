@@ -789,6 +789,156 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'export.executed': 'auto',
 };
 
+// ─── INV-13 State Fingerprint (DR-16 / #1645) ───────────────────────────────
+//
+// An intent/result pair says "attempted X, got Y" but not what the world looked
+// like on either side. The `stateFingerprint` turns every non-idempotent effect
+// into a complete causal triple (state-before → action → state-after):
+// `treeHash` is the WLM's view of the worktree tree (#1574) and
+// `projectionSequence` is the stream's fold position when the event was minted.
+//
+// Version ratchet: the fingerprint is REQUIRED on both halves of every INV-13
+// `*.requested`/`*.executed` pair once the event's `schemaVersion` reaches
+// `INTENT_RESULT_PAIR_SCHEMA_VERSION` — enforced at the `WorkflowEventBase`
+// boundary (the append layer parses it, so an unfingerprinted new-version pair
+// event cannot enter the log). Old-version events (every row persisted before
+// the bump, `schemaVersion` '1.0'/absent) still parse and fold unchanged
+// (INV-1 compatibility): the per-type data schemas declare the field OPTIONAL,
+// so the requirement is carried by the envelope version, never by a migration.
+
+/**
+ * The bumped pair schema version at which `stateFingerprint` becomes REQUIRED
+ * on the INV-13 intent/result pair. Emitters opt in by stamping
+ * `schemaVersion: INTENT_RESULT_PAIR_SCHEMA_VERSION` alongside the
+ * fingerprint; every version at or above this one keeps the requirement.
+ */
+export const INTENT_RESULT_PAIR_SCHEMA_VERSION = '1.1';
+
+/**
+ * `{treeHash, projectionSequence}` — the state-before/state-after anchor
+ * stamped on the INV-13 intent/result pair (DR-16). `treeHash` comes from the
+ * WLM's view of the worktree; `projectionSequence` from the stream's current
+ * fold position at mint time.
+ */
+export const StateFingerprintSchema = z.object({
+  treeHash: z
+    .string()
+    .min(1)
+    .describe('WLM tree-hash of the worktree at mint time (the external-state anchor)'),
+  projectionSequence: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe("The stream's fold position at mint time (the causal anchor)"),
+});
+
+export type StateFingerprint = z.infer<typeof StateFingerprintSchema>;
+
+/**
+ * Shared additive mixin spread into BOTH halves of every INV-13
+ * `*.requested`/`*.executed` pair data schema (mirrors the DR-2
+ * `livenessInstanceFields` pattern). OPTIONAL at the data layer so legacy
+ * rows still validate; the envelope-level version ratchet
+ * (`requiresStateFingerprint`) is what makes it required at the new version.
+ */
+export const stateFingerprintFields = {
+  // Description capped ≤80 chars: `merge.requested` is model-emitted and the
+  // schemas.test.ts description-length gate bounds model-facing field docs.
+  stateFingerprint: StateFingerprintSchema.optional().describe(
+    'INV-13 state fingerprint (DR-16); required at pair schemaVersion >= 1.1',
+  ),
+} as const;
+
+/**
+ * The INV-13 intent/result pair membership, DERIVED structurally from
+ * `EventTypes`: a type belongs iff it ends in `.requested` or `.executed` AND
+ * its family stem registers BOTH halves. Underscore forms
+ * (`worktree.merge_requested`) and unpaired terminals (`gate.executed`,
+ * `diagnostic.executed`, the INV-10 `*.executing_started` liveness terminals)
+ * are excluded by construction. Self-extending: registering a new dot-form
+ * two-event family joins the ratchet without touching this list.
+ */
+export const INTENT_RESULT_PAIR_EVENT_TYPES: readonly EventType[] = EventTypes.filter((type) => {
+  const stem = type.endsWith('.requested')
+    ? type.slice(0, -'.requested'.length)
+    : type.endsWith('.executed')
+      ? type.slice(0, -'.executed'.length)
+      : undefined;
+  if (stem === undefined) return false;
+  const all = EventTypes as readonly string[];
+  return all.includes(`${stem}.requested`) && all.includes(`${stem}.executed`);
+});
+
+/** Segment-wise numeric compare of dotted schema versions ('1.10' > '1.1'). */
+function isSchemaVersionAtLeast(version: string, minimum: string): boolean {
+  const toSegments = (v: string): number[] =>
+    v.split('.').map((segment) => {
+      const n = Number.parseInt(segment, 10);
+      return Number.isNaN(n) ? 0 : n;
+    });
+  const left = toSegments(version);
+  const right = toSegments(minimum);
+  const length = Math.max(left.length, right.length);
+  for (let i = 0; i < length; i++) {
+    const a = left[i] ?? 0;
+    const b = right[i] ?? 0;
+    if (a !== b) return a > b;
+  }
+  return true;
+}
+
+/**
+ * TRUE iff `eventType` is an INV-13 intent/result pair member AND
+ * `schemaVersion` is at or above the DR-16 bump — the arm under which
+ * `data.stateFingerprint` is required. Old-version pair events return false
+ * (the legacy fold-compatibility arm).
+ */
+export function requiresStateFingerprint(eventType: string, schemaVersion: string): boolean {
+  return (
+    (INTENT_RESULT_PAIR_EVENT_TYPES as readonly string[]).includes(eventType) &&
+    isSchemaVersionAtLeast(schemaVersion, INTENT_RESULT_PAIR_SCHEMA_VERSION)
+  );
+}
+
+/**
+ * Crash-recovery precheck verdict (DR-16 consumption seam). INV-13: on crash
+ * recovery the next invocation observes `*.requested` without `*.executed` and
+ * runs an idempotent precheck against external state. The fingerprint makes
+ * external-state drift a LOOKUP: compare the intent's recorded `treeHash`
+ * against the WLM's current view.
+ *
+ * - `match` — the tree is byte-identical to what the intent saw; re-running
+ *   the effect resumes from the recorded state.
+ * - `drift` — external state moved since the intent was recorded; the
+ *   recovery path must NOT blindly re-execute (divergence located, INV-13).
+ * - `unfingerprinted` — legacy pre-bump intent with no fingerprint; the
+ *   precheck falls back to the existing external-state probe.
+ */
+export type StateFingerprintDriftVerdict =
+  | { status: 'match'; recorded: StateFingerprint }
+  | { status: 'drift'; recorded: StateFingerprint; observedTreeHash: string }
+  | { status: 'unfingerprinted' };
+
+/**
+ * Pure DR-16 drift detector consumed by the INV-13 crash-recovery precheck.
+ * `intentEvent` is the observed `*.requested` event (any shape carrying the
+ * standard `data` record); `observedTreeHash` is the WLM's CURRENT tree-hash
+ * of the same worktree. A malformed recorded fingerprint is treated as
+ * `unfingerprinted` (the boundary rejects malformed fingerprints at the new
+ * version, so this arm only fires for legacy rows).
+ */
+export function detectStateFingerprintDrift(
+  intentEvent: { data?: Record<string, unknown> | undefined },
+  observedTreeHash: string,
+): StateFingerprintDriftVerdict {
+  const recorded = StateFingerprintSchema.safeParse(intentEvent.data?.['stateFingerprint']);
+  if (!recorded.success) return { status: 'unfingerprinted' };
+  if (recorded.data.treeHash !== observedTreeHash) {
+    return { status: 'drift', recorded: recorded.data, observedTreeHash };
+  }
+  return { status: 'match', recorded: recorded.data };
+}
+
 // ─── Base Event Schema ──────────────────────────────────────────────────────
 
 export const WorkflowEventBase = z.object({
@@ -825,6 +975,25 @@ export const WorkflowEventBase = z.object({
   schemaVersion: z.string().min(1).max(20).default('1.0'),
   data: z.record(z.string(), z.unknown()).optional(),
   idempotencyKey: z.string().min(1).max(200).optional(),
+}).superRefine((event, ctx) => {
+  // DR-16 (#1645) — version-ratcheted fingerprint requirement on the INV-13
+  // intent/result pair. Enforced HERE because the append layer
+  // (`EventStore.append`, `buildValidatedEvent`) parses `WorkflowEventBase`,
+  // so an unfingerprinted (or malformed-fingerprint) pair event at the bumped
+  // version cannot enter the log. Old-version events skip the arm entirely —
+  // that IS the fold-compatibility guarantee (INV-1).
+  if (!requiresStateFingerprint(event.type, event.schemaVersion)) return;
+  const fingerprint = StateFingerprintSchema.safeParse(event.data?.['stateFingerprint']);
+  if (!fingerprint.success) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['data', 'stateFingerprint'],
+      message:
+        `INV-13 intent/result event '${event.type}' at schemaVersion ` +
+        `${event.schemaVersion} requires data.stateFingerprint ` +
+        `{treeHash, projectionSequence} (DR-16 / #1645)`,
+    });
+  }
 });
 
 // ─── Workflow-Level Event Data ──────────────────────────────────────────────
@@ -1531,6 +1700,8 @@ export const OnboardRequestedDataSchema = z.object({
   plan: ReconcilePlanSchema,
   /** Stable key used to collapse retries onto the same logical request. */
   idempotencyKey: z.string().min(1),
+  // DR-16 — INV-13 state fingerprint (required at pair schemaVersion >= 1.1).
+  ...stateFingerprintFields,
 });
 
 /**
@@ -1547,6 +1718,8 @@ export const OnboardExecutedDataSchema = z.object({
   idempotencyKey: z.string().min(1),
   /** Wall-clock duration of the reconcile, in milliseconds. */
   durationMs: z.number().int().nonnegative(),
+  // DR-16 — INV-13 state fingerprint (required at pair schemaVersion >= 1.1).
+  ...stateFingerprintFields,
 });
 
 // ─── Remediation Event Data ─────────────────────────────────────────────────
@@ -1802,6 +1975,8 @@ export const MergeRequestedData = z.object({
     .string()
     .optional()
     .describe('Feature stream id; useful for cross-stream observability'),
+  // DR-16 — INV-13 state fingerprint (required at pair schemaVersion >= 1.1).
+  ...stateFingerprintFields,
 });
 
 // ─── Shared liveness instance key (DR-2 / INV-10) ────────────────────────────
@@ -1855,6 +2030,8 @@ export const MergeExecutedData = z.object({
   rollbackSha: z.string().min(1),
   // DR-2 — canonical liveness instance key (merge: taskId ?? `src→tgt`).
   ...livenessInstanceFields,
+  // DR-16 — INV-13 state fingerprint (required at pair schemaVersion >= 1.1).
+  ...stateFingerprintFields,
 });
 
 /**
@@ -2012,6 +2189,8 @@ export const PrCreateRequestedData = z.object({
   head: z.string().min(1).describe('Source head branch'),
   draft: z.boolean().optional().describe('Open as draft PR when true'),
   labels: z.array(z.string()).optional().describe('Label names to apply'),
+  // DR-16 — INV-13 state fingerprint (required at pair schemaVersion >= 1.1).
+  ...stateFingerprintFields,
 });
 
 /**
@@ -2022,6 +2201,8 @@ export const PrCreateExecutedData = z.object({
   operationId: z.string().uuid().describe('Correlates to the pr.create.requested event'),
   prNumber: z.number().int().positive().describe('GitHub PR number'),
   url: z.string().url().describe('HTML URL of the created PR'),
+  // DR-16 — INV-13 state fingerprint (required at pair schemaVersion >= 1.1).
+  ...stateFingerprintFields,
 });
 
 /**
@@ -2042,6 +2223,8 @@ export const PrCommentRequestedData = z.object({
     .describe(
       'Id of the review-comment thread being replied to (provider addReply path). Absent ⇒ PR-level comment via addComment.',
     ),
+  // DR-16 — INV-13 state fingerprint (required at pair schemaVersion >= 1.1).
+  ...stateFingerprintFields,
 });
 
 /**
@@ -2051,6 +2234,8 @@ export const PrCommentExecutedData = z.object({
   operationId: z.string().uuid().describe('Correlates to the pr.comment.requested event'),
   commentId: z.number().int().positive().describe('GitHub comment id'),
   url: z.string().url().describe('HTML URL of the posted comment'),
+  // DR-16 — INV-13 state fingerprint (required at pair schemaVersion >= 1.1).
+  ...stateFingerprintFields,
 });
 
 /**
@@ -2065,6 +2250,8 @@ export const IssueCreateRequestedData = z.object({
   body: z.string().describe('Issue body markdown'),
   labels: z.array(z.string()).optional().describe('Label names to apply'),
   assignees: z.array(z.string()).optional().describe('GitHub usernames to assign'),
+  // DR-16 — INV-13 state fingerprint (required at pair schemaVersion >= 1.1).
+  ...stateFingerprintFields,
 });
 
 /**
@@ -2074,6 +2261,8 @@ export const IssueCreateExecutedData = z.object({
   operationId: z.string().uuid().describe('Correlates to the issue.create.requested event'),
   issueNumber: z.number().int().positive().describe('GitHub issue number'),
   url: z.string().url().describe('HTML URL of the created issue'),
+  // DR-16 — INV-13 state fingerprint (required at pair schemaVersion >= 1.1).
+  ...stateFingerprintFields,
 });
 
 /**
@@ -2087,6 +2276,8 @@ export const BranchDeleteRequestedData = z.object({
   branch: z.string().min(1).describe('Branch name to delete'),
   remote: z.string().optional().describe("Remote name (defaults to 'origin' when omitted)"),
   localOnly: z.boolean().optional().describe('When true, skip the push --delete step'),
+  // DR-16 — INV-13 state fingerprint (required at pair schemaVersion >= 1.1).
+  ...stateFingerprintFields,
 });
 
 /**
@@ -2098,6 +2289,8 @@ export const BranchDeleteExecutedData = z.object({
   branch: z.string().min(1).describe('Branch that was targeted'),
   deletedLocally: z.boolean().describe('True if local branch was removed'),
   deletedRemote: z.boolean().describe('True if remote tracking ref was removed'),
+  // DR-16 — INV-13 state fingerprint (required at pair schemaVersion >= 1.1).
+  ...stateFingerprintFields,
 });
 
 /**
@@ -2122,6 +2315,8 @@ export const WorktreeRemoveRequestedData = z.object({
     .min(1)
     .optional()
     .describe('Canonical worktrees@v1 key, stamped so replay drops by stored id (no realpath at fold time)'),
+  // DR-16 — INV-13 state fingerprint (required at pair schemaVersion >= 1.1).
+  ...stateFingerprintFields,
 });
 
 /**
@@ -2141,6 +2336,8 @@ export const WorktreeRemoveExecutedData = z.object({
     .min(1)
     .optional()
     .describe('Canonical worktrees@v1 key, stamped so replay drops by stored id (no realpath at fold time)'),
+  // DR-16 — INV-13 state fingerprint (required at pair schemaVersion >= 1.1).
+  ...stateFingerprintFields,
 });
 
 /**
@@ -2301,6 +2498,8 @@ export const WorktreeCreateRequestedData = z.object({
     .min(1)
     .optional()
     .describe('Start-point commit-ish captured in the intent so crash-resume replays it faithfully (INV-13).'),
+  // DR-16 — INV-13 state fingerprint (required at pair schemaVersion >= 1.1).
+  ...stateFingerprintFields,
 });
 
 /**
@@ -2319,6 +2518,8 @@ export const WorktreeCreateExecutedData = z.object({
     .min(1)
     .optional()
     .describe('Canonical worktrees@v1 key, stamped so replay folds by stored id (no realpath at fold time)'),
+  // DR-16 — INV-13 state fingerprint (required at pair schemaVersion >= 1.1).
+  ...stateFingerprintFields,
 });
 
 /**
@@ -3043,6 +3244,8 @@ export const ExportRequestedData = z.object({
     .describe(
       'Stable key (INV-8) collapsing crash-retries of the same logical export onto one intent; a fresh export invocation mints a distinct key',
     ),
+  // DR-16 — INV-13 state fingerprint (required at pair schemaVersion >= 1.1).
+  ...stateFingerprintFields,
 });
 
 /**
@@ -3076,6 +3279,8 @@ export const ExportExecutedData = z.object({
     .string()
     .min(1)
     .describe('Same key as the paired export.requested intent (INV-8)'),
+  // DR-16 — INV-13 state fingerprint (required at pair schemaVersion >= 1.1).
+  ...stateFingerprintFields,
 });
 
 // ─── Event Data Schemas Map ─────────────────────────────────────────────────
