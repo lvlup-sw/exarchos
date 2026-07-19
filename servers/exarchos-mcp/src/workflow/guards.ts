@@ -1,3 +1,5 @@
+import { isPlainObject } from './state-mutation.js';
+
 // ─── Guard Types ────────────────────────────────────────────────────────────
 
 export interface GuardFailure {
@@ -352,9 +354,10 @@ export const guards = {
         }
       }
 
-      // Check 4: mutation score enforcement (DR-3). PURE — reads only the
+      // Check 4a: mutation SCORE enforcement (DR-3). PURE — reads only the
       // values `workflow/tools.ts` pre-resolves and injects (`_mutationEnforcement`,
-      // `_mutationThreshold`), never `ResolvedProjectConfig`. Advisory by default
+      // `_mutationThreshold`, and — for Check 4b's orthogonal NoCoverage axis —
+      // `_maxNoCoverage`), never `ResolvedProjectConfig`. Advisory by default
       // (#1520/R5): enforcement fires ONLY when the injected mode is `block` and a
       // finite threshold was injected (both set together, HIGH tier only). This is
       // the score gate — distinct from the dimension's presence/advisory status
@@ -396,6 +399,49 @@ export const guards = {
                   `${state._mutationThreshold} (review.mutationEnforcement: block)`,
               );
             }
+          }
+        }
+      }
+
+      // Check 4b: mutation NoCoverage enforcement (DR-6). The SECOND, ORTHOGONAL
+      // blocking axis — deterministic (runner-budget-insensitive), so the safest
+      // to block on. Still PURE: reads only the pre-resolved `_maxNoCoverage`
+      // injection (plumbed in workflow/tools.ts beside `_mutationThreshold`),
+      // never config. Fires under block mode with a finite injected budget and a
+      // REAL run: a skip-pass / degraded dimension carries no verifiable
+      // NoCoverage count (both emit noCoverage:0, and Check 4a already fails a
+      // degraded run closed), so the axis reads only a scored run. `mutationScore`
+      // stays UNCHANGED (INV-5b) — this blocks on a DIFFERENT signal, orthogonally
+      // to the score axis above.
+      if (
+        state._mutationEnforcement === 'block' &&
+        typeof state._maxNoCoverage === 'number' &&
+        Number.isInteger(state._maxNoCoverage) &&
+        state._maxNoCoverage >= 0
+      ) {
+        // Capture the narrowed budget right after the `typeof` check above
+        // (real narrowing, not an escape-hatch cast — DR-14).
+        const maxNoCoverage = state._maxNoCoverage;
+        const rawDim = reviews['mutation-adequacy'];
+        const dim = isPlainObject(rawDim) ? rawDim : undefined;
+        if (dim && dim.skipped !== true && dim.degraded !== true) {
+          const noCoverage = dim.noCoverage;
+          if (typeof noCoverage !== 'number' || !Number.isInteger(noCoverage) || noCoverage < 0) {
+            // A REAL (non-skipped, non-degraded) dimension under block mode must
+            // carry a verifiable NoCoverage COUNT. `undefined`/NaN/nonnumeric/
+            // negative/fractional is unverifiable — `noCoverage > budget` would
+            // be silently false and pass the axis by default, so fail closed
+            // instead (DR-10 mirrors the non-finite-score guard in Check 4a).
+            reasons.push(
+              `mutation-adequacy produced no verifiable NoCoverage count ` +
+                `(review.mutationEnforcement: block)`,
+            );
+          } else if (noCoverage > maxNoCoverage) {
+            reasons.push(
+              `mutation-adequacy has ${noCoverage} uncovered (NoCoverage) mutant(s), ` +
+                `exceeding the enforced budget of ${state._maxNoCoverage} ` +
+                `(review.mutationEnforcement: block)`,
+            );
           }
         }
       }

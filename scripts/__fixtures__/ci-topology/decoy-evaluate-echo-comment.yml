@@ -1,0 +1,51 @@
+# Synthetic fixture (finding 7 decoy, evaluate-coverage): `validate-no-legacy`
+# is in `ci-gate.needs` and is NOT path-filtered, and its executable
+# `if [[ needs.validate-no-legacy.result =~ failure|cancelled ]]` guard has been
+# REMOVED. Left behind are three decoys a looser scan would accept:
+#   1. an `echo` line that still prints `needs.validate-no-legacy.result`,
+#   2. a prose comment naming "failure"/"cancelled" right beside it, and
+#   3. an `echo '...'` STRING containing a full fake `if [[ ... ]]` condition
+#      naming `needs.validate-no-legacy.result` + `failure|cancelled` — never
+#      executed, just printed.
+# A 240-char window would find every token near the echo and FALSE-PASS on (1)
+# and (2). An `if`-matcher that isn't anchored to a line/command boundary would
+# ALSO false-pass on (3): it would extract the echoed string's `[[ ... ]]` text
+# as if it were a real, executable guard (CodeRabbit round 2, #1719 finding B).
+# The structural matcher anchors `if` to `^\s*if` (line start), so none of the
+# three decoys contribute a match, and it still trips the EVALUATE-COVERAGE
+# assertion.
+name: CI Fixture - Decoy Echo/Comment (Evaluate)
+on: push
+
+jobs:
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      root: ${{ steps.filter.outputs.root }}
+    steps:
+      - run: echo noop
+
+  validate-no-legacy:
+    name: Validate No Legacy
+    needs: changes
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo noop
+
+  ci-gate:
+    name: CI Gate
+    runs-on: ubuntu-latest
+    needs: [changes, validate-no-legacy]
+    steps:
+      - name: Evaluate results
+        run: |
+          echo "changes=${{ needs.changes.result }}"
+          echo "validate-no-legacy=${{ needs.validate-no-legacy.result }}"
+          # If validate-no-legacy were a failure or cancelled we would exit 1 —
+          # but that executable guard was removed; only this comment remains.
+          if [[ "${{ needs.changes.result }}" =~ ^(failure|cancelled)$ ]]; then
+            exit 1
+          fi
+          echo 'if [[ "${{ needs.validate-no-legacy.result }}" =~ ^(failure|cancelled)$ ]]'
+          echo "validate-no-legacy result is never inspected by a real guard"

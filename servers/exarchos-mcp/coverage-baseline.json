@@ -1,0 +1,56 @@
+{
+  "$comment": [
+    "Coverage baseline (DR-5, task 009). Captured from 3 green CI runs of the",
+    "RUN_EVALS-off `test-mcp` \"Coverage-instrumented suite\" step on",
+    "feat/wave-s-enforcement-substrate — see `runIds` (provenance the ratchet",
+    "validates) and `sourceRuns` (per-run detail) below.",
+    "",
+    "`metrics.*.pct` is the baseline percentage, taken from the LATEST of the",
+    "three runs (29624088763, commit 0d91a8bd — the final tree at this task's",
+    "dispatch tip; its coverage is slightly higher than the two earlier runs",
+    "because the DR-10 fix added a test covering the degrade path).",
+    "`metrics.*.spread` is the measured max-min PCT spread of that metric across",
+    "all 3 runs — real, unpadded variance, not a guess.",
+    "`metrics.*.epsilon` is `max(spread, 0.1)` (the 0.1-percentage-point floor),",
+    "recorded here for human/audit visibility ONLY: scripts/check-coverage-ratchet.mjs",
+    "re-derives this value itself at comparison time from `spread` and NEVER reads",
+    "a pre-baked epsilon field, so a baseline that (incorrectly) recorded a zero or",
+    "understated epsilon can never disarm the ratchet. See that script's header for",
+    "the full fail-closed provenance contract this file must satisfy (non-empty",
+    "`runIds` + a numeric `spread` per metric).",
+    "",
+    "All 4 metrics measured a sub-floor spread (0.03-0.04pp) on this feature",
+    "branch's 3 runs, so the 0.1pp floor governs every metric's epsilon verbatim —",
+    "none of the measured spreads exceeded it."
+  ],
+  "runIds": ["29622454248", "29623082084", "29624088763"],
+  "metrics": {
+    "lines": { "pct": 91.6, "spread": 0.03, "epsilon": 0.1 },
+    "statements": { "pct": 91.6, "spread": 0.03, "epsilon": 0.1 },
+    "functions": { "pct": 96.24, "spread": 0.03, "epsilon": 0.1 },
+    "branches": { "pct": 85.38, "spread": 0.04, "epsilon": 0.1 }
+  },
+  "laneConfig": {
+    "RUN_EVALS": "unset — the \"Coverage-instrumented suite (DR-5, RUN_EVALS pinned off)\" step in .github/workflows/ci.yml's test-mcp job sets `env.RUN_EVALS: ''`, overriding the job-level derivation from `needs.changes.outputs.prompts`, so the measured lane never varies with prompts-touching PRs."
+  },
+  "sourceRuns": [
+    {
+      "runId": "29622454248",
+      "commit": "b494afbda08b0f7712958d9384c280f01af5124f",
+      "createdAt": "2026-07-18T00:09:26Z",
+      "metrics": { "lines": 91.58, "statements": 91.58, "functions": 96.21, "branches": 85.42 }
+    },
+    {
+      "runId": "29623082084",
+      "commit": "060695149babd3dd161e6a52b6a7406beb45413a",
+      "createdAt": "2026-07-18T00:26:12Z",
+      "metrics": { "lines": 91.57, "statements": 91.57, "functions": 96.21, "branches": 85.41 }
+    },
+    {
+      "runId": "29624088763",
+      "commit": "0d91a8bded6fc62cad39f3835dfec845a09f17df",
+      "createdAt": "2026-07-18T00:53:48Z",
+      "metrics": { "lines": 91.6, "statements": 91.6, "functions": 96.24, "branches": 85.38 }
+    }
+  ]
+}
