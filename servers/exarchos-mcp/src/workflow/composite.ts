@@ -75,6 +75,24 @@ export async function handleWorkflow(
       const mutationEnforcement = ctx.projectConfig?.review.mutationEnforcement;
       const mutationThreshold = ctx.projectConfig?.review.gates['mutation-adequacy']?.params
         ?.threshold as number | undefined;
+      // DR-6: the resolved NoCoverage budget for the guard's orthogonal Check 4b
+      // axis, injected as `_maxNoCoverage`. Defaults to 0 (zero uncovered changed
+      // mutants) when the project sets no
+      // `review.gates['mutation-adequacy'].params.maxNoCoverage` — so block mode
+      // enforces the strict default without an explicit config line. Same config
+      // plumbing as the threshold above (INV-2 — the decision lives in the guard).
+      const maxNoCoverageRaw = ctx.projectConfig?.review.gates['mutation-adequacy']?.params
+        ?.maxNoCoverage;
+      // Reject a negative (would block every nontrivial diff) or fractional
+      // (meaningless for a count) budget in favour of the strict default (0) —
+      // the same `isInteger && >= 0` contract `resolveMaxNoCoverage` and the
+      // guard's own NoCoverage-count check enforce (INV-2 parity).
+      const maxNoCoverage =
+        typeof maxNoCoverageRaw === 'number' &&
+        Number.isInteger(maxNoCoverageRaw) &&
+        maxNoCoverageRaw >= 0
+          ? maxNoCoverageRaw
+          : 0;
       const transitionOptions: Record<string, unknown> = {};
       if (skipPhases?.length) transitionOptions.skipPhases = skipPhases;
       if (requiredReviews?.length) transitionOptions.requiredReviews = requiredReviews;
@@ -82,6 +100,12 @@ export async function handleWorkflow(
       if (typeof maxPlanRevisions === 'number') transitionOptions.maxPlanRevisions = maxPlanRevisions;
       if (mutationEnforcement !== undefined) transitionOptions.mutationEnforcement = mutationEnforcement;
       if (typeof mutationThreshold === 'number') transitionOptions.mutationThreshold = mutationThreshold;
+      // Plumb the budget whenever a review config is resolved (signalled by the
+      // enforcement mode being present) — even absent an explicit
+      // `params.maxNoCoverage`, so block mode enforces the strict default (0).
+      // Gating on `mutationEnforcement !== undefined` mirrors the threshold's
+      // config-presence contract and keeps the no-config path passing `undefined`.
+      if (mutationEnforcement !== undefined) transitionOptions.maxNoCoverage = maxNoCoverage;
       return envelopeWrap(
         await handleTransition(
           rest as unknown as Parameters<typeof handleTransition>[0],

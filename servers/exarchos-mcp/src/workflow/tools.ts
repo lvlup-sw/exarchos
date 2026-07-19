@@ -530,6 +530,14 @@ export async function handleSet(
      */
     mutationEnforcement?: 'block' | 'advisory';
     mutationThreshold?: number;
+    /**
+     * DR-6: resolved NoCoverage budget for the pure `allReviewsPassed` guard's
+     * SECOND, orthogonal axis. Injected (HIGH tier only) into `_maxNoCoverage`,
+     * then stripped before persistence — never event-sourced (INV-1). Config
+     * plumbing beside `_mutationThreshold`, not a facade fork: the pass-decision
+     * lives in the guard, both facades reach it through this same injector.
+     */
+    maxNoCoverage?: number;
   },
 ): Promise<ToolResult> {
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
@@ -743,6 +751,19 @@ export async function handleSet(
         ) {
           mutableState._mutationThreshold = options.mutationThreshold;
         }
+        // DR-6: the resolved NoCoverage budget for `allReviewsPassed` Check 4b's
+        // orthogonal axis, injected exactly as the threshold above. Config
+        // plumbing, not a facade fork — the pass-decision lives in the pure guard.
+        // Only plumb a well-formed budget (non-negative integer) — a negative
+        // or fractional value is rejected here rather than injected, matching
+        // `resolveMaxNoCoverage` and the guard's NoCoverage-count check (INV-2).
+        if (
+          typeof options?.maxNoCoverage === 'number' &&
+          Number.isInteger(options.maxNoCoverage) &&
+          options.maxNoCoverage >= 0
+        ) {
+          mutableState._maxNoCoverage = options.maxNoCoverage;
+        }
       }
     }
 
@@ -914,6 +935,7 @@ export async function handleSet(
       delete mutableState._maxPlanRevisions;
       delete mutableState._mutationEnforcement;
       delete mutableState._mutationThreshold;
+      delete mutableState._maxNoCoverage;
     }
 
     // Transition events are now emitted inside `hsmTransitionGuard.attempt`
@@ -1268,6 +1290,14 @@ export async function handleTransition(
      */
     mutationEnforcement?: 'block' | 'advisory';
     mutationThreshold?: number;
+    /**
+     * DR-6: resolved NoCoverage budget for the pure `allReviewsPassed` guard's
+     * SECOND, orthogonal axis. Injected (HIGH tier only) into `_maxNoCoverage`,
+     * then stripped before persistence — never event-sourced (INV-1). Config
+     * plumbing beside `_mutationThreshold`, not a facade fork: the pass-decision
+     * lives in the guard, both facades reach it through this same injector.
+     */
+    maxNoCoverage?: number;
   },
 ): Promise<ToolResult> {
   return applyTransition(
@@ -1314,6 +1344,14 @@ async function applyTransition(
      */
     mutationEnforcement?: 'block' | 'advisory';
     mutationThreshold?: number;
+    /**
+     * DR-6: resolved NoCoverage budget for the pure `allReviewsPassed` guard's
+     * SECOND, orthogonal axis. Injected (HIGH tier only) into `_maxNoCoverage`,
+     * then stripped before persistence — never event-sourced (INV-1). Config
+     * plumbing beside `_mutationThreshold`, not a facade fork: the pass-decision
+     * lives in the guard, both facades reach it through this same injector.
+     */
+    maxNoCoverage?: number;
   },
 ): Promise<ToolResult> {
   const result = await handleSet(

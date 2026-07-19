@@ -522,6 +522,7 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
           ? (data.details as Record<string, unknown>)
           : {};
         const rawScore = details.mutationScore;
+        const rawNoCoverage = details.noCoverage;
         return {
           ...view,
           reviews: {
@@ -531,6 +532,12 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
               gateName: 'mutation-adequacy',
               passed: data.passed === true,
               ...(typeof rawScore === 'number' ? { mutationScore: rawScore } : {}),
+              // DR-6 (additive): carry the NoCoverage count so `allReviewsPassed`
+              // Check 4's SECOND, orthogonal axis can read it off the folded
+              // dimension. A legacy `gate.executed` WITHOUT `noCoverage` in its
+              // details omits the field entirely — folding byte-identical to
+              // before (INV-1: pure left-fold, identical legacy replay).
+              ...(typeof rawNoCoverage === 'number' ? { noCoverage: rawNoCoverage } : {}),
               ...(details.skipped === true ? { skipped: true } : {}),
               // Carry the degrade marker (RVC-R1): a `degraded` run (toolchain
               // present but the runner failed/unparseable) shares `skipped:true`

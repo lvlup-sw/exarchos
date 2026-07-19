@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
-import { ProjectConfigSchema } from './yaml-schema.js';
+import { ProjectConfigSchema, FullExarchosConfigSchema } from './yaml-schema.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -305,10 +305,36 @@ describe('ProjectConfigSchema', () => {
   });
 
   describe('default .exarchos.yml', () => {
-    it('ProjectConfigSchema_DefaultExarchosYml_ParsesSuccessfully', () => {
+    // The committed `.exarchos.yml` legitimately carries keys from BOTH
+    // concern-schemas (per the #1479 dual-reader reconciliation above
+    // `FullExarchosConfigSchema`): project-level keys (`agents`, `review`,
+    // `vcs`, ...) validated by `ProjectConfigSchema`, and top-level
+    // toolchain-override keys (`test`, `typecheck`, `install`, `mutation`,
+    // ...) validated by `ExarchosConfigSchema`. `FullExarchosConfigSchema`
+    // is therefore the architecturally-correct reader for "does the real
+    // config file parse" — `ProjectConfigSchema` alone rejects the
+    // toolchain-override keys it was never meant to model.
+    it('FullExarchosConfigSchema_DefaultExarchosYml_ParsesSuccessfully', () => {
       const content = readFileSync(resolve(__dirname, '../../../../.exarchos.yml'), 'utf-8');
       const parsed = parseYaml(content);
-      expect(ProjectConfigSchema.safeParse(parsed).success).toBe(true);
+      expect(FullExarchosConfigSchema.safeParse(parsed).success).toBe(true);
+    });
+
+    // Widening the reader to the unified schema must not open a passthrough
+    // hole: a genuinely-typo'd top-level key (valid in NEITHER concern-schema)
+    // is still rejected, exactly as `.strict()` intends.
+    it('FullExarchosConfigSchema_TypoTopLevelKey_StillRejected', () => {
+      const content = readFileSync(resolve(__dirname, '../../../../.exarchos.yml'), 'utf-8');
+      const parsed = parseYaml(content) as Record<string, unknown>;
+      const withTypo = { ...parsed, mutaton: parsed.mutation };
+      delete (withTypo as { mutation?: unknown }).mutation;
+      const result = FullExarchosConfigSchema.safeParse(withTypo);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(
+          result.error.issues.some((i) => i.code === 'unrecognized_keys'),
+        ).toBe(true);
+      }
     });
   });
 

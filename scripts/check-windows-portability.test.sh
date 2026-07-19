@@ -127,5 +127,57 @@ tooling_exit=$?
 set -e
 check "scripts/audit CI tooling is exempt from rule 4" 0 "$tooling_exit"
 
+# ── Nested CI-tooling exemption (#1719, wave-S task 012): a build-tool dir
+# nested below repo-root, e.g. `servers/*/scripts/` (the DR-7 stryker-adapter,
+# CI-only/Linux-only, fail-closed on spawn error), must ALSO be exempt from
+# rule 4 — CI_TOOLING_RE matches the KNOWN roots (repo-root `scripts/` and
+# `servers/<name>/scripts/`).
+mkdir -p "$TMP/nested/servers/fake-mcp/scripts"
+cat > "$TMP/nested/servers/fake-mcp/scripts/adapter.mjs" <<'EOF'
+import { execFileSync } from 'node:child_process';
+export function run(binPath, args) { return execFileSync(binPath, args); }
+EOF
+set +e
+node "$GATE" --src-root "$TMP/nested" >/dev/null 2>&1
+nested_tooling_exit=$?
+set -e
+check "nested servers/*/scripts/ CI tooling is exempt from rule 4" 0 "$nested_tooling_exit"
+
+# ── Negative case (#1719 finding 14): a SHIPPED runtime `scripts/` dir — here
+# `servers/*/src/scripts/` — is NOT a CI-tooling root and must stay CHECKED, so
+# a production dynamic-bin spawn can never bypass rule 4 on directory name
+# alone. The blanket "`scripts/` at any depth" match would have wrongly exempted
+# it; the tightened CI_TOOLING_RE must red this.
+mkdir -p "$TMP/runtime/servers/fake-mcp/src/scripts"
+cat > "$TMP/runtime/servers/fake-mcp/src/scripts/dynspawn.ts" <<'EOF'
+import { execFileSync } from 'node:child_process';
+export function run(bin: string, args: string[]) { return execFileSync(bin, args); }
+EOF
+set +e
+node "$GATE" --src-root "$TMP/runtime" >/dev/null 2>&1
+runtime_scripts_exit=$?
+set -e
+check "runtime servers/*/src/scripts/ is NOT exempt (rule 4 still checks it)" 1 "$runtime_scripts_exit"
+
+# ── Negative case (CodeRabbit round 2, #1719 finding A): the PRE-round-2
+# CI_TOOLING_RE used a `(?:^|[/\\])` boundary on the `servers/…` alternative,
+# so it matched at ANY depth — e.g. `src/servers/foo/scripts/…` — not just at
+# the scan root. That is a DIFFERENT shape from the `servers/*/src/scripts/`
+# case above (which the pre-round-2 regex already rejected, since it requires
+# exactly ONE segment between `servers/` and `scripts/`): here `servers/` is
+# nested BELOW `src/`, one path segment further out. A shipped runtime path
+# like this must stay CHECKED; the round-2 hard `^`-anchor on CI_TOOLING_RE
+# must red this.
+mkdir -p "$TMP/shipped/src/servers/fake-mcp/scripts"
+cat > "$TMP/shipped/src/servers/fake-mcp/scripts/dynspawn.ts" <<'EOF'
+import { execFileSync } from 'node:child_process';
+export function run(bin: string, args: string[]) { return execFileSync(bin, args); }
+EOF
+set +e
+node "$GATE" --src-root "$TMP/shipped" >/dev/null 2>&1
+shipped_scripts_exit=$?
+set -e
+check "shipped src/servers/*/scripts/ is NOT exempt (rule 4 still checks it)" 1 "$shipped_scripts_exit"
+
 echo "check-windows-portability self-test: $pass passed, $fail failed"
 [[ "$fail" == "0" ]]

@@ -1,6 +1,15 @@
 # Exarchos project configuration
 # See: docs/guide/configuration.md
 
+# verification-ladder / DR-7 (docs/specs/2026-07-17-wave-s-enforcement-
+# substrate.md): the mutation-adequacy runner substrate. Points at the
+# repo-local adapter (servers/exarchos-mcp/scripts/stryker-adapter.mjs)
+# rather than the built-in registry's bare `npx stryker run` — see the
+# adapter's own header comment for why a repo-local adapter is the
+# load-bearing seam (stdout-vs-report-file mismatch, `--since` not being a
+# StrykerJS flag, and `npx` not resolving a server-local-only binary).
+mutation: node servers/exarchos-mcp/scripts/stryker-adapter.mjs
+
 agents:
   default-model: opus
   models:

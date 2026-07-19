@@ -23,6 +23,16 @@ env:
   npm_config_build_from_source: 'true'
 
 jobs:
+  # ─────────────────────────────────────────────────────────────────────
+  # Gate hosting taxonomy (DR-1): every job/gate below lives in exactly one
+  # of four host classes (zero-dep prefix unfiltered, deps-tail unfiltered,
+  # deps-unfiltered suite-shaped, deps-filtered). The decision table, the
+  # two-surface subset rule, and the non-blocking allowlist contract
+  # (scripts/ci-topology.test.ts) are documented ONCE, canonically, at
+  # docs/guides/ci-gate-hosting.md — cite it at each gate's wiring site,
+  # do not restate it here. `pr-body-check.yml` is a separate workflow,
+  # outside this aggregator's contract (see the guide's out-of-scope note).
+  # ─────────────────────────────────────────────────────────────────────
   changes:
     name: Detect Changes
     if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
@@ -143,6 +153,18 @@ jobs:
         working-directory: servers/exarchos-mcp
     steps:
       - uses: actions/checkout@v4
+        with:
+          # fetch-depth: 0 — the DR-7 mutation gate (check-mutation-gate.mjs,
+          # observe→blocking) diffs `<base>...HEAD` (merge-base three-dot) to
+          # scope changed `servers/exarchos-mcp/src`. A shallow checkout lacks
+          # the merge-base commit, so `git diff FETCH_HEAD...HEAD` fails with
+          # "no merge base" (fail-closed). Full history makes the base-ref diff
+          # resolvable in CI. Mirrors the fetch-depth:0 jobs elsewhere here.
+          fetch-depth: 0
+          # The mutation gate only reads history, and this job then runs
+          # repo/dependency code (test runners, bun build, npm postinstalls), so
+          # don't persist the checkout token into .git/config for those steps.
+          persist-credentials: false
 
       - uses: actions/setup-node@v6
         with:
@@ -170,7 +192,103 @@ jobs:
 
       - run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
       - run: npx tsc --noEmit
-      - run: npm run test:run
+
+      # DR-5 (coverage baseline): the plain `npm run test:run` suite step BECOMES
+      # the coverage-instrumented run — ONE execution, not two (a second full
+      # run would double wall-time and double exposure to the known flaky
+      # E2E/perf tests). RUN_EVALS is pinned OFF here (step env overrides the
+      # job-level derivation) so the measured lane is stable and
+      # RUN_EVALS-independent; the eval lane it used to carry is preserved as
+      # its own conditional step below. DR-1 host class: deps, filtered on `mcp`
+      # — scan surface servers/exarchos-mcp/** ⊆ the mcp filter; the scripts/
+      # ratchet implementation is re-asserted unfiltered by a grep-gates
+      # .test.sh step (DR-10). See docs/guides/ci-gate-hosting.md.
+      - name: Coverage-instrumented suite (DR-5, RUN_EVALS pinned off)
+        env:
+          RUN_EVALS: ''
+        run: npm run test:coverage
+
+      # DR-5 coverage non-regression ratchet, BLOCKING (task 009: the CI soak
+      # is complete — 3 green observe-mode runs on this feature branch fed the
+      # measured, floored-epsilon baseline at
+      # servers/exarchos-mcp/coverage-baseline.json — so `--observe` is
+      # dropped and a regression beyond the floored epsilon now fails this
+      # job). The path is $GITHUB_WORKSPACE-absolute because this job's
+      # default working-directory is servers/exarchos-mcp; the script resolves
+      # its own inputs from its location, not the cwd. DR-1 host class: deps,
+      # filtered on `mcp`. See docs/guides/ci-gate-hosting.md.
+      # `if: !cancelled()` (not the implicit `success()`): the ratchet is
+      # EVIDENCE that must be captured even when the coverage suite above went
+      # red — vitest writes coverage-summary.json on failure too
+      # (reportOnFailure), so the ratchet still has a summary to inspect. A red
+      # suite already fails the job on its own step; running the ratchet anyway
+      # does not mask that (it can only ADD a reason), it just ensures the
+      # non-regression signal is never silently skipped after an unrelated flake.
+      - name: Coverage ratchet — blocking (DR-5)
+        if: ${{ !cancelled() }}
+        run: node "$GITHUB_WORKSPACE/scripts/check-coverage-ratchet.mjs"
+
+      # DR-5: publish the coverage summary as a run artifact so task 009 can
+      # capture the live baseline (totals + run-ids) from ≥3 CI runs. `path` is
+      # workspace-relative — upload-artifact ignores the job's run
+      # default-directory.
+      - name: Upload coverage summary (DR-5)
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-summary
+          path: servers/exarchos-mcp/coverage/coverage-summary.json
+          if-no-files-found: error
+
+      # DR-5 eval-lane preservation (non-negotiable): the replaced plain-suite
+      # step was the ONLY execution surface of the RUN_EVALS-gated eval tests
+      # (evals/harness.test.ts, evals/graders/llm-rubric.test.ts). This
+      # conditional step reproduces the OLD job-level RUN_EVALS derivation
+      # EXACTLY — it fires iff `needs.changes.outputs.prompts == 'true'`, the
+      # same predicate that set RUN_EVALS=1 — running the eval files with
+      # RUN_EVALS=1 OUTSIDE the coverage instrument, so the eval lane fires on
+      # prompts-touching PRs exactly as before. DR-1 host class: deps, filtered
+      # on `mcp`. See docs/guides/ci-gate-hosting.md.
+      - name: Eval lane (RUN_EVALS-gated, prompts-touching PRs only) (DR-5)
+        # `!cancelled() &&` the SAME prompts predicate: the eval lane is the
+        # preserved evidence surface for the RUN_EVALS-gated tests — a red
+        # coverage suite above must not silently skip it on a prompts-touching
+        # PR. The prompts predicate is unchanged (only prompts-touching PRs run
+        # it); adding `!cancelled()` only lets it survive an earlier step failure.
+        if: ${{ !cancelled() && needs.changes.outputs.prompts == 'true' }}
+        env:
+          RUN_EVALS: '1'
+        run: npx vitest run src/evals/harness.test.ts src/evals/graders/llm-rubric.test.ts
+
+      # DR-7 diff-scoped mutation gate, OBSERVE MODE, pull_request events only
+      # (a push-to-main has no PR base to diff). The script self-fetches the
+      # shallow PR base ref (origin/$GITHUB_BASE_REF) and invokes the in-tree
+      # mutation-adequacy handler via bun (set up above); an empty server diff
+      # is a logged skip, a git failure is fail-closed. Observe mode logs the
+      # verdict and always exits 0 — this step STAYS observe (task 009
+      # deliberately deferred its flip: the diff-scoped mutation gate degrades
+      # in CI because StrykerJS dry-run fails on the full server suite;
+      # tracked in #1720). It flips to blocking once #1720 resolves. DR-1 host
+      # class: deps, filtered on `mcp` — scan surface servers/** ⊆ the mcp
+      # filter; the scripts/ impl is re-asserted unfiltered in grep-gates
+      # (DR-10). See docs/guides/ci-gate-hosting.md.
+      - name: Mutation gate — observe mode (DR-7), PR events only
+        if: github.event_name == 'pull_request'
+        run: node "$GITHUB_WORKSPACE/scripts/check-mutation-gate.mjs" --observe
+
+      # DR-7 composed-path Stryker smoke test (task 012): resolver → handler →
+      # adapter → real pinned Stryker → parser, on a tiny fixture scope. Runs in
+      # its OWN step OUTSIDE the coverage instrument and OUTSIDE the default
+      # suite glob (excluded in vitest.config.ts) so it neither inflates the
+      # coverage-measured lane nor rides the Windows leg's known spawn-flake
+      # class. EXARCHOS_SMOKE_ONLY=1 lifts that exclusion for this one
+      # invocation (vitest's CLI --exclude is additive and cannot un-exclude).
+      # test-mcp runs on ubuntu-latest, so this is Linux-only by host. DR-1 host
+      # class: deps, filtered on `mcp`. See docs/guides/ci-gate-hosting.md.
+      - name: Composed-path Stryker smoke test (DR-7, task 012) — Linux-only
+        env:
+          EXARCHOS_SMOKE_ONLY: '1'
+        run: npx vitest run src/orchestrate/stryker-adapter.smoke.test.ts
 
       # cli:vocab-guard (#1317) — mechanical gate against CLI vocabulary drift
       # (R-A / Principle 6). Walks the rendered Commander surface via `buildCli`
@@ -370,6 +488,18 @@ jobs:
   # Releases: this job uploads per-target workflow artifacts only. Actual
   # GitHub Release publishing + SHA-512 checksums are owned by
   # `.github/workflows/release.yml` (task 2.7).
+  #
+  # DISPOSITION (DR-4, wave-S enforcement-substrate spec): NON-BLOCKING —
+  # not in `ci-gate.needs`, and recorded as such (with this rationale) in
+  # the `scripts/ci-topology.test.ts` non-blocking allowlist. Rationale:
+  # release-lane compile evidence, not a per-PR gate — the standing reason
+  # the `--minify` A/B comparison was dropped (#1703). Measured over the
+  # last 60 completed `ci.yml` runs (2026-07-17): 300/300 per-target job
+  # instances executed (5-target matrix × 60 runs), 0 failed — the low
+  # failure rate does not change the disposition, since the rationale for
+  # non-blocking is architectural (release-lane evidence), not reliability.
+  # Host class: deps, unfiltered, suite-shaped — see
+  # docs/guides/ci-gate-hosting.md.
   # ─────────────────────────────────────────────────────────────────────
   binary-matrix:
     name: Binary Matrix (${{ matrix.target }})
@@ -559,6 +689,28 @@ jobs:
       - name: WLM wiring gate self-test (task-004)
         run: bash scripts/check-wlm-wiring.test.sh
 
+      # ── Wave-S zero-dep register + node-only re-asserts (DR-9, DR-10) ──────
+      # Zero-dependency node (uses the node set up above; no install) on the
+      # UNFILTERED host so they fire on every PR. See
+      # docs/guides/ci-gate-hosting.md.
+
+      # DR-9 type-debt register: per-file `as unknown as` count budget compared
+      # against scripts/type-debt-baseline.json. BLOCKING from merge day one
+      # (an unwired register is the "exists, not wired" class this spec closes).
+      # Scans the whole src tree, not a PR diff. DR-1 host class: zero-dep
+      # prefix, unfiltered.
+      - name: Type-debt count-budget register (DR-9)
+        run: node scripts/check-type-debt.mjs
+
+      # DR-10 .test.sh re-asserts (task-015 pattern — every check script's
+      # self-test runs on every PR, unfiltered). These two are zero-dep node;
+      # the bun-dependent check-mutation-gate.test.sh re-assert lives in the tsx
+      # tail below (after the MCP install + a bun setup).
+      - name: check-type-debt self-test re-assert (DR-10)
+        run: bash scripts/check-type-debt.test.sh
+      - name: check-coverage-ratchet self-test re-assert (DR-10)
+        run: bash scripts/check-coverage-ratchet.test.sh
+
       # Enforcer-wiring gate (task 011, DR-5/DR-8). Zero-dependency node
       # script: reconciles every scripts/check-*|lint-* primary against
       # scripts/enforcer-wiring-manifest.json by TRANSITIVELY walking npm-script
@@ -623,6 +775,43 @@ jobs:
       - name: Install MCP server dependencies (for tsx-backed gates)
         working-directory: servers/exarchos-mcp
         run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
+
+      # ── Wave-S tsx-tail + bun gates (DR-8, DR-2, DR-10) ────────────────────
+      # These ride the UNFILTERED grep-gates host so they fire on every PR,
+      # using the BOTH dep trees installed by the two steps above. See
+      # docs/guides/ci-gate-hosting.md.
+
+      # DR-8 vocabulary-lint: scans skills-src/, commands/, docs/architecture/,
+      # docs/guides/ (broader than any path filter) via a tsx entrypoint that
+      # needs both dep trees — exactly what this tail already installs, so the
+      # marginal cost is one tsx invocation. DR-1 host class: deps tail,
+      # unfiltered.
+      - name: Vocabulary-lint (DR-8)
+        run: npm run lint:invariants
+
+      # DR-2 CI-topology conformance test on the UNFILTERED host: a root-suite
+      # vitest that parses ci.yml and asserts the ci-gate aggregator's
+      # completeness / evaluate-coverage / skip-guard coverage. Running it here
+      # (not only via test-root's filtered suite) means neither the topology nor
+      # the detector can change without the detector running on that very PR.
+      # Uses the root vitest installed above. DR-1 host class: deps tail,
+      # unfiltered.
+      - name: CI-topology conformance test (DR-2)
+        run: npx --no-install vitest run scripts/ci-topology.test.ts
+
+      # DR-10 .test.sh re-assert for check-mutation-gate (task-015 pattern,
+      # unfiltered — every check script's self-test runs on every PR). Its
+      # invocation seam drives the real mutation-adequacy handler through a
+      # bun-run bridge (EventStore needs bun:sqlite), so this re-assert needs
+      # BOTH bun AND the MCP node_modules installed above. grep-gates does not
+      # otherwise set up bun, so this step adds it (mirrors test-mcp's
+      # oven-sh/setup-bun@v2 idiom). The other two re-asserts (type-debt,
+      # coverage-ratchet) are zero-dep node and live in the prefix above.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+      - name: check-mutation-gate self-test re-assert (DR-10)
+        run: bash scripts/check-mutation-gate.test.sh
 
       - name: Prefix-fingerprint gate — rehydration stable-prefix drift (DR-12)
         run: node scripts/check-prefix-fingerprint.mjs
@@ -699,7 +888,18 @@ jobs:
   #
   # Linux only — Windows process fidelity is v2.10 P5.
   #
-  # Blocking gate as of T3.7 — closes #1109 invariants #1 and #2.
+  # DISPOSITION (DR-4, wave-S enforcement-substrate spec, corrects the stale
+  # "Blocking gate as of T3.7" claim below, which was never true — this job
+  # has never been in `ci-gate.needs`): NON-BLOCKING. Measured over the last
+  # 60 completed `ci.yml` runs (2026-07-17) via `gh api .../actions/runs/<id>/jobs`:
+  # executed 60/60 (no path filter), failed 2/60 — a 3.33% failure-rate-when-
+  # executed, both failures in the "Run process-fidelity suite" step and
+  # consistent with the known SQLITE_BUSY flake cluster. That is above the
+  # spec's 2% blocking threshold, so this job stays non-blocking and is
+  # recorded (with this measured rate) in the `scripts/ci-topology.test.ts`
+  # non-blocking allowlist. Follow-up to burn down the flake and flip this to
+  # blocking: lvlup-sw/exarchos#1718. Host class: deps, unfiltered,
+  # suite-shaped — see docs/guides/ci-gate-hosting.md.
   # ─────────────────────────────────────────────────────────────────────
   e2e-process:
     name: E2E Process (linux-x64)
@@ -828,8 +1028,34 @@ jobs:
             echo "::error::Root package tests: ${{ needs.test-root.result }}"
             exit 1
           fi
+          # DR-3 (wave-S skip-guard, mirrors the test-windows/test-windows-root
+          # pattern below): test-root is REQUIRED for any root-touching PR. A
+          # generic skip is OK (non-root PRs legitimately skip test-root via
+          # `changes.outputs.root`, host class: deps, filtered — see
+          # docs/guides/ci-gate-hosting.md). But if root code DID change and
+          # the lane was skipped, that's a path-filter/matrix regression
+          # silently dropping our only Linux root-package coverage
+          # (skipped-as-passed hole) — fail closed.
+          if [[ "${{ needs.changes.outputs.root }}" == 'true' \
+             && "${{ needs.test-root.result }}" == 'skipped' ]]; then
+            echo "::error::Root package tests (test-root) skipped on a root-touching PR (path-filter/matrix regression dropped required root coverage)"
+            exit 1
+          fi
           if [[ "${{ needs.test-mcp.result }}" =~ ^(failure|cancelled)$ ]]; then
             echo "::error::MCP server tests: ${{ needs.test-mcp.result }}"
+            exit 1
+          fi
+          # DR-3 (wave-S skip-guard, mirrors the test-windows/test-windows-root
+          # pattern below): test-mcp is REQUIRED for any MCP-touching PR. A
+          # generic skip is OK (non-MCP PRs legitimately skip test-mcp via
+          # `changes.outputs.mcp`, host class: deps, filtered — see
+          # docs/guides/ci-gate-hosting.md). But if MCP code DID change and
+          # the lane was skipped, that's a path-filter/matrix regression
+          # silently dropping our only Linux MCP-package coverage
+          # (skipped-as-passed hole) — fail closed.
+          if [[ "${{ needs.changes.outputs.mcp }}" == 'true' \
+             && "${{ needs.test-mcp.result }}" == 'skipped' ]]; then
+            echo "::error::MCP server tests (test-mcp) skipped on an MCP-touching PR (path-filter/matrix regression dropped required MCP coverage)"
             exit 1
           fi
           # test-windows is BLOCKING. The Windows-portability gap (#1620) is
