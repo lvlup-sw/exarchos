@@ -2,33 +2,31 @@
 
 **Date:** 2026-07-18 · **Feature:** `test-mass-consolidation` · **Depth:** deep
 **Inputs:** epic #1701 (debloat + structural enforcement) · issue #1705 (wave 3b) · parent spec `docs/specs/2026-07-15-debloat-wave1-structural-enforcement.md` · coverage/mutation substrate PR #1719 (`c78450c7`, on `origin/main`)
-**Revision:** rev.1 — reworked the safety spine after a 3-voter adversarial plan-review refuted rev.0 (no blocking oracle for assertion loss; coverage union-blind; mutation non-functional + inverted; 15 pairs not 7).
+**Revisions:** rev.0 → rev.1 → **rev.2**. Two 3-voter adversarial plan-review rounds drove the design from "manual merge + prose 'blocking' + advisory oracles" to "deterministic tool-codegen'd merge + a real CI manifest gate (merge-base reconstruction) + per-pair PRs." See Exploration for the audit trail.
 
 > One unified artifact: `## Requirements` holds the DR-N source; `## Decomposition` maps tasks → DR-N within this same document.
 
 ## Constraints
 
-Anchored to `.exarchos/invariants.md` (dev catalog enabled). Test mass is unusual as a design target because **the tests are themselves the mechanical backstops for substrate invariants**, so several named "keep classes" map directly to invariants:
+Anchored to `.exarchos/invariants.md` (dev catalog enabled). The tests are themselves the mechanical backstops for substrate invariants, so several "keep classes" map directly to invariants:
 
-- **INV-2 (facade-equivalence):** the parity-harness tests are the proof CLI≡MCP → parity suites are **out of consolidation scope**.
-- **INV-1 (event-sourcing-integrity):** reducers/projections are pure left-folds → the state-store and event-store-schema suites are targets *and* INV-1 backstops; every reducer/projection/schema assertion must survive.
-- **INV-8 (idempotency-at-the-boundary):** the `withSession({operationId})` retry tests are its **sole deterministic backstop** (declared `mode: audit` precisely because no grep can prove it) → the compensation and guards suites carry these; the retry/idempotency assertions must survive intact.
-- **INV-7 (substrate-serialization):** the two-tier concurrency guarantee is proven by the race suites (a keep-class) → race suites are **out of scope**.
+- **INV-2 (facade-equivalence):** parity-harness tests prove CLI≡MCP → parity suites out of scope.
+- **INV-1 (event-sourcing-integrity):** reducers/projections are pure left-folds → state-store and event-store-schema suites are targets *and* INV-1 backstops.
+- **INV-8 (idempotency-at-the-boundary):** the `withSession({operationId})` retry tests are its sole deterministic backstop → compensation and guards carry them.
+- **INV-7 (substrate-serialization):** race suites prove the two-tier guarantee → out of scope.
 
-The through-line, hardened after review: coverage non-regression is necessary but **blind to assertion loss** — and because line coverage is a *union*, a dropped case whose source line is still exercised by any other suite (or an untouched keep-class) is invisible to it *permanently*, not just at merge time. Coverage therefore cannot be the assertion-loss guarantee. The guarantee must be **deterministic and by-construction** (the AST manifest gate, DR-2); coverage and mutation are backstops, not the primary net.
+The through-line, hardened across two review rounds: **coverage cannot be the assertion-loss guarantee** (line coverage is a union — a dropped case whose line is still exercised elsewhere is invisible), and **neither can mutation** (blocked by #1720's full-suite dry-run failure). The guarantee must be deterministic, by-construction, **and CI-enforced against a reconstructed pre-image** — a manifest gate that is a real job, not implementer discipline.
 
 ## Design & Rationale
 
 ### Problem Statement
 
-The exarchos-debloat audit named wave 3b "the largest LoC lever": units tested from **two locations** — a legacy `servers/exarchos-mcp/src/__tests__/{workflow,views,event-store}/<subject>.test.ts` copy and a co-located `src/<area>/<subject>.test.ts` copy — should be consolidated.
+Units are tested from **two locations** — a legacy `servers/exarchos-mcp/src/__tests__/{workflow,views,event-store}/<subject>.test.ts` copy and a co-located `src/<area>/<subject>.test.ts` copy. Reconnaissance corrects the audit's premise twice:
 
-Reconnaissance against the live tree corrects the premise twice over:
+1. **The pairs are diverged, not duplicated** — line counts differ in both directions; the larger side flips per subject; each side asserts behaviors the other does not.
+2. **There are 15 duplicate-location pairs, not 7.** Beyond the 7 named, both-location copies also exist for `workflow/{checkpoint, migration, schemas}`, `views/{materializer, pipeline-view, snapshot-store, task-detail-view}`, `event-store/tools`.
 
-1. **The pairs are diverged, not duplicated.** All named pairs exist in both locations, but line counts differ in both directions and the larger side flips per subject — so there is no blanket "delete the legacy copy" rule; each side asserts behaviors the other does not.
-2. **There are 15 duplicate-location pairs, not 7.** Beyond the 7 the audit named, eight more diverged same-basename cross-location pairs exist: `workflow/{checkpoint, migration, schemas}`, `views/{materializer, pipeline-view, snapshot-store, task-detail-view}`, `event-store/tools`.
-
-The seven highest-value pairs (largest legacy mass and/or substrate-invariant backstops) are the **active scope**; the other eight are inventoried and deferred to a fast-follow (below), not silently omitted.
+The seven highest-value pairs (largest legacy mass and/or substrate-invariant backstops) are the **active scope**; the other eight are inventoried and deferred to a tracked fast-follow (wave 3b-2), not silently omitted.
 
 | Active-scope subject | legacy `__tests__/` | co-located | larger |
 |---|---|---|---|
@@ -37,159 +35,154 @@ The seven highest-value pairs (largest legacy mass and/or substrate-invariant ba
 | state-store | 1544 (+resolve 36) | 1213 | legacy |
 | compensation | 1166 | 1663 | co-located |
 | guards | 762 | 1247 | co-located |
-| views/handlers | 793 (+error-paths 116) | 1979 | co-located 2.5× |
+| views/handlers | 793 (+error-paths 116) | 1979 | co-located |
 | event-store schemas | 1006 | 4702 (+onboard 196) | co-located |
 
-The durable defect is **structural**: the same unit tested in two places that drift apart. LoC reduction is a bounded secondary outcome, not the headline.
+The durable defect is **structural** (one unit, two drifting locations). Automated dedup is only safe for cases whose entire referenced context is identical — rare across diverged files — so **LoC reduction is modest and secondary; the win is de-divergence to one canonical location, locked by a ratchet.**
 
 ### Chosen Approach
 
-**Union-preserving consolidation to a single canonical (co-located) location, guaranteed by a deterministic blocking manifest gate, with coverage and mutation as backstops.** For each pair, a ts-morph tool builds a per-case manifest: every legacy `it()`/`test()` case is classified `moved` (relocated verbatim, only imports rewritten) or `dedup-identical` (removed only because an identical case — normalized body **and** enclosing `beforeEach`/fixture context — already exists in the canonical target). The manifest gate **blocks** on any unaccounted case or any unproven `dedup-identical`, so assertion loss is impossible **by construction** — it does not depend on coverage seeing the loss or mutation running. The blocking coverage ratchet from #1719 is a union-limited backstop (catches accidental source deletion and the rare last-exerciser drop); a functional, source-targeted StrykerJS spot-check is an **advisory** confirmation keyed to merge volume. Keep-classes are protected. The structural win is ratcheted with a CI guard that forbids a legacy twin for **any** co-located subject, carrying an expiring allowlist for the eight deferred pairs so no new divergence can appear and the known eight are tracked, not tolerated silently. Chosen via the `deep`-rung decision points (scope = the 7 highest-value pairs; oracle = manifest-gate-primary + coverage backstop + advisory mutation).
+**Tool-driven union-preserving relocation to one canonical (co-located) location, enforced by a CI manifest gate that reconstructs the pre-image.** A single TypeScript-compiler-API tool (Task 001) both (a) **emits** the merged canonical file — every legacy case relocated verbatim (imports rewritten), a case removed only when a case with identical body **and identical transitive referenced context** (enclosing hooks + module-scope helpers + resolved imports) already exists — and (b) **verifies** a manifest. The gate is made real by landing **each pair as its own PR**: a CI job (Task 004) reconstructs the pre-image legacy *and* pre-image canonical from the PR merge-base (`git show <base>:<path>` — the base is `origin/main`, which still holds every legacy twin) and **fails the PR** if any case from *either* pre-image suite is absent from the PR-HEAD canonical and not provably dedup-identical. Coverage non-regression (#1719) runs per PR as a union-limited backstop; mutation is explicitly deferred (blocked by #1720). Keep-classes are protected. A CI ratchet guard forbids a legacy twin for **any** co-located subject (area-qualified), with an expiring allowlist for the eight deferred pairs. Chosen via the `deep`-rung decisions (scope = 7 highest-value pairs; oracle = CI-enforced manifest gate primary + coverage backstop; mutation deferred).
 
 ## Requirements
 
-The DR-N identifiers below are the single source the decomposition traces against.
+### DR-1: Single canonical location, with an area-qualified global anti-divergence ratchet
 
-### DR-1: Single canonical location, with an honest global anti-divergence ratchet
-
-The seven active-scope subjects each end tested from one canonical co-located location; their legacy twins are retired. A CI ratchet guard then forbids a legacy `__tests__/{workflow,views,event-store}/<basename>.test.ts` twin for **any** co-located subject — not only the seven — carrying an **expiring allowlist** naming the eight deferred pairs, so no *new* two-location divergence can appear and the eight known ones are explicitly tracked.
+The seven active subjects each end tested from one canonical co-located location; their legacy twins are retired. A CI ratchet guard forbids a legacy `__tests__/<area>/<basename>.test.ts` twin for **any** co-located subject, keyed on **(area, basename)** — because `schemas.test.ts` and `tools.test.ts` each appear as pairs in two areas (one active, one deferred) — carrying an **expiring allowlist** for the eight deferred pairs.
 
 **Acceptance criteria:**
 - After the campaign, none of the seven subjects has both a `src/__tests__/…` and a co-located file.
-- The check is a real basename-intersection script (the Task 012 guard), not a brace-glob `git ls-files` (git pathspec does not brace-expand, so that form is vacuously green) — it enumerates basenames present in both locations and fails on any not in the allowlist.
-- After the seven land, the allowlist contains exactly the eight deferred pairs; removing a pair from the allowlist without consolidating it fails CI.
-- The full server suite (`npm run test:run` in `servers/exarchos-mcp`) is green after each pair.
+- The guard is a real (area, basename) intersection script (not a brace-glob `git ls-files`, which is vacuously green), and its scoped test includes the cross-area collision case (`workflow/schemas` deferred vs `event-store/schemas` active; `workflow/tools` active vs `event-store/tools` deferred).
+- After the seven land, the allowlist contains exactly the eight deferred pairs; each entry carries an expiry.
+- The full server suite is green after each pair.
 
-### DR-2: Union preservation enforced by a blocking manifest gate (the primary guarantee)
+### DR-2: CI-enforced bidirectional manifest gate (the primary guarantee)
 
-The primary safety guarantee is deterministic and by-construction, not oracle-dependent. A per-pair manifest classifies every legacy case as `moved` (verbatim body, only import specifiers rewritten) or `dedup-identical` (removed only because a case with identical normalized body **and** identical enclosing hook/fixture context already exists in the canonical target). The manifest gate **blocks** the pair on any legacy case that is unaccounted or whose `dedup-identical` claim fails the machine identity check. No case is dropped by human judgment, and no assertion can be silently lost.
-
-**Acceptance criteria:**
-- The manifest gate is **blocking** (a pair cannot merge with an unaccounted or unproven case).
-- Every legacy case appears exactly once in the manifest as `moved` or `dedup-identical(<matching case ref>)`.
-- The identity check for `dedup-identical` is whitespace/comment/quote-style-insensitive over the case body **and** its enclosing `describe` hook/fixture scope (`beforeEach`/`beforeAll`/shared fixture declarations); import-path rewrites are excluded from the hash. Body-identical cases under differing fixture context are classified `moved`, never `dedup-identical` (edge case that rev.0 missed).
-- Cases differing only in `describe`/`it` title but asserting differently are `moved`, never `dedup-identical`.
-
-### DR-3: Coverage non-regression backstop (blocking, explicitly union-limited)
-
-The blocking coverage ratchet on `origin/main` (#1719 — lines 91.6 / statements 91.6 / functions 96.24 / branches 85.38, epsilon floored at 0.1pp, fail-closed) runs per merge. It is a **backstop, not the assertion-loss guarantee**: line coverage is a union, so a dropped assertion on a line still exercised by another suite or a keep-class is invisible to it. Its real value is catching accidental source deletion and the rare case where the last exerciser of a line is dropped.
+The primary guarantee is a **blocking CI job**, not implementer discipline. Because each pair lands as its own PR (DR-7), the job reconstructs the pre-image legacy and pre-image canonical from the PR merge-base and asserts every case in *either* pre-image is present in the PR-HEAD canonical or provably `dedup-identical`. Identity requires an identical normalized body **and identical transitive referenced context** (enclosing `describe` hooks, module-scope helpers the body calls, and resolved import targets) — so divergent same-named helpers (e.g. `compensation`'s two `makeState` bodies) block dedup by construction. Assertion loss — on the legacy **or** the pre-existing canonical side — fails the PR.
 
 **Acceptance criteria:**
-- Each per-pair merge passes `scripts/check-coverage-ratchet.mjs` (blocking, no `--observe`) against the committed `coverage-baseline.json`; the baseline is never lowered to accommodate a consolidation.
-- Fail-closed behavior is preserved (missing/unparseable summary or baseline → exit 2).
-- The spec and reviews treat a green ratchet as necessary-not-sufficient; the DR-2 manifest gate is the assertion-loss authority.
+- The manifest gate runs as a CI job on each consolidation PR (a lane with server deps, since it parses TS), reconstructing both pre-images via `git show <merge-base>:<path>`; it **blocks** (non-zero) on any unaccounted or unproven case from either pre-image.
+- `dedup-identical` requires body + transitive referenced context identity (hooks, module-scope helpers, resolved imports); body-identical cases whose referenced context differs are `moved`, never dedup'd. The tool ships with the divergent-module-helper case as a tested fixture.
+- The committed manifest artifact (per pair) matches the gate's recomputation from the merge-base (no trust in a hand-authored manifest).
 
-### DR-4: Functional advisory mutation confirmation, keyed to merge volume
+### DR-3: Coverage non-regression backstop (blocking per PR, explicitly union-limited)
 
-A source-targeted StrykerJS spot-check confirms assertion preservation where coverage is weakest — the highest merge-volume retirements. It is **advisory** (the DR-2 manifest gate is the block) and requires the `stryker-adapter.mjs` interface to actually support per-module targeting, which it does not today (it parses only `--since`, and an unknown `--mutate` arg falls through to the #1720-broken full-tree run).
+The blocking coverage ratchet (#1719 — lines 91.6 / statements 91.6 / functions 96.24 / branches 85.38, 0.1pp floored epsilon, fail-closed) runs on each per-pair PR. It is a **backstop, not the assertion-loss guarantee** (line coverage is union-blind); its value is catching accidental source deletion and last-exerciser drops. Coverage config excludes test files from the denominator, so retiring legacy suites is production-coverage-neutral under correct relocation.
 
 **Acceptance criteria:**
-- `stryker-adapter.mjs` is extended with an explicit `--mutate <globs>` passthrough (Task 004) that scopes mutation to named source modules, bypassing the `--since` diff path (a test-only diff has no changed source and yields an empty mutatable surface).
-- For each pair whose retired legacy suite is ≥1000 lines or larger than its co-located target (state-machine, tools, state-store, compensation, event-store schemas) **and** the two INV-backstop pairs (guards, compensation, state-store, schemas), capture the mutant kill-set over the covered module before and after; any newly-surviving mutant is triaged (restore a test or record why acceptable) and reported in the pair's PR.
-- The spot-check is advisory: it never blocks a merge (consistent with #1720 keeping mutation observe-mode). If a module's Stryker run cannot complete, the pair records the degradation and relies on the DR-2 manifest gate + a manual assertion-parity note.
+- Each per-pair PR passes `scripts/check-coverage-ratchet.mjs` (blocking, no `--observe`) against the committed baseline; the baseline is never lowered.
+- Fail-closed behavior preserved (missing/unparseable summary or baseline → exit 2).
+- Reviews treat green coverage as necessary-not-sufficient; the DR-2 gate is the assertion-loss authority.
+
+### DR-4: Mutation-adequacy is deferred (blocked by #1720), not relied upon
+
+Mutation is the ideal assertion-loss oracle, but it cannot run here: #1720's failure is in StrykerJS's **dry-run** (the un-mutated full-suite baseline), which is upstream of and independent of any `--mutate` scoping — so a per-module run hits the same abort. The campaign therefore does **not** rely on mutation; the DR-2 gate is the guarantee.
+
+**Acceptance criteria:**
+- No task blocks on a mutation run; no acceptance criterion elsewhere requires a kill-set.
+- Closeout (Task 013) records the dependency: when #1720 lands, a source-targeted mutation spot-check over the consolidated modules is added as advisory confirmation (a wave-3b-2 or follow-up line item), not gating.
 
 ### DR-5: Keep-classes are out of scope and protected
 
-Parity (26 files), race (5), property (4 named / 45 fast-check), characterization (5), and acceptance (9) suites are not consolidation targets and must remain untouched — they are the mechanical backstops for INV-2, INV-7, and behavioral characterization.
+Parity (26 files), race (5), property (4 named / 45 fast-check), characterization (5), and acceptance (≈8) suites are not consolidation targets and must remain untouched — they back INV-2, INV-7, and characterization.
 
 **Acceptance criteria:**
 - The campaign's total changed-file set intersected with the keep-class globs is empty.
-- Co-located keep-class files adjacent to targets (`state-machine.property.test.ts`, `tools.update.race.test.ts`, the state-store acceptance suites, the shared `src/__tests__/parity-harness.ts`) are in a pre-flight protected-file inventory and are neither moved nor deleted.
-- If any retired legacy file imports the shared `parity-harness.ts`, the harness is retained and importers re-pointed.
+- Co-located keep-class files adjacent to targets (`state-machine.property.test.ts`, `tools.update.race.test.ts`, state-store acceptance suites, the shared `src/__tests__/parity-harness.ts`) are in a pre-flight protected inventory and neither moved nor deleted.
+- If any retired legacy file imports `parity-harness.ts`, the harness is retained and importers re-pointed.
 
 ### DR-6: Substrate-backstop preservation via the uniform manifest gate
 
-Because the DR-2 manifest gate is **uniform across all seven pairs**, the INV-1 (state-store, event-store schemas — reducer/projection purity, schema validation) and INV-8 (compensation, guards — `withSession({operationId})` idempotent-retry) backstop assertions receive the same by-construction protection as everything else — with no reliance on invariant-keyed mutation (which rev.0 wrongly made the sole protection, leaving the largest non-INV retirements weaker). The INV pairs additionally receive the DR-4 advisory mutation as extra confirmation.
+Because the DR-2 gate is **uniform across all seven pairs** and bidirectional, the INV-1 (state-store, schemas) and INV-8 (compensation, guards) backstop assertions get the same by-construction, CI-enforced protection as everything else — no reliance on invariant-keyed mutation (which rev.0 wrongly made the sole protection, under-covering the largest non-INV retirements).
 
 **Acceptance criteria:**
-- The INV-8 idempotent-retry cases and INV-1 reducer/projection/schema-validation cases are classified `moved` (never `dedup-dropped`) in their pair's manifest, and named in the pair's report.
-- Oracle strength is not keyed to invariant membership: the manifest gate protects all pairs equally; advisory mutation covers the highest-volume pairs regardless of INV status.
+- The INV-8 idempotent-retry cases and INV-1 reducer/projection/schema-validation cases are classified `moved` (never dedup-dropped) in their pair's manifest and named in the PR.
+- Oracle strength is not keyed to invariant membership: the gate protects all pairs equally.
 
-### DR-7: Serialized merges via manual `git merge --no-ff` (capability-aware)
+### DR-7: Per-pair PRs (the enforcement seam) with serialized landing
 
-Integration merges are single-writer serialized so the blocking coverage ratchet runs per merge against a coherent cumulative state. Serialization gives merge-ordering coherence; it does **not** make coverage see assertion loss (that is DR-2's job).
-
-**Acceptance criteria:**
-- Merges into the integration branch are sequential. The primary mechanism is a manual `git merge --no-ff` from the integration worktree, because `serialize_merge` returns `CAPABILITY_DENIED` on this environment's read-only tier; `serialize_merge` is used where the capability is granted.
-- The coverage ratchet (DR-3) runs on each merge, not once at campaign end.
-- Single-writer discipline is an orchestrator responsibility, verified at closeout (DR-1/Task 013).
-
-### DR-8: Base-substrate preflight (a delegate-phase gate, not an orphan script)
-
-The campaign requires the #1719 coverage substrate on its base. Local `main` (`2f4c0e23`) lacks it; `origin/main` (`c78450c7`) has it. The check must gate **dispatch**, so it runs as a delegate-phase preflight before each wave, not as a script authored mid-campaign with no consumer.
+Each pair lands as its own pull request, so the DR-2 manifest gate and DR-3 coverage ratchet run in CI per pair — the enforcement seam a local `git merge --no-ff` (which triggers no CI) cannot provide. PRs land serially (stacked on the integration branch) so the coverage ratchet evaluates a coherent cumulative state.
 
 **Acceptance criteria:**
-- The delegate phase runs the Task 003 preflight before dispatching any wave; the seven pair tasks declare a dependency on Task 003 so it is built and passing first.
-- The preflight asserts `servers/exarchos-mcp/coverage-baseline.json` and `scripts/check-coverage-ratchet.mjs` exist on the base ref and aborts dispatch with a clear message otherwise.
-- Pair worktrees base on `origin/main` (≥ `c78450c7`) or a later integration branch that includes #1719, not local HEAD.
+- Each consolidation lands via its own PR that triggers the DR-2 gate + DR-3 ratchet; no pair is merged by a CI-invisible local merge.
+- PRs are stacked/sequential (single-writer landing); where `serialize_merge` is `CAPABILITY_DENIED`, landing is a manual sequential merge of each already-CI-verified PR.
+- The per-PR gate catches per-pair loss; the ratchet on each PR catches union-visible aggregate regression (union-invisible loss is caught by DR-2's bidirectional pre-image check, not coverage).
+
+### DR-8: Base-substrate preflight (a delegate-phase dispatch check)
+
+The campaign requires the #1719 substrate on its base. Worktree isolation bases on `origin/HEAD` (= `origin/main` = `c78450c7`, which has it), so the common path is safe; the preflight is an explicit belt-and-suspenders **dispatch-time check** (an orchestrator action the delegate phase runs), not merely a build-order dependency.
+
+**Acceptance criteria:**
+- The delegate phase executes the Task 003 check before dispatching each wave and aborts dispatch if `coverage-baseline.json` + `check-coverage-ratchet.mjs` are absent on the base (local `2f4c0e23` is the negative fixture); the pair tasks depend on Task 003 so the script exists first.
+- Pair worktrees base on `origin/main` (≥ `c78450c7`) or a later integration branch including #1719.
 
 ## Technical Design
 
-**Manifest tool (ts-morph) — the blocking gate.** `scripts/audit/consolidate-suite.mjs` parses a suite into cases: `{ describePath, title, bodyHash, fixtureHash }`, where `bodyHash` normalizes comments/whitespace/quote-style and canonicalizes import specifiers, and `fixtureHash` covers the enclosing `describe` hook/fixture scope. A legacy case is `dedup-identical` only if a canonical case matches on `(title, bodyHash, fixtureHash)`; otherwise `moved`. The tool emits the manifest and exits non-zero if any legacy case is unaccounted — this exit code is the blocking gate wired into each pair's verification. ts-morph is already the repo's AST tool (referenced by #1706).
+**The tool (Task 001, TypeScript compiler API — already a dependency; ts-morph is *not* in the tree).** `scripts/audit/consolidate-suite.mjs` parses a suite into cases `{ describePath, title, bodyHash, contextHash }`. `bodyHash` normalizes comments/whitespace/quote-style; `contextHash` is the transitive closure of what the body references — enclosing hooks, module-scope helpers/consts it calls, and the *resolved definitions* behind imported symbols (not just the specifier). Two modes: `--emit-merged` writes the canonical file (moved cases appended with disambiguated describe paths; dedup-identical omitted) so the relocation is deterministic codegen, not a multi-hour hand-merge; `--verify` recomputes the manifest from two pre-image files + the candidate canonical and exits non-zero on any lost/unproven case.
 
-**Mutation adapter extension.** `stryker-adapter.mjs` today parses only `--since=<base>`. Task 004 adds a `--mutate <globs>` passthrough that sets Stryker's `mutate` to the named modules and skips the `--since` diff computation, so a per-module kill-set can be captured on a test-only change (which otherwise has an empty mutatable surface). Stryker stays advisory (`thresholds.break` unset; #1720 keeps CI mutation observe-mode).
+**The CI gate (Task 004).** A ci.yml job on consolidation PRs: for each retired subject in the diff, `git show <merge-base>:<legacy>` and `:<canonical>` reconstruct the pre-images, then `consolidate-suite.mjs --verify` blocks the PR on failure. Runs in a server-deps lane (not `grep-gates`).
 
-**Ratchet guard.** `scripts/audit/check-no-duplicate-suites.mjs` enumerates basenames present under both `src/__tests__/{workflow,views,event-store}/` and the co-located `src/<area>/`, and fails on any not in an expiring allowlist. It runs in the `grep-gates` CI job (no `npm ci`). The allowlist starts with all 15 pairs, shrinks to the 8 deferred as the 7 land, and each entry carries an expiry.
+**Ratchet guard (Task 012).** `check-no-duplicate-suites.mjs` enumerates (area, basename) pairs present under both locations and fails on any not in an expiring allowlist; runs in `grep-gates` (no deps).
 
-**Oracles, in priority order.** (1) DR-2 manifest gate — blocking, deterministic. (2) DR-3 coverage ratchet — blocking backstop, union-limited. (3) DR-4 mutation — advisory, volume-keyed, functional via the adapter extension.
+**Oracles, priority order:** (1) DR-2 CI manifest gate — blocking, deterministic, bidirectional. (2) DR-3 coverage ratchet — blocking backstop, union-limited. Mutation (DR-4) deferred behind #1720.
 
 ## Integration Points
 
 - `servers/exarchos-mcp/src/__tests__/{workflow,views,event-store}/*.test.ts` (7 active legacy twins + `state-store-resolve.test.ts`, `views/tools-error-paths.test.ts`) — **retired** into canonical targets.
-- `servers/exarchos-mcp/src/{workflow,views,event-store}/*.test.ts` (7 canonical targets) — **receive** moved cases.
+- `servers/exarchos-mcp/src/{workflow,views,event-store}/*.test.ts` (7 canonical targets) — **receive** moved cases (via `--emit-merged`).
 - `servers/exarchos-mcp/src/__tests__/parity-harness.ts` — shared harness; verify importers, retain.
-- `servers/exarchos-mcp/coverage-baseline.json`, `scripts/check-coverage-ratchet.mjs` — blocking backstop (enforced, unchanged).
-- `servers/exarchos-mcp/scripts/stryker-adapter.mjs`, `stryker.conf.mjs` — **extended** with `--mutate` (Task 004).
-- `.github/workflows/ci.yml` (`grep-gates` job) — new duplicate-location ratchet guard.
-- New: `scripts/audit/consolidate-suite.mjs` (manifest gate), `scripts/audit/check-no-duplicate-suites.mjs` (ratchet), `scripts/audit/check-base-substrate.mjs` (preflight).
+- `coverage-baseline.json`, `scripts/check-coverage-ratchet.mjs` — blocking backstop (unchanged).
+- `.github/workflows/ci.yml` — new manifest-gate job (Task 004, deps lane) + duplicate-location ratchet (Task 012, grep-gates).
+- New: `scripts/audit/consolidate-suite.mjs` (codegen + verify), `scripts/audit/check-no-duplicate-suites.mjs`, `scripts/audit/check-base-substrate.mjs`.
 
 ## Exploration
 
-Three approaches were weighed against the divergence finding and the coverage-blindness problem (the divergent loop; no `/exarchos:discover` pass was needed — grounded by in-repo reconnaissance). The rev.0 → rev.1 rework is itself a product of a 3-voter adversarial plan-review that refuted the first cut.
+The divergent loop (no `/exarchos:discover` — grounded by in-repo recon) plus two adversarial plan-review rounds:
 
-- **Option A — coverage-gated deletion** (the audit's literal framing): rejected — coverage is line-level *and* union-blind; a dropped assertion on a still-covered line is permanently invisible.
-- **Option B — mutation-anchored gate**: rejected as the gate — mutation is observe-mode (#1720), the adapter needs a `--mutate` extension to run per-module at all, and even functional it is probabilistic. Retained as DR-4's advisory confirmation.
-- **Option C — deterministic manifest gate + coverage backstop + advisory mutation** (**chosen**): the blocking guarantee is a by-construction AST manifest (nothing dropped but provable duplicates, fixture context included), so assertion loss is impossible independent of the probabilistic oracles; coverage and mutation are defense-in-depth. This is what survived the redesign the panel forced.
+- **Option A — coverage-gated deletion:** rejected — coverage is union-blind.
+- **Option B — mutation-anchored gate:** rejected — #1720 blocks the dry-run independent of scope; deferred (DR-4).
+- **Option C — CI-enforced deterministic manifest gate + coverage backstop** (**chosen**).
+
+**Audit trail.** Rev.0 (coverage-floor + advisory mutation) was refuted: no blocking oracle for assertion loss; coverage union-blind; mutation non-functional + inverted; 15 pairs not 7. Rev.1 introduced a manifest gate but round 2 refuted it three ways: the gate was prose, not CI-wired, and un-runnable after the legacy file is deleted (voter A/C); its identity ignored module-scope helpers, with a live `compensation` counter-example (voter B); the `--mutate` extension couldn't dodge #1720's dry-run (voter B). Rev.2 resolves these: per-pair PRs + merge-base reconstruction make the gate a real CI job; the tool does codegen and context-aware identity; mutation is honestly deferred.
 
 ## Alternatives considered
 
-- **Keep both locations (status quo):** rejected — that *is* the divergence bug.
-- **Delete legacy wholesale, keep co-located:** rejected — for state-machine/tools/state-store the legacy suite asserts *more*.
-- **Consolidate all 15 pairs in this wave:** deferred, not rejected — the 8 additional pairs (`workflow/{checkpoint,migration,schemas}`, `views/{materializer,pipeline-view,snapshot-store,task-detail-view}`, `event-store/tools`) are smaller and non-substrate-critical; they become **wave 3b-2** once the method is proven on the 7, and are held from divergence by the DR-1 guard's expiring allowlist in the meantime.
-- **Top-20 large-suite minimization (audit stretch tier):** deferred — touches non-duplicate single-location suites; revisit after the pair campaign.
+- **Keep both locations (status quo):** rejected — that is the divergence bug.
+- **Delete legacy wholesale:** rejected — the legacy suite asserts *more* for state-machine/tools/state-store.
+- **Local `git merge --no-ff` per pair, one synthesize PR (rev.1):** rejected — no CI event per pair, so the manifest gate could not enforce; hence per-pair PRs (DR-7).
+- **Hand-merge the large suites:** rejected — multi-hour, crash-prone (project memory: crashed subagents lose WIP); the tool codegens the merge instead.
+- **Consolidate all 15 pairs now:** deferred to wave 3b-2; the DR-1 guard holds the eight from further divergence meanwhile.
+- **Top-20 large-suite minimization:** deferred.
 
 ## Open Questions
 
-- **Scope: 7 now vs all 15.** Rev.1 keeps the user's bounded 7-pair scope and defers the other 8 (allowlisted, tracked). Expanding to 15 in one wave is a viable alternative if preferred — same method, larger fan-out. *(For the approval checkpoint.)*
-- **Per-module mutation scoping list (DR-4):** the covered-module set per pair is enumerated at delegate time from each pair's imports (recorded in the pilot tasks first).
-- **Deferred-pairs follow-up issue:** file wave 3b-2 for the 8 deferred pairs at closeout (Task 013).
+- **Scope: 7 now vs all 15.** Rev.2 keeps the bounded 7 and defers 8 (allowlisted). Expanding to 15 is viable (same tooling, larger fan-out) — a decision for the approval checkpoint.
+- **Mutation re-enablement:** tracked to #1720; closeout files the follow-up.
 
 ## Decomposition
 
-The decomposition maps every task to one or more DR-N from `## Requirements` above.
-
 ### Scope
 
-**Target:** The 7 highest-value duplicate-location pairs + enabling tooling/guards. **Excluded (deferred, tracked):** the 8 other duplicate-location pairs → wave 3b-2 (held from divergence by the DR-1 allowlist); top-20 large-suite minimization; the non-pair `src/__tests__/` subdirs.
+**Target:** the 7 highest-value duplicate-location pairs + tooling/guards. **Excluded (deferred, tracked):** the 8 other pairs → wave 3b-2 (held from divergence by DR-1); top-20 minimization; non-pair `src/__tests__/` subdirs.
 
 ### Traceability matrix (DR-N → tasks)
 
 | DR | Requirement | Tasks |
 |----|-------------|-------|
-| DR-1 | Single canonical location + global ratchet guard | 005, 006, 007, 008, 009, 010, 011, 012, 013 |
-| DR-2 | Blocking manifest gate (primary guarantee) | 001, 005, 006, 007, 008, 009, 010, 011 |
-| DR-3 | Coverage non-regression backstop | 005, 006, 007, 008, 009, 010, 011, 013 |
-| DR-4 | Functional advisory mutation (volume-keyed) | 004, 005, 006, 007, 008, 009, 010, 011 |
+| DR-1 | Single canonical location + area-qualified ratchet | 005, 006, 007, 008, 009, 010, 011, 012, 013 |
+| DR-2 | CI-enforced bidirectional manifest gate | 001, 004, 005, 006, 007, 008, 009, 010, 011 |
+| DR-3 | Coverage non-regression backstop (per PR) | 005, 006, 007, 008, 009, 010, 011, 013 |
+| DR-4 | Mutation deferred (blocked #1720) | 013 |
 | DR-5 | Keep-classes protected | 002, 005, 006, 007, 008, 009, 010, 011 |
 | DR-6 | Substrate-backstop preservation | 001, 005, 008, 009, 011 |
-| DR-7 | Serialized merges (capability-aware) | 013 |
+| DR-7 | Per-pair PRs (enforcement seam), serialized | 004, 005, 006, 007, 008, 009, 010, 011, 013 |
 | DR-8 | Base-substrate preflight | 003 |
 
 ### Tasks
 
-Each task carries a `riskTier` stamp selecting its verification depth. Consolidation tasks are unusual: the test suite *is* the deliverable, so their verification is "blocking manifest gate + coverage ≥ baseline + advisory mutation," not a new test file.
+Consolidation tasks are unusual: the test suite *is* the deliverable, so verification is "CI manifest gate (blocking) + coverage ratchet (blocking) + green suite," not a new test file.
 
-### Task 001: Manifest tool — the blocking union-preservation gate (ts-morph)
+### Task 001: Consolidation tool — codegen + bidirectional manifest verify (TypeScript compiler API)
 
 **Risk Tier:** high
 **Boundary Touching:** false
@@ -197,9 +190,9 @@ Each task carries a `riskTier` stamp selecting its verification depth. Consolida
 **Files:**
 - `scripts/audit/consolidate-suite.mjs`
 - `scripts/audit/consolidate-suite.test.ts`
-**Verification:** high — this tool is the primary blocking guarantee for union preservation: it proves every legacy case is `moved` verbatim or `dedup-identical` before any deletion, so no asserted behavior is silently lost by construction. Its identity check hashes the case body **and** the enclosing `beforeEach`/fixture context. Scoped unit tests over crafted case pairs (identical, title-collision-but-divergent-body, identical-body-but-divergent-fixture, import-path-only-diff), the `check_test_adequacy` kill-probe, and an integration run over one real pair. A false `dedup-identical` — an invisible assertion loss — is the campaign's core risk, so the identity check is adversarially tested.
+**Verification:** high — the tool is the primary union-preservation mechanism: `--emit-merged` relocates every legacy case verbatim (deterministic codegen, no hand-merge) and `--verify` blocks on any case lost from either pre-image. Identity uses body + transitive referenced-context hash (enclosing hooks, module-scope helpers, resolved imports), so divergent same-named helpers block dedup. Uses the TypeScript compiler API (already a dependency; ts-morph is not in the tree). Scoped unit tests over crafted cases — identical, title-collision-but-divergent-body, identical-body-but-divergent-fixture, **identical-body-but-divergent-module-helper** (the live `compensation` `makeState` case), same-symbol-different-module-import — plus the `check_test_adequacy` kill-probe and an integration run over one real pair. A false `dedup-identical` is the campaign's core risk, adversarially tested.
 **Dependencies:** None
-**Parallelizable:** No (foundation — every pair task consumes it)
+**Parallelizable:** No (foundation)
 
 ### Task 002: Keep-class protected-file inventory + pre-flight guard
 
@@ -210,11 +203,11 @@ Each task carries a `riskTier` stamp selecting its verification depth. Consolida
 - `scripts/audit/protected-suites.json`
 - `scripts/audit/check-protected.mjs`
 - `scripts/audit/check-protected.test.ts`
-**Verification:** medium — scoped test asserting the guard flags a change-set intersecting a keep-class glob and passes a clean one; the checked-in inventory is generated from the live keep-class globs (parity/race/property/characterization/acceptance) plus the named adjacent files.
+**Verification:** medium — scoped test asserting the guard flags a change-set intersecting a keep-class glob and passes a clean one; inventory generated from live keep-class globs + named adjacent files.
 **Dependencies:** None
 **Parallelizable:** Yes
 
-### Task 003: Base-substrate preflight (delegate-phase dispatch gate)
+### Task 003: Base-substrate preflight (delegate-phase dispatch check)
 
 **Risk Tier:** low
 **Boundary Touching:** false
@@ -222,31 +215,32 @@ Each task carries a `riskTier` stamp selecting its verification depth. Consolida
 **Files:**
 - `scripts/audit/check-base-substrate.mjs`
 - `scripts/audit/check-base-substrate.test.ts`
-**Verification:** medium — asserts the #1719 substrate (`coverage-baseline.json` + `check-coverage-ratchet.mjs`) is present on the base and aborts dispatch when absent (local `2f4c0e23` is the negative fixture). The delegate phase runs this before each wave; the pair tasks depend on it so it is built and passing before dispatch — closing the "fail before dispatch" intent that an orphan script cannot enforce.
+**Verification:** medium — asserts the #1719 substrate is present on the base and aborts dispatch when absent (local `2f4c0e23` is the negative fixture). The delegate phase runs it as a dispatch check before each wave; pairs depend on it so the script exists first. (Belt-and-suspenders: default isolation bases on `origin/main`, which already has the substrate.)
 **Dependencies:** None
 **Parallelizable:** Yes
 
-### Task 004: Extend stryker-adapter with explicit `--mutate` module targeting
+### Task 004: CI manifest-gate job — merge-base pre-image reconstruction
 
-**Risk Tier:** medium
-**Boundary Touching:** false
-**Implements:** DR-4
+**Risk Tier:** high
+**Boundary Touching:** true
+**Implements:** DR-2, DR-7
 **Files:**
-- `servers/exarchos-mcp/scripts/stryker-adapter.mjs`
-- `servers/exarchos-mcp/scripts/stryker-adapter.test.ts`
-**Verification:** medium — the adapter today parses only `--since`; add a `--mutate <globs>` passthrough that scopes Stryker's `mutate` to named source modules and skips the diff path, so a per-module mutation kill-set can be captured on a test-only change (which has an empty mutatable surface under `--since`). Scoped test asserting `--mutate` sets the module glob and does not fall through to the full-tree run. Mutation stays advisory (`thresholds.break` unset).
-**Dependencies:** None
-**Parallelizable:** Yes
+- `.github/workflows/ci.yml`
+- `scripts/audit/manifest-gate-ci.mjs`
+- `scripts/audit/manifest-gate-ci.test.ts`
+**Verification:** high — a CI job on consolidation PRs that, for each retired subject in the diff, reconstructs the pre-image legacy and canonical via `git show <merge-base>:<path>` and runs `consolidate-suite.mjs --verify`, blocking the PR on any lost/unproven case. This is the enforcement seam that makes DR-2 a gate rather than discipline. Runs in a server-deps lane (parses TS). Scoped test covering a PR that drops a case (fails) and a clean relocation (passes), including a dropped **pre-existing canonical** case (bidirectional).
+**Dependencies:** 001
+**Parallelizable:** No (foundation for the pairs' enforcement)
 
 ### Task 005: Consolidate `guards` pair (INV-8 pilot)
 
 **Risk Tier:** high
 **Boundary Touching:** true
-**Implements:** DR-1, DR-2, DR-3, DR-4, DR-5, DR-6
+**Implements:** DR-1, DR-2, DR-3, DR-5, DR-6, DR-7
 **Files:**
 - `servers/exarchos-mcp/src/workflow/guards.test.ts` (canonical target)
 - `servers/exarchos-mcp/src/__tests__/workflow/guards.test.ts` (retired)
-**Verification:** high — blocking manifest gate (every legacy case `moved`/`dedup-identical`); merged suite green; coverage non-regression backstop ≥ baseline (blocking); advisory mutation spot-check over `workflow/guards.ts` for substrate-backstop preservation of the invariant INV-8 (idempotent-retry cases classified `moved`). Pilot: smallest INV-8 pair, validates the tool + oracles end-to-end.
+**Verification:** high — lands as its own PR; blocking CI manifest gate (bidirectional, every case from both pre-images accounted); coverage non-regression backstop ≥ baseline; green suite. Substrate-backstop preservation of the invariant INV-8 (idempotent-retry cases classified `moved`). Pilot: smallest INV-8 pair, validates tool codegen + CI gate end-to-end.
 **Dependencies:** 001, 002, 003, 004
 **Parallelizable:** Yes (pilot group)
 
@@ -254,11 +248,11 @@ Each task carries a `riskTier` stamp selecting its verification depth. Consolida
 
 **Risk Tier:** high
 **Boundary Touching:** true
-**Implements:** DR-1, DR-2, DR-3, DR-4, DR-5
+**Implements:** DR-1, DR-2, DR-3, DR-5, DR-7
 **Files:**
 - `servers/exarchos-mcp/src/workflow/state-machine.test.ts` (canonical target)
 - `servers/exarchos-mcp/src/__tests__/workflow/state-machine.test.ts` (retired)
-**Verification:** high — blocking manifest gate; merged suite green; coverage non-regression backstop ≥ baseline; advisory mutation over `workflow/state-machine.ts`. Pilot: legacy asserts 4× the co-located suite (3338→876) — the highest merge-volume, highest false-dedup surface — so it is a mandatory-to-run advisory mutation target. Must not touch adjacent `state-machine.property.test.ts` (keep-class). Note: a large multi-hour merge, not a 2–5-minute task; granularity is one-pair-per-task (cannot sub-split without file conflict).
+**Verification:** high — own PR; blocking CI manifest gate; coverage backstop ≥ baseline; green suite. Pilot: legacy asserts 4× the co-located (3338→876) — highest merge-volume; the `--emit-merged` codegen (not a hand-merge) collapses the effort/crash risk. Must not touch adjacent `state-machine.property.test.ts` (keep-class).
 **Dependencies:** 001, 002, 003, 004
 **Parallelizable:** Yes (pilot group)
 
@@ -266,11 +260,11 @@ Each task carries a `riskTier` stamp selecting its verification depth. Consolida
 
 **Risk Tier:** high
 **Boundary Touching:** true
-**Implements:** DR-1, DR-2, DR-3, DR-4, DR-5
+**Implements:** DR-1, DR-2, DR-3, DR-5, DR-7
 **Files:**
 - `servers/exarchos-mcp/src/workflow/tools.test.ts` (canonical target)
 - `servers/exarchos-mcp/src/__tests__/workflow/tools.test.ts` (retired)
-**Verification:** high — blocking manifest gate run against both the co-located `tools.test.ts` **and** the eight `tools.*.test.ts` split files (a case already in a split file is `dedup-identical`, not re-moved); merged suite green; coverage backstop ≥ baseline; advisory mutation over `workflow/tools.ts` (3387-line legacy retirement — high-volume). Must not touch adjacent `tools.update.race.test.ts` (keep-class). Large multi-hour merge.
+**Verification:** high — own PR; blocking CI manifest gate run with the eight co-located `tools.*.test.ts` split files included as canonical pre-image context (a case already in a split file is dedup-identical, not re-moved); coverage backstop ≥ baseline; green suite. Codegen'd merge (3387-line legacy). Must not touch adjacent `tools.update.race.test.ts` (keep-class).
 **Dependencies:** 001, 002, 003, 004, 005, 006
 **Parallelizable:** Yes (main wave)
 
@@ -278,11 +272,11 @@ Each task carries a `riskTier` stamp selecting its verification depth. Consolida
 
 **Risk Tier:** high
 **Boundary Touching:** true
-**Implements:** DR-1, DR-2, DR-3, DR-4, DR-5, DR-6
+**Implements:** DR-1, DR-2, DR-3, DR-5, DR-6, DR-7
 **Files:**
 - `servers/exarchos-mcp/src/workflow/compensation.test.ts` (canonical target)
 - `servers/exarchos-mcp/src/__tests__/workflow/compensation.test.ts` (retired)
-**Verification:** high — blocking manifest gate; merged suite green; coverage backstop ≥ baseline; advisory mutation over `workflow/compensation.ts` for substrate-backstop preservation of the invariant INV-8, idempotent-retry cases classified `moved`.
+**Verification:** high — own PR; blocking CI manifest gate — the divergent `makeState` module helpers make its context-aware identity load-bearing here (a naive body-only hash would false-dedup); coverage backstop ≥ baseline; green suite. Substrate-backstop preservation of the invariant INV-8, idempotent-retry cases `moved`.
 **Dependencies:** 001, 002, 003, 004, 005, 006
 **Parallelizable:** Yes (main wave)
 
@@ -290,12 +284,12 @@ Each task carries a `riskTier` stamp selecting its verification depth. Consolida
 
 **Risk Tier:** high
 **Boundary Touching:** true
-**Implements:** DR-1, DR-2, DR-3, DR-4, DR-5, DR-6
+**Implements:** DR-1, DR-2, DR-3, DR-5, DR-6, DR-7
 **Files:**
 - `servers/exarchos-mcp/src/workflow/state-store.test.ts` (canonical target)
 - `servers/exarchos-mcp/src/__tests__/workflow/state-store.test.ts` (retired)
-- `servers/exarchos-mcp/src/__tests__/workflow/state-store-resolve.test.ts` (retired — fold into canonical)
-**Verification:** high — blocking manifest gate (both legacy files); merged suite green; coverage backstop ≥ baseline; advisory mutation over the state-store source for substrate-backstop preservation of the invariant INV-1, reducer/projection cases classified `moved`.
+- `servers/exarchos-mcp/src/__tests__/workflow/state-store-resolve.test.ts` (retired — fold in)
+**Verification:** high — own PR; blocking CI manifest gate (both legacy files as pre-image); coverage backstop ≥ baseline; green suite. Substrate-backstop preservation of the invariant INV-1, reducer/projection cases `moved`.
 **Dependencies:** 001, 002, 003, 004, 005, 006
 **Parallelizable:** Yes (main wave)
 
@@ -303,12 +297,12 @@ Each task carries a `riskTier` stamp selecting its verification depth. Consolida
 
 **Risk Tier:** high
 **Boundary Touching:** true
-**Implements:** DR-1, DR-2, DR-3, DR-4, DR-5
+**Implements:** DR-1, DR-2, DR-3, DR-5, DR-7
 **Files:**
 - `servers/exarchos-mcp/src/views/handlers.test.ts` (canonical target)
 - `servers/exarchos-mcp/src/__tests__/views/handlers.test.ts` (retired)
-- `servers/exarchos-mcp/src/__tests__/views/tools-error-paths.test.ts` (retired — fold into canonical)
-**Verification:** high — blocking manifest gate (both legacy files); merged suite green; coverage backstop ≥ baseline; advisory mutation over the views/handlers source.
+- `servers/exarchos-mcp/src/__tests__/views/tools-error-paths.test.ts` (retired — fold in)
+**Verification:** high — own PR; blocking CI manifest gate (both legacy files as pre-image); coverage backstop ≥ baseline; green suite.
 **Dependencies:** 001, 002, 003, 004, 005, 006
 **Parallelizable:** Yes (main wave)
 
@@ -316,15 +310,15 @@ Each task carries a `riskTier` stamp selecting its verification depth. Consolida
 
 **Risk Tier:** high
 **Boundary Touching:** true
-**Implements:** DR-1, DR-2, DR-3, DR-4, DR-5, DR-6
+**Implements:** DR-1, DR-2, DR-3, DR-5, DR-6, DR-7
 **Files:**
 - `servers/exarchos-mcp/src/event-store/schemas.test.ts` (canonical target, 4702 ln)
 - `servers/exarchos-mcp/src/__tests__/event-store/schemas.test.ts` (retired)
-**Verification:** high — blocking manifest gate; merged suite green; coverage backstop ≥ baseline; advisory mutation over the event-store schema source for substrate-backstop preservation of the invariant INV-1, schema-validation cases classified `moved`. Must not touch adjacent `schemas.onboard.test.ts`. Largest canonical target — sequence last; large multi-hour merge.
+**Verification:** high — own PR; blocking CI manifest gate — bidirectional check is load-bearing given the 4702-line canonical target (a pre-existing case dropped during merge is caught); coverage backstop ≥ baseline; green suite. Substrate-backstop preservation of the invariant INV-1, schema-validation cases `moved`. Codegen'd merge; must not touch adjacent `schemas.onboard.test.ts`. Sequence last.
 **Dependencies:** 001, 002, 003, 004, 005, 006
 **Parallelizable:** Yes (main wave)
 
-### Task 012: Duplicate-location ratchet guard with expiring allowlist
+### Task 012: Duplicate-location ratchet guard (area-qualified, expiring allowlist)
 
 **Risk Tier:** medium
 **Boundary Touching:** true
@@ -333,7 +327,7 @@ Each task carries a `riskTier` stamp selecting its verification depth. Consolida
 - `scripts/audit/check-no-duplicate-suites.mjs`
 - `scripts/audit/check-no-duplicate-suites.test.ts`
 - `.github/workflows/ci.yml`
-**Verification:** medium — a real basename-intersection guard that fails when a legacy `__tests__/{workflow,views,event-store}/<basename>.test.ts` twin exists for any co-located subject not in the expiring allowlist; scoped test covering both directions. Wired into `grep-gates` (no `npm ci`). The allowlist carries exactly the eight deferred pairs after the seven land. Lands after the pairs so it does not fail on still-present in-scope duplicates.
+**Verification:** medium — a real (area, basename) intersection guard that fails when a legacy twin exists for any co-located subject not in the expiring allowlist; scoped test covering both directions **and** the cross-area collision (`schemas`, `tools`). Wired into `grep-gates` (no deps). Allowlist carries exactly the eight deferred pairs after the seven land. Lands after the pairs.
 **Dependencies:** 005, 006, 007, 008, 009, 010, 011
 **Parallelizable:** No
 
@@ -341,29 +335,28 @@ Each task carries a `riskTier` stamp selecting its verification depth. Consolida
 
 **Risk Tier:** medium
 **Boundary Touching:** false
-**Implements:** DR-1, DR-3, DR-7
+**Implements:** DR-1, DR-3, DR-4, DR-7
 **Files:**
 - `docs/specs/2026-07-18-test-mass-consolidation.md` (closeout notes)
-**Verification:** medium — confirm none of the seven subjects remains a duplicate-location pair (Task 012 guard green with the eight-pair allowlist), the coverage ratchet ran green **per merge** across the serialized series (single-writer via manual `git merge --no-ff`), every pair's manifest + advisory mutation report is attached, then file the wave 3b-2 follow-up for the eight deferred pairs and update epic #1705.
+**Verification:** medium — confirm none of the seven subjects remains a duplicate-location pair (Task 012 guard green, eight-pair allowlist), every per-pair PR passed the manifest gate + coverage ratchet in CI, then file wave 3b-2 for the eight deferred pairs, record the #1720 mutation-re-enablement follow-up, and update epic #1705.
 **Dependencies:** 012
 **Parallelizable:** No
 
 ### Parallelization
 
-Critical path: **001 → {005, 006} (pilots) → {007, 008, 009, 010, 011} (main wave) → 012 → 013.**
+Critical path: **001 → 004 → {005, 006} (pilots) → {007, 008, 009, 010, 011} (main wave) → 012 → 013.**
 
-- 002, 003, 004 run in parallel with 001 (independent tooling/guards); all four are foundation for the pairs.
-- Delegate runs Task 003 (base-substrate preflight) before each wave dispatch; pairs base on `origin/main` (≥ #1719).
-- Pilots 005 (guards, INV-8) and 006 (state-machine, highest-volume) run concurrently once foundation lands; they de-risk the tool and oracles before the fan-out.
-- Main-wave pairs 007–011 run concurrently in isolated worktrees after the pilots.
-- **Merges are single-writer serialized (DR-7):** manual `git merge --no-ff` from the integration worktree (serialize_merge is `CAPABILITY_DENIED` here), each followed by the blocking coverage ratchet, so the union-limited backstop runs on a coherent cumulative state.
+- 002, 003 run in parallel with 001; 004 (CI gate) depends on 001.
+- Delegate runs Task 003 (base-substrate check) before each wave; pairs base on `origin/main` (≥ #1719).
+- Pilots 005 (guards, INV-8) and 006 (state-machine, highest-volume) validate tool codegen + CI gate before the fan-out.
+- Main-wave 007–011 run concurrently in isolated worktrees, each landing as its own CI-gated PR.
+- **Per-pair PRs are the enforcement seam (DR-7):** each triggers the DR-2 manifest gate + DR-3 ratchet in CI; PRs land serially (stacked; manual sequential merge where `serialize_merge` is capability-denied).
 - 012 (ratchet guard) lands after all pairs; 013 closes out and hands off wave 3b-2.
 
 ### Completion checklist
 
-- [ ] Every DR-N in `## Requirements` maps to at least one task
-- [ ] Every task `Implements:` a DR-N that exists in this document
+- [ ] Every DR-N maps to at least one task; every task Implements an existing DR-N
 - [ ] Every task carries a `riskTier` stamp
-- [ ] High-tier tasks carry adequacy-judged verification (manifest gate + coverage + advisory mutation)
-- [ ] Open questions resolved or explicitly deferred with rationale
+- [ ] High-tier tasks carry adequacy-judged verification (CI manifest gate + coverage + green suite)
+- [ ] Open questions resolved or explicitly deferred
 - [ ] Ready for `plan-review`
