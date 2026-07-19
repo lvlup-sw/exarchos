@@ -193,7 +193,17 @@ function main() {
     // root-relative. `record()` above stays REPO_ROOT-relative always — that is
     // purely for the human-readable violation path, not this anchor decision.
     const repoRootRel = path.relative(REPO_ROOT, file);
-    const ciToolingRel = repoRootRel.startsWith('..') ? path.relative(args.root, file) : repoRootRel;
+    // Boundary-aware "outside REPO_ROOT" test: only a leading parent segment
+    // (`..` exactly, or `..<sep>…`) or an absolute result (cross-drive on win32,
+    // where `path.relative` cannot produce a relative path) means the file lives
+    // outside the repo. A bare `startsWith('..')` misclassifies an in-repo path
+    // whose first segment merely begins with dots (e.g. `..fixtures/…`) and reads
+    // a cross-drive absolute result as in-repo.
+    const outsideRepo =
+      repoRootRel === '..' ||
+      repoRootRel.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(repoRootRel);
+    const ciToolingRel = outsideRepo ? path.relative(args.root, file) : repoRootRel;
     const isCiTooling = CI_TOOLING_RE.test(ciToolingRel);
 
     // 2 — non-portable module path (anywhere)

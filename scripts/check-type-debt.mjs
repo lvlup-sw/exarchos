@@ -257,7 +257,19 @@ export function countTypeDebt(source) {
 export function measureTree(repoRoot) {
   const counts = new Map();
   for (const { rel, full } of enumerateCensus(repoRoot)) {
-    const count = countTypeDebt(readFileSync(full, 'utf8'));
+    // A non-ENOENT read fault (EACCES/EIO) on a file that survived enumeration
+    // is an I/O gate error, not an over-budget violation — surface it as a
+    // CensusError (EXIT_GATE_ERROR) so the fail-closed taxonomy stays honest,
+    // mirroring the readdir guard in `enumerateCensus`.
+    let source;
+    try {
+      source = readFileSync(full, 'utf8');
+    } catch (err) {
+      throw new CensusError(
+        `census file ${rel} is unreadable (${err && err.message ? err.message : String(err)}) — refusing to under-count type debt`,
+      );
+    }
+    const count = countTypeDebt(source);
     if (count > 0) counts.set(rel, count);
   }
   return counts;

@@ -416,7 +416,8 @@ export const guards = {
       if (
         state._mutationEnforcement === 'block' &&
         typeof state._maxNoCoverage === 'number' &&
-        Number.isFinite(state._maxNoCoverage)
+        Number.isInteger(state._maxNoCoverage) &&
+        state._maxNoCoverage >= 0
       ) {
         // Capture the narrowed budget right after the `typeof` check above
         // (real narrowing, not an escape-hatch cast — DR-14).

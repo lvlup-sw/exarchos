@@ -754,9 +754,13 @@ export async function handleSet(
         // DR-6: the resolved NoCoverage budget for `allReviewsPassed` Check 4b's
         // orthogonal axis, injected exactly as the threshold above. Config
         // plumbing, not a facade fork — the pass-decision lives in the pure guard.
+        // Only plumb a well-formed budget (non-negative integer) — a negative
+        // or fractional value is rejected here rather than injected, matching
+        // `resolveMaxNoCoverage` and the guard's NoCoverage-count check (INV-2).
         if (
           typeof options?.maxNoCoverage === 'number' &&
-          Number.isFinite(options.maxNoCoverage)
+          Number.isInteger(options.maxNoCoverage) &&
+          options.maxNoCoverage >= 0
         ) {
           mutableState._maxNoCoverage = options.maxNoCoverage;
         }

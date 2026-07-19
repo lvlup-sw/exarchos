@@ -805,6 +805,22 @@ describe('allReviewsPassed (synthesis ready)', () => {
     }
   });
 
+  it('GuardCheckFour_NegativeOrFractionalBudget_NotEnforced', () => {
+    // #1719 (Sentry): a misconfigured budget that is negative (would block every
+    // nontrivial diff — `2 > -1` is true) or fractional (meaningless for a count)
+    // is not a valid budget. The guard rejects it and leaves the NoCoverage axis
+    // inert rather than blocking a valid transition — matching `resolveMaxNoCoverage`
+    // and the count-side `isInteger && >= 0` check (INV-2 parity).
+    for (const badBudget of [-1, 1.5]) {
+      const state = mutationBase(
+        1.0,
+        { _mutationEnforcement: 'block', _mutationThreshold: 0.4, _maxNoCoverage: badBudget },
+        { noCoverage: 2 },
+      );
+      expect(guards.allReviewsPassed.evaluate(state)).toBe(true);
+    }
+  });
+
   it('SynthesisReadyGuard_RequiredDimensionPresentButFailed_ReturnsFailed', () => {
     const state: Record<string, unknown> = {
       featureId: 'test-feature',

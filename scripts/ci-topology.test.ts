@@ -46,18 +46,18 @@ const FIXTURES_DIR = join(__dirname, '__fixtures__', 'ci-topology');
 const AGGREGATOR_JOB = 'ci-gate';
 
 interface WorkflowStep {
-  name?: string;
-  run?: string;
+  readonly name?: string;
+  readonly run?: string;
 }
 
 interface WorkflowJob {
-  needs?: string | string[];
-  if?: string;
-  steps?: WorkflowStep[];
+  readonly needs?: string | readonly string[];
+  readonly if?: string;
+  readonly steps?: readonly WorkflowStep[];
 }
 
 interface Workflow {
-  jobs: Record<string, WorkflowJob>;
+  readonly jobs: Record<string, WorkflowJob>;
 }
 
 /**

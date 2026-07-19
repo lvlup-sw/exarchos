@@ -314,7 +314,7 @@ describe('ProjectConfigSchema', () => {
     // is therefore the architecturally-correct reader for "does the real
     // config file parse" — `ProjectConfigSchema` alone rejects the
     // toolchain-override keys it was never meant to model.
-    it('ProjectConfigSchema_DefaultExarchosYml_ParsesSuccessfully', () => {
+    it('FullExarchosConfigSchema_DefaultExarchosYml_ParsesSuccessfully', () => {
       const content = readFileSync(resolve(__dirname, '../../../../.exarchos.yml'), 'utf-8');
       const parsed = parseYaml(content);
       expect(FullExarchosConfigSchema.safeParse(parsed).success).toBe(true);

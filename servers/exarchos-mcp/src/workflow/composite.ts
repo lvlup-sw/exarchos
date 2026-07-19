@@ -83,8 +83,14 @@ export async function handleWorkflow(
       // plumbing as the threshold above (INV-2 — the decision lives in the guard).
       const maxNoCoverageRaw = ctx.projectConfig?.review.gates['mutation-adequacy']?.params
         ?.maxNoCoverage;
+      // Reject a negative (would block every nontrivial diff) or fractional
+      // (meaningless for a count) budget in favour of the strict default (0) —
+      // the same `isInteger && >= 0` contract `resolveMaxNoCoverage` and the
+      // guard's own NoCoverage-count check enforce (INV-2 parity).
       const maxNoCoverage =
-        typeof maxNoCoverageRaw === 'number' && Number.isFinite(maxNoCoverageRaw)
+        typeof maxNoCoverageRaw === 'number' &&
+        Number.isInteger(maxNoCoverageRaw) &&
+        maxNoCoverageRaw >= 0
           ? maxNoCoverageRaw
           : 0;
       const transitionOptions: Record<string, unknown> = {};

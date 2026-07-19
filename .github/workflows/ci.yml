@@ -161,6 +161,10 @@ jobs:
           # "no merge base" (fail-closed). Full history makes the base-ref diff
           # resolvable in CI. Mirrors the fetch-depth:0 jobs elsewhere here.
           fetch-depth: 0
+          # The mutation gate only reads history, and this job then runs
+          # repo/dependency code (test runners, bun build, npm postinstalls), so
+          # don't persist the checkout token into .git/config for those steps.
+          persist-credentials: false
 
       - uses: actions/setup-node@v6
         with:
