@@ -7,9 +7,9 @@ import {
   findTransition,
   registerWorkflowType,
   unregisterWorkflowType,
-} from '../../workflow/state-machine.js';
-import type { HSMDefinition, State, Transition, WorkflowDefinition } from '../../workflow/state-machine.js';
-import { guards } from '../../workflow/guards.js';
+} from './state-machine.js';
+import type { HSMDefinition, State, Transition, WorkflowDefinition } from './state-machine.js';
+import { guards } from './guards.js';
 
 // ─── Task 003: HSM State/Transition Definitions ─────────────────────────────
 

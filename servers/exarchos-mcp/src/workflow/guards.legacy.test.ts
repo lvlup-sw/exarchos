@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { guards, PASSED_STATUSES, FAILED_STATUSES, type GuardResult, type GuardFailure } from '../../workflow/guards.js';
+import { guards, PASSED_STATUSES, FAILED_STATUSES, type GuardResult, type GuardFailure } from './guards.js';
 
 // ─── Task 1: GuardFailure type extension ─────────────────────────────────────
 
