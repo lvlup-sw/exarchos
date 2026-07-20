@@ -2,10 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
 import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { ViewMaterializer } from '../../views/materializer.js';
-import { SnapshotStore } from '../../views/snapshot-store.js';
-import type { ViewProjection } from '../../views/materializer.js';
-import type { WorkflowEvent } from '../../event-store/schemas.js';
+import { ViewMaterializer } from './materializer.js';
+import { SnapshotStore } from './snapshot-store.js';
+import type { ViewProjection } from './materializer.js';
+import type { WorkflowEvent } from '../event-store/schemas.js';
 
 // ─── Test View: simple counter ─────────────────────────────────────────────
 
