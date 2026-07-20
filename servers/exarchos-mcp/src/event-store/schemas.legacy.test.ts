@@ -27,9 +27,9 @@ import {
   ResolvedGateFamilySchema,
   PhaseEnteredPostureSchema,
   type EventType,
-} from '../../event-store/schemas.js';
-import { extendWorkflowTypeEnum, unextendWorkflowTypeEnum } from '../../workflow/schemas.js';
-import { KIND_OBLIGATIONS, resolveGateSet, type PhaseKind } from '../../workflow/phase-kind.js';
+} from './schemas.js';
+import { extendWorkflowTypeEnum, unextendWorkflowTypeEnum } from '../workflow/schemas.js';
+import { KIND_OBLIGATIONS, resolveGateSet, type PhaseKind } from '../workflow/phase-kind.js';
 
 // ─── Base Event Schema ──────────────────────────────────────────────────────
 
