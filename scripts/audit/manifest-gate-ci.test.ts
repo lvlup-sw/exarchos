@@ -259,4 +259,49 @@ describe('guards', () => {
     expect(code).toBe(EXIT_USAGE);
     expect(err).toContain('merge-base');
   });
+
+  // ── fail-CLOSED on unexpected git failures (a transient error must never
+  //    read as "no pairs touched" / "case absent" and pass the gate silently) ──
+  const rawGit = (args: string[], cwd: string) => {
+    const res = spawnSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+    return { status: res.status ?? 1, stdout: res.stdout ?? '', stderr: res.stderr ?? '' };
+  };
+
+  it('fails CLOSED when `git diff` errors — not silently treated as an empty diff', () => {
+    const base = seedMergeBase();
+    const failingDiff = (args: string[], cwd: string) =>
+      args[0] === 'diff'
+        ? { status: 128, stdout: '', stderr: 'fatal: bad revision (simulated transient failure)' }
+        : rawGit(args, cwd);
+    const out: string[] = [];
+    const err: string[] = [];
+    const code = run({
+      base, head: 'HEAD', repoRoot: dir, srcRootRel: SRC,
+      git: failingDiff, log: (m) => out.push(m), errlog: (m) => err.push(m),
+    });
+    expect(code).toBe(EXIT_USAGE);
+    expect(err.join('\n')).toMatch(/fail-closed/);
+    expect(out.join('\n')).not.toContain('no consolidation pair touched');
+  });
+
+  it('fails CLOSED when `git show` errors for a reason other than an absent path', () => {
+    const base = seedMergeBase();
+    // A real consolidation edit so a pair IS touched → verifyPair calls git show.
+    write(`${SRC}/workflow/guards.test.ts`, CANON_MERGE);
+    del(`${SRC}/__tests__/workflow/guards.test.ts`);
+    git('add', '-A');
+    git('commit', '-q', '-m', 'touch guards pair');
+    const failingShow = (args: string[], cwd: string) =>
+      args[0] === 'show'
+        ? { status: 128, stdout: '', stderr: 'fatal: unable to read tree object (simulated corruption)' }
+        : rawGit(args, cwd);
+    const out: string[] = [];
+    const err: string[] = [];
+    const code = run({
+      base, head: 'HEAD', repoRoot: dir, srcRootRel: SRC,
+      git: failingShow, log: (m) => out.push(m), errlog: (m) => err.push(m),
+    });
+    expect(code).toBe(EXIT_USAGE);
+    expect(err.join('\n')).toMatch(/fail-closed/);
+  });
 });

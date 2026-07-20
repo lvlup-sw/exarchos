@@ -56,6 +56,19 @@ function toPosix(p) {
 }
 
 /**
+ * Thrown when a git command fails UNEXPECTEDLY (not a benign absent path/ref).
+ * The gate must fail CLOSED on these rather than treat the failure as "nothing
+ * to verify" — a silently-passing gate is the exact failure mode it exists to
+ * prevent.
+ */
+export class GitGateError extends Error {}
+
+/** git's stderr for a path that is absent at an (otherwise valid) ref. */
+function isAbsentAtRef(stderr) {
+  return /does not exist in |exists on disk, but not in /.test(stderr);
+}
+
+/**
  * The default git runner: `git <args>` in `cwd`, capturing stdout/status.
  * @param {string[]} args
  * @param {string} cwd
@@ -91,7 +104,14 @@ export function mergeBase(base, head, ctx) {
  */
 export function changedPaths(fromRef, toRef, ctx) {
   const res = ctx.git(['diff', '--name-only', fromRef, toRef], ctx.repoRoot);
-  if (res.status !== 0) return [];
+  if (res.status !== 0) {
+    // Both refs are already resolved (fromRef is the merge-base SHA, toRef the
+    // validated head), so a non-zero diff is an unexpected/transient git failure,
+    // NOT "no changes" — fail CLOSED rather than mistake it for an empty diff.
+    throw new GitGateError(
+      `git diff --name-only ${fromRef} ${toRef} failed (status ${res.status}): ${res.stderr.trim()}`,
+    );
+  }
   return res.stdout.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
 }
 
@@ -103,8 +123,14 @@ export function changedPaths(fromRef, toRef, ctx) {
  */
 export function showAtRef(ref, relPath, ctx) {
   const res = ctx.git(['show', `${ref}:${relPath}`], ctx.repoRoot);
-  if (res.status !== 0) return undefined;
-  return res.stdout;
+  if (res.status === 0) return res.stdout;
+  // Distinguish a genuinely-absent path at an (otherwise valid) ref — the file
+  // simply did not exist there, a benign "not a two-directory pair" signal —
+  // from an unexpected git failure, which must fail CLOSED.
+  if (isAbsentAtRef(res.stderr)) return undefined;
+  throw new GitGateError(
+    `git show ${ref}:${relPath} failed (status ${res.status}): ${res.stderr.trim()}`,
+  );
 }
 
 /**
@@ -265,41 +291,51 @@ export function run(opts = {}) {
   const git = opts.git ?? defaultGit;
   const ctx = { repoRoot, git };
 
-  const mb = mergeBase(base, head, ctx);
-  if (!mb) {
-    errlog(`[manifest-gate] could not compute merge-base of ${base}..${head} — cannot run the gate.`);
-    return EXIT_USAGE;
-  }
+  try {
+    const mb = mergeBase(base, head, ctx);
+    if (!mb) {
+      errlog(`[manifest-gate] could not compute merge-base of ${base}..${head} — cannot run the gate.`);
+      return EXIT_USAGE;
+    }
 
-  const changed = changedPaths(mb, head, ctx);
-  const touched = deriveTouchedPairIds(changed, srcRootRel);
-  if (touched.length === 0) {
-    log(`[manifest-gate] OK — no consolidation pair touched in ${base}..${head} (merge-base ${mb.slice(0, 12)}).`);
-    return EXIT_OK;
-  }
+    const changed = changedPaths(mb, head, ctx);
+    const touched = deriveTouchedPairIds(changed, srcRootRel);
+    if (touched.length === 0) {
+      log(`[manifest-gate] OK — no consolidation pair touched in ${base}..${head} (merge-base ${mb.slice(0, 12)}).`);
+      return EXIT_OK;
+    }
 
-  /** @type {PairResult[]} */
-  const failed = [];
-  let verified = 0;
-  for (const id of touched) {
-    const result = verifyPair(resolvePairPaths(id, srcRootRel, repoRoot), mb, ctx);
-    if (result.status === 'skipped') continue;
-    verified++;
-    if (result.status === 'lost') failed.push(result);
-    else log(`[manifest-gate] ${id}: OK — ${result.preimageCases} pre-image case(s) preserved.`);
-  }
+    /** @type {PairResult[]} */
+    const failed = [];
+    let verified = 0;
+    for (const id of touched) {
+      const result = verifyPair(resolvePairPaths(id, srcRootRel, repoRoot), mb, ctx);
+      if (result.status === 'skipped') continue;
+      verified++;
+      if (result.status === 'lost') failed.push(result);
+      else log(`[manifest-gate] ${id}: OK — ${result.preimageCases} pre-image case(s) preserved.`);
+    }
 
-  if (failed.length === 0) {
-    log(`[manifest-gate] OK — ${verified} touched consolidation pair(s) preserved every pre-image case.`);
-    return EXIT_OK;
-  }
+    if (failed.length === 0) {
+      log(`[manifest-gate] OK — ${verified} touched consolidation pair(s) preserved every pre-image case.`);
+      return EXIT_OK;
+    }
 
-  errlog(`[manifest-gate] FAIL — ${failed.length} pair(s) dropped a pre-image case (merge-base ${mb.slice(0, 12)}):`);
-  for (const f of failed) {
-    errlog(`  ${f.id}: ${f.lost.length} lost/unproven case(s)`);
-    for (const c of f.lost) errlog(`    (${c.side}) ${c.text.split('\n')[0].slice(0, 120)}`);
+    errlog(`[manifest-gate] FAIL — ${failed.length} pair(s) dropped a pre-image case (merge-base ${mb.slice(0, 12)}):`);
+    for (const f of failed) {
+      errlog(`  ${f.id}: ${f.lost.length} lost/unproven case(s)`);
+      for (const c of f.lost) errlog(`    (${c.side}) ${c.text.split('\n')[0].slice(0, 120)}`);
+    }
+    return EXIT_FINDING;
+  } catch (e) {
+    // A git command failed unexpectedly — fail CLOSED. Never let a transient git
+    // error read as "no pairs touched" / "case absent" and pass the gate silently.
+    if (e instanceof GitGateError) {
+      errlog(`[manifest-gate] FAIL (fail-closed) — ${e.message}`);
+      return EXIT_USAGE;
+    }
+    throw e;
   }
-  return EXIT_FINDING;
 }
 
 /**
