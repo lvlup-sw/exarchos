@@ -15,14 +15,14 @@ import {
   configureWorkflowMaterializer,
   isEventSourced,
   CURRENT_ES_VERSION,
-} from '../../workflow/tools.js';
-import { initStateFile, readStateFile, writeStateFile, VersionConflictError } from '../../workflow/state-store.js';
-import { EventStore } from '../../event-store/store.js';
-import { ViewMaterializer } from '../../views/materializer.js';
-import { workflowStateProjection, WORKFLOW_STATE_VIEW } from '../../views/workflow-state-projection.js';
-import { reconcileTasks } from '../../workflow/query.js';
-import type { WorkflowState } from '../../workflow/types.js';
-import { rmrfAsync } from '../../test-helpers/temp-dir.js';
+} from './tools.js';
+import { initStateFile, readStateFile, writeStateFile, VersionConflictError } from './state-store.js';
+import { EventStore } from '../event-store/store.js';
+import { ViewMaterializer } from '../views/materializer.js';
+import { workflowStateProjection, WORKFLOW_STATE_VIEW } from '../views/workflow-state-projection.js';
+import { reconcileTasks } from './query.js';
+import type { WorkflowState } from './types.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 let tmpDir: string;
 
@@ -1878,7 +1878,7 @@ describe('Diagnostic Event Emission', () => {
     // Inject 3 fix-cycle events into JSONL store to trigger circuit breaker
     for (let i = 0; i < 3; i++) {
       await eventStore.append('circuit-diag', {
-        type: 'workflow.fix-cycle' as import('../../event-store/schemas.js').EventType,
+        type: 'workflow.fix-cycle' as import('../event-store/schemas.js').EventType,
         correlationId: 'circuit-diag',
         source: 'workflow',
         data: {
@@ -2071,7 +2071,7 @@ describe('CAS Retry Duplicate Event Prevention', () => {
 
     // Mock writeStateFile to fail with VersionConflictError on first attempt,
     // then succeed on second attempt
-    const stateStoreMod = await import('../../workflow/state-store.js');
+    const stateStoreMod = await import('./state-store.js');
     let writeAttempt = 0;
     const originalWrite = stateStoreMod.writeStateFile;
     const writeSpy = vi.spyOn(stateStoreMod, 'writeStateFile').mockImplementation(
@@ -2189,7 +2189,7 @@ describe('B5: Event-First Mutation Ordering', () => {
 
 describe('Store-Based Event Consumers', () => {
   it('getFixCycleCountFromStore_ReturnsCorrectCount', async () => {
-    const { getFixCycleCountFromStore } = await import('../../workflow/events.js');
+    const { getFixCycleCountFromStore } = await import('./events.js');
     const eventStore = new EventStore(tmpDir);
 
     // Append a compound-entry event
@@ -2217,7 +2217,7 @@ describe('Store-Based Event Consumers', () => {
   });
 
   it('getRecentEventsFromStore_ReturnsLastN', async () => {
-    const { getRecentEventsFromStore } = await import('../../workflow/events.js');
+    const { getRecentEventsFromStore } = await import('./events.js');
     const eventStore = new EventStore(tmpDir);
 
     await eventStore.append('recent-test', { type: 'workflow.started' });
@@ -2575,7 +2575,7 @@ describe('handleSet_EventFirst', () => {
 
     // Mock writeStateFile to fail with VersionConflictError on first attempt,
     // then succeed on second attempt
-    const stateStoreMod = await import('../../workflow/state-store.js');
+    const stateStoreMod = await import('./state-store.js');
     let writeAttempt = 0;
     const originalWrite = stateStoreMod.writeStateFile;
     const writeSpy = vi.spyOn(stateStoreMod, 'writeStateFile').mockImplementation(
@@ -2913,7 +2913,7 @@ describe('HandleSet CAS Diagnostic', () => {
     );
 
     // Mock writeStateFile to always throw VersionConflictError (exhaust all retries)
-    const stateStoreMod = await import('../../workflow/state-store.js');
+    const stateStoreMod = await import('./state-store.js');
     const writeSpy = vi.spyOn(stateStoreMod, 'writeStateFile').mockImplementation(
       async (_stateFile, _state, options) => {
         if (options?.expectedVersion !== undefined) {
@@ -2955,7 +2955,7 @@ describe('HandleSet CAS Diagnostic', () => {
     );
 
     // Mock writeStateFile to always throw VersionConflictError (exhaust retries)
-    const stateStoreMod = await import('../../workflow/state-store.js');
+    const stateStoreMod = await import('./state-store.js');
     const writeSpy = vi.spyOn(stateStoreMod, 'writeStateFile').mockImplementation(
       async (_stateFile, _state, options) => {
         if (options?.expectedVersion !== undefined) {
@@ -2975,7 +2975,7 @@ describe('HandleSet CAS Diagnostic', () => {
       }
 
       // Assert: Validate the event shape matches WorkflowCasFailedData
-      const { WorkflowCasFailedData } = await import('../../event-store/schemas.js');
+      const { WorkflowCasFailedData } = await import('../event-store/schemas.js');
       const events = await eventStore.query('cas-shape');
       const casFailedEvents = events.filter(e => e.type === 'workflow.cas-failed');
       expect(casFailedEvents).toHaveLength(1);
