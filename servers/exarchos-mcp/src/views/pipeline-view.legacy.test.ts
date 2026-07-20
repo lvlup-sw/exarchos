@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ViewMaterializer } from '../../views/materializer.js';
+import { ViewMaterializer } from './materializer.js';
 import {
   pipelineProjection,
   PIPELINE_VIEW,
-} from '../../views/pipeline-view.js';
-import type { PipelineViewState } from '../../views/pipeline-view.js';
-import type { WorkflowEvent } from '../../event-store/schemas.js';
+} from './pipeline-view.js';
+import type { PipelineViewState } from './pipeline-view.js';
+import type { WorkflowEvent } from '../event-store/schemas.js';
 
 function makeEvent(
   seq: number,
