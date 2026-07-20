@@ -654,7 +654,11 @@ jobs:
         run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
 
       - name: Manifest gate — no pre-image case dropped (DR-2, Task 004)
-        run: node scripts/audit/manifest-gate-ci.mjs
+        # Reconstruct against the PR's actual base branch (not a hardcoded
+        # origin/main) so a stacked PR onto a non-main base verifies against the
+        # right merge-base; on push events base_ref is empty and the tool
+        # defaults to origin/main.
+        run: node scripts/audit/manifest-gate-ci.mjs ${{ github.base_ref && format('--base origin/{0}', github.base_ref) || '' }}
 
   # ─────────────────────────────────────────────────────────────────────
   # grep-gates
