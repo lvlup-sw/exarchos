@@ -9,8 +9,8 @@ import {
   createInitialCheckpoint,
   CHECKPOINT_OPERATION_THRESHOLD,
   STALE_AFTER_MINUTES,
-} from '../../workflow/checkpoint.js';
-import type { CheckpointState } from '../../workflow/types.js';
+} from './checkpoint.js';
+import type { CheckpointState } from './types.js';
 
 // Helper to create a checkpoint state at a known time
 function makeCheckpoint(overrides: Partial<CheckpointState> = {}): CheckpointState {

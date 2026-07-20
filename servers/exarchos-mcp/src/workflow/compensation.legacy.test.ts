@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { Event } from '../../workflow/types.js';
+import type { Event } from './types.js';
 import type {
   CompensationAction,
   CompensationCheckpoint,
   CompensationOptions,
   CompensationActionResult,
   CompensationResult,
-} from '../../workflow/compensation.js';
-import { executeCompensation } from '../../workflow/compensation.js';
+} from './compensation.js';
+import { executeCompensation } from './compensation.js';
 
 // Mock child_process so no real shell commands run
 vi.mock('child_process', () => ({
