@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ViewMaterializer } from '../../views/materializer.js';
+import { ViewMaterializer } from './materializer.js';
 import {
   taskDetailProjection,
   TASK_DETAIL_VIEW,
-} from '../../views/task-detail-view.js';
-import type { TaskDetailViewState } from '../../views/task-detail-view.js';
-import type { WorkflowEvent } from '../../event-store/schemas.js';
+} from './task-detail-view.js';
+import type { TaskDetailViewState } from './task-detail-view.js';
+import type { WorkflowEvent } from '../event-store/schemas.js';
 
 function makeEvent(
   seq: number,
