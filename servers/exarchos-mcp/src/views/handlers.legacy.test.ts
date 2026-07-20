@@ -3,15 +3,15 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { EventStore } from '../../event-store/store.js';
+import { EventStore } from '../event-store/store.js';
 import {
   handleViewWorkflowStatus,
   handleViewTasks,
   handleViewPipeline,
   resetMaterializerCache,
   getOrCreateMaterializer,
-} from '../../views/tools.js';
-import { rmrfAsync } from '../../test-helpers/temp-dir.js';
+} from './tools.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 let tempDir: string;
 let store: EventStore;
