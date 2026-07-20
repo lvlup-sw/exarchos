@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { checkBaseSubstrate, type SubstrateCheckDeps } from './check-base-substrate.js';
 
@@ -60,8 +61,10 @@ describe('checkBaseSubstrate', () => {
       },
     });
     checkBaseSubstrate(deps, '/custom/repo');
-    expect(fileChecks).toContainEqual('/custom/repo/servers/exarchos-mcp/coverage-baseline.json');
-    expect(fileChecks).toContainEqual('/custom/repo/scripts/check-coverage-ratchet.mjs');
+    // Build expected paths with path.join so the assertion matches the source's
+    // native separators on every OS (Windows uses `\`, not `/`) — #1699 lane fix.
+    expect(fileChecks).toContainEqual(path.join('/custom/repo', 'servers', 'exarchos-mcp', 'coverage-baseline.json'));
+    expect(fileChecks).toContainEqual(path.join('/custom/repo', 'scripts', 'check-coverage-ratchet.mjs'));
   });
 
   it('logs a clear message naming each missing file', () => {

@@ -44,8 +44,11 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = path.resolve(SCRIPT_DIR, '..', '..');
 /** The source root the tool governs (repo-relative default; overridable for tests). */
 export const DEFAULT_SRC_ROOT = path.join(REPO_ROOT, 'servers', 'exarchos-mcp', 'src');
-/** Against the live tree the enumeration MUST find exactly this many pairs. */
-export const EXPECTED_PAIR_COUNT = 17;
+/**
+ * Against the live tree the enumeration MUST find exactly this many remaining pairs.
+ * 0 since the wave-3b de-divergence campaign (#1705) consolidated all 17 duplicate-location pairs.
+ */
+export const EXPECTED_PAIR_COUNT = 0;
 
 export const EXIT_OK = 0;
 /** A real finding: a lost/unproven case (verify) or a divergence needing action. */
