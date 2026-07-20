@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isPidAlive } from '../../utils/process.js';
+import { isPidAlive } from './process.js';
 
 describe('isPidAlive', () => {
   it('IsPidAlive_CurrentProcess_ReturnsTrue', () => {
