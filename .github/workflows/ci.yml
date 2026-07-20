@@ -820,6 +820,17 @@ jobs:
         working-directory: servers/exarchos-mcp
         run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
 
+      # Duplicate-location ratchet (DR-1, Task 022). An (area, basename)
+      # intersection guard that FAILS on any legacy __tests__/<area>/<base>.test.ts
+      # twin of a co-located subject not in the (empty) allowlist. Shares Task
+      # 001's `enumeratePairs` — so it imports consolidate-suite.mjs, which pulls
+      # in `typescript` (a root devDependency); it therefore rides the root
+      # install above rather than the zero-dep prefix. No extra install step.
+      # The allowlist shrinks to 0 once all 17 pairs relocate, so this gate is
+      # green only in the consolidated end-state (it lands with/after the pairs).
+      - name: Duplicate-location ratchet (DR-1, Task 022)
+        run: node scripts/audit/check-no-duplicate-suites.mjs
+
       # ── Wave-S tsx-tail + bun gates (DR-8, DR-2, DR-10) ────────────────────
       # These ride the UNFILTERED grep-gates host so they fire on every PR,
       # using the BOTH dep trees installed by the two steps above. See
