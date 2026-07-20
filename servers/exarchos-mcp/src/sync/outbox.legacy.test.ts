@@ -2,9 +2,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import { Outbox } from '../../sync/outbox.js';
-import type { EventSender } from '../../sync/types.js';
-import type { WorkflowEvent } from '../../event-store/schemas.js';
+import { Outbox } from './outbox.js';
+import type { EventSender } from './types.js';
+import type { WorkflowEvent } from '../event-store/schemas.js';
 
 function makeEvent(overrides?: Partial<WorkflowEvent>): WorkflowEvent {
   return {

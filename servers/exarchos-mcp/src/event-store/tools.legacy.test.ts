@@ -2,15 +2,15 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { EventStore } from '../../event-store/store.js';
+import { EventStore } from './store.js';
 import {
   handleEventAppend,
   handleEventQuery,
   EVENT_QUERY_DEFAULT_LIMIT,
   type EventQueryPage,
-} from '../../event-store/tools.js';
-import type { ToolResult } from '../../format.js';
-import { rmrfAsync } from '../../test-helpers/temp-dir.js';
+} from './tools.js';
+import type { ToolResult } from '../format.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // DR-5: `event query` returns `{ events, page }`; unwrap here so the shape lives
 // in one place.

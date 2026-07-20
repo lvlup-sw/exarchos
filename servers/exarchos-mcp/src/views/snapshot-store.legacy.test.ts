@@ -2,9 +2,9 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
 import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { SnapshotStore } from '../../views/snapshot-store.js';
-import type { SnapshotData } from '../../views/snapshot-store.js';
-import { EVENT_SCHEMA_VERSION } from '../../event-store/event-migration.js';
+import { SnapshotStore } from './snapshot-store.js';
+import type { SnapshotData } from './snapshot-store.js';
+import { EVENT_SCHEMA_VERSION } from '../event-store/event-migration.js';
 
 // ─── Snapshot Store Tests ──────────────────────────────────────────────────
 
@@ -141,13 +141,13 @@ describe('SnapshotStore', () => {
   describe('getSnapshotPath_PathTraversal_ThrowsError', () => {
     it('should throw when streamId contains path traversal sequence', async () => {
       await expect(
-        store.save('../escape', 'view', {}, 0),
+        store.save('../__tests__/escape', 'view', {}, 0),
       ).rejects.toThrow(/Invalid streamId/);
     });
 
     it('should throw when viewName contains path traversal sequence', async () => {
       await expect(
-        store.save('valid-stream', '../escape', {}, 0),
+        store.save('valid-stream', '../__tests__/escape', {}, 0),
       ).rejects.toThrow(/Invalid viewName/);
     });
 
