@@ -289,6 +289,35 @@ describe('snapshot/revert/restore (INV-14: refuse-to-discard recovery)', () => {
     },
     30_000,
   );
+
+  it(
+    'Revert_TaskAddedSource_RemovesThenRestoresCleanly',
+    () => {
+      const { repoRoot, baseRef } = setupTaskRepo('test-adequacy-added-source-');
+      repos.push(repoRoot);
+      const addedSource = 'src/new-helper.js';
+      const addedContent = 'export const helper = true;\n';
+      writeFileSync(path.join(repoRoot, addedSource), addedContent);
+      git(repoRoot, ['add', addedSource]);
+      git(repoRoot, ['commit', '-m', 'task: add source helper', '-q']);
+
+      const snap = snapshotWorkingTree(realGitExec, repoRoot);
+      expect('stashSha' in snap).toBe(true);
+      if (!('stashSha' in snap)) throw new Error('snapshot failed');
+
+      const reverted = revertSourceFiles(realGitExec, repoRoot, baseRef, [
+        'src/calc.js',
+        addedSource,
+      ]);
+      expect(reverted.ok).toBe(true);
+      expect(() => git(repoRoot, ['show', `:${addedSource}`])).toThrow();
+
+      const restored = restoreWorkingTree(realGitExec, repoRoot, snap.stashSha);
+      expect(restored.restored).toBe(true);
+      expect(git(repoRoot, ['show', `:${addedSource}`])).toBe(addedContent);
+    },
+    30_000,
+  );
 });
 
 // ─── task 013: probe orchestration + carrier ─────────────────────────────────

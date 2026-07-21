@@ -9,7 +9,7 @@
  * handshake-based implementation later.
  */
 
-import type { Capability } from '../agents/capabilities.js';
+import { Capability as CapabilitySchema, type Capability } from '../agents/capabilities.js';
 import type { AgentPosture } from '../agents/spec.js';
 import type { ToolResult } from '../format.js';
 import { capabilitiesForPosture } from './posture-mapping.js';
@@ -123,6 +123,45 @@ export interface CapabilityResolver {
    * returns `undefined` and forces a refetch.
    */
   invalidateRootsCache(): void;
+}
+
+export const CAPABILITY_RESOLVER_ID = 'exarchos-capability-resolver' as const;
+export const CAPABILITY_RESOLVER_VERSION = '1' as const;
+
+export interface CapabilityAuthorization {
+  readonly posture: AgentPosture;
+  readonly capabilities: readonly Capability[];
+}
+
+/**
+ * Read an immutable authorization snapshot from the resolver's effective
+ * capability set. Unknown feature-hint capabilities are excluded from the
+ * authorization record. Incomplete or absent authority resolves fail-closed
+ * to read-only; this function never widens or re-merges the resolver result.
+ */
+export function resolveCapabilityAuthorization(
+  resolver: CapabilityResolver | undefined,
+): CapabilityAuthorization {
+  const capabilities = (resolver?.list() ?? [])
+    .filter((value): value is Capability => CapabilitySchema.safeParse(value).success)
+    .sort();
+  const frozenCapabilities = Object.freeze([...capabilities]);
+
+  const includesPosture = (candidate: AgentPosture): boolean =>
+    [...capabilitiesForPosture(candidate)].every((capability) =>
+      frozenCapabilities.includes(capability));
+
+  let posture: AgentPosture = 'read-only';
+  if (includesPosture('task-isolated')) {
+    posture = 'task-isolated';
+  } else if (
+    !frozenCapabilities.includes('isolation:worktree')
+    && includesPosture('shared-mutating')
+  ) {
+    posture = 'shared-mutating';
+  }
+
+  return Object.freeze({ posture, capabilities: frozenCapabilities });
 }
 
 export function createInMemoryResolver(

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { randomUUID } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { RootsListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
 import {
@@ -19,6 +20,10 @@ import { logger } from '../logger.js';
 import { EventSourcedTaskStore } from '../task-store/event-sourced-task-store.js';
 import type { NextAction } from '../next-action.js';
 import type { ToolResult } from '../format.js';
+import {
+  deriveMcpCallerIdentity,
+  type McpCallerRuntimeContext,
+} from '../dispatch/caller-identity.js';
 
 // ─── DR-6: onboard CLI/MCP parity split — surface stamp + advisory carrier ───
 //
@@ -47,6 +52,14 @@ import type { ToolResult } from '../format.js';
  * generate / hook steps still execute).
  */
 export const MCP_ONBOARD_SURFACE = 'any' as const;
+
+/** Build the trusted MCP dispatch context from adapter-owned session state. */
+export function createMcpDispatchContext(
+  ctx: DispatchContext,
+  runtime: McpCallerRuntimeContext,
+): DispatchContext {
+  return { ...ctx, callerIdentity: deriveMcpCallerIdentity(runtime) };
+}
 
 /** The composite action this surface split applies to. */
 const ONBOARD_ACTION = 'onboard';
@@ -321,6 +334,8 @@ function validateAgainstActionSchema(
  *    and `structuredContent` (the typed envelope payload) ride together.
  */
 export function createMcpServer(ctx: DispatchContext): McpServer {
+  const mcpSessionId = randomUUID();
+  let mcpRuntimeContext: McpCallerRuntimeContext = { sessionId: mcpSessionId };
   // #1272 — canonical TaskStore wiring. The SDK's `InMemoryTaskStore`
   // is demo-only (state lost on restart); EventSourcedTaskStore is the
   // event-sourced production replacement that projects task lifecycle
@@ -442,6 +457,13 @@ export function createMcpServer(ctx: DispatchContext): McpServer {
       try {
         const capabilities = server.server.getClientCapabilities();
         resolver.snapshot({ capabilities });
+        const clientInfo = server.server.getClientVersion();
+        mcpRuntimeContext = clientInfo === undefined
+          ? { sessionId: mcpSessionId }
+          : {
+              sessionId: mcpSessionId,
+              clientInfo: { name: clientInfo.name, version: clientInfo.version },
+            };
       } catch (err) {
         // Snapshot must never throw out of an MCP lifecycle hook —
         // failure here only degrades discovery to the cwd-walk fallback.
@@ -500,7 +522,11 @@ export function createMcpServer(ctx: DispatchContext): McpServer {
       const dispatchArgs = stampOnboardSurface(args);
       let env: Envelope<unknown> | ErrorEnvelope;
       try {
-        let result = await dispatch(toolName, dispatchArgs, dispatchCtx);
+        let result = await dispatch(
+          toolName,
+          dispatchArgs,
+          createMcpDispatchContext(dispatchCtx, mcpRuntimeContext),
+        );
         // DR-6 — surface the cli-only install advisory with a CLI pointer in
         // next_actions (INV-5b/INV-12). Gated to the onboard action: another
         // action that happens to return `data.result.advisories` with a

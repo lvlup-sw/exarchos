@@ -6,6 +6,7 @@ import { getFullRegistry } from '../registry.js';
 import type { CompositeTool, ToolAction } from '../registry.js';
 import { dispatch } from '../core/dispatch.js';
 import type { DispatchContext } from '../core/dispatch.js';
+import { deriveLocalOperatorIdentity } from '../dispatch/caller-identity.js';
 import type { ToolResult } from '../format.js';
 import { toEnvelope } from '../format.js';
 import {
@@ -60,6 +61,14 @@ export const CLI_EXIT_CODES = {
 } as const;
 
 export type CliExitCode = (typeof CLI_EXIT_CODES)[keyof typeof CLI_EXIT_CODES];
+
+/** Build the trusted CLI context from the configured local installation. */
+export function createCliDispatchContext(ctx: DispatchContext): DispatchContext {
+  return {
+    ...ctx,
+    callerIdentity: deriveLocalOperatorIdentity(ctx.stateDir),
+  };
+}
 
 // ─── DR-7: generic errorCode → exit-code map (presentation only) ─────────────
 
@@ -294,6 +303,7 @@ export interface BuildCliOptions {
  * Also registers the `schema` introspection command and `mcp` server mode.
  */
 export function buildCli(ctx: DispatchContext, options?: BuildCliOptions): Command {
+  ctx = createCliDispatchContext(ctx);
   const packageVersion = resolvePackageVersion();
   const program = new Command('exarchos')
     .description('Agent governance for AI coding — event-sourced SDLC workflows')

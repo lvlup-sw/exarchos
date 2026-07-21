@@ -173,10 +173,11 @@ export function snapshotWorkingTree(gitExec: GitExec, repoRoot: string): Snapsho
 }
 
 /**
- * Revert ONLY the given source files to their state at `baseRef` via a targeted
- * `git checkout <baseRef> -- <files...>`. Never `reset --hard`. A non-zero exit
- * (e.g. a path absent at base, or a checkout conflict) surfaces as a structured
- * `revert-conflict` discriminant — never a throw or a silent no-op.
+ * Revert ONLY the given source files to their state at `baseRef`. Paths present
+ * at the base are restored via targeted checkout; task-added tracked paths are
+ * removed from the index/worktree so the probe faithfully recreates the base
+ * even when the implementation introduces a new module. Never `reset --hard`.
+ * Unknown paths and git failures surface as `revert-conflict`.
  */
 export function revertSourceFiles(
   gitExec: GitExec,
@@ -190,14 +191,83 @@ export function revertSourceFiles(
     return { ok: true };
   }
   try {
-    const result = gitExec(repoRoot, ['checkout', baseRef, '--', ...sourceFiles]);
-    if (result.exitCode !== 0) {
+    const verifiedBase = gitExec(repoRoot, [
+      'rev-parse',
+      '--verify',
+      `${baseRef}^{commit}`,
+    ]);
+    if (verifiedBase.exitCode !== 0) {
       return {
         ok: false,
         discriminant: 'revert-conflict',
-        detail: `git checkout ${baseRef} -- <source> exited ${result.exitCode}: ${result.stdout.trim()}`,
+        detail: `git rev-parse ${baseRef} exited ${verifiedBase.exitCode}: ${verifiedBase.stdout.trim()}`,
       };
     }
+
+    const basePaths: string[] = [];
+    const taskAddedPaths: string[] = [];
+    for (const sourceFile of sourceFiles) {
+      const atBase = gitExec(repoRoot, [
+        'cat-file',
+        '-e',
+        `${baseRef}:${sourceFile}`,
+      ]);
+      if (atBase.exitCode === 0) {
+        basePaths.push(sourceFile);
+        continue;
+      }
+
+      // A path absent from the base is a valid task addition only when it is
+      // tracked in the current index. A typo/nonexistent path remains a
+      // conflict rather than being silently accepted.
+      const trackedNow = gitExec(repoRoot, [
+        'ls-files',
+        '--error-unmatch',
+        '--',
+        sourceFile,
+      ]);
+      if (trackedNow.exitCode !== 0) {
+        return {
+          ok: false,
+          discriminant: 'revert-conflict',
+          detail: `source path is absent from both ${baseRef} and the current index: ${sourceFile}`,
+        };
+      }
+      taskAddedPaths.push(sourceFile);
+    }
+
+    if (basePaths.length > 0) {
+      const checkout = gitExec(repoRoot, [
+        'checkout',
+        baseRef,
+        '--',
+        ...basePaths,
+      ]);
+      if (checkout.exitCode !== 0) {
+        return {
+          ok: false,
+          discriminant: 'revert-conflict',
+          detail: `git checkout ${baseRef} -- <source> exited ${checkout.exitCode}: ${checkout.stdout.trim()}`,
+        };
+      }
+    }
+
+    if (taskAddedPaths.length > 0) {
+      const remove = gitExec(repoRoot, [
+        'rm',
+        '--force',
+        '--',
+        ...taskAddedPaths,
+      ]);
+      if (remove.exitCode !== 0) {
+        return {
+          ok: false,
+          discriminant: 'revert-conflict',
+          detail: `git rm -- <task-added-source> exited ${remove.exitCode}: ${remove.stdout.trim()}`,
+        };
+      }
+    }
+
     return { ok: true };
   } catch (err) {
     return {
