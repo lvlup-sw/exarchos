@@ -445,27 +445,19 @@ describe('run (CLI dispatch)', () => {
 
 // ─── integration against the LIVE tree (HIGH tier) ───────────────────────────
 
+// The wave-3b campaign (#1705) de-diverged all 17 duplicate-location pairs, so the
+// live tree now enumerates ZERO remaining pairs. This block is the completion /
+// regression guard; per-mode tool behavior (merge/relocate classification, emit,
+// verify) is covered by the fixture describes above.
 describe('integration (live tree)', () => {
-  it('enumerates EXACTLY the expected number of real pairs', () => {
+  it('enumerates no remaining duplicate-location pairs (all 17 consolidated)', () => {
     expect(enumeratePairs(DEFAULT_SRC_ROOT)).toHaveLength(EXPECTED_PAIR_COUNT);
   });
 
-  it('--enumerate on the live tree reports the expected count via the CLI', () => {
+  it('--enumerate on the live tree reports zero remaining pairs via the CLI', () => {
     const out: string[] = [];
     const code = run(['--enumerate'], { log: (m) => out.push(m) });
     expect(code).toBe(EXIT_OK);
     expect(out).toContain(`# ${EXPECTED_PAIR_COUNT} pairs`);
-    // Distinct-key sanity: both schemas pairs are present as separate ids.
-    expect(out).toContain('workflow/schemas');
-    expect(out).toContain('event-store/schemas');
-  });
-
-  it('--plan on a real pair (workflow/guards) runs end-to-end and classifies it', () => {
-    const out: string[] = [];
-    const code = run(['--plan', 'workflow/guards'], { log: (m) => out.push(m) });
-    expect(code).toBe(EXIT_OK);
-    // These files have genuinely drifted imports/preamble → relocate.
-    expect(out.join('\n')).toMatch(/workflow\/guards: (merge|relocate)/);
-    expect(out.join('\n')).toContain('relocate');
   });
 });

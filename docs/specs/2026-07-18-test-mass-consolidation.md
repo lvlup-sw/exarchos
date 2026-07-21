@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-18 · **Feature:** `test-mass-consolidation` · **Depth:** deep
 **Inputs:** epic #1701 · issue #1705 · parent spec `docs/specs/2026-07-15-debloat-wave1-structural-enforcement.md` · coverage/mutation substrate PR #1719 (`c78450c7`, on `origin/main`) · CI-substrate lessons from Wave S (#1711 — `ci-gate.needs` semantics)
-**Revisions:** rev.0 → rev.1 → rev.2 → rev.3 → **rev.4**. Three 3-voter adversarial rounds (9 voters) — see Exploration for the full trail.
+**Revisions:** rev.0 → rev.1 → rev.2 → rev.3 → rev.4 → **rev.5**. rev.0–4: three 3-voter adversarial rounds (9 voters) — see Exploration. rev.5 (delegate-phase, 2026-07-20): DR-7 consolidated from per-pair PRs to a single campaign PR (realized split = all 17 relocate); no guarantee weakened, ~17× flaky-CI exposure removed.
 
 > One unified artifact: `## Requirements` holds the DR-N source; `## Decomposition` maps tasks → DR-N within this same document.
 
@@ -48,7 +48,7 @@ The durable defect is **structural**: one unit tested from two drifting director
 - **Merge** the legacy cases into the co-located canonical file **iff** the two files' module-scope preambles (imports, `vi.mock`/`vi.hoisted`/`vi.stubEnv`/`vi.stubGlobal`, module-scope helpers/consts, hooks) are **textually identical modulo import-path rewrites** — then drop only cases that are textually identical (modulo imports) to one already present, and move the rest. Identical preambles ⇒ no divergent mock or colliding helper to mishandle, so the merge is sound by construction.
 - **Relocate** otherwise: move the legacy file into the co-located directory as a distinct sibling (e.g. `<x>.legacy.test.ts`), unchanged except import-path rewrites. This kills the two-directory divergence without forcing incompatible mocks into one file. `state-store` and `compensation` are known relocate cases.
 
-Either way, the legacy `__tests__/` copy is gone. Each pair lands as its own PR; a **CI job wired into `ci-gate.needs`** (so it actually blocks) reconstructs both pre-images from the merge-base (`git show`, `fetch-depth: 0`) and fails the PR unless every pre-image case is present in the PR-HEAD result (merged file or relocated sibling) or is a textually-proven duplicate. Coverage non-regression (#1719) is a union-limited backstop; mutation is deferred (#1720). A ratchet guard forbids any `__tests__/` twin for any co-located subject, allowlist shrinking to **0**. Chosen via the `deep`-rung decisions (scope = all 17 pairs; operation = preamble-conditional merge/relocate; oracle = textual-identity CI gate primary + coverage backstop).
+Either way, the legacy `__tests__/` copy is gone. The campaign lands as one consolidation PR (DR-7, rev.5); a **CI job wired into `ci-gate.needs`** (so it actually blocks) reconstructs both pre-images from the merge-base (`git show`, `fetch-depth: 0`) and fails the PR unless every pre-image case is present in the PR-HEAD result (merged file or relocated sibling) or is a textually-proven duplicate. Coverage non-regression (#1719) is a union-limited backstop; mutation is deferred (#1720). A ratchet guard forbids any `__tests__/` twin for any co-located subject, allowlist shrinking to **0**. Chosen via the `deep`-rung decisions (scope = all 17 pairs; operation = preamble-conditional merge/relocate; oracle = textual-identity CI gate primary + coverage backstop).
 
 ## Requirements
 
@@ -104,14 +104,14 @@ Because the DR-2 textual gate is **uniform across all 17 pairs** and bidirection
 - INV-8 idempotent-retry cases and INV-1 reducer/projection/schema-validation cases are present (merged or relocated) in the result and named in the PR; none is dropped except as a textual duplicate.
 - Oracle strength is not keyed to invariant membership.
 
-### DR-7: Per-pair PRs (the enforcement seam), ci-gate-wired, serialized
+### DR-7: Consolidated campaign PR (the enforcement seam), ci-gate-wired
 
-Each pair lands as its own PR so the DR-2 gate + DR-3 ratchet run in CI per pair — a local `git merge --no-ff` triggers no CI and cannot enforce. PRs land serially so the ratchet sees a coherent cumulative state.
+The load-bearing constraint is that the DR-2 gate + DR-3 ratchet run **in CI on a PR** — a local `git merge --no-ff` triggers no CI and cannot enforce. The enforcement seam is therefore a *PR*, but not necessarily one PR *per pair*: the DR-2 gate is **diff-scoped** (it reconstructs pre-images from the merge-base and validates every pair touched in the diff, so N pairs verify in one CI run), and the ratchet is a whole-tree check, so a single PR carrying all 17 relocations transitions the allowlist **17 → 0 atomically**. **Revised (rev.5):** the campaign lands as **two PRs total** — PR-1 = foundation tooling + spec (#1728, merged `bfd6ef96`); PR-2 = the whole remaining campaign (Task 004 gate + all 17 relocations + Task 022 ratchet + Task 023 closeout). This supersedes the earlier per-pair-PR model. No guarantee is weakened (DR-1/DR-2/DR-3 all hold on a bundled diff), and it *removes* the per-pair model's accepted ~17× flaky-CI exposure by running the instrumented suite once instead of seventeen times.
 
 **Acceptance criteria:**
-- Each consolidation lands via its own PR that triggers the DR-2 gate (ci-gate-required) + DR-3 ratchet; no pair merges via a CI-invisible local merge.
-- PRs land single-writer (stacked; manual sequential merge where `serialize_merge` is `CAPABILITY_DENIED`).
-- **Operational risk (accepted):** 17 serialized coverage-instrumented PRs each re-run the MCP suite, exposing the campaign ~17× to the documented flaky-E2E / perf / `SQLITE_BUSY` class; mitigation is `gh run rerun --failed` per the known-flake runbook, not baseline relaxation.
+- The consolidation lands via a PR (not a CI-invisible local merge) that triggers the DR-2 gate (ci-gate-required) + DR-3 ratchet; the gate validates all touched pairs in one run.
+- On PR-2's HEAD the ratchet's allowlist is empty and passes (0 `__tests__` twins remain for the 17 subjects).
+- Pilot discipline is preserved *inside* the campaign build (relocate + verify a couple of pairs before the rest), not as a PR boundary.
 
 ### DR-8: Base-substrate preflight (a delegate-phase dispatch check)
 
@@ -155,7 +155,8 @@ Divergent loop (no `/exarchos:discover`) + three adversarial rounds:
 - **Delete legacy wholesale:** rejected — legacy asserts *more* for several pairs.
 - **Force every pair into one file (rev.2/3):** rejected — unsound where module-scope mocks diverge (vitest file-scoping); hence preamble-conditional relocate.
 - **Semantic identity hash:** rejected — silently ignores mock/env context; textual identity only.
-- **Local `git merge --no-ff` per pair:** rejected — no CI event; per-pair PRs instead.
+- **Local `git merge --no-ff` (CI-invisible):** rejected — no CI event; the consolidation lands via a PR (DR-7) so the gate runs.
+- **Per-pair PRs (rev.0–4):** superseded by rev.5 — the DR-2 gate is diff-scoped, so one consolidation PR verifies all 17 pairs in a single CI run and drops the ~17× flaky-CI exposure.
 - **Defer 8/10 pairs (rev.2):** superseded — checkpoint chose all 17.
 - **Top-20 large-suite minimization:** deferred.
 
@@ -180,14 +181,14 @@ Divergent loop (no `/exarchos:discover`) + three adversarial rounds:
 | DR-4 | Mutation deferred (#1720) | 023 |
 | DR-5 | Keep-classes protected | 002, 005–021 |
 | DR-6 | Substrate-backstop preservation | 001, 005, 008, 009, 014, 015, 019 |
-| DR-7 | Per-pair PRs (enforcement seam), serialized | 004, 005–021, 023 |
+| DR-7 | Consolidated campaign PR (enforcement seam), ci-gate-wired | 004, 005–021, 023 |
 | DR-8 | Base-substrate preflight | 003 |
 
 (“005–021” denotes each of tasks 005 through 021 individually — the 17 pairs.)
 
 ### Tasks
 
-All 17 pair tasks are high-tier, boundary-touching; each lands as its own PR (DR-7) gated by the DR-2 CI check; each is merge-or-relocate per the tool's `--plan`. Verification per pair = DR-2 textual gate (blocking) + DR-3 coverage ratchet (blocking) + green suite.
+All 17 pair tasks are high-tier, boundary-touching; all land together in the single consolidation PR (DR-7, rev.5) gated by the DR-2 CI check; each is merge-or-relocate per the tool's `--plan` (**realized: all 17 relocate, 0 merge**). Verification per pair = DR-2 textual gate (blocking) + DR-3 coverage ratchet (blocking) + green suite.
 
 ### Task 001: Consolidation tool — enumerate / plan(merge|relocate) / emit / verify (textual, TS compiler API)
 
@@ -221,119 +222,119 @@ All 17 pair tasks are high-tier, boundary-touching; each lands as its own PR (DR
 
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-1, DR-2, DR-3, DR-5, DR-6, DR-7
 **Files:** `servers/exarchos-mcp/src/workflow/guards.test.ts`, `servers/exarchos-mcp/src/__tests__/workflow/guards.test.ts`
-**Verification:** high — own PR; `--plan` decides merge/relocate; DR-2 textual gate (bidirectional) blocking; coverage backstop ≥ baseline; green suite; substrate-backstop preservation of the invariant INV-8 (idempotent-retry cases present). Pilot: validates tool + ci-gate wiring end-to-end and reports the realized merge/relocate split.
+**Verification:** high — lands in the consolidation PR (DR-7, rev.5); `--plan` decides merge/relocate; DR-2 textual gate (bidirectional) blocking; coverage backstop ≥ baseline; green suite; substrate-backstop preservation of the invariant INV-8 (idempotent-retry cases present). Pilot: validates tool + ci-gate wiring end-to-end and reports the realized merge/relocate split.
 **Dependencies:** 001, 002, 003, 004 · **Parallelizable:** Yes (pilot group)
 
 ### Task 006: Consolidate workflow/state-machine (asymmetry + high-volume pilot)
 
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-1, DR-2, DR-3, DR-5, DR-7
 **Files:** `servers/exarchos-mcp/src/workflow/state-machine.test.ts`, `servers/exarchos-mcp/src/__tests__/workflow/state-machine.test.ts`
-**Verification:** high — own PR; DR-2 gate; coverage backstop; green suite. Pilot: highest merge-volume (3338 legacy). Must not touch adjacent `state-machine.property.test.ts` (keep-class).
+**Verification:** high — lands in the consolidation PR (DR-7, rev.5); DR-2 gate; coverage backstop; green suite. Pilot: highest merge-volume (3338 legacy). Must not touch adjacent `state-machine.property.test.ts` (keep-class).
 **Dependencies:** 001, 002, 003, 004 · **Parallelizable:** Yes (pilot group)
 
 ### Task 007: Consolidate workflow/tools
 
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-1, DR-2, DR-3, DR-5, DR-7
 **Files:** `servers/exarchos-mcp/src/workflow/tools.test.ts`, `servers/exarchos-mcp/src/__tests__/workflow/tools.test.ts`
-**Verification:** high — own PR; DR-2 gate run with the eight co-located `tools.*.test.ts` split files as canonical context (a case already split out is a textual duplicate, not re-added); coverage backstop; green suite. Must not touch `tools.update.race.test.ts`.
+**Verification:** high — lands in the consolidation PR (DR-7, rev.5); DR-2 gate run with the eight co-located `tools.*.test.ts` split files as canonical context (a case already split out is a textual duplicate, not re-added); coverage backstop; green suite. Must not touch `tools.update.race.test.ts`.
 **Dependencies:** 001, 002, 003, 004, 005, 006 · **Parallelizable:** Yes (main wave)
 
 ### Task 008: Consolidate workflow/compensation (INV-8, known relocate)
 
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-1, DR-2, DR-3, DR-5, DR-6, DR-7
 **Files:** `servers/exarchos-mcp/src/workflow/compensation.test.ts`, `servers/exarchos-mcp/src/__tests__/workflow/compensation.test.ts`
-**Verification:** high — own PR; the twins' `child_process` mocks diverge (sync vs async factory) so `--plan` yields **relocate** (legacy file moved co-located as a sibling, not force-merged); DR-2 gate confirms every legacy case present verbatim; coverage backstop; green suite; INV-8 idempotent-retry cases preserved.
+**Verification:** high — lands in the consolidation PR (DR-7, rev.5); the twins' `child_process` mocks diverge (sync vs async factory) so `--plan` yields **relocate** (legacy file moved co-located as a sibling, not force-merged); DR-2 gate confirms every legacy case present verbatim; coverage backstop; green suite; INV-8 idempotent-retry cases preserved.
 **Dependencies:** 001, 002, 003, 004, 005, 006 · **Parallelizable:** Yes (main wave)
 
 ### Task 009: Consolidate workflow/state-store (INV-1, known relocate)
 
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-1, DR-2, DR-3, DR-5, DR-6, DR-7
 **Files:** `servers/exarchos-mcp/src/workflow/state-store.test.ts`, `servers/exarchos-mcp/src/__tests__/workflow/state-store.test.ts`, `servers/exarchos-mcp/src/__tests__/workflow/state-store-resolve.test.ts` (fold-in)
-**Verification:** high — own PR; legacy has 22 module-scope mock/env constructs vs 0 co-located → `--plan` yields **relocate**; DR-2 gate (all three source files as pre-image) confirms presence; coverage backstop; green suite; INV-1 reducer/projection cases preserved.
+**Verification:** high — lands in the consolidation PR (DR-7, rev.5); legacy has 22 module-scope mock/env constructs vs 0 co-located → `--plan` yields **relocate**; DR-2 gate (all three source files as pre-image) confirms presence; coverage backstop; green suite; INV-1 reducer/projection cases preserved.
 **Dependencies:** 001, 002, 003, 004, 005, 006 · **Parallelizable:** Yes (main wave)
 
 ### Task 010: Consolidate views/handlers
 
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-1, DR-2, DR-3, DR-5, DR-7
 **Files:** `servers/exarchos-mcp/src/views/handlers.test.ts`, `servers/exarchos-mcp/src/__tests__/views/handlers.test.ts`, `servers/exarchos-mcp/src/__tests__/views/tools-error-paths.test.ts` (fold-in)
-**Verification:** high — own PR; DR-2 gate (both legacy files as pre-image); coverage backstop; green suite.
+**Verification:** high — lands in the consolidation PR (DR-7, rev.5); DR-2 gate (both legacy files as pre-image); coverage backstop; green suite.
 **Dependencies:** 001, 002, 003, 004, 005, 006 · **Parallelizable:** Yes (main wave)
 
 ### Task 011: Consolidate event-store/schemas (INV-1, largest target)
 
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-1, DR-2, DR-3, DR-5, DR-6, DR-7
 **Files:** `servers/exarchos-mcp/src/event-store/schemas.test.ts`, `servers/exarchos-mcp/src/__tests__/event-store/schemas.test.ts`
-**Verification:** high — own PR; DR-2 gate (bidirectional load-bearing given the 4702-line canonical); coverage backstop; green suite; INV-1 schema-validation cases preserved. Must not touch `schemas.onboard.test.ts`. Sequence late.
+**Verification:** high — lands in the consolidation PR (DR-7, rev.5); DR-2 gate (bidirectional load-bearing given the 4702-line canonical); coverage backstop; green suite; INV-1 schema-validation cases preserved. Must not touch `schemas.onboard.test.ts`. Sequence late.
 **Dependencies:** 001, 002, 003, 004, 005, 006 · **Parallelizable:** Yes (main wave)
 
 ### Task 012: Consolidate workflow/checkpoint
 
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-1, DR-2, DR-3, DR-5, DR-7
 **Files:** `servers/exarchos-mcp/src/workflow/checkpoint.test.ts`, `servers/exarchos-mcp/src/__tests__/workflow/checkpoint.test.ts`
-**Verification:** high — own PR; DR-2 gate; coverage backstop; green suite.
+**Verification:** high — lands in the consolidation PR (DR-7, rev.5); DR-2 gate; coverage backstop; green suite.
 **Dependencies:** 001, 002, 003, 004, 005, 006 · **Parallelizable:** Yes (main wave)
 
 ### Task 013: Consolidate workflow/migration
 
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-1, DR-2, DR-3, DR-5, DR-7
 **Files:** `servers/exarchos-mcp/src/workflow/migration.test.ts`, `servers/exarchos-mcp/src/__tests__/workflow/migration.test.ts`
-**Verification:** high — own PR; DR-2 gate; coverage backstop; green suite.
+**Verification:** high — lands in the consolidation PR (DR-7, rev.5); DR-2 gate; coverage backstop; green suite.
 **Dependencies:** 001, 002, 003, 004, 005, 006 · **Parallelizable:** Yes (main wave)
 
 ### Task 014: Consolidate workflow/schemas (INV-1)
 
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-1, DR-2, DR-3, DR-5, DR-6, DR-7
 **Files:** `servers/exarchos-mcp/src/workflow/schemas.test.ts`, `servers/exarchos-mcp/src/__tests__/workflow/schemas.test.ts`
-**Verification:** high — own PR; DR-2 gate; coverage backstop; green suite; INV-1 cases preserved. Distinct from event-store/schemas (Task 011) — the (area, basename) allowlist must not conflate them.
+**Verification:** high — lands in the consolidation PR (DR-7, rev.5); DR-2 gate; coverage backstop; green suite; INV-1 cases preserved. Distinct from event-store/schemas (Task 011) — the (area, basename) allowlist must not conflate them.
 **Dependencies:** 001, 002, 003, 004, 005, 006 · **Parallelizable:** Yes (main wave)
 
 ### Task 015: Consolidate views/materializer (INV-1 projection)
 
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-1, DR-2, DR-3, DR-5, DR-6, DR-7
 **Files:** `servers/exarchos-mcp/src/views/materializer.test.ts`, `servers/exarchos-mcp/src/__tests__/views/materializer.test.ts`
-**Verification:** high — own PR; DR-2 gate; coverage backstop; green suite; INV-1 (projection) cases preserved. **Must not touch adjacent `views/materializer.property.test.ts` (keep-class).**
+**Verification:** high — lands in the consolidation PR (DR-7, rev.5); DR-2 gate; coverage backstop; green suite; INV-1 (projection) cases preserved. **Must not touch adjacent `views/materializer.property.test.ts` (keep-class).**
 **Dependencies:** 001, 002, 003, 004, 005, 006 · **Parallelizable:** Yes (main wave)
 
 ### Task 016: Consolidate views/pipeline-view
 
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-1, DR-2, DR-3, DR-5, DR-7
 **Files:** `servers/exarchos-mcp/src/views/pipeline-view.test.ts`, `servers/exarchos-mcp/src/__tests__/views/pipeline-view.test.ts`
-**Verification:** high — own PR; DR-2 gate; coverage backstop; green suite.
+**Verification:** high — lands in the consolidation PR (DR-7, rev.5); DR-2 gate; coverage backstop; green suite.
 **Dependencies:** 001, 002, 003, 004, 005, 006 · **Parallelizable:** Yes (main wave)
 
 ### Task 017: Consolidate views/snapshot-store
 
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-1, DR-2, DR-3, DR-5, DR-7
 **Files:** `servers/exarchos-mcp/src/views/snapshot-store.test.ts`, `servers/exarchos-mcp/src/__tests__/views/snapshot-store.test.ts`
-**Verification:** high — own PR; DR-2 gate; coverage backstop; green suite.
+**Verification:** high — lands in the consolidation PR (DR-7, rev.5); DR-2 gate; coverage backstop; green suite.
 **Dependencies:** 001, 002, 003, 004, 005, 006 · **Parallelizable:** Yes (main wave)
 
 ### Task 018: Consolidate views/task-detail-view
 
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-1, DR-2, DR-3, DR-5, DR-7
 **Files:** `servers/exarchos-mcp/src/views/task-detail-view.test.ts`, `servers/exarchos-mcp/src/__tests__/views/task-detail-view.test.ts`
-**Verification:** high — own PR; DR-2 gate; coverage backstop; green suite. Smallest pair.
+**Verification:** high — lands in the consolidation PR (DR-7, rev.5); DR-2 gate; coverage backstop; green suite. Smallest pair.
 **Dependencies:** 001, 002, 003, 004, 005, 006 · **Parallelizable:** Yes (main wave)
 
 ### Task 019: Consolidate event-store/tools (INV-1)
 
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-1, DR-2, DR-3, DR-5, DR-6, DR-7
 **Files:** `servers/exarchos-mcp/src/event-store/tools.test.ts`, `servers/exarchos-mcp/src/__tests__/event-store/tools.test.ts`
-**Verification:** high — own PR; DR-2 gate; coverage backstop; green suite; INV-1 cases preserved. This canonical file imports `fast-check` (a mixed file, not a dedicated property suite — its fc cases relocate/merge verbatim). Distinct from workflow/tools (Task 007). 
+**Verification:** high — lands in the consolidation PR (DR-7, rev.5); DR-2 gate; coverage backstop; green suite; INV-1 cases preserved. This canonical file imports `fast-check` (a mixed file, not a dedicated property suite — its fc cases relocate/merge verbatim). Distinct from workflow/tools (Task 007). 
 **Dependencies:** 001, 002, 003, 004, 005, 006 · **Parallelizable:** Yes (main wave)
 
 ### Task 020: Consolidate sync/outbox
 
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-1, DR-2, DR-3, DR-5, DR-7
 **Files:** `servers/exarchos-mcp/src/sync/outbox.test.ts`, `servers/exarchos-mcp/src/__tests__/sync/outbox.test.ts`
-**Verification:** high — own PR; DR-2 gate; coverage backstop; green suite. (Missed by the audit and by rev.0–3; surfaced by the round-3 exhaustive enumeration.)
+**Verification:** high — lands in the consolidation PR (DR-7, rev.5); DR-2 gate; coverage backstop; green suite. (Missed by the audit and by rev.0–3; surfaced by the round-3 exhaustive enumeration.)
 **Dependencies:** 001, 002, 003, 004, 005, 006 · **Parallelizable:** Yes (main wave)
 
 ### Task 021: Consolidate utils/process
 
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-1, DR-2, DR-3, DR-5, DR-7
 **Files:** `servers/exarchos-mcp/src/utils/process.test.ts`, `servers/exarchos-mcp/src/__tests__/utils/process.test.ts`
-**Verification:** high — own PR; DR-2 gate; coverage backstop; green suite. Disjoint assertions (legacy tests `isPidAlive`; co-located tests `needsWindowsShell`/`runCommandSync`/`spawnCommandSync`) — `--plan` likely **relocate** or additive merge; the gate proves `isPidAlive` coverage is not dropped. (Also missed until round-3 enumeration.)
+**Verification:** high — lands in the consolidation PR (DR-7, rev.5); DR-2 gate; coverage backstop; green suite. Disjoint assertions (legacy tests `isPidAlive`; co-located tests `needsWindowsShell`/`runCommandSync`/`spawnCommandSync`) — `--plan` likely **relocate** or additive merge; the gate proves `isPidAlive` coverage is not dropped. (Also missed until round-3 enumeration.)
 **Dependencies:** 001, 002, 003, 004, 005, 006 · **Parallelizable:** Yes (main wave)
 
 ### Task 022: Duplicate-location ratchet guard (area-qualified, allowlist → empty)
@@ -347,7 +348,15 @@ All 17 pair tasks are high-tier, boundary-touching; each lands as its own PR (DR
 
 **Risk Tier:** medium · **Boundary Touching:** false · **Implements:** DR-1, DR-3, DR-4, DR-7
 **Files:** `docs/specs/2026-07-18-test-mass-consolidation.md`
-**Verification:** medium — confirm none of the 17 subjects remains a duplicate-location pair (Task 022 guard green, empty allowlist), every per-pair PR passed the DR-2 gate + coverage ratchet in CI, record the realized merge/relocate split and the #1720 mutation-re-enablement follow-up, update epic #1705 with the de-divergence (not LoC-lever) reframe.
+**Verification:** medium — confirm none of the 17 subjects remains a duplicate-location pair (Task 022 guard green, empty allowlist), the DR-2 gate + coverage ratchet pass in CI on the consolidation PR, record the realized merge/relocate split and the #1720 mutation-re-enablement follow-up, update epic #1705 with the de-divergence (not LoC-lever) reframe.
+
+**Closeout record (2026-07-20):**
+- **Realized split: all 17 pairs RELOCATE, 0 merge** — `--plan` found no pair with textually-identical module-scope preambles, so every legacy file moved to a co-located `<x>.legacy.test.ts` sibling (import-path rewrite only, no in-file merge). **1,580 pre-image cases verified preserved** across the 17 pairs (`consolidate-suite --verify --base origin/main`, 0 dropped).
+- **Landing: 2 PRs (rev.5 consolidation), not per-pair.** PR-1 = #1728 (foundation tooling + spec, merged `bfd6ef96`). PR-2 = Task 004 gate + all 17 relocations + Task 022 ratchet + this closeout.
+- **Ratchet:** empty allowlist; 0 `__tests__` twins remain for the 17 subjects (`check-no-duplicate-suites` green on PR-2 HEAD).
+- **#1720 mutation re-enablement:** still blocked (StrykerJS full-suite dry-run, upstream of `--mutate` scope). Follow-up: add a source-targeted spot-check over the consolidated modules once #1720 lands.
+- **Epic #1705:** to update with the de-divergence (roughly LoC-neutral) reframe — the "largest LoC lever" premise was wrong; the value is eliminating the two-directory maintenance hazard.
+
 **Dependencies:** 022 · **Parallelizable:** No
 
 ### Parallelization
@@ -358,8 +367,8 @@ Critical path: **001 → 004 → {005, 006} (pilots) → {007–021} (main wave,
 - Delegate runs Task 003 before each wave; pairs base on `origin/main` (≥ #1719).
 - Pilots 005 (guards, INV-8) and 006 (state-machine, high-volume) validate the tool + ci-gate wiring and report the realized merge/relocate split before the fan-out.
 - Main-wave 007–021 run concurrently in isolated worktrees, each a distinct co-located file + distinct legacy file (no conflicts); only 004/022 touch `ci.yml` and are sequenced.
-- **Per-pair PRs are the enforcement seam (DR-7):** each triggers the ci-gate-required DR-2 gate + DR-3 ratchet; PRs land serially. Accept ~17× flaky-CI exposure; mitigate with `gh run rerun --failed`.
-- 022 lands after all 17 pairs; 023 closes out.
+- **The consolidation PR is the enforcement seam (DR-7, rev.5):** one PR triggers the ci-gate-required DR-2 gate (validating all 17 pairs in a single run) + DR-3 ratchet (allowlist → 0). This replaces the per-pair-PR model and removes its ~17× flaky-CI exposure (the instrumented suite runs once, not seventeen times).
+- 022 (ratchet) and 023 (closeout) ride in the same consolidation PR; the ratchet passes because all 17 relocations are present on PR-HEAD.
 
 ### Completion checklist
 

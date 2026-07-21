@@ -32,10 +32,10 @@ import {
   reconcileFromEvents,
   StateStoreError,
   VersionConflictError,
-} from '../../workflow/state-store.js';
-import { ErrorCode } from '../../workflow/schemas.js';
-import { EventStore } from '../../event-store/store.js';
-import { rmrfAsync } from '../../test-helpers/temp-dir.js';
+} from './state-store.js';
+import { ErrorCode } from './schemas.js';
+import { EventStore } from '../event-store/store.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 let tmpDir: string;
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { migrateState, CURRENT_VERSION } from '../../workflow/migration.js';
-import { readStateFile } from '../../workflow/state-store.js';
+import { migrateState, CURRENT_VERSION } from './migration.js';
+import { readStateFile } from './state-store.js';
 import * as path from 'node:path';
 import { mkdtemp, rm, writeFile, readFile, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
