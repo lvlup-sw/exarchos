@@ -986,6 +986,13 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       case 'admission.disagreement-disposition':
       case 'admission.rollout-decision':
       case 'admission.enforcement-enabled':
+      // Cancellation process-manager facts are audit/recovery inputs. The
+      // existing workflow.cancel event remains the v2.12 phase transition.
+      case 'cancel.requested':
+      case 'cancel.compensation-requested':
+      case 'cancel.compensation-completed':
+      case 'cancel.compensation-failed':
+      case 'cancel.ready':
       // #1319 — lands on the shared `meta/feedback` stream, never a feature
       // stream, so it has no effect on any workflow's projected state.
       case 'feedback.recorded':

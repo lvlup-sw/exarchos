@@ -17,8 +17,17 @@ import { getHSMDefinition, executeTransition } from './state-machine.js';
 import { allocatePhaseAttemptId } from './phase-attempt-id.js';
 import { executeCompensation, type CompensationCheckpoint } from './compensation.js';
 import type { EventStore } from '../event-store/store.js';
+import {
+  CancelReadyData,
+  CancelRequestedData,
+  type EventType,
+} from '../event-store/schemas.js';
+import { buildValidatedEvent } from '../event-store/event-factory.js';
+import { getDispatchContext } from '../dispatch/dispatch-context.js';
+import { deriveLocalOperatorIdentity } from '../dispatch/caller-identity.js';
 import { type ToolResult } from '../format.js';
 import * as path from 'node:path';
+import { createHash } from 'node:crypto';
 
 // ─── Event-Sourcing Version Discriminator ───────────────────────────────────
 
@@ -27,6 +36,83 @@ const CURRENT_ES_VERSION = 2;
 /** Check whether a workflow state uses the pure event-sourcing path. */
 function isEventSourced(state: Record<string, unknown>): boolean {
   return state._esVersion === CURRENT_ES_VERSION;
+}
+
+function sha256(value: string): string {
+  return createHash('sha256').update(value, 'utf8').digest('hex');
+}
+
+function cancellationKey(...parts: readonly string[]): string {
+  return `cancel:${sha256(parts.join('\0'))}`;
+}
+
+function trustedCancellationProvenance(stateDir: string): Record<string, unknown> {
+  const authorization = getDispatchContext()?.authorization;
+  const identity = authorization?.identity ?? deriveLocalOperatorIdentity(stateDir);
+  return {
+    caller: {
+      principalKind: identity.role === 'operator' ? 'operator' : 'agent',
+      principalId: identity.subjectId,
+      role: identity.role,
+    },
+    ...(authorization !== undefined
+      ? {
+          authorization: {
+            authorizationId: `${authorization.policy.id}:${getDispatchContext()!.operationId}`,
+            posture: authorization.posture,
+            capabilityIds: [...authorization.capabilities],
+            resolverVersion: authorization.resolver.version,
+            resolvedAt: authorization.resolvedAt,
+          },
+        }
+      : {}),
+  };
+}
+
+async function appendCancellationFactOnce(
+  eventStore: EventStore,
+  featureId: string,
+  operationId: string,
+  type: EventType,
+  data: Record<string, unknown>,
+): Promise<void> {
+  const dispatch = getDispatchContext();
+  const timestamp = new Date().toISOString();
+  const validated = buildValidatedEvent(featureId, 1, {
+    type,
+    data,
+    timestamp,
+    source: 'workflow',
+    idempotencyKey: operationId,
+    ...(dispatch !== undefined
+      ? {
+          operationId: dispatch.operationId,
+          correlationId: dispatch.correlationId,
+          ...(dispatch.causationId !== undefined
+            ? { causationId: dispatch.causationId }
+            : {}),
+        }
+      : {}),
+  });
+  const {
+    streamId: _streamId,
+    sequence: _sequence,
+    ...eventInput
+  } = validated;
+  const stableData = JSON.stringify(data, (key, value) =>
+    key.endsWith('At') || key === 'caller' || key === 'authorization'
+      ? undefined
+      : value);
+  const requestDigest = `sha256:${sha256(JSON.stringify({ type, data: stableData }))}`;
+  await eventStore.getAppender().decideOnce(
+    operationId,
+    requestDigest,
+    () => ({
+      streamId: featureId,
+      events: [eventInput],
+      result: { appended: true },
+    }),
+  );
 }
 
 // ─── Module-Level EventStore (removed — now threaded via DispatchContext) ─────
@@ -70,21 +156,29 @@ export async function handleCancel(
   const mutableState = structuredClone(state) as Record<string, unknown>;
   const currentPhase = state.phase;
   const dryRun = input.dryRun ?? false;
+  const phaseAttemptId = allocatePhaseAttemptId(
+    input.featureId,
+    currentPhase,
+    'cancelled',
+    (state as unknown as Record<string, unknown>).phaseAttemptId,
+    state._version ?? 1,
+  );
+  const cancelId = `cancel:${phaseAttemptId}`;
+  // v2 workflows without a store retain the migration-compatible legacy path.
+  const useEventFirst = isEventSourced(mutableState) && eventStore !== null;
 
   // Read existing compensation checkpoint from prior partial failure (if any)
   const existingCheckpoint = mutableState._compensationCheckpoint as CompensationCheckpoint | undefined;
 
-  // Execute compensation actions (pass empty events array — events now in external store)
-  const compensationResult = await executeCompensation(
-    mutableState,
-    currentPhase,
-    [],
-    0,
-    { dryRun, stateDir, checkpoint: existingCheckpoint },
-  );
-
   // If dry run, return what would happen without modifying state
   if (dryRun) {
+    const compensationResult = await executeCompensation(
+      mutableState,
+      currentPhase,
+      [],
+      0,
+      { dryRun: true, stateDir, checkpoint: existingCheckpoint },
+    );
     return {
       success: true,
       data: {
@@ -97,12 +191,79 @@ export async function handleCancel(
     };
   }
 
+  let compensationResult;
+  if (useEventFirst) {
+    const provenance = trustedCancellationProvenance(stateDir);
+    const requestedAt = new Date().toISOString();
+    const requestData = {
+      eventVersion: '1.0',
+      cancelId,
+      featureId: input.featureId,
+      from: currentPhase,
+      phaseAttemptId,
+      ...(input.reason !== undefined ? { reason: input.reason } : {}),
+      requestedAt,
+      ...provenance,
+    };
+    const parsedRequest = CancelRequestedData.safeParse(requestData);
+    if (!parsedRequest.success) {
+      return {
+        success: false,
+        error: {
+          code: ErrorCode.EVENT_APPEND_FAILED,
+          message: `Cancellation request evidence was malformed: ${parsedRequest.error.message}`,
+        },
+      };
+    }
+    try {
+      await appendCancellationFactOnce(
+        eventStore,
+        input.featureId,
+        cancellationKey(input.featureId, cancelId, 'requested'),
+        'cancel.requested',
+        parsedRequest.data,
+      );
+      compensationResult = await executeCompensation(
+        mutableState,
+        currentPhase,
+        [],
+        0,
+        {
+          dryRun: false,
+          stateDir,
+          eventStore,
+          featureId: input.featureId,
+          cancelProcess: { cancelId, phaseAttemptId },
+        },
+      );
+    } catch (err) {
+      return {
+        success: false,
+        error: {
+          code: ErrorCode.EVENT_APPEND_FAILED,
+          message: `Cancellation process persistence failed: ${err instanceof Error ? err.message : String(err)}`,
+        },
+      };
+    }
+  } else {
+    compensationResult = await executeCompensation(
+      mutableState,
+      currentPhase,
+      [],
+      0,
+      { dryRun: false, stateDir, checkpoint: existingCheckpoint },
+    );
+  }
+
   // Check if compensation had failures
   if (!compensationResult.success) {
-    // Persist checkpoint so retry can resume from completed actions
-    mutableState._compensationCheckpoint = compensationResult.checkpoint;
-    mutableState.updatedAt = new Date().toISOString();
-    await writeStateFile(stateFile, mutableState as WorkflowState);
+    // Legacy callers still resume from the state checkpoint. ES v2 resumes
+    // exclusively by folding durable cancellation outcomes.
+    if (!useEventFirst) {
+      mutableState._compensationCheckpoint = compensationResult.checkpoint;
+      mutableState.updatedAt = new Date().toISOString();
+      await writeStateFile(stateFile, mutableState as WorkflowState);
+    }
 
     const failedActions = compensationResult.actions.filter((a) => a.status === 'failed');
     return {
@@ -114,60 +275,94 @@ export async function handleCancel(
     };
   }
 
-  // Determine event-sourcing version for v1/v2 path discrimination
-  // Note: v2 workflows may run without an EventStore during CLI/hook contexts (migration period).
-  // When eventStore is null, we gracefully fall back to v1 legacy path.
-  const useEventFirst = isEventSourced(mutableState) && eventStore !== null;
-
-  // Bridge compensation events to external event store
+  // Legacy bridge only. ES v2 compensation already emitted typed process facts.
   if (eventStore && compensationResult.events.length > 0) {
-    if (useEventFirst) {
-      // ES v2: event-first — propagate errors, abort cancel if append fails
-      try {
-        for (let i = 0; i < compensationResult.events.length; i++) {
-          const event = compensationResult.events[i];
-          if (event === undefined) continue;
-          const externalType = mapInternalToExternalType(event.type);
-          await eventStore.append(input.featureId, {
-            type: externalType as import('../event-store/schemas.js').EventType,
-            data: { ...event.metadata, featureId: input.featureId },
-          }, { idempotencyKey: `${input.featureId}:cancel:compensation:${event.type}:${event.metadata?.taskId ?? event.metadata?.action ?? i}` });
-        }
-      } catch (err) {
-        return {
-          success: false,
-          error: {
-            code: ErrorCode.EVENT_APPEND_FAILED,
-            message: `Event append failed during cancel compensation: ${err instanceof Error ? err.message : String(err)}`,
-          },
-        };
+    try {
+      for (let i = 0; i < compensationResult.events.length; i++) {
+        const event = compensationResult.events[i];
+        if (event === undefined) continue;
+        const externalType = mapInternalToExternalType(event.type);
+        await eventStore.append(input.featureId, {
+          type: externalType as import('../event-store/schemas.js').EventType,
+          data: { ...event.metadata, featureId: input.featureId },
+        });
       }
-    } else {
-      // V1 legacy: best-effort — swallow errors
-      try {
-        for (let i = 0; i < compensationResult.events.length; i++) {
-          const event = compensationResult.events[i];
-          if (event === undefined) continue;
-          const externalType = mapInternalToExternalType(event.type);
-          await eventStore.append(input.featureId, {
-            type: externalType as import('../event-store/schemas.js').EventType,
-            data: { ...event.metadata, featureId: input.featureId },
-          });
-        }
-      } catch {
-        // V1 legacy: external store is supplementary; JSONL append failure must not break cancel
-      }
+    } catch {
+      // V1 legacy: external store is supplementary.
     }
   }
 
-  // Transition to cancelled via HSM
-  const phaseAttemptId = allocatePhaseAttemptId(
-    input.featureId,
-    currentPhase,
-    'cancelled',
-    (state as unknown as Record<string, unknown>).phaseAttemptId,
-    state._version ?? 1,
-  );
+  if (useEventFirst) {
+    const outcomes = compensationResult.durableOutcomes;
+    if (
+      outcomes === undefined
+      || outcomes.completedActionIds.length !== compensationResult.actions.length
+    ) {
+      return {
+        success: false,
+        error: {
+          code: ErrorCode.COMPENSATION_PARTIAL,
+          message: 'Cancellation readiness requires a durable outcome for every compensation action',
+        },
+      };
+    }
+    const provenance = trustedCancellationProvenance(stateDir);
+    const readyAt = new Date().toISOString();
+    const digestValue = sha256(JSON.stringify({
+      cancelId,
+      completedActionIds: outcomes.completedActionIds,
+      outcomeSequences: outcomes.outcomeSequences,
+    }));
+    const readyData = {
+      eventVersion: '1.0',
+      evidenceId: `cancel-ready:${phaseAttemptId}`,
+      cancelId,
+      featureId: input.featureId,
+      phaseAttemptId,
+      completedActionIds: [...outcomes.completedActionIds],
+      outcomeSequences: [...outcomes.outcomeSequences],
+      contentDigest: { algorithm: 'sha256', value: digestValue },
+      readyAt,
+      ...provenance,
+    };
+    const parsedReady = CancelReadyData.safeParse(readyData);
+    if (!parsedReady.success) {
+      return {
+        success: false,
+        error: {
+          code: ErrorCode.EVENT_APPEND_FAILED,
+          message: `Cancellation readiness evidence was malformed: ${parsedReady.error.message}`,
+        },
+      };
+    }
+    try {
+      await appendCancellationFactOnce(
+        eventStore,
+        input.featureId,
+        cancellationKey(input.featureId, cancelId, 'ready'),
+        'cancel.ready',
+        parsedReady.data,
+      );
+      const replayedReady = (await eventStore.query(input.featureId)).find((event) => {
+        if (event.type !== 'cancel.ready') return false;
+        const parsed = CancelReadyData.safeParse(event.data);
+        return parsed.success && parsed.data.cancelId === cancelId;
+      });
+      if (replayedReady === undefined) {
+        throw new Error('cancel.ready was not durably observable after append');
+      }
+    } catch (err) {
+      return {
+        success: false,
+        error: {
+          code: ErrorCode.EVENT_APPEND_FAILED,
+          message: `Cancellation readiness append failed: ${err instanceof Error ? err.message : String(err)}`,
+        },
+      };
+    }
+  }
+
+  // Existing v2.12 final transition path (no strict admission/policy routing).
   mutableState._pendingPhaseAttemptId = phaseAttemptId;
   const hsm = getHSMDefinition(state.workflowType);
   const transitionResult = executeTransition(hsm, mutableState, 'cancelled');

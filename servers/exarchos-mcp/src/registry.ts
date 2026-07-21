@@ -39,7 +39,10 @@ import {
   unrecognizedPruneKeyMessage,
 } from './config/prune-removed-knobs.js';
 import type { SupportedGateClass } from './orchestrate/gate-provider-registry.js';
-import { INTERNAL_ADMISSION_EVENT_TYPES } from './event-store/schemas.js';
+import {
+  INTERNAL_ADMISSION_EVENT_TYPES,
+  INTERNAL_CANCELLATION_EVENT_TYPES,
+} from './event-store/schemas.js';
 
 // ─── Tool Registry Types ────────────────────────────────────────────────────
 
@@ -227,7 +230,7 @@ export const RESERVED_EVENT_APPEND_REGISTRY: ReadonlyMap<
   string,
   ReservedEventAppendRegistration
 > = new Map(
-  INTERNAL_ADMISSION_EVENT_TYPES.map((eventType) => [
+  [...INTERNAL_ADMISSION_EVENT_TYPES, ...INTERNAL_CANCELLATION_EVENT_TYPES].map((eventType) => [
     eventType,
     {
       eventType,
