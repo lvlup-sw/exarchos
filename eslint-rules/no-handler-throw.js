@@ -26,11 +26,33 @@
  * `adaptXxx(handleYyy)` call expressions — the rule resolves the WRAPPED
  * handler (`handleYyy`), which may live in a different file, via the
  * TypeScript checker's symbol resolution (`parserOptions.project` gives it a
- * full `ts.Program`). Two other value shapes also occur in the real map and
- * are resolved directly: a bare identifier cast (`fooHandler as
- * ActionHandler`), and an inline arrow/function literal assigned straight
- * into the map (e.g. `create_issue`'s custom closure) — the resolver treats
- * that literal itself as the handler.
+ * full `ts.Program`). Other value shapes also occur in the real map and are
+ * resolved directly: a bare identifier cast (`fooHandler as ActionHandler`),
+ * an inline arrow/function literal assigned straight into the map (e.g.
+ * `create_issue`'s custom closure) — the resolver treats that literal itself
+ * as the handler — and a ZERO-ARG factory call (`adaptSetupWorktree()`),
+ * where there is no handler argument to unwrap: the handler logic lives in
+ * the closure the factory's OWN body returns, so the resolver follows the
+ * callee to its declaration and then unwraps ITS `return` statement.
+ *
+ * Resolution failure is FAIL-LOUD, not fail-open: every `ACTION_HANDLERS`
+ * property is a registered handler by construction, so if none of the known
+ * shapes above can resolve a scannable function for it, the rule reports a
+ * rule error on that map entry (`unresolvedHandler`) rather than silently
+ * skipping it — an unscannable entry is a gate hole, and a gate must fail
+ * closed, not drop registrations off the census.
+ *
+ * CAVEAT (review #1706): this gate covers literal `throw` statements
+ * reachable in a handler's own body — it does NOT cover an un-converted
+ * awaited rejection (a handler that `await`s a throwing helper with no
+ * surrounding `try`/`catch`, e.g. `handleMergeOrchestrate` awaiting
+ * `executeMergeFn(...)` outside a catch). Detecting that would need
+ * following the awaited call's own throw surface, which this rule
+ * deliberately does not do (see the DR-1 "registration set" scope note
+ * above — deep helpers are allowed to throw). Treat this as covering literal
+ * handler-body throws only, not a full INV-5b guarantee against every path
+ * an unconverted rejection can escape a handler — a possible future
+ * enhancement, not a claim this rule currently makes.
  */
 
 import ts from 'typescript';
@@ -79,6 +101,17 @@ function resolveHandlerFnNode(estreeNode, services, checker) {
     case 'TSSatisfiesExpression':
       return resolveHandlerFnNode(estreeNode.expression, services, checker);
     case 'CallExpression': {
+      if (estreeNode.arguments.length === 0) {
+        // Zero-arg factory shape (composite.ts's `adaptSetupWorktree()`): no
+        // handler argument is passed — the handler logic lives in the
+        // closure the factory's OWN body returns (this is where an escaping
+        // throw would actually live). Resolve the callee to its
+        // declaration, then unwrap the function/arrow literal its body
+        // returns.
+        const factoryFnNode = resolveHandlerFnNode(estreeNode.callee, services, checker);
+        if (!factoryFnNode) return undefined;
+        return factoryReturnedFunctionNode(factoryFnNode);
+      }
       // adaptXxx(..., handleYyy) — the handler is always the LAST argument
       // across every adapter shape in composite.ts (adapt/adaptCtx/
       // adaptWithEventStore/adaptLadderGate/...).
@@ -120,6 +153,40 @@ function functionNodeFromSymbol(symbol) {
     }
   }
   return undefined;
+}
+
+/**
+ * Given a zero-arg factory's own resolved `ts.Node` (e.g. `adaptSetupWorktree`'s
+ * `FunctionDeclaration`), finds the function/arrow literal ITS body returns —
+ * the closure a zero-arg-factory `ACTION_HANDLERS` entry (`adaptSetupWorktree()`)
+ * actually dispatches through at runtime. Function-scope-local: does not
+ * cross into a nested function's own `return`. Handles both a concise arrow
+ * body (`() => async (...) => {...}`) and a block body with an explicit
+ * `return <function literal>;` statement. Returns `undefined` when the
+ * factory's body doesn't return a function literal by either shape (this
+ * propagates up as an unresolved handler — fail-loud, not fail-open).
+ */
+function factoryReturnedFunctionNode(factoryFnNode) {
+  const body = functionBody(factoryFnNode);
+  if (!body) return undefined;
+  if (!ts.isBlock(body)) {
+    return ts.isArrowFunction(body) || ts.isFunctionExpression(body) ? body : undefined;
+  }
+  let found;
+  (function walk(node) {
+    if (found || !node) return;
+    if (node !== body && isFunctionBoundary(node)) return;
+    if (
+      ts.isReturnStatement(node) &&
+      node.expression &&
+      (ts.isArrowFunction(node.expression) || ts.isFunctionExpression(node.expression))
+    ) {
+      found = node.expression;
+      return;
+    }
+    ts.forEachChild(node, walk);
+  })(body);
+  return found;
 }
 
 // ─── Throw discovery (function-scope-local, no interprocedural follow) ─────
@@ -201,18 +268,72 @@ function isAbortErrorThrow(throwNode, checker) {
 /**
  * Exemption: fail-loud precondition guards. A `throw` that is the sole
  * statement of a no-`else` `if`, whose condition never mentions the
- * handler's own `args` parameter, reads as a programmer-error assertion
- * about the handler's OWN wiring (e.g. composite.ts's `if (!ctx) throw new
+ * handler's own `args` parameter (or a local bound directly from it, e.g.
+ * `const id = args.id;`), reads as a programmer-error assertion about the
+ * handler's OWN wiring (e.g. composite.ts's `if (!ctx) throw new
  * Error('DispatchContext required for this handler')`) — not a domain-input
- * validation failure. Domain validation (`if (!args.id) throw ...`) still
- * counts as a violation: it DOES reference `args`, so it must become a
- * ToolResult.error instead.
+ * validation failure. Domain validation (`if (!args.id) throw ...`, or
+ * `const id = args.id; if (!id) throw ...`) still counts as a violation: it
+ * DOES reference `args` (directly or via a derived local), so it must become
+ * a ToolResult.error instead.
+ *
+ * When the handler's first-param shape is unrecognized (e.g. destructured —
+ * `async ({ featureId }, ...) =>` — `firstParamName` can't name a single
+ * `args` identifier for it), this defaults to **NON-exempt**: an unknown
+ * shape is scanned, not silently skipped, so a genuine destructured-arg
+ * validation throw is still reported rather than fail-opening past the gate.
  */
-function isFailLoudPreconditionGuard(throwNode, argsParamName) {
+function isFailLoudPreconditionGuard(throwNode, argsParamName, argsDerivedNames) {
   const ifStmt = enclosingIfGuard(throwNode);
   if (!ifStmt || ifStmt.elseStatement) return false;
-  if (!argsParamName) return true;
-  return !referencesIdentifier(ifStmt.expression, argsParamName);
+  if (!argsParamName) return false;
+  if (referencesIdentifier(ifStmt.expression, argsParamName)) return false;
+  for (const derived of argsDerivedNames ?? []) {
+    if (referencesIdentifier(ifStmt.expression, derived)) return false;
+  }
+  return true;
+}
+
+/**
+ * Collects local binding names that are derived DIRECTLY from the handler's
+ * `args` parameter — `const id = args.id;`, `const { id } = args;`, `const
+ * [first] = args.list;` — so `isFailLoudPreconditionGuard` can recognize a
+ * validation guard that aliases `args` into a local before testing it, not
+ * just one that references `args` inline. Function-scope-local (does not
+ * cross into a nested function's own locals), and only follows ONE hop
+ * (`args.foo` → `foo`, not `foo` → `bar` if `bar` were later derived from
+ * `foo`) — deliberately shallow: the real handlers in composite.ts alias at
+ * most one level deep, and a deeper heuristic risks false "exempt" verdicts
+ * this DR-3 class explicitly exists to avoid.
+ */
+function collectArgsDerivedNames(body, argsParamName) {
+  const names = new Set();
+  if (!argsParamName) return names;
+  (function walk(node) {
+    if (!node) return;
+    if (isFunctionBoundary(node)) return;
+    if (
+      ts.isVariableDeclaration(node) &&
+      node.initializer &&
+      referencesIdentifier(node.initializer, argsParamName)
+    ) {
+      collectBoundNames(node.name, names);
+    }
+    ts.forEachChild(node, walk);
+  })(body);
+  return names;
+}
+
+function collectBoundNames(bindingName, names) {
+  if (ts.isIdentifier(bindingName)) {
+    names.add(bindingName.text);
+    return;
+  }
+  if (ts.isObjectBindingPattern(bindingName) || ts.isArrayBindingPattern(bindingName)) {
+    for (const element of bindingName.elements) {
+      if (ts.isBindingElement(element)) collectBoundNames(element.name, names);
+    }
+  }
 }
 
 function enclosingIfGuard(throwNode) {
@@ -312,11 +433,12 @@ function findAbnormalThrows(fnNode, checker) {
   const body = functionBody(fnNode);
   if (!body || !ts.isBlock(body)) return [];
   const argsParamName = firstParamName(fnNode);
+  const argsDerivedNames = collectArgsDerivedNames(body, argsParamName);
   const throwNodes = collectThrowsInScope(body);
   const abnormal = [];
   for (const throwNode of throwNodes) {
     if (isAbortErrorThrow(throwNode, checker)) continue;
-    if (isFailLoudPreconditionGuard(throwNode, argsParamName)) continue;
+    if (isFailLoudPreconditionGuard(throwNode, argsParamName, argsDerivedNames)) continue;
     if (classifyThrow(throwNode).abnormal) abnormal.push(throwNode);
   }
   return abnormal;
@@ -340,6 +462,8 @@ const rule = {
     messages: {
       abnormalThrow:
         "Handler '{{handlerName}}' can abnormally complete via a throw at {{location}} — return ToolResult.error (with a meaningful error.code), not a raw throw. core/dispatch.ts's safety net would flatten this to a generic INTERNAL_ERROR, discarding the code and structured fields (suggestedFix/unmetGates/...).",
+      unresolvedHandler:
+        "ACTION_HANDLERS entry '{{handlerName}}' could not be resolved to a scannable function by any known shape (adaptXxx(handleYyy), a zero-arg factory, an 'as ActionHandler' cast, or an inline literal) — this rule cannot verify its envelope-fidelity (#1706 DR-1). Fix the rule's resolution for this shape rather than letting a registered handler drop off the census unscanned.",
     },
   },
   create(context) {
@@ -379,9 +503,17 @@ const rule = {
         if (!node.init || node.init.type !== 'ObjectExpression') return;
         for (const prop of node.init.properties) {
           if (prop.type !== 'Property') continue;
+          const handlerName = propertyKeyName(prop);
           const fnNode = resolveHandlerFnNode(prop.value, services, checker);
-          if (!fnNode) continue;
-          reportAbnormalThrows(fnNode, propertyKeyName(prop), prop);
+          if (!fnNode) {
+            // Fail-loud, not fail-open: every ACTION_HANDLERS entry IS a
+            // registered handler by construction — an entry the resolver
+            // can't map to a scannable function is a gate hole, not a
+            // legitimate "nothing to scan" case.
+            context.report({ node: prop, messageId: 'unresolvedHandler', data: { handlerName } });
+            continue;
+          }
+          reportAbnormalThrows(fnNode, handlerName, prop);
         }
       },
       CallExpression(node) {
