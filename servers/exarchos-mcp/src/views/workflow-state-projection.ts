@@ -1,7 +1,18 @@
 import type { ViewProjection } from './materializer.js';
-import type { WorkflowEvent, EventType } from '../event-store/schemas.js';
+import type {
+  AdmissionContradictionRecorded,
+  AdmissionEvidenceRecorded,
+  WorkflowEvent,
+  EventType,
+} from '../event-store/schemas.js';
 import { isBuiltInEventType } from '../event-store/schemas.js';
 import { getInitialPhase, isBuiltInWorkflowType } from '../workflow/state-machine.js';
+import {
+  selectEvidence,
+  type EvidenceContradiction,
+  type EvidenceSelectionDiagnostic,
+  type EvidenceSupersession,
+} from '../workflow/admission/select-evidence.js';
 // State-mutation primitives imported from the shared LEAF module, not from
 // `state-store.ts` (DR-4, task 009). `state-store.ts` value-imports THIS
 // projection's `apply` for `reconcileFromEvents`; importing these helpers from
@@ -58,6 +69,11 @@ export interface WorkflowStateView {
    * `phase.entered` is folded.
    */
   phaseObligation: PhaseObligationEntry | null;
+  /**
+   * Audit/shadow-only proof visibility. Histories are append-only event data;
+   * derived arrays are a deterministic selection and never affect phase state.
+   */
+  admissionProof: AdmissionProofView;
   /**
    * The feature's frozen planning depth (DR-3, epic #1581) — the per-feature
    * analog of per-task `riskTier`. Resolve-then-frozen by the PLAN
@@ -133,7 +149,37 @@ interface CheckpointEntry {
   staleAfterMinutes: number;
 }
 
+export interface AdmissionProofView {
+  evidenceHistory: readonly AdmissionEvidenceRecorded[];
+  contradictionHistory: readonly AdmissionContradictionRecorded[];
+  activeEvidence: readonly AdmissionEvidenceRecorded[];
+  supersessions: readonly EvidenceSupersession[];
+  contradictions: readonly EvidenceContradiction[];
+  diagnostics: readonly EvidenceSelectionDiagnostic[];
+}
+
 // ─── Helpers ───────────────────────────────────────────────────────────────
+
+function emptyAdmissionProof(): AdmissionProofView {
+  return {
+    evidenceHistory: [],
+    contradictionHistory: [],
+    activeEvidence: [],
+    supersessions: [],
+    contradictions: [],
+    diagnostics: [],
+  };
+}
+
+/**
+ * State-file reconciliation can apply a newly appended proof event to a
+ * pre-v2.12 projected state. Treat the absent additive block as its empty seed
+ * rather than requiring mutable backfill or making replay depend on snapshot
+ * age.
+ */
+function admissionProofOf(view: WorkflowStateView): AdmissionProofView {
+  return view.admissionProof ?? emptyAdmissionProof();
+}
 
 /** Immutably update a task by ID. Returns the original view if taskId not found. */
 function updateTask(
@@ -186,6 +232,7 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       staleAfterMinutes: 120,
     },
     phaseObligation: null,
+    admissionProof: emptyAdmissionProof(),
   }),
 
   apply: (view: WorkflowStateView, event: WorkflowEvent): WorkflowStateView => {
@@ -864,14 +911,51 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       // workflow_state-affecting fields, so it leaves the projection unchanged.
       case 'export.requested':
       case 'export.executed':
-      // Phase-gate v2.12 proof substrate: internal audit/replay facts only.
-      // They deliberately do not alter the legacy workflow-state projection
-      // or transition behavior in this release.
+        return view;
+
+      // Phase-gate v2.12 proof substrate: audit/shadow visibility only. These
+      // folds do not alter phase, guards, policy evaluation, or enforcement.
+      case 'admission.evidence-recorded': {
+        const proof = admissionProofOf(view);
+        const evidenceHistory = [
+          ...proof.evidenceHistory,
+          event.data as AdmissionEvidenceRecorded,
+        ];
+        const selection = selectEvidence({
+          evidence: evidenceHistory,
+          contradictionEvents: proof.contradictionHistory,
+        });
+        return {
+          ...view,
+          admissionProof: {
+            evidenceHistory,
+            contradictionHistory: proof.contradictionHistory,
+            ...selection,
+          },
+        };
+      }
+      case 'admission.contradiction-recorded': {
+        const proof = admissionProofOf(view);
+        const contradictionHistory = [
+          ...proof.contradictionHistory,
+          event.data as AdmissionContradictionRecorded,
+        ];
+        const selection = selectEvidence({
+          evidence: proof.evidenceHistory,
+          contradictionEvents: contradictionHistory,
+        });
+        return {
+          ...view,
+          admissionProof: {
+            evidenceHistory: proof.evidenceHistory,
+            contradictionHistory,
+            ...selection,
+          },
+        };
+      }
       case 'admission.requirement-resolved':
-      case 'admission.evidence-recorded':
       case 'admission.transition-decided':
       case 'admission.waiver-recorded':
-      case 'admission.contradiction-recorded':
       case 'admission.reassessment-requested':
       case 'admission.reassessment-completed':
       case 'admission.shadow-attempt':

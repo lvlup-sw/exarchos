@@ -16,6 +16,7 @@ import {
   OperationIdSchema,
   PhaseAttemptIdSchema,
   PolicyIdSchema,
+  RequirementIdSchema,
   WaiverIdSchema,
   WaiverProvenanceV1Schema,
 } from '../workflow/admission/types.js';
@@ -3158,8 +3159,22 @@ export const AdmissionEvidenceRecordedData = z
   .object({
     eventVersion: AdmissionProofEventVersionSchema,
     evidence: AdmissionEvidenceV1Schema,
+    /**
+     * Explicit append-only rerun link. Attribution comes from the superseding
+     * evidence producer snapshot; replay never rewrites the predecessor.
+     */
+    supersedesEvidenceId: EvidenceIdSchema.optional(),
   })
   .strict()
+  .superRefine((record, ctx) => {
+    if (record.supersedesEvidenceId === record.evidence.evidenceId) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['supersedesEvidenceId'],
+        message: 'evidence cannot supersede itself',
+      });
+    }
+  })
   .readonly();
 
 /** Internal transition decision record, never a public transition carrier. */
@@ -3190,6 +3205,8 @@ export const AdmissionContradictionRecordedData = z
     phaseAttemptId: PhaseAttemptIdSchema,
     policyId: PolicyIdSchema,
     policyDigest: ContentDigestV1Schema,
+    /** Added for new writers; historical V1 facts derive it from evidenceIds. */
+    requirementId: RequirementIdSchema.optional(),
     subject: EvidenceSubjectV1Schema,
     evidenceIds: z.array(EvidenceIdSchema).min(2).readonly(),
     evidenceSetDigest: ContentDigestV1Schema,
