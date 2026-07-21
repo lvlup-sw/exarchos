@@ -9,6 +9,7 @@ import {
   SqliteBackend,
   SqliteBusyExhaustedError,
   SequenceGateConflictError,
+  OperationDigestConflictError,
   type AtomicAppendEvent as SqliteAtomicAppendEvent,
 } from '../storage/sqlite-backend.js';
 import { ConcurrencyError } from './concurrency-error.js';
@@ -210,6 +211,50 @@ export type DecideResult =
       readonly eventIds: readonly string[];
       readonly timestamps: readonly string[];
     };
+
+export interface DecideOnceStoredEvent {
+  readonly streamId: string;
+  readonly sequence: number;
+  readonly type: string;
+  readonly timestamp: string;
+  readonly data?: Record<string, unknown>;
+  readonly [key: string]: unknown;
+}
+
+export interface DecideOnceStreamSnapshot {
+  readonly events: readonly DecideOnceStoredEvent[];
+  readonly version: number;
+}
+
+/**
+ * Transaction-scoped reads available to a decideOnce closure. Every read uses
+ * the same SQLite connection after BEGIN IMMEDIATE has acquired the write lock.
+ */
+export interface DecideOnceContext {
+  readStream(streamId: string): DecideOnceStreamSnapshot;
+}
+
+export interface DecideOnceDecision<TResult> {
+  readonly streamId: string;
+  readonly events: readonly EventInput[];
+  readonly result: TResult;
+  readonly expectedSequence?: number;
+}
+
+export class OperationDigestMismatchError extends Error {
+  readonly code = 'OPERATION_DIGEST_MISMATCH' as const;
+
+  constructor(
+    public readonly operationId: string,
+    public readonly expectedDigest: string,
+    public readonly actualDigest: string,
+  ) {
+    super(
+      `OPERATION_DIGEST_MISMATCH: operation ${JSON.stringify(operationId)} was already committed with a different request digest`,
+    );
+    this.name = 'OperationDigestMismatchError';
+  }
+}
 
 /**
  * Maximum substrate attempts the SQLite body retries `BEGIN IMMEDIATE`
@@ -481,6 +526,147 @@ export class AtomicAppender {
     });
     this.notifyCommit(streamId, result);
     return result;
+  }
+
+  /**
+   * Generic DR-4 operation primitive. A completed operation claim is checked
+   * before the closure can read/fold state. On a miss, the closure, stream
+   * version allocation, canonical result claim, and all event siblings execute
+   * inside one SQLite BEGIN IMMEDIATE transaction.
+   *
+   * The closure is intentionally synchronous: SQLite transaction callbacks
+   * cannot safely span an await. External work belongs before this primitive;
+   * the closure owns only transaction-scoped reads and the final decision.
+   */
+  async decideOnce<TResult>(
+    operationId: string,
+    requestDigest: string,
+    closure: (ctx: DecideOnceContext) => DecideOnceDecision<TResult>,
+  ): Promise<TResult> {
+    if (!operationId) {
+      throw new Error('decideOnce requires operationId');
+    }
+    if (!requestDigest) {
+      throw new Error('decideOnce requires requestDigest');
+    }
+
+    await fs.mkdir(this.stateDir, { recursive: true });
+    const backend = await this.ensureSqliteBackend();
+
+    // Fast path: a normal retry does not acquire the write lock and, most
+    // importantly, cannot run a state fold or the decision closure.
+    const existing = backend.lookupOperationClaim<TResult>(operationId);
+    if (existing) {
+      if (existing.requestDigest !== requestDigest) {
+        throw new OperationDigestMismatchError(
+          operationId,
+          existing.requestDigest,
+          requestDigest,
+        );
+      }
+      return existing.result;
+    }
+
+    let decidedStreamId: string | undefined;
+    try {
+      const outcome = await backend.atomicDecideOnce<TResult>({
+        operationId,
+        requestDigest,
+        decide: () => {
+          const ctx: DecideOnceContext = {
+            readStream: (streamId): DecideOnceStreamSnapshot => {
+              const events = backend.queryEvents(streamId) as DecideOnceStoredEvent[];
+              const version =
+                events.length === 0
+                  ? 0
+                  : (events[events.length - 1]?.sequence ?? 0);
+              return { events, version };
+            },
+          };
+          const decision = closure(ctx);
+          decidedStreamId = decision.streamId;
+          const inputEvents = [...decision.events];
+          let persisted: PersistedEvent[] = [];
+
+          return {
+            streamId: decision.streamId,
+            n: inputEvents.length,
+            result: decision.result,
+            ...(decision.expectedSequence !== undefined
+              ? { expectedSequence: decision.expectedSequence }
+              : {}),
+            finalize: (base: number) => {
+              persisted = inputEvents.map((input, index) => ({
+                ...input,
+                streamId: decision.streamId,
+                sequence: base + index + 1,
+                timestamp: input.timestamp ?? new Date().toISOString(),
+                type: input.type,
+                eventId: randomUUID(),
+              }));
+              const events: SqliteAtomicAppendEvent[] = persisted.map((event) => ({
+                sequence: event.sequence,
+                type: event.type,
+                timestamp: event.timestamp,
+                data: event.data,
+                payload: JSON.stringify(event),
+                ...(typeof event.operationId === 'string'
+                  ? { operationId: event.operationId }
+                  : {}),
+                ...(typeof event.correlationId === 'string'
+                  ? { correlationId: event.correlationId }
+                  : {}),
+                ...(typeof event.causationId === 'string'
+                  ? { causationId: event.causationId }
+                  : {}),
+              }));
+              return {
+                events,
+                eventIds: persisted.map((event) => event.eventId),
+                timestamps: persisted.map((event) => event.timestamp),
+                events_json: JSON.stringify(persisted),
+              };
+            },
+          };
+        },
+      });
+
+      if (outcome.kind === 'committed') {
+        this.notifyCommit(outcome.streamId, {
+          ok: true,
+          kind: 'committed',
+          sequences: outcome.sequences,
+          eventIds: outcome.eventIds,
+          timestamps: outcome.timestamps,
+        });
+      }
+      return outcome.result;
+    } catch (error) {
+      if (error instanceof OperationDigestConflictError) {
+        throw new OperationDigestMismatchError(
+          error.operationId,
+          error.expectedDigest,
+          error.actualDigest,
+        );
+      }
+      if (error instanceof SequenceGateConflictError) {
+        throw new ConcurrencyError({
+          streamId: decidedStreamId ?? '<unknown>',
+          reducerId: 'decideOnce',
+          expectedVersion: error.expected,
+          actualVersion: error.actual,
+          operationId,
+        });
+      }
+      if (error instanceof SqliteBusyExhaustedError) {
+        throw new StorageBusyError({
+          streamId: decidedStreamId ?? '<unknown>',
+          attempts: error.attempts,
+          cause: error,
+        });
+      }
+      throw error;
+    }
   }
 
   /**
