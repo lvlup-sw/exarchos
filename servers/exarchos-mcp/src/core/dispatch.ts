@@ -29,10 +29,13 @@ import {
 } from '../adapters/schema-to-flags.js';
 import { runSessionMachineryConsumedInterceptor } from './interceptors/session-machinery.js';
 import {
-  mintDispatchContext,
+  mintDispatchContextFromRequest,
   runWithDispatchContext,
-  type IncomingCorrelation,
 } from '../dispatch/dispatch-context.js';
+import {
+  snapshotCallerAuthorization,
+  type CallerIdentity,
+} from '../dispatch/caller-identity.js';
 import {
   isTaskAugmented,
   extractTaskOptions,
@@ -62,6 +65,11 @@ export interface DispatchContext {
   readonly stateDir: string;
   readonly eventStore: EventStore;
   readonly enableTelemetry: boolean;
+  /**
+   * Runtime-owned, non-PII caller identity. Production adapters derive this
+   * from MCP session state or the local installation; action args never feed it.
+   */
+  readonly callerIdentity?: CallerIdentity;
   readonly config?: ExarchosConfig;
   readonly projectConfig?: ResolvedProjectConfig;
   readonly vcsProvider?: VcsProvider;
@@ -648,16 +656,10 @@ export async function dispatch(
   // ─── multi-match / validation-failure / gate-deny early returns lacked
   // ─── the _meta correlation block entirely. The dispatch context is
   // ─── derived once here and reused everywhere via AsyncLocalStorage.
-  const incoming: IncomingCorrelation = (() => {
-    const meta = (args as { _meta?: unknown })._meta;
-    if (typeof meta !== 'object' || meta === null) return {};
-    const rec = meta as Record<string, unknown>;
-    const result: { correlationId?: string; causationId?: string } = {};
-    if (typeof rec.correlationId === 'string') result.correlationId = rec.correlationId;
-    if (typeof rec.causationId === 'string') result.causationId = rec.causationId;
-    return result;
-  })();
-  const dispatchCtx = mintDispatchContext(incoming);
+  const authorization = ctx.callerIdentity === undefined
+    ? undefined
+    : snapshotCallerAuthorization(ctx.callerIdentity, ctx.capabilityResolver);
+  const dispatchCtx = mintDispatchContextFromRequest(args, authorization);
   const attachMeta = (result: ToolResult): ToolResult => {
     const existingMeta =
       typeof (result as { _meta?: unknown })._meta === 'object' &&
@@ -1092,4 +1094,3 @@ export async function dispatch(
   }
   });
 }
-

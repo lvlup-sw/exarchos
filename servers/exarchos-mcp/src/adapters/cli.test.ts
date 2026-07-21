@@ -69,7 +69,13 @@ vi.mock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
 
 // ─── Test Imports ────────────────────────────────────────────────────────────
 
-import { buildCli, commanderErrorToResult, runCli, CLI_EXIT_CODES } from './cli.js';
+import {
+  buildCli,
+  commanderErrorToResult,
+  createCliDispatchContext,
+  runCli,
+  CLI_EXIT_CODES,
+} from './cli.js';
 import { dispatch } from '../core/dispatch.js';
 import { TOOL_REGISTRY, getFullRegistry } from '../registry.js';
 import type { CompositeTool } from '../registry.js';
@@ -169,10 +175,34 @@ describe('buildCli', () => {
         featureId: 'test-feature',
         workflowType: 'feature',
       }),
-      ctx,
+      expect.objectContaining({
+        ...ctx,
+        callerIdentity: expect.objectContaining({
+          kind: 'local-operator',
+          role: 'operator',
+        }),
+      }),
     );
 
     stdoutSpy.mockRestore();
+  });
+
+  it('BuildCli_TrustedContext_ReplacesPreexistingCallerIdentity', () => {
+    const trusted = createCliDispatchContext({
+      ...ctx,
+      callerIdentity: {
+        subjectId: 'forged',
+        kind: 'mcp-session',
+        role: 'agent',
+      },
+    });
+
+    expect(trusted.callerIdentity).toMatchObject({
+      kind: 'local-operator',
+      role: 'operator',
+    });
+    expect(trusted.callerIdentity?.subjectId).toMatch(/^local:[0-9a-f]{32}$/);
+    expect(trusted.callerIdentity?.subjectId).not.toBe('forged');
   });
 
   it('BuildCli_JsonFlag_OutputsRawJson', async () => {
@@ -1014,7 +1044,10 @@ describe('CLI top-level promotion (DR-7)', () => {
     expect(dispatch).toHaveBeenCalledWith(
       'exarchos_view',
       expect.objectContaining({ action: 'ps' }),
-      ctx,
+      expect.objectContaining({
+        ...ctx,
+        callerIdentity: expect.objectContaining({ kind: 'local-operator' }),
+      }),
     );
   });
 
@@ -1061,7 +1094,10 @@ describe('CLI top-level promotion (DR-7)', () => {
     expect(dispatch).toHaveBeenCalledWith(
       'exarchos_view',
       expect.objectContaining({ action: 'ps' }),
-      ctx,
+      expect.objectContaining({
+        ...ctx,
+        callerIdentity: expect.objectContaining({ kind: 'local-operator' }),
+      }),
     );
   });
 });

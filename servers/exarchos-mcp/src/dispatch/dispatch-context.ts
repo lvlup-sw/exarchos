@@ -37,6 +37,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import type { CallerAuthorizationSnapshot } from './caller-identity.js';
 
 /** UUID-shaped string (v4). Branded against accidental string concatenation. */
 export type UUID = string;
@@ -56,6 +57,7 @@ export interface DispatchContext {
   readonly operationId: UUID;
   readonly correlationId: UUID;
   readonly causationId?: UUID;
+  readonly authorization?: CallerAuthorizationSnapshot;
 }
 
 /**
@@ -80,13 +82,48 @@ export interface IncomingCorrelation {
  */
 export function mintDispatchContext(
   incoming?: IncomingCorrelation,
+  authorization?: CallerAuthorizationSnapshot,
 ): DispatchContext {
   const operationId = randomUUID();
   const correlationId = incoming?.correlationId ?? operationId;
-  const ctx: DispatchContext = incoming?.causationId !== undefined
-    ? { operationId, correlationId, causationId: incoming.causationId }
-    : { operationId, correlationId };
+  const ctx: DispatchContext = {
+    operationId,
+    correlationId,
+    ...(incoming?.causationId !== undefined
+      ? { causationId: incoming.causationId }
+      : {}),
+    ...(authorization !== undefined ? { authorization } : {}),
+  };
   return ctx;
+}
+
+/**
+ * Mint from an untrusted action request while accepting only correlation
+ * continuity from its `_meta` carrier. Identity, role, posture, capabilities,
+ * policy/resolver metadata, and trusted timestamps come solely from the
+ * separately supplied adapter/runtime snapshot.
+ */
+export function mintDispatchContextFromRequest(
+  request: Readonly<Record<string, unknown>>,
+  authorization?: CallerAuthorizationSnapshot,
+): DispatchContext {
+  const meta = request._meta;
+  let correlationId: string | undefined;
+  let causationId: string | undefined;
+  if (typeof meta === 'object' && meta !== null) {
+    const record = meta as Readonly<Record<string, unknown>>;
+    if (typeof record.correlationId === 'string') {
+      correlationId = record.correlationId;
+    }
+    if (typeof record.causationId === 'string') {
+      causationId = record.causationId;
+    }
+  }
+  const incoming: IncomingCorrelation = {
+    ...(correlationId !== undefined ? { correlationId } : {}),
+    ...(causationId !== undefined ? { causationId } : {}),
+  };
+  return mintDispatchContext(incoming, authorization);
 }
 
 // ─── Async-context plumbing (T19) ───────────────────────────────────────────
