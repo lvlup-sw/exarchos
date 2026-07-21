@@ -18,6 +18,12 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { handleInit, handleSet } from './tools.js';
 import { DefaultHSMTransitionGuard, buildHsmEventData } from './hsm-transition-guard.js';
+import {
+  BUILT_IN_WORKFLOW_TYPES,
+  LEGACY_TRANSITION_CORPUS_POSTURE,
+  legacyTransitionCorpus,
+} from './__fixtures__/transition-admission-corpus.js';
+import { getHSMDefinition } from './state-machine.js';
 import { EventStore } from '../event-store/store.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import { EVENT_DATA_SCHEMAS } from '../event-store/schemas.js';
@@ -32,6 +38,95 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await rmrfAsync(tmpDir);
+});
+
+describe('legacy transition-decision migration baseline (DR-1)', () => {
+  it('LegacyTransitionCorpus_AllFixtures_HaveStableVerdicts', async () => {
+    const eventStore = new EventStore(tmpDir);
+    await eventStore.initialize();
+    const guard = new DefaultHSMTransitionGuard();
+
+    expect(LEGACY_TRANSITION_CORPUS_POSTURE).toBe('audit-shadow');
+
+    const edgeKey = (workflowType: string, from: string, to: string) =>
+      `${workflowType}:${from}->${to}`;
+    const builtInEdges = BUILT_IN_WORKFLOW_TYPES.flatMap((workflowType) =>
+      getHSMDefinition(workflowType).transitions.map((transition) =>
+        edgeKey(workflowType, transition.from, transition.to),
+      ),
+    ).sort();
+    const representativeFixtures = legacyTransitionCorpus.filter(
+      (fixture) => fixture.scenario !== 'bypass',
+    );
+    const representedEdges = [
+      ...new Set(
+        representativeFixtures.map((fixture) =>
+          edgeKey(fixture.workflowType, fixture.from, fixture.to),
+        ),
+      ),
+    ].sort();
+
+    expect(representedEdges).toEqual(builtInEdges);
+    expect(new Set(legacyTransitionCorpus.map((fixture) => fixture.id)).size).toBe(
+      legacyTransitionCorpus.length,
+    );
+    expect(JSON.parse(JSON.stringify(legacyTransitionCorpus))).toEqual(
+      legacyTransitionCorpus,
+    );
+    for (const edge of builtInEdges) {
+      expect(
+        representativeFixtures
+          .filter((fixture) =>
+            edgeKey(fixture.workflowType, fixture.from, fixture.to) === edge,
+          )
+          .map((fixture) => fixture.scenario)
+          .sort(),
+        edge,
+      ).toEqual(['representative-fail', 'representative-pass']);
+    }
+
+    expect(
+      legacyTransitionCorpus
+        .filter((fixture) => fixture.scenario === 'bypass')
+        .map((fixture) => fixture.id),
+    ).toEqual([
+      'bypass-empty-task-collection-is-complete',
+      'bypass-always-pass-implementation-ignores-fail-shaped-state',
+      'bypass-patched-plan-approval-is-authoritative',
+      'bypass-patched-review-status-is-authoritative',
+      'bypass-unknown-risk-does-not-block-plan-edge',
+      'bypass-stale-gate-event-is-not-consulted',
+    ]);
+
+    for (const fixture of legacyTransitionCorpus) {
+      const evaluate = async (run: number) => {
+        const featureId = `${fixture.id}-run-${run}`;
+        const result = await guard.attempt(featureId, fixture.from, fixture.to, {
+          state: { ...fixture.state, featureId, phase: fixture.from },
+          workflowType: fixture.workflowType,
+          eventStore,
+        });
+
+        return result.ok
+          ? {
+              verdict: 'allow' as const,
+              explanation: `Legacy HSM admitted ${fixture.from} -> ${fixture.to}`,
+            }
+          : {
+              verdict: 'deny' as const,
+              explanation: result.errorMessage,
+            };
+      };
+
+      const first = await evaluate(1);
+      const second = await evaluate(2);
+
+      expect(first, fixture.id).toEqual(fixture.expected);
+      expect(second, fixture.id).toEqual(fixture.expected);
+      expect(first, fixture.id).toEqual(second);
+      expect(first.explanation.length, fixture.id).toBeGreaterThan(0);
+    }
+  });
 });
 
 /**
