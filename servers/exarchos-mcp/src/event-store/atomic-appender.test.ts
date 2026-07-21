@@ -3,7 +3,10 @@ import { mkdtemp, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
-import { AtomicAppender } from './atomic-appender.js';
+import {
+  AtomicAppender,
+  OperationDigestMismatchError,
+} from './atomic-appender.js';
 import { EventStore } from './store.js';
 import { runWithDispatchContext } from '../dispatch/dispatch-context.js';
 import { SqliteBackend } from '../storage/sqlite-backend.js';
@@ -221,6 +224,92 @@ describe('AtomicAppender', () => {
     const seqs = results.flatMap(r => (r.ok ? r.sequences : []));
     expect([...seqs].sort((a, b) => a - b)).toEqual([1, 2, 3]);
     expect(new Set(seqs).size).toBe(3);
+  });
+
+  it('DecideOnce_ExistingOperationId_ReturnsCanonicalResult', async () => {
+    const appender = new AtomicAppender({ stateDir });
+    const streamId = 'decide-once-canonical';
+    let closureCalls = 0;
+    let foldReads = 0;
+
+    const committed = await appender.decideOnce(
+      'operation-001',
+      'sha256:request-a',
+      (ctx) => {
+        closureCalls += 1;
+        const snapshot = ctx.readStream(streamId);
+        foldReads += 1;
+        expect(snapshot.version).toBe(0);
+        return {
+          streamId,
+          expectedSequence: snapshot.version,
+          events: [{ type: 'gate.executed', data: { verdict: 'pass' } }],
+          result: {
+            evidenceId: 'evidence-001',
+            verdict: 'pass',
+            nested: { stable: true },
+          },
+        };
+      },
+    );
+
+    const retried = await appender.decideOnce(
+      'operation-001',
+      'sha256:request-a',
+      () => {
+        closureCalls += 1;
+        throw new Error('retry closure must not execute');
+      },
+    );
+
+    expect(retried).toEqual(committed);
+    expect(retried).toEqual({
+      evidenceId: 'evidence-001',
+      verdict: 'pass',
+      nested: { stable: true },
+    });
+    expect(closureCalls).toBe(1);
+    expect(foldReads).toBe(1);
+
+    const backend = appender.getSqliteBackend();
+    expect(backend?.queryEvents(streamId)).toHaveLength(1);
+  });
+
+  it('DecideOnce_OperationIdReusedWithDifferentDigest_ThrowsStructuredError', async () => {
+    const appender = new AtomicAppender({ stateDir });
+    await appender.decideOnce(
+      'operation-digest-conflict',
+      'sha256:first',
+      () => ({
+        streamId: 'decide-once-digest-conflict',
+        events: [{ type: 'gate.executed' }],
+        result: { verdict: 'pass' },
+      }),
+    );
+
+    let closureCalls = 0;
+    const rejected = appender.decideOnce(
+      'operation-digest-conflict',
+      'sha256:second',
+      () => {
+        closureCalls += 1;
+        return {
+          streamId: 'decide-once-digest-conflict',
+          events: [{ type: 'gate.executed' }],
+          result: { verdict: 'fail' },
+        };
+      },
+    );
+
+    await expect(rejected).rejects.toMatchObject({
+      name: 'OperationDigestMismatchError',
+      code: 'OPERATION_DIGEST_MISMATCH',
+      operationId: 'operation-digest-conflict',
+      expectedDigest: 'sha256:first',
+      actualDigest: 'sha256:second',
+    });
+    await expect(rejected).rejects.toBeInstanceOf(OperationDigestMismatchError);
+    expect(closureCalls).toBe(0);
   });
 });
 

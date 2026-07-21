@@ -74,6 +74,28 @@ export interface PublicPersistedEventLike {
   [k: string]: unknown;
 }
 
+export interface AtomicDecideOnceDecision<TResult> {
+  streamId: string;
+  n: number;
+  expectedSequence?: number;
+  result: TResult;
+  finalize: (base: number) => {
+    events: AtomicAppendEvent[];
+    eventIds: string[];
+    timestamps: string[];
+    events_json: string;
+  };
+}
+
+export interface AtomicDecideOnceOutcome<TResult> {
+  kind: 'committed' | 'cache-hit';
+  streamId: string;
+  result: TResult;
+  sequences: number[];
+  eventIds: string[];
+  timestamps: string[];
+}
+
 // ─── Schema DDL ─────────────────────────────────────────────────────────────
 
 const SCHEMA_VERSION = 6;
@@ -248,6 +270,8 @@ const SQLITE_BUSY_RETRY_POLICY = {
   maxDelayMs: 100,
 } as const;
 
+const DECIDE_ONCE_CLAIM_STREAM = '__decide_once_operations__';
+
 /**
  * Thrown by `atomicAppend` when SQLITE_BUSY persists past the retry
  * budget. Carries the most-recent driver error as `cause` so the
@@ -295,6 +319,25 @@ export class SequenceGateConflictError extends Error {
     public readonly actual: number,
   ) {
     super(`stream-version gate: expected ${expected}, actual ${actual}`);
+  }
+}
+
+/**
+ * Storage-boundary conflict raised when an operation ID already has a
+ * committed result under a different request digest.
+ */
+export class OperationDigestConflictError extends Error {
+  override readonly name = 'OperationDigestConflictError';
+  readonly code = 'OPERATION_DIGEST_MISMATCH';
+
+  constructor(
+    public readonly operationId: string,
+    public readonly expectedDigest: string,
+    public readonly actualDigest: string,
+  ) {
+    super(
+      `operation ${JSON.stringify(operationId)} was already committed with a different request digest`,
+    );
   }
 }
 
@@ -1755,6 +1798,50 @@ export class SqliteBackend implements StorageBackend {
   }
 
   /**
+   * Read a completed decideOnce claim by its globally unique operation ID.
+   * The canonical result is deserialized at the storage boundary so callers
+   * see the same value on the committing call and every later retry.
+   */
+  lookupOperationClaim<TResult = unknown>(
+    operationId: string,
+  ):
+    | {
+        streamId: string;
+        requestDigest: string;
+        result: TResult;
+        eventIds: string[];
+        sequences: number[];
+        timestamps: string[];
+      }
+    | undefined {
+    const row = this.stmts.selectIdempotencyClaim.get(
+      DECIDE_ONCE_CLAIM_STREAM,
+      operationId,
+    ) as
+      | {
+          eventIds: string;
+          sequences: string;
+          timestamps: string;
+          events_json: string;
+        }
+      | undefined;
+    if (!row) return undefined;
+    const envelope = JSON.parse(row.events_json) as {
+      streamId: string;
+      requestDigest: string;
+      result: TResult;
+    };
+    return {
+      streamId: envelope.streamId,
+      requestDigest: envelope.requestDigest,
+      result: envelope.result,
+      eventIds: JSON.parse(row.eventIds) as string[],
+      sequences: JSON.parse(row.sequences) as number[],
+      timestamps: JSON.parse(row.timestamps) as string[],
+    };
+  }
+
+  /**
    * Read the current sequence high-water mark for a stream. AtomicAppender
    * uses this BEFORE opening the transaction to compute base+i sequences;
    * the transaction's strict-insert into `events` will raise on conflict
@@ -1946,6 +2033,142 @@ export class SqliteBackend implements StorageBackend {
     }
     // Budget exhausted — surface a typed marker so the caller maps it
     // to `reason: 'storage_busy'` without inspecting SQLite reason codes.
+    throw new SqliteBusyExhaustedError(
+      SQLITE_BUSY_RETRY_POLICY.maxAttempts,
+      lastErr ?? new Error('SQLITE_BUSY (no captured cause)'),
+    );
+  }
+
+  /**
+   * Claim an operation, evaluate its synchronous decision closure, allocate
+   * stream sequences, and append every resulting event in one BEGIN IMMEDIATE
+   * transaction. The operation lookup is the first statement in the
+   * transaction, so a racing retry returns before closure evaluation.
+   */
+  async atomicDecideOnce<TResult>(args: {
+    operationId: string;
+    requestDigest: string;
+    decide: () => AtomicDecideOnceDecision<TResult>;
+  }): Promise<AtomicDecideOnceOutcome<TResult>> {
+    let outcome: AtomicDecideOnceOutcome<TResult> | undefined;
+
+    const txn = this.db.transaction((): void => {
+      const existing = this.lookupOperationClaim<TResult>(args.operationId);
+      if (existing) {
+        if (existing.requestDigest !== args.requestDigest) {
+          throw new OperationDigestConflictError(
+            args.operationId,
+            existing.requestDigest,
+            args.requestDigest,
+          );
+        }
+        outcome = {
+          kind: 'cache-hit',
+          streamId: existing.streamId,
+          result: existing.result,
+          sequences: existing.sequences,
+          eventIds: existing.eventIds,
+          timestamps: existing.timestamps,
+        };
+        return;
+      }
+
+      // This call deliberately occurs after the operation lookup and while
+      // BEGIN IMMEDIATE owns the write lock. Reads performed through the
+      // supplied appender context therefore share this transaction snapshot.
+      const decision = args.decide();
+      if (!decision.streamId) {
+        throw new Error('decideOnce decision requires streamId');
+      }
+      if (decision.n <= 0) {
+        throw new Error('decideOnce decision requires at least one event');
+      }
+
+      const base = this.allocateSequence(
+        decision.streamId,
+        decision.n,
+        decision.expectedSequence,
+      );
+      const finalized = decision.finalize(base);
+      if (finalized.events.length !== decision.n) {
+        throw new Error(
+          `decideOnce finalized ${finalized.events.length} events; expected ${decision.n}`,
+        );
+      }
+
+      const sequences = finalized.events.map((event) => event.sequence);
+      const resultJson = JSON.stringify(decision.result);
+      if (resultJson === undefined) {
+        throw new Error('decideOnce result must be JSON-serializable');
+      }
+
+      // Insert the claim before event siblings. Any later INSERT failure
+      // throws through the transaction wrapper and rolls claim, sequence,
+      // and every already-inserted event back together.
+      this.stmts.insertIdempotencyClaim.run(
+        DECIDE_ONCE_CLAIM_STREAM,
+        args.operationId,
+        JSON.stringify(finalized.eventIds),
+        JSON.stringify(sequences),
+        JSON.stringify(finalized.timestamps),
+        JSON.stringify({
+          version: 1,
+          streamId: decision.streamId,
+          requestDigest: args.requestDigest,
+          result: JSON.parse(resultJson) as TResult,
+          events: JSON.parse(finalized.events_json) as PublicPersistedEventLike[],
+        }),
+        new Date().toISOString(),
+      );
+
+      for (const event of finalized.events) {
+        const data = event.data !== undefined ? JSON.stringify(event.data) : null;
+        this.stmts.insertEventStrict.run(
+          decision.streamId,
+          event.sequence,
+          event.type,
+          event.timestamp,
+          data,
+          event.payload,
+          event.operationId ?? null,
+          event.correlationId ?? null,
+          event.causationId ?? null,
+        );
+      }
+
+      // Deserialize even on the committing call. This makes serialization
+      // transparent and guarantees fresh/retried callers receive one shape.
+      outcome = {
+        kind: 'committed',
+        streamId: decision.streamId,
+        result: JSON.parse(resultJson) as TResult,
+        sequences,
+        eventIds: finalized.eventIds,
+        timestamps: finalized.timestamps,
+      };
+    });
+
+    const immediate = txn as unknown as { immediate: () => void };
+    let lastErr: Error | undefined;
+    for (let attempt = 1; attempt <= SQLITE_BUSY_RETRY_POLICY.maxAttempts; attempt++) {
+      try {
+        immediate.immediate();
+        if (!outcome) {
+          throw new Error('decideOnce transaction completed without an outcome');
+        }
+        return outcome;
+      } catch (err) {
+        if (!isSqliteBusy(err)) throw err;
+        lastErr = err instanceof Error ? err : new Error(String(err));
+        if (attempt < SQLITE_BUSY_RETRY_POLICY.maxAttempts) {
+          const delay = Math.min(
+            SQLITE_BUSY_RETRY_POLICY.baseDelayMs * Math.pow(2, attempt - 1),
+            SQLITE_BUSY_RETRY_POLICY.maxDelayMs,
+          );
+          await sleep(delay);
+        }
+      }
+    }
     throw new SqliteBusyExhaustedError(
       SQLITE_BUSY_RETRY_POLICY.maxAttempts,
       lastErr ?? new Error('SQLITE_BUSY (no captured cause)'),

@@ -8,6 +8,8 @@ import type { WorkflowState } from '../workflow/types.js';
 import type { EventSender } from './backend.js';
 import { SqliteBackend, SqliteImmediateUnsupportedError } from './sqlite-backend.js';
 import { VersionConflictError } from './memory-backend.js';
+import { AtomicAppender } from '../event-store/atomic-appender.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // ─── DR-4 durability posture + DR-3 immediate fail-fast ─────────────────────
 
@@ -19,6 +21,148 @@ describe('SqliteBackend durability + immediate (DR-3 / DR-4)', () => {
           synchronous: 'sometimes' as unknown as 'normal' | 'full',
         }),
     ).toThrowError(/invalid storage.synchronous/);
+  });
+
+  describe('SqliteBackend decideOnce transaction (DR-4)', () => {
+    it('DecideOnce_EventInsertFailure_RollsBackOperationClaimEventsAndSequence', async () => {
+      const stateDir = await mkdtemp(path.join(tmpdir(), 'decide-once-rollback-'));
+      const backend = new SqliteBackend(path.join(stateDir, 'decide-once.db'));
+      backend.initialize();
+      const appender = new AtomicAppender({ stateDir, sqliteBackend: backend });
+      const streamId = 'decide-once-rollback';
+
+      const stmts = (
+        backend as unknown as {
+          stmts: { insertEventStrict: { run: (...args: unknown[]) => unknown } };
+        }
+      ).stmts;
+      const originalRun = stmts.insertEventStrict.run.bind(stmts.insertEventStrict);
+      let inserts = 0;
+      stmts.insertEventStrict.run = (...args: unknown[]) => {
+        inserts += 1;
+        if (inserts === 2) {
+          throw new Error('simulated decideOnce event INSERT failure');
+        }
+        return originalRun(...args);
+      };
+
+      try {
+        await expect(
+          appender.decideOnce('operation-rollback', 'sha256:rollback', () => ({
+            streamId,
+            events: [
+              { type: 'gate.executed', data: { sibling: 1 } },
+              { type: 'gate.executed', data: { sibling: 2 } },
+            ],
+            result: { verdict: 'pass' },
+          })),
+        ).rejects.toThrow('simulated decideOnce event INSERT failure');
+      } finally {
+        stmts.insertEventStrict.run = originalRun;
+      }
+
+      expect(backend.lookupOperationClaim('operation-rollback')).toBeUndefined();
+      expect(backend.queryEvents(streamId)).toEqual([]);
+      expect(backend.readSequenceHighWaterMark(streamId)).toBe(0);
+
+      const retried = await appender.decideOnce(
+        'operation-rollback',
+        'sha256:rollback',
+        () => ({
+          streamId,
+          events: [
+            { type: 'gate.executed', data: { sibling: 1 } },
+            { type: 'gate.executed', data: { sibling: 2 } },
+          ],
+          result: { verdict: 'pass' },
+        }),
+      );
+      expect(retried).toEqual({ verdict: 'pass' });
+      expect(backend.queryEvents(streamId).map((event) => event.sequence)).toEqual([1, 2]);
+
+      backend.close();
+      await rmrfAsync(stateDir);
+    });
+
+    it('DecideOnce_ConcurrentConnections_SerializeClosureAndStreamSequence', async () => {
+      const stateDir = await mkdtemp(path.join(tmpdir(), 'decide-once-concurrent-'));
+      const dbPath = path.join(stateDir, 'decide-once.db');
+      const backendA = new SqliteBackend(dbPath);
+      const backendB = new SqliteBackend(dbPath);
+      backendA.initialize();
+      backendB.initialize();
+      const appenderA = new AtomicAppender({ stateDir, sqliteBackend: backendA });
+      const appenderB = new AtomicAppender({ stateDir, sqliteBackend: backendB });
+      let closureCalls = 0;
+
+      const decide = (appender: AtomicAppender) =>
+        appender.decideOnce(
+          'operation-concurrent',
+          'sha256:concurrent',
+          (ctx) => {
+            closureCalls += 1;
+            const snapshot = ctx.readStream('decide-once-concurrent');
+            return {
+              streamId: 'decide-once-concurrent',
+              expectedSequence: snapshot.version,
+              events: [{ type: 'gate.executed', data: { observed: snapshot.version } }],
+              result: { canonicalVersion: snapshot.version },
+            };
+          },
+        );
+
+      const [left, right] = await Promise.all([decide(appenderA), decide(appenderB)]);
+      expect(left).toEqual(right);
+      expect(closureCalls).toBe(1);
+      expect(backendA.queryEvents('decide-once-concurrent')).toHaveLength(1);
+
+      backendA.close();
+      backendB.close();
+      await rmrfAsync(stateDir);
+    });
+
+    it('DecideOnce_JSONResult_RoundTripsCanonicallyAcrossRetries', async () => {
+      await fc.assert(
+        fc.asyncProperty(fc.jsonValue(), async (canonicalResult) => {
+          const backend = new SqliteBackend(':memory:');
+          backend.initialize();
+          const appender = new AtomicAppender({
+            stateDir: tmpdir(),
+            sqliteBackend: backend,
+          });
+          let closureCalls = 0;
+          try {
+            const first = await appender.decideOnce(
+              'operation-property',
+              'sha256:property',
+              () => {
+                closureCalls += 1;
+                return {
+                  streamId: 'decide-once-property',
+                  events: [{ type: 'gate.executed' }],
+                  result: canonicalResult,
+                };
+              },
+            );
+            const retry = await appender.decideOnce(
+              'operation-property',
+              'sha256:property',
+              () => {
+                closureCalls += 1;
+                throw new Error('completed operation must bypass closure');
+              },
+            );
+
+            expect(retry).toEqual(first);
+            expect(retry).toEqual(canonicalResult);
+            expect(closureCalls).toBe(1);
+          } finally {
+            backend.close();
+          }
+        }),
+        { numRuns: 25 },
+      );
+    });
   });
 
   it('Synchronous_DefaultNormal_InitializesAndAppends', () => {
