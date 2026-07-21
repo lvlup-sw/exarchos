@@ -41,6 +41,7 @@ import {
 } from './gate-utils.js';
 
 const GATE_RUNNER_VERSION = '2.12.0';
+export const CANONICAL_GATE_RUNNER_SOURCE_PREFIX = 'gate-runner/v1/';
 const FALLBACK_POLICY_ID = PolicyIdSchema.parse('audit-shadow');
 const FALLBACK_POLICY_DIGEST: ContentDigestV1 = Object.freeze({
   algorithm: 'sha256',
@@ -80,6 +81,11 @@ export interface GateRunnerDependencies {
   readonly registry?: GateProviderRegistry;
   readonly providerVersion?: string;
   readonly clock?: () => string;
+}
+
+/** Durable envelope marker consumed by diagnostic gate projections. */
+export function gateRunnerObservationSource(gateClass: string): string {
+  return `${CANONICAL_GATE_RUNNER_SOURCE_PREFIX}${encodeURIComponent(gateClass)}`;
 }
 
 function digestKey(digest: ContentDigestV1): string {
@@ -371,6 +377,7 @@ export async function runGate(
         type: 'admission.evidence-recorded',
         timestamp: createdAt,
         operationId,
+        source: gateRunnerObservationSource(provider.gateClass),
         data: record,
       },
       { idempotencyKey: record.evidence.evidenceId },
