@@ -1,14 +1,14 @@
 // ─── check_test_adequacy handler (task 014) ──────────────────────────────────
 //
 // Orchestrate action that runs the kill probe (mutation-testing-at-N=1) for a
-// task's diff and emits a `gate.executed` event. The probe composition itself
+// task's diff and persists canonical subject-bound evidence. The probe composition itself
 // lives in the pure-ish `test-adequacy.ts` (split/snapshot/revert/run/restore);
 // this handler wires the production seams:
 //   • resolve repoRoot (supports the worktree-aware 'auto' mode, #1330)
 //   • compute the task diff's changed files via git (baseRef...HEAD)
 //   • resolve the test command via resolveTestRuntime and shell it out,
 //     scoped to the changed test files
-//   • emit gate.executed with operationId idempotency (INV-8)
+//   • persist evidence with trusted-operation idempotency (INV-8)
 //
 // The result is an INV-5b advisory carrier: success:true with data.passed
 // reflecting the probe verdict, never an error envelope for a vacuous-test
@@ -18,8 +18,9 @@
 import { runCommandSync } from '../utils/process.js';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
-import { defaultGitExec, emitGateEvent, SKIPPED_BY_POLICY } from './gate-utils.js';
-import { emitPolicySkipIfNeeded, runGatePreflight } from './pure/gate-preflight.js';
+import { defaultGitExec, resolvePolicySkip, SKIPPED_BY_POLICY } from './gate-utils.js';
+import { runGatePreflight } from './pure/gate-preflight.js';
+import { runDurableGateProducer } from './durable-gate-producer.js';
 import { resolveTestRuntime } from '../config/test-runtime-resolver.js';
 import { splitCommand } from '../config/tokenize-command.js';
 import { detectToolchain, testGlobsForToolchain } from '../config/toolchains.js';
@@ -45,16 +46,14 @@ export interface TestAdequacyArgs {
   /** Explicit agent worktree path — preferred resolver seam for 'auto'. */
   readonly worktreePath?: string;
   /**
-   * Idempotency key for the gate emission (INV-8). When the same operationId is
-   * replayed, the gate.executed collapses to a single row.
+   * Legacy compatibility field. Evidence idempotency is bound exclusively to
+   * the trusted DispatchContext operationId.
    */
   readonly operationId?: string;
 
   /**
-   * SDLC phase to attribute the emitted `gate.executed` event to. Defaults to
-   * 'delegate' (the per-task verification-ladder rung). Back-of-pipeline callers
-   * (review, on the combined diff) pass 'review' so convergence/projection
-   * attributes the kill-probe to the review phase, not delegate (#1618 C2).
+   * Legacy phase carrier retained for public input compatibility. Evidence is
+   * attributed to the active persisted phaseAttemptId.
    */
   readonly phase?: string;
 
@@ -165,7 +164,7 @@ function changedFilesFor(gitExec: GitExec, repoRoot: string, baseRef: string): s
 
 export async function handleTestAdequacy(
   args: TestAdequacyArgs,
-  _stateDir: string,
+  stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
   // Preflight (DR-10): validate the DispatchContext + inputs and resolve the
@@ -185,96 +184,67 @@ export async function handleTestAdequacy(
   const repoRoot = pre.repoRoot;
   const baseRef = args.baseBranch || 'main';
 
-  // ── FIX-1a: verification-ladder self-routing on the stamped profile ──────
-  // When the caller threads the task's riskTier/boundaryTouching stamp and the
-  // policy sequence excludes this gate, skip BEFORE touching the tree — and
-  // still record the routing decision as a gate.executed event.
-  const policySkip = await emitPolicySkipIfNeeded({
-    eventStore,
-    featureId: args.featureId,
-    taskId: args.taskId,
-    branch: args.branch,
-    operationId: args.operationId,
-    riskTier: args.riskTier,
-    boundaryTouching: args.boundaryTouching,
-    projectConfig: args.projectConfig,
-    policyGateName: 'check_test_adequacy',
-    emitGateName: 'test-adequacy',
-    layer: 'testing',
-    phase: args.phase ?? 'delegate',
-  });
-  if (policySkip) {
-    return {
-      success: true,
-      data: {
-        passed: true,
-        skipped: true,
-        redObserved: false,
-        restoredClean: true,
-        probedTests: [],
-        discriminant: SKIPPED_BY_POLICY,
-        reason: policySkip.reason,
-      },
-    };
-  }
-
-  const gitExec = args.gitExec ?? defaultGitExec;
-  const runTests = args.runTests ?? buildDefaultRunTests(repoRoot);
-  const changedFiles = changedFilesFor(gitExec, repoRoot, baseRef);
-
-  // ── FIX-3: thread the resolved toolchain's test-file layout into the probe.
-  // The toolchain registry is the SoT for layout (python tests/**, go *_test.go,
-  // …); toolchains on the co-located default convention resolve to null and the
-  // probe falls back to DEFAULT_TEST_GLOBS.
-  const toolchain = detectToolchain(repoRoot);
-  const toolchainGlobs = toolchain ? testGlobsForToolchain(toolchain.id) : null;
-
-  const probe: ProbeResult = await runProbe({
-    gitExec,
-    repoRoot,
-    baseRef,
-    changedFiles,
-    runTests,
-    ...(toolchainGlobs ? { testGlobs: toolchainGlobs } : {}),
-  });
-
-  // Emit gate.executed with operationId idempotency (INV-8). Fire-and-forget:
-  // emission failure must not break the gate verdict.
-  try {
-    await emitGateEvent(
+  return runDurableGateProducer(
+    {
+      gateClass: 'test-adequacy',
+      featureId: args.featureId,
+      taskId: args.taskId,
+      ...(args.branch ? { branch: args.branch } : {}),
+      baseRef,
+      repoRoot,
+      stateDir,
       eventStore,
-      args.featureId,
-      'test-adequacy',
-      'testing',
-      probe.passed,
-      {
-        dimension: 'D1',
-        phase: args.phase ?? 'delegate',
-        taskId: args.taskId,
-        ...(args.branch ? { branch: args.branch } : {}),
-        redObserved: probe.redObserved,
-        restoredClean: probe.restoredClean,
-        probedTests: probe.probedTests,
-        ...(probe.discriminant ? { discriminant: probe.discriminant } : {}),
-        ...(probe.report ? { report: probe.report } : {}),
-      },
-      args.operationId,
-    );
-  } catch {
-    /* fire-and-forget */
-  }
-
-  // INV-5b advisory carrier — success:true with data.passed reflecting the
-  // probe verdict, NOT an error envelope.
-  return {
-    success: true,
-    data: {
-      passed: probe.passed,
-      redObserved: probe.redObserved,
-      restoredClean: probe.restoredClean,
-      probedTests: probe.probedTests,
-      ...(probe.discriminant ? { discriminant: probe.discriminant } : {}),
-      ...(probe.report ? { report: probe.report } : {}),
     },
-  };
+    async () => {
+      const policySkip = resolvePolicySkip({
+        gateName: 'check_test_adequacy',
+        riskTier: args.riskTier,
+        boundaryTouching: args.boundaryTouching,
+        config: args.projectConfig,
+      });
+      if (policySkip) {
+        return {
+          success: true,
+          data: {
+            passed: true,
+            skipped: true,
+            redObserved: false,
+            restoredClean: true,
+            probedTests: [],
+            discriminant: SKIPPED_BY_POLICY,
+            reason: policySkip.reason,
+          },
+        };
+      }
+
+      const gitExec = args.gitExec ?? defaultGitExec;
+      const runTests = args.runTests ?? buildDefaultRunTests(repoRoot);
+      const changedFiles = changedFilesFor(gitExec, repoRoot, baseRef);
+      const toolchain = detectToolchain(repoRoot);
+      const toolchainGlobs = toolchain ? testGlobsForToolchain(toolchain.id) : null;
+
+      const probe: ProbeResult = await runProbe({
+        gitExec,
+        repoRoot,
+        baseRef,
+        changedFiles,
+        runTests,
+        ...(toolchainGlobs ? { testGlobs: toolchainGlobs } : {}),
+      });
+
+      // INV-5b advisory carrier — success:true with data.passed reflecting the
+      // probe verdict, NOT an error envelope.
+      return {
+        success: true,
+        data: {
+          passed: probe.passed,
+          redObserved: probe.redObserved,
+          restoredClean: probe.restoredClean,
+          probedTests: probe.probedTests,
+          ...(probe.discriminant ? { discriminant: probe.discriminant } : {}),
+          ...(probe.report ? { report: probe.report } : {}),
+        },
+      };
+    },
+  );
 }

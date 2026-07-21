@@ -39,6 +39,15 @@ vi.mock('./pure/static-analysis.js', async (importActual) => {
   };
 });
 
+// Carrier-focused legacy tests exercise the provider body. Durable proof
+// behavior is covered against the real runner in ladder-gate-evidence.test.ts.
+vi.mock('./durable-gate-producer.js', () => ({
+  runDurableGateProducer: (
+    _scope: unknown,
+    executeProvider: () => Promise<ToolResult>,
+  ) => executeProvider(),
+}));
+
 // ─── Mock event store ────────────────────────────────────────────────────────
 
 const mockStore = {
@@ -207,10 +216,10 @@ describe('handleStaticAnalysis', () => {
     });
   });
 
-  // ─── Gate Event Emission ──────────────────────────────────────────────
+  // ─── No legacy gate event emission ────────────────────────────────────
 
   describe('gate event emission', () => {
-    it('handleStaticAnalysis_EmitsGateExecutedEvent', async () => {
+    it('handleStaticAnalysis_DoesNotEmitLegacyGateExecutedEvent', async () => {
       // Arrange
       mockRunStaticAnalysis.mockReturnValue(makePassingResult());
 
@@ -220,53 +229,7 @@ describe('handleStaticAnalysis', () => {
       await handleStaticAnalysis(args, STATE_DIR, mockStore as unknown as EventStore);
 
       // Assert
-      expect(mockStore.append).toHaveBeenCalledTimes(1);
-      const appendCall = mockStore.append.mock.calls[0];
-      expect(appendCall[0]).toBe('feat-1');
-      const event = appendCall[1] as {
-        type: string;
-        data: {
-          gateName: string;
-          layer: string;
-          passed: boolean;
-          details: Record<string, unknown>;
-        };
-      };
-      expect(event.type).toBe('gate.executed');
-      expect(event.data.gateName).toBe('static-analysis');
-      expect(event.data.layer).toBe('quality');
-      expect(event.data.passed).toBe(true);
-      expect(event.data.details).toEqual({
-        dimension: 'D2',
-        phase: 'delegate',
-        passCount: 2,
-        failCount: 0,
-      });
-    });
-  });
-
-  // ─── Phase in Gate Event Details ──────────────────────────────────────
-
-  describe('phase in gate event details', () => {
-    it('handleStaticAnalysis_EmitsGateEvent_IncludesPhaseInDetails', async () => {
-      // Arrange
-      mockRunStaticAnalysis.mockReturnValue(makePassingResult());
-
-      const args = { featureId: 'feat-1', repoRoot: '/home/user/project' };
-
-      // Act
-      await handleStaticAnalysis(args, STATE_DIR, mockStore as unknown as EventStore);
-
-      // Assert
-      expect(mockStore.append).toHaveBeenCalledTimes(1);
-      const appendCall = mockStore.append.mock.calls[0];
-      const event = appendCall[1] as {
-        type: string;
-        data: {
-          details: Record<string, unknown>;
-        };
-      };
-      expect(event.data.details.phase).toBe('delegate');
+      expect(mockStore.append).not.toHaveBeenCalled();
     });
   });
 
@@ -318,26 +281,7 @@ describe('handleStaticAnalysis', () => {
       expect(data.failCount).toBe(0);
       expect(data.report).toContain('Result: SKIP');
 
-      // Assert: gate.executed event reflects skip in details payload.
-      expect(mockStore.append).toHaveBeenCalledTimes(1);
-      const appendCall = mockStore.append.mock.calls[0];
-      expect(appendCall[0]).toBe('feat-1');
-      const event = appendCall[1] as {
-        type: string;
-        data: {
-          gateName: string;
-          layer: string;
-          passed: boolean;
-          details: Record<string, unknown>;
-        };
-      };
-      expect(event.type).toBe('gate.executed');
-      expect(event.data.gateName).toBe('static-analysis');
-      expect(event.data.layer).toBe('quality');
-      expect(event.data.passed).toBe(false);
-      expect(event.data.details.dimension).toBe('D2');
-      expect(event.data.details.skipped).toBe(true);
-      expect(event.data.details.skipReason).toBe('no-toolchain');
+      expect(mockStore.append).not.toHaveBeenCalled();
     });
   });
 
