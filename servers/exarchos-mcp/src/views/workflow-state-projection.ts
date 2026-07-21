@@ -864,6 +864,20 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       // workflow_state-affecting fields, so it leaves the projection unchanged.
       case 'export.requested':
       case 'export.executed':
+      // Phase-gate v2.12 proof substrate: internal audit/replay facts only.
+      // They deliberately do not alter the legacy workflow-state projection
+      // or transition behavior in this release.
+      case 'admission.requirement-resolved':
+      case 'admission.evidence-recorded':
+      case 'admission.transition-decided':
+      case 'admission.waiver-recorded':
+      case 'admission.contradiction-recorded':
+      case 'admission.reassessment-requested':
+      case 'admission.reassessment-completed':
+      case 'admission.shadow-attempt':
+      case 'admission.disagreement-disposition':
+      case 'admission.rollout-decision':
+      case 'admission.enforcement-enabled':
       // #1319 — lands on the shared `meta/feedback` stream, never a feature
       // stream, so it has no effect on any workflow's projected state.
       case 'feedback.recorded':

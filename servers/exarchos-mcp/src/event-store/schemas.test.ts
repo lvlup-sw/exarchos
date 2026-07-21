@@ -630,7 +630,9 @@ describe('EventTypes', () => {
     //   INV-8 idempotency; export.requested carries the RESOLVED path intent before
     //   the zip write, export.executed carries the written bundle's content hash
     //   after, emitted `auto` by the `export` composite handler in task 013).
-    expect(EventTypes).toHaveLength(148);
+    // Phase-gate v2.12 proof substrate adds 11 internal, planned replay
+    // contracts without registering a public admission action or emitter.
+    expect(EventTypes).toHaveLength(159);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');
@@ -4178,7 +4180,7 @@ describe('WLM operational-core merge lease schemas', () => {
     expect(EventTypes).toContain('worktree.merge_executed');
   });
 
-  it('EventTypes_CountPins_148_AllThreeSites', () => {
+  it('EventTypes_CountPins_159_AdmissionProofSchemasAreAdditive', () => {
     // The single canonical count after adding the two operational-core merge
     // types (136 foundation → 138), main's `workflow.plan-revision` merged in
     // (138 → 139), the harness-launcher (DR-2) create pair + launch liveness
@@ -4186,10 +4188,9 @@ describe('WLM operational-core merge lease schemas', () => {
     // prune.executing_started / prune.executed (143 → 145), WLM-6 (DR-2)
     // `workflow.plan-review-dispatched` (145 → 146), and the DR-6 (lifecycle-verbs
     // task 012) two-event `export` contract export.requested / export.executed
-    // (146 → 148). The pinned literal at ALL THREE toHaveLength sites (this file
-    // at two sites plus the mirror __tests__/event-store/schemas.test.ts) must
-    // agree with this — a divergence means one pin was missed.
-    expect(EventTypes).toHaveLength(148);
+    // (146 → 148), followed by the 11 additive internal admission proof event
+    // schemas (148 → 159). These are `planned`, not public append actions.
+    expect(EventTypes).toHaveLength(159);
     // No duplicate slipped in while bumping the count.
     expect(new Set(EventTypes).size).toBe(EventTypes.length);
   });

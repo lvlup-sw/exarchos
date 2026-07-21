@@ -3,8 +3,39 @@ import { z } from 'zod';
 import { WorkflowTypeSchema } from '../workflow/schemas.js';
 import { DoctorOutputSchema } from '../orchestrate/doctor/schema.js';
 import { ReconcilePlanSchema, ReconcileResultSchema } from '../core/onboarding/types.js';
+import {
+  AdmissionDecisionRecordV1Schema,
+  AdmissionEvidenceV1Schema,
+  AdmissionRequirementV1Schema,
+  AttributedPrincipalV1Schema,
+  AuthorizationSnapshotV1Schema,
+  ContentDigestV1Schema,
+  DecisionIdSchema,
+  EvidenceIdSchema,
+  EvidenceSubjectV1Schema,
+  OperationIdSchema,
+  PhaseAttemptIdSchema,
+  PolicyIdSchema,
+  WaiverIdSchema,
+  WaiverProvenanceV1Schema,
+} from '../workflow/admission/types.js';
 
 // ─── Event Type Discriminated Union ─────────────────────────────────────────
+
+/** Additive internal replay types; none are public admission actions in v2.12. */
+export const INTERNAL_ADMISSION_EVENT_TYPES = [
+  'admission.requirement-resolved',
+  'admission.evidence-recorded',
+  'admission.transition-decided',
+  'admission.waiver-recorded',
+  'admission.contradiction-recorded',
+  'admission.reassessment-requested',
+  'admission.reassessment-completed',
+  'admission.shadow-attempt',
+  'admission.disagreement-disposition',
+  'admission.rollout-decision',
+  'admission.enforcement-enabled',
+] as const;
 
 export const EventTypes = [
   'workflow.started',
@@ -370,6 +401,11 @@ export const EventTypes = [
   // while a fresh export invocation mints a distinct key and a new pair.
   'export.requested',
   'export.executed',
+  // Phase-gate v2.12 proof substrate (DR-2 / DR-3). These are additive,
+  // internal replay contracts only. They are classified `planned` below:
+  // v2.12 does not expose admission actions, authorize generic appends, or
+  // consume `admission.enforcement-enabled` to alter transition behavior.
+  ...INTERNAL_ADMISSION_EVENT_TYPES,
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -787,6 +823,23 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   // after), so the model is never nagged to hand-emit them.
   'export.requested': 'auto',
   'export.executed': 'auto',
+
+  // Phase-gate v2.12 proof substrate. Schema registration is deliberately
+  // ahead of every writer so persisted histories have a stable replay
+  // contract. Task 011 owns reserved-event append protection; later v3.0
+  // work owns typed emitters and enforcement. Nothing in this registration
+  // makes these model-emittable or changes transition admission.
+  'admission.requirement-resolved': 'planned',
+  'admission.evidence-recorded': 'planned',
+  'admission.transition-decided': 'planned',
+  'admission.waiver-recorded': 'planned',
+  'admission.contradiction-recorded': 'planned',
+  'admission.reassessment-requested': 'planned',
+  'admission.reassessment-completed': 'planned',
+  'admission.shadow-attempt': 'planned',
+  'admission.disagreement-disposition': 'planned',
+  'admission.rollout-decision': 'planned',
+  'admission.enforcement-enabled': 'planned',
 };
 
 // ─── Base Event Schema ──────────────────────────────────────────────────────
@@ -3057,6 +3110,234 @@ export const ExportExecutedData = z.object({
     .describe('Same key as the paired export.requested intent (INV-8)'),
 });
 
+// ─── Internal admission proof events (phase-gate v2.12, DR-2 / DR-3) ────────
+//
+// These schemas establish an additive replay contract. They deliberately do
+// not define public action arguments, authorize generic event append, evaluate
+// policy, or switch transition enforcement. The domain-bearing fields reuse
+// workflow/admission/types.ts so event and runtime unions cannot drift.
+
+export const AdmissionProofEventVersionSchema = z.literal('1.0');
+
+const AdmissionFactIdSchema = z
+  .string()
+  .min(1)
+  .max(256)
+  .regex(
+    /^[A-Za-z0-9][A-Za-z0-9._:-]*$/,
+    'admission fact IDs may contain only letters, digits, dot, underscore, colon, and hyphen',
+  );
+
+const AdmissionPolicyVersionSchema = z.string().trim().min(1).max(128);
+const AdmissionRecordedAtSchema = z.string().datetime({ offset: true });
+
+const TrustedAdmissionProvenanceFields = {
+  caller: AttributedPrincipalV1Schema,
+  authorization: AuthorizationSnapshotV1Schema,
+} as const;
+
+/** Frozen resolution of one runtime requirement against immutable inputs. */
+export const AdmissionRequirementResolvedData = z
+  .object({
+    eventVersion: AdmissionProofEventVersionSchema,
+    resolutionId: AdmissionFactIdSchema,
+    operationId: OperationIdSchema,
+    policyId: PolicyIdSchema,
+    policyVersion: AdmissionPolicyVersionSchema,
+    policyDigest: ContentDigestV1Schema,
+    requirementSetDigest: ContentDigestV1Schema,
+    inputDigest: ContentDigestV1Schema,
+    resolvedAt: AdmissionRecordedAtSchema,
+    requirement: AdmissionRequirementV1Schema,
+  })
+  .strict()
+  .readonly();
+
+/** Durable evidence fact; the runtime evidence union owns subject/provenance. */
+export const AdmissionEvidenceRecordedData = z
+  .object({
+    eventVersion: AdmissionProofEventVersionSchema,
+    evidence: AdmissionEvidenceV1Schema,
+  })
+  .strict()
+  .readonly();
+
+/** Internal transition decision record, never a public transition carrier. */
+export const AdmissionTransitionDecidedData = z
+  .object({
+    eventVersion: AdmissionProofEventVersionSchema,
+    subject: EvidenceSubjectV1Schema,
+    decision: AdmissionDecisionRecordV1Schema,
+    ...TrustedAdmissionProvenanceFields,
+  })
+  .strict()
+  .readonly();
+
+/** Append-only issue/revoke/supersede waiver provenance. */
+export const AdmissionWaiverRecordedData = z
+  .object({
+    eventVersion: AdmissionProofEventVersionSchema,
+    provenance: WaiverProvenanceV1Schema,
+  })
+  .strict()
+  .readonly();
+
+/** Active, non-superseding evidence disagreement. */
+export const AdmissionContradictionRecordedData = z
+  .object({
+    eventVersion: AdmissionProofEventVersionSchema,
+    contradictionId: AdmissionFactIdSchema,
+    phaseAttemptId: PhaseAttemptIdSchema,
+    policyId: PolicyIdSchema,
+    policyDigest: ContentDigestV1Schema,
+    subject: EvidenceSubjectV1Schema,
+    evidenceIds: z.array(EvidenceIdSchema).min(2).readonly(),
+    evidenceSetDigest: ContentDigestV1Schema,
+    detectedAt: AdmissionRecordedAtSchema,
+  })
+  .strict()
+  .readonly();
+
+/** Authorized intent to reconsider a prior immutable decision under a policy. */
+export const AdmissionReassessmentRequestedData = z
+  .object({
+    eventVersion: AdmissionProofEventVersionSchema,
+    reassessmentId: AdmissionFactIdSchema,
+    operationId: OperationIdSchema,
+    phaseAttemptId: PhaseAttemptIdSchema,
+    priorDecisionId: DecisionIdSchema,
+    policyId: PolicyIdSchema,
+    policyVersion: AdmissionPolicyVersionSchema,
+    policyDigest: ContentDigestV1Schema,
+    inputDigest: ContentDigestV1Schema,
+    subject: EvidenceSubjectV1Schema,
+    evidenceIds: z.array(EvidenceIdSchema).readonly(),
+    waiverIds: z.array(WaiverIdSchema).readonly(),
+    requestedAt: AdmissionRecordedAtSchema,
+    ...TrustedAdmissionProvenanceFields,
+  })
+  .strict()
+  .readonly();
+
+/** Reassessment result preserving both the prior and replacement decisions. */
+export const AdmissionReassessmentCompletedData = z
+  .object({
+    eventVersion: AdmissionProofEventVersionSchema,
+    reassessmentId: AdmissionFactIdSchema,
+    priorDecisionId: DecisionIdSchema,
+    subject: EvidenceSubjectV1Schema,
+    decision: AdmissionDecisionRecordV1Schema,
+    completedAt: AdmissionRecordedAtSchema,
+    ...TrustedAdmissionProvenanceFields,
+  })
+  .strict()
+  .readonly();
+
+/** Audit-only comparison of current legacy behavior with an admission record. */
+export const AdmissionShadowAttemptData = z
+  .object({
+    eventVersion: AdmissionProofEventVersionSchema,
+    shadowAttemptId: AdmissionFactIdSchema,
+    operationId: OperationIdSchema,
+    phaseAttemptId: PhaseAttemptIdSchema,
+    legacyOutcome: z.enum(['allow', 'deny']),
+    subject: EvidenceSubjectV1Schema,
+    evidenceSetDigest: ContentDigestV1Schema,
+    decision: AdmissionDecisionRecordV1Schema,
+    attemptedAt: AdmissionRecordedAtSchema,
+    ...TrustedAdmissionProvenanceFields,
+  })
+  .strict()
+  .readonly();
+
+/** Attributable disposition of a legacy/admission shadow disagreement. */
+export const AdmissionDisagreementDispositionData = z
+  .object({
+    eventVersion: AdmissionProofEventVersionSchema,
+    dispositionId: AdmissionFactIdSchema,
+    shadowAttemptId: AdmissionFactIdSchema,
+    disposition: z.enum([
+      'explained-legacy',
+      'explained-admission',
+      'accepted-risk',
+      'unexplained',
+    ]),
+    rationale: z.string().trim().min(1).max(2_000),
+    recordedAt: AdmissionRecordedAtSchema,
+    ...TrustedAdmissionProvenanceFields,
+  })
+  .strict()
+  .readonly();
+
+/** Authorized, attributable rollout assessment; still inert in v2.12. */
+export const AdmissionRolloutDecisionData = z
+  .object({
+    eventVersion: AdmissionProofEventVersionSchema,
+    rolloutDecisionId: AdmissionFactIdSchema,
+    operationId: OperationIdSchema,
+    outcome: z.enum(['approve-enforcement', 'continue-shadow']),
+    policyId: PolicyIdSchema,
+    policyVersion: AdmissionPolicyVersionSchema,
+    policyDigest: ContentDigestV1Schema,
+    inputDigest: ContentDigestV1Schema,
+    evidenceIds: z.array(EvidenceIdSchema).readonly(),
+    shadowEvidenceDigest: ContentDigestV1Schema,
+    decidedAt: AdmissionRecordedAtSchema,
+    ...TrustedAdmissionProvenanceFields,
+  })
+  .strict()
+  .readonly();
+
+/**
+ * Replay shape for a future enablement fact. Merely registering this planned
+ * schema does not make any v2.12 resolver consume it or enable enforcement.
+ */
+export const AdmissionEnforcementEnabledData = z
+  .object({
+    eventVersion: AdmissionProofEventVersionSchema,
+    enablementId: AdmissionFactIdSchema,
+    operationId: OperationIdSchema,
+    rolloutDecisionId: AdmissionFactIdSchema,
+    policyId: PolicyIdSchema,
+    policyVersion: AdmissionPolicyVersionSchema,
+    policyDigest: ContentDigestV1Schema,
+    inputDigest: ContentDigestV1Schema,
+    enabledAt: AdmissionRecordedAtSchema,
+    ...TrustedAdmissionProvenanceFields,
+  })
+  .strict()
+  .readonly();
+
+export type AdmissionRequirementResolved = z.infer<
+  typeof AdmissionRequirementResolvedData
+>;
+export type AdmissionEvidenceRecorded = z.infer<
+  typeof AdmissionEvidenceRecordedData
+>;
+export type AdmissionTransitionDecided = z.infer<
+  typeof AdmissionTransitionDecidedData
+>;
+export type AdmissionWaiverRecorded = z.infer<typeof AdmissionWaiverRecordedData>;
+export type AdmissionContradictionRecorded = z.infer<
+  typeof AdmissionContradictionRecordedData
+>;
+export type AdmissionReassessmentRequested = z.infer<
+  typeof AdmissionReassessmentRequestedData
+>;
+export type AdmissionReassessmentCompleted = z.infer<
+  typeof AdmissionReassessmentCompletedData
+>;
+export type AdmissionShadowAttempt = z.infer<typeof AdmissionShadowAttemptData>;
+export type AdmissionDisagreementDisposition = z.infer<
+  typeof AdmissionDisagreementDispositionData
+>;
+export type AdmissionRolloutDecision = z.infer<
+  typeof AdmissionRolloutDecisionData
+>;
+export type AdmissionEnforcementEnabled = z.infer<
+  typeof AdmissionEnforcementEnabledData
+>;
+
 // ─── Event Data Schemas Map ─────────────────────────────────────────────────
 
 export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
@@ -3290,6 +3571,19 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   // DR-6 (lifecycle-verbs task 012) — export two-event contract (INV-13 / INV-8).
   'export.requested': ExportRequestedData,
   'export.executed': ExportExecutedData,
+
+  // Phase-gate v2.12 internal proof/admission replay contracts (DR-2 / DR-3).
+  'admission.requirement-resolved': AdmissionRequirementResolvedData,
+  'admission.evidence-recorded': AdmissionEvidenceRecordedData,
+  'admission.transition-decided': AdmissionTransitionDecidedData,
+  'admission.waiver-recorded': AdmissionWaiverRecordedData,
+  'admission.contradiction-recorded': AdmissionContradictionRecordedData,
+  'admission.reassessment-requested': AdmissionReassessmentRequestedData,
+  'admission.reassessment-completed': AdmissionReassessmentCompletedData,
+  'admission.shadow-attempt': AdmissionShadowAttemptData,
+  'admission.disagreement-disposition': AdmissionDisagreementDispositionData,
+  'admission.rollout-decision': AdmissionRolloutDecisionData,
+  'admission.enforcement-enabled': AdmissionEnforcementEnabledData,
 };
 
 // ─── TypeScript Types ───────────────────────────────────────────────────────
