@@ -12,7 +12,14 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import * as fc from 'fast-check';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -237,6 +244,41 @@ describe('snapshot/revert/restore (INV-14: refuse-to-discard recovery)', () => {
         expect(restore.restored).toBe(true);
       }
       // Restored tree is byte-identical to the pre-probe snapshot.
+      expect(workingTreeHash(repoRoot)).toBe(before);
+    },
+    30_000,
+  );
+
+  it(
+    'RevertSourceFiles_MixedExistingAndAddedSource_RevertsAndRestores',
+    () => {
+      const { repoRoot, baseRef, sourceFile } = setupTaskRepo(
+        'test-adequacy-added-source-',
+      );
+      repos.push(repoRoot);
+      const addedSource = 'src/transition-admission-corpus.ts';
+      const absoluteAddedSource = path.join(repoRoot, addedSource);
+      writeFileSync(absoluteAddedSource, 'export const corpus = [];\n');
+      git(repoRoot, ['add', addedSource]);
+      git(repoRoot, ['commit', '-m', 'task: add characterization corpus', '-q']);
+
+      const before = workingTreeHash(repoRoot);
+      const snap = snapshotWorkingTree(realGitExec, repoRoot);
+      expect('stashSha' in snap).toBe(true);
+      if (!('stashSha' in snap)) throw new Error('snapshot failed');
+
+      const reverted = revertSourceFiles(realGitExec, repoRoot, baseRef, [
+        sourceFile,
+        addedSource,
+      ]);
+
+      expect(reverted.ok).toBe(true);
+      expect(readFileSync(path.join(repoRoot, sourceFile), 'utf-8')).toContain('=> 1');
+      expect(existsSync(absoluteAddedSource)).toBe(false);
+
+      const restore = restoreWorkingTree(realGitExec, repoRoot, snap.stashSha);
+      expect(restore.restored).toBe(true);
+      expect(existsSync(absoluteAddedSource)).toBe(true);
       expect(workingTreeHash(repoRoot)).toBe(before);
     },
     30_000,
