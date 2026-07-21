@@ -213,8 +213,11 @@ describe('internal transition admission event schemas', () => {
 
     for (const [type, payload] of Object.entries(validEvents)) {
       expect(EventTypes).toContain(type);
+      const expectedSource = type === 'admission.evidence-recorded'
+        ? 'auto'
+        : 'planned';
       expect(EVENT_EMISSION_REGISTRY[type as keyof typeof EVENT_EMISSION_REGISTRY])
-        .toBe('planned');
+        .toBe(expectedSource);
 
       const schema = EVENT_DATA_SCHEMAS[type as keyof typeof EVENT_DATA_SCHEMAS];
       expect(schema, `missing schema for ${type}`).toBeDefined();
