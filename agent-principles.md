@@ -1,103 +1,113 @@
-# Structural principles for AI-driven development
+# Seven structural principles for AI-driven development
 
 ## Premise
 
-The marginal cost of producing code has collapsed. The cost of proving that code is correct, complete, compatible, and safe has not. It often grows faster than output because every generated component adds states, boundaries, interactions, and claims that must be checked.
+Code is now cheap to produce. Proof is not.
 
-The architecture of an AI-driven codebase should therefore optimize for verification cost, not code-production cost.
+AI can generate a large implementation before a reviewer has reconstructed the problem, mapped the dependencies, or identified the relevant invariants. If the codebase relies on handwritten synchronization, hidden wiring, mutable shared state, and broad end-to-end tests, verification cost rises with every generated component.
 
-The governing rule is:
+The response is architectural:
 
-> Convert every fact that can be proved by construction into a generated, compile-time, or deterministic check. Reserve tests and human review for facts that require runtime or semantic judgment.
+> Move correctness claims into structures that are cheap to re-prove: generated contracts, algebraic types, pure functions, explicit module boundaries, enumerable integration graphs, layered proofs, and permanent ratchets.
 
-A useful proof order is:
+Functional programming supplies several of these structures. Algebraic data types reduce invalid states. Pure functions make behavior deterministic. Immutable values and explicit effects make dependencies visible. These techniques are necessary but not sufficient. Purity cannot prove that a handler is registered, a client matches a server, or the shipped artifact contains the intended feature. The seven principles combine functional techniques with contract generation and integration proof.
 
-1. construction and code generation;
+## Definitions
+
+Let:
+
+- \(O(C)\) be the set of correctness obligations for a codebase \(C\);
+- \(M(p)\) be the sound methods available to prove an obligation \(p\);
+- \(\operatorname{cost}(m)\) be the recurring cost of applying proof method \(m\).
+
+The design objective is:
+
+\[
+V(C) = \sum_{p \in O(C)} \min_{m \in M(p)} \operatorname{cost}(m)
+\]
+
+This is not a predictive cost model. It is a design test. For each correctness claim, use the cheapest sound proof. A compiler check is preferable to a repeated test. A generated artifact is preferable to synchronized copies. A local contract proof is preferable to reconstructing a monolith.
+
+The preferred proof order is:
+
+1. construction and generation;
 2. compiler and type system;
-3. deterministic static analysis;
+3. deterministic structural analysis;
 4. contract and component tests;
 5. production-path integration tests;
 6. human judgment.
 
-Use the earliest layer capable of proving the claim. Do not repeatedly test a fact that a stronger, cheaper layer can make impossible to violate.
+## Principle 1: Generate every boundary from one contract
 
-## 1. Author each boundary contract once
+### Statement
 
-### Rule
+Each boundary has one executable, versioned contract. Static types, runtime validators, clients, server interfaces, errors, fixtures, compatibility metadata, and reference documentation are generated from it.
 
-Every boundary should have one executable, versioned contract from which all mechanical representations are generated.
+![One contract generates every boundary representation](docs/assets/agent-principles-contract-generation.svg)
 
-This applies to:
+> **Lemma 1 (representation consistency).** If \(n\) boundary representations can change independently, the system carries \(n\) source-conformance obligations and up to \(n(n-1)/2\) pairwise consistency relationships. If all \(n\) representations are deterministic products of one source \(S\), maintenance reduces to validating \(S\), the generators, and semantic implementation conformance.
 
-- public APIs;
-- internal service interfaces;
-- events and commands;
-- persisted records;
-- configuration;
-- tool calls;
-- CLI input and output;
-- error envelopes;
-- extension and plugin protocols.
+**Argument.** Independent representations can drift in any direction. Tests may compare some pairs, but every untested pair remains a possible contradiction. Generation removes independent editability. The generated artifacts may still be wrong if the source or generator is wrong, but the number of moving facts falls sharply.
 
-### Apply it
+### Code rules
 
-Author the contract in an IDL or schema system such as TypeSpec, OpenAPI, Protocol Buffers, JSON Schema, GraphQL, Smithy, or an equivalent typed source.
+- Author APIs, commands, events, persisted records, configuration, and error envelopes in an IDL or schema language.
+- Generate both input and output types.
+- Generate runtime parsers at trust boundaries. Static types do not validate network, file, or database input.
+- Generate client and provider conformance fixtures.
+- Generate compatibility metadata and documentation from the same source.
+- Keep handwritten business behavior behind generated server interfaces.
+- Ban authoritative copies of field names, enum values, event names, and error codes.
 
-Generate:
+Typical pipeline:
 
 ```text
 contract
-  -> language types
-  -> runtime validators and parsers
+  -> static types
+  -> runtime validators
   -> client SDK
-  -> server interface or handler skeleton
-  -> error types
-  -> serialization code
-  -> test fixtures and builders
-  -> compatibility metadata
+  -> server interface
+  -> error union
+  -> fixtures
+  -> compatibility report
   -> reference documentation
 ```
 
-Generate both inputs and outputs. A generated request type paired with a handwritten response object leaves half the boundary unproved.
+### Required proof
 
-### Prove it
+CI must:
 
-CI should:
+1. regenerate all contract artifacts;
+2. fail if generation changes the working tree;
+3. compare the contract with the target branch;
+4. reject forbidden compatibility breaks;
+5. run generated provider and consumer conformance suites.
 
-```text
-generate contracts
-fail if the working tree changes
-compare the contract against the target branch
-reject forbidden compatibility breaks
-run generated provider and consumer conformance suites
-```
+A generated request type paired with a handwritten response object does not satisfy the principle. Half the boundary remains synchronized by convention.
 
-### Avoid
+## Principle 2: Make domain behavior algebraic and effects explicit
 
-- handwritten copies of the same type in several packages;
-- runtime schemas that disagree with static types;
-- examples used as the real specification;
-- documentation that independently restates field names or allowed values;
-- stringly typed errors, commands, event names, or status values.
+### Statement
 
-## 2. Make illegal states unrepresentable
+Represent valid domain states with algebraic types. Express decisions as pure functions. Move I/O, time, randomness, persistence, and external mutation behind typed effect ports.
 
-### Rule
+![Pure decision core surrounded by explicit effect adapters](docs/assets/agent-principles-functional-core.svg)
 
-Use the type system and constructors to prevent invalid state from entering the program.
+> **Lemma 2 (state-space reduction).** A representation with \(m\) independent booleans admits \(2^m\) configurations before additional constraints. A sum type with \(k\) legal constructors admits exactly the \(k\) represented modes, excluding invalid combinations by construction.
 
-### Apply it
+**Argument.** Verification effort grows with reachable state. Boolean flags, nullable fields, sentinel values, and partial objects admit combinations the domain never intended. Algebraic types encode the legal alternatives directly. Pure functions then map explicit input and state to explicit output without hidden dependencies, making the same input reproducible.
 
-Prefer:
+### Code rules
 
-- discriminated unions over related booleans;
-- branded or nominal identifiers over plain strings;
-- non-empty collections when emptiness is invalid;
-- explicit optionality instead of sentinel values;
-- validated value objects for paths, versions, digests, money, and timestamps;
-- exhaustive pattern matching over default branches;
-- typestate or state-specific types for lifecycle transitions;
-- constructors that return typed failures instead of partially valid objects.
+- Use discriminated unions or sealed hierarchies instead of related booleans.
+- Use nominal or branded identifiers instead of plain strings.
+- Use validated value objects for paths, versions, money, digests, and timestamps.
+- Use non-empty collection types when emptiness is invalid.
+- Require exhaustive pattern matching. Avoid catch-all branches over closed domains.
+- Return typed results such as `Result`, `Either`, or a discriminated error union.
+- Pass clocks, random sources, environment, filesystem, network, and persistence through explicit ports.
+- Keep state immutable inside the decision layer.
+- Represent lifecycle changes as typed commands and state transitions, not field assignment.
 
 Example:
 
@@ -108,512 +118,315 @@ type GateResult =
   | { kind: "indeterminate"; cause: InfrastructureFailure };
 ```
 
-This is stronger than:
+This type prevents a caller from treating missing evidence as success. A structure such as `{ passed: boolean; error?: string }` does not.
 
-```ts
-type GateResult = {
-  passed: boolean;
-  error?: string;
-};
-```
+### Required proof
 
-The first form forces callers to handle the difference between a product failure and missing evidence. The second permits accidental success-shaped behavior.
+- Strict compiler settings are mandatory.
+- Closed unions require exhaustive handling.
+- Raw transport and persistence values are parsed before entering domain code.
+- Pure decisions are covered by property, model-based, or exhaustive tests.
+- Effect adapters pass contract tests.
+- Transition admission and persistence are atomic where concurrency matters.
+- Commands that may repeat are idempotent.
 
-### Prove it
+Functional programming carries most of this principle. The purpose is not stylistic purity. The purpose is a smaller state space and cheaper local proof.
 
-- enable strict compiler settings;
-- require exhaustive switches;
-- prohibit unsafe casts and unvalidated deserialization at boundaries;
-- keep raw transport and persistence types out of domain code;
-- test constructors and parsers, not every downstream use of a validated value.
+## Principle 3: Modularize around independently provable units
 
-## 3. Build independently verifiable modules
+### Statement
 
-### Rule
+A module owns a coherent set of invariants, exposes a narrow contract, declares every dependency and effect, and can be verified through its public boundary.
 
-A module should expose a narrow public contract, own its invariants, and be verifiable through that contract without knowledge of its internals.
+> **Lemma 3 (compositional verification).** Suppose modules \(A_1, \ldots, A_n\) have complete contracts, no hidden shared state, and interactions only through those contracts. System verification decomposes into module conformance plus contract composition. If interactions bypass contracts, consumers must reason about provider internals and the decomposition is unsound.
 
-### Apply it
+**Argument.** A useful module boundary lets verification stop. Once a provider proves its contract, each consumer can rely on that contract instead of rechecking the provider's implementation. Hidden database writes, global state, reflection-based coupling, and internal imports destroy this property because behavior crosses the boundary without appearing in its contract.
 
-Each module should declare:
+### Code rules
 
-- its public inputs and outputs;
-- the invariants it owns;
-- the dependencies it requires;
-- the effects it may perform;
-- the errors it may return;
-- the state it owns;
-- its compatibility policy.
+Each module declares:
 
-Prefer high cohesion and explicit dependency direction. Avoid modules that share mutable state, reach into each other's persistence, or depend on undeclared globals.
+- public inputs and outputs;
+- owned invariants;
+- owned state;
+- allowed effects;
+- dependencies;
+- failure modes;
+- compatibility policy.
 
-A good boundary lets verification stop. Once a module proves its contract, consumers should not need to re-prove its implementation details.
+Enforce:
 
-### Prove it
+- directional dependencies;
+- no dependency cycles;
+- no direct writes to another module's state;
+- no internal imports across module boundaries;
+- adapters for external systems;
+- public test seams instead of privileged access to internals.
 
-- enforce import and dependency boundaries;
-- reject dependency cycles;
-- expose test seams only through public ports, not internal implementation access;
-- run the module's contract suite against every implementation;
-- verify that no other module writes its state directly.
+Prefer a functional core inside each module. The module boundary then contains the effects while the core remains deterministic.
 
-If a component cannot be tested through its public interface, the boundary is probably wrong.
+### Required proof
 
-## 4. Separate decisions from effects
+- Architecture checks enforce allowed imports and ownership.
+- Every implementation passes its module contract suite.
+- Reverse dependencies can be computed from declared contracts.
+- A module can be tested through its public interface.
+- Replacement implementations can be checked with the same conformance suite.
 
-### Rule
+If a module cannot be verified without reaching into its internals, its public contract is incomplete or its responsibilities are mixed.
 
-Keep business decisions deterministic. Push I/O and mutation to explicit adapters.
+## Principle 4: Make integration completeness a graph property
 
-### Apply it
+### Statement
 
-Use a functional-core, imperative-shell shape:
+Represent the production composition as a directed graph. A capability is complete only when the required path from public entry point to observable effect exists, every edge is implemented, and the path is exercised through the shipped composition root.
 
-```text
-validated input + current state
-  -> pure decision
-  -> typed result and requested effects
-  -> effect adapters
-```
+![Integration completeness requires a reachable production path](docs/assets/agent-principles-integration-closure.svg)
 
-The decision layer should not read clocks, random generators, environment variables, network services, global state, or the filesystem directly. Pass those values in through typed ports.
+> **Lemma 4 (presence does not imply reachability).** Let \(G = (N, E)\) be a directed integration graph, \(r\) a public root, and \(q\) a required effect. The presence of all intended nodes in \(N\) does not imply that \(q\) is reachable from \(r\). Capability completeness requires a valid path \(r \leadsto q\) and conformance of every edge on that path.
 
-### Prove it
+**Argument.** Unit tests can prove that each node works in isolation while the production feature remains dead. A handler may have no route. A provider may never be selected. A generated client may target a shape the server does not expose. Reachability is a separate property and must be proved directly.
 
-The pure core can be checked with:
+### Code rules
 
-- property-based tests;
-- model-based tests;
-- exhaustive tests over small state spaces;
-- deterministic replay;
-- mutation testing.
-
-Adapters need smaller contract and integration suites. This prevents broad end-to-end tests from carrying the entire verification burden.
-
-## 5. Represent integration topology as data
-
-### Rule
-
-The system should be able to enumerate every required integration edge and fail mechanically when an edge is missing.
-
-### Apply it
-
-Represent composition in typed registries, manifests, or generated graphs:
+Materialize integration in typed registries or generated manifests:
 
 ```text
 operation -> route -> handler -> domain port -> adapter
-event -> producer -> schema -> registry -> consumer or projector
-command -> parser -> validator -> handler -> result serializer
+event -> producer -> schema -> registry -> consumer
+command -> parser -> validator -> handler -> serializer
 plugin -> capability -> implementation -> activation path
 ```
 
-Do not hide required wiring in reflection, naming conventions, scattered imports, or model-authored instructions unless a build step materializes and validates the graph.
+Generate or validate the graph during the build. Do not leave required wiring implicit in file names, reflection, scattered imports, or prose.
 
-### Prove it
+Maintain a ship-surface manifest:
 
-Add structural checks for:
+| Capability | Public root | Required effect | Shipped artifact | Proof fixture |
+|---|---|---|---|---|
+| Create task | CLI/API | task persisted | CLI/server bundle | fixture ID |
+| Transition state | API | projection updated | server bundle | fixture ID |
+| Install plugin | bootstrap | files installed | release archive | fixture ID |
+
+### Required proof
+
+Static closure checks fail on:
 
 - public operations without handlers;
-- handlers without reachable public callers;
-- registered events without schemas;
-- emitted events without registered consumers when a consumer is required;
-- declared capabilities without implementations;
-- implementations that are never selected by the composition root;
-- generated clients without provider conformance;
-- gates that are registered but have no production caller;
-- configuration keys that are read but never declared.
+- handlers without reachable callers;
+- capabilities without implementations;
+- implementations never selected by the composition root;
+- events without schemas;
+- required consumers that are absent;
+- configuration reads without declarations;
+- gates with no production caller.
 
-The build should fail on an orphaned required edge.
+Static closure is followed by a small production-path test that uses the real public entry point, transport, dependency graph, persistence, configuration, and packaged artifact.
 
-This directly addresses the recurring "present but not working" failure. In Exarchos, [PR #1424](https://github.com/lvlup-sw/exarchos/pull/1424), [issue #1436](https://github.com/lvlup-sw/exarchos/issues/1436), and [issue #1451](https://github.com/lvlup-sw/exarchos/issues/1451) showed that helpers, schemas, and adapters could all exist while the production feature remained dead.
+Exarchos [PR #1424](https://github.com/lvlup-sw/exarchos/pull/1424), [issue #1436](https://github.com/lvlup-sw/exarchos/issues/1436), and [issue #1451](https://github.com/lvlup-sw/exarchos/issues/1451) demonstrate the failure: schemas, helpers, adapters, and unit tests existed, but the production path never fired.
 
-## 6. Prove the composition root and shipped artifact
+## Principle 5: Assign every claim to the cheapest sound proof
 
-### Rule
+### Statement
 
-Every user-visible capability needs at least one proof that starts from the real public entry point and crosses the actual production composition root.
+Every acceptance criterion names one primary proof layer. Higher-cost layers verify only claims that lower-cost layers cannot establish.
 
-### Apply it
+![Verification claims should be assigned to the lowest sound proof layer](docs/assets/agent-principles-proof-ladder.svg)
 
-The test should use the same:
+> **Lemma 5 (proof-layer dominance).** If method \(a\) soundly enforces property \(p\) for every construction and has lower recurring cost than method \(b\), repeatedly applying \(b\) to recheck \(p\) adds cost without increasing detection for \(p\). Method \(b\) remains useful only for properties outside the scope of \(a\).
 
-- generated client or public CLI;
-- transport;
-- dependency-injection graph;
-- configuration loader;
-- persistence implementation;
-- packaged or bundled artifact;
-- authorization path;
-- serialization boundary.
+**Argument.** A compiler can prove exhaustiveness on every build. An end-to-end test can sample only chosen paths. Using the end-to-end suite to re-prove enum closure is slower and weaker. The reverse mistake is also common: static types cannot prove that a distributed side effect occurred or that the packaged program starts. Each claim belongs at the lowest layer that can soundly prove it.
 
-It should verify the externally observable result and any required durable side effects.
+### Code rules
 
-Examples:
-
-- invoke the packaged CLI, not its command function;
-- use a real protocol client against the server transport, not a direct handler call;
-- start the application from its production bootstrap;
-- install the built package into a clean fixture;
-- restart and verify persisted behavior where replay matters.
-
-### Prove it
-
-Maintain a small ship-surface matrix:
-
-| Capability | Public entry point | Shipped artifact | Durable effect | Production-path proof |
-|---|---|---|---|---|
-| Create task | CLI and API | bundled CLI/server | task stream | fixture ID |
-| Transition workflow | API | server bundle | state projection | fixture ID |
-| Install plugin | bootstrap script | release archive | installed files | fixture ID |
-
-Every required row must have a passing proof. This is integration completeness expressed as data, not confidence inferred from unit-test volume.
-
-## 7. Layer proofs to minimize cost
-
-### Rule
-
-Use a verification ladder in which each layer proves only what cheaper layers cannot.
-
-### Apply it
-
-| Layer | Best use |
+| Layer | Claims it should own |
 |---|---|
-| Code generation | consistency among repeated representations |
-| Compiler | shape, exhaustiveness, ownership, invalid state |
-| Static structural checks | dependency direction, registry closure, forbidden APIs |
-| Contract tests | boundary behavior and provider/consumer agreement |
-| Component tests | module semantics with controlled dependencies |
-| Integration tests | composition, transport, persistence, packaging |
-| End-to-end tests | a small set of high-value user outcomes |
+| Generation | repeated representation consistency |
+| Compiler | shape, exhaustiveness, ownership, illegal state |
+| Structural analysis | dependency direction, graph closure, forbidden APIs |
+| Contract tests | provider and consumer agreement |
+| Component tests | module semantics under controlled effects |
+| Integration tests | transport, persistence, composition, packaging |
+| End-to-end tests | a small set of valuable user outcomes |
 | Human review | intent, tradeoffs, maintainability, novel risk |
 
-Do not use expensive end-to-end tests to prove field names, enum closure, or handler registration. Do not expect the compiler to prove distributed side effects or business meaning.
+Use property-based, model-based, fuzz, differential, and metamorphic tests when the obligation describes a behavior space rather than a few examples. Use mutation testing to check whether the suite detects representative faults.
 
-### Prove it
+### Required proof
 
-For every acceptance criterion, name the cheapest proof layer that can establish it. A criterion without a named proof is incomplete.
+Each acceptance criterion records:
 
-## 8. Generate conformance tests with contracts
+- the property being claimed;
+- the primary proof layer;
+- the artifact or fixture that implements the proof;
+- the failure signal;
+- the reason a cheaper layer is insufficient.
 
-### Rule
+A criterion without a named proof is incomplete. A test count or coverage percentage is not a proof assignment.
 
-A boundary contract should generate executable obligations for both providers and consumers.
+## Principle 6: Make every change proof-carrying and bounded
 
-### Apply it
+### Statement
 
-Generate:
+A change includes machine-readable evidence of its affected contracts, reverse dependencies, selected checks, generated artifacts, production-path proofs, and rollback boundary. Evidence is bound to the exact revision and artifact.
 
-- valid and invalid examples;
-- serialization round trips;
-- required-field and unknown-field behavior;
-- error-code coverage;
-- pagination and ordering cases;
-- compatibility fixtures;
-- protocol state-machine cases;
-- provider and consumer test harnesses.
+> **Lemma 6 (impact closure).** If all dependencies are explicit in graph \(G\), the reverse transitive closure of a changed contract contains every component that may depend on that contract. Test selection over this closure is sound with respect to declared dependencies. Hidden edges make the selection unsound.
 
-Run the same conformance suite against every implementation. For external consumers, publish the suite or fixtures with the contract package.
+**Argument.** Reviewers should not reconstruct the blast radius from a large diff. The dependency graph already contains most of the answer if the architecture has honest boundaries. A change can then carry its own proof plan. Hidden dependencies are not merely untidy; they prevent sound impact analysis.
 
-### Prove it
-
-- every provider passes the generated provider suite;
-- every client passes the generated consumer suite;
-- compatibility tests run against the previous supported version;
-- contract changes declare additive, deprecated, or breaking semantics;
-- deprecations have a measured consumer-removal condition.
-
-## 9. Model state transitions explicitly
-
-### Rule
-
-State changes should occur through typed commands and validated transitions, not arbitrary field mutation.
-
-### Apply it
-
-Define:
-
-- legal states;
-- legal transitions;
-- required evidence for each transition;
-- transition-specific inputs;
-- emitted events;
-- side effects;
-- retry and compensation behavior.
-
-Use one transition function or state-machine boundary. Do not let callers set `status`, `phase`, or related fields directly.
-
-### Prove it
-
-- the compiler or state-machine generator enumerates legal transitions;
-- illegal transitions fail before side effects;
-- transition admission and state persistence are atomic;
-- concurrent writers use optimistic concurrency control or equivalent;
-- repeated commands are idempotent;
-- replay reaches the same state;
-- partial failure has a tested recovery path.
-
-[Issue #1370](https://github.com/lvlup-sw/exarchos/issues/1370) found 31 defects caused in part by prose instructing agents to mutate phase through an API that rejected phase mutation. The structural fix is one typed transition path, not better reminders.
-
-## 10. Make changes proof-carrying
-
-### Rule
-
-A change should arrive with machine-verifiable evidence describing what changed, what contracts it affects, and what proves it.
-
-### Apply it
+### Code rules
 
 For each change, derive:
 
-- changed public contracts;
-- affected modules and consumers;
-- required compatibility checks;
-- selected tests;
-- generated artifacts;
-- migration requirements;
-- production-path proofs;
-- rollback or feature-disable path.
-
-Use the dependency and contract graph to select verification. Do not ask an agent or reviewer to rediscover the blast radius from the diff.
-
-### Prove it
-
-Attach evidence to the exact commit or artifact digest:
-
 ```text
-change
-  -> affected contracts
+changed contract
+  -> compatibility classification
+  -> reverse dependency closure
   -> generated diff
-  -> selected checks
-  -> results
+  -> selected conformance and component checks
+  -> required production-path fixtures
   -> packaged artifact
-  -> production-path proof
+  -> rollback or disable path
 ```
 
-Evidence from another revision is stale. A green check without a subject binding is not proof.
+Keep changes small enough that this closure remains reviewable. Use directional dependencies, isolated state ownership, stable adapters, and feature switches at contract boundaries.
 
-## 11. Bound the blast radius of every component and change
+Bind all evidence to:
 
-### Rule
+- source revision;
+- contract digest;
+- generator and tool versions;
+- policy or suite version;
+- artifact digest;
+- execution environment.
 
-Architecture should make the impact of a change predictable before the change is implemented.
+### Required proof
 
-### Apply it
+- The affected set is generated from the dependency graph.
+- Contract changes receive an explicit compatibility classification.
+- Evidence from another revision is rejected as stale.
+- The packaged artifact is the subject of the final production-path proof.
+- High-consequence changes have a tested rollback or disable path.
 
-- keep dependencies directional;
-- avoid shared mutable state;
-- isolate persistence ownership;
-- use adapters for external systems;
-- version public contracts;
-- use feature flags at stable boundaries;
-- split work by independently buildable and testable slices;
-- keep commits and pull requests small enough to reason about;
-- forbid unrelated cleanup in behavior-changing changes.
+A green check without a subject binding is evidence that something passed, not that this change passed.
 
-### Prove it
+## Principle 7: Convert verification discoveries into structural ratchets
 
-- compute reverse dependencies for changed contracts;
-- fail on dependency cycles or forbidden cross-module imports;
-- run affected-module tests plus contract consumers;
-- verify that a rollback or disable path exists for high-risk changes;
-- track review and verification time by change size and boundary count.
+### Statement
 
-## 12. Test behavior spaces, not generated examples
+When review, testing, or production reveals a defect class, encode the lesson at the earliest structural layer that can prevent recurrence. Pair each ratchet with a fixture that proves the control fails on the old defect.
 
-### Rule
+> **Lemma 7 (ratchet break-even).** Let \(g\) be the one-time cost of a structural guard, \(p\) the probability that a defect class recurs per change, \(r\) the cost of detecting and repairing one recurrence, and \(N\) the expected number of future changes. The guard reduces expected cost when \(g < Npr\), before accounting for escaped defects.
 
-AI can cheaply generate many example tests that repeat the implementation's assumptions. Use verification techniques that search the behavior space or challenge those assumptions.
+**Argument.** Manual review charges the same reasoning cost on every change and still misses cases. A type, generator, architecture check, or adversarial fixture pays once and runs repeatedly. The second occurrence of the same defect class is evidence that the current proof system is too weak.
 
-### Apply it
+### Code rules
 
-Use:
+Choose the earliest sound ratchet:
 
-- property-based testing for invariants;
-- metamorphic testing when exact outputs are expensive to specify;
-- fuzzing for parsers and boundary inputs;
-- model-based testing for state machines;
-- differential testing across implementations;
-- mutation testing to test the tests;
-- fault injection for retries, concurrency, and recovery;
-- generated adversarial cases from the contract, not from the implementation.
-
-### Prove it
-
-Track whether tests kill representative faults. A high line-coverage number with surviving obvious mutations is weak evidence.
-
-Keep example tests for important scenarios and readable specifications. Do not use their count as a proxy for assurance.
-
-## 13. Make failure explicit, typed, and non-silent
-
-### Rule
-
-Every boundary should state how it fails. Failure must remain distinguishable from success and from infrastructure uncertainty.
-
-### Apply it
-
-Define stable error codes and typed metadata such as:
-
-- retryable or permanent;
-- caller, dependency, policy, or infrastructure fault;
-- safe to compensate;
-- partial side effects performed;
-- required remediation;
-- correlation and subject identifiers.
-
-Avoid:
-
-- broad exception catches;
-- empty defaults after parse failure;
-- skipped gates reported as passing;
-- fallback to stale or unrelated state;
-- success responses with warning text;
-- logs as the only error channel.
-
-### Prove it
-
-- require exhaustive handling of error unions;
-- test negative paths at every public boundary;
-- inject dependency failures;
-- verify that partial effects are reconciled;
-- assert that unknown failures cannot become success.
-
-## 14. Turn recurring findings into ratchets
-
-### Rule
-
-The second occurrence of a defect class is an architecture failure. Convert it into a structural prevention mechanism.
-
-### Apply it
-
-Choose the earliest reliable control:
-
-1. type or constructor;
+1. constructor or algebraic type;
 2. generated contract;
 3. state-machine restriction;
-4. architecture or registry check;
-5. contract fixture;
-6. property or mutation test;
+4. dependency or integration-graph check;
+5. generated conformance fixture;
+6. property, mutation, or fault-injection test;
 7. production-path regression;
-8. human checklist only when none of the above can express the rule.
+8. human checklist only when the rule cannot be encoded.
 
-Every ratchet needs a kill fixture that proves the check fails on the old defect.
+Failures must be explicit and typed. Do not allow:
 
-Review is how a defect class is discovered. The ratchet is how the organization stops paying to rediscover it.
+- broad catches that convert failure into a default;
+- skipped checks reported as passing;
+- stale state used as a success fallback;
+- warning text inside a success result;
+- logs as the only failure channel;
+- infrastructure uncertainty collapsed into product failure.
 
-## 15. Treat duplication as verification debt
+Every gate has three outcomes: pass, fail, and indeterminate. For protected actions, fail and indeterminate both block promotion, but they produce different remediation.
 
-### Rule
+### Required proof
 
-Every independent copy of behavior, schema, configuration, or policy creates another fact that must remain synchronized.
+- The old defect is preserved as a kill fixture.
+- The new guard fails on that fixture.
+- The guard runs on every protected path.
+- Its own execution failure cannot become success.
+- Its scope, subject, and resource limits are explicit.
+- Temporary exceptions have an owner and expiry.
 
-### Apply it
+Exarchos [issue #1701](https://github.com/lvlup-sw/exarchos/issues/1701) and [issue #1721](https://github.com/lvlup-sw/exarchos/issues/1721) show why gates need these guarantees. A required job could be skipped and treated as passing; another gate scanned the wrong checkout and exhausted memory.
 
-- generate repeated representations;
-- centralize shared behavior behind stable contracts;
-- remove duplicate tests that prove the same claim through the same path;
-- keep one canonical vocabulary and identifier set;
-- generate reference documentation from executable contracts;
-- use templates only when generated output is guarded against drift.
+## Repository application
 
-Do not deduplicate code that only looks similar but owns different invariants. The objective is one source per fact, not minimum line count.
+### Minimum module contract
 
-### Prove it
+Every module provides:
 
-- run code-generation drift checks;
-- scan for duplicate registrations and contract definitions;
-- reject repeated authoritative constant sets;
-- measure handwritten boundary representations;
-- require explicit justification for a second source of truth.
-
-## Repository baseline
-
-An AI-driven repository should provide the following structural substrate.
-
-### For every module
-
-- one public contract;
-- explicit state and invariant ownership;
-- generated static and runtime boundary types;
-- a deterministic core where practical;
-- contract tests;
-- property or model-based tests for important state spaces;
-- one integration proof for each required external edge;
+- one generated public contract;
+- explicit invariant and state ownership;
+- algebraic domain types;
+- a pure decision core where practical;
+- typed effect ports;
+- generated provider conformance tests;
+- property or model-based tests for its state space;
 - typed failures;
-- an owner and compatibility policy.
+- a compatibility policy.
 
-### For every public capability
+### Minimum public capability record
 
-- a row in a machine-readable ship-surface manifest;
-- a reachable composition path;
-- a packaged-artifact proof;
-- a declared durable or external effect;
-- a production-path fixture;
+Every public capability has:
+
+- an entry in the integration graph;
+- one public root;
+- one declared observable effect;
+- a reachable production path;
+- a packaged-artifact fixture;
 - a rollback or disable mechanism when consequence is high.
 
-### For CI
+### CI order
 
-Run, in order:
+Run checks from cheapest to most expensive:
 
 1. regenerate contracts and require a clean tree;
 2. compile with strict and exhaustive checks;
-3. validate dependency and ownership boundaries;
+3. validate module ownership and dependency direction;
 4. validate integration-graph closure;
-5. compare public contracts against the target branch;
+5. compare contracts with the target branch;
 6. run generated conformance suites;
-7. run affected component and property tests;
-8. run mutation tests for critical logic;
+7. run affected property and component tests;
+8. run mutation or fault-injection checks for critical logic;
 9. run the smallest production-path suite that proves shipped composition;
-10. bind results to the produced artifact.
+10. bind the results to the produced artifact.
 
-## Definition of done
+### Definition of done
 
-A change is done when:
+A change is complete when:
 
-- its public contracts are explicit and versioned;
+- every changed boundary has one versioned source;
 - repeated representations are generated;
-- invalid states are rejected by construction where possible;
-- affected modules can be verified independently;
-- all required integration edges are present and reachable;
-- the shipped entry point produces the intended outcome;
-- failure paths are typed and tested;
-- concurrency and retry behavior are defined where relevant;
-- generated and compatibility checks pass;
-- tests demonstrate fault detection, not only execution;
-- verification evidence is bound to the exact revision and artifact;
-- the blast radius and rollback path are known.
+- invalid domain states are excluded where the language permits;
+- domain decisions are deterministic or expose their effects;
+- affected modules are independently verifiable;
+- all required integration edges are reachable;
+- the shipped artifact proves the intended outcome;
+- proof selection matches the affected obligations;
+- evidence is bound to the exact revision and artifact;
+- recurring defect classes have structural ratchets;
+- the blast radius and rollback boundary are known.
 
-## What to measure
+## Evidence and sources
 
-Do not optimize for generated lines, pull-request count, or test count. Measure whether the structure is shrinking the proof burden.
+Repository evidence:
 
-Useful measures include:
+- [E2E testing strategy](docs/research/2026-04-19-e2e-testing-strategy.md)
+- [Event-sourced task-store audit](docs/research/2026-05-16-event-sourced-task-store-audit.md)
+- [Methodology drift audit](docs/research/2026-06-21-methodology-drift-audit.md)
+- [Phase-gate redesign strategy](docs/research/2026-07-21-phase-gate-redesign-strategy.md)
+- [Issue #1370](https://github.com/lvlup-sw/exarchos/issues/1370): prose and state-transition drift
+- [Issue #1696](https://github.com/lvlup-sw/exarchos/issues/1696): repeated authoritative claims
+- [Issues #1436](https://github.com/lvlup-sw/exarchos/issues/1436) and [#1451](https://github.com/lvlup-sw/exarchos/issues/1451): components present without a working production path
+- [Issues #1701](https://github.com/lvlup-sw/exarchos/issues/1701) and [#1721](https://github.com/lvlup-sw/exarchos/issues/1721): verification controls that did not reliably verify
 
-- percentage of boundary representations generated from one contract;
-- number of handwritten copies per public contract;
-- compile-time versus runtime defect detection;
-- orphaned integration edges;
-- production-path coverage of public capabilities;
-- mutation score for critical modules;
-- contract compatibility failures caught before merge;
-- median verification time per changed boundary;
-- end-to-end suite duration and flake rate;
-- escaped defects caused by missing wiring;
-- repeated defect classes without a ratchet;
-- change failure and rollback rates.
-
-The target is not maximum automation. The target is a codebase in which most correctness claims are local, mechanical, and cheap to re-prove.
-
-## Evidence from Exarchos
-
-The repository history supports the focus on proof structure:
-
-- [PR #1424](https://github.com/lvlup-sw/exarchos/pull/1424), [issue #1436](https://github.com/lvlup-sw/exarchos/issues/1436), and [issue #1451](https://github.com/lvlup-sw/exarchos/issues/1451) show why component presence and unit tests do not prove production wiring.
-- [Issue #1370](https://github.com/lvlup-sw/exarchos/issues/1370) and [issue #1696](https://github.com/lvlup-sw/exarchos/issues/1696) show the cost of repeating executable rules in prose.
-- [Issue #1701](https://github.com/lvlup-sw/exarchos/issues/1701) and [issue #1721](https://github.com/lvlup-sw/exarchos/issues/1721) show that verification gates need their own scope, invocation, failure, and resource guarantees.
-- The [event-sourced task-store audit](docs/research/2026-05-16-event-sourced-task-store-audit.md) shows that an architectural label does not prove concurrency, replay, cache, ordering, or cost properties.
-- The [E2E testing strategy](docs/research/2026-04-19-e2e-testing-strategy.md) documents the gap between implementation topology and ship topology.
-- The [methodology drift audit](docs/research/2026-06-21-methodology-drift-audit.md) shows why one executable source must drive model-facing instructions and runtime behavior.
-
-## Supporting research
+Supporting research:
 
 - Anthropic, [Building effective agents](https://www.anthropic.com/engineering/building-effective-agents)
 - Anthropic, [Effective context engineering for AI agents](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents)
