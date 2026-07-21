@@ -41,6 +41,8 @@ export interface WorkflowStateView {
   featureId: string;
   workflowType: string;
   phase: string;
+  /** Active phase-entry identity, sourced only from persisted lifecycle data. */
+  phaseAttemptId?: string;
   createdAt: string;
   updatedAt: string;
   artifacts: { design: string | null; plan: string | null; pr: string | string[] | null };
@@ -253,6 +255,7 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
           featureId?: string;
           workflowType?: string;
           synthesisPolicy?: 'always' | 'never' | 'on-request';
+          phaseAttemptId?: string;
         } | undefined;
         if (!data) return view;
 
@@ -284,6 +287,9 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
           featureId: data.featureId ?? view.featureId,
           workflowType,
           phase,
+          ...(data.phaseAttemptId !== undefined
+            ? { phaseAttemptId: data.phaseAttemptId }
+            : {}),
           // `createdAt` is set once, by the FIRST fold of `workflow.started`. On
           // a full fold from the initial view (resolveWorkflowState) `view.createdAt`
           // is the empty-string sentinel from `init()`, so the event timestamp
@@ -304,6 +310,7 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
         const data = event.data as {
           to?: string;
           historyUpdates?: Record<string, string>;
+          phaseAttemptId?: string;
         } | undefined;
         if (!data?.to) return view;
 
@@ -314,6 +321,9 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
         return {
           ...view,
           phase: data.to,
+          ...(data.phaseAttemptId !== undefined
+            ? { phaseAttemptId: data.phaseAttemptId }
+            : {}),
           updatedAt: event.timestamp,
           _history: newHistory,
         };
@@ -763,6 +773,22 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       // at the `default` below. Preserves the pre-#1554 behavior exactly (all of
       // these previously fell through `default: return view`).
 
+      case 'workflow.cancel':
+      case 'workflow.cleanup': {
+        const data = event.data as {
+          to?: string;
+          phaseAttemptId?: string;
+        } | undefined;
+        if (!data?.to) return view;
+        return {
+          ...view,
+          phase: data.to,
+          updatedAt: event.timestamp,
+          ...(data.phaseAttemptId !== undefined
+            ? { phaseAttemptId: data.phaseAttemptId }
+            : {}),
+        };
+      }
       case 'task.claimed':
       case 'task.progressed':
       case 'task.created':
@@ -776,8 +802,6 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       case 'workflow.guard-failed':
       case 'workflow.compound-entry':
       case 'workflow.compound-exit':
-      case 'workflow.cancel':
-      case 'workflow.cleanup':
       case 'workflow.compensation':
       case 'workflow.circuit-open':
       case 'workflow.cas-failed':

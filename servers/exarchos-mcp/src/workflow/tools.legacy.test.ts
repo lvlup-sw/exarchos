@@ -106,6 +106,7 @@ describe('Core Tools', () => {
       expect(events[0].data).toEqual({
         featureId: 'emit-test',
         workflowType: 'feature',
+        phaseAttemptId: expect.any(String),
       });
     });
 

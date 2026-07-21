@@ -11,6 +11,7 @@ import {
 } from './checkpoint.js';
 import { mapInternalToExternalType } from './events.js';
 import { getHSMDefinition, executeTransition } from './state-machine.js';
+import { allocatePhaseAttemptId } from './phase-attempt-id.js';
 import type { EventStore } from '../event-store/store.js';
 import type { EventType } from '../event-store/schemas.js';
 import type { SnapshotStore } from '../views/snapshot-store.js';
@@ -54,6 +55,7 @@ interface CleanupEventPayload {
   }>;
   prUrl?: string | string[] | undefined;
   mergedBranches?: string[] | undefined;
+  phaseAttemptId: string;
 }
 
 /**
@@ -117,6 +119,10 @@ async function emitCleanupEvents(
     source: 'workflow',
     data: {
       featureId,
+      from: currentPhase,
+      to: 'completed',
+      trigger: 'cleanup',
+      phaseAttemptId: payload.phaseAttemptId,
       previousPhase: currentPhase,
       mergeVerified: true,
       prUrl: payload.prUrl,
@@ -281,6 +287,18 @@ export async function handleCleanup(
 
   // ─── HSM transition ───────────────────────────────────────────────────
 
+  const phaseAttemptId = dryRun
+    ? undefined
+    : allocatePhaseAttemptId(
+        input.featureId,
+        currentPhase,
+        'completed',
+        (state as unknown as Record<string, unknown>).phaseAttemptId,
+        state._version ?? 1,
+      );
+  if (phaseAttemptId !== undefined) {
+    mutableState._pendingPhaseAttemptId = phaseAttemptId;
+  }
   const hsm = getHSMDefinition(state.workflowType);
   const transitionResult = executeTransition(hsm, mutableState, 'completed');
 
@@ -314,6 +332,7 @@ export async function handleCleanup(
   // ─── Apply state mutations ────────────────────────────────────────────
 
   mutableState.phase = 'completed';
+  mutableState.phaseAttemptId = phaseAttemptId;
 
   if (transitionResult.historyUpdates) {
     const history = { ...(mutableState._history as Record<string, string>) };
@@ -334,6 +353,7 @@ export async function handleCleanup(
   checkpoint.lastActivityTimestamp = new Date().toISOString();
 
   delete mutableState._cleanup;
+  delete mutableState._pendingPhaseAttemptId;
 
   // ─── Event emission + state write ─────────────────────────────────────
 
@@ -354,6 +374,7 @@ export async function handleCleanup(
         transitionEvents: transitionResult.events,
         prUrl: input.prUrl,
         mergedBranches: input.mergedBranches,
+        phaseAttemptId: phaseAttemptId!,
       });
     } catch (err) {
       return {
@@ -392,6 +413,7 @@ export async function handleCleanup(
     data: {
       phase: 'completed',
       previousPhase: currentPhase,
+      phaseAttemptId,
     },
     _meta: buildCheckpointMeta(mutableState._checkpoint as WorkflowState['_checkpoint']),
   };

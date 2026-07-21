@@ -886,6 +886,9 @@ export const WorkflowEventBase = z.object({
 export const WorkflowStartedData = z.object({
   featureId: z.string(),
   workflowType: WorkflowTypeSchema,
+  // DR-2 / DR-4: identity of the initial actionable phase entry. Optional for
+  // replay compatibility with pre-v2.12 streams; every new writer supplies it.
+  phaseAttemptId: PhaseAttemptIdSchema.optional(),
   designPath: z.string().optional(),
   // Oneshot-only: the synthesisPolicy chosen at init time. Must be persisted
   // in the event stream so ES v2 rematerialization reconstructs the policy
@@ -999,6 +1002,9 @@ export const WorkflowTransitionData = z.object({
   to: z.string(),
   trigger: z.string(),
   featureId: z.string(),
+  // Identity allocated at the successful entry boundary. Optional solely for
+  // historical event compatibility; new transition writes always carry it.
+  phaseAttemptId: PhaseAttemptIdSchema.optional(),
 });
 
 export const WorkflowFixCycleData = z.object({
@@ -1116,6 +1122,7 @@ export const WorkflowCleanupData = z.object({
   to: z.string(),
   trigger: z.string(),
   featureId: z.string(),
+  phaseAttemptId: PhaseAttemptIdSchema.optional(),
 });
 
 export const WorkflowCancelData = z.object({
@@ -1123,6 +1130,7 @@ export const WorkflowCancelData = z.object({
   to: z.string(),
   trigger: z.string(),
   featureId: z.string(),
+  phaseAttemptId: PhaseAttemptIdSchema.optional(),
   reason: z.string().optional(),
 });
 

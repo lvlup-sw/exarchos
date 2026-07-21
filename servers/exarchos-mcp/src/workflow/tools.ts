@@ -59,6 +59,10 @@ import { appendSnapshot } from '../projections/store.js';
 import type { SnapshotRecord } from '../projections/snapshot-schema.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import { buildValidatedEvent } from '../event-store/event-factory.js';
+import {
+  allocateInitialPhaseAttemptId,
+  allocatePhaseAttemptId,
+} from './phase-attempt-id.js';
 // #1555 — shared `asOf` bounded-fold seam (dispatch-core, INV-2). Bounds the
 // event list to `events[0..N]` before the cache-bypassing fresh fold.
 import { resolveAsOfEvents } from '../projections/cursor.js';
@@ -191,6 +195,10 @@ export async function handleInit(
     const isOneshotWithPolicy =
       input.workflowType === 'oneshot' && input.synthesisPolicy !== undefined;
     let eventSequence = 0;
+    // Initial entry has no predecessor/version decision to key from, so mint an
+    // opaque ID and persist it on workflow.started. The persisted event remains
+    // canonical if concurrent init callers hit the idempotency cache.
+    let phaseAttemptId = allocateInitialPhaseAttemptId();
     if (eventStore) {
       try {
         // #1325 — route through buildValidatedEvent for defense-in-depth
@@ -206,12 +214,19 @@ export async function handleInit(
             // DR-5: repo identity, present only when the composite supplied it.
             // Absent ⇒ exactly today's event shape (unscoped legacy behavior).
             ...(repoKey !== undefined ? { repoRoot: repoKey } : {}),
+            phaseAttemptId,
           },
         });
         const event = await eventStore.appendValidated(input.featureId, validatedEvent, {
           idempotencyKey: `${input.featureId}:workflow.started`,
         });
         eventSequence = event.sequence;
+        const persistedPhaseAttemptId = (
+          event.data as Record<string, unknown> | undefined
+        )?.phaseAttemptId;
+        if (typeof persistedPhaseAttemptId === 'string') {
+          phaseAttemptId = persistedPhaseAttemptId as typeof phaseAttemptId;
+        }
       } catch (err) {
         // Event-first: if event append fails, do NOT create state file
         return {
@@ -246,6 +261,7 @@ export async function handleInit(
     const extraFields: Record<string, unknown> = {
       _eventSequence: eventSequence,
       _esVersion: CURRENT_ES_VERSION,
+      phaseAttemptId,
     };
     if (input.workflowType === 'oneshot' && input.synthesisPolicy !== undefined) {
       extraFields.oneshot = { synthesisPolicy: input.synthesisPolicy };
@@ -267,6 +283,7 @@ export async function handleInit(
         featureId: state.featureId,
         workflowType: state.workflowType,
         phase: state.phase,
+        phaseAttemptId,
       },
       _meta: buildCheckpointMeta(state._checkpoint),
     };
@@ -541,6 +558,9 @@ export async function handleSet(
   },
 ): Promise<ToolResult> {
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
+  // Retained across the CAS loop. A retry must re-use the identity already
+  // committed by its first event-first pass, never mint a second attempt.
+  let transitionPhaseAttemptId: string | undefined;
 
   for (let attempt = 0; attempt <= MAX_CAS_RETRIES; attempt++) {
     let state: WorkflowState;
@@ -806,6 +826,21 @@ export async function handleSet(
 
     if (input.phase) {
       const fromPhase = state.phase;
+      if (fromPhase !== input.phase && transitionPhaseAttemptId === undefined) {
+        transitionPhaseAttemptId = allocatePhaseAttemptId(
+          input.featureId,
+          fromPhase,
+          input.phase,
+          (state as unknown as Record<string, unknown>).phaseAttemptId,
+          expectedVersion,
+        );
+      }
+      if (transitionPhaseAttemptId !== undefined) {
+        // Internal workflow/dispatch context consumed by the HSM event emitter
+        // and future proof producers. It is stripped after the decision; only
+        // the active `phaseAttemptId` is persisted.
+        mutableState._pendingPhaseAttemptId = transitionPhaseAttemptId;
+      }
       let attemptResult;
       try {
         attemptResult = await hsmTransitionGuard.attempt(
@@ -897,6 +932,7 @@ export async function handleSet(
             phase: state.phase,
             updatedAt: state.updatedAt,
             idempotent: true,
+            phaseAttemptId: (state as unknown as Record<string, unknown>).phaseAttemptId,
           },
           _meta: buildCheckpointMeta(state._checkpoint),
         };
@@ -904,6 +940,7 @@ export async function handleSet(
 
       if (!attemptResult.idempotent) {
         mutableState.phase = attemptResult.newPhase;
+        mutableState.phaseAttemptId = transitionPhaseAttemptId;
 
         if (Object.keys(attemptResult.historyUpdates).length > 0) {
           const history = {
@@ -936,6 +973,7 @@ export async function handleSet(
       delete mutableState._mutationEnforcement;
       delete mutableState._mutationThreshold;
       delete mutableState._maxNoCoverage;
+      delete mutableState._pendingPhaseAttemptId;
     }
 
     // Transition events are now emitted inside `hsmTransitionGuard.attempt`
@@ -1161,6 +1199,7 @@ export async function handleSet(
         phase: mutableState.phase as string,
         workflowType: mutableState.workflowType as string,
         updatedAt: mutableState.updatedAt as string,
+        phaseAttemptId: mutableState.phaseAttemptId as string,
       },
       _meta: buildCheckpointMeta(mutableState._checkpoint as WorkflowState['_checkpoint']),
     };
@@ -1991,4 +2030,3 @@ function resolveDotPath(obj: Record<string, unknown>, dotPath: string): unknown 
 
   return current;
 }
-

@@ -535,6 +535,10 @@ export function executeTransition(
   resolveGatesFn?: (kind: PhaseKind, ctx: ResolveGateSetCtx) => readonly ResolvedGate[],
 ): TransitionResult {
   const currentPhase = state.phase as string;
+  const phaseAttemptId =
+    typeof state._pendingPhaseAttemptId === 'string'
+      ? state._pendingPhaseAttemptId
+      : undefined;
   const events = (state._events as readonly Record<string, unknown>[]) ?? [];
   const history = (state._history as Record<string, string>) ?? {};
 
@@ -599,6 +603,7 @@ export function executeTransition(
           from: currentPhase,
           to: 'cancelled',
           trigger: 'user-cancel',
+          ...(phaseAttemptId ? { metadata: { phaseAttemptId } } : {}),
         },
       ],
       historyUpdates:
@@ -645,6 +650,7 @@ export function executeTransition(
             from: currentPhase,
             to: 'completed',
             trigger: 'cleanup',
+            ...(phaseAttemptId ? { metadata: { phaseAttemptId } } : {}),
           },
         ],
         historyUpdates:
@@ -819,6 +825,7 @@ export function executeTransition(
       from: currentPhase,
       to: targetPhase,
       trigger: 'execute-transition',
+      ...(phaseAttemptId ? { metadata: { phaseAttemptId } } : {}),
     },
   ];
 
