@@ -38,6 +38,7 @@ import {
   removedPruneKnobMessage,
   unrecognizedPruneKeyMessage,
 } from './config/prune-removed-knobs.js';
+import type { SupportedGateClass } from './orchestrate/gate-provider-registry.js';
 
 // ─── Tool Registry Types ────────────────────────────────────────────────────
 
@@ -194,6 +195,11 @@ export function resolveEconomyBudget(action: Pick<ToolAction, 'economy'>): numbe
 export interface GateMetadata {
   readonly blocking: boolean;
   readonly dimension?: string;
+  /**
+   * Shared mechanical gate identity owned by the provider registry. Most
+   * quality gates intentionally have no GateClass and remain unchanged.
+   */
+  readonly gateClass?: SupportedGateClass;
 }
 
 export interface AutoEmission {
@@ -1768,7 +1774,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
-    gate: { blocking: true, dimension: 'D2' },
+    gate: { blocking: true, dimension: 'D2', gateClass: 'static-analysis' },
     // DR-5: shells out to `npm run lint` and `npm run typecheck`; on
     // non-trivial repos both exceed the 2s heartbeat threshold.
     longRunning: true,
@@ -1799,7 +1805,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: STACK_PHASES,
     roles: ROLE_LEAD,
-    gate: { blocking: true, dimension: 'D2' },
+    gate: { blocking: true, dimension: 'D2', gateClass: 'integration-suite' },
     // Shells out to `npm run test:run -- --reporter=json` over the entire
     // suite; on a real repo this far exceeds the 2s heartbeat threshold.
     longRunning: true,
@@ -2070,7 +2076,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }).strict(),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
-    gate: { blocking: true, dimension: 'D1' },
+    gate: { blocking: true, dimension: 'D1', gateClass: 'test-adequacy' },
     // Reverts source + shells out to the resolved test command; on a real repo
     // this exceeds the 2s heartbeat threshold.
     longRunning: true,
@@ -2108,7 +2114,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
-    gate: { blocking: true, dimension: 'D1' },
+    gate: { blocking: true, dimension: 'D1', gateClass: 'contract-drift' },
     // Shells out to codegen/typecheck/breaking-diff against a real repo; on a
     // real project this exceeds the 2s heartbeat threshold.
     longRunning: true,
@@ -2158,7 +2164,7 @@ const orchestrateActions: readonly ToolAction[] = [
     // DEFAULTS.review.gates['mock-boundary'] (resolved per-call via
     // resolveGateSeverity). The registry flag mirrors that default so the
     // RunbookDrift blocking-gate coverage check treats it as advisory.
-    gate: { blocking: false, dimension: 'D1' },
+    gate: { blocking: false, dimension: 'D1', gateClass: 'mock-boundary' },
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
