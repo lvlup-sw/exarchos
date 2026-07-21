@@ -1,348 +1,625 @@
-# Principles for AI-driven software development
+# Structural principles for AI-driven development
 
-**Status:** Research synthesis, 2026-07-21
+## Premise
 
-## Thesis
+The marginal cost of producing code has collapsed. The cost of proving that code is correct, complete, compatible, and safe has not. It often grows faster than output because every generated component adds states, boundaries, interactions, and claims that must be checked.
 
-AI changes where engineering effort is spent. It can produce code quickly, but it does not remove the work needed to define boundaries, compose systems, verify behavior, control risk, and learn from failures. In practice, the bottleneck moves from writing code to designing an environment in which correct work is easier to produce and incorrect work is difficult to promote.
+The architecture of an AI-driven codebase should therefore optimize for verification cost, not code-production cost.
 
-The strongest general rule is:
+The governing rule is:
 
-> Do not rely on an agent to remember an obligation that the system can enforce, derive, observe, or verify.
+> Convert every fact that can be proved by construction into a generated, compile-time, or deterministic check. Reserve tests and human review for facts that require runtime or semantic judgment.
 
-This conclusion is grounded in 1,079 pull requests and 644 issues from Exarchos, plus current empirical research, engineering guidance, and software assurance standards. The recurring failures were rarely syntax errors. They were missing invocation edges, drift between repeated contracts, weak evidence, gates that did not run, concurrency gaps, stale state, unbounded context, and review findings that were never converted into prevention.
+A useful proof order is:
 
-## What caused problems
+1. construction and code generation;
+2. compiler and type system;
+3. deterministic static analysis;
+4. contract and component tests;
+5. production-path integration tests;
+6. human judgment.
 
-### Components existed without a working production path
+Use the earliest layer capable of proving the claim. Do not repeatedly test a fact that a stronger, cheaper layer can make impossible to violate.
 
-[PR #1424](https://github.com/lvlup-sw/exarchos/pull/1424) added an elicitation adapter and extensive local tests. [Issue #1436](https://github.com/lvlup-sw/exarchos/issues/1436) recorded the missing end-to-end path. [Issue #1451](https://github.com/lvlup-sw/exarchos/issues/1451) then proved the feature never fired because a real runtime value was rejected by an incorrect narrowing condition.
+## 1. Author each boundary contract once
 
-The defect was not "missing code." Every visible piece existed. The system lacked proof that a real call could cross the composition root, transport, persistence layer, and retry path.
+### Rule
 
-### Prose and runtime contracts drifted
+Every boundary should have one executable, versioned contract from which all mechanical representations are generated.
 
-[Issue #1370](https://github.com/lvlup-sw/exarchos/issues/1370) found 31 phase-transition defects across 18 commands. Several commands instructed agents to perform an operation the runtime rejected. [Issue #1696](https://github.com/lvlup-sw/exarchos/issues/1696) records the same guarantee being repeated across roughly eight locations and requiring four review cycles to repair.
+This applies to:
 
-Rules stated in several places become several rules. A prose convention has no compiler.
+- public APIs;
+- internal service interfaces;
+- events and commands;
+- persisted records;
+- configuration;
+- tool calls;
+- CLI input and output;
+- error envelopes;
+- extension and plugin protocols.
 
-### Verification controls were present but ineffective
+### Apply it
 
-[Issue #1701](https://github.com/lvlup-sw/exarchos/issues/1701) found that required CI jobs could be skipped by path filters while the rollup treated them as passing. [Issue #1721](https://github.com/lvlup-sw/exarchos/issues/1721) describes a static-analysis gate that scanned the wrong checkout and exhausted 4 GB of memory.
+Author the contract in an IDL or schema system such as TypeSpec, OpenAPI, Protocol Buffers, JSON Schema, GraphQL, Smithy, or an equivalent typed source.
 
-A gate is software. It can target the wrong subject, fail open, time out, become too expensive to run, or report infrastructure failure as product failure.
+Generate:
 
-### Architectural labels hid missing operational properties
+```text
+contract
+  -> language types
+  -> runtime validators and parsers
+  -> client SDK
+  -> server interface or handler skeleton
+  -> error types
+  -> serialization code
+  -> test fixtures and builders
+  -> compatibility metadata
+  -> reference documentation
+```
 
-The event-sourced task-store audit found missing optimistic concurrency control, stale caches, unstable pagination, unbounded hydration, excessive event writes, and silent malformed-event coercion. The system was event sourced, but the label did not guarantee safe concurrency, deterministic replay, bounded cost, or recovery.
+Generate both inputs and outputs. A generated request type paired with a handwritten response object leaves half the boundary unproved.
 
-See [the task-store audit](docs/research/2026-05-16-event-sourced-task-store-audit.md).
+### Prove it
 
-### Review found defects, but prevention lagged
+CI should:
 
-AI and human review repeatedly found dead paths, invalid assumptions, fail-open checks, stale snapshots, and wrong base-branch behavior. The same classes returned until a typed API, generated artifact, lint rule, regression test, or blocking gate made recurrence harder.
+```text
+generate contracts
+fail if the working tree changes
+compare the contract against the target branch
+reject forbidden compatibility breaks
+run generated provider and consumer conformance suites
+```
 
-Review is a discovery mechanism. It is not a durable control.
+### Avoid
 
-### Isolation lacked an explicit lineage contract
+- handwritten copies of the same type in several packages;
+- runtime schemas that disagree with static types;
+- examples used as the real specification;
+- documentation that independently restates field names or allowed values;
+- stringly typed errors, commands, event names, or status values.
 
-[Issue #1301](https://github.com/lvlup-sw/exarchos/issues/1301) showed writes leaking from an isolated worktree into the main checkout. [Issue #1526](https://github.com/lvlup-sw/exarchos/issues/1526) showed the opposite problem: strict isolation prevented sequential tasks from inheriting an accumulated feature branch.
+## 2. Make illegal states unrepresentable
 
-Isolation alone is underspecified. The system must define the exact base revision, ownership boundary, allowed write scope, and merge lineage.
+### Rule
 
-### Context and generated volume obscured obligations
+Use the type system and constructors to prevent invalid state from entering the program.
 
-The [tool-surface economy audit](docs/research/2026-07-11-tool-surface-token-economy-audit.md) found individual responses exceeding 150,000 tokens, repeated prompt bodies, unbounded review payloads, and the same facts serialized several times. This was not only a cost problem. Large contexts made it harder to preserve distinctions, locate missing obligations, and review changes accurately.
+### Apply it
 
-## Principles
+Prefer:
 
-### 1. Enforce invariants at one authoritative boundary
+- discriminated unions over related booleans;
+- branded or nominal identifiers over plain strings;
+- non-empty collections when emptiness is invalid;
+- explicit optionality instead of sentinel values;
+- validated value objects for paths, versions, digests, money, and timestamps;
+- exhaustive pattern matching over default branches;
+- typestate or state-specific types for lifecycle transitions;
+- constructors that return typed failures instead of partially valid objects.
 
-An invariant should be enforced at the narrowest boundary through which every relevant action must pass. Examples include a state-transition function, persistence adapter, merge admission service, schema validator, or deployment controller.
+Example:
 
-Structural mechanisms:
+```ts
+type GateResult =
+  | { kind: "passed"; evidence: EvidenceRef }
+  | { kind: "failed"; reason: FailureReason }
+  | { kind: "indeterminate"; cause: InfrastructureFailure };
+```
 
-- make invalid states unrepresentable where practical;
-- expose one mutation path for each protected state;
-- reject bypasses at the boundary, not through caller discipline;
-- generate model-facing affordances from the same state machine;
-- keep authorization outside the model.
+This is stronger than:
 
-This principle includes design patterns only when the pattern protects a real invariant. Cosmetic uniformity does not justify a global constraint.
+```ts
+type GateResult = {
+  passed: boolean;
+  error?: string;
+};
+```
 
-### 2. Generate contracts instead of synchronizing copies
+The first form forces callers to handle the difference between a product failure and missing evidence. The second permits accidental success-shaped behavior.
 
-Input and output contracts should be versioned and generated from one intermediate representation whenever possible. The generated surface may include runtime validators, static types, CLI help, tool schemas, fixtures, examples, and compatibility tests.
+### Prove it
 
-When generation is not possible:
+- enable strict compiler settings;
+- require exhaustive switches;
+- prohibit unsafe casts and unvalidated deserialization at boundaries;
+- keep raw transport and persistence types out of domain code;
+- test constructors and parsers, not every downstream use of a validated value.
 
-- assign one source of truth;
-- declare which artifacts are derived;
-- install a drift check;
-- fail loudly when a consumer cannot interpret a new version;
-- preserve unknown fields instead of silently coercing them.
+## 3. Build independently verifiable modules
 
-Contract generation reduces shape drift. It does not prove semantic correctness, so each important contract still needs at least one behavioral oracle.
+### Rule
 
-### 3. Define completion by the ship path
+A module should expose a narrow public contract, own its invariants, and be verifiable through that contract without knowledge of its internals.
 
-A feature is complete only when production-shaped evidence proves that the intended entry point reaches the intended outcome.
+### Apply it
 
-The minimum evidence should exercise the relevant combination of:
+Each module should declare:
 
-- the real public entry point;
-- the composition root and dispatch path;
-- transport or process boundaries;
-- persistence and replay;
-- authorization and negative paths;
-- restart or recovery behavior;
-- external side effects;
-- the generated or packaged artifact that will ship.
+- its public inputs and outputs;
+- the invariants it owns;
+- the dependencies it requires;
+- the effects it may perform;
+- the errors it may return;
+- the state it owns;
+- its compatibility policy.
 
-Unit tests answer whether a component behaves locally. Ship-path tests answer whether the feature exists as experienced by a caller. Both are necessary, but they prove different claims.
+Prefer high cohesion and explicit dependency direction. Avoid modules that share mutable state, reach into each other's persistence, or depend on undeclared globals.
 
-### 4. Treat generated output as untrusted input
+A good boundary lets verification stop. Once a module proves its contract, consumers should not need to re-prove its implementation details.
 
-Model output is nondeterministic and may be plausible without being valid. Code, commands, SQL, file paths, URLs, configuration, tool arguments, and claims of completion should cross deterministic validation boundaries before they can cause effects.
+### Prove it
 
-Use:
+- enforce import and dependency boundaries;
+- reject dependency cycles;
+- expose test seams only through public ports, not internal implementation access;
+- run the module's contract suite against every implementation;
+- verify that no other module writes its state directly.
 
-- typed schemas and parsers;
-- allowlists and capability checks;
-- parameterized operations;
-- path confinement;
-- deny-by-default permissions;
-- resource and retry budgets;
-- sandboxed execution;
-- explicit confirmation for consequential actions.
+If a component cannot be tested through its public interface, the boundary is probably wrong.
 
-OWASP's guidance on [improper output handling](https://genai.owasp.org/llmrisk/llm052025-improper-output-handling/) and [excessive agency](https://genai.owasp.org/llmrisk/llm062025-excessive-agency/) treats this as a security boundary, not a prompting problem.
+## 4. Separate decisions from effects
 
-### 5. Separate creation from judgment
+### Rule
 
-The producer of a change should not be the sole authority that the change is correct. Self-review is useful for repair, but it is weak evidence because the producer and evaluator share assumptions and context.
+Keep business decisions deterministic. Push I/O and mutation to explicit adapters.
 
-Independent judgment can come from:
+### Apply it
 
-- tests written from the external contract;
-- a separate evaluator with limited access to the producer's reasoning;
-- static and dynamic analysis;
-- differential or property-based tests;
-- human review for high-impact decisions;
-- policy engines that evaluate structured evidence.
+Use a functional-core, imperative-shell shape:
 
-Independence is about failure diversity, not merely launching another instance of the same model with the same prompt and context.
+```text
+validated input + current state
+  -> pure decision
+  -> typed result and requested effects
+  -> effect adapters
+```
 
-### 6. Scale autonomy and assurance with risk
+The decision layer should not read clocks, random generators, environment variables, network services, global state, or the filesystem directly. Pass those values in through typed ports.
 
-There should be no single autonomy setting for every task. The allowed tools, approval requirements, verification depth, and rollback preparation should depend on consequence and reversibility.
+### Prove it
 
-Higher assurance is warranted when a change affects:
+The pure core can be checked with:
 
-- authentication, authorization, secrets, or identity;
-- destructive data operations or migrations;
-- public APIs and compatibility;
-- production infrastructure or deployment;
-- supply-chain metadata and signing;
-- safety, privacy, financial, or legal obligations;
-- broad architectural boundaries.
-
-Low-risk, reversible work can use broader autonomy. High-impact work needs narrower capabilities, independent approval, stronger evidence, and a tested rollback path. This follows the risk-management approach in [NIST AI RMF 1.0](https://www.nist.gov/publications/artificial-intelligence-risk-management-framework-ai-rmf-10) and the secure-development controls in [NIST SSDF](https://csrc.nist.gov/pubs/sp/800/218/final).
-
-### 7. Bind evidence to the exact subject checked
-
-An approval, test result, or scan is meaningful only if the system can identify what it evaluated.
-
-Evidence should record:
-
-- source revision and diff;
-- artifact or content digest;
-- producer and tool version;
-- policy or test-suite version;
-- execution environment;
-- timestamp and expiry;
-- relevant inputs and parameters;
-- result and failure classification.
-
-Mutable fields such as `approved: true` are not durable proof. Evidence should be append-only or tamper-evident and should be revalidated when the subject or policy changes. SLSA makes the same distinction between producing provenance and [verifying it against explicit expectations](https://slsa.dev/spec/v1.2/verifying-artifacts).
-
-### 8. Design side effects for concurrency and recovery
-
-Agentic systems behave like distributed systems. They retry, overlap, lose context, outlive processes, and encounter partial failure.
-
-Protected side effects should use:
-
-- idempotency keys scoped to the actual operation;
-- optimistic concurrency control or equivalent atomic admission;
-- durable intent before external effects;
-- bounded retries with typed retry classes;
-- compensation or reconciliation;
+- property-based tests;
+- model-based tests;
+- exhaustive tests over small state spaces;
 - deterministic replay;
-- explicit ownership and leases;
-- recovery tests that start from interrupted states.
+- mutation testing.
 
-Event sourcing, queues, or workflow engines help only when these properties are tested.
+Adapters need smaller contract and integration suites. This prevents broad end-to-end tests from carrying the entire verification burden.
 
-### 9. Make isolation and lineage explicit
+## 5. Represent integration topology as data
 
-Every delegated task should declare:
+### Rule
 
-- its base commit or branch;
-- its allowed filesystem and network scope;
-- the state it may read and write;
-- whether it may inherit prior task output;
-- its merge target and ancestry requirements;
-- cleanup and recovery ownership.
+The system should be able to enumerate every required integration edge and fail mechanically when an edge is missing.
 
-Isolation should prevent accidental interference without blocking intentional dependency flow. A new workspace is not enough if its base is wrong, shared state remains writable, or the merge path cannot prove ancestry.
+### Apply it
 
-### 10. Bound context, change size, and evidence volume
+Represent composition in typed registries, manifests, or generated graphs:
 
-Context is a constrained interface, not an unlimited transcript.
+```text
+operation -> route -> handler -> domain port -> adapter
+event -> producer -> schema -> registry -> consumer or projector
+command -> parser -> validator -> handler -> result serializer
+plugin -> capability -> implementation -> activation path
+```
+
+Do not hide required wiring in reflection, naming conventions, scattered imports, or model-authored instructions unless a build step materializes and validates the graph.
+
+### Prove it
+
+Add structural checks for:
+
+- public operations without handlers;
+- handlers without reachable public callers;
+- registered events without schemas;
+- emitted events without registered consumers when a consumer is required;
+- declared capabilities without implementations;
+- implementations that are never selected by the composition root;
+- generated clients without provider conformance;
+- gates that are registered but have no production caller;
+- configuration keys that are read but never declared.
+
+The build should fail on an orphaned required edge.
+
+This directly addresses the recurring "present but not working" failure. In Exarchos, [PR #1424](https://github.com/lvlup-sw/exarchos/pull/1424), [issue #1436](https://github.com/lvlup-sw/exarchos/issues/1436), and [issue #1451](https://github.com/lvlup-sw/exarchos/issues/1451) showed that helpers, schemas, and adapters could all exist while the production feature remained dead.
+
+## 6. Prove the composition root and shipped artifact
+
+### Rule
+
+Every user-visible capability needs at least one proof that starts from the real public entry point and crosses the actual production composition root.
+
+### Apply it
+
+The test should use the same:
+
+- generated client or public CLI;
+- transport;
+- dependency-injection graph;
+- configuration loader;
+- persistence implementation;
+- packaged or bundled artifact;
+- authorization path;
+- serialization boundary.
+
+It should verify the externally observable result and any required durable side effects.
+
+Examples:
+
+- invoke the packaged CLI, not its command function;
+- use a real protocol client against the server transport, not a direct handler call;
+- start the application from its production bootstrap;
+- install the built package into a clean fixture;
+- restart and verify persisted behavior where replay matters.
+
+### Prove it
+
+Maintain a small ship-surface matrix:
+
+| Capability | Public entry point | Shipped artifact | Durable effect | Production-path proof |
+|---|---|---|---|---|
+| Create task | CLI and API | bundled CLI/server | task stream | fixture ID |
+| Transition workflow | API | server bundle | state projection | fixture ID |
+| Install plugin | bootstrap script | release archive | installed files | fixture ID |
+
+Every required row must have a passing proof. This is integration completeness expressed as data, not confidence inferred from unit-test volume.
+
+## 7. Layer proofs to minimize cost
+
+### Rule
+
+Use a verification ladder in which each layer proves only what cheaper layers cannot.
+
+### Apply it
+
+| Layer | Best use |
+|---|---|
+| Code generation | consistency among repeated representations |
+| Compiler | shape, exhaustiveness, ownership, invalid state |
+| Static structural checks | dependency direction, registry closure, forbidden APIs |
+| Contract tests | boundary behavior and provider/consumer agreement |
+| Component tests | module semantics with controlled dependencies |
+| Integration tests | composition, transport, persistence, packaging |
+| End-to-end tests | a small set of high-value user outcomes |
+| Human review | intent, tradeoffs, maintainability, novel risk |
+
+Do not use expensive end-to-end tests to prove field names, enum closure, or handler registration. Do not expect the compiler to prove distributed side effects or business meaning.
+
+### Prove it
+
+For every acceptance criterion, name the cheapest proof layer that can establish it. A criterion without a named proof is incomplete.
+
+## 8. Generate conformance tests with contracts
+
+### Rule
+
+A boundary contract should generate executable obligations for both providers and consumers.
+
+### Apply it
+
+Generate:
+
+- valid and invalid examples;
+- serialization round trips;
+- required-field and unknown-field behavior;
+- error-code coverage;
+- pagination and ordering cases;
+- compatibility fixtures;
+- protocol state-machine cases;
+- provider and consumer test harnesses.
+
+Run the same conformance suite against every implementation. For external consumers, publish the suite or fixtures with the contract package.
+
+### Prove it
+
+- every provider passes the generated provider suite;
+- every client passes the generated consumer suite;
+- compatibility tests run against the previous supported version;
+- contract changes declare additive, deprecated, or breaking semantics;
+- deprecations have a measured consumer-removal condition.
+
+## 9. Model state transitions explicitly
+
+### Rule
+
+State changes should occur through typed commands and validated transitions, not arbitrary field mutation.
+
+### Apply it
+
+Define:
+
+- legal states;
+- legal transitions;
+- required evidence for each transition;
+- transition-specific inputs;
+- emitted events;
+- side effects;
+- retry and compensation behavior.
+
+Use one transition function or state-machine boundary. Do not let callers set `status`, `phase`, or related fields directly.
+
+### Prove it
+
+- the compiler or state-machine generator enumerates legal transitions;
+- illegal transitions fail before side effects;
+- transition admission and state persistence are atomic;
+- concurrent writers use optimistic concurrency control or equivalent;
+- repeated commands are idempotent;
+- replay reaches the same state;
+- partial failure has a tested recovery path.
+
+[Issue #1370](https://github.com/lvlup-sw/exarchos/issues/1370) found 31 defects caused in part by prose instructing agents to mutate phase through an API that rejected phase mutation. The structural fix is one typed transition path, not better reminders.
+
+## 10. Make changes proof-carrying
+
+### Rule
+
+A change should arrive with machine-verifiable evidence describing what changed, what contracts it affects, and what proves it.
+
+### Apply it
+
+For each change, derive:
+
+- changed public contracts;
+- affected modules and consumers;
+- required compatibility checks;
+- selected tests;
+- generated artifacts;
+- migration requirements;
+- production-path proofs;
+- rollback or feature-disable path.
+
+Use the dependency and contract graph to select verification. Do not ask an agent or reviewer to rediscover the blast radius from the diff.
+
+### Prove it
+
+Attach evidence to the exact commit or artifact digest:
+
+```text
+change
+  -> affected contracts
+  -> generated diff
+  -> selected checks
+  -> results
+  -> packaged artifact
+  -> production-path proof
+```
+
+Evidence from another revision is stale. A green check without a subject binding is not proof.
+
+## 11. Bound the blast radius of every component and change
+
+### Rule
+
+Architecture should make the impact of a change predictable before the change is implemented.
+
+### Apply it
+
+- keep dependencies directional;
+- avoid shared mutable state;
+- isolate persistence ownership;
+- use adapters for external systems;
+- version public contracts;
+- use feature flags at stable boundaries;
+- split work by independently buildable and testable slices;
+- keep commits and pull requests small enough to reason about;
+- forbid unrelated cleanup in behavior-changing changes.
+
+### Prove it
+
+- compute reverse dependencies for changed contracts;
+- fail on dependency cycles or forbidden cross-module imports;
+- run affected-module tests plus contract consumers;
+- verify that a rollback or disable path exists for high-risk changes;
+- track review and verification time by change size and boundary count.
+
+## 12. Test behavior spaces, not generated examples
+
+### Rule
+
+AI can cheaply generate many example tests that repeat the implementation's assumptions. Use verification techniques that search the behavior space or challenge those assumptions.
+
+### Apply it
 
 Use:
 
-- compact defaults with explicit detail expansion;
-- pagination and field selection;
-- structured state outside the model context;
-- progressive disclosure;
-- summaries that link to durable evidence;
-- small, reviewable changes;
-- event and diagnostic volume budgets;
-- deduplication at the source.
+- property-based testing for invariants;
+- metamorphic testing when exact outputs are expensive to specify;
+- fuzzing for parsers and boundary inputs;
+- model-based testing for state machines;
+- differential testing across implementations;
+- mutation testing to test the tests;
+- fault injection for retries, concurrency, and recovery;
+- generated adversarial cases from the contract, not from the implementation.
 
-Anthropic's [context engineering guidance](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) recommends curating the smallest high-signal context needed for the next decision. OpenAI's [harness engineering account](https://openai.com/index/harness-engineering/) similarly treats repository legibility and mechanical feedback as part of the development environment.
+### Prove it
 
-### 11. Treat gates as production software
+Track whether tests kill representative faults. A high line-coverage number with surviving obvious mutations is weak evidence.
 
-A gate needs its own correctness model, tests, observability, and operating budget.
+Keep example tests for important scenarios and readable specifications. Do not use their count as a proxy for assurance.
 
-Every consequential gate should prove:
+## 13. Make failure explicit, typed, and non-silent
 
-1. it runs for every protected path;
-2. it checks the intended revision, workspace, and artifact;
-3. its positive result can be killed by a known bad fixture;
-4. command failures propagate;
-5. execution is bounded;
-6. skipped and unavailable states are visible;
-7. evidence is current and subject-bound.
+### Rule
 
-Gate results should be three-state:
+Every boundary should state how it fails. Failure must remain distinguishable from success and from infrastructure uncertainty.
 
-- **pass:** evidence supports promotion;
-- **fail:** evidence contradicts promotion;
-- **indeterminate:** the check did not produce trustworthy evidence.
+### Apply it
 
-For consequential actions, both fail and indeterminate block promotion. Indeterminate should report infrastructure remediation rather than masquerading as a product defect. The [phase-gate redesign research](docs/research/2026-07-21-phase-gate-redesign-strategy.md) develops this model in detail.
+Define stable error codes and typed metadata such as:
 
-### 12. Convert repeated findings into ratchets
+- retryable or permanent;
+- caller, dependency, policy, or infrastructure fault;
+- safe to compensate;
+- partial side effects performed;
+- required remediation;
+- correlation and subject identifiers.
 
-The first occurrence of a defect may require judgment. A repeated occurrence is evidence that the environment permits the defect class.
+Avoid:
 
-After an incident, escaped defect, or repeated review comment:
+- broad exception catches;
+- empty defaults after parse failure;
+- skipped gates reported as passing;
+- fallback to stale or unrelated state;
+- success responses with warning text;
+- logs as the only error channel.
 
-1. identify the violated invariant;
-2. locate the earliest authoritative enforcement point;
-3. add a regression fixture that proves the old failure;
-4. add the narrowest structural control;
-5. verify the control with a kill probe;
-6. record an owner and removal condition for any temporary exception.
+### Prove it
 
-The target is not more rules. It is fewer recurring decisions.
+- require exhaustive handling of error unions;
+- test negative paths at every public boundary;
+- inject dependency failures;
+- verify that partial effects are reconciled;
+- assert that unknown failures cannot become success.
 
-### 13. Measure outcomes, not generated activity
+## 14. Turn recurring findings into ratchets
 
-Lines changed, tasks attempted, tokens consumed, acceptance rate, and benchmark score are activity measures. They can improve while delivered quality declines.
+### Rule
 
-Measure:
+The second occurrence of a defect class is an architecture failure. Convert it into a structural prevention mechanism.
 
-- lead time to a verified outcome;
-- escaped defect and recurrence rates;
-- review and rework time;
-- rollback frequency and recovery time;
-- change failure rate;
-- production-path coverage;
-- gate false-positive, false-negative, and indeterminate rates;
-- context and evidence volume;
-- percentage of high-impact actions with independent approval;
-- percentage of shipped artifacts with verified provenance.
+### Apply it
 
-The 2025 METR randomized trial found experienced open-source developers took 19 percent longer on the studied tasks when using then-current AI tools, despite expecting large speedups. The study is small and narrow, but it demonstrates that perceived acceleration is not reliable evidence of end-to-end productivity. See [METR's study and limitations](https://metr.org/blog/2025-07-10-early-2025-ai-experienced-os-dev-study/).
+Choose the earliest reliable control:
 
-Benchmark results also need careful interpretation. [SWE-bench Verified](https://www.swebench.com/verified.html) improved task clarity through human validation, but benchmark success still does not prove maintainability, security, deployment fitness, or performance on long-horizon changes.
+1. type or constructor;
+2. generated contract;
+3. state-machine restriction;
+4. architecture or registry check;
+5. contract fixture;
+6. property or mutation test;
+7. production-path regression;
+8. human checklist only when none of the above can express the rule.
 
-## Operating model
+Every ratchet needs a kill fixture that proves the check fails on the old defect.
 
-### Before work starts
+Review is how a defect class is discovered. The ratchet is how the organization stops paying to rediscover it.
 
-- assign a risk tier;
-- define the external outcome and prohibited effects;
-- select one source of truth for each contract;
-- declare the workspace, base revision, capabilities, budgets, and approvals;
-- define what evidence will constitute completion.
+## 15. Treat duplication as verification debt
 
-### While work runs
+### Rule
 
-- keep state outside transient model context;
-- constrain tools and side effects;
-- make small, reversible changes;
-- capture deterministic facts automatically;
-- stop or reconcile on ambiguous ownership, stale state, or failed preconditions.
+Every independent copy of behavior, schema, configuration, or policy creates another fact that must remain synchronized.
 
-### Before promotion
+### Apply it
 
-- run production-path verification;
-- obtain independent judgment proportional to risk;
-- verify that all gates ran against the intended subject;
-- bind evidence to the source and artifact digest;
-- reject missing or indeterminate evidence on protected paths.
+- generate repeated representations;
+- centralize shared behavior behind stable contracts;
+- remove duplicate tests that prove the same claim through the same path;
+- keep one canonical vocabulary and identifier set;
+- generate reference documentation from executable contracts;
+- use templates only when generated output is guarded against drift.
 
-### After promotion
+Do not deduplicate code that only looks similar but owns different invariants. The objective is one source per fact, not minimum line count.
 
-- preserve provenance and decision records;
-- monitor escaped defects, rework, and recovery;
-- perform root-cause analysis on failures and near misses;
-- convert repeated findings into structural controls;
-- remove controls that no longer pay for their complexity.
+### Prove it
 
-## Implications for the original seeds
+- run code-generation drift checks;
+- scan for duplicate registrations and contract definitions;
+- reject repeated authoritative constant sets;
+- measure handwritten boundary representations;
+- require explicit justification for a second source of truth.
 
-The initial ideas remain valid, with tighter definitions:
+## Repository baseline
 
-1. **Enforce invariants structurally by construction.** Put each invariant at one authoritative boundary. Prefer types, schemas, generated code, policy, and state-machine admission over repeated instructions.
-2. **Version and generate API contracts.** Generate both input and output surfaces from one source, publish compatibility rules, and retain a semantic oracle.
-3. **Solve incomplete wiring through ship-path verification.** Require evidence that the public entry point crosses the real composition root and produces the intended durable and external effects. Component existence and unit coverage are not completion criteria.
+An AI-driven repository should provide the following structural substrate.
 
-## Research limits
+### For every module
 
-- The repository evidence comes from one project with a concentrated contributor and reviewer population. Its patterns are strong signals, not universal incidence rates.
-- Pull-request bodies often contain generated self-reports. Independent review findings, follow-up issues, regression tests, and audits were weighted more heavily.
-- The METR randomized trial is causal but small and limited to experienced contributors working in mature repositories with 2025-era tools.
-- Most laboratory and vendor guidance is practitioner evidence, not a controlled comparison.
-- Coding benchmarks measure constrained task performance. They do not establish production safety or organizational productivity.
+- one public contract;
+- explicit state and invariant ownership;
+- generated static and runtime boundary types;
+- a deterministic core where practical;
+- contract tests;
+- property or model-based tests for important state spaces;
+- one integration proof for each required external edge;
+- typed failures;
+- an owner and compatibility policy.
 
-## Selected sources
+### For every public capability
 
-### Repository evidence
+- a row in a machine-readable ship-surface manifest;
+- a reachable composition path;
+- a packaged-artifact proof;
+- a declared durable or external effect;
+- a production-path fixture;
+- a rollback or disable mechanism when consequence is high.
 
-- [E2E testing strategy](docs/research/2026-04-19-e2e-testing-strategy.md)
-- [Event-sourced task-store audit](docs/research/2026-05-16-event-sourced-task-store-audit.md)
-- [Methodology drift audit](docs/research/2026-06-21-methodology-drift-audit.md)
-- [Tool-surface token economy audit](docs/research/2026-07-11-tool-surface-token-economy-audit.md)
-- [Phase-gate redesign strategy](docs/research/2026-07-21-phase-gate-redesign-strategy.md)
-- [PR #1424](https://github.com/lvlup-sw/exarchos/pull/1424), [issue #1436](https://github.com/lvlup-sw/exarchos/issues/1436), and [issue #1451](https://github.com/lvlup-sw/exarchos/issues/1451): present versus working
-- [Issue #1370](https://github.com/lvlup-sw/exarchos/issues/1370) and [issue #1696](https://github.com/lvlup-sw/exarchos/issues/1696): prose and contract drift
-- [Issue #1701](https://github.com/lvlup-sw/exarchos/issues/1701) and [issue #1721](https://github.com/lvlup-sw/exarchos/issues/1721): unreliable gates
-- [Issue #1301](https://github.com/lvlup-sw/exarchos/issues/1301) and [issue #1526](https://github.com/lvlup-sw/exarchos/issues/1526): isolation and lineage
+### For CI
 
-### External evidence and standards
+Run, in order:
 
-- METR, [Measuring the impact of early-2025 AI on experienced open-source developer productivity](https://metr.org/blog/2025-07-10-early-2025-ai-experienced-os-dev-study/), 2025
-- Anthropic, [Building effective agents](https://www.anthropic.com/engineering/building-effective-agents), 2024
-- Anthropic, [Effective context engineering for AI agents](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents), 2025
-- OpenAI, [Harness engineering: leveraging Codex in an agent-first world](https://openai.com/index/harness-engineering/), 2026
-- NIST, [AI Risk Management Framework 1.0](https://www.nist.gov/publications/artificial-intelligence-risk-management-framework-ai-rmf-10), 2023
-- NIST, [Secure Software Development Framework 1.1](https://csrc.nist.gov/pubs/sp/800/218/final), 2022
-- OWASP, [Top 10 for LLM Applications 2025](https://genai.owasp.org/resource/owasp-top-10-for-llm-applications-2025/)
-- SLSA, [Specification 1.2](https://slsa.dev/spec/v1.2/), 2025
+1. regenerate contracts and require a clean tree;
+2. compile with strict and exhaustive checks;
+3. validate dependency and ownership boundaries;
+4. validate integration-graph closure;
+5. compare public contracts against the target branch;
+6. run generated conformance suites;
+7. run affected component and property tests;
+8. run mutation tests for critical logic;
+9. run the smallest production-path suite that proves shipped composition;
+10. bind results to the produced artifact.
+
+## Definition of done
+
+A change is done when:
+
+- its public contracts are explicit and versioned;
+- repeated representations are generated;
+- invalid states are rejected by construction where possible;
+- affected modules can be verified independently;
+- all required integration edges are present and reachable;
+- the shipped entry point produces the intended outcome;
+- failure paths are typed and tested;
+- concurrency and retry behavior are defined where relevant;
+- generated and compatibility checks pass;
+- tests demonstrate fault detection, not only execution;
+- verification evidence is bound to the exact revision and artifact;
+- the blast radius and rollback path are known.
+
+## What to measure
+
+Do not optimize for generated lines, pull-request count, or test count. Measure whether the structure is shrinking the proof burden.
+
+Useful measures include:
+
+- percentage of boundary representations generated from one contract;
+- number of handwritten copies per public contract;
+- compile-time versus runtime defect detection;
+- orphaned integration edges;
+- production-path coverage of public capabilities;
+- mutation score for critical modules;
+- contract compatibility failures caught before merge;
+- median verification time per changed boundary;
+- end-to-end suite duration and flake rate;
+- escaped defects caused by missing wiring;
+- repeated defect classes without a ratchet;
+- change failure and rollback rates.
+
+The target is not maximum automation. The target is a codebase in which most correctness claims are local, mechanical, and cheap to re-prove.
+
+## Evidence from Exarchos
+
+The repository history supports the focus on proof structure:
+
+- [PR #1424](https://github.com/lvlup-sw/exarchos/pull/1424), [issue #1436](https://github.com/lvlup-sw/exarchos/issues/1436), and [issue #1451](https://github.com/lvlup-sw/exarchos/issues/1451) show why component presence and unit tests do not prove production wiring.
+- [Issue #1370](https://github.com/lvlup-sw/exarchos/issues/1370) and [issue #1696](https://github.com/lvlup-sw/exarchos/issues/1696) show the cost of repeating executable rules in prose.
+- [Issue #1701](https://github.com/lvlup-sw/exarchos/issues/1701) and [issue #1721](https://github.com/lvlup-sw/exarchos/issues/1721) show that verification gates need their own scope, invocation, failure, and resource guarantees.
+- The [event-sourced task-store audit](docs/research/2026-05-16-event-sourced-task-store-audit.md) shows that an architectural label does not prove concurrency, replay, cache, ordering, or cost properties.
+- The [E2E testing strategy](docs/research/2026-04-19-e2e-testing-strategy.md) documents the gap between implementation topology and ship topology.
+- The [methodology drift audit](docs/research/2026-06-21-methodology-drift-audit.md) shows why one executable source must drive model-facing instructions and runtime behavior.
+
+## Supporting research
+
+- Anthropic, [Building effective agents](https://www.anthropic.com/engineering/building-effective-agents)
+- Anthropic, [Effective context engineering for AI agents](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents)
+- Anthropic, [Writing effective tools for AI agents](https://www.anthropic.com/engineering/writing-tools-for-agents)
+- Anthropic, [Demystifying evals for AI agents](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents)
+- OpenAI, [Harness engineering: leveraging Codex in an agent-first world](https://openai.com/index/harness-engineering/)
+- Princeton, [SWE-agent: Agent-Computer Interfaces Enable Automated Software Engineering](https://arxiv.org/abs/2405.15793)
+- NIST, [Secure Software Development Framework 1.1](https://csrc.nist.gov/pubs/sp/800/218/final)
 - SWE-bench, [Verified dataset](https://www.swebench.com/verified.html)
