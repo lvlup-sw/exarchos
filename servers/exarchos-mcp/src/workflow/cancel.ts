@@ -14,6 +14,7 @@ import {
 } from './checkpoint.js';
 import { mapInternalToExternalType } from './events.js';
 import { getHSMDefinition, executeTransition } from './state-machine.js';
+import { allocatePhaseAttemptId } from './phase-attempt-id.js';
 import { executeCompensation, type CompensationCheckpoint } from './compensation.js';
 import type { EventStore } from '../event-store/store.js';
 import { type ToolResult } from '../format.js';
@@ -160,6 +161,14 @@ export async function handleCancel(
   }
 
   // Transition to cancelled via HSM
+  const phaseAttemptId = allocatePhaseAttemptId(
+    input.featureId,
+    currentPhase,
+    'cancelled',
+    (state as unknown as Record<string, unknown>).phaseAttemptId,
+    state._version ?? 1,
+  );
+  mutableState._pendingPhaseAttemptId = phaseAttemptId;
   const hsm = getHSMDefinition(state.workflowType);
   const transitionResult = executeTransition(hsm, mutableState, 'cancelled');
 
@@ -180,6 +189,7 @@ export async function handleCancel(
   }
   cancelMetadata.compensationActions = compensationResult.actions.length;
   cancelMetadata.compensationSuccess = compensationResult.success;
+  cancelMetadata.phaseAttemptId = phaseAttemptId;
 
   // Event-first: emit to external event store BEFORE mutating state
   if (eventStore) {
@@ -251,6 +261,8 @@ export async function handleCancel(
 
   // THEN mutate state
   mutableState.phase = 'cancelled';
+  mutableState.phaseAttemptId = phaseAttemptId;
+  delete mutableState._pendingPhaseAttemptId;
 
   // Apply history updates from transition
   if (transitionResult.historyUpdates) {
@@ -286,8 +298,8 @@ export async function handleCancel(
       phase: 'cancelled',
       actions: compensationResult.actions,
       previousPhase: currentPhase,
+      phaseAttemptId,
     },
     _meta: buildCheckpointMeta(mutableState._checkpoint as WorkflowState['_checkpoint']),
   };
 }
-
