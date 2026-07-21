@@ -58,7 +58,7 @@ export const TASK_COMPLETION: RunbookDefinition = {
       note: '#1329: full-suite gate against the integration tip; folds file-LOAD failures into failCount' },
   ],
   templateVars: ['taskId', 'featureId', 'streamId', 'branch', 'worktreePath'],
-  autoEmits: ['gate.executed', 'task.completed'],
+  autoEmits: ['admission.evidence-recorded', 'task.completed'],
 };
 
 export const QUALITY_EVALUATION: RunbookDefinition = {

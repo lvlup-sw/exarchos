@@ -840,13 +840,14 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'export.requested': 'auto',
   'export.executed': 'auto',
 
-  // Phase-gate v2.12 proof substrate. Schema registration is deliberately
-  // ahead of every writer so persisted histories have a stable replay
-  // contract. Task 011 owns reserved-event append protection; later v3.0
-  // work owns typed emitters and enforcement. Nothing in this registration
-  // makes these model-emittable or changes transition admission.
+  // Phase-gate v2.12 proof substrate. Evidence is now written by the canonical
+  // audit/shadow runner; the remaining records stay reserved for later slices.
+  // Nothing in this registration makes these model-emittable or changes
+  // transition admission.
   'admission.requirement-resolved': 'planned',
-  'admission.evidence-recorded': 'planned',
+  // Canonical gate producers append this automatically in v2.12 audit/shadow
+  // mode; callers never model-emit proof records.
+  'admission.evidence-recorded': 'auto',
   'admission.transition-decided': 'planned',
   'admission.waiver-recorded': 'planned',
   'admission.contradiction-recorded': 'planned',

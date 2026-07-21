@@ -12,6 +12,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { EventStore } from '../event-store/store.js';
 import type { CommandResult } from './pure/static-analysis.js';
 
+vi.mock('./durable-gate-producer.js', () => ({
+  runDurableGateProducer: (
+    _scope: unknown,
+    executeProvider: () => Promise<unknown>,
+  ) => executeProvider(),
+}));
+
 // ─── Mock event store ────────────────────────────────────────────────────────
 
 const mockStore = {
@@ -133,7 +140,7 @@ describe('handleCheckIntegrationSuite', () => {
     expect(data.loadFailures).toBe(0);
   });
 
-  it('CheckIntegrationSuite_EmitsGateExecutedEvent', async () => {
+  it('CheckIntegrationSuite_DoesNotEmitLegacyGateExecutedEvent', async () => {
     // Arrange
     const runner = stubRunnerReturning(vitestLoadFailureJson());
 
@@ -145,19 +152,7 @@ describe('handleCheckIntegrationSuite', () => {
       runner,
     );
 
-    // Assert — a gate.executed event for the 'integration-suite' gate, failing,
-    // with the folded-in counts.
-    expect(mockStore.append).toHaveBeenCalledTimes(1);
-    const [stream, event] = mockStore.append.mock.calls[0] as [
-      string,
-      { type: string; data: { gateName: string; layer: string; passed: boolean; details: Record<string, unknown> } },
-    ];
-    expect(stream).toBe('feat-1');
-    expect(event.type).toBe('gate.executed');
-    expect(event.data.gateName).toBe('integration-suite');
-    expect(event.data.layer).toBe('post-merge');
-    expect(event.data.passed).toBe(false);
-    expect(event.data.details.loadFailures).toBeGreaterThanOrEqual(1);
+    expect(mockStore.append).not.toHaveBeenCalled();
   });
 
   it('CheckIntegrationSuite_RunsAgainstResolvedRepoRoot', async () => {

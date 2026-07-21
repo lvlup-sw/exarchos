@@ -1,14 +1,13 @@
 // ─── Static Analysis Composite Action ────────────────────────────────────────
 //
-// Orchestrates static analysis checks (lint + typecheck) by calling the
-// pure TypeScript runStaticAnalysis function and emitting gate.executed events
-// for the quality layer.
+// Orchestrates static analysis checks (lint + typecheck) through the canonical
+// durable evidence runner.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { runCommandSync } from '../utils/process.js';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
-import { emitGateEvent } from './gate-utils.js';
+import { runDurableGateProducer } from './durable-gate-producer.js';
 import { runGatePreflight } from './pure/gate-preflight.js';
 import { runStaticAnalysis } from './pure/static-analysis.js';
 import type { RunCommandFn, CommandResult } from './pure/static-analysis.js';
@@ -30,6 +29,8 @@ interface StaticAnalysisArgs {
    */
   readonly worktreePath?: string;
   readonly taskId?: string;
+  readonly branch?: string;
+  readonly baseBranch?: string;
   readonly skipLint?: boolean;
   readonly skipTypecheck?: boolean;
 }
@@ -82,7 +83,7 @@ const execCommandRunner: RunCommandFn = (
 
 export async function handleStaticAnalysis(
   args: StaticAnalysisArgs,
-  _stateDir: string,
+  stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
   // Preflight (DR-10): fail-fast on a miswired DispatchContext (a missing
@@ -104,55 +105,52 @@ export async function handleStaticAnalysis(
   if (!pre.ok) return pre.result;
   const repoRoot = pre.repoRoot;
 
-  // Run the pure TypeScript static analysis function
-  const analysisResult = runStaticAnalysis({
-    repoRoot,
-    skipLint: args.skipLint,
-    skipTypecheck: args.skipTypecheck,
-    runCommand: execCommandRunner,
-  });
+  return runDurableGateProducer(
+    {
+      gateClass: 'static-analysis',
+      featureId: args.featureId,
+      ...(args.taskId ? { taskId: args.taskId } : {}),
+      ...(args.branch ? { branch: args.branch } : {}),
+      baseRef: args.baseBranch ?? 'main',
+      repoRoot,
+      stateDir,
+      eventStore,
+    },
+    async () => {
+      // Run the pure TypeScript static analysis function.
+      const analysisResult = runStaticAnalysis({
+        repoRoot,
+        skipLint: args.skipLint,
+        skipTypecheck: args.skipTypecheck,
+        runCommand: execCommandRunner,
+      });
 
-  // Map 'error' status to SCRIPT_ERROR response
-  if (analysisResult.status === 'error') {
-    return {
-      success: false,
-      error: {
-        code: 'SCRIPT_ERROR',
-        message: analysisResult.error || 'Static analysis error',
-      },
-    };
-  }
+      // Map 'error' status to SCRIPT_ERROR response.
+      if (analysisResult.status === 'error') {
+        return {
+          success: false,
+          error: {
+            code: 'SCRIPT_ERROR',
+            message: analysisResult.error || 'Static analysis error',
+          },
+        };
+      }
 
   // T-10 / DR-4: 'skip' status means no recognized toolchain — gate is
   // inconclusive, not green. Map to passed=false + skipped=true so
-  // convergence-view can surface it as skipped, and emit the gate event
-  // with details.skipped + details.skipReason so projections can render
-  // SKIP distinctly from PASS / FAIL.
-  const skipped = analysisResult.status === 'skip';
-  const passed = analysisResult.status === 'pass';
-  const { passCount, failCount, output } = analysisResult;
+  // callers and canonical evidence render SKIP distinctly from PASS / FAIL.
+      const skipped = analysisResult.status === 'skip';
+      const passed = analysisResult.status === 'pass';
+      const { passCount, failCount, output } = analysisResult;
 
-  // Emit gate.executed event (fire-and-forget: emission failure must not break the gate check)
-  try {
-    const store = eventStore;
-    await emitGateEvent(store, args.featureId, 'static-analysis', 'quality', passed, {
-      dimension: 'D2',
-      phase: 'delegate',
-      passCount,
-      failCount,
-      ...(skipped ? { skipped: true, skipReason: analysisResult.skipReason ?? 'no-toolchain' } : {}),
-      ...(args.taskId ? { taskId: args.taskId } : {}),
-    });
-  } catch { /* fire-and-forget */ }
-
-  // Return structured result
-  const result: StaticAnalysisResult = {
-    passed,
-    passCount,
-    failCount,
-    report: output,
-    ...(skipped ? { skipped: true, skipReason: analysisResult.skipReason ?? 'no-toolchain' } : {}),
-  };
-
-  return { success: true, data: result };
+      const result: StaticAnalysisResult = {
+        passed,
+        passCount,
+        failCount,
+        report: output,
+        ...(skipped ? { skipped: true, skipReason: analysisResult.skipReason ?? 'no-toolchain' } : {}),
+      };
+      return { success: true, data: result };
+    },
+  );
 }
