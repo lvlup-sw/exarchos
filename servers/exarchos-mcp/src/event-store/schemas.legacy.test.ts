@@ -529,7 +529,8 @@ describe('EventTypes', () => {
     // `export.executed` (result + content hash), the INV-13 two-event split for
     // the non-idempotent zip-bundle write, emitted `auto` by the `export`
     // composite handler (task 013), idempotency-keyed per INV-8.
-    expect(EventTypes).toHaveLength(148);
+    // Phase-gate v2.12 adds 11 planned, internal proof replay contracts.
+    expect(EventTypes).toHaveLength(159);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');
