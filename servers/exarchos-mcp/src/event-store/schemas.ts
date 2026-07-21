@@ -38,6 +38,15 @@ export const INTERNAL_ADMISSION_EVENT_TYPES = [
   'admission.enforcement-enabled',
 ] as const;
 
+/** Server-owned cancellation process-manager facts (v2.12, DR-7). */
+export const INTERNAL_CANCELLATION_EVENT_TYPES = [
+  'cancel.requested',
+  'cancel.compensation-requested',
+  'cancel.compensation-completed',
+  'cancel.compensation-failed',
+  'cancel.ready',
+] as const;
+
 export const EventTypes = [
   'workflow.started',
   'task.assigned',
@@ -89,6 +98,7 @@ export const EventTypes = [
   'workflow.cancel',
   'workflow.cleanup',
   'workflow.compensation',
+  ...INTERNAL_CANCELLATION_EVENT_TYPES,
   'workflow.circuit-open',
   'tool.invoked',
   'tool.completed',
@@ -518,6 +528,11 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'workflow.cancel': 'auto',
   'workflow.cleanup': 'auto',
   'workflow.compensation': 'auto',
+  'cancel.requested': 'auto',
+  'cancel.compensation-requested': 'auto',
+  'cancel.compensation-completed': 'auto',
+  'cancel.compensation-failed': 'auto',
+  'cancel.ready': 'auto',
   'workflow.circuit-open': 'auto',
   'workflow.cas-failed': 'auto',
   'workflow.pruned': 'auto',
@@ -1140,6 +1155,90 @@ export const WorkflowCompensationData = z.object({
   status: z.enum(['executed', 'skipped', 'failed', 'dry-run']),
   message: z.string(),
 });
+
+const CancellationEventVersionSchema = z.literal('1.0');
+const CancellationIdSchema = z.string().trim().min(1).max(200);
+const CancellationActionIdSchema = z.string().trim().min(1).max(200);
+const CancellationRecordedAtSchema = z.string().datetime({ offset: true });
+const CancellationTrustedProvenance = {
+  caller: AttributedPrincipalV1Schema,
+  authorization: AuthorizationSnapshotV1Schema.optional(),
+} as const;
+
+/** Durable cancellation intent; always precedes compensation side effects. */
+export const CancelRequestedData = z
+  .object({
+    eventVersion: CancellationEventVersionSchema,
+    cancelId: CancellationIdSchema,
+    featureId: z.string().min(1),
+    from: z.string().min(1),
+    phaseAttemptId: PhaseAttemptIdSchema,
+    reason: z.string().optional(),
+    requestedAt: CancellationRecordedAtSchema,
+    ...CancellationTrustedProvenance,
+  })
+  .strict()
+  .readonly();
+
+/** Durable intent for one deterministic compensation action. */
+export const CancelCompensationRequestedData = z
+  .object({
+    eventVersion: CancellationEventVersionSchema,
+    cancelId: CancellationIdSchema,
+    featureId: z.string().min(1),
+    phaseAttemptId: PhaseAttemptIdSchema,
+    actionId: CancellationActionIdSchema,
+    requestedAt: CancellationRecordedAtSchema,
+  })
+  .strict()
+  .readonly();
+
+/** Durable successful result for one compensation action. */
+export const CancelCompensationCompletedData = z
+  .object({
+    eventVersion: CancellationEventVersionSchema,
+    cancelId: CancellationIdSchema,
+    featureId: z.string().min(1),
+    phaseAttemptId: PhaseAttemptIdSchema,
+    actionId: CancellationActionIdSchema,
+    status: z.enum(['executed', 'skipped']),
+    message: z.string().min(1),
+    completedAt: CancellationRecordedAtSchema,
+  })
+  .strict()
+  .readonly();
+
+/** Explicit terminal failure for an attempted or malformed compensation. */
+export const CancelCompensationFailedData = z
+  .object({
+    eventVersion: CancellationEventVersionSchema,
+    cancelId: CancellationIdSchema,
+    featureId: z.string().min(1),
+    phaseAttemptId: PhaseAttemptIdSchema,
+    actionId: CancellationActionIdSchema,
+    reason: z.enum(['effect-failed', 'malformed-result']),
+    message: z.string().min(1),
+    failedAt: CancellationRecordedAtSchema,
+  })
+  .strict()
+  .readonly();
+
+/** Typed proof that every required compensation result is durably present. */
+export const CancelReadyData = z
+  .object({
+    eventVersion: CancellationEventVersionSchema,
+    evidenceId: z.string().trim().min(1).max(256),
+    cancelId: CancellationIdSchema,
+    featureId: z.string().min(1),
+    phaseAttemptId: PhaseAttemptIdSchema,
+    completedActionIds: z.array(CancellationActionIdSchema).readonly(),
+    outcomeSequences: z.array(z.number().int().positive()).readonly(),
+    contentDigest: ContentDigestV1Schema,
+    readyAt: CancellationRecordedAtSchema,
+    ...CancellationTrustedProvenance,
+  })
+  .strict()
+  .readonly();
 
 export const WorkflowCircuitOpenData = z.object({
   featureId: z.string(),
@@ -3380,6 +3479,11 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'workflow.cancel': WorkflowCancelData,
   'workflow.cleanup': WorkflowCleanupData,
   'workflow.compensation': WorkflowCompensationData,
+  'cancel.requested': CancelRequestedData,
+  'cancel.compensation-requested': CancelCompensationRequestedData,
+  'cancel.compensation-completed': CancelCompensationCompletedData,
+  'cancel.compensation-failed': CancelCompensationFailedData,
+  'cancel.ready': CancelReadyData,
   'workflow.circuit-open': WorkflowCircuitOpenData,
   'workflow.cas-failed': WorkflowCasFailedData,
   'workflow.pruned': WorkflowPrunedData,

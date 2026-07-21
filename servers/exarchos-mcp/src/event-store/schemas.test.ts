@@ -630,9 +630,9 @@ describe('EventTypes', () => {
     //   INV-8 idempotency; export.requested carries the RESOLVED path intent before
     //   the zip write, export.executed carries the written bundle's content hash
     //   after, emitted `auto` by the `export` composite handler in task 013).
-    // Phase-gate v2.12 proof substrate adds 11 internal, planned replay
-    // contracts without registering a public admission action or emitter.
-    expect(EventTypes).toHaveLength(159);
+    // Phase-gate v2.12 adds 11 admission replay contracts and five
+    // server-owned cancellation process-manager facts.
+    expect(EventTypes).toHaveLength(164);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');
@@ -4188,9 +4188,9 @@ describe('WLM operational-core merge lease schemas', () => {
     // prune.executing_started / prune.executed (143 → 145), WLM-6 (DR-2)
     // `workflow.plan-review-dispatched` (145 → 146), and the DR-6 (lifecycle-verbs
     // task 012) two-event `export` contract export.requested / export.executed
-    // (146 → 148), followed by the 11 additive internal admission proof event
-    // schemas (148 → 159). These are `planned`, not public append actions.
-    expect(EventTypes).toHaveLength(159);
+    // (146 → 148), followed by 11 admission proof events and five internal
+    // cancellation process-manager facts (148 → 164).
+    expect(EventTypes).toHaveLength(164);
     // No duplicate slipped in while bumping the count.
     expect(new Set(EventTypes).size).toBe(EventTypes.length);
   });

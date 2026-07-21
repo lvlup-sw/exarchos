@@ -1,6 +1,6 @@
 import { execFile as execFileCb } from 'child_process';
 import { promisify } from 'util';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { appendEvent } from './events.js';
 import { ErrorCode } from './schemas.js';
@@ -8,6 +8,11 @@ import { withStateRetry } from './state-retry.js';
 import type { Event } from './types.js';
 import type { EventStore } from '../event-store/store.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
+import {
+  CancelCompensationCompletedData,
+  CancelCompensationFailedData,
+} from '../event-store/schemas.js';
+import { buildValidatedEvent } from '../event-store/event-factory.js';
 // WLM unification (DR-3): compensation-triggered worktree teardown appends to the
 // SINGLETON `worktrees` stream — the SAME stream + reducer the WorktreeManager
 // owns — so a compensation removal genuinely reaches the `worktrees@v1` view
@@ -534,6 +539,14 @@ export interface CompensationOptions {
    * dirty check against a REAL worktree while stubbing the removal.
    */
   readonly gitRunner?: GitRunner;
+  /**
+   * Enables the v2.12 event-sourced cancellation process manager. Omitted by
+   * legacy callers, which retain checkpoint-based behavior.
+   */
+  readonly cancelProcess?: {
+    readonly cancelId: string;
+    readonly phaseAttemptId: string;
+  };
 }
 
 export interface CompensationActionResult {
@@ -555,6 +568,10 @@ export interface CompensationResult {
   readonly success: boolean;
   readonly errorCode?: string;
   readonly checkpoint: CompensationCheckpoint | null;
+  readonly durableOutcomes?: {
+    readonly completedActionIds: readonly string[];
+    readonly outcomeSequences: readonly number[];
+  };
 }
 
 // ─── Phase Order (reverse compensation order) ───────────────────────────────
@@ -590,7 +607,36 @@ function createClosePrAction(): CompensationAction {
       }
 
       try {
-        await runCommand('gh', ['pr', 'close', prUrl, '--comment', 'Cancelled via compensation'], options);
+        const state = (
+          await runCommandCaptureStdout(
+            'gh',
+            ['pr', 'view', prUrl, '--json', 'state', '--jq', '.state'],
+            options,
+          )
+        ).trim().toUpperCase();
+        if (state === 'CLOSED' || state === 'MERGED') {
+          return {
+            actionId: 'synthesize:close-pr',
+            status: 'skipped',
+            message: `PR already closed: ${prUrl}`,
+          };
+        }
+        try {
+          await runCommand(
+            'gh',
+            ['pr', 'close', prUrl, '--comment', 'Cancelled via compensation'],
+            options,
+          );
+        } catch (error) {
+          const after = (
+            await runCommandCaptureStdout(
+              'gh',
+              ['pr', 'view', prUrl, '--json', 'state', '--jq', '.state'],
+              options,
+            )
+          ).trim().toUpperCase();
+          if (after !== 'CLOSED' && after !== 'MERGED') throw error;
+        }
         return { actionId: 'synthesize:close-pr', status: 'executed', message: `Closed PR: ${prUrl}` };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -626,22 +672,29 @@ function createDeleteIntegrationBranchAction(): CompensationAction {
       }
 
       try {
-        // Delete local branch (ignore failure if doesn't exist)
-        try {
-          await runCommand('git', ['branch', '-D', branch], options);
-        } catch {
-          // Ignore local branch delete failure
+        const existsLocally = await localBranchExists(branch, options);
+        const existsRemote = await remoteBranchExists(branch, 'origin', options);
+        if (existsLocally) {
+          try {
+            await runCommand('git', ['branch', '-D', branch], options);
+          } catch (error) {
+            if (await localBranchExists(branch, options)) throw error;
+          }
         }
-        // Delete remote branch (ignore failure if doesn't exist)
-        try {
-          await runCommand('git', ['push', 'origin', '--delete', branch], options);
-        } catch {
-          // Ignore remote delete failure
+        if (existsRemote) {
+          try {
+            await runCommand('git', ['push', 'origin', '--delete', branch], options);
+          } catch (error) {
+            if (await remoteBranchExists(branch, 'origin', options)) throw error;
+          }
         }
         return {
           actionId: 'delegate:delete-integration-branch',
-          status: 'executed',
-          message: `Deleted integration branch: ${branch}`,
+          status: existsLocally || existsRemote ? 'executed' : 'skipped',
+          message:
+            existsLocally || existsRemote
+              ? `Deleted integration branch: ${branch}`
+              : `Integration branch already absent: ${branch}`,
         };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -928,6 +981,263 @@ function getPhasesInReverseOrder(currentPhase: string): string[] {
   return PHASE_ORDER.slice(0, idx + 1).reverse();
 }
 
+function orderedCompensationActions(currentPhase: string): CompensationAction[] {
+    const phasesInOrder = getPhasesInReverseOrder(currentPhase);
+    const allActions = getCompensationActions();
+    const orderedActions: CompensationAction[] = [];
+    for (const phase of phasesInOrder) {
+      for (const action of allActions) {
+        if (action.phase === phase) orderedActions.push(action);
+      }
+    }
+    return orderedActions;
+  }
+
+  function processEventData(
+    options: CompensationOptions,
+    actionId: string,
+  ): {
+    cancelId: string;
+    featureId: string;
+    phaseAttemptId: string;
+    actionId: string;
+  } {
+    return {
+      cancelId: options.cancelProcess!.cancelId,
+      featureId: options.featureId!,
+      phaseAttemptId: options.cancelProcess!.phaseAttemptId,
+      actionId,
+    };
+  }
+
+  async function appendCancellationProcessEvent(
+    options: CompensationOptions,
+    type:
+      | 'cancel.compensation-requested'
+      | 'cancel.compensation-completed'
+      | 'cancel.compensation-failed',
+    data: Record<string, unknown>,
+    suffix: string,
+  ): Promise<WorkflowEvent> {
+    const featureId = options.featureId!;
+    const key = `cancel:${createHash('sha256')
+      .update(`${featureId}\0${options.cancelProcess!.cancelId}\0${suffix}`, 'utf8')
+      .digest('hex')}`;
+    const event = buildValidatedEvent(featureId, 1, {
+      type,
+      source: 'workflow',
+      idempotencyKey: key,
+      data,
+    });
+    return options.eventStore!.appendValidated(featureId, event, {
+      idempotencyKey: key,
+    });
+  }
+
+  function validActionResult(
+    value: unknown,
+    actionId: string,
+  ): value is CompensationActionResult {
+    if (typeof value !== 'object' || value === null) return false;
+    const result = value as Partial<CompensationActionResult>;
+    return (
+      result.actionId === actionId
+      && (result.status === 'executed'
+        || result.status === 'skipped'
+        || result.status === 'failed')
+      && typeof result.message === 'string'
+      && result.message.length > 0
+    );
+  }
+
+  async function executeProcessManagedCompensation(
+    state: Record<string, unknown>,
+    currentPhase: string,
+    options: CompensationOptions,
+  ): Promise<CompensationResult> {
+    const eventStore = options.eventStore!;
+    const featureId = options.featureId!;
+    const cancelId = options.cancelProcess!.cancelId;
+    const actions = orderedCompensationActions(currentPhase);
+    const history = await eventStore.query(featureId);
+    const results: CompensationActionResult[] = [];
+
+    for (const action of actions) {
+      const matching = history.filter((event) => {
+        const data = event.data as Record<string, unknown> | undefined;
+        return data?.cancelId === cancelId && data?.actionId === action.id;
+      });
+      const completed = matching.find(
+        (event) =>
+          event.type === 'cancel.compensation-completed'
+          && CancelCompensationCompletedData.safeParse(event.data).success,
+      );
+      if (completed !== undefined) {
+        results.push({
+          actionId: action.id,
+          status: 'skipped',
+          message: 'Already completed (event replay)',
+        });
+        continue;
+      }
+      const failed = matching.find(
+        (event) =>
+          event.type === 'cancel.compensation-failed'
+          && CancelCompensationFailedData.safeParse(event.data).success,
+      );
+      if (failed !== undefined) {
+        results.push({
+          actionId: action.id,
+          status: 'failed',
+          message: String(failed.data?.message ?? 'Compensation previously failed'),
+        });
+        continue;
+      }
+
+      const malformedOutcome = matching.find(
+        (event) =>
+          (event.type === 'cancel.compensation-completed'
+            && !CancelCompensationCompletedData.safeParse(event.data).success)
+          || (event.type === 'cancel.compensation-failed'
+            && !CancelCompensationFailedData.safeParse(event.data).success),
+      );
+      if (malformedOutcome !== undefined) {
+        const message = `Malformed durable compensation result for ${action.id}`;
+        await appendCancellationProcessEvent(
+          options,
+          'cancel.compensation-failed',
+          {
+            eventVersion: '1.0',
+            ...processEventData(options, action.id),
+            reason: 'malformed-result',
+            message,
+            failedAt: new Date().toISOString(),
+          },
+          `compensation:${action.id}:failed`,
+        );
+        results.push({ actionId: action.id, status: 'failed', message });
+        continue;
+      }
+
+      await appendCancellationProcessEvent(
+        options,
+        'cancel.compensation-requested',
+        {
+          eventVersion: '1.0',
+          ...processEventData(options, action.id),
+          requestedAt: new Date().toISOString(),
+        },
+        `compensation:${action.id}:requested`,
+      );
+
+      let rawResult: unknown;
+      try {
+        rawResult = await action.execute(state, options);
+      } catch (error) {
+        rawResult = {
+          actionId: action.id,
+          status: 'failed',
+          message: error instanceof Error ? error.message : String(error),
+        };
+      }
+
+      if (!validActionResult(rawResult, action.id)) {
+        const message = `Malformed compensation result for ${action.id}`;
+        await appendCancellationProcessEvent(
+          options,
+          'cancel.compensation-failed',
+          {
+            eventVersion: '1.0',
+            ...processEventData(options, action.id),
+            reason: 'malformed-result',
+            message,
+            failedAt: new Date().toISOString(),
+          },
+          `compensation:${action.id}:failed`,
+        );
+        results.push({ actionId: action.id, status: 'failed', message });
+        continue;
+      }
+
+      const result = rawResult;
+      if (result.status === 'failed') {
+        await appendCancellationProcessEvent(
+          options,
+          'cancel.compensation-failed',
+          {
+            eventVersion: '1.0',
+            ...processEventData(options, action.id),
+            reason: 'effect-failed',
+            message: result.message,
+            failedAt: new Date().toISOString(),
+          },
+          `compensation:${action.id}:failed`,
+        );
+      } else {
+        await appendCancellationProcessEvent(
+          options,
+          'cancel.compensation-completed',
+          {
+            eventVersion: '1.0',
+            ...processEventData(options, action.id),
+            status: result.status,
+            message: result.message,
+            completedAt: new Date().toISOString(),
+          },
+          `compensation:${action.id}:completed`,
+        );
+      }
+      results.push(result);
+    }
+
+    // Re-read and validate the durable log. In-memory return values are never
+    // sufficient to claim readiness.
+    const replay = await eventStore.query(featureId);
+    const completedActionIds: string[] = [];
+    const outcomeSequences: number[] = [];
+    let incomplete = false;
+    for (const action of actions) {
+      const completed = replay.find((event) => {
+        if (event.type !== 'cancel.compensation-completed') return false;
+        const parsed = CancelCompensationCompletedData.safeParse(event.data);
+        return parsed.success
+          && parsed.data.cancelId === cancelId
+          && parsed.data.actionId === action.id;
+      });
+      const failed = replay.find((event) => {
+        if (event.type !== 'cancel.compensation-failed') return false;
+        const parsed = CancelCompensationFailedData.safeParse(event.data);
+        return parsed.success
+          && parsed.data.cancelId === cancelId
+          && parsed.data.actionId === action.id;
+      });
+      if (completed !== undefined) {
+        completedActionIds.push(action.id);
+        outcomeSequences.push(completed.sequence);
+      } else {
+        incomplete = true;
+        if (failed === undefined && !results.some((result) => result.actionId === action.id)) {
+          results.push({
+            actionId: action.id,
+            status: 'failed',
+            message: 'Compensation outcome was not durably recorded',
+          });
+        }
+      }
+    }
+
+    const hasFailure =
+      incomplete || results.some((result) => result.status === 'failed');
+    return {
+      actions: results,
+      events: [],
+      success: !hasFailure,
+      ...(hasFailure ? { errorCode: ErrorCode.COMPENSATION_PARTIAL } : {}),
+      checkpoint: null,
+      durableOutcomes: { completedActionIds, outcomeSequences },
+    };
+}
+
 export async function executeCompensation(
   state: Record<string, unknown>,
   currentPhase: string,
@@ -952,18 +1262,20 @@ export async function executeCompensation(
         'legacy non-event-sourced path.',
     );
   }
-  const phasesInOrder = getPhasesInReverseOrder(currentPhase);
-  const allActions = getCompensationActions();
+  if (options.cancelProcess !== undefined) {
+    if (options.eventStore === undefined || options.featureId === undefined) {
+      throw new Error(
+        'executeCompensation: cancelProcess requires eventStore and featureId',
+      );
+    }
+    if (options.dryRun) {
+      throw new Error('executeCompensation: cancelProcess cannot run in dry-run mode');
+    }
+    return executeProcessManagedCompensation(state, currentPhase, options);
+  }
 
   // Order actions by reverse phase order
-  const orderedActions: CompensationAction[] = [];
-  for (const phase of phasesInOrder) {
-    for (const action of allActions) {
-      if (action.phase === phase) {
-        orderedActions.push(action);
-      }
-    }
-  }
+  const orderedActions = orderedCompensationActions(currentPhase);
 
   const results: CompensationActionResult[] = [];
   const compensationEvents: Event[] = [];
