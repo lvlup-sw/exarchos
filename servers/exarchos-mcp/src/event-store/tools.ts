@@ -4,6 +4,8 @@ import { EVENT_DATA_SCHEMAS, type EventType, WorkflowEventBase } from './schemas
 import { pickFields, toEventAck, type EventAck, type ToolResult } from '../format.js';
 import { buildValidatedEvent } from './event-factory.js';
 import { randomUUID } from 'node:crypto';
+import { getDispatchContext } from '../dispatch/dispatch-context.js';
+import { getReservedEventAppendRegistration } from '../registry.js';
 
 // `toSafeEventAck` previously translated synthetic sequence-0 acks emitted by
 // the EventStore sidecar fallback (#1082) into a `{sequence: -1,
@@ -52,6 +54,38 @@ function detectMisplacedFields(event: Record<string, unknown>): string[] {
 
 // ─── Event Append Handler ───────────────────────────────────────────────────
 
+type ReservedEventError = ToolResult & {
+  readonly error: NonNullable<ToolResult['error']> & {
+    readonly eventType: string;
+    readonly registeredHandler?: string;
+    readonly batchIndex?: number;
+  };
+};
+
+function reservedEventAppendError(
+  eventType: string,
+  batchIndex?: number,
+): ReservedEventError | undefined {
+  const registration = getReservedEventAppendRegistration(eventType);
+  if (registration === undefined) return undefined;
+
+  const handlerGuidance = registration.typedHandler === undefined
+    ? 'No typed action is registered in this release; replay it only through internal projection loading.'
+    : `Use the registered typed handler "${registration.typedHandler}" instead.`;
+  return {
+    success: false,
+    error: {
+      code: 'RESERVED_EVENT_TYPE',
+      message: `Event type "${eventType}" is a reserved admission fact and cannot be created through generic event append. ${handlerGuidance}`,
+      eventType,
+      ...(registration.typedHandler !== undefined
+        ? { registeredHandler: registration.typedHandler }
+        : {}),
+      ...(batchIndex !== undefined ? { batchIndex } : {}),
+    },
+  };
+}
+
 /** Handles the event_append tool: validates input, appends an event to the store, and returns an EventAck. */
 export async function handleEventAppend(
   args: {
@@ -77,6 +111,9 @@ export async function handleEventAppend(
       error: { code: 'INVALID_INPUT', message: 'event.type is required' },
     };
   }
+
+  const reservedError = reservedEventAppendError(eventType);
+  if (reservedError !== undefined) return reservedError;
 
   const store = eventStore;
 
@@ -302,6 +339,9 @@ export async function handleBatchAppend(
       };
     }
 
+    const reservedError = reservedEventAppendError(eventType, i);
+    if (reservedError !== undefined) return reservedError;
+
     const misplaced = detectMisplacedFields(event);
     if (misplaced.length > 0) {
       return {
@@ -460,6 +500,120 @@ export async function handleBatchAppend(
   return { success: true, data: acks };
 }
 
+// ─── Typed admission fact handler ────────────────────────────────────────────
+
+export const AdmissionDisagreementDispositionActionSchema = z
+  .object({
+    stream: z.string().min(1),
+    dispositionId: z.string().min(1).max(256),
+    shadowAttemptId: z.string().min(1).max(256),
+    disposition: z.enum([
+      'explained-legacy',
+      'explained-admission',
+      'accepted-risk',
+      'unexplained',
+    ]),
+    rationale: z.string().trim().min(1).max(2_000),
+  })
+  .strict();
+
+export type AdmissionDisagreementDispositionAction = z.infer<
+  typeof AdmissionDisagreementDispositionActionSchema
+>;
+
+/**
+ * The v2.12 typed writer for disagreement dispositions.
+ *
+ * Its public input deliberately excludes issuer, role/posture, operation ID,
+ * and timestamps. The strict schema rejects attempts to supply them, while the
+ * handler derives every trusted value from the active DispatchContext.
+ */
+export async function handleAdmissionDisagreementDisposition(
+  untrustedArgs: unknown,
+  eventStore: EventStore,
+): Promise<ToolResult> {
+  const parsed = AdmissionDisagreementDispositionActionSchema.safeParse(
+    untrustedArgs,
+  );
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message: `handleAdmissionDisagreementDisposition: ${parsed.error.issues
+          .map((issue) => `${issue.path.join('.') || 'input'}: ${issue.message}`)
+          .join('; ')}`,
+      },
+    };
+  }
+
+  const dispatchContext = getDispatchContext();
+  const authorization = dispatchContext?.authorization;
+  if (
+    dispatchContext === undefined ||
+    authorization === undefined ||
+    authorization.posture === 'read-only'
+  ) {
+    return {
+      success: false,
+      error: {
+        code: 'CAPABILITY_DENIED',
+        message:
+          'handleAdmissionDisagreementDisposition requires resolver-authorized mutating posture.',
+        action: 'handleAdmissionDisagreementDisposition',
+      },
+    };
+  }
+
+  const { stream, ...fact } = parsed.data;
+  const recordedAt = authorization.resolvedAt;
+  try {
+    const validatedEvent = buildValidatedEvent(stream, 1, {
+      type: 'admission.disagreement-disposition',
+      timestamp: recordedAt,
+      data: {
+        eventVersion: '1.0',
+        ...fact,
+        recordedAt,
+        caller: {
+          principalKind:
+            authorization.identity.role === 'operator' ? 'operator' : 'agent',
+          principalId: authorization.identity.subjectId,
+          role: authorization.identity.role,
+        },
+        authorization: {
+          authorizationId: `${authorization.policy.id}:${dispatchContext.operationId}`,
+          posture: authorization.posture,
+          capabilityIds: [...authorization.capabilities],
+          resolverVersion: authorization.resolver.version,
+          resolvedAt: authorization.resolvedAt,
+        },
+      },
+    });
+    const event = await eventStore.appendValidated(stream, validatedEvent);
+    return { success: true, data: toEventAck(event) };
+  } catch (error) {
+    if (error instanceof ZodError) {
+      return {
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: error.issues
+            .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+            .join('; '),
+        },
+      };
+    }
+    return {
+      success: false,
+      error: {
+        code: 'APPEND_FAILED',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+}
+
 // ─── Event Query Handler ────────────────────────────────────────────────────
 
 /**
@@ -568,4 +722,3 @@ export async function handleEventQuery(
     };
   }
 }
-

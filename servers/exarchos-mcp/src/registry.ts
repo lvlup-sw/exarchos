@@ -39,6 +39,7 @@ import {
   unrecognizedPruneKeyMessage,
 } from './config/prune-removed-knobs.js';
 import type { SupportedGateClass } from './orchestrate/gate-provider-registry.js';
+import { INTERNAL_ADMISSION_EVENT_TYPES } from './event-store/schemas.js';
 
 // ─── Tool Registry Types ────────────────────────────────────────────────────
 
@@ -206,6 +207,41 @@ export interface AutoEmission {
   readonly event: string;
   readonly condition: 'always' | 'conditional';
   readonly description?: string;
+}
+
+export interface ReservedEventAppendRegistration {
+  readonly eventType: string;
+  readonly typedHandler?: string;
+}
+
+/**
+ * Server-owned admission event reservation catalog (DR-3).
+ *
+ * This is intentionally separate from EVENT_EMISSION_REGISTRY: that registry
+ * describes replay/emission classification, while this one controls which
+ * untrusted write surfaces may mint a fact. A typed handler name is present
+ * only when v2.12 actually ships that handler; planned v3 actions remain
+ * reserved without pretending that callers can invoke them.
+ */
+export const RESERVED_EVENT_APPEND_REGISTRY: ReadonlyMap<
+  string,
+  ReservedEventAppendRegistration
+> = new Map(
+  INTERNAL_ADMISSION_EVENT_TYPES.map((eventType) => [
+    eventType,
+    {
+      eventType,
+      ...(eventType === 'admission.disagreement-disposition'
+        ? { typedHandler: 'handleAdmissionDisagreementDisposition' }
+        : {}),
+    },
+  ]),
+);
+
+export function getReservedEventAppendRegistration(
+  eventType: string,
+): ReservedEventAppendRegistration | undefined {
+  return RESERVED_EVENT_APPEND_REGISTRY.get(eventType);
 }
 
 // ─── Action Annotations (#1289, design §2.4) ─────────────────────────
