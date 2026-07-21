@@ -1754,6 +1754,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: SYNTHESIS_REVIEW_PHASES,
     roles: ROLE_LEAD,
+    gate: { blocking: true, gateClass: 'prepare-synthesis' },
     // DR-5: invokes `npm run test:run` + typecheck under the hood; seconds
     // to minutes on non-trivial repos.  CLI adapter emits heartbeats.
     longRunning: true,
@@ -1952,7 +1953,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
-    gate: { blocking: true },
+    gate: { blocking: true, gateClass: 'review-verdict' },
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
@@ -1991,7 +1992,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: PLAN_PHASES,
     roles: ROLE_LEAD,
-    gate: { blocking: true, dimension: 'D1' },
+    gate: { blocking: true, dimension: 'D1', gateClass: 'provenance-chain' },
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
@@ -2035,7 +2036,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: PLAN_PHASES,
     roles: ROLE_LEAD,
-    gate: { blocking: true, dimension: 'D1' },
+    gate: { blocking: true, dimension: 'D1', gateClass: 'plan-coverage' },
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],

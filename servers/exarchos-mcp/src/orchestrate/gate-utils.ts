@@ -131,7 +131,17 @@ export function normalizeGateVerdict(result: ToolResult): 'pass' | 'fail' | 'ind
     return 'indeterminate';
   }
   const passed = (data as { readonly passed?: unknown }).passed;
-  return passed === true ? 'pass' : passed === false ? 'fail' : 'indeterminate';
+  if (passed === true) return 'pass';
+  if (passed === false) return 'fail';
+
+  const ready = (data as { readonly ready?: unknown }).ready;
+  if (ready === true) return 'pass';
+  if (ready === false) return 'fail';
+
+  const verdict = (data as { readonly verdict?: unknown }).verdict;
+  if (verdict === 'APPROVED') return 'pass';
+  if (verdict === 'NEEDS_FIXES' || verdict === 'BLOCKED') return 'fail';
+  return 'indeterminate';
 }
 
 /**

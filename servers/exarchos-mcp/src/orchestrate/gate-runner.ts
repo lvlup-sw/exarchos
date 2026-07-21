@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto';
+import { join } from 'node:path';
 
-import type { ContentAddressedStore } from '../artifacts/content-addressed-store.js';
+import {
+  ContentAddressedStore,
+} from '../artifacts/content-addressed-store.js';
 import { getDispatchContext } from '../dispatch/dispatch-context.js';
 import type { EventStore } from '../event-store/store.js';
 import {
@@ -34,6 +37,7 @@ import {
   type GateProvider,
   type GateProviderRegistry,
 } from './gate-provider-registry.js';
+import { resolveWorkflowState } from './resolve-state.js';
 import {
   attachGateEvidence,
   normalizeGateVerdict,
@@ -86,6 +90,19 @@ export interface GateRunnerDependencies {
 /** Durable envelope marker consumed by diagnostic gate projections. */
 export function gateRunnerObservationSource(gateClass: string): string {
   return `${CANONICAL_GATE_RUNNER_SOURCE_PREFIX}${encodeURIComponent(gateClass)}`;
+}
+
+export interface PhaseGateProducerRequest {
+  readonly streamId: string;
+  readonly gateClass: string;
+  readonly requirementId: string;
+  readonly stateDir: string;
+  readonly eventStore: EventStore;
+  readonly subject: (
+    phaseAttemptId: PhaseAttemptId,
+  ) => EvidenceSubjectV1;
+  readonly providerInput: unknown;
+  readonly executeProvider: GateProviderExecutor;
 }
 
 function digestKey(digest: ContentDigestV1): string {
@@ -393,3 +410,67 @@ export async function runGate(
 
 /** Explicit name for callers migrating from direct provider handlers. */
 export const runGateWithEvidence = runGate;
+
+/**
+ * Production adapter for existing phase-gate producers.
+ *
+ * Phase-attempt identity is resolved from the canonical event projection, and
+ * the repository-local artifact store is rooted under the workflow state
+ * directory. The provider's established carrier remains authoritative; this
+ * adapter only adds durable evidence references after persistence succeeds.
+ */
+export async function runPhaseGateWithEvidence(
+  request: PhaseGateProducerRequest,
+): Promise<ToolResult> {
+  const resolved = await resolveWorkflowState({
+    featureId: request.streamId,
+    eventStore: request.eventStore,
+  });
+  if ('error' in resolved) return resolved.error;
+
+  const parsedAttempt = PhaseAttemptIdSchema.safeParse(
+    resolved.state.phaseAttemptId,
+  );
+  if (!parsedAttempt.success) {
+    return {
+      success: false,
+      error: {
+        code: 'EVIDENCE_SCOPE_UNAVAILABLE',
+        message: 'Active workflow phase-attempt identity is unavailable.',
+        action: 'runGate',
+      },
+    };
+  }
+
+  let subject: EvidenceSubjectV1;
+  try {
+    subject = request.subject(parsedAttempt.data);
+  } catch (error) {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_GATE_SCOPE',
+        message: error instanceof Error ? error.message : String(error),
+        action: 'runGate',
+      },
+    };
+  }
+
+  return runGate(
+    {
+      streamId: request.streamId,
+      gateClass: request.gateClass,
+      phaseAttemptId: parsedAttempt.data,
+      requirementId: request.requirementId,
+      subject,
+      providerInput: request.providerInput,
+    },
+    {
+      eventStore: request.eventStore,
+      artifactStore: new ContentAddressedStore(
+        join(request.stateDir, 'admission-evidence'),
+      ),
+      executeProvider: request.executeProvider,
+    },
+  );
+}

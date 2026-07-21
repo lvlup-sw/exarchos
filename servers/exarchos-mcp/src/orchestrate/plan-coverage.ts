@@ -6,10 +6,13 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
 import { emitGateEvent } from './gate-utils.js';
 import { acceptanceCriteriaFinding } from './pure/design-completeness.js';
+import { createEvidenceSubject } from '../workflow/admission/evidence-subject.js';
+import { runPhaseGateWithEvidence } from './gate-runner.js';
 
 // ─── Result Types ──────────────────────────────────────────────────────────
 
@@ -698,11 +701,6 @@ export async function handlePlanCoverage(
     };
   }
 
-  // The YAML gate-sidecar layer (#1298) was abandoned in #1494 — SQLite is
-  // the authoritative structured record, so markdown parsing is the
-  // permanent authoring-gate path.
-
-  // Read files
   let designContent: string;
   let planContent: string;
 
@@ -718,6 +716,39 @@ export async function handlePlanCoverage(
       },
     };
   }
+
+  const artifactId =
+    `plan-spec:${createHash('sha256').update(args.featureId).digest('hex').slice(0, 32)}`;
+  return runPhaseGateWithEvidence({
+    streamId: args.featureId,
+    gateClass: 'plan-coverage',
+    requirementId: 'requirement:plan-coverage',
+    stateDir,
+    eventStore,
+    subject: () => createEvidenceSubject(
+      { kind: 'artifact', artifactId },
+      {
+        designPath: args.designPath,
+        planPath: args.planPath,
+        designContent,
+        planContent,
+      },
+    ),
+    providerInput: args,
+    executeProvider: async () =>
+      executePlanCoverage(args, designContent, planContent, eventStore),
+  });
+}
+
+async function executePlanCoverage(
+  args: { featureId: string; designPath: string; planPath: string },
+  designContent: string,
+  planContent: string,
+  eventStore: EventStore,
+): Promise<ToolResult> {
+  // The YAML gate-sidecar layer (#1298) was abandoned in #1494 — SQLite is
+  // the authoritative structured record, so markdown parsing is the
+  // permanent authoring-gate path.
 
   // Parse design sections
   const designSections = parseDesignSections(designContent);
@@ -767,18 +798,14 @@ export async function handlePlanCoverage(
   const foldedResult =
     foldedAdvisories.length > 0 ? { ...result, advisories: foldedAdvisories } : result;
 
-  // Emit gate.executed event (fire-and-forget)
-  try {
-    const store = eventStore;
-    await emitGateEvent(store, args.featureId, 'plan-coverage', 'planning', result.passed, {
-      dimension: 'D1',
-      phase: 'plan',
-      covered: result.coverage.covered,
-      gaps: result.coverage.gaps,
-      deferred: result.coverage.deferred,
-      totalSections: result.coverage.total,
-    });
-  } catch { /* fire-and-forget */ }
+  await emitGateEvent(eventStore, args.featureId, 'plan-coverage', 'planning', result.passed, {
+    dimension: 'D1',
+    phase: 'plan',
+    covered: result.coverage.covered,
+    gaps: result.coverage.gaps,
+    deferred: result.coverage.deferred,
+    totalSections: result.coverage.total,
+  });
 
   return { success: true, data: { ...foldedResult } };
 }
