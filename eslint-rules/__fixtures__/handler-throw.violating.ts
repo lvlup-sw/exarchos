@@ -77,6 +77,47 @@ async function dispatchSpecialBranch(rest: Record<string, unknown>): Promise<Too
   return envelopeWrap(await handleDoctor(rest as { report?: string }), startedAt);
 }
 
+// Case 5: a zero-arg factory shape (composite.ts's real `setup_worktree:
+// adaptSetupWorktree()`) — the map value is a `CallExpression` with NO
+// arguments, so there is no "last arg handler" to unwrap; the handler logic
+// lives in the closure the factory's OWN body returns. This closure's throw
+// must be found by resolving the callee to its declaration and unwrapping
+// its `return` statement — not silently dropped from the census.
+function adaptZeroArgFactory(): ActionHandler {
+  return async (args, _stateDir, _ctx) => {
+    if (!args.id) {
+      throw new Error('id is required'); // VIOLATION: found via factory-return unwrap
+    }
+    return { success: true };
+  };
+}
+
+// Case 6: the bare `handleX as ActionHandler` identifier-cast shape
+// (composite.ts's real `prune_stale_workflows: handlePruneStaleWorkflows as
+// ActionHandler`) — proves the cast resolves to a scannable function.
+async function handleAsCastThrow(
+  args: { id?: string },
+  _stateDir: string,
+  _ctx?: DispatchContext,
+): Promise<ToolResult> {
+  if (!args.id) {
+    throw new Error('id is required'); // VIOLATION
+  }
+  return { success: true };
+}
+
+// Case 7: a destructured first param. `firstParamName` cannot name a single
+// `args` identifier for this shape, so the fail-loud-guard exemption must
+// default to NON-exempt (scanned) rather than exempting every sole-`if`
+// throw in the handler — this is a genuine domain-input validation throw
+// and must be reported, not silently skipped.
+async function handleDestructuredParamThrow({ id }: { id?: string }): Promise<ToolResult> {
+  if (!id) {
+    throw new Error('id is required'); // VIOLATION: destructured-param validation
+  }
+  return { success: true };
+}
+
 const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   top_level_throw: adapt(handleTopLevelThrow),
   catch_rethrow: adapt(handleCatchRethrow),
@@ -94,6 +135,9 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
     }
     return { success: true };
   },
+  zero_arg_factory_throw: adaptZeroArgFactory(),
+  as_cast_throw: handleAsCastThrow as ActionHandler,
+  destructured_param_throw: adapt(handleDestructuredParamThrow),
 };
 
 export { ACTION_HANDLERS, dispatchSpecialBranch };

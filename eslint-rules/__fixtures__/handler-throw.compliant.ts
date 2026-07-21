@@ -117,11 +117,46 @@ async function dispatchSpecialBranch(rest: Record<string, unknown>): Promise<Too
   return envelopeWrap(await handleOnboard(rest as { report?: string }), startedAt);
 }
 
+// Compliant zero-arg factory shape (composite.ts's real `setup_worktree:
+// adaptSetupWorktree()` shape) — the factory's returned closure converts
+// its domain failure to ToolResult.error directly; no throw for the rule to
+// find once it unwraps the factory's `return` statement.
+function adaptZeroArgFactoryClean(): ActionHandler {
+  return async (args, _stateDir, _ctx) => {
+    if (!args.id) {
+      return { success: false, error: { code: 'INVALID_INPUT', message: 'id is required' } };
+    }
+    return { success: true };
+  };
+}
+
+// Compliant `as ActionHandler` cast shape (composite.ts's real
+// `prune_stale_workflows: handlePruneStaleWorkflows as ActionHandler`).
+async function handleAsCastClean(args: { id?: string }): Promise<ToolResult> {
+  if (!args.id) {
+    return { success: false, error: { code: 'INVALID_INPUT', message: 'id is required' } };
+  }
+  return { success: true };
+}
+
+// Compliant destructured-first-param handler — proves the fail-loud-guard
+// fix's NON-exempt default for unrecognized first-param shapes doesn't
+// produce a false positive when the handler genuinely has no throw.
+async function handleDestructuredParamClean({ id }: { id?: string }): Promise<ToolResult> {
+  if (!id) {
+    return { success: false, error: { code: 'INVALID_INPUT', message: 'id is required' } };
+  }
+  return { success: true };
+}
+
 const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   direct_return: adapt(handleDirectReturn),
   try_catch_returns: adapt(handleTryCatchReturns),
   with_guard: adapt(handleWithGuard),
   with_abort_support: adapt(handleWithAbortSupport),
+  zero_arg_factory_clean: adaptZeroArgFactoryClean(),
+  as_cast_clean: handleAsCastClean as ActionHandler,
+  destructured_param_clean: adapt(handleDestructuredParamClean),
 };
 
 export { ACTION_HANDLERS, dispatchSpecialBranch };
