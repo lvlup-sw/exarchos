@@ -66,6 +66,7 @@ function lintFixture(name) {
 // result across every focused assertion below.
 const violating = lintFixture('handler-throw.violating.ts');
 const compliant = lintFixture('handler-throw.compliant.ts');
+const unresolved = lintFixture('handler-throw.unresolved.ts');
 
 function findByName(messages, name) {
   return messages.find(m => m.message.includes(`'${name}'`));
@@ -97,19 +98,50 @@ test('noHandlerThrow_InlineArrowHandlerThrow_IsReported', () => {
   );
 });
 
-test('noHandlerThrow_ViolatingFixture_ReportsExactlyFiveAbnormalThrows', () => {
-  // Guards against both under- and over-reporting. 5, not 4: handleCatchRethrow
-  // contributes TWO — its own `throw err` re-throw in the catch clause, AND
-  // the inner `throw new Error(...)` in the try block, because that try's
-  // catch does NOT return a ToolResult (it unconditionally re-throws), so the
-  // "a try whose catch returns a ToolResult" exclusion does not apply to
-  // EITHER throw. Fixing the catch to `return {success:false, ...}` instead
-  // of rethrowing would silence both at once. The inline_arrow_throw handler
-  // ALSO contains an exempt fail-loud guard that must not inflate this count.
+// ─── Review fix M1: zero-arg-factory + `as ActionHandler` cast resolution ──
+
+test('noHandlerThrow_ZeroArgFactoryHandlerThrow_IsReported', () => {
+  // composite.ts's real `setup_worktree: adaptSetupWorktree()` shape — a
+  // CallExpression with NO arguments. Before the fix, `resolveHandlerFnNode`
+  // took `arguments[last]` (undefined for a 0-arg call) and this entry was
+  // silently dropped from the census (never scanned). The fix resolves the
+  // callee to its declaration and unwraps the closure ITS body returns.
+  const hit = findByName(violating, 'zero_arg_factory_throw');
+  assert.ok(hit, 'expected a violation found via zero-arg-factory-return unwrap');
+  assert.equal(hit.messageId, 'abnormalThrow');
+});
+
+test('noHandlerThrow_AsCastHandlerThrow_IsReported', () => {
+  // composite.ts's real `prune_stale_workflows: handlePruneStaleWorkflows as
+  // ActionHandler` shape — already resolved correctly pre-fix (TSAsExpression
+  // → Identifier), but pinned here as a regression guard for M1.
+  const hit = findByName(violating, 'as_cast_throw');
+  assert.ok(hit, 'expected a violation for the `as ActionHandler` identifier-cast shape');
+});
+
+// ─── Review fix M2: destructured-first-param guard exemption ───────────────
+
+test('noHandlerThrow_DestructuredParamValidationThrow_IsReported', () => {
+  // Before the fix, `isFailLoudPreconditionGuard` returned `true` (EXEMPT)
+  // whenever `argsParamName` was undefined — which a destructured first
+  // param (`{ id }: { id?: string }`) always produces, since
+  // `firstParamName` only names a plain Identifier param. That fail-opened
+  // EVERY sole-`if` throw in such a handler, including genuine domain-input
+  // validation. The fix defaults to NON-exempt for this shape.
+  const hit = findByName(violating, 'destructured_param_throw');
+  assert.ok(hit, 'expected a destructured-param validation throw to be reported, not exempted');
+});
+
+test('noHandlerThrow_ViolatingFixture_ReportsExactlyEightAbnormalThrows', () => {
+  // Guards against both under- and over-reporting. 8: the original 5
+  // (handleTopLevelThrow ×1, handleCatchRethrow ×2, handleDoctor ×1,
+  // inline_arrow_throw's args-derived throw ×1 — its ctx-guard throw stays
+  // exempt) plus the 3 new M1/M2 fixture cases (zero_arg_factory_throw,
+  // as_cast_throw, destructured_param_throw), each contributing exactly one.
   assert.equal(
     violating.length,
-    5,
-    `expected exactly 5 violations, got ${violating.length}: ${JSON.stringify(violating.map(m => m.message))}`,
+    8,
+    `expected exactly 8 violations, got ${violating.length}: ${JSON.stringify(violating.map(m => m.message))}`,
   );
 });
 
@@ -143,4 +175,32 @@ test('noHandlerThrow_AbortErrorRethrowInCatch_IsNotReported', () => {
 
 test('noHandlerThrow_CompliantSpecialBranchHandler_IsNotReported', () => {
   assert.equal(findByName(compliant, 'onboard'), undefined);
+});
+
+test('noHandlerThrow_ZeroArgFactoryHandlerClean_IsNotReported', () => {
+  assert.equal(findByName(compliant, 'zero_arg_factory_clean'), undefined);
+});
+
+test('noHandlerThrow_AsCastHandlerClean_IsNotReported', () => {
+  assert.equal(findByName(compliant, 'as_cast_clean'), undefined);
+});
+
+test('noHandlerThrow_DestructuredParamClean_IsNotReported', () => {
+  // The NON-exempt default for a destructured first param must not itself
+  // cause a false positive when the handler genuinely has no throw.
+  assert.equal(findByName(compliant, 'destructured_param_clean'), undefined);
+});
+
+// ─── Review fix M1: fail-loud on a genuinely unresolvable map entry ────────
+
+test('noHandlerThrow_UnresolvableFactoryReturnShape_ReportsUnresolvedHandler', () => {
+  // A zero-arg factory whose body returns the RESULT of calling another
+  // function (not a function/arrow literal directly) cannot be resolved by
+  // any known shape. Before the fix this silently `continue`d past the map
+  // entry (fail-open); the fix reports a rule error on it instead
+  // (fail-closed) so an unscannable registered handler is never mistaken for
+  // "nothing to report".
+  assert.equal(unresolved.length, 1, `expected exactly 1 diagnostic, got: ${JSON.stringify(unresolved)}`);
+  assert.equal(unresolved[0].messageId, 'unresolvedHandler');
+  assert.match(unresolved[0].message, /indirect_factory_return/);
 });

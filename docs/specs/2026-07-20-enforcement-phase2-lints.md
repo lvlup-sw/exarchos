@@ -48,6 +48,8 @@ A public MCP action handler owns its failure contract. A domain failure (invalid
 - Given a PR that adds a new abnormally-completing throw to a registered handler, When CI runs, Then `grep-gates` fails on that PR.
 - The gate does **not** flag the enumerable exemption classes in DR-3 (throws in non-handler helper functions; a `try` whose `catch` returns a `ToolResult`; `AbortError`/cancellation; fail-loud precondition guards).
 
+**Caveat (review #1706):** the gate flags literal `throw` statements reachable in a handler's own body — it does **not** cover an un-converted awaited rejection (a handler that `await`s a throwing helper with no surrounding `try`/`catch`, e.g. `handleMergeOrchestrate` awaiting `executeMergeFn(...)` outside a catch). That gap is a possible future enhancement, not a DR-1 acceptance criterion today; treat DR-1 as covering literal handler-body throws only, not a full INV-5b guarantee against every path an unconverted rejection can escape a handler.
+
 ### DR-2: A custom `@typescript-eslint` rule in a dedicated config, hosted via a `lint-*.mjs` wrapper on the unfiltered lane
 
 The rule is a custom `@typescript-eslint` rule (no new runtime dependency) resolving the handler set from the registration references — precise, not a return-type heuristic. It lives in `eslint.envelopes.config.js` and is invoked only by `scripts/lint-envelopes.mjs`, wired as a step in the **unfiltered** `grep-gates` job so it is covered by `ci-gate.needs`, cannot skip-as-passed, and never loads into the filtered `test-root` run.
