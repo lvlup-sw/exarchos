@@ -5,10 +5,14 @@
 // for the plan→plan-review boundary.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
 import { emitGateEvent } from './gate-utils.js';
 import { verifyProvenanceChain } from './pure/provenance-chain.js';
+import { createEvidenceSubject } from '../workflow/admission/evidence-subject.js';
+import { runPhaseGateWithEvidence } from './gate-runner.js';
 
 // ─── Result Types ──────────────────────────────────────────────────────────
 
@@ -33,8 +37,7 @@ export async function handleProvenanceChain(
   eventStore: EventStore,
 ): Promise<ToolResult> {
   // Fail-fast on miswired DispatchContext: a missing eventStore here is a
-  // wiring bug, not a transient error. Without this guard the fire-and-forget
-  // emit below silently swallows the failure. See PR #1185 / CR review 4177990662.
+  // wiring bug, not a transient error. See PR #1185 / CR review 4177990662.
   if (!eventStore) {
     return {
       success: false,
@@ -66,6 +69,49 @@ export async function handleProvenanceChain(
     };
   }
 
+  let designContent: string;
+  let planContent: string;
+  try {
+    [designContent, planContent] = await Promise.all([
+      readFile(args.designPath, 'utf8'),
+      readFile(args.planPath, 'utf8'),
+    ]);
+  } catch (error) {
+    return {
+      success: false,
+      error: {
+        code: 'PROVENANCE_ERROR',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+
+  const artifactId =
+    `plan-spec:${createHash('sha256').update(args.featureId).digest('hex').slice(0, 32)}`;
+  return runPhaseGateWithEvidence({
+    streamId: args.featureId,
+    gateClass: 'provenance-chain',
+    requirementId: 'requirement:provenance-chain',
+    stateDir: _stateDir,
+    eventStore,
+    subject: () => createEvidenceSubject(
+      { kind: 'artifact', artifactId },
+      {
+        designPath: args.designPath,
+        planPath: args.planPath,
+        designContent,
+        planContent,
+      },
+    ),
+    providerInput: args,
+    executeProvider: async () => executeProvenanceChain(args, eventStore),
+  });
+}
+
+async function executeProvenanceChain(
+  args: { featureId: string; designPath: string; planPath: string },
+  eventStore: EventStore,
+): Promise<ToolResult> {
   // The YAML gate-sidecar layer (#1298) was abandoned in #1494 — SQLite is
   // the authoritative structured record, so markdown parsing is the
   // permanent authoring-gate path.
@@ -94,18 +140,14 @@ export async function handleProvenanceChain(
     orphanRefs: tsResult.orphanRefs,
   };
 
-  // Emit gate.executed event (fire-and-forget)
-  try {
-    const store = eventStore;
-    await emitGateEvent(store, args.featureId, 'provenance-chain', 'planning', passed, {
-      dimension: 'D1',
-      phase: 'plan',
-      requirements: metrics.requirements,
-      covered: metrics.covered,
-      gaps: metrics.gaps,
-      orphanRefs: metrics.orphanRefs,
-    });
-  } catch { /* fire-and-forget */ }
+  await emitGateEvent(eventStore, args.featureId, 'provenance-chain', 'planning', passed, {
+    dimension: 'D1',
+    phase: 'plan',
+    requirements: metrics.requirements,
+    covered: metrics.covered,
+    gaps: metrics.gaps,
+    orphanRefs: metrics.orphanRefs,
+  });
 
   // Return structured result
   const result: ProvenanceChainResult = {

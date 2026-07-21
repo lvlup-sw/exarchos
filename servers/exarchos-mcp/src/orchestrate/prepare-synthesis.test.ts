@@ -21,6 +21,29 @@ vi.mock('../views/tools.js', () => ({
   getOrCreateMaterializer: vi.fn(),
 }));
 
+vi.mock('./gate-runner.js', () => ({
+  runPhaseGateWithEvidence: vi.fn(async (request) => {
+    try {
+      return await request.executeProvider(
+        {
+          gateClass: request.gateClass,
+          providerRef: 'test-provider',
+          actionName: 'test-provider',
+        },
+        request.providerInput,
+      );
+    } catch (error) {
+      return {
+        success: false,
+        error: {
+          code: 'GATE_PROVIDER_FAILED',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      };
+    }
+  }),
+}));
+
 import { getOrCreateMaterializer } from '../views/tools.js';
 
 // ─── Import handler under test ─────────────────────────────────────────────

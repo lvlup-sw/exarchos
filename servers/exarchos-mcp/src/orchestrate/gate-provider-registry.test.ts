@@ -2,17 +2,15 @@ import { describe, expect, it } from 'vitest';
 
 import { TOOL_REGISTRY } from '../registry.js';
 import {
-  MECHANICAL_GATE_CLASSES,
-  type GateClass,
-} from '../evals/benchmarks/seeded-defects/corpus.js';
-import {
   BUILTIN_GATE_PROVIDER_REGISTRY,
+  SUPPORTED_GATE_CLASSES,
   buildGateProviderRegistry,
   type GateProviderRegistration,
+  type SupportedGateClass,
 } from './gate-provider-registry.js';
 
 const registrations = (
-  ...gateClasses: readonly GateClass[]
+  ...gateClasses: readonly SupportedGateClass[]
 ): GateProviderRegistration[] =>
   gateClasses.map((gateClass) => ({
     gateClass,
@@ -29,17 +27,17 @@ describe('gate provider registry', () => {
         code: 'UNKNOWN_GATE_CLASS',
         message: 'Unknown gate class "static-anlysis"',
         gateClass: 'static-anlysis',
-        suggestions: ['static-analysis', 'test-adequacy', 'contract-drift'],
-        validGateClasses: MECHANICAL_GATE_CLASSES,
+        suggestions: ['static-analysis', 'test-adequacy', 'plan-coverage'],
+        validGateClasses: SUPPORTED_GATE_CLASSES,
       },
     });
   });
 
-  it('resolves every shared mechanical GateClass exactly once in stable order', () => {
+  it('resolves every durable GateClass exactly once in stable order', () => {
     expect(BUILTIN_GATE_PROVIDER_REGISTRY.list().map((provider) => provider.gateClass))
-      .toEqual(MECHANICAL_GATE_CLASSES);
+      .toEqual(SUPPORTED_GATE_CLASSES);
 
-    for (const gateClass of MECHANICAL_GATE_CLASSES) {
+    for (const gateClass of SUPPORTED_GATE_CLASSES) {
       const result = BUILTIN_GATE_PROVIDER_REGISTRY.resolve(gateClass);
       expect(result.success, gateClass).toBe(true);
       if (result.success) {
@@ -50,7 +48,7 @@ describe('gate provider registry', () => {
 
   it('rejects duplicate registrations with a structured diagnostic', () => {
     const result = buildGateProviderRegistry([
-      ...registrations(...MECHANICAL_GATE_CLASSES),
+      ...registrations(...SUPPORTED_GATE_CLASSES),
       ...registrations('test-adequacy'),
     ]);
 
@@ -66,7 +64,7 @@ describe('gate provider registry', () => {
 
   it('rejects missing built-ins with a structured diagnostic', () => {
     const result = buildGateProviderRegistry(
-      registrations(...MECHANICAL_GATE_CLASSES.filter((gateClass) => gateClass !== 'mock-boundary')),
+      registrations(...SUPPORTED_GATE_CLASSES.filter((gateClass) => gateClass !== 'mock-boundary')),
     );
 
     expect(result).toEqual({
@@ -81,7 +79,7 @@ describe('gate provider registry', () => {
 
   it('rejects unsupported registrations with ranked safe suggestions', () => {
     const result = buildGateProviderRegistry([
-      ...registrations(...MECHANICAL_GATE_CLASSES),
+      ...registrations(...SUPPORTED_GATE_CLASSES),
       {
         gateClass: 'contract-drit',
         actionName: 'check_contract_drit',
@@ -95,20 +93,20 @@ describe('gate provider registry', () => {
         message: 'Unknown gate class "contract-drit"',
         gateClass: 'contract-drit',
         suggestions: ['contract-drift', 'test-adequacy', 'mock-boundary'],
-        validGateClasses: MECHANICAL_GATE_CLASSES,
+        validGateClasses: SUPPORTED_GATE_CLASSES,
       },
     });
   });
 
   it('canonicalizes registration order instead of inheriting caller order', () => {
     const result = buildGateProviderRegistry(
-      registrations(...[...MECHANICAL_GATE_CLASSES].reverse()),
+      registrations(...[...SUPPORTED_GATE_CLASSES].reverse()),
     );
 
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.registry.list().map(({ gateClass }) => gateClass))
-        .toEqual(MECHANICAL_GATE_CLASSES);
+        .toEqual(SUPPORTED_GATE_CLASSES);
     }
   });
 
@@ -117,7 +115,7 @@ describe('gate provider registry', () => {
     expect(orchestrate).toBeDefined();
 
     const ownedActions = orchestrate!.actions.filter((action) => action.gate?.gateClass);
-    expect(ownedActions).toHaveLength(MECHANICAL_GATE_CLASSES.length);
+    expect(ownedActions).toHaveLength(SUPPORTED_GATE_CLASSES.length);
 
     for (const provider of BUILTIN_GATE_PROVIDER_REGISTRY.list()) {
       expect(provider.providerRef).toBe(provider.actionName);

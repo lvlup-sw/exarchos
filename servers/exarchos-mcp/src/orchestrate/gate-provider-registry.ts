@@ -6,9 +6,17 @@ import {
 
 /**
  * The shared seeded-defect taxonomy includes one hidden-oracle class that is
- * deliberately ungated. Providers own every mechanical class.
+ * deliberately ungated. Providers own every mechanical class plus the phase
+ * outcome producers migrated onto the durable runner.
  */
-export type SupportedGateClass = Exclude<GateClass, 'dropped-edge-case'>;
+export type PhaseGateClass =
+  | 'plan-coverage'
+  | 'provenance-chain'
+  | 'review-verdict'
+  | 'prepare-synthesis';
+export type SupportedGateClass =
+  | Exclude<GateClass, 'dropped-edge-case'>
+  | PhaseGateClass;
 
 export interface GateProviderRegistration {
   readonly gateClass: string;
@@ -97,6 +105,18 @@ const BUILTIN_REGISTRATIONS = {
   },
   'integration-suite': {
     actionName: 'check_integration_suite',
+  },
+  'plan-coverage': {
+    actionName: 'check_plan_coverage',
+  },
+  'provenance-chain': {
+    actionName: 'check_provenance_chain',
+  },
+  'review-verdict': {
+    actionName: 'check_review_verdict',
+  },
+  'prepare-synthesis': {
+    actionName: 'prepare_synthesis',
   },
 } as const satisfies Readonly<
   Record<
