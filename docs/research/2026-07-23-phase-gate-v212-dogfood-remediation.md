@@ -385,6 +385,30 @@ The audit should cover at least these seam families:
 | Packaging and cache | Binary, plugin, installed skills, and user cache can represent different revisions. | Version/build/plugin/skill identity and compiled-binary fixture. | Artifact manifest binds all digests; preflight blocks mismatches. |
 | Advisory controls | Temporary warnings and compatibility paths can become permanent policy. | Enforcer wiring manifest. | Owner, expiry, exit condition, kill fixture, and unfiltered CI path are mandatory. |
 
+## Empirical Acceptance and Benchmark Plan
+
+The structural program needs measured cutover gates, not qualitative claims.
+Every benchmark artifact must record source SHA, binary tag, contract and
+generator versions, environment, date, and raw samples.
+
+| Obligation | Benchmark / E2E protocol | Acceptance threshold |
+|---|---|---|
+| Artifact freshness | Build/install one matching set, then independently mutate binary SHA, plugin version, skill hash, and embedded runtime digest. | Matching set proceeds; **4/4** mismatches block before the first workflow call. |
+| Generated contract closure | Seed one drift in each generated derivative class: static type, Zod schema, CLI metadata, docs/skill snippet, fixture, compatibility metadata. | Regeneration or conformance CI catches **100%** of seeded drift; generated tree is clean afterward. |
+| Ship-surface reachability | Generate the graph for every public action. Seed missing route, missing handler, unselected provider, alternate direct effect, missing output schema, and missing packaged fixture. | **100%** of public actions have a complete path; **6/6** negative controls fail the closure check. |
+| Gate evidence durability | For every enforceable gate class, run at least **100** provider invocations with deterministic injected append success/failure and rerun cases. | Zero successful results without an evidence reference; **100%** of append failures return failure/indeterminate; same operation ID produces one canonical evidence record. |
+| Same-stream concurrency | Spawn **4 real child processes**, each performing **250** same-stream appends; repeat **3** times and restart between runs. | **3,000/3,000** events are dense and unique; HWM and projections match; zero permanent append failures; p99 latency is no worse than **baseline +20%**. |
+| Transition admission performance | Benchmark pure admission with active-evidence sets of 10, 100, and 1,000 records, at least **10,000** decisions per size. | p99 admission latency remains **<15 ms** excluding gate execution and report generation. |
+| Shadow cutover | Replay the deterministic legacy corpus and collect live shadow attempts across every phase kind. | Zero unexplained fixture disagreements; at least **20** live attempts cover every phase kind with at least one allow and deny; every intentional disagreement has a typed disposition. |
+| Verification economy | Record per task/wave: command digest, subject digest, wall time, tool calls, output bytes/tokens, and failure caught. | Identical command+subject evidence is executed once; full integration runs exactly once per wave; seeded-defect catch rate does not regress from baseline. |
+| Packaged production paths | Spawn the compiled binary and exercise real MCP transport, persistence, configuration, and packaging for each observable effect family. | Every effect family has a passing packaged fixture; no fixture may substitute a source-level handler call. |
+| Ratchet efficacy | Preserve every accepted dogfood defect as a kill fixture and run its proposed guard with a matched control. | Old defect fails, matched control passes, and guard infrastructure failure cannot report success. |
+
+Performance thresholds that lack an established baseline should begin in
+observe mode for one release, but the benchmark and provenance artifact are
+required immediately. Promotion to blocking must name the measured baseline,
+variance, regression budget, and sample size.
+
 ## Immediate Containment Batch
 
 These changes may land before the audit completes, but they are **containment,
