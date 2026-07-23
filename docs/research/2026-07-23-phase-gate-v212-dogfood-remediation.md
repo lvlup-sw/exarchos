@@ -241,13 +241,15 @@ Output a machine-readable inventory for every public surface:
 
 ### Track 1: Generate a Public Boundary From One Contract
 
-Do not invent an Exarchos-local IDL. Use the two planned standards boundaries:
+Do not treat MCP as the full source contract and do not fork the MCP protocol.
+Use two generated boundaries:
 
 1. **Workflow semantics:** `Strategos.Contracts` TypeSpec and
    `WorkflowDefinitionV1` from #1247/#1258 generate workflow IR, edge conditions,
    gate declarations, admission policies, and Exarchos Zod.
-2. **Agent facade:** the MCP 2026-07-28 action schemas from #1604/#1606 generate
-   CLI presentation and public action result carriers.
+2. **Exarchos action API:** one action contract generates the internal dispatch
+   types/metadata and projects the standard MCP 2026-07-28 `inputSchema`,
+   `outputSchema`, structured result, annotations, and CLI presentation.
 
 From those sources, generate:
 
@@ -261,7 +263,39 @@ From those sources, generate:
 
 Do not add another synchronization test between editable representations. The
 exit condition is that workflow semantics are editable only in the shared IR
-contract or builder source, and facade semantics only in the MCP contract.
+contract or builder source, and action semantics only in the Exarchos action
+contract.
+
+### The MCP Schema Is a Projection of the Exarchos API Contract
+
+The current `ToolAction` already contains semantics that belong to the internal
+dispatch engine and are richer than the MCP wire:
+
+- input and output schemas;
+- valid phases and roles;
+- gate and auto-emission metadata;
+- task-dispatch and economy hints;
+- long-running and deprecation posture;
+- trusted capability posture;
+- server-trusted safety plus MCP advisory annotations.
+
+The target should preserve that distinction:
+
+```text
+Exarchos Action Contract
+  -> dispatch interfaces and trusted metadata
+  -> MCP-standard tool input/output schemas and annotations
+  -> CLI/help/docs/skill examples
+  -> ship-surface graph nodes and conformance fixtures
+```
+
+Exarchos-specific semantics such as effect ownership, phase kind, evidence
+subject, idempotency policy, capability posture, or gate provider identity
+should live in the generated internal contract/manifest. Project only the
+standard subset onto MCP. If an external client does not understand the
+Exarchos metadata, it still sees a valid MCP tool; the dispatch core still
+receives the complete trusted contract. This avoids both protocol forking and a
+facade-only contract that cannot structurally govern internal execution.
 
 ### Track 2: Build the Ship-Surface Graph
 
@@ -359,7 +393,7 @@ Every dogfood finding should be assigned one lowering target:
 
 | Principle | Application to this dogfood | Primary structural proof |
 |---|---|---|
-| **1. Generate every boundary** | Generate workflow policy/topology from shared TypeSpec IR and CLI/docs from MCP schemas. | Regenerate and require a clean tree; compatibility diff; generated conformance fixtures. |
+| **1. Generate every boundary** | Generate workflow policy/topology from shared TypeSpec IR; generate dispatch metadata, MCP projections, CLI, and docs from one Exarchos action API contract. | Regenerate and require a clean tree; compatibility diff; generated conformance fixtures. |
 | **2. Algebraic behavior, explicit effects** | Replace boolean-plus-optional gate/transition carriers with pass/fail/skipped/indeterminate and allow/deny/indeterminate unions; isolate persistence and shell effects behind ports. | Strict exhaustive compilation plus adapter contract tests. |
 | **3. Independently provable modules** | Give condition evaluation, requirement resolution, evidence production, admission policy, caller identity, storage, and artifact resolution narrow contracts and owned effects. | Module ownership/dependency checks and public-boundary component tests. |
 | **4. Integration as a graph property** | Prove authored IR reaches compiled topology, public action, handler, owned effect, output, and packaged fixture. | Generated ship-surface graph closure plus a small real binary path test. |
@@ -373,7 +407,7 @@ The audit should cover at least these seam families:
 
 | Seam | Current drift mode | Existing structure | Closure target |
 |---|---|---|---|
-| Public action contract | TS, Zod, registry, handler, CLI, and docs remain independently editable. | Output-schema requirement and registry construction checks. | Generate every representation from the MCP contract. |
+| Public action contract | TS, Zod, registry, handler, dispatch metadata, MCP, CLI, and docs remain independently editable. | Output-schema requirement, action annotations, and registry construction checks. | Generate internal dispatch contracts and standard MCP/CLI/docs projections from one Exarchos action API contract. |
 | Workflow topology and policy | HSM definitions, guards, playbooks, runbooks, and skills encode overlapping facts. | State machine, phase kinds, transition tests. | Workflow Builder -> WorkflowDefinitionV1 -> generated topology/admission; delete closed registries. |
 | Result algebra | `success`, `passed`, skipped, warning, error, and indeterminate can be combined ambiguously. | Typed evidence verdicts and stricter runtime envelope schemas. | Generated exhaustive result/decision unions. |
 | Gate execution ownership | Direct emitters, shell paths, and best-effort persistence can bypass the canonical producer. | Gate runner, durable producer, provider registry, ownership census. | Census rejects every alternate path; success requires persisted evidence. |
