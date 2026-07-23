@@ -42,6 +42,12 @@ evidence, a canonical runner, and an ownership census landed after the
 structural assessment. The audit should be a **delta assessment against the
 latest branch**, not a repeat of the July 21 snapshot.
 
+The roadmap adds one hard constraint: every interim change must state how it
+lowers into the standard workflow IR planned by #1258, or why it belongs at a
+non-IR runtime chokepoint. `docs/system-design.html` is explicit: a v2.12 change
+that cannot become a v3.0 combinator, generated contract, compiled policy, or
+runtime enforcement seam is consolidation churn.
+
 ## What the Current Source Changes About the Dogfood Diagnosis
 
 The dogfood report remains valid as an observed runtime trace. The current
@@ -229,11 +235,21 @@ Output a machine-readable inventory for every public surface:
 | `driftGuard` | CI check that fails when source and derivative disagree |
 | `disposition` | structural, checked, advisory, temporary, or unowned |
 | `exitCondition` | Required for every non-structural disposition |
+| `agentPrinciple` | The earliest applicable principle and proof layer |
+| `v212Posture` | Characterization, proof substrate, audit, shadow, or containment |
+| `v3Lowering` | Workflow IR node, admission-policy field, generated MCP facade, runtime chokepoint, or retirement |
 
 ### Track 1: Generate a Public Boundary From One Contract
 
-Select one complete boundary, preferably composite actions, and make one IDL or
-equivalent schema source generate:
+Do not invent an Exarchos-local IDL. Use the two planned standards boundaries:
+
+1. **Workflow semantics:** `Strategos.Contracts` TypeSpec and
+   `WorkflowDefinitionV1` from #1247/#1258 generate workflow IR, edge conditions,
+   gate declarations, admission policies, and Exarchos Zod.
+2. **Agent facade:** the MCP 2026-07-28 action schemas from #1604/#1606 generate
+   CLI presentation and public action result carriers.
+
+From those sources, generate:
 
 - static input/output/result types;
 - runtime validation;
@@ -244,14 +260,18 @@ equivalent schema source generate:
 - compatibility reports.
 
 Do not add another synchronization test between editable representations. The
-exit condition is that only one representation remains editable.
+exit condition is that workflow semantics are editable only in the shared IR
+contract or builder source, and facade semantics only in the MCP contract.
 
 ### Track 2: Build the Ship-Surface Graph
 
 Generate one graph from existing registries:
 
 ```text
-public action
+authored workflow
+-> generated WorkflowDefinitionV1 IR
+-> compiled topology / admission policy
+-> public action
 -> input contract
 -> dispatch branch
 -> handler
@@ -313,6 +333,40 @@ fallback must declare:
 The repository should fail a manifest check when a temporary control has no exit
 condition.
 
+## Convergence on the Workflow IR
+
+The phase-gate redesign already defines the correct milestone cut:
+
+| Milestone | Structural role | Must not do |
+|---|---|---|
+| **v2.12** | Additive proof substrate: characterization, trusted identity, phase-attempt IDs, immutable evidence subjects/digests, canonical gate runner, durable evidence, supersession/contradiction, reliability projection, ownership census, and shadow disagreement data. | Do not add a second workflow-definition format, freeze a temporary public admission carrier, change transition behavior, or create another closed registry. |
+| **v3.0** | Shared IR consolidation: TypeSpec admission models, generated Zod, closed edge-condition AST, requirement resolution, transition admission, generated CLI presentation, built-in workflow migration, enforcement cutover, and legacy guard/HSM/playbook deletion. | Do not preserve hand-written guards or bit-identical legacy objects merely for compatibility. Preserve behavior fixtures and event compatibility instead. |
+
+Every dogfood finding should be assigned one lowering target:
+
+| Dogfood surface | v2.12 structural treatment | v3.0 lowering |
+|---|---|---|
+| Gate ordering and duplicate verification | Characterize current cadence; route results through the canonical durable producer; record owner and subject. | `GateStep` declarations plus admission requirements define scope, freshness, cardinality, and blocking semantics. |
+| Risk tier and boundary status | Verify current packaged classification/routing; freeze resolved inputs in phase-attempt facts and shadow requirement sets. | `RequirementResolver` compiles phase kind, risk, boundary status, policy, and reliability into a versioned requirement set. |
+| Legacy transition guards | Capture deterministic allow/deny fixtures and bypass cases; shadow new decisions. | Closed edge-condition AST selects routes; admission policy consumes evidence; `workflow/guards.ts` and custom shell guards are deleted. |
+| Mutable pass fields and approvals | Add typed evidence/waiver events and reject reserved generic appends. | Approval and expiring waiver are IR-declared evidence requirements, never patched status. |
+| Runbooks, skills, and examples | Mark authoritative versus generated; validate temporary examples against live schemas. | Generate workflow guidance from builder/IR and facade examples from MCP action schemas; delete closed-form playbook registries. |
+| Worktree and merge capability | Enforce at launcher/dispatch chokepoints and record capability/provenance; no workflow-specific shell syntax. | IR may declare capability requirements, but spatial enforcement remains a non-IR runtime seam. |
+| Packaged binary or skill drift | Capture existing package/build/plugin/skill identity before dogfood and bind evidence to it. | Compiler and packaging pipeline stamp contract, generator, source, and artifact digests into proof-carrying outputs. |
+| Stream/projection disagreement | Preserve as a kill fixture and prove the packaged event-store path. | Runtime substrate invariant, not workflow IR; admission treats missing/corrupt evidence as `indeterminate` and blocks. |
+
+## Seven-Principle Remediation Matrix
+
+| Principle | Application to this dogfood | Primary structural proof |
+|---|---|---|
+| **1. Generate every boundary** | Generate workflow policy/topology from shared TypeSpec IR and CLI/docs from MCP schemas. | Regenerate and require a clean tree; compatibility diff; generated conformance fixtures. |
+| **2. Algebraic behavior, explicit effects** | Replace boolean-plus-optional gate/transition carriers with pass/fail/skipped/indeterminate and allow/deny/indeterminate unions; isolate persistence and shell effects behind ports. | Strict exhaustive compilation plus adapter contract tests. |
+| **3. Independently provable modules** | Give condition evaluation, requirement resolution, evidence production, admission policy, caller identity, storage, and artifact resolution narrow contracts and owned effects. | Module ownership/dependency checks and public-boundary component tests. |
+| **4. Integration as a graph property** | Prove authored IR reaches compiled topology, public action, handler, owned effect, output, and packaged fixture. | Generated ship-surface graph closure plus a small real binary path test. |
+| **5. Cheapest sound proof** | Use generation for representation drift, compiler for unions, graph checks for wiring, contract tests for providers, and E2E only for packaged composition. | Acceptance criteria name one primary proof layer and why cheaper layers are insufficient. |
+| **6. Proof-carrying, bounded changes** | Bind gate evidence to subject, source revision, contract/policy/tool versions, artifact digest, and environment; invalidate stale evidence. | Generated impact closure and subject-bound evidence consumed by admission. |
+| **7. Structural ratchets** | Preserve every dogfood defect as a kill fixture and enforce the earliest sound guard on every protected path. | Guard fails on the old defect, cannot silently skip, and has explicit scope/resources/expiry. |
+
 ## Immediate Containment Batch
 
 These changes may land before the audit completes, but they are **containment,
@@ -344,7 +398,8 @@ through an existing structural owner, or carry an explicit retirement condition:
 
 Recommended umbrella: **Structural closure: generated contracts, effect
 ownership, ship-surface reachability, and artifact freshness**, with the
-phase-gate findings attached as concrete failure fixtures.
+phase-gate findings attached as concrete failure fixtures and #1258 as the
+consolidation target.
 
 ## Next Dogfood Exit Criteria
 
@@ -374,6 +429,10 @@ Require:
 13. Every public action appears in the ship-surface graph with one reachable
     implementation, one owned effect path, and one packaged fixture.
 14. Every non-structural contract or advisory has a named exit condition.
+15. Every v2.12 mechanism names its v3.0 workflow-IR lowering, non-IR runtime
+    chokepoint, or deletion milestone.
+16. The phase-gate shadow corpus reaches the quantitative cutover criteria
+    before admission enforcement replaces legacy guards.
 
 ## Recommended Follow-On
 
@@ -383,7 +442,10 @@ Start an `/ideate` workflow for:
 structural closure for Exarchos: generate a public boundary from one contract,
 build the public-action-to-packaged-effect graph, close canonical gate evidence
 production and admission, inventory driftable artifacts, and ratchet every
-temporary/advisory control. Use
+temporary/advisory control. Align all workflow semantics with
+Strategos.Contracts WorkflowDefinitionV1 and the #1258 Workflow Builder SDK;
+keep v2.12 additive/shadow and reserve enforcement plus legacy deletion for
+v3.0. Use
 docs/research/2026-07-23-phase-gate-v212-dogfood-remediation.md as design input.
 ```
 
@@ -395,6 +457,10 @@ unless the audit records the ratchet or retirement path they add.
 
 - `2026-07-21-phase-gate-v212-dogfood.md`
 - `2026-07-21-structural-principles-codebase-assessment.md`
+- `sol-research.zip:agent-principles.md`
+- `sol-research.zip:2026-07-21-phase-gate-transition-admission.md`
+- `docs/system-design.html` section 06, "Three zones, converging on one IR"
+- GitHub issue #1258, Workflow Builder SDK v3.0.0
 - `servers/exarchos-mcp/src/event-store/atomic-appender.ts`
 - `servers/exarchos-mcp/src/event-store/{multi-process.test.ts,atomic-appender.race.test.ts,atomic-appender.acceptance.test.ts}`
 - `servers/exarchos-mcp/src/storage/sqlite-backend.ts`
