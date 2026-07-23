@@ -3,6 +3,7 @@
 - **Date:** 2026-07-23
 - **Status:** Discovery report
 - **Input:** `2026-07-21-phase-gate-v212-dogfood.md`
+- **Visual review:** [`2026-07-23-phase-gate-v212-dogfood-remediation.html`](./2026-07-23-phase-gate-v212-dogfood-remediation.html)
 - **Research question:** What should Exarchos change so the failures from the
   v2.12 delegation dogfood are fixed without adding another layer of ceremony or
   treating each symptom as an unrelated bug?
