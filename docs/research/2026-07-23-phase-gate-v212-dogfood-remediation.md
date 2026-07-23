@@ -9,34 +9,47 @@
 
 ## Executive Recommendation
 
-Use a staged stabilization program:
+Do not treat the dogfood as a phase-gate patch backlog. Use it as a concrete
+input to a **repository-wide structural closure audit and convergence program**.
 
-1. **Contain the live friction now.** Correct the task-completion cadence,
-   plan-time gate semantics, and documentation examples before another dogfood
-   run.
-2. **Prove the installed runtime, not just the source tree.** Add build
-   provenance to tool responses and run acceptance tests through the packaged
-   MCP process. Several reported defects reproduce even though equivalent fixes
-   appear in the current source.
-3. **Make three contracts structural:** one atomic stream truth, one gate
-   evidence/ownership model, and one runtime capability profile.
-4. **Add admission checks for degenerate plans.** Planner overrides remain
-   authoritative, but blanket risk/boundary metadata and oversized tasks must
-   require explicit justification.
-5. **Introduce a stop-loss mode.** After repeated infrastructure failures,
-   Exarchos should preserve the trace, emit feedback, and recommend a reduced
-   direct-execution path instead of encouraging serial workarounds.
+The existing
+`2026-07-21-structural-principles-codebase-assessment.md` already identifies the
+larger pattern: Exarchos has strong local controls, but they do not compose into
+one closed proof system. The dogfood failures are examples of that gap:
 
-This is a hybrid between a patch train and a redesign. It fixes the inexpensive
-errors immediately while moving recurrence-prone behavior behind shared
-chokepoints.
+- contracts are represented by several independently editable resources;
+- production effects can bypass or outlive the structure that claims to own
+  them;
+- targeted registries prove local cardinality but no complete ship-surface
+  graph proves global reachability;
+- packaged binaries, generated skills, cached installs, and source revisions
+  can disagree unless the existing provenance/hash surfaces are captured;
+- advisory controls often have no enforced exit condition.
+
+The next program should therefore:
+
+1. inventory every hand-authored boundary, effect path, and driftable resource;
+2. classify each as canonical, generated, mechanically checked, advisory, or
+   unowned;
+3. construct one graph from public action to packaged effect and proof fixture;
+4. eliminate parallel editable sources through generation or a single
+   structural chokepoint;
+5. require every temporary containment patch to add a ratchet or name the
+   structural work that will retire it.
+
+The recent phase-gate branch materially advances this direction: durable gate
+evidence, a canonical runner, and an ownership census landed after the
+structural assessment. The audit should be a **delta assessment against the
+latest branch**, not a repeat of the July 21 snapshot.
 
 ## What the Current Source Changes About the Dogfood Diagnosis
 
 The dogfood report remains valid as an observed runtime trace. The current
 source, however, shows that some findings already have partial or apparent
-fixes. That mismatch is itself a finding: Exarchos needs runtime provenance and
-live-boundary verification.
+fixes. That mismatch should first be tested as cached binary/skill or packaged
+artifact drift. Exarchos already exposes package/build provenance and plugin
+version/hash diagnostics; the dogfood runbook must capture those existing
+signals before attributing a failure to current source.
 
 | Finding family | Current source evidence | Disposition |
 |---|---|---|
@@ -55,21 +68,25 @@ live-boundary verification.
 
 The 22 findings collapse into five systemic causes.
 
-### 1. Source Truth Is Not Runtime Truth
+### 1. Existing Provenance Was Not Captured at the Failure Boundary
 
-The report reproduced wave-scoping and stream-integrity failures while the
-current source contains code intended to prevent them. Plausible explanations
-include a stale packaged binary, composition-root bypass, alternate append path,
-or an incomplete acceptance test.
+The report reproduced wave-scoping, risk-stamp, and stream-integrity failures
+while the current or recent branch contains code intended to prevent them.
+Plausible explanations include a stale packaged binary, cached generated skill,
+composition-root bypass, alternate append path, or incomplete acceptance test.
 
-Without a runtime fingerprint, operators cannot tell whether they are debugging
-the current source, a cached plugin, or a different server instance.
+The correction is not another provenance mechanism. It is to require the
+dogfood trace to record the existing package version, build SHA, plugin version,
+and generated-skill hash before the first workflow call, then fail the run early
+when those identities do not match the intended revision.
 
 ### 2. Gate Scope, Owner, and Cadence Are Conflated
 
 The same verification is performed by implementers, the lead, the completion
-runbook, and post-merge checks. A gate definition currently says what to run,
-but not clearly:
+runbook, and post-merge checks. The recent branch has already added a durable
+gate producer, evidence migration, a canonical gate runner, and
+`check-gate-runner-ownership.mjs`. The remaining question is whether that chain
+is closed across every enforceable gate and promotion boundary:
 
 - who owns producing the evidence;
 - whether evidence can be reused;
@@ -77,35 +94,52 @@ but not clearly:
 - whether it is blocking before completion;
 - what artifact makes the result authoritative.
 
-The result is duplicate work and unsafe ordering.
+The result is duplicate work and unsafe ordering whenever an old direct path or
+runbook step remains outside the canonical producer.
 
-### 3. Planner Authority Has No Quality Guardrail
+### 3. Hand-Rolled Contracts Remain Editable in Parallel
 
-Planner stamps correctly override heuristics, but the system treats
-authoritative as synonymous with valid. A degenerate distribution such as
-17/17 `high` and 17/17 boundary-touching receives only per-task disagreement
-advisories. It is not evaluated as a plan-level anomaly.
+The same public behavior may be represented independently by:
 
-Similarly, decomposition checks structural completeness but not likely effort.
+- a TypeScript interface;
+- a Zod schema;
+- handler construction;
+- registry metadata;
+- runbook ordering;
+- CLI rendering;
+- skill prose and examples;
+- runtime YAML and generated variants;
+- configuration examples.
 
-### 4. Phase Semantics Leak Across Gates
+The risk-tier stamping issue should not be elevated into a new policy mechanism
+until it reproduces against the recent merged classification/routing work with
+matching binary and skill provenance. The broader structural issue is that a
+stale skill or cached artifact can still describe or invoke a contract that the
+current code no longer owns.
 
-Several gates ask questions at the wrong lifecycle point:
+### 4. Local Closure Is Strong; Global Closure Is Weak
 
-- plan-time spec coverage requires future test files to exist;
-- per-task completion runs the cumulative integration backstop;
-- task completion is recorded before its final blocking step;
-- legacy design parsing forces compatibility content into the canonical spec.
+Exarchos can prove many local facts:
 
-These are not isolated parser bugs. They indicate that each gate needs an
-explicit lifecycle scope.
+- every supported gate class has a provider;
+- every action has an output schema;
+- event-store construction is restricted;
+- enforcement scripts have declared CI dispositions.
 
-### 5. Platform Capability Is Documented, Not Negotiated
+It still needs one graph that proves:
 
-The merge and worktree paths assume capabilities that vary by harness. When the
-caller cannot mutate shared git state or the host owns isolation, the skill
-falls back to prose and manual bookkeeping. Documentation cannot safely infer a
-live runtime's permissions.
+- every public action reaches exactly one production implementation;
+- every implementation reaches an owned effect;
+- every effect has a packaged-artifact proof fixture;
+- every enforceable result persists subject-bound evidence;
+- every generated or cached resource is tied to the same revision.
+
+### 5. Advisory and Temporary Controls Accumulate Without Structural Exit
+
+The repository is honest about advisory controls, but a growing set of
+advisories, compatibility paths, and temporary docs still requires model
+judgment. Every non-structural control needs an owner, an expiry or promotion
+condition, and a CI-visible disposition.
 
 ## Options Considered
 
@@ -129,214 +163,161 @@ live runtime's permissions.
 
 **Verdict:** Necessary for containment, insufficient as the program.
 
-### Option B: Pause and Redesign the Whole Phase-Gate System
+### Option B: Structurally Stabilize Phase-Gate Only
 
-**Shape:** Replace the current runbooks, evidence model, projections, and
-runtime adapters before more dogfood.
-
-**Advantages**
-
-- Maximum conceptual cleanup.
-- Can make scope and ownership explicit from first principles.
-
-**Costs**
-
-- Delays straightforward corrections such as `threshold: 0.8`.
-- Risks invalidating v2.12 work already landed on durable evidence and gate
-  ownership.
-- Creates a large migration while the system is operationally degraded.
-
-**Verdict:** Too broad.
-
-### Option C: Staged Stabilization With Three Structural Seams
-
-**Shape:** Land immediate corrections, then concentrate deeper work into:
-
-1. stream/projection integrity;
-2. gate evidence ownership and cadence;
-3. runtime capability and provenance.
+**Shape:** Generate or centralize the phase-gate-specific contracts while
+leaving the wider repository's contract and integration model unchanged.
 
 **Advantages**
 
-- Removes current friction quickly.
-- Reuses the branch's durable evidence and runner-ownership direction.
-- Converts recurrence-prone behavior into shared contracts.
-- Produces measurable acceptance criteria for the next dogfood.
+- Better than independent symptom patches.
+- Can complete the canonical gate producer and evidence chain.
 
 **Costs**
 
-- Requires an umbrella stabilization effort, not only isolated bugs.
-- Some work spans code, skills, runbooks, and packaging.
+- Leaves the same drift classes in other workflow and CLI surfaces.
+- Adds another targeted closure check instead of one global integration graph.
+- Can make phase-gate look structurally sound while the shipped product remains
+  only locally closed.
+
+**Verdict:** Still too narrow.
+
+### Option C: Repository-Wide Structural Closure Audit and Convergence
+
+**Shape:** Re-run the seven-principles assessment as a delta against the latest
+branch, then produce four machine-readable inventories:
+
+1. contract sources and generated derivatives;
+2. effect ownership and bypass paths;
+3. public-action-to-packaged-effect graph;
+4. advisory/temporary controls with exit conditions.
+
+**Advantages**
+
+- Addresses the class of defect rather than the report instance.
+- Reuses existing registries, output schemas, provenance, gate runner, and
+  ownership census.
+- Makes missing reachability and drift a graph failure, not a review finding.
+- Gives every containment patch a structural retirement path.
+
+**Costs**
+
+- Larger initial discovery surface.
+- Requires choosing one IDL/generation boundary and one ship-surface graph
+  representation.
 
 **Verdict:** Recommended.
 
 ## Recommended Program
 
-### Track 0: Runtime Provenance and Stop-Loss
+### Track 0: Delta Structural Audit
 
-Make every composite tool result carry a small `_meta.runtime` block:
+Re-run the seven-principles assessment against the latest phase-gate branch and
+record what changed after the July 21 snapshot. At minimum, verify the landed
+canonical gate runner, durable evidence producer, evidence migrations, and
+runner ownership census.
 
-```json
-{
-  "packageVersion": "2.12.0-preview.3",
-  "buildSha": "<commit>",
-  "schemaVersion": 6,
-  "runtimeProfile": "copilot",
-  "capabilityDigest": "<stable hash>"
-}
-```
+Output a machine-readable inventory for every public surface:
 
-Add a dogfood stop-loss policy:
+| Field | Meaning |
+|---|---|
+| `contractSource` | The one editable source, or every competing source if no canonical source exists |
+| `generatedArtifacts` | Types, Zod schemas, CLI metadata, docs, skills, bindings |
+| `effectOwner` | The module or runner authorized to perform the effect |
+| `productionRoot` | The dispatch/composition root that selects the implementation |
+| `packagedProof` | The fixture that exercises the shipped binary/artifact |
+| `driftGuard` | CI check that fails when source and derivative disagree |
+| `disposition` | structural, checked, advisory, temporary, or unowned |
+| `exitCondition` | Required for every non-structural disposition |
 
-- first infrastructure failure: retry once with the returned remediation;
-- second failure in the same subsystem: emit a friction report and mark the
-  subsystem degraded;
-- third failure or an integrity mismatch: stop delegation bookkeeping and
-  recommend direct local execution with scoped tests;
-- never continue by manually recreating every missing lifecycle event.
+### Track 1: Generate a Public Boundary From One Contract
 
-This directly addresses UE-2 and T-4 while making every later diagnosis
-version-aware.
+Select one complete boundary, preferably composite actions, and make one IDL or
+equivalent schema source generate:
 
-### Track 1: Stream and Projection Integrity
+- static input/output/result types;
+- runtime validation;
+- handler/provider interfaces;
+- CLI metadata and rendering inputs;
+- skill/documentation snippets;
+- conformance fixtures;
+- compatibility reports.
 
-Define and enforce one invariant:
+Do not add another synchronization test between editable representations. The
+exit condition is that only one representation remains editable.
 
-```text
-MAX(events.sequence)
-  == sequences.sequence
-  >= every projection watermark for the stream
-```
+### Track 2: Build the Ship-Surface Graph
 
-Recommended mechanics:
-
-1. Keep event insert, sequence advance, and idempotency claim in one
-   `BEGIN IMMEDIATE` transaction.
-2. Add a startup consistency probe that compares the event tail with the
-   sequence row.
-3. Repair only a lagging sequence row when the event log is internally dense;
-   fail loud for gaps, duplicates, or an ahead-of-log counter.
-4. Surface `projection_degraded` when any projection watermark is behind beyond
-   the allowed lag or the stream invariant fails.
-5. Block state-changing workflow guidance while degraded; permit diagnostics
-   and repair.
-6. Replace swallowed audit/gate emission failures with awaited writes plus
-   explicit error reporting. A gate verdict may remain available, but its
-   evidence durability must not be reported as successful.
-
-**Acceptance test:** launch two real MCP child processes against one temporary
-state directory, append concurrently to the same hot stream, then assert dense
-events, matching HWM, matching projections, and continued appendability after
-restart.
-
-The existing `multi-process.test.ts` is sequential and uses two instances in one
-process. Keep it, but do not treat it as sufficient for this failure.
-
-### Track 2: Gate Evidence Contract and Cadence
-
-Introduce a shared gate descriptor:
-
-```typescript
-interface GateContract {
-  owner: "implementer" | "orchestrator" | "reviewer";
-  scope: "task" | "wave" | "review" | "release";
-  cadence: "once" | "per-change" | "on-demand";
-  blockingBefore: "task-complete" | "wave-close" | "review-close";
-  evidenceKind: "command-result" | "report-file" | "diff-analysis";
-  reusable: boolean;
-}
-```
-
-Use it to drive runbook order and evidence reuse.
-
-Recommended default:
-
-| Scope | Owner | Required evidence |
-|---|---|---|
-| Task | Implementer produces; orchestrator validates | Scoped tests or kill probe as selected by tier, plus static analysis |
-| Wave | Orchestrator | One cumulative integration suite after all wave merges |
-| Review | Reviewer/orchestrator | Combined-diff gates, mutation adequacy when high tier, review verdict |
-| Release | Release workflow | Full packaging and distribution checks |
-
-Immediate changes:
-
-- remove `check_integration_suite` from per-task completion;
-- run `task_complete` only after all blocking task gates;
-- consume implementer command evidence rather than rerunning identical commands;
-- permit independent spot checks when evidence is missing, stale, or
-  non-authoritative;
-- make integration output a framed report file, not package-manager stdout.
-
-### Track 3: Planning Admission and Phase-Correct Gates
-
-Keep planner overrides, but add plan-level diagnostics.
-
-#### Metadata distribution checks
-
-Warn or block for explicit review when:
-
-- more than 80% of tasks share `high`;
-- more than 80% share `boundaryTouching: true`;
-- every task has the same risk/boundary pair;
-- the explicit stamp differs from the heuristic for more than 50% of tasks.
-
-The threshold should initially be advisory and calibrated from dogfood data.
-Each override above threshold must include a one-line rationale.
-
-#### Task breadth checks
-
-Estimate breadth from:
-
-- declared file count;
-- number of named behaviors/acceptance criteria;
-- number of boundaries crossed;
-- number of dependencies;
-- historical median diff size for the touched modules.
-
-Do not pretend this is a precise time estimate. Report a breadth score and
-require rationale above the threshold. The first useful version can be
-deterministic and conservative.
-
-#### Split plan and implementation coverage
-
-- **Plan declaration check:** test path/name is declared, path is repo-relative,
-  and the requirement/task link is syntactically valid.
-- **Implementation evidence check:** the declared test exists and passes after
-  the task or wave lands.
-
-#### Canonical spec parsing
-
-Parse design requirements from the unified `## Design & Rationale` structure.
-Legacy headings can remain as compatibility inputs, but must not be required.
-
-### Track 4: Capability-Aware Orchestration and Generated Guidance
-
-Use one runtime capability handshake to select the execution path:
+Generate one graph from existing registries:
 
 ```text
-worktree: native | launcher | manual
-sharedGitMutation: allowed | denied
-subagentDurability: durable | session-bound
-eventHooks: native | emulated | unavailable
+public action
+-> input contract
+-> dispatch branch
+-> handler
+-> domain port
+-> provider or adapter
+-> event or external effect
+-> output contract
+-> packaged-artifact fixture
 ```
 
-From that profile:
+Make missing handlers, unreachable implementations, alternate effect paths,
+unowned shell commands, and absent packaged proofs fail one closure check.
 
-- select `serialize_merge` only when shared mutation is allowed;
-- otherwise return a concrete local-git merge recipe and the exact events/state
-  bookkeeping that remains required;
-- distinguish host-owned native isolation from Exarchos-created worktrees;
-- never claim `prepare_delegation` creates worktrees unless that action actually
-  owns the operation.
+This graph should subsume targeted reachability checks over time rather than
+becoming another independent registry.
 
-Generate skill examples and schema snippets from the action/config schemas.
-Add a test that parses fenced JSON/TypeScript examples and validates them
-against the registered schema. This should catch `threshold: 80`, missing
-`dryRun: false`, and invalid config keys before release.
+### Track 3: Close the Proof-Producing Effect Path
+
+Continue the recent branch direction:
+
+- every enforceable gate routes through the canonical runner;
+- the runner persists subject-bound evidence before returning success;
+- direct gate emissions and unowned shell execution fail the ownership census;
+- admission consumes the evidence reference and distinguishes pass, fail,
+  skipped, and indeterminate;
+- evidence is reusable only when its subject digest, policy digest, producer,
+  and toolchain identity still match.
+
+The owner/scope/cadence question becomes data on the canonical provider, not a
+second hand-authored runbook contract.
+
+### Track 4: Audit Driftable Resources and Artifact Freshness
+
+Inventory every resource that can outlive or contradict source:
+
+- compiled binary and release asset;
+- plugin cache and plugin manifest;
+- generated skills, agents, hooks, and runtime embeddings;
+- command aliases and CLI schema metadata;
+- runbooks and fenced examples;
+- user-level installed artifacts.
+
+Use the existing package version, build SHA, plugin-version, and skill-hash
+surfaces. The new requirement is a dogfood preflight that records and compares
+them. Any mismatch should stop the run as an artifact-freshness failure before
+workflow behavior is evaluated.
+
+### Track 5: Ratchet Temporary and Advisory Controls
+
+Every containment patch, advisory check, compatibility parser, or manual
+fallback must declare:
+
+- why structural enforcement is not yet possible;
+- the owner;
+- the measurable promotion or removal condition;
+- the CI disposition;
+- the date or milestone at which it is re-evaluated.
+
+The repository should fail a manifest check when a temporary control has no exit
+condition.
 
 ## Immediate Containment Batch
 
-These changes are low-risk and should land before the next dogfood:
+These changes may land before the audit completes, but they are **containment,
+not remediation**. Each must either generate its driftable surface, route
+through an existing structural owner, or carry an explicit retirement condition:
 
 1. Move the integration suite to a wave-boundary runbook and place
    `task_complete` last among task-blocking steps.
@@ -346,7 +327,8 @@ These changes are low-risk and should land before the next dogfood:
 5. Fix task-added source handling in test adequacy.
 6. Correct delegate worktree claims, merge invocation guidance, plan threshold,
    and `.exarchos.yml` mutation placement.
-7. Add runtime version/build provenance to diagnostics.
+7. Capture the existing package/build/plugin/skill provenance in dogfood
+   preflight and stop on mismatch.
 8. Add the repeated-infrastructure-failure stop-loss guidance to delegation.
 
 ## Issue Disposition
@@ -358,18 +340,19 @@ These changes are low-risk and should land before the next dogfood:
 | #1228 | File a new integrity issue for persisted event-tail/HWM divergence and link #1228 as related, not identical. |
 | #1515 | The epic is closed, but use its verification-ladder design as the policy source. File a focused cadence/ownership issue rather than reopening the epic. |
 | #1542 | Keep closed if the native-isolation warning holds; add capability-driven fallback work under a new portability issue. |
-| #1636 | Keep closed. Add metadata-distribution validation as a new planning-quality issue; it is the inverse problem, not a regression of stamp propagation. |
+| #1636 | Keep closed. Verify the recent stamp/classification/routing work through the packaged artifact before proposing any new risk policy. |
 
-Recommended umbrella: **Phase-gate stabilization: integrity, evidence cadence,
-and runtime provenance**, with child issues for the immediate containment batch
-and the three structural seams.
+Recommended umbrella: **Structural closure: generated contracts, effect
+ownership, ship-surface reachability, and artifact freshness**, with the
+phase-gate findings attached as concrete failure fixtures.
 
 ## Next Dogfood Exit Criteria
 
 The next run should not be considered successful merely because all tasks merge.
 Require:
 
-1. Tool responses identify the exact runtime build and capability profile.
+1. Dogfood preflight records and matches the existing package version, build
+   SHA, plugin version, and generated-skill hash.
 2. A four-task wave in a 17-task workflow reports exactly four expected
    worktrees.
 3. Two real processes can concurrently append to one stream without HWM/event
@@ -381,30 +364,37 @@ Require:
 7. The canonical unified spec passes without compatibility headings.
 8. Plan-time coverage accepts future test files while validating their declared
    paths and traceability.
-9. Blanket risk/boundary metadata produces a visible admission warning.
+9. Risk-tier behavior is verified against the current packaged artifact and
+   recent merged routing changes before any new policy is added.
 10. Two repeated infrastructure failures automatically produce a friction event
     and reduced-mode recommendation.
 11. No required audit event is silently swallowed.
 12. The same trace can be reconstructed from the event store, projections, and
     git without manual arbitration.
+13. Every public action appears in the ship-surface graph with one reachable
+    implementation, one owned effect path, and one packaged fixture.
+14. Every non-structural contract or advisory has a named exit condition.
 
 ## Recommended Follow-On
 
 Start an `/ideate` workflow for:
 
 ```text
-phase-gate stabilization: unify stream/projection integrity, gate evidence
-ownership and cadence, runtime provenance/capability negotiation, plan
-admission checks, and repeated-failure stop-loss behavior. Use
+structural closure for Exarchos: generate a public boundary from one contract,
+build the public-action-to-packaged-effect graph, close canonical gate evidence
+production and admission, inventory driftable artifacts, and ratchet every
+temporary/advisory control. Use
 docs/research/2026-07-23-phase-gate-v212-dogfood-remediation.md as design input.
 ```
 
-The implementation should be staged. Do not bundle the immediate documentation
-and runbook corrections behind the deeper integrity redesign.
+The implementation should be staged by structural dependency, not by symptom
+severity. Containment fixes may land early, but they do not count as completion
+unless the audit records the ratchet or retirement path they add.
 
 ## Sources
 
 - `2026-07-21-phase-gate-v212-dogfood.md`
+- `2026-07-21-structural-principles-codebase-assessment.md`
 - `servers/exarchos-mcp/src/event-store/atomic-appender.ts`
 - `servers/exarchos-mcp/src/event-store/{multi-process.test.ts,atomic-appender.race.test.ts,atomic-appender.acceptance.test.ts}`
 - `servers/exarchos-mcp/src/storage/sqlite-backend.ts`
@@ -423,5 +413,8 @@ and runbook corrections behind the deeper integrity redesign.
 - `docs/research/2026-06-02-verification-token-efficiency.md`
 - `docs/research/2026-04-25-delegation-platform-agnosticity.md`
 - `docs/audits/2026-04-18-v2.8.0-dogfood.md`
+- Recent branch commits: `4d514919` (runner ownership census), `e6e837b4`
+  (durable ladder evidence), `fd32043d` (phase-gate evidence), and `d139a765`
+  (evidence event ownership alignment).
 - GitHub issues #1206, #1228, #1515, #1537, #1542, and #1636, verified
   2026-07-23.
