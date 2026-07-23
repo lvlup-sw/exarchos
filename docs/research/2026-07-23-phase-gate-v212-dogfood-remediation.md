@@ -48,6 +48,28 @@ non-IR runtime chokepoint. `docs/system-design.html` is explicit: a v2.12 change
 that cannot become a v3.0 combinator, generated contract, compiled policy, or
 runtime enforcement seam is consolidation churn.
 
+## Review Decisions
+
+The Lavish review resolved the program and migration posture:
+
+- **Program:** Option C, repository-wide structural closure audit and
+  convergence.
+- **Optimization target:** the smallest structurally closed target, not maximum
+  backwards compatibility or minimum diff size.
+- **Compatibility posture:** intentional breaking changes are acceptable when
+  they eliminate parallel editable contracts, bypass paths, or legacy
+  registries and include an explicit migration/cutover.
+- **Required exhaustive inventories:**
+  1. all competing contract sources and generated derivatives;
+  2. effect ownership, direct emitters, and shell bypass paths;
+  3. public-action-to-packaged-artifact reachability;
+  4. cached binaries, plugin installs, generated skills, agents, hooks, and
+     runtimes;
+  5. v2.12-to-v3.0 workflow-IR lowering and legacy retirement.
+- **Supporting analyses:** module dependency/ownership rules and the advisory
+  ratchet ledger remain supporting inputs. They should be promoted to top-level
+  deliverables only where the five required inventories expose a closure gap.
+
 ## What the Current Source Changes About the Dogfood Diagnosis
 
 The dogfood report remains valid as an observed runtime trace. The current
@@ -521,7 +543,10 @@ production and admission, inventory driftable artifacts, and ratchet every
 temporary/advisory control. Align all workflow semantics with
 Strategos.Contracts WorkflowDefinitionV1 and the #1258 Workflow Builder SDK;
 keep v2.12 additive/shadow and reserve enforcement plus legacy deletion for
-v3.0. Use
+v3.0. Optimize for the smallest structurally closed target; breaking changes
+are acceptable when they retire driftable or bypassable surfaces. Treat the
+five exhaustive inventories in the Review Decisions section as required scope.
+Use
 docs/research/2026-07-23-phase-gate-v212-dogfood-remediation.md as design input.
 ```
 
