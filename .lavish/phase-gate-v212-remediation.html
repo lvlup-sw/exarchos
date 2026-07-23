@@ -1309,7 +1309,7 @@
           </article>
           <article class="track">
             <div class="track-num">T1</div>
-            <h3>One generated boundary</h3>
+            <h3>Generated shared boundaries</h3>
             <p>Use <strong>Strategos.Contracts TypeSpec + WorkflowDefinitionV1</strong> for workflow semantics and one richer <strong>Exarchos action API contract</strong> for dispatch semantics. Project standard MCP 2026-07-28 schemas, CLI, docs/skills, fixtures, and graph metadata from that contract.</p>
           </article>
           <article class="track">
@@ -1371,7 +1371,7 @@
             <ul>
               <li>Extend Strategos.Contracts TypeSpec and generate Exarchos Zod.</li>
               <li>Compile closed edge conditions, gate declarations, and admission policies from WorkflowDefinitionV1.</li>
-              <li>Generate CLI presentation from the MCP contract.</li>
+              <li>Generate MCP and CLI presentation from the Exarchos action API contract.</li>
               <li>Migrate built-in workflows through #1258.</li>
               <li>Enable admission and delete legacy guards, HSM definitions, and closed-form playbooks.</li>
             </ul>
@@ -1403,7 +1403,7 @@
               <tr><td>Gate ordering + duplicate verification</td><td>Characterize cadence; route all results through the durable producer; bind owner and subject.</td><td><code>GateStep</code> plus admission requirements define scope, freshness, cardinality, and blocking semantics.</td></tr>
               <tr><td>Risk tier + boundary status</td><td>Verify current packaged routing; freeze inputs in phase-attempt facts and shadow requirement sets.</td><td><code>RequirementResolver</code> compiles phase kind, risk, boundary, policy, and reliability.</td></tr>
               <tr><td>Legacy guards + patched pass state</td><td>Capture allow/deny/bypass fixtures; add typed evidence and waiver events; shadow decisions.</td><td>Closed condition AST plus admission policy; delete <code>workflow/guards.ts</code> and custom shell guards.</td></tr>
-              <tr><td>Skills, runbooks, docs, examples</td><td>Mark authoritative vs. generated; validate temporary examples against live schemas.</td><td>Generate workflow guidance from builder/IR and facade examples from MCP schemas; delete closed-form playbooks.</td></tr>
+              <tr><td>Skills, runbooks, docs, examples</td><td>Mark authoritative vs. generated; validate temporary examples against live schemas.</td><td>Generate workflow guidance from builder/IR and facade examples from Exarchos action-contract projections; delete closed-form playbooks.</td></tr>
               <tr><td>Worktree + merge capability</td><td>Enforce through launcher/dispatch and record capability provenance.</td><td>IR may declare requirements; spatial/process enforcement remains a non-IR runtime chokepoint.</td></tr>
               <tr><td>Binary / plugin / skill drift</td><td>Capture existing package/build/plugin/skill identity before dogfood.</td><td>Bind source, contract, generator, and artifact digests into proof-carrying build outputs.</td></tr>
               <tr><td>Stream / projection disagreement</td><td>Preserve a kill fixture and prove the packaged storage path.</td><td>Runtime invariant outside IR; corrupt or missing evidence yields <code>indeterminate</code> and blocks admission.</td></tr>
@@ -1470,7 +1470,7 @@
           <article class="phase">
             <div class="phase-id">Phase B / Generate</div>
             <h3>Collapse the shared boundaries</h3>
-            <p>Generate workflow semantics from Strategos.Contracts/WorkflowDefinitionV1 and facade semantics from MCP schemas; prove source, CLI, MCP, docs, skills, and fixtures cannot drift independently.</p>
+            <p>Generate workflow semantics from Strategos.Contracts/WorkflowDefinitionV1 and dispatch semantics from the Exarchos action API contract, with MCP/CLI/docs as projections; prove every derivative cannot drift independently.</p>
           </article>
           <article class="phase">
             <div class="phase-id">Phase C / Close</div>

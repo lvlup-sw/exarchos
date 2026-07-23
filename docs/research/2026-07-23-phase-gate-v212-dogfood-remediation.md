@@ -213,12 +213,18 @@ leaving the wider repository's contract and integration model unchanged.
 ### Option C: Repository-Wide Structural Closure Audit and Convergence
 
 **Shape:** Re-run the seven-principles assessment as a delta against the latest
-branch, then produce four machine-readable inventories:
+branch, then produce five exhaustive machine-readable inventories:
 
-1. contract sources and generated derivatives;
+1. all competing contract sources and generated derivatives;
 2. effect ownership and bypass paths;
-3. public-action-to-packaged-effect graph;
-4. advisory/temporary controls with exit conditions.
+3. public-action-to-packaged-artifact reachability;
+4. cached binaries, plugin installs, generated skills, agents, hooks, and
+   runtimes;
+5. v2.12-to-v3.0 workflow-IR lowering and legacy retirement.
+
+Module dependency/ownership rules and the advisory ratchet ledger remain
+supporting analyses, promoted to exhaustive deliverables only when these five
+inventories expose a closure gap.
 
 **Advantages**
 
@@ -231,8 +237,8 @@ branch, then produce four machine-readable inventories:
 **Costs**
 
 - Larger initial discovery surface.
-- Requires choosing one IDL/generation boundary and one ship-surface graph
-  representation.
+- Requires coordinating the shared workflow-IR contract, the Exarchos action API
+  contract, and one ship-surface graph representation.
 
 **Verdict:** Recommended.
 
@@ -261,7 +267,7 @@ Output a machine-readable inventory for every public surface:
 | `v212Posture` | Characterization, proof substrate, audit, shadow, or containment |
 | `v3Lowering` | Workflow IR node, admission-policy field, generated MCP facade, runtime chokepoint, or retirement |
 
-### Track 1: Generate a Public Boundary From One Contract
+### Track 1: Generate the Shared Boundaries From Canonical Contracts
 
 Do not treat MCP as the full source contract and do not fork the MCP protocol.
 Use two generated boundaries:
@@ -359,6 +365,30 @@ Continue the recent branch direction:
 The owner/scope/cadence question becomes data on the canonical provider, not a
 second hand-authored runbook contract.
 
+## Proof-Carrying Feature Work Path
+
+The persisted HTML visualizes this sequence. The report carries the same
+normative path for every AI-generated feature:
+
+```text
+1. change the authoritative contract, IR node, or module boundary
+2. generate compatibility classification plus reverse dependency/effect closure
+3. regenerate every derivative: types, validators, providers, CLI, docs, skills,
+   fixtures, and manifests
+4. assign each affected claim to the cheapest sound proof layer
+5. run the derived compiler, structural, conformance, property, and component
+   proofs
+6. build and benchmark the shipped artifact through a real production-path E2E
+7. bind evidence to revision, contract, tools, environment, and artifact digest;
+   admit the change, and convert any new defect class into a kill fixture and
+   structural ratchet
+```
+
+Feature work is not trusted because it accumulates more tests. It is trusted
+because the affected obligations are generated from honest boundaries, proved
+at the cheapest sound layers, exercised through the packaged composition, and
+bound to the exact artifact consumed by admission.
+
 ### Track 4: Audit Driftable Resources and Artifact Freshness
 
 Inventory every resource that can outlive or contradict source:
@@ -406,7 +436,7 @@ Every dogfood finding should be assigned one lowering target:
 | Risk tier and boundary status | Verify current packaged classification/routing; freeze resolved inputs in phase-attempt facts and shadow requirement sets. | `RequirementResolver` compiles phase kind, risk, boundary status, policy, and reliability into a versioned requirement set. |
 | Legacy transition guards | Capture deterministic allow/deny fixtures and bypass cases; shadow new decisions. | Closed edge-condition AST selects routes; admission policy consumes evidence; `workflow/guards.ts` and custom shell guards are deleted. |
 | Mutable pass fields and approvals | Add typed evidence/waiver events and reject reserved generic appends. | Approval and expiring waiver are IR-declared evidence requirements, never patched status. |
-| Runbooks, skills, and examples | Mark authoritative versus generated; validate temporary examples against live schemas. | Generate workflow guidance from builder/IR and facade examples from MCP action schemas; delete closed-form playbook registries. |
+| Runbooks, skills, and examples | Mark authoritative versus generated; validate temporary examples against live schemas. | Generate workflow guidance from builder/IR and facade examples from Exarchos action-contract projections; delete closed-form playbook registries. |
 | Worktree and merge capability | Enforce at launcher/dispatch chokepoints and record capability/provenance; no workflow-specific shell syntax. | IR may declare capability requirements, but spatial enforcement remains a non-IR runtime seam. |
 | Packaged binary or skill drift | Capture existing package/build/plugin/skill identity before dogfood and bind evidence to it. | Compiler and packaging pipeline stamp contract, generator, source, and artifact digests into proof-carrying outputs. |
 | Stream/projection disagreement | Preserve as a kill fixture and prove the packaged event-store path. | Runtime substrate invariant, not workflow IR; admission treats missing/corrupt evidence as `indeterminate` and blocks. |
@@ -437,7 +467,7 @@ The audit should cover at least these seam families:
 | Module effects | Broad contexts permit direct event-store, git, filesystem, or process effects. | Composition-root guard, selected pure/effect seams, dependency rules. | Declared state/effect ownership, typed ports, and graph-enforced direction. |
 | Storage and projections | Alternate writers, swallowed failures, HWM drift, and lagging projections can contradict the log. | SQLite WAL, atomic appender, idempotency, pure folds, integrity probe. | One authorized append path, packaged concurrency fixture, fail-closed proof consumption. |
 | Runtime capability | Skills may assume worktree, mutation, hook, or durability capabilities the harness lacks. | Capability resolver, standard skills, launcher, runtime profiles. | Standards conformance plus dispatch/MCP and launcher chokepoints. |
-| Guidance and examples | Skills, runbooks, aliases, and examples can preserve stale names, defaults, and semantics. | Renderer and generated-drift guards. | Generate guidance from IR and examples from action schemas. |
+| Guidance and examples | Skills, runbooks, aliases, and examples can preserve stale names, defaults, and semantics. | Renderer and generated-drift guards. | Generate guidance from IR and examples from the Exarchos action API contract. |
 | Packaging and cache | Binary, plugin, installed skills, and user cache can represent different revisions. | Version/build/plugin/skill identity and compiled-binary fixture. | Artifact manifest binds all digests; preflight blocks mismatches. |
 | Advisory controls | Temporary warnings and compatibility paths can become permanent policy. | Enforcer wiring manifest. | Owner, expiry, exit condition, kill fixture, and unfiltered CI path are mandatory. |
 
@@ -531,22 +561,23 @@ Require:
     chokepoint, or deletion milestone.
 16. The phase-gate shadow corpus reaches the quantitative cutover criteria
     before admission enforcement replaces legacy guards.
+17. A baseline-vs-candidate benchmark artifact records raw samples, provenance,
+    variance, and regression budget.
 
 ## Recommended Follow-On
 
 Start an `/ideate` workflow for:
 
 ```text
-structural closure for Exarchos: generate a public boundary from one contract,
-build the public-action-to-packaged-effect graph, close canonical gate evidence
-production and admission, inventory driftable artifacts, and ratchet every
-temporary/advisory control. Align all workflow semantics with
-Strategos.Contracts WorkflowDefinitionV1 and the #1258 Workflow Builder SDK;
-keep v2.12 additive/shadow and reserve enforcement plus legacy deletion for
-v3.0. Optimize for the smallest structurally closed target; breaking changes
-are acceptable when they retire driftable or bypassable surfaces. Treat the
-five exhaustive inventories in the Review Decisions section as required scope.
-Use
+structural closure for Exarchos: generate workflow semantics from
+Strategos.Contracts WorkflowDefinitionV1 and dispatch semantics from one
+Exarchos action API contract; build the authored-workflow-to-packaged-effect
+graph; close canonical gate evidence production and admission; inventory
+driftable artifacts; and ratchet every temporary/advisory control. Keep v2.12
+additive/shadow and reserve enforcement plus legacy deletion for v3.0. Optimize
+for the smallest structurally closed target; breaking changes are acceptable
+when they retire driftable or bypassable surfaces. Treat the five exhaustive
+inventories in the Review Decisions section as required scope. Use
 docs/research/2026-07-23-phase-gate-v212-dogfood-remediation.md as design input.
 ```
 
