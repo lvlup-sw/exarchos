@@ -367,6 +367,24 @@ Every dogfood finding should be assigned one lowering target:
 | **6. Proof-carrying, bounded changes** | Bind gate evidence to subject, source revision, contract/policy/tool versions, artifact digest, and environment; invalidate stale evidence. | Generated impact closure and subject-bound evidence consumed by admission. |
 | **7. Structural ratchets** | Preserve every dogfood defect as a kill fixture and enforce the earliest sound guard on every protected path. | Guard fails on the old defect, cannot silently skip, and has explicit scope/resources/expiry. |
 
+## Structural Seam Inventory
+
+The audit should cover at least these seam families:
+
+| Seam | Current drift mode | Existing structure | Closure target |
+|---|---|---|---|
+| Public action contract | TS, Zod, registry, handler, CLI, and docs remain independently editable. | Output-schema requirement and registry construction checks. | Generate every representation from the MCP contract. |
+| Workflow topology and policy | HSM definitions, guards, playbooks, runbooks, and skills encode overlapping facts. | State machine, phase kinds, transition tests. | Workflow Builder -> WorkflowDefinitionV1 -> generated topology/admission; delete closed registries. |
+| Result algebra | `success`, `passed`, skipped, warning, error, and indeterminate can be combined ambiguously. | Typed evidence verdicts and stricter runtime envelope schemas. | Generated exhaustive result/decision unions. |
+| Gate execution ownership | Direct emitters, shell paths, and best-effort persistence can bypass the canonical producer. | Gate runner, durable producer, provider registry, ownership census. | Census rejects every alternate path; success requires persisted evidence. |
+| Gate scope and cadence | Implementer, task, wave, and review paths may re-prove the same claim. | Risk ladder, phase kinds, evidence subjects. | IR gate declarations and admission requirements own scope/cardinality/freshness. |
+| Module effects | Broad contexts permit direct event-store, git, filesystem, or process effects. | Composition-root guard, selected pure/effect seams, dependency rules. | Declared state/effect ownership, typed ports, and graph-enforced direction. |
+| Storage and projections | Alternate writers, swallowed failures, HWM drift, and lagging projections can contradict the log. | SQLite WAL, atomic appender, idempotency, pure folds, integrity probe. | One authorized append path, packaged concurrency fixture, fail-closed proof consumption. |
+| Runtime capability | Skills may assume worktree, mutation, hook, or durability capabilities the harness lacks. | Capability resolver, standard skills, launcher, runtime profiles. | Standards conformance plus dispatch/MCP and launcher chokepoints. |
+| Guidance and examples | Skills, runbooks, aliases, and examples can preserve stale names, defaults, and semantics. | Renderer and generated-drift guards. | Generate guidance from IR and examples from action schemas. |
+| Packaging and cache | Binary, plugin, installed skills, and user cache can represent different revisions. | Version/build/plugin/skill identity and compiled-binary fixture. | Artifact manifest binds all digests; preflight blocks mismatches. |
+| Advisory controls | Temporary warnings and compatibility paths can become permanent policy. | Enforcer wiring manifest. | Owner, expiry, exit condition, kill fixture, and unfiltered CI path are mandatory. |
+
 ## Immediate Containment Batch
 
 These changes may land before the audit completes, but they are **containment,
