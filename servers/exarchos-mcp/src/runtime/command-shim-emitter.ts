@@ -12,6 +12,7 @@
  */
 
 // RESERVED(issue: #1590, owner: exarchos, expires: 2027-01-31) — reserved dead stub; deletion at expiry if unadopted; see also #1609 (DR-7 module-intent gate)
+// SHIM(runtimes: copilot+cursor, capability: slash-command-native) — per-runtime command-discovery adapter: Cursor has no native slash-command loader (hasSlashCommands:false) and Copilot maps commands via .github/copilot-instructions.md; enumerated + expiry-tracked in src/shim-registry.ts (SHIM_REGISTRY), P03-07.
 
 import { join } from 'node:path';
 import { toPosix } from '../utils/paths.js';
