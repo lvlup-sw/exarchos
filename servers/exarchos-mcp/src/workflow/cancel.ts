@@ -14,7 +14,7 @@ import {
 } from './checkpoint.js';
 import { mapInternalToExternalType } from './events.js';
 import { getHSMDefinition, executeTransition } from './state-machine.js';
-import { allocatePhaseAttemptId } from './phase-attempt-id.js';
+import { allocatePhaseAttemptId, readPhaseAttemptId } from './phase-attempt-id.js';
 import { executeCompensation, type CompensationCheckpoint } from './compensation.js';
 import type { EventStore } from '../event-store/store.js';
 import {
@@ -160,7 +160,7 @@ export async function handleCancel(
     input.featureId,
     currentPhase,
     'cancelled',
-    (state as unknown as Record<string, unknown>).phaseAttemptId,
+    readPhaseAttemptId(state),
     state._version ?? 1,
   );
   const cancelId = `cancel:${phaseAttemptId}`;

@@ -11,7 +11,7 @@ import {
 } from './checkpoint.js';
 import { mapInternalToExternalType } from './events.js';
 import { getHSMDefinition, executeTransition } from './state-machine.js';
-import { allocatePhaseAttemptId } from './phase-attempt-id.js';
+import { allocatePhaseAttemptId, readPhaseAttemptId } from './phase-attempt-id.js';
 import type { EventStore } from '../event-store/store.js';
 import type { EventType } from '../event-store/schemas.js';
 import type { SnapshotStore } from '../views/snapshot-store.js';
@@ -293,7 +293,7 @@ export async function handleCleanup(
         input.featureId,
         currentPhase,
         'completed',
-        (state as unknown as Record<string, unknown>).phaseAttemptId,
+        readPhaseAttemptId(state),
         state._version ?? 1,
       );
   if (phaseAttemptId !== undefined) {
@@ -357,8 +357,7 @@ export async function handleCleanup(
 
   // ─── Event emission + state write ─────────────────────────────────────
 
-  const stateRecord = state as unknown as Record<string, unknown>;
-  const useEventFirst = isEventSourced(stateRecord) && eventStore !== null;
+  const useEventFirst = isEventSourced(state) && eventStore !== null;
 
   if (useEventFirst) {
     // ES v2: emit events BEFORE writing state

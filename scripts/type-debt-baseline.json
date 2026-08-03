@@ -2,7 +2,7 @@
   "version": 1,
   "instrument": "scripts/check-type-debt.mjs",
   "censusHash": "43a6f656ccf3bfdd33e3633f7d70835ffd98a271b5eee5b878b532cd41b0c717",
-  "generatedAt": "2026-07-17T23:31:13.989Z",
+  "generatedAt": "2026-08-03T02:48:16.503Z",
   "generatedVia": "node scripts/check-type-debt.mjs --update",
   "files": {
     "servers/exarchos-mcp/src/adapters/mcp.ts": 2,
@@ -31,20 +31,18 @@
     "servers/exarchos-mcp/src/projections/taskstore/index.ts": 1,
     "servers/exarchos-mcp/src/projections/workflow-state/index.ts": 1,
     "servers/exarchos-mcp/src/review/classifier.ts": 1,
-    "servers/exarchos-mcp/src/storage/sqlite-backend.ts": 2,
     "servers/exarchos-mcp/src/telemetry/tools.ts": 2,
     "servers/exarchos-mcp/src/vcs/provider.ts": 1,
     "servers/exarchos-mcp/src/views/lifecycle/inspect.ts": 1,
     "servers/exarchos-mcp/src/views/lifecycle/wait.ts": 1,
     "servers/exarchos-mcp/src/views/tools.ts": 2,
     "servers/exarchos-mcp/src/views/workflow-state-projection.ts": 3,
-    "servers/exarchos-mcp/src/workflow/cleanup.ts": 1,
     "servers/exarchos-mcp/src/workflow/compensation.ts": 5,
     "servers/exarchos-mcp/src/workflow/composite.ts": 3,
     "servers/exarchos-mcp/src/workflow/query.ts": 2,
     "servers/exarchos-mcp/src/workflow/rehydrate.ts": 3,
     "servers/exarchos-mcp/src/workflow/state-machine.ts": 2,
     "servers/exarchos-mcp/src/workflow/state-store.ts": 5,
-    "servers/exarchos-mcp/src/workflow/tools.ts": 7
+    "servers/exarchos-mcp/src/workflow/tools.ts": 4
   }
 }

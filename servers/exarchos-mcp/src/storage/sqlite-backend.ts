@@ -400,6 +400,24 @@ export class SqliteCorruptError extends Error {
  * stringified SQLite error code on their thrown `SqliteError`
  * instances. Falls back to a defensive `false` for non-Error throws.
  */
+/**
+ * Narrow a driver transaction wrapper to the explicit `BEGIN IMMEDIATE` form.
+ *
+ * `bun:sqlite` and the shimmed `better-sqlite3` driver both expose
+ * `transaction(fn).immediate(args)`, but neither ships a type for it. This
+ * guard is the single narrowing boundary — callers get a typed `immediate()`
+ * instead of double-widening the wrapper at each use site.
+ */
+function hasImmediateTransaction(
+  txn: unknown,
+): txn is { immediate: (...args: unknown[]) => void } {
+  if (typeof txn !== 'function' && (typeof txn !== 'object' || txn === null)) {
+    return false;
+  }
+  if (!('immediate' in txn)) return false;
+  return typeof txn.immediate === 'function';
+}
+
 function isSqliteBusy(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
   const code = (err as { code?: unknown }).code;
@@ -666,10 +684,7 @@ export class SqliteBackend implements StorageBackend {
    * never falls back to a deferred `BEGIN`.
    */
   private assertImmediateSupported(): void {
-    const probe = this.db.transaction(() => {}) as unknown as {
-      immediate?: (...args: unknown[]) => void;
-    };
-    if (typeof probe.immediate !== 'function') {
+    if (!hasImmediateTransaction(this.db.transaction(() => {}))) {
       throw new SqliteImmediateUnsupportedError();
     }
   }
@@ -1997,11 +2012,11 @@ export class SqliteBackend implements StorageBackend {
     // `.immediate` exists (DR-3), so there is NO deferred fallback here: a
     // deferred BEGIN would reopen the lock-upgrade deadlock and the TOCTOU
     // window the gate closes.
-    const txnUnknown = txn as unknown as {
-      immediate: (...args: unknown[]) => void;
-    };
+    if (!hasImmediateTransaction(txn)) {
+      throw new SqliteImmediateUnsupportedError();
+    }
     const runOnce = (): void => {
-      txnUnknown.immediate();
+      txn.immediate();
     };
 
     // Bounded retry loop over SQLITE_BUSY — DR-12 (#1259, T09).
@@ -2148,11 +2163,13 @@ export class SqliteBackend implements StorageBackend {
       };
     });
 
-    const immediate = txn as unknown as { immediate: () => void };
+    if (!hasImmediateTransaction(txn)) {
+      throw new SqliteImmediateUnsupportedError();
+    }
     let lastErr: Error | undefined;
     for (let attempt = 1; attempt <= SQLITE_BUSY_RETRY_POLICY.maxAttempts; attempt++) {
       try {
-        immediate.immediate();
+        txn.immediate();
         if (!outcome) {
           throw new Error('decideOnce transaction completed without an outcome');
         }
