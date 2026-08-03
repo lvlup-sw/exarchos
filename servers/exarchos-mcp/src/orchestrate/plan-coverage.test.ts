@@ -51,6 +51,7 @@ vi.mock('node:fs/promises', () => ({
 import { readFile } from 'node:fs/promises';
 import {
   parseDesignSections,
+  parseDesignRequirements,
   parsePlanTasks,
   extractKeywords,
   keywordMatch,
@@ -227,6 +228,208 @@ describe('parseDesignSections', () => {
 
     const result = parseDesignSections(markdown);
     expect(result).toEqual(['DR-1: Widget', 'DR-2: Cache']);
+  });
+});
+
+// ─── Canonical unified spec parsing (WFQ-006) ────────────────────────────────
+
+describe('parseDesignRequirements — canonical unified spec (WFQ-006)', () => {
+  // The canonical unified spec places DR-N under `## Design & Rationale` via
+  // `### Requirements (DR-N)` with `#### DR-N:` headings, followed by a
+  // `## Decomposition`. The legacy `## Technical Design` heading is absent.
+  const UNIFIED_SPEC = [
+    '# Spec: Widget System',
+    '',
+    '## Design & Rationale',
+    '',
+    '### Problem Statement',
+    '',
+    'Widgets are unmanaged.',
+    '',
+    '### Requirements (DR-N)',
+    '',
+    '#### DR-1: Render widgets',
+    '',
+    'Widgets render to the DOM.',
+    '',
+    '#### DR-2: Cache widget state',
+    '',
+    'State persists across renders.',
+    '',
+    '### Technical Design',
+    '',
+    'Component-based architecture.',
+    '',
+    '## Decomposition',
+    '',
+    '### Task 001: Build widget renderer',
+    '',
+    '**Implements:** DR-1',
+    '',
+    '### Task 002: Build state cache',
+    '',
+    '**Implements:** DR-2',
+  ].join('\n');
+
+  it('ParseDesignRequirements_UnifiedSpec_ExtractsDrHeadings', () => {
+    expect(parseDesignRequirements(UNIFIED_SPEC)).toEqual([
+      'DR-1: Render widgets',
+      'DR-2: Cache widget state',
+    ]);
+  });
+
+  it('ParseDesignRequirements_IgnoresImplementsReferencesInDecomposition', () => {
+    // The `**Implements:** DR-1/DR-2` references live in the task region and
+    // must NOT be mistaken for DR-N definitions — only the two design-region
+    // headings count.
+    expect(parseDesignRequirements(UNIFIED_SPEC)).toHaveLength(2);
+  });
+
+  it('ParseDesignRequirements_BulletFormDr_NotTreatedAsRequirement', () => {
+    const bulletOnly = [
+      '## Design & Rationale',
+      '',
+      '- DR-1: Render widgets',
+      '- DR-2: Cache state',
+    ].join('\n');
+    expect(parseDesignRequirements(bulletOnly)).toEqual([]);
+  });
+
+  it('ParseDesignSections_UnifiedSpec_PrefersDrRequirements', () => {
+    // WFQ-006 acceptance: a spec using ONLY Design & Rationale with DR-N
+    // subsections yields design sections (no NO_DESIGN_SECTIONS), and the
+    // surrounding rationale subsections (Problem Statement, Technical Design)
+    // are NOT emitted as coverage sections.
+    const sections = parseDesignSections(UNIFIED_SPEC);
+    expect(sections).toEqual(['DR-1: Render widgets', 'DR-2: Cache widget state']);
+    expect(sections).not.toContain('Problem Statement');
+    expect(sections).not.toContain('Technical Design');
+  });
+});
+
+describe('computeCoverage — DR-N traceability at plan time (WFQ-006)', () => {
+  it('ComputeCoverage_DrImplementedByTask_Covered', () => {
+    const sections = ['DR-1: Render widgets', 'DR-2: Cache widget state'];
+    const planContent = [
+      '## Decomposition',
+      '',
+      '### Task 001: Build widget renderer',
+      '',
+      '**Implements:** DR-1',
+      '',
+      '### Task 002: Build state cache',
+      '',
+      '**Implements:** DR-2',
+    ].join('\n');
+    const tasks = parsePlanTasks(planContent);
+
+    const result = computeCoverage(sections, tasks, planContent, []);
+    expect(result.passed).toBe(true);
+    expect(result.coverage).toEqual({ covered: 2, gaps: 0, deferred: 0, total: 2 });
+  });
+
+  it('ComputeCoverage_DrWithNoImplementingTask_IsTraceabilityGap', () => {
+    // DR-2 is a design requirement with NO task implementing it and no task
+    // whose title/body keyword-overlaps its headline — a traceability gap that
+    // must still be caught at plan time.
+    const sections = ['DR-1: Render widgets', 'DR-2: Telemetry export pipeline'];
+    const planContent = [
+      '## Decomposition',
+      '',
+      '### Task 001: Build widget renderer',
+      '',
+      '**Implements:** DR-1',
+    ].join('\n');
+    const tasks = parsePlanTasks(planContent);
+
+    const result = computeCoverage(sections, tasks, planContent, []);
+    expect(result.passed).toBe(false);
+    expect(result.coverage.gaps).toBe(1);
+    expect(result.gapSections).toEqual(['DR-2: Telemetry export pipeline']);
+  });
+});
+
+describe('handlePlanCoverage — canonical unified spec (WFQ-006)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockStore.append.mockResolvedValue(undefined);
+    mockStore.query.mockResolvedValue([]);
+  });
+
+  const UNIFIED_ARGS = {
+    featureId: 'feat-unified',
+    designPath: '/tmp/specs/feat.md',
+    planPath: '/tmp/specs/feat.md',
+  };
+
+  it('HandlePlanCoverage_UnifiedSpec_NoNoDesignSectionsError', async () => {
+    const unified = [
+      '# Spec: Widget System',
+      '',
+      '## Design & Rationale',
+      '',
+      '### Requirements (DR-N)',
+      '',
+      '#### DR-1: Render widgets',
+      'Widgets render to the DOM.',
+      '',
+      '#### DR-2: Cache widget state',
+      'State persists across renders.',
+      '',
+      '## Decomposition',
+      '',
+      '### Task 001: Build widget renderer',
+      '**Implements:** DR-1',
+      '',
+      '### Task 002: Build state cache',
+      '**Implements:** DR-2',
+    ].join('\n');
+    vi.mocked(readFile).mockImplementation(async () => unified);
+
+    const result = await handlePlanCoverage(
+      UNIFIED_ARGS,
+      STATE_DIR,
+      mockStore as unknown as EventStore,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as { passed: boolean; coverage: { covered: number; total: number } };
+    // DR-1 and DR-2 are both implemented → full coverage, no NO_DESIGN_SECTIONS.
+    expect(data.passed).toBe(true);
+    expect(data.coverage).toMatchObject({ covered: 2, total: 2 });
+  });
+
+  it('HandlePlanCoverage_UnifiedSpecUncoveredDr_ReportsGap', async () => {
+    const unified = [
+      '# Spec: Widget System',
+      '',
+      '## Design & Rationale',
+      '',
+      '### Requirements (DR-N)',
+      '',
+      '#### DR-1: Render widgets',
+      'Widgets render to the DOM.',
+      '',
+      '#### DR-2: Telemetry export pipeline',
+      'Ship metrics to the collector.',
+      '',
+      '## Decomposition',
+      '',
+      '### Task 001: Build widget renderer',
+      '**Implements:** DR-1',
+    ].join('\n');
+    vi.mocked(readFile).mockImplementation(async () => unified);
+
+    const result = await handlePlanCoverage(
+      UNIFIED_ARGS,
+      STATE_DIR,
+      mockStore as unknown as EventStore,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as { passed: boolean; gapSections: readonly string[] };
+    expect(data.passed).toBe(false);
+    expect(data.gapSections).toContain('DR-2: Telemetry export pipeline');
   });
 });
 
