@@ -3,7 +3,7 @@ import type { RunbookDefinition } from './types.js';
 export const TASK_COMPLETION: RunbookDefinition = {
   id: 'task-completion',
   phase: 'delegate',
-  description: 'Complete a task after execution: run blocking gates, then mark complete.',
+  description: 'Complete a task after every blocking per-task gate has passed.',
   steps: [
     // Verification-ladder: the kill-probe gate is the load-bearing per-task
     // verification — the sole per-task gate after check_tdd_compliance was
@@ -41,21 +41,15 @@ export const TASK_COMPLETION: RunbookDefinition = {
     { tool: 'exarchos_orchestrate', action: 'check_static_analysis', onFail: 'stop',
       params: { repoRoot: 'auto', worktreePath: '<worktreePath>' },
       note: '#1330: run against the agent worktree via repoRoot:auto + worktreePath template var' },
-    { tool: 'exarchos_orchestrate', action: 'task_complete', onFail: 'stop' },
-    // #1329 / T-07: run the FULL suite against the agent worktree at task
-    // completion. The worktree is branched from the integration tip, so it
-    // already contains every previously-merged task — running the full suite
-    // here surfaces the accumulated load-cascade that per-task TDD/static gates
-    // miss (a file failing at import is "0 failed tests / 1 failed suite" —
-    // invisible to per-task gates). `onFail: 'stop'` halts the loop so the
-    // cascade blocks the NEXT dispatch. This runs pre-merge in the worktree
-    // (not against the post-merge tip in MERGE_ORCHESTRATION); for serial
-    // dispatch the two are equivalent, the gap being concurrent sibling merges
-    // landing between this task's dispatch and completion. Reuses the #1330
-    // worktree-aware resolver: `repoRoot: 'auto'` + `worktreePath`.
-    { tool: 'exarchos_orchestrate', action: 'check_integration_suite', onFail: 'stop',
-      params: { repoRoot: 'auto', worktreePath: '<worktreePath>' },
-      note: '#1329: full-suite gate against the integration tip; folds file-LOAD failures into failCount' },
+    // WFQ-004: `task_complete` is the TERMINAL step. Every blocking per-task
+    // gate above must have passed before the task is recorded complete —
+    // previously the cumulative integration suite ran AFTER this step, so a
+    // task could be marked complete and only then fail its last blocking gate.
+    // The cumulative suite now runs once at the wave boundary
+    // (AGENT_TEAMS_SAGA), matching `check_integration_suite`'s own contract as
+    // a post-merge backstop rather than a per-task gate.
+    { tool: 'exarchos_orchestrate', action: 'task_complete', onFail: 'stop',
+      note: 'WFQ-004: terminal step — no blocking per-task gate may follow it' },
   ],
   templateVars: ['taskId', 'featureId', 'streamId', 'branch', 'worktreePath'],
   autoEmits: ['admission.evidence-recorded', 'task.completed'],
@@ -81,7 +75,10 @@ export const QUALITY_EVALUATION: RunbookDefinition = {
     { tool: 'exarchos_orchestrate', action: 'check_review_verdict', onFail: 'stop' },
   ],
   templateVars: ['featureId', 'high', 'medium', 'low'],
-  autoEmits: ['gate.executed'],
+  // The review gates route through the canonical gate runner, which persists
+  // durable evidence before reporting success — so every enforceable step here
+  // also emits `admission.evidence-recorded` alongside `gate.executed`.
+  autoEmits: ['admission.evidence-recorded', 'gate.executed'],
 };
 
 export const AGENT_TEAMS_SAGA: RunbookDefinition = {
@@ -114,6 +111,15 @@ export const AGENT_TEAMS_SAGA: RunbookDefinition = {
       note: 'Event-first: emit before SendMessage shutdown' },
     { tool: 'native:SendMessage', action: 'shutdown', onFail: 'continue',
       note: 'Shutdown N teammates, then TeamDelete' },
+    // WFQ-004 / #1329: the cumulative full-suite gate runs ONCE here, at the
+    // wave boundary after every wave merge has landed — not per task. It
+    // surfaces the accumulated load cascade that per-task gates miss (a file
+    // failing at import is "0 failed tests / 1 failed suite"). Running it once
+    // per wave also removes the duplicate-ownership loop where the agent, the
+    // lead, and the per-task runbook each re-verified the same claim.
+    { tool: 'exarchos_orchestrate', action: 'check_integration_suite', onFail: 'stop',
+      params: { repoRoot: 'auto' },
+      note: 'WFQ-004: cumulative post-merge backstop — exactly once per wave, folds file-LOAD failures into failCount' },
     { tool: 'exarchos_orchestrate', action: 'post_delegation_check', onFail: 'stop',
       note: 'Verify all tasks complete, tests pass, branches exist' },
     { tool: 'exarchos_workflow', action: 'transition', onFail: 'stop',
@@ -127,7 +133,7 @@ export const AGENT_TEAMS_SAGA: RunbookDefinition = {
   // carried via `params.type`, not `action.autoEmits`); the canonical
   // phase-mutation event is `workflow.transition` emitted by the
   // `transition` action.
-  autoEmits: ['gate.executed', 'workflow.transition'],
+  autoEmits: ['admission.evidence-recorded', 'gate.executed', 'workflow.transition'],
 };
 
 export const SYNTHESIS_FLOW: RunbookDefinition = {
@@ -207,7 +213,7 @@ export const TASK_FIX: RunbookDefinition = {
     { tool: 'exarchos_orchestrate', action: 'task_complete', onFail: 'stop' },
   ],
   templateVars: ['taskId', 'featureId', 'streamId', 'branch', 'agentId', 'failureContext', 'worktreePath'],
-  autoEmits: ['gate.executed', 'task.completed'],
+  autoEmits: ['admission.evidence-recorded', 'task.completed'],
 };
 
 export const TRIAGE_DECISION: RunbookDefinition = {

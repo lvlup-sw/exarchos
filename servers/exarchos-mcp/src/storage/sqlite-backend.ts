@@ -16,6 +16,7 @@ import { deriveWorkflowStatus, matchesWorkflowSummaryFilter } from './backend.js
 import { VersionConflictError } from './memory-backend.js';
 import type { SnapshotRecord } from '../projections/snapshot-schema.js';
 import { resolveMaxRecords } from './snapshot-retention.js';
+import { storeLogger } from '../logger.js';
 
 // ─── AtomicAppender wire types (#1259, T06/T07) ─────────────────────────────
 //
@@ -400,6 +401,50 @@ export class SqliteCorruptError extends Error {
  * stringified SQLite error code on their thrown `SqliteError`
  * instances. Falls back to a defensive `false` for non-Error throws.
  */
+/**
+ * One stream whose version gate disagreed with its durable event tail.
+ * `gate` is the recorded high-water mark; `tail` is `MAX(events.sequence)`.
+ */
+export interface SequenceRepair {
+  readonly streamId: string;
+  readonly gate: number;
+  readonly tail: number;
+}
+
+/**
+ * Outcome of the EFF-001 startup reconciliation.
+ *
+ * `repaired` — gates raised to the durable tail (they trailed it, so the next
+ * allocation would have re-issued a used sequence).
+ * `gaps` — gates that LEAD the tail; left untouched to keep sequences
+ * monotonic, reported so the divergence is never silent.
+ */
+export interface SequenceRepairReport {
+  readonly repaired: readonly SequenceRepair[];
+  readonly gaps: readonly SequenceRepair[];
+}
+
+/** Counts-not-transcripts cap on the per-stream detail carried in repair logs. */
+const SEQUENCE_REPAIR_LOG_CAP = 20;
+
+/**
+ * Narrow a driver transaction wrapper to the explicit `BEGIN IMMEDIATE` form.
+ *
+ * `bun:sqlite` and the shimmed `better-sqlite3` driver both expose
+ * `transaction(fn).immediate(args)`, but neither ships a type for it. This
+ * guard is the single narrowing boundary — callers get a typed `immediate()`
+ * instead of double-widening the wrapper at each use site.
+ */
+function hasImmediateTransaction(
+  txn: unknown,
+): txn is { immediate: (...args: unknown[]) => void } {
+  if (typeof txn !== 'function' && (typeof txn !== 'object' || txn === null)) {
+    return false;
+  }
+  if (!('immediate' in txn)) return false;
+  return typeof txn.immediate === 'function';
+}
+
 function isSqliteBusy(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
   const code = (err as { code?: unknown }).code;
@@ -593,6 +638,17 @@ export class SqliteBackend implements StorageBackend {
 
       // Initialize prepared statements
       this.stmts = this.prepareStatements();
+
+      // EFF-001: reconcile the stream-version gate against the durable event
+      // tail BEFORE serving any traffic. A high-water mark that trails
+      // `MAX(events.sequence)` would make the gate re-issue an already-used
+      // sequence on the next append — the exact `Expected sequence 236, actual
+      // 235` divergence reproduced in the phase-gate dogfood (CB-1). The gate
+      // itself is race-free under BEGIN IMMEDIATE, but a database that arrives
+      // already diverged (crash between writes under an older code path,
+      // partial restore, external tooling) must be repaired, never silently
+      // continued from.
+      this.repairSequenceHighWaterMarks();
     } catch (err) {
       // SQLITE_CORRUPT / SQLITE_NOTADB at startup: refuse to proceed.
       // The substrate intentionally does NOT auto-rebuild — silent rebuild
@@ -666,10 +722,7 @@ export class SqliteBackend implements StorageBackend {
    * never falls back to a deferred `BEGIN`.
    */
   private assertImmediateSupported(): void {
-    const probe = this.db.transaction(() => {}) as unknown as {
-      immediate?: (...args: unknown[]) => void;
-    };
-    if (typeof probe.immediate !== 'function') {
+    if (!hasImmediateTransaction(this.db.transaction(() => {}))) {
       throw new SqliteImmediateUnsupportedError();
     }
   }
@@ -1854,6 +1907,83 @@ export class SqliteBackend implements StorageBackend {
   }
 
   /**
+   * EFF-001 startup repair: reconcile every stream's version gate against its
+   * durable event tail.
+   *
+   * Two divergence directions, and they are NOT symmetric:
+   *
+   * - `highWaterMark < MAX(events.sequence)` — **dangerous**. The next
+   *   `allocateSequence` would hand out a sequence that is already persisted,
+   *   producing either a PRIMARY KEY violation or (with an `expectedSequence`)
+   *   the `Expected sequence N, actual N-1` conflict from dogfood CB-1. Repaired
+   *   deterministically by raising the gate to the durable tail: the tail is the
+   *   authority, the counter is derived.
+   * - `highWaterMark > MAX(events.sequence)` — **benign**. A rolled-back append
+   *   or pruned tail leaves a gap. Sequences must stay monotonic, so the gate is
+   *   left alone; lowering it would re-issue numbers a reader may already have
+   *   observed. Reported, not "repaired".
+   *
+   * Runs inside one transaction so a repair is all-or-nothing, and logs loudly:
+   * a silently corrected divergence is indistinguishable from a healthy store.
+   */
+  private repairSequenceHighWaterMarks(): SequenceRepairReport {
+    const rows = this.db
+      .prepare(
+        `SELECT e.streamId AS streamId,
+                MAX(e.sequence) AS tail,
+                COALESCE(s.sequence, 0) AS gate
+           FROM events e
+           LEFT JOIN sequences s ON s.streamId = e.streamId
+          GROUP BY e.streamId
+         HAVING MAX(e.sequence) <> COALESCE(s.sequence, 0)`,
+      )
+      .all() as { streamId: string; tail: number; gate: number }[];
+
+    const repaired: SequenceRepair[] = [];
+    const gaps: SequenceRepair[] = [];
+    for (const row of rows) {
+      (row.gate < row.tail ? repaired : gaps).push({
+        streamId: row.streamId,
+        gate: row.gate,
+        tail: row.tail,
+      });
+    }
+
+    if (repaired.length > 0) {
+      const apply = this.db.transaction(() => {
+        for (const entry of repaired) {
+          this.stmts.upsertSequence.run(entry.streamId, entry.tail);
+        }
+      });
+      if (!hasImmediateTransaction(apply)) {
+        throw new SqliteImmediateUnsupportedError();
+      }
+      apply.immediate();
+      storeLogger.warn(
+        {
+          repaired: repaired.length,
+          streams: repaired.slice(0, SEQUENCE_REPAIR_LOG_CAP),
+          dbPath: this.dbPath,
+        },
+        'stream-version gate trailed the durable event tail; raised to the tail before serving traffic (EFF-001)',
+      );
+    }
+
+    if (gaps.length > 0) {
+      storeLogger.warn(
+        {
+          gaps: gaps.length,
+          streams: gaps.slice(0, SEQUENCE_REPAIR_LOG_CAP),
+          dbPath: this.dbPath,
+        },
+        'stream-version gate leads the durable event tail (rolled-back or pruned append); left monotonic, not lowered (EFF-001)',
+      );
+    }
+
+    return { repaired, gaps };
+  }
+
+  /**
    * Stream-version gate (allocate + OCC) — runs INSIDE the caller's
    * `BEGIN IMMEDIATE` transaction. Reads the durable tail, optionally
    * checks it against `expected`, and advances it by `n` in one step,
@@ -1997,11 +2127,11 @@ export class SqliteBackend implements StorageBackend {
     // `.immediate` exists (DR-3), so there is NO deferred fallback here: a
     // deferred BEGIN would reopen the lock-upgrade deadlock and the TOCTOU
     // window the gate closes.
-    const txnUnknown = txn as unknown as {
-      immediate: (...args: unknown[]) => void;
-    };
+    if (!hasImmediateTransaction(txn)) {
+      throw new SqliteImmediateUnsupportedError();
+    }
     const runOnce = (): void => {
-      txnUnknown.immediate();
+      txn.immediate();
     };
 
     // Bounded retry loop over SQLITE_BUSY — DR-12 (#1259, T09).
@@ -2148,11 +2278,13 @@ export class SqliteBackend implements StorageBackend {
       };
     });
 
-    const immediate = txn as unknown as { immediate: () => void };
+    if (!hasImmediateTransaction(txn)) {
+      throw new SqliteImmediateUnsupportedError();
+    }
     let lastErr: Error | undefined;
     for (let attempt = 1; attempt <= SQLITE_BUSY_RETRY_POLICY.maxAttempts; attempt++) {
       try {
-        immediate.immediate();
+        txn.immediate();
         if (!outcome) {
           throw new Error('decideOnce transaction completed without an outcome');
         }

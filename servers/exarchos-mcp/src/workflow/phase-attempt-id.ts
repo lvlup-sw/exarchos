@@ -11,6 +11,22 @@ export function allocateInitialPhaseAttemptId(): PhaseAttemptId {
 }
 
 /**
+ * Read the active phase-attempt stamp off a workflow state.
+ *
+ * The stamp is passthrough data — it is persisted on state but not declared by
+ * the closed `WorkflowState` shape — so callers previously reached it through a
+ * double-widening cast to an untyped record. Narrowing here keeps that boundary
+ * in one place and returns `undefined` for any non-string value rather than
+ * propagating an untyped carrier.
+ */
+export function readPhaseAttemptId(state: unknown): string | undefined {
+  if (typeof state !== 'object' || state === null) return undefined;
+  if (!('phaseAttemptId' in state)) return undefined;
+  const value = state.phaseAttemptId;
+  return typeof value === 'string' ? value : undefined;
+}
+
+/**
  * Allocate a retry-stable identity for one phase-entry decision.
  *
  * The persisted active attempt is the predecessor in the attempt chain.

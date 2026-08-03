@@ -36,12 +36,13 @@ import {
 import type { CodeQualityViewState } from '../views/code-quality-view.js';
 import {
   DELEGATION_READINESS_VIEW,
+  computeScopedWorktrees,
+  scopeReadinessToWave,
 } from '../views/delegation-readiness-view.js';
 import type { DelegationReadinessState } from '../views/delegation-readiness-view.js';
 import { generateQualityHints } from '../quality/hints.js';
 import type { QualityHint } from '../quality/hints.js';
 import { emitGateEvent } from './gate-utils.js';
-import { canonicaliseTaskId } from './task-decomposition.js';
 import { parseTaskStamps, stampForTask } from './parse-task-stamps.js';
 import { readFile } from 'node:fs/promises';
 import { queryTelemetryState } from '../telemetry/telemetry-queries.js';
@@ -802,86 +803,16 @@ function computeDesyncBlockers(
   ];
 }
 
-/**
- * DR-T-2 (#1206, T-05) / fix-005 (#1213): pure helper that recomputes
- * worktree counts and blockers against a wave subset.
- *
- * Returns:
- * - `expected` — the size of the wave (or the projection's expected when
- *   no filter is provided).
- * - `ready` — count of wave members whose worktree is in `readyTaskIds`
- *   (or the projection's global `ready` when no filter is provided).
- * - `pending` — `expected - ready`.
- * - `blockers` — `readiness.blockers` with the canonical
- *   `"<N> worktrees pending"` message rewritten to the wave-scoped count
- *   (dropped entirely when the wave is fully ready). Other worktree-class
- *   blockers (e.g., "no worktrees expected", baseline failures) pass
- *   through unchanged — they're stream-global signals, not wave-scoped.
- *
- * Pure: no I/O, no shared state. Exported for unit testing.
- */
-export interface ScopedWorktreesResult {
-  readonly expected: number;
-  readonly ready: number;
-  readonly pending: number;
-  readonly blockers: readonly string[];
-}
+// ─── Wave Scoping (re-export) ───────────────────────────────────────────────
+//
+// WFQ-002: the wave-scoping core moved beside the projection it scopes
+// (`views/delegation-readiness-view.ts`) so the `delegation_readiness` view
+// action and this handler share ONE implementation. Re-exported here because
+// `computeScopedWorktrees` is part of this module's established public
+// surface and its unit tests import it from here.
+export { computeScopedWorktrees, scopeReadinessToWave };
+export type { ScopedWorktreesResult } from '../views/delegation-readiness-view.js';
 
-export function computeScopedWorktrees(
-  readiness: DelegationReadinessState,
-  tasksFilter: readonly { id: string }[] | undefined,
-): ScopedWorktreesResult {
-  if (!tasksFilter || tasksFilter.length === 0) {
-    return {
-      expected: readiness.worktrees.expected,
-      ready: readiness.worktrees.ready,
-      pending: Math.max(0, readiness.worktrees.expected - readiness.worktrees.ready),
-      blockers: readiness.blockers,
-    };
-  }
-
-  // F19 (#1213): canonicalise IDs before comparing. Callers may pass
-  // `T-001`/`T001`/`001` interchangeably; the projection's `readyTaskIds`
-  // preserves the form recorded by upstream emitters. Without
-  // canonicalisation a wave addressed as `T-001` reports "1 worktrees
-  // pending" even when the projection holds `T001` as ready.
-  const canonicalReady = new Set(
-    readiness.worktrees.readyTaskIds.map(canonicaliseTaskId),
-  );
-  const taskIds = tasksFilter.map(t => t.id);
-  const readyInWave = taskIds.filter(id =>
-    canonicalReady.has(canonicaliseTaskId(id)),
-  ).length;
-  const expected = taskIds.length;
-  const pending = expected - readyInWave;
-
-  let blockers = readiness.blockers.flatMap(blocker => {
-    // Only touch the canonical "<N> worktrees pending" message; pass
-    // through other worktree-class blockers (failed, no-worktrees-expected).
-    if (!/^\d+ worktrees pending$/.test(blocker)) {
-      return [blocker];
-    }
-    if (pending === 0) {
-      return []; // wave is complete — drop the blocker
-    }
-    return [`${pending} worktrees pending`];
-  });
-
-  // F-iter3 (#1213, sentry HIGH r3186305844): if the global readiness has no
-  // "N worktrees pending" blocker (because the global state was ready) but
-  // the wave subset still has pending worktrees, synthesise one. Without
-  // this the caller sees an empty blockers array and dispatches prematurely
-  // (e.g. mixed legacy/modern `worktree.created` events leave the global
-  // view consistent but the wave-projection is not).
-  if (
-    pending > 0 &&
-    !blockers.some(b => /^\d+ worktrees pending$/.test(b))
-  ) {
-    blockers = [...blockers, `${pending} worktrees pending`];
-  }
-
-  return { expected, ready: readyInWave, pending, blockers };
-}
 
 // ─── Quality Hint Assembly ──────────────────────────────────────────────────
 

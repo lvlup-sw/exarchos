@@ -106,7 +106,7 @@ Cover the new/changed behavior with focused tests, judged by OUTCOME not by comm
 
 Kill-probe: the `check_test_adequacy` gate runs after your tests — it reverts your source hunks (keeping the tests) and asserts at least one goes red. This recaptures test-first's one real guarantee — that a test can actually fail — at lower cost. Expect it to flag tests that pass against a stubbed-out implementation. (Granular per-behavior red-green is available as an opt-in if it helps, never a requirement.)
 
-(For **high** tier only, the `check_integration_suite` rung also runs — exercise real collaborators across the seam, not just unit isolation.)
+(For **high** tier, exercise real collaborators across the seam in your own scoped tests, not just unit isolation. Do **not** run the cumulative `check_integration_suite` gate — that is a wave-boundary backstop the lead runs once after the wave's merges land.)
 
 ### [BOUNDARY: append when boundaryTouching] — mock steer
 

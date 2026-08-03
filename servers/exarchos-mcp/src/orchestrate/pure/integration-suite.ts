@@ -159,10 +159,78 @@ interface VitestJson {
  * `failCount` ALWAYS folds load failures in, so a result with
  * `numFailedTests: 0, numFailedTestSuites: 1` yields `failCount >= 1`.
  */
-export function parseVitestResult(raw: string): IntegrationSuiteParse | null {
+/**
+ * Yield candidate JSON documents from a runner's raw stdout, best-first.
+ *
+ * WFQ-003: the gate invokes the suite through a script runner whose preamble
+ * (`> pkg@1.0.0 test:run`, workspace banners, deprecation notices) is
+ * concatenated with the reporter's JSON on the same stream. Requiring the whole
+ * stream to be one JSON document made a green suite fail closed with
+ * `parseError` (#1537).
+ *
+ * The scan is string-aware (braces inside JSON string literals do not change
+ * depth) and yields complete top-level `{…}` spans in REVERSE order, because
+ * the reporter blob is emitted after any preamble. The whole trimmed stream is
+ * tried first so a clean single-document stdout takes the fast path.
+ */
+function* vitestJsonCandidates(raw: string): Generator<string> {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return;
+  yield trimmed;
+
+  const spans: string[] = [];
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < trimmed.length; i++) {
+    const ch = trimmed[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === '{') {
+      if (depth === 0) start = i;
+      depth++;
+      continue;
+    }
+    if (ch === '}') {
+      if (depth === 0) continue;
+      depth--;
+      if (depth === 0 && start >= 0) {
+        spans.push(trimmed.slice(start, i + 1));
+        start = -1;
+      }
+    }
+  }
+
+  for (let i = spans.length - 1; i >= 0; i--) {
+    const span = spans[i];
+    if (span !== undefined && span !== trimmed) yield span;
+  }
+}
+
+/**
+ * Parse ONE candidate JSON document into a folded-in failure view.
+ *
+ * Returns `null` when the document is not a recognizable vitest result, so the
+ * caller can fall through to the next candidate.
+ */
+function parseVitestDocument(candidate: string): IntegrationSuiteParse | null {
   let json: VitestJson;
   try {
-    json = JSON.parse(raw) as VitestJson;
+    json = JSON.parse(candidate) as VitestJson;
   } catch {
     return null;
   }
@@ -243,6 +311,22 @@ export function parseVitestResult(raw: string): IntegrationSuiteParse | null {
     failCount,
     loadFailureFiles,
   };
+}
+
+/**
+ * Parse a runner's raw stdout into a folded-in failure view.
+ *
+ * Tolerates a script-runner preamble around the reporter blob (WFQ-003) by
+ * trying each complete top-level JSON object, reporter-blob-first. Returns
+ * `null` — which the caller turns into a fail-closed `shape-mismatch` — only
+ * when no candidate is a recognizable vitest result.
+ */
+export function parseVitestResult(raw: string): IntegrationSuiteParse | null {
+  for (const candidate of vitestJsonCandidates(raw)) {
+    const parsed = parseVitestDocument(candidate);
+    if (parsed !== null) return parsed;
+  }
+  return null;
 }
 
 // ============================================================

@@ -26,6 +26,8 @@ import {
   handleViewShepherdStatus,
   handleViewProvenance,
   handleViewConvergence,
+  handleViewGateReliability,
+  getOrCreateMaterializer,
 } from './tools.js';
 import { handleViewInvariantsEffective } from './effective-catalog.js';
 import { handleViewInspect } from './lifecycle/inspect.js';
@@ -37,6 +39,12 @@ import { handleStackStatus, handleStackPlace } from '../stack/tools.js';
 import { handleViewTelemetry } from '../telemetry/tools.js';
 import type { QualityHintsConfig } from '../capabilities/resolver.js';
 import { deriveRepoKey } from '../utils/paths.js';
+import { viewLogger } from '../logger.js';
+import {
+  assessStreamFreshness,
+  toProjectionDegradedMeta,
+  PROJECTION_DEGRADED_META,
+} from '../projections/freshness.js';
 
 const viewActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_view')!.actions;
 
@@ -104,6 +112,66 @@ export async function handleView(
   // ctx)` with no third argument, so the real OS-backed defaults are wired; only
   // the named lifecycle tests thread it. Other action arms ignore it. An extra
   // optional parameter keeps `handleView` assignable to `CompositeHandler`.
+  deps?: WaitDeps,
+): Promise<ToolResult> {
+  const result = await dispatchViewAction(args, ctx, deps);
+  return stampProjectionFreshness(result, args, ctx);
+}
+
+/**
+ * EFF-002 read-surface chokepoint.
+ *
+ * Every view answer routes through here. When the stream's cached folds do not
+ * cover its durable event tail, the envelope carries a typed
+ * `_meta.projectionDegraded` verdict so a consumer can tell "no tasks completed"
+ * from "the fold has not seen the events that completed them" — the exact
+ * confusion CB-8 produced when a cancelled workflow kept reporting
+ * `plan-review`.
+ *
+ * Deliberately conservative:
+ * - A failed result is returned untouched; the error is the signal.
+ * - A stream with no cached folds is fresh — a cold read folds from scratch.
+ * - Any fault computing freshness leaves the response unchanged. The freshness
+ *   probe must never be the reason a healthy read fails.
+ */
+async function stampProjectionFreshness(
+  result: ToolResult,
+  args: Record<string, unknown>,
+  ctx: DispatchContext,
+): Promise<ToolResult> {
+  if (!result.success) return result;
+  const streamId = typeof args['workflowId'] === 'string' ? args['workflowId'] : undefined;
+  if (streamId === undefined || streamId.length === 0) return result;
+
+  try {
+    const materializer = getOrCreateMaterializer(ctx.stateDir);
+    const cursors = materializer?.getStreamCursors?.(streamId) ?? [];
+    if (cursors.length === 0) return result;
+
+    const eventTail = await ctx.eventStore.tailSequence(streamId);
+    const meta = toProjectionDegradedMeta(assessStreamFreshness(eventTail, cursors));
+    if (meta === undefined) return result;
+
+    viewLogger.warn(
+      { streamId, ...meta },
+      'projection cursors disagree with the durable event tail; response marked degraded (EFF-002)',
+    );
+    return {
+      ...result,
+      _meta: { ...(result._meta ?? {}), [PROJECTION_DEGRADED_META]: meta },
+    };
+  } catch {
+    return result;
+  }
+}
+
+/**
+ * Composite handler that dispatches to existing view/stack handlers
+ * based on the `action` field in args.
+ */
+async function dispatchViewAction(
+  args: Record<string, unknown>,
+  ctx: DispatchContext,
   deps?: WaitDeps,
 ): Promise<ToolResult> {
   const startedAt = Date.now();
@@ -253,7 +321,7 @@ export async function handleView(
     case 'delegation_readiness':
       return wrapView(
         await handleViewDelegationReadiness(
-          rest as { workflowId?: string },
+          rest as { workflowId?: string; tasks?: readonly string[]; detail?: boolean },
           stateDir,
           eventStore,
         ),
@@ -397,6 +465,18 @@ export async function handleView(
         startedAt,
       );
 
+    // BASE-002 — the gate-reliability read model reaches production through
+    // this action. It is diagnostic-only: no admission or transition authority.
+    case 'gate_reliability':
+      return wrapView(
+        await handleViewGateReliability(
+          rest as { workflowId?: string; detail?: boolean },
+          stateDir,
+          eventStore,
+        ),
+        startedAt,
+      );
+
     case 'invariants_effective':
       // DR-7 (T-20) — the facade delegates to `resolveEffectiveCatalog`; the
       // `repoRoot` falls back to `ctx.cwd` (then `process.cwd()` inside the
@@ -500,6 +580,7 @@ export async function handleView(
             'shepherd_status',
             'provenance',
             'convergence',
+            'gate_reliability',
             'invariants_effective',
             'worktrees',
             'ps',

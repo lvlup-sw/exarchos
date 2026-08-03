@@ -62,6 +62,7 @@ vi.mock('./cli-format.js', () => ({
 import { buildCli } from './cli.js';
 import { dispatch } from '../core/dispatch.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
+import { expectedTrustedContext } from '../test-helpers/trusted-context.js';
 
 function createTestContext(): DispatchContext {
   return {
@@ -140,7 +141,7 @@ describe('CLI correlation filter flags — dispatch-args wiring (#1448 item 4)',
             action: subcommand,
             [argKey]: value,
           }),
-          ctx,
+          expectedTrustedContext(ctx),
         );
       });
     }

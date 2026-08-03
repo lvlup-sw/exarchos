@@ -3636,9 +3636,13 @@ const viewActions: readonly ToolAction[] = [
   },
   {
     name: 'delegation_readiness',
-    description: 'Check delegation readiness: plan approval, quality gates, and worktree status',
+    description: 'Check delegation readiness: plan approval, quality gates, and worktree status. Pass `tasks` to scope readiness to the active wave instead of every historical assignment (WFQ-002).',
     schema: z.object({
       workflowId: z.string().optional(),
+      tasks: coercedStringArray()
+        .optional()
+        .describe("Active wave's task IDs; scopes expected/ready/blockers to exactly this set"),
+      detail: z.boolean().optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
@@ -3717,6 +3721,19 @@ const viewActions: readonly ToolAction[] = [
       // handler rides Task 024.
       limit: coercedPositiveInt().optional(),
       offset: coercedNonnegativeInt().optional(),
+      detail: z.boolean().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
+  },
+  {
+    name: 'gate_reliability',
+    description:
+      'Diagnostic gate reliability: per-gate false-positive rate and verdict provenance from admission evidence/contradiction events (no admission authority)',
+    schema: z.object({
+      workflowId: z.string().optional(),
       detail: z.boolean().optional(),
     }),
     phases: ALL_PHASES,

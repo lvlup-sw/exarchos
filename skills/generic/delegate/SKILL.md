@@ -146,6 +146,33 @@ This runbook provides structured criteria for parallel vs sequential dispatch, t
 For parallel grouping strategy and model selection, see `references/parallel-strategy.md`.
 
 
+### Verification Ownership Contract (ONE owner per claim)
+
+Every verification claim has **exactly one owner**. Re-verifying a claim you do
+not own is duplicated work, not defense in depth — it inflates the wave's cost
+and hides which run is authoritative when the two disagree.
+
+| Claim | Owner | Where it runs | Everyone else |
+|-------|-------|---------------|---------------|
+| "This task's behavior is covered and its tests can fail" | Implementer subagent | Its own worktree, via the per-task gates in the task-completion runbook | Lead **consumes** the recorded evidence; it does not re-run the gates |
+| "This task's diff is clean (types, lint, contracts, mocks)" | Implementer subagent | Same per-task gate sequence | Lead consumes the evidence |
+| "The wave as a whole did not cascade" | Lead | **Once** at the wave boundary — `check_integration_suite` after every wave merge lands | Implementers never run the cumulative suite |
+| "The wave is complete (all tasks done, branches exist)" | Lead | `post_delegation_check`, after the cumulative suite | — |
+
+Two consequences bind the runbooks:
+
+1. `task_complete` is the **terminal** step of the task-completion runbook. No
+   blocking gate may run after it — a task that is marked complete has already
+   passed every gate that could block it.
+2. `check_integration_suite` is a **wave-boundary backstop**, not a per-task
+   gate. It runs exactly once per wave, after the merges, matching its own
+   action description. Per-task cascade risk is covered by the task's own
+   scoped gates.
+
+The lead's only independent verification is a **spot check** — reading the
+recorded evidence and, at most, sampling one claim it has concrete reason to
+doubt. A blanket re-run of the per-task chain is a contract violation.
+
 ---
 
 ## Step 3: Monitor and Collect

@@ -62,6 +62,7 @@ import { buildValidatedEvent } from '../event-store/event-factory.js';
 import {
   allocateInitialPhaseAttemptId,
   allocatePhaseAttemptId,
+  readPhaseAttemptId,
 } from './phase-attempt-id.js';
 // #1555 — shared `asOf` bounded-fold seam (dispatch-core, INV-2). Bounds the
 // event list to `events[0..N]` before the cache-bypassing fresh fold.
@@ -99,7 +100,9 @@ function stripInternalFields(state: Record<string, unknown>): Record<string, unk
 export const CURRENT_ES_VERSION = 2;
 
 /** Check whether a workflow state uses the pure event-sourcing path. */
-export function isEventSourced(state: Record<string, unknown>): boolean {
+export function isEventSourced(state: unknown): boolean {
+  if (typeof state !== 'object' || state === null) return false;
+  if (!('_esVersion' in state)) return false;
   return state._esVersion === CURRENT_ES_VERSION;
 }
 
@@ -368,7 +371,7 @@ export async function handleGet(
   }
 
   // Version discriminator: ES v2 workflows materialize from events
-  const useEventSource = isEventSourced(state as unknown as Record<string, unknown>)
+  const useEventSource = isEventSourced(state)
     && eventStore !== null
     && moduleViewMaterializer !== null;
 
@@ -831,7 +834,7 @@ export async function handleSet(
           input.featureId,
           fromPhase,
           input.phase,
-          (state as unknown as Record<string, unknown>).phaseAttemptId,
+          readPhaseAttemptId(state),
           expectedVersion,
         );
       }
@@ -932,7 +935,7 @@ export async function handleSet(
             phase: state.phase,
             updatedAt: state.updatedAt,
             idempotent: true,
-            phaseAttemptId: (state as unknown as Record<string, unknown>).phaseAttemptId,
+            phaseAttemptId: readPhaseAttemptId(state),
           },
           _meta: buildCheckpointMeta(state._checkpoint),
         };
@@ -1030,7 +1033,7 @@ export async function handleSet(
     // ─── Event-first: append state.patched event for v2 field updates ──
     const updateKeys = input.updates ? Object.keys(input.updates) : [];
     if (
-      isEventSourced(state as unknown as Record<string, unknown>)
+      isEventSourced(state)
       && eventStore
       && updateKeys.length > 0
     ) {
@@ -1142,7 +1145,7 @@ export async function handleSet(
     // snapshot derived from the full event stream. This ensures the
     // state file is always a derived artifact of the event log.
     if (
-      isEventSourced(state as unknown as Record<string, unknown>)
+      isEventSourced(state)
       && eventStore
       && moduleViewMaterializer
     ) {
