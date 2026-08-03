@@ -26,6 +26,10 @@ import {
   canMutateShared,
   foldVcsLedger,
   defaultVcsGitRunner,
+  worktreeRemoveForceArgs,
+  branchDeleteForceArgs,
+  removeWorktreeForce,
+  deleteBranchForce,
   VCS_MUTATION_STREAM,
   VCS_REQUESTED,
   VCS_EXECUTED,
@@ -440,5 +444,47 @@ describe('VCS mutation owner (P04-05)', () => {
     expect(calls).toEqual([]);
     expect(branchExists(repo, 'feature/no-cap')).toBe(false);
     expect(await ledgerEvents()).toEqual([]);
+  });
+});
+
+// ─── Shared git-mutation primitives (the single argv surface) ─────────────────
+//
+// These centralize the worktree/branch mutation argument vectors in the owner
+// module so the WLM (`worktree/manager.ts`) and the merge saga
+// (`orchestrate/local-git-merge.ts`) — which carry their own idempotency — route
+// the raw git transport through the owner WITHOUT opening a second ledger, and
+// no mutation token survives outside `vcs/` for the architecture census to flag.
+describe('shared git-mutation primitives (P04-05)', () => {
+  it('worktreeRemoveForceArgs builds the canonical forced-remove argv', () => {
+    expect(worktreeRemoveForceArgs('/repo/.worktrees/task-x')).toEqual([
+      'worktree',
+      'remove',
+      '--force',
+      '/repo/.worktrees/task-x',
+    ]);
+  });
+
+  it('branchDeleteForceArgs builds the canonical forced-delete argv', () => {
+    expect(branchDeleteForceArgs('feature/x')).toEqual(['branch', '-D', 'feature/x']);
+  });
+
+  it('removeWorktreeForce runs the forced-remove argv through the caller transport and returns its result', () => {
+    const seen: (readonly string[])[] = [];
+    const result = removeWorktreeForce((argv) => {
+      seen.push(argv);
+      return 'removed';
+    }, '/repo/.worktrees/task-y');
+    expect(seen).toEqual([['worktree', 'remove', '--force', '/repo/.worktrees/task-y']]);
+    expect(result).toBe('removed');
+  });
+
+  it('deleteBranchForce runs the forced-delete argv through the caller transport and returns its result', () => {
+    const seen: (readonly string[])[] = [];
+    const result = deleteBranchForce((argv) => {
+      seen.push(argv);
+      return 42;
+    }, 'feature/y');
+    expect(seen).toEqual([['branch', '-D', 'feature/y']]);
+    expect(result).toBe(42);
   });
 });

@@ -13,6 +13,11 @@ import type { ToolResult } from '../format.js';
 import { resolveTestRuntime } from '../config/test-runtime-resolver.js';
 import { splitCommand } from '../config/tokenize-command.js';
 import { burstStagger, type SleepFn, type JitterFn } from './worktree/git-retry.js';
+import {
+  createOwnerBackedWorktreeProvisioner,
+  type WorktreeProvisioner,
+  type WorktreeProvisionOutcome,
+} from '../vcs/worktree-provisioner.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -314,61 +319,51 @@ function resolveBaseBranch(
   return { base: 'main', source: 'default' };
 }
 
-function createBranch(
-  repoRoot: string,
+function createBranchCheck(
+  provision: WorktreeProvisionOutcome,
   branchName: string,
   baseBranch: string,
   source: BranchSource,
   baseSource: BaseBranchSource,
 ): CheckResult {
-  // Check if branch already exists
-  try {
-    gitExec(repoRoot, ['show-ref', '--verify', '--quiet', `refs/heads/${branchName}`]);
+  if (!provision.ok) {
     return {
       name: `Branch created`,
-      status: 'pass',
-      detail: `${branchName} already exists (from ${source})`,
+      status: 'fail',
+      detail:
+        provision.failureDetail ??
+        `Failed to create ${branchName} from ${baseBranch} [base: ${baseSource}] (from ${source})`,
     };
-  } catch {
-    // Branch does not exist — create it
   }
-
-  try {
-    gitExec(repoRoot, ['branch', branchName, baseBranch]);
+  if (provision.branchCreated) {
     return {
       name: `Branch created`,
       status: 'pass',
       detail: `${branchName} from ${baseBranch} [base: ${baseSource}] (from ${source})`,
     };
-  } catch {
-    return {
-      name: `Branch created`,
-      status: 'fail',
-      detail: `Failed to create ${branchName} from ${baseBranch} [base: ${baseSource}] (from ${source})`,
-    };
   }
+  return {
+    name: `Branch created`,
+    status: 'pass',
+    detail: `${branchName} already exists (from ${source})`,
+  };
 }
 
-function createWorktree(repoRoot: string, worktreePath: string, branchName: string): CheckResult {
-  if (existsSync(worktreePath)) {
-    // Verify it's a valid worktree
-    try {
-      execFileSync('git', ['-C', worktreePath, 'rev-parse', '--git-dir'], {
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-      return { name: 'Worktree created', status: 'pass', detail: `${worktreePath} already exists` };
-    } catch {
-      return { name: 'Worktree created', status: 'fail', detail: `${worktreePath} exists but is not a valid worktree` };
-    }
+function createWorktreeCheck(
+  provision: WorktreeProvisionOutcome,
+  worktreePath: string,
+): CheckResult {
+  if (!provision.ok) {
+    return {
+      name: 'Worktree created',
+      status: 'fail',
+      detail: provision.failureDetail ?? `git worktree add failed for ${worktreePath}`,
+    };
   }
-
-  try {
-    gitExec(repoRoot, ['worktree', 'add', worktreePath, branchName]);
+  if (provision.worktreeCreated) {
     return { name: 'Worktree created', status: 'pass', detail: worktreePath };
-  } catch {
-    return { name: 'Worktree created', status: 'fail', detail: `git worktree add failed for ${worktreePath}` };
   }
+  return { name: 'Worktree created', status: 'pass', detail: `${worktreePath} already exists` };
 }
 
 function runInstallStep(worktreePath: string): CheckResult {
@@ -473,6 +468,12 @@ export interface SetupWorktreeSeams {
   readonly sleep?: SleepFn;
   /** Injected signed-jitter source in `[-1, 1]`. Defaults to real `Math.random()`. */
   readonly jitter?: JitterFn;
+  /**
+   * Injected VCS mutation owner seam for branch+worktree creation. Defaults to
+   * the durable {@link createOwnerBackedWorktreeProvisioner}; tests substitute
+   * an in-memory fake so branch/worktree creation is asserted without real git.
+   */
+  readonly provisioner?: WorktreeProvisioner;
 }
 
 /**
@@ -491,20 +492,32 @@ function isBurstCreation(workflowState?: SetupWorktreeWorkflowState): boolean {
 // ─── Handler ────────────────────────────────────────────────────────────────
 
 /**
- * Create a git worktree for a task. Synchronous for a single (non-burst)
- * creation; when the enclosing workflow is delegating a burst of tasks
- * ({@link isBurstCreation}), the creation is first staggered by a bounded
- * jittered delay (DR-1, via {@link burstStagger}) so parallel creations don't
- * thundering-herd the git index — the return is then a `Promise`. The sole
- * production caller (the composite `setup_worktree` adapter) already awaits the
- * result, so the union return is transparent there; the injected `seams` keep
- * the stagger's jitter window testable without real waits.
+ * The memoized production provisioner. Constructed lazily so importing this
+ * module has no side effects (no EventStore is opened until a real
+ * `setup_worktree` runs). Tests never reach this — they inject `seams.provisioner`.
  */
-export function handleSetupWorktree(
+let defaultProvisioner: WorktreeProvisioner | undefined;
+function getDefaultProvisioner(): WorktreeProvisioner {
+  defaultProvisioner ??= createOwnerBackedWorktreeProvisioner();
+  return defaultProvisioner;
+}
+
+/**
+ * Create a git worktree for a task. Branch+worktree creation routes through the
+ * single typed {@link VcsMutationOwner} (via the injected {@link WorktreeProvisioner}
+ * seam) so it is atomic-with-event, idempotent, and compensating — a duplicate
+ * or interrupted `setup_worktree` can no longer create a duplicate worktree or
+ * leave an event-less on-disk orphan. When the enclosing workflow is delegating
+ * a burst of tasks ({@link isBurstCreation}), the creation is first staggered by
+ * a bounded jittered delay (DR-1, via {@link burstStagger}) so parallel creations
+ * don't thundering-herd the git index. The result is always a `Promise`; the
+ * sole production caller (the composite `setup_worktree` adapter) already awaits.
+ */
+export async function handleSetupWorktree(
   args: SetupWorktreeArgs,
   workflowState?: SetupWorktreeWorkflowState,
   seams: SetupWorktreeSeams = {},
-): ToolResult | Promise<ToolResult> {
+): Promise<ToolResult> {
   // Validate required args
   if (!args.repoRoot) {
     return {
@@ -527,24 +540,27 @@ export function handleSetupWorktree(
 
   // DR-1: at the creation seam, stagger burst-dispatched creations before any
   // git mutation so they don't collide on `.git/index`. A single creation runs
-  // synchronously (no stagger); a burst awaits the jittered delay first.
+  // without stagger; a burst awaits the jittered delay first.
   if (isBurstCreation(workflowState)) {
-    return burstStagger({ sleep: seams.sleep, jitter: seams.jitter }).then(() =>
-      runSetupWorktreeSteps(args, workflowState),
-    );
+    await burstStagger({ sleep: seams.sleep, jitter: seams.jitter });
   }
-  return runSetupWorktreeSteps(args, workflowState);
+  const provisioner = seams.provisioner ?? getDefaultProvisioner();
+  return runSetupWorktreeSteps(args, workflowState, provisioner);
 }
 
 /**
- * The synchronous 5-step setup body (gitignore, branch, worktree, install,
- * baseline tests). Extracted so the async burst-stagger seam wraps it without
- * making the single-creation path async.
+ * The 5-step setup body (gitignore, branch, worktree, install, baseline tests).
+ * Branch+worktree creation (steps 2+3) routes through the injected
+ * {@link WorktreeProvisioner} — the single typed VCS mutation owner — so it is
+ * atomic-with-event, idempotent, and compensating. The remaining steps
+ * (gitignore/install/baseline) are unchanged. Async because the provisioner is
+ * backed by the durable VCS-mutation EventStore.
  */
-function runSetupWorktreeSteps(
+async function runSetupWorktreeSteps(
   args: SetupWorktreeArgs,
-  workflowState?: SetupWorktreeWorkflowState,
-): ToolResult {
+  workflowState: SetupWorktreeWorkflowState | undefined,
+  provisioner: WorktreeProvisioner,
+): Promise<ToolResult> {
   // #1509/#1501: resolve the worktree base from the integration tip, never a
   // silent `main`, so managed-path worktrees match the native-isolation
   // guarantee. See resolveBaseBranch for the priority order.
@@ -565,11 +581,21 @@ function runSetupWorktreeSteps(
   // Step 1: Ensure .worktrees is gitignored
   checks.push(ensureGitignored(args.repoRoot));
 
-  // Step 2: Create feature branch
-  checks.push(createBranch(args.repoRoot, branchName, baseBranch, resolvedBranch.source, resolvedBase.source));
-
-  // Step 3: Create worktree
-  checks.push(createWorktree(args.repoRoot, worktreePath, branchName));
+  // Steps 2+3: Create branch + worktree atomically through the single typed
+  // VCS mutation owner. Idempotency (keyed on the worktree path) makes a
+  // duplicate request replay ONE creation; the durable intent-before-effect
+  // makes an interrupted run converge on retry instead of orphaning on-disk
+  // state with no event.
+  const provision = await provisioner.provision({
+    repoRoot: args.repoRoot,
+    worktreePath,
+    branch: branchName,
+    base: baseBranch,
+  });
+  checks.push(
+    createBranchCheck(provision, branchName, baseBranch, resolvedBranch.source, resolvedBase.source),
+  );
+  checks.push(createWorktreeCheck(provision, worktreePath));
 
   // Step 4: install (resolver-driven: picks npm/pnpm/yarn/bun based on lockfiles)
   const worktreeStep = checks[2];

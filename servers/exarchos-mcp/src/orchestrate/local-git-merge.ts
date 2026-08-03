@@ -24,6 +24,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { GitExec, MergeStrategy } from './pure/execute-merge.js';
+import { deleteBranchForce } from '../vcs/mutation-owner.js';
 
 export interface LocalGitMergeArgs {
   readonly sourceBranch: string;
@@ -110,8 +111,11 @@ export function buildLocalGitMergeAdapter(
           // `git branch -D <current>` fails silently and would leak the
           // ephemeral ref on disk. Idempotent: if checkout already landed
           // on target during the happy path, the second checkout is a no-op.
+          // The forced-delete argv is owned by the VCS mutation owner
+          // (`vcs/mutation-owner.ts`); this saga supplies only the transport and
+          // keeps its own (ephemeral) idempotency, so no second ledger is opened.
           gitExec(repoRoot, ['checkout', targetBranch]);
-          gitExec(repoRoot, ['branch', '-D', tmpBranch]);
+          deleteBranchForce((argv) => gitExec(repoRoot, argv), tmpBranch);
         }
         break;
       }

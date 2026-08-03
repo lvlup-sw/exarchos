@@ -195,6 +195,54 @@ export const defaultVcsGitRunner: VcsGitRunner = {
   },
 };
 
+// ─── Shared git-mutation primitives (the single owner of the argv surface) ───
+//
+// P04-05 follow-up: the git *argument vectors* for worktree/branch mutation are
+// defined ONCE, here in the owner module. Callers that already carry their own
+// idempotency boundary — the WLM `worktree/manager.ts` (its own
+// `worktree.remove.requested/executed` ledger + orphan recovery) and the merge
+// saga's ephemeral temp-branch cleanup in `orchestrate/local-git-merge.ts` — do
+// NOT open a second `vcs-mutations` ledger (that would be a double idempotency
+// boundary for one effect). Instead they route the raw git mutation through
+// these primitives, so the argv + "how to force-remove a worktree / delete a
+// branch" lives in exactly one owner module. The architecture census
+// (`architecture/vcs-ownership.ts`) then confirms no worktree/branch mutation
+// token exists outside `vcs/`. The caller supplies only the transport (its own
+// runner bound to a cwd); the owner supplies the vetted command.
+
+/** The canonical git argv for a forced worktree removal. */
+export function worktreeRemoveForceArgs(worktreePath: string): readonly string[] {
+  return ['worktree', 'remove', '--force', worktreePath];
+}
+
+/** The canonical git argv for a forced branch deletion. */
+export function branchDeleteForceArgs(branch: string): readonly string[] {
+  return ['branch', '-D', branch];
+}
+
+/**
+ * Force-remove a worktree through the owner's argv, executing via the caller's
+ * transport (typically a runner already bound to the repo cwd). Returns whatever
+ * the transport returns, so a caller keeps its own result shape + idempotency.
+ */
+export function removeWorktreeForce<R>(
+  run: (argv: readonly string[]) => R,
+  worktreePath: string,
+): R {
+  return run(worktreeRemoveForceArgs(worktreePath));
+}
+
+/**
+ * Force-delete a branch through the owner's argv, executing via the caller's
+ * transport. Companion to {@link removeWorktreeForce}.
+ */
+export function deleteBranchForce<R>(
+  run: (argv: readonly string[]) => R,
+  branch: string,
+): R {
+  return run(branchDeleteForceArgs(branch));
+}
+
 // ─── Request + result shapes ─────────────────────────────────────────────────
 
 /** A single mutating VCS request. The four contracts (key/epoch/mode/description) are explicit. */

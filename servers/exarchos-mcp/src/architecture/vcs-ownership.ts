@@ -67,25 +67,31 @@ export interface VcsOwnershipResult {
 /**
  * The declared VCS-owner surface — the modules permitted to perform git
  * worktree/branch mutation directly. `vcs/mutation-owner.ts` is the canonical
- * new owner (P04-05); the remaining entries are the pre-existing legitimate
- * mutation owners the remediation inherits and must not silently break:
+ * owner (P04-05); the remaining entries are the pre-existing legitimate mutation
+ * owners the remediation inherits and must not silently break:
  *
- *   - `launcher/create-worktree.ts`      — harness-launcher worktree create (DR-2).
- *   - `orchestrate/setup-worktree.ts`    — task-worktree setup (the observed
- *                                          non-atomic defect's home; slated to
- *                                          route through the new owner — follow-up).
- *   - `orchestrate/local-git-merge.ts`   — local merge helper (temp-branch cleanup).
- *   - `orchestrate/worktree/manager.ts`  — the WLM prune/GC deletion path.
- *   - `workflow/compensation.ts`         — the saga compensation teardown (P04-02).
+ *   - `vcs/mutation-owner.ts`       — the single typed VCS mutation owner: the
+ *                                     canonical home of `worktree add/remove` and
+ *                                     `branch -D` argument vectors, wrapping them
+ *                                     in idempotency + fencing + compensation.
+ *   - `launcher/create-worktree.ts` — harness-launcher worktree create (DR-2).
+ *   - `workflow/compensation.ts`    — the saga compensation teardown (P04-02).
+ *
+ * The formerly-listed `orchestrate/setup-worktree.ts`, `orchestrate/worktree/
+ * manager.ts`, and `orchestrate/local-git-merge.ts` NO LONGER appear here: their
+ * git worktree/branch mutation now routes through `vcs/mutation-owner.ts` (either
+ * the full `VcsMutationOwner` via the worktree provisioner, or its shared
+ * mutation primitives `removeWorktreeForce`/`deleteBranchForce`), so they contain
+ * no direct mutation token and the STALE_VCS_OWNER ratchet would (correctly) trip
+ * were they still declared. That shrink is the real proof the exit criterion's
+ * second half ("duplicate requests cannot create duplicate worktrees/branches")
+ * is now enforced in the shipped call path, not just demonstrable in isolation.
  *
  * Adding a NEW module that mutates worktrees/branches fails the census until it
  * is consciously declared here (or, better, routed through the owner).
  */
 export const VCS_MUTATION_OWNERS: readonly string[] = Object.freeze([
   'launcher/create-worktree.ts',
-  'orchestrate/local-git-merge.ts',
-  'orchestrate/setup-worktree.ts',
-  'orchestrate/worktree/manager.ts',
   'vcs/mutation-owner.ts',
   'workflow/compensation.ts',
 ]);

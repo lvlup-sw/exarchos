@@ -250,8 +250,8 @@ describe('ImplementerDispatch_WorktreeEdit_DoesNotAppearInMainWorktree (characte
     await rmrfAsync(repoRoot);
   });
 
-  it('resolves the agent write-root strictly inside <repoRoot>/.worktrees/, never the main worktree', () => {
-    const result = handleSetupWorktree({
+  it('resolves the agent write-root strictly inside <repoRoot>/.worktrees/, never the main worktree', async () => {
+    const result = await handleSetupWorktree({
       repoRoot,
       taskId: 'T-99',
       taskName: 'leak-probe',
@@ -272,8 +272,8 @@ describe('ImplementerDispatch_WorktreeEdit_DoesNotAppearInMainWorktree (characte
     expect(existsSyncSafe(data.worktreePath)).toBe(true);
   });
 
-  it('an agent-side write into its worktree does NOT mirror into the main worktree', () => {
-    const setup = handleSetupWorktree({
+  it('an agent-side write into its worktree does NOT mirror into the main worktree', async () => {
+    const setup = await handleSetupWorktree({
       repoRoot,
       taskId: 'T-99',
       taskName: 'leak-probe',
