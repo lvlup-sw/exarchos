@@ -28,6 +28,7 @@ import {
   buildInvalidInput,
 } from '../adapters/schema-to-flags.js';
 import { runSessionMachineryConsumedInterceptor } from './interceptors/session-machinery.js';
+import { evaluateInstallFreshness } from '../install/freshness-gate.js';
 import {
   mintDispatchContextFromRequest,
   runWithDispatchContext,
@@ -321,6 +322,32 @@ export const READ_ONLY_ACTIONS = {
 } as const;
 
 export type ReadOnlyActionsMap = typeof READ_ONLY_ACTIONS;
+
+/**
+ * Actions that remain available even on a stale/mixed install — the diagnostic
+ * surface an operator needs to SEE and REPAIR a blocked install (P05-04). The
+ * install-freshness gate below fires for every mutating built-in action EXCEPT
+ * these. `doctor` is the load-bearing entry: it is deliberately excluded from
+ * {@link READ_ONLY_ACTIONS} (it emits `diagnostic.executed`), so without this
+ * carve-out `exarchos doctor` would itself be blocked by the very freshness
+ * failure it exists to diagnose.
+ */
+const FRESHNESS_GATE_DIAGNOSTIC_EXEMPT: ReadonlySet<string> = new Set([
+  'doctor',
+]);
+
+/**
+ * True when `action` on `tool` must NOT trip the install-freshness gate —
+ * either it is a read-only action (no workflow mutation to gate) or it is on
+ * the diagnostic carve-out above. Reuses {@link READ_ONLY_ACTIONS} so the
+ * read-only classification has a single source of truth.
+ */
+function isFreshnessGateExempt(tool: string, action: string): boolean {
+  const allowed = (READ_ONLY_ACTIONS as Record<string, readonly string[] | '*'>)[tool];
+  if (allowed === '*') return true;
+  if (allowed !== undefined && allowed.includes(action)) return true;
+  return FRESHNESS_GATE_DIAGNOSTIC_EXEMPT.has(action);
+}
 
 /**
  * Actions that never consume a `featureId` (Sentry MEDIUM #1423).
@@ -959,6 +986,39 @@ export async function dispatch(
       return typeof fid === 'string' && fid.length > 0 ? fid : undefined;
     })();
     await runSessionMachineryConsumedInterceptor(ctx.eventStore, streamId, actionName);
+
+    // ─── P05-04 — Install & cache freshness gate ─────────────────────────
+    // Block a stale/mixed installation BEFORE it executes a mutating action.
+    // This is the pre-workflow-execution chokepoint that wires the binary /
+    // plugin / skill / cache dimensions (the schema dimension is additionally
+    // enforced at store-open). Scoped to mutating built-in actions only —
+    // read-only + diagnostic actions (see `isFreshnessGateExempt`) stay
+    // available so an operator can DIAGNOSE and REPAIR the block. The gate is
+    // memoized once per process and SKIPS entirely on a dev checkout, so this
+    // is a no-op for source-run / in-process tests and adds a single one-time
+    // filesystem read on the first mutating action of a real install.
+    if (!isFreshnessGateExempt(tool, actionName)) {
+      const freshness = evaluateInstallFreshness({ stateDir: ctx.stateDir });
+      if (freshness.status === 'blocked') {
+        logger.child({ subsystem: 'install-freshness' }).warn(
+          {
+            tool,
+            action: actionName,
+            dimensions: freshness.mismatches.map((m) => m.dimension),
+          },
+          'blocking mutating action: installation is stale or mixed',
+        );
+        return attachMeta({
+          success: false,
+          error: {
+            code: 'INSTALL_FRESHNESS_MISMATCH',
+            message: freshness.message,
+            tool,
+            action: actionName,
+          },
+        });
+      }
+    }
   }
 
   const coreHandler = builtInHandler

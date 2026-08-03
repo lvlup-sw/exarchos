@@ -3,7 +3,7 @@ import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { expandTilde, isClaudeCodePlugin, resolveStateDir, resolveTeamsDir, resolveTasksDir, deriveRepoKey, resetRepoKeyMemo, resolveStorePath, computeStorePathDivergence, STORE_DB_FILENAME } from './paths.js';
+import { expandTilde, isClaudeCodePlugin, resolveStateDir, resolveTeamsDir, resolveTasksDir, resolveCacheDir, deriveRepoKey, resetRepoKeyMemo, resolveStorePath, computeStorePathDivergence, STORE_DB_FILENAME } from './paths.js';
 
 describe('expandTilde', () => {
   afterEach(() => {
@@ -194,6 +194,41 @@ describe('resolveTasksDir', () => {
 
   it('returns default fallback when no env vars set', () => {
     expect(resolveTasksDir()).toBe('/home/testuser/.exarchos/tasks');
+  });
+});
+
+describe('resolveCacheDir', () => {
+  beforeEach(() => {
+    vi.spyOn(os, 'homedir').mockReturnValue('/home/testuser');
+    vi.stubEnv('EXARCHOS_CACHE_DIR', '');
+    vi.stubEnv('CLAUDE_PLUGIN_ROOT', '');
+    vi.stubEnv('EXARCHOS_PLUGIN_ROOT', '');
+    vi.stubEnv('XDG_STATE_HOME', '');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  it('returns env value when EXARCHOS_CACHE_DIR is set', () => {
+    vi.stubEnv('EXARCHOS_CACHE_DIR', '/custom/cache');
+    expect(resolveCacheDir()).toBe('/custom/cache');
+  });
+
+  it('returns Claude path when CLAUDE_PLUGIN_ROOT is set', () => {
+    vi.stubEnv('CLAUDE_PLUGIN_ROOT', '/some/path');
+    expect(resolveCacheDir()).toBe('/home/testuser/.claude/cache');
+  });
+
+  it('returns default fallback when no env vars set', () => {
+    expect(resolveCacheDir()).toBe('/home/testuser/.exarchos/cache');
+  });
+
+  it('honors injected env/homedir seams (DR-11)', () => {
+    expect(
+      resolveCacheDir({ env: {}, homedir: '/injected/home', pluginMode: false }),
+    ).toBe('/injected/home/.exarchos/cache');
   });
 });
 

@@ -346,3 +346,16 @@ export function resolveTeamsDir(): string {
 export function resolveTasksDir(): string {
   return resolveDir('EXARCHOS_TASKS_DIR', 'tasks', 'tasks');
 }
+
+/**
+ * Resolve the runtime cache directory (P05-04). This is the location whose
+ * freshness the install-identity gate tracks — a cache produced by a prior
+ * install that lingers after a binary upgrade is the "stale cache" failure the
+ * gate blocks.
+ * Env: `EXARCHOS_CACHE_DIR` | Claude: `~/.claude/cache` | Default: `~/.exarchos/cache`
+ *
+ * `inputs` are the DR-11 injectable seams; production calls this zero-arg.
+ */
+export function resolveCacheDir(inputs?: StorePathResolutionInputs): string {
+  return resolveDir('EXARCHOS_CACHE_DIR', 'cache', 'cache', inputs);
+}
