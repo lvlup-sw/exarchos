@@ -103,8 +103,11 @@ export function isSpawnFailure(err: { status?: number; code?: string }): boolean
  * Wraps execFileSync to match the RunCommandFn signature. A non-zero exit
  * (the suite failed) is returned as a CommandResult, not thrown — vitest's
  * JSON summary is still on stdout in that case.
+ *
+ * @internal Exported so WFQ-003 can prove the real spawn → parse chain without
+ * executing the repository's own suite.
  */
-const execCommandRunner: RunCommandFn = (
+export const execCommandRunner: RunCommandFn = (
   cmd: string,
   args: readonly string[],
   options?: { cwd?: string },
