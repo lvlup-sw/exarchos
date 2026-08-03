@@ -7,6 +7,7 @@ import {
   EvidenceSubjectV1Schema,
   RemediationActionV1Schema,
   RequirementIdSchema,
+  UnsatisfiedRequirementReasonSchema,
   WaiverProvenanceV1Schema,
   isAdmissionDecisionRecordV1,
   parseAdmissionDecisionRecordV1,
@@ -345,5 +346,43 @@ describe('admission runtime domain', () => {
       actor: undefined,
     };
     expect(WaiverProvenanceV1Schema.safeParse(unattributedIssue).success).toBe(false);
+  });
+
+  it('AdmissionDomain_UnsatisfiedReason_IncludesUnauthorizedAndPersistsInDenyRecord', () => {
+    // Additive P06-05: `unauthorized` is a first-class sound deny reason (it is
+    // one of evaluatePolicy's PolicyDenyReasons) and MUST be persistable.
+    expect(UnsatisfiedRequirementReasonSchema.safeParse('unauthorized').success).toBe(
+      true,
+    );
+    // The pre-existing members remain accepted (no regression / narrowing).
+    for (const reason of [
+      'missing',
+      'failed',
+      'stale',
+      'malformed',
+      'contradictory',
+      'waiver-expired',
+    ]) {
+      expect(UnsatisfiedRequirementReasonSchema.safeParse(reason).success).toBe(true);
+    }
+    // A genuinely foreign reason still fails closed.
+    expect(UnsatisfiedRequirementReasonSchema.safeParse('unknown').success).toBe(false);
+
+    // And a full deny record carrying `unauthorized` round-trips through the
+    // persisted decision schema.
+    const denyWithUnauthorized = {
+      ...decisionBase,
+      outcome: 'deny',
+      satisfiedRequirementIds: [],
+      unsatisfiedRequirements: [
+        { requirementId: 'requirement-001', reason: 'unauthorized' },
+      ],
+      remediation: [remediation],
+    };
+    const parsed = parseAdmissionDecisionRecordV1(denyWithUnauthorized);
+    expect(parsed.outcome).toBe('deny');
+    if (parsed.outcome === 'deny') {
+      expect(parsed.unsatisfiedRequirements[0]?.reason).toBe('unauthorized');
+    }
   });
 });
