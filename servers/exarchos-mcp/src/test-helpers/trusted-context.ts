@@ -81,7 +81,7 @@ export async function seedActivePhaseAttempt(
   featureId: string,
   options: { readonly workflowType?: string; readonly phase?: string } = {},
 ): Promise<string> {
-  const phaseAttemptId = `phase-attempt:${featureId}`;
+  const phaseAttemptId = `phase-attempt:${featureId.replace(/[^A-Za-z0-9_.:-]/g, '-')}`;
   await eventStore.append(featureId, {
     type: 'workflow.started',
     data: {

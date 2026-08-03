@@ -41,6 +41,14 @@ import { handleContractDrift } from '../../../orchestrate/contract-drift-handler
 import { handleMockBoundary } from '../../../orchestrate/mock-boundary-handler.js';
 import { handleCheckIntegrationSuite } from '../../../orchestrate/check-integration-suite.js';
 import {
+  deriveLocalOperatorIdentity,
+  snapshotCallerAuthorization,
+} from '../../../dispatch/caller-identity.js';
+import {
+  mintDispatchContext,
+  runWithDispatchContext,
+} from '../../../dispatch/dispatch-context.js';
+import {
   stampProvenance,
   assertMeasured,
   type Provenance,
@@ -222,15 +230,51 @@ export type GateDispatch = (
   eventStore: EventStore,
 ) => Promise<ToolResult>;
 
-const defaultDispatch: GateDispatch = (fixture, args, stateDir, eventStore) => {
+const defaultDispatch: GateDispatch = async (fixture, args, stateDir, eventStore) => {
   const handler = GATE_HANDLERS[fixture.gateClass];
   if (!handler) {
-    return Promise.resolve({
+    return {
       success: false,
       error: { code: 'NO_GATE', message: `no gate for class ${fixture.gateClass}` },
-    });
+    };
   }
-  return handler({ ...args, action: fixture.manifest.gate }, stateDir, eventStore);
+
+  // The driver IS the transport for these handlers, so it must supply what a
+  // transport supplies. The canonical gate runner reads caller authorization
+  // from the ambient dispatch scope and binds evidence to an active phase
+  // attempt; without both, every cell fails closed and the driver honestly
+  // records `invalid` — which measures the harness, not the gate's detection
+  // power. Uses the same primitives `core/dispatch.ts` does so this cannot
+  // drift from production plumbing.
+  const featureId =
+    typeof (args as { featureId?: unknown }).featureId === 'string'
+      ? (args as { featureId: string }).featureId
+      : undefined;
+  if (featureId !== undefined) {
+    const existing = await eventStore.query(featureId);
+    if (existing.length === 0) {
+      await eventStore.append(featureId, {
+        type: 'workflow.started',
+        data: {
+          featureId,
+          workflowType: 'feature',
+          phase: 'delegate',
+          // Corpus fixture ids are PATHS (`test-adequacy/defect-01`), but a
+          // phase-attempt id is a schema-validated identity — an unflattened
+          // `/` makes it malformed and the gate rejects the whole scope.
+          phaseAttemptId: `phase-attempt:${featureId.replace(/\//g, '-')}`,
+        },
+      });
+    }
+  }
+
+  const authorization = snapshotCallerAuthorization(
+    deriveLocalOperatorIdentity(stateDir),
+    undefined,
+  );
+  return runWithDispatchContext(mintDispatchContext(undefined, authorization), () =>
+    handler({ ...args, action: fixture.manifest.gate }, stateDir, eventStore),
+  );
 };
 
 // ─── Injectable dependencies ──────────────────────────────────────────────────
@@ -353,7 +397,11 @@ async function measureCell(fixture: SeededFixture, deps: CellDeps): Promise<Catc
     }
     const args: GateArgs = {
       featureId: fixture.id,
-      taskId: fixture.id,
+      // Evidence subjects are schema-validated identities, and a corpus fixture
+      // id is a PATH (`test-adequacy/defect-01`) — the `/` makes it malformed as
+      // a taskId, which the gate rejects with INVALID_GATE_SCOPE. Flatten the
+      // separator; the mapping stays injective, so cells remain distinguishable.
+      taskId: fixture.id.replace(/\//g, '-'),
       branch: mat.branch,
       baseBranch: mat.baseBranch,
       repoRoot: worktree,
