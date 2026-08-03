@@ -3636,9 +3636,13 @@ const viewActions: readonly ToolAction[] = [
   },
   {
     name: 'delegation_readiness',
-    description: 'Check delegation readiness: plan approval, quality gates, and worktree status',
+    description: 'Check delegation readiness: plan approval, quality gates, and worktree status. Pass `tasks` to scope readiness to the active wave instead of every historical assignment (WFQ-002).',
     schema: z.object({
       workflowId: z.string().optional(),
+      tasks: coercedStringArray()
+        .optional()
+        .describe("Active wave's task IDs; scopes expected/ready/blockers to exactly this set"),
+      detail: z.boolean().optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,

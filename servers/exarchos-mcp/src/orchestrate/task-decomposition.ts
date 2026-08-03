@@ -13,6 +13,7 @@ import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
 import type { RiskTier } from '../workflow/verification-policy.js';
 import { emitGateEvent } from './gate-utils.js';
+import { canonicaliseTaskId } from '../utils/task-id.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────
 
@@ -690,10 +691,11 @@ export function extractDependencies(block: string): string[] {
  * Exported so cross-module comparators (e.g. `computeScopedWorktrees`,
  * which compares caller-supplied task IDs against projection-held
  * `readyTaskIds`) collapse mixed forms identically.
+ *
+ * The implementation lives in the dependency-free leaf `utils/task-id.ts` so
+ * the views layer can share it without importing the orchestrate layer.
  */
-export function canonicaliseTaskId(id: string): string {
-  return id.replace(/^T-?/i, '').replace(/^0+/, '') || '0';
-}
+export { canonicaliseTaskId };
 
 /**
  * Check if a task block is marked as parallelizable.

@@ -254,7 +254,7 @@ export async function handleView(
     case 'delegation_readiness':
       return wrapView(
         await handleViewDelegationReadiness(
-          rest as { workflowId?: string },
+          rest as { workflowId?: string; tasks?: readonly string[]; detail?: boolean },
           stateDir,
           eventStore,
         ),

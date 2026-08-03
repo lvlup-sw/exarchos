@@ -80,6 +80,7 @@ import {
 } from './workflow-state-projection.js';
 import {
   delegationReadinessProjection,
+  scopeReadinessToWave,
   DELEGATION_READINESS_VIEW,
 } from './delegation-readiness-view.js';
 import type { DelegationReadinessState } from './delegation-readiness-view.js';
@@ -1874,6 +1875,13 @@ export async function handleViewSessionProvenance(
 export async function handleViewDelegationReadiness(
   args: {
     workflowId?: string;
+    /**
+     * WFQ-002: the active wave's task IDs. When present, readiness counters,
+     * blockers, and the `ready` flag are computed over exactly this set instead
+     * of every historical `task.assigned` event on the stream — the same
+     * scoping `prepare_delegation` applies, through the same pure core.
+     */
+    tasks?: readonly string[];
     // DR-8 (Task 024) — compact-by-default drops the per-task ID tracking
     // lists; `detail: true` restores them.
     detail?: boolean;
@@ -1887,10 +1895,14 @@ export async function handleViewDelegationReadiness(
     const streamId = args.workflowId ?? 'default';
 
     const events = await queryDeltaEvents(store, materializer, streamId, DELEGATION_READINESS_VIEW);
-    const view = materializer.materialize<DelegationReadinessState>(
+    const materialized = materializer.materialize<DelegationReadinessState>(
       streamId,
       DELEGATION_READINESS_VIEW,
       events,
+    );
+    const view = scopeReadinessToWave(
+      materialized,
+      args.tasks?.map((id) => ({ id })),
     );
 
     // DR-8 (Task 024) compact-by-default — drop the per-task ID tracking lists
