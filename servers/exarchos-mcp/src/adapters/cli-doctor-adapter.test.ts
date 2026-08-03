@@ -45,6 +45,7 @@ import * as dispatchModule from '../core/dispatch.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { DoctorOutputSchema } from '../orchestrate/doctor/schema.js';
 import { rmrf, rmrfAsync } from '../test-helpers/temp-dir.js';
+import { expectedTrustedContext } from '../test-helpers/trusted-context.js';
 
 // ─── Harness ─────────────────────────────────────────────────────────────────
 
@@ -165,7 +166,7 @@ describe('doctor CLI-adapter — Commander routing (#1337)', () => {
     expect(dispatchSpy).toHaveBeenCalledWith(
       'exarchos_orchestrate',
       expect.objectContaining({ action: 'doctor' }),
-      ctx,
+      expectedTrustedContext(ctx),
     );
   });
 });
