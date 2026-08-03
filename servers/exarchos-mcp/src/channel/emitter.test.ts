@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { ChannelEmitter } from './emitter.js';
+import { RequiredDeliveryError } from './delivery.js';
 
 // Minimal mock of MCP Server's notification method
 function createMockServer() {
@@ -42,18 +43,66 @@ describe('ChannelEmitter', () => {
     expect(server.notification).not.toHaveBeenCalled();
   });
 
-  it('push does not throw when server.notification rejects', async () => {
+  it('push does not throw when server.notification rejects, and reports a failed outcome', async () => {
     const server = createMockServer();
-    server.notification.mockRejectedValue(new Error('not connected'));
+    const cause = new Error('not connected');
+    server.notification.mockRejectedValue(cause);
     const emitter = new ChannelEmitter(server as never);
 
-    // Should not throw
+    // Best-effort push resolves (never throws) — but the failure is OBSERVABLE
+    // as a typed carrier, not swallowed by an empty catch.
+    const outcome = await emitter.push(
+      { streamId: 'wf-1', sequence: 1, type: 'task.completed', data: {}, timestamp: '2026-04-05T00:00:00Z' },
+      'success',
+    );
+    expect(outcome.kind).toBe('failed');
+    if (outcome.kind === 'failed') {
+      expect(outcome.error.cause).toBe(cause);
+    }
+  });
+
+  it('push returns a delivered outcome on success', async () => {
+    const server = createMockServer();
+    const emitter = new ChannelEmitter(server as never);
+    const outcome = await emitter.push(
+      { streamId: 'wf-1', sequence: 1, type: 'task.completed', data: {}, timestamp: '2026-04-05T00:00:00Z' },
+      'success',
+    );
+    expect(outcome.kind).toBe('delivered');
+  });
+
+  it('push returns a skipped outcome (not delivered) when below threshold', async () => {
+    const server = createMockServer();
+    const emitter = new ChannelEmitter(server as never);
+    const outcome = await emitter.push(
+      { streamId: 'wf-1', sequence: 1, type: 'x', data: {}, timestamp: '2026-04-05T00:00:00Z' },
+      'info',
+    );
+    expect(outcome.kind).toBe('skipped');
+    expect(server.notification).not.toHaveBeenCalled();
+  });
+
+  it('pushRequired REJECTS with a typed RequiredDeliveryError when transport fails', async () => {
+    const server = createMockServer();
+    server.notification.mockRejectedValue(new Error('sink down'));
+    const emitter = new ChannelEmitter(server as never);
+
     await expect(
-      emitter.push(
+      emitter.pushRequired(
         { streamId: 'wf-1', sequence: 1, type: 'task.completed', data: {}, timestamp: '2026-04-05T00:00:00Z' },
         'success',
       ),
-    ).resolves.not.toThrow();
+    ).rejects.toBeInstanceOf(RequiredDeliveryError);
+  });
+
+  it('pushRequired resolves to delivered when transport succeeds', async () => {
+    const server = createMockServer();
+    const emitter = new ChannelEmitter(server as never);
+    const outcome = await emitter.pushRequired(
+      { streamId: 'wf-1', sequence: 1, type: 'task.completed', data: {}, timestamp: '2026-04-05T00:00:00Z' },
+      'success',
+    );
+    expect(outcome.kind).toBe('delivered');
   });
 
   it('respects custom threshold option', async () => {
