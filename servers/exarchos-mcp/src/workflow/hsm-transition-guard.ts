@@ -49,6 +49,7 @@ import { getRegisteredGuard } from '../config/register.js';
 import { executeGuard } from '../config/guards.js';
 import { buildValidatedEvent } from '../event-store/event-factory.js';
 import type { EventType } from '../event-store/schemas.js';
+import type { LegacyTransitionObservation } from './admission/shadow-decision.js';
 
 // ─── HSM emission boundary — schema-checked data shaping (#1339) ───────────
 //
@@ -291,6 +292,23 @@ export interface GuardContext {
     kind: PhaseKind,
     ctx: ResolveGateSetCtx,
   ) => readonly ResolvedGate[];
+  /**
+   * P07-01 — a non-invasive shadow observer (Transition tasks 027/051). When
+   * present, the primitive surfaces the AUTHORITATIVE legacy allow/deny outcome
+   * of the composite-guard HSM walk to this callback AFTER the decision is made,
+   * for side-by-side shadow comparison against the evidence-backed admission
+   * engine. It is:
+   *   - OPTIONAL and defaulted-off: no production caller sets it, so behaviour is
+   *     byte-identical when it is absent (behaviour preservation);
+   *   - ERROR-ISOLATED: any throw from the observer is swallowed — a shadow
+   *     failure can never propagate into the production transition path;
+   *   - PASSIVE: the observer receives the legacy outcome and cannot alter it.
+   * All shadow adjudication, classification and recording live behind this seam
+   * in `admission/shadow-decision.ts`, never in this primitive.
+   */
+  readonly shadowObserver?: (
+    observation: LegacyTransitionObservation,
+  ) => void;
 }
 
 export type TransitionResult =
@@ -517,6 +535,25 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
       targetPhase,
       context.resolveGatesFn,
     );
+
+    // ─── P07-01: non-invasive shadow observation (Transition tasks 027/051) ──
+    // Surface the AUTHORITATIVE legacy allow/deny to an injected observer for
+    // side-by-side shadow comparison. Passive and error-isolated: it reads the
+    // already-computed `result`, cannot alter it, and can never throw into this
+    // path. Absent in every production caller, so behaviour is unchanged.
+    if (context.shadowObserver) {
+      try {
+        context.shadowObserver({
+          workflowType: context.workflowType,
+          fromPhase: currentPhase,
+          toPhase: targetPhase,
+          legacyOutcome: result.success ? 'allow' : 'deny',
+          idempotent: result.idempotent,
+        });
+      } catch {
+        // Intentionally swallowed — shadow observation is never authoritative.
+      }
+    }
 
     if (!result.success) {
       // Emit any diagnostic events `executeTransition` produced
