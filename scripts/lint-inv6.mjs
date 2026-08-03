@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // scripts/lint-inv6.mjs — advisory lint for INV-6 (workflow-agnosticism).
 //
+// ADVISORY(control: inv6-workflow-agnosticism) — non-blocking INV-6 grep lint; governance (owner, promotion/removal thresholds, expiry, kill fixture, unfiltered CI path) is enumerated in src/advisory-registry.ts (ADVISORY_REGISTRY), P07-07.
+//
 // Walks SKILL.md files under a given directory (default: skills-src/) and
 // flags those whose body contains workflow-typed literals but whose
 // frontmatter does NOT declare `metadata.workflow-type:`. Skills under a
