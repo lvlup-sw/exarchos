@@ -1,0 +1,56 @@
+{
+  "lockVersion": 1,
+  "approved": true,
+  "approvedBy": "P03-01",
+  "note": "PROGRAM-03 contract authority freeze (P03-01). Regenerate with `npx tsx src/contract/authority-lock-cli.ts` after reviewing and approving the new authority digests, then commit this file.",
+  "authorities": {
+    "strategos-contracts": {
+      "kind": "schema",
+      "version": "2.12.0-preview.3",
+      "versionSpec": "2.12.0-preview.3",
+      "digest": "sha256:d25c878006dd4d9719306f24047d8a8f3a091de392e8b44b2c1a8ef7fb1feb86",
+      "source": "src/architecture/invariant-schema.ts (hand-written Strategos.Contracts stand-in) pinned at the exarchos-mcp package version",
+      "approved": true
+    },
+    "mcp-protocol": {
+      "kind": "protocol",
+      "version": "2025-11-25",
+      "versionSpec": "2025-11-25",
+      "digest": null,
+      "source": "@modelcontextprotocol/sdk LATEST_PROTOCOL_VERSION",
+      "approved": true
+    },
+    "mcp-sdk": {
+      "kind": "package",
+      "version": "1.29.0",
+      "versionSpec": "1.29.0",
+      "digest": null,
+      "source": "package.json dependencies[\"@modelcontextprotocol/sdk\"]",
+      "approved": true
+    },
+    "action-id-registry": {
+      "kind": "registry",
+      "version": null,
+      "versionSpec": null,
+      "digest": "sha256:8044341c805f34d88789b4bcafcc3e886f2b72f8eb37b5c6882ec3a329a1a355",
+      "source": "registry.ts TOOL_REGISTRY — flattened, deduped, sorted ActionIds",
+      "approved": true
+    },
+    "compatibility-policy": {
+      "kind": "policy",
+      "version": "1.0.0",
+      "versionSpec": "1.0.0",
+      "digest": "sha256:6d412fc7e8e2e3a2cd65a899ca3e06aa10211c0372bbbbd6d7a1d85177247567",
+      "source": "src/lib/plugin-compat.ts pinned at COMPATIBILITY_POLICY_VERSION",
+      "approved": true
+    },
+    "invariant-catalog": {
+      "kind": "catalog",
+      "version": "3",
+      "versionSpec": "3",
+      "digest": "sha256:33bf991e1fa5061102f67451b3a39a2f678cdc42399377a7eb4d713278c3d89e",
+      "source": ".exarchos/invariants.md pinned at frontmatter schema-version",
+      "approved": true
+    }
+  }
+}
