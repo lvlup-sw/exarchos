@@ -34,6 +34,7 @@ import {
 import { workflowLogger } from '../logger.js';
 import { getHSMDefinition, isBuiltInWorkflowType, getValidTransitions } from './state-machine.js';
 import { hsmTransitionGuard } from './hsm-transition-guard.js';
+import { recordLiveTransition } from './admission/live-shadow-observer.js';
 import { getPlaybook, composePhasePlaybook } from './playbooks.js';
 import { lintHandoff, type HandoffLintFinding } from './handoff-lint.js';
 import { resolveGateSet } from './phase-kind.js';
@@ -856,6 +857,18 @@ export async function handleSet(
             skipPhases: options?.skipPhases,
             idempotencyKeySuffix: String(expectedVersion),
             eventStore,
+            // ─── P07-02: live shadow observer (Transition tasks 027/051) ──
+            // Feed the authoritative legacy transition outcome to the
+            // evidence-backed admission engine, side by side, so the RESERVED
+            // cutover gate can accumulate live evidence (>=20 attempts, all
+            // phase kinds, both outcomes). This is the ONLY production wiring of
+            // the P07-01 seam. It is behaviour-preserving: the observer only
+            // records into a bounded in-memory sink (no I/O, no state mutation,
+            // no event emission) and is fully error-isolated, so the returned
+            // legacy decision and all emitted events are byte-identical whether
+            // or not the observer runs. Enforcement does NOT flip here.
+            shadowObserver: (observation) =>
+              recordLiveTransition(observation, mutableState),
           },
         );
       } catch (err) {
