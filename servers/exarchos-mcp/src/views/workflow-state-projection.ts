@@ -13,6 +13,12 @@ import {
   type EvidenceSelectionDiagnostic,
   type EvidenceSupersession,
 } from '../workflow/admission/select-evidence.js';
+import {
+  foldPhaseAttemptAdmission,
+  type AdmissionFoldDiagnostic,
+  type AdmissionFoldIntegrity,
+  type PhaseAttemptAdmissionState,
+} from '../workflow/admission/phase-attempt-state.js';
 // State-mutation primitives imported from the shared LEAF module, not from
 // `state-store.ts` (DR-4, task 009). `state-store.ts` value-imports THIS
 // projection's `apply` for `reconcileFromEvents`; importing these helpers from
@@ -158,6 +164,23 @@ export interface AdmissionProofView {
   supersessions: readonly EvidenceSupersession[];
   contradictions: readonly EvidenceContradiction[];
   diagnostics: readonly EvidenceSelectionDiagnostic[];
+  /**
+   * Append-only raw `admission.requirement-resolved` payloads (P01-04). Held
+   * as `unknown` on purpose: the attempt fold PARSES them on every rebuild, so
+   * a historical malformed fact is diagnosed rather than trusted.
+   */
+  requirementHistory: readonly unknown[];
+  /** Append-only raw `admission.transition-decided` payloads (P01-04). */
+  decisionHistory: readonly unknown[];
+  /**
+   * Per-phase-attempt frozen requirement set, bound evidence, and decision,
+   * reconstructed from the histories above with no policy handle and no I/O.
+   */
+  phaseAttempts: readonly PhaseAttemptAdmissionState[];
+  /** Persisted admission facts the attempt fold refused to trust. */
+  phaseAttemptDiagnostics: readonly AdmissionFoldDiagnostic[];
+  /** `'contested'` whenever any admission fact was quarantined. */
+  phaseAttemptIntegrity: AdmissionFoldIntegrity;
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -170,6 +193,11 @@ function emptyAdmissionProof(): AdmissionProofView {
     supersessions: [],
     contradictions: [],
     diagnostics: [],
+    requirementHistory: [],
+    decisionHistory: [],
+    phaseAttempts: [],
+    phaseAttemptDiagnostics: [],
+    phaseAttemptIntegrity: 'intact',
   };
 }
 
@@ -177,10 +205,57 @@ function emptyAdmissionProof(): AdmissionProofView {
  * State-file reconciliation can apply a newly appended proof event to a
  * pre-v2.12 projected state. Treat the absent additive block as its empty seed
  * rather than requiring mutable backfill or making replay depend on snapshot
- * age.
+ * age. Per-field defaulting covers the same problem one contract version later:
+ * a state persisted before P01-04 carries the evidence slots but not the
+ * phase-attempt slots, and a fold must not read `undefined` off it.
  */
 function admissionProofOf(view: WorkflowStateView): AdmissionProofView {
-  return view.admissionProof ?? emptyAdmissionProof();
+  const seed = emptyAdmissionProof();
+  const proof: Partial<AdmissionProofView> | undefined = view.admissionProof;
+  if (proof === undefined) return seed;
+  return {
+    evidenceHistory: proof.evidenceHistory ?? seed.evidenceHistory,
+    contradictionHistory: proof.contradictionHistory ?? seed.contradictionHistory,
+    activeEvidence: proof.activeEvidence ?? seed.activeEvidence,
+    supersessions: proof.supersessions ?? seed.supersessions,
+    contradictions: proof.contradictions ?? seed.contradictions,
+    diagnostics: proof.diagnostics ?? seed.diagnostics,
+    requirementHistory: proof.requirementHistory ?? seed.requirementHistory,
+    decisionHistory: proof.decisionHistory ?? seed.decisionHistory,
+    phaseAttempts: proof.phaseAttempts ?? seed.phaseAttempts,
+    phaseAttemptDiagnostics:
+      proof.phaseAttemptDiagnostics ?? seed.phaseAttemptDiagnostics,
+    phaseAttemptIntegrity:
+      proof.phaseAttemptIntegrity ?? seed.phaseAttemptIntegrity,
+  };
+}
+
+/**
+ * Recompute the per-attempt frozen fold (P01-04) from the append-only proof
+ * histories. Every admission fold recomputes from history rather than mutating
+ * a running summary, so a partial re-fold and a from-zero replay agree.
+ */
+function foldPhaseAttempts(
+  proof: AdmissionProofView,
+  overrides: {
+    readonly requirementHistory?: readonly unknown[];
+    readonly evidenceHistory?: readonly unknown[];
+    readonly decisionHistory?: readonly unknown[];
+  },
+): Pick<
+  AdmissionProofView,
+  'phaseAttempts' | 'phaseAttemptDiagnostics' | 'phaseAttemptIntegrity'
+> {
+  const fold = foldPhaseAttemptAdmission({
+    requirementEvents: overrides.requirementHistory ?? proof.requirementHistory,
+    evidenceEvents: overrides.evidenceHistory ?? proof.evidenceHistory,
+    decisionEvents: overrides.decisionHistory ?? proof.decisionHistory,
+  });
+  return {
+    phaseAttempts: fold.attempts,
+    phaseAttemptDiagnostics: fold.diagnostics,
+    phaseAttemptIntegrity: fold.integrity,
+  };
 }
 
 /** Immutably update a task by ID. Returns the original view if taskId not found. */
@@ -952,9 +1027,11 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
         return {
           ...view,
           admissionProof: {
+            ...proof,
             evidenceHistory,
             contradictionHistory: proof.contradictionHistory,
             ...selection,
+            ...foldPhaseAttempts(proof, { evidenceHistory }),
           },
         };
       }
@@ -971,14 +1048,41 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
         return {
           ...view,
           admissionProof: {
+            ...proof,
             evidenceHistory: proof.evidenceHistory,
             contradictionHistory,
             ...selection,
           },
         };
       }
-      case 'admission.requirement-resolved':
-      case 'admission.transition-decided':
+      // P01-04 — frozen requirement sets and decision state. Both payloads are
+      // retained raw and re-parsed by the attempt fold, so replay reconstructs
+      // the frozen set the writer resolved rather than anything current policy
+      // would resolve today.
+      case 'admission.requirement-resolved': {
+        const proof = admissionProofOf(view);
+        const requirementHistory = [...proof.requirementHistory, event.data];
+        return {
+          ...view,
+          admissionProof: {
+            ...proof,
+            requirementHistory,
+            ...foldPhaseAttempts(proof, { requirementHistory }),
+          },
+        };
+      }
+      case 'admission.transition-decided': {
+        const proof = admissionProofOf(view);
+        const decisionHistory = [...proof.decisionHistory, event.data];
+        return {
+          ...view,
+          admissionProof: {
+            ...proof,
+            decisionHistory,
+            ...foldPhaseAttempts(proof, { decisionHistory }),
+          },
+        };
+      }
       case 'admission.waiver-recorded':
       case 'admission.reassessment-requested':
       case 'admission.reassessment-completed':
