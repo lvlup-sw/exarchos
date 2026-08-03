@@ -66,6 +66,7 @@ import type { EventStore } from '../../event-store/store.js';
 import type { EventInput, DecideResult } from '../../event-store/atomic-appender.js';
 import type { WorkflowEvent } from '../../event-store/schemas.js';
 import { spawnCommandSync } from '../../utils/process.js';
+import { removeWorktreeForce } from '../../vcs/mutation-owner.js';
 import { withStateRetry } from '../../workflow/state-retry.js';
 import { resolveWorkflowState } from '../resolve-state.js';
 import {
@@ -1788,9 +1789,9 @@ export class WorktreeManager {
     if (!this.isWorktreeRegistered(repoRoot, worktreePath)) return false;
     const ok = await withIndexLockRetry(
       () => {
-        const result = this.gitRunner.run(
-          ['worktree', 'remove', '--force', worktreePath],
-          repoRoot,
+        const result = removeWorktreeForce(
+          (argv) => this.gitRunner.run(argv, repoRoot),
+          worktreePath,
         );
         if (result.status !== 0 && isIndexLockError(result)) {
           // Re-throw the transient lock contention as an error the retry
