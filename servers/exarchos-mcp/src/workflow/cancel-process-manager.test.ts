@@ -128,20 +128,28 @@ describe('v2.12 cancellation process manager (DR-7)', () => {
   });
 
   it('CancelRetry_CompletedCompensation_IsNotRepeated', async () => {
-    const originalAppendValidated = store.appendValidated.bind(store);
+    // P04-02 wiring: compensation outcomes are now recorded through the ATOMIC
+    // fenced append (`AtomicAppender.decideOnce`), not `store.appendValidated`.
+    // Re-point the crash-injection at that seam. The INTENT is unchanged: crash
+    // AFTER the first compensation's durable completion lands but BEFORE the
+    // second's, so the retry must NOT repeat the already-completed compensation.
+    // `operationId` encodes {action, attempt, kind} for a precise, robust match.
+    const appender = store.getAppender();
+    const originalDecideOnce = appender.decideOnce.bind(appender);
     let crashOnce = true;
-    vi.spyOn(store, 'appendValidated').mockImplementation(async (...args) => {
-      const event = args[1];
-      if (
-        crashOnce
-        && event.type === 'cancel.compensation-completed'
-        && event.data?.actionId === 'delegate:cleanup-worktrees'
-      ) {
-        crashOnce = false;
-        throw new Error('simulated crash before second durable result');
-      }
-      return originalAppendValidated(...args);
-    });
+    vi.spyOn(appender, 'decideOnce').mockImplementation(
+      async (operationId, requestDigest, closure) => {
+        if (
+          crashOnce
+          && operationId.includes('delegate:cleanup-worktrees')
+          && operationId.endsWith(':completed')
+        ) {
+          crashOnce = false;
+          throw new Error('simulated crash before second durable result');
+        }
+        return originalDecideOnce(operationId, requestDigest, closure);
+      },
+    );
 
     const partial = await handleCancel({ featureId }, stateDir, store);
     expect(partial).toMatchObject({

@@ -12,7 +12,12 @@ import {
   CancelCompensationCompletedData,
   CancelCompensationFailedData,
 } from '../event-store/schemas.js';
-import { buildValidatedEvent } from '../event-store/event-factory.js';
+import {
+  appendFencedCancelEvent,
+  decideCompensationAction,
+  foldCancelSaga,
+  type CancelRetryPolicy,
+} from './cancel-process-manager.js';
 // WLM unification (DR-3): compensation-triggered worktree teardown appends to the
 // SINGLETON `worktrees` stream — the SAME stream + reducer the WorktreeManager
 // owns — so a compensation removal genuinely reaches the `worktrees@v1` view
@@ -542,10 +547,19 @@ export interface CompensationOptions {
   /**
    * Enables the v2.12 event-sourced cancellation process manager. Omitted by
    * legacy callers, which retain checkpoint-based behavior.
+   *
+   * `writerEpoch` / `instanceId` are the fencing token the process manager
+   * acquired on ownership (P04-02): every compensation event is appended under
+   * an atomic epoch check, so a fenced-out (stale) instance's writes are
+   * rejected. `maxAttempts` bounds the per-action retry ladder before it
+   * escalates to a queryable manual-intervention-required terminal.
    */
   readonly cancelProcess?: {
     readonly cancelId: string;
     readonly phaseAttemptId: string;
+    readonly writerEpoch: number;
+    readonly instanceId: string;
+    readonly maxAttempts?: number;
   };
 }
 
@@ -565,6 +579,9 @@ export interface ProcessManagedCompensationOptions extends CompensationOptions {
   readonly cancelProcess: {
     readonly cancelId: string;
     readonly phaseAttemptId: string;
+    readonly writerEpoch: number;
+    readonly instanceId: string;
+    readonly maxAttempts?: number;
   };
 }
 
@@ -594,6 +611,13 @@ export interface CompensationResult {
 }
 
 // ─── Phase Order (reverse compensation order) ───────────────────────────────
+
+/**
+ * Default bounded retry budget for the cancellation process manager (P04-02).
+ * A compensation action is attempted at most this many times before the saga
+ * escalates it to a queryable `manual-intervention-required` terminal.
+ */
+export const CANCEL_MAX_ATTEMPTS = 3;
 
 const PHASE_ORDER: readonly string[] = [
   'plan',
@@ -1034,22 +1058,31 @@ function orderedCompensationActions(currentPhase: string): CompensationAction[] 
     type:
       | 'cancel.compensation-requested'
       | 'cancel.compensation-completed'
-      | 'cancel.compensation-failed',
+      | 'cancel.compensation-failed'
+      | 'cancel.compensation-retry-scheduled'
+      | 'cancel.manual-intervention-required',
     data: Record<string, unknown>,
     suffix: string,
-  ): Promise<WorkflowEvent> {
+  ): Promise<void> {
     const featureId = options.featureId;
+    // Preserve the historical idempotency-key shape (`cancel:` + 64-hex) so the
+    // dedupe surface and the audit-trail key format are unchanged; the write is
+    // now routed through the ATOMIC fencing guard (P04-02). The `operationId`
+    // (distinct per logical write) is what carries crash-idempotency into
+    // `decideOnce`, while `writerEpoch` is checked INSIDE the same transaction
+    // that would append — so a fenced-out (stale-epoch) instance can never land
+    // a compensation event.
     const key = `cancel:${createHash('sha256')
       .update(`${featureId}\0${options.cancelProcess.cancelId}\0${suffix}`, 'utf8')
       .digest('hex')}`;
-    const event = buildValidatedEvent(featureId, 1, {
+    await appendFencedCancelEvent(options.eventStore, {
+      featureId,
+      cancelId: options.cancelProcess.cancelId,
+      writerEpoch: options.cancelProcess.writerEpoch,
       type,
-      source: 'workflow',
-      idempotencyKey: key,
       data,
-    });
-    return options.eventStore.appendValidated(featureId, event, {
       idempotencyKey: key,
+      operationId: `cancel-op:${options.cancelProcess.cancelId}:${suffix}`,
     });
   }
 
@@ -1078,66 +1111,19 @@ function orderedCompensationActions(currentPhase: string): CompensationAction[] 
     const featureId = options.featureId;
     const cancelId = options.cancelProcess.cancelId;
     const actions = orderedCompensationActions(currentPhase);
-    const history = await eventStore.query(featureId);
     const results: CompensationActionResult[] = [];
+    const policy: CancelRetryPolicy = {
+      maxAttempts: options.cancelProcess.maxAttempts ?? CANCEL_MAX_ATTEMPTS,
+    };
 
-    for (const action of actions) {
-      const matching = history.filter((event) => {
-        const data = event.data as Record<string, unknown> | undefined;
-        return data?.cancelId === cancelId && data?.actionId === action.id;
-      });
-      const completed = matching.find(
-        (event) =>
-          event.type === 'cancel.compensation-completed'
-          && CancelCompensationCompletedData.safeParse(event.data).success,
-      );
-      if (completed !== undefined) {
-        results.push({
-          actionId: action.id,
-          status: 'skipped',
-          message: 'Already completed (event replay)',
-        });
-        continue;
-      }
-      const failed = matching.find(
-        (event) =>
-          event.type === 'cancel.compensation-failed'
-          && CancelCompensationFailedData.safeParse(event.data).success,
-      );
-      if (failed !== undefined) {
-        results.push({
-          actionId: action.id,
-          status: 'failed',
-          message: String(failed.data?.message ?? 'Compensation previously failed'),
-        });
-        continue;
-      }
-
-      const malformedOutcome = matching.find(
-        (event) =>
-          (event.type === 'cancel.compensation-completed'
-            && !CancelCompensationCompletedData.safeParse(event.data).success)
-          || (event.type === 'cancel.compensation-failed'
-            && !CancelCompensationFailedData.safeParse(event.data).success),
-      );
-      if (malformedOutcome !== undefined) {
-        const message = `Malformed durable compensation result for ${action.id}`;
-        await appendCancellationProcessEvent(
-          options,
-          'cancel.compensation-failed',
-          {
-            eventVersion: '1.0',
-            ...processEventData(options, action.id),
-            reason: 'malformed-result',
-            message,
-            failedAt: new Date().toISOString(),
-          },
-          `compensation:${action.id}:failed`,
-        );
-        results.push({ actionId: action.id, status: 'failed', message });
-        continue;
-      }
-
+    // Append the compensation intent, run ONE attempt, and record its durable
+    // outcome. Every write is fenced by the acquired epoch (a stale instance's
+    // write is rejected inside the append transaction). Attempt-scoped
+    // idempotency keys make a crash-resume of the SAME attempt a no-op append.
+    const runOneAttempt = async (
+      action: CompensationAction,
+      attempt: number,
+    ): Promise<void> => {
       await appendCancellationProcessEvent(
         options,
         'cancel.compensation-requested',
@@ -1146,7 +1132,7 @@ function orderedCompensationActions(currentPhase: string): CompensationAction[] 
           ...processEventData(options, action.id),
           requestedAt: new Date().toISOString(),
         },
-        `compensation:${action.id}:requested`,
+        `compensation:${action.id}:attempt${attempt}:requested`,
       );
 
       let rawResult: unknown;
@@ -1161,7 +1147,68 @@ function orderedCompensationActions(currentPhase: string): CompensationAction[] 
       }
 
       if (!validActionResult(rawResult, action.id)) {
-        const message = `Malformed compensation result for ${action.id}`;
+        await appendCancellationProcessEvent(
+          options,
+          'cancel.compensation-failed',
+          {
+            eventVersion: '1.0',
+            ...processEventData(options, action.id),
+            reason: 'malformed-result',
+            message: `Malformed compensation result for ${action.id}`,
+            failedAt: new Date().toISOString(),
+          },
+          `compensation:${action.id}:attempt${attempt}:failed`,
+        );
+        return;
+      }
+
+      if (rawResult.status === 'failed') {
+        await appendCancellationProcessEvent(
+          options,
+          'cancel.compensation-failed',
+          {
+            eventVersion: '1.0',
+            ...processEventData(options, action.id),
+            reason: 'effect-failed',
+            message: rawResult.message,
+            failedAt: new Date().toISOString(),
+          },
+          `compensation:${action.id}:attempt${attempt}:failed`,
+        );
+      } else {
+        await appendCancellationProcessEvent(
+          options,
+          'cancel.compensation-completed',
+          {
+            eventVersion: '1.0',
+            ...processEventData(options, action.id),
+            status: rawResult.status,
+            message: rawResult.message,
+            completedAt: new Date().toISOString(),
+          },
+          `compensation:${action.id}:attempt${attempt}:completed`,
+        );
+      }
+    };
+
+    for (const action of actions) {
+      // ── Fail-closed on a malformed durable outcome ───────────────────────
+      // A completed/failed event whose payload does not parse cannot be trusted
+      // as an outcome. Record an explicit malformed-result failure and DO NOT
+      // execute — the effect stays un-run rather than acting on corrupt state.
+      const priorHistory = await eventStore.query(featureId);
+      const malformedOutcome = priorHistory.find((event) => {
+        const data = event.data as Record<string, unknown> | undefined;
+        if (data?.cancelId !== cancelId || data?.actionId !== action.id) return false;
+        return (
+          (event.type === 'cancel.compensation-completed'
+            && !CancelCompensationCompletedData.safeParse(event.data).success)
+          || (event.type === 'cancel.compensation-failed'
+            && !CancelCompensationFailedData.safeParse(event.data).success)
+        );
+      });
+      if (malformedOutcome !== undefined) {
+        const message = `Malformed durable compensation result for ${action.id}`;
         await appendCancellationProcessEvent(
           options,
           'cancel.compensation-failed',
@@ -1172,41 +1219,84 @@ function orderedCompensationActions(currentPhase: string): CompensationAction[] 
             message,
             failedAt: new Date().toISOString(),
           },
-          `compensation:${action.id}:failed`,
+          `compensation:${action.id}:malformed:failed`,
         );
         results.push({ actionId: action.id, status: 'failed', message });
         continue;
       }
 
-      const result = rawResult;
-      if (result.status === 'failed') {
-        await appendCancellationProcessEvent(
-          options,
-          'cancel.compensation-failed',
-          {
-            eventVersion: '1.0',
-            ...processEventData(options, action.id),
-            reason: 'effect-failed',
-            message: result.message,
-            failedAt: new Date().toISOString(),
-          },
-          `compensation:${action.id}:failed`,
-        );
-      } else {
-        await appendCancellationProcessEvent(
-          options,
-          'cancel.compensation-completed',
-          {
-            eventVersion: '1.0',
-            ...processEventData(options, action.id),
-            status: result.status,
-            message: result.message,
-            completedAt: new Date().toISOString(),
-          },
-          `compensation:${action.id}:completed`,
-        );
+      // ── Bounded retry ladder, decided purely from the folded saga ────────
+      // execute → (fail) → retry → execute → … → exhaust → manual-intervention.
+      // `decideCompensationAction` returns `satisfied` for a durably-completed
+      // compensation, so a completed action is NEVER re-issued — on restart OR
+      // takeover. The iteration cap is a defensive guard against a decision bug;
+      // it sits well above the retry budget so a correct ladder never hits it.
+      const cap = policy.maxAttempts * 2 + 4;
+      let terminal: CompensationActionResult | undefined;
+      for (let guard = 0; guard < cap && terminal === undefined; guard++) {
+        const saga = foldCancelSaga(await eventStore.query(featureId), cancelId);
+        const plan = decideCompensationAction(saga, action.id, policy);
+        switch (plan.kind) {
+          case 'satisfied':
+            terminal = {
+              actionId: action.id,
+              status: 'skipped',
+              message: 'Already completed (event replay)',
+            };
+            break;
+          case 'blocked-manual':
+            terminal = {
+              actionId: action.id,
+              status: 'failed',
+              message: `Manual intervention required for ${action.id}`,
+            };
+            break;
+          case 'escalate-manual':
+            await appendCancellationProcessEvent(
+              options,
+              'cancel.manual-intervention-required',
+              {
+                eventVersion: '1.0',
+                ...processEventData(options, action.id),
+                epoch: options.cancelProcess.writerEpoch,
+                attempts: plan.attempts,
+                reason: plan.reason,
+                message: `Compensation ${action.id} exhausted ${plan.attempts} attempt(s)`,
+                requiredAt: new Date().toISOString(),
+              },
+              `compensation:${action.id}:manual`,
+            );
+            break;
+          case 'retry':
+            await appendCancellationProcessEvent(
+              options,
+              'cancel.compensation-retry-scheduled',
+              {
+                eventVersion: '1.0',
+                ...processEventData(options, action.id),
+                epoch: options.cancelProcess.writerEpoch,
+                attempt: plan.failedAttempt,
+                maxAttempts: policy.maxAttempts,
+                reason: plan.reason,
+                message: plan.message,
+                scheduledAt: new Date().toISOString(),
+              },
+              `compensation:${action.id}:attempt${plan.failedAttempt}:retry`,
+            );
+            await runOneAttempt(action, plan.nextAttempt);
+            break;
+          case 'execute':
+            await runOneAttempt(action, plan.attempt);
+            break;
+        }
       }
-      results.push(result);
+      results.push(
+        terminal ?? {
+          actionId: action.id,
+          status: 'failed',
+          message: `Compensation did not converge for ${action.id}`,
+        },
+      );
     }
 
     // Re-read and validate the durable log. In-memory return values are never
@@ -1223,25 +1313,14 @@ function orderedCompensationActions(currentPhase: string): CompensationAction[] 
           && parsed.data.cancelId === cancelId
           && parsed.data.actionId === action.id;
       });
-      const failed = replay.find((event) => {
-        if (event.type !== 'cancel.compensation-failed') return false;
-        const parsed = CancelCompensationFailedData.safeParse(event.data);
-        return parsed.success
-          && parsed.data.cancelId === cancelId
-          && parsed.data.actionId === action.id;
-      });
       if (completed !== undefined) {
         completedActionIds.push(action.id);
         outcomeSequences.push(completed.sequence);
       } else {
+        // Every action already pushed a terminal result (skipped / failed /
+        // manual) in the ladder above; a missing durable completion simply
+        // marks the saga incomplete so no premature readiness can be claimed.
         incomplete = true;
-        if (failed === undefined && !results.some((result) => result.actionId === action.id)) {
-          results.push({
-            actionId: action.id,
-            status: 'failed',
-            message: 'Compensation outcome was not durably recorded',
-          });
-        }
       }
     }
 
