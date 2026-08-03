@@ -2987,6 +2987,7 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_view.synthesis_readiness': 2000,
   'exarchos_view.shepherd_status': 2000,
   'exarchos_view.convergence': 2000,
+  'exarchos_view.gate_reliability': 2000,
   'exarchos_view.quality_hints': 2000,
   'exarchos_view.invariants_effective': 2000,
   'exarchos_view.worktrees': 2000,

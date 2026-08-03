@@ -28,6 +28,7 @@ export const BUILTIN_VIEW_NAMES: ReadonlySet<string> = new Set([
   'shepherd_status',
   'provenance',
   'convergence',
+  'gate_reliability',
   'invariants_effective',
   // Internal projection names registered in tools.ts createMaterializer()
   'workflow-status',
@@ -46,6 +47,7 @@ export const BUILTIN_VIEW_NAMES: ReadonlySet<string> = new Set([
   'provenance',
   'convergence',
   'unified-task',
+  'gate-reliability',
 ]);
 
 // ─── View Registry ──────────────────────────────────────────────────────────

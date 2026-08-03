@@ -26,6 +26,7 @@ import {
   handleViewShepherdStatus,
   handleViewProvenance,
   handleViewConvergence,
+  handleViewGateReliability,
 } from './tools.js';
 import { handleViewInvariantsEffective } from './effective-catalog.js';
 import { handleViewInspect } from './lifecycle/inspect.js';
@@ -397,6 +398,18 @@ export async function handleView(
         startedAt,
       );
 
+    // BASE-002 — the gate-reliability read model reaches production through
+    // this action. It is diagnostic-only: no admission or transition authority.
+    case 'gate_reliability':
+      return wrapView(
+        await handleViewGateReliability(
+          rest as { workflowId?: string; detail?: boolean },
+          stateDir,
+          eventStore,
+        ),
+        startedAt,
+      );
+
     case 'invariants_effective':
       // DR-7 (T-20) — the facade delegates to `resolveEffectiveCatalog`; the
       // `repoRoot` falls back to `ctx.cwd` (then `process.cwd()` inside the
@@ -500,6 +513,7 @@ export async function handleView(
             'shepherd_status',
             'provenance',
             'convergence',
+            'gate_reliability',
             'invariants_effective',
             'worktrees',
             'ps',
