@@ -57,7 +57,7 @@ describe('handleCancel saga paths', () => {
 
       // Mock compensation to succeed with events that will be bridged
       const compensationModule = await import('../../workflow/compensation.js');
-      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue({
+      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue(processManaged({
         actions: [
           { actionId: 'delegate:cleanup-worktrees', status: 'executed', message: 'Done' },
         ],
@@ -73,7 +73,7 @@ describe('handleCancel saga paths', () => {
         ],
         success: true,
         checkpoint: null,
-      });
+      }));
 
       // Mock event store append to throw on EVERY call
       vi.spyOn(eventStore, 'append').mockRejectedValue(new Error('Disk full'));
@@ -105,7 +105,7 @@ describe('handleCancel saga paths', () => {
 
       // Mock compensation to succeed with events
       const compensationModule = await import('../../workflow/compensation.js');
-      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue({
+      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue(processManaged({
         actions: [],
         events: [
           {
@@ -119,7 +119,7 @@ describe('handleCancel saga paths', () => {
         ],
         success: true,
         checkpoint: null,
-      });
+      }));
 
       // Mock event store append to throw on compensation event
       vi.spyOn(eventStore, 'append').mockRejectedValue(new Error('Write error'));
@@ -201,12 +201,12 @@ describe('handleCancel saga paths', () => {
 
       // Mock compensation to succeed with no events
       const compensationModule = await import('../../workflow/compensation.js');
-      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue({
+      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue(processManaged({
         actions: [],
         events: [],
         success: true,
         checkpoint: null,
-      });
+      }));
 
       // Mock append to throw — affects transition event bridging
       vi.spyOn(eventStore, 'append').mockRejectedValue(new Error('IO error'));
@@ -232,12 +232,12 @@ describe('handleCancel saga paths', () => {
 
       // Mock compensation to succeed with no events
       const compensationModule = await import('../../workflow/compensation.js');
-      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue({
+      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue(processManaged({
         actions: [],
         events: [],
         success: true,
         checkpoint: null,
-      });
+      }));
 
       // Mock append to throw on transition event
       vi.spyOn(eventStore, 'append').mockRejectedValue(new Error('Transition IO error'));
@@ -271,7 +271,7 @@ describe('handleCancel saga paths', () => {
 
       // Mock compensation for dry run — should return dry-run status actions
       const compensationModule = await import('../../workflow/compensation.js');
-      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue({
+      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue(processManaged({
         actions: [
           { actionId: 'synthesize:close-pr', status: 'dry-run', message: 'Would close PR' },
           { actionId: 'delegate:cleanup-worktrees', status: 'dry-run', message: 'Would clean up' },
@@ -279,7 +279,7 @@ describe('handleCancel saga paths', () => {
         events: [],
         success: true,
         checkpoint: null,
-      });
+      }));
 
       // Spy on event store append — should NOT be called
       const appendSpy = vi.spyOn(eventStore, 'append');
@@ -306,3 +306,31 @@ describe('handleCancel saga paths', () => {
     });
   });
 });
+
+/**
+ * Shape a mocked `executeCompensation` result the way the process-managed path
+ * really returns it.
+ *
+ * Cancellation readiness requires a DURABLE outcome for every compensation
+ * action — a result without `durableOutcomes` means compensation ran outside the
+ * process manager, which must fail closed as COMPENSATION_PARTIAL. Mocks that
+ * omit it therefore exercise the fail-closed path rather than the behaviour
+ * under test. Deriving the outcomes from the mocked actions keeps the two in
+ * lockstep so this cannot drift again.
+ */
+function processManaged<T extends { actions: readonly { actionId: string }[] }>(
+  result: T,
+): T & {
+  durableOutcomes: {
+    completedActionIds: readonly string[];
+    outcomeSequences: readonly number[];
+  };
+} {
+  return {
+    ...result,
+    durableOutcomes: {
+      completedActionIds: result.actions.map((a) => a.actionId),
+      outcomeSequences: result.actions.map((_, i) => i + 1),
+    },
+  };
+}

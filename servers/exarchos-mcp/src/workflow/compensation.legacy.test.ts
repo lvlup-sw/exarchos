@@ -836,7 +836,7 @@ describe('Compensation', () => {
   });
 
   describe('DeleteIntegrationBranch_Executed_ReturnsSuccess', () => {
-    it('should successfully delete integration branch when it exists and commands succeed', async () => {
+    it('should delete the local branch it finds and leave an absent remote alone', async () => {
       const state = makeState({
         phase: 'delegate',
         synthesis: {
@@ -858,7 +858,6 @@ describe('Compensation', () => {
       expect(deleteAction!.status).toBe('executed');
       expect(deleteAction!.message).toContain('Deleted integration branch: integrate/test-feature');
 
-      // Should have called git branch -D and git push origin --delete
       const branchDeleteCalls = mockedExecFile.mock.calls.filter((call) => {
         const args = call[1] as string[] | undefined;
         return args?.includes('branch') && args?.includes('-D');
@@ -868,11 +867,17 @@ describe('Compensation', () => {
         return args?.includes('push') && args?.includes('--delete');
       });
 
+      // `rev-parse --verify` succeeds under the default mock, so the local
+      // branch exists and is deleted.
       expect(branchDeleteCalls.length).toBeGreaterThanOrEqual(1);
-      expect(remotePushCalls.length).toBeGreaterThanOrEqual(1);
+      // `ls-remote` returns empty stdout — no such remote branch — so
+      // compensation does NOT issue a push --delete for a branch that is not
+      // there. Probing before mutating is the point: the old code fired the
+      // delete unconditionally and swallowed the failure.
+      expect(remotePushCalls.length).toBe(0);
     });
 
-    it('should still succeed when local branch delete fails but remote succeeds', async () => {
+    it('should report failed when the delete errors and the branch still exists', async () => {
       const state = makeState({
         phase: 'delegate',
         synthesis: {
@@ -903,7 +908,60 @@ describe('Compensation', () => {
 
       const deleteAction = result.actions.find((a) => a.actionId === 'delegate:delete-integration-branch');
       expect(deleteAction).toBeDefined();
-      // Still succeeds because inner catch blocks swallow failures
+      // Verify-then-decide: `branch -D` errored AND `rev-parse --verify` still
+      // resolves the branch, so the branch is demonstrably still there.
+      // Reporting `executed` here would be a compensation that lies about
+      // having cleaned up — the prior behaviour, which swallowed every delete
+      // failure unconditionally.
+      expect(deleteAction!.status).toBe('failed');
+    });
+
+    it('should report executed when the delete errors but the branch is gone', async () => {
+      const state = makeState({
+        phase: 'delegate',
+        synthesis: {
+          integrationBranch: 'integrate/test-feature',
+          mergeOrder: [],
+          mergedBranches: [],
+          prUrl: null,
+          prFeedback: [],
+        },
+        worktrees: {},
+        tasks: [],
+      });
+      const events = makeEvents(1);
+
+      // The other half of verify-then-decide: a concurrent cleanup already
+      // removed the branch, so `branch -D` errors but the post-check finds
+      // nothing. The outcome we care about — branch absent — was achieved, so
+      // a raced delete must NOT be reported as a compensation failure.
+      let revParseCalls = 0;
+      mockedExecFile.mockImplementation((cmd: unknown, args: unknown, opts: unknown, cb?: unknown) => {
+        const callback = typeof opts === 'function' ? opts : cb;
+        const argList = args as string[];
+        if (argList?.includes('rev-parse')) {
+          revParseCalls += 1;
+          // Present on the first probe (so the delete is attempted), absent on
+          // the post-delete re-check.
+          if (revParseCalls === 1) {
+            (callback as (err: null, stdout: string, stderr: string) => void)(null, '', '');
+          } else {
+            (callback as (err: Error) => void)(new Error('not a valid ref'));
+          }
+          return undefined as never;
+        }
+        if (argList?.includes('branch') && argList?.includes('-D')) {
+          (callback as (err: Error) => void)(new Error('branch not found'));
+          return undefined as never;
+        }
+        (callback as (err: null, stdout: string, stderr: string) => void)(null, '', '');
+        return undefined as never;
+      });
+
+      const result = await executeCompensation(state, 'delegate', events, 1, { dryRun: false });
+
+      const deleteAction = result.actions.find((a) => a.actionId === 'delegate:delete-integration-branch');
+      expect(deleteAction).toBeDefined();
       expect(deleteAction!.status).toBe('executed');
     });
   });

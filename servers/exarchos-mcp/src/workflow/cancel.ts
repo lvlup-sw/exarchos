@@ -165,7 +165,14 @@ export async function handleCancel(
   );
   const cancelId = `cancel:${phaseAttemptId}`;
   // v2 workflows without a store retain the migration-compatible legacy path.
-  const useEventFirst = isEventSourced(mutableState) && eventStore !== null;
+  // `!== null` alone does NOT exclude `undefined`: the legacy two-arg call
+  // `handleCancel(input, stateDir)` passes no store at all. The pre-existing
+  // event-first block was shielded by an outer `if (eventStore)`, but the
+  // cancellation process manager runs BEFORE that guard, so an undefined store
+  // reached `appendCancellationFactOnce` and crashed. Exclude both nullish
+  // forms here, at the one place the decision is made.
+  const useEventFirst =
+    isEventSourced(mutableState) && eventStore !== null && eventStore !== undefined;
 
   // Read existing compensation checkpoint from prior partial failure (if any)
   const existingCheckpoint = mutableState._compensationCheckpoint as CompensationCheckpoint | undefined;

@@ -142,14 +142,14 @@ describe('handleCancel', () => {
 
       // Mock executeCompensation to return success (null checkpoint)
       const compensationModule = await import('../../workflow/compensation.js');
-      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue({
+      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue(processManaged({
         actions: [
           { actionId: 'delegate:cleanup-worktrees', status: 'executed', message: 'Done' },
         ],
         events: [],
         success: true,
         checkpoint: null,
-      });
+      }));
 
       // Act
       const result = await handleCancel({ featureId: 'ckpt-clear' }, tmpDir, null);
@@ -178,14 +178,14 @@ describe('handleCancel', () => {
 
       // Mock executeCompensation to return success
       const compensationModule = await import('../../workflow/compensation.js');
-      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue({
+      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue(processManaged({
         actions: [
           { actionId: 'delegate:cleanup-worktrees', status: 'executed', message: 'Done' },
         ],
         events: [],
         success: true,
         checkpoint: null,
-      });
+      }));
 
       // Act
       const result = await handleCancel({ featureId: 'ckpt-null' }, tmpDir, null);
@@ -217,12 +217,12 @@ describe('handleCancel', () => {
 
       // Mock compensation to succeed (no partial failure)
       const compensationModule = await import('../../workflow/compensation.js');
-      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue({
+      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue(processManaged({
         actions: [],
         events: [],
         success: true,
         checkpoint: null,
-      });
+      }));
 
       // Mock event store append to throw (simulating JSONL failure)
       vi.spyOn(eventStore, 'append').mockRejectedValue(
@@ -258,41 +258,44 @@ describe('handleCancel', () => {
       rawState._esVersion = 2;
       await writeRawState('cancel-comp-keys', rawState);
 
-      // Mock compensation to return events
-      const compensationModule = await import('../../workflow/compensation.js');
-      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue({
-        actions: [
-          { actionId: 'delegate:cleanup-worktrees', status: 'executed', message: 'Done' },
-          { actionId: 'delegate:delete-branches', status: 'executed', message: 'Done' },
-        ],
-        events: [
-          { type: 'compensation', timestamp: new Date().toISOString(), metadata: { action: 'cleanup-worktrees' } },
-          { type: 'compensation', timestamp: new Date().toISOString(), metadata: { action: 'delete-branches' } },
-        ],
-        success: true,
-        checkpoint: null,
-      });
+      // Deliberately NOT mocking executeCompensation: the cancellation process
+      // manager now OWNS compensation-fact emission, so stubbing it out would
+      // stub the very keys under assertion. The old
+      // `<featureId>:cancel:compensation:<type>:<action>` scheme was replaced by
+      // a digest key scoped to (featureId, cancelId, action) — collision-free
+      // across concurrent cancels of the same feature.
 
       // Spy on append to capture idempotency keys
-      const appendCalls: Array<{ idempotencyKey?: string }> = [];
+      const appendCalls: Array<{ type: string; idempotencyKey?: string }> = [];
       const originalAppend = eventStore.append.bind(eventStore);
+      const originalAppendValidated = eventStore.appendValidated.bind(eventStore);
       vi.spyOn(eventStore, 'append').mockImplementation(async (streamId, event, options) => {
-        appendCalls.push({ idempotencyKey: options?.idempotencyKey });
+        appendCalls.push({ type: event.type, idempotencyKey: options?.idempotencyKey });
         return originalAppend(streamId, event, options);
+      });
+      vi.spyOn(eventStore, 'appendValidated').mockImplementation(async (streamId, event, options) => {
+        appendCalls.push({ type: event.type, idempotencyKey: options?.idempotencyKey });
+        return originalAppendValidated(streamId, event, options);
       });
 
       // Act
       await handleCancel({ featureId: 'cancel-comp-keys' }, tmpDir, eventStore);
 
-      // Assert: compensation events have idempotency keys matching the pattern
-      // The first two append calls after init should be compensation events
-      // Filter for compensation-related calls
-      const compKeys = appendCalls
-        .map((c) => c.idempotencyKey)
-        .filter((k): k is string => k !== undefined && k.includes('compensation'));
-      expect(compKeys.length).toBe(2);
-      expect(compKeys[0]).toBe('cancel-comp-keys:cancel:compensation:compensation:cleanup-worktrees');
-      expect(compKeys[1]).toBe('cancel-comp-keys:cancel:compensation:compensation:delete-branches');
+      // Assert: every compensation fact carries an idempotency key — that key is
+      // what makes a resumed or retried cancellation converge instead of
+      // repeating completed compensation.
+      const compensationCalls = appendCalls.filter((c) =>
+        c.type.startsWith('cancel.compensation-'),
+      );
+      expect(compensationCalls.length).toBeGreaterThan(0);
+      for (const call of compensationCalls) {
+        expect(call.idempotencyKey, `${call.type} must be idempotency-keyed`).toBeDefined();
+        expect(call.idempotencyKey).toMatch(/^cancel:[0-9a-f]{64}$/);
+      }
+      // Keys are distinct per (action, phase) — a shared key would collapse two
+      // different compensation outcomes into one durable fact.
+      const keys = compensationCalls.map((c) => c.idempotencyKey);
+      expect(new Set(keys).size).toBe(keys.length);
     });
 
     it('handleCancel_TransitionEvents_HaveIdempotencyKeys', async () => {
@@ -309,12 +312,12 @@ describe('handleCancel', () => {
 
       // Mock compensation to succeed with no events
       const compensationModule = await import('../../workflow/compensation.js');
-      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue({
+      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue(processManaged({
         actions: [],
         events: [],
         success: true,
         checkpoint: null,
-      });
+      }));
 
       // Spy on append to capture idempotency keys
       const appendCalls: Array<{ type: string; idempotencyKey?: string }> = [];
@@ -350,12 +353,12 @@ describe('handleCancel', () => {
 
       // Mock compensation to succeed
       const compensationModule = await import('../../workflow/compensation.js');
-      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue({
+      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue(processManaged({
         actions: [],
         events: [],
         success: true,
         checkpoint: null,
-      });
+      }));
 
       // Spy on append to capture idempotency keys
       const appendCalls: Array<{ type: string; idempotencyKey?: string }> = [];
@@ -402,12 +405,12 @@ describe('handleCancel', () => {
 
               // Mock compensation
               const compensationModule = await import('../../workflow/compensation.js');
-              vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue({
+              vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue(processManaged({
                 actions: [],
                 events: [],
                 success: true,
                 checkpoint: null,
-              });
+              }));
 
               // First attempt: fail event append on the first call within cancel
               let callCount = 0;
@@ -452,3 +455,31 @@ describe('handleCancel', () => {
     });
   });
 });
+
+/**
+ * Shape a mocked `executeCompensation` result the way the process-managed path
+ * really returns it.
+ *
+ * Cancellation readiness requires a DURABLE outcome for every compensation
+ * action — a result without `durableOutcomes` means compensation ran outside the
+ * process manager, which must fail closed as COMPENSATION_PARTIAL. Mocks that
+ * omit it therefore exercise the fail-closed path rather than the behaviour
+ * under test. Deriving the outcomes from the mocked actions keeps the two in
+ * lockstep so this cannot drift again.
+ */
+function processManaged<T extends { actions: readonly { actionId: string }[] }>(
+  result: T,
+): T & {
+  durableOutcomes: {
+    completedActionIds: readonly string[];
+    outcomeSequences: readonly number[];
+  };
+} {
+  return {
+    ...result,
+    durableOutcomes: {
+      completedActionIds: result.actions.map((a) => a.actionId),
+      outcomeSequences: result.actions.map((_, i) => i + 1),
+    },
+  };
+}
