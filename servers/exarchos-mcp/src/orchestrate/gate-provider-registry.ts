@@ -138,25 +138,24 @@ function levenshtein(a: string, b: string): number {
   if (a.length === 0) return b.length;
   if (b.length === 0) return a.length;
 
-  // Typed arrays, not `number[]`: the DP rows are dense by construction, and
-  // `Int32Array` indexing is typed `number` rather than `number | undefined`, so
-  // the inner loop needs no non-null assertions to satisfy
-  // `noUncheckedIndexedAccess`. Suppressing the checker here would have hidden a
-  // genuine off-by-one just as effectively as it silenced the noise.
+  // Dense DP rows kept as typed arrays for compact, fast indexing. Under
+  // `noUncheckedIndexedAccess` even a provably in-bounds typed-array read types
+  // as `number | undefined`, so the always-valid reads below are asserted; the
+  // `0..b.length` DP bounds make those assertions total by construction.
   let previous = Int32Array.from({ length: b.length + 1 }, (_, index) => index);
   let current = new Int32Array(b.length + 1);
   for (let i = 1; i <= a.length; i += 1) {
     current[0] = i;
     for (let j = 1; j <= b.length; j += 1) {
       current[j] = Math.min(
-        current[j - 1] + 1,
-        previous[j] + 1,
-        previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+        current[j - 1]! + 1,
+        previous[j]! + 1,
+        previous[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1),
       );
     }
     [previous, current] = [current, previous];
   }
-  return previous[b.length];
+  return previous[b.length]!;
 }
 
 function unknownGateClassDiagnostic(gateClass: string): UnknownGateClassDiagnostic {
