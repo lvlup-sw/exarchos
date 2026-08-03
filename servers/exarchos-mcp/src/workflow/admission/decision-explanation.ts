@@ -1,5 +1,11 @@
 // ─── P06-06 / Transition tasks 025, 026 — Explainable admission decisions ─────
 //
+// RESERVED(issue: #1590, owner: exarchos, expires: 2027-01-31) — production
+// code awaiting the legacy HSM cutover, same staging as
+// `transition-command.ts`: it explains a `TransitionDecided`, and nothing
+// produces one in production until P07-02 migrates the built-in workflows off
+// the legacy guard. P07-05 removes the legacy path once this is the only one.
+//
 // `explainDecision` turns a persisted {@link TransitionDecided} into a TOTAL,
 // caller-facing explanation:
 //

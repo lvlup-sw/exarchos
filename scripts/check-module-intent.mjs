@@ -136,6 +136,8 @@ const ALLOWLIST_CLASSES = [
         'Documentation-vs-schema drift gate (P02-07): extracts tool-invocation examples from skills-src/ and commands/ and validates them against the live TOOL_REGISTRY projection. Test-invoked gate machinery — deliberately not a production import target so shipped code never depends on doc parsing.',
       'contract/compiler/generate.ts':
         'Contract-artifact generator entry point (P03-03): regenerates the checked-in proof-fixture baseline and is invoked by its co-located drift guard. Build/gate machinery — the shipped server consumes the generated baseline, never the generator.',
+      'workflow/admission/remediation-purity.ts':
+        'Remediation no-mutation census (P06-06): a source-import audit proving remediation.ts imports no event-store, atomic-appender, or filesystem API — i.e. that remediation is pure data and can never patch pass-state. Test-invoked structural gate, same class as effect-ledger.',
     },
     matches(rel) {
       return Object.prototype.hasOwnProperty.call(this.members, rel);
