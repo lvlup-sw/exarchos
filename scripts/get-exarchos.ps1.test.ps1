@@ -182,4 +182,68 @@ Describe 'get-exarchos.ps1' {
             }
         }
     }
+
+    Context 'GetExarchos_ReleaseManifestVerification' {
+
+        function New-TestAsset {
+            param([byte[]]$Bytes)
+            $p = Join-Path ([System.IO.Path]::GetTempPath()) ("exarchos-asset-" + [Guid]::NewGuid())
+            [System.IO.File]::WriteAllBytes($p, $Bytes)
+            return $p
+        }
+
+        It 'Get-AssetSha256 matches Get-FileHash and is sha256:-prefixed' {
+            $p = New-TestAsset -Bytes ([byte[]](1, 2, 3, 4))
+            try {
+                $expected = "sha256:" + (Get-FileHash -Path $p -Algorithm SHA256).Hash.ToLowerInvariant()
+                (Get-AssetSha256 -Path $p) | Should -Be $expected
+            }
+            finally { Remove-Item -Force $p }
+        }
+
+        It 'Test-ManifestAssetDigest accepts a matching download and rejects a tampered one' {
+            $p = New-TestAsset -Bytes ([byte[]](0x7f, 0x45, 0x4c, 0x46, 0x0d, 0x0a))
+            try {
+                $digest = Get-AssetSha256 -Path $p
+                $json = @{ manifest = @{ assets = @(@{ name = 'exarchos-windows-x64.exe'; digest = $digest }) } } | ConvertTo-Json -Depth 8
+                $m = $json | ConvertFrom-Json
+                (Test-ManifestAssetDigest -Manifest $m -AssetName 'exarchos-windows-x64.exe' -Path $p) | Should -BeTrue
+                # Tamper the downloaded file — the digest no longer matches.
+                Add-Content -Path $p -Value 'tampered'
+                (Test-ManifestAssetDigest -Manifest $m -AssetName 'exarchos-windows-x64.exe' -Path $p) | Should -BeFalse
+            }
+            finally { Remove-Item -Force $p }
+        }
+
+        It 'Test-ManifestAssetDigest fails closed for an asset absent from the manifest' {
+            $p = New-TestAsset -Bytes ([byte[]](1, 2))
+            try {
+                $json = @{ manifest = @{ assets = @(@{ name = 'other'; digest = 'sha256:00' }) } } | ConvertTo-Json -Depth 8
+                $m = $json | ConvertFrom-Json
+                (Test-ManifestAssetDigest -Manifest $m -AssetName 'exarchos-windows-x64.exe' -Path $p) | Should -BeFalse
+            }
+            finally { Remove-Item -Force $p }
+        }
+
+        It 'Test-ManifestSourceIdentity accepts a match and rejects a mismatch' {
+            $json = @{ manifest = @{ source = @{ commit = ('a' * 40); treeDigest = 'sha256:aa' } } } | ConvertTo-Json -Depth 8
+            $m = $json | ConvertFrom-Json
+            (Test-ManifestSourceIdentity -Manifest $m -ExpectedCommit ('a' * 40) -ExpectedTreeDigest 'sha256:aa') | Should -BeTrue
+            (Test-ManifestSourceIdentity -Manifest $m -ExpectedCommit ('b' * 40) -ExpectedTreeDigest 'sha256:aa') | Should -BeFalse
+        }
+
+        It 'Test-ManifestContractIdentity accepts a match and rejects a mismatch' {
+            $json = @{ manifest = @{ contract = @{ digest = 'sha256:cc' } } } | ConvertTo-Json -Depth 8
+            $m = $json | ConvertFrom-Json
+            (Test-ManifestContractIdentity -Manifest $m -ExpectedContractDigest 'sha256:cc') | Should -BeTrue
+            (Test-ManifestContractIdentity -Manifest $m -ExpectedContractDigest 'sha256:dd') | Should -BeFalse
+        }
+
+        It 'Test-ManifestSignature fails closed when no verifier is available' {
+            $missing = Join-Path ([System.IO.Path]::GetTempPath()) ("no-verifier-" + [Guid]::NewGuid() + ".js")
+            (Test-ManifestSignature -VerifierPath $missing -ManifestPath 'm.json' `
+                    -TrustRootKeyId 'k' -TrustRootPubKeyPath 'p.pem' -ExpectedSource 'c#d' `
+                    -ExpectedContractDigest 'sha256:cc' -AssetName 'a' -AssetPath 'a.bin') | Should -BeFalse
+        }
+    }
 }

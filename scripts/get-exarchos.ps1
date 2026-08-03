@@ -133,6 +133,154 @@ function Test-ChecksumMatches {
     return ($actual -eq $expected)
 }
 
+function Get-AssetSha256 {
+    <#
+    .SYNOPSIS
+    Raw-byte SHA-256 of a file as `sha256:<lowerhex>` — the exact digest form
+    the signed release manifest records (see release-manifest.ts
+    `digestAssetBytes`). Unlike the text digests used for the contract / install
+    identity, this is over raw bytes (a binary is not line-ending-normalizable).
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path)
+    $hash = (Get-FileHash -Path $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+    return "sha256:$hash"
+}
+
+function Get-SignedManifest {
+    <#
+    .SYNOPSIS
+    Parse a signed release manifest JSON file into an object. Throws on
+    malformed JSON so a caller can fail closed.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path)
+    return (Get-Content -Path $Path -Raw | ConvertFrom-Json)
+}
+
+function Test-ManifestAssetDigest {
+    <#
+    .SYNOPSIS
+    ASSET-DIGEST dimension: return $true iff the downloaded file's raw SHA-256
+    matches the digest the signed manifest records for $AssetName. Fails closed
+    ($false) if the manifest does not enumerate the asset at all.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Manifest,
+        [Parameter(Mandatory)][string]$AssetName,
+        [Parameter(Mandatory)][string]$Path
+    )
+    if (-not (Test-Path $Path)) { return $false }
+    $asset = @($Manifest.manifest.assets | Where-Object { $_.name -eq $AssetName }) | Select-Object -First 1
+    if ($null -eq $asset) { return $false }
+    return ((Get-AssetSha256 -Path $Path) -eq $asset.digest)
+}
+
+function Test-ManifestSourceIdentity {
+    <#
+    .SYNOPSIS
+    SOURCE dimension: return $true iff the manifest's embedded source identity
+    (commit + tree digest) matches the values the installer pins.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Manifest,
+        [Parameter(Mandatory)][string]$ExpectedCommit,
+        [Parameter(Mandatory)][string]$ExpectedTreeDigest
+    )
+    return (($Manifest.manifest.source.commit -eq $ExpectedCommit) -and
+            ($Manifest.manifest.source.treeDigest -eq $ExpectedTreeDigest))
+}
+
+function Test-ManifestContractIdentity {
+    <#
+    .SYNOPSIS
+    CONTRACT dimension: return $true iff the manifest's embedded contract
+    authority digest (P03-01 roll-up) matches the value the installer pins.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Manifest,
+        [Parameter(Mandatory)][string]$ExpectedContractDigest
+    )
+    return ($Manifest.manifest.contract.digest -eq $ExpectedContractDigest)
+}
+
+function Test-ManifestSignature {
+    <#
+    .SYNOPSIS
+    MANIFEST-SIGNATURE dimension: delegate Ed25519 signature verification to the
+    tested TS core (servers/exarchos-mcp/.../release-verify-cli.js) via `node`.
+    Windows PowerShell (.NET Framework) has no Ed25519 primitive, so this is the
+    one dimension the shell cannot do natively.
+
+    Fails CLOSED: returns $false when no runner or verifier is available — an
+    unverifiable signature is treated exactly like a bad one.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$VerifierPath,
+        [Parameter(Mandatory)][string]$ManifestPath,
+        [Parameter(Mandatory)][string]$TrustRootKeyId,
+        [Parameter(Mandatory)][string]$TrustRootPubKeyPath,
+        [Parameter(Mandatory)][string]$ExpectedSource,
+        [Parameter(Mandatory)][string]$ExpectedContractDigest,
+        [Parameter(Mandatory)][string]$AssetName,
+        [Parameter(Mandatory)][string]$AssetPath
+    )
+    $node = Get-Command node -ErrorAction SilentlyContinue
+    if ($null -eq $node -or -not (Test-Path $VerifierPath)) { return $false }
+
+    & node $VerifierPath `
+        --manifest $ManifestPath `
+        --trust-root "$TrustRootKeyId=$TrustRootPubKeyPath" `
+        --expect-source $ExpectedSource `
+        --expect-contract $ExpectedContractDigest `
+        --asset "$AssetName=$AssetPath" | Out-Null
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Invoke-ReleaseManifestVerification {
+    <#
+    .SYNOPSIS
+    Run all four fail-closed release-verification dimensions and throw on the
+    first failure. The full four-way logic (including the signature) lives in
+    the tested TS core; the shell-native checks here are defense-in-depth so a
+    tampered asset/source/contract is caught even if the signature step is
+    delegated. Every dimension is independently fatal.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$VerifierPath,
+        [Parameter(Mandatory)][string]$ManifestPath,
+        [Parameter(Mandatory)][string]$TrustRootKeyId,
+        [Parameter(Mandatory)][string]$TrustRootPubKeyPath,
+        [Parameter(Mandatory)][string]$ExpectedCommit,
+        [Parameter(Mandatory)][string]$ExpectedTreeDigest,
+        [Parameter(Mandatory)][string]$ExpectedContractDigest,
+        [Parameter(Mandatory)][string]$AssetName,
+        [Parameter(Mandatory)][string]$AssetPath
+    )
+    $manifest = Get-SignedManifest -Path $ManifestPath
+
+    if (-not (Test-ManifestSignature -VerifierPath $VerifierPath -ManifestPath $ManifestPath `
+            -TrustRootKeyId $TrustRootKeyId -TrustRootPubKeyPath $TrustRootPubKeyPath `
+            -ExpectedSource "$ExpectedCommit#$ExpectedTreeDigest" -ExpectedContractDigest $ExpectedContractDigest `
+            -AssetName $AssetName -AssetPath $AssetPath)) {
+        throw "Release manifest signature verification failed (or no verifier available). Refusing to install."
+    }
+    if (-not (Test-ManifestSourceIdentity -Manifest $manifest -ExpectedCommit $ExpectedCommit -ExpectedTreeDigest $ExpectedTreeDigest)) {
+        throw "Release source identity mismatch. Refusing to install."
+    }
+    if (-not (Test-ManifestContractIdentity -Manifest $manifest -ExpectedContractDigest $ExpectedContractDigest)) {
+        throw "Release contract identity mismatch. Refusing to install."
+    }
+    if (-not (Test-ManifestAssetDigest -Manifest $manifest -AssetName $AssetName -Path $AssetPath)) {
+        throw "Release asset digest mismatch for $AssetName. Refusing to install."
+    }
+}
+
 function Add-ToUserPath {
     <#
     .SYNOPSIS
