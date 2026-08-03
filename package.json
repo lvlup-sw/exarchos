@@ -8,6 +8,7 @@
     "agents",
     "commands",
     "skills",
+    "command-aliases",
     "rules",
     "scripts",
     "hooks",
