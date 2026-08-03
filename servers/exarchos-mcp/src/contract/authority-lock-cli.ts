@@ -19,11 +19,12 @@ import { collectLiveAuthorities, defaultSourcePaths } from './authority-collecto
 import { buildAuthorityLock } from './authority-pin.js';
 
 const LOCK_NOTE =
-  'PROGRAM-03 contract authority freeze (P03-01). Regenerate with ' +
+  'PROGRAM-03 contract authority freeze (P03-01, extended by P03-02 with the ' +
+  'closed `contract-surface` authority). Regenerate with ' +
   '`npx tsx src/contract/authority-lock-cli.ts` after reviewing and approving ' +
   'the new authority digests, then commit this file.';
 
-export function regenerateAuthorityLock(approvedBy = 'P03-01'): string {
+export function regenerateAuthorityLock(approvedBy = 'P03-02'): string {
   const paths = defaultSourcePaths();
   const live = collectLiveAuthorities(paths);
   const lock = buildAuthorityLock(live, { approvedBy, note: LOCK_NOTE });

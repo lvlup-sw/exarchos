@@ -75,6 +75,10 @@ import { handleDoctor, ALL_CHECKS } from './index.js';
  * DELIBERATE PIN UPDATE (Task 019, DR-11 B-5): `store-path-divergence` (category
  * `storage`) was added in the storage block, after `storage-sqlite-health`, as a
  * CONSCIOUS act. The count + `checkCount` invariants are updated 16 → 17.
+ *
+ * DELIBERATE PIN UPDATE (P05-04): `install-freshness` (category `plugin`) was
+ * added in the plugin block, after `plugin-version-match`, as a CONSCIOUS act.
+ * The count + `checkCount` invariants are updated 17 → 18.
  */
 const PINNED_CHECKS: ReadonlyArray<{
   category: CheckResult['category'];
@@ -94,6 +98,7 @@ const PINNED_CHECKS: ReadonlyArray<{
   { category: 'plugin', name: 'stale-skill-dirs' },
   { category: 'plugin', name: 'plugin-skill-hash-sync' },
   { category: 'plugin', name: 'plugin-version-match' },
+  { category: 'plugin', name: 'install-freshness' },
   { category: 'remote', name: 'remote-mcp' },
   { category: 'invariants', name: 'invariants-catalog' },
   { category: 'verification', name: 'verification-toolchain' },
@@ -157,12 +162,12 @@ describe('doctor characterization (DR-9 baseline)', () => {
     const output: DoctorOutput = DoctorOutputSchema.parse(result.data);
     const { checks, summary } = output;
 
-    // ── 1. The seventeen checks, pinned by (category, name) and order ──────
+    // ── 1. The eighteen checks, pinned by (category, name) and order ──────
     // (13 → 15 updated by Task 017: onramp-block-drift + retired-hooks-present;
     // 15 → 16 by Task 011: stale-skill-dirs; 16 → 17 by Task 019:
-    // store-path-divergence.)
-    expect(ALL_CHECKS).toHaveLength(17);
-    expect(checks).toHaveLength(17);
+    // store-path-divergence; 17 → 18 by P05-04: install-freshness.)
+    expect(ALL_CHECKS).toHaveLength(18);
+    expect(checks).toHaveLength(18);
 
     const observedIdentity = checks.map((c) => ({
       category: c.category,
@@ -172,7 +177,7 @@ describe('doctor characterization (DR-9 baseline)', () => {
 
     // The name set is exactly the pinned set (no dupes, no strays).
     const observedNames = new Set(checks.map((c) => c.name));
-    expect(observedNames.size).toBe(17);
+    expect(observedNames.size).toBe(18);
     for (const { name } of PINNED_CHECKS) {
       expect(observedNames.has(name)).toBe(true);
     }
@@ -242,7 +247,7 @@ describe('doctor characterization (DR-9 baseline)', () => {
 
     // Pinned cross-field invariants between the event and the doctor output.
     expect(payload.checkCount).toBe(checks.length);
-    expect(payload.checkCount).toBe(17);
+    expect(payload.checkCount).toBe(18);
     expect(payload.summary).toEqual(summary);
     expect(payload.failedCheckNames).toEqual(
       checks.filter((c) => c.status === 'Fail').map((c) => c.name),

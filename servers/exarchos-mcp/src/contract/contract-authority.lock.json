@@ -1,8 +1,8 @@
 {
   "lockVersion": 1,
   "approved": true,
-  "approvedBy": "P03-01",
-  "note": "PROGRAM-03 contract authority freeze (P03-01). Regenerate with `npx tsx src/contract/authority-lock-cli.ts` after reviewing and approving the new authority digests, then commit this file.",
+  "approvedBy": "P03-02",
+  "note": "PROGRAM-03 contract authority freeze (P03-01, extended by P03-02 with the closed `contract-surface` authority). Regenerate with `npx tsx src/contract/authority-lock-cli.ts` after reviewing and approving the new authority digests, then commit this file.",
   "authorities": {
     "strategos-contracts": {
       "kind": "schema",
@@ -50,6 +50,14 @@
       "versionSpec": "3",
       "digest": "sha256:33bf991e1fa5061102f67451b3a39a2f678cdc42399377a7eb4d713278c3d89e",
       "source": ".exarchos/invariants.md pinned at frontmatter schema-version",
+      "approved": true
+    },
+    "contract-surface": {
+      "kind": "schema",
+      "version": "1.0.0",
+      "versionSpec": "1.0.0",
+      "digest": "sha256:23af63c9fd859f1364a7b144bd852822b666aea49355a9955008cddf48770627",
+      "source": "src/contract/{error-families,envelope,request-context,compatibility}.ts closed contract surface (P03-02), pinned at CONTRACT_SURFACE_VERSION",
       "approved": true
     }
   }

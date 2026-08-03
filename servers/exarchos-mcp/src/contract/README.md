@@ -20,6 +20,7 @@ whatever floats in at build time.
 | `action-id-registry`   | `registry` | — (digest-only)                           | sorted `<tool>.<action>` ActionIds from `registry` |
 | `compatibility-policy` | `policy`   | `COMPATIBILITY_POLICY_VERSION`            | `src/lib/plugin-compat.ts`                         |
 | `invariant-catalog`    | `catalog`  | `.exarchos/invariants.md` `schema-version`| `.exarchos/invariants.md`                          |
+| `contract-surface`     | `schema`   | `CONTRACT_SURFACE_VERSION` (P03-02)       | canonical `serializeContractSurface()` (P03-02)    |
 
 Each authority is one of: **version-only** (`digest: null`), **digest-only**
 (`version: null`), or **both**.
@@ -126,3 +127,149 @@ changes* between a merge-base and HEAD by running external codegen/diff tools.
 This module is the **freeze** layer: it pins the authority versions/digests a
 generator consumes and compares the live tree to an approved lock. Drift
 compares two tree states; the freeze compares the tree to the approved snapshot.
+
+---
+
+# Total contract carriers (P03-02)
+
+**Second link in the PROGRAM-03 chain.** Defines the *closed*, **total** contract
+surface that P03-01 freezes and that P03-03 (contract compiler), P03-04 (MCP
+binding generation), and P03-05 (CLI generation) generate against. "Total" is
+the operative word: **every** failure in **every** layer — protocol,
+authorization, task, handler, output, presenter — maps to a stable, enumerated
+contract error code **and** a stable CLI exit code, and adding a failure family
+without mapping it is a **compile error** (a `never` exhaustiveness check), not a
+runtime surprise.
+
+> Exit proof: *every protocol, authorization, task, handler, output, and
+> presenter failure maps to a stable contract error and CLI exit.*
+
+## Modules & public API surface
+
+### `error-families.ts` — total result/error carriers
+
+The exhaustive error-family union and its stable code/exit mapping. Totality is
+enforced two ways: `FAMILY_DEFAULTS` is a `Record<FailureLayer, …>` (a missing
+layer is a compile error), and the severity/classification switches end in
+`assertNever(x)` so an unmapped variant fails to type-check.
+
+```ts
+FailureLayer                                    // 'protocol'|'authorization'|'task'|'handler'|'output'|'presenter'
+FAILURE_LAYERS: readonly FailureLayer[]
+CONTRACT_EXIT_CODES                             // { SUCCESS, INVALID_INPUT, HANDLER_ERROR, UNCAUGHT_EXCEPTION, WAIT_TIMEOUT, WAIT_FAILED }
+ContractExitCode
+RetryPolicy                                     // 'never'|'retryable'|'after-backoff'
+FailureFamilyDescriptor                         // { layer, code, exitCode, retry, severity }
+FAMILY_DEFAULTS: Record<FailureLayer, FailureFamilyDescriptor>   // ← totality by construction
+failureFamily(layer): FailureFamilyDescriptor
+layerSeverity(layer): Severity                  // never-switch
+StableErrorSpec, StableErrorCode
+STABLE_ERROR_REGISTRY: Record<StableErrorCode, StableErrorSpec>
+stableErrorCodes(): StableErrorCode[]
+layerCodes(layer): StableErrorCode[]
+ContractError                                   // { layer, code, message, exitCode, retry, detail? }
+ContractErrorOptions                            // { code?, retry?, exitCode?, detail? }
+contractError(layer, message, opts?): ContractError
+exitCodeForError(code): ContractExitCode
+ContractErrorEnvelope
+toErrorEnvelope(err): ContractErrorEnvelope      // { success:false, error:{…} }
+assertNever(x: never): never                    // exhaustiveness helper
+```
+
+### `envelope.ts` — output carriers (baseline / capped / degraded / error)
+
+Formalizes the *capped* and *degraded* carriers around the existing
+`economyBudgetTokens` / `_perf.tokens` / `economyDegraded` seam without forking
+the live `ToolResult` shape (re-exports the canonical envelope schemas).
+
+```ts
+OutputKind                                      // 'baseline'|'capped'|'degraded'|'error'
+OUTPUT_KINDS: readonly OutputKind[]
+OutputKindDescriptor, EconomyMarker             // 'truncated'|'economyDegraded'|null
+classifyOutput(meta): OutputKind
+describeOutputKind(kind): OutputKindDescriptor   // { success, economyMarker } — never-switch
+hasConsistentEconomyState(meta): boolean        // capped ⊕ degraded are mutually exclusive
+CappedData, CappedDataSchema                    // { summary, counts:{total,shown}, firstPage:[] }
+OutputEnvelopeSchema(dataSchema)
+// re-exports: SuccessEnvelopeSchema, ErrorEnvelopeSchema, CacheHintsSchema
+```
+
+### `request-context.ts` — authenticated context + replay identity
+
+Consumes the P01-07 `CallerAuthorizationSnapshot` model (identity derived from
+transport/dispatch, never caller payload). Callers **cannot** self-assert
+issuer, role, or timestamp: `sanitizeUntrustedHints` strips every
+`PROTECTED_CONTEXT_FIELD` from caller-supplied `_meta`. Replay identity returns
+the canonical stored result on a true replay and a **typed conflict** (never a
+silently different second execution) when a different subject reuses an
+idempotency key.
+
+```ts
+PROTECTED_CONTEXT_FIELDS: readonly string[]
+ProtectedContextField
+isProtectedContextField(key): boolean
+sanitizeUntrustedHints(meta): Record<string, unknown>   // strips protected fields, frozen
+AuthenticatedRequestContext
+deriveRequestContext(snapshot, hints?): AuthenticatedRequestContext
+contextSubjectId(ctx): string
+canonicalJson(value): string                    // deterministic, recursively key-sorted
+requestDigest(actionId, input, subjectId): string
+ReplayIdentity
+deriveReplayIdentity(...): ReplayIdentity
+ReplayOutcome                                   // { status:'fresh' } | {'replayed',result} | {'conflict',error}
+ReplayLedger                                    // claim/resolve; subject-conflict → typed ContractError
+```
+
+### `compatibility.ts` — version negotiation + directional migration
+
+Explicit, testable negotiation over a client `VersionRange`; migration that
+**declares** its direction (`forward`/`backward`) from semver precedence rather
+than assuming it; cross-major is `incompatible`. `requiresMixedVersionRefusal`
+gates mixed-version fan-out.
+
+```ts
+CONTRACT_SURFACE_VERSION: '1.0.0'
+majorVersion(v), minorVersion(v)
+VersionRange                                    // { min, max }
+NegotiationOutcome                              // {'agreed',version} | {'unsupported',error}
+negotiateVersion(clientRange, serverSupported): NegotiationOutcome
+MigrationDirection                              // 'forward'|'backward'
+MigrationPlan                                   // {'identity'} | {'migrate',direction,from,to} | {'incompatible',error}
+planMigration(from, to): MigrationPlan
+CompatibilityClass, classifyVersionChange(from, to): CompatibilityClass
+CONTRACT_CHANGE_CLASSES, ChangeClass, changeClassSeverity(cls)   // never-switch
+requiresMixedVersionRefusal(versions): boolean
+```
+
+### `contract-surface.ts` — the frozen structural digest source
+
+`serializeContractSurface()` is the deterministic, content-addressable
+serialization of the whole closed surface (families, codes, exits, retries,
+output kinds, change classes, protected fields, surface version). The
+`contract-surface` authority digests exactly this string, so any structural
+change to the contract trips the P03-01 freeze and demands re-approval via the
+lock CLI. Doc-comment edits do **not** trip it — only structure is captured.
+
+```ts
+contractSurface(): Record<string, unknown>      // structural, key-order-independent
+serializeContractSurface(): string              // canonicalJson(contractSurface())
+```
+
+## Totality is a compile-time guarantee
+
+- `FAMILY_DEFAULTS: Record<FailureLayer, …>` — omitting a layer is `TS2741`.
+- `layerSeverity`, `describeOutputKind`, `changeClassSeverity` end their
+  switch in `assertNever(x)` — adding a variant without a case fails to compile.
+- `error-families.type-test.ts` carries four type-level totality proofs that
+  `tsc --noEmit` enforces (no runtime).
+- The six-layer *exit proof* in `error-families.test.ts` asserts each seeded
+  layer failure maps to the expected stable code **and** the expected CLI exit,
+  cross-checked against `adapters/cli.ts`'s own exit table.
+
+## How P03-02 hooks into the P03-01 freeze
+
+The `contract-surface` authority was registered **additively** into P03-01's
+model (`authority-pin.ts` / `authority-collector.ts`) and the lock re-approved
+(`approvedBy: "P03-02"`). Downstream generators keep gating on
+`verifyContractAuthority().ok`; if the closed surface drifts from the approved
+digest the freeze blocks, exactly as for every other authority.

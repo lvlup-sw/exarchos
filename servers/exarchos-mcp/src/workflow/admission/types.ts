@@ -395,6 +395,12 @@ export const UnsatisfiedRequirementReasonSchema = z.enum([
   'malformed',
   'contradictory',
   'waiver-expired',
+  // Additive (P06-05 / Transition task 024): a requirement whose only evidence
+  // is issued by a principal the trusted `PolicyAuthority` does not authorize is
+  // denied for the sound reason `unauthorized` — matching `evaluatePolicy`'s
+  // `PolicyDenyReason`. Historical V1 deny records that never carried this
+  // member remain replayable; the freeze/decision projection can now persist it.
+  'unauthorized',
 ]);
 export type UnsatisfiedRequirementReason = z.infer<
   typeof UnsatisfiedRequirementReasonSchema

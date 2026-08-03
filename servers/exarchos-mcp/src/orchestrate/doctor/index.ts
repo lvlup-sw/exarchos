@@ -54,13 +54,14 @@ import { retiredHooksPresent } from './checks/retired-hooks-present.js';
 import { staleSkillDirs } from './checks/stale-skill-dirs.js';
 import { pluginSkillHashSync } from './checks/plugin-skill-hash-sync.js';
 import { pluginVersionMatch } from './checks/plugin-version-match.js';
+import { installFreshness } from './checks/install-freshness.js';
 import { remoteMcpStub } from './checks/remote-mcp-stub.js';
 import { invariantsCatalog } from './checks/invariants-catalog.js';
 import { verificationToolchain } from './checks/verification-toolchain.js';
 
 // ─── Canonical check list ──────────────────────────────────────────────────
 
-/** All 17 checks. Order is preserved in the output — callers can scan
+/** All 18 checks. Order is preserved in the output — callers can scan
  * top-to-bottom for the first Fail. DR-11 B-5 (Task 019) added
  * `store-path-divergence` in the `storage` block: the read-only check that
  * fires when the CLI and Claude Code plugin surfaces resolve DIFFERENT event
@@ -77,7 +78,11 @@ import { verificationToolchain } from './checks/verification-toolchain.js';
  * `hook` removal step (the reconciler also enforces this ordering explicitly).
  * DR-3/DR-8 (Task 011) added `stale-skill-dirs`: the read-only residue finding
  * for the onboard rename migration, in the `plugin` block so its remediation
- * degrades to the cli-only install step (the migration itself). */
+ * degrades to the cli-only install step (the migration itself).
+ * P05-04 added `install-freshness`: the read-only view of the install-identity
+ * freshness gate (binary/plugin/skill/schema/cache), placed in the `plugin`
+ * block after `plugin-version-match`; it diagnoses the "upgraded binary, stale
+ * plugin/skill/cache" case the dispatch chokepoint blocks at runtime. */
 export const ALL_CHECKS: ReadonlyArray<CheckFn> = [
   runtimeNodeVersion,
   storageStateDir,
@@ -93,6 +98,7 @@ export const ALL_CHECKS: ReadonlyArray<CheckFn> = [
   staleSkillDirs,
   pluginSkillHashSync,
   pluginVersionMatch,
+  installFreshness,
   remoteMcpStub,
   invariantsCatalog,
   verificationToolchain,

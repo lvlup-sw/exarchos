@@ -436,6 +436,47 @@ fi
 teardown
 
 # ============================================================
+# TEST: Release manifest verification primitives (P05-01)
+# ============================================================
+setup
+REL_DIR="$TMPDIR_ROOT/rel"
+mkdir -p "$REL_DIR"
+REL_ASSET="$REL_DIR/asset.bin"
+printf 'exarchos-binary-bytes' > "$REL_ASSET"
+
+# asset_sha256 must produce a sha256:<hex> equal to an independent reference hash.
+if (
+    export EXARCHOS_LIB_ONLY=1
+    # shellcheck disable=SC1090
+    . "$SCRIPT_UNDER_TEST"
+    got="$(asset_sha256 "$REL_ASSET")"
+    if command -v sha256sum >/dev/null 2>&1; then
+        want="sha256:$(sha256sum "$REL_ASSET" | awk '{print $1}')"
+    else
+        want="sha256:$(shasum -a 256 "$REL_ASSET" | awk '{print $1}')"
+    fi
+    [ "$got" = "$want" ] && printf '%s' "$got" | grep -Eq '^sha256:[0-9a-f]{64}$'
+); then
+    pass "GetExarchos_AssetSha256_MatchesReferenceHash"
+else
+    fail "GetExarchos_AssetSha256_MatchesReferenceHash"
+fi
+
+# verify_release_manifest must fail CLOSED (non-zero) when the verifier is absent.
+if (
+    export EXARCHOS_LIB_ONLY=1
+    # shellcheck disable=SC1090
+    . "$SCRIPT_UNDER_TEST"
+    missing="$TMPDIR_ROOT/no-such-verifier.js"
+    verify_release_manifest "$missing" "m.json" "k" "p.pem" "c#d" "sha256:cc" "a" "$REL_ASSET" >/dev/null 2>&1
+); then
+    fail "GetExarchos_VerifyReleaseManifest_FailsClosedWhenVerifierMissing (unexpectedly passed)"
+else
+    pass "GetExarchos_VerifyReleaseManifest_FailsClosedWhenVerifierMissing"
+fi
+teardown
+
+# ============================================================
 # SUMMARY
 # ============================================================
 echo ""

@@ -22,6 +22,8 @@ function sampleInputs(overrides: Partial<AuthorityInputs> = {}): AuthorityInputs
     compatibilityPolicySource: 'export function compareSemver() {}\n',
     invariantCatalogSchemaVersion: '3',
     invariantCatalogSource: 'schema-version: 3\n',
+    contractSurfaceVersion: '1.0.0',
+    contractSurfaceSource: '{"version":"1.0.0"}',
     ...overrides,
   };
 }
