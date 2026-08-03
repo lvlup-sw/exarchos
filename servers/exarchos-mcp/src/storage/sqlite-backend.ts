@@ -99,7 +99,12 @@ export interface AtomicDecideOnceOutcome<TResult> {
 
 // ─── Schema DDL ─────────────────────────────────────────────────────────────
 
-const SCHEMA_VERSION = 6;
+// Exported (additively) for the install-freshness gate (P05-04, ART-009): the
+// install-identity record captures the schema version this binary understands
+// so a freshness check can compare it against a store's persisted identity. The
+// value remains the single source of truth for the store's own DDL/migration
+// ledger below.
+export const SCHEMA_VERSION = 6;
 
 const SCHEMA_DDL = `
 CREATE TABLE IF NOT EXISTS events (
@@ -396,6 +401,39 @@ export class SqliteCorruptError extends Error {
 }
 
 /**
+ * Thrown by `initialize()` when the event store's persisted schema identity is
+ * NEWER than the schema version this binary understands (`SCHEMA_VERSION`). A
+ * store written by a newer Exarchos release must NOT be silently opened by an
+ * older one: the older binary would re-stamp its own (lower) version alongside
+ * the newer marker and operate against a schema whose invariants it does not
+ * know, risking silent data corruption (P05-04, ART-009).
+ *
+ * The directional policy is asymmetric by design and mirrors the forward-only
+ * migration machinery: an OLDER store (version < SCHEMA_VERSION) is
+ * forward-migrated on open; a NEWER store (version > SCHEMA_VERSION) is refused
+ * because downgrade is not a supported operation. Like {@link SqliteCorruptError},
+ * this terminates lifecycle startup — consumers must not catch it and continue.
+ */
+export class SchemaVersionTooNewError extends Error {
+  override readonly name = 'SchemaVersionTooNewError';
+  readonly code = 'SCHEMA_VERSION_TOO_NEW';
+  constructor(
+    public readonly dbPath: string,
+    public readonly storeVersion: number,
+    public readonly binaryVersion: number,
+  ) {
+    super(
+      `Event store at ${dbPath} was written under schema version ${storeVersion}, ` +
+        `but this binary understands schema version ${binaryVersion}. A store written by a ` +
+        `newer Exarchos release must not be opened by an older one (downgrade is unsupported). ` +
+        `Upgrade the exarchos binary to a release that understands schema version ` +
+        `${storeVersion} (or newer), or point WORKFLOW_STATE_DIR at a store written by this ` +
+        `binary.`,
+    );
+  }
+}
+
+/**
  * Detect SQLITE_BUSY in a thrown driver error. `bun:sqlite` and
  * `better-sqlite3` (the test-time shim) both expose `.code` as a
  * stringified SQLite error code on their thrown `SqliteError`
@@ -608,6 +646,13 @@ export class SqliteBackend implements StorageBackend {
       // Execute schema DDL
       this.db.exec(SCHEMA_DDL);
 
+      // Refuse to open a store written by a NEWER binary (P05-04, ART-009).
+      // Runs after SCHEMA_DDL (which guarantees the schema_version table
+      // exists) but BEFORE migrateSchema(), so no forward-migration or
+      // version re-stamp ever touches a store whose schema this binary cannot
+      // safely reason about. A fresh or equal-or-older store passes through.
+      this.assertSchemaNotNewerThanBinary();
+
       // Run migrations for existing databases
       this.migrateSchema();
 
@@ -724,6 +769,29 @@ export class SqliteBackend implements StorageBackend {
   private assertImmediateSupported(): void {
     if (!hasImmediateTransaction(this.db.transaction(() => {}))) {
       throw new SqliteImmediateUnsupportedError();
+    }
+  }
+
+  /**
+   * Refuse to open an event store whose persisted schema identity is NEWER
+   * than this binary understands (P05-04, ART-009). Reads
+   * `MAX(schema_version.version)` — the table is guaranteed to exist because
+   * SCHEMA_DDL's `CREATE TABLE IF NOT EXISTS` ran just above. A fresh store
+   * (empty table ⇒ NULL) and any equal-or-older store pass; a strictly-newer
+   * store closes the freshly-opened handle (so the file is not left locked
+   * against operator remediation, mirroring the corrupt path) and throws
+   * {@link SchemaVersionTooNewError} BEFORE `migrateSchema()` runs. The `>`
+   * (not `!==`) comparison is the directional policy: older stores are
+   * forward-migrated, only newer ones are refused.
+   */
+  private assertSchemaNotNewerThanBinary(): void {
+    const row = this.db
+      .prepare('SELECT MAX(version) AS version FROM schema_version')
+      .get() as { version: number | null } | undefined;
+    const storeVersion = row?.version ?? null;
+    if (storeVersion !== null && storeVersion > SCHEMA_VERSION) {
+      this.close();
+      throw new SchemaVersionTooNewError(this.dbPath, storeVersion, SCHEMA_VERSION);
     }
   }
 
