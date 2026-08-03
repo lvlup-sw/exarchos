@@ -69,6 +69,13 @@ const EXPECTED_CONSUMERS = [
   'src/orchestrate/worktree/manager.ts',
   'src/orchestrate/worktree/merge-serializer.ts',
   'src/storage/sqlite-backend.ts',
+  // P06-05 (structural-closure remediation): the admission chokepoint appends
+  // the admission decision and the phase-lifecycle sibling in ONE `decideOnce`
+  // transaction — the atomicity the work package's exit proof ("partial
+  // decision/transition siblings are impossible") rests on. It consumes the
+  // substrate rather than hand-rolling a transaction, which is exactly the
+  // posture this gate exists to encourage.
+  'src/workflow/admission/transition-command.ts',
 ] as const;
 
 const BENCH_THRESHOLD_OPS_PER_SEC = 1000;
