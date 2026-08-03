@@ -2,7 +2,7 @@ import { parse as parseYaml } from 'yaml';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { execSync } from 'node:child_process';
-import { ProjectConfigSchema, type ProjectConfig } from './yaml-schema.js';
+import { ProjectConfigSchema, FullExarchosConfigSchema, type ProjectConfig } from './yaml-schema.js';
 import { logger } from '../logger.js';
 
 const configLogger = logger.child({ subsystem: 'config' });
@@ -41,9 +41,19 @@ export function loadProjectConfig(projectRoot: string): ProjectConfig {
 
         if (parsed === null || parsed === undefined) return {};
 
-        // Full-config validation
-        const result = ProjectConfigSchema.safeParse(parsed);
-        if (result.success) return result.data;
+        // Full-config validation.
+        //
+        // Validate against the RECONCILED schema (#1479), not the narrow
+        // `ProjectConfigSchema`. The same `.exarchos.yml` is read by two paths
+        // whose schemas are both `.strict()`; validating here with only the
+        // project-side schema rejected every legitimate key owned by the other
+        // reader (e.g. the top-level `mutation` runner) and silently degraded a
+        // perfectly valid file to partial section parsing plus a startup
+        // warning. `FullExarchosConfigSchema` is exactly the merge that exists
+        // to make both readers reach the same verdict — a genuine typo is still
+        // rejected, because the merge is `.strict()` too.
+        const result = FullExarchosConfigSchema.safeParse(parsed);
+        if (result.success) return projectSliceOf(result.data);
 
         // Section-level fallback: extract valid sections
         configLogger.warn({ issues: result.error.issues }, '.exarchos.yml validation errors');
@@ -55,6 +65,20 @@ export function loadProjectConfig(projectRoot: string): ProjectConfig {
     }
   }
   return {};
+}
+
+/**
+ * Narrows a validated full-config document to the project-config slice this
+ * loader returns. Keys are derived from `ProjectConfigSchema`'s own shape
+ * rather than a hand-maintained list, so the projection cannot drift from the
+ * schema the way the validation path did.
+ */
+function projectSliceOf(full: Record<string, unknown>): ProjectConfig {
+  const slice: Record<string, unknown> = {};
+  for (const key of Object.keys(ProjectConfigSchema.shape)) {
+    if (key in full && full[key] !== undefined) slice[key] = full[key];
+  }
+  return slice as ProjectConfig;
 }
 
 /**

@@ -187,4 +187,69 @@ describe('discoverProjectRoot', () => {
       rmrf(isolatedDir);
     }
   });
+
+  // ─── Dual-reader reconciliation (#1479) ───────────────────────────────────
+  //
+  // `.exarchos.yml` is read by two paths whose schemas are both `.strict()`.
+  // This loader used to validate with the narrow project-side schema, so a key
+  // owned by the OTHER reader (e.g. the top-level `mutation` runner) failed
+  // full validation, logged a startup warning, and silently degraded the file
+  // to partial section parsing. The repo's own committed config hit this.
+  describe('reconciled full-config validation', () => {
+    it('loadProjectConfig_ForeignReaderKey_ValidatesWithoutDegrading', async () => {
+      const { loadProjectConfig } = await import('./yaml-loader.js');
+      fs.writeFileSync(
+        path.join(tmpDir, '.exarchos.yml'),
+        [
+          'mutation: node scripts/stryker-adapter.mjs',
+          'agents:',
+          '  default-model: opus',
+          'checkpoint:',
+          "  operation-threshold: 7",
+        ].join('\n'),
+        'utf-8',
+      );
+
+      const config = loadProjectConfig(tmpDir);
+
+      // `checkpoint` is deliberately NOT in the loader's SECTION_KEYS fallback
+      // list, so it can ONLY survive via the full-validation success path.
+      // Asserting on it (rather than on `agents`, which the fallback also
+      // recovers) is what makes this test discriminate: validating with the
+      // narrow project-side schema drops `checkpoint` entirely.
+      expect(config.checkpoint?.['operation-threshold']).toBe(7);
+      expect(config.agents?.['default-model']).toBe('opus');
+      // The foreign-reader key is not leaked into the project slice.
+      expect(config).not.toHaveProperty('mutation');
+    });
+
+    it('loadProjectConfig_GenuineTypo_StillRejected', async () => {
+      const { loadProjectConfig } = await import('./yaml-loader.js');
+      fs.writeFileSync(
+        path.join(tmpDir, '.exarchos.yml'),
+        ['nonsenseKey: 1', 'agents:', '  default-model: opus'].join('\n'),
+        'utf-8',
+      );
+
+      const config = loadProjectConfig(tmpDir);
+
+      // Reconciliation must not become permissive: an unknown key still fails
+      // full validation, so we fall back to section parsing (agents survives,
+      // the typo is dropped) rather than silently accepting it.
+      expect(config.agents?.['default-model']).toBe('opus');
+      expect(config).not.toHaveProperty('nonsenseKey');
+    });
+
+    it('loadProjectConfig_RepoOwnConfig_ValidatesCleanly', async () => {
+      const { loadProjectConfig } = await import('./yaml-loader.js');
+      // The repository's own committed config must validate on the success
+      // path — it is the file every developer and CI run loads at startup.
+      // `invariants` is outside the SECTION_KEYS fallback, so its presence
+      // proves full validation succeeded rather than degrading.
+      const repoRoot = path.resolve(__dirname, '..', '..', '..', '..');
+      const config = loadProjectConfig(repoRoot);
+      expect(config.agents).toBeDefined();
+      expect(config.invariants).toBeDefined();
+    });
+  });
 });
