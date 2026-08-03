@@ -24,6 +24,7 @@ import {
   deriveMcpCallerIdentity,
   type McpCallerRuntimeContext,
 } from '../dispatch/caller-identity.js';
+import { assertBindingsAtStartup } from '../contract/bindings/verify-bindings.js';
 
 // ─── DR-6: onboard CLI/MCP parity split — surface stamp + advisory carrier ───
 //
@@ -334,6 +335,14 @@ function validateAgainstActionSchema(
  *    and `structuredContent` (the typed envelope payload) ride together.
  */
 export function createMcpServer(ctx: DispatchContext): McpServer {
+  // ─── P03-04 (API-004) — pre-startup binding gate ────────────────────────────
+  // MCP is a wire projection of the Exarchos contract; before we advertise a
+  // single tool, assert every contract ActionId resolves to exactly one
+  // non-serializable implementation binding. A missing / duplicate / stale /
+  // non-function binding THROWS here — the server refuses to start rather than
+  // deferring the failure to a caller's first tool invocation.
+  assertBindingsAtStartup();
+
   const mcpSessionId = randomUUID();
   let mcpRuntimeContext: McpCallerRuntimeContext = { sessionId: mcpSessionId };
   // #1272 — canonical TaskStore wiring. The SDK's `InMemoryTaskStore`
