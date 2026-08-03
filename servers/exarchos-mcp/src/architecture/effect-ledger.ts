@@ -562,5 +562,12 @@ function registerLedger(): readonly EffectOwnershipRule[] {
       'identity collection is read-only; the TOFU lock write is a whole-file replacement',
       'a failed lock write leaves the previous recorded identity intact',
     ),
+    rule(
+      'filesystem',
+      'release/',
+      'release-manifest-fs',
+      'manifest/asset reads are content-addressed and idempotent',
+      'verification is read-only; a rejected release publishes nothing',
+    ),
   ]);
 }
