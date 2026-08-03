@@ -50,6 +50,7 @@ export type EvidenceArtifactErrorCode =
   | 'CONTENT_NOT_FOUND'
   | 'UNSUPPORTED_DIGEST_ALGORITHM'
   | 'MALFORMED_REFERENCE'
+  | 'PATH_TRAVERSAL'
   | 'DIGEST_MISMATCH';
 
 /** Fail-closed artifact boundary error suitable for admission diagnostics. */

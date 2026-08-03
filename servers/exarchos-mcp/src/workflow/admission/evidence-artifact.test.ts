@@ -1,15 +1,46 @@
-import { mkdtemp, readdir, readFile, rm, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, open, readdir, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import fc from 'fast-check';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ContentAddressedStore } from '../../artifacts/content-addressed-store.js';
+import {
+  ContentAddressedStore,
+  type ContentAddressedStoreIo,
+} from '../../artifacts/content-addressed-store.js';
+import { publishTempFile } from '../../utils/atomic-write.js';
 import {
   EvidenceArtifactResolutionError,
   resolveEvidenceArtifact,
   storeEvidenceArtifact,
 } from './evidence-artifact.js';
 import { normalizeEvidenceSubjectContent } from './evidence-subject.js';
+
+/** Real filesystem IO whose publish rename always fails — simulates a crash
+ * between staging the temp file and promoting it over the target. */
+function failingPublishIo(): ContentAddressedStoreIo {
+  return {
+    mkdir: (directory, options) => mkdir(directory, options),
+    writeFile: async (file, data) => {
+      const handle = await open(file, 'wx');
+      try {
+        await handle.writeFile(data);
+      } finally {
+        await handle.close();
+      }
+    },
+    readFile: (file) => readFile(file),
+    publish: (temporary, target) =>
+      publishTempFile(temporary, target, {
+        rename: () => {
+          throw Object.assign(new Error('injected publish failure'), {
+            code: 'EINJECT',
+          });
+        },
+        unlink: (file: string) => unlink(file),
+      }),
+    unlink: (file) => unlink(file),
+  };
+}
 
 async function onlyStoredBlob(root: string): Promise<string> {
   const algorithmDirectories = await readdir(root);
@@ -209,5 +240,75 @@ describe('content-addressed evidence artifacts', () => {
     await expect(resolveEvidenceArtifact(store, reference)).rejects.toMatchObject({
       code: 'DIGEST_MISMATCH',
     });
+  });
+
+  it('EvidenceArtifact_PartialPublishFailure_LeavesNoResolvableArtifact', async () => {
+    const failing = new ContentAddressedStore(artifactRoot, failingPublishIo());
+
+    await expect(
+      storeEvidenceArtifact(
+        failing,
+        { kind: 'artifact', artifactId: 'gate-report-partial' },
+        { verdict: 'pass', evidence: ['a', 'b'] },
+        { mediaType: 'application/json' },
+      ),
+    ).rejects.toThrow('injected publish failure');
+
+    // Nothing was published, so nothing — complete or partial — is readable,
+    // and no staged temp file was left behind.
+    const entries = await readdir(artifactRoot, {
+      withFileTypes: true,
+      recursive: true,
+    });
+    expect(entries.filter((entry) => entry.isFile())).toEqual([]);
+  });
+
+  it('EvidenceArtifact_PartialPublishFailure_PreservesPriorArtifact', async () => {
+    const identity = {
+      kind: 'artifact',
+      artifactId: 'gate-report-prior',
+    } as const;
+    const content = { verdict: 'pass', evidence: ['prior'] };
+    const reference = await storeEvidenceArtifact(store, identity, content, {
+      mediaType: 'application/json',
+    });
+
+    const failing = new ContentAddressedStore(artifactRoot, failingPublishIo());
+    await expect(
+      storeEvidenceArtifact(failing, identity, content, {
+        mediaType: 'application/json',
+      }),
+    ).rejects.toThrow('injected publish failure');
+
+    // The previously published evidence still resolves and verifies.
+    await expect(resolveEvidenceArtifact(store, reference)).resolves.toEqual(
+      normalizeEvidenceSubjectContent(content),
+    );
+  });
+
+  it('EvidenceArtifact_ConcurrentStores_ResolveToOneCanonicalArtifact', async () => {
+    const identity = {
+      kind: 'artifact',
+      artifactId: 'gate-report-concurrent',
+    } as const;
+    const content = { verdict: 'pass', checks: ['typecheck', 'test'] };
+
+    const references = await Promise.all(
+      Array.from({ length: 12 }, () =>
+        storeEvidenceArtifact(store, identity, content, {
+          mediaType: 'application/json',
+        }),
+      ),
+    );
+
+    // Every concurrent writer produced the identical content-addressed reference.
+    for (const reference of references) {
+      expect(reference).toEqual(references[0]);
+    }
+    // Exactly one canonical blob survived the collision, and it resolves.
+    expect(await onlyStoredBlob(artifactRoot)).toBeTruthy();
+    await expect(resolveEvidenceArtifact(store, references[0]!)).resolves.toEqual(
+      normalizeEvidenceSubjectContent(content),
+    );
   });
 });
