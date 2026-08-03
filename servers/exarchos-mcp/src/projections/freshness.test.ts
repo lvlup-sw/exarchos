@@ -173,8 +173,11 @@ describe('view chokepoint marks degraded reads (EFF-002)', () => {
     const cursors = materializer.getStreamCursors(STREAM);
     const sibling = cursors.find((c) => c.viewName !== 'workflow-status');
     expect(sibling, 'test needs two distinct folds on the stream').toBeDefined();
-    const siblingState = materializer.getState(STREAM, sibling!.viewName);
-    materializer.loadState(STREAM, sibling!.viewName, siblingState!.view, 1);
+    if (sibling === undefined) return;
+    const siblingState = materializer.getState(STREAM, sibling.viewName);
+    expect(siblingState).toBeDefined();
+    if (siblingState === undefined) return;
+    materializer.loadState(STREAM, sibling.viewName, siblingState.view, 1);
 
     // Reading the CURRENT projection still reports the stream as degraded.
     const result = await handleView(
@@ -184,7 +187,7 @@ describe('view chokepoint marks degraded reads (EFF-002)', () => {
     const meta = degradedMeta(result);
     expect(meta, 'a stale sibling fold must degrade the stream answer').toBeDefined();
     expect(meta).toMatchObject({ reason: 'projection-behind', eventTail: 4 });
-    expect(meta?.['staleViews']).toContain(sibling!.viewName);
+    expect(meta?.['staleViews']).toContain(sibling.viewName);
   });
 
   it('HandleView_NoWorkflowId_LeavesResponseUntouched', async () => {

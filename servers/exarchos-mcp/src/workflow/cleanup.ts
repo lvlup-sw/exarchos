@@ -358,7 +358,7 @@ export async function handleCleanup(
   // ─── Event emission + state write ─────────────────────────────────────
 
   // Same nullish trap as `cancel.ts`: `!== null` does not exclude `undefined`,
-  // and the block below dereferences `eventStore!`. Exclude both forms.
+  // and the block below dereferences the store non-null. Exclude both forms.
   const useEventFirst =
     isEventSourced(state) && eventStore !== null && eventStore !== undefined;
 

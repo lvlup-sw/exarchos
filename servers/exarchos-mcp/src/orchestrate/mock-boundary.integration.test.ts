@@ -283,7 +283,10 @@ describe('check_mock_boundary acceptance (through handleOrchestrate)', () => {
         (e) => e.source === gateRunnerObservationSource('mock-boundary'),
       );
       expect(gateEvidence.length).toBeGreaterThan(0);
-      const record = gateEvidence[gateEvidence.length - 1]!.data as {
+      const latest = gateEvidence[gateEvidence.length - 1];
+      expect(latest).toBeDefined();
+      if (latest === undefined) return;
+      const record = latest.data as {
         evidence: {
           verdict: string;
           contentDigest: { algorithm: string; value: string };
@@ -300,7 +303,9 @@ describe('check_mock_boundary acceptance (through handleOrchestrate)', () => {
       }).evidenceReferences;
       expect(references, 'the gate carrier must reference its durable evidence').toBeDefined();
       expect(
-        references!.some((r) => r.contentDigest.value === record.evidence.contentDigest.value),
+        (references ?? []).some(
+          (r) => r.contentDigest.value === record.evidence.contentDigest.value,
+        ),
       ).toBe(true);
     },
     120_000,

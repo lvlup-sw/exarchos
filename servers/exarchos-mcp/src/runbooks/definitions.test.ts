@@ -312,13 +312,18 @@ describe('Runbook definitions', () => {
       'the cumulative suite runs exactly once per wave',
     ).toHaveLength(1);
 
-    const integrationIndex = integrationIndices[0]!;
+    const [integrationIndex, ...extraIndices] = integrationIndices;
+    expect(extraIndices).toEqual([]);
+    expect(integrationIndex).toBeDefined();
+    if (integrationIndex === undefined) return;
     // It must land after the wave's task work and before the phase transition.
     const transitionIndex = waveActions.lastIndexOf('transition');
     expect(integrationIndex).toBeLessThan(transitionIndex);
     expect(waveActions.indexOf('post_delegation_check')).toBeGreaterThan(integrationIndex);
 
-    const integrationStep = AGENT_TEAMS_SAGA.steps[integrationIndex]!;
+    const integrationStep = AGENT_TEAMS_SAGA.steps[integrationIndex];
+    expect(integrationStep).toBeDefined();
+    if (integrationStep === undefined) return;
     expect(integrationStep.tool).toBe('exarchos_orchestrate');
     // onFail must be 'stop' — a broken integration tip is a hard halt.
     expect(integrationStep.onFail).toBe('stop');

@@ -119,7 +119,16 @@ export function assessStreamFreshness(
   const ordered = [...disagreeing].sort(
     (a, b) => Math.abs(eventTail - b.cursor) - Math.abs(eventTail - a.cursor),
   );
-  const worst = ordered[0]!;
+  const [worst, ...rest] = ordered;
+  if (worst === undefined) {
+    return {
+      degraded: false,
+      eventTail,
+      projectionCursor: eventTail,
+      lag: 0,
+      staleViews: [],
+    };
+  }
   const lag = eventTail - worst.cursor;
   return {
     degraded: true,
@@ -127,7 +136,7 @@ export function assessStreamFreshness(
     eventTail,
     projectionCursor: worst.cursor,
     lag,
-    staleViews: ordered.map((c) => c.viewName),
+    staleViews: [worst, ...rest].map((c) => c.viewName),
   };
 }
 
