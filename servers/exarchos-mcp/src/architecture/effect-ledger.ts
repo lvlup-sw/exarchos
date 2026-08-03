@@ -555,5 +555,12 @@ function registerLedger(): readonly EffectOwnershipRule[] {
       'version-ledger high-water marks advance monotonically; re-record is a no-op',
       'a corrupt or failed ledger write fails closed and blocks admission',
     ),
+    rule(
+      'filesystem',
+      'install/',
+      'install-identity-fs',
+      'identity collection is read-only; the TOFU lock write is a whole-file replacement',
+      'a failed lock write leaves the previous recorded identity intact',
+    ),
   ]);
 }
