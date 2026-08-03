@@ -30,6 +30,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { loadAllRuntimes } from './runtimes/load.js';
 import { emitCommandAliases } from './build-command-aliases.js';
 import { canonicalCommandSet } from './config/canonical-skills.js';
@@ -2173,7 +2174,13 @@ function countRuntimesFromOutDir(outDir: string): number {
 // Self-invocation guard: only run `main()` when this file is executed
 // directly (e.g. `node dist/build-skills.js`). Importing it from a test
 // must NOT trigger a build.
-if (import.meta.url === `file://${process.argv[1]}`) {
+//
+// `pathToFileURL` is required for correctness on Windows: `file://${argv[1]}`
+// yields `file://C:\repo\dist\build-skills.js`, which never equals the
+// `file:///C:/repo/dist/build-skills.js` form of `import.meta.url` — so the
+// guard silently failed and `npm run build:skills` was a no-op that still
+// exited 0, leaving `skills/` stale against `skills-src/`.
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   main(process.argv.slice(2));
 }
 

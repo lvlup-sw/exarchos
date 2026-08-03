@@ -42,7 +42,7 @@ describe('Runbook definitions', () => {
     }
   });
 
-  it('TaskCompletion_HasSixSteps_InCorrectOrder', () => {
+  it('TaskCompletion_HasFiveSteps_TaskCompleteTerminal', () => {
     // #1329 / T-07 appended a post-merge `check_integration_suite` gate after
     // `task_complete`, taking the runbook from 3 to 4 steps. Verification-ladder
     // slice 1 prepended the `check_test_adequacy` kill-probe gate as the new
@@ -54,13 +54,15 @@ describe('Runbook definitions', () => {
     // RETIRED the advisory `check_tdd_compliance` step (test-FIRST ordering
     // gate), taking the runbook from 7 back to 6 steps; `check_test_adequacy`
     // is the sole per-task verification gate.
-    expect(TASK_COMPLETION.steps).toHaveLength(6);
+    // WFQ-004 moved the cumulative `check_integration_suite` gate OUT of the
+    // per-task loop to the wave boundary (AGENT_TEAMS_SAGA), taking the runbook
+    // from 6 back to 5 steps and making `task_complete` terminal.
+    expect(TASK_COMPLETION.steps).toHaveLength(5);
     expect(TASK_COMPLETION.steps[0].action).toBe('check_test_adequacy');
     expect(TASK_COMPLETION.steps[1].action).toBe('check_contract_drift');
     expect(TASK_COMPLETION.steps[2].action).toBe('check_mock_boundary');
     expect(TASK_COMPLETION.steps[3].action).toBe('check_static_analysis');
     expect(TASK_COMPLETION.steps[4].action).toBe('task_complete');
-    expect(TASK_COMPLETION.steps[5].action).toBe('check_integration_suite');
     expect(TASK_COMPLETION.phase).toBe('delegate');
   });
 
@@ -75,8 +77,10 @@ describe('Runbook definitions', () => {
     expect(QUALITY_EVALUATION.phase).toBe('review');
   });
 
-  it('AgentTeamsSaga_HasTwelveSteps', () => {
-    expect(AGENT_TEAMS_SAGA.steps).toHaveLength(12);
+  it('AgentTeamsSaga_HasThirteenSteps', () => {
+    // WFQ-004: the cumulative `check_integration_suite` gate moved here from
+    // the per-task runbook, taking the saga from 12 to 13 steps.
+    expect(AGENT_TEAMS_SAGA.steps).toHaveLength(13);
     expect(AGENT_TEAMS_SAGA.phase).toBe('delegate');
     // First step should be event-first: team.spawned
     expect(AGENT_TEAMS_SAGA.steps[0].tool).toBe('exarchos_event');
@@ -85,8 +89,8 @@ describe('Runbook definitions', () => {
     // T5a.1/DR-4 (#1259, v2.11): the prior `set({phase: 'review'})` step
     // is replaced with `transition({target: 'review'})` after the `set`
     // action's hard-cut.
-    expect(AGENT_TEAMS_SAGA.steps[11].tool).toBe('exarchos_workflow');
-    expect(AGENT_TEAMS_SAGA.steps[11].action).toBe('transition');
+    expect(AGENT_TEAMS_SAGA.steps[12].tool).toBe('exarchos_workflow');
+    expect(AGENT_TEAMS_SAGA.steps[12].action).toBe('transition');
   });
 
   it('SynthesisFlow_HasFiveSteps', () => {
@@ -265,43 +269,65 @@ describe('Runbook definitions', () => {
     expect(params?.worktreePath).toBe('<worktreePath>');
   });
 
-  // ─── #1329 / T-07: post-merge integration-suite gate ───────────────────────
-  it('DelegateRunbook_AfterTaskMerge_RunsIntegrationSuiteGate', () => {
-    // #1329: per-task TDD/static gates can be green while the *integration tip*
-    // cascades (a file failing at import counts as "0 failed tests / 1 failed
-    // suite" — invisible to per-task gates). The `check_integration_suite` gate
-    // (T-06) runs the FULL suite against the integration tip and folds those
-    // load-failures into the failure count.
-    //
-    // It must be wired into the delegate-phase task-completion runbook AFTER
-    // `task_complete` (i.e. after the task lands on the integration tip), with
-    // `onFail: 'stop'` so a broken integration tip halts the loop before the
-    // next dispatch. It threads the same worktree-aware resolution the static
-    // gate uses (#1330): `repoRoot: 'auto'` + `worktreePath` template var.
+  // ─── WFQ-004: wave-boundary integration gate + terminal task_complete ─────
+  it('DelegateRunbook_TaskComplete_FollowsEveryBlockingPerTaskGate', () => {
+    // The defect: `task_complete` sat at step 5 with a blocking
+    // `check_integration_suite` at step 6, so a task could be recorded complete
+    // and only THEN fail its last blocking gate. `task_complete` must be the
+    // terminal step — no blocking gate may follow it.
     const actions = TASK_COMPLETION.steps.map((s) => s.action);
     const completeIndex = actions.indexOf('task_complete');
-    const integrationIndex = actions.indexOf('check_integration_suite');
 
     expect(completeIndex, 'task-completion must retain a task_complete step').toBeGreaterThan(-1);
-    expect(
-      integrationIndex,
-      'task-completion must include a check_integration_suite step',
-    ).toBeGreaterThan(-1);
-    // The integration-suite gate runs AFTER the task merges (task_complete), so
-    // a cascaded integration tip blocks the next dispatch.
-    expect(integrationIndex).toBeGreaterThan(completeIndex);
+    expect(completeIndex).toBe(TASK_COMPLETION.steps.length - 1);
 
-    const integrationStep = TASK_COMPLETION.steps[integrationIndex];
+    const blockingAfterComplete = TASK_COMPLETION.steps
+      .slice(completeIndex + 1)
+      .filter((step) => step.onFail === 'stop');
+    expect(
+      blockingAfterComplete.map((step) => step.action),
+      'no blocking per-task gate may run after task_complete',
+    ).toEqual([]);
+  });
+
+  it('DelegateRunbook_CumulativeIntegrationSuite_RunsOnceAtWaveBoundary', () => {
+    // #1329: per-task gates can be green while the *integration tip* cascades
+    // (a file failing at import counts as "0 failed tests / 1 failed suite").
+    // The cumulative gate still exists — but as a wave-boundary backstop,
+    // matching its own action description, not a per-task gate. Running it per
+    // task also created duplicate verification ownership (agent, lead, and
+    // runbook each re-verifying the same claim).
+    const perTaskActions = TASK_COMPLETION.steps.map((s) => s.action);
+    expect(
+      perTaskActions,
+      'the cumulative suite must not run inside the per-task loop',
+    ).not.toContain('check_integration_suite');
+
+    const waveActions = AGENT_TEAMS_SAGA.steps.map((s) => s.action);
+    const integrationIndices = waveActions
+      .map((action, index) => (action === 'check_integration_suite' ? index : -1))
+      .filter((index) => index >= 0);
+    expect(
+      integrationIndices,
+      'the cumulative suite runs exactly once per wave',
+    ).toHaveLength(1);
+
+    const integrationIndex = integrationIndices[0]!;
+    // It must land after the wave's task work and before the phase transition.
+    const transitionIndex = waveActions.lastIndexOf('transition');
+    expect(integrationIndex).toBeLessThan(transitionIndex);
+    expect(waveActions.indexOf('post_delegation_check')).toBeGreaterThan(integrationIndex);
+
+    const integrationStep = AGENT_TEAMS_SAGA.steps[integrationIndex]!;
     expect(integrationStep.tool).toBe('exarchos_orchestrate');
     // onFail must be 'stop' — a broken integration tip is a hard halt.
     expect(integrationStep.onFail).toBe('stop');
 
-    const params = integrationStep.params as
-      | { repoRoot?: unknown; worktreePath?: unknown }
-      | undefined;
+    const params = integrationStep.params as { repoRoot?: unknown } | undefined;
     expect(params, 'check_integration_suite step must pre-fill params').toBeDefined();
     // Worktree-aware resolution against the integration tip (#1330 resolver).
+    // No `worktreePath`: the wave-boundary run is post-merge, against the tip
+    // itself rather than any one agent's worktree.
     expect(params?.repoRoot).toBe('auto');
-    expect(params?.worktreePath).toBe('<worktreePath>');
   });
 });
