@@ -33,6 +33,15 @@ import {
   queryCancelSaga,
   StaleEpochError,
 } from './cancel-process-manager.js';
+import {
+  deriveLocalOperatorIdentity,
+  deriveMcpCallerIdentity,
+  snapshotCallerAuthorization,
+} from '../dispatch/caller-identity.js';
+import {
+  mintDispatchContext,
+  runWithDispatchContext,
+} from '../dispatch/dispatch-context.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 
 const mockedExecFile = vi.mocked(execFile);
@@ -294,5 +303,81 @@ describe('cancellation process-manager — integration exit proofs (P04-02)', ()
       expect(plan.reason).toBe('manual-intervention-required');
       expect(plan.pendingActionIds).toContain('delegate:delete-integration-branch');
     }
+  });
+
+  // ── (D) A trusted CLI caller can cancel end-to-end ─────────────────────────
+  // Regression for the packaged-proof defect (P05-02): the CLI trusted-caller
+  // path wires NO runtime capability resolver, so `handleCancel` built a
+  // cancellation authorization snapshot with an EMPTY `capabilityIds` array,
+  // which `AuthorizationSnapshotV1Schema.capabilityIds.min(1)` rejects BEFORE
+  // any event is appended — `exarchos wf cancel` failed for every CLI user
+  // with EVENT_APPEND_FAILED. The identity layer now GRANTS the trusted
+  // local-operator its baseline capabilities, so the snapshot is schema-valid
+  // and cancellation proceeds.
+  it('ExitProof_TrustedCliCaller_CanCancelWithGrantedCapabilities', async () => {
+    // The CLI's dispatch context: a local-operator identity (derived solely
+    // from the adapter-owned state dir) with NO capability resolver — exactly
+    // what `createCliDispatchContext` + `dispatch()` produce for `wf cancel`.
+    const identity = deriveLocalOperatorIdentity(stateDir);
+    const authorization = snapshotCallerAuthorization(identity, undefined);
+    // The pre-fix defect: without the identity-layer grant this array is empty.
+    expect(authorization.capabilities.length).toBeGreaterThanOrEqual(1);
+
+    const result = await runWithDispatchContext(
+      mintDispatchContext(undefined, authorization),
+      () => handleCancel({ featureId }, stateDir, store),
+    );
+
+    expect(result.success).toBe(true);
+
+    const all = await events();
+    const requested = all.find((e) => e.type === 'cancel.requested');
+    expect(requested).toBeDefined();
+    const recorded = (requested?.data as Record<string, unknown>).authorization as
+      | Record<string, unknown>
+      | undefined;
+    // The authorization snapshot was recorded with a non-empty, schema-valid
+    // capability set attributed to the trusted operator.
+    expect(recorded).toBeDefined();
+    expect(Array.isArray(recorded?.capabilityIds)).toBe(true);
+    expect((recorded?.capabilityIds as unknown[]).length).toBeGreaterThanOrEqual(1);
+    expect((requested?.data as Record<string, unknown>).caller).toMatchObject({
+      principalKind: 'operator',
+      role: 'operator',
+      principalId: identity.subjectId,
+    });
+
+    const persisted = JSON.parse(
+      await readFile(join(stateDir, `${featureId}.state.json`), 'utf8'),
+    ) as Record<string, unknown>;
+    expect(persisted.phase).toBe('cancelled');
+  });
+
+  // ── (E) An unauthorized caller is still denied (fail-closed) ───────────────
+  // The grant is scoped to the trusted local-operator identity, which a remote
+  // caller can never forge. A remote `mcp-session`/agent caller with no
+  // resolver capabilities keeps an EMPTY set and is rejected at schema
+  // validation — the ≥1 `capabilityIds` requirement is NOT weakened.
+  it('ExitProof_UnauthorizedCaller_IsDeniedBeforeAnyWrite', async () => {
+    const identity = deriveMcpCallerIdentity({ sessionId: 'untrusted-remote-agent' });
+    const authorization = snapshotCallerAuthorization(identity, undefined);
+    // No grant for a non-operator identity: the capability set stays empty.
+    expect(authorization.capabilities).toHaveLength(0);
+
+    const result = await runWithDispatchContext(
+      mintDispatchContext(undefined, authorization),
+      () => handleCancel({ featureId }, stateDir, store),
+    );
+
+    expect(result).toMatchObject({ success: false, error: { code: 'EVENT_APPEND_FAILED' } });
+    const message = (result.error as { message: string }).message;
+    expect(message).toContain('malformed');
+    expect(message).toContain('capabilityIds');
+
+    // Fail-closed: the unauthorized request never reached the durable log.
+    const all = await events();
+    expect(all.some((e) => e.type === 'cancel.requested')).toBe(false);
+    expect(all.some((e) => e.type === 'workflow.cancel')).toBe(false);
+    expect(branchDeleteCalls).toBe(0);
   });
 });

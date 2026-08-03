@@ -4,6 +4,7 @@ import type { CapabilityResolver } from '../capabilities/resolver.js';
 import {
   CAPABILITY_RESOLVER_ID,
   CAPABILITY_RESOLVER_VERSION,
+  localOperatorAuthorization,
   resolveCapabilityAuthorization,
 } from '../capabilities/resolver.js';
 import type { AgentPosture } from '../agents/spec.js';
@@ -88,6 +89,32 @@ export function deriveLocalOperatorIdentity(stateDir: string): CallerIdentity {
 }
 
 /**
+ * Resolve the caller's authorization, applying the trusted local-operator
+ * grant when appropriate.
+ *
+ * The resolver is always authoritative when it yields any capabilities. The
+ * grant fires ONLY for a `local-operator` identity whose resolver produced an
+ * empty capability set — the CLI trusted-caller path, where no runtime
+ * capability resolver is wired. Because that identity is derived solely from
+ * the adapter-owned state directory (never from caller input), a
+ * remote/untrusted `mcp-session` caller can never obtain it; such a caller with
+ * no resolver capabilities keeps an empty set and is denied at schema
+ * validation (an unauthorized cancellation still fails closed). This is a
+ * grant by the identity/capabilities layer — the caller never self-asserts a
+ * capability (P01-07).
+ */
+function resolveTrustedCallerAuthorization(
+  identity: CallerIdentity,
+  resolver: CapabilityResolver | undefined,
+): ReturnType<typeof resolveCapabilityAuthorization> {
+  const resolved = resolveCapabilityAuthorization(resolver);
+  if (identity.kind === 'local-operator' && resolved.capabilities.length === 0) {
+    return localOperatorAuthorization();
+  }
+  return resolved;
+}
+
+/**
  * Freeze the exact identity and resolver-authoritative authorization inputs
  * used by a dispatch. The clock is injectable for deterministic tests; action
  * payloads are deliberately absent from this API.
@@ -97,7 +124,7 @@ export function snapshotCallerAuthorization(
   resolver: CapabilityResolver | undefined,
   clock: () => string = () => new Date().toISOString(),
 ): CallerAuthorizationSnapshot {
-  const authorization = resolveCapabilityAuthorization(resolver);
+  const authorization = resolveTrustedCallerAuthorization(identity, resolver);
   const identitySnapshot = Object.freeze({ ...identity });
   const resolverIdentity = Object.freeze({
     id: CAPABILITY_RESOLVER_ID,
