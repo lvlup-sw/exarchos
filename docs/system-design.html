@@ -332,13 +332,13 @@
   <section id="concurrency">
     <div class="eyebrow">03 · under concurrency</div>
     <h2>Staying correct when agents run in parallel</h2>
-    <p class="lede">Several agents writing the same repository is the normal case, not the exception. Correctness comes from serializing writes to a stream in two tiers, with no process lock and no advisory file. Inside one process, a per-stream promise chain runs same-stream appends one at a time. Across processes, SQLite's write-ahead log takes the write lock up front, and a <b>per-stream version gate</b> assigns and checks the next sequence <b>atomically inside that transaction</b> — the convergent event-store primitive (Marten, SQLStreamStore, EventStoreDB). Because the gate runs under the held write lock, a plain append never races: the second writer simply serializes behind the first and is handed the next sequence. Only a <b>genuine optimistic-concurrency mismatch</b> — a caller that passed a stale expected version — surfaces a conflict, carrying its expected and actual values directly; the composite primary key is retained as an integrity backstop, not the detector. That is the whole concurrency story, and it is deliberately not a distributed one.</p>
+    <p class="lede">Several agents writing the same repository is the normal case, not the exception. The target architecture serializes writes to a stream in two tiers, with no process lock and no advisory file: a per-stream promise chain inside one process, then SQLite WAL + an atomic per-stream version gate across processes. <b>This guarantee is not yet treated as closed.</b> The structural baseline records unresolved sequence/version divergence and requires EFF-001 to prove multi-instance append linearization plus startup repair. Until those tests pass, plain-append race freedom and next-sequence assignment are target invariants rather than categorical runtime claims. Genuine expected-version mismatches must remain distinguishable from storage corruption or repair.</p>
     <figure class="panel">
       <div class="legend">
         <span><i class="sw-t"></i>tier 1 · in-process promise chain</span>
-        <span><i class="sw-v"></i>tier 2 · WAL + primary key + retry</span>
+        <span><i class="sw-v"></i>tier 2 target · WAL + atomic version gate + repair</span>
       </div>
-      <svg viewBox="0 0 960 232" font-size="13" role="img" aria-label="Two writers contend for one stream; the in-process lock serializes same-process writes, and the SQLite write-ahead log plus a composite primary key serialize across processes, with the loser retrying against the new tail.">
+      <svg viewBox="0 0 960 232" font-size="13" role="img" aria-label="Target concurrency design: two writers contend for one stream; an in-process chain serializes same-process writes, and SQLite WAL plus an atomic stream-version gate should serialize cross-process writes. Multi-instance append and startup-repair proof remains required.">
         <defs><marker id="c-v" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="var(--violet)"/></marker></defs>
         <rect x="30" y="40" width="180" height="56" rx="11" fill="oklch(0.80 0.11 196 / .07)" stroke="oklch(0.80 0.11 196 / .5)"/>
         <text x="120" y="64" text-anchor="middle" font-size="13.5" font-family="var(--disp)" fill="var(--teal)">agent A</text>
@@ -357,13 +357,13 @@
         <text x="685" y="121" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--ink-dim)">version gate: assign + check</text>
         <text x="685" y="139" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--ink-faint)">PK = integrity backstop</text>
         <path d="M685,158 C685,196 760,196 802,150" fill="none" class="flow" stroke="var(--violet)" stroke-width="1.4" marker-end="url(#c-v)"/>
-        <text x="828" y="186" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--violet)">plain append: serializes</text>
+        <text x="828" y="186" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--violet)">target: plain append serializes</text>
         <text x="828" y="201" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--ink-faint)">OCC mismatch: conflict</text>
       </svg>
       <figcaption>
         <ul>
-          <li><b>No PID lock, no mutex file.</b> An earlier per-directory process lock was removed; the write-ahead log plus the in-transaction version gate are the serialization primitives, with the composite key as an integrity backstop.</li>
-          <li><b>Idempotency at the boundary.</b> Every append carries a key, and a unique index collapses a duplicate at storage. A retried handler re-emits its intent as a no-op, so the external side effect runs at most once.</li>
+          <li><b>No PID lock, no mutex file.</b> The intended serialization primitives are the write-ahead log plus an in-transaction version gate, with the composite key as an integrity backstop. EFF-001 must still prove the cross-process linearization and startup-repair behavior.</li>
+          <li><b>Idempotency at the boundary.</b> Append keys and unique indexes collapse known storage duplicates. Cross-instance replay claims and non-transactional external effects still require durable claim/recovery proof before any at-most-once claim is accepted.</li>
           <li><b>Two events for one effect.</b> A non-idempotent action records its intent before it acts and its result after. A crash between the two is recovered by an idempotent precheck, not by guesswork.</li>
         </ul>
       </figcaption>
@@ -372,7 +372,7 @@
       <div class="dh">Decision: a single-machine frame, held on purpose <span class="enf">enforces INV-15</span></div>
       <dl>
         <dt>Forces</dt><dd>Concurrent agents look like a distributed-systems problem, and the textbook answers (saga, two-phase commit, leader election, vector clocks) are right there to reach for.</dd>
-        <dt>Choice</dt><dd>Treat it as what it is: one machine, one event store, cooperative agents. Serialize with the write-ahead log and optimistic retry. Compensation is a <b>local rewind over the log</b>, never a command sent to a remote participant.</dd>
+        <dt>Choice</dt><dd>Treat it as what it is: one machine, one event store, cooperative agents. Target serialization through the write-ahead log, an atomic version gate, and explicit repair; keep the guarantee marked unverified until EFF-001 passes. Compensation is a <b>local rewind over the log</b>, never a command sent to a remote participant.</dd>
         <dt>Rejected</dt><dd class="rej">Saga orchestration, distributed locks, a supervisor process. They solve partition and multi-owner problems that do not exist here, and they import scaffolding that misleads every future reader.</dd>
         <dt>Cost</dt><dd>The frame is a boundary, and a candidate design that needs one of those primitives is a signal the boundary is being crossed, not that the primitive is due.</dd>
       </dl>
@@ -473,7 +473,7 @@
         <span><i class="sw-v"></i>enforce · dispatch + launcher chokepoints</span>
         <span class="mono" style="color:var(--ink-dim)">generator → thin on-ramps</span>
       </div>
-      <svg viewBox="0 0 960 300" font-size="13" role="img" aria-label="N agent harnesses are served two ways. Concerns covered by a converged standard (Agent Skills, AGENTS.md, MCP) are emitted once as a single artifact. Concerns no standard covers (hooks, subagents, worktree isolation) are enforced at chokepoints: state in the dispatch and MCP handler, space in a spawn-bounded launcher that owns the worktree.">
+      <svg viewBox="0 0 960 300" font-size="13" role="img" aria-label="N agent harnesses are served two ways. Concerns covered by a converged standard (Agent Skills, AGENTS.md, MCP) are emitted once as a single artifact. State is enforced in dispatch and the MCP handler; lifecycle and top-level placement are enforced by the launcher; filesystem write confinement remains a per-harness capability until a hook standard or kernel sandbox owns the write path.">
         <defs>
           <marker id="a-g" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="var(--green)"/></marker>
           <marker id="a-v" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="var(--violet)"/></marker>
@@ -503,14 +503,14 @@
         <rect x="516" y="210" width="190" height="28" rx="9" fill="oklch(0.74 0.15 292 / .12)" stroke="oklch(0.74 0.15 292 / .5)"/>
         <text x="611" y="228" text-anchor="middle" font-size="11" font-family="var(--mono)" fill="var(--ink)">dispatch · MCP → state</text>
         <rect x="714" y="210" width="190" height="28" rx="9" fill="oklch(0.74 0.15 292 / .12)" stroke="oklch(0.74 0.15 292 / .5)"/>
-        <text x="809" y="228" text-anchor="middle" font-size="11" font-family="var(--mono)" fill="var(--ink)">launcher → space</text>
-        <text x="710" y="263" text-anchor="middle" font-size="11" font-family="var(--mono)" fill="var(--ink-faint)">holds by construction, on any harness</text>
+        <text x="809" y="228" text-anchor="middle" font-size="11" font-family="var(--mono)" fill="var(--ink)">launcher → lifecycle</text>
+        <text x="710" y="263" text-anchor="middle" font-size="11" font-family="var(--mono)" fill="var(--ink-faint)">lifecycle holds; space is capability-bound</text>
       </svg>
       <figcaption>
         <ul>
           <li><b>Render-parity is not enforcement-parity.</b> A skill can render byte-perfect for every harness and still not confine the agent: worktree isolation is native on one runtime and advisory on the rest. Conformance closes the first gap; a chokepoint closes the second.</li>
           <li><b>Conform where a standard converged.</b> Agent Skills (<span class="mono">SKILL.md</span>), AGENTS.md and MCP are read natively across runtimes, so one artifact replaces the per-harness render. The only residual is the tool prefix, carried by a bare logical name the agent resolves from its own tool list.</li>
-          <li><b>Enforce where none did.</b> Hooks, subagents and worktree isolation have no standard, so the guarantee moves to a seam every harness crosses: state in the dispatch and MCP handler, space in a spawn-bounded launcher that owns the worktree. The generator keeps only the thin on-ramps that route each harness in.</li>
+          <li><b>Enforce only at real chokepoints.</b> State belongs in the dispatch and MCP handler. Process lifecycle and top-level worktree placement belong in the spawn-bounded launcher. Filesystem write confinement is not launcher-owned: it remains a per-harness capability until a Bash-covering hook standard or kernel sandbox owns the write path. The generator keeps only the thin on-ramps that route each harness in.</li>
         </ul>
       </figcaption>
     </figure>
@@ -519,9 +519,9 @@
       <div class="dh">Decision: conform where a standard converged, enforce where none did <span class="enf">reframes INV-2 · INV-4 · INV-11 · #1601</span></div>
       <dl>
         <dt>Forces</dt><dd>Six runtimes, several concerns apiece: skills, instructions, hooks, subagents, worktree isolation. Rendering each concern per harness and then guarding the renders against drift is a tax that grows with every new runtime, and the guards see only the bytes. They prove the artifacts match, not that the guarantee holds: worktree isolation is enforced <b>by construction</b> on one runtime and merely advised on the others.</dd>
-        <dt>Choice</dt><dd>Split by whether a standard exists. Where one converged — Agent Skills, AGENTS.md, MCP — emit one standard artifact and let the harness read it; a bare logical tool name carries the only per-harness variance. Where none did — hooks, subagents, worktree isolation — enforce at a chokepoint every harness must cross: <b>state</b> in the dispatch and MCP handler, <b>space</b> in a spawn-bounded launcher that owns the worktree. The generator shrinks to the thin on-ramps that route each harness in.</dd>
+        <dt>Choice</dt><dd>Split by whether a standard exists. Where one converged — Agent Skills, AGENTS.md, MCP — emit one standard artifact and let the harness read it; a bare logical tool name carries the only per-harness variance. Where none did, enforce only at a resource-owning chokepoint: <b>state</b> in the dispatch and MCP handler; <b>lifecycle and placement</b> in the spawn-bounded launcher. <b>Spatial write confinement</b> stays an explicit per-harness capability and moves to the space-moat fork (upstream blocking hook standard or kernel sandbox).</dd>
         <dt>Rejected</dt><dd class="rej">A bespoke render per harness per concern, kept honest by ever more structural guards. It scales the tax with every runtime and never closes the enforcement gap the guards cannot see.</dd>
-        <dt>Cost</dt><dd>The launcher owns process spawn, held to the single-machine frame: set up, exec, tear down, no daemon. The CLI becomes a client of the MCP contract rather than a peer facade. INV-11's by-construction promise became true everywhere once the launcher landed (v2.12.0-preview.1); it now owns spawn-time orientation injection (fail-open) and is the lifecycle authority whose <span class="mono">launch.*</span> events answer <span class="mono">ps</span>/<span class="mono">wait</span> liveness without a process scan.</dd>
+        <dt>Cost</dt><dd>The launcher owns process spawn, top-level worktree placement, chdir, teardown, and <span class="mono">launch.*</span> lifecycle events within the single-machine frame. It does not own the kernel write path or harness-created nested worktrees, so it cannot make spatial confinement true everywhere. The CLI becomes a client of the MCP contract rather than a peer facade; spatial prevention remains capability-declared until the space-moat fork provides a real write-path chokepoint.</dd>
       </dl>
     </div>
   </section>
@@ -553,26 +553,26 @@
     <p class="lede">Everything above is the narrative. What follows is the reference, built to be scanned while you work. These are the architectural invariants the runtime holds, audited at review and enforced where they can be machine-checked. Full prose lives in <span class="mono">.exarchos/invariants.md</span>.</p>
     <div class="invs">
       <div class="inv"><b>INV-1</b><span>The append-only log is the source of truth; every read model is a pure fold over events.</span></div>
-      <div class="inv"><b>INV-2</b><span>CLI and MCP are interchangeable facades over one dispatch core; a parity harness proves it.</span></div>
+      <div class="inv"><b>INV-2</b><span>The MCP contract is the invocation surface; the CLI is a generated presentation client over it, equivalent by construction.</span></div>
       <div class="inv"><b>INV-3</b><span>No decision presumes the transport is local; capability resolution stays handshake-authoritative.</span></div>
-      <div class="inv"><b>INV-4</b><span>Skills and workflows are not coupled to one harness; six runtimes are first-class.</span></div>
+      <div class="inv"><b>INV-4</b><span>Emit standard-conformant SKILL.md, AGENTS.md and MCP artifacts once; retain thin shims only where no standard exists.</span></div>
       <div class="inv"><b>INV-5a</b><span>Tool inputs are constrained at the schema level; every tool says when not to use it.</span></div>
       <div class="inv"><b>INV-5b</b><span>Every result carries a fixed shape; errors carry the fields an agent needs to self-correct.</span></div>
       <div class="inv"><b>INV-5c</b><span>Verbs are queryable and dry-run-capable, borrowed from Aspire: agents query, they don't drive scripts.</span></div>
       <div class="inv"><b>INV-5d</b><span>Four visible composite tools, each with an action discriminator and per-action annotations.</span></div>
       <div class="inv"><b>INV-6</b><span>The runtime makes no assumption about which workflow type is running; specifics live in topology.</span></div>
-      <div class="inv"><b>INV-7</b><span>Concurrency serializes in two tiers: an in-process chain and the write-ahead log. No PID lock.</span></div>
+      <div class="inv"><b>INV-7</b><span>Target: concurrency serializes through an in-process chain plus WAL/atomic version gate; cross-process linearization and startup repair remain unverified until EFF-001 passes.</span></div>
       <div class="inv"><b>INV-8</b><span>Every append carries an idempotency key; a unique index collapses duplicates at storage.</span></div>
       <div class="inv"><b>INV-9</b><span>Every workflow type ships a state machine; only one action mutates a phase.</span></div>
       <div class="inv"><b>INV-10</b><span>Long-running work emits a start event and a terminal event; lifecycle verbs query them generically.</span></div>
-      <div class="inv"><b>INV-11</b><span>Every agent declares a posture; a task-isolated agent cannot write outside its worktree, by construction.</span></div>
+      <div class="inv"><b>INV-11</b><span>The launcher enforces process lifecycle and top-level placement; spatial write confinement is declared and proven per harness until a hook standard or kernel sandbox owns the write path.</span></div>
       <div class="inv"><b>INV-12</b><span>next_actions publishes the affordances an agent perceives; agents dispatch them, they don't poll.</span></div>
       <div class="inv"><b>INV-13</b><span>A non-idempotent effect emits intent before and result after, so a crash is recoverable.</span></div>
       <div class="inv"><b>INV-14</b><span>Recovery prefers a native undo, then a refuse-to-discard reset, and never a destructive overwrite.</span></div>
       <div class="inv"><b>INV-15</b><span>One machine, cooperative agents. No saga, no distributed locks, no leader election.</span></div>
     </div>
 
-    <p class="note">INV-2, INV-4 and INV-11 are being reframed by the harness-agnosticism program (#1601): the CLI becomes a client of the MCP contract (equivalence by construction), runtimes are served by standards-conformance plus a thin shim, and worktree isolation becomes launcher-enforced across harnesses. The catalog edit is tracked in #1608; the decision is §05.</p>
+    <p class="note">INV-2, INV-4 and INV-11 are being reframed by the harness-agnosticism program (#1601): the CLI becomes a client of the MCP contract (equivalence by construction), runtimes are served by standards-conformance plus a thin shim, and the launcher owns lifecycle/placement rather than filesystem confinement. Spatial isolation is a separate capability/space-moat workstream. The catalog edit is tracked in #1608; the decision is §05.</p>
 
     <table style="margin-top:34px">
       <caption>What's real today, and what's planned</caption>
@@ -586,7 +586,7 @@
         <tr><td><b>Lifecycle verbs · worktree manager</b></td><td><span class="chip des">in flight</span></td><td>the v2.12 zone (#1090, #1574)</td></tr>
         <tr><td><b>Workflow Builder SDK + authored IR</b></td><td><span class="chip plan">planned</span></td><td>the v3.0 consolidation endpoint (#1258)</td></tr>
         <tr><td><b>Standards conformance · one SKILL.md, AGENTS.md, MCP</b></td><td><span class="chip built">built</span></td><td>procedural skills render once to <span class="mono">skills/standard/</span> with bare logical tool names + one canonical verb vocabulary; <span class="mono">.agents/skills/</span> install layout (copy-mode on win32) + provenance manifest; AGENTS.md managed block + <span class="mono">CLAUDE.md</span> <span class="mono">@AGENTS.md</span> shim (v2.12.0-preview.1, #1601, #1602, #1605)</td></tr>
-        <tr><td><b>Launcher · spatial enforcement chokepoint</b></td><td><span class="chip built">built</span></td><td>owns worktree creation + spawn-time orientation injection via probed native channels (fail-open); lifecycle authority for <span class="mono">launch.*</span> liveness (v2.12.0-preview.1, #1601, #1603, #1607)</td></tr>
+        <tr><td><b>Launcher · lifecycle/placement chokepoint</b></td><td><span class="chip built">built</span></td><td>owns process spawn, top-level worktree placement, chdir/teardown, orientation injection, and <span class="mono">launch.*</span> liveness; spatial write confinement remains per-harness capability / space-moat work (v2.12.0-preview.1, #1601, #1603, #1607)</td></tr>
         <tr><td><b>Facade as MCP-contract client · presentation codegen</b></td><td><span class="chip plan">planned</span></td><td>rides the 2026-07-28 MCP migration (#1601, #1604, #1606)</td></tr>
         <tr><td><b>Remote agent layer</b></td><td><span class="chip plan">planned</span></td><td>held against the single-machine frame (#1081, #1137)</td></tr>
       </tbody>
