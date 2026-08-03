@@ -147,17 +147,41 @@ function buildDefaultRunTests(repoRoot: string): TestRunFn {
 }
 
 /**
- * Compute the repo-relative files changed by the task diff (baseRef...HEAD).
- * Returns an empty list on git failure (the probe then short-circuits to the
- * no-new-tests discriminant — never a spurious kill).
+ * Compute the repo-relative files changed by the task diff.
+ *
+ * The HEAD side is the task `branch` when the caller names one, falling back to
+ * the checked-out `HEAD`. Diffing `HEAD` unconditionally silently probed the
+ * wrong tree whenever `repoRoot` was not the task worktree (e.g. an orchestrator
+ * calling from the main worktree), yielding an empty diff and a vacuous pass.
+ *
+ * Returns a discriminated result so a git failure is distinguishable from a
+ * genuinely empty diff: the former must fail the gate, not skip it (WFQ-005).
  */
-function changedFilesFor(gitExec: GitExec, repoRoot: string, baseRef: string): string[] {
-  const result = gitExec(repoRoot, ['diff', '--name-only', `${baseRef}...HEAD`]);
-  if (result.exitCode !== 0) return [];
-  return result.stdout
-    .split('\n')
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0);
+export type ChangedFilesResult =
+  | { readonly ok: true; readonly files: string[] }
+  | { readonly ok: false; readonly detail: string };
+
+export function changedFilesFor(
+  gitExec: GitExec,
+  repoRoot: string,
+  baseRef: string,
+  headRef?: string,
+): ChangedFilesResult {
+  const head = headRef && headRef.trim().length > 0 ? headRef.trim() : 'HEAD';
+  const result = gitExec(repoRoot, ['diff', '--name-only', `${baseRef}...${head}`]);
+  if (result.exitCode !== 0) {
+    return {
+      ok: false,
+      detail: `git diff ${baseRef}...${head} exited ${result.exitCode}: ${result.stdout.trim()}`,
+    };
+  }
+  return {
+    ok: true,
+    files: result.stdout
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0),
+  };
 }
 
 // ─── Handler ──────────────────────────────────────────────────────────────
@@ -219,7 +243,7 @@ export async function handleTestAdequacy(
 
       const gitExec = args.gitExec ?? defaultGitExec;
       const runTests = args.runTests ?? buildDefaultRunTests(repoRoot);
-      const changedFiles = changedFilesFor(gitExec, repoRoot, baseRef);
+      const changed = changedFilesFor(gitExec, repoRoot, baseRef, args.branch);
       const toolchain = detectToolchain(repoRoot);
       const toolchainGlobs = toolchain ? testGlobsForToolchain(toolchain.id) : null;
 
@@ -227,7 +251,9 @@ export async function handleTestAdequacy(
         gitExec,
         repoRoot,
         baseRef,
-        changedFiles,
+        changedFiles: changed.ok ? changed.files : [],
+        ...(changed.ok ? {} : { diffFailed: true }),
+        ...(args.riskTier ? { riskTier: args.riskTier } : {}),
         runTests,
         ...(toolchainGlobs ? { testGlobs: toolchainGlobs } : {}),
       });

@@ -124,7 +124,20 @@ export function splitHunks(
 // always reach restore.
 
 /** Discriminants for the gate's failure modes (carried on the result). */
-export type AdequacyDiscriminant = 'no-new-tests' | 'revert-conflict' | 'restore-failed';
+export type AdequacyDiscriminant =
+  | 'no-new-tests'
+  | 'revert-conflict'
+  | 'restore-failed'
+  | 'diff-failed';
+
+/**
+ * Risk tiers that require the kill probe to actually run. On these tiers an
+ * empty test set is a blocking failure rather than an advisory skip (WFQ-005):
+ * a medium/high task that ships no probe-able tests has not been verified, and
+ * reporting that as a pass is the "false advisory success" the gate exists to
+ * prevent.
+ */
+const PROBE_REQUIRED_TIERS: ReadonlySet<string> = new Set(['medium', 'high']);
 
 export type SnapshotResult =
   | { readonly stashSha: string }
@@ -342,6 +355,18 @@ export interface ProbeArgs {
   readonly runTests: TestRunFn;
   /** Optional test-glob override forwarded to {@link splitHunks}. */
   readonly testGlobs?: readonly string[];
+  /**
+   * Risk tier of the task under probe. Governs whether an empty test set is an
+   * advisory skip (low / unset) or a blocking failure (medium / high). See
+   * {@link PROBE_REQUIRED_TIERS}.
+   */
+  readonly riskTier?: string;
+  /**
+   * True when the caller could not compute the task diff at all (git failure).
+   * Distinguishes "this task genuinely changed nothing" from "we could not
+   * see what it changed" — the latter must never pass (WFQ-005).
+   */
+  readonly diffFailed?: boolean;
 }
 
 export interface ProbeResult {
@@ -393,19 +418,39 @@ export interface ProbeResult {
 export async function runProbe(args: ProbeArgs): Promise<ProbeResult> {
   const { gitExec, repoRoot, baseRef, changedFiles, runTests, testGlobs } = args;
 
+  // Could not compute the diff at all. An unreadable diff is NOT evidence of a
+  // well-tested task — fail closed rather than laundering a git failure into an
+  // advisory pass (WFQ-005 "false advisory success").
+  if (args.diffFailed === true) {
+    return {
+      passed: false,
+      probedTests: [],
+      redObserved: false,
+      restoredClean: true,
+      discriminant: 'diff-failed',
+      report:
+        'could not compute the task diff — the kill probe did not run, so test adequacy is unproven',
+    };
+  }
+
   const { testFiles, sourceFiles } = splitHunks(changedFiles, { testGlobs });
 
-  // No new/changed tests — the probe has nothing to kill. Advisory skip (INV-4),
-  // not a blocking failure: a task that adds no tests is not "vacuous", it is
-  // simply out of this gate's scope.
+  // No new/changed tests — the probe has nothing to kill. Advisory skip (INV-4)
+  // ONLY on the low tier: the verification ladder routes test-less low-tier
+  // tasks through typecheck+lint only, so a missing kill probe must not block
+  // them. On medium/high the probe is load-bearing, and an empty test set is a
+  // blocking failure rather than a vacuous pass (WFQ-005).
   if (testFiles.length === 0) {
+    const probeRequired = PROBE_REQUIRED_TIERS.has(args.riskTier ?? '');
     return {
-      passed: true,
+      passed: !probeRequired,
       probedTests: [],
       redObserved: false,
       restoredClean: true,
       discriminant: 'no-new-tests',
-      report: 'nothing to probe — task adds no tests',
+      report: probeRequired
+        ? `no new or changed test files found in the task diff — the ${args.riskTier} tier requires a kill probe, so adequacy is unproven`
+        : 'nothing to probe — task adds no tests',
     };
   }
 
