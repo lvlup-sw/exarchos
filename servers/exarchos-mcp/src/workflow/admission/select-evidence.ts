@@ -20,7 +20,9 @@ export type EvidenceSelectionDiagnosticCode =
   | 'INVALID_PREDECESSOR'
   | 'MALFORMED_CONTRADICTION'
   | 'MISSING_CONTRADICTION_EVIDENCE'
-  | 'CONTRADICTION_SCOPE_MISMATCH';
+  | 'CONTRADICTION_SCOPE_MISMATCH'
+  /** Equivalent concurrent evidence collapsed onto one canonical active record. */
+  | 'CONVERGED_EQUIVALENT_EVIDENCE';
 
 export interface EvidenceSelectionDiagnostic {
   readonly code: EvidenceSelectionDiagnosticCode;
@@ -331,11 +333,44 @@ export function selectEvidence(input: EvidenceSelectionInput): EvidenceSelection
     activeByScope.set(key, scoped);
   }
 
+  // EFF-003 — equivalent concurrent operations converge on ONE canonical active
+  // result. Two executions of the same logical gate under distinct operationIds
+  // mint distinct evidenceIds, read history before either has appended, and both
+  // land with no predecessor: neither supersedes the other, so the scope would
+  // otherwise carry competing active chains.
+  //
+  // Convergence is the exact complement of the contradiction rule below. When a
+  // scope's active records all make the SAME statement they agree, and admission
+  // has one answer; keeping duplicates active would let an arbitrary one win by
+  // arrival order. When they disagree, every record stays active and the
+  // contradiction is reported — a disagreement must deny admission, never be
+  // silently collapsed into whichever arrived first.
+  //
+  // The canonical record is the lowest evidenceId. `validRecords` is already
+  // sorted by id, so the choice is independent of arrival order.
+  const convergedIds = new Set<string>();
+
   for (const scoped of activeByScope.values()) {
     const statements = [
       ...new Set(scoped.map((record) => statementOf(record.evidence))),
     ].sort();
-    if (statements.length < 2) continue;
+    if (statements.length < 2) {
+      const [canonical, ...duplicates] = scoped;
+      if (canonical !== undefined && duplicates.length > 0) {
+        for (const duplicate of duplicates) {
+          const duplicateId = duplicate.evidence.evidenceId;
+          convergedIds.add(duplicateId);
+          diagnostics.push({
+            code: 'CONVERGED_EQUIVALENT_EVIDENCE',
+            evidenceId: duplicateId,
+            message:
+              `equivalent concurrent evidence converged on canonical ` +
+              `${canonical.evidence.evidenceId}`,
+          });
+        }
+      }
+      continue;
+    }
     const [firstScoped] = scoped;
     if (firstScoped === undefined) continue;
     const first = firstScoped.evidence;
@@ -351,6 +386,10 @@ export function selectEvidence(input: EvidenceSelectionInput): EvidenceSelection
       statements,
     });
   }
+
+  const canonicalActiveEvidence = activeEvidence.filter(
+    (record) => !convergedIds.has(record.evidence.evidenceId),
+  );
 
   for (const candidate of input.contradictionEvents ?? []) {
     const parsed = AdmissionContradictionRecordedData.safeParse(candidate);
@@ -430,7 +469,7 @@ export function selectEvidence(input: EvidenceSelectionInput): EvidenceSelection
   });
 
   return Object.freeze({
-    activeEvidence: Object.freeze(activeEvidence),
+    activeEvidence: Object.freeze(canonicalActiveEvidence),
     supersessions: Object.freeze(supersessions),
     contradictions: Object.freeze(contradictions),
     diagnostics: Object.freeze(diagnostics.sort(compareDiagnostics)),
