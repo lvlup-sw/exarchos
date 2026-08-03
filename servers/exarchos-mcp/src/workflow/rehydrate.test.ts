@@ -1510,3 +1510,167 @@ function withoutPlaybook(doc: RehydrationDocument): Omit<RehydrationDocument, 'p
   const { phasePlaybook: _phasePlaybook, ...rest } = doc;
   return rest;
 }
+
+// ─── P04-06 (EFF-004): Rehydration under degradation — deterministic fallback ─
+//
+// Exit proof: rehydration returns the authoritative event-derived (or explicitly
+// summarized) state and NEVER silently trusts stale/contradictory projection
+// data. Declared precedence (see `rehydrate-precedence.ts`, unit-tested there):
+// authoritative event fold > explicit summary snapshot > (never) stale
+// projection. These tests pin the HANDLER's observable behaviour under each
+// degradation mode via `_meta.rehydrationSource` / `_meta.projectionDegraded` —
+// the latter being the SAME P01-02 durable degradation verdict the view surface
+// stamps, consumed here rather than reinvented.
+describe('handleRehydrate — degradation precedence (P04-06, EFF-004)', () => {
+  it('Rehydrate_ProjectionUnavailable_ReturnsEventDerivedState', async () => {
+    // (a) No cached snapshot (the projection cache is unavailable). The handler
+    // folds the authoritative event log and reports the source as `event-fold`.
+    const featureId = 'p0406-no-projection';
+    await store.append(featureId, {
+      type: 'workflow.started',
+      data: { featureId, workflowType: 'feature' },
+    });
+    await store.append(featureId, { type: 'task.assigned', data: { taskId: 'T001' } });
+    await store.append(featureId, { type: 'task.completed', data: { taskId: 'T001' } });
+
+    // Precondition: there is genuinely no snapshot to trust.
+    expect(
+      readLatestSnapshot(
+        store.getReadBackend(),
+        featureId,
+        REHYDRATION_PROJECTION_ID,
+        REHYDRATION_PROJECTION_VERSION,
+      ),
+    ).toBeUndefined();
+
+    const result = await handleRehydrate({ featureId }, { eventStore: store, stateDir });
+    expect(result.success).toBe(true);
+    const meta = result._meta as Record<string, unknown> | undefined;
+    expect(meta?.rehydrationSource).toBe('event-fold');
+    expect(meta?.projectionDegraded).toBeUndefined();
+
+    const doc = result.data as RehydrationDocument;
+    expect(doc.projectionSequence).toBe(3);
+    expect(statusById(doc)).toEqual({ T001: 'complete' });
+  });
+
+  it('Rehydrate_ProjectionContradictsEvents_EventsWin_FlaggedDegraded', async () => {
+    // (b) A snapshot whose cursor sits PAST the durable tail — a snapshot
+    // restored over a pruned/rebuilt store. It also carries a GHOST task that NO
+    // event in the log can produce. Events must WIN: the ghost is gone, the
+    // sequence reflects the real tail, and the response is flagged degraded.
+    const featureId = 'p0406-ahead-contradiction';
+    await store.append(featureId, {
+      type: 'workflow.started',
+      data: { featureId, workflowType: 'feature' },
+    });
+    await store.append(featureId, { type: 'task.assigned', data: { taskId: 'T-REAL' } });
+    const eventTail = await store.tailSequence(featureId); // 2
+
+    // Build a contradictory snapshot: fold a fabricated stream that invents a
+    // GHOST task, then persist it at a sequence far AHEAD of the real tail.
+    const ghostEvents = [
+      { type: 'workflow.started', data: { featureId, workflowType: 'feature' } },
+      { type: 'task.assigned', data: { taskId: 'GHOST' } },
+      { type: 'task.completed', data: { taskId: 'GHOST' } },
+    ] as const;
+    let ghostState: RehydrationDocument = rehydrationReducer.initial;
+    for (const ev of ghostEvents) {
+      ghostState = rehydrationReducer.apply(ghostState, ev as unknown as WorkflowEvent);
+    }
+    const aheadCursor = eventTail + 8;
+    appendSnapshot(store.getReadBackend(), featureId, {
+      projectionId: REHYDRATION_PROJECTION_ID,
+      projectionVersion: REHYDRATION_PROJECTION_VERSION,
+      sequence: aheadCursor,
+      state: ghostState,
+      timestamp: new Date().toISOString(),
+    });
+    // Sanity: the snapshot really is ahead of the durable tail and holds the ghost.
+    expect(aheadCursor).toBeGreaterThan(eventTail);
+    expect(statusById(ghostState)).toHaveProperty('GHOST', 'complete');
+
+    const result = await handleRehydrate({ featureId }, { eventStore: store, stateDir });
+    expect(result.success).toBe(true);
+
+    const doc = result.data as RehydrationDocument;
+    // Events win: the ghost the snapshot invented is absent, and the sequence
+    // reflects the real (folded) tail — NOT the snapshot's inflated cursor.
+    expect(statusById(doc)).not.toHaveProperty('GHOST');
+    expect(statusById(doc)).toHaveProperty('T-REAL', 'in_progress');
+    expect(doc.projectionSequence).toBe(2);
+    expect(RehydrationDocumentSchema.safeParse(doc).success).toBe(true);
+
+    // …and the response is EXPLICITLY flagged degraded via the P01-02 verdict
+    // (projection-ahead), so no consumer mistakes it for a clean read.
+    const meta = result._meta as Record<string, unknown> | undefined;
+    expect(meta?.rehydrationSource).toBe('event-fold');
+    const degraded = meta?.projectionDegraded as
+      | { reason?: string; eventTail?: number; projectionCursor?: number }
+      | undefined;
+    expect(degraded).toBeDefined();
+    expect(degraded?.reason).toBe('projection-ahead');
+    expect(degraded?.eventTail).toBe(eventTail);
+    expect(degraded?.projectionCursor).toBe(aheadCursor);
+
+    // The existence invariant holds: the stream has real events, so it exists.
+    expect(meta?.workflowExists).toBe(true);
+  });
+
+  it('Rehydrate_StaleProjectionBehindTail_NotSilentlyTrusted', async () => {
+    // (c) A snapshot that LAGS the tail with a stale task status. It must not be
+    // served as-is: the tail is folded forward so the corrected event state wins.
+    const featureId = 'p0406-behind-stale';
+    await store.append(featureId, {
+      type: 'workflow.started',
+      data: { featureId, workflowType: 'feature' },
+    });
+    await store.append(featureId, { type: 'task.assigned', data: { taskId: 'T-STALE' } });
+
+    // Snapshot at the current tail with T-STALE still 'in_progress'.
+    const staleCursor = await store.tailSequence(featureId); // 2
+    const staleEvents = await store.query(featureId);
+    let staleState: RehydrationDocument = rehydrationReducer.initial;
+    for (const ev of staleEvents) staleState = rehydrationReducer.apply(staleState, ev);
+    appendSnapshot(store.getReadBackend(), featureId, {
+      projectionId: REHYDRATION_PROJECTION_ID,
+      projectionVersion: REHYDRATION_PROJECTION_VERSION,
+      sequence: staleCursor,
+      state: staleState,
+      timestamp: new Date().toISOString(),
+    });
+    expect(statusById(staleState)).toHaveProperty('T-STALE', 'in_progress');
+
+    // A later event completes T-STALE — the snapshot is now stale.
+    await store.append(featureId, { type: 'task.completed', data: { taskId: 'T-STALE' } });
+
+    const result = await handleRehydrate({ featureId }, { eventStore: store, stateDir });
+    expect(result.success).toBe(true);
+    const doc = result.data as RehydrationDocument;
+    // The stale 'in_progress' status is NOT trusted — the folded-forward event wins.
+    expect(statusById(doc)).toHaveProperty('T-STALE', 'complete');
+    expect(doc.projectionSequence).toBe(3);
+
+    const meta = result._meta as Record<string, unknown> | undefined;
+    // Folding forward self-heals a behind snapshot: event-derived, NOT degraded.
+    expect(meta?.rehydrationSource).toBe('event-fold');
+    expect(meta?.projectionDegraded).toBeUndefined();
+  });
+
+  it('Rehydrate_ColdProbeUnknownFeature_NoEvent_WorkflowExistsFalse', async () => {
+    // (d) The existence invariant under the precedence work: a cold probe of a
+    // never-init'd feature stays side-effect-free and reports absence.
+    const featureId = 'p0406-cold-unknown';
+    const result = await handleRehydrate({ featureId }, { eventStore: store, stateDir });
+    expect(result.success).toBe(true);
+
+    const meta = result._meta as Record<string, unknown> | undefined;
+    expect(meta?.workflowExists).toBe(false);
+    expect(meta?.rehydrationSource).toBe('event-fold');
+    expect(meta?.projectionDegraded).toBeUndefined();
+
+    // No event was written to the previously-empty stream (no phantom workflow).
+    const all = await store.query(featureId);
+    expect(all).toHaveLength(0);
+  });
+});
