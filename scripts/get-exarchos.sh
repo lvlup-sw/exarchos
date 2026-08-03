@@ -63,6 +63,65 @@ err()   { printf '[exarchos] ERROR: %s\n' "$*" >&2; }
 die()   { err "$*"; exit 1; }
 
 # ------------------------------------------------------------------
+# Release manifest verification (P05-01)
+# ------------------------------------------------------------------
+# Verification primitives for the signed, source-linked release manifest.
+# Three of the four fail-closed dimensions (source identity, contract
+# identity, asset digest) plus the Ed25519 signature are verified by the
+# tested TS core (servers/exarchos-mcp/.../release-verify-cli.js): POSIX
+# shells have no portable Ed25519 primitive, so we delegate the whole
+# verdict rather than re-implement crypto here. `asset_sha256` is exposed
+# as a native, unit-testable primitive (it matches release-manifest.ts
+# `digestAssetBytes`). Wiring these into the live download flow lands with
+# the manifest-publishing pipeline (P05-02/P05-03/P05-05).
+
+# asset_sha256 <file> → prints "sha256:<lowerhex>" over the RAW bytes.
+# Mirrors the installer's SHA-512 sidecar tooling detection but uses SHA-256
+# to match the manifest's `sha256:` asset digests. Returns non-zero if no
+# sha256 tool is available (fail closed — the caller must treat it as fatal).
+asset_sha256() {
+    _asset_file="$1"
+    if command -v sha256sum >/dev/null 2>&1; then
+        _asset_hash="$(sha256sum "$_asset_file" | awk '{print $1}')"
+    elif command -v shasum >/dev/null 2>&1; then
+        _asset_hash="$(shasum -a 256 "$_asset_file" | awk '{print $1}')"
+    else
+        err "no sha256 tool found on PATH — cannot digest release asset"
+        return 1
+    fi
+    printf 'sha256:%s\n' "$_asset_hash"
+}
+
+# verify_release_manifest <verifier.js> <manifest> <keyId> <pubkey.pem> \
+#                         <commit#treeDigest> <contractDigest> <name> <asset>
+# Delegates the full four-way, fail-closed verdict to the tested TS core.
+# Returns the core's exit code (0 = verified). Fails CLOSED (non-zero) when
+# `node` or the verifier is unavailable — an unverifiable release is refused,
+# never silently trusted.
+verify_release_manifest() {
+    _verifier="$1"; _manifest="$2"; _key_id="$3"; _pubkey="$4"
+    _expect_source="$5"; _expect_contract="$6"; _asset_name="$7"; _asset_path="$8"
+    if ! command -v node >/dev/null 2>&1 || [ ! -f "$_verifier" ]; then
+        err "release manifest verifier unavailable (node/${_verifier}) — refusing to install (fail-closed)"
+        return 1
+    fi
+    node "$_verifier" \
+        --manifest "$_manifest" \
+        --trust-root "${_key_id}=${_pubkey}" \
+        --expect-source "$_expect_source" \
+        --expect-contract "$_expect_contract" \
+        --asset "${_asset_name}=${_asset_path}"
+}
+
+# Library mode: when sourced with EXARCHOS_LIB_ONLY=1 (the shell-native test
+# harness does this), stop here so the verification/asset primitives are
+# available without running option parsing or the installer body. Mirrors the
+# PowerShell counterpart's -LoadOnly sentinel.
+if [ -n "${EXARCHOS_LIB_ONLY:-}" ]; then
+    return 0 2>/dev/null || exit 0
+fi
+
+# ------------------------------------------------------------------
 # Option parsing
 # ------------------------------------------------------------------
 DRY_RUN=0
