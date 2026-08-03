@@ -34,6 +34,7 @@ import * as path from 'node:path';
 import { EventStore } from '../event-store/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { handleOrchestrate } from './composite.js';
+import { runAsTrustedCaller, seedActivePhaseAttempt, withTrustedCaller } from '../test-helpers/trusted-context.js';
 
 // ─── git fixture helpers ─────────────────────────────────────────────────────
 
@@ -137,7 +138,7 @@ function writeBaseProject(
 }
 
 function makeCtx(stateDir: string, eventStore: EventStore): DispatchContext {
-  return { stateDir, eventStore, enableTelemetry: false } as DispatchContext;
+  return withTrustedCaller({ stateDir, eventStore, enableTelemetry: false } as DispatchContext);
 }
 
 interface ContractDriftData {
@@ -172,7 +173,7 @@ describe('check_contract_drift acceptance (through handleOrchestrate)', () => {
     const eventStore = new EventStore(stateDir);
     await eventStore.initialize();
     const ctx = makeCtx(stateDir, eventStore);
-    const result = await handleOrchestrate(
+    const result = await orchestrate(
       {
         action: 'check_contract_drift',
         featureId: 'feat-contract',
@@ -266,3 +267,30 @@ describe('check_contract_drift acceptance (through handleOrchestrate)', () => {
     120_000,
   );
 });
+
+/**
+ * These tests invoke the composite handler DIRECTLY, bypassing `dispatch()`.
+ *
+ * Two things `dispatch()` and a real run would have provided must be recreated,
+ * or every case exercises a fail-closed path instead of the behaviour under
+ * test: the ambient trusted dispatch scope the durable-evidence gates read
+ * their caller authorization from (`TRUSTED_CALLER_REQUIRED` without it), and a
+ * started workflow with an active phase attempt for the gate's evidence to bind
+ * to (`ACTIVE_PHASE_ATTEMPT_REQUIRED` without it).
+ */
+const seededWorkflows = new Set<string>();
+
+async function orchestrate(
+  args: Record<string, unknown>,
+  ctx: DispatchContext,
+): Promise<Awaited<ReturnType<typeof handleOrchestrate>>> {
+  const featureId = typeof args['featureId'] === 'string' ? args['featureId'] : undefined;
+  if (featureId !== undefined) {
+    const key = `${ctx.stateDir}\0${featureId}`;
+    if (!seededWorkflows.has(key)) {
+      seededWorkflows.add(key);
+      await seedActivePhaseAttempt(ctx.eventStore, featureId);
+    }
+  }
+  return runAsTrustedCaller(ctx.stateDir, () => handleOrchestrate(args, ctx));
+}
