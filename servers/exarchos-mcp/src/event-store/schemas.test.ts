@@ -632,7 +632,11 @@ describe('EventTypes', () => {
     //   after, emitted `auto` by the `export` composite handler in task 013).
     // Phase-gate v2.12 adds 11 admission replay contracts and five
     // server-owned cancellation process-manager facts.
-    expect(EventTypes).toHaveLength(164);
+    // Cancellation process-manager saga (EFF-005 / P04-02): bumped 164 → 167 —
+    // cancel.ownership-acquired + cancel.compensation-retry-scheduled +
+    // cancel.manual-intervention-required (fencing epoch, bounded retry ladder,
+    // terminal escalation).
+    expect(EventTypes).toHaveLength(167);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');
@@ -653,6 +657,9 @@ describe('EventTypes', () => {
     expect(EventTypes).toContain('prune.executed');
     expect(EventTypes).toContain('export.requested');
     expect(EventTypes).toContain('export.executed');
+    expect(EventTypes).toContain('cancel.ownership-acquired');
+    expect(EventTypes).toContain('cancel.compensation-retry-scheduled');
+    expect(EventTypes).toContain('cancel.manual-intervention-required');
     // Retirement guard: init.executed removed in DR-5 (task 018).
     expect(EventTypes as readonly string[]).not.toContain('init.executed');
   });
@@ -4189,8 +4196,10 @@ describe('WLM operational-core merge lease schemas', () => {
     // `workflow.plan-review-dispatched` (145 → 146), and the DR-6 (lifecycle-verbs
     // task 012) two-event `export` contract export.requested / export.executed
     // (146 → 148), followed by 11 admission proof events and five internal
-    // cancellation process-manager facts (148 → 164).
-    expect(EventTypes).toHaveLength(164);
+    // cancellation process-manager facts (148 → 164), plus the P04-02 (EFF-005)
+    // saga triad — cancel.ownership-acquired, cancel.compensation-retry-scheduled,
+    // cancel.manual-intervention-required (164 → 167).
+    expect(EventTypes).toHaveLength(167);
     // No duplicate slipped in while bumping the count.
     expect(new Set(EventTypes).size).toBe(EventTypes.length);
   });

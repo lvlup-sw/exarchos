@@ -538,7 +538,13 @@ describe('EventTypes', () => {
     // `cancel.ready`, and the compensation triple
     // (`cancel.compensation-requested` / `-completed` / `-failed`) — so restart
     // and takeover never repeat completed compensation.
-    expect(EventTypes).toHaveLength(164);
+    // Cancellation process-manager saga (EFF-005 / P04-02): bumped 164 → 167 to
+    // add the fencing + retry + escalation facts — `cancel.ownership-acquired`
+    // (monotonic fencing epoch), `cancel.compensation-retry-scheduled` (bounded
+    // retry ladder), and `cancel.manual-intervention-required` (terminal-but-
+    // unresolved escalation) — so a takeover fences out its predecessor and
+    // retry exhaustion lands in a real, queryable state.
+    expect(EventTypes).toHaveLength(167);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');
@@ -553,9 +559,12 @@ describe('EventTypes', () => {
     expect(EventTypes).toContain('admission.contradiction-recorded');
     expect(EventTypes).toContain('cancel.requested');
     expect(EventTypes).toContain('cancel.ready');
+    expect(EventTypes).toContain('cancel.ownership-acquired');
     expect(EventTypes).toContain('cancel.compensation-requested');
     expect(EventTypes).toContain('cancel.compensation-completed');
     expect(EventTypes).toContain('cancel.compensation-failed');
+    expect(EventTypes).toContain('cancel.compensation-retry-scheduled');
+    expect(EventTypes).toContain('cancel.manual-intervention-required');
     expect(EventTypes).toContain('invariant.authored');
     expect(EventTypes).toContain('catalog.registered');
     expect(EventTypes).toContain('merge.completed');
