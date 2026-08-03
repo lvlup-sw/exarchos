@@ -1,5 +1,13 @@
 // ─── P06-05 / Transition tasks 003, 023, 024, 045 — the admission chokepoint ──
 //
+// RESERVED(issue: #1590, owner: exarchos, expires: 2027-01-31) — production
+// code awaiting the legacy HSM cutover. The evidence-backed admission system is
+// complete, but `hsm-transition-guard.ts` remains the authoritative decider
+// until P07-01 shadow mode reports zero unexplained disagreements and P07-02
+// migrates the built-in workflows. Deliberately staged that way: flipping the
+// decider in the same change that builds it would land an unverified cutover.
+// P07-05 deletes the legacy guard once this is the only path.
+//
 // This module is the SOLE admission chokepoint. A guarded phase transition
 // folds the stream at an explicit expected version, decides route legality
 // (topology) and then admission (evidence-backed permission), and appends the
