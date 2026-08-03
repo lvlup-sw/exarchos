@@ -295,11 +295,20 @@ function detect(repoRoot: string): DetectionResult {
       };
     }
     if (pm === 'bun') {
-      // bun has a built-in `bun test` runner that does not depend on a
-      // `scripts.test` entry — never fail script-existence on bun test.
+      // bun ships a built-in `bun test` runner that does not require a
+      // `scripts.test` entry, so a bun repo NEVER resolves unresolved-test.
+      // BUT when the project defines an explicit `test:run` script (e.g. a
+      // vitest-on-bun repo like servers/exarchos-mcp, which pins vitest for
+      // Windows-headroom timeouts), honor it — otherwise `bun test` runs Bun's
+      // native runner over vitest files instead of the project's real suite.
+      // This mirrors the npm profile (`testScript: 'test:run'`) so both
+      // supported workspaces (root via npm, servers/exarchos-mcp via bun)
+      // resolve the SAME intended `test:run` command rather than diverging
+      // onto two different runners. `typecheck` follows the same honor-script
+      // rule as the npm/pnpm/yarn branch. Install stays package-manager-native.
       return {
-        test: 'bun test',
-        typecheck: 'tsc --noEmit',
+        test: hasScript(pkg, 'test:run') ? 'bun run test:run' : 'bun test',
+        typecheck: hasScript(pkg, 'typecheck') ? 'bun run typecheck' : 'tsc --noEmit',
         install: 'bun install',
         detected: true,
       };

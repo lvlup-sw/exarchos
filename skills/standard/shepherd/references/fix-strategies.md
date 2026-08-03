@@ -205,16 +205,18 @@ git rebase origin/<correct-base>
 git push --force-with-lease
 ```
 
-### Stack Reconstruction
+### Stack Validation
 
-If the stack is in a broken state:
+If the stack looks broken, validate its ordering and base-branch consistency:
 ```typescript
 exarchos_orchestrate({
-  action: "reconstruct_stack"
+  action: "validate_pr_stack",
+  baseBranch: "<integration-branch>"
 })
 ```
 
-Then resubmit.
+The check reports out-of-order branches or branches targeting the wrong base.
+Fix a wrong base with `gh pr edit <number> --base <correct-base>`, then resubmit.
 
 ## Commit Strategy for Fixes
 

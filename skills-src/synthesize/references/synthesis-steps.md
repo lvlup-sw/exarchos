@@ -23,24 +23,21 @@ The composite action validates all readiness conditions:
 
 ## Step 2: Verify Branch Stack
 
-Run the stack reconstruction script to detect and fix any broken branch state:
+Validate that the PR stack is correctly ordered and every branch targets a
+consistent base before opening PRs:
 ```typescript
 mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
-  action: "reconstruct_stack",
-  repoRoot: "<repo-root>",
-  stateFile: "~/.claude/workflow-state/<featureId>.state.json"
+  action: "validate_pr_stack",
+  baseBranch: "<integration-branch>"
 })
 ```
 
-The script has three phases:
-1. **Detection** -- Checks for diverged branches, missing task branches, or broken parent chains
-2. **Reconstruction** -- If issues detected: resets branch pointers, removes blocking worktrees, rebases with correct parent chain
-3. **Validation** -- Confirms all task branches are present with correct ancestry
+The check verifies:
+1. **Ordering** -- stacked PRs are in dependency order (each branch's parent precedes it)
+2. **Base consistency** -- every branch in the stack targets the expected base branch
 
-**On `passed: true`:** Stack is healthy (or was successfully reconstructed) -- proceed to Step 3.
-**On `passed: false`:** Reconstruction failed validation. Manual intervention required -- inspect branch state and resolve conflicts.
-
-Use `--dry-run` arg to preview reconstruction actions without making changes.
+**On `passed: true`:** Stack ordering and bases are consistent -- proceed to Step 3.
+**On `passed: false`:** The output names the inconsistency (an out-of-order branch or one targeting the wrong base). Fix a wrong base with `gh pr edit <number> --base <correct-base>`, then re-run before proceeding.
 
 ## Step 3: Quick Test Verification
 
