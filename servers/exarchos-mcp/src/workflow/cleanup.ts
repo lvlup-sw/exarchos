@@ -358,14 +358,18 @@ export async function handleCleanup(
   // ─── Event emission + state write ─────────────────────────────────────
 
   // Same nullish trap as `cancel.ts`: `!== null` does not exclude `undefined`,
-  // and the block below dereferences the store non-null. Exclude both forms.
-  const useEventFirst =
-    isEventSourced(state) && eventStore !== null && eventStore !== undefined;
+  // and the block below needs a definite store. Narrowing into a local binds
+  // the proof for the checker instead of re-asserting at each use.
+  const eventFirstStore =
+    isEventSourced(state) && eventStore !== null && eventStore !== undefined
+      ? eventStore
+      : undefined;
+  const useEventFirst = eventFirstStore !== undefined;
 
-  if (useEventFirst) {
+  if (eventFirstStore !== undefined && phaseAttemptId !== undefined) {
     // ES v2: emit events BEFORE writing state
     try {
-      await emitCleanupEvents(eventStore!, {
+      await emitCleanupEvents(eventFirstStore, {
         featureId: input.featureId,
         currentPhase,
         synthesis,
@@ -376,7 +380,7 @@ export async function handleCleanup(
         transitionEvents: transitionResult.events,
         prUrl: input.prUrl,
         mergedBranches: input.mergedBranches,
-        phaseAttemptId: phaseAttemptId!,
+        phaseAttemptId,
       });
     } catch (err) {
       return {

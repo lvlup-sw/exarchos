@@ -206,7 +206,8 @@ export function selectEvidence(input: EvidenceSelectionInput): EvidenceSelection
       });
       continue;
     }
-    uniqueById.set(id, records[0]!);
+    const [only] = records;
+    if (only !== undefined) uniqueById.set(id, only);
   }
 
   const predecessorById = new Map<string, string>();
@@ -335,7 +336,9 @@ export function selectEvidence(input: EvidenceSelectionInput): EvidenceSelection
       ...new Set(scoped.map((record) => statementOf(record.evidence))),
     ].sort();
     if (statements.length < 2) continue;
-    const first = scoped[0]!.evidence;
+    const [firstScoped] = scoped;
+    if (firstScoped === undefined) continue;
+    const first = firstScoped.evidence;
     contradictions.push({
       source: 'active-evidence',
       requirementId: first.requirementId,
@@ -377,7 +380,9 @@ export function selectEvidence(input: EvidenceSelectionInput): EvidenceSelection
     }
 
     const records = referenced as AdmissionEvidenceRecorded[];
-    const first = records[0]!.evidence;
+    const [firstRecord] = records;
+    if (firstRecord === undefined) continue;
+    const first = firstRecord.evidence;
     const eventScopeMatches = records.every(
       (record) =>
         record.evidence.requirementId === first.requirementId &&

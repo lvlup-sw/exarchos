@@ -138,20 +138,25 @@ function levenshtein(a: string, b: string): number {
   if (a.length === 0) return b.length;
   if (b.length === 0) return a.length;
 
-  let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
-  let current = new Array<number>(b.length + 1);
+  // Typed arrays, not `number[]`: the DP rows are dense by construction, and
+  // `Int32Array` indexing is typed `number` rather than `number | undefined`, so
+  // the inner loop needs no non-null assertions to satisfy
+  // `noUncheckedIndexedAccess`. Suppressing the checker here would have hidden a
+  // genuine off-by-one just as effectively as it silenced the noise.
+  let previous = Int32Array.from({ length: b.length + 1 }, (_, index) => index);
+  let current = new Int32Array(b.length + 1);
   for (let i = 1; i <= a.length; i += 1) {
     current[0] = i;
     for (let j = 1; j <= b.length; j += 1) {
       current[j] = Math.min(
-        current[j - 1]! + 1,
-        previous[j]! + 1,
-        previous[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1),
+        current[j - 1] + 1,
+        previous[j] + 1,
+        previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
       );
     }
     [previous, current] = [current, previous];
   }
-  return previous[b.length]!;
+  return previous[b.length];
 }
 
 function unknownGateClassDiagnostic(gateClass: string): UnknownGateClassDiagnostic {
@@ -198,10 +203,11 @@ export function buildGateProviderRegistry(
       .map(({ gateClass }) => gateClass)
       .filter((gateClass) => !SUPPORTED_GATE_CLASS_SET.has(gateClass)),
   )].sort();
-  if (unknownClasses.length > 0) {
+  const [firstUnknown] = unknownClasses;
+  if (firstUnknown !== undefined) {
     return {
       success: false,
-      error: unknownGateClassDiagnostic(unknownClasses[0]!),
+      error: unknownGateClassDiagnostic(firstUnknown),
     };
   }
 
@@ -250,7 +256,20 @@ export function buildGateProviderRegistry(
   );
   const providers: GateProvider[] = [];
   for (const gateClass of SUPPORTED_GATE_CLASSES) {
-    const registration = registrationByClass.get(gateClass)!;
+    const registration = registrationByClass.get(gateClass);
+    if (registration === undefined) {
+      // Unreachable while the missing-class check above holds. Surfacing it as
+      // a typed build failure rather than asserting non-null means a future
+      // change to that check degrades into a diagnostic, not a crash.
+      return {
+        success: false,
+        error: {
+          code: 'MISSING_GATE_PROVIDER',
+          message: `No provider registered for gate class "${gateClass}"`,
+          gateClasses: Object.freeze([gateClass]),
+        },
+      };
+    }
     const providerRef = ProviderRefSchema.safeParse(registration.actionName);
     if (!providerRef.success) {
       return {

@@ -549,6 +549,25 @@ export interface CompensationOptions {
   };
 }
 
+/**
+ * {@link CompensationOptions} proven to carry the process-manager triple.
+ *
+ * `executeCompensation` validates `eventStore`, `featureId`, and `cancelProcess`
+ * together before entering the process-managed path — the three are meaningless
+ * apart, since an audit trail needs a store, a stream, and a cancellation
+ * identity. Narrowing once at that boundary lets every helper below read the
+ * fields directly instead of re-asserting non-null at each use, which would
+ * silently survive a caller that stopped validating.
+ */
+export interface ProcessManagedCompensationOptions extends CompensationOptions {
+  readonly eventStore: EventStore;
+  readonly featureId: string;
+  readonly cancelProcess: {
+    readonly cancelId: string;
+    readonly phaseAttemptId: string;
+  };
+}
+
 export interface CompensationActionResult {
   readonly actionId: string;
   readonly status: 'executed' | 'skipped' | 'failed' | 'dry-run';
@@ -994,7 +1013,7 @@ function orderedCompensationActions(currentPhase: string): CompensationAction[] 
   }
 
   function processEventData(
-    options: CompensationOptions,
+    options: ProcessManagedCompensationOptions,
     actionId: string,
   ): {
     cancelId: string;
@@ -1003,15 +1022,15 @@ function orderedCompensationActions(currentPhase: string): CompensationAction[] 
     actionId: string;
   } {
     return {
-      cancelId: options.cancelProcess!.cancelId,
-      featureId: options.featureId!,
-      phaseAttemptId: options.cancelProcess!.phaseAttemptId,
+      cancelId: options.cancelProcess.cancelId,
+      featureId: options.featureId,
+      phaseAttemptId: options.cancelProcess.phaseAttemptId,
       actionId,
     };
   }
 
   async function appendCancellationProcessEvent(
-    options: CompensationOptions,
+    options: ProcessManagedCompensationOptions,
     type:
       | 'cancel.compensation-requested'
       | 'cancel.compensation-completed'
@@ -1019,9 +1038,9 @@ function orderedCompensationActions(currentPhase: string): CompensationAction[] 
     data: Record<string, unknown>,
     suffix: string,
   ): Promise<WorkflowEvent> {
-    const featureId = options.featureId!;
+    const featureId = options.featureId;
     const key = `cancel:${createHash('sha256')
-      .update(`${featureId}\0${options.cancelProcess!.cancelId}\0${suffix}`, 'utf8')
+      .update(`${featureId}\0${options.cancelProcess.cancelId}\0${suffix}`, 'utf8')
       .digest('hex')}`;
     const event = buildValidatedEvent(featureId, 1, {
       type,
@@ -1029,7 +1048,7 @@ function orderedCompensationActions(currentPhase: string): CompensationAction[] 
       idempotencyKey: key,
       data,
     });
-    return options.eventStore!.appendValidated(featureId, event, {
+    return options.eventStore.appendValidated(featureId, event, {
       idempotencyKey: key,
     });
   }
@@ -1053,11 +1072,11 @@ function orderedCompensationActions(currentPhase: string): CompensationAction[] 
   async function executeProcessManagedCompensation(
     state: Record<string, unknown>,
     currentPhase: string,
-    options: CompensationOptions,
+    options: ProcessManagedCompensationOptions,
   ): Promise<CompensationResult> {
-    const eventStore = options.eventStore!;
-    const featureId = options.featureId!;
-    const cancelId = options.cancelProcess!.cancelId;
+    const eventStore = options.eventStore;
+    const featureId = options.featureId;
+    const cancelId = options.cancelProcess.cancelId;
     const actions = orderedCompensationActions(currentPhase);
     const history = await eventStore.query(featureId);
     const results: CompensationActionResult[] = [];
@@ -1263,7 +1282,10 @@ export async function executeCompensation(
     );
   }
   if (options.cancelProcess !== undefined) {
-    if (options.eventStore === undefined || options.featureId === undefined) {
+    // Narrow the triple ONCE, here, so every helper below reads the fields
+    // directly. Destructuring is what carries the narrowing into the spread.
+    const { eventStore, featureId, cancelProcess } = options;
+    if (eventStore === undefined || featureId === undefined) {
       throw new Error(
         'executeCompensation: cancelProcess requires eventStore and featureId',
       );
@@ -1271,7 +1293,12 @@ export async function executeCompensation(
     if (options.dryRun) {
       throw new Error('executeCompensation: cancelProcess cannot run in dry-run mode');
     }
-    return executeProcessManagedCompensation(state, currentPhase, options);
+    return executeProcessManagedCompensation(state, currentPhase, {
+      ...options,
+      eventStore,
+      featureId,
+      cancelProcess,
+    });
   }
 
   // Order actions by reverse phase order

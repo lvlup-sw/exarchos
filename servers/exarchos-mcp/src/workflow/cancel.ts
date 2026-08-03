@@ -47,7 +47,8 @@ function cancellationKey(...parts: readonly string[]): string {
 }
 
 function trustedCancellationProvenance(stateDir: string): Record<string, unknown> {
-  const authorization = getDispatchContext()?.authorization;
+  const dispatch = getDispatchContext();
+  const authorization = dispatch?.authorization;
   const identity = authorization?.identity ?? deriveLocalOperatorIdentity(stateDir);
   return {
     caller: {
@@ -55,10 +56,10 @@ function trustedCancellationProvenance(stateDir: string): Record<string, unknown
       principalId: identity.subjectId,
       role: identity.role,
     },
-    ...(authorization !== undefined
+    ...(authorization !== undefined && dispatch !== undefined
       ? {
           authorization: {
-            authorizationId: `${authorization.policy.id}:${getDispatchContext()!.operationId}`,
+            authorizationId: `${authorization.policy.id}:${dispatch.operationId}`,
             posture: authorization.posture,
             capabilityIds: [...authorization.capabilities],
             resolverVersion: authorization.resolver.version,

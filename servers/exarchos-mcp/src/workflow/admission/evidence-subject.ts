@@ -136,10 +136,13 @@ export function normalizeEvidenceSubjectContent(
         if (extraKeys.length > 0) {
           return malformedContent(`${path} contains non-JSON array properties`);
         }
-        const normalized = Array.from(
-          { length: value.length },
-          (_, index) => visit(descriptors[index]!.value, `${path}[${index}]`),
-        );
+        const normalized = Array.from({ length: value.length }, (_, index) => {
+          const descriptor = descriptors[index];
+          if (descriptor === undefined) {
+            return malformedContent(`${path}[${index}] is a sparse array hole`);
+          }
+          return visit(descriptor.value, `${path}[${index}]`);
+        });
         return Object.freeze(normalized);
       }
 

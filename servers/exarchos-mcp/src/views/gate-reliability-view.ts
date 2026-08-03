@@ -306,7 +306,11 @@ function recompute(events: readonly FoldEvent[]): readonly GateReliabilityMetric
           compareText(left.timestamp, right.timestamp) ||
           compareText(sourceKey(left), sourceKey(right)),
         );
-        const latest = timeline.at(-1)!;
+        // Non-empty by construction (the zero-observation case returned above),
+        // but proving it to the checker keeps the module's own stance: an
+        // unmeasurable gate reports `emptyMetric`, never a fabricated reading.
+        const latest = timeline.at(-1);
+        if (latest === undefined) return emptyMetric(gateClass, gateIdentity);
 
         return Object.freeze({
           gateClass,
