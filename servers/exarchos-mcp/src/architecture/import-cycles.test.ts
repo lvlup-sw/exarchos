@@ -9,7 +9,11 @@ import {
   unbaselinedCycleEdges,
   phantomBaselineEntries,
   edgeKey,
+  runForbiddenEdgeCensus,
+  firstPartyModules,
+  FORBIDDEN_RUNTIME_EDGES,
   type CycleBaseline,
+  type ForbiddenEdgeRule,
 } from './import-cycles.js';
 
 // ─── Runtime Import-Cycle Regression Gate (DR-4, debloat task 009) ───────────
@@ -146,6 +150,37 @@ describe('runtime import cycles (dependency-cruiser acceptance)', () => {
     },
     DEPCRUISE_TIMEOUT_MS,
   );
+
+  it(
+    'forbiddenRuntimeEdges_LiveGraph_NoPresentOrStaleRule',
+    (ctx) => {
+      const capture = captureGraph();
+      if (!capture.available) {
+        ctx.skip();
+        return;
+      }
+      // EXIT PROOF (a): the live graph forms none of the declared forbidden
+      // back-edges AND every declared rule names real modules (no stale guard).
+      const result = runForbiddenEdgeCensus(capture.json, FORBIDDEN_RUNTIME_EDGES, SRC_PREFIX);
+      expect(
+        result.diagnostics,
+        `Forbidden-edge census failed. Break the offending edge, or fix a stale ` +
+          `rule whose module was renamed. Diagnostics: ` +
+          JSON.stringify(result.diagnostics, null, 2),
+      ).toEqual([]);
+      expect(result.ok).toBe(true);
+
+      // The rule's endpoints must be REAL nodes — otherwise the guard is vacuous
+      // and would (correctly) report STALE_FORBIDDEN_EDGE above. This asserts the
+      // positive control that the seam being pinned actually exists.
+      const nodes = firstPartyModules(capture.json, SRC_PREFIX);
+      for (const rule of FORBIDDEN_RUNTIME_EDGES) {
+        expect(nodes.has(rule.from), `${rule.from} absent from graph`).toBe(true);
+        expect(nodes.has(rule.to), `${rule.to} absent from graph`).toBe(true);
+      }
+    },
+    DEPCRUISE_TIMEOUT_MS,
+  );
 });
 
 // ─── Pure detector unit tests (no depcruise; run everywhere) ─────────────────
@@ -279,5 +314,76 @@ describe('detectRuntimeCycles', () => {
       ],
     };
     expect(phantomBaselineEntries(cycles, baseline)).toEqual([]);
+  });
+});
+
+// ─── Forbidden runtime back-edge registry (P07-06) ───────────────────────────
+// Pure verdict tests over synthetic graphs, so the cycle-prevention enforcement
+// is covered independently of the shelled tool. The `graph` builder mirrors the
+// detector tests above (a `resolved`/`source` module doc depcruise would emit).
+
+describe('runForbiddenEdgeCensus', () => {
+  const graph = (edges: Array<[string, string]>): string =>
+    JSON.stringify({
+      modules: (() => {
+        const bySource = new Map<string, Array<{ resolved: string; dependencyTypes: string[] }>>();
+        for (const [from, to] of edges) {
+          if (!bySource.has(from)) bySource.set(from, []);
+          bySource.get(from)!.push({ resolved: to, dependencyTypes: ['local', 'import'] });
+          if (!bySource.has(to)) bySource.set(to, []);
+        }
+        return [...bySource.entries()].map(([source, dependencies]) => ({ source, dependencies }));
+      })(),
+    });
+
+  const rule: ForbiddenEdgeRule = {
+    from: 'src/views/projection.ts',
+    to: 'src/workflow/store.ts',
+    reason: 'would re-form the mutual cycle.',
+  };
+
+  it('flags a present forbidden edge as FORBIDDEN_RUNTIME_EDGE', () => {
+    const json = graph([
+      ['src/workflow/store.ts', 'src/views/projection.ts'], // legal one-way edge
+      ['src/views/projection.ts', 'src/workflow/store.ts'], // the forbidden back-edge
+    ]);
+    const result = runForbiddenEdgeCensus(json, [rule], 'src');
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics.map((d) => d.code)).toEqual(['FORBIDDEN_RUNTIME_EDGE']);
+  });
+
+  it('passes when the forbidden edge is absent but both endpoints exist', () => {
+    const json = graph([['src/workflow/store.ts', 'src/views/projection.ts']]);
+    const result = runForbiddenEdgeCensus(json, [rule], 'src');
+    expect(result.ok).toBe(true);
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it('flags a rule whose endpoint is absent from the graph as STALE_FORBIDDEN_EDGE', () => {
+    // `store.ts` never appears (renamed away) — the guard protects nothing.
+    const json = graph([['src/views/projection.ts', 'src/other/leaf.ts']]);
+    const result = runForbiddenEdgeCensus(json, [rule], 'src');
+    expect(result.ok).toBe(false);
+    const stale = result.diagnostics.find((d) => d.code === 'STALE_FORBIDDEN_EDGE');
+    expect(stale && 'missing' in stale && stale.missing).toBe('to');
+  });
+
+  it('firstPartyModules returns every local source and resolved target node', () => {
+    const json = graph([
+      ['src/a.ts', 'src/b.ts'],
+      ['src/a.ts', 'node_modules/zod/index.ts'],
+    ]);
+    const nodes = firstPartyModules(json, 'src');
+    expect([...nodes].sort()).toEqual(['src/a.ts', 'src/b.ts']);
+    expect(nodes.has('node_modules/zod/index.ts')).toBe(false);
+  });
+
+  it('the shipped FORBIDDEN_RUNTIME_EDGES registry is non-empty and well-formed', () => {
+    expect(FORBIDDEN_RUNTIME_EDGES.length).toBeGreaterThan(0);
+    for (const r of FORBIDDEN_RUNTIME_EDGES) {
+      expect(r.from).toMatch(/^src\//);
+      expect(r.to).toMatch(/^src\//);
+      expect(r.reason.length).toBeGreaterThan(0);
+    }
   });
 });
