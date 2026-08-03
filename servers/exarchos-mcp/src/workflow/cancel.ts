@@ -15,19 +15,24 @@ import {
 import { mapInternalToExternalType } from './events.js';
 import { getHSMDefinition, executeTransition } from './state-machine.js';
 import { allocatePhaseAttemptId, readPhaseAttemptId } from './phase-attempt-id.js';
-import { executeCompensation, type CompensationCheckpoint } from './compensation.js';
+import { executeCompensation, CANCEL_MAX_ATTEMPTS, type CompensationCheckpoint } from './compensation.js';
 import type { EventStore } from '../event-store/store.js';
 import {
   CancelReadyData,
   CancelRequestedData,
-  type EventType,
 } from '../event-store/schemas.js';
-import { buildValidatedEvent } from '../event-store/event-factory.js';
+import {
+  acquireCancelOwnership,
+  appendFencedCancelEvent,
+  buildCancelReadiness,
+  manualInterventionActions,
+  queryCancelSaga,
+} from './cancel-process-manager.js';
 import { getDispatchContext } from '../dispatch/dispatch-context.js';
 import { deriveLocalOperatorIdentity } from '../dispatch/caller-identity.js';
 import { type ToolResult } from '../format.js';
 import * as path from 'node:path';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 // ─── Event-Sourcing Version Discriminator ───────────────────────────────────
 
@@ -68,52 +73,6 @@ function trustedCancellationProvenance(stateDir: string): Record<string, unknown
         }
       : {}),
   };
-}
-
-async function appendCancellationFactOnce(
-  eventStore: EventStore,
-  featureId: string,
-  operationId: string,
-  type: EventType,
-  data: Record<string, unknown>,
-): Promise<void> {
-  const dispatch = getDispatchContext();
-  const timestamp = new Date().toISOString();
-  const validated = buildValidatedEvent(featureId, 1, {
-    type,
-    data,
-    timestamp,
-    source: 'workflow',
-    idempotencyKey: operationId,
-    ...(dispatch !== undefined
-      ? {
-          operationId: dispatch.operationId,
-          correlationId: dispatch.correlationId,
-          ...(dispatch.causationId !== undefined
-            ? { causationId: dispatch.causationId }
-            : {}),
-        }
-      : {}),
-  });
-  const {
-    streamId: _streamId,
-    sequence: _sequence,
-    ...eventInput
-  } = validated;
-  const stableData = JSON.stringify(data, (key, value) =>
-    key.endsWith('At') || key === 'caller' || key === 'authorization'
-      ? undefined
-      : value);
-  const requestDigest = `sha256:${sha256(JSON.stringify({ type, data: stableData }))}`;
-  await eventStore.getAppender().decideOnce(
-    operationId,
-    requestDigest,
-    () => ({
-      streamId: featureId,
-      events: [eventInput],
-      result: { appended: true },
-    }),
-  );
 }
 
 // ─── Module-Level EventStore (removed — now threaded via DispatchContext) ─────
@@ -200,6 +159,11 @@ export async function handleCancel(
   }
 
   let compensationResult;
+  // Fencing epoch acquired on ownership (P04-02). 0 means "no owner yet"; the
+  // event-sourced path replaces it with a strictly-monotonic epoch that fences
+  // out any stale instance's subsequent writes.
+  let cancelEpoch = 0;
+  const cancelInstanceId = `cancel-instance:${randomUUID()}`;
   if (useEventFirst) {
     const provenance = trustedCancellationProvenance(stateDir);
     const requestedAt = new Date().toISOString();
@@ -224,13 +188,27 @@ export async function handleCancel(
       };
     }
     try {
-      await appendCancellationFactOnce(
-        eventStore,
-        input.featureId,
-        cancellationKey(input.featureId, cancelId, 'requested'),
-        'cancel.requested',
-        parsedRequest.data,
-      );
+      // ── Acquire ownership + fencing epoch (P04-02) ───────────────────────
+      // The process manager takes the cancellation under a monotonic fencing
+      // token BEFORE recording intent. Every subsequent write carries this
+      // epoch and is rejected atomically if a newer instance has taken over.
+      const owned = await acquireCancelOwnership(eventStore, {
+        featureId: input.featureId,
+        cancelId,
+        phaseAttemptId,
+        instanceId: cancelInstanceId,
+        operationId: `cancel:ownership:${cancelId}:${cancelInstanceId}`,
+      });
+      cancelEpoch = owned.epoch;
+      await appendFencedCancelEvent(eventStore, {
+        featureId: input.featureId,
+        cancelId,
+        writerEpoch: cancelEpoch,
+        type: 'cancel.requested',
+        data: parsedRequest.data,
+        idempotencyKey: cancellationKey(input.featureId, cancelId, 'requested'),
+        operationId: `cancel:requested:${cancelId}`,
+      });
       compensationResult = await executeCompensation(
         mutableState,
         currentPhase,
@@ -241,7 +219,13 @@ export async function handleCancel(
           stateDir,
           eventStore,
           featureId: input.featureId,
-          cancelProcess: { cancelId, phaseAttemptId },
+          cancelProcess: {
+            cancelId,
+            phaseAttemptId,
+            writerEpoch: cancelEpoch,
+            instanceId: cancelInstanceId,
+            maxAttempts: CANCEL_MAX_ATTEMPTS,
+          },
         },
       );
     } catch (err) {
@@ -274,11 +258,22 @@ export async function handleCancel(
     }
 
     const failedActions = compensationResult.actions.filter((a) => a.status === 'failed');
+    // Surface manual-intervention explicitly (P04-02): retry-exhausted actions
+    // are a real, queryable terminal state, not a silently swallowed failure.
+    let manualNote = '';
+    if (useEventFirst) {
+      const saga = await queryCancelSaga(eventStore, input.featureId, cancelId);
+      const manual = manualInterventionActions(saga);
+      if (manual.length > 0) {
+        manualNote =
+          ` Manual intervention required for: ${manual.map((a) => a.actionId).join(', ')}`;
+      }
+    }
     return {
       success: false,
       error: {
         code: ErrorCode.COMPENSATION_PARTIAL,
-        message: `Compensation partially failed: ${failedActions.map((a) => a.message).join('; ')}`,
+        message: `Compensation partially failed: ${failedActions.map((a) => a.message).join('; ')}.${manualNote}`,
       },
     };
   }
@@ -301,56 +296,52 @@ export async function handleCancel(
   }
 
   if (useEventFirst) {
-    const outcomes = compensationResult.durableOutcomes;
-    if (
-      outcomes === undefined
-      || outcomes.completedActionIds.length !== compensationResult.actions.length
-    ) {
-      return {
-        success: false,
-        error: {
-          code: ErrorCode.COMPENSATION_PARTIAL,
-          message: 'Cancellation readiness requires a durable outcome for every compensation action',
-        },
-      };
-    }
+    // ── Completion gate (P04-02) ─────────────────────────────────────────
+    // `buildCancelReadiness` is the SOLE constructor of a `cancel.ready` proof:
+    // it folds the durable log and refuses unless EVERY required compensation
+    // has a durably-recorded success. Reporting cancellation complete before all
+    // outcomes are recorded is therefore structurally impossible, not merely
+    // avoided by convention.
+    const saga = await queryCancelSaga(eventStore, input.featureId, cancelId);
+    const requiredActionIds = compensationResult.actions.map((a) => a.actionId);
     const provenance = trustedCancellationProvenance(stateDir);
-    const readyAt = new Date().toISOString();
-    const digestValue = sha256(JSON.stringify({
-      cancelId,
-      completedActionIds: outcomes.completedActionIds,
-      outcomeSequences: outcomes.outcomeSequences,
-    }));
-    const readyData = {
-      eventVersion: '1.0',
-      evidenceId: `cancel-ready:${phaseAttemptId}`,
-      cancelId,
+    const caller = provenance.caller as Record<string, unknown>;
+    const authorization = provenance.authorization as Record<string, unknown> | undefined;
+    const readiness = buildCancelReadiness(saga, requiredActionIds, {
       featureId: input.featureId,
+      cancelId,
       phaseAttemptId,
-      completedActionIds: [...outcomes.completedActionIds],
-      outcomeSequences: [...outcomes.outcomeSequences],
-      contentDigest: { algorithm: 'sha256', value: digestValue },
-      readyAt,
-      ...provenance,
-    };
-    const parsedReady = CancelReadyData.safeParse(readyData);
-    if (!parsedReady.success) {
+      evidenceId: `cancel-ready:${phaseAttemptId}`,
+      caller,
+      ...(authorization !== undefined ? { authorization } : {}),
+    });
+    if (!readiness.ok) {
+      const manual = manualInterventionActions(saga);
+      const blockedReason =
+        readiness.plan.kind === 'blocked' ? readiness.plan.reason : 'unrecorded-outcome';
+      const blockedPending =
+        readiness.plan.kind === 'blocked' ? readiness.plan.pendingActionIds : requiredActionIds;
+      const message =
+        blockedReason === 'manual-intervention-required'
+          ? `Cancellation requires manual intervention for: ${
+              manual.map((a) => a.actionId).join(', ') || blockedPending.join(', ')
+            }`
+          : 'Cancellation readiness requires a durable outcome for every compensation action';
       return {
         success: false,
-        error: {
-          code: ErrorCode.EVENT_APPEND_FAILED,
-          message: `Cancellation readiness evidence was malformed: ${parsedReady.error.message}`,
-        },
+        error: { code: ErrorCode.COMPENSATION_PARTIAL, message },
       };
     }
     try {
-      await appendCancellationFactOnce(
-        eventStore,
-        input.featureId,
-        cancellationKey(input.featureId, cancelId, 'ready'),
-        'cancel.ready',
-        parsedReady.data,
-      );
+      await appendFencedCancelEvent(eventStore, {
+        featureId: input.featureId,
+        cancelId,
+        writerEpoch: cancelEpoch,
+        type: 'cancel.ready',
+        data: readiness.data,
+        idempotencyKey: cancellationKey(input.featureId, cancelId, 'ready'),
+        operationId: `cancel:ready:${cancelId}`,
+      });
       const replayedReady = (await eventStore.query(input.featureId)).find((event) => {
         if (event.type !== 'cancel.ready') return false;
         const parsed = CancelReadyData.safeParse(event.data);
