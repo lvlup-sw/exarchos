@@ -264,19 +264,13 @@ describe('handleCancel', () => {
       // `<featureId>:cancel:compensation:<type>:<action>` scheme was replaced by
       // a digest key scoped to (featureId, cancelId, action) — collision-free
       // across concurrent cancels of the same feature.
-
-      // Spy on append to capture idempotency keys
-      const appendCalls: Array<{ type: string; idempotencyKey?: string }> = [];
-      const originalAppend = eventStore.append.bind(eventStore);
-      const originalAppendValidated = eventStore.appendValidated.bind(eventStore);
-      vi.spyOn(eventStore, 'append').mockImplementation(async (streamId, event, options) => {
-        appendCalls.push({ type: event.type, idempotencyKey: options?.idempotencyKey });
-        return originalAppend(streamId, event, options);
-      });
-      vi.spyOn(eventStore, 'appendValidated').mockImplementation(async (streamId, event, options) => {
-        appendCalls.push({ type: event.type, idempotencyKey: options?.idempotencyKey });
-        return originalAppendValidated(streamId, event, options);
-      });
+      //
+      // Seam note: cancel writes now go through the fenced atomic append
+      // (`AtomicAppender.decideOnce`), which stamps the idempotency key onto the
+      // event itself rather than passing it as an `append` option. Asserting
+      // against the persisted stream is therefore strictly stronger than the
+      // previous `append`/`appendValidated` option spy — it proves the key is
+      // durable, not merely requested.
 
       // Act
       await handleCancel({ featureId: 'cancel-comp-keys' }, tmpDir, eventStore);
@@ -284,17 +278,18 @@ describe('handleCancel', () => {
       // Assert: every compensation fact carries an idempotency key — that key is
       // what makes a resumed or retried cancellation converge instead of
       // repeating completed compensation.
-      const compensationCalls = appendCalls.filter((c) =>
-        c.type.startsWith('cancel.compensation-'),
+      const persisted = await eventStore.query('cancel-comp-keys');
+      const compensationEvents = persisted.filter((e) =>
+        e.type.startsWith('cancel.compensation-'),
       );
-      expect(compensationCalls.length).toBeGreaterThan(0);
-      for (const call of compensationCalls) {
-        expect(call.idempotencyKey, `${call.type} must be idempotency-keyed`).toBeDefined();
-        expect(call.idempotencyKey).toMatch(/^cancel:[0-9a-f]{64}$/);
+      expect(compensationEvents.length).toBeGreaterThan(0);
+      for (const event of compensationEvents) {
+        expect(event.idempotencyKey, `${event.type} must be idempotency-keyed`).toBeDefined();
+        expect(event.idempotencyKey).toMatch(/^cancel:[0-9a-f]{64}$/);
       }
       // Keys are distinct per (action, phase) — a shared key would collapse two
       // different compensation outcomes into one durable fact.
-      const keys = compensationCalls.map((c) => c.idempotencyKey);
+      const keys = compensationEvents.map((e) => e.idempotencyKey);
       expect(new Set(keys).size).toBe(keys.length);
     });
 

@@ -541,5 +541,19 @@ function registerLedger(): readonly EffectOwnershipRule[] {
     rule('filesystem', 'adapters/', 'adapters-fs', 'adapter io; caller owns idempotency', 'caller-owned'),
     rule('filesystem', 'onramp/', 'onramp-fs', 'onboarding scaffold writes; idempotent', 'scaffold is re-runnable'),
     rule('filesystem', 'workspace/', 'workspace-fs', 'workspace reads/writes; idempotent by path', 'caller-owned'),
+    rule(
+      'filesystem',
+      'contract/',
+      'contract-authority-fs',
+      'authority digests recomputed from content; lock writes are whole-file replacements',
+      'a failed lock write leaves the previous approved lock intact',
+    ),
+    rule(
+      'filesystem',
+      'extensions/',
+      'extension-trust-fs',
+      'version-ledger high-water marks advance monotonically; re-record is a no-op',
+      'a corrupt or failed ledger write fails closed and blocks admission',
+    ),
   ]);
 }

@@ -102,10 +102,12 @@ shell-metacharacter allowlist as `test:` / `typecheck:` / `install:`.
 Earlier revisions exposed a `new_project` orchestrate action that scaffolded a
 project's commands from a per-toolchain `scaffold` map. That greenfield surface
 and the registry's `scaffold` field were **removed** (DR-3/DR-5, tasks
-017/018): the resolver is detection- and resolution-only. `new_project` is
-unregistered (asserted by `new-project-removed.test.ts`), and the registry
-above carries `test` / `typecheck` / `install` commands only — no scaffold
-tokens and no canonical toolchain.
+017/018): the resolver is detection- and resolution-only.
+
+The retired `new-project` verb was removed in favour of `exarchos onboard --new` and is now unregistered, as asserted by `new-project-removed.test.ts`.
+
+The registry above carries `test` / `typecheck` / `install` commands only — no
+scaffold tokens and no canonical toolchain.
 
 ## See also
 

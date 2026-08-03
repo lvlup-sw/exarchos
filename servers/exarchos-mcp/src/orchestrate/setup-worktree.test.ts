@@ -694,7 +694,7 @@ describe('handleSetupWorktree', () => {
     );
   });
 
-  it('runBaselineTests_BunProject_RunsBunTest', () => {
+  it('runBaselineTests_BunProjectWithTestRunScript_RunsBunRunTestRun', () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
       const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
@@ -703,6 +703,41 @@ describe('handleSetupWorktree', () => {
       if (cmdStr === 'git' && argsArr.includes('rev-parse')) return '.git';
       return '';
     });
+    vi.mocked(existsSync).mockImplementation((p: unknown) => {
+      const path = String(p);
+      if (path === '/repo/.worktrees/task-201-bun-test') return true;
+      if (path === '/repo/.worktrees/task-201-bun-test/package.json') return true;
+      if (path === '/repo/.worktrees/task-201-bun-test/bun.lockb') return true;
+      return false;
+    });
+
+    const result = handleSetupWorktree({
+      repoRoot: '/repo',
+      taskId: 'task-201',
+      taskName: 'bun-test',
+    });
+
+    expect(result.success).toBe(true);
+    expect(execFileSync).toHaveBeenCalledWith(
+      'bun',
+      ['run', 'test:run'],
+      expect.objectContaining({ cwd: '/repo/.worktrees/task-201-bun-test' }),
+    );
+  });
+
+  it('runBaselineTests_BunProjectWithoutTestRunScript_FallsBackToBunTest', () => {
+    vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
+      const cmdStr = String(cmd).replace(/\.cmd$/, '');
+      const argsArr = args as string[];
+      if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
+      if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
+      if (cmdStr === 'git' && argsArr.includes('rev-parse')) return '.git';
+      return '';
+    });
+    vi.mocked(readFileSync).mockImplementation(((p: unknown) =>
+      String(p).endsWith('package.json')
+        ? JSON.stringify({ name: 'bun-native', scripts: {} })
+        : '') as never);
     vi.mocked(existsSync).mockImplementation((p: unknown) => {
       const path = String(p);
       if (path === '/repo/.worktrees/task-201-bun-test') return true;
