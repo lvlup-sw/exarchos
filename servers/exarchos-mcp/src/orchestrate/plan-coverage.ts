@@ -13,6 +13,7 @@ import { emitGateEvent } from './gate-utils.js';
 import { acceptanceCriteriaFinding } from './pure/design-completeness.js';
 import { createEvidenceSubject } from '../workflow/admission/evidence-subject.js';
 import { runPhaseGateWithEvidence } from './gate-runner.js';
+import { designRegion } from './pure/provenance-chain.js';
 
 // ─── Result Types ──────────────────────────────────────────────────────────
 
@@ -59,6 +60,73 @@ const STOP_WORDS = new Set([
 // ─── Design Section Parsing ─────────────────────────────────────────────
 
 /**
+ * Parse `DR-N` requirement headings from the design region of a unified spec.
+ *
+ * WFQ-006: the current unified template declares design requirements as
+ * `### DR-N …` / `#### DR-N …` headings under `## Design & Rationale`
+ * (`### Requirements (DR-N)`). These identifiers are the single source the
+ * decomposition traces against, so they — not the surrounding rationale
+ * subsections (Problem Statement, Technical Design, …) — are the coverage
+ * sections.
+ *
+ * Extraction is scoped to the design region (everything before the
+ * decomposition boundary) so a task's `**Implements:** DR-N` *reference* is
+ * never mistaken for a DR-N *definition*. Bullet-form DR-N entries are
+ * intentionally NOT treated as requirement sections — only headings define a
+ * traceable requirement.
+ */
+export function parseDesignRequirements(markdown: string): string[] {
+  const sections: string[] = [];
+  const seen = new Set<string>();
+  const drHeadingPattern = /^#{3,4}\s+(DR-\d+\b.*)$/;
+
+  for (const line of designRegion(markdown).split('\n')) {
+    const match = drHeadingPattern.exec(line.trimEnd());
+    const heading = match?.[1]?.trim();
+    if (heading !== undefined && !seen.has(heading)) {
+      seen.add(heading);
+      sections.push(heading);
+    }
+  }
+
+  return sections;
+}
+
+/**
+ * Map each `DR-N` requirement to the plan task ids that declare it via a
+ * `**Implements:** DR-N[, DR-M]` line. Mirrors the authoritative provenance
+ * signal (`check_provenance_chain`) so DR-N design sections resolve coverage
+ * from the decomposition's explicit references, not fuzzy keyword overlap.
+ */
+function extractImplementsByDr(planContent: string): Map<string, string[]> {
+  const byDr = new Map<string, string[]>();
+  const taskPattern = /^###\s+Task\s+([A-Za-z0-9-]+):/;
+  const implementsPattern = /\*\*Implements:\*\*\s*(.+)/i;
+  let currentTaskId: string | null = null;
+
+  for (const line of planContent.split('\n')) {
+    const taskMatch = line.match(taskPattern);
+    if (taskMatch?.[1] !== undefined) {
+      currentTaskId = taskMatch[1].trim();
+      continue;
+    }
+    if (currentTaskId === null) continue;
+
+    const implMatch = line.match(implementsPattern);
+    if (implMatch?.[1] !== undefined) {
+      for (const dr of implMatch[1].match(/DR-\d+/gi) ?? []) {
+        const key = dr.toUpperCase();
+        const ids = byDr.get(key) ?? [];
+        if (!ids.includes(currentTaskId)) ids.push(currentTaskId);
+        byDr.set(key, ids);
+      }
+    }
+  }
+
+  return byDr;
+}
+
+/**
  * Parse design sections from a markdown document.
  * Extracts ### subsections under `## Technical Design`, `## Design Requirements`,
  * or `## Requirements` headers (case-insensitive).
@@ -67,6 +135,16 @@ const STOP_WORDS = new Set([
  * (more granular). When a ### has no #### children, the ### itself is used.
  */
 export function parseDesignSections(markdown: string): string[] {
+  // WFQ-006: the canonical unified spec places design requirements as `DR-N`
+  // subsections under `## Design & Rationale` (via `### Requirements (DR-N)`),
+  // NOT under the legacy `## Technical Design` heading. Prefer the DR-N source
+  // when present so current-template specs stop tripping NO_DESIGN_SECTIONS and
+  // no longer need an artificial duplicate compatibility heading.
+  const requirements = parseDesignRequirements(markdown);
+  if (requirements.length > 0) {
+    return requirements;
+  }
+
   const lines = markdown.split('\n');
 
   const h3Headers: string[] = [];
@@ -458,6 +536,7 @@ export function computeCoverage(
   let deferredCount = 0;
   const gapSections: string[] = [];
   const matrixRows: CoverageMatrixRow[] = [];
+  const implementsByDr = extractImplementsByDr(planContent);
 
   for (const section of designSections) {
     const sectionKeywords = extractKeywords(section);
@@ -477,19 +556,32 @@ export function computeCoverage(
     // Try matching against task titles
     const matchedTasks: string[] = [];
 
-    for (const task of tasks) {
-      // Exact case-insensitive substring match
-      if (task.title.toLowerCase().includes(section.toLowerCase())) {
-        matchedTasks.push(task.title);
-        continue;
+    // WFQ-006 (unified spec): a DR-N design section resolves coverage from the
+    // decomposition's explicit `**Implements:** DR-N` references — the same
+    // authoritative signal check_provenance_chain uses — before any fuzzy
+    // keyword overlap. A DR-N with no implementing task stays an uncovered GAP.
+    const drMatch = section.match(/\bDR-\d+\b/i);
+    if (drMatch) {
+      for (const id of implementsByDr.get(drMatch[0].toUpperCase()) ?? []) {
+        matchedTasks.push(`Task ${id}`);
       }
-      if (section.toLowerCase().includes(task.title.toLowerCase())) {
-        matchedTasks.push(task.title);
-        continue;
-      }
-      // Keyword match
-      if (keywordMatch(sectionKeywords, task.title)) {
-        matchedTasks.push(task.title);
+    }
+
+    if (matchedTasks.length === 0) {
+      for (const task of tasks) {
+        // Exact case-insensitive substring match
+        if (task.title.toLowerCase().includes(section.toLowerCase())) {
+          matchedTasks.push(task.title);
+          continue;
+        }
+        if (section.toLowerCase().includes(task.title.toLowerCase())) {
+          matchedTasks.push(task.title);
+          continue;
+        }
+        // Keyword match
+        if (keywordMatch(sectionKeywords, task.title)) {
+          matchedTasks.push(task.title);
+        }
       }
     }
 
