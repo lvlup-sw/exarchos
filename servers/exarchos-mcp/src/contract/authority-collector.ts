@@ -31,6 +31,8 @@ import {
   type AuthorityLock,
   type AuthorityVerdict,
 } from './authority-pin.js';
+import { CONTRACT_SURFACE_VERSION } from './compatibility.js';
+import { serializeContractSurface } from './contract-surface.js';
 
 /**
  * The declared compatibility-policy version. Bump this (and re-approve the
@@ -124,6 +126,8 @@ export function collectAuthorityInputs(
     compatibilityPolicySource: readText(paths.compatibilityPolicyFile),
     invariantCatalogSchemaVersion: extractSchemaVersion(catalogText),
     invariantCatalogSource: catalogText,
+    contractSurfaceVersion: CONTRACT_SURFACE_VERSION,
+    contractSurfaceSource: serializeContractSurface(),
   };
 }
 

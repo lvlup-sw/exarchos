@@ -46,7 +46,15 @@ import {
 
 // ─── Authority identity ─────────────────────────────────────────────────────
 
-/** The frozen authorities, in canonical order. */
+/**
+ * The frozen authorities, in canonical order.
+ *
+ * `contract-surface` (P03-02) freezes the CLOSED envelope/error/security/
+ * compatibility contract surface (`error-families.ts`, `envelope.ts`,
+ * `request-context.ts`, `compatibility.ts`) as a content-addressed digest so a
+ * new stable error code, a changed exit mapping, a new output-carrier kind, or
+ * a re-classified change class trips the freeze and demands re-approval.
+ */
 export const AUTHORITY_IDS = [
   'strategos-contracts',
   'mcp-protocol',
@@ -54,6 +62,7 @@ export const AUTHORITY_IDS = [
   'action-id-registry',
   'compatibility-policy',
   'invariant-catalog',
+  'contract-surface',
 ] as const;
 
 export type AuthorityId = (typeof AUTHORITY_IDS)[number];
@@ -155,6 +164,10 @@ export interface AuthorityInputs {
   readonly invariantCatalogSchemaVersion: string;
   /** Source of the target invariant catalog. */
   readonly invariantCatalogSource: string;
+  /** The P03-02 closed contract-surface version (`CONTRACT_SURFACE_VERSION`). */
+  readonly contractSurfaceVersion: string;
+  /** Canonical serialization of the P03-02 closed contract surface. */
+  readonly contractSurfaceSource: string;
 }
 
 /**
@@ -212,6 +225,16 @@ export function computeAuthorities(inputs: AuthorityInputs): AuthorityValue[] {
       versionSpec: inputs.invariantCatalogSchemaVersion,
       digest: digestText(inputs.invariantCatalogSource),
       source: '.exarchos/invariants.md pinned at frontmatter schema-version',
+    },
+    {
+      id: 'contract-surface',
+      kind: 'schema',
+      version: inputs.contractSurfaceVersion,
+      versionSpec: inputs.contractSurfaceVersion,
+      digest: digestText(inputs.contractSurfaceSource),
+      source:
+        'src/contract/{error-families,envelope,request-context,compatibility}.ts ' +
+        'closed contract surface (P03-02), pinned at CONTRACT_SURFACE_VERSION',
     },
   ];
 }
