@@ -3,8 +3,18 @@ import { needsWindowsShell, runCommandSync, spawnCommandSync } from './process.j
 
 describe('needsWindowsShell (#1623)', () => {
   it('NeedsWindowsShell_BarePackageManagerOnWin32_True', () => {
-    for (const pm of ['npm', 'npx', 'pnpm', 'yarn', 'corepack']) {
+    for (const pm of ['npm', 'npx', 'pnpm', 'yarn', 'corepack', 'bun', 'bunx']) {
       expect(needsWindowsShell(pm, 'win32')).toBe(true);
+    }
+  });
+
+  it('NeedsWindowsShell_ScriptRunnersAgreeWithTheIntegrationGate', () => {
+    // `resolveIntegrationCommand` classifies these as script runners, so each
+    // one can be spawned as a bare command by `check_integration_suite`. Any
+    // runner it will spawn must also be recognised as a win32 shim, or the gate
+    // fails to launch on Windows for that toolchain.
+    for (const runner of ['npm', 'pnpm', 'yarn', 'bun']) {
+      expect(needsWindowsShell(runner, 'win32'), `${runner} must launch via shell on win32`).toBe(true);
     }
   });
 
