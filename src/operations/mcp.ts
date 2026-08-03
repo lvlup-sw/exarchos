@@ -10,6 +10,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { McpServerComponent } from '../manifest/types.js';
+import { readJsonConfig, writeJsonConfigAtomic } from './atomic-json.js';
 
 /** A single MCP server entry in ~/.claude.json. */
 export interface McpServerEntry {
@@ -34,22 +35,7 @@ export interface ClaudeConfig {
  * @throws If the file exists but contains invalid JSON.
  */
 export function readMcpConfig(configPath: string): ClaudeConfig {
-  let raw: string;
-  try {
-    raw = fs.readFileSync(configPath, 'utf-8');
-  } catch (err: unknown) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code === 'ENOENT') {
-      return {};
-    }
-    throw err;
-  }
-
-  try {
-    return JSON.parse(raw) as ClaudeConfig;
-  } catch {
-    throw new Error(`Failed to parse Claude config JSON at ${configPath}`);
-  }
+  return readJsonConfig<ClaudeConfig>(configPath) ?? {};
 }
 
 /**
@@ -167,7 +153,5 @@ export function removeMcpServers(
  * @param config - The config to persist.
  */
 export function writeMcpConfig(configPath: string, config: ClaudeConfig): void {
-  const dir = path.dirname(configPath);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+  writeJsonConfigAtomic(configPath, config);
 }
