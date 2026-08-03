@@ -104,7 +104,14 @@ describe('reserved admission event authorization (DR-3)', () => {
           principalId: fc.string({ minLength: 1, maxLength: 32 }),
           role: fc.string({ minLength: 1, maxLength: 32 }),
           operationId: fc.uuid(),
-          recordedAt: fc.date().map((date) => date.toISOString()),
+          // `noInvalidDate` matters: bare `fc.date()` can emit an Invalid Date
+          // (~1 seed in 400), and `new Date(NaN).toISOString()` throws
+          // RangeError inside the mapper during *generation* — crashing the
+          // run before the property body is ever reached. That surfaced as a
+          // seed-dependent flake, not a real counterexample. The property is
+          // about forged caller attribution on reserved event types; an
+          // unrepresentable timestamp is out of scope for it.
+          recordedAt: fc.date({ noInvalidDate: true }).map((date) => date.toISOString()),
         }),
         async (eventType, forged) => {
           const result = await dispatch(
