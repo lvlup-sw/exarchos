@@ -41,9 +41,21 @@ export const INTERNAL_ADMISSION_EVENT_TYPES = [
 /** Server-owned cancellation process-manager facts (v2.12, DR-7). */
 export const INTERNAL_CANCELLATION_EVENT_TYPES = [
   'cancel.requested',
+  // P04-02 (EFF-005) — fencing token. A monotonically increasing epoch is
+  // allocated on ownership acquisition; a stale-epoch instance's writes are
+  // rejected by the process manager, so a takeover cannot be undercut by the
+  // instance it displaced.
+  'cancel.ownership-acquired',
   'cancel.compensation-requested',
   'cancel.compensation-completed',
   'cancel.compensation-failed',
+  // P04-02 (EFF-005) — bounded-retry record. Emitted before a re-attempt of a
+  // failed compensation effect so the attempt ladder is replayable.
+  'cancel.compensation-retry-scheduled',
+  // P04-02 (EFF-005) — terminal-but-unresolved escalation. Retry exhaustion (or
+  // a non-retryable malformed result) lands here as a real, queryable state
+  // rather than being silently swallowed.
+  'cancel.manual-intervention-required',
   'cancel.ready',
 ] as const;
 
@@ -529,9 +541,12 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'workflow.cleanup': 'auto',
   'workflow.compensation': 'auto',
   'cancel.requested': 'auto',
+  'cancel.ownership-acquired': 'auto',
   'cancel.compensation-requested': 'auto',
   'cancel.compensation-completed': 'auto',
   'cancel.compensation-failed': 'auto',
+  'cancel.compensation-retry-scheduled': 'auto',
+  'cancel.manual-intervention-required': 'auto',
   'cancel.ready': 'auto',
   'workflow.circuit-open': 'auto',
   'workflow.cas-failed': 'auto',
@@ -1237,6 +1252,76 @@ export const CancelReadyData = z
     contentDigest: ContentDigestV1Schema,
     readyAt: CancellationRecordedAtSchema,
     ...CancellationTrustedProvenance,
+  })
+  .strict()
+  .readonly();
+
+// ─── P04-02 (EFF-005) — process-manager saga facts ──────────────────────────
+// A monotonic fencing epoch, a bounded-retry ladder, and an explicit
+// manual-intervention terminal, all recorded as replayable events so that
+// restart AND takeover fold to the same decisions (see cancel-process-manager.ts).
+
+const CancellationEpochSchema = z.number().int().positive();
+const CancellationInstanceIdSchema = z.string().trim().min(1).max(200);
+
+/**
+ * Fencing-token allocation. `epoch` is strictly greater than every prior
+ * ownership epoch on the stream; the process manager rejects any subsequent
+ * write carrying a lower epoch (the classic distributed-lock fencing token).
+ */
+export const CancelOwnershipAcquiredData = z
+  .object({
+    eventVersion: CancellationEventVersionSchema,
+    cancelId: CancellationIdSchema,
+    featureId: z.string().min(1),
+    phaseAttemptId: PhaseAttemptIdSchema,
+    epoch: CancellationEpochSchema,
+    instanceId: CancellationInstanceIdSchema,
+    acquiredAt: CancellationRecordedAtSchema,
+  })
+  .strict()
+  .readonly();
+
+/**
+ * Durable record that a failed compensation attempt is being retried. `attempt`
+ * is the 1-based index of the attempt that just failed; a re-attempt (attempt
+ * + 1) follows. Bounded by `maxAttempts`.
+ */
+export const CancelCompensationRetryScheduledData = z
+  .object({
+    eventVersion: CancellationEventVersionSchema,
+    cancelId: CancellationIdSchema,
+    featureId: z.string().min(1),
+    phaseAttemptId: PhaseAttemptIdSchema,
+    actionId: CancellationActionIdSchema,
+    epoch: CancellationEpochSchema,
+    attempt: z.number().int().positive(),
+    maxAttempts: z.number().int().positive(),
+    reason: z.enum(['effect-failed', 'malformed-result']),
+    message: z.string().min(1),
+    scheduledAt: CancellationRecordedAtSchema,
+  })
+  .strict()
+  .readonly();
+
+/**
+ * Terminal-but-unresolved compensation state. Reached when retries are
+ * exhausted (or a non-retryable malformed result is observed). The saga can
+ * never report `cancel.ready` while any action is in this state — it is a real,
+ * queryable escalation, not a silently swallowed failure.
+ */
+export const CancelManualInterventionRequiredData = z
+  .object({
+    eventVersion: CancellationEventVersionSchema,
+    cancelId: CancellationIdSchema,
+    featureId: z.string().min(1),
+    phaseAttemptId: PhaseAttemptIdSchema,
+    actionId: CancellationActionIdSchema,
+    epoch: CancellationEpochSchema,
+    attempts: z.number().int().positive(),
+    reason: z.enum(['retries-exhausted', 'effect-failed', 'malformed-result']),
+    message: z.string().min(1),
+    requiredAt: CancellationRecordedAtSchema,
   })
   .strict()
   .readonly();
@@ -3481,9 +3566,12 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'workflow.cleanup': WorkflowCleanupData,
   'workflow.compensation': WorkflowCompensationData,
   'cancel.requested': CancelRequestedData,
+  'cancel.ownership-acquired': CancelOwnershipAcquiredData,
   'cancel.compensation-requested': CancelCompensationRequestedData,
   'cancel.compensation-completed': CancelCompensationCompletedData,
   'cancel.compensation-failed': CancelCompensationFailedData,
+  'cancel.compensation-retry-scheduled': CancelCompensationRetryScheduledData,
+  'cancel.manual-intervention-required': CancelManualInterventionRequiredData,
   'cancel.ready': CancelReadyData,
   'workflow.circuit-open': WorkflowCircuitOpenData,
   'workflow.cas-failed': WorkflowCasFailedData,
