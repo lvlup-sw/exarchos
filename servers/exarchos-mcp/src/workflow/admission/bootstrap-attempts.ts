@@ -1,5 +1,11 @@
 // ─── P06-07 / Transition task 050 — bootstrap existing workflows ─────────────
 //
+// RESERVED(issue: #1590, owner: exarchos, expires: 2027-01-31) — production
+// code awaiting the legacy HSM cutover. Bootstrapping an existing workflow into
+// attempts/requirements is only meaningful once admission is the authoritative
+// decider (P07-02 migrates, P07-05 deletes the legacy path); running it earlier
+// would append attempt state nothing consults.
+//
 // A workflow that predates the admission system carries no phase-attempt
 // requirement state: its stream has no `admission.requirement-resolved` facts,
 // so the P01-04 fold reconstructs NO frozen requirement set for the attempt.

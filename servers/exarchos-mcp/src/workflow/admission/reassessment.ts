@@ -1,5 +1,10 @@
 // ─── P06-07 / Transition task 050 — reassessment under an explicit policy ────
 //
+// RESERVED(issue: #1590, owner: exarchos, expires: 2027-01-31) — production
+// code awaiting the legacy HSM cutover, same staging as `bootstrap-attempts.ts`.
+// Reassessing an attempt's obligations presupposes admission owns them, which
+// happens at P07-02 migration; P07-05 removes the legacy path.
+//
 // Reassessment re-evaluates an existing phase attempt's obligations under a
 // NEWER, explicitly-named policy version, WITHOUT touching history. The attempt
 // keeps its originally-frozen requirement generation (referenced, never
