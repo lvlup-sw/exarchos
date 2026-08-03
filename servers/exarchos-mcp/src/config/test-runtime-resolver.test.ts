@@ -4,12 +4,14 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import fc from 'fast-check';
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
   resolveTestRuntime,
   resolveVerificationRuntime,
 } from './test-runtime-resolver.js';
+import { loadExarchosConfig } from './load-exarchos-config.js';
 import { ExarchosConfigSchema } from './exarchos-config-schema.js';
 import { FullExarchosConfigSchema } from './yaml-schema.js';
 
@@ -212,6 +214,49 @@ describe('resolveTestRuntime', () => {
 
     expect(result).toEqual({
       test: 'bun test',
+      typecheck: 'tsc --noEmit',
+      install: 'bun install',
+      source: 'detection',
+    });
+  });
+
+  it('resolveTestRuntime_BunProjectWithTestRunScript_HonorsTestRunViaBunRun', () => {
+    // A vitest-on-bun repo (like servers/exarchos-mcp): a bun lockfile plus an
+    // explicit `test:run` script. The resolver must run the committed script
+    // via `bun run test:run` rather than shelling into Bun's native runner over
+    // the vitest suite — otherwise the two supported workspaces diverge onto
+    // different runners. `typecheck` honors its script the same way.
+    const dir = makeTmpDir();
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ scripts: { 'test:run': 'vitest run', typecheck: 'tsc --noEmit' } }),
+    );
+    writeFileSync(join(dir, 'bun.lock'), '');
+
+    const result = resolveTestRuntime(dir);
+
+    expect(result).toEqual({
+      test: 'bun run test:run',
+      typecheck: 'bun run typecheck',
+      install: 'bun install',
+      source: 'detection',
+    });
+  });
+
+  it('resolveTestRuntime_BunProjectWithTestRunButNoTypecheck_FallsBackToTsc', () => {
+    // Honoring `test:run` must not conjure a `typecheck` script that isn't
+    // there — typecheck still falls back to a bare `tsc --noEmit`.
+    const dir = makeTmpDir();
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ scripts: { 'test:run': 'vitest run' } }),
+    );
+    writeFileSync(join(dir, 'bun.lock'), '');
+
+    const result = resolveTestRuntime(dir);
+
+    expect(result).toEqual({
+      test: 'bun run test:run',
       typecheck: 'tsc --noEmit',
       install: 'bun install',
       source: 'detection',
@@ -1186,5 +1231,92 @@ describe('ExarchosConfigSchema verification-key tolerance', () => {
     // loader uses the merged schema, not the bare one.)
     expect(ExarchosConfigSchema.safeParse(withVerification).success).toBe(false);
     expect(ExarchosConfigSchema.safeParse(withReview).success).toBe(false);
+  });
+});
+
+describe('supported-workspace test-runtime consistency (WFQ-015 / exit-proof c)', () => {
+  const tmpDirs: string[] = [];
+  function makeTmpDir(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'ws-consistency-'));
+    tmpDirs.push(dir);
+    return dir;
+  }
+  afterEach(() => {
+    for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true });
+    tmpDirs.length = 0;
+  });
+
+  // Both supported workspaces commit a `test:run` vitest script; they differ
+  // only in package manager (repo root → npm lockfile, servers/exarchos-mcp →
+  // bun lockfile). The resolver must land BOTH on their committed `test:run`
+  // script so they run the SAME suite under the SAME timeout policy, rather
+  // than the bun workspace silently falling through to `bun test` (Bun's
+  // native runner over vitest files). This is the toolchain-truth exit proof.
+  const pkg = JSON.stringify({
+    scripts: { 'test:run': 'vitest run', typecheck: 'tsc --noEmit' },
+  });
+
+  it('npm-managed root and bun-managed mcp workspace both resolve their test:run script', () => {
+    const rootLike = makeTmpDir();
+    writeFileSync(join(rootLike, 'package.json'), pkg);
+    writeFileSync(join(rootLike, 'package-lock.json'), '{}');
+
+    const mcpLike = makeTmpDir();
+    writeFileSync(join(mcpLike, 'package.json'), pkg);
+    writeFileSync(join(mcpLike, 'bun.lock'), '');
+
+    const rootResult = resolveTestRuntime(rootLike);
+    const mcpResult = resolveTestRuntime(mcpLike);
+
+    // Same intended target: each runs the committed `test:run` script.
+    expect(rootResult.test).toBe('npm run test:run');
+    expect(mcpResult.test).toBe('bun run test:run');
+    expect(rootResult.test?.endsWith('run test:run')).toBe(true);
+    expect(mcpResult.test?.endsWith('run test:run')).toBe(true);
+
+    // Neither falls through to a native package-manager test runner.
+    expect(mcpResult.test).not.toBe('bun test');
+    expect(rootResult.test).not.toBe('npm test');
+
+    // Both resolve via detection (built-in registry tier), not unresolved.
+    expect(rootResult.source).toBe('detection');
+    expect(mcpResult.source).toBe('detection');
+  });
+});
+
+describe('top-level mutation config shape (WFQ-013 / DOC-5)', () => {
+  const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../');
+  const tmpDirs: string[] = [];
+  function makeTmpDir(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'doc5-'));
+    tmpDirs.push(dir);
+    return dir;
+  }
+  afterEach(() => {
+    for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true });
+    tmpDirs.length = 0;
+  });
+
+  it('committed root .exarchos.yml loads clean and exposes a top-level `mutation`', () => {
+    // WFQ-013/DOC-5: `mutation` is a valid TOP-LEVEL key. The committed root
+    // config declares it, so loading must not throw (a stale strict schema
+    // would reject the unknown key) and the value must survive to
+    // `config.mutation` — the exact shape the documentation now advertises.
+    const result = loadExarchosConfig(REPO_ROOT);
+    expect(result).not.toBeNull();
+    expect(result!.config.mutation).toBe('node servers/exarchos-mcp/scripts/stryker-adapter.mjs');
+  });
+
+  it('resolveVerificationRuntime honors a top-level `mutation` via the config-direct tier', () => {
+    const dir = makeTmpDir();
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ scripts: { 'test:run': 'vitest run' } }),
+    );
+    writeFileSync(join(dir, '.exarchos.yml'), 'mutation: echo mutate\n');
+
+    const result = resolveVerificationRuntime(dir);
+
+    expect(result.mutation).toBe('echo mutate');
   });
 });

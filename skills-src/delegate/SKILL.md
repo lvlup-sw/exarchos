@@ -94,12 +94,17 @@ exarchos_orchestrate({
 
 **Pass `planPath`.** It points `prepare_delegation` at the decomposition markdown so it lifts each task's `**Risk Tier:**` / `**Boundary Touching:**` stamp automatically (deterministic parse — no hand-transcription). The stamp is what selects the per-task verification depth below; without `planPath` (and without an explicit `riskTier`/`boundaryTouching` on a task) every task falls back to a keyword/glob heuristic that under-provisions planner-`high`/boundary tasks (#1636). You may still set `riskTier`/`boundaryTouching` explicitly on a `tasks[]` entry to override the plan for one task; an explicit value always wins.
 
-The composite action performs:
-1. **Worktree creation** — creates `.worktrees/task-<id>` with `git worktree add`, runs `npm install`
-2. **State validation** — verifies workflow state is in `delegate` phase, plan exists, plan approved
-3. **Quality signal assembly** — queries `code_quality` view; if `gatePassRate < 0.80`, returns quality hints to embed in prompts. Emits `gate.executed('plan-coverage')` on success (no pre-query needed)
-4. **Benchmark detection** — sets `verification.hasBenchmarks` if any task has benchmark criteria
-5. **Readiness verdict** — returns `{ ready: true, worktrees: [...], qualityHints: [...] }` or `{ ready: false, reason: "..." }`
+The composite action is **read-only** — it queries delegation readiness and
+assembles quality hints. It does **not** create worktrees and does **not** run
+`npm install` (its authoritative description is *"Query delegation readiness and
+prepare quality hints for subagent dispatch"*). Worktree materialization is the
+host's responsibility under native isolation, or an explicit `setup_worktree`
+call — which lays out the canonical `.worktrees/<taskId>-<taskName>` path. The
+action performs:
+1. **State validation** — verifies workflow state is in `delegate` phase, plan exists, plan approved
+2. **Quality signal assembly** — queries `code_quality` view; if `gatePassRate < 0.80`, returns quality hints to embed in prompts. Emits `gate.executed('plan-coverage')` on success (no pre-query needed)
+3. **Benchmark detection** — sets `verification.hasBenchmarks` if any task has benchmark criteria
+4. **Readiness verdict** — returns `{ ready: true, worktrees: [...], qualityHints: [...] }` (the `worktrees` array reports the **expected** paths, not created ones) or `{ ready: false, reason: "..." }`
 
 **If `blocked: true` with `reason: "current-branch-protected"`:** the response includes a `hint` field (e.g. "checkout the feature/phase branch before dispatching delegation"). Apply the hint, then re-call.
 
@@ -107,7 +112,7 @@ The composite action performs:
 
 **If `ready: true`:** Extract the `worktrees` paths and `qualityHints` for prompt construction.
 
-**Native isolation — verify worktrees before agents edit.** Under native isolation (`nativeIsolation: true`), `prepare_delegation` returns `ready: true` even when the host has not yet materialized worktrees (`worktrees.ready: 0`), because isolation is the host's responsibility — readiness cannot be confirmed at prepare-time. When `worktrees.expected > 0` and none are confirmed ready, the response carries a **warning**: *"native isolation requested; N worktree(s) expected but 0 confirmed ready — verify the host materializes worktrees or dispatch may land in the shared checkout."* Do not ignore it. After dispatching, and **before any agent edits files**, confirm each agent's working directory is under `.worktrees/` (e.g. the agent's first reported `pwd`). If an agent is NOT in a worktree it has landed in the shared checkout — stop it, create the worktree manually with `git worktree add -b <task-branch> .worktrees/task-<id> <integration-tip>`, redirect the agent to that path, and only then allow edits. Skipping this check risks silent shared-tree corruption across parallel agents.
+**Native isolation — verify worktrees before agents edit.** Under native isolation (`nativeIsolation: true`), `prepare_delegation` returns `ready: true` even when the host has not yet materialized worktrees (`worktrees.ready: 0`), because isolation is the host's responsibility — readiness cannot be confirmed at prepare-time. When `worktrees.expected > 0` and none are confirmed ready, the response carries a **warning**: *"native isolation requested; N worktree(s) expected but 0 confirmed ready — verify the host materializes worktrees or dispatch may land in the shared checkout."* Do not ignore it. After dispatching, and **before any agent edits files**, confirm each agent's working directory is under `.worktrees/` (e.g. the agent's first reported `pwd`). If an agent is NOT in a worktree it has landed in the shared checkout — stop it, create the worktree manually with `git worktree add -b <task-branch> .worktrees/<taskId>-<taskName> <integration-tip>` (the same `<taskId>-<taskName>` layout `setup_worktree` uses, so a manually-created worktree is recognized without a second-path retry), redirect the agent to that path, and only then allow edits. Skipping this check risks silent shared-tree corruption across parallel agents.
 
 ### Task Extraction
 
@@ -503,8 +508,19 @@ subagent worktree) and that `git status` is clean.
      sourceBranch: "<feature-branch>",
      strategy: "squash",           // squash | rebase | merge
      taskId: "<taskId>",
+     dryRun: false,                // REQUIRED to execute — the action DEFAULTS to dry-run
    })
    ```
+
+   `serialize_merge` **defaults to a dry-run** (preflight only, no lease
+   claimed): omit `dryRun` and it reports whether the merge *would* apply
+   without mutating anything. Pass `dryRun: false` to actually claim the
+   single-writer lease and perform the merge. The action is declared
+   **shared-mutating**, so a read-only caller (a session without write
+   capability) is denied even the apply path; in that case fall back to a
+   local-git merge from the main worktree (`git merge --squash
+   <feature-branch>` then commit) and record the equivalent merge
+   state/events yourself, since that merge sits outside the serialized lease.
 
    The preflight should now pass. Proceed with the orchestrator's normal
    merge flow. (Re-run raw `merge_orchestrate` directly only for a

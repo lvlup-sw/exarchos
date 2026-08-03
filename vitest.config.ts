@@ -24,6 +24,17 @@ export default defineConfig({
           // the `bun:sqlite` alias and resolves `@fast-check/vitest` from the
           // nested `node_modules/`). CI runs them via `cd servers/exarchos-mcp
           // && npm run test:run`.
+          //
+          // Explicit per-tier timeout policy (WFQ-015): every root project
+          // states its own `testTimeout` rather than leaning on vitest's
+          // implicit 5000ms default, so the timeout policy is legible and
+          // uniform across the tiers — unit (fast, in-memory) 5s < process
+          // (spawns real processes) 15s < outcome (real OS/git/CLI state) 30s.
+          // The nested `servers/exarchos-mcp` workspace pins a higher 60s for
+          // Windows headroom on its integration suite; both workspaces now run
+          // vitest (see test-runtime-resolver bun `test:run` honoring), so each
+          // honors its declared vitest timeout rather than a native runner's.
+          testTimeout: 5000,
           include: [
             'src/**/*.test.ts',
             'benchmarks/**/*.test.ts',
