@@ -9,6 +9,7 @@ import type { DispatchContext } from '../core/dispatch.js';
 import { deriveLocalOperatorIdentity } from '../dispatch/caller-identity.js';
 import type { ToolResult } from '../format.js';
 import { toEnvelope } from '../format.js';
+import { exitCodeForError } from '../contract/error-families.js';
 import {
   addFlagsFromSchema,
   coerceFlags,
@@ -94,25 +95,35 @@ export const ERROR_CODE_EXIT_CODES: Readonly<Record<string, number>> = {
 };
 
 /**
- * Map a dispatched {@link ToolResult} to its process exit code (DR-7).
+ * Map a dispatched {@link ToolResult} to its process exit code.
  *
- * Resolution order (presentation only — never consulted for control flow):
- *   1. success            → SUCCESS (0)
- *   2. code in the DR-7 map → its mapped value (WAIT_TIMEOUT 17 / WAIT_FAILED 18)
- *   3. code === INVALID_INPUT (VALIDATION_ERROR_CODE) → INVALID_INPUT (1)
- *   4. any other handler error → HANDLER_ERROR (2)
+ * P03-05: the CLI is a GENERATED in-process client over the same contract, so
+ * its exit codes are no longer a bespoke adapter table — they are DERIVED from
+ * the frozen P03-02 exit-code authority via {@link exitCodeForError}. Both the
+ * CLI and the MCP wire resolve a failure's exit code from that single registry,
+ * so the two surfaces agree by construction (differential-fixtures proof).
  *
- * Steps 1/3/4 reproduce the pre-DR-7 mapping exactly, so this is a superset:
- * only the two `wait` codes gain a distinct exit code.
+ * Resolution:
+ *   1. success              → SUCCESS (0)
+ *   2. otherwise            → exitCodeForError(result.error.code)
+ *
+ * `exitCodeForError` is a strict superset of the pre-P03-05 mapping for every
+ * handler-reachable code (success 0, INVALID_INPUT 1, the wait codes 17/18, and
+ * the generic HANDLER_ERROR 2 fallback for any unregistered code — matching the
+ * old ERROR_CODE_EXIT_CODES/INVALID_INPUT/HANDLER_ERROR ladder). It ADDS the
+ * codes the adapter previously flattened to 2: the protocol family
+ * (PROTOCOL_ERROR / UNSUPPORTED_PROTOCOL_VERSION / VERSION_INCOMPATIBLE) → 1 and
+ * PRESENTER_ERROR → 3. Those refinements are not reachable from the dispatch
+ * failure branch in CLI mode today, so this is behaviour-preserving for live
+ * flows while making the exit contract complete against the registry.
+ *
+ * {@link ERROR_CODE_EXIT_CODES} is retained as the DR-7 presentation table that
+ * `error-families.test.ts` and `lifecycle-verbs.parity.test.ts` pin against; its
+ * two entries are now subsumed by (and cross-checked against) the registry.
  */
 export function resolveExitCode(result: ToolResult): number {
   if (result.success) return CLI_EXIT_CODES.SUCCESS;
-  const code = result.error?.code;
-  if (code !== undefined && Object.prototype.hasOwnProperty.call(ERROR_CODE_EXIT_CODES, code)) {
-    return ERROR_CODE_EXIT_CODES[code] ?? CLI_EXIT_CODES.HANDLER_ERROR;
-  }
-  if (code === VALIDATION_ERROR_CODE) return CLI_EXIT_CODES.INVALID_INPUT;
-  return CLI_EXIT_CODES.HANDLER_ERROR;
+  return exitCodeForError(result.error?.code);
 }
 
 // ─── Error-Shape Helpers ────────────────────────────────────────────────────
@@ -1416,15 +1427,15 @@ function registerActionCommand(
     }
 
     // ─── Emit + map to exit code ──────────────────────────────────────
-    // DR-7: `resolveExitCode` funnels the handler result through the generic
-    // errorCode→exitCode table (WAIT_TIMEOUT→17 / WAIT_FAILED→18) BEFORE the
-    // generic fallback. It preserves the prior mapping exactly — INVALID_INPUT
-    // stays exit 1 when the handler reports a validation failure (collapsing
-    // every non-success into HANDLER_ERROR would lose parity with the
-    // pre-dispatch INVALID_INPUT path), any other handler error stays exit 2 —
-    // so only the two structured `wait` codes gain a distinct exit code. The
-    // SAME site serves both the `vw <verb>` subcommand and the DR-7 top-level
-    // promotion (both route through this one registerActionCommand handler).
+    // P03-05: `resolveExitCode` now delegates to the frozen P03-02 exit-code
+    // authority (`exitCodeForError`), the SAME registry the MCP wire resolves
+    // against — so the CLI client and the MCP surface assign identical exit
+    // codes to a given result by construction (differential-fixtures proof).
+    // The registry is a superset of the pre-P03-05 ladder for every
+    // handler-reachable code: success 0, INVALID_INPUT 1, WAIT_TIMEOUT 17 /
+    // WAIT_FAILED 18, and HANDLER_ERROR 2 for any other handler error. The SAME
+    // site serves both the `vw <verb>` subcommand and the top-level promotion
+    // (both route through this one registerActionCommand handler).
     emitResult(result, isJson, format);
     process.exitCode = resolveExitCode(result);
   });
