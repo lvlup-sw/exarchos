@@ -14,6 +14,15 @@ import type { EventStore } from '../event-store/store.js';
 import type { RiskTier } from '../workflow/verification-policy.js';
 import { emitGateEvent } from './gate-utils.js';
 import { canonicaliseTaskId } from '../utils/task-id.js';
+import {
+  assessDecompositionPlausibility,
+  countBehaviors,
+  extractBoundaryTouching,
+  parseOverrides,
+  type PlausibilityAssessment,
+  type PlausibilityBaseline,
+  type PlausibilityTaskInput,
+} from './decomposition-plausibility.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────
 
@@ -79,6 +88,13 @@ interface TaskDecompositionResult {
   readonly totalTasks: number;
   readonly dagValid: boolean;
   readonly parallelSafe: boolean;
+  /**
+   * P02-06: calibrated decomposition/risk plausibility findings. A STRUCTURED
+   * CHALLENGE (typed findings the caller can act on), NOT a hard failure — it
+   * does not flip `passed`. Implausible blanket risk/boundary stamps or
+   * oversized tasks surface here rather than being silently accepted.
+   */
+  readonly plausibility: PlausibilityAssessment;
   readonly report: string;
 }
 
@@ -793,12 +809,62 @@ export function extractFiles(block: string): string[] {
   return files;
 }
 
+// ─── Plausibility Bridge (P02-06) ─────────────────────────────────────────
+
+/**
+ * Bridge parsed task blocks into the structured `PlausibilityTaskInput`s the
+ * plausibility assessor consumes. Reuses the structural gate's own extractors
+ * (`extractFiles`, `extractTaskRiskTier`) so the plausibility signals read the
+ * SAME files/tier the structure check reads — no parallel parser to drift.
+ */
+export function extractPlausibilityInputs(
+  blocks: readonly TaskBlock[],
+): PlausibilityTaskInput[] {
+  return blocks.map((block) => {
+    const riskTier = extractTaskRiskTier(block.content);
+    const boundaryTouching = extractBoundaryTouching(block.content);
+    return {
+      id: block.id,
+      files: extractFiles(block.content),
+      behaviorCount: countBehaviors(block.content),
+      ...(riskTier ? { riskTier } : {}),
+      ...(boundaryTouching !== undefined ? { boundaryTouching } : {}),
+      overrides: parseOverrides(block.content),
+    };
+  });
+}
+
+/**
+ * Render the plausibility assessment as a markdown report section. Active
+ * challenges are surfaced as `CHALLENGE` lines (the structured, non-silent
+ * signal); overridden ones are listed with their recorded rationale so the
+ * override is auditable rather than invisible.
+ */
+function renderPlausibilitySection(assessment: PlausibilityAssessment): string[] {
+  const lines: string[] = ['### Decomposition Plausibility'];
+  if (!assessment.challenged && assessment.overridden.length === 0) {
+    lines.push('- No plausibility challenges \u2713');
+    return lines;
+  }
+  for (const challenge of assessment.challenges) {
+    lines.push(`- CHALLENGE (${challenge.signal}): ${challenge.message}`);
+  }
+  for (const overridden of assessment.overridden) {
+    lines.push(
+      `- OVERRIDDEN (${overridden.signal}): ${overridden.message} ` +
+        `\u2014 rationale: ${overridden.overrideRationale}`,
+    );
+  }
+  return lines;
+}
+
 // ─── Handler ─────────────────────────────────────────────────────────────
 
 export async function handleTaskDecomposition(
   args: TaskDecompositionArgs,
   _stateDir: string,
   eventStore: EventStore,
+  baseline?: PlausibilityBaseline,
 ): Promise<ToolResult> {
   // Guard clause: validate required inputs
   if (!args.featureId) {
@@ -928,12 +994,29 @@ export async function handleTaskDecomposition(
   }
   reportLines.push('');
 
+  // P02-06: calibrated decomposition/risk plausibility. Structured challenge,
+  // NOT a hard failure — surfaced in the report and the returned `plausibility`
+  // field so implausible blanket stamps / oversized tasks are not silently
+  // accepted, while remaining overridable with a recorded rationale.
+  const plausibility = assessDecompositionPlausibility(
+    extractPlausibilityInputs(blocks),
+    {
+      ...(baseline ? { baseline } : {}),
+      planOverrides: parseOverrides(planContent),
+    },
+  );
+  reportLines.push(...renderPlausibilitySection(plausibility));
+  reportLines.push('');
+
   reportLines.push('### Summary');
   reportLines.push(`- Well-decomposed: ${wellDecomposed}/${totalTasks} tasks`);
   reportLines.push(`- Needs rework: ${needsRework}/${totalTasks} tasks`);
   reportLines.push(`- Dependency: ${dagResult.valid ? 'valid DAG' : 'CYCLE DETECTED'}`);
   reportLines.push(
     `- Parallel safety: ${safetyResult.safe ? 'clean' : `${safetyResult.conflicts.length} conflict(s)`}`,
+  );
+  reportLines.push(
+    `- Plausibility: ${plausibility.challenged ? `${plausibility.challenges.length} challenge(s)` : 'clean'}`,
   );
   reportLines.push('');
 
@@ -967,6 +1050,7 @@ export async function handleTaskDecomposition(
     totalTasks,
     dagValid: dagResult.valid,
     parallelSafe: safetyResult.safe,
+    plausibility,
     report,
   };
 
