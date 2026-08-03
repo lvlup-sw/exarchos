@@ -595,3 +595,129 @@ export const WaiverProvenanceV1Schema = z.discriminatedUnion('event', [
   SupersededWaiverProvenanceV1Schema,
 ]);
 export type WaiverProvenanceV1 = z.infer<typeof WaiverProvenanceV1Schema>;
+
+// ─── Contradiction records ──────────────────────────────────────────────────
+
+export const ContradictionStatementSchema = z.enum([
+  'satisfied',
+  'unsatisfied',
+  'indeterminate',
+]);
+export type ContradictionStatement = z.infer<typeof ContradictionStatementSchema>;
+
+const ActiveEvidenceContradictionV1Schema = z
+  .object({
+    contractVersion: AdmissionRuntimeContractVersionSchema,
+    source: z.literal('active-evidence'),
+    requirementId: RequirementIdSchema,
+    phaseAttemptId: PhaseAttemptIdSchema,
+    subject: EvidenceSubjectV1Schema,
+    policyDigest: ContentDigestV1Schema,
+    evidenceIds: z.array(EvidenceIdSchema).min(2).readonly(),
+    statements: z.array(ContradictionStatementSchema).min(2).readonly(),
+  })
+  .strict()
+  .readonly();
+
+const DownstreamEventContradictionV1Schema = z
+  .object({
+    contractVersion: AdmissionRuntimeContractVersionSchema,
+    source: z.literal('downstream-event'),
+    contradictionId: StableIdValueSchema.brand<'AdmissionContradictionId'>(),
+    requirementId: RequirementIdSchema,
+    phaseAttemptId: PhaseAttemptIdSchema,
+    subject: EvidenceSubjectV1Schema,
+    policyDigest: ContentDigestV1Schema,
+    evidenceIds: z.array(EvidenceIdSchema).min(2).readonly(),
+    detectedAt: TimestampSchema,
+  })
+  .strict()
+  .readonly();
+
+/**
+ * Immutable contradiction record. Active-evidence contradictions arise from
+ * conflicting verdicts within the same scope; downstream-event contradictions
+ * reference a persisted detection event.
+ */
+export const ContradictionRecordV1Schema = z.discriminatedUnion('source', [
+  ActiveEvidenceContradictionV1Schema,
+  DownstreamEventContradictionV1Schema,
+]);
+export type ContradictionRecordV1 = z.infer<typeof ContradictionRecordV1Schema>;
+
+// ─── Reassessment records ───────────────────────────────────────────────────
+
+/**
+ * Authorized intent to reconsider a prior immutable decision under a policy.
+ * Persisted as an append-only fact; the prior decision is never mutated.
+ */
+export const ReassessmentRequestV1Schema = z
+  .object({
+    contractVersion: AdmissionRuntimeContractVersionSchema,
+    reassessmentId: StableIdValueSchema.brand<'AdmissionReassessmentId'>(),
+    operationId: OperationIdSchema,
+    phaseAttemptId: PhaseAttemptIdSchema,
+    priorDecisionId: DecisionIdSchema,
+    policyId: PolicyIdSchema,
+    policyDigest: ContentDigestV1Schema,
+    inputDigest: ContentDigestV1Schema,
+    subject: EvidenceSubjectV1Schema,
+    evidenceIds: z.array(EvidenceIdSchema).readonly(),
+    waiverIds: z.array(WaiverIdSchema).readonly(),
+    requestedAt: TimestampSchema,
+    actor: AttributedPrincipalV1Schema,
+    authorization: AuthorizationSnapshotV1Schema,
+  })
+  .strict()
+  .readonly();
+export type ReassessmentRequestV1 = z.infer<typeof ReassessmentRequestV1Schema>;
+
+/**
+ * Reassessment result preserving both the prior and replacement decisions.
+ * The replacement decision carries its own outcome, evidence, and waivers;
+ * the prior decision is referenced but never overwritten.
+ */
+export const ReassessmentOutcomeV1Schema = z
+  .object({
+    contractVersion: AdmissionRuntimeContractVersionSchema,
+    reassessmentId: StableIdValueSchema.brand<'AdmissionReassessmentId'>(),
+    priorDecisionId: DecisionIdSchema,
+    subject: EvidenceSubjectV1Schema,
+    decision: AdmissionDecisionRecordV1Schema,
+    completedAt: TimestampSchema,
+    actor: AttributedPrincipalV1Schema,
+    authorization: AuthorizationSnapshotV1Schema,
+  })
+  .strict()
+  .readonly();
+export type ReassessmentOutcomeV1 = z.infer<typeof ReassessmentOutcomeV1Schema>;
+
+// ─── Admission event type vocabulary ────────────────────────────────────────
+
+/**
+ * Exhaustive admission event type discriminants. Each constant corresponds to
+ * one arm of the admission event algebra and one registered event-store type.
+ * Consumers can switch on these values without importing the event-store module.
+ */
+export const ADMISSION_EVENT_TYPES = {
+  REQUIREMENT_RESOLVED: 'admission.requirement-resolved',
+  EVIDENCE_RECORDED: 'admission.evidence-recorded',
+  TRANSITION_DECIDED: 'admission.transition-decided',
+  WAIVER_RECORDED: 'admission.waiver-recorded',
+  CONTRADICTION_RECORDED: 'admission.contradiction-recorded',
+  REASSESSMENT_REQUESTED: 'admission.reassessment-requested',
+  REASSESSMENT_COMPLETED: 'admission.reassessment-completed',
+  SHADOW_ATTEMPT: 'admission.shadow-attempt',
+  DISAGREEMENT_DISPOSITION: 'admission.disagreement-disposition',
+  ROLLOUT_DECISION: 'admission.rollout-decision',
+  ENFORCEMENT_ENABLED: 'admission.enforcement-enabled',
+} as const;
+
+export type AdmissionEventType =
+  (typeof ADMISSION_EVENT_TYPES)[keyof typeof ADMISSION_EVENT_TYPES];
+
+/** All registered admission event type values as a frozen array. */
+export const ADMISSION_EVENT_TYPE_VALUES: readonly AdmissionEventType[] =
+  Object.freeze(
+    Object.values(ADMISSION_EVENT_TYPES),
+  ) as readonly AdmissionEventType[];
