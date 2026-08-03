@@ -1,5 +1,13 @@
 // ─── P07-01 / Transition tasks 027, 051 — The cutover gate ────────────────────
 //
+// RESERVED(issue: #1590, owner: exarchos, expires: 2027-01-31) — production
+// code awaiting live shadow evidence. The gate is deliberately not yet consulted
+// by a production caller: it can only be satisfied once P07-02 wires the live
+// `shadowObserver` into the built-in workflows and accumulates >=20 live
+// attempts across every phase kind with both allow and deny outcomes. Consulting
+// it before that evidence exists would be the exact premature cutover it is
+// designed to prevent. P07-05 retires it together with the legacy path.
+//
 // The gate that decides whether enforcement may flip from the legacy HSM guard
 // path to the evidence-backed admission engine. Enforcement may flip ONLY when
 // every one of four INDEPENDENT conditions holds (dogfood exit criterion 16):
