@@ -416,6 +416,28 @@ function resolveHSM(
  *     mid-loop throw can leave a partial trail. Stronger atomicity
  *     arrives in #1259's substrate refactor.
  */
+/**
+ * P07-01/P07-02 — fire the non-invasive shadow observer, if one is present, for
+ * a single legacy transition outcome. Centralised so EVERY authoritative legacy
+ * decision site (the composite HSM walk AND the custom-guard early-return deny
+ * paths) surfaces to the observer through one error-isolated seam. Passive: it
+ * only reads the already-computed outcome, never alters it, and a throw from the
+ * observer is swallowed so a shadow failure can never propagate into the
+ * production transition path. A no-op when no observer is wired (production
+ * default), so behaviour is byte-identical.
+ */
+function notifyShadowObserver(
+  context: GuardContext,
+  observation: LegacyTransitionObservation,
+): void {
+  if (!context.shadowObserver) return;
+  try {
+    context.shadowObserver(observation);
+  } catch {
+    // Intentionally swallowed — shadow observation is never authoritative.
+  }
+}
+
 export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
   async attempt(
     featureId: string,
@@ -488,6 +510,16 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
             context,
           );
           const message = `Custom guard '${transition.guard.id}' failed: ${customResult.error ?? 'command exited non-zero'}`;
+          // P07-02: extend the shadow seam to the custom-guard early-return deny
+          // path — the legacy decision here is an authoritative `deny`, so the
+          // observer must see it for coverage parity with the composite walk.
+          notifyShadowObserver(context, {
+            workflowType: context.workflowType,
+            fromPhase: currentPhase,
+            toPhase: targetPhase,
+            legacyOutcome: 'deny',
+            idempotent: false,
+          });
           return {
             ok: false,
             reason: 'guard-failed',
@@ -512,6 +544,16 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
         // configuration error, not a runtime guard failure, and
         // matches the pre-refactor `handleSet` behavior at #1225's
         // closure point.
+        // P07-02: extend the shadow seam to the unregistered-custom-guard
+        // fail-closed deny path as well (documented out-of-scope seam) — the
+        // legacy decision is an authoritative `deny`.
+        notifyShadowObserver(context, {
+          workflowType: context.workflowType,
+          fromPhase: currentPhase,
+          toPhase: targetPhase,
+          legacyOutcome: 'deny',
+          idempotent: false,
+        });
         return {
           ok: false,
           reason: 'guard-failed',
@@ -541,19 +583,13 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
     // side-by-side shadow comparison. Passive and error-isolated: it reads the
     // already-computed `result`, cannot alter it, and can never throw into this
     // path. Absent in every production caller, so behaviour is unchanged.
-    if (context.shadowObserver) {
-      try {
-        context.shadowObserver({
-          workflowType: context.workflowType,
-          fromPhase: currentPhase,
-          toPhase: targetPhase,
-          legacyOutcome: result.success ? 'allow' : 'deny',
-          idempotent: result.idempotent,
-        });
-      } catch {
-        // Intentionally swallowed — shadow observation is never authoritative.
-      }
-    }
+    notifyShadowObserver(context, {
+      workflowType: context.workflowType,
+      fromPhase: currentPhase,
+      toPhase: targetPhase,
+      legacyOutcome: result.success ? 'allow' : 'deny',
+      idempotent: result.idempotent,
+    });
 
     if (!result.success) {
       // Emit any diagnostic events `executeTransition` produced
