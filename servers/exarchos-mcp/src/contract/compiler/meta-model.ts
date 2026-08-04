@@ -24,6 +24,16 @@
 // This module is PURE apart from reading the in-memory `TOOL_REGISTRY`; it holds
 // no clock, no filesystem, and no absolute paths, so `deriveMetaModel()` is
 // byte-stable across machines and runs.
+//
+// AUTHORITY DIRECTION (DR-11 / T-16). `registry.ts` is the DECLARATION
+// authority; this module is a PROJECTION of it, and the running server does not
+// consume `compile()` output. That means a guard comparing this module's output
+// back against `TOOL_REGISTRY` the way it was derived from `TOOL_REGISTRY` is a
+// tautology and cannot see a wrong projection here. The guard that can is
+// `runtime-authority.ts`, which audits the derived model against the SHIPPED
+// runtime surface (`buildRegistrationSchema` / `buildToolDescription` /
+// `handleDescribe`) — read that file's header for exactly what it does and does
+// not catch before adding or changing a `derive*` function below.
 // ────────────────────────────────────────────────────────────────────────────
 
 import { z } from 'zod';

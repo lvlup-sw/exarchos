@@ -1,3 +1,38 @@
+// ─── The Exarchos tool registry — the DECLARATION AUTHORITY (DR-11) ──────────
+//
+// AUTHORITY DIRECTION (resolved, T-16). This file is the single place an
+// Exarchos action is DECLARED. Every other description of the action surface is
+// a PROJECTION of these declarations, never a second declaration:
+//
+//   registry.ts  ──▶  adapters/mcp.ts        (tools/list: buildRegistrationSchema
+//                │                            + buildToolDescription + annotations)
+//                ├──▶  core/dispatch.ts       (routing + per-action .safeParse)
+//                ├──▶  describe/handler.ts    (the `describe` action clients read)
+//                ├──▶  adapters/cli.ts        (the CLI verb tree)
+//                └──▶  contract/compiler/meta-model.ts
+//                            └──▶ compile() ──▶ descriptors / schemas / proof fixtures
+//
+// The running server consumes the LEFT-hand projections. It does NOT consume a
+// `compile()` descriptor — the compiled contract is an artifact about the
+// server, not the thing the server runs on. Inverting that (so the descriptor
+// IS the runtime surface) is DR-11's first acceptance criterion and is NOT done;
+// it stays open. Until it lands, do not describe the compiler as "the authority":
+// adding an action here and nowhere else is correct and sufficient; adding one
+// to the meta-model alone ships nothing.
+//
+// WHAT GUARDS THE PROJECTION. Because meta-model.ts derives from this file, a
+// guard that compares the two is a tautology and is blind to a wrong meta-model
+// (the Class B defect DR-11 names). The drift guard that is NOT blind lives in
+// `contract/compiler/runtime-authority.ts`: it audits the meta-model against
+// the runtime projections listed above — a differential between two independent
+// projections of these declarations. Its limits are stated in that file's
+// header and are real: it catches a wrong PROJECTION (a `derive*Policy` reading
+// the wrong field, an entry bound to the wrong action, a field the strict wire
+// would reject), and it CANNOT catch a wrong DECLARATION here — an action
+// annotated `readOnly: true` whose handler mutates the tree is invisible to it,
+// because every projection reads the same (wrong) declaration.
+// ────────────────────────────────────────────────────────────────────────────
+
 import { z } from 'zod';
 import { AsOfSchema, CheckpointHandoffSchema, WorkflowTypeSchema } from './workflow/schemas.js';
 import { agentSpecSchema as agentSpecSchemaForRegistry } from './agents/handler.js';
