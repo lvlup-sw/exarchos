@@ -1,7 +1,7 @@
 # Spec: Wiring Closure and the Unified Integration Suite
 
 **Date:** 2026-08-04 · **Feature:** `refactor-wiring-closure` · **Depth:** standard
-**Inputs:** `docs/audits/structural-closure-delta-audit/unified-remediation-plan.md` (the 48-package program), `docs/system-design.html`, `.exarchos/invariants.md`, and a seven-program package-by-package wiring audit conducted 2026-08-04.
+**Inputs:** `docs/audits/2026-08-04-wiring-audit.md` (the seven-program package-by-package wiring audit this spec responds to), `docs/audits/structural-closure-delta-audit/unified-remediation-plan.md` (the 48-package program), `docs/system-design.html`, `.exarchos/invariants.md`.
 
 > One unified artifact: `## Design & Rationale` is the DR-N source; `## Decomposition` maps tasks → DR-N within this same document.
 
@@ -138,11 +138,18 @@ Three modules mutate phase: the guarded path, plus `cancel.ts:367` and `cleanup.
 
 #### DR-11: the contract compiler is the authority, not a description of the registry
 
-The hand-written `registry.ts` is authoritative; `meta-model.ts` derives *from* `TOOL_REGISTRY`; no compile() descriptor is consumed by the running server. So every declaration-to-declaration guard is structurally blind to a wrong meta-model.
+The hand-written `registry.ts` is authoritative; `meta-model.ts` derives *from* `TOOL_REGISTRY`; no `compile()` descriptor is consumed by the running server. So every declaration-to-declaration guard is structurally blind to a wrong meta-model.
+
+**Taxonomy note.** The audit assigned this defect to both Class B (baseline and checker are pure functions of one registry) and Class F (two authorities for one boundary). Those prescribe *opposite* fixes: Class F says collapse to one authority, and collapsing onto the registry makes the Class B defect permanent. **Class B governs here** — the defect to remove is the single-source comparison, so the resolution must introduce an authority independent of `TOOL_REGISTRY`, not merely pick a winner.
 
 **Acceptance criteria:**
-- Either the server consumes compiler descriptors, or the direction is documented and the drift guard's limits stated
-- A wrong meta-model (not merely a stale baseline) is detected
+- The server consumes compiler descriptors, so a meta-model authored wrongly produces an observably wrong runtime surface
+- A wrong meta-model (not merely a stale or hand-edited baseline) is detected
+
+**If the inversion is deferred** (see Open Questions), the deferral is bounded rather than silent:
+- Criterion 2 is recorded as **not met**, not restated as satisfied — under the fallback there is no independently-authored meta-model that *can* be wrong, so nothing can seed the test
+- The drift guard is registered in the advisory registry (DR-15) as a **known Class B exception** with an owner and an expiry, and is therefore visible to DR-30's ratchet rather than exempt from it
+- `T-16`'s named test is retired rather than written to pass vacuously against a self-derived baseline
 
 #### DR-12: the VCS census sees every mutation it claims to own
 
@@ -294,23 +301,45 @@ Real child processes: multi-process append, SIGKILL between renames, restart rep
 
 #### DR-30: suite invariants are mechanically enforced
 
-The suite must not reproduce the defect classes it exists to catch.
+The suite must not reproduce the defect classes it exists to catch. The plan's own review found this requirement was originally scoped to `test/integration/**` — while every Class B instance it must prevent lives in the ~841 existing `src/**/*.test.ts` files (projection containment, the contract drift guard, the oracle fixtures). A guard scoped below the surface it governs is Class E, applied to our own guard.
+
+**Scan root:** every `*.test.ts` under `servers/exarchos-mcp/src/`, `servers/exarchos-mcp/test/`, and root `src/` — not just the new tiers. The denominator is reported and ratcheted.
+
+**Mechanical definition (so the check is decidable):** general inter-procedural dataflow is undecidable, so the property is made checkable by *declaration* rather than inference. A test that asserts containment, drift, parity, census closure, or coverage MUST declare its authorities:
+
+```ts
+// @oracle-sources: <authority-a>, <authority-b>
+```
+
+The meta-test fails when such a test declares fewer than two **distinct** authorities, or when a declared authority is derived from another declared authority in the same module graph. Tests that assert no such property are out of scope and need no annotation; the annotation requirement is enforced by matching assertion shapes, and the list of covered shapes is itself ratcheted so it cannot quietly shrink.
 
 **Acceptance criteria:**
-- A meta-test rejects any test deriving both sides of a comparison from one source read
+- The meta-test's scan root covers all three test roots above and reports its denominator
+- A test declaring one authority, or two authorities where one derives from the other, FAILS
+- Removing an `@oracle-sources` annotation from an in-scope test FAILS (annotation cannot be dropped to evade)
 - Every blocking claim declares the seam its kill fixture kills
 - No test asserts `passed === true` where the verdict was "could not run"
 - Accepted coverage gaps carry an owner and expiry
+- The known Class B instances (projection containment, contract drift, oracle fixtures) are either fixed by DR-21/DR-11/DR-24 or carry a registered, expiring exception — they are not silently exempt
 
 #### DR-31: retire the devCatalog boolean; this repo consumes its catalog exactly as a consumer does
 
-`.exarchos.yml` carries **both** `invariants.devCatalog: enabled` (back-compat sugar) and the canonical explicit registration `catalogs: [{ path: .exarchos/invariants.md, tier: dev }]`. The sugar survives only because two paths still read the boolean directly: `invariants-loader.ts:460` hard-gates on `effectiveConfig.invariants?.devCatalog !== 'enabled'`, and `vocabulary-lint` honours the same flag. The result is a bespoke, repo-only loading mode alongside the consumer-shaped `catalogs:` surface — two configuration authorities for one concern, which is Class F applied to our own config.
+`.exarchos.yml` carries **both** `invariants.devCatalog: enabled` (back-compat sugar) and the canonical explicit registration `catalogs: [{ path: .exarchos/invariants.md, tier: dev }]`. The sugar survives because **four** call sites still depend on the boolean (verified by inspection):
+
+1. `architecture/invariants-loader.ts:460` — hard-gates on `effectiveConfig.invariants?.devCatalog !== 'enabled'`
+2. `architecture/catalog-sources.ts:70` — `resolveCatalogSources` itself branches on `invariants?.devCatalog === 'enabled'` to perform the desugaring and path-dedupe
+3. `architecture/resolve-effective-catalog.ts:109` — synthesizes `USER_CATALOG_LOAD_CONFIG = { invariants: { devCatalog: 'enabled' } }` to unconditionally satisfy the loader gate for every registered source
+4. `architecture/vocabulary-lint.ts` — honours the flag **indirectly**, by delegating to `loadInvariants`/`loadInvariantIds` (it does not read the boolean itself)
+
+Site 2 is load-bearing for the wording of this requirement: `resolveCatalogSources` *is* a direct reader, so "route callers through `resolveCatalogSources`" is not by itself sufficient — the desugaring branch inside it must go too. Site 3 means the effective-catalog path already bypasses the gate unconditionally, so it is not evidence that the boolean gates that path.
+
+The result is a bespoke, repo-only loading mode alongside the consumer-shaped `catalogs:` surface — two configuration authorities for one concern, which is Class F applied to our own config.
 
 Retiring it means this repository consumes its own invariants exactly the way any downstream consumer does: a local `.exarchos.yml` pointing at a local `invariants.md`, discovered through `resolveCatalogSources`, with `tier: dev` carrying the audience scoping the boolean used to carry.
 
 **Acceptance criteria:**
-- `invariants-loader` and `vocabulary-lint` resolve the catalog through `resolveCatalogSources` / the explicit `catalogs:` registration, with no direct read of `invariants.devCatalog`
-- `devCatalog` is removed from `.exarchos.yml`; the effective catalog resolved before and after the removal is byte-identical (characterization)
+- All four sites above stop depending on the boolean: the loader gate is removed, the desugaring branch in `catalog-sources.ts` is removed, and `resolve-effective-catalog.ts` stops synthesizing a config to defeat a gate that no longer exists
+- `devCatalog` is removed from `.exarchos.yml`; the effective catalog resolved from the **real repo config** before and after removal is identical (see T-41 for why the existing characterization is not a sufficient oracle)
 - `devCatalog` is removed from the config schema, or retained strictly as a deprecated alias that emits a typed deprecation and desugars to a `catalogs:` entry
 - Gating is expressed as *"is a catalog registered for this tier?"*, never as *"is the boolean enabled?"*
 - No repo-only loading mode remains that a consumer could not reproduce with their own `.exarchos.yml`
@@ -335,6 +364,35 @@ Nine `skills-src` files (rendering to 39 generated skill files) and two guides i
 - `docs/guides/{authoring-invariants,exarchos-yml-invariants}.md` describe the consumer-shaped configuration only
 - No instruction anywhere tells a reader to set a flag that no longer exists
 
+#### DR-34: the route selector's ambiguity and indeterminate rules are live
+
+`edge-condition-select.ts` `selectEdge` implements the three deterministic route outcomes — `selected` with `multiMatch: true` when more than one candidate is true, `no-match`, and `blocked` (fail-closed when the highest-priority non-false candidate is `indeterminate`). Its only caller is `runTransitionCommand`, which is `RESERVED` with zero production importers. The live path calls the per-edge primitive directly on ONE edge, so ambiguous-topology detection and the indeterminate-blocks-fallthrough rule are inert. This is a Class A instance the Chosen Approach uses to *define* the class; it must not be dropped silently.
+
+**Acceptance criteria:**
+- A workflow with two simultaneously-true outbound conditions is detected as `multiMatch` on the live path, not silently resolved
+- An `indeterminate` highest-priority candidate blocks rather than falling through
+- If activation is deferred, DR-34 is recorded in `## Scope / Excluded` with an owner and a tracking issue — not omitted
+
+#### DR-35: evidence provenance is evaluated, not minted
+
+`legacy-state-translation.ts` mints its own evidence from the same fact projection it judges: `createdAt` is stamped `ctx.evaluatedAt` (so `isStale` can never fire), the producer is granted `ISSUE_GATE_EVIDENCE`/`ISSUE_APPROVAL` (so `unauthorized` can never fire), and `subjectFor` matches the requirement exactly (so `malformed` can never fire). No contradictions and no waivers are passed, and `obligations.waivable === false`, so the entire waiver branch is dead. Five of six deny reasons and the whole waiver model are unreachable **by construction** — the second Class A instance the Chosen Approach names.
+
+**Acceptance criteria:**
+- Stale, contradictory, malformed and unauthorized evidence each DENY on a path driven from the public root
+- The waiver branch is reachable: a scoped, expiring waiver applies to its declared subject and requirement and to nothing else
+- `selectEvidence` (contradiction detection / active-evidence selection) is called on the wired admission path
+- If any of these stays deferred, it is recorded in `## Scope / Excluded` with an owner — not omitted
+
+#### DR-36: new durable appends satisfy INV-8/INV-13
+
+DR-23 (T-31/T-32) introduces **new production appends** — `admission.shadow-attempt` and `admission.disagreement-disposition` — into an event-sourced store whose INV-8 requires an idempotency key on every append and whose catalog enforcement is `mode: audit`, i.e. reviewer judgment with **no mechanical backstop**. The audit separately found that the one shipped typed admission writer appends with no `idempotencyKey` despite `dispositionId` being a natural claim key, so retries duplicate rather than returning the stored result or a typed conflict. Adding appends on an audit-only invariant without an assigned check is how INV-8 erodes.
+
+**Acceptance criteria:**
+- Every new admission append carries an idempotency key derived from a natural identity (`dispositionId`, attempt identity), not a random value
+- A replayed append returns the canonical stored result or a typed conflict — never a duplicate row
+- INV-13's intent-before / result-after split holds for any non-idempotent effect these events describe
+- A test covers the retry path for each new event type; this obligation is not left to `mode: audit` judgment
+
 ## Technical Design
 
 ### Seams touched
@@ -355,8 +413,8 @@ The suite lives at `servers/exarchos-mcp/test/integration/{public-root,governanc
 
 ### Integration Points
 
-- `servers/exarchos-mcp/src/orchestrate/tasks/tools.ts` — the gate precondition and the evidence bypass (DR-1, DR-2)
-- `servers/exarchos-mcp/src/orchestrate/runbooks/definitions.ts` — tier delivery on `TASK_COMPLETION`/`TASK_FIX` (DR-3)
+- `servers/exarchos-mcp/src/tasks/tools.ts` — the gate precondition and the evidence bypass (DR-1, DR-2)
+- `servers/exarchos-mcp/src/runbooks/definitions.ts` — tier delivery on `TASK_COMPLETION`/`TASK_FIX` (DR-3)
 - `servers/exarchos-mcp/src/workflow/{cleanup,cancel}.ts` — route through the guarded primitive (DR-7, DR-8)
 - `servers/exarchos-mcp/src/next-actions-computer.ts` — derive from the admission verdict (DR-9)
 - `servers/exarchos-mcp/src/utils/atomic-write.ts` — directory fsync (DR-16, DR-18)
@@ -378,12 +436,12 @@ The suite lives at `servers/exarchos-mcp/test/integration/{public-root,governanc
 
 ## Traceability
 
-Design sections that are narrative rather than implementable are recorded as deferred here. The implementable surface is DR-1..DR-30, traced in the decomposition matrix below and verified by `check_provenance_chain` (30/30).
+Design sections that are narrative rather than implementable are recorded as deferred here. The implementable surface is DR-1..DR-33, traced in the decomposition matrix below and verified by `check_provenance_chain` (33/33).
 
 | Design Section | Task(s) | Status |
 |----------------|---------|--------|
-| Seams touched | — | Deferred — narrative index of the seams DR-1..DR-30 touch; each seam is implemented through its owning DR, not separately |
-| Invariants preserved | — | Deferred — states which INV-* the change must not break; enforced by the suite invariants (DR-30) rather than by a dedicated task |
+| Seams touched | — | Deferred — narrative index of the seams DR-1..DR-33 touch; each seam is implemented through its owning DR, not separately |
+| Invariants preserved | — | Deferred — names the INV-* this change must not break. Each is assigned: INV-1 → DR-23, INV-9 → DR-7, INV-12 → DR-9, INV-8/INV-13 → **DR-36**, INV-7 → DR-19. INV-15 is a design constraint (import no primitive from outside the single-machine frame), checked at review rather than by a task. This section is a routing index, not unassigned work |
 | Integration Points | — | Deferred — a pointer list into the seams above; every entry is covered by the DR-N that owns it |
 | Alternatives considered | — | Deferred — rationale record for rejected approaches; nothing to implement |
 
@@ -393,7 +451,7 @@ The decomposition maps every task to one or more DR-N from the section above.
 
 ### Scope
 
-**Target:** Full — all 30 DR-N across five waves plus the four suite tiers.
+**Target:** Full — all 33 DR-N across five waves plus the four suite tiers.
 **Excluded:** Rewriting the 48 structural-closure packages; flipping the cutover gate; spatial write confinement; byte-reproducible binaries; retiring legacy guards (P07-05 stays deferred until its replacement gates CI).
 **Sequential phases:** the five waves are the plan's sequential phases (the playbook escalates plans over 20 tasks into phases; W1 gates W2–W5, which are mutually parallel).
 
@@ -434,6 +492,9 @@ The decomposition maps every task to one or more DR-N from the section above.
 | DR-31 | retire devCatalog; consumer-shaped config | T-41, T-42, T-43 |
 | DR-32 | system-design reflects resolved invariants | T-44 |
 | DR-33 | skills/guides gate on registration | T-45, T-46 |
+| DR-34 | route selector live (multiMatch/indeterminate) | T-47 |
+| DR-35 | evidence provenance + waivers reachable | T-48 |
+| DR-36 | new admission appends carry idempotency keys | T-49 |
 
 ### Tasks
 
@@ -445,7 +506,7 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Implements:** DR-1
 **Files:**
 - `servers/exarchos-mcp/src/orchestrate/gate-runner.ts`
-- `servers/exarchos-mcp/src/orchestrate/tasks/tools.ts`
+- `servers/exarchos-mcp/src/tasks/tools.ts`
 - `servers/exarchos-mcp/src/orchestrate/gate-runner.test.ts`
 **Tests:** `TaskComplete_StaticAnalysisPassed_SucceedsWithoutSeededEvent`, `TaskComplete_StaticAnalysisRed_ReturnsGateNotPassed`
 **Verification:** high — scoped tests + `check_test_adequacy` + T2 integration across the gate→task seam. Characterization required (existing behavior changes).
@@ -459,8 +520,8 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Acceptance Test Ref:** T-01
 **Implements:** DR-1
 **Files:**
-- `servers/exarchos-mcp/src/orchestrate/runbooks/definitions.ts`
-- `servers/exarchos-mcp/src/orchestrate/runbooks/ordering.test.ts`
+- `servers/exarchos-mcp/src/runbooks/definitions.ts`
+- `servers/exarchos-mcp/src/runbooks/ordering.test.ts`
 **Verification:** medium — scoped tests + kill-probe. Assert no runbook places a blocking gate after `task_complete`.
 **Dependencies:** T-01, T-04
 **Parallelizable:** No (shares `runbooks/definitions.ts` with T-04)
@@ -472,8 +533,8 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Test Layer:** integration
 **Implements:** DR-2
 **Files:**
-- `servers/exarchos-mcp/src/orchestrate/tasks/tools.ts`
-- `servers/exarchos-mcp/src/orchestrate/tasks/tools.evidence-bypass.test.ts`
+- `servers/exarchos-mcp/src/tasks/tools.ts`
+- `servers/exarchos-mcp/src/tasks/tools.evidence-bypass.test.ts`
 **Tests:** `TaskComplete_CallerSuppliedEvidence_CannotSatisfyBlockingGate`, `TaskComplete_EvidenceBypassOnAdvisoryGate_RequiresOperatorCapability`
 **Verification:** high — a caller-supplied `evidence` object must not satisfy a BLOCKING gate; kill fixture preserves the current bypass as a regression case.
 **Dependencies:** T-01
@@ -486,9 +547,9 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Test Layer:** integration
 **Implements:** DR-3
 **Files:**
-- `servers/exarchos-mcp/src/orchestrate/runbooks/definitions.ts`
+- `servers/exarchos-mcp/src/runbooks/definitions.ts`
 - `servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts`
-- `servers/exarchos-mcp/src/orchestrate/runbooks/definitions.test.ts`
+- `servers/exarchos-mcp/src/runbooks/definitions.test.ts`
 **Tests:** `TaskCompletion_DelegationStamp_DeliversRiskTierToGate`, `TaskFix_DelegationStamp_DeliversBoundaryTouchingToGate`
 **Verification:** high — tier taken from the same delegation stamp `prepare_delegation` produced, not a literal.
 **Dependencies:** None
@@ -501,7 +562,7 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Acceptance Test Ref:** T-04
 **Implements:** DR-3
 **Files:**
-- `servers/exarchos-mcp/src/orchestrate/runbooks/definitions.shape.test.ts`
+- `servers/exarchos-mcp/src/runbooks/definitions.shape.test.ts`
 **Verification:** medium — assert `TASK_COMPLETION` and `TASK_FIX` carry both stamps as params and templateVars.
 **Dependencies:** T-04
 **Parallelizable:** Yes
@@ -604,7 +665,7 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Dependencies:** T-10
 **Parallelizable:** No
 
-### Task T-13: Derive next_actions from the admission verdict
+### Task T-13: Widen the affordance seam and derive next_actions from admission
 
 **Risk Tier:** high
 **Boundary Touching:** true
@@ -613,9 +674,10 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Files:**
 - `servers/exarchos-mcp/src/next-actions-computer.ts`
 - `servers/exarchos-mcp/src/next-actions-from-result.ts`
+- `servers/exarchos-mcp/src/workflow/admission/legacy-state-translation.ts`
 - `servers/exarchos-mcp/src/next-actions-computer.test.ts`
 **Tests:** `NextActions_AdmissionWouldDeny_OmitsTheVerb`, `NextActions_TopologyDisagreesWithAdmission_FailsConsistencyCheck`
-**Verification:** high — a denied transition is not advertised; a consistency test fails when the authorities disagree.
+**Verification:** high — **the seam must be widened before the derivation is possible.** `NextActionsState` carries only `phase`, `workflowType`, `featureId`, `designDepth`, `mergeOrchestrator`, and `nextActionsFromResult` narrows the envelope through `ShapeOne`/`ShapeTwo` to those same five fields — deliberately omitting `artifacts`, `reviews`, `tasks`, `_cleanup`, i.e. exactly what every `Guard.evaluate(state)` reads. So this task must (a) widen `NextActionsState` and the envelope parse to carry the admission facts, (b) consult the admission projection rather than `t.guard.description`, and (c) keep the computer pure — the facts are passed in, never fetched. If widening the envelope proves to exceed this task, split the widening out and record the split; do NOT satisfy DR-9 by comparing admission output against admission (the Class B shape DR-30 forbids). The consistency test compares the **published affordances** against the **admission verdict**, which remain two distinct authorities after the fix.
 **Dependencies:** T-10
 **Parallelizable:** Yes
 
@@ -793,9 +855,9 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Files:**
 - `servers/exarchos-mcp/test/process/multi-process-append.test.ts`
 **Tests:** `MultiProcessAppend_ThreeProcesses_ProducesDenseUniqueSequences`, `StartupRepair_GateTailDivergence_RepairsBeforeAcceptingWrites`
-**Verification:** high — N≥3 real child processes; dense unique sequences; restart-repair arm. If infeasible, downgrade to the honesty clause per Open Questions.
+**Verification:** high — N≥3 real child processes; dense unique sequences; restart-repair arm. **This task also owns DR-19's third criterion**: whichever way it resolves, `.exarchos/invariants.md` (INV-7) and `docs/system-design.html` must not assert the guarantee categorically. Because those two files are owned by T-35 and T-44, this task's outcome must be known **before** they run — hence they depend on it. If EFF-001 is infeasible here (see Open Questions), record INV-7 as an unmet target and hand that verdict to T-35/T-44 rather than editing the documents from this task.
 **Dependencies:** None
-**Parallelizable:** Yes
+**Parallelizable:** Yes (but T-35 and T-44 are blocked on its verdict)
 
 ### Task T-27: Produce and publish a signed release manifest
 
@@ -920,8 +982,8 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Files:**
 - `.exarchos/invariants.md`
 - `servers/exarchos-mcp/src/contract/authority-lock-cli.ts`
-**Verification:** medium — INV-2/4/7/11 re-approved; the four stale in-code citations re-pointed; the freeze pins the governing contract.
-**Dependencies:** T-34
+**Verification:** medium — INV-2/4/7/11 re-approved; the four stale in-code citations re-pointed; the freeze pins the governing contract. **INV-7's wording is decided by T-26's outcome** (closed vs. still-a-target), so this task consumes that verdict rather than assuming one.
+**Dependencies:** T-34, T-26
 **Parallelizable:** No
 
 ### Task T-36: Build the T1 public-root tier
@@ -991,18 +1053,19 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Dependencies:** T-37
 **Parallelizable:** No
 
-### Task T-41: Characterize the effective catalog before touching the loader
+### Task T-41: Bind the catalog oracle to the real repo config
 
 **Risk Tier:** medium
 **Test Layer:** integration
 **Implements:** DR-31
 **Files:**
 - `servers/exarchos-mcp/src/architecture/resolve-effective-catalog.characterization.test.ts`
-**Verification:** medium — snapshot the effective catalog resolved from the current `.exarchos.yml` (sugar + explicit registration). This snapshot is the oracle for T-42: the resolved catalog must be byte-identical after the boolean is removed. Per the oracle-integrity gate, this assertion is ADDED and must not be edited later to accommodate a drifted result.
+- `servers/exarchos-mcp/src/architecture/catalog-sources.test.ts`
+**Verification:** medium — **this file already exists and its committed golden is not a valid oracle for this change.** Two defects must be corrected before it can guard T-42/T-43: (a) it passes a hand-built `{ invariants: { devCatalog: 'enabled' } }` with **no `catalogs:` entry**, so its subject is a config the repo does not use; (b) `resolveEffectiveCatalog` internally synthesizes `USER_CATALOG_LOAD_CONFIG` with the boolean already enabled, so its output cannot vary with the config flag — a single-source comparison, the Class B shape DR-30 forbids. Re-bind the characterization to the **real `.exarchos.yml`**, and add a `catalog-sources` assertion exercising the desugaring branch directly, since that is the site removal actually changes. Because the existing golden is pinned to the retired behavior, updating it **is** a behavior change and must be called out explicitly under the oracle-integrity gate — never folded into the diff unremarked.
 **Dependencies:** None
 **Parallelizable:** Yes
 
-### Task T-42: Route the two direct-boolean readers through catalog registration
+### Task T-42: Remove the boolean dependency from all four sites
 
 **Risk Tier:** high
 **Boundary Touching:** true
@@ -1010,10 +1073,11 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Implements:** DR-31
 **Files:**
 - `servers/exarchos-mcp/src/architecture/invariants-loader.ts`
-- `servers/exarchos-mcp/src/architecture/vocabulary-lint.ts`
+- `servers/exarchos-mcp/src/architecture/catalog-sources.ts`
+- `servers/exarchos-mcp/src/architecture/resolve-effective-catalog.ts`
 - `servers/exarchos-mcp/src/architecture/invariants-loader.test.ts`
-**Tests:** `InvariantsLoader_NoDevCatalogFlag_ResolvesViaCatalogSources`, `VocabularyLint_RegisteredCatalog_LoadsWithoutBooleanGate`
-**Verification:** high — `invariants-loader.ts:460` stops gating on `devCatalog !== 'enabled'` and resolves through `resolveCatalogSources`; `vocabulary-lint` follows. T-41's characterization must stay green. Characterization required.
+**Tests:** `InvariantsLoader_NoDevCatalogFlag_ResolvesViaCatalogSources`, `CatalogSources_NoDesugarBranch_ResolvesRegisteredCatalogsOnly`
+**Verification:** high — `invariants-loader.ts:460` stops gating; `catalog-sources.ts:70` loses the desugaring branch; `resolve-effective-catalog.ts:109` stops synthesizing a config to defeat a gate that no longer exists. `vocabulary-lint.ts` needs no edit (it delegates through `loadInvariants`) — confirm that by test rather than assumption. T-41's re-bound characterization must stay green. Characterization required.
 **Dependencies:** T-41
 **Parallelizable:** No
 
@@ -1040,8 +1104,8 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Files:**
 - `docs/system-design.html`
 - `.exarchos/invariants.md`
-**Verification:** low — static. INV-2/4/7/11 in governing form; the #1608 note resolved; the capability table distinguishes built from built-but-unreached. Must land after DR-26's catalog re-approval so the two documents agree.
-**Dependencies:** T-35
+**Verification:** low — static. INV-2/4/7/11 in governing form; the #1608 note resolved; the capability table distinguishes built from built-but-unreached. Must land after DR-26's catalog re-approval so the two documents agree, and after T-26 so INV-7's wording matches its actual verdict.
+**Dependencies:** T-35, T-26
 **Parallelizable:** Yes
 
 ### Task T-45: Re-point the skills to catalog-registration gating
@@ -1072,21 +1136,77 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Dependencies:** T-43
 **Parallelizable:** Yes
 
+### Task T-47: Activate the route selector on the live path
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-34
+**Files:**
+- `servers/exarchos-mcp/src/workflow/admission/edge-condition-select.ts`
+- `servers/exarchos-mcp/src/workflow/admission/legacy-state-translation.ts`
+- `servers/exarchos-mcp/src/workflow/admission/edge-condition-select.test.ts`
+**Tests:** `SelectEdge_TwoSimultaneouslyTrueConditions_ReportsMultiMatch`, `SelectEdge_IndeterminateHighestPriority_BlocksRatherThanFallsThrough`
+**Verification:** high — the live path must route through `selectEdge` rather than evaluating one edge in isolation, so `multiMatch` and the indeterminate-blocks rule stop being inert. If activation is deferred, move DR-34 to `## Scope / Excluded` with an owner and a tracking issue rather than leaving it unimplemented.
+**Dependencies:** T-10, T-13
+**Parallelizable:** No (shares `legacy-state-translation.ts` with T-13 and T-48)
+
+### Task T-48: Make evidence provenance and waivers reachable
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** acceptance
+**Implements:** DR-35
+**Files:**
+- `servers/exarchos-mcp/src/workflow/admission/legacy-state-translation.ts`
+- `servers/exarchos-mcp/src/workflow/admission/select-evidence.ts`
+- `servers/exarchos-mcp/src/workflow/admission/waiver.ts`
+- `servers/exarchos-mcp/src/workflow/admission/evidence-provenance.test.ts`
+**Tests:** `Admission_StaleEvidence_Denies`, `Admission_ScopedWaiver_AppliesOnlyToDeclaredSubject`
+**Verification:** high — stop minting evidence from the same projection being judged (`createdAt = evaluatedAt`, self-granted issuing authority, subject built to match). `selectEvidence` must be called on the wired path so contradiction detection is live, and `obligations.waivable` must be able to be true so the waiver branch is reachable. Driven from the public root, not from `adjudicateEdge` directly.
+**Dependencies:** T-10, T-47
+**Parallelizable:** No (shares `legacy-state-translation.ts` with T-13 and T-47)
+
+### Task T-49: Give the new admission appends idempotency keys
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-36
+**Files:**
+- `servers/exarchos-mcp/src/workflow/admission/live-shadow-observer.ts`
+- `servers/exarchos-mcp/src/event-store/tools.ts`
+- `servers/exarchos-mcp/src/event-store/admission-append-idempotency.test.ts`
+**Tests:** `AdmissionDisposition_ReplayedAppend_ReturnsStoredResultNotDuplicate`, `ShadowAttempt_RetriedAppend_CollapsesOnIdempotencyKey`
+**Verification:** high — keys derive from natural identity (`dispositionId`, attempt identity), never a random value. INV-8 enforcement is `mode: audit` (reviewer judgment, no mechanical backstop), so this test IS the backstop for the events this plan adds. Must land with or immediately after T-31/T-32 — never later, or the appends ship unkeyed.
+**Dependencies:** T-31
+**Parallelizable:** No
+
 ### Parallelization
 
 **Critical path:** T-01 → T-03 → T-10 → T-12 → T-37 → T-40.
 
 - **W1 (gates all):** T-01 first (sole head). T-03 sequential on T-01; T-04 → T-02 (shared `definitions.ts`); T-05..T-09 parallel.
-- **W2:** T-10 head; T-11/T-13 parallel after it; T-12 sequential; T-14 → T-15; T-16 independent.
+- **W2:** T-10 head; T-11/T-13/T-47 parallel after it; T-12 and T-48 sequential (T-48 shares `legacy-state-translation.ts` with T-47); T-14 → T-15; T-16 independent.
 - **W3:** T-17 → T-18; T-19, T-20, T-21 → T-22 all independent of each other.
-- **W4:** T-23 → {T-24, T-25}; T-26 independent.
-- **W5:** T-27 → T-28; T-29, T-30, T-33 independent; T-31 → T-32; T-16 → T-34 → T-35 → T-44.
+- **W4:** T-23 → {T-24, T-25}; T-26 independent **but blocking T-35/T-44**.
+- **W5:** T-27 → T-28; T-29, T-30, T-33 independent; T-31 → {T-32, T-49}; T-16 → T-34 → T-35 → T-44 (T-35 and T-44 also wait on T-26).
 - **W5 catalog retirement:** T-41 → T-42 → T-43 → {T-45, T-46}. Strictly sequential through T-43 because each step's oracle is the previous step's snapshot.
 - **Suite:** T-36 (after T-01) → T-37 → T-40; T-38 → T-39 (also needs T-24).
 
-W2–W5 are mutually parallel once W1 lands. Worktrees must not share files: T-10/T-12 both touch `cleanup.ts`; T-23/T-24 both touch `atomic-promotion.ts`; T-02/T-04 both touch `runbooks/definitions.ts` — each pair is sequential in one worktree.
+W2–W5 are mutually parallel once W1 lands. **Shared-file pairs — each sequential in one worktree** (this list is authoritative; the plan review found it was previously incomplete):
 
-**Catalog-retirement ordering constraint.** T-44 (system-design) depends on T-35 (catalog re-approval) so the narrative and the catalog cannot disagree; T-45/T-46 depend on T-43 so no document instructs a reader to set a flag that no longer exists. T-45 edits `skills-src/` only — direct edits to `skills/` fail `skills:guard`.
+| File | Tasks |
+|---|---|
+| `src/tasks/tools.ts` | T-01, T-03 (serialized by T-03 ← T-01) |
+| `src/runbooks/definitions.ts` | T-02, T-04 (serialized by T-02 ← T-04) |
+| `workflow/cleanup.ts` | T-10, T-12 |
+| `install/atomic-promotion.ts` | T-23, T-24 |
+| `admission/legacy-state-translation.ts` | T-13, T-47, T-48 |
+| `admission/live-shadow-observer.ts` | T-31, T-32, T-49 |
+| `.exarchos/invariants.md` | T-26 (verdict only), T-35, T-44 — serialized by T-35 ← T-26 and T-44 ← T-35 |
+
+**Catalog-retirement ordering constraint.** T-44 (system-design) depends on T-35 (catalog re-approval) so the narrative and the catalog cannot disagree; both depend on T-26 so INV-7's wording matches its actual verdict rather than an assumed one. T-45/T-46 depend on T-43 so no document instructs a reader to set a flag that no longer exists. T-45 edits `skills-src/` only — direct edits to `skills/` fail `skills:guard`.
 
 ### Completion checklist
 
@@ -1098,3 +1218,6 @@ W2–W5 are mutually parallel once W1 lands. Worktrees must not share files: T-1
 - [ ] Oracle-integrity gate run (`git diff -- tests/`) before completion
 - [ ] Open questions resolved OR explicitly deferred with rationale
 - [ ] Ready for `overhaul-plan-review`
+
+
+
