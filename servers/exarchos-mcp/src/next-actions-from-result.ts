@@ -17,7 +17,7 @@ import { z } from 'zod';
 import type { ToolResult } from './format.js';
 import { logger } from './logger.js';
 import type { NextAction } from './next-action.js';
-import { computeNextActions } from './next-actions-computer.js';
+import { computeNextActions, type AdmissionFacts } from './next-actions-computer.js';
 import {
   RehydrationMergeOrchestratorSchema,
   WorkflowStateSchema,
@@ -50,6 +50,23 @@ export const ShapeOneSchema = z
     workflowType: z.string(),
     featureId: z.string().optional(),
     mergeOrchestrator: RehydrationMergeOrchestratorSchema.optional(),
+    // ── DR-9 (T-13): the widened admission-fact surface ──────────────────────
+    //
+    // These four keys are what makes a payload a FULL workflow-state read
+    // rather than a field projection or a phase-confirmation receipt, and they
+    // are exactly the segments `Guard.evaluate(state)` / the admission
+    // obligations read. They are declared as `unknown` ON PURPOSE: the
+    // authority for their shape is the admission projector
+    // (`workflow/admission/legacy-state-translation.ts::projectStateToFacts`),
+    // and re-declaring it here would (a) fork the fact vocabulary and (b) turn
+    // any state-schema evolution into a "malformed result.data" warning plus an
+    // empty `next_actions` on a payload that is perfectly usable. Declaring
+    // them keeps the widened contract visible in the parse; the structural
+    // guard in `admissionFactsFrom` decides whether they are usable.
+    updatedAt: z.unknown().optional(),
+    artifacts: z.unknown().optional(),
+    tasks: z.unknown().optional(),
+    reviews: z.unknown().optional(),
   })
   .passthrough();
 
@@ -95,6 +112,52 @@ export type ResultData = z.infer<typeof ResultDataSchema>;
  */
 const SHAPE_ONE_DISCRIMINATOR_KEYS = ['phase', 'workflowType'] as const;
 const SHAPE_TWO_DISCRIMINATOR_KEYS = ['workflowState'] as const;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * DR-9 (T-13) — extract the admission fact carrier from a shape-1 payload, or
+ * `undefined` when the payload cannot support an admission verdict.
+ *
+ * A shape-1 payload is only usable as admission facts when it is a FULL state
+ * read. `handleGet` serves three payload shapes off the same handler — full
+ * state, a `fields:[…]` projection, and a dot-path `query` scalar — and the
+ * first is the only one whose absent facts genuinely mean "absent". Projecting
+ * `{phase, workflowType}` and handing THAT to admission would deny nearly every
+ * edge (an unrequested artifact reads as a missing one), silently emptying the
+ * affordance list on a read the caller deliberately narrowed. The four marker
+ * keys below are present on every full state (`BaseWorkflowStateSchema` makes
+ * them required) and absent from a projection that did not ask for them, so
+ * they are a sound structural discriminator rather than a heuristic.
+ *
+ * `updatedAt` doubles as the trusted evaluation instant: it is already in the
+ * payload, is a validated RFC3339 datetime on the write side, and keeps this
+ * helper deterministic — no clock read, so the same payload always yields the
+ * same affordances.
+ *
+ * `eventLogAvailable` is `false` unconditionally: `workflow/tools.ts` strips
+ * `_events` from every handler payload (INTERNAL_FIELDS), so the event log is
+ * never present at this seam. Edges decided from the log are therefore reported
+ * undecidable and keep being advertised — see `adjudicateOutboundEdges`.
+ */
+function admissionFactsFrom(
+  data: z.infer<typeof ShapeOneSchema>,
+): AdmissionFacts | undefined {
+  const { updatedAt, artifacts, tasks, reviews } = data;
+  if (typeof updatedAt !== 'string' || updatedAt.trim().length === 0) {
+    return undefined;
+  }
+  if (!isRecord(artifacts) || !Array.isArray(tasks) || !isRecord(reviews)) {
+    return undefined;
+  }
+  return {
+    state: data as Record<string, unknown>,
+    evaluatedAt: updatedAt,
+    eventLogAvailable: false,
+  };
+}
 
 /**
  * Extract workflow state from a successful `ToolResult` and compute the
@@ -179,12 +242,14 @@ export function nextActionsFromResult(result: ToolResult): readonly NextAction[]
   let workflowType: string | undefined;
   let featureId: string | undefined;
   let mergeOrchestrator: { taskId?: string; phase?: string } | undefined;
+  let admission: AdmissionFacts | undefined;
 
   if (shapeOne?.success) {
     phase = shapeOne.data.phase;
     workflowType = shapeOne.data.workflowType;
     featureId = shapeOne.data.featureId;
     mergeOrchestrator = shapeOne.data.mergeOrchestrator;
+    admission = admissionFactsFrom(shapeOne.data);
   }
 
   if (shapeTwo?.success) {
@@ -195,6 +260,15 @@ export function nextActionsFromResult(result: ToolResult): readonly NextAction[]
     if (mergeOrchestrator === undefined && ws.mergeOrchestrator !== undefined) {
       mergeOrchestrator = ws.mergeOrchestrator;
     }
+    // DR-9 SPLIT (recorded, not an oversight): the rehydration document is NOT
+    // widened here. Its `workflowState` segment carries only featureId / phase /
+    // workflowType / mergeOrchestrator, and the sibling sections expose
+    // `artifacts` + `taskProgress` but no `reviews`, no `_cleanup` and no event
+    // log — so an admission verdict computed from it would deny every
+    // review-gated edge on evidence that exists but was never serialized. That
+    // is the unsafe direction (hiding legal moves), so shape 2 stays
+    // topology-only until the envelope itself carries the facts, which is a
+    // RehydrationDocument schema rev (v:4 → v:5) and out of this task's scope.
   }
 
   if (!phase || !workflowType) return [];
@@ -207,7 +281,7 @@ export function nextActionsFromResult(result: ToolResult): readonly NextAction[]
   }
 
   return computeNextActions(
-    { phase, workflowType, featureId, mergeOrchestrator },
+    { phase, workflowType, featureId, mergeOrchestrator, admission },
     hsm,
   );
 }

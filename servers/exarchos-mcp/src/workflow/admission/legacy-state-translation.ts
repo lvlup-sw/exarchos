@@ -38,6 +38,10 @@ import {
   type EdgeConditionFacts,
   type EdgeConditionOutcome,
 } from './edge-condition-evaluate.js';
+import type {
+  CompiledEdgeCondition,
+  EdgeConditionNode,
+} from './edge-condition.js';
 import {
   evaluatePolicy,
   type PolicyEvaluation,
@@ -60,6 +64,7 @@ import {
   type EvidenceSubjectV1,
 } from './types.js';
 import {
+  BUILT_IN_WORKFLOW_IR,
   edgeKey,
   type EdgeObligation,
   type WorkflowEdgeIR,
@@ -895,7 +900,21 @@ export function adjudicateEdge(
   state: Record<string, unknown>,
   ctx: TranslationContext,
 ): PolicyVerdict {
-  const facts = projectStateToFacts(state);
+  return adjudicateEdgeFromFacts(edge, projectStateToFacts(state), ctx);
+}
+
+/**
+ * The same route ∧ admission composition as {@link adjudicateEdge}, against an
+ * already-computed fact projection. Extracted so a caller adjudicating SEVERAL
+ * edges of one state (see {@link adjudicateOutboundEdges}) projects once instead
+ * of once per edge — and so both entry points share ONE decision body rather
+ * than two copies that could drift.
+ */
+function adjudicateEdgeFromFacts(
+  edge: WorkflowEdgeIR,
+  facts: EdgeConditionFacts,
+  ctx: TranslationContext,
+): PolicyVerdict {
   const route = evaluateEdgeCondition(edge.routeCondition, facts);
   if (route === 'false') return 'deny';
   if (route === 'indeterminate') return 'indeterminate';
@@ -908,4 +927,159 @@ export function adjudicateEdge(
     evaluatedAt: ctx.evaluatedAt,
     freshnessHorizonMs: ctx.freshnessHorizonMs,
   }).verdict;
+}
+
+// ─── DR-9: outbound-edge adjudication for affordance publication ───────────────
+//
+// `next-actions-computer.ts` publishes the affordances an agent is told it may
+// take. Pre-DR-9 it enumerated the HSM's outbound edges and emitted one verb per
+// edge from `t.guard.description` — it never evaluated a guard nor consulted
+// admission, so the runtime advertised moves admission would deny. The helpers
+// below are the admission-side seam that closes it: the computer passes the
+// legacy state IN and asks admission for a verdict per outbound edge, instead of
+// reading a static prose string. The computer stays pure — everything here is a
+// pure function of (IR, state, ctx).
+
+/**
+ * The projected facts whose values are derived from the workflow EVENT LOG
+ * (`_events`) rather than from scalar state fields.
+ *
+ * This set is declared HERE, beside {@link projectStateToFacts} — the function
+ * that actually computes them — so there is exactly one authority for "which
+ * facts need the event log" and a consumer cannot hold a stale copy.
+ *
+ * Why it matters for affordances: {@link projectStateToFacts} projects booleans
+ * DEFINITELY (an absent signal is a definite `false`), which is correct for the
+ * shadow differential, where the state handed in is the complete one the legacy
+ * guard saw. An affordance caller may hold a state whose event log was stripped
+ * at a serialization boundary (`workflow/tools.ts` removes `_events` from every
+ * `handleGet` payload). For that caller an event-derived `false` is not a real
+ * denial — it is an ABSENT fact wearing a definite value, and suppressing the
+ * verb would hide a move the transition guard would in fact admit. Callers
+ * without an event log declare so, and {@link adjudicateOutboundEdges} reports
+ * the affected edges as undecidable rather than denied.
+ */
+export const EVENT_DERIVED_FACTS: ReadonlySet<string> = Object.freeze(
+  new Set([
+    'mergePending.entryReady',
+    'mergePending.exitReady',
+    'team.disbandedOk',
+  ]),
+);
+
+/** Visit every node of a compiled condition's AST (pre-order). */
+function walkConditionNode(
+  node: EdgeConditionNode,
+  visit: (n: EdgeConditionNode) => void,
+): void {
+  visit(node);
+  switch (node.kind) {
+    case 'all':
+    case 'any':
+      for (const operand of node.operands) walkConditionNode(operand, visit);
+      return;
+    case 'not':
+      walkConditionNode(node.operand, visit);
+      return;
+    default:
+      return;
+  }
+}
+
+/** True when a condition reads the event log — directly or via a derived fact. */
+function conditionReadsEventLog(condition: CompiledEdgeCondition): boolean {
+  let reads = false;
+  walkConditionNode(condition.node, (n) => {
+    if (n.kind === 'eventObserved') {
+      reads = true;
+      return;
+    }
+    if (
+      (n.kind === 'factPresent' ||
+        n.kind === 'factEquals' ||
+        n.kind === 'counterCompare') &&
+      EVENT_DERIVED_FACTS.has(n.field)
+    ) {
+      reads = true;
+    }
+  });
+  return reads;
+}
+
+/**
+ * Whether deciding `edge` requires the workflow event log — i.e. its route
+ * condition or its evidence-presence probe observes an event identity or reads
+ * one of {@link EVENT_DERIVED_FACTS}. Pure; derived from the IR itself, never
+ * from a hand-maintained edge list.
+ */
+export function edgeDependsOnEventLog(edge: WorkflowEdgeIR): boolean {
+  if (conditionReadsEventLog(edge.routeCondition)) return true;
+  if (edge.obligation.kind === 'none') return false;
+  return conditionReadsEventLog(edge.obligation.presence);
+}
+
+/** The admission verdict for one outbound edge, plus why it may be unusable. */
+export interface OutboundEdgeVerdict {
+  /** Target phase of the edge. */
+  readonly to: string;
+  /** Route ∧ admission verdict, or `indeterminate` when undecidable. */
+  readonly verdict: PolicyVerdict;
+  /**
+   * `true` when the verdict was NOT computed because the edge needs the event
+   * log and the caller declared it unavailable. Such an edge must never be
+   * treated as a denial — the facts to deny it were simply not supplied.
+   */
+  readonly undecidable: boolean;
+}
+
+export interface OutboundAdmissionOptions {
+  /**
+   * Whether `state` carries the workflow event log (`_events`). Defaults to
+   * `false` — the fail-SAFE direction for affordance publication: a caller that
+   * does not say it has the log gets `undecidable` (keep advertising) rather
+   * than a spurious `deny` (silently hide a legal move) on event-gated edges.
+   */
+  readonly eventLogAvailable?: boolean;
+}
+
+/**
+ * Adjudicate every shared-IR edge leaving `from` for `workflowType`, keyed by
+ * target phase. The state is projected ONCE and each edge decided against that
+ * projection through the same {@link adjudicateEdge} body.
+ *
+ * Returns an EMPTY map for a workflow type with no shared IR (a custom type
+ * registered via `registerWorkflowType`) — absence of an IR edge means "no
+ * admission opinion", which callers must read as "do not gate", never as deny.
+ */
+export function adjudicateOutboundEdges(
+  workflowType: string,
+  from: string,
+  state: Record<string, unknown>,
+  ctx: TranslationContext,
+  options: OutboundAdmissionOptions = {},
+): ReadonlyMap<string, OutboundEdgeVerdict> {
+  const eventLogAvailable = options.eventLogAvailable ?? false;
+  const verdicts = new Map<string, OutboundEdgeVerdict>();
+  const outbound = BUILT_IN_WORKFLOW_IR.filter(
+    (edge) => edge.workflowType === workflowType && edge.from === from,
+  );
+  if (outbound.length === 0) return verdicts;
+
+  const facts = projectStateToFacts(state);
+  for (const edge of outbound) {
+    if (!eventLogAvailable && edgeDependsOnEventLog(edge)) {
+      verdicts.set(edge.to, {
+        to: edge.to,
+        verdict: 'indeterminate',
+        undecidable: true,
+      });
+      continue;
+    }
+    verdicts.set(edge.to, {
+      to: edge.to,
+      verdict: adjudicateEdgeFromFacts(edge, facts, ctx),
+      undecidable: false,
+    });
+  }
+  return verdicts;
 }
