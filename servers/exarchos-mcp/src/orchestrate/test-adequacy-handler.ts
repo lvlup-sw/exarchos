@@ -27,7 +27,15 @@ import { detectToolchain, testGlobsForToolchain } from '../config/toolchains.js'
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 import type { RiskTier } from '../workflow/verification-policy.js';
 import type { GitExec } from './pure/execute-merge.js';
-import { runProbe, type ProbeResult, type TestRunFn } from './test-adequacy.js';
+import {
+  runProbe,
+  resolveProbeTestGlobs,
+  interpretProbeVerdict,
+  verdictOf,
+  type ProbeResult,
+  type TestRunFn,
+} from './test-adequacy.js';
+import { assertNever } from '../contract/error-families.js';
 
 // ─── Args / Result ───────────────────────────────────────────────────────────
 
@@ -231,7 +239,10 @@ export async function handleTestAdequacy(
           success: true,
           data: {
             passed: true,
+            // An explicitly-labelled SKIP, never proof: the ladder policy
+            // routed this gate out of the sequence, so nothing was verified.
             skipped: true,
+            disposition: 'advisory-skip',
             redObserved: false,
             restoredClean: true,
             probedTests: [],
@@ -245,7 +256,14 @@ export async function handleTestAdequacy(
       const runTests = args.runTests ?? buildDefaultRunTests(repoRoot);
       const changed = changedFilesFor(gitExec, repoRoot, baseRef, args.branch);
       const toolchain = detectToolchain(repoRoot);
-      const toolchainGlobs = toolchain ? testGlobsForToolchain(toolchain.id) : null;
+      // SUBJECT FIX: the toolchain's prescribed layout AUGMENTS the co-located
+      // conventions instead of replacing them. Replacing them made every
+      // `*.test.*` file invisible in any repo whose root marker resolved to a
+      // layout-prescribing toolchain — an empty test set, i.e. the gate probing
+      // the wrong subject. See `resolveProbeTestGlobs`.
+      const testGlobs = resolveProbeTestGlobs(
+        toolchain ? testGlobsForToolchain(toolchain.id) : null,
+      );
 
       const probe: ProbeResult = await runProbe({
         gitExec,
@@ -255,22 +273,73 @@ export async function handleTestAdequacy(
         ...(changed.ok ? {} : { diffFailed: true }),
         ...(args.riskTier ? { riskTier: args.riskTier } : {}),
         runTests,
-        ...(toolchainGlobs ? { testGlobs: toolchainGlobs } : {}),
+        testGlobs,
       });
 
       // INV-5b advisory carrier — success:true with data.passed reflecting the
       // probe verdict, NOT an error envelope.
+      //
+      // The carrier is built by EXHAUSTIVE consumption of `probe.verdict` (the
+      // single authority). A future verdict variant cannot be silently folded
+      // into a pass: `assertNever` fails the build first.
       return {
         success: true,
-        data: {
-          passed: probe.passed,
-          redObserved: probe.redObserved,
-          restoredClean: probe.restoredClean,
-          probedTests: probe.probedTests,
-          ...(probe.discriminant ? { discriminant: probe.discriminant } : {}),
-          ...(probe.report ? { report: probe.report } : {}),
-        },
+        data: buildAdequacyCarrier(probe, args.riskTier),
       };
     },
   );
+}
+
+/** The advisory carrier the gate returns, derived from the probe's verdict. */
+interface AdequacyCarrier {
+  readonly passed: boolean;
+  readonly disposition: string;
+  readonly redObserved: boolean;
+  readonly restoredClean: boolean;
+  readonly probedTests: readonly string[];
+  readonly skipped?: boolean;
+  readonly discriminant?: string;
+  readonly report?: string;
+}
+
+/**
+ * Translate a {@link ProbeResult} into the gate's advisory carrier by switching
+ * EXHAUSTIVELY on the authoritative verdict union.
+ *
+ * The point of the switch is that "the probe could not run" (`indeterminate`)
+ * has to be handled explicitly at this boundary — it can no longer fall through
+ * a `passed` boolean and arrive dressed as success. An indeterminate verdict is
+ * always stamped `skipped:true` when it degraded to an advisory skip, so a
+ * consumer reading the carrier can always tell a SKIPPED check from a PASSED
+ * one without re-deriving policy.
+ */
+function buildAdequacyCarrier(probe: ProbeResult, riskTier?: RiskTier): AdequacyCarrier {
+  // `verdictOf` prefers the stamped union and otherwise reconstructs one
+  // fail-closed, so even a legacy-shaped carrier is judged by the union.
+  const verdict = verdictOf(probe);
+  const interpretation = interpretProbeVerdict(verdict, riskTier);
+
+  const base = {
+    passed: interpretation.passed,
+    disposition: interpretation.disposition,
+    redObserved: probe.redObserved === true,
+    restoredClean: probe.restoredClean !== false,
+    probedTests: probe.probedTests ?? [],
+    ...(interpretation.report ? { report: interpretation.report } : {}),
+  };
+
+  switch (verdict.kind) {
+    case 'passed':
+      return base;
+    case 'failed':
+      return base;
+    case 'indeterminate':
+      return {
+        ...base,
+        discriminant: verdict.cause,
+        ...(interpretation.skipped ? { skipped: true } : {}),
+      };
+    default:
+      return assertNever(verdict, 'ProbeVerdict');
+  }
 }
