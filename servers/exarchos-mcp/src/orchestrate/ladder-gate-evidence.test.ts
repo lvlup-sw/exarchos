@@ -31,12 +31,17 @@ vi.mock('./pure/static-analysis.js', async (importActual) => {
             skipReason: 'no-toolchain',
             passCount: 0,
             failCount: 0,
+            // T-09 / DR-6: `skipCount` is part of the StaticAnalysisResult
+            // contract — the handler destructures it, so a double that omits
+            // it drifts from the real pure module.
+            skipCount: 0,
           }
         : {
             status: controls.staticStatus,
             output: `static ${controls.staticStatus}`,
             passCount: controls.staticStatus === 'pass' ? 2 : 1,
             failCount: controls.staticStatus === 'pass' ? 0 : 1,
+            skipCount: 0,
           },
   };
 });

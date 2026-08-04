@@ -10,6 +10,17 @@ import type { RunCommandFn, CommandResult } from './static-analysis.js';
  *   - Runs lint, typecheck, quality-check via npm scripts
  *   - exit 0 → all checks pass, exit 1 → one or more fail
  *   - Missing scripts → SKIP (not counted in pass/fail totals)
+ *
+ * T-09 / DR-6 DEVIATION FROM BASH PARITY (deliberate, spec-mandated):
+ *   The bash script let a SKIPped constituent leave the aggregate at PASS —
+ *   that is precisely the defect DR-6 names
+ *   (docs/specs/2026-08-04-wiring-closure-and-unified-integration-suite.md):
+ *   `PASS (2/2)` rendered while `lint` and `quality-check` were silently
+ *   skipped for absence of a script. Parity with the retired bash script is
+ *   NO LONGER preserved for that case. A SKIP is now tallied first-class and
+ *   the aggregate degrades to `status:'skip'` /
+ *   `skipReason:'constituent-skipped'` / `**Result: DEGRADED**`. Parity is
+ *   retained for the PASS (nothing skipped), FAIL and error cases.
  */
 
 // Mock node:fs so readPackageJson can resolve package.json without disk access
@@ -47,12 +58,13 @@ function makeLintFailRunner(): RunCommandFn {
 }
 
 describe('behavioral parity with static-analysis-gate.sh', () => {
-  it('all checks pass — PASS (2/2), quality-check SKIP (no script)', () => {
+  it('quality-check absent — DEGRADED, not PASS (2/2) (T-09 / DR-6)', () => {
     expect(runStaticAnalysis({
       repoRoot: '/fake/repo',
       runCommand: makePassRunner(),
     })).toEqual({
-      status: 'pass',
+      status: 'skip',
+      skipReason: 'constituent-skipped',
       output: [
         '## Static Analysis Report',
         '',
@@ -65,10 +77,11 @@ describe('behavioral parity with static-analysis-gate.sh', () => {
         '',
         '---',
         '',
-        '**Result: PASS** (2/2 checks passed)',
+        '**Result: DEGRADED** (2/2 checks passed, 1 skipped — inconclusive, not a pass)',
       ].join('\n'),
       passCount: 2,
       failCount: 0,
+      skipCount: 1,
       projectType: 'Node.js',
     });
   });
@@ -91,21 +104,24 @@ describe('behavioral parity with static-analysis-gate.sh', () => {
         '',
         '---',
         '',
+        // FAIL still dominates a coexisting SKIP — parity preserved.
         '**Result: FAIL** (1/2 checks failed)',
       ].join('\n'),
       passCount: 1,
       failCount: 1,
+      skipCount: 1,
       projectType: 'Node.js',
     });
   });
 
-  it('skip lint — lint SKIP, typecheck passes, PASS (1/1)', () => {
+  it('skip lint — lint SKIP, typecheck passes, DEGRADED (T-09 / DR-6)', () => {
     expect(runStaticAnalysis({
       repoRoot: '/fake/repo',
       skipLint: true,
       runCommand: makePassRunner(),
     })).toEqual({
-      status: 'pass',
+      status: 'skip',
+      skipReason: 'constituent-skipped',
       output: [
         '## Static Analysis Report',
         '',
@@ -118,21 +134,23 @@ describe('behavioral parity with static-analysis-gate.sh', () => {
         '',
         '---',
         '',
-        '**Result: PASS** (1/1 checks passed)',
+        '**Result: DEGRADED** (1/1 checks passed, 2 skipped — inconclusive, not a pass)',
       ].join('\n'),
       passCount: 1,
       failCount: 0,
+      skipCount: 2,
       projectType: 'Node.js',
     });
   });
 
-  it('skip typecheck — typecheck SKIP, lint passes, PASS (1/1)', () => {
+  it('skip typecheck — typecheck SKIP, lint passes, DEGRADED (T-09 / DR-6)', () => {
     expect(runStaticAnalysis({
       repoRoot: '/fake/repo',
       skipTypecheck: true,
       runCommand: makePassRunner(),
     })).toEqual({
-      status: 'pass',
+      status: 'skip',
+      skipReason: 'constituent-skipped',
       output: [
         '## Static Analysis Report',
         '',
@@ -145,10 +163,11 @@ describe('behavioral parity with static-analysis-gate.sh', () => {
         '',
         '---',
         '',
-        '**Result: PASS** (1/1 checks passed)',
+        '**Result: DEGRADED** (1/1 checks passed, 2 skipped — inconclusive, not a pass)',
       ].join('\n'),
       passCount: 1,
       failCount: 0,
+      skipCount: 2,
       projectType: 'Node.js',
     });
   });
@@ -163,6 +182,7 @@ describe('behavioral parity with static-analysis-gate.sh', () => {
       error: 'Missing repoRoot',
       passCount: 0,
       failCount: 0,
+      skipCount: 0,
     });
   });
 });
@@ -202,6 +222,7 @@ describe('quality-check path', () => {
       ].join('\n'),
       passCount: 3,
       failCount: 0,
+      skipCount: 0,
       projectType: 'Node.js',
     });
   });

@@ -78,6 +78,7 @@ function makePassingResult() {
     ].join('\n'),
     passCount: 2,
     failCount: 0,
+    skipCount: 0,
   };
 }
 
@@ -98,6 +99,7 @@ function makeFailingResult() {
     ].join('\n'),
     passCount: 1,
     failCount: 1,
+    skipCount: 0,
   };
 }
 
