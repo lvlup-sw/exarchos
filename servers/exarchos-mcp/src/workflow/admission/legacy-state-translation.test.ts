@@ -84,19 +84,36 @@ describe('projectStateToFacts — reads real legacy state', () => {
     expect(defaulted.fields['planReview.revisionsExhausted']).toBe(true);
   });
 
-  it('separates the STRICT oneshot plan probe from the loose artifact probe', () => {
-    // `oneshotPlanSet` requires a trimmed non-empty string; `planArtifactExists`
-    // accepts any non-null value. Two contracts, two facts.
-    for (const plan of [true, {}, 0, '   ', '']) {
+  it('projects artifact fields as TYPED REFERENCES, not bare presence', () => {
+    // DR-5 (T-08): `oneshotPlanSet` AND `planArtifactExists` (and the rca /
+    // fixDesign / report guards) now share one contract — a trimmed non-empty
+    // string. The projection must not hand the admission engine a `<present>`
+    // sentinel for a value the shipped transition path denies, or admission
+    // over-admits relative to the legacy authority.
+    for (const plan of [true, false, {}, 0, '   ', '']) {
       const facts = projectStateToFacts({ artifacts: { plan } });
       expect(facts.fields['artifacts.planNonEmpty'], JSON.stringify(plan)).toBe(false);
+      expect(facts.fields['artifacts.plan'], JSON.stringify(plan)).toBeUndefined();
     }
     const ok = projectStateToFacts({ artifacts: { plan: '  docs/plan.md  ' } });
     expect(ok.fields['artifacts.planNonEmpty']).toBe(true);
-    // The loose probe still sees the non-string value (feature/refactor edges).
-    expect(
-      projectStateToFacts({ artifacts: { plan: true } }).fields['artifacts.plan'],
-    ).toBe('<present>');
+    expect(ok.fields['artifacts.plan']).toBe('  docs/plan.md  ');
+    // Same narrowing on every other artifact probe and on the legacy
+    // top-level `plan` fallback.
+    for (const field of ['plan', 'rca', 'fixDesign', 'report']) {
+      expect(
+        projectStateToFacts({ artifacts: { [field]: true } }).fields[`artifacts.${field}`],
+        field,
+      ).toBeUndefined();
+      expect(
+        projectStateToFacts({ artifacts: { [field]: 'docs/x.md' } }).fields[
+          `artifacts.${field}`
+        ],
+        field,
+      ).toBe('docs/x.md');
+    }
+    expect(projectStateToFacts({ plan: true }).fields['plan']).toBeUndefined();
+    expect(projectStateToFacts({ plan: 'docs/plan.md' }).fields['plan']).toBe('docs/plan.md');
   });
 
   it('defaults a missing oneshot synthesis policy to on-request (not a sentinel)', () => {
