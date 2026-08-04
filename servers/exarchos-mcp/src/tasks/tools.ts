@@ -212,7 +212,15 @@ export async function handleTaskComplete(
   const evidenceBypass =
     args.evidence?.passed === true && (args.evidence.output ?? '').trim().length > 0;
 
-  // Gate enforcement: verify D1 (TDD compliance) and D2 (static analysis) gates passed for this task
+  // Gate enforcement (DR-1): `gate.executed` is THE gate-executed signal, and
+  // for every gate class the durable runner owns it has exactly ONE producer —
+  // `orchestrate/gate-runner.ts` (`appendGateExecutedSignal`), which mints the
+  // row from the same persisted `admission.evidence-recorded` proof it just
+  // wrote. Before that unification the migrated producers appended ONLY the
+  // evidence record, so a legitimate `check_static_analysis` run could not be
+  // seen by the `task_complete` that followed it. Read one event type, one
+  // shape — do NOT teach this reader to also accept the proof record; the fix
+  // belongs at the producer.
   const gateEvents = await store.query(args.streamId, { type: 'gate.executed' });
 
   // Tolerant Reader (#1189): taskId may live at `data.details.taskId`

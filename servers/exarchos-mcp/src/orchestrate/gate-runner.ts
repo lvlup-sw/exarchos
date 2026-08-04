@@ -85,11 +85,88 @@ export interface GateRunnerDependencies {
   readonly registry?: GateProviderRegistry;
   readonly providerVersion?: string;
   readonly clock?: () => string;
+  /**
+   * DR-1 opt-out for LEGACY providers that still emit their own `gate.executed`
+   * row from inside the provider body (the phase-gate adapter below —
+   * plan-coverage / provenance-chain / review-verdict / prepare-synthesis all
+   * call `emitGateEvent` themselves).
+   *
+   * Defaults to `true`: for every gate class whose provider does NOT self-emit,
+   * this runner is the SINGLE authoritative producer of the gate-executed
+   * signal. The flag exists so that ownership stays exactly one producer per
+   * gate class during the migration — flip it off here only while the provider
+   * still owns the emission, and delete the provider's `emitGateEvent` call
+   * (not this default) when it is migrated.
+   */
+  readonly emitGateExecuted?: boolean;
 }
 
 /** Durable envelope marker consumed by diagnostic gate projections. */
 export function gateRunnerObservationSource(gateClass: string): string {
   return `${CANONICAL_GATE_RUNNER_SOURCE_PREFIX}${encodeURIComponent(gateClass)}`;
+}
+
+/**
+ * Layer stamped on runner-owned `gate.executed` rows.
+ *
+ * The migrated gates are the verification ladder, so the observation layer names
+ * it rather than reusing a phase name — the ladder gate runs in whatever phase
+ * its caller is in.
+ */
+export const GATE_RUNNER_GATE_LAYER = 'verification-ladder';
+
+/**
+ * DR-1 — mint the gate-executed signal from the SAME persisted evidence record
+ * that proves the gate ran.
+ *
+ * Before this, the migrated durable-runner producers appended ONLY
+ * `admission.evidence-recorded`, while `task_complete` (tasks/tools.ts) gates on
+ * `gate.executed` — so a legitimate `check_static_analysis` run could not be
+ * seen by the `task_complete` that followed it. Deriving both rows here, from
+ * one record, means the proof and the signal can never disagree: `passed` is
+ * true iff the persisted verdict is `pass` (an `indeterminate` verdict is NOT a
+ * pass), and the task binding is the evidence subject itself.
+ *
+ * A task-kind subject stamps `details.taskId` so the per-task reader matches it;
+ * any other subject kind (commit/artifact/…) deliberately omits it and reads as
+ * a project-wide gate, matching the documented tolerant-reader contract (#1189).
+ */
+async function appendGateExecutedSignal(
+  eventStore: Pick<EventStore, 'append' | 'query'>,
+  streamId: string,
+  operationId: string,
+  provider: GateProvider,
+  record: AdmissionEvidenceRecorded,
+): Promise<void> {
+  const { evidence } = record;
+  const subject = evidence.subject;
+  const taskId = subject.kind === 'task' ? subject.taskId : undefined;
+  await eventStore.append(
+    streamId,
+    {
+      type: 'gate.executed',
+      timestamp: evidence.createdAt,
+      operationId,
+      source: gateRunnerObservationSource(provider.gateClass),
+      data: {
+        gateName: provider.gateClass,
+        layer: GATE_RUNNER_GATE_LAYER,
+        passed: evidence.verdict === 'pass',
+        details: {
+          ...(taskId === undefined ? {} : { taskId }),
+          gateClass: provider.gateClass,
+          providerRef: provider.providerRef,
+          verdict: evidence.verdict,
+          evidenceId: evidence.evidenceId,
+          phaseAttemptId: evidence.phaseAttemptId,
+          requirementId: evidence.requirementId,
+        },
+      },
+    },
+    // Keyed off the evidence id so a same-operation retry collapses onto the
+    // one row the first attempt wrote, exactly as the evidence append does.
+    { idempotencyKey: `gate.executed:${evidence.evidenceId}` },
+  );
 }
 
 export interface PhaseGateProducerRequest {
@@ -240,6 +317,7 @@ export async function runGate(
   dependencies: GateRunnerDependencies,
 ): Promise<ToolResult> {
   const registry = dependencies.registry ?? BUILTIN_GATE_PROVIDER_REGISTRY;
+  const emitGateExecuted = dependencies.emitGateExecuted ?? true;
   const resolution = registry.resolve(request.gateClass);
   if (!resolution.success) {
     return { success: false, error: resolution.error };
@@ -316,6 +394,18 @@ export async function runGate(
         sameSubject(record.evidence.subject, request.subject),
     );
     if (sameOperation !== undefined) {
+      // Same-operation retry: the evidence row already exists, so re-derive the
+      // signal from it. Idempotent by evidence id — this repairs the case where
+      // a first attempt persisted evidence but died before the signal landed.
+      if (emitGateExecuted) {
+        await appendGateExecutedSignal(
+          dependencies.eventStore,
+          request.streamId,
+          operationId,
+          provider,
+          sameOperation.record,
+        );
+      }
       return attachGateEvidence(providerResult, [
         evidenceReference(sameOperation.record),
       ]);
@@ -400,6 +490,18 @@ export async function runGate(
       { idempotencyKey: record.evidence.evidenceId },
     );
     const persistedRecord = AdmissionEvidenceRecordedData.parse(event.data);
+    // The gate-executed signal is part of the same durable boundary: no success
+    // carrier escapes before BOTH the proof record and the signal readers gate
+    // on (`task_complete`) have landed.
+    if (emitGateExecuted) {
+      await appendGateExecutedSignal(
+        dependencies.eventStore,
+        request.streamId,
+        operationId,
+        provider,
+        persistedRecord,
+      );
+    }
     return attachGateEvidence(providerResult, [
       evidenceReference(persistedRecord, reportArtifact),
     ]);
@@ -471,6 +573,11 @@ export async function runPhaseGateWithEvidence(
         join(request.stateDir, 'admission-evidence'),
       ),
       executeProvider: request.executeProvider,
+      // DR-1: these phase-gate providers still emit their OWN `gate.executed`
+      // row (`emitGateEvent`, from inside the provider body), so the runner must
+      // not emit a second one — exactly one producer per gate class. Delete the
+      // provider-side emission and this line together when they migrate.
+      emitGateExecuted: false,
     },
   );
 }
