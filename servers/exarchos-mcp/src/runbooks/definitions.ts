@@ -12,8 +12,19 @@ export const TASK_COMPLETION: RunbookDefinition = {
     // are not vacuous (outcome-based adequacy, test-after, NOT commit-order
     // test-first). Runs against the agent worktree (repoRoot:auto +
     // worktreePath, the #1330 resolver).
+    // DR-3: `riskTier` + `boundaryTouching` are resolved and FROZEN at
+    // prepare_delegation (deriveRiskTier / deriveBoundaryTouching, honoring
+    // planner stamps). They must reach the gate that CONSUMES them, or the
+    // frozen stamp is stranded: `interpretProbeVerdict` reads the tier to
+    // decide whether an un-probed task blocks (medium/high) or degrades to an
+    // advisory skip (low), and `resolvePolicySkip` needs BOTH fields to route
+    // the gate at all. Dispatched with an undefined tier, a high-tier task that
+    // adds no probe-able tests came back a PASS. The `<var>` placeholders
+    // thread the matching templateVars below — the orchestrator fills them from
+    // the classification prepare_delegation returned, never re-deriving them.
     { tool: 'exarchos_orchestrate', action: 'check_test_adequacy', onFail: 'stop',
-      params: { repoRoot: 'auto', worktreePath: '<worktreePath>' },
+      params: { repoRoot: 'auto', worktreePath: '<worktreePath>',
+        riskTier: '<riskTier>', boundaryTouching: '<boundaryTouching>' },
       note: 'kill probe: reverts source, re-runs new tests, asserts red — the load-bearing per-task gate' },
     // Verification-ladder slice 1 Bundle B3: the contract-drift gate regenerates
     // schema bindings, typechecks the regen, and runs a breaking-change diff
@@ -21,8 +32,10 @@ export const TASK_COMPLETION: RunbookDefinition = {
     // worktreePath, the #1330 resolver). Degrades to an advisory pass when no
     // contract tool resolves (INV-4), so onFail:'stop' only halts on real
     // breaking drift — a repo with no schema boundary is never blocked.
+    // DR-3: policy-routed by the frozen stamp (see the kill-probe step above).
     { tool: 'exarchos_orchestrate', action: 'check_contract_drift', onFail: 'stop',
-      params: { repoRoot: 'auto', worktreePath: '<worktreePath>' },
+      params: { repoRoot: 'auto', worktreePath: '<worktreePath>',
+        riskTier: '<riskTier>', boundaryTouching: '<boundaryTouching>' },
       note: 'contract gate: codegen → typecheck → breaking-diff vs merge-base; advisory-skips when no contract tool resolves' },
     // Verification-ladder slice 1 SIV-4 (#1530): the mock-boundary gate scans the
     // task's NEW test hunks for unowned-dependency mocks and steers toward
@@ -30,8 +43,12 @@ export const TASK_COMPLETION: RunbookDefinition = {
     // right call (acknowledged via the `reason` escape hatch), so it surfaces a
     // per-finding steer without blocking the task. Runs against the agent worktree
     // (repoRoot:auto + worktreePath, the #1330 resolver).
+    // DR-3: policy-routed by the frozen stamp (see the kill-probe step above) —
+    // mock-boundary is in the resolved sequence only for a boundary-touching
+    // medium/high task, so the stamp is what keeps it off a low-blast edit.
     { tool: 'exarchos_orchestrate', action: 'check_mock_boundary', onFail: 'continue',
-      params: { repoRoot: 'auto', worktreePath: '<worktreePath>' },
+      params: { repoRoot: 'auto', worktreePath: '<worktreePath>',
+        riskTier: '<riskTier>', boundaryTouching: '<boundaryTouching>' },
       note: 'ADVISORY (SIV-4 #1530): flags unowned mocks in new test hunks; steers toward hermetic fixtures' },
     // #1330 / T-05: the static-analysis gate must run against the agent's
     // worktree, not the orchestrator's cwd. `repoRoot: 'auto'` triggers the
@@ -51,7 +68,12 @@ export const TASK_COMPLETION: RunbookDefinition = {
     { tool: 'exarchos_orchestrate', action: 'task_complete', onFail: 'stop',
       note: 'WFQ-004: terminal step — no blocking per-task gate may follow it' },
   ],
-  templateVars: ['taskId', 'featureId', 'streamId', 'branch', 'worktreePath'],
+  templateVars: ['taskId', 'featureId', 'streamId', 'branch', 'worktreePath',
+    // DR-3: the frozen delegation stamp. Declared here so the orchestrator is
+    // contractually obliged to supply the SAME values prepare_delegation
+    // resolved — the `<riskTier>` / `<boundaryTouching>` placeholders on the
+    // gate steps above have nothing to bind to otherwise.
+    'riskTier', 'boundaryTouching'],
   autoEmits: ['admission.evidence-recorded', 'task.completed'],
 };
 
@@ -206,13 +228,21 @@ export const TASK_FIX: RunbookDefinition = {
     // it self-skips low-tier and passes when the fix adds no tests, so it only
     // halts on a genuinely vacuous test. Runs against the agent worktree
     // (repoRoot:auto + worktreePath, #1330 resolver).
+    // DR-3: the fix chain threads the SAME frozen `riskTier` /
+    // `boundaryTouching` stamp prepare_delegation resolved for the task, so a
+    // re-dispatched fix is judged at its real tier. Without them the gate
+    // reached `interpretProbeVerdict` with an undefined tier and a high-tier
+    // fix that added no probe-able tests was laundered into an advisory pass.
     { tool: 'exarchos_orchestrate', action: 'check_test_adequacy', onFail: 'stop',
-      params: { repoRoot: 'auto', worktreePath: '<worktreePath>' },
+      params: { repoRoot: 'auto', worktreePath: '<worktreePath>',
+        riskTier: '<riskTier>', boundaryTouching: '<boundaryTouching>' },
       note: 'kill probe: reverts source, re-runs new tests, asserts red — the load-bearing per-task gate' },
     { tool: 'exarchos_orchestrate', action: 'check_static_analysis', onFail: 'stop' },
     { tool: 'exarchos_orchestrate', action: 'task_complete', onFail: 'stop' },
   ],
-  templateVars: ['taskId', 'featureId', 'streamId', 'branch', 'agentId', 'failureContext', 'worktreePath'],
+  templateVars: ['taskId', 'featureId', 'streamId', 'branch', 'agentId', 'failureContext', 'worktreePath',
+    // DR-3: the frozen delegation stamp — see TASK_COMPLETION.templateVars.
+    'riskTier', 'boundaryTouching'],
   autoEmits: ['admission.evidence-recorded', 'task.completed'],
 };
 

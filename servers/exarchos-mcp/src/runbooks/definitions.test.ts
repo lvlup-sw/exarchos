@@ -1,4 +1,9 @@
 import { describe, it, expect } from 'vitest';
+import { classifyTasksFailClosed } from '../orchestrate/prepare-delegation.js';
+import type { TaskInput, TaskClassification } from '../orchestrate/prepare-delegation.js';
+import { resolvePolicySkip } from '../orchestrate/gate-utils.js';
+import { runProbe, interpretProbeVerdict } from '../orchestrate/test-adequacy.js';
+import type { RunbookDefinition, RunbookStep } from './types.js';
 import {
   TASK_COMPLETION,
   QUALITY_EVALUATION,
@@ -336,3 +341,255 @@ describe('Runbook definitions', () => {
     expect(params?.repoRoot).toBe('auto');
   });
 });
+
+// ─── DR-3: the frozen delegation stamp reaches the gate that consumes it ─────
+//
+// `riskTier` / `boundaryTouching` are resolved and FROZEN at prepare_delegation
+// (`classifyTasksFailClosed` → `classifyTask` → `deriveRiskTier` /
+// `deriveBoundaryTouching`). The defect: neither was a param nor a templateVar
+// on TASK_COMPLETION / TASK_FIX, so every dispatch reached
+// `interpretProbeVerdict` / `resolvePolicySkip` with an UNDEFINED tier and the
+// frozen stamp never arrived at the gate.
+//
+// These tests exercise the real seam end to end — the production classifier
+// produces the stamp, the runbook's declared templateVars + step params carry
+// it, and the real gate code reads it. Nothing about the tier is a literal
+// authored by the test: every asserted value is compared against the stamp the
+// classifier froze.
+
+/** Task fixtures. Their tiers are DERIVED by the production heuristic below,
+ *  never asserted from a hand-written tier on the input. */
+const HIGH_BOUNDARY_TASK: TaskInput = {
+  id: 'T-high',
+  title: 'Rework the published API contract',
+  files: ['src/api/openapi.yaml'],
+  testLayer: 'integration',
+};
+
+const LOW_TASK: TaskInput = {
+  id: 'T-low',
+  title: 'Refresh the onboarding docs',
+  files: ['docs/onboarding.md'],
+};
+
+/**
+ * Run the wave through the SAME classification boundary
+ * `handlePrepareDelegation` calls, and return the frozen stamp for one task.
+ */
+function freezeDelegationStamp(task: TaskInput): TaskClassification {
+  const classified = classifyTasksFailClosed([task]);
+  if (!classified.ok) throw new Error(classified.blocked.reason);
+  const stamp = classified.classifications[0];
+  if (!stamp) throw new Error('prepare_delegation produced no classification');
+  return stamp;
+}
+
+/**
+ * The dispatch variables the orchestrator resolves for a task — the runbook's
+ * `templateVars` filled from the frozen stamp plus the usual task coordinates.
+ */
+function dispatchVarsFrom(stamp: TaskClassification): Readonly<Record<string, unknown>> {
+  return {
+    taskId: stamp.taskId,
+    featureId: 'wc-t04',
+    streamId: 'wc-t04',
+    branch: `task/${stamp.taskId}`,
+    agentId: `agent-${stamp.taskId}`,
+    failureContext: 'previous attempt failed',
+    worktreePath: `/tmp/worktrees/${stamp.taskId}`,
+    // The FROZEN stamp — read off the classification, never authored here.
+    riskTier: stamp.riskTier,
+    boundaryTouching: stamp.boundaryTouching,
+  };
+}
+
+/**
+ * The orchestrator's fill-in step: resolve a step's `<var>` placeholders from
+ * the dispatch variables. A placeholder that is not a DECLARED templateVar is
+ * exactly the DR-3 defect — the orchestrator has no contract obliging it to
+ * supply that value — so the harness refuses to fill it.
+ */
+function fillStepParams(
+  runbook: RunbookDefinition,
+  step: RunbookStep,
+  vars: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> {
+  const filled: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(step.params ?? {})) {
+    const placeholder =
+      typeof value === 'string' && value.startsWith('<') && value.endsWith('>')
+        ? value.slice(1, -1)
+        : null;
+    if (placeholder === null) {
+      filled[key] = value;
+      continue;
+    }
+    if (!runbook.templateVars.includes(placeholder)) {
+      throw new Error(
+        `runbook '${runbook.id}' step '${step.action}' references <${placeholder}>, ` +
+          `which is not a declared templateVar — the orchestrator cannot supply it`,
+      );
+    }
+    filled[key] = vars[placeholder];
+  }
+  return filled;
+}
+
+function adequacyStepOf(runbook: RunbookDefinition): RunbookStep {
+  const step = runbook.steps.find((s) => s.action === 'check_test_adequacy');
+  if (!step) throw new Error(`runbook '${runbook.id}' has no check_test_adequacy step`);
+  return step;
+}
+
+/** Dispatch a runbook's adequacy step and return the params the gate receives. */
+function dispatchAdequacyParams(
+  runbook: RunbookDefinition,
+  stamp: TaskClassification,
+): Readonly<Record<string, unknown>> {
+  return fillStepParams(runbook, adequacyStepOf(runbook), dispatchVarsFrom(stamp));
+}
+
+// The probe short-circuits on `no-new-tests` BEFORE it touches the tree, so
+// these seams must never be reached. They throw rather than returning a stub
+// value, so a change that made the probe mutate a real tree fails loudly.
+const unreachableGitExec = (): never => {
+  throw new Error('git must not run — the probe short-circuits before any tree mutation');
+};
+const unreachableRunTests = (): never => {
+  throw new Error('the test command must not run — there are no probe-able tests');
+};
+
+/** A task diff that changes source but adds NO probe-able tests. */
+const SOURCE_ONLY_DIFF = ['src/api/openapi.yaml'];
+
+async function runGateWithParams(params: Readonly<Record<string, unknown>>) {
+  return runProbe({
+    gitExec: unreachableGitExec,
+    runTests: unreachableRunTests,
+    repoRoot: '/tmp/worktrees/unused',
+    baseRef: 'main',
+    changedFiles: SOURCE_ONLY_DIFF,
+    // The gate reads the tier off the DISPATCHED params — the same object the
+    // runbook filled from the frozen stamp.
+    ...(params['riskTier'] === undefined ? {} : { riskTier: params['riskTier'] as string }),
+  });
+}
+
+describe('DR-3 — delegation stamp threading (prepare_delegation → runbook → gate)', () => {
+  it('DelegationStamp_UndefinedTier_CharacterizesTheVacuousAdvisoryPass', async () => {
+    // CHARACTERIZATION of the pre-DR-3 behavior. The stamp said HIGH, but the
+    // runbook carried no tier, so `interpretProbeVerdict` was called with
+    // `undefined` — and a high-tier task that added NO probe-able tests came
+    // back as a PASS. This is the exact hole DR-3 closes; it is pinned here so
+    // the "undefined tier launders an unverified task into a pass" mechanism
+    // stays visible and cannot be quietly re-introduced as acceptable.
+    const stamp = freezeDelegationStamp(HIGH_BOUNDARY_TASK);
+    expect(stamp.riskTier).toBe('high');
+
+    const unstamped = await runGateWithParams({});
+    expect(unstamped.passed).toBe(true);
+    expect(unstamped.skipped).toBe(true);
+    expect(unstamped.disposition).toBe('advisory-skip');
+
+    // The SAME verdict, read at the stamp's tier, blocks. Only the tier the
+    // gate received differed — which is why the tier must reach the gate.
+    const atStampedTier = interpretProbeVerdict(unstamped.verdict, stamp.riskTier);
+    expect(atStampedTier.passed).toBe(false);
+
+    // And `boundaryTouching` never arrived either, so the policy router saw a
+    // half-resolved profile and declined to route at all.
+    expect(
+      resolvePolicySkip({ gateName: 'check_test_adequacy', riskTier: stamp.riskTier }),
+    ).toBeNull();
+  });
+
+  it('TaskCompletion_DelegationStamp_DeliversRiskTierToGate', async () => {
+    // ── HIGH tier: the stamp must arrive, and the gate must BLOCK ──────────
+    const highStamp = freezeDelegationStamp(HIGH_BOUNDARY_TASK);
+    const highParams = dispatchAdequacyParams(TASK_COMPLETION, highStamp);
+
+    // The value the gate receives IS the frozen stamp — not a literal the test
+    // injected. If the runbook drops the param, this is `undefined`.
+    expect(highParams['riskTier']).toBe(highStamp.riskTier);
+    expect(highParams['boundaryTouching']).toBe(highStamp.boundaryTouching);
+
+    // Acceptance: a HIGH-tier task adding no probe-able tests returns passed:false.
+    const highResult = await runGateWithParams(highParams);
+    expect(highResult.passed).toBe(false);
+    expect(highResult.skipped).toBeUndefined();
+    expect(highResult.disposition).toBe('blocked');
+    expect(highResult.report).toContain(highStamp.riskTier);
+
+    // ── LOW tier: the same runbook, the same fill-in, a different stamp ────
+    const lowStamp = freezeDelegationStamp(LOW_TASK);
+    const lowParams = dispatchAdequacyParams(TASK_COMPLETION, lowStamp);
+    expect(lowParams['riskTier']).toBe(lowStamp.riskTier);
+    expect(lowStamp.riskTier).not.toBe(highStamp.riskTier);
+
+    // Acceptance: a LOW-tier task returns passed:true, skipped:true.
+    const lowResult = await runGateWithParams(lowParams);
+    expect(lowResult.passed).toBe(true);
+    expect(lowResult.skipped).toBe(true);
+    expect(lowResult.disposition).toBe('advisory-skip');
+
+    // Both dispatches came from the SAME runbook step through the SAME fill-in
+    // and reached the gate with the same non-stamp params; only the frozen
+    // stamp differed, so the tier is what drove the divergent verdicts.
+    expect(Object.keys(highParams).sort()).toEqual(Object.keys(lowParams).sort());
+    expect(highParams['repoRoot']).toBe(lowParams['repoRoot']);
+    expect(highParams['riskTier']).not.toBe(lowParams['riskTier']);
+  });
+
+  it('TaskFix_DelegationStamp_DeliversBoundaryTouchingToGate', async () => {
+    // The fix chain must meet the same adequacy bar as a first-time completion,
+    // so TASK_FIX threads the same frozen stamp. `boundaryTouching` is consumed
+    // by the ladder router (`resolvePolicySkip`), which requires BOTH stamps —
+    // a half-resolved profile is treated as no profile and never routes.
+    const lowStamp = freezeDelegationStamp(LOW_TASK);
+    const lowParams = dispatchAdequacyParams(TASK_FIX, lowStamp);
+
+    // The boolean arriving at the gate IS the frozen stamp's, not a literal.
+    expect(typeof lowStamp.boundaryTouching).toBe('boolean');
+    expect(lowParams['boundaryTouching']).toBe(lowStamp.boundaryTouching);
+    expect(lowParams['riskTier']).toBe(lowStamp.riskTier);
+
+    // With BOTH stamps delivered the router can act: check_test_adequacy is not
+    // in the low-tier sequence, so the gate self-skips by policy.
+    const routed = resolvePolicySkip({
+      gateName: 'check_test_adequacy',
+      riskTier: lowParams['riskTier'] as 'low' | 'medium' | 'high',
+      boundaryTouching: lowParams['boundaryTouching'] as boolean,
+    });
+    expect(routed).not.toBeNull();
+    expect(routed?.reason).toContain(`boundaryTouching=${lowStamp.boundaryTouching}`);
+    expect(routed?.reason).toContain(`riskTier='${lowStamp.riskTier}'`);
+
+    // Drop ONLY boundaryTouching (the pre-DR-3 dispatch) and the router goes
+    // blind again — which is why the flag, not just the tier, must be threaded.
+    expect(
+      resolvePolicySkip({
+        gateName: 'check_test_adequacy',
+        riskTier: lowParams['riskTier'] as 'low' | 'medium' | 'high',
+      }),
+    ).toBeNull();
+
+    // A HIGH boundary-touching stamp keeps the gate IN the sequence — the same
+    // threading, the opposite routing decision.
+    const highStamp = freezeDelegationStamp(HIGH_BOUNDARY_TASK);
+    const highParams = dispatchAdequacyParams(TASK_FIX, highStamp);
+    expect(highParams['boundaryTouching']).toBe(highStamp.boundaryTouching);
+    expect(highStamp.boundaryTouching).toBe(true);
+    expect(
+      resolvePolicySkip({
+        gateName: 'check_test_adequacy',
+        riskTier: highParams['riskTier'] as 'low' | 'medium' | 'high',
+        boundaryTouching: highParams['boundaryTouching'] as boolean,
+      }),
+    ).toBeNull();
+
+    // …and the gate that does run blocks the un-probed high-tier fix.
+    const highResult = await runGateWithParams(highParams);
+    expect(highResult.passed).toBe(false);
+  });
+});
+
