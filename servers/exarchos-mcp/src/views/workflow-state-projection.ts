@@ -132,6 +132,13 @@ interface PhaseObligationEntry {
   mode: string;
   /** Frozen POLA posture (trust tier) for the phase kind (DR-14). */
   posture: string;
+  /**
+   * The danger coordinate the obligation was resolved at, frozen with it
+   * (DR-10 / T-15). Read back as the authority by later resolutions; absent on
+   * pre-T-15 logs, where there is no frozen claim to read.
+   */
+  riskTier?: string;
+  boundaryTouching?: boolean;
   enteredAt: string;
   exited: boolean;
   allRequiredGatesPassed: boolean | null;
@@ -421,6 +428,8 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
           mode?: string;
           posture?: string;
           designDepth?: DesignDepth;
+          riskTier?: string;
+          boundaryTouching?: boolean;
         } | undefined;
         if (!data?.phase || !data.kind) return view;
 
@@ -439,6 +448,14 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
             policySource: data.policySource ?? 'builtin',
             mode: data.mode ?? 'enforce',
             posture: data.posture ?? 'read-only',
+            // DR-10 (T-15): the frozen danger coordinate, folded back verbatim
+            // so later resolutions read the authority instead of re-deriving it
+            // from current state. Absent on pre-T-15 logs — omitted rather than
+            // defaulted, since a fabricated coordinate is the defect itself.
+            ...(data.riskTier !== undefined ? { riskTier: data.riskTier } : {}),
+            ...(typeof data.boundaryTouching === 'boolean'
+              ? { boundaryTouching: data.boundaryTouching }
+              : {}),
             enteredAt: event.timestamp,
             exited: false,
             allRequiredGatesPassed: null,

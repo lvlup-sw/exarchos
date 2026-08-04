@@ -2854,6 +2854,23 @@ export const PhaseEnteredData = z.object({
     .enum(['thin', 'standard', 'deep'])
     .optional()
     .describe('Feature planning depth frozen at PLAN entry (DR-3); absent ⇒ standard'),
+  // DR-10 (T-15): the danger COORDINATE the gate-set was resolved from, frozen
+  // alongside it. Without it the record is not self-describing — IMPLEMENT
+  // defers its sequence to the wave stamp and several resolvers ignore one axis
+  // — so a later attempt (or a replay) would have to RE-RESOLVE from current
+  // state, which is the DR-10 defect. `'unknown'` is a first-class member: the
+  // record states that nobody classified the task rather than fabricating the
+  // weakest tier. Optional so pre-T-15 logs keep validating.
+  riskTier: z
+    .enum(['low', 'medium', 'high', 'unknown'])
+    .optional()
+    .describe(
+      'Risk tier the obligation was resolved at; "unknown" = no trustworthy claim (DR-10)',
+    ),
+  boundaryTouching: z
+    .boolean()
+    .optional()
+    .describe('Boundary-touching flag the obligation was resolved at (DR-10)'),
 });
 
 export const PhaseExitedData = z.object({

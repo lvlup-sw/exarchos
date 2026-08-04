@@ -42,6 +42,7 @@ import {
   getValidTransitions,
 } from './state-machine.js';
 import type { HSMDefinition, ValidTransitionTarget } from './state-machine.js';
+import type { TransitionObligationFloor } from './state-machine.js';
 import type { PhaseKind, ResolvedGate, ResolveGateSetCtx } from './phase-kind.js';
 import { applyPhaseSkips } from './phase-skip.js';
 import { mapInternalToExternalType } from './events.js';
@@ -50,6 +51,11 @@ import { executeGuard } from '../config/guards.js';
 import { buildValidatedEvent } from '../event-store/event-factory.js';
 import type { EventType } from '../event-store/schemas.js';
 import type { LegacyTransitionObservation } from './admission/shadow-decision.js';
+import {
+  resolveDangerCoordinate,
+  type DangerCoordinate,
+} from './admission/requirement-context.js';
+import { readFrozenGateSequence } from './admission/freeze-requirements.js';
 
 // ─── HSM emission boundary — schema-checked data shaping (#1339) ───────────
 //
@@ -163,6 +169,14 @@ export function buildHsmEventData(
         policySource: metadata.policySource ?? 'builtin',
         mode: metadata.mode ?? 'enforce',
         posture: metadata.posture,
+        // DR-10 (T-15): the frozen danger coordinate travels with the gate-set
+        // it produced. Spread only when the walk supplied it, so the shaping
+        // stays byte-identical for any producer that does not (and the field
+        // is never minted as `undefined` on the durable log).
+        ...(metadata.riskTier !== undefined ? { riskTier: metadata.riskTier } : {}),
+        ...(typeof metadata.boundaryTouching === 'boolean'
+          ? { boundaryTouching: metadata.boundaryTouching }
+          : {}),
       };
     case 'phase.blocked': {
       // PhaseBlockedData (DR-7): the transition-boundary fail-closed record. The
@@ -327,6 +341,25 @@ export interface GuardContext {
    * that mutate a phase onto a universal final state.
    */
   readonly allowUniversalFinalTransition?: boolean;
+  /**
+   * DR-10 (T-15) — the workflow state as it was BEFORE this call's field
+   * updates were applied.
+   *
+   * `handleSet` applies `updates` to a clone and then evaluates the transition
+   * against that POST-update copy (so phase guards see the new state). For the
+   * danger coordinate that ordering is unsound: a call shaped
+   * `{ phase: 'review', updates: { riskTier: 'low' } }` would evaluate — and
+   * FREEZE — the transition at a tier the workflow did not have when the call
+   * began, i.e. a same-call stamp could weaken the very transition it
+   * accompanies.
+   *
+   * Supplying the pre-update state lets the primitive floor the coordinate
+   * monotonically: the stamp still lands and governs every later call, it just
+   * cannot lower the bar it is currently being measured against. OPTIONAL and
+   * defaulted-off — omitting it reproduces the previous behaviour exactly (no
+   * floor is applied), so pure-evaluation callers are unaffected.
+   */
+  readonly priorState?: Record<string, unknown> | undefined;
 }
 
 export type TransitionResult =
@@ -473,6 +506,101 @@ function isUniversalFinalTarget(hsm: HSMDefinition, targetPhase: string): boolea
   );
 }
 
+// ─── DR-10 (T-15): the monotone obligation floor ─────────────────────────────
+//
+// Two sources may hold a stronger claim about this transition than the
+// post-update state the walk is about to be evaluated against:
+//
+//   1. the PRE-update state — the claim in force when the call began, which a
+//      same-call `updates: { riskTier: … }` must not be able to lower;
+//   2. the `phase.entered` record a PRIOR attempt at this SAME phase froze —
+//      the authority a later attempt is supposed to read back rather than
+//      re-resolve from whatever state says now.
+//
+// Both are passed to `executeTransition` as a floor, never written back onto
+// the state: the floor raises the OBLIGATION for this transition only. It is
+// deliberately NOT ratcheted across phases — pinning a coordinate feature-wide
+// would make one untiered transition permanently escalate every later one.
+
+/** The `(risk, boundary)` claim a state object carries, or `null` if it makes none. */
+function statedCoordinate(
+  state: Record<string, unknown> | undefined,
+): DangerCoordinate | null {
+  if (state === undefined) return null;
+  if (state.riskTier === undefined && state.boundaryTouching === undefined) return null;
+  return resolveDangerCoordinate({
+    risk: state.riskTier,
+    boundary: state.boundaryTouching,
+  });
+}
+
+/**
+ * Read the obligation a prior `phase.entered` froze for THIS target phase.
+ *
+ * This is the literal "read the frozen record back as authority" step: both the
+ * coordinate and the gate sequence come off the durable log, never from a
+ * re-resolution of current state. The most recent matching record wins (it is
+ * itself the join of everything before it). Pre-T-15 records carry no
+ * coordinate and contribute only their gates; an unreadable gate list
+ * contributes no gates at all (fail-closed — see `readFrozenGateSequence`).
+ */
+async function readFrozenFloorForPhase(
+  eventStore: EventStore,
+  featureId: string,
+  targetPhase: string,
+): Promise<TransitionObligationFloor | null> {
+  const entered = await eventStore.query(featureId, {
+    type: 'phase.entered' as EventType,
+  });
+  let latest: Record<string, unknown> | null = null;
+  for (const event of entered) {
+    const data = event.data as Record<string, unknown> | undefined;
+    if (data === undefined) continue;
+    if (data.phase !== targetPhase) continue;
+    latest = data;
+  }
+  if (latest === null) return null;
+  const coordinate =
+    latest.riskTier === undefined && latest.boundaryTouching === undefined
+      ? null
+      : resolveDangerCoordinate({
+          risk: latest.riskTier,
+          boundary: latest.boundaryTouching,
+        });
+  const gates = Array.isArray(latest.resolvedGates)
+    ? readFrozenGateSequence(latest.resolvedGates)
+    : null;
+  if (coordinate === null && (gates === null || gates.length === 0)) return null;
+  return {
+    ...(coordinate !== null ? { coordinates: [coordinate] } : {}),
+    ...(gates !== null && gates.length > 0 ? { gates } : {}),
+  };
+}
+
+/** Merge floor contributions; both members are pure lower bounds, so union. */
+function mergeFloors(
+  parts: readonly (TransitionObligationFloor | null)[],
+): TransitionObligationFloor | undefined {
+  const coordinates: DangerCoordinate[] = [];
+  const gates: ResolvedGate[] = [];
+  const seen = new Set<string>();
+  for (const part of parts) {
+    if (part === null) continue;
+    coordinates.push(...(part.coordinates ?? []));
+    for (const gate of part.gates ?? []) {
+      const key = `${gate.family}\u0000${gate.gate}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      gates.push(gate);
+    }
+  }
+  if (coordinates.length === 0 && gates.length === 0) return undefined;
+  return {
+    ...(coordinates.length > 0 ? { coordinates } : {}),
+    ...(gates.length > 0 ? { gates } : {}),
+  };
+}
+
 export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
   async attempt(
     featureId: string,
@@ -614,11 +742,25 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
     }
 
     // ─── Step 3: Synchronous HSM walk (composite guard) ───────────────
+    // DR-10 (T-15): the walk resolves AND freezes the phase obligation, so the
+    // floor must be assembled BEFORE it runs — from the pre-update claim this
+    // call may be trying to lower, and from the `phase.entered` an earlier
+    // attempt at this same phase already froze. There is still exactly one
+    // resolution per attempt; the frozen record is its lower bound rather than
+    // its competitor.
+    const priorCoordinate = statedCoordinate(context.priorState);
+    const floor = mergeFloors([
+      priorCoordinate === null ? null : { coordinates: [priorCoordinate] },
+      context.eventStore === null
+        ? null
+        : await readFrozenFloorForPhase(context.eventStore, featureId, targetPhase),
+    ]);
     const result = executeTransition(
       hsm,
       context.state,
       targetPhase,
       context.resolveGatesFn,
+      floor,
     );
 
     // ─── P07-01: non-invasive shadow observation (Transition tasks 027/051) ──

@@ -856,6 +856,13 @@ export async function handleSet(
           input.phase,
           {
             state: mutableState,
+            // DR-10 (T-15): the PRE-update state. Field updates are applied to
+            // `mutableState` above so phase guards see the new state, which for
+            // the danger coordinate would let `updates: { riskTier: 'low' }`
+            // weaken the very transition it accompanies. Passing the pre-update
+            // state lets the primitive floor the coordinate monotonically — the
+            // stamp still persists and governs later calls.
+            priorState: state as unknown as Record<string, unknown>,
             workflowType: state.workflowType as string,
             skipPhases: options?.skipPhases,
             idempotencyKeySuffix: String(expectedVersion),
