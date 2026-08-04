@@ -39,16 +39,26 @@ interface StaticAnalysisResult {
   readonly passed: boolean;
   readonly passCount: number;
   readonly failCount: number;
+  readonly skipCount: number;
   readonly report: string;
   /**
-   * True when the gate could not actually run (no recognized toolchain).
-   * Distinct from `passed:false` (which means a real failure) — callers
-   * should treat skipped gates as inconclusive, not green. See DR-4 in
-   * docs/plans/archive/2026-05-04-v290-dogfood-bundle.md.
+   * True when the gate could not conclude. Two causes, both inconclusive:
+   * no recognized toolchain (DR-4), or a constituent check that never ran
+   * (DR-6 — a missing `lint`/`quality-check` script, or a `--skip-*` flag).
+   * Distinct from `passed:false` alone (which means a real failure) —
+   * callers must treat a skipped gate as inconclusive, not green. See DR-4 in
+   * docs/plans/archive/2026-05-04-v290-dogfood-bundle.md and DR-6 in
+   * docs/specs/2026-08-04-wiring-closure-and-unified-integration-suite.md.
    */
   readonly skipped?: boolean;
-  /** Reason code when `skipped` is true (e.g. 'no-toolchain'). */
+  /** Reason code when `skipped` is true ('no-toolchain' | 'constituent-skipped'). */
   readonly skipReason?: string;
+  /**
+   * True when the dimension is DEGRADED: a toolchain WAS detected and some
+   * constituent ran, but at least one did not. Renders distinctly from a
+   * whole-gate no-toolchain skip, and never as PASS.
+   */
+  readonly degraded?: boolean;
 }
 
 // ─── Command Runner Adapter ─────────────────────────────────────────────────
@@ -136,19 +146,27 @@ export async function handleStaticAnalysis(
         };
       }
 
-  // T-10 / DR-4: 'skip' status means no recognized toolchain — gate is
-  // inconclusive, not green. Map to passed=false + skipped=true so
-  // callers and canonical evidence render SKIP distinctly from PASS / FAIL.
+      // T-10 / DR-4: 'skip' with reason 'no-toolchain' means no recognized
+      // toolchain — the gate never ran.
+      // T-09 / DR-6: 'skip' with reason 'constituent-skipped' means a
+      // toolchain WAS detected but a constituent check did not run. Both are
+      // inconclusive, neither is green. Map to passed=false + skipped=true so
+      // callers and canonical evidence render SKIP/DEGRADED distinctly from
+      // PASS / FAIL, and so `normalizeGateVerdict` yields `indeterminate`
+      // (which blocks protected promotion exactly as a fail does).
       const skipped = analysisResult.status === 'skip';
       const passed = analysisResult.status === 'pass';
-      const { passCount, failCount, output } = analysisResult;
+      const degraded = skipped && analysisResult.skipReason === 'constituent-skipped';
+      const { passCount, failCount, skipCount, output } = analysisResult;
 
       const result: StaticAnalysisResult = {
         passed,
         passCount,
         failCount,
+        skipCount,
         report: output,
         ...(skipped ? { skipped: true, skipReason: analysisResult.skipReason ?? 'no-toolchain' } : {}),
+        ...(degraded ? { degraded: true } : {}),
       };
       return { success: true, data: result };
     },

@@ -123,6 +123,20 @@ export interface GateEvidenceReference {
  * A provider error is indeterminate, while advisory carriers retain their
  * established `data.passed` contract. A success carrier without a boolean
  * verdict is also indeterminate rather than being promoted to passing proof.
+ *
+ * DR-6: a carrier that is BOTH explicitly skipped and not-passing is
+ * `indeterminate`, not `fail`. The gate did not run to a conclusion, so it
+ * produced neither proof nor a finding — reporting it as `fail` would name a
+ * failure that was never observed. Indeterminate is NOT lenient: it fails
+ * closed downstream exactly as a deny does (policy-evaluation's `evaluateGate`
+ * → `indeterminate('EVALUATOR_FAILED')` → `PolicyVerdict 'indeterminate'` →
+ * `transition-command` records the attempt and leaves the phase UNCHANGED; a
+ * waiver never rescues it).
+ *
+ * Deliberately narrow: the skip-PASS carriers elsewhere in the codebase
+ * (`{ passed: true, skipped: true }` — advisory skips that satisfy a presence
+ * requirement) are untouched. Only `passed !== true && skipped === true`
+ * reroutes, and static-analysis is its sole producer today.
  */
 export function normalizeGateVerdict(result: ToolResult): 'pass' | 'fail' | 'indeterminate' {
   if (!result.success) return 'indeterminate';
@@ -131,6 +145,8 @@ export function normalizeGateVerdict(result: ToolResult): 'pass' | 'fail' | 'ind
     return 'indeterminate';
   }
   const passed = (data as { readonly passed?: unknown }).passed;
+  const skipped = (data as { readonly skipped?: unknown }).skipped;
+  if (skipped === true && passed !== true) return 'indeterminate';
   if (passed === true) return 'pass';
   if (passed === false) return 'fail';
 

@@ -9,14 +9,18 @@
  * and result formatting to TypeScript.
  *
  * Exit code semantics (mapped to status field):
- *   'pass'  = all checks pass (warnings OK)
+ *   'pass'  = EVERY applicable check ran and passed (warnings OK)
  *   'fail'  = errors found in one or more tools
- *   'skip'  = no applicable toolchain detected (inconclusive — distinct from
- *             'pass' so the gate cannot falsely-green repos with no
- *             recognized toolchain). When this status is returned, the
- *             `skipReason` field carries the reason code (currently only
- *             'no-toolchain'). See DR-4 in
- *             docs/plans/archive/2026-05-04-v290-dogfood-bundle.md.
+ *   'skip'  = the gate is inconclusive. Two reasons produce it:
+ *             'no-toolchain'        — no recognized project type at all
+ *                                     (DR-4, docs/plans/archive/2026-05-04-v290-dogfood-bundle.md).
+ *             'constituent-skipped' — a toolchain WAS detected and at least one
+ *                                     constituent check did not run (missing
+ *                                     npm script, or a --skip-* flag) while no
+ *                                     check failed (DR-6). The dimension is
+ *                                     DEGRADED, never PASS: a check that never
+ *                                     ran is not evidence that it would pass.
+ *             The `skipReason` field carries the reason code.
  *   'error' = usage error (missing repo root, no package.json)
  */
 
@@ -67,22 +71,27 @@ export interface StaticAnalysisInput {
 }
 
 /**
- * Reason code for a 'skip' status. Currently only 'no-toolchain' is emitted
- * (no recognized project files in repoRoot). The union is open for future
- * skip reasons (e.g. 'all-checks-skipped-by-flag') without a breaking change.
+ * Reason code for a 'skip' status.
+ *
+ * - 'no-toolchain'        — no recognized project files in repoRoot (DR-4).
+ * - 'constituent-skipped' — a toolchain was detected but at least one
+ *                           constituent check did not run (DR-6). The gate is
+ *                           DEGRADED/inconclusive: it may not report PASS.
  */
-export type StaticAnalysisSkipReason = 'no-toolchain';
+export type StaticAnalysisSkipReason = 'no-toolchain' | 'constituent-skipped';
 
 export interface StaticAnalysisResult {
   /**
    * Overall status.
    *
-   * - 'pass'  — all applicable checks passed
+   * - 'pass'  — EVERY applicable check ran and passed. A single skipped
+   *             constituent forbids this value (DR-6).
    * - 'fail'  — one or more checks failed
-   * - 'skip'  — no applicable toolchain detected (inconclusive); see
-   *             `skipReason` for the reason code. Distinct from 'pass' so
-   *             the gate does not falsely-green a repo with no recognized
-   *             toolchain. See DR-4 in v2.9 dogfood plan.
+   * - 'skip'  — inconclusive; see `skipReason` for the reason code. Distinct
+   *             from 'pass' so the gate does not falsely-green a repo with no
+   *             recognized toolchain (DR-4) or with a check that never ran
+   *             (DR-6). See DR-4 in v2.9 dogfood plan, DR-6 in
+   *             docs/specs/2026-08-04-wiring-closure-and-unified-integration-suite.md.
    * - 'error' — usage error (missing/invalid repo root, etc.)
    */
   readonly status: 'pass' | 'fail' | 'skip' | 'error';
@@ -96,6 +105,11 @@ export interface StaticAnalysisResult {
   readonly passCount: number;
   /** Number of checks that failed. */
   readonly failCount: number;
+  /**
+   * Number of constituent checks that did NOT run (missing script or
+   * --skip-* flag). Non-zero forces the aggregate away from 'pass' (DR-6).
+   */
+  readonly skipCount: number;
   /** Detected project type (undefined if no recognized project). */
   readonly projectType?: string | undefined;
 }
@@ -702,6 +716,7 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
       error: 'Missing repoRoot',
       passCount: 0,
       failCount: 0,
+      skipCount: 0,
     };
   }
 
@@ -714,6 +729,7 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
         error: `Invalid repoRoot: ${repoRoot} does not exist or is not a directory`,
         passCount: 0,
         failCount: 0,
+        skipCount: 0,
       };
     }
   } catch (err: unknown) {
@@ -724,6 +740,7 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
       error: `Invalid repoRoot: ${message}`,
       passCount: 0,
       failCount: 0,
+      skipCount: 0,
     };
   }
 
@@ -753,6 +770,7 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
       skipReason: 'no-toolchain',
       passCount: 0,
       failCount: 0,
+      skipCount: 0,
       projectType: undefined,
     };
   }
@@ -804,13 +822,21 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
     });
   }
 
-  // Tally results
+  // Tally results.
+  //
+  // DR-6: SKIP is tallied as a FIRST-CLASS outcome, not discarded. The gate
+  // previously counted only PASS/FAIL, so a constituent that never ran was
+  // invisible to the verdict — a repo with no `lint` and no `quality-check`
+  // script rendered `PASS (2/2)` off a single real check. A check that never
+  // ran is not evidence that it would have passed.
   let passCount = 0;
   let failCount = 0;
+  let skipCount = 0;
 
   for (const check of checks) {
     if (check.status === 'PASS') passCount++;
     if (check.status === 'FAIL') failCount++;
+    if (check.status === 'SKIP') skipCount++;
   }
 
   // Build structured output
@@ -837,19 +863,34 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
   outputLines.push('---');
   outputLines.push('');
 
-  if (failCount === 0) {
-    outputLines.push(`**Result: PASS** (${passCount}/${total} checks passed)`);
-  } else {
+  // DR-6 precedence: FAIL ≻ DEGRADED ≻ PASS.
+  //
+  // A real failure still dominates (an operator must see the failure first);
+  // otherwise ANY skipped constituent degrades the dimension. PASS is
+  // reachable only when every constituent actually ran and passed.
+  if (failCount > 0) {
     outputLines.push(`**Result: FAIL** (${failCount}/${total} checks failed)`);
+  } else if (skipCount > 0) {
+    outputLines.push(
+      `**Result: DEGRADED** (${passCount}/${total} checks passed, ` +
+        `${skipCount} skipped — inconclusive, not a pass)`,
+    );
+  } else {
+    outputLines.push(`**Result: PASS** (${passCount}/${total} checks passed)`);
   }
 
   const output = outputLines.join('\n');
 
+  const status: StaticAnalysisResult['status'] =
+    failCount > 0 ? 'fail' : skipCount > 0 ? 'skip' : 'pass';
+
   return {
-    status: failCount === 0 ? 'pass' : 'fail',
+    status,
     output,
+    ...(status === 'skip' ? { skipReason: 'constituent-skipped' as const } : {}),
     passCount,
     failCount,
+    skipCount,
     projectType,
   };
 }
