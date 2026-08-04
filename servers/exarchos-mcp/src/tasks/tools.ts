@@ -10,6 +10,8 @@ import type { TaskDetailViewState } from '../views/task-detail-view.js';
 import { readStateFile, writeStateFile, VersionConflictError } from '../workflow/state-store.js';
 import type { WorkflowState } from '../workflow/types.js';
 import { logger } from '../logger.js';
+import { getFullRegistry } from '../registry.js';
+import { getDispatchContext } from '../dispatch/dispatch-context.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -27,6 +29,31 @@ function alreadyClaimedResult(taskId: string): ToolResult {
       message: `Task '${taskId}' is already claimed`,
     },
   };
+}
+
+// ─── Gate blocking-ness (DR-2) ──────────────────────────────────────────────
+
+/**
+ * Is `gateName` a BLOCKING gate?
+ *
+ * Single source of truth: the tool registry's existing `action.gate` metadata,
+ * keyed by the shared mechanical `gate.gateClass` (e.g. `check_static_analysis`
+ * declares `{ blocking: true, dimension: 'D2', gateClass: 'static-analysis' }`).
+ * Reading the declared model — rather than restating "which gates are
+ * blocking" here — means a registry edit that flips a gate to advisory is
+ * honoured automatically, and no parallel notion of blocking can drift.
+ *
+ * FAILS CLOSED: a gate class with no registration, or a registration that
+ * omits `gate`, is treated as blocking. An unrecognised gate is the case where
+ * we know least, so it gets the strongest protection.
+ */
+export function isBlockingGate(gateName: string): boolean {
+  for (const tool of getFullRegistry()) {
+    for (const action of tool.actions) {
+      if (action.gate?.gateClass === gateName) return action.gate.blocking;
+    }
+  }
+  return true;
 }
 
 // ─── resetModuleEventStore (delegates to the shared materializer cache) ──────
@@ -201,16 +228,51 @@ export async function handleTaskComplete(
 
   const store = eventStore;
 
-  // Evidence-based bypass (#1189): orthogonal to evidence.type (SRP —
-  // separate "what kind of proof" from "whether to skip prerequisites").
-  // Any evidence with passed===true AND substantive (non-whitespace) output
-  // asserts work succeeded; the type tag is metadata about the proof,
-  // not the override mechanism. Preserves the original `type === 'manual'`
-  // behavior (#940) since manual evidence will satisfy passed===true plus
-  // a non-empty output. Trim before length-check so whitespace-only output
-  // (e.g. "   ") cannot trivially bypass the gate.
-  const evidenceBypass =
+  // ─── DR-2: the governed cannot supply its own governance ─────────────────
+  //
+  // `evidence` has TWO distinct jobs, and only one of them is legitimate:
+  //
+  //   1. RECORD — provenance stamped onto `task.completed` (`data.evidence`
+  //      plus the `verified` flag). Unchanged below; a caller may always
+  //      describe how it verified its work.
+  //   2. GATE SATISFACTION — standing in for a gate that was never run.
+  //      This is the hole. `args.evidence` arrives FROM THE AGENT BEING
+  //      GOVERNED, so honouring it lets the subject of governance mint its
+  //      own proof of compliance.
+  //
+  // The rule: caller-supplied evidence can NEVER satisfy a BLOCKING gate, and
+  // for a non-blocking (advisory) gate it requires an explicit OPERATOR
+  // capability. Blocking-ness is read from the existing registry model
+  // (`action.gate.blocking`, keyed by `gate.gateClass`) rather than a second,
+  // drifting notion of "blocking" maintained here.
+  const evidenceIsSubstantive =
     args.evidence?.passed === true && (args.evidence.output ?? '').trim().length > 0;
+
+  // The operator capability, taken from the SAME trust-tier mechanism that
+  // produces CAPABILITY_DENIED for shared-mutating actions: the ambient
+  // DispatchContext authorization. `identity.role` is derived by the
+  // transport (`deriveLocalOperatorIdentity` / `deriveMcpCallerIdentity`) and
+  // can never be self-asserted by the caller, which is exactly the property
+  // this check needs. A delegated agent is `role: 'agent'` and therefore
+  // cannot clear this bar no matter what it puts in `args.evidence`.
+  // Fails closed: no dispatch context (direct in-process call) ⇒ no operator.
+  const authorization = getDispatchContext()?.authorization;
+  const hasOperatorCapability =
+    authorization !== undefined &&
+    authorization.identity.role === 'operator' &&
+    authorization.posture !== 'read-only';
+
+  /**
+   * May caller-supplied evidence stand in for `gateName`?
+   *
+   * Fails closed on every unknown: a gate absent from the registry, or one
+   * whose registration omits `blocking`, is treated as BLOCKING.
+   */
+  const evidenceMaySatisfy = (gateName: string): boolean => {
+    if (!evidenceIsSubstantive) return false;
+    if (isBlockingGate(gateName)) return false;
+    return hasOperatorCapability;
+  };
 
   // Gate enforcement (DR-1): `gate.executed` is THE gate-executed signal, and
   // for every gate class the durable runner owns it has exactly ONE producer —
@@ -249,7 +311,9 @@ export async function handleTaskComplete(
   // chain's `onFail:'stop'` ordering (it runs BEFORE task_complete and skips
   // by policy for low-tier tasks) — so it must NOT be a universal hard-gate
   // here, where the tier is unknown. `static-analysis` stays universal.
-  if (!evidenceBypass && !hasPassingGate('static-analysis')) unmetGates.push('static-analysis');
+  if (!evidenceMaySatisfy('static-analysis') && !hasPassingGate('static-analysis')) {
+    unmetGates.push('static-analysis');
+  }
   if (unmetGates.length > 0) {
     return {
       success: false,

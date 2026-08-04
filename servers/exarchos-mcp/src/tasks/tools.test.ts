@@ -1007,11 +1007,12 @@ describe('handleTaskComplete gate enforcement', () => {
       expect(result.error?.code).toBe('GATE_NOT_PASSED');
     });
 
-    it('HandleTaskComplete_NonManualEvidenceWithPassedTrue_BypassesGate', async () => {
-      // GIVEN: a task with no gate.executed events but operator-supplied
-      // `evidence.passed === true` and a non-empty output. The bypass
-      // mechanism is orthogonal to evidence.type (SRP — separate
-      // "what kind of proof" from "whether to skip prerequisites").
+    it('HandleTaskComplete_NonManualEvidenceWithPassedTrue_DoesNotSatisfyBlockingGate', async () => {
+      // DR-2 (was `..._BypassesGate`): caller-supplied evidence used to stand
+      // in for the gate here. It no longer can — `static-analysis` is declared
+      // `gate: { blocking: true }` in the registry, and the subject of
+      // governance may not supply its own proof of compliance. The evidence
+      // shape is unchanged; only its power to satisfy a gate was removed.
       const store = new EventStore(tempDir);
       await store.append('wf-evbypass', {
         type: 'task.assigned',
@@ -1028,7 +1029,9 @@ describe('handleTaskComplete gate enforcement', () => {
         store,
       );
 
-      expect(result.success).toBe(true);
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('GATE_NOT_PASSED');
+      expect(result.error?.unmetGates).toContain('static-analysis');
     });
 
     it('HandleTaskComplete_EvidenceWithEmptyOutput_DoesNotBypass', async () => {
@@ -1079,9 +1082,11 @@ describe('handleTaskComplete gate enforcement', () => {
       expect(result.error?.code).toBe('GATE_NOT_PASSED');
     });
 
-    it('HandleTaskComplete_ManualEvidenceBypass_StillWorks', async () => {
-      // Backward compatibility: the original `evidence.type === 'manual'`
-      // bypass (per #940) must still work after the broadening.
+    it('HandleTaskComplete_ManualEvidenceBypass_NoLongerSatisfiesBlockingGate', async () => {
+      // DR-2 (was `..._StillWorks`): the original `evidence.type === 'manual'`
+      // bypass (#940) is retired for blocking gates. `manual` is now purely a
+      // provenance tag on the recorded evidence — it grants no gate-satisfying
+      // power, because a caller cannot govern itself.
       const store = new EventStore(tempDir);
       await store.append('wf-manual', {
         type: 'task.assigned',
@@ -1098,7 +1103,9 @@ describe('handleTaskComplete gate enforcement', () => {
         store,
       );
 
-      expect(result.success).toBe(true);
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('GATE_NOT_PASSED');
+      expect(result.error?.unmetGates).toContain('static-analysis');
     });
   });
 });

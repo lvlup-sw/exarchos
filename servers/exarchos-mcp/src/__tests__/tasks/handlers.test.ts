@@ -320,8 +320,12 @@ describe('handleTaskComplete', () => {
   });
 });
 
-describe('handleTaskComplete manual evidence bypass', () => {
-  it('handleTaskComplete_ManualEvidencePassed_BypassesGates', async () => {
+describe('handleTaskComplete evidence cannot satisfy a blocking gate (DR-2)', () => {
+  it('handleTaskComplete_ManualEvidencePassed_DoesNotBypassGates', async () => {
+    // DR-2 (was `..._BypassesGates`): manual evidence used to complete the
+    // task with no gate.executed event present. `static-analysis` is a
+    // BLOCKING gate, so a caller-supplied assertion can no longer stand in
+    // for it — and no task.completed event is written.
     const result = await handleTaskComplete(
       {
         taskId: 't-manual',
@@ -332,13 +336,11 @@ describe('handleTaskComplete manual evidence bypass', () => {
       store,
     );
 
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('GATE_NOT_PASSED');
 
     const events = await store.query('wf-manual', { type: 'task.completed' });
-    expect(events).toHaveLength(1);
-    expect(events[0].data).toEqual(
-      expect.objectContaining({ taskId: 't-manual' }),
-    );
+    expect(events).toHaveLength(0);
   });
 
   it('handleTaskComplete_ManualEvidenceFailed_StillRequiresGates', async () => {
@@ -356,12 +358,11 @@ describe('handleTaskComplete manual evidence bypass', () => {
     expect(result.error?.code).toBe('GATE_NOT_PASSED');
   });
 
-  it('handleTaskComplete_NonManualEvidenceWithPassedAndOutput_BypassesGates', async () => {
-    // Updated for #1189: the bypass is orthogonal to evidence.type
-    // (SRP — separate "what kind of proof" from "whether to skip
-    // prerequisites"). Any evidence with `passed === true` AND a
-    // non-empty `output` asserts work succeeded, regardless of type.
-    // The narrow `type === 'manual'` interpretation predated #1189.
+  it('handleTaskComplete_NonManualEvidenceWithPassedAndOutput_DoesNotBypassGates', async () => {
+    // DR-2 (was `..._BypassesGates`): #1189 broadened the bypass to any
+    // evidence type with `passed === true` and non-empty output. That
+    // broadening is now closed for blocking gates — the type tag never
+    // conferred authority, and neither does the assertion itself.
     const result = await handleTaskComplete(
       {
         taskId: 't-test-type',
@@ -372,7 +373,8 @@ describe('handleTaskComplete manual evidence bypass', () => {
       store,
     );
 
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('GATE_NOT_PASSED');
   });
 
   it('handleTaskComplete_NonManualEvidenceWithEmptyOutput_StillRequiresGates', async () => {
