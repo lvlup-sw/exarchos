@@ -314,8 +314,14 @@ describe('exarchos_orchestrate CLI-vs-MCP parity', () => {
 
   it('OrchestrateParity_TaskComplete_CliAndMcp_ReturnEqualPayload', async () => {
     // Arrange — seed each arm with task.assigned + task.claimed so `task_complete`
-    // is legal. We supply `evidence.type: 'manual'` + `passed: true` so the gate
-    // bypass triggers and we don't need to seed tdd/static-analysis gate events.
+    // is legal, plus a real passing `static-analysis` gate.executed row.
+    //
+    // DR-2 (T-03): this fixture previously supplied `evidence.type: 'manual'` +
+    // `passed: true` to trip the gate bypass. Caller-supplied evidence can no
+    // longer satisfy a BLOCKING gate — the governed cannot mint its own proof
+    // of compliance — so the fixture now seeds the gate signal a producer
+    // actually emits. `evidence` is retained because its provenance-recording
+    // role is unchanged; it simply no longer carries the completion.
     const streamId = 'parity-complete-wf';
 
     // Reuse the arm's already-initialized EventStore. Pre-v2.11 a fresh
@@ -332,6 +338,15 @@ describe('exarchos_orchestrate CLI-vs-MCP parity', () => {
         type: 'task.claimed',
         data: { taskId: 't-parity-2', agentId: 'agent-parity', claimedAt: new Date().toISOString() },
         agentId: 'agent-parity',
+      });
+      await store.append(streamId, {
+        type: 'gate.executed',
+        data: {
+          gateName: 'static-analysis',
+          layer: 'quality',
+          passed: true,
+          details: { taskId: 't-parity-2' },
+        },
       });
     };
 
