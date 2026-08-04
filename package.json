@@ -29,6 +29,8 @@
     "generate:agents": "tsx servers/exarchos-mcp/src/agents/generate-agents.ts",
     "build:skills": "npm run generate:agents && node dist/build-skills.js",
     "build:hooks": "node dist/build-hooks.js",
+    "lint": "eslint \"servers/exarchos-mcp/src/**/*.ts\"",
+    "quality-check": "npm run lint:invariants && npm run lint:test-first-drift",
     "lint:inv6": "node scripts/lint-inv6.mjs skills-src/",
     "lint:test-first-drift": "node scripts/lint-test-first-drift.mjs commands agents skills-src",
     "lint:invariants": "tsx servers/exarchos-mcp/src/architecture/vocabulary-lint-cli.ts",
@@ -51,7 +53,7 @@
     "docs:dev": "cd documentation && npm run docs:dev",
     "docs:build": "cd documentation && npm run docs:build",
     "docs:preview": "cd documentation && npm run docs:preview",
-    "lint:windows": "eslint \"servers/exarchos-mcp/src/**/*.ts\""
+    "lint:windows": "npm run lint"
   },
   "keywords": [
     "claude-code-plugin",
