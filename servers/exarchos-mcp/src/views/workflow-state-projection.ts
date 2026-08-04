@@ -1103,6 +1103,12 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       // #1319 — lands on the shared `meta/feedback` stream, never a feature
       // stream, so it has no effect on any workflow's projected state.
       case 'feedback.recorded':
+      // DR-4 (wiring-closure T-06) — the durable projection-health pair lands
+      // on the shared `meta/projection-health` stream, never a feature stream.
+      // It REPORTS ON folds; folding it into one would make the fold's own
+      // health part of the state being assessed.
+      case 'projection.degraded':
+      case 'projection.recovered':
       // #1242 — folds into the rehydration projection's handoff slot only; it
       // carries no workflow_state-affecting fields.
       case 'workflow.handoff_summarized':

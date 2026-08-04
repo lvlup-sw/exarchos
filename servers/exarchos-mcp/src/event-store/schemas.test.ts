@@ -636,7 +636,12 @@ describe('EventTypes', () => {
     // cancel.ownership-acquired + cancel.compensation-retry-scheduled +
     // cancel.manual-intervention-required (fencing epoch, bounded retry ladder,
     // terminal escalation).
-    expect(EventTypes).toHaveLength(167);
+    // Bumped 167 → 169: DR-4 (wiring-closure T-06) — projection.degraded +
+    //   projection.recovered (the durable projection-health pair published on
+    //   `meta/projection-health` off a real cursor/tail comparison, so a stale
+    //   fold is a persisted, restart-surviving state rather than an ephemeral
+    //   `_meta.projectionDegraded` annotation on one response).
+    expect(EventTypes).toHaveLength(169);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');
@@ -4198,8 +4203,10 @@ describe('WLM operational-core merge lease schemas', () => {
     // (146 → 148), followed by 11 admission proof events and five internal
     // cancellation process-manager facts (148 → 164), plus the P04-02 (EFF-005)
     // saga triad — cancel.ownership-acquired, cancel.compensation-retry-scheduled,
-    // cancel.manual-intervention-required (164 → 167).
-    expect(EventTypes).toHaveLength(167);
+    // cancel.manual-intervention-required (164 → 167), plus the DR-4
+    // (wiring-closure T-06) durable projection-health pair projection.degraded /
+    // projection.recovered (167 → 169).
+    expect(EventTypes).toHaveLength(169);
     // No duplicate slipped in while bumping the count.
     expect(new Set(EventTypes).size).toBe(EventTypes.length);
   });

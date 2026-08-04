@@ -19,10 +19,22 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { DispatchContext } from '../core/dispatch.js';
 import { EventStore } from '../event-store/store.js';
 import {
+  EVENT_DATA_SCHEMAS,
+  EVENT_EMISSION_REGISTRY,
+  EventTypes,
+} from '../event-store/schemas.js';
+import {
   assessProjectionFreshness,
   assessStreamFreshness,
   toProjectionDegradedMeta,
+  publishProjectionFreshness,
+  readProjectionDegradedState,
+  readAllProjectionDegradedStates,
+  projectionDegradedIdempotencyKey,
   PROJECTION_DEGRADED_META,
+  PROJECTION_HEALTH_STREAM_ID,
+  PROJECTION_DEGRADED_EVENT_TYPE,
+  PROJECTION_RECOVERED_EVENT_TYPE,
 } from './freshness.js';
 import { handleView } from '../views/composite.js';
 import { getOrCreateMaterializer } from '../views/tools.js';
@@ -193,5 +205,224 @@ describe('view chokepoint marks degraded reads (EFF-002)', () => {
   it('HandleView_NoWorkflowId_LeavesResponseUntouched', async () => {
     const result = await handleView({ action: 'describe' }, ctx);
     expect(degradedMeta(result)).toBeUndefined();
+  });
+});
+
+// ─── DR-4: one durable projection-degraded state ────────────────────────────
+//
+// CHARACTERIZATION of what came before (the tests above still pin it):
+// `_meta.projectionDegraded` is an EPHEMERAL per-response annotation.
+// `stampProjectionFreshness` recomputes it on every read from the in-memory
+// materializer LRU and stamps it on ONE envelope. Nothing is persisted, so the
+// verdict does not survive the response — let alone a process restart — and a
+// consumer that does not read `_meta` (or runs in another process with a cold
+// cache) still receives the stale fold as `success: true`.
+//
+// WHAT CHANGED: the same cursor/tail verdict is now also PUBLISHED — as
+// `projection.degraded` / `projection.recovered` on the dedicated durable
+// `meta/projection-health` stream — and read back as a folded state through
+// `readProjectionDegradedState`. The `_meta` annotation is deliberately
+// untouched; it remains a per-response courtesy, not the state of record.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('durable projection-degraded state (DR-4)', () => {
+  let stateDir: string;
+  let store: EventStore;
+  let ctx: DispatchContext;
+  const STREAM = 'dr-4-stream';
+
+  beforeEach(async () => {
+    stateDir = await mkdtemp(nodePath.join(tmpdir(), 'dr-4-'));
+    store = new EventStore(stateDir);
+    await store.initialize();
+    ctx = { stateDir, eventStore: store, enableTelemetry: false };
+  });
+
+  afterEach(async () => {
+    store.close();
+    await rmrfAsync(stateDir);
+  });
+
+  async function seedEvents(count: number): Promise<void> {
+    for (let i = 0; i < count; i++) {
+      await store.append(STREAM, { type: 'task.progressed', data: { i } });
+    }
+  }
+
+  /**
+   * Warm a REAL fold through the real view chokepoint, then drive its cursor to
+   * `cursor`. This is the CB-8 fault: a materialized projection whose
+   * high-water mark no longer matches the durable tail.
+   */
+  async function warmFoldAndSetCursor(cursor: number): Promise<void> {
+    await handleView({ action: 'workflow_status', workflowId: STREAM }, ctx);
+    const materializer = getOrCreateMaterializer(stateDir);
+    const cursors = materializer.getStreamCursors(STREAM);
+    expect(cursors.length, 'test needs at least one materialized fold').toBeGreaterThan(0);
+    for (const { viewName } of cursors) {
+      const state = materializer.getState(STREAM, viewName);
+      if (state) materializer.loadState(STREAM, viewName, state.view, cursor);
+    }
+  }
+
+  /** The REAL cursor/tail comparison — no synthetic numbers, no mocked store. */
+  async function assessLive(): Promise<ReturnType<typeof assessStreamFreshness>> {
+    const materializer = getOrCreateMaterializer(stateDir);
+    return assessStreamFreshness(
+      await store.tailSequence(STREAM),
+      materializer.getStreamCursors(STREAM),
+    );
+  }
+
+  it('ProjectionFreshness_StaleCursor_PublishesDurableDegradedState', async () => {
+    await seedEvents(4);
+    await warmFoldAndSetCursor(1); // fold stops 3 events short of the tail
+
+    const freshness = await assessLive();
+    expect(freshness.degraded, 'fault injection must produce a real disagreement').toBe(true);
+    expect(freshness.eventTail).toBe(4);
+    expect(freshness.projectionCursor).toBe(1);
+
+    const published = await publishProjectionFreshness(store, STREAM, freshness);
+    expect(published).toMatchObject({
+      streamId: STREAM,
+      reason: 'projection-behind',
+      eventTail: 4,
+      projectionCursor: 1,
+      lag: 3,
+    });
+
+    // DURABILITY — the whole point. Drop the store (and with it every
+    // in-memory cursor), reopen the same state directory through a SEPARATE,
+    // independent EventStore, and read the state back with nothing but a
+    // stream id. No materializer, no warm LRU, no `_meta`.
+    store.close();
+    const reopened = new EventStore(stateDir);
+    await reopened.initialize();
+    try {
+      const durable = await readProjectionDegradedState(reopened, STREAM);
+      expect(durable, 'the degraded state must survive losing the process cache').toBeDefined();
+      expect(durable).toMatchObject({
+        streamId: STREAM,
+        reason: 'projection-behind',
+        eventTail: 4,
+        projectionCursor: 1,
+        lag: 3,
+      });
+      expect(durable?.staleViews.length).toBeGreaterThan(0);
+
+      // It is a real persisted event on the dedicated health stream, readable
+      // by any consumer that never imported this module.
+      const persisted = await reopened.query(PROJECTION_HEALTH_STREAM_ID, {
+        type: PROJECTION_DEGRADED_EVENT_TYPE,
+      });
+      expect(persisted).toHaveLength(1);
+      expect(persisted[0]?.data).toMatchObject({ streamId: STREAM, eventTail: 4 });
+    } finally {
+      reopened.close();
+      store = new EventStore(stateDir); // afterEach closes this handle
+    }
+  });
+
+  it('ProjectionFreshness_TailMatchesCursor_PublishesNoDegradedState', async () => {
+    await seedEvents(4);
+    await warmFoldAndSetCursor(4); // fold covers the tail exactly
+
+    const freshness = await assessLive();
+    expect(freshness.degraded).toBe(false);
+
+    const published = await publishProjectionFreshness(store, STREAM, freshness);
+    expect(published).toBeUndefined();
+
+    const health = await store.query(PROJECTION_HEALTH_STREAM_ID);
+    expect(health, 'a healthy stream must not write a row per read').toEqual([]);
+    expect(await readProjectionDegradedState(store, STREAM)).toBeUndefined();
+  });
+
+  it('ProjectionDegraded_RepeatedDetectionOfSameCursor_AppendsOnce', async () => {
+    await seedEvents(4);
+    await warmFoldAndSetCursor(1);
+
+    const freshness = await assessLive();
+    const first = await publishProjectionFreshness(store, STREAM, freshness);
+    const second = await publishProjectionFreshness(store, STREAM, freshness);
+    const third = await publishProjectionFreshness(store, STREAM, await assessLive());
+
+    const persisted = await store.query(PROJECTION_HEALTH_STREAM_ID, {
+      type: PROJECTION_DEGRADED_EVENT_TYPE,
+    });
+    expect(persisted, 're-detecting the same degraded cursor must not spam').toHaveLength(1);
+    expect(second?.sequence).toBe(first?.sequence);
+    expect(third?.sequence).toBe(first?.sequence);
+    expect(persisted[0]?.idempotencyKey).toBe(
+      projectionDegradedIdempotencyKey(STREAM, 4, 1),
+    );
+  });
+
+  it('ProjectionDegraded_PublishedOnMetaStream_LeavesAssessedStreamTailUntouched', async () => {
+    // Publishing onto the assessed stream would move the very tail the verdict
+    // is computed against — each read would observe a NEW disagreement and
+    // append again, forever.
+    await seedEvents(4);
+    await warmFoldAndSetCursor(1);
+    await publishProjectionFreshness(store, STREAM, await assessLive());
+
+    expect(await store.tailSequence(STREAM)).toBe(4);
+    expect(await store.query(STREAM, { type: PROJECTION_DEGRADED_EVENT_TYPE })).toEqual([]);
+  });
+
+  it('ProjectionDegraded_FoldCatchesTail_ResolvesTheDurableState', async () => {
+    await seedEvents(4);
+    await warmFoldAndSetCursor(1);
+    expect(await publishProjectionFreshness(store, STREAM, await assessLive())).toBeDefined();
+    expect(await readProjectionDegradedState(store, STREAM)).toBeDefined();
+
+    // The fold catches up: the durable state must clear, not stick forever.
+    await warmFoldAndSetCursor(4);
+    expect(await publishProjectionFreshness(store, STREAM, await assessLive())).toBeUndefined();
+    expect(await readProjectionDegradedState(store, STREAM)).toBeUndefined();
+
+    const recovered = await store.query(PROJECTION_HEALTH_STREAM_ID, {
+      type: PROJECTION_RECOVERED_EVENT_TYPE,
+    });
+    expect(recovered).toHaveLength(1);
+
+    // …and a second healthy read publishes nothing further.
+    await publishProjectionFreshness(store, STREAM, await assessLive());
+    expect(
+      await store.query(PROJECTION_HEALTH_STREAM_ID, {
+        type: PROJECTION_RECOVERED_EVENT_TYPE,
+      }),
+    ).toHaveLength(1);
+  });
+
+  it('ProjectionDegraded_DistinctStreams_FoldIndependently', async () => {
+    await seedEvents(4);
+    await warmFoldAndSetCursor(1);
+    await publishProjectionFreshness(store, STREAM, await assessLive());
+
+    const all = await readAllProjectionDegradedStates(store);
+    expect([...all.keys()]).toEqual([STREAM]);
+    expect(await readProjectionDegradedState(store, 'some-other-stream')).toBeUndefined();
+  });
+
+  it('ProjectionDegraded_EventTypes_RegisteredWithSourceAndSchema', async () => {
+    for (const type of [PROJECTION_DEGRADED_EVENT_TYPE, PROJECTION_RECOVERED_EVENT_TYPE]) {
+      expect(EventTypes).toContain(type);
+      expect(EVENT_EMISSION_REGISTRY[type]).toBe('auto');
+      expect(EVENT_DATA_SCHEMAS[type], `${type} needs a data schema`).toBeDefined();
+    }
+
+    // The persisted payload parses against the REGISTERED schema — the wire
+    // contract T-07 reads it back through cannot drift from the emitter.
+    await seedEvents(4);
+    await warmFoldAndSetCursor(1);
+    await publishProjectionFreshness(store, STREAM, await assessLive());
+    const [event] = await store.query(PROJECTION_HEALTH_STREAM_ID, {
+      type: PROJECTION_DEGRADED_EVENT_TYPE,
+    });
+    expect(
+      EVENT_DATA_SCHEMAS[PROJECTION_DEGRADED_EVENT_TYPE]?.safeParse(event?.data).success,
+    ).toBe(true);
   });
 });
