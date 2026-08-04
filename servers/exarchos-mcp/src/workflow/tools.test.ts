@@ -16,6 +16,16 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import type { DispatchContext } from '../core/dispatch.js';
 import { EventStore } from '../event-store/store.js';
+import {
+  failSafeVerificationProfile,
+  resolveBoundaryTouching,
+  resolveRiskTier,
+  resolveVerificationPolicy,
+  reviewRosterTier,
+} from './verification-policy-resolver.js';
+import { resolveGateSet } from './phase-kind.js';
+import { getRequiredReviews } from './review-contract.js';
+import type { ResolvedProjectConfig } from '../config/resolve.js';
 
 // Mock every handler invoked by `handleWorkflow` so we exercise only the
 // envelope-wrapping behavior at the composite boundary, not the handler
@@ -813,5 +823,135 @@ describe('HandleInit_RepoKeyParameter (DR-5)', () => {
     expect(data.featureId).toBe(featureId);
     const key = (events[0] as unknown as { idempotencyKey?: string }).idempotencyKey;
     expect(key).toBe(`${featureId}:workflow.started`);
+  });
+});
+
+// ─── DR-10 (T-14): monotonic, fail-safe requirement resolution ──────────────
+//
+// `tools.ts` used to collapse an absent/malformed `riskTier` to the literal
+// `'low'` and hardcode `boundaryTouching: false` — the two WEAKEST coordinates
+// of the six-cell verification ladder, asserted on no evidence. These tests pin
+// the monotonicity property: an unresolved input can only ever select a
+// STRONGER obligation, never a weaker one.
+describe('requirement resolution is monotonic and fail-safe (DR-10, T-14)', () => {
+  it('ResolveRiskTier_AbsentTier_DoesNotResolveLow', () => {
+    // The headline criterion. Every way a tier can fail to be established must
+    // resolve to `'unknown'` — the ABSENCE of a claim — and never to `'low'`,
+    // which is a positive claim that a project's `.exarchos.yml` can bind to an
+    // empty cell (`verification.policy.low: []`), i.e. to ZERO gates.
+    for (const raw of [
+      undefined,
+      null,
+      '',
+      'LOW',
+      'lo',
+      'critical',
+      0,
+      1,
+      true,
+      false,
+      {},
+      [],
+      ['high'],
+    ]) {
+      expect(resolveRiskTier(raw), `raw=${JSON.stringify(raw)}`).toBe('unknown');
+      expect(resolveRiskTier(raw)).not.toBe('low');
+    }
+
+    // Non-vacuity: a well-formed tier still resolves to itself.
+    expect(resolveRiskTier('low')).toBe('low');
+    expect(resolveRiskTier('medium')).toBe('medium');
+    expect(resolveRiskTier('high')).toBe('high');
+  });
+
+  it('ResolveRiskTier_UnknownTier_SelectsTheStrongestLadderCell', () => {
+    // "Not low" is only meaningful if the unresolved tier actually escalates.
+    expect(failSafeVerificationProfile('unknown', false)).toEqual({
+      riskTier: 'high',
+      boundaryTouching: true,
+    });
+    // The resolved sequence must equal the strongest cell's, and must NOT equal
+    // the weakest cell's (which the old collapse selected).
+    const unknown = resolveVerificationPolicy('unknown', false).sequence;
+    expect(unknown).toEqual(resolveVerificationPolicy('high', true).sequence);
+    expect(unknown).not.toEqual(resolveVerificationPolicy('low', false).sequence);
+  });
+
+  it('ResolveRiskTier_UnknownTier_CannotBindAWeakConfigOverride', () => {
+    // The concrete hazard of collapsing to `'low'`: a project legitimately
+    // configures `policy.low: []` ("run nothing for trivial work") and an
+    // unresolved tier then silently inherits ZERO gates. An unknown tier must
+    // resolve through the boundary/high cell, so the empty override cannot
+    // apply to it.
+    const config = {
+      verification: { policy: { low: [], boundary: { high: ['check_static_analysis'] } } },
+    } as unknown as ResolvedProjectConfig;
+
+    expect(resolveVerificationPolicy('low', false, config).sequence).toEqual([]);
+    const unknown = resolveVerificationPolicy('unknown', false, config);
+    expect(unknown.sequence).toEqual(['check_static_analysis']);
+    expect(unknown.sequence).not.toEqual([]);
+  });
+
+  it('ResolveBoundaryTouching_UnknownState_FailsSafeToTrue', () => {
+    // Only an explicit boolean is believed. Everything else — absent, wrong
+    // type, a truthy/falsy non-boolean — must select the BOUNDARY ladder, not
+    // the non-boundary one. The old code asserted `false` unconditionally.
+    for (const raw of [undefined, null, '', 'false', 'true', 0, 1, {}, [], NaN]) {
+      expect(resolveBoundaryTouching(raw), `raw=${JSON.stringify(raw)}`).toBe(true);
+    }
+
+    // Non-vacuity: an explicit boolean is honoured in both directions.
+    expect(resolveBoundaryTouching(false)).toBe(false);
+    expect(resolveBoundaryTouching(true)).toBe(true);
+
+    // And the fail-safe actually selects a different (stronger) cell — the
+    // string `'false'` must not behave like the boolean `false`.
+    expect(
+      resolveVerificationPolicy('medium', resolveBoundaryTouching('false')).sequence,
+    ).toEqual(resolveVerificationPolicy('medium', true).sequence);
+  });
+
+  it('ResolveRiskTier_KnownTiers_AreUnchangedByTheFailSafe', () => {
+    // Monotonicity must not become "escalate everything": a stated tier keeps
+    // resolving to exactly its own cell, so the fix is a floor on the unknown
+    // case rather than a blanket strengthening.
+    for (const tier of ['low', 'medium', 'high'] as const) {
+      for (const boundary of [false, true]) {
+        expect(failSafeVerificationProfile(tier, boundary)).toEqual({
+          riskTier: tier,
+          boundaryTouching: boundary,
+        });
+      }
+    }
+  });
+
+  it('ReviewRosterTier_UnknownTier_MakesNoTierClaimAndCannotDeadlock', () => {
+    // The review roster's fail-safe direction is deliberately the opposite of
+    // the ladder's, because its failure mode is deadlock rather than
+    // under-verification: escalating an untiered workflow to `'high'` would
+    // require the tier-coupled `mutation-adequacy` dimension that no producer
+    // would ever emit, permanently blocking review → synthesize.
+    expect(reviewRosterTier('unknown')).toBeUndefined();
+    expect(reviewRosterTier('low')).toBe('low');
+    expect(reviewRosterTier('high')).toBe('high');
+
+    // The resulting roster is the workflow-type base — NOT the high roster.
+    const unknownRoster = resolveGateSet('REVIEW', {
+      riskTier: 'unknown',
+      boundaryTouching: resolveBoundaryTouching(undefined),
+      workflowType: 'feature',
+    }).map((g) => g.gate);
+    expect(unknownRoster).toEqual(getRequiredReviews('feature'));
+    expect(unknownRoster).not.toContain('mutation-adequacy');
+
+    // Non-vacuity: an explicit high tier DOES pull the extra dimension in, so
+    // the roster really is tier-sensitive and the unknown case is a choice.
+    const highRoster = resolveGateSet('REVIEW', {
+      riskTier: 'high',
+      boundaryTouching: false,
+      workflowType: 'feature',
+    }).map((g) => g.gate);
+    expect(highRoster).toContain('mutation-adequacy');
   });
 });

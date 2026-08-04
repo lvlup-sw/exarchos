@@ -38,6 +38,10 @@ import { recordLiveTransition } from './admission/live-shadow-observer.js';
 import { getPlaybook, composePhasePlaybook } from './playbooks.js';
 import { lintHandoff, type HandoffLintFinding } from './handoff-lint.js';
 import { resolveGateSet } from './phase-kind.js';
+import {
+  resolveBoundaryTouching,
+  resolveRiskTier,
+} from './verification-policy-resolver.js';
 import { type ToolResult } from '../format.js';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
@@ -108,23 +112,14 @@ export function isEventSourced(state: unknown): boolean {
 }
 
 // ─── Workflow Risk Tier (review-gate path, R5) ──────────────────────────────
-
-/**
- * Read a workflow-level risk tier off the (`.passthrough()`) workflow state,
- * for the tier-aware `/review` required-reviews contract (review-contract.ts).
- *
- * The risk tier is task-classification data produced by `prepare_delegation`.
- * It reaches the review-gate path only when a workflow-level tier is stamped on
- * state under `riskTier`; absent that stamp this returns `undefined` and the
- * contract falls back to the backward-compatible no-tier roster. Returns the
- * raw string and lets `getRequiredReviews` validate it (an unrecognised value
- * yields no tier-coupled dimensions), so a malformed stamp is inert rather than
- * throwing or injecting a spurious dimension.
- */
-function resolveWorkflowRiskTier(state: Record<string, unknown>): string | undefined {
-  const tier = state.riskTier;
-  return typeof tier === 'string' ? tier : undefined;
-}
+//
+// DR-10 (T-14): the local `resolveWorkflowRiskTier` shim is retired. It read
+// the raw stamp and left every call site to coerce it, which is how the
+// weakest-coordinate collapse (`rawTier === 'high' ? … : 'low'`) got written.
+// Both call sites now use `resolveRiskTier` from
+// `verification-policy-resolver.ts` — the single authority for turning an
+// untrusted stamp into a tier claim, which returns `'unknown'` rather than
+// fabricating one.
 
 // ─── handleInit ─────────────────────────────────────────────────────────────
 
@@ -716,25 +711,33 @@ export async function handleSet(
         // roster when absent — exactly the pre-slice-3 behaviour.
         // `getRequiredReviews` ignores an unrecognised tier, so a malformed
         // stamp can never inject a dimension.
-        // Coerce the (defensively-read, possibly-undefined/garbage) tier to a
-        // literal RiskTier for the resolver ctx. Only `high` carries an extra
-        // review dimension (mutation-adequacy); every other value → the base
-        // roster, so collapsing non-high to `low` is byte-identical to the prior
-        // `getRequiredReviews(workflowType, rawTier)` behavior (the ctx shim).
-        const rawTier = resolveWorkflowRiskTier(mutableState);
-        const riskTier =
-          rawTier === 'high' ? 'high' : rawTier === 'medium' ? 'medium' : 'low';
+        // ─── DR-10 (T-14): monotonic, fail-safe tier resolution ────────────
+        // Previously this collapsed an absent/malformed tier to the literal
+        // `'low'` and hardcoded `boundaryTouching: false` — the two WEAKEST
+        // ladder coordinates, asserted on no evidence. `resolveRiskTier`
+        // returns `'unknown'` instead of fabricating a tier, and
+        // `resolveBoundaryTouching` fails safe to `true`; `reviewRosterTier`
+        // then projects `'unknown'` onto NO tier claim (`undefined`), which
+        // yields the workflow-type base roster. That is materially different
+        // from claiming `'low'`: it makes no positive assertion about blast
+        // radius, and it cannot inject a tier-coupled dimension that no
+        // producer will ever satisfy. The opposite projection —
+        // `failSafeVerificationProfile` — governs which gates RUN, where the
+        // hazard is under-verification rather than deadlock; see the resolver
+        // module for why the two directions differ.
+        const resolvedTier = resolveRiskTier(mutableState.riskTier);
+        const boundaryTouching = resolveBoundaryTouching(mutableState.boundaryTouching);
         // DR-7: route the review roster through the single REVIEW gate-set
         // resolver — `resolveGateSet('REVIEW')`, the same resolver phase-entry
         // uses — instead of calling `getRequiredReviews` directly, so REVIEW
-        // obligations have ONE source. The `'review-contract'` resolver wraps
-        // `getRequiredReviews` verbatim (review-contract.ts SoT), so the resolved
-        // dimension set is byte-identical (parity-pinned). `boundaryTouching` is
-        // unused by the review resolver; an absent/unrecognised tier falls back to
-        // the workflow-type base roster (the ctx shim — never throws).
+        // obligations have ONE source. The resolver owns the `'unknown'`
+        // projection (see its comment): the roster makes no tier claim, while
+        // the verification ladder escalates. `boundaryTouching` is unused by the
+        // review resolver but is now RESOLVED rather than hardcoded `false`, so
+        // no weakest-coordinate assertion survives anywhere on this path.
         const typeDefaults = resolveGateSet('REVIEW', {
-          riskTier,
-          boundaryTouching: false,
+          riskTier: resolvedTier,
+          boundaryTouching,
           workflowType,
         }).flatMap((g) => (g.family === 'review' ? [g.gate] : []));
         if (typeDefaults.length) {
@@ -765,7 +768,7 @@ export async function handleSet(
       // low/medium never run mutation-adequacy, so the guard's score check stays
       // inert there. Advisory by default: with mode !== 'block' nothing is
       // injected, so the guard never enforces. Stripped before persistence below.
-      if (resolveWorkflowRiskTier(mutableState) === 'high') {
+      if (resolveRiskTier(mutableState.riskTier) === 'high') {
         if (options?.mutationEnforcement !== undefined) {
           mutableState._mutationEnforcement = options.mutationEnforcement;
         }
