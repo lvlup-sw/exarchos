@@ -205,14 +205,21 @@ describe('handleCleanup', () => {
 
   describe('event store emission', () => {
     it('should emit workflow.cleanup event when event store is configured', async () => {
+      const trailAppends: Array<{
+        streamId: string;
+        events: ReadonlyArray<{ type: string; idempotencyKey?: string }>;
+        operationId: string;
+      }> = [];
+      // DR-7 — cleanup emits its whole trail through ONE atomic transaction,
+      // so the mocked store exposes `appendTrailAtomically` rather than a
+      // per-event `append`.
       const mockEventStore = {
-        append: vi.fn().mockResolvedValue({
-          sequence: 1,
-          timestamp: new Date().toISOString(),
-          type: 'workflow.cleanup',
-          streamId: 'cleanup-event-test',
-          schemaVersion: '1.0',
-        }),
+        appendTrailAtomically: vi.fn().mockImplementation(
+          async (streamId: string, events: ReadonlyArray<{ type: string; idempotencyKey?: string }>, operationId: string) => {
+            trailAppends.push({ streamId, events, operationId });
+          },
+        ),
+        append: vi.fn(),
         query: vi.fn().mockResolvedValue([]),
       } as unknown as EventStoreType;
 
@@ -227,25 +234,23 @@ describe('handleCleanup', () => {
       }, tmpDir, mockEventStore);
 
       expect(result.success).toBe(true);
-      // v2 event-first: append is called with idempotency key (3rd arg)
-      expect(mockEventStore.append).toHaveBeenCalledWith(
-        'cleanup-event-test',
-        expect.objectContaining({
-          type: 'workflow.cleanup',
-          data: expect.objectContaining({
-            featureId: 'cleanup-event-test',
-          }),
-        }),
-        expect.objectContaining({
-          idempotencyKey: expect.stringContaining('cleanup-event-test:cleanup:'),
-        }),
-      );
-
+      // The trail is a SINGLE transaction, not a per-event loop.
+      expect(mockEventStore.appendTrailAtomically).toHaveBeenCalledTimes(1);
+      expect(mockEventStore.append).not.toHaveBeenCalled();
+      const trail = trailAppends[0];
+      expect(trail?.streamId).toBe('cleanup-event-test');
+      const cleanupEvent = trail?.events.find((e) => e.type === 'workflow.cleanup');
+      expect(cleanupEvent).toBeDefined();
+      // v2 event-first: every trail member still carries its own idempotency key
+      for (const evt of trail?.events ?? []) {
+        expect(evt.idempotencyKey).toContain('cleanup-event-test:cleanup:');
+      }
     });
 
-    it('should abort cleanup when event store append fails (v2 event-first)', async () => {
+    it('should abort cleanup when the atomic trail append fails (v2 event-first)', async () => {
       const mockEventStore = {
-        append: vi.fn().mockRejectedValue(new Error('store error')),
+        appendTrailAtomically: vi.fn().mockRejectedValue(new Error('store error')),
+        append: vi.fn(),
         query: vi.fn().mockResolvedValue([]),
       } as unknown as EventStoreType;
 
@@ -392,8 +397,8 @@ describe('handleCleanup', () => {
       raw.phase = 'synthesize';
       await writeRawState('v2-evt-fail', raw);
 
-      // Mock event store append to fail AFTER init
-      const appendSpy = vi.spyOn(eventStore, 'append').mockRejectedValue(
+      // Mock the atomic trail append to fail AFTER init
+      const appendSpy = vi.spyOn(eventStore, 'appendTrailAtomically').mockRejectedValue(
         new Error('Disk full'),
       );
 

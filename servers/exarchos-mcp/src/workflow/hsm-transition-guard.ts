@@ -309,6 +309,24 @@ export interface GuardContext {
   readonly shadowObserver?: (
     observation: LegacyTransitionObservation,
   ) => void;
+  /**
+   * DR-7 (INV-9) — admit the HSM's UNIVERSAL final-state edges.
+   *
+   * `cancelled` and `completed` are reachable from EVERY non-final phase
+   * without an explicit edge in the HSM definition: `executeTransition`
+   * special-cases them (`isCancel` / `isCleanup`) BEFORE its `findTransition`
+   * lookup. This primitive's Step-1 lookup does not, which is precisely why
+   * `cleanup.ts` and `cancel.ts` historically bypassed it and called
+   * `executeTransition` directly — the bypass DR-7 closes.
+   *
+   * Opt-in rather than unconditional so the `exarchos_workflow transition`
+   * path stays byte-identical: `workflow.set({ phase: 'cancelled' })` must
+   * keep returning `no-transition-defined` instead of silently gaining the
+   * ability to cancel a workflow without going through `handleCancel`. Only
+   * the cleanup and cancel handlers set it, and they are the only two callers
+   * that mutate a phase onto a universal final state.
+   */
+  readonly allowUniversalFinalTransition?: boolean;
 }
 
 export type TransitionResult =
@@ -438,6 +456,23 @@ function notifyShadowObserver(
   }
 }
 
+/**
+ * DR-7 — is `targetPhase` one of the HSM's UNIVERSAL final-state edges?
+ *
+ * Mirrors `executeTransition`'s own `isCancel` / `isCleanup` predicates
+ * (state-machine.ts) exactly, so the primitive admits precisely the edge set
+ * the HSM walk can actually resolve without an explicit `findTransition` hit.
+ * Duplicating the predicate rather than exporting it keeps the walk's contract
+ * the single authority on what those edges MEAN; this only decides whether the
+ * Step-1 lookup may be skipped.
+ */
+function isUniversalFinalTarget(hsm: HSMDefinition, targetPhase: string): boolean {
+  return (
+    (targetPhase === 'cancelled' || targetPhase === 'completed') &&
+    hsm.states[targetPhase]?.type === 'final'
+  );
+}
+
 export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
   async attempt(
     featureId: string,
@@ -472,7 +507,15 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
 
     // ─── Step 1: Lookup transition ────────────────────────────────────
     const transition = findTransition(hsm, currentPhase, targetPhase);
-    if (!transition) {
+    // DR-7 — the universal `cancelled` / `completed` edges carry no explicit
+    // definition; the HSM walk resolves them itself. Opt-in callers (cleanup /
+    // cancel) skip the Step-1 short-circuit so their phase mutation runs
+    // through THIS primitive instead of calling `executeTransition` directly.
+    const universalFinal =
+      transition === undefined &&
+      context.allowUniversalFinalTransition === true &&
+      isUniversalFinalTarget(hsm, targetPhase);
+    if (!transition && !universalFinal) {
       // No definition for this target. The HSM is the source of truth on
       // valid edges — surface `no-transition-defined` so the caller can
       // surface a structured error. We do NOT emit any event here: this
@@ -495,7 +538,7 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
     // are async (shell-out) and registered via the project config; if
     // present, they must pass before the HSM walk runs. A failed custom
     // guard emits `workflow.guard-failed` and returns immediately.
-    if (transition.guard) {
+    if (transition?.guard) {
       const registeredGuard = getRegisteredGuard(
         `${context.workflowType}:${transition.guard.id}`,
       );
@@ -592,6 +635,24 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
     });
 
     if (!result.success) {
+      // DR-7 — on the universal-final path the walk itself owns the
+      // route-legality verdict: if `mergeVerified` does not hold there may
+      // still be no legal edge to `completed`, and `executeTransition`
+      // reports that as INVALID_TRANSITION. Surface it as
+      // `no-transition-defined` so the caller sees the same structured shape
+      // (and the same `validTargets`) the Step-1 short-circuit produces,
+      // rather than a guard failure for an edge that does not exist.
+      if (universalFinal && result.errorCode === 'INVALID_TRANSITION') {
+        return {
+          ok: false,
+          reason: 'no-transition-defined',
+          validTargets: result.validTargets ?? getValidTransitions(hsm, currentPhase),
+          errorCode: 'INVALID_TRANSITION',
+          errorMessage:
+            result.errorMessage ??
+            `No transition from '${currentPhase}' to '${targetPhase}'`,
+        };
+      }
       // Emit any diagnostic events `executeTransition` produced
       // (typically a single `guard-failed`, possibly `circuit-open`).
       // We deliberately do NOT also append a `workflow.transition` —
@@ -605,7 +666,7 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
           // `guard-failed` carries the offending guard id) so a schema-invalid
           // payload can never be laundered onto the log via the legacy path.
           const data = buildHsmEventData(evt, featureId, {
-            ...(transition.guard ? { guardId: transition.guard.id } : {}),
+            ...(transition?.guard ? { guardId: transition.guard.id } : {}),
           });
           const validatedEvent = buildValidatedEvent(featureId, 1, {
             type: mapInternalToExternalType(evt.type) as EventType,
@@ -646,7 +707,7 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
         ok: false,
         reason: 'guard-failed',
         failures: guardFailures,
-        guardId: transition.guard?.id ?? 'unknown',
+        guardId: transition?.guard?.id ?? 'unknown',
         errorCode,
         errorMessage:
           result.errorMessage ?? `Transition failed to '${targetPhase}'`,
@@ -687,7 +748,7 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
             ? await nextPlanRevisionOrdinal(context.eventStore, featureId)
             : undefined;
         const data = buildHsmEventData(evt, featureId, {
-          ...(transition.guard ? { guardId: transition.guard.id } : {}),
+          ...(transition?.guard ? { guardId: transition.guard.id } : {}),
           ...(fixCycleOrdinal !== undefined ? { fixCycleOrdinal } : {}),
           ...(planRevisionOrdinal !== undefined ? { planRevisionOrdinal } : {}),
         });

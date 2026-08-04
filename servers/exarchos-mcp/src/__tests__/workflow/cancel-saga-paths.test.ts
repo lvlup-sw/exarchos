@@ -121,8 +121,13 @@ describe('handleCancel saga paths', () => {
         checkpoint: null,
       }));
 
-      // Mock event store append to throw on compensation event
+      // Mock event store append to throw on compensation event. DR-7 routes
+      // the cancellation phase-mutation trail through `appendTrailAtomically`,
+      // so a total store failure has to fail that seam too.
       vi.spyOn(eventStore, 'append').mockRejectedValue(new Error('Write error'));
+      vi.spyOn(eventStore, 'appendTrailAtomically').mockRejectedValue(
+        new Error('Write error'),
+      );
 
       // Act
       const result = await handleCancel({ featureId: 'v2-fail' }, tmpDir, eventStore);
@@ -239,8 +244,11 @@ describe('handleCancel saga paths', () => {
         checkpoint: null,
       }));
 
-      // Mock append to throw on transition event
-      vi.spyOn(eventStore, 'append').mockRejectedValue(new Error('Transition IO error'));
+      // Mock the phase-mutation trail append to throw (DR-7: the transition
+      // trail is one atomic transaction, so this is the seam it fails at).
+      vi.spyOn(eventStore, 'appendTrailAtomically').mockRejectedValue(
+        new Error('Transition IO error'),
+      );
 
       // Act
       const result = await handleCancel({ featureId: 'v2-trans' }, tmpDir, eventStore);

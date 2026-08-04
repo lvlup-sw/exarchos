@@ -13,7 +13,8 @@ import {
   resetCounter,
 } from './checkpoint.js';
 import { mapInternalToExternalType } from './events.js';
-import { getHSMDefinition, executeTransition } from './state-machine.js';
+import { hsmTransitionGuard } from './hsm-transition-guard.js';
+import { recordLiveTransition } from './admission/live-shadow-observer.js';
 import { allocatePhaseAttemptId, readPhaseAttemptId } from './phase-attempt-id.js';
 import { executeCompensation, CANCEL_MAX_ATTEMPTS, type CompensationCheckpoint } from './compensation.js';
 import type { EventStore } from '../event-store/store.js';
@@ -361,17 +362,45 @@ export async function handleCancel(
     }
   }
 
-  // Existing v2.12 final transition path (no strict admission/policy routing).
+  // ─── Phase mutation — the SINGLE guarded primitive (DR-7 / INV-9) ─────
+  //
+  // Characterized bypass this replaces: cancel called `executeTransition`
+  // directly (cancel.ts:367), so the cancellation phase mutation ran with no
+  // guard dispatch and no shadow observation. `allowUniversalFinalTransition`
+  // admits the universal `cancelled` edge, which carries no explicit HSM
+  // definition and is exactly why the bypass existed.
   mutableState._pendingPhaseAttemptId = phaseAttemptId;
-  const hsm = getHSMDefinition(state.workflowType);
-  const transitionResult = executeTransition(hsm, mutableState, 'cancelled');
+  const attempt = await hsmTransitionGuard.attempt(
+    input.featureId,
+    currentPhase,
+    'cancelled',
+    {
+      state: mutableState,
+      workflowType: state.workflowType,
+      // Pure evaluation — this handler owns emission so the cancellation
+      // trail commits atomically below.
+      eventStore: null,
+      allowUniversalFinalTransition: true,
+      // The same live shadow observer `tools.ts` wires onto the guarded
+      // transition path.
+      shadowObserver: (observation) =>
+        recordLiveTransition(observation, mutableState),
+    },
+  );
 
-  if (!transitionResult.success) {
+  if (!attempt.ok) {
     return {
       success: false,
       error: {
-        code: transitionResult.errorCode ?? ErrorCode.INVALID_TRANSITION,
-        message: transitionResult.errorMessage ?? 'Failed to transition to cancelled',
+        code:
+          attempt.errorCode === 'CIRCUIT_OPEN'
+            ? ErrorCode.CIRCUIT_OPEN
+            : attempt.errorCode === 'PHASE_BLOCKED'
+              ? ErrorCode.PHASE_BLOCKED
+              : attempt.errorCode === 'INVALID_TRANSITION'
+                ? ErrorCode.INVALID_TRANSITION
+                : ErrorCode.GUARD_FAILED,
+        message: attempt.errorMessage,
       },
     };
   }
@@ -385,34 +414,48 @@ export async function handleCancel(
   cancelMetadata.compensationSuccess = compensationResult.success;
   cancelMetadata.phaseAttemptId = phaseAttemptId;
 
-  // Event-first: emit to external event store BEFORE mutating state
+  // Event-first: emit to external event store BEFORE mutating state.
+  //
+  // DR-7, third criterion — the cancellation trail (HSM lifecycle events +
+  // the explicit `workflow.cancel` event) commits in ONE atomic transaction.
+  // It was previously a sequential `append` loop, so a failure after event k
+  // left a PARTIAL cancellation trail durably on the stream.
   if (eventStore) {
+    const cancelTrail = [
+      ...attempt.emittedEvents.map((transitionEvent) => ({
+        type: mapInternalToExternalType(transitionEvent.type) as import('../event-store/schemas.js').EventType,
+        data: {
+          from: transitionEvent.from,
+          to: transitionEvent.to,
+          trigger: transitionEvent.trigger,
+          featureId: input.featureId,
+          ...(transitionEvent.metadata ?? {}),
+        },
+        idempotencyKey: `${input.featureId}:cancel:transition:${transitionEvent.type}:${transitionEvent.from}:cancelled`,
+      })),
+      {
+        type: mapInternalToExternalType('cancel') as import('../event-store/schemas.js').EventType,
+        data: {
+          from: currentPhase,
+          to: 'cancelled',
+          trigger: 'user-cancel',
+          featureId: input.featureId,
+          ...cancelMetadata,
+        },
+        idempotencyKey: `${input.featureId}:cancel:complete`,
+      },
+    ];
+    // `phaseAttemptId` is retry-stable, so the operation id is stable across
+    // retries of the SAME cancellation.
+    const cancelTrailOperationId = `cancel:${input.featureId}:${phaseAttemptId}`;
     if (useEventFirst) {
       // ES v2: event-first — propagate errors, abort cancel if append fails
       try {
-        for (const transitionEvent of transitionResult.events) {
-          await eventStore.append(input.featureId, {
-            type: mapInternalToExternalType(transitionEvent.type) as import('../event-store/schemas.js').EventType,
-            data: {
-              from: transitionEvent.from,
-              to: transitionEvent.to,
-              trigger: transitionEvent.trigger,
-              featureId: input.featureId,
-              ...(transitionEvent.metadata ?? {}),
-            },
-          }, { idempotencyKey: `${input.featureId}:cancel:transition:${transitionEvent.type}:${transitionEvent.from}:cancelled` });
-        }
-        // Emit cancel event with distinct type and full metadata
-        await eventStore.append(input.featureId, {
-          type: mapInternalToExternalType('cancel') as import('../event-store/schemas.js').EventType,
-          data: {
-            from: currentPhase,
-            to: 'cancelled',
-            trigger: 'user-cancel',
-            featureId: input.featureId,
-            ...cancelMetadata,
-          },
-        }, { idempotencyKey: `${input.featureId}:cancel:complete` });
+        await eventStore.appendTrailAtomically(
+          input.featureId,
+          cancelTrail,
+          cancelTrailOperationId,
+        );
       } catch (err) {
         return {
           success: false,
@@ -425,28 +468,11 @@ export async function handleCancel(
     } else {
       // V1 legacy: best-effort — swallow errors
       try {
-        for (const transitionEvent of transitionResult.events) {
-          await eventStore.append(input.featureId, {
-            type: mapInternalToExternalType(transitionEvent.type) as import('../event-store/schemas.js').EventType,
-            data: {
-              from: transitionEvent.from,
-              to: transitionEvent.to,
-              trigger: transitionEvent.trigger,
-              featureId: input.featureId,
-              ...(transitionEvent.metadata ?? {}),
-            },
-          });
-        }
-        await eventStore.append(input.featureId, {
-          type: mapInternalToExternalType('cancel') as import('../event-store/schemas.js').EventType,
-          data: {
-            from: currentPhase,
-            to: 'cancelled',
-            trigger: 'user-cancel',
-            featureId: input.featureId,
-            ...cancelMetadata,
-          },
-        });
+        await eventStore.appendTrailAtomically(
+          input.featureId,
+          cancelTrail.map(({ idempotencyKey: _dropped, ...event }) => event),
+          `${cancelTrailOperationId}:legacy`,
+        );
       } catch {
         // V1 legacy: external store is supplementary; JSONL append failure must not break cancel
       }
@@ -459,9 +485,9 @@ export async function handleCancel(
   delete mutableState._pendingPhaseAttemptId;
 
   // Apply history updates from transition
-  if (transitionResult.historyUpdates) {
+  if (Object.keys(attempt.historyUpdates).length > 0) {
     const history = { ...(mutableState._history as Record<string, string>) };
-    for (const [key, value] of Object.entries(transitionResult.historyUpdates)) {
+    for (const [key, value] of Object.entries(attempt.historyUpdates)) {
       history[key] = value;
     }
     mutableState._history = history;

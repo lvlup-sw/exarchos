@@ -282,17 +282,20 @@ describe('v2.12 cancellation process manager (DR-7)', () => {
       ),
       () => handleCancel({ featureId }, stateDir, store),
     );
-    const originalAppend = store.append.bind(store);
+    // DR-7 — the final cancellation transition trail commits through ONE
+    // atomic `appendTrailAtomically` transaction, so that is the seam a
+    // simulated crash on the final transition has to interrupt.
+    const originalTrail = store.appendTrailAtomically.bind(store);
     let failTransitionOnce = true;
-    vi.spyOn(store, 'append').mockImplementation(async (...args) => {
+    vi.spyOn(store, 'appendTrailAtomically').mockImplementation(async (...args) => {
       if (
         failTransitionOnce
-        && (args[1].data as Record<string, unknown> | undefined)?.to === 'cancelled'
+        && args[1].some((event) => (event.data as Record<string, unknown> | undefined)?.to === 'cancelled')
       ) {
         failTransitionOnce = false;
         throw new Error('simulated final transition append failure');
       }
-      return originalAppend(...args);
+      return originalTrail(...args);
     });
 
     const interrupted = await invoke();

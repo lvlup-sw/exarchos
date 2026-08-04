@@ -1,4 +1,4 @@
-import { randomUUID as randomUUIDFn } from 'node:crypto';
+import { createHash, randomUUID as randomUUIDFn } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { WorkflowEventBase } from './schemas.js';
 import type { WorkflowEvent } from './schemas.js';
@@ -570,6 +570,86 @@ export class EventStore {
     });
 
     return fullEvents;
+  }
+
+  /**
+   * DR-7 (INV-9) — append an entire phase-mutation event TRAIL in ONE atomic
+   * transaction.
+   *
+   * `append` commits one event per call, so a caller that emits an N-event
+   * trail (a `state.patched` backfill, the HSM lifecycle events, a completion
+   * event) through a loop can be interrupted after event k and leave a PARTIAL
+   * trail durably on the log — a half-written phase mutation that no consumer
+   * can distinguish from a complete one. This primitive routes the whole trail
+   * through `AtomicAppender.decideOnce`: one BEGIN IMMEDIATE transaction, so
+   * the stream ends up with either the complete trail or nothing at all.
+   *
+   * Differences from `batchAppend`, which is NOT a substitute here:
+   *   - `batchAppend` collapses the batch onto a SINGLE idempotency key: events
+   *     that share a key are deduped down to the first, and events with
+   *     differing keys get a synthesized `batch:<uuid>` claim that defeats
+   *     cross-call retry dedup. A phase-mutation trail needs distinct per-event
+   *     keys AND retry idempotency.
+   *   - `decideOnce` keys idempotency on `operationId` (retry-stable, supplied
+   *     by the caller) and passes each event's own `idempotencyKey` through to
+   *     the persisted payload verbatim.
+   *
+   * The request digest deliberately covers only `(type, data, idempotencyKey)`:
+   * a regenerated timestamp or dispatch-context stamp must not make a retry of
+   * the SAME trail look like a different request to `decideOnce`'s digest gate.
+   */
+  async appendTrailAtomically(
+    streamId: string,
+    events: ReadonlyArray<
+      Partial<Omit<WorkflowEvent, 'sequence' | 'streamId'>> & { type: string }
+    >,
+    operationId: string,
+  ): Promise<void> {
+    if (events.length === 0) return;
+    if (!operationId) {
+      throw new Error('appendTrailAtomically requires an operationId');
+    }
+
+    // Validate + stamp every event up front, exactly as `append` does, so a
+    // malformed member fails the whole trail before any sequence is allocated.
+    const prepared: WorkflowEvent[] = events.map((event) => {
+      const timestamp = event.timestamp || new Date().toISOString();
+      const stamped = stampWithDispatchContext(event);
+      return WorkflowEventBase.parse({
+        ...stamped,
+        streamId,
+        sequence: 1,
+        timestamp,
+        ...(event.idempotencyKey !== undefined
+          ? { idempotencyKey: event.idempotencyKey }
+          : {}),
+      });
+    });
+
+    const requestDigest = `sha256:${createHash('sha256')
+      .update(
+        JSON.stringify(
+          prepared.map((event) => ({
+            type: event.type,
+            data: event.data ?? null,
+            idempotencyKey: event.idempotencyKey ?? null,
+          })),
+        ),
+      )
+      .digest('hex')}`;
+
+    const inputs = prepared.map((event) => {
+      const { sequence: _ignoredSeq, ...input } = event as WorkflowEvent & {
+        sequence?: number;
+      };
+      return input;
+    });
+
+    await this.getAppender().decideOnce<number>(
+      operationId,
+      requestDigest,
+      () => ({ streamId, events: inputs, result: inputs.length }),
+    );
   }
 
   async query(streamId: string, filters?: QueryFilters): Promise<WorkflowEvent[]> {
