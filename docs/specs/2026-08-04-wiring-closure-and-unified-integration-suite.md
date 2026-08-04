@@ -1,40 +1,15 @@
-# Wiring Closure and the Unified Integration Suite
+# Spec: Wiring Closure and the Unified Integration Suite
 
-**Status:** proposed
-**Date:** 2026-08-04
-**Supersedes nothing.** Successor to `docs/audits/structural-closure-delta-audit/unified-remediation-plan.md` (the 48-package program, merged on `feature/structural-closure-remediation`).
-**Authorities:** the unified remediation plan; `docs/system-design.html`; `.exarchos/invariants.md` (with the supersessions in §5).
+**Date:** 2026-08-04 · **Feature:** `refactor-wiring-closure` · **Depth:** standard
+**Inputs:** `docs/audits/structural-closure-delta-audit/unified-remediation-plan.md` (the 48-package program), `docs/system-design.html`, `.exarchos/invariants.md`, and a seven-program package-by-package wiring audit conducted 2026-08-04.
 
----
+> One unified artifact: `## Design & Rationale` is the DR-N source; `## Decomposition` maps tasks → DR-N within this same document.
 
-## 1. Purpose
+## Design & Rationale
 
-The 48-package structural-closure program built the right machinery. A
-package-by-package audit of all 48 against their own acceptance criteria found
-that **the machinery is disproportionately unreached by production**: modules are
-present, well-typed, and well unit-tested, while the shipped path either does not
-call them or calls something else.
+### Problem Statement
 
-This spec turns that audit into work. It has two deliverables:
-
-1. **Wiring closure** — connect, enforce, or honestly downgrade every feature the
-   audit found present-but-unreached.
-2. **The unified integration suite** — one tiered suite whose organising principle
-   is *the production path*, replacing the current module-shaped test mass that
-   let every defect in §3 survive a green run.
-
-Non-goal: rewriting the 48 packages. Nearly every module audited is sound in
-isolation. The defect is at the seams.
-
----
-
-## 2. Evidence base
-
-Seven parallel read-only audits, one per program, each scoring its packages on
-four axes with file:line evidence: **wired** (reachable from production
-composition), **operational** (can it produce its blocking outcome), **leveraged**
-(used everywhere it applies), **conformant** (meets its stated acceptance
-criterion).
+The 48-package structural-closure program built the right machinery. A package-by-package audit of all 48 against **their own acceptance criteria** found that the machinery is disproportionately unreached by production: modules are present, well-typed, and well unit-tested, while the shipped path either does not call them or calls something else.
 
 | Program | Pkgs | OK | Gap | Broken | HIGH | Not fully wired | Inert | Not leveraged |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -47,307 +22,1079 @@ criterion).
 | P07 migration & retirement | 7 | 1 | 6 | 0 | 2 | 6 | 0 | 6 |
 | **Total** | **48** | **8** | **33** | **7** | **16** | **33** | **13** | **36** |
 
-Supporting measurement: of 841 MCP test files, **109 (13%)** drive real
-composition. Per program: P01 24%, P02 14%, P03 5%, P04 **0%**, P06 **0% from the
-public root**.
+Supporting measurement: of 841 MCP test files, **109 (13%)** drive real composition — P01 24%, P02 14%, P03 5%, P04 **0%**, P06 **0% from the public root**. That coverage shape is *why* a 10,491-test green suite coexisted with every defect below.
 
----
+### Chosen Approach
 
-## 3. The defect classes
+The 40 non-OK packages are not 40 unrelated bugs. They are **seven recurring shapes**, and fixing the shapes is the point — fixing instances one at a time regenerates them.
 
-The 40 non-OK packages are not 40 unrelated bugs. They are seven recurring
-shapes. Fixing the shapes is the point; fixing instances one at a time will
-regenerate them.
+- **Class A — Present, not wired.** A complete, well-tested module with zero production call sites. The release manifest is never produced, signed, published, or consumed, and its verifier is not in `files[]`. The requirement-freeze machinery is built and unwired. `selectEdge`'s only caller is `RESERVED`. The waiver model is unreachable by construction.
+- **Class B — Self-referential proof.** Both sides of a comparison derive from one source read, so it can never disagree. Projection containment builds the required inventory *and* the "packaged layer" from the same `contents` map. The contract drift guard's baseline and checker are both pure functions of the same registry. The oracle's seeded breaks have declaration, handler and detector co-authored in one file.
+- **Class C — Orphaned reader.** A consumer gates on a signal no producer emits. `task_complete` blocks on `gate.executed`/`static-analysis`, which every migrated durable-runner producer stopped emitting. The cutover gate reads live records nothing durable produces.
+- **Class D — Indeterminate laundered into pass.** The resolved `riskTier` is frozen at `prepare_delegation` and never delivered to the gate. A degraded projection is served as `success: true` with a stale payload. The oracle's effect axis converts absent observation into positive assurance.
+- **Class E — Detector scoped below the real surface.** The VCS census matches three argv shapes and explicitly scopes out merge/commit/branch-create. The effect ledger keys off exact import specifiers. The shim ratchet is marker-driven. The advisory registry excludes workflow-level `continue-on-error`.
+- **Class F — Two authorities for one boundary.** Three modules mutate phase. `next_actions` enumerates raw topology without evaluating a guard. The hand-written registry is authoritative while the "compiler" describes it.
+- **Class G — The governed supplies its own governance.** `task_complete`'s `evidenceBypass` accepts `evidence.passed === true` from the agent being governed. `cleanup.ts` force-writes `reviews[*].status = 'approved'` immediately before the guard reads it.
 
-### Class A — Present, not wired
-A complete, well-tested module with zero production call sites.
-`release-manifest` is never produced, signed, published, or consumed, and its
-verifier is not in `package.json` `files[]` (P05-01). The requirement-freeze
-machinery (`requirement-context.ts`, `freeze-requirements.ts`) is built and
-unwired (P06-03). `selectEdge`'s only caller is `RESERVED` (P06-02). The waiver
-model is unreachable by construction (P06-04). `runProviderMutation` has no
-production caller (P04-05). Nothing loads an extension (P03-08).
+The work is sequenced in **five dependency-ordered waves**. **W1 gates everything**: until the false-green paths close, every verification result — including this refactor's own — is unreliable evidence. W2–W5 are mutually parallel and all depend on W1. The integration suite is built alongside the wave that needs it.
 
-### Class B — Self-referential proof
-Both sides of a comparison derive from the same source, so it can never disagree.
-`projection-containment.packaging.test.ts` builds the required inventory and the
-"packaged layer" from **the same `contents` map**, so deleting a real agent, alias
-or hook shrinks both sides together and the proof still passes (P05-03). The
-contract drift guard's baseline and checker are both pure functions of the same
-hand-written registry, so it cannot detect a wrong meta-model (P03-03). The
-oracle's seeded breaks have declaration, handler and detector co-authored in one
-file (P03-09). This is the class the reachability fix (`ea605350`) already closed
-for P05-05 — the pattern is repo-wide.
-
-### Class C — Orphaned reader
-A consumer gates on a signal no producer emits. `task_complete` blocks on
-`gate.executed`/`static-analysis`, but every migrated durable-runner producer now
-appends `admission.evidence-recorded` instead — so the ordering guarantee is
-unsatisfiable by the real gate (P02-03). The cutover gate reads live shadow
-records that nothing durable produces (P07-01).
-
-### Class D — Indeterminate laundered into pass
-Already fixed in three places this cycle; three more remain. The resolved
-`riskTier` is frozen at `prepare_delegation` but **never delivered** to the gate —
-`TASK_COMPLETION` passes only `{repoRoot, worktreePath}` — so every dispatch
-reaches `interpretProbeVerdict` with an undefined tier and a HIGH-tier task with
-no tests still returns `passed: true` (P02-04). A degraded projection is served
-as `success: true` with the stale payload (P01-02). The oracle's effect axis
-converts absent observation into positive assurance (P03-09).
-
-### Class E — Detector scoped below the real surface
-The VCS ownership census matches only `worktree add`, `worktree remove`,
-`branch -d|-D` as adjacent literals, and explicitly scopes out merge/commit/
-branch-create — so `local-git-merge.ts` running `checkout -b`, `merge`, `commit`,
-`rebase` straight through `gitExec` is invisible **by design** (P04-05). The
-effect ledger keys off exact import specifiers, so `node:http2`/`axios`/aliased
-globals evade it (P04-01). The shim ratchet is marker-driven, so five real
-per-harness renderers are ungoverned while its whole inventory is one dead stub
-(P03-07). The advisory registry's scan scope excludes workflow-level
-`continue-on-error` (P07-07).
-
-### Class F — Two authorities for one boundary
-Three modules mutate phase: the guarded path, plus `cancel.ts:367` and
-`cleanup.ts:303` calling `executeTransition` directly — **INV-9 is violated today**,
-independent of cutover, and neither bypass is shadow-observed (P06-05).
-`next_actions` enumerates raw HSM topology without evaluating a single guard, so
-the runtime advertises moves admission will deny (P06-06). The hand-written
-`registry.ts` is authoritative while the "compiler" merely describes it (P03-03).
-
-### Class G — The governed supplies its own governance
-`task_complete`'s `evidenceBypass` accepts `args.evidence.passed === true` from
-the agent being governed and disables **all** gate enforcement (P02-03).
-`cleanup.ts:271/277` force-writes `reviews[*].status = 'approved'` and
-`mergeVerified: true` immediately before evaluating the guard that reads them —
-a pass-state fix in production, and `retirement-safety.ts` already names
-`'pass-state-fix'` as a legacy class awaiting retirement (P06-06).
-
----
-
-## 4. Corrections and refutations
+### Audit corrections and refutations
 
 Recorded because an audit that only accumulates findings is not trustworthy.
 
-- **RETRACTED (orchestrator's own prior HIGH).** The `check_test_adequacy`
-  vacuous-pass finding was produced against the *installed* binary
-  (`~/.exarchos/bin/exarchos.exe`, built 2026-07-20 19:37), which predates all 178
-  branch commits. The current source returns the correct blocking verdict. The
-  real defect split out as the toolchain-glob replacement bug, now fixed.
-- **REFUTED.** The P01 audit's headline claim — `createCliDispatchContext` has
-  zero production call sites, so every CLI gate returns `TRUSTED_CALLER_REQUIRED`
-  — is false. It is the first statement of `buildCli()` (`adapters/cli.ts:317`).
-  Not carried into this spec.
-- **PARTIALLY REFUTED.** The merge path is *not* unledgered: it commits a durable
-  `merge.requested` intent with deterministic idempotency keys and uses
-  `git reset --keep`. What stands is that it does not route through
-  `VcsMutationOwner` and the census cannot see it (P04-05).
-- **CONFIRMED.** `makeArtifactGuard` (`guards.ts:54`) evaluates
-  `artifacts[field] != null`, so `{"artifacts":{"plan":true}}` satisfies a phase
-  gate on the feature and refactor tracks (P01-03).
-- **CONFIRMED.** `evaluateCutoverGate` has zero production callers;
-  `liveShadowSink` is a process-scoped in-memory ring buffer emitting no events.
+- **RETRACTED (the orchestrator's own prior HIGH).** A `check_test_adequacy` vacuous-pass finding was produced against the *installed* binary (`~/.exarchos/bin/exarchos.exe`, built 2026-07-20 19:37), which predates all 178 branch commits. Current source returns the correct blocking verdict. The real defect split out as the toolchain-glob replacement bug, since fixed. Lesson encoded as a suite invariant: evidence must be bound to the subject under review.
+- **REFUTED.** The P01 audit's headline claim — `createCliDispatchContext` has zero production call sites, so every CLI gate returns `TRUSTED_CALLER_REQUIRED` — is false. It is the first statement of `buildCli()` (`adapters/cli.ts:317`). Not carried into any DR-N.
+- **PARTIALLY REFUTED.** The merge path is *not* unledgered: it commits a durable `merge.requested` intent with deterministic idempotency keys and uses `git reset --keep`. What stands, and is carried as DR-12, is that it does not route through `VcsMutationOwner` and the census cannot see it.
+- **CONFIRMED by direct inspection.** `makeArtifactGuard` (`guards.ts:54`) evaluates `artifacts[field] != null` → DR-5. `evaluateCutoverGate` has zero production callers and `liveShadowSink` is a process-scoped in-memory ring buffer → DR-23. Three modules call `executeTransition` → DR-7.
 
----
+### Requirements (DR-N)
 
-## 5. Invariant catalog supersession (#1608)
+The DR-N identifiers below are the single source the decomposition traces against.
 
-`.exarchos/invariants.md` is **pinned as an authority** by `authority-pin.ts` and
-digested into the contract freeze, so its stale text is a load-bearing input to
-generation. Four entries must be re-approved through `authority-lock-cli.ts`:
+#### DR-1: task_complete gates on an event a producer actually emits
 
-| INV | Stale framing | Governing framing |
-|---|---|---|
-| **INV-2** | CLI≡MCP asserted by a *parity harness* | MCP is the sole invocation surface; the CLI is a **generated** client, equal **by construction**. A surviving parity harness is legacy; a direct CLI→dispatch path is a defect |
-| **INV-4** | Render per harness, guard the renders | **One** standard artifact; thin shims only where no standard exists. Render-parity ≠ enforcement-parity |
-| **INV-11** | Launcher enforces isolation | Launcher owns lifecycle + top-level placement **only**; spatial write confinement is explicitly out of scope |
-| **INV-7** | Concurrency serialization (reads as closed) | **Target**, unverified until EFF-001. Asserting it categorically is itself a defect |
+`task_complete` requires `hasPassingGate('static-analysis')` over `gate.executed`, but migrated durable-runner producers append `admission.evidence-recorded` instead. One producer must own the signal.
 
-Four in-repo comments still cite the retired INV-2 parity framing as the
-justification for a code shape (`tools.ts` `applyTransition`, `composite.ts`
-maxNoCoverage, and two others); they must be re-pointed so future readers do not
-reconstruct the retired obligation.
+**Acceptance criteria:**
+- `check_static_analysis` then `task_complete` through `dispatch()` with no hand-seeded event and no `evidence` field succeeds
+- The negative twin (static analysis red) returns a blocking error
+- No runbook places a blocking gate after `task_complete`
 
----
+#### DR-2: the governed cannot supply its own governance
 
-## 6. Work packages
+`evidenceBypass` accepts `args.evidence.passed === true` from the agent being governed and disables all gate enforcement at once.
 
-Ordered by dependency, not severity. `W1` unblocks the honesty of everything
-downstream.
+**Acceptance criteria:**
+- A caller-supplied `evidence` object cannot satisfy a BLOCKING gate
+- If retained for non-blocking gates, it requires an explicit operator capability
 
-### WAVE W1 — Stop the false green
+#### DR-3: the frozen riskTier reaches the gate that consumes it
 
-| Pkg | Work | Acceptance |
-|---|---|---|
-| **W1-01** | Sever Class C: make `task_complete` gate on the event the durable runner actually emits, or make the runner emit `gate.executed`. Pick one producer. | `check_static_analysis` → `task_complete` through `dispatch()` with no hand-seeded event and no `evidence` field succeeds; the negative twin returns `GATE_NOT_PASSED` |
-| **W1-02** | Remove the `evidenceBypass` escape, or restrict it to non-blocking gates behind an explicit operator capability. | A caller-supplied `evidence` object cannot satisfy a BLOCKING gate |
-| **W1-03** | Deliver the frozen `riskTier` + `boundaryTouching` to the gate: add them as params and templateVars on `TASK_COMPLETION` and `TASK_FIX`. | A HIGH-tier task adding no tests returns `passed:false`; a LOW-tier one returns `skipped:true`. Runbook-shape assertion pins the params |
-| **W1-04** | Make the degraded projection state durable and consumed: one event/projection, read by every readiness/workflow/reliability surface. | Fault injection makes **every** consumer return a typed degraded result, not `success:true` with a stale payload |
-| **W1-05** | Tighten `makeArtifactGuard` to a typed artifact reference; a bare boolean must not satisfy a requirement. | `{"artifacts":{"plan":true}}` is rejected on every track |
-| **W1-06** | Add the missing lint script so `check_static_analysis` cannot report `PASS (2/2)` with lint skipped; a skipped constituent renders the dimension DEGRADED. | Skipped ≠ pass, on every gate that aggregates |
+`riskTier`/`boundaryTouching` are resolved and frozen at `prepare_delegation` but are neither params nor templateVars on `TASK_COMPLETION`/`TASK_FIX`, so every dispatch reaches `interpretProbeVerdict` with an undefined tier.
 
-### WAVE W2 — One authority per boundary
+**Acceptance criteria:**
+- A HIGH-tier task adding no probe-able tests returns `passed:false`
+- A LOW-tier task returns `passed:true, skipped:true`
+- A runbook-shape assertion pins `riskTier` + `boundaryTouching` as params and templateVars on both runbooks
 
-| Pkg | Work | Acceptance |
-|---|---|---|
-| **W2-01** | Route `cleanup` and `cancel` through the single guarded phase-mutation primitive (`runCleanupCommand` already exists and is dead). | Exactly one call path mutates phase; all three are shadow-observed (INV-9) |
-| **W2-02** | Delete the `cleanup.ts` pass-state fix; cleanup must satisfy the guard by evidence, not by rewriting the fields the guard reads. | No production path writes `reviews[*].status` or `mergeVerified` before the guard reads them |
-| **W2-03** | Derive `next_actions` from the admission verdict, not raw HSM topology. | A denied transition is not advertised as an affordance; a consistency test fails if the two authorities disagree (INV-12) |
-| **W2-04** | Fix monotonic resolution: unknown risk must **not** become `low`; `boundaryTouching` must fail safe; read the frozen set back as authority for later attempts. | Absent/malformed tier does not resolve low; a tier set in the same call cannot weaken that transition |
-| **W2-05** | Invert P03 authority: make the compiler's descriptors the source the server consumes, or stop calling `registry.ts` a projection of them. | A wrong meta-model (not merely a stale baseline) is detected |
+#### DR-4: a degraded projection is never served as success
 
-### WAVE W3 — Widen the detectors (Class E)
+`_meta.projectionDegraded` is an ephemeral per-response annotation on one composite, recomputed from an in-memory LRU, persisted nowhere and consumed by nobody.
 
-| Pkg | Work | Acceptance |
-|---|---|---|
-| **W3-01** | Extend VCS ownership to merge/commit/branch-create, or route `local-git-merge` through `VcsMutationOwner`. | A planted `['merge','--no-ff',x]` outside the owner turns the census RED (it passes today) |
-| **W3-02** | Extend effect detection beyond exact import specifiers (http2, common HTTP clients, re-export/alias). | A seeded non-listed HTTP client trips the ledger |
-| **W3-03** | Make shim discovery enumerate the real surface, not volunteers. | Adding a per-harness renderer without an approved reason + expiry FAILS the ratchet |
-| **W3-04** | Register every advisory; model path filters in the unfiltered-CI-path check; fix `lint-inv6` literals so its promotion threshold is reachable. | Every `continue-on-error` / `--observe` / `\|\| true` in the repo is registered with owner, threshold, expiry, kill fixture |
+**Acceptance criteria:**
+- One durable degraded state is published (event or projection)
+- Fault injection makes **every** readiness/workflow/reliability consumer return a typed degraded result, not `success:true` with a stale payload
 
-### WAVE W4 — Durability and recovery
+#### DR-5: a bare boolean cannot satisfy a requirement
 
-| Pkg | Work | Acceptance |
-|---|---|---|
-| **W4-01** | fsync the parent directory after the journal rename and after each tree rename; never `safeRemove` a backup with no consumable journal. | `{target absent, backup = OLD tree, journal deleted}` does not destroy the backup |
-| **W4-02** | Extend atomic promotion to the spec-named CLI/MCP config writers (`~/.claude.json`, `.vscode/mcp.json`, `.cursor/mcp.json`). | Injected failure leaves old-complete or new-complete for config, not just skills |
-| **W4-03** | Give `recoverInterruptedPromotion` a startup/doctor entry point. | An interrupted promotion is repaired at rest, not only on a voluntary retry |
-| **W4-04** | Close EFF-001: real multi-process append linearization + startup repair. | INV-7 graduates from target to closed, or stays honestly marked |
+`makeArtifactGuard` evaluates `artifacts[field] != null`, so `{"artifacts":{"plan":true}}` satisfies a phase gate on the feature and refactor tracks.
 
-### WAVE W5 — Ship surface and cutover honesty
+**Acceptance criteria:**
+- A bare boolean or whitespace-only value is rejected on every track
+- The admission algebra's schema-level rejection is enforced on the shipped transition path
 
-| Pkg | Work | Acceptance |
-|---|---|---|
-| **W5-01** | Produce, sign, publish and **consume** the release manifest; ship the verifier; embed source + contract identity in the artifact. | Installer rejects source/contract/manifest mismatch, not just a corrupted download |
-| **W5-02** | Rebuild projection containment against real packaged bytes (`npm pack` → unpack), not a mirror of the source read. | Deleting one file from the tarball and rewriting another both FAIL |
-| **W5-03** | Add `hooks:guard` to CI; add drift guards for `command-aliases/` and `agents/`; widen `changes.root` to every projection root. | A PR that only deletes an agent, alias or hook cannot pass green |
-| **W5-04** | Make shadow evidence durable (emit the registered `admission.shadow-attempt` / `disagreement-disposition` events); add a gate condition reading live disagreement class; add an observer health counter. | A dead observer is **detected**, not silently zero; the gate cannot green on evidence that proves nothing |
-| **W5-05** | Make the oracle invoke real handlers with roles/effects from the registry; absent observation reports `not-observed`, never `pass`. | A real handler skipping authorization is caught |
-| **W5-06** | Either generate the CLI from the contract (P03-05) or record the direct CLI→dispatch path as an accepted, expiring deviation. | No unacknowledged violation of the governing INV-2 |
-| **W5-07** | Re-approve the invariant catalog through `authority-lock-cli.ts` with the §5 supersessions; re-point the four stale in-code citations. | The freeze pins the governing contract, not a superseded one |
+#### DR-6: a skipped constituent check cannot render as PASS
 
----
+`check_static_analysis` reports `PASS (2/2)` while lint and quality-check are skipped for absence of a script.
 
-## 7. The unified integration suite
+**Acceptance criteria:**
+- A `lint` script exists and runs
+- A skipped constituent renders the dimension DEGRADED/INDETERMINATE, never PASS
+- Indeterminate blocks protected promotion exactly as fail does
 
-### 7.1 Organising principle
+#### DR-7: exactly one action mutates a phase (INV-9)
 
-The current suite is shaped by **module**. Every defect in §3 lives at a seam
-*between* modules, which is why 10,491 green tests coexisted with them. The new
-suite is shaped by **the production path**, and a test's tier is determined by how
-far down that path it enters.
+Three modules mutate phase: the guarded path, plus `cancel.ts:367` and `cleanup.ts:303` calling `executeTransition` directly. Neither bypass is shadow-observed. `runCleanupCommand` exists to close this and is dead code.
 
-```
-T1 public root   →  dispatch(verb, args, ctx)         — the MCP contract
-T2 governance    →  gate → evidence → admission → transition
-T3 process       →  real subprocesses, crash, concurrency
-T4 packaged      →  the compiled binary and the packed artifact
-```
+**Acceptance criteria:**
+- `cleanup` and `cancel` route through the single guarded primitive
+- All phase mutations are shadow-observed
+- No partial event trail survives a mid-transition failure
 
-Location: `servers/exarchos-mcp/test/integration/{public-root,governance}/`,
-`test/process/` (extended), `test/packaged/` (new). Kept outside `src/` so they
-are not unit-test-adjacent and do not inherit the `bun:sqlite` alias.
+#### DR-8: no production path force-writes the fields a guard reads
 
-### 7.2 The four tiers
+`cleanup.ts` force-assigns `reviews[*].status = 'approved'` (including nested entries) and `_cleanup.mergeVerified = true` immediately before evaluating the guard that reads them — the `pass-state-fix` class `retirement-safety.ts` already names as awaiting retirement.
 
-**T1 — Public-root contract tier.** Every composite action driven through
-`dispatch()` with a real event store and real state dir. No hand-mocked handler,
-no synthesized dispatch context. Answers: *is this action reachable, and does its
-envelope match its contract?* Denominator: the same 120 actions the packaged
-sweep uses; coverage is ratcheted.
+**Acceptance criteria:**
+- Cleanup satisfies its guard by evidence, not by rewriting guard inputs
+- A test asserts no production path writes review status or `mergeVerified` before the guard reads them
 
-**T2 — Governance-path tier.** The chains that actually enforce policy, each
-driven from the public root: gate → durable evidence → admission → transition.
-This is where P01/P02/P06 gaps land. Every test asserts a **blocking** outcome,
-not merely a shape. Includes the negative twins — a denied transition must not
-mutate phase.
+#### DR-9: next_actions derives from the admission verdict (INV-12)
 
-**T3 — Process tier.** Real child processes. Multi-process append (EFF-001),
-SIGKILL between the two renames in atomic promotion, restart repair, concurrent
-worktree/merge idempotency. In-process `throw` injection does **not** qualify: it
-always runs the `catch`, which is why the eight existing fault tests never
-constructed the orphan-backup state.
+`next-actions-computer.ts` enumerates `hsm.transitions.filter(t => t.from === phase)` and emits one verb per outbound edge using `t.guard.description`, never evaluating a guard or consulting the admission IR — so the runtime advertises moves admission will deny.
 
-**T4 — Packaged tier.** The compiled binary sweep (already strong — extend to the
-4 missing error families and 1 effect family) plus a new packed-artifact arm:
-`npm pack` → unpack → verify containment against **those bytes**.
+**Acceptance criteria:**
+- A transition admission would deny is not advertised as an affordance
+- A consistency test fails when the two authorities disagree
 
-### 7.3 Suite invariants
+#### DR-10: requirement resolution is monotonic and frozen
 
-These are enforced on the suite itself, by a meta-test:
+`tools.ts` collapses an absent/malformed tier to `low`, hardcodes `boundaryTouching: false`, and re-resolves the tier on every attempt from post-update `mutableState`.
 
-1. **No self-referential proof.** A test may not derive both sides of a
-   comparison from one source read. Mechanically: a containment/drift assertion
-   must name two distinct authorities. This is Class B, and it has already
-   produced two false capstones.
-2. **Every blocking claim carries a kill fixture.** If deleting the enforcement
-   code turns no test red, the claim is unproven. Each T2 test declares the
-   seam it kills.
-3. **Indeterminate is a distinct outcome.** No test may assert `passed === true`
-   where the underlying verdict was "could not run".
-4. **Coverage is ratcheted, gaps are named.** Accepted gaps (e.g. the 4 error
-   families) are enumerated with an owner and an expiry, exactly as advisories
-   are — not left as a silent shortfall.
+**Acceptance criteria:**
+- Unknown risk never becomes `low`; `boundaryTouching` fails safe
+- A tier set in the same call cannot weaken the transition being evaluated
+- The frozen set recorded on `phase.entered` is read back as authority for later attempts
 
-### 7.4 Gap → tier mapping
+#### DR-11: the contract compiler is the authority, not a description of the registry
 
-All 41 audit-identified test gaps map to a tier. The 16 HIGH ones:
+The hand-written `registry.ts` is authoritative; `meta-model.ts` derives *from* `TOOL_REGISTRY`; no compile() descriptor is consumed by the running server. So every declaration-to-declaration guard is structurally blind to a wrong meta-model.
 
-| Tier | Gaps |
-|---|---|
-| **T1** | P03-05 CLI/MCP agreement via the real handler; P01-07 self-asserted issuer refused |
-| **T2** | P02-03 gate-before-completion + evidence-cannot-satisfy; P02-04 tier from the real delegation stamp; P01-03 bare boolean rejected; P01-02 every consumer degrades; P06-03 unknown risk not low; P06-05 cleanup/cancel through one primitive; P06-06 next_actions ≡ admission verdict; P06-04 stale/contradictory/malformed/unauthorized evidence denies; P07-01 dead observer detected |
-| **T3** | P04-04 SIGKILL between renames + orphan-backup preservation; P04-05 duplicate merge/PR through the shipped path; P01-01 multi-process append |
-| **T4** | P05-03 packed-bytes containment; P05-01 installer rejects manifest mismatch; P05-02 missing error/effect families; P03-07 shim ratchet |
+**Acceptance criteria:**
+- Either the server consumes compiler descriptors, or the direction is documented and the drift guard's limits stated
+- A wrong meta-model (not merely a stale baseline) is detected
 
-### 7.5 What this replaces
+#### DR-12: the VCS census sees every mutation it claims to own
 
-Nothing is deleted wholesale. The rule is **promotion, not duplication**: where a
-T2 test proves a property end-to-end, the corresponding helper-level test is
-demoted to a unit test of the pure function and stops being cited as evidence for
-the guarantee. The `false-advisory` suite is the template — it was correct, and
-tested a seam the product did not use.
+`architecture/vcs-ownership.ts` matches only `worktree add|remove` and `branch -d|-D` as adjacent literals and explicitly scopes out merge/commit/branch-create, so `local-git-merge.ts` is invisible by design.
 
----
+**Acceptance criteria:**
+- A planted `['merge','--no-ff',x]` outside the owner turns the census RED (it passes today)
+- Duplicate merge and duplicate PR are prevented through the shipped path
 
-## 8. Sequencing
+#### DR-13: effect detection is not evadable by import shape
 
-```
-W1 (false green)  ──┬─→ W2 (one authority) ──┬─→ W5 (ship + cutover)
-                    │                        │
-                    └─→ W3 (detectors)  ─────┘
-                    └─→ W4 (durability) ─────┘
+Detection keys off exact specifiers plus a bare `fetch(` regex, so `node:http2`, axios/got/ws/node-fetch, injected clients and aliased globals are invisible.
 
-T1 lands with W1 · T2 with W2 · T3 with W4 · T4 with W5
-```
+**Acceptance criteria:**
+- A seeded non-listed HTTP client trips the ledger
+- Re-export/alias of an effect primitive is detected, or the trust boundary is documented explicitly
 
-**W1 is the gate.** Until the false-green paths are closed, every downstream
-result is unreliable evidence — including the results of this spec's own work.
+#### DR-14: shim discovery enumerates the real surface
 
----
+Five per-harness renderers exist and are ungoverned while the ratchet's whole inventory is two rows for a self-declared dead stub; discovery is marker-driven so governed and real counts are decoupled.
 
-## 9. Acceptance
+**Acceptance criteria:**
+- Adding a per-harness renderer without an approved capability reason and expiry FAILS the ratchet
+- The inventory reflects the shipped renderers
 
-The program is complete when:
+#### DR-15: every advisory is registered and its promotion threshold is reachable
 
-1. No package is scored `wired: no` while its acceptance criterion is claimed met.
-   Features that will not be wired are **downgraded honestly** to deferred
-   capability, not left as claimed closure.
-2. Every gate answers "can this fail and block anything?" with **yes**, or is
-   registered as an advisory with owner, threshold, expiry and kill fixture.
-3. Every headline metric can be lowered by mutating a real input.
-4. The four superseded invariants are re-approved and the freeze pins the
-   governing contract.
-5. Production-path coverage is ratcheted per program, with P04 and P06 above
-   zero from the public root.
-6. The cutover gate is either satisfiable from durable evidence, or explicitly
-   marked unreachable-as-designed with the redesign tracked.
+One of three advisories the repo's own manifest identifies is outside the registry; the unfiltered-CI-path claim is free text checked only for filename shape; `lint-inv6`'s bare-verb literals make its zero-findings threshold unreachable.
 
----
+**Acceptance criteria:**
+- Every `continue-on-error` / `--observe` / `|| true` in the repo is registered with owner, threshold, expiry and kill fixture
+- The unfiltered-CI-path check models path filters
+- `lint-inv6` literals are narrowed so its threshold is attainable
 
-## 10. Out of scope
+#### DR-16: atomic promotion is durably ordered
 
-- Rewriting the 48 packages. The modules are sound; the seams are not.
-- Flipping the cutover. W5-04 makes the gate *honest*, not green.
-- Spatial write confinement (space-moat workstream, per the INV-11 reframing).
-- Byte-reproducible native binaries (documented Bun nonce); W5-01 covers identity
-  and signing, not bit-identical rebuilds.
+No parent-directory fsync exists anywhere in `utils/atomic-write.ts` or `install/atomic-promotion.ts`, so journal-before-backup ordering is accidental rather than constructed.
+
+**Acceptance criteria:**
+- The parent directory is fsync'd after the journal rename and after each tree rename
+- A real-kill (SIGKILL) between the two renames converges to old-complete or new-complete
+
+#### DR-17: a backup is never destroyed without a consumable journal
+
+`atomic-promotion.ts:419-420` runs `safeRemove(plan.backupDir)` unconditionally when `readJournal` finds no journal, before staging — destroying the only surviving OLD tree (INV-14 violation).
+
+**Acceptance criteria:**
+- `{target absent, backup = OLD tree, journal deleted}` does not destroy the backup (fails today)
+- Recovery refuses to discard rather than overwriting destructively
+
+#### DR-18: the spec-named config writers get the same promotion guarantees
+
+`~/.claude.json`, `.vscode/mcp.json` and `.cursor/mcp.json` are written with fixed tmp names, no fsync, no journal, no backup and no recovery; only the skills tree got stage/verify/promote.
+
+**Acceptance criteria:**
+- An injected failure leaves old-complete or new-complete for CLI/MCP config
+- `recoverInterruptedPromotion` has a startup/doctor entry point
+
+#### DR-19: EFF-001 closes or INV-7 stays honestly marked
+
+No real multi-process fixture exists; the subprocess driver was deleted (#1324) and never replaced, so the cross-connection `BEGIN IMMEDIATE` / `SQLITE_BUSY` path is untested.
+
+**Acceptance criteria:**
+- N≥3 real child processes appending to one stream produce dense unique sequences and a consistent high-water mark
+- A restart-repair arm proves gate/tail divergence is repaired
+- If unmet, no code or doc asserts the guarantee categorically
+
+#### DR-20: the release manifest is produced, signed, published and consumed
+
+The manifest is a well-built library with zero call sites; installers verify only an unsigned sidecar hash; the verifier is not in `files[]`; no source/contract identity is embedded.
+
+**Acceptance criteria:**
+- The installer rejects source, contract, manifest and asset mismatch — not merely a corrupted download
+- Source and contract identity are embedded in the built artifact
+
+#### DR-21: projection containment is proven against packaged bytes
+
+The headline proof derives the required inventory and the packaged layer from the same `contents` map, so deleting a real agent, alias or hook shrinks both sides together and the proof still passes.
+
+**Acceptance criteria:**
+- `npm pack` → unpack → build the packaged layer from **those bytes** → verify digests
+- Seeded fixtures deleting one file and rewriting another both FAIL
+
+#### DR-22: projection roots cannot change unobserved in CI
+
+`changes.root` omits `agents/**`, `command-aliases/**`, `hooks/**`, `.claude-plugin/**` and `AGENTS.md`; no `hooks:guard` step exists in any job.
+
+**Acceptance criteria:**
+- A PR that only deletes an agent, alias or hook cannot pass green
+- `hooks:guard` runs in CI; drift guards exist for `command-aliases/` and `agents/`
+
+#### DR-23: shadow evidence is durable and its absence is detectable
+
+`liveShadowSink` is a process-scoped in-memory ring buffer emitting no events (an INV-1 violation); `evaluateCutoverGate` has zero production callers; the gate's live conditions read only `legacyOutcome`, so 20 attempts that all threw would satisfy three of four conditions.
+
+**Acceptance criteria:**
+- The registered `admission.shadow-attempt` / `admission.disagreement-disposition` events are emitted from production
+- A gate condition reads live disagreement class
+- A dead observer is DETECTED (health counter), not silently zero
+
+#### DR-24: the oracle observes real handler behavior
+
+Against ~120 real actions the oracle uses canned envelopes with `requiredRoles: []` and `declaredEffects: []`, so its authorization/effect/compatibility axes are vacuous on the shipped system.
+
+**Acceptance criteria:**
+- Real handlers are invoked with roles/effects populated from the registry
+- Absent observation reports `not-observed`, never `pass`
+- A real handler skipping authorization is caught
+
+#### DR-25: the CLI/MCP relationship matches the governing INV-2
+
+`adapters/cli.ts:7` imports `dispatch` directly; `cli-surface.json` is read only by drift guards; agreement is asserted by a harness over a mocked handler. The governing framing is that the CLI is a generated client, equal by construction.
+
+**Acceptance criteria:**
+- Either the CLI is generated from the contract, or the direct path is recorded as an accepted deviation with an owner and expiry
+- No unacknowledged violation of the governing INV-2 remains
+
+#### DR-26: the invariant catalog pins the governing contract
+
+`.exarchos/invariants.md` is pinned by `authority-pin.ts` and digested into the freeze, so the stale INV-2/INV-4 framings are load-bearing inputs to generation. INV-7 is a target, not a closed claim; INV-11 excludes spatial write confinement.
+
+**Acceptance criteria:**
+- INV-2, INV-4, INV-7 and INV-11 are re-approved through `authority-lock-cli.ts`
+- The four stale in-code citations of the retired INV-2 parity framing are re-pointed
+
+#### DR-27: a public-root integration tier exists (T1)
+
+Every composite action driven through `dispatch()` with a real event store and state dir; no mocked handler, no synthesized dispatch context.
+
+**Acceptance criteria:**
+- Coverage over the same 120-action denominator the packaged sweep uses, ratcheted
+- Envelope conformance asserted per action
+
+#### DR-28: a governance-path integration tier exists (T2)
+
+The chains that enforce policy — gate → durable evidence → admission → transition — each driven from the public root, asserting a **blocking** outcome and its negative twin.
+
+**Acceptance criteria:**
+- Each DR-1..DR-10 acceptance criterion has a T2 test driven from the public root
+- A denied transition does not mutate phase
+
+#### DR-29: a process/crash integration tier exists (T3)
+
+Real child processes: multi-process append, SIGKILL between renames, restart repair, concurrent worktree/merge idempotency. In-process `throw` injection does not qualify — it always runs the `catch`.
+
+**Acceptance criteria:**
+- Every T3 test uses real subprocesses
+- The build race in `test/process` (two files both invoking `ensureBinaryBuilt`) is serialized
+
+#### DR-30: suite invariants are mechanically enforced
+
+The suite must not reproduce the defect classes it exists to catch.
+
+**Acceptance criteria:**
+- A meta-test rejects any test deriving both sides of a comparison from one source read
+- Every blocking claim declares the seam its kill fixture kills
+- No test asserts `passed === true` where the verdict was "could not run"
+- Accepted coverage gaps carry an owner and expiry
+
+#### DR-31: retire the devCatalog boolean; this repo consumes its catalog exactly as a consumer does
+
+`.exarchos.yml` carries **both** `invariants.devCatalog: enabled` (back-compat sugar) and the canonical explicit registration `catalogs: [{ path: .exarchos/invariants.md, tier: dev }]`. The sugar survives only because two paths still read the boolean directly: `invariants-loader.ts:460` hard-gates on `effectiveConfig.invariants?.devCatalog !== 'enabled'`, and `vocabulary-lint` honours the same flag. The result is a bespoke, repo-only loading mode alongside the consumer-shaped `catalogs:` surface — two configuration authorities for one concern, which is Class F applied to our own config.
+
+Retiring it means this repository consumes its own invariants exactly the way any downstream consumer does: a local `.exarchos.yml` pointing at a local `invariants.md`, discovered through `resolveCatalogSources`, with `tier: dev` carrying the audience scoping the boolean used to carry.
+
+**Acceptance criteria:**
+- `invariants-loader` and `vocabulary-lint` resolve the catalog through `resolveCatalogSources` / the explicit `catalogs:` registration, with no direct read of `invariants.devCatalog`
+- `devCatalog` is removed from `.exarchos.yml`; the effective catalog resolved before and after the removal is byte-identical (characterization)
+- `devCatalog` is removed from the config schema, or retained strictly as a deprecated alias that emits a typed deprecation and desugars to a `catalogs:` entry
+- Gating is expressed as *"is a catalog registered for this tier?"*, never as *"is the boolean enabled?"*
+- No repo-only loading mode remains that a consumer could not reproduce with their own `.exarchos.yml`
+
+#### DR-32: system-design.html reflects the resolved invariant set
+
+The canonical architecture page states INV-2 with the retired parity-harness framing, presents INV-7's two-tier serialization narrative alongside a target caveat, and carries a reference tail whose "what's real today" table predates this audit.
+
+**Acceptance criteria:**
+- INV-2, INV-4, INV-7 and INV-11 read in their governing form, consistent with `.exarchos/invariants.md` after DR-26
+- The `#1608` supersession note is resolved rather than described as pending
+- The capability table distinguishes *built* from *built but unreached* where this audit found the difference (release manifest, extension trust, shadow evidence)
+- No statement asserts a guarantee this audit found unwired
+
+#### DR-33: skills and guides gate on catalog registration, not on devCatalog
+
+Nine `skills-src` files (rendering to 39 generated skill files) and two guides instruct the reader to gate the design-time Constraints step on `.exarchos.yml: invariants.devCatalog: enabled`. That instruction becomes wrong the moment DR-31 lands, and the generated tree drifts if only the source is edited.
+
+**Acceptance criteria:**
+- `skills-src/{ideate,refactor,debug,shepherd}` and `references/constraint-anchoring.md` express the gate as catalog registration/presence
+- `npm run build:skills` regenerates `skills/` and `command-aliases/`; `npm run skills:guard` passes with no drift
+- `docs/guides/{authoring-invariants,exarchos-yml-invariants}.md` describe the consumer-shaped configuration only
+- No instruction anywhere tells a reader to set a flag that no longer exists
+
+## Technical Design
+
+### Seams touched
+
+`workflow/{tools,cleanup,cancel,guards,hsm-transition-guard}.ts` and `workflow/admission/**` (DR-3..DR-10, DR-23); `orchestrate/{gate-runner,task tools,runbooks/definitions,static-analysis}` (DR-1..DR-3, DR-6); `contract/**` (DR-11, DR-24, DR-25); `architecture/**` censuses (DR-12, DR-13); `vcs`/`install`/`utils` (DR-12, DR-16..DR-18); `event-store`/`projections` (DR-4, DR-19); `release/**` + installer scripts (DR-20); `src/{advisory-registry,shim-registry,projection-containment}.ts` (DR-14, DR-15, DR-21); `.github/workflows/**` (DR-15, DR-22); `.exarchos/invariants.md` (DR-26).
+
+### Invariants preserved
+
+INV-1 (the shadow sink stops being an in-memory side database), INV-8/INV-13 (idempotency keys on disposition writes), INV-9 (one phase-mutation path), INV-12 (`next_actions` from the deciding authority), INV-15 (compensation stays local rewind; no primitive from outside the single-machine frame is imported).
+
+### Shape of the new code
+
+Two kinds of change dominate: (a) *connect* — give an existing, tested module its production call site (DR-4, DR-20, DR-23); (b) *widen* — extend a detector's subject so it can see the surface it claims (DR-12, DR-13, DR-14, DR-15). Only DR-11 and DR-25 are genuinely directional decisions that may end in a documented deviation rather than code.
+
+### Integration suite layout
+
+The suite lives at `servers/exarchos-mcp/test/integration/{public-root,governance}/`, extends `test/process/`, and adds `test/packaged/`. Kept outside `src/` so it is not unit-test-adjacent and does not inherit the `bun:sqlite` alias. Tier is determined by how far down the production path a test enters, not by which module it exercises.
+
+### Integration Points
+
+- `servers/exarchos-mcp/src/orchestrate/tasks/tools.ts` — the gate precondition and the evidence bypass (DR-1, DR-2)
+- `servers/exarchos-mcp/src/orchestrate/runbooks/definitions.ts` — tier delivery on `TASK_COMPLETION`/`TASK_FIX` (DR-3)
+- `servers/exarchos-mcp/src/workflow/{cleanup,cancel}.ts` — route through the guarded primitive (DR-7, DR-8)
+- `servers/exarchos-mcp/src/next-actions-computer.ts` — derive from the admission verdict (DR-9)
+- `servers/exarchos-mcp/src/utils/atomic-write.ts` — directory fsync (DR-16, DR-18)
+- `servers/exarchos-mcp/src/workflow/admission/live-shadow-observer.ts` — durable emission + health counter (DR-23)
+- `scripts/get-exarchos.{sh,ps1}` — manifest verification call sites (DR-20)
+
+### Alternatives considered
+
+- **Fix by severity rather than by wave.** Rejected: the 16 HIGHs span all five waves, and several are only *observable* once W1 lands. Severity ordering would verify fixes against known-false green signals.
+- **Rewrite the weak subsystems.** Rejected: the audit found the modules sound in isolation. The defect is at the seams; rewriting would discard working code and regenerate the same wiring gaps.
+- **Suite-first, fixes second.** Rejected for W1/W2: several new tests cannot be written honestly until the signal they assert on exists (DR-1's producer, DR-23's durable events). Retained for W4/W5 where the seam already exists.
+- **Per-wave stacked PRs.** Considered and declined by the operator: single PR onto `feature/structural-closure-remediation`.
+
+### Open Questions
+
+- **DR-11 direction.** Inverting compiler-vs-registry authority may exceed this refactor. Resolution: attempt inversion; if the blast radius exceeds the wave, downgrade to documenting the direction plus stating the drift guard's limits, and track the inversion separately.
+- **DR-25 CLI generation.** Generating the CLI is a substantial subprogram. Resolution: decide at W5 with measured effort; the fallback (recorded, expiring deviation) is explicitly acceptable.
+- **DR-19 EFF-001 feasibility on Windows.** The prior driver was deleted because `bun:sqlite`'s URL scheme broke under Node. Resolution: if a cross-runtime subprocess driver is not achievable in this wave, INV-7 stays a documented target and DR-19 downgrades to the honesty clause only.
+
+## Traceability
+
+Design sections that are narrative rather than implementable are recorded as deferred here. The implementable surface is DR-1..DR-30, traced in the decomposition matrix below and verified by `check_provenance_chain` (30/30).
+
+| Design Section | Task(s) | Status |
+|----------------|---------|--------|
+| Seams touched | — | Deferred — narrative index of the seams DR-1..DR-30 touch; each seam is implemented through its owning DR, not separately |
+| Invariants preserved | — | Deferred — states which INV-* the change must not break; enforced by the suite invariants (DR-30) rather than by a dedicated task |
+| Integration Points | — | Deferred — a pointer list into the seams above; every entry is covered by the DR-N that owns it |
+| Alternatives considered | — | Deferred — rationale record for rejected approaches; nothing to implement |
+
+## Decomposition
+
+The decomposition maps every task to one or more DR-N from the section above.
+
+### Scope
+
+**Target:** Full — all 30 DR-N across five waves plus the four suite tiers.
+**Excluded:** Rewriting the 48 structural-closure packages; flipping the cutover gate; spatial write confinement; byte-reproducible binaries; retiring legacy guards (P07-05 stays deferred until its replacement gates CI).
+**Sequential phases:** the five waves are the plan's sequential phases (the playbook escalates plans over 20 tasks into phases; W1 gates W2–W5, which are mutually parallel).
+
+### Traceability matrix (DR-N → tasks)
+
+| DR | Requirement | Tasks |
+|----|-------------|-------|
+| DR-1 | task_complete gates on a real event | T-01, T-02 |
+| DR-2 | governed cannot supply governance | T-03 |
+| DR-3 | frozen riskTier reaches the gate | T-04, T-05 |
+| DR-4 | degraded never served as success | T-06, T-07 |
+| DR-5 | bare boolean cannot satisfy | T-08 |
+| DR-6 | skipped cannot render as PASS | T-09 |
+| DR-7 | one phase-mutation path | T-10, T-11 |
+| DR-8 | no force-write of guard inputs | T-12 |
+| DR-9 | next_actions from admission | T-13 |
+| DR-10 | monotonic frozen resolution | T-14, T-15 |
+| DR-11 | compiler authority direction | T-16 |
+| DR-12 | VCS census sees merges | T-17, T-18 |
+| DR-13 | effect detection not evadable | T-19 |
+| DR-14 | shim discovery enumerates real surface | T-20 |
+| DR-15 | advisories registered, thresholds reachable | T-21, T-22 |
+| DR-16 | atomic promotion durably ordered | T-23 |
+| DR-17 | backup never destroyed | T-24 |
+| DR-18 | config writers promoted | T-25 |
+| DR-19 | EFF-001 or honest marking | T-26 |
+| DR-20 | release manifest end to end | T-27, T-28 |
+| DR-21 | containment on packaged bytes | T-29 |
+| DR-22 | projection roots observed in CI | T-30 |
+| DR-23 | shadow evidence durable + detectable | T-31, T-32 |
+| DR-24 | oracle observes real handlers | T-33 |
+| DR-25 | CLI/MCP per governing INV-2 | T-34 |
+| DR-26 | catalog pins governing contract | T-35 |
+| DR-27 | T1 public-root tier | T-36 |
+| DR-28 | T2 governance tier | T-37 |
+| DR-29 | T3 process tier | T-38, T-39 |
+| DR-30 | suite invariants enforced | T-40 |
+| DR-31 | retire devCatalog; consumer-shaped config | T-41, T-42, T-43 |
+| DR-32 | system-design reflects resolved invariants | T-44 |
+| DR-33 | skills/guides gate on registration | T-45, T-46 |
+
+### Tasks
+
+### Task T-01: Unify the gate-executed signal producer
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-1
+**Files:**
+- `servers/exarchos-mcp/src/orchestrate/gate-runner.ts`
+- `servers/exarchos-mcp/src/orchestrate/tasks/tools.ts`
+- `servers/exarchos-mcp/src/orchestrate/gate-runner.test.ts`
+**Tests:** `TaskComplete_StaticAnalysisPassed_SucceedsWithoutSeededEvent`, `TaskComplete_StaticAnalysisRed_ReturnsGateNotPassed`
+**Verification:** high — scoped tests + `check_test_adequacy` + T2 integration across the gate→task seam. Characterization required (existing behavior changes).
+**Dependencies:** None
+**Parallelizable:** No (W1 head)
+
+### Task T-02: Assert runbook ordering mechanically
+
+**Risk Tier:** medium
+**Test Layer:** integration
+**Acceptance Test Ref:** T-01
+**Implements:** DR-1
+**Files:**
+- `servers/exarchos-mcp/src/orchestrate/runbooks/definitions.ts`
+- `servers/exarchos-mcp/src/orchestrate/runbooks/ordering.test.ts`
+**Verification:** medium — scoped tests + kill-probe. Assert no runbook places a blocking gate after `task_complete`.
+**Dependencies:** T-01, T-04
+**Parallelizable:** No (shares `runbooks/definitions.ts` with T-04)
+
+### Task T-03: Remove or capability-gate the evidence bypass
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-2
+**Files:**
+- `servers/exarchos-mcp/src/orchestrate/tasks/tools.ts`
+- `servers/exarchos-mcp/src/orchestrate/tasks/tools.evidence-bypass.test.ts`
+**Tests:** `TaskComplete_CallerSuppliedEvidence_CannotSatisfyBlockingGate`, `TaskComplete_EvidenceBypassOnAdvisoryGate_RequiresOperatorCapability`
+**Verification:** high — a caller-supplied `evidence` object must not satisfy a BLOCKING gate; kill fixture preserves the current bypass as a regression case.
+**Dependencies:** T-01
+**Parallelizable:** No
+
+### Task T-04: Thread riskTier + boundaryTouching through the task runbooks
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-3
+**Files:**
+- `servers/exarchos-mcp/src/orchestrate/runbooks/definitions.ts`
+- `servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts`
+- `servers/exarchos-mcp/src/orchestrate/runbooks/definitions.test.ts`
+**Tests:** `TaskCompletion_DelegationStamp_DeliversRiskTierToGate`, `TaskFix_DelegationStamp_DeliversBoundaryTouchingToGate`
+**Verification:** high — tier taken from the same delegation stamp `prepare_delegation` produced, not a literal.
+**Dependencies:** None
+**Parallelizable:** Yes
+
+### Task T-05: Pin the runbook parameter shape
+
+**Risk Tier:** medium
+**Test Layer:** unit
+**Acceptance Test Ref:** T-04
+**Implements:** DR-3
+**Files:**
+- `servers/exarchos-mcp/src/orchestrate/runbooks/definitions.shape.test.ts`
+**Verification:** medium — assert `TASK_COMPLETION` and `TASK_FIX` carry both stamps as params and templateVars.
+**Dependencies:** T-04
+**Parallelizable:** Yes
+
+### Task T-06: Publish one durable projection-degraded state
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-4
+**Files:**
+- `servers/exarchos-mcp/src/projections/freshness.ts`
+- `servers/exarchos-mcp/src/event-store/schemas.ts`
+- `servers/exarchos-mcp/src/projections/freshness.test.ts`
+**Tests:** `ProjectionFreshness_StaleCursor_PublishesDurableDegradedState`, `ProjectionFreshness_TailMatchesCursor_PublishesNoDegradedState`
+**Verification:** high — durable state, not a per-response annotation.
+**Dependencies:** None
+**Parallelizable:** Yes
+
+### Task T-07: Make every consumer return a typed degraded result
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** acceptance
+**Implements:** DR-4
+**Files:**
+- `servers/exarchos-mcp/src/views/composite.ts`
+- `servers/exarchos-mcp/src/workflow/composite.ts`
+- `servers/exarchos-mcp/src/orchestrate/composite.ts`
+- `servers/exarchos-mcp/src/views/composite.test.ts`
+**Tests:** `ViewComposite_DegradedProjection_ReturnsTypedDegradedResult`, `WorkflowComposite_DegradedProjection_DoesNotReturnStalePayload`
+**Verification:** high — fault injection; no consumer returns `success:true` with a stale payload.
+**Dependencies:** T-06
+**Parallelizable:** No
+
+### Task T-08: Require a typed artifact reference, not a truthy value
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-5
+**Files:**
+- `servers/exarchos-mcp/src/workflow/guards.ts`
+- `servers/exarchos-mcp/src/workflow/guards.artifact.test.ts`
+**Tests:** `ArtifactGuard_BareBooleanPlan_RejectsRequirement`, `ArtifactGuard_WhitespaceOnlyPlan_RejectsRequirement`
+**Verification:** high — `{"artifacts":{"plan":true}}` and `'   '` rejected on every track; characterization required.
+**Dependencies:** None
+**Parallelizable:** Yes
+
+### Task T-09: Add the lint script and make skipped ≠ pass
+
+**Risk Tier:** medium
+**Test Layer:** integration
+**Implements:** DR-6
+**Files:**
+- `package.json`
+- `servers/exarchos-mcp/src/orchestrate/static-analysis.ts`
+**Verification:** medium — a skipped constituent renders DEGRADED; the aggregate cannot report PASS.
+**Dependencies:** None
+**Parallelizable:** Yes
+
+### Task T-10: Route cleanup and cancel through the guarded primitive
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** acceptance
+**Implements:** DR-7
+**Files:**
+- `servers/exarchos-mcp/src/workflow/cleanup.ts`
+- `servers/exarchos-mcp/src/workflow/cancel.ts`
+- `servers/exarchos-mcp/src/workflow/cleanup.test.ts`
+**Tests:** `Cleanup_CompletedTransition_RoutesThroughGuardedPrimitive`, `Cancel_CancelledTransition_IsShadowObserved`
+**Verification:** high — exactly one call path mutates phase; all mutations shadow-observed. Characterization required.
+**Dependencies:** T-01
+**Parallelizable:** No (W2 head)
+
+### Task T-11: Assert single phase-mutation authority structurally
+
+**Risk Tier:** medium
+**Test Layer:** unit
+**Acceptance Test Ref:** T-10
+**Implements:** DR-7
+**Files:**
+- `servers/exarchos-mcp/src/workflow/phase-mutation-ownership.test.ts`
+**Verification:** medium — a planted direct `executeTransition` import outside the guard fails the check.
+**Dependencies:** T-10
+**Parallelizable:** Yes
+
+### Task T-12: Delete the cleanup pass-state fix
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-8
+**Files:**
+- `servers/exarchos-mcp/src/workflow/cleanup.ts`
+- `servers/exarchos-mcp/src/workflow/cleanup.pass-state.test.ts`
+**Tests:** `Cleanup_UnapprovedReviews_DoesNotForceApprove`, `Cleanup_MergeUnverified_FailsGuardByEvidence`
+**Verification:** high — cleanup satisfies its guard by evidence; no production path writes review status before the guard reads it.
+**Dependencies:** T-10
+**Parallelizable:** No
+
+### Task T-13: Derive next_actions from the admission verdict
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-9
+**Files:**
+- `servers/exarchos-mcp/src/next-actions-computer.ts`
+- `servers/exarchos-mcp/src/next-actions-from-result.ts`
+- `servers/exarchos-mcp/src/next-actions-computer.test.ts`
+**Tests:** `NextActions_AdmissionWouldDeny_OmitsTheVerb`, `NextActions_TopologyDisagreesWithAdmission_FailsConsistencyCheck`
+**Verification:** high — a denied transition is not advertised; a consistency test fails when the authorities disagree.
+**Dependencies:** T-10
+**Parallelizable:** Yes
+
+### Task T-14: Make risk resolution monotonic and fail-safe
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-10
+**Files:**
+- `servers/exarchos-mcp/src/workflow/tools.ts`
+- `servers/exarchos-mcp/src/workflow/verification-policy-resolver.ts`
+- `servers/exarchos-mcp/src/workflow/tools.test.ts`
+**Tests:** `ResolveRiskTier_AbsentTier_DoesNotResolveLow`, `ResolveBoundaryTouching_UnknownState_FailsSafeToTrue`
+**Verification:** high — unknown risk never becomes low; `boundaryTouching` fails safe.
+**Dependencies:** T-04
+**Parallelizable:** Yes
+
+### Task T-15: Read the frozen requirement set back as authority
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-10
+**Files:**
+- `servers/exarchos-mcp/src/workflow/admission/requirement-context.ts`
+- `servers/exarchos-mcp/src/workflow/admission/freeze-requirements.ts`
+- `servers/exarchos-mcp/src/workflow/hsm-transition-guard.ts`
+- `servers/exarchos-mcp/src/workflow/admission/requirement-context.test.ts`
+**Tests:** `FrozenRequirements_TierSetInSameCall_DoesNotWeakenTransition`, `FrozenRequirements_Replay_ReconstructsSameRequirementSet`
+**Verification:** high — a tier set in the same call cannot weaken that transition; replay reconstructs the same requirements.
+**Dependencies:** T-14
+**Parallelizable:** No
+
+### Task T-16: Resolve the compiler-vs-registry authority direction
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-11
+**Files:**
+- `servers/exarchos-mcp/src/contract/compiler/meta-model.ts`
+- `servers/exarchos-mcp/src/registry.ts`
+- `servers/exarchos-mcp/src/contract/compiler/meta-model.test.ts`
+**Tests:** `ContractCompiler_WrongMetaModel_IsDetected`, `ContractCompiler_StaleBaselineOnly_RemainsDistinguishable`
+**Verification:** high — a wrong meta-model (not merely a stale baseline) is detected. May resolve to a documented direction + stated drift-guard limits per Open Questions.
+**Dependencies:** None
+**Parallelizable:** Yes
+
+### Task T-17: Widen the VCS ownership census to merge and branch-create
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-12
+**Files:**
+- `servers/exarchos-mcp/src/architecture/vcs-ownership.ts`
+- `servers/exarchos-mcp/src/architecture/vcs-ownership.kill.test.ts`
+**Tests:** `VcsOwnership_PlantedMergeOutsideOwner_CensusFailsClosed`, `VcsOwnership_PlantedBranchCreateOutsideOwner_CensusFailsClosed`
+**Verification:** high — a planted `['merge','--no-ff',x]` outside the owner turns the census RED.
+**Dependencies:** None
+**Parallelizable:** Yes
+
+### Task T-18: Prove duplicate merge and duplicate PR prevention
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** acceptance
+**Implements:** DR-12
+**Files:**
+- `servers/exarchos-mcp/test/integration/governance/merge-idempotency.test.ts`
+**Tests:** `ExecuteMerge_DuplicateRequest_CreatesExactlyOneMergeCommit`, `CreatePr_DuplicateIdempotencyKey_CreatesExactlyOnePr`
+**Verification:** high — through the shipped `handleExecuteMerge` and `vcs/github.ts`, not a test-local owner wrapper.
+**Dependencies:** T-17
+**Parallelizable:** Yes
+
+### Task T-19: Widen effect detection beyond exact import specifiers
+
+**Risk Tier:** medium
+**Test Layer:** integration
+**Implements:** DR-13
+**Files:**
+- `servers/exarchos-mcp/src/architecture/effect-ledger.ts`
+- `servers/exarchos-mcp/src/architecture/effect-ledger.test.ts`
+**Verification:** medium — a seeded non-listed HTTP client trips the ledger.
+**Dependencies:** None
+**Parallelizable:** Yes
+
+### Task T-20: Make shim discovery enumerate shipped renderers
+
+**Risk Tier:** medium
+**Test Layer:** integration
+**Implements:** DR-14
+**Files:**
+- `src/shim-registry.ts`
+- `src/shim-registry.test.ts`
+**Verification:** medium — adding a per-harness renderer without an approved reason and expiry FAILS the ratchet.
+**Dependencies:** None
+**Parallelizable:** Yes
+
+### Task T-21: Complete the advisory registry and model path filters
+
+**Risk Tier:** medium
+**Test Layer:** integration
+**Implements:** DR-15
+**Files:**
+- `src/advisory-registry.ts`
+- `scripts/check-enforcer-wiring.mjs`
+- `src/advisory-registry.test.ts`
+**Verification:** medium — every `continue-on-error` / `--observe` / `|| true` is registered; the unfiltered-path check models filters.
+**Dependencies:** None
+**Parallelizable:** Yes
+
+### Task T-22: Narrow lint-inv6 literals so its threshold is reachable
+
+**Risk Tier:** low
+**Test Layer:** unit
+**Implements:** DR-15
+**Files:**
+- `scripts/lint-inv6.mjs`
+**Verification:** low — static analysis plus a fixture proving prose usage no longer trips it.
+**Dependencies:** T-21
+**Parallelizable:** Yes
+
+### Task T-23: fsync the parent directory on journal and tree renames
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-16
+**Files:**
+- `servers/exarchos-mcp/src/utils/atomic-write.ts`
+- `servers/exarchos-mcp/src/install/atomic-promotion.ts`
+- `servers/exarchos-mcp/src/utils/atomic-write.test.ts`
+**Tests:** `PublishTempFile_AfterRename_FsyncsParentDirectory`, `AtomicPromotion_JournalRename_IsDurablyOrderedBeforeBackup`
+**Verification:** high — ordering is constructed, not accidental; T3 SIGKILL arm proves convergence.
+**Dependencies:** None
+**Parallelizable:** Yes
+
+### Task T-24: Refuse to discard an orphan backup
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-17
+**Files:**
+- `servers/exarchos-mcp/src/install/atomic-promotion.ts`
+- `servers/exarchos-mcp/src/install/atomic-promotion.orphan.test.ts`
+**Tests:** `PromoteTree_OrphanBackupNoJournal_PreservesBackup`, `PromoteTree_OrphanBackupNoJournal_DoesNotStageOverOldTree`
+**Verification:** high — `{target absent, backup = OLD, journal deleted}` preserves the backup. This test fails today.
+**Dependencies:** T-23
+**Parallelizable:** No
+
+### Task T-25: Promote the CLI/MCP config writers
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-18
+**Files:**
+- `servers/exarchos-mcp/src/orchestrate/init/writers/mcp-json-writer.ts`
+- `servers/exarchos-mcp/src/orchestrate/init/writers/claude-code.ts`
+- `servers/exarchos-mcp/src/orchestrate/init/writers/mcp-json-writer.test.ts`
+**Tests:** `McpJsonWriter_InjectedFailure_LeavesOldOrNewComplete`, `ClaudeConfigWriter_InterruptedPromotion_RecoversAtStartup`
+**Verification:** high — injected failure leaves old-complete or new-complete; `recoverInterruptedPromotion` gains a startup/doctor entry point.
+**Dependencies:** T-23
+**Parallelizable:** Yes
+
+### Task T-26: Close EFF-001 or mark INV-7 honestly
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** acceptance
+**Implements:** DR-19
+**Files:**
+- `servers/exarchos-mcp/test/process/multi-process-append.test.ts`
+**Tests:** `MultiProcessAppend_ThreeProcesses_ProducesDenseUniqueSequences`, `StartupRepair_GateTailDivergence_RepairsBeforeAcceptingWrites`
+**Verification:** high — N≥3 real child processes; dense unique sequences; restart-repair arm. If infeasible, downgrade to the honesty clause per Open Questions.
+**Dependencies:** None
+**Parallelizable:** Yes
+
+### Task T-27: Produce and publish a signed release manifest
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-20
+**Files:**
+- `.github/workflows/release.yml`
+- `scripts/build-release-manifest.ts`
+- `scripts/build-binary.ts`
+**Tests:** `ReleaseManifest_RealBuildOutput_ProducesSignedManifest`, `BuildBinary_EmbedsSourceAndContractIdentity`
+**Verification:** high — manifest produced from real build output; source and contract identity embedded.
+**Dependencies:** None
+**Parallelizable:** Yes
+
+### Task T-28: Consume the manifest in both installers and ship the verifier
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** acceptance
+**Implements:** DR-20
+**Files:**
+- `scripts/get-exarchos.sh`
+- `scripts/get-exarchos.ps1`
+- `package.json`
+**Tests:** `Installer_ManifestMismatch_RejectsInstall`, `Installer_ContractDigestMismatch_RejectsInstall`
+**Verification:** high — installer rejects source, contract, manifest and asset mismatch.
+**Dependencies:** T-27
+**Parallelizable:** No
+
+### Task T-29: Verify containment against packed bytes
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** acceptance
+**Implements:** DR-21
+**Files:**
+- `servers/exarchos-mcp/test/packaged/containment.test.ts`
+- `src/projection-containment.ts`
+**Tests:** `PackedContainment_DeletedProjectionFile_FailsVerification`, `PackedContainment_RewrittenProjectionBytes_FailsVerification`
+**Verification:** high — `npm pack` → unpack → digest verify; seeded delete and seeded rewrite both FAIL.
+**Dependencies:** None
+**Parallelizable:** Yes
+
+### Task T-30: Widen CI path filters and add hooks:guard
+
+**Risk Tier:** medium
+**Test Layer:** integration
+**Implements:** DR-22
+**Files:**
+- `.github/workflows/ci.yml`
+- `scripts/ci-topology.test.ts`
+**Verification:** medium — a PR deleting only an agent, alias or hook cannot pass green.
+**Dependencies:** None
+**Parallelizable:** Yes
+
+### Task T-31: Emit durable shadow evidence
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-23
+**Files:**
+- `servers/exarchos-mcp/src/workflow/admission/live-shadow-observer.ts`
+- `servers/exarchos-mcp/src/workflow/admission/live-shadow-observer.test.ts`
+**Tests:** `ShadowObserver_LiveTransition_EmitsDurableShadowAttempt`, `ShadowObserver_Disagreement_EmitsDispositionEvent`
+**Verification:** high — the registered `admission.shadow-attempt` / `disagreement-disposition` events are emitted from production; the in-memory sink stops being the substrate (INV-1).
+**Dependencies:** T-10
+**Parallelizable:** Yes
+
+### Task T-32: Make a dead observer detectable and the gate sound
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-23
+**Files:**
+- `servers/exarchos-mcp/src/workflow/admission/live-shadow-observer.ts`
+- `servers/exarchos-mcp/src/workflow/admission/cutover-gate.ts`
+- `servers/exarchos-mcp/src/workflow/admission/live-shadow-observer.test.ts`
+**Tests:** `ShadowObserver_SinkThrows_IncrementsHealthCounter`, `CutoverGate_AllAttemptsErrored_DoesNotSatisfyLiveConditions`
+**Verification:** high — health counter; a gate condition reads live disagreement class; 20 all-throwing attempts cannot satisfy the gate.
+**Dependencies:** T-31
+**Parallelizable:** No
+
+### Task T-33: Make the oracle observe real handlers
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-24
+**Files:**
+- `servers/exarchos-mcp/src/contract/oracle/fixtures.ts`
+- `servers/exarchos-mcp/src/contract/oracle/oracle-seam.ts`
+- `servers/exarchos-mcp/src/contract/oracle/fixtures.test.ts`
+**Tests:** `Oracle_RealHandlerSkipsAuthorization_IsCaught`, `Oracle_EffectAxisUnobserved_ReportsNotObservedNotPass`
+**Verification:** high — real handlers with registry roles/effects; absent observation reports `not-observed`, never `pass`.
+**Dependencies:** None
+**Parallelizable:** Yes
+
+### Task T-34: Resolve the CLI/MCP relationship against governing INV-2
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-25
+**Files:**
+- `servers/exarchos-mcp/src/adapters/cli.ts`
+- `servers/exarchos-mcp/src/contract/cli/cli-contract-seam.ts`
+- `servers/exarchos-mcp/src/adapters/cli.test.ts`
+**Tests:** `Cli_ApiAction_HasNoDirectDispatchPath`, `Cli_GeneratedClient_AgreesWithMcpViaRealHandler`
+**Verification:** high — generated client, or a recorded deviation with owner and expiry. No unacknowledged violation remains.
+**Dependencies:** T-16
+**Parallelizable:** Yes
+
+### Task T-35: Re-approve the invariant catalog
+
+**Risk Tier:** medium
+**Test Layer:** integration
+**Implements:** DR-26
+**Files:**
+- `.exarchos/invariants.md`
+- `servers/exarchos-mcp/src/contract/authority-lock-cli.ts`
+**Verification:** medium — INV-2/4/7/11 re-approved; the four stale in-code citations re-pointed; the freeze pins the governing contract.
+**Dependencies:** T-34
+**Parallelizable:** No
+
+### Task T-36: Build the T1 public-root tier
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** acceptance
+**Implements:** DR-27
+**Files:**
+- `servers/exarchos-mcp/test/integration/public-root/actions.test.ts`
+- `servers/exarchos-mcp/test/integration/_harness.ts`
+**Tests:** `PublicRoot_EveryRegisteredAction_ReachableThroughDispatch`, `PublicRoot_ActionEnvelope_MatchesRegisteredOutputSchema`
+**Verification:** high — every composite action through `dispatch()` with a real store; coverage ratcheted against the 120-action denominator.
+**Dependencies:** T-01
+**Parallelizable:** Yes
+
+### Task T-37: Build the T2 governance tier
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** acceptance
+**Implements:** DR-28
+**Files:**
+- `servers/exarchos-mcp/test/integration/governance/gate-before-completion.test.ts`
+- `servers/exarchos-mcp/test/integration/governance/denied-transition.test.ts`
+- `servers/exarchos-mcp/test/integration/governance/evidence-provenance.test.ts`
+**Tests:** `Governance_DeniedTransition_DoesNotMutatePhase`, `Governance_BlockingGateRed_BlocksTaskCompletion`
+**Verification:** high — each DR-1..DR-10 criterion driven from the public root, asserting a blocking outcome and its negative twin.
+**Dependencies:** T-36
+**Parallelizable:** No
+
+### Task T-38: Serialize the process-tier binary build
+
+**Risk Tier:** medium
+**Test Layer:** integration
+**Implements:** DR-29
+**Files:**
+- `servers/exarchos-mcp/test/process/_helpers.ts`
+- `servers/exarchos-mcp/test/process/_helpers.test.ts`
+**Verification:** medium — running all `test/process` files together no longer races in `ensureBinaryBuilt`.
+**Dependencies:** None
+**Parallelizable:** Yes
+
+### Task T-39: Add the T3 crash and concurrency arms
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** acceptance
+**Implements:** DR-29
+**Files:**
+- `servers/exarchos-mcp/test/process/promotion-kill.test.ts`
+**Tests:** `AtomicPromotion_SigkillBetweenRenames_ConvergesToOldOrNew`, `ProcessTier_InProcessThrowInjection_IsRejectedByHarness`
+**Verification:** high — real subprocesses only; SIGKILL between renames; in-process throw injection is explicitly disallowed.
+**Dependencies:** T-38, T-24
+**Parallelizable:** No
+
+### Task T-40: Enforce the suite invariants mechanically
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-30
+**Files:**
+- `servers/exarchos-mcp/test/integration/suite-invariants.test.ts`
+**Tests:** `SuiteInvariant_SingleSourceComparison_IsRejected`, `SuiteInvariant_BlockingClaimWithoutKillFixture_IsRejected`
+**Verification:** high — rejects single-source comparisons, missing kill-fixture declarations, and `passed===true` on a could-not-run verdict; accepted gaps carry owner and expiry.
+**Dependencies:** T-37
+**Parallelizable:** No
+
+### Task T-41: Characterize the effective catalog before touching the loader
+
+**Risk Tier:** medium
+**Test Layer:** integration
+**Implements:** DR-31
+**Files:**
+- `servers/exarchos-mcp/src/architecture/resolve-effective-catalog.characterization.test.ts`
+**Verification:** medium — snapshot the effective catalog resolved from the current `.exarchos.yml` (sugar + explicit registration). This snapshot is the oracle for T-42: the resolved catalog must be byte-identical after the boolean is removed. Per the oracle-integrity gate, this assertion is ADDED and must not be edited later to accommodate a drifted result.
+**Dependencies:** None
+**Parallelizable:** Yes
+
+### Task T-42: Route the two direct-boolean readers through catalog registration
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-31
+**Files:**
+- `servers/exarchos-mcp/src/architecture/invariants-loader.ts`
+- `servers/exarchos-mcp/src/architecture/vocabulary-lint.ts`
+- `servers/exarchos-mcp/src/architecture/invariants-loader.test.ts`
+**Tests:** `InvariantsLoader_NoDevCatalogFlag_ResolvesViaCatalogSources`, `VocabularyLint_RegisteredCatalog_LoadsWithoutBooleanGate`
+**Verification:** high — `invariants-loader.ts:460` stops gating on `devCatalog !== 'enabled'` and resolves through `resolveCatalogSources`; `vocabulary-lint` follows. T-41's characterization must stay green. Characterization required.
+**Dependencies:** T-41
+**Parallelizable:** No
+
+### Task T-43: Remove devCatalog from the schema and .exarchos.yml
+
+**Risk Tier:** high
+**Boundary Touching:** true
+**Test Layer:** integration
+**Implements:** DR-31
+**Files:**
+- `servers/exarchos-mcp/src/config/exarchos-config-schema.ts`
+- `.exarchos.yml`
+- `servers/exarchos-mcp/src/config/exarchos-config-schema.test.ts`
+**Tests:** `ExarchosConfig_DevCatalogRemoved_EffectiveCatalogUnchanged`, `ExarchosConfig_LegacyDevCatalogKey_EmitsTypedDeprecation`
+**Verification:** high — the boolean is gone or is a deprecated alias emitting a typed deprecation and desugaring to a `catalogs:` entry. Also update the seed path (`orchestrate/init/seed-exarchos-config.ts`) and the doctor check so a freshly-onboarded repo never writes the retired flag.
+**Dependencies:** T-42
+**Parallelizable:** No
+
+### Task T-44: Update system-design.html to the resolved invariant set
+
+**Risk Tier:** low
+**Test Layer:** unit
+**Implements:** DR-32
+**Files:**
+- `docs/system-design.html`
+- `.exarchos/invariants.md`
+**Verification:** low — static. INV-2/4/7/11 in governing form; the #1608 note resolved; the capability table distinguishes built from built-but-unreached. Must land after DR-26's catalog re-approval so the two documents agree.
+**Dependencies:** T-35
+**Parallelizable:** Yes
+
+### Task T-45: Re-point the skills to catalog-registration gating
+
+**Risk Tier:** medium
+**Test Layer:** integration
+**Implements:** DR-33
+**Files:**
+- `skills-src/ideate/references/constraint-anchoring.md`
+- `skills-src/ideate/SKILL.md`
+- `skills-src/refactor/SKILL.md`
+- `skills-src/refactor/references/brief-template.md`
+- `skills-src/debug/SKILL.md`
+- `skills-src/shepherd/SKILL.md`
+**Verification:** medium — edit `skills-src/` ONLY (never `skills/`), then `npm run build:skills`; `npm run skills:guard` must pass with no drift. Also covers `refactor/references/{overhaul,polish}-track.md` and `debug/references/thorough-track.md`.
+**Dependencies:** T-43
+**Parallelizable:** No
+
+### Task T-46: Update the invariants guides
+
+**Risk Tier:** low
+**Test Layer:** unit
+**Implements:** DR-33
+**Files:**
+- `docs/guides/exarchos-yml-invariants.md`
+- `docs/guides/authoring-invariants.md`
+**Verification:** low — static; describe the consumer-shaped `catalogs:` configuration only. `verify_doc_links` passes.
+**Dependencies:** T-43
+**Parallelizable:** Yes
+
+### Parallelization
+
+**Critical path:** T-01 → T-03 → T-10 → T-12 → T-37 → T-40.
+
+- **W1 (gates all):** T-01 first (sole head). T-03 sequential on T-01; T-04 → T-02 (shared `definitions.ts`); T-05..T-09 parallel.
+- **W2:** T-10 head; T-11/T-13 parallel after it; T-12 sequential; T-14 → T-15; T-16 independent.
+- **W3:** T-17 → T-18; T-19, T-20, T-21 → T-22 all independent of each other.
+- **W4:** T-23 → {T-24, T-25}; T-26 independent.
+- **W5:** T-27 → T-28; T-29, T-30, T-33 independent; T-31 → T-32; T-16 → T-34 → T-35 → T-44.
+- **W5 catalog retirement:** T-41 → T-42 → T-43 → {T-45, T-46}. Strictly sequential through T-43 because each step's oracle is the previous step's snapshot.
+- **Suite:** T-36 (after T-01) → T-37 → T-40; T-38 → T-39 (also needs T-24).
+
+W2–W5 are mutually parallel once W1 lands. Worktrees must not share files: T-10/T-12 both touch `cleanup.ts`; T-23/T-24 both touch `atomic-promotion.ts`; T-02/T-04 both touch `runbooks/definitions.ts` — each pair is sequential in one worktree.
+
+**Catalog-retirement ordering constraint.** T-44 (system-design) depends on T-35 (catalog re-approval) so the narrative and the catalog cannot disagree; T-45/T-46 depend on T-43 so no document instructs a reader to set a flag that no longer exists. T-45 edits `skills-src/` only — direct edits to `skills/` fail `skills:guard`.
+
+### Completion checklist
+
+- [ ] Every DR-N maps to at least one task in the matrix
+- [ ] Every task `Implements:` a DR-N that exists in this document
+- [ ] Every task carries a `riskTier` stamp
+- [ ] Medium/high-tier tasks carry adequacy-judged tests (test-after); low-tier leans on static analysis
+- [ ] Characterization captured for every task that changes existing behavior, with intended changes named
+- [ ] Oracle-integrity gate run (`git diff -- tests/`) before completion
+- [ ] Open questions resolved OR explicitly deferred with rationale
+- [ ] Ready for `overhaul-plan-review`
