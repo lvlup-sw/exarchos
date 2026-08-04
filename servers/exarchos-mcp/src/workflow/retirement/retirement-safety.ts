@@ -428,3 +428,187 @@ export const LEGACY_AUTHORITIES: readonly LegacyAuthority[] = Object.freeze([
     cutoverGated: false,
   },
 ]);
+
+// ─── Retired authorities (DR-8) ────────────────────────────────────────────────
+//
+// `LEGACY_AUTHORITIES` above is the set still AWAITING retirement. This second
+// registry is its counterpart: authorities of a declared `AuthorityKind` that
+// have ALREADY been retired. Keeping both in one module is what stops the
+// registry from claiming a retired fix is still active (or the reverse) — the
+// `pass-state-fix` kind was declared in `AuthorityKind` with no member on either
+// side, so the classification named a class nothing was accountable for.
+//
+// A retirement is only real if it cannot be silently undone, so each retired
+// authority carries the SOURCE PATTERNS whose reappearance in production code
+// would reinstate it. The co-located structural test (and, for the cleanup
+// pass-state fix, `workflow/cleanup.pass-state.test.ts`) runs
+// `scanRetiredAuthorityReintroduction` over the real production tree, so a
+// future reintroduction fails mechanically rather than by review vigilance.
+
+/** A source pattern whose reappearance in production code reinstates a retired authority. */
+export interface ForbiddenSourcePattern {
+  /** Stable id, unique within its authority. */
+  readonly id: string;
+  /** RegExp source (applied per-module with the `g` flag). */
+  readonly pattern: string;
+  /** What reappearing means, phrased as the violation message. */
+  readonly description: string;
+}
+
+/** An authority of a declared kind that has already been retired. */
+export interface RetiredAuthority {
+  readonly id: string;
+  readonly kind: AuthorityKind;
+  readonly summary: string;
+  /** The design requirement whose implementation retired it. */
+  readonly retiredBy: string;
+  /**
+   * src-root-relative POSIX prefixes the scan restricts itself to. Empty means
+   * the whole production tree.
+   */
+  readonly scopes: readonly string[];
+  readonly forbiddenPatterns: readonly ForbiddenSourcePattern[];
+}
+
+export const RETIRED_AUTHORITIES: readonly RetiredAuthority[] = Object.freeze([
+  {
+    id: 'cleanup-pass-state-fix',
+    kind: 'pass-state-fix',
+    summary:
+      'The cleanup pass-state fix: `workflow/cleanup.ts` force-assigned every ' +
+      "`reviews[*].status` (and nested sub-review status) to 'approved' and stamped " +
+      '`_cleanup = { mergeVerified: true }` immediately before the guarded transition ' +
+      'evaluated `guards.mergeVerified` — production code writing the guard\'s own inputs ' +
+      'and then asking the guard for permission. Retired: cleanup now collects the evidence ' +
+      '(reviews that were actually approved, a recorded merge artifact reference) and fails ' +
+      'the guard when the evidence is absent.',
+    retiredBy: 'DR-8',
+    scopes: ['workflow/'],
+    forbiddenPatterns: [
+      {
+        id: 'force-approve-review-status',
+        pattern: String.raw`\.status\s*=\s*['"\x60]approved['"\x60]`,
+        description:
+          "production code assigns a review status to 'approved' — review approval is evidence, " +
+          'not something a consumer of that evidence may write',
+      },
+      {
+        id: 'force-write-merge-verified',
+        pattern: String.raw`mergeVerified\s*[:=]\s*true`,
+        description:
+          'production code writes `mergeVerified: true` as a literal — the guard input must be ' +
+          'derived from collected evidence, never hard-coded',
+      },
+      {
+        id: 'force-write-cleanup-pass-state',
+        pattern: String.raw`_cleanup\s*=\s*\{[^}]*mergeVerified\s*:\s*(?:true|1)\b`,
+        description:
+          'production code assigns the `_cleanup` pass-state block a hard-coded pass verdict ' +
+          'before the guard reads it',
+      },
+    ],
+  },
+]);
+
+/** One production-source occurrence of a forbidden pattern. */
+export interface RetirementViolation {
+  readonly authorityId: string;
+  readonly patternId: string;
+  /** src-root-relative POSIX module path. */
+  readonly modulePath: string;
+  /** 1-based line number of the occurrence. */
+  readonly line: number;
+  /** The offending source line, trimmed. */
+  readonly snippet: string;
+  readonly description: string;
+}
+
+/**
+ * Per-character mask of which positions on a line sit INSIDE a string literal.
+ *
+ * Without this the scan flags its own error messages and this registry's own
+ * descriptions — prose that NAMES the retired pattern is not a reinstatement of
+ * it. Only code positions count. Evaluated per line (a state machine spanning
+ * the file would be a parser, and this stays a detector), so an unterminated
+ * literal only affects the remainder of its own line.
+ */
+function stringLiteralMask(line: string): readonly boolean[] {
+  const mask: boolean[] = new Array<boolean>(line.length).fill(false);
+  let quote: string | null = null;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (quote !== null) {
+      mask[i] = true;
+      if (ch === '\\') {
+        if (i + 1 < line.length) mask[i + 1] = true;
+        i += 1;
+        continue;
+      }
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === "'" || ch === '"' || ch === '`') {
+      quote = ch;
+      mask[i] = true;
+    }
+  }
+  return mask;
+}
+
+/**
+ * Scan production source for the reintroduction of a retired authority.
+ *
+ * PRODUCTION ONLY — `isTest` modules are skipped, so a test may still *describe*
+ * the retired behaviour (characterization fixtures need to) without tripping the
+ * scan. Returns every occurrence, sorted, so a failure names all of them at once.
+ */
+export function scanRetiredAuthorityReintroduction(
+  modules: readonly SourceModule[],
+  retired: readonly RetiredAuthority[] = RETIRED_AUTHORITIES,
+): readonly RetirementViolation[] {
+  const violations: RetirementViolation[] = [];
+  for (const authority of retired) {
+    for (const mod of modules) {
+      if (mod.isTest) continue;
+      if (
+        authority.scopes.length > 0 &&
+        !authority.scopes.some((scope) => mod.path.startsWith(scope))
+      ) {
+        continue;
+      }
+      const lines = mod.content.split(/\r?\n/);
+      for (const forbidden of authority.forbiddenPatterns) {
+        for (const [index, line] of lines.entries()) {
+          // A line that is entirely a comment documents the retirement; it does
+          // not reinstate it.
+          const code = line.trim();
+          if (code.startsWith('//') || code.startsWith('*') || code.startsWith('/*')) continue;
+          const mask = stringLiteralMask(code);
+          const re = new RegExp(forbidden.pattern, 'g');
+          let hit = false;
+          for (const match of code.matchAll(re)) {
+            if (match.index === undefined) continue;
+            if (mask[match.index] === true) continue; // inside a string literal
+            hit = true;
+            break;
+          }
+          if (!hit) continue;
+          violations.push({
+            authorityId: authority.id,
+            patternId: forbidden.id,
+            modulePath: mod.path,
+            line: index + 1,
+            snippet: code,
+            description: forbidden.description,
+          });
+        }
+      }
+    }
+  }
+  return violations.sort(
+    (a, b) =>
+      a.authorityId.localeCompare(b.authorityId) ||
+      a.modulePath.localeCompare(b.modulePath) ||
+      a.line - b.line,
+  );
+}

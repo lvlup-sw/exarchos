@@ -114,7 +114,10 @@ describe('handleCleanup', () => {
       expect(synthesis.mergedBranches).toEqual(['feature/task-1', 'feature/task-2']);
     });
 
-    it('should force-resolve blocking review statuses', async () => {
+    it('should NOT rewrite blocking review statuses (DR-8 pass-state fix retired)', async () => {
+      // Characterized pre-DR-8 behaviour: cleanup force-assigned every review
+      // status to 'approved' and returned success. It now reads them as
+      // evidence and FAILS the guard when they are not genuinely approved.
       await handleInit({ featureId: 'cleanup-reviews', workflowType: 'feature' }, tmpDir, null);
       const raw = await readRawState('cleanup-reviews');
       raw.phase = 'review';
@@ -124,16 +127,41 @@ describe('handleCleanup', () => {
       };
       await writeRawState('cleanup-reviews', raw);
 
-      await handleCleanup({
+      const result = await handleCleanup({
         featureId: 'cleanup-reviews',
         mergeVerified: true,
+        prUrl: 'https://github.com/test/pr/1',
       }, tmpDir, null);
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('GUARD_FAILED');
 
       const state = await readRawState('cleanup-reviews');
       const reviews = state.reviews as Record<string, Record<string, unknown>>;
-      expect(reviews['task-1'].status).toBe('approved');
-      expect((reviews['task-2'].specReview as Record<string, unknown>).status).toBe('approved');
-      expect((reviews['task-2'].qualityReview as Record<string, unknown>).status).toBe('approved');
+      expect(reviews['task-1'].status).toBe('in-progress');
+      expect((reviews['task-2'].specReview as Record<string, unknown>).status).toBe('fail');
+      expect((reviews['task-2'].qualityReview as Record<string, unknown>).status).toBe('needs_fixes');
+      expect(state.phase).toBe('review');
+    });
+
+    it('should complete when reviews are genuinely approved', async () => {
+      await handleInit({ featureId: 'cleanup-reviews-ok', workflowType: 'feature' }, tmpDir, null);
+      const raw = await readRawState('cleanup-reviews-ok');
+      raw.phase = 'review';
+      raw.reviews = {
+        'task-1': { status: 'approved' },
+        'task-2': { specReview: { status: 'approved' }, qualityReview: { status: 'approved' } },
+      };
+      await writeRawState('cleanup-reviews-ok', raw);
+
+      const result = await handleCleanup({
+        featureId: 'cleanup-reviews-ok',
+        mergeVerified: true,
+        prUrl: 'https://github.com/test/pr/1',
+      }, tmpDir, null);
+
+      expect(result.success).toBe(true);
+      expect((await readRawState('cleanup-reviews-ok')).phase).toBe('completed');
     });
 
     it('should return dryRun preview without modifying state', async () => {
@@ -145,6 +173,7 @@ describe('handleCleanup', () => {
       const result = await handleCleanup({
         featureId: 'cleanup-dry',
         mergeVerified: true,
+        prUrl: 'https://github.com/test/pr/1',
         dryRun: true,
       }, tmpDir, null);
 
@@ -165,6 +194,7 @@ describe('handleCleanup', () => {
       const result = await handleCleanup({
         featureId: 'cleanup-delegate',
         mergeVerified: true,
+        prUrl: 'https://github.com/test/pr/1',
       }, tmpDir, null);
 
       expect(result.success).toBe(true);
@@ -181,6 +211,7 @@ describe('handleCleanup', () => {
       const result = await handleCleanup({
         featureId: 'cleanup-debug',
         mergeVerified: true,
+        prUrl: 'https://github.com/test/pr/1',
       }, tmpDir, null);
 
       expect(result.success).toBe(true);
@@ -196,6 +227,7 @@ describe('handleCleanup', () => {
       const result = await handleCleanup({
         featureId: 'cleanup-refactor',
         mergeVerified: true,
+        prUrl: 'https://github.com/test/pr/1',
       }, tmpDir, null);
 
       expect(result.success).toBe(true);
@@ -231,6 +263,7 @@ describe('handleCleanup', () => {
       const result = await handleCleanup({
         featureId: 'cleanup-event-test',
         mergeVerified: true,
+        prUrl: 'https://github.com/test/pr/1',
       }, tmpDir, mockEventStore);
 
       expect(result.success).toBe(true);
@@ -262,6 +295,7 @@ describe('handleCleanup', () => {
       const result = await handleCleanup({
         featureId: 'cleanup-store-fail',
         mergeVerified: true,
+        prUrl: 'https://github.com/test/pr/1',
       }, tmpDir, mockEventStore);
 
       // v2 event-first: event failure aborts cleanup
@@ -422,12 +456,14 @@ describe('handleCleanup', () => {
     });
 
     it('HandleCleanup_EsVersion2_EmitsStatePatchedForBackfill', async () => {
-      // Arrange — v2 workflow with reviews to force-resolve
+      // Arrange — v2 workflow whose reviews are GENUINELY approved (DR-8: the
+      // handler no longer force-approves them, so the fixture must present real
+      // evidence). The backfill under test is the synthesis/artifacts one.
       await handleInit({ featureId: 'v2-patch', workflowType: 'feature' }, tmpDir, null);
       const raw = await readRawState('v2-patch');
       raw.phase = 'review';
       raw.reviews = {
-        'task-1': { status: 'in-progress' },
+        'task-1': { status: 'approved' },
       };
       await writeRawState('v2-patch', raw);
 
@@ -451,21 +487,18 @@ describe('handleCleanup', () => {
       expect(patchData.featureId).toBe('v2-patch');
       expect(patchData.fields).toBeDefined();
       const fields = patchData.fields as string[];
-      // Should include synthesis and/or reviews data
-      expect(
-        fields.includes('synthesis') || fields.includes('reviews') || fields.includes('artifacts'),
-      ).toBe(true);
+      // Should include the synthesis/artifacts backfill.
+      expect(fields.includes('synthesis') || fields.includes('artifacts')).toBe(true);
+      // DR-8: `reviews` is NOT patched any more — cleanup does not touch them.
+      expect(fields).not.toContain('reviews');
       // The patch should contain the actual backfilled data
       const patch = patchData.patch as Record<string, unknown>;
       expect(patch).toBeDefined();
+      expect(patch.reviews).toBeUndefined();
       if (patch.synthesis) {
         const synthPatch = patch.synthesis as Record<string, unknown>;
         expect(synthPatch.prUrl).toBe('https://github.com/test/pr/99');
         expect(synthPatch.mergedBranches).toEqual(['feature/branch-a', 'feature/branch-b']);
-      }
-      if (patch.reviews) {
-        const reviewsPatch = patch.reviews as Record<string, Record<string, unknown>>;
-        expect(reviewsPatch['task-1'].status).toBe('approved');
       }
     });
 
@@ -489,6 +522,7 @@ describe('handleCleanup', () => {
       const result = await handleCleanup({
         featureId: 'v1-legacy',
         mergeVerified: true,
+        prUrl: 'https://github.com/test/pr/1',
       }, tmpDir, null);
 
       // Assert — v1 legacy path: state-first, events best-effort

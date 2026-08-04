@@ -44,9 +44,11 @@ interface CleanupEventPayload {
   currentPhase: string;
   synthesis: Record<string, unknown>;
   artifacts: Record<string, unknown>;
-  reviews: Record<string, unknown> | undefined;
-  hasReviewEntries: boolean;
   hasSynthesisBackfill: boolean;
+  /** The evidence verdict that satisfied `guards.mergeVerified`. */
+  mergeVerified: boolean;
+  /** The typed artifact reference backing that verdict. */
+  mergeArtifact: string | null;
   transitionEvents: ReadonlyArray<{
     type: string;
     from: string;
@@ -91,9 +93,9 @@ async function emitCleanupEvents(
     backfillPatch.synthesis = payload.synthesis;
     backfillPatch.artifacts = payload.artifacts;
   }
-  if (payload.hasReviewEntries) {
-    backfillPatch.reviews = payload.reviews;
-  }
+  // DR-8: there is no `reviews` member here any more. Cleanup used to patch
+  // `reviews` because it had just force-approved them; with the pass-state fix
+  // retired, reviews are read-only evidence and there is nothing to backfill.
   if (Object.keys(backfillPatch).length > 0) {
     trail.push({
       type: 'state.patched' as EventType,
@@ -137,7 +139,9 @@ async function emitCleanupEvents(
       trigger: 'cleanup',
       phaseAttemptId: payload.phaseAttemptId,
       previousPhase: currentPhase,
-      mergeVerified: true,
+      // DR-8: recorded from the collected evidence, never a hard-coded literal.
+      mergeVerified: payload.mergeVerified,
+      mergeArtifact: payload.mergeArtifact,
       prUrl: payload.prUrl,
       mergedBranches: payload.mergedBranches,
     },
@@ -218,6 +222,112 @@ async function emitLegacyTransitionEvents(
   } catch {
     // V1 legacy: external store is supplementary; append failure must not break cleanup
   }
+}
+
+// ─── DR-8: cleanup evidence collection (replaces the pass-state fix) ────────
+
+/**
+ * What cleanup can PROVE about the merge, read out of the workflow state.
+ *
+ * DR-8 retires the `pass-state-fix` class for cleanup: production code must not
+ * write the fields the guard reads. This collector is strictly read-only — it
+ * never touches `state` — and its verdict is what cleanup hands to
+ * `guards.mergeVerified` via the guarded primitive. Absent evidence therefore
+ * FAILS the guard instead of manufacturing a pass.
+ */
+export interface CleanupEvidence {
+  /** True only when every evidence requirement below is satisfied. */
+  readonly verified: boolean;
+  /** Human-readable reasons the evidence is insufficient (empty when verified). */
+  readonly reasons: readonly string[];
+  /** Review keys (or `entry.subEntry` paths) that are NOT approved. */
+  readonly unapprovedReviews: readonly string[];
+  /** The typed merge artifact reference backing the merge, or null. */
+  readonly mergeArtifact: string | null;
+}
+
+/**
+ * Read the first usable artifact reference out of a state field.
+ *
+ * Mirrors the DR-5 / T-08 discipline: an artifact reference is a non-empty
+ * TRIMMED string (or the first such string in a list). `''`, `'   '`, `[]` and
+ * non-strings are not references.
+ */
+function firstArtifactRef(value: unknown): string | null {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed === '' ? null : trimmed;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const ref = firstArtifactRef(item);
+      if (ref !== null) return ref;
+    }
+  }
+  return null;
+}
+
+/**
+ * Collect the evidence that a merge was actually verified.
+ *
+ * Two independent requirements, both read from state:
+ *
+ *  1. **Reviews that were actually approved.** Every review entry carrying a
+ *     `status` (and every nested sub-review carrying one) must already read
+ *     `'approved'`. Cleanup no longer rewrites them.
+ *  2. **A merge that was actually recorded.** A typed artifact reference must
+ *     exist under `synthesis.prUrl`, `artifacts.pr` or `synthesis.mergedBranches`.
+ *     A bare `mergeVerified: true` boolean from the caller is an assertion, not
+ *     evidence, and no longer suffices on its own.
+ */
+export function collectCleanupEvidence(
+  state: Record<string, unknown>,
+): CleanupEvidence {
+  const reasons: string[] = [];
+  const unapprovedReviews: string[] = [];
+
+  const reviews = state.reviews as Record<string, unknown> | undefined;
+  if (reviews) {
+    for (const [key, value] of Object.entries(reviews)) {
+      if (typeof value !== 'object' || value === null) continue;
+      const entry = value as Record<string, unknown>;
+      if (typeof entry.status === 'string') {
+        if (entry.status !== 'approved') unapprovedReviews.push(key);
+        continue;
+      }
+      for (const [subKey, subValue] of Object.entries(entry)) {
+        if (typeof subValue !== 'object' || subValue === null) continue;
+        const sub = subValue as Record<string, unknown>;
+        if (typeof sub.status === 'string' && sub.status !== 'approved') {
+          unapprovedReviews.push(`${key}.${subKey}`);
+        }
+      }
+    }
+  }
+  if (unapprovedReviews.length > 0) {
+    reasons.push(
+      `reviews are not approved: ${unapprovedReviews.join(', ')} — approve them on their own review path, cleanup will not`,
+    );
+  }
+
+  const synthesis = state.synthesis as Record<string, unknown> | undefined;
+  const artifacts = state.artifacts as Record<string, unknown> | undefined;
+  const mergeArtifact =
+    firstArtifactRef(synthesis?.prUrl) ??
+    firstArtifactRef(artifacts?.pr) ??
+    firstArtifactRef(synthesis?.mergedBranches);
+  if (mergeArtifact === null) {
+    reasons.push(
+      'no merge artifact reference recorded (synthesis.prUrl / artifacts.pr / synthesis.mergedBranches)',
+    );
+  }
+
+  return {
+    verified: reasons.length === 0,
+    reasons,
+    unapprovedReviews,
+    mergeArtifact,
+  };
 }
 
 // ─── handleCleanup ──────────────────────────────────────────────────────────
@@ -312,30 +422,24 @@ export async function handleCleanup(
   }
   mutableState.artifacts = artifacts;
 
-  // Force-resolve all blocking review statuses
-  const reviews = mutableState.reviews as Record<string, unknown> | undefined;
-  const hasReviewEntries = reviews !== undefined && Object.keys(reviews).length > 0;
-  if (reviews) {
-    for (const [, value] of Object.entries(reviews)) {
-      if (typeof value !== 'object' || value === null) continue;
-      const entry = value as Record<string, unknown>;
-      if (typeof entry.status === 'string') {
-        entry.status = 'approved';
-      } else {
-        for (const [, subValue] of Object.entries(entry)) {
-          if (typeof subValue === 'object' && subValue !== null) {
-            const sub = subValue as Record<string, unknown>;
-            if (typeof sub.status === 'string') {
-              sub.status = 'approved';
-            }
-          }
-        }
-      }
-    }
-  }
-
-  // Set _cleanup.mergeVerified for the HSM guard
-  mutableState._cleanup = { mergeVerified: true };
+  // ─── DR-8: the guard's inputs are EVIDENCE, never force-written ───────
+  //
+  // Characterized behaviour this replaces (the `pass-state-fix` class named in
+  // `retirement/retirement-safety.ts`): cleanup walked `state.reviews` and
+  // force-assigned `entry.status = 'approved'` (including nested sub-reviews),
+  // then stamped `_cleanup = { mergeVerified: true }` — literally writing the
+  // inputs of `guards.mergeVerified` on the line before asking it for
+  // permission. Measured: `{ 't1': { status: 'needs_fixes' },
+  // 't2': { specReview: { status: 'fail' } } }` came out of cleanup with every
+  // status rewritten to `approved` and the phase advanced to `completed`. The
+  // guard could not fail; it was decoration.
+  //
+  // Now cleanup READS the evidence and hands the guard the verdict that
+  // evidence supports. Reviews are never rewritten, and when the evidence is
+  // absent `mergeVerified` is FALSE, so the guarded primitive rejects the
+  // transition instead of rubber-stamping it.
+  const evidence = collectCleanupEvidence(mutableState);
+  mutableState._cleanup = { mergeVerified: evidence.verified };
 
   // ─── HSM transition — the SINGLE guarded primitive (DR-7 / INV-9) ─────
   //
@@ -388,6 +492,21 @@ export async function handleCleanup(
   );
 
   if (!attempt.ok) {
+    // DR-8: when the EVIDENCE was insufficient, the failure is a guard failure
+    // and must be reported as one. `guards.mergeVerified` denying the universal
+    // cleanup edge makes `executeTransition` fall through to the ordinary
+    // transition lookup, which then reports INVALID_TRANSITION — a downstream
+    // artefact of the guard denial, not the cause. Report the cause, and name
+    // the evidence the caller must actually produce (never have cleanup write).
+    if (!evidence.verified) {
+      return {
+        success: false,
+        error: {
+          code: ErrorCode.GUARD_FAILED,
+          message: `Cleanup guard 'merge-verified' failed — cleanup evidence insufficient: ${evidence.reasons.join('; ')}`,
+        },
+      };
+    }
     return {
       success: false,
       error: {
@@ -458,9 +577,9 @@ export async function handleCleanup(
         currentPhase,
         synthesis,
         artifacts,
-        reviews,
-        hasReviewEntries,
         hasSynthesisBackfill: input.prUrl !== undefined || input.mergedBranches !== undefined,
+        mergeVerified: evidence.verified,
+        mergeArtifact: evidence.mergeArtifact,
         transitionEvents: attempt.emittedEvents,
         prUrl: input.prUrl,
         mergedBranches: input.mergedBranches,

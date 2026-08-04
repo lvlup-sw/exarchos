@@ -134,7 +134,8 @@ describe('DR-7 — cleanup and cancel route through the guarded primitive', () =
     const store = new EventStore(tmpDir);
 
     const result = await handleCleanup(
-      { featureId: 'cleanup-routes', mergeVerified: true },
+      // DR-8: real merge evidence — cleanup no longer manufactures it.
+      { featureId: 'cleanup-routes', mergeVerified: true, prUrl: 'https://github.com/test/pr/1' },
       tmpDir,
       store,
     );
@@ -172,7 +173,7 @@ describe('DR-7 — cleanup and cancel route through the guarded primitive', () =
     });
 
     const result = await handleCleanup(
-      { featureId: 'cleanup-denied', mergeVerified: true },
+      { featureId: 'cleanup-denied', mergeVerified: true, prUrl: 'https://github.com/test/pr/1' },
       tmpDir,
       store,
     );
@@ -229,7 +230,7 @@ describe('DR-7 — every phase mutation is shadow-observed', () => {
     const store = new EventStore(tmpDir);
 
     const result = await handleCleanup(
-      { featureId: 'cleanup-observed', mergeVerified: true },
+      { featureId: 'cleanup-observed', mergeVerified: true, prUrl: 'https://github.com/test/pr/1' },
       tmpDir,
       store,
     );
@@ -327,7 +328,7 @@ describe('DR-7 — no partial event trail survives a mid-transition failure', ()
     );
 
     const result = await handleCleanup(
-      { featureId: 'cleanup-atomic-state', mergeVerified: true },
+      { featureId: 'cleanup-atomic-state', mergeVerified: true, prUrl: 'https://github.com/test/pr/1' },
       tmpDir,
       store,
     );
