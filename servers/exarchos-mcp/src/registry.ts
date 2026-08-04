@@ -1821,8 +1821,14 @@ const orchestrateActions: readonly ToolAction[] = [
     // DR-5: shells out to `npm run lint` and `npm run typecheck`; on
     // non-trivial repos both exceed the 2s heartbeat threshold.
     longRunning: true,
+    // T-01/T-02: routed through `runDurableGateProducer` → `runGate`, the
+    // single authoritative producer of `gate.executed` (minted from the SAME
+    // persisted `admission.evidence-recorded` record). Both rows are genuinely
+    // emitted on every call — declaring only the evidence row here understated
+    // the contract `task_complete`'s `hasPassingGate('static-analysis')` reads.
     autoEmits: [
       { event: 'admission.evidence-recorded', condition: 'always' },
+      { event: 'gate.executed', condition: 'always' },
     ],
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: LOCAL_MUTATION,
@@ -1853,8 +1859,12 @@ const orchestrateActions: readonly ToolAction[] = [
     // Shells out to `npm run test:run -- --reporter=json` over the entire
     // suite; on a real repo this far exceeds the 2s heartbeat threshold.
     longRunning: true,
+    // T-01/T-02: routed through `runDurableGateProducer` → `runGate`, which
+    // mints `gate.executed` from the same persisted evidence record it just
+    // wrote — both rows are genuinely emitted on every call.
     autoEmits: [
       { event: 'admission.evidence-recorded', condition: 'always' },
+      { event: 'gate.executed', condition: 'always' },
     ],
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: LOCAL_MUTATION,
@@ -2122,8 +2132,12 @@ const orchestrateActions: readonly ToolAction[] = [
     // Reverts source + shells out to the resolved test command; on a real repo
     // this exceeds the 2s heartbeat threshold.
     longRunning: true,
+    // T-01/T-02: routed through `runDurableGateProducer` → `runGate`, which
+    // mints `gate.executed` from the same persisted evidence record it just
+    // wrote — both rows are genuinely emitted on every call.
     autoEmits: [
       { event: 'admission.evidence-recorded', condition: 'always' },
+      { event: 'gate.executed', condition: 'always' },
     ],
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: LOCAL_MUTATION,
@@ -2160,8 +2174,12 @@ const orchestrateActions: readonly ToolAction[] = [
     // Shells out to codegen/typecheck/breaking-diff against a real repo; on a
     // real project this exceeds the 2s heartbeat threshold.
     longRunning: true,
+    // T-01/T-02: routed through `runDurableGateProducer` → `runGate`, which
+    // mints `gate.executed` from the same persisted evidence record it just
+    // wrote — both rows are genuinely emitted on every call.
     autoEmits: [
       { event: 'admission.evidence-recorded', condition: 'always' },
+      { event: 'gate.executed', condition: 'always' },
     ],
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: LOCAL_MUTATION,
@@ -2205,8 +2223,12 @@ const orchestrateActions: readonly ToolAction[] = [
     // resolveGateSeverity). The registry flag mirrors that default so the
     // RunbookDrift blocking-gate coverage check treats it as advisory.
     gate: { blocking: false, dimension: 'D1', gateClass: 'mock-boundary' },
+    // T-01/T-02: routed through `runDurableGateProducer` → `runGate`, which
+    // mints `gate.executed` from the same persisted evidence record it just
+    // wrote — both rows are genuinely emitted on every call.
     autoEmits: [
       { event: 'admission.evidence-recorded', condition: 'always' },
+      { event: 'gate.executed', condition: 'always' },
     ],
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: LOCAL_MUTATION,

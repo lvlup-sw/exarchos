@@ -74,7 +74,11 @@ export const TASK_COMPLETION: RunbookDefinition = {
     // resolved — the `<riskTier>` / `<boundaryTouching>` placeholders on the
     // gate steps above have nothing to bind to otherwise.
     'riskTier', 'boundaryTouching'],
-  autoEmits: ['admission.evidence-recorded', 'task.completed'],
+  // T-01/T-02: every check_* gate step above routes through the canonical
+  // durable gate runner, which mints `gate.executed` from the SAME persisted
+  // `admission.evidence-recorded` record it just wrote (registry.ts declares
+  // both now — see the `runDurableGateProducer` comment on each action).
+  autoEmits: ['admission.evidence-recorded', 'gate.executed', 'task.completed'],
 };
 
 export const QUALITY_EVALUATION: RunbookDefinition = {
@@ -243,7 +247,9 @@ export const TASK_FIX: RunbookDefinition = {
   templateVars: ['taskId', 'featureId', 'streamId', 'branch', 'agentId', 'failureContext', 'worktreePath',
     // DR-3: the frozen delegation stamp — see TASK_COMPLETION.templateVars.
     'riskTier', 'boundaryTouching'],
-  autoEmits: ['admission.evidence-recorded', 'task.completed'],
+  // T-01/T-02: check_test_adequacy + check_static_analysis both route through
+  // the canonical durable gate runner — see TASK_COMPLETION.autoEmits.
+  autoEmits: ['admission.evidence-recorded', 'gate.executed', 'task.completed'],
 };
 
 export const TRIAGE_DECISION: RunbookDefinition = {
