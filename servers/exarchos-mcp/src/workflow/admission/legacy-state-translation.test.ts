@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { getEdgeIR } from './built-in-workflow-ir.js';
+import { EvidenceSubjectV1Schema } from './types.js';
 import {
   adjudicateEdge,
   defaultTranslationContext,
@@ -64,6 +65,96 @@ describe('projectStateToFacts — reads real legacy state', () => {
   it('projects routing selectors definitely (absent → empty-string sentinel)', () => {
     expect(projectStateToFacts({}).fields['track']).toBe('');
     expect(projectStateToFacts({ track: 'hotfix' }).fields['track']).toBe('hotfix');
+  });
+
+  it('resolves CONFIG-BEARING obligations from the same injected state the guards read', () => {
+    // The single-authority seam. Each of these facts is a RESOLVED obligation,
+    // not a raw state read — the shared IR consumes them instead of hardcoding
+    // the threshold, so admission cannot drift toward over-admission on a
+    // configured project.
+    const configured = projectStateToFacts({
+      planReview: { revisionCount: 1 },
+      _maxPlanRevisions: 3,
+    });
+    expect(configured.fields['policy.maxPlanRevisions']).toBe(3);
+    expect(configured.fields['planReview.revisionsExhausted']).toBe(false);
+
+    const defaulted = projectStateToFacts({ planReview: { revisionCount: 1 } });
+    expect(defaulted.fields['policy.maxPlanRevisions']).toBe(1);
+    expect(defaulted.fields['planReview.revisionsExhausted']).toBe(true);
+  });
+
+  it('separates the STRICT oneshot plan probe from the loose artifact probe', () => {
+    // `oneshotPlanSet` requires a trimmed non-empty string; `planArtifactExists`
+    // accepts any non-null value. Two contracts, two facts.
+    for (const plan of [true, {}, 0, '   ', '']) {
+      const facts = projectStateToFacts({ artifacts: { plan } });
+      expect(facts.fields['artifacts.planNonEmpty'], JSON.stringify(plan)).toBe(false);
+    }
+    const ok = projectStateToFacts({ artifacts: { plan: '  docs/plan.md  ' } });
+    expect(ok.fields['artifacts.planNonEmpty']).toBe(true);
+    // The loose probe still sees the non-string value (feature/refactor edges).
+    expect(
+      projectStateToFacts({ artifacts: { plan: true } }).fields['artifacts.plan'],
+    ).toBe('<present>');
+  });
+
+  it('defaults a missing oneshot synthesis policy to on-request (not a sentinel)', () => {
+    // An `''` sentinel matches NO branch, which denied both outbound edges of
+    // `implementing` and deadlocked the DEFAULT oneshot flow.
+    expect(projectStateToFacts({}).fields['oneshot.synthesisPolicy']).toBe(
+      'on-request',
+    );
+    expect(
+      projectStateToFacts({ oneshot: { synthesisPolicy: 'bogus' } }).fields[
+        'oneshot.synthesisPolicy'
+      ],
+    ).toBe('on-request');
+    expect(
+      projectStateToFacts({ oneshot: { synthesisPolicy: 'always' } }).fields[
+        'oneshot.synthesisPolicy'
+      ],
+    ).toBe('always');
+  });
+
+  it('folds required-review dimensions and mutation enforcement into ONE obligation fact', () => {
+    const missingDimension = projectStateToFacts({
+      reviews: { quality: { status: 'approved' } },
+      _requiredReviews: ['quality', 'security'],
+    });
+    expect(missingDimension.fields['reviews.allPassed']).toBe(true);
+    expect(missingDimension.fields['reviews.requiredSatisfied']).toBe(false);
+
+    const blockedByScore = projectStateToFacts({
+      reviews: {
+        quality: { status: 'pass' },
+        'mutation-adequacy': { status: 'pass', mutationScore: 42 },
+      },
+      _mutationEnforcement: 'block',
+      _mutationThreshold: 80,
+    });
+    expect(blockedByScore.fields['reviews.requiredSatisfied']).toBe(false);
+
+    const advisory = projectStateToFacts({
+      reviews: {
+        quality: { status: 'pass' },
+        'mutation-adequacy': { status: 'pass', mutationScore: 42 },
+      },
+      _mutationEnforcement: 'advisory',
+      _mutationThreshold: 80,
+    });
+    expect(advisory.fields['reviews.requiredSatisfied']).toBe(true);
+  });
+
+  it('mirrors the legacy nested / legacy-`passed` review shapes', () => {
+    const nested = projectStateToFacts({
+      reviews: { A1: { specReview: { status: 'pass' }, qualityReview: { verdict: 'APPROVED' } } },
+    });
+    expect(nested.fields['reviews.allPassed']).toBe(true);
+
+    const legacyPassed = projectStateToFacts({ reviews: { a: { passed: false } } });
+    expect(legacyPassed.fields['reviews.allPassed']).toBe(false);
+    expect(legacyPassed.fields['reviews.anyFailed']).toBe(true);
   });
 
   it('derives review status from the legacy status/verdict vocabulary', () => {
@@ -163,6 +254,26 @@ describe('translateEdgeAdmission — mints genuine evidence, not a scenario prox
       translateEdgeAdmission(gateEdge(), { artifacts: { plan: 'x' } }, CTX),
     ).not.toThrow();
     expect(() => translateEdgeAdmission(gateEdge(), {}, CTX)).not.toThrow();
+  });
+
+  it('builds the evidence subject through the SCHEMA, not an `as` assertion', () => {
+    // The subject used to be produced by `{...} as EvidenceSubjectV1` — an
+    // unchecked assertion that would have let a malformed subject reach minted
+    // evidence. It is now schema-parsed, so the result is genuinely valid.
+    const t = translateEdgeAdmission(gateEdge(), { artifacts: { plan: 'x' } }, CTX);
+    const ev = t.evidence[0];
+    if (ev === undefined) throw new Error('expected minted evidence');
+    // Round-tripping through the schema must be a no-op for a valid subject.
+    expect(EvidenceSubjectV1Schema.parse(ev.subject)).toEqual(ev.subject);
+    expect(ev.subject.kind).toBe('phase-attempt');
+    // And the requirement carries the same validated subject.
+    const req = t.requirements[0];
+    if (req === undefined) throw new Error('expected a requirement');
+    expect(EvidenceSubjectV1Schema.parse(req.subject)).toEqual(req.subject);
+    // A structurally invalid subject is REJECTED (the parse is real, not a cast).
+    expect(() =>
+      EvidenceSubjectV1Schema.parse({ kind: 'phase-attempt', phaseAttemptId: 'x' }),
+    ).toThrow();
   });
 });
 

@@ -148,14 +148,50 @@ export const FACT_DECLARATION: EdgeConditionDeclaration = {
     'mergePending.entryReady': 'boolean',
     'mergePending.exitReady': 'boolean',
     'team.disbandedOk': 'boolean',
+    // ── CONFIG-DERIVED obligation facts (see the note below) ──
+    'planReview.revisionsExhausted': 'boolean',
+    'reviews.requiredSatisfied': 'boolean',
+    'artifacts.planNonEmpty': 'boolean',
     // ── counter facts (number) ──
     'planReview.revisionCount': 'number',
+    'policy.maxPlanRevisions': 'number',
     'synthesis.retryCount': 'number',
     'tasks.count': 'number',
     'artifacts.sources.count': 'number',
   },
   events: ['synthesize.requested'],
 } as const satisfies EdgeConditionDeclaration;
+
+// ─── Single authority for config-bearing obligations (P07-02 soundness fix) ────
+//
+// A transition boundary must have exactly ONE authority. The legacy guards read
+// per-project configuration and resolved tier state that `workflow/tools.ts`
+// injects onto the workflow state before the pure guard runs:
+//
+//   `_maxPlanRevisions`   → `revisionsExhausted`  (the plan-revision cap)
+//   `_requiredReviews`    → `allReviewsPassed`    (required review dimensions)
+//   `_mutationEnforcement` / `_mutationThreshold` / `_maxNoCoverage`
+//                         → `allReviewsPassed`    (HIGH-tier mutation gates)
+//   a MISSING `oneshot.synthesisPolicy` → `'on-request'` (the default branch)
+//
+// Expressing those obligations as HARDCODED CONSTANTS in this IR would create a
+// SECOND authority that silently drifts from the first: with a configured cap of
+// 3 and `revisionCount === 1`, a `revisionCount >= 1` constant admits an edge the
+// legacy guard denies — an OVER-admission, the unsafe direction. The drift is
+// invisible to a corpus generated from default/no-config fixtures, because that
+// is exactly the input region where the constant and the config agree.
+//
+// So none of these thresholds live here. `legacy-state-translation`'s
+// `projectStateToFacts` reads the SAME injected state the legacy guard reads and
+// projects the resolved obligation as a DERIVED FACT
+// (`planReview.revisionsExhausted`, `reviews.requiredSatisfied`,
+// `artifacts.planNonEmpty`, and a policy-defaulted `oneshot.synthesisPolicy`).
+// The IR consumes the resolved fact; the projection owns the resolution. One
+// authority, one place to change, no constant to drift.
+//
+// `planReview.revisionCount` and `policy.maxPlanRevisions` remain declared as
+// observable counters so a decision explanation can still name BOTH sides of the
+// comparison — they are evidence, not the decision.
 
 // ─── Node / obligation builders (compile-time validated) ───────────────────────
 
@@ -181,6 +217,7 @@ const cmp = (
 ): unknown => ({ kind: 'counterCompare', field, op, value });
 const all = (...operands: unknown[]): unknown => ({ kind: 'all', operands });
 const any = (...operands: unknown[]): unknown => ({ kind: 'any', operands });
+const not = (operand: unknown): unknown => ({ kind: 'not', operand });
 const evt = (event: string): unknown => ({ kind: 'eventObserved', event });
 
 /** The always-legal route (no branch selector on the edge). */
@@ -201,8 +238,43 @@ const approval = (
     presence: compile(presence),
   });
 
-/** Default plan-revision cap (state._maxPlanRevisions default is 1). */
-const MAX_PLAN_REVISIONS = 1;
+/**
+ * The plan-revision cap is NOT a constant here — it is per-project config the
+ * legacy guard reads from `state._maxPlanRevisions`. The projection resolves
+ * `revisionCount >= cap` against that injected value and publishes the result as
+ * `planReview.revisionsExhausted`, so this edge consumes ONE authority's answer.
+ */
+const REVISIONS_EXHAUSTED = eqBool('planReview.revisionsExhausted', true);
+
+/**
+ * `all-reviews-passed` is not "the present reviews passed" — the legacy guard
+ * ALSO denies on missing `_requiredReviews` dimensions and on HIGH-tier
+ * mutation-score / NoCoverage enforcement. The projection resolves all three
+ * axes from the same injected state and publishes the conjunction.
+ */
+const REQUIRED_REVIEWS_SATISFIED = eqBool('reviews.requiredSatisfied', true);
+
+/**
+ * The oneshot synthesis branch, mirroring `synthesisOptedIn` /
+ * `synthesisOptedOut` EXACTLY — including the `'on-request'` DEFAULT for a
+ * missing policy. `never` is an absolute opt-out (a stray `synthesize.requested`
+ * event must not re-open the synthesize branch), and `on-request` with no
+ * request event takes the DIRECT-COMMIT edge. Modelling only
+ * `policy === 'never'` on the direct-commit edge deadlocked the DEFAULT oneshot
+ * flow: both outbound edges of `implementing` denied.
+ */
+const SYNTHESIS_OPTED_IN = any(
+  eqStr('oneshot.synthesisPolicy', 'always'),
+  all(eqStr('oneshot.synthesisPolicy', 'on-request'), evt('synthesize.requested')),
+);
+const SYNTHESIS_OPTED_OUT = any(
+  eqStr('oneshot.synthesisPolicy', 'never'),
+  all(
+    eqStr('oneshot.synthesisPolicy', 'on-request'),
+    not(evt('synthesize.requested')),
+  ),
+);
+
 /** Synthesize retry cap (MAX_SYNTHESIZE_RETRIES). */
 const MAX_SYNTHESIZE_RETRIES = 3;
 
@@ -271,7 +343,7 @@ const FEATURE_EDGES = buildEdges('feature', [
     toPhaseKind: 'GATHER',
     category: 'bounded-loop-rule',
     legacyGuardId: 'revisions-exhausted',
-    route: compile(cmp('planReview.revisionCount', 'gte', MAX_PLAN_REVISIONS)),
+    route: compile(REVISIONS_EXHAUSTED),
     obligation: NONE,
   },
   {
@@ -316,7 +388,7 @@ const FEATURE_EDGES = buildEdges('feature', [
     toPhaseKind: 'SYNTHESIZE',
     category: 'approval',
     legacyGuardId: 'all-reviews-passed',
-    obligation: approval('reviews', eqBool('reviews.allPassed', true)),
+    obligation: approval('reviews', REQUIRED_REVIEWS_SATISFIED),
   },
   {
     from: 'review',
@@ -507,7 +579,10 @@ const ONESHOT_EDGES = buildEdges('oneshot', [
     toPhaseKind: 'IMPLEMENT',
     category: 'admission-requirement',
     legacyGuardId: 'oneshot-plan-set',
-    obligation: gate('oneshot-plan', present('artifacts.plan')),
+    // NOT a bare presence probe: `oneshotPlanSet` requires a TRIMMED NON-EMPTY
+    // STRING. A bare `factPresent` admits `artifacts.plan = true`, `{}` or
+    // `'   '`, all of which the guard denies.
+    obligation: gate('oneshot-plan', eqBool('artifacts.planNonEmpty', true)),
   },
   {
     from: 'implementing',
@@ -515,9 +590,7 @@ const ONESHOT_EDGES = buildEdges('oneshot', [
     toPhaseKind: 'SYNTHESIZE',
     category: 'route-condition',
     legacyGuardId: 'synthesis-opted-in',
-    route: compile(
-      any(eqStr('oneshot.synthesisPolicy', 'always'), evt('synthesize.requested')),
-    ),
+    route: compile(SYNTHESIS_OPTED_IN),
     obligation: NONE,
   },
   {
@@ -526,7 +599,7 @@ const ONESHOT_EDGES = buildEdges('oneshot', [
     toPhaseKind: 'IMPLEMENT',
     category: 'route-condition',
     legacyGuardId: 'synthesis-opted-out',
-    route: compile(eqStr('oneshot.synthesisPolicy', 'never')),
+    route: compile(SYNTHESIS_OPTED_OUT),
     obligation: NONE,
   },
   {
@@ -635,7 +708,7 @@ const REFACTOR_EDGES = buildEdges('refactor', [
     toPhaseKind: 'GATHER',
     category: 'bounded-loop-rule',
     legacyGuardId: 'revisions-exhausted',
-    route: compile(cmp('planReview.revisionCount', 'gte', MAX_PLAN_REVISIONS)),
+    route: compile(REVISIONS_EXHAUSTED),
     obligation: NONE,
   },
   {
@@ -669,7 +742,7 @@ const REFACTOR_EDGES = buildEdges('refactor', [
     toPhaseKind: 'GATHER',
     category: 'approval',
     legacyGuardId: 'all-reviews-passed',
-    obligation: approval('reviews', eqBool('reviews.allPassed', true)),
+    obligation: approval('reviews', REQUIRED_REVIEWS_SATISFIED),
   },
   {
     from: 'overhaul-review',

@@ -1,9 +1,11 @@
 // ─── P07-02 exit-proof (a) + corpus-delta — decision fixtures per workflow ────
 //
-// Drives the FROZEN P06-01 legacy transition corpus (`legacyTransitionCorpus`)
-// through the shared-IR admission adjudicator (`adjudicateEdge`) and compares
-// the evidence-backed verdict against the authoritative legacy verdict recorded
-// in the corpus. Two things are proved:
+// Drives the FULL transition corpus (`transitionAdmissionCorpus` = the frozen
+// P06-01 default-input baseline PLUS the config-bearing fixtures) through the
+// shared-IR admission adjudicator (`adjudicateEdge`) and compares the
+// evidence-backed verdict against the authoritative legacy verdict recorded in
+// the corpus (itself machine-attested against the real guards by
+// `corpus-legacy-baseline.test.ts`). Two things are proved:
 //
 //   (a) every built-in-workflow edge in the corpus resolves to a shared-IR edge
 //       and produces the EXPECTED decision (agreement wherever the legacy guard
@@ -12,11 +14,16 @@
 //       disagreements that correspond to genuine P06-01 legacy guard-soundness
 //       defects — no more, no fewer — and every one is in the SAFE direction
 //       (legacy over-admits; admission denies).
+//
+// The config-bearing half matters: running this delta over DEFAULT-input
+// fixtures only would assert the "no dangerous over-admission" property over
+// exactly the input region where a hardcoded-threshold drift CANNOT show up.
 
 import { describe, expect, it } from 'vitest';
 
 import {
-  legacyTransitionCorpus,
+  configBearingCorpus,
+  transitionAdmissionCorpus,
   type LegacyTransitionFixture,
 } from '../__fixtures__/transition-admission-corpus.js';
 import { getEdgeIR } from './built-in-workflow-ir.js';
@@ -79,7 +86,7 @@ function shadowVerdict(fixture: LegacyTransitionFixture): PolicyVerdict {
 
 function collectDisagreements(): readonly Disagreement[] {
   const out: Disagreement[] = [];
-  for (const fixture of legacyTransitionCorpus) {
+  for (const fixture of transitionAdmissionCorpus) {
     const shadow = shadowVerdict(fixture);
     if (shadow !== fixture.expected.verdict) {
       out.push({ id: fixture.id, legacy: fixture.expected.verdict, shadow });
@@ -90,7 +97,7 @@ function collectDisagreements(): readonly Disagreement[] {
 
 describe('built-in workflow decision fixtures (exit-proof a)', () => {
   it('every corpus fixture resolves to a shared-IR edge', () => {
-    for (const fixture of legacyTransitionCorpus) {
+    for (const fixture of transitionAdmissionCorpus) {
       const edge = getEdgeIR(fixture.workflowType, fixture.from, fixture.to);
       expect(
         edge,
@@ -100,14 +107,14 @@ describe('built-in workflow decision fixtures (exit-proof a)', () => {
   });
 
   it('produces a definite allow/deny for every fixture (no indeterminate)', () => {
-    for (const fixture of legacyTransitionCorpus) {
+    for (const fixture of transitionAdmissionCorpus) {
       const shadow = shadowVerdict(fixture);
       expect(shadow, fixture.id).not.toBe('indeterminate');
     }
   });
 
   it('agrees with the legacy verdict on every fixture except the known defects', () => {
-    for (const fixture of legacyTransitionCorpus) {
+    for (const fixture of transitionAdmissionCorpus) {
       if (EXPECTED_DISAGREEMENTS.has(fixture.id)) continue;
       const shadow = shadowVerdict(fixture);
       expect(shadow, `${fixture.id} should agree with legacy`).toBe(
@@ -118,6 +125,36 @@ describe('built-in workflow decision fixtures (exit-proof a)', () => {
 });
 
 describe('corpus disagreement delta (real translation vs scenario proxy)', () => {
+  it('exercises the CONFIG-BEARING fixtures (the delta is not measured on defaults alone)', () => {
+    // Anti-vacuity. The "no dangerous over-admission" claim below is only worth
+    // anything if the corpus actually contains the inputs on which a
+    // dual-authority drift can manifest. Silently dropping them would make the
+    // assertions pass trivially, which is precisely how the original defect
+    // stayed invisible.
+    expect(configBearingCorpus.length).toBeGreaterThanOrEqual(20);
+    const ids = new Set(transitionAdmissionCorpus.map((f) => f.id));
+    for (const fixture of configBearingCorpus) {
+      expect(ids.has(fixture.id), `${fixture.id} must be in the measured corpus`).toBe(
+        true,
+      );
+    }
+    // Every config axis the legacy guards read must be represented.
+    const states = configBearingCorpus.map((f) => JSON.stringify(f.state));
+    for (const key of [
+      '_maxPlanRevisions',
+      '_requiredReviews',
+      '_mutationEnforcement',
+      '_mutationThreshold',
+      '_maxNoCoverage',
+      'synthesisPolicy',
+    ]) {
+      expect(
+        states.some((s) => s.includes(key)),
+        `no config-bearing fixture carries ${key}`,
+      ).toBe(true);
+    }
+  });
+
   it('surfaces EXACTLY the known-defect disagreements — 6, down from P07-01’s 9', () => {
     const disagreements = collectDisagreements();
     const ids = new Set(disagreements.map((d) => d.id));
@@ -126,6 +163,12 @@ describe('corpus disagreement delta (real translation vs scenario proxy)', () =>
     // proxy split identical states by their `scenario` label). The real
     // translation reads the same state fields the guard reads and AGREES on
     // those three, so only genuine defects remain.
+    //
+    // Still 6 after the config-bearing fixtures were added: those fixtures
+    // exposed 14 further disagreements (11 of them DANGEROUS over-admissions)
+    // caused by the IR hardcoding thresholds the guards read from config. Those
+    // were FIXED at the source — the projection now resolves the obligations
+    // from the same injected state — rather than being registered as expected.
     expect(ids).toEqual(new Set(EXPECTED_DISAGREEMENTS.keys()));
     expect(disagreements).toHaveLength(6);
   });
@@ -138,11 +181,16 @@ describe('corpus disagreement delta (real translation vs scenario proxy)', () =>
   });
 
   it('surfaces no dangerous legacy-deny / admission-allow disagreement', () => {
-    for (const d of collectDisagreements()) {
-      expect(
-        d.legacy === 'deny' && d.shadow === 'allow',
-        `${d.id} must not be a dangerous over-admission`,
-      ).toBe(false);
-    }
+    // Collect ALL offenders rather than dying on the first, so a regression
+    // reports the full blast radius instead of one arbitrary fixture.
+    const dangerous = collectDisagreements().filter(
+      (d) => d.legacy === 'deny' && d.shadow === 'allow',
+    );
+    expect(
+      dangerous.map((d) => d.id),
+      `admission OVER-ADMITS where legacy denies: ${dangerous
+        .map((d) => d.id)
+        .join(', ')}`,
+    ).toEqual([]);
   });
 });

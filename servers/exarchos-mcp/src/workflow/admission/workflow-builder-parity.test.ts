@@ -45,11 +45,12 @@ import {
   event,
   gate,
   noObligation,
+  not,
   present,
   type WorkflowEdgeSpec,
 } from './workflow-builder.js';
 import {
-  legacyTransitionCorpus,
+  transitionAdmissionCorpus,
   type LegacyTransitionFixture,
 } from '../__fixtures__/transition-admission-corpus.js';
 
@@ -73,8 +74,7 @@ function serializeObligation(obligation: EdgeObligation): string {
   }
 }
 
-/** The MAX_PLAN_REVISIONS / MAX_SYNTHESIZE_RETRIES caps the hand IR uses. */
-const MAX_PLAN_REVISIONS = 1;
+/** The MAX_SYNTHESIZE_RETRIES cap the hand IR uses. */
 const MAX_SYNTHESIZE_RETRIES = 3;
 
 // Shared presence probes, re-authored through the builder combinators (the same
@@ -89,18 +89,36 @@ const RETRYABLE = all(
   present('synthesis.lastError'),
   compare('synthesis.retryCount', 'lt', MAX_SYNTHESIZE_RETRIES),
 );
+// The plan-revision cap and the review obligations are NOT constants here: they
+// are per-project config the legacy guards read, resolved by the projection and
+// consumed as derived facts. Re-authoring them as a hardcoded
+// `compare('planReview.revisionCount', 'gte', 1)` would reintroduce exactly the
+// second authority the IR was fixed to remove.
+const REVISIONS_EXHAUSTED = equals('planReview.revisionsExhausted', true);
+const REQUIRED_REVIEWS_SATISFIED = equals('reviews.requiredSatisfied', true);
+const SYNTHESIS_OPTED_IN = any(
+  equals('oneshot.synthesisPolicy', 'always'),
+  all(equals('oneshot.synthesisPolicy', 'on-request'), event('synthesize.requested')),
+);
+const SYNTHESIS_OPTED_OUT = any(
+  equals('oneshot.synthesisPolicy', 'never'),
+  all(
+    equals('oneshot.synthesisPolicy', 'on-request'),
+    not(event('synthesize.requested')),
+  ),
+);
 
 // ─── Builder-authored built-in workflows (mirrors BUILT_IN_WORKFLOW_IR) ───────
 
 const FEATURE_SPECS: readonly WorkflowEdgeSpec[] = [
   { workflowType: 'feature', from: 'plan', to: 'plan-review', toPhaseKind: 'PLAN', category: 'admission-requirement', legacyGuardId: 'plan-artifact-exists', obligation: gate('plan-artifact', PLAN_ARTIFACT_PRESENT) },
   { workflowType: 'feature', from: 'plan-review', to: 'delegate', toPhaseKind: 'IMPLEMENT', category: 'approval', legacyGuardId: 'plan-review-complete', obligation: approval('plan-review', equals('planReview.approved', true)) },
-  { workflowType: 'feature', from: 'plan-review', to: 'blocked', toPhaseKind: 'GATHER', category: 'bounded-loop-rule', legacyGuardId: 'revisions-exhausted', route: compare('planReview.revisionCount', 'gte', MAX_PLAN_REVISIONS), obligation: noObligation },
+  { workflowType: 'feature', from: 'plan-review', to: 'blocked', toPhaseKind: 'GATHER', category: 'bounded-loop-rule', legacyGuardId: 'revisions-exhausted', route: REVISIONS_EXHAUSTED, obligation: noObligation },
   { workflowType: 'feature', from: 'plan-review', to: 'plan', toPhaseKind: 'PLAN', category: 'route-condition', legacyGuardId: 'plan-review-gaps-found', route: equals('planReview.gapsFound', true), obligation: noObligation },
   { workflowType: 'feature', from: 'delegate', to: 'review', toPhaseKind: 'REVIEW', category: 'admission-requirement', legacyGuardId: 'all-tasks-complete+team-disbanded', obligation: gate('tasks-and-team', all(TASKS_COMPLETE, equals('team.disbandedOk', true))) },
   { workflowType: 'feature', from: 'delegate', to: 'merge-pending', toPhaseKind: 'MERGE', category: 'admission-requirement', legacyGuardId: 'merge-pending-entry', obligation: gate('merge-pending-entry', equals('mergePending.entryReady', true)) },
   { workflowType: 'feature', from: 'merge-pending', to: 'delegate', toPhaseKind: 'IMPLEMENT', category: 'admission-requirement', legacyGuardId: 'merge-pending-exit', obligation: gate('merge-pending-exit', equals('mergePending.exitReady', true)) },
-  { workflowType: 'feature', from: 'review', to: 'synthesize', toPhaseKind: 'SYNTHESIZE', category: 'approval', legacyGuardId: 'all-reviews-passed', obligation: approval('reviews', equals('reviews.allPassed', true)) },
+  { workflowType: 'feature', from: 'review', to: 'synthesize', toPhaseKind: 'SYNTHESIZE', category: 'approval', legacyGuardId: 'all-reviews-passed', obligation: approval('reviews', REQUIRED_REVIEWS_SATISFIED) },
   { workflowType: 'feature', from: 'review', to: 'delegate', toPhaseKind: 'IMPLEMENT', category: 'route-condition', legacyGuardId: 'any-review-failed', route: equals('reviews.anyFailed', true), obligation: noObligation },
   { workflowType: 'feature', from: 'synthesize', to: 'delegate', toPhaseKind: 'IMPLEMENT', category: 'bounded-loop-rule', legacyGuardId: 'synthesize-retryable', route: RETRYABLE, obligation: noObligation },
   { workflowType: 'feature', from: 'synthesize', to: 'completed', toPhaseKind: 'SYNTHESIZE', category: 'admission-requirement', legacyGuardId: 'pr-url-exists', obligation: gate('pr-url', PR_URL_PRESENT) },
@@ -135,11 +153,11 @@ const REFACTOR_SPECS: readonly WorkflowEdgeSpec[] = [
   { workflowType: 'refactor', from: 'polish-update-docs', to: 'completed', toPhaseKind: 'GATHER', category: 'admission-requirement', legacyGuardId: 'docs-updated', obligation: gate('docs-updated', equals('validation.docsUpdated', true)) },
   { workflowType: 'refactor', from: 'overhaul-plan', to: 'overhaul-plan-review', toPhaseKind: 'PLAN', category: 'admission-requirement', legacyGuardId: 'plan-artifact-exists', obligation: gate('plan-artifact', PLAN_ARTIFACT_PRESENT) },
   { workflowType: 'refactor', from: 'overhaul-plan-review', to: 'overhaul-delegate', toPhaseKind: 'IMPLEMENT', category: 'approval', legacyGuardId: 'plan-review-complete', obligation: approval('plan-review', equals('planReview.approved', true)) },
-  { workflowType: 'refactor', from: 'overhaul-plan-review', to: 'blocked', toPhaseKind: 'GATHER', category: 'bounded-loop-rule', legacyGuardId: 'revisions-exhausted', route: compare('planReview.revisionCount', 'gte', MAX_PLAN_REVISIONS), obligation: noObligation },
+  { workflowType: 'refactor', from: 'overhaul-plan-review', to: 'blocked', toPhaseKind: 'GATHER', category: 'bounded-loop-rule', legacyGuardId: 'revisions-exhausted', route: REVISIONS_EXHAUSTED, obligation: noObligation },
   { workflowType: 'refactor', from: 'overhaul-plan-review', to: 'overhaul-plan', toPhaseKind: 'PLAN', category: 'route-condition', legacyGuardId: 'plan-review-gaps-found', route: equals('planReview.gapsFound', true), obligation: noObligation },
   { workflowType: 'refactor', from: 'blocked', to: 'overhaul-delegate', toPhaseKind: 'IMPLEMENT', category: 'approval', legacyGuardId: 'human-unblocked', obligation: approval('unblock', equals('unblocked', true)) },
   { workflowType: 'refactor', from: 'overhaul-delegate', to: 'overhaul-review', toPhaseKind: 'REVIEW', category: 'admission-requirement', legacyGuardId: 'all-tasks-complete', obligation: gate('all-tasks-complete', TASKS_COMPLETE) },
-  { workflowType: 'refactor', from: 'overhaul-review', to: 'overhaul-update-docs', toPhaseKind: 'GATHER', category: 'approval', legacyGuardId: 'all-reviews-passed', obligation: approval('reviews', equals('reviews.allPassed', true)) },
+  { workflowType: 'refactor', from: 'overhaul-review', to: 'overhaul-update-docs', toPhaseKind: 'GATHER', category: 'approval', legacyGuardId: 'all-reviews-passed', obligation: approval('reviews', REQUIRED_REVIEWS_SATISFIED) },
   { workflowType: 'refactor', from: 'overhaul-review', to: 'overhaul-delegate', toPhaseKind: 'IMPLEMENT', category: 'route-condition', legacyGuardId: 'any-review-failed', route: equals('reviews.anyFailed', true), obligation: noObligation },
   { workflowType: 'refactor', from: 'overhaul-update-docs', to: 'synthesize', toPhaseKind: 'SYNTHESIZE', category: 'admission-requirement', legacyGuardId: 'docs-updated', obligation: gate('docs-updated', equals('validation.docsUpdated', true)) },
   { workflowType: 'refactor', from: 'synthesize', to: 'overhaul-delegate', toPhaseKind: 'IMPLEMENT', category: 'bounded-loop-rule', legacyGuardId: 'synthesize-retryable', route: RETRYABLE, obligation: noObligation },
@@ -147,9 +165,9 @@ const REFACTOR_SPECS: readonly WorkflowEdgeSpec[] = [
 ];
 
 const ONESHOT_SPECS: readonly WorkflowEdgeSpec[] = [
-  { workflowType: 'oneshot', from: 'plan', to: 'implementing', toPhaseKind: 'IMPLEMENT', category: 'admission-requirement', legacyGuardId: 'oneshot-plan-set', obligation: gate('oneshot-plan', present('artifacts.plan')) },
-  { workflowType: 'oneshot', from: 'implementing', to: 'synthesize', toPhaseKind: 'SYNTHESIZE', category: 'route-condition', legacyGuardId: 'synthesis-opted-in', route: any(equals('oneshot.synthesisPolicy', 'always'), event('synthesize.requested')), obligation: noObligation },
-  { workflowType: 'oneshot', from: 'implementing', to: 'completed', toPhaseKind: 'IMPLEMENT', category: 'route-condition', legacyGuardId: 'synthesis-opted-out', route: equals('oneshot.synthesisPolicy', 'never'), obligation: noObligation },
+  { workflowType: 'oneshot', from: 'plan', to: 'implementing', toPhaseKind: 'IMPLEMENT', category: 'admission-requirement', legacyGuardId: 'oneshot-plan-set', obligation: gate('oneshot-plan', equals('artifacts.planNonEmpty', true)) },
+  { workflowType: 'oneshot', from: 'implementing', to: 'synthesize', toPhaseKind: 'SYNTHESIZE', category: 'route-condition', legacyGuardId: 'synthesis-opted-in', route: SYNTHESIS_OPTED_IN, obligation: noObligation },
+  { workflowType: 'oneshot', from: 'implementing', to: 'completed', toPhaseKind: 'IMPLEMENT', category: 'route-condition', legacyGuardId: 'synthesis-opted-out', route: SYNTHESIS_OPTED_OUT, obligation: noObligation },
   { workflowType: 'oneshot', from: 'synthesize', to: 'completed', toPhaseKind: 'SYNTHESIZE', category: 'admission-requirement', legacyGuardId: 'merge-verified', obligation: gate('merge-verified', equals('cleanup.mergeVerified', true)) },
 ];
 
@@ -242,7 +260,7 @@ describe('builder-authored edges round-trip the shared IR (exit-proof a)', () =>
 
 describe('builder-authored definitions produce the expected decisions (exit-proof b)', () => {
   it('resolves a builder edge for every corpus fixture', () => {
-    for (const fixture of legacyTransitionCorpus) {
+    for (const fixture of transitionAdmissionCorpus) {
       expect(
         () => builderEdge(fixture.workflowType, fixture.from, fixture.to),
         fixture.id,
@@ -251,14 +269,14 @@ describe('builder-authored definitions produce the expected decisions (exit-proo
   });
 
   it('produces a definite allow/deny for every fixture (no indeterminate)', () => {
-    for (const fixture of legacyTransitionCorpus) {
+    for (const fixture of transitionAdmissionCorpus) {
       const edge = builderEdge(fixture.workflowType, fixture.from, fixture.to);
       expect(decisionOf(edge, fixture), fixture.id).not.toBe('indeterminate');
     }
   });
 
   it('agrees with the expected legacy decision except on the six known defects', () => {
-    for (const fixture of legacyTransitionCorpus) {
+    for (const fixture of transitionAdmissionCorpus) {
       if (EXPECTED_DISAGREEMENTS.has(fixture.id)) continue;
       const edge = builderEdge(fixture.workflowType, fixture.from, fixture.to);
       expect(decisionOf(edge, fixture), `${fixture.id} should agree with legacy`).toBe(
@@ -272,7 +290,7 @@ describe('builder-authored definitions produce the expected decisions (exit-proo
     // deep-equal of any legacy guard object. Two edges are "the same" here iff
     // they decide the same way, which is the whole point of P07-03: compare
     // compiled decisions, not preserve legacy guard object shape.
-    for (const fixture of legacyTransitionCorpus) {
+    for (const fixture of transitionAdmissionCorpus) {
       const built = builderEdge(fixture.workflowType, fixture.from, fixture.to);
       const hand = getEdgeIR(fixture.workflowType, fixture.from, fixture.to);
       expect(hand, fixture.id).toBeDefined();
@@ -288,7 +306,7 @@ describe('builder-authored definitions produce the expected decisions (exit-proo
 
 function disagreementIds(resolve: (f: LegacyTransitionFixture) => WorkflowEdgeIR): Set<string> {
   const ids = new Set<string>();
-  for (const fixture of legacyTransitionCorpus) {
+  for (const fixture of transitionAdmissionCorpus) {
     if (decisionOf(resolve(fixture), fixture) !== fixture.expected.verdict) {
       ids.add(fixture.id);
     }
@@ -314,7 +332,7 @@ describe('shadow disagreement delta stays at six under builder decisions (exit-p
   });
 
   it('every surviving disagreement is the SAFE direction (legacy allow, admission deny)', () => {
-    for (const fixture of legacyTransitionCorpus) {
+    for (const fixture of transitionAdmissionCorpus) {
       const edge = builderEdge(fixture.workflowType, fixture.from, fixture.to);
       const shadow = decisionOf(edge, fixture);
       if (shadow === fixture.expected.verdict) continue;

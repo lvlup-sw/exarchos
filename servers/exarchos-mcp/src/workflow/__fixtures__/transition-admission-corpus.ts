@@ -28,12 +28,25 @@ export interface LegacyTransitionDecision {
   readonly explanation: string;
 }
 
+/**
+ * `config-bearing` fixtures carry the INJECTED `.exarchos.yml` / tier state the
+ * legacy guards read (`_maxPlanRevisions`, `_requiredReviews`,
+ * `_mutationEnforcement` / `_mutationThreshold` / `_maxNoCoverage`) or a
+ * non-default oneshot synthesis policy. They live in {@link configBearingCorpus},
+ * NOT in the frozen {@link legacyTransitionCorpus}, so the frozen baseline keeps
+ * its "exactly one representative-pass + one representative-fail per edge"
+ * invariant.
+ */
 export interface LegacyTransitionFixture {
   readonly id: string;
   readonly workflowType: BuiltInWorkflowType;
   readonly from: string;
   readonly to: string;
-  readonly scenario: 'representative-pass' | 'representative-fail' | 'bypass';
+  readonly scenario:
+    | 'representative-pass'
+    | 'representative-fail'
+    | 'bypass'
+    | 'config-bearing';
   readonly state: Readonly<Record<string, unknown>>;
   readonly expected: LegacyTransitionDecision;
 }
@@ -654,3 +667,371 @@ export const legacyTransitionCorpus: readonly LegacyTransitionFixture[] = Object
   ...discoveryCases,
   ...bypassCases,
 ]);
+
+// ─── Config-bearing fixtures (the inputs the frozen corpus cannot reach) ───────
+//
+// The frozen corpus above is generated from DEFAULT / no-config fixtures ONLY.
+// That is precisely the input region where the legacy guards and the shared
+// admission IR CANNOT disagree about a configured threshold — the guards fall
+// back to the same constants the IR hardcoded. Asserting "admission never
+// over-admits" over that corpus asserts a safety property on a set where it
+// cannot fail.
+//
+// These fixtures carry the injected config/tier state the legacy guards actually
+// read at runtime (`workflow/tools.ts` writes them onto the state before the
+// pure guards run):
+//
+//   `_maxPlanRevisions`   — `.exarchos.yml workflow.maxPlanRevisions`
+//   `_requiredReviews`    — the resolved required review dimensions
+//   `_mutationEnforcement` / `_mutationThreshold` / `_maxNoCoverage`
+//                         — HIGH-tier mutation-adequacy enforcement
+//   `oneshot.synthesisPolicy` + `synthesize.requested` events
+//                         — the oneshot direct-commit / synthesize branch
+//
+// plus the value SHAPES the `oneshot-plan-set` guard rejects but a naive
+// presence probe admits (`true`, `'   '`, an object).
+//
+// Every `expected` verdict here is machine-attested against the real guard path
+// by `admission/corpus-legacy-baseline.test.ts` — none is hand-transcribed and
+// left unverified.
+
+const configCase = (
+  id: string,
+  workflowType: BuiltInWorkflowType,
+  from: string,
+  to: string,
+  state: Readonly<Record<string, unknown>>,
+  verdict: 'allow' | 'deny',
+  explanation: string,
+): LegacyTransitionFixture => ({
+  id,
+  workflowType,
+  from,
+  to,
+  scenario: 'config-bearing',
+  state,
+  expected: { verdict, explanation },
+});
+
+/** DEFECT 1(a) — `revisions-exhausted` reads the injected cap, not a constant. */
+const planRevisionCapCases: readonly LegacyTransitionFixture[] = [
+  configCase(
+    'config-max-plan-revisions-3-count-1-denies-blocked',
+    'feature',
+    'plan-review',
+    'blocked',
+    { planReview: { revisionCount: 1 }, _maxPlanRevisions: 3 },
+    'deny',
+    "Guard 'revisions-exhausted' failed: revisions-exhausted not satisfied: 1/3 revisions",
+  ),
+  configCase(
+    'config-max-plan-revisions-3-count-3-allows-blocked',
+    'feature',
+    'plan-review',
+    'blocked',
+    { planReview: { revisionCount: 3 }, _maxPlanRevisions: 3 },
+    'allow',
+    'Legacy HSM admitted plan-review -> blocked at the configured cap',
+  ),
+  configCase(
+    // Discriminating case: under the DEFAULT cap of 1 a count of 0 DENIES, so an
+    // admission engine that ignored the injected cap would deny here.
+    'config-max-plan-revisions-0-count-0-allows-blocked',
+    'feature',
+    'plan-review',
+    'blocked',
+    { planReview: { revisionCount: 0 }, _maxPlanRevisions: 0 },
+    'allow',
+    'Legacy HSM admitted plan-review -> blocked (cap 0 is immediately exhausted)',
+  ),
+  configCase(
+    'config-refactor-max-plan-revisions-3-count-1-denies-blocked',
+    'refactor',
+    'overhaul-plan-review',
+    'blocked',
+    { planReview: { revisionCount: 1 }, _maxPlanRevisions: 3 },
+    'deny',
+    "Guard 'revisions-exhausted' failed: revisions-exhausted not satisfied: 1/3 revisions",
+  ),
+];
+
+/** DEFECT 1(b) — `all-reviews-passed` also enforces required dimensions. */
+const requiredReviewCases: readonly LegacyTransitionFixture[] = [
+  configCase(
+    'config-required-reviews-missing-dimension-denies-synthesize',
+    'feature',
+    'review',
+    'synthesize',
+    {
+      reviews: { quality: { status: 'approved' } },
+      _requiredReviews: ['quality', 'security'],
+    },
+    'deny',
+    "Guard 'all-reviews-passed' failed: Missing required review dimensions: security",
+  ),
+  configCase(
+    'config-required-reviews-present-but-empty-entry-denies-synthesize',
+    'feature',
+    'review',
+    'synthesize',
+    {
+      reviews: { quality: { status: 'approved' }, security: {} },
+      _requiredReviews: ['quality', 'security'],
+    },
+    'deny',
+    "Guard 'all-reviews-passed' failed: a present-but-statusless entry is not a review",
+  ),
+  configCase(
+    'config-required-reviews-all-present-allows-synthesize',
+    'feature',
+    'review',
+    'synthesize',
+    {
+      reviews: { quality: { status: 'approved' }, security: { status: 'pass' } },
+      _requiredReviews: ['quality', 'security'],
+    },
+    'allow',
+    'Legacy HSM admitted review -> synthesize with every required dimension present',
+  ),
+  configCase(
+    'config-refactor-required-reviews-missing-dimension-denies-docs',
+    'refactor',
+    'overhaul-review',
+    'overhaul-update-docs',
+    {
+      reviews: { quality: { status: 'approved' } },
+      _requiredReviews: ['quality', 'security'],
+    },
+    'deny',
+    "Guard 'all-reviews-passed' failed: Missing required review dimensions: security",
+  ),
+];
+
+/** DEFECT 1(b) — HIGH-tier mutation-adequacy enforcement (score + NoCoverage). */
+const mutationEnforcementCases: readonly LegacyTransitionFixture[] = [
+  configCase(
+    'config-high-tier-mutation-score-below-threshold-denies-synthesize',
+    'feature',
+    'review',
+    'synthesize',
+    {
+      riskTier: 'high',
+      reviews: {
+        quality: { status: 'pass' },
+        'mutation-adequacy': { status: 'pass', mutationScore: 42, noCoverage: 0 },
+      },
+      _mutationEnforcement: 'block',
+      _mutationThreshold: 80,
+      _maxNoCoverage: 0,
+    },
+    'deny',
+    "Guard 'all-reviews-passed' failed: mutation-adequacy score 42 is below the enforced threshold 80",
+  ),
+  configCase(
+    'config-high-tier-mutation-score-above-threshold-allows-synthesize',
+    'feature',
+    'review',
+    'synthesize',
+    {
+      riskTier: 'high',
+      reviews: {
+        quality: { status: 'pass' },
+        'mutation-adequacy': { status: 'pass', mutationScore: 95, noCoverage: 0 },
+      },
+      _mutationEnforcement: 'block',
+      _mutationThreshold: 80,
+      _maxNoCoverage: 0,
+    },
+    'allow',
+    'Legacy HSM admitted review -> synthesize with the mutation score above threshold',
+  ),
+  configCase(
+    'config-high-tier-mutation-nocoverage-over-budget-denies-synthesize',
+    'feature',
+    'review',
+    'synthesize',
+    {
+      riskTier: 'high',
+      reviews: {
+        quality: { status: 'pass' },
+        'mutation-adequacy': { status: 'pass', mutationScore: 95, noCoverage: 7 },
+      },
+      _mutationEnforcement: 'block',
+      _maxNoCoverage: 2,
+    },
+    'deny',
+    "Guard 'all-reviews-passed' failed: 7 uncovered (NoCoverage) mutant(s) exceed the enforced budget of 2",
+  ),
+  configCase(
+    'config-high-tier-mutation-degraded-fails-closed-denies-synthesize',
+    'feature',
+    'review',
+    'synthesize',
+    {
+      riskTier: 'high',
+      reviews: {
+        quality: { status: 'pass' },
+        'mutation-adequacy': { status: 'pass', degraded: true },
+      },
+      _mutationEnforcement: 'block',
+      _mutationThreshold: 80,
+    },
+    'deny',
+    "Guard 'all-reviews-passed' failed: mutation-adequacy gate degraded — no verifiable score",
+  ),
+  configCase(
+    // Advisory is the DEFAULT posture: the same failing score must NOT block.
+    'config-advisory-mutation-below-threshold-allows-synthesize',
+    'feature',
+    'review',
+    'synthesize',
+    {
+      reviews: {
+        quality: { status: 'pass' },
+        'mutation-adequacy': { status: 'pass', mutationScore: 42, noCoverage: 7 },
+      },
+      _mutationEnforcement: 'advisory',
+      _mutationThreshold: 80,
+      _maxNoCoverage: 2,
+    },
+    'allow',
+    'Legacy HSM admitted review -> synthesize (mutation enforcement is advisory)',
+  ),
+];
+
+/** DEFECT 1(c) — `oneshot-plan-set` demands a TRIMMED NON-EMPTY STRING. */
+const oneshotPlanShapeCases: readonly LegacyTransitionFixture[] = [
+  configCase(
+    'config-oneshot-plan-boolean-true-denies-implementing',
+    'oneshot',
+    'plan',
+    'implementing',
+    { artifacts: { plan: true } },
+    'deny',
+    "Guard 'oneshot-plan-set' failed: non-string values (true, objects, numbers) are not accepted",
+  ),
+  configCase(
+    'config-oneshot-plan-whitespace-only-denies-implementing',
+    'oneshot',
+    'plan',
+    'implementing',
+    { artifacts: { plan: '   ' } },
+    'deny',
+    "Guard 'oneshot-plan-set' failed: a whitespace-only plan carries no content",
+  ),
+  configCase(
+    'config-oneshot-plan-object-denies-implementing',
+    'oneshot',
+    'plan',
+    'implementing',
+    { artifacts: { plan: { path: 'docs/plan.md' } } },
+    'deny',
+    "Guard 'oneshot-plan-set' failed: non-string values (true, objects, numbers) are not accepted",
+  ),
+  configCase(
+    'config-oneshot-plan-padded-string-allows-implementing',
+    'oneshot',
+    'plan',
+    'implementing',
+    { artifacts: { plan: '  docs/plan.md  ' } },
+    'allow',
+    'Legacy HSM admitted plan -> implementing (a padded but non-blank plan string)',
+  ),
+];
+
+/**
+ * DEFECT 2 — the oneshot DEFAULT `on-request` policy. `readSynthesisPolicy`
+ * defaults a MISSING policy to `'on-request'`, under which `synthesisOptedOut`
+ * admits the direct-commit edge whenever no `synthesize.requested` event exists.
+ * Both outbound edges of `implementing` are covered here, so a shadow authority
+ * that denies BOTH (a liveness deadlock) is detectable rather than invisible.
+ */
+const oneshotSynthesisPolicyCases: readonly LegacyTransitionFixture[] = [
+  configCase(
+    'config-oneshot-default-on-request-no-event-allows-direct-commit',
+    'oneshot',
+    'implementing',
+    'completed',
+    { _events: [] },
+    'allow',
+    'Legacy HSM admitted implementing -> completed (default on-request, no synthesize request)',
+  ),
+  configCase(
+    'config-oneshot-default-on-request-no-event-denies-synthesize',
+    'oneshot',
+    'implementing',
+    'synthesize',
+    { _events: [] },
+    'deny',
+    "Guard 'synthesis-opted-in' failed: on-request policy with no synthesize.requested event",
+  ),
+  configCase(
+    'config-oneshot-on-request-with-event-allows-synthesize',
+    'oneshot',
+    'implementing',
+    'synthesize',
+    {
+      oneshot: { synthesisPolicy: 'on-request' },
+      _events: [{ type: 'synthesize.requested' }],
+    },
+    'allow',
+    'Legacy HSM admitted implementing -> synthesize (on-request opted in by event)',
+  ),
+  configCase(
+    'config-oneshot-on-request-with-event-denies-direct-commit',
+    'oneshot',
+    'implementing',
+    'completed',
+    {
+      oneshot: { synthesisPolicy: 'on-request' },
+      _events: [{ type: 'synthesize.requested' }],
+    },
+    'deny',
+    "Guard 'synthesis-opted-out' failed: a synthesize.requested event opted into synthesis",
+  ),
+  configCase(
+    // `never` is an ABSOLUTE opt-out: a stray synthesize.requested event must not
+    // re-open the synthesize branch.
+    'config-oneshot-never-policy-with-request-event-denies-synthesize',
+    'oneshot',
+    'implementing',
+    'synthesize',
+    {
+      oneshot: { synthesisPolicy: 'never' },
+      _events: [{ type: 'synthesize.requested' }],
+    },
+    'deny',
+    "Guard 'synthesis-opted-in' failed: synthesisPolicy=never (direct-commit path)",
+  ),
+  configCase(
+    'config-oneshot-unrecognized-policy-defaults-on-request-allows-direct-commit',
+    'oneshot',
+    'implementing',
+    'completed',
+    { oneshot: { synthesisPolicy: 'sometimes' }, _events: [] },
+    'allow',
+    'Legacy HSM admitted implementing -> completed (unrecognized policy collapses to on-request)',
+  ),
+];
+
+/**
+ * Fixtures carrying real injected config / tier state. Kept SEPARATE from the
+ * frozen {@link legacyTransitionCorpus} so the frozen baseline's per-edge
+ * pass/fail invariant (asserted by `guard-classification.test.ts` and
+ * `hsm-transition-guard.test.ts`) is untouched.
+ */
+export const configBearingCorpus: readonly LegacyTransitionFixture[] = Object.freeze([
+  ...planRevisionCapCases,
+  ...requiredReviewCases,
+  ...mutationEnforcementCases,
+  ...oneshotPlanShapeCases,
+  ...oneshotSynthesisPolicyCases,
+]);
+
+/**
+ * The FULL differential corpus the shadow admission authority is measured
+ * against: the frozen default-input baseline PLUS the config-bearing inputs on
+ * which a dual-authority drift can actually manifest.
+ */
+export const transitionAdmissionCorpus: readonly LegacyTransitionFixture[] =
+  Object.freeze([...legacyTransitionCorpus, ...configBearingCorpus]);

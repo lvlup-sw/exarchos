@@ -53,6 +53,7 @@ import {
   AdmissionEvidenceV1Schema,
   AdmissionRequirementV1Schema,
   ContentDigestV1Schema,
+  EvidenceSubjectV1Schema,
   type AdmissionEvidenceV1,
   type AdmissionRequirementV1,
   type ContentDigestV1,
@@ -169,6 +170,96 @@ function readNumber(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
+// ─── Injected config / tier obligations (the SINGLE-AUTHORITY seam) ───────────
+//
+// `workflow/tools.ts` resolves `.exarchos.yml` + the risk tier and injects the
+// result onto the workflow state as reserved ephemeral fields BEFORE the pure
+// legacy guards run. Those fields are therefore part of the state a guard reads,
+// and the projection must read them too — otherwise the admission IR would have
+// to hardcode the thresholds, creating a second authority that drifts toward
+// OVER-admission (it admits at the default cap while the guard denies at the
+// configured one).
+//
+// The default constants below are RE-DERIVED AS DATA, not imported: this module
+// is structurally forbidden from reaching `guards.ts`
+// (`built-in-workflow-ir.structure.test.ts`). `legacy-guard-parity.test.ts`
+// pins them against the real guard behavior so a re-derived default cannot
+// silently diverge from the one it mirrors.
+
+/** Mirrors `guards.ts DEFAULT_MAX_PLAN_REVISIONS` — the cap when none is injected. */
+const DEFAULT_MAX_PLAN_REVISIONS = 1;
+
+/** Mirrors `guards.ts readSynthesisPolicy` — the policy when none is set. */
+const DEFAULT_SYNTHESIS_POLICY = 'on-request';
+const SYNTHESIS_POLICIES: ReadonlySet<string> = new Set([
+  'always',
+  'never',
+  'on-request',
+]);
+
+/** Mirrors `guards.ts UNSAFE_KEYS` — prototype-pollution keys are never "present". */
+const UNSAFE_KEYS: ReadonlySet<string> = new Set([
+  '__proto__',
+  'prototype',
+  'constructor',
+]);
+
+/**
+ * The plan-revision cap the legacy `revisionsExhausted` guard would use for this
+ * state: the injected `.exarchos.yml` value, falling back to the default.
+ */
+function readMaxPlanRevisions(state: Record<string, unknown>): number {
+  const raw = state['_maxPlanRevisions'];
+  return typeof raw === 'number' && Number.isFinite(raw)
+    ? raw
+    : DEFAULT_MAX_PLAN_REVISIONS;
+}
+
+/**
+ * The oneshot synthesis policy, defaulted the way `readSynthesisPolicy` defaults
+ * it: an absent OR unrecognized value collapses to `'on-request'`. Projecting a
+ * missing policy as `''` (as a naive presence projection does) makes the DEFAULT
+ * flow match no branch at all — every outbound edge of `implementing` denies and
+ * the workflow deadlocks.
+ */
+function readSynthesisPolicy(state: Record<string, unknown>): string {
+  const raw = readPath(state, 'oneshot.synthesisPolicy');
+  return typeof raw === 'string' && SYNTHESIS_POLICIES.has(raw)
+    ? raw
+    : DEFAULT_SYNTHESIS_POLICY;
+}
+
+/** The injected required-review dimensions, in the three shapes legacy can see. */
+type RequiredReviewsSpec =
+  | { readonly kind: 'unset' }
+  | { readonly kind: 'keys'; readonly keys: readonly string[] }
+  | { readonly kind: 'unsatisfiable' };
+
+function readRequiredReviews(raw: unknown): RequiredReviewsSpec {
+  if (Array.isArray(raw)) {
+    // Legacy compares with `hasOwnProperty(reviews, key)`, which coerces a
+    // non-string key to its string form — mirror that rather than dropping it.
+    return raw.length === 0
+      ? { kind: 'unset' }
+      : {
+          kind: 'keys',
+          keys: raw.map((k) => (typeof k === 'string' ? k : String(k))),
+        };
+  }
+  if (typeof raw === 'string') {
+    // Legacy iterates a string CHARACTER BY CHARACTER, demanding a review
+    // dimension per character — unsatisfiable in practice. Fail closed rather
+    // than silently ignoring a malformed config (which would over-admit).
+    return raw.length === 0 ? { kind: 'unset' } : { kind: 'unsatisfiable' };
+  }
+  if (isRecord(raw) && typeof raw['length'] === 'number' && raw['length'] > 0) {
+    // Legacy's `for…of` throws on a non-iterable, which `executeTransition`
+    // converts into a GUARD_FAILED deny. Fail closed the same way.
+    return { kind: 'unsatisfiable' };
+  }
+  return { kind: 'unset' };
+}
+
 function readEvents(state: Record<string, unknown>): readonly Record<string, unknown>[] {
   const raw = state['_events'];
   if (!Array.isArray(raw)) return [];
@@ -186,6 +277,15 @@ interface ReviewSummary {
   readonly hasEntries: boolean;
   readonly allPassed: boolean;
   readonly anyFailed: boolean;
+  /**
+   * The FULL `allReviewsPassed` obligation: every present review passed AND
+   * every injected `_requiredReviews` dimension is present-and-recognizable AND
+   * the injected HIGH-tier mutation-adequacy gates hold. Strictly stronger than
+   * {@link ReviewSummary.allPassed}, which is the weaker `reviewPassed`
+   * (debug-track) semantics — the two legacy guards genuinely differ, so they
+   * get two facts rather than one shared approximation.
+   */
+  readonly requiredSatisfied: boolean;
 }
 
 function statusOf(entry: unknown): string | undefined {
@@ -194,23 +294,139 @@ function statusOf(entry: unknown): string | undefined {
   return typeof raw === 'string' ? raw.toLowerCase() : undefined;
 }
 
+/**
+ * Re-derivation of `guards.ts collectReviewStatuses`: flat `{status}`/`{verdict}`
+ * entries, the legacy `{passed: boolean}` shape, and one level of NESTING
+ * (`reviews.A1.specReview`). An entry carrying none of these shapes is SKIPPED,
+ * exactly as legacy skips it — counting it as a failure instead would make the
+ * projection disagree with the guard on a shape the guard tolerates.
+ */
+function collectReviewStatuses(
+  reviews: Record<string, unknown>,
+): readonly string[] {
+  const statuses: string[] = [];
+  const push = (entry: Record<string, unknown>): boolean => {
+    const status = statusOf(entry);
+    if (status !== undefined) {
+      statuses.push(status);
+      return true;
+    }
+    if (typeof entry['passed'] === 'boolean') {
+      statuses.push(entry['passed'] === true ? 'passed' : 'failed');
+      return true;
+    }
+    return false;
+  };
+  for (const value of Object.values(reviews)) {
+    if (!isRecord(value)) continue;
+    if (push(value)) continue;
+    for (const sub of Object.values(value)) {
+      if (isRecord(sub)) push(sub);
+    }
+  }
+  return statuses;
+}
+
+/**
+ * Re-derivation of `allReviewsPassed` Check 1: a required dimension counts as
+ * PRESENT only when it is an own, non-unsafe, object-shaped key carrying a
+ * recognizable status/verdict or a legacy `passed` boolean. A present-but-empty
+ * `{}` is missing — it would otherwise be skipped by the status collector and
+ * the gate would pass with nothing verified.
+ */
+function hasMissingRequiredDimension(
+  reviews: Record<string, unknown>,
+  spec: RequiredReviewsSpec,
+): boolean {
+  if (spec.kind === 'unset') return false;
+  if (spec.kind === 'unsatisfiable') return true;
+  for (const key of spec.keys) {
+    if (UNSAFE_KEYS.has(key)) return true;
+    if (!Object.prototype.hasOwnProperty.call(reviews, key)) return true;
+    const entry = reviews[key];
+    if (!isRecord(entry)) return true;
+    const hasStatus = statusOf(entry) !== undefined;
+    const hasLegacyPassed = typeof entry['passed'] === 'boolean';
+    if (!hasStatus && !hasLegacyPassed) return true;
+  }
+  return false;
+}
+
+/**
+ * Re-derivation of `allReviewsPassed` Checks 4a/4b — the HIGH-tier mutation
+ * gates. BOTH fire only under an injected `block` enforcement mode with a
+ * finite/integral injected budget, and BOTH fail CLOSED on an unverifiable
+ * signal (a degraded run, a non-finite score, a missing NoCoverage count). A
+ * `skipped` dimension carries no score and stays advisory.
+ *
+ * Returns `true` when enforcement BLOCKS.
+ */
+function mutationEnforcementBlocks(
+  state: Record<string, unknown>,
+  reviews: Record<string, unknown>,
+): boolean {
+  if (state['_mutationEnforcement'] !== 'block') return false;
+  const rawDim = reviews['mutation-adequacy'];
+  const dim = isRecord(rawDim) ? rawDim : undefined;
+
+  // Check 4a — mutation SCORE.
+  const threshold = state['_mutationThreshold'];
+  if (typeof threshold === 'number' && Number.isFinite(threshold)) {
+    if (dim?.['degraded'] === true) return true;
+    const score = dim?.['mutationScore'];
+    if (dim !== undefined && dim['skipped'] !== true && typeof score === 'number') {
+      if (!Number.isFinite(score)) return true;
+      if (score < threshold) return true;
+    }
+  }
+
+  // Check 4b — the orthogonal, deterministic NoCoverage budget.
+  const budget = state['_maxNoCoverage'];
+  if (typeof budget === 'number' && Number.isInteger(budget) && budget >= 0) {
+    if (dim !== undefined && dim['skipped'] !== true && dim['degraded'] !== true) {
+      const noCoverage = dim['noCoverage'];
+      if (
+        typeof noCoverage !== 'number' ||
+        !Number.isInteger(noCoverage) ||
+        noCoverage < 0
+      ) {
+        return true;
+      }
+      if (noCoverage > budget) return true;
+    }
+  }
+
+  return false;
+}
+
 function summarizeReviews(state: Record<string, unknown>): ReviewSummary {
   const reviews = state['reviews'];
   if (!isRecord(reviews)) {
-    return { hasEntries: false, allPassed: false, anyFailed: false };
+    return {
+      hasEntries: false,
+      allPassed: false,
+      anyFailed: false,
+      requiredSatisfied: false,
+    };
   }
-  const entries = Object.values(reviews);
-  if (entries.length === 0) {
-    return { hasEntries: false, allPassed: false, anyFailed: false };
-  }
-  let allPassed = true;
-  let anyFailed = false;
-  for (const entry of entries) {
-    const status = statusOf(entry);
-    if (status !== undefined && FAILED_STATUSES.has(status)) anyFailed = true;
-    if (status === undefined || !PASSED_STATUSES.has(status)) allPassed = false;
-  }
-  return { hasEntries: true, allPassed, anyFailed };
+  const statuses = collectReviewStatuses(reviews);
+  const anyFailed = statuses.some((s) => FAILED_STATUSES.has(s));
+  // Legacy denies on an EMPTY recognizable set (Check 2) as well as on any
+  // non-passing entry (Check 3).
+  const allPassed =
+    statuses.length > 0 && statuses.every((s) => PASSED_STATUSES.has(s));
+
+  const requiredSpec = readRequiredReviews(state['_requiredReviews']);
+  const missingRequired = hasMissingRequiredDimension(reviews, requiredSpec);
+  const requiredSatisfied =
+    allPassed && !missingRequired && !mutationEnforcementBlocks(state, reviews);
+
+  return {
+    hasEntries: statuses.length > 0,
+    allPassed,
+    anyFailed,
+    requiredSatisfied,
+  };
 }
 
 // ─── Task projection ──────────────────────────────────────────────────────────
@@ -317,6 +533,14 @@ export function projectStateToFacts(
 
   // ── presence facts ──
   addPresent('artifacts.plan', readPath(state, 'artifacts.plan'));
+  // The STRICT plan probe. `oneshotPlanSet` requires a trimmed non-empty STRING,
+  // while `planArtifactExists` (feature/refactor) accepts any non-null value —
+  // two genuinely different legacy contracts over the same state field, so they
+  // get two facts. Collapsing them onto one presence probe admits
+  // `artifacts.plan = true` / `{}` / `'   '` into `implementing`.
+  const rawPlan = readPath(state, 'artifacts.plan');
+  fields['artifacts.planNonEmpty'] =
+    typeof rawPlan === 'string' && rawPlan.trim().length > 0;
   addPresent('plan', readPath(state, 'plan'));
   addPresent('artifacts.pr', readPath(state, 'artifacts.pr'));
   addPresent('synthesis.prUrl', readPath(state, 'synthesis.prUrl'));
@@ -331,16 +555,19 @@ export function projectStateToFacts(
   addPresent('resolution.commitSha', readPath(state, 'resolution.commitSha'));
   addPresent('synthesis.lastError', readPath(state, 'synthesis.lastError'));
 
-  // ── routing-selector string facts (definite: absent → '' sentinel) ──
+  // ── routing-selector string facts (definite: absent → policy default) ──
   // Legacy track/policy guards are 2-valued (a wrong or absent selector is a
   // definite deny), so these are projected DEFINITELY — an absent selector is a
-  // definite empty string, which makes `factEquals` yield a definite `false`
-  // rather than `indeterminate`. Projecting them as presence facts would leak
-  // spurious `admission-indeterminate` disagreements on every routing fail case.
+  // definite sentinel, which makes `factEquals` yield a definite `false` rather
+  // than `indeterminate`. Projecting them as presence facts would leak spurious
+  // `admission-indeterminate` disagreements on every routing fail case.
   const track = readPath(state, 'track');
   fields['track'] = typeof track === 'string' ? track : '';
-  const policy = readPath(state, 'oneshot.synthesisPolicy');
-  fields['oneshot.synthesisPolicy'] = typeof policy === 'string' ? policy : '';
+  // The synthesis policy is NOT sentinel-defaulted: the legacy guard defaults a
+  // missing/unrecognized policy to `'on-request'`, and that default is LOAD
+  // BEARING — it selects the direct-commit branch. An `''` sentinel matches no
+  // branch, deadlocking the DEFAULT oneshot flow.
+  fields['oneshot.synthesisPolicy'] = readSynthesisPolicy(state);
 
   // ── boolean facts (definite) ──
   fields['planReview.approved'] = isTrue(readPath(state, 'planReview.approved'));
@@ -367,15 +594,23 @@ export function projectStateToFacts(
   const reviews = summarizeReviews(state);
   fields['reviews.allPassed'] = reviews.allPassed;
   fields['reviews.anyFailed'] = reviews.anyFailed;
+  fields['reviews.requiredSatisfied'] = reviews.requiredSatisfied;
 
   fields['mergePending.entryReady'] = mergePendingEntryReady(events);
   fields['mergePending.exitReady'] = mergePendingExitReady(state, events);
   fields['team.disbandedOk'] = teamDisbandedOk(events);
 
   // ── counter facts ──
-  fields['planReview.revisionCount'] = readNumber(
-    readPath(state, 'planReview.revisionCount'),
-  );
+  const revisionCount = readNumber(readPath(state, 'planReview.revisionCount'));
+  const maxPlanRevisions = readMaxPlanRevisions(state);
+  fields['planReview.revisionCount'] = revisionCount;
+  fields['policy.maxPlanRevisions'] = maxPlanRevisions;
+  // The bounded-loop DECISION, resolved here against the SAME injected cap the
+  // legacy `revisionsExhausted` guard reads. The IR consumes this fact instead
+  // of comparing against a hardcoded constant, so there is exactly one authority
+  // for the cap and it cannot drift toward over-admission on a configured repo.
+  fields['planReview.revisionsExhausted'] = revisionCount >= maxPlanRevisions;
+
   fields['synthesis.retryCount'] = readNumber(
     readPath(state, 'synthesis.retryCount'),
   );
@@ -430,15 +665,24 @@ const NO_WAIVER_OBLIGATIONS: ResolvedRequirements = Object.freeze({
   waivable: false,
 });
 
+/**
+ * Build the phase-attempt evidence subject through the SCHEMA, not through an
+ * `as` assertion. An `as EvidenceSubjectV1` cast asserts a shape the compiler
+ * cannot check and the runtime never validates: a malformed digest or a typo'd
+ * discriminant would flow into minted evidence and only surface later (or not at
+ * all). `EvidenceSubjectV1Schema.parse` takes `unknown` and either returns a
+ * genuinely valid subject or throws at the point of construction.
+ */
 function subjectFor(
   phaseAttemptId: string,
   digest: ContentDigestV1,
 ): EvidenceSubjectV1 {
-  return {
+  const candidate: unknown = {
     kind: 'phase-attempt',
     phaseAttemptId,
     digest,
-  } as EvidenceSubjectV1;
+  };
+  return EvidenceSubjectV1Schema.parse(candidate);
 }
 
 /**
