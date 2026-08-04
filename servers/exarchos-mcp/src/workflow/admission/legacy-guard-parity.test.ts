@@ -284,12 +284,32 @@ describe('oneshot-plan-set: admission demands the same value SHAPE as the guard'
     }
   });
 
-  it('does not weaken the feature plan-artifact edge (a different contract)', () => {
-    // `planArtifactExists` accepts ANY non-null value — tightening the oneshot
-    // probe must not tighten this one.
-    for (const plan of [true, 0, {}, 'docs/plan.md']) {
+  it('holds the feature plan-artifact edge to the SAME typed-reference contract', () => {
+    // DR-5 (T-08): `planArtifactExists` used to accept ANY non-null value, so
+    // this test asserted the feature edge stayed loose while oneshot was
+    // tightened. That divergence WAS the defect — `artifacts.plan = true`
+    // satisfied a phase gate on the shipped transition path. Both surfaces now
+    // demand a typed artifact reference (a trimmed non-empty string), and the
+    // projection was tightened alongside so admission does not over-admit.
+    const FEATURE_PLAN: EdgeRef = { workflowType: 'feature', from: 'plan', to: 'plan-review' };
+    for (const plan of [true, false, 0, 1, {}, [], '', '   ', '\t\n ']) {
+      expect(
+        legacyAllows(FEATURE_PLAN, { artifacts: { plan } }),
+        `feature plan-artifact must DENY ${JSON.stringify(plan)}`,
+      ).toBe(false);
       expectAgreement(
-        { workflowType: 'feature', from: 'plan', to: 'plan-review' },
+        FEATURE_PLAN,
+        { artifacts: { plan } },
+        `feature plan-artifact rejects ${JSON.stringify(plan)}`,
+      );
+    }
+    for (const plan of ['docs/plan.md', '  docs/plan.md  ']) {
+      expect(
+        legacyAllows(FEATURE_PLAN, { artifacts: { plan } }),
+        `feature plan-artifact must ALLOW ${JSON.stringify(plan)}`,
+      ).toBe(true);
+      expectAgreement(
+        FEATURE_PLAN,
         { artifacts: { plan } },
         `feature plan-artifact accepts ${JSON.stringify(plan)}`,
       );

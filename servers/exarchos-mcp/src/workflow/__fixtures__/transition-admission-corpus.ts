@@ -105,7 +105,7 @@ const featureCases: readonly LegacyTransitionFixture[] = [
     guardId: 'plan-artifact-exists',
     pass: { artifacts: { plan: 'docs/specs/feature.md' } },
     fail: {},
-    failReason: 'plan-artifact-exists not satisfied',
+    failReason: "plan-artifact-exists not satisfied: artifacts.plan must be a non-empty string (a path or the artifact contents), not a bare boolean/object/whitespace",
   }),
   ...edgeCases({
     workflowType: 'feature',
@@ -276,7 +276,7 @@ const debugCases: readonly LegacyTransitionFixture[] = [
     guardId: 'rca-document-complete',
     pass: { artifacts: { rca: 'docs/rca.md' } },
     fail: {},
-    failReason: 'rca-document-complete not satisfied',
+    failReason: "rca-document-complete not satisfied: artifacts.rca must be a non-empty string (a path or the artifact contents), not a bare boolean/object/whitespace",
   }),
   ...edgeCases({
     workflowType: 'debug',
@@ -285,7 +285,7 @@ const debugCases: readonly LegacyTransitionFixture[] = [
     guardId: 'fix-design-complete',
     pass: { artifacts: { fixDesign: 'docs/fix.md' } },
     fail: {},
-    failReason: 'fix-design-complete not satisfied',
+    failReason: "fix-design-complete not satisfied: artifacts.fixDesign must be a non-empty string (a path or the artifact contents), not a bare boolean/object/whitespace",
   }),
   ...edgeCases({
     workflowType: 'debug',
@@ -431,7 +431,7 @@ const discoveryCases: readonly LegacyTransitionFixture[] = [
     guardId: 'report-artifact-exists',
     pass: { artifacts: { report: 'docs/report.md' } },
     fail: {},
-    failReason: 'report-artifact-exists not satisfied',
+    failReason: "report-artifact-exists not satisfied: artifacts.report must be a non-empty string (a path or the artifact contents), not a bare boolean/object/whitespace",
   }),
 ];
 
@@ -498,7 +498,7 @@ const refactorCases: readonly LegacyTransitionFixture[] = [
     guardId: 'plan-artifact-exists',
     pass: { artifacts: { plan: 'docs/overhaul-plan.md' } },
     fail: {},
-    failReason: 'plan-artifact-exists not satisfied',
+    failReason: "plan-artifact-exists not satisfied: artifacts.plan must be a non-empty string (a path or the artifact contents), not a bare boolean/object/whitespace",
   }),
   ...edgeCases({
     workflowType: 'refactor',

@@ -531,22 +531,38 @@ export function projectStateToFacts(
     else if (value !== undefined && value !== null) fields[fact] = '<present>';
   };
 
+  // DR-5 (T-08): artifact fields are projected as TYPED ARTIFACT REFERENCES,
+  // not bare presence. `makeArtifactGuard` on the shipped transition path now
+  // requires a trimmed non-empty string (a path/URL or the contents), so a
+  // `<present>` sentinel for `artifacts.plan = true` / `{}` / `'   '` would
+  // make the admission engine ADMIT what the legacy authority DENIES — the
+  // unsafe direction the dual-authority differential exists to catch.
+  //
+  // The predicate is duplicated from `guards.ts` ON PURPOSE: this module is a
+  // root of the shared-IR structural-independence proof
+  // (`built-in-workflow-ir.structure.test.ts`), which forbids any import path
+  // — direct or transitive — from here to `workflow/guards.ts`. The two copies
+  // are held in lockstep by `legacy-guard-parity.test.ts`, which compares the
+  // authorities pointwise instead.
+  const addArtifactReference = (fact: string, value: unknown): void => {
+    if (typeof value === 'string' && value.trim().length > 0) fields[fact] = value;
+  };
+
   // ── presence facts ──
-  addPresent('artifacts.plan', readPath(state, 'artifacts.plan'));
-  // The STRICT plan probe. `oneshotPlanSet` requires a trimmed non-empty STRING,
-  // while `planArtifactExists` (feature/refactor) accepts any non-null value —
-  // two genuinely different legacy contracts over the same state field, so they
-  // get two facts. Collapsing them onto one presence probe admits
-  // `artifacts.plan = true` / `{}` / `'   '` into `implementing`.
+  addArtifactReference('artifacts.plan', readPath(state, 'artifacts.plan'));
+  // The oneshot plan probe. `oneshotPlanSet` and `planArtifactExists` now share
+  // ONE contract (a trimmed non-empty string — DR-5), but the fact is retained
+  // as the explicit boolean the oneshot IR edge references, so the oneshot
+  // obligation stays readable in a decision explanation.
   const rawPlan = readPath(state, 'artifacts.plan');
   fields['artifacts.planNonEmpty'] =
     typeof rawPlan === 'string' && rawPlan.trim().length > 0;
-  addPresent('plan', readPath(state, 'plan'));
+  addArtifactReference('plan', readPath(state, 'plan'));
   addPresent('artifacts.pr', readPath(state, 'artifacts.pr'));
   addPresent('synthesis.prUrl', readPath(state, 'synthesis.prUrl'));
-  addPresent('artifacts.rca', readPath(state, 'artifacts.rca'));
-  addPresent('artifacts.fixDesign', readPath(state, 'artifacts.fixDesign'));
-  addPresent('artifacts.report', readPath(state, 'artifacts.report'));
+  addArtifactReference('artifacts.rca', readPath(state, 'artifacts.rca'));
+  addArtifactReference('artifacts.fixDesign', readPath(state, 'artifacts.fixDesign'));
+  addArtifactReference('artifacts.report', readPath(state, 'artifacts.report'));
   addPresent('triage.symptom', readPath(state, 'triage.symptom'));
   addPresent(
     'explore.scopeAssessment',
