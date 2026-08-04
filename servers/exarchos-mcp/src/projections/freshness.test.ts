@@ -162,7 +162,18 @@ describe('view chokepoint marks degraded reads (EFF-002)', () => {
       { action: 'workflow_status', workflowId: STREAM },
       ctx,
     );
-    expect(result.success).toBe(true);
+    // T-07 (DR-4) ORACLE UPDATE — deliberate, not a weakened assertion.
+    // This line read `expect(result.success).toBe(true)`: the impossible fold
+    // was SERVED, with the verdict whispered on `_meta` alone. DR-4's
+    // acceptance criterion is that a degraded projection is never served as a
+    // success, so the chokepoint now refuses: `success:false` with the
+    // reserved `PROJECTION_DEGRADED` code and the payload dropped.
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('PROJECTION_DEGRADED');
+    expect(result.data, 'the stale payload must not ride along').toBeUndefined();
+    // The ephemeral `_meta` courtesy is KEPT alongside the typed refusal — it
+    // is no longer the only signal, but it is still stamped, so this half of
+    // the original oracle is unchanged.
     const meta = degradedMeta(result);
     expect(meta, 'a fold ahead of the log must not answer unmarked').toBeDefined();
     expect(meta).toMatchObject({
@@ -223,6 +234,15 @@ describe('view chokepoint marks degraded reads (EFF-002)', () => {
 // `meta/projection-health` stream — and read back as a folded state through
 // `readProjectionDegradedState`. The `_meta` annotation is deliberately
 // untouched; it remains a per-response courtesy, not the state of record.
+//
+// T-07 (DR-4, consumption half): the durable state is now READ by every
+// projection-derived consumer (`exarchos_view`, `exarchos_workflow get`, the
+// four materializer-backed `exarchos_orchestrate` readiness/reliability
+// actions), each returning the ONE shared typed degraded result
+// (`projections/degraded-result.ts`) instead of `success: true` with a stale
+// payload. `HandleView_ProjectionAheadOfPrunedLog_ReturnsTypedDegradedMarker`
+// above carries the resulting oracle update; the other three `HandleView_*`
+// cases are unchanged. See `degraded-consumers.test.ts` for the consumer sweep.
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('durable projection-degraded state (DR-4)', () => {

@@ -3,6 +3,7 @@
 import type { ValidTransitionTarget } from './workflow/state-machine.js';
 import type { Correction } from './telemetry/auto-correction.js';
 import type { NextAction } from './next-action.js';
+import type { ProjectionDegradedDetail } from './projections/degraded-result.js';
 import {
   ANTHROPIC_NATIVE_CACHING,
   type CapabilityResolver,
@@ -86,6 +87,13 @@ export interface ToolResult {
     // without parsing the message string. INV-5a (input ergonomics) — the
     // hard-cut error envelope must surface the canonical action name.
     validActions?: readonly string[];
+    // DR-4 (T-07): the typed degraded verdict carried by a
+    // `PROJECTION_DEGRADED` refusal. Present ONLY on that code, so a consumer
+    // can read the observed tail / cursor / lag straight off the failure
+    // instead of re-reading `meta/projection-health` to learn why it was
+    // refused. Type-only import — erased at runtime, so `format.ts` picks up
+    // no dependency on the projections graph.
+    projectionDegraded?: ProjectionDegradedDetail;
   };
   readonly warnings?: readonly string[];
   readonly _meta?: unknown;
