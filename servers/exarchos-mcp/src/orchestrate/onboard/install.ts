@@ -40,6 +40,7 @@ import { homedir } from 'node:os';
 import * as path from 'node:path';
 
 import { orchestrateLogger } from '../../logger.js';
+import { atomicCopyTreeSync } from '../../install/atomic-promotion.js';
 
 import type { ApplyCtx } from '../../core/onboarding/reconcile.js';
 import type { PlanStep } from '../../core/onboarding/types.js';
@@ -820,7 +821,15 @@ export function makeInstallStep(
         ? { aliasesSourceOverridden: true, aliasesSource: deps.resolveAliasesSource!() }
         : {}),
       homeDir,
-      ...(deps.copyDir ? { copyDir: deps.copyDir } : {}),
+      // P04-04 (EFF-009): the skills tree copy defaults to an ATOMIC staged
+      // promotion, not a bare `fs.cpSync`. The stock installer `rmSync`s the
+      // destination then copies file-by-file, so a copy that fails partway
+      // leaves a half-populated skill dir (a torn state). `atomicCopyTreeSync`
+      // stages + verifies the tree out-of-band and swaps it in with an atomic
+      // rename, so an interrupted copy leaves the destination absent (not half),
+      // and a re-run of onboarding converges. An injected `copyDir` (tests) still
+      // wins.
+      copyDir: deps.copyDir ?? atomicCopyTreeSync,
       ...(deps.copyFile ? { copyFile: deps.copyFile } : {}),
       ...(deps.spawn ? { spawn: deps.spawn } : {}),
       registerMcp,
