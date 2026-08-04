@@ -408,6 +408,43 @@ export const EventTypes = [
   // deterministic plumbing: the WorktreeManager owns both appends around the pass.
   'prune.executing_started',
   'prune.executed',
+  // DR-4 (wiring-closure T-06) — durable projection-health state.
+  //
+  // `_meta.projectionDegraded` was an EPHEMERAL per-response annotation:
+  // recomputed on every read from an in-memory LRU of materialized folds,
+  // persisted nowhere and consumed by nobody, so a stale fold could still be
+  // served as `success: true` to any consumer that did not read `_meta`. This
+  // pair publishes the SAME cursor/tail verdict durably, so an independent
+  // consumer — a different process, or the same process after a restart with a
+  // cold cache — can READ the degraded state instead of re-deriving it from a
+  // cache it does not share.
+  //
+  // Both ride the dedicated singleton `meta/projection-health` stream, NEVER
+  // the observed stream: appending to the stream under assessment would move
+  // the very `MAX(sequence)` tail the verdict is computed against, and each
+  // read would then observe a fresh disagreement and append again (an
+  // unbounded self-feeding loop). Same shared-meta-stream idiom as
+  // `feedback.recorded` on `meta/feedback`.
+  //
+  // `projection.degraded` is published when a stream's worst projection cursor
+  // disagrees with its durable event tail. `projection.recovered` is the paired
+  // RESOLUTION, published only when a stream that currently holds a degraded
+  // record has caught the tail — so the folded state is a real two-state
+  // machine rather than a sticky one-way flag that can never be cleared. Both
+  // are `auto` deterministic plumbing (the freshness publisher owns the
+  // appends; the model is never asked to hand-emit them) and both are
+  // idempotency-keyed on the observed cursor/tail pair (INV-8), so repeated
+  // detection of the SAME degraded cursor collapses onto one row at the storage
+  // layer instead of spamming the stream once per read.
+  //
+  // Deliberately distinct from `workflow.projection_degraded` (DR-18) above:
+  // that event records a REHYDRATION fallback (reducer throw / corrupt
+  // snapshot / unavailable stream) on the feature stream. This pair records
+  // CURSOR/TAIL disagreement of an already-materialized fold. Different fault,
+  // different stream, different consumer — merging them would force one enum to
+  // carry two unrelated failure vocabularies.
+  'projection.degraded',
+  'projection.recovered',
   // DR-6 (lifecycle-verbs, task 012) — the two-event `export` contract (INV-13
   // two-event split, INV-8 idempotency). `export` writes a zip bundle
   // (events.jsonl + state.json + metadata.json + artifacts/) to a path OUTSIDE
@@ -847,6 +884,13 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   // so the model is never asked to hand-emit them.
   'prune.executing_started': 'auto',
   'prune.executed': 'auto',
+
+  // DR-4 (wiring-closure T-06) — durable projection-health state. Both `auto`:
+  // `publishProjectionFreshness` (projections/freshness.ts) owns both appends
+  // deterministically off a real cursor/tail comparison, so the model is never
+  // asked to hand-emit them.
+  'projection.degraded': 'auto',
+  'projection.recovered': 'auto',
 
   // DR-6 (lifecycle-verbs, task 012) — the two-event `export` contract. Both
   // `auto`: the `export` composite handler owns both appends deterministically
@@ -3304,6 +3348,80 @@ export const ExportExecutedData = z.object({
     .describe('Same key as the paired export.requested intent (INV-8)'),
 });
 
+// ─── Durable projection-health state (DR-4, wiring-closure T-06) ────────────
+//
+// The cursor/tail freshness verdict, made durable. `projections/freshness.ts`
+// computes it (pure comparison, no I/O) and `publishProjectionFreshness`
+// journals it to the singleton `meta/projection-health` stream — never to the
+// stream under assessment, whose tail the append would itself move.
+//
+// `reason` mirrors the `ProjectionDegradationReason` union in
+// `projections/freshness.ts` exactly. New members MUST be added in both places:
+// the enum enforces the wire contract, the union enforces the call-site
+// contract (same coordinated-change rule as the DR-18
+// `WorkflowProjectionDegradedCause` enum above).
+
+/** Closed enum of cursor/tail disagreement directions (DR-4). */
+export const ProjectionDegradedReason = z.enum([
+  /** The fold stops short of the durable tail — the answer omits recent events. */
+  'projection-behind',
+  /** The fold claims events past the durable tail — fold and log contradict. */
+  'projection-ahead',
+]);
+export type ProjectionDegradedReason = z.infer<typeof ProjectionDegradedReason>;
+
+/**
+ * `projection.degraded` — a stream's materialized folds disagree with its
+ * durable event tail, recorded durably so a consumer that does not share the
+ * in-memory materializer cache (another process, or this one after a restart)
+ * can still tell "no tasks completed" from "the fold has not seen the events
+ * that completed them".
+ *
+ * `streamId` is the ASSESSED stream (the event itself lives on
+ * `meta/projection-health`), which is also the fold key: the latest
+ * unresolved record per `streamId` IS the durable degraded state.
+ */
+export const ProjectionDegradedData = z.object({
+  streamId: z
+    .string()
+    .min(1)
+    .describe('The assessed stream — NOT the stream this event lives on (meta/projection-health)'),
+  reason: ProjectionDegradedReason,
+  eventTail: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe('MAX(events.sequence) observed for the assessed stream at detection time'),
+  projectionCursor: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe('The trailing (worst) projection cursor observed for the assessed stream'),
+  lag: z
+    .number()
+    .int()
+    .describe('eventTail - projectionCursor; negative when a projection runs ahead of the log'),
+  staleViews: z
+    .array(z.string().min(1))
+    .describe('Projections that disagree with the tail, worst first'),
+});
+
+/**
+ * `projection.recovered` — the paired RESOLUTION. Published only when a stream
+ * that currently holds an unresolved `projection.degraded` record has caught
+ * the tail, so the folded health state can return to healthy. Without it the
+ * durable state would be a sticky one-way flag that no consumer could ever
+ * clear.
+ */
+export const ProjectionRecoveredData = z.object({
+  streamId: z
+    .string()
+    .min(1)
+    .describe('The assessed stream whose folds have caught the durable tail'),
+  eventTail: z.number().int().nonnegative(),
+  projectionCursor: z.number().int().nonnegative(),
+});
+
 // ─── Internal admission proof events (phase-gate v2.12, DR-2 / DR-3) ────────
 //
 // These schemas establish an additive replay contract. They deliberately do
@@ -3790,6 +3908,10 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'export.requested': ExportRequestedData,
   'export.executed': ExportExecutedData,
 
+  // DR-4 (wiring-closure T-06) — durable projection-health state.
+  'projection.degraded': ProjectionDegradedData,
+  'projection.recovered': ProjectionRecoveredData,
+
   // Phase-gate v2.12 internal proof/admission replay contracts (DR-2 / DR-3).
   'admission.requirement-resolved': AdmissionRequirementResolvedData,
   'admission.evidence-recorded': AdmissionEvidenceRecordedData,
@@ -3961,6 +4083,10 @@ export type PruneExecuted = z.infer<typeof PruneExecutedData>;
 export type ExportRequested = z.infer<typeof ExportRequestedData>;
 export type ExportExecuted = z.infer<typeof ExportExecutedData>;
 
+// DR-4 (wiring-closure T-06) — durable projection-health state.
+export type ProjectionDegraded = z.infer<typeof ProjectionDegradedData>;
+export type ProjectionRecovered = z.infer<typeof ProjectionRecoveredData>;
+
 // ─── Event Data Map ─────────────────────────────────────────────────────────
 
 export type EventDataMap = {
@@ -4107,6 +4233,10 @@ export type EventDataMap = {
   // DR-6 (lifecycle-verbs task 012) — export two-event contract (INV-13 / INV-8).
   'export.requested': ExportRequested;
   'export.executed': ExportExecuted;
+
+  // DR-4 (wiring-closure T-06) — durable projection-health state.
+  'projection.degraded': ProjectionDegraded;
+  'projection.recovered': ProjectionRecovered;
 };
 
 // ─── Event Catalog Serialization ────────────────────────────────────────────
