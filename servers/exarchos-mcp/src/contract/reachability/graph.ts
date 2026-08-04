@@ -10,28 +10,37 @@
 // ── The node chain (one path per public action) ──────────────────────────────
 //
 //   ActionId  →  schema  →  route  →  handler  →  [owner]  →  output  →  artifact  →  fixture
-//   (authored)  (P03-03)   (P03-04)  (P03-04)   (P04-01)   (P03-02)   (P03-03)    (packaged)
+//   (authored)  (shipped)  (dispatch) (dispatch)  (P04-01)   (shipped)  (shipped)    (packaged)
 //
-//   • schema   — the compiled contract carries the action's descriptor + I/O schema.
-//   • route    — the generated MCP registration routes the ActionId to its tool
-//                (the dispatch route).
+//   • schema   — the action's input/output schema AS SHIPPED in the checked-in
+//                `proof-fixtures.json` baseline matches (by digest) the schema
+//                the live contract compile derives.
+//   • route    — the SHIPPED composite router for the action's tool actually
+//                routes the action name: the real `switch (action)` / handler-
+//                table / branch arm that dispatch executes. NOT a re-derivation
+//                of the registration manifest from the same compiled contract
+//                (that could never fail — see `collect.ts`).
 //   • handler  — exactly one non-serializable implementation binding serves the
-//                tool (the ActionId→handler hop).
+//                tool (the tool→handler hop, backed by dispatch's real
+//                `COMPOSITE_HANDLER_LOADERS`).
 //   • owner    — CONDITIONAL ("where applicable"): a MUTATING action's effect
 //                path resolves to exactly one effect owner (via the provider map,
 //                backed by the P04-01 ledger). A pure action skips this hop.
-//   • output   — the action binds a non-empty output-kind + error-family contract
-//                (the P03-02 total output surface).
-//   • artifact — the compiler emits the action's in-memory proof fixture.
+//   • output   — the action's output-kind + error-family contract AS SHIPPED in
+//                the checked-in baseline is non-empty and agrees with the live
+//                compile.
+//   • artifact — the SHIPPED client surface (`cli/generated/cli-surface.json`)
+//                exposes exactly one command for the ActionId.
 //   • fixture  — the action's fixture is present in the checked-in / packaged
 //                proof-fixture baseline (the packaged proof).
 //
-// A break at ANY applicable hop — or AMBIGUITY (two handlers, two owners) at one
-// — is a closure failure that names the action and the broken hop. The pure core
-// here takes fully-materialized inputs so every one of the five seeded break
-// classes (missing route / handler / owner / output / fixture) and ambiguity is
-// unit-testable with no filesystem. The impure `collect.ts` assembles the real
-// inputs from the live authorities.
+// A break at ANY applicable hop — or AMBIGUITY (two handlers, two owners, two
+// routing arms) at one — is a closure failure that names the action and the
+// broken hop. The pure core here takes fully-materialized inputs so every break
+// class and ambiguity is unit-testable with no filesystem. The impure
+// `collect.ts` assembles the real inputs from the live authorities, and
+// `kill-fixtures.test.ts` proves each hop actually drops the census when the
+// corresponding REAL authority is broken.
 //
 // ── The authored-workflow seam (P07-02) ──────────────────────────────────────
 // The chain's origin is the authored ActionId (authored in the tool registry).
@@ -57,6 +66,39 @@ export const REACHABILITY_HOPS = [
 ] as const;
 export type ReachabilityHop = (typeof REACHABILITY_HOPS)[number];
 
+/**
+ * The CLASS of authority a hop is resolved against — the assurance-integrity
+ * ratchet for this census.
+ *
+ * The closure denominator (`actions`) comes from the contract compiler. A hop
+ * re-derived from that SAME compile pass is TAUTOLOGICAL: it resolves for every
+ * action by construction, can never surface a break, and would inflate the
+ * headline number with evidence it does not have. `self` is therefore not a
+ * value any hop may take — it exists only so the co-located test can state the
+ * prohibition, and `collect.ts` must resolve every hop against one of:
+ *
+ *   • `runtime`         — the real wiring the server executes: the shipped
+ *     composite routers' action-level dispatch tables, dispatch's composite
+ *     handler-loader map, the P04-01 effect ledger.
+ *   • `shipped-artifact` — a CHECKED-IN artifact emitted by a DIFFERENT
+ *     generation pass (the packaged proof-fixture baseline, the generated CLI
+ *     client surface). Comparing the live compile against these catches shipped
+ *     drift; they can and do disagree, which is what gives the hop teeth.
+ *
+ * Every entry here is proven killable by `kill-fixtures.test.ts`: for each hop,
+ * a mutation of the REAL upstream authority drops the census below 100%.
+ */
+export const HOP_AUTHORITIES: Readonly<Record<ReachabilityHop, 'runtime' | 'shipped-artifact'>> =
+  Object.freeze({
+    schema: 'shipped-artifact',
+    route: 'runtime',
+    handler: 'runtime',
+    owner: 'runtime',
+    output: 'shipped-artifact',
+    artifact: 'shipped-artifact',
+    fixture: 'shipped-artifact',
+  });
+
 /** Resolution status of one hop for one action. */
 export type HopStatus = 'ok' | 'missing' | 'ambiguous' | 'not-applicable';
 
@@ -71,12 +113,15 @@ export interface ActionNode {
   readonly mutates: boolean;
 }
 
-/** The compiled action carries a descriptor + input/output schema (P03-03). */
+/** The compiled action's shipped input/output schema (P03-03 baseline). */
 export interface SchemaEntry {
   readonly actionId: string;
 }
 
-/** The registration routes the ActionId to a tool (the dispatch route, P03-04). */
+/**
+ * A routing arm in the SHIPPED composite router that serves the ActionId — the
+ * real action-level dispatch table, not a projection of the compiled contract.
+ */
 export interface RouteEntry {
   readonly actionId: string;
   readonly tool: string;
@@ -100,7 +145,7 @@ export interface OutputEntry {
   readonly errorCodes: readonly string[];
 }
 
-/** The compiler emitted an in-memory proof fixture for the action (P03-03). */
+/** The SHIPPED client-surface artifact carries a command for the action. */
 export interface ArtifactEntry {
   readonly actionId: string;
 }
@@ -162,11 +207,15 @@ function statusFor(applicable: boolean, count: number): HopStatus {
  * `owner` hop is APPLICABLE only for a mutating action ("one owned effect path
  * where applicable"); every other hop is always applicable. `handler` and
  * `owner` resolve by the action's tool, so a duplicate binding/provider for that
- * tool surfaces as `ambiguous` (count > 1), not just absence.
+ * tool surfaces as `ambiguous` (count > 1), not just absence. The `route` hop
+ * requires the routing arm to belong to the action's OWN tool — a route filed
+ * under the wrong tool does not resolve it.
  */
 export function resolveHops(action: ActionNode, inputs: ReachabilityInputs): readonly HopResolution[] {
   const schemaCount = inputs.schemas.filter((s) => s.actionId === action.actionId).length;
-  const routeCount = inputs.routes.filter((r) => r.actionId === action.actionId).length;
+  const routeCount = inputs.routes.filter(
+    (r) => r.actionId === action.actionId && r.tool === action.tool,
+  ).length;
   const handlerCount = inputs.handlers.filter((h) => h.tool === action.tool).length;
   const ownerCount = inputs.owners.filter((o) => o.tool === action.tool).length;
   const outputCount = inputs.outputs.filter(

@@ -12,13 +12,22 @@ import {
   type ReachabilityInputs,
 } from './graph.js';
 
-// ─── The EXIT PROOF, over the REAL tree ──────────────────────────────────────
+// ─── The closure EVALUATOR over the real tree ────────────────────────────────
 //
-// (a) every public action achieves complete closure; and (b)–(f) the five seeded
-// break classes each fail closure with a diagnostic naming the real action and
-// the broken hop, plus handler/owner AMBIGUITY. Seeds are applied to the LIVE
-// materialized inputs, so a diagnostic names an actual ActionId — this is the
-// capstone's headline finding, not a synthetic fixture.
+// (a) every public action achieves complete closure over the LIVE materialized
+// inputs; and (b)–(f) the five seeded break classes each fail closure with a
+// diagnostic naming the real action and the broken hop, plus handler/owner
+// AMBIGUITY.
+//
+// SCOPE — read this before treating (b)–(f) as closure evidence. These seeds are
+// applied to the MATERIALIZED `ReachabilityInputs` value, so they prove the
+// EVALUATOR reacts to a break and names the right real ActionId. They do NOT
+// prove the COLLECTOR could ever surface a break, because a hand-patched inputs
+// object bypasses the authorities entirely — which is exactly why four hops were
+// able to stay tautological behind a green suite. The proof that each hop can
+// actually fall out of the census lives in `kill-fixtures.test.ts`, which mutates
+// the REAL upstream authorities (a shipped router's routing arm, a dispatch
+// loader entry, an effect provider, a shipped generated artifact) instead.
 
 let LIVE: ReachabilityInputs;
 
@@ -70,7 +79,7 @@ describe('(a) live reachability — every public action is fully closed', () => 
   });
 });
 
-describe('(b)-(f) seeded breaks on the REAL tree each fail closure, naming the action + hop', () => {
+describe('(b)-(f) seeded breaks on the MATERIALIZED inputs each fail closure, naming the action + hop', () => {
   it('(b) a seeded MISSING ROUTE fails the routed action at the route hop', () => {
     const target = findMutating(LIVE);
     const seeded: ReachabilityInputs = {
@@ -139,7 +148,7 @@ describe('(b)-(f) seeded breaks on the REAL tree each fail closure, naming the a
   });
 });
 
-describe('ambiguity on the REAL tree is a closure failure', () => {
+describe('ambiguity in the materialized inputs is a closure failure', () => {
   it('a duplicate handler binding for a tool makes its actions AMBIGUOUS', () => {
     const target = findMutating(LIVE);
     const seeded: ReachabilityInputs = { ...LIVE, handlers: [...LIVE.handlers, { tool: target.tool }] };

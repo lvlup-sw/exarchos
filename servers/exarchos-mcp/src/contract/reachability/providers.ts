@@ -30,6 +30,11 @@
 // read as data without importing the module graph. It is transcribed here as a
 // governed constant and pinned by a co-located test that asserts every composite
 // tool in the live registry has exactly one provider.
+//
+// `dispatch-routes.ts` REUSES this `area` field (rather than transcribing the
+// same fact twice) to locate each tool's shipped composite router — the module
+// whose action-level routing table supplies the `route` hop — and asserts the
+// provider tool set and the live dispatch loader tool set are identical.
 // ────────────────────────────────────────────────────────────────────────────
 
 import {

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  HOP_AUTHORITIES,
   REACHABILITY_HOPS,
   buildReachabilityGraph,
   evaluateClosure,
@@ -79,6 +80,19 @@ describe('reachability closure — the complete path', () => {
     ]);
   });
 
+  it('every hop declares an authority INDEPENDENT of the compile pass that supplies the denominator', () => {
+    // The anti-tautology invariant, stated in the pure model: a hop re-derived
+    // from the same `compile()` output as `inputs.actions` resolves to exactly
+    // one for every action by construction and can never fail. `collect.ts` must
+    // therefore resolve each hop against real runtime wiring or a shipped
+    // artifact from a different generation pass; `kill-fixtures.test.ts` proves
+    // each of those can actually drop the census.
+    expect(Object.keys(HOP_AUTHORITIES).sort()).toEqual([...REACHABILITY_HOPS].sort());
+    for (const hop of REACHABILITY_HOPS) {
+      expect(['runtime', 'shipped-artifact'], `hop '${hop}'`).toContain(HOP_AUTHORITIES[hop]);
+    }
+  });
+
   it('the effect-owner hop is conditional — a PURE action skips it (not-applicable)', () => {
     expect(hopStatus(baseInputs(), 't.read', 'owner')).toBe('not-applicable');
     expect(hopStatus(baseInputs(), 't.mutate', 'owner')).toBe('ok');
@@ -143,6 +157,19 @@ describe('reachability closure — seeded break classes each fail closed', () =>
   it('(also) missing schema and missing artifact break their hops', () => {
     expect(hopStatus(withInputs({ schemas: [{ actionId: 't.read' }] }), 't.mutate', 'schema')).toBe('missing');
     expect(hopStatus(withInputs({ artifacts: [{ actionId: 't.read' }] }), 't.mutate', 'artifact')).toBe('missing');
+  });
+
+  it('a route filed under ANOTHER tool does not resolve the action (the route hop matches tool too)', () => {
+    // The ActionId matches, but the routing arm belongs to a different tool —
+    // so it is not this action's route. Guards cross-tool registration drift.
+    const seeded = withInputs({
+      routes: [
+        { actionId: 't.mutate', tool: 'other_tool' },
+        { actionId: 't.read', tool: 't' },
+      ],
+    });
+    expect(hopStatus(seeded, 't.mutate', 'route')).toBe('missing');
+    expect(hopStatus(seeded, 't.read', 'route')).toBe('ok');
   });
 });
 
