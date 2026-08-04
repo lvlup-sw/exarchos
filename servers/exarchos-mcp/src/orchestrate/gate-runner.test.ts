@@ -565,9 +565,16 @@ describe('DR-1 acceptance: check_static_analysis → task_complete', () => {
           name: 'dr1-fixture',
           version: '1.0.0',
           private: true,
+          // DR-6 (T-09): static analysis tallies SKIP first-class, so an
+          // undeclared constituent degrades the dimension and can never report
+          // PASS. All three must be declared or the aggregate is DEGRADED for a
+          // reason that has nothing to do with the seam under test. `lint`
+          // carries the parameterised exit code; the other two are deterministic
+          // green legs so the lint result is the only variable.
           scripts: {
             lint: `node -e "process.exit(${exitCode})"`,
             typecheck: 'node -e ""',
+            'quality-check': 'node -e ""',
           },
         },
         null,

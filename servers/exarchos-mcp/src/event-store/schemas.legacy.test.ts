@@ -544,7 +544,12 @@ describe('EventTypes', () => {
     // retry ladder), and `cancel.manual-intervention-required` (terminal-but-
     // unresolved escalation) — so a takeover fences out its predecessor and
     // retry exhaustion lands in a real, queryable state.
-    expect(EventTypes).toHaveLength(167);
+    //
+    // DR-4 (T-06): bumped 167 → 169 for the durable projection-health pair —
+    // `projection.degraded` and `projection.recovered` — which publish the
+    // cursor/tail verdict to `meta/projection-health` so a degraded projection
+    // is a queryable state rather than an ephemeral per-response annotation.
+    expect(EventTypes).toHaveLength(169);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');
