@@ -69,7 +69,6 @@ import {
   type ImplementationBinding,
 } from '../bindings/binding-table.js';
 import type { CompositeHandler, DispatchContext } from '../../core/dispatch.js';
-import { EventStore } from '../../event-store/store.js';
 import {
   deriveLocalOperatorIdentity,
   snapshotCallerAuthorization,
@@ -432,10 +431,17 @@ export interface RealHandlerObservationSet {
   readonly notProbed: readonly UnprobedAction[];
 }
 
-/** A real `DispatchContext` over a caller-owned state directory. */
-function realDispatchContext(stateDir: string): DispatchContext {
-  return { stateDir, eventStore: new EventStore(stateDir), enableTelemetry: false };
-}
+/**
+ * Mints a real `DispatchContext` over a caller-owned state directory.
+ *
+ * The harness does NOT construct the `EventStore` itself: the composition-root
+ * census (`scripts/check-event-store-composition-root.mjs`) admits `new
+ * EventStore` only inside the composition root, and this module is not one.
+ * Injecting the factory keeps that guard honest — the store is built by the
+ * calling test, which the census excludes — instead of widening the allowlist
+ * to accommodate a harness.
+ */
+export type DispatchContextFactory = (stateDir: string) => DispatchContext;
 
 /**
  * Adapt a REAL composite handler to an {@link ObservableHandler}.
@@ -458,6 +464,7 @@ export function compositeHandlerAdapter(
   actionName: string,
   requiredRoles: readonly string[],
   stateDir: string,
+  makeContext: DispatchContextFactory,
 ): ObservableHandler {
   return async (input: unknown, ctx: ObservationContext): Promise<unknown> => {
     const handler: CompositeHandler = await load();
@@ -469,7 +476,7 @@ export function compositeHandlerAdapter(
     const holdsRequiredRole = requiredRoles.some(
       (role) => role === OPEN_ROLE_MARKER || held.has(role),
     );
-    const dispatchCtx = realDispatchContext(stateDir);
+    const dispatchCtx = makeContext(stateDir);
     if (!holdsRequiredRole) {
       return handler(args, dispatchCtx);
     }
@@ -507,6 +514,7 @@ function bindingFor(
  */
 export async function realHandlerSubjects(
   stateDir: string,
+  makeContext: DispatchContextFactory,
 ): Promise<RealHandlerObservationSet> {
   const subjects: OracleSubject[] = [];
   const notProbed: UnprobedAction[] = [];
@@ -539,6 +547,7 @@ export async function realHandlerSubjects(
       action.name,
       declaration.requiredRoles,
       stateDir,
+      makeContext,
     );
 
     // Does the REAL handler serve the probe? A refusal is not the action's
@@ -682,6 +691,7 @@ function buildRealProbeAction(): ToolAction {
 export function realRegistryAuthorizationCase(
   variant: AuthorizationVariant,
   stateDir: string,
+  makeContext: DispatchContextFactory,
 ): RealRegistryCase {
   const action = buildRealProbeAction();
   const tool: CompositeTool = {
@@ -715,6 +725,7 @@ export function realRegistryAuthorizationCase(
         action.name,
         declaration.requiredRoles,
         stateDir,
+        makeContext,
       ),
       probeInput: {},
       // The oracle's caller reaches this handler through the REAL runtime

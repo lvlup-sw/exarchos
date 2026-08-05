@@ -51,15 +51,29 @@ import {
   realRegistryAuthorizationCase,
   registryDeclaredEffects,
   registryRequiredRoles,
+  type DispatchContextFactory,
   type RealHandlerObservationSet,
 } from './fixtures.js';
+import { EventStore } from '../../event-store/store.js';
 
 let stateDir: string;
 let realHandlers: RealHandlerObservationSet;
 
+/**
+ * The harness receives its DispatchContext from here rather than building one
+ * itself: `new EventStore` is admitted by the composition-root census only in
+ * the composition root, and test files are excluded — so constructing it here
+ * keeps that guard honest instead of widening its allowlist for a harness.
+ */
+const makeRealContext: DispatchContextFactory = (dir) => ({
+  stateDir: dir,
+  eventStore: new EventStore(dir),
+  enableTelemetry: false,
+});
+
 beforeAll(async () => {
   stateDir = makeTempDir('oracle-real-handlers-');
-  realHandlers = await realHandlerSubjects(stateDir);
+  realHandlers = await realHandlerSubjects(stateDir, makeRealContext);
 }, 120_000);
 
 afterAll(() => {
@@ -72,8 +86,8 @@ function verdictLine(v: AxisVerdict | undefined): string {
 
 describe('DR-24 — the oracle observes real handlers', () => {
   it('Oracle_RealHandlerSkipsAuthorization_IsCaught', async () => {
-    const skipping = realRegistryAuthorizationCase('skipping', stateDir);
-    const enforcing = realRegistryAuthorizationCase('enforcing', stateDir);
+    const skipping = realRegistryAuthorizationCase('skipping', stateDir, makeRealContext);
+    const enforcing = realRegistryAuthorizationCase('enforcing', stateDir, makeRealContext);
 
     // The role requirement is the REAL registered action's, not a fixture
     // literal: it comes off `ToolAction.roles` through the registry-derived
@@ -265,7 +279,7 @@ describe('DR-24 — "we did not look" is a distinct, non-passing outcome', () =>
   it('AuthorizationAxisIsNotObservedWithoutAProbeableSurface', async () => {
     // Same real registration, same restrictive role, same skipping handler —
     // but with no authorization surface the oracle never withheld a principal.
-    const { subject } = realRegistryAuthorizationCase('skipping', stateDir);
+    const { subject } = realRegistryAuthorizationCase('skipping', stateDir, makeRealContext);
     const { authorizationSurface: _dropped, ...withoutSurface } = subject;
     void _dropped;
 
@@ -281,7 +295,7 @@ describe('DR-24 — "we did not look" is a distinct, non-passing outcome', () =>
   it('AuthorizationAxisIsNotObservedWhenTheHandlerRefusesEveryCaller', async () => {
     // A handler that declines EVERYONE refuses the intruder too — but that is a
     // blanket failure, not evidence that a requirement is enforced.
-    const { subject } = realRegistryAuthorizationCase('enforcing', stateDir);
+    const { subject } = realRegistryAuthorizationCase('enforcing', stateDir, makeRealContext);
     const refusesEveryone: OracleSubject = {
       ...subject,
       handler: (input, ctx) =>
@@ -337,7 +351,7 @@ describe('DR-24 — the controlled case is a REAL registration', () => {
     // `realRegistryAuthorizationCase` runs `validateAction` — the same call
     // `registry.ts` makes over every built-in action at module load — so a
     // declaration that could not be registered for real throws here.
-    const enforcing = realRegistryAuthorizationCase('enforcing', stateDir);
+    const enforcing = realRegistryAuthorizationCase('enforcing', stateDir, makeRealContext);
     const { tool, action } = enforcing;
     expect(tool.actions).toEqual([action]);
     expect(action.outputSchema).toBeDefined();
