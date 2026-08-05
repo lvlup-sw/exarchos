@@ -42,6 +42,30 @@
 // old tree, and there the engine REFUSES rather than converging — because both
 // ways of continuing destroy it. A refusal that preserves the old bytes is a
 // sound outcome; silently promoting over them would not be.
+//
+// ── The two authorities this file compares (DR-30) ──────────────────────────
+//
+// AUTHORITY A — THE BYTES ON DISK. What the child process actually left
+//   behind when the real SIGKILL landed between the two renames, and what is
+//   there after a restart. The PARENT reads it — `readTree` and `scaffolding`
+//   walk the directory with `readdirSync` in a process that executed none of
+//   the promotion code and holds no handle from the child. Nothing is
+//   inferred from the child's exit status; the filesystem is re-read.
+//
+// AUTHORITY B — THE HAND-AUTHORED TREES. `OLD_TREE` and `NEW_TREE` are
+//   literals written out below. They state what a COMPLETE tree is. The
+//   engine never computes them; it is only ever measured against them.
+//
+// They can disagree, and the disagreement has a name: `torn`. If the commit
+// were not one atomic `rename` — a per-file copy loop, say — the post-kill
+// target would hold some files from the old tree and some from the new, equal
+// to NEITHER literal, and `convergence()` would return `'torn'` where every
+// assertion here demands `'old'` or `'new'`. That is exactly why the two trees
+// are chosen to be mixable: they disagree on their shared files AND each
+// carries a file the other lacks, so a blend is detectable instead of being
+// absorbed into whichever side was read last.
+//
+// @oracle-sources: the on-disk bytes left by the SIGKILLed child process and re-read in the parent with readdirSync, the hand-authored OLD_TREE and NEW_TREE literals in this file
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { spawn, type ChildProcess } from 'node:child_process';

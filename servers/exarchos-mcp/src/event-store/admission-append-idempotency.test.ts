@@ -13,6 +13,36 @@
 // store, and no test asserts merely that a key string was computed — the
 // retry actually runs through the substrate's claim ledger, and the row count
 // is what proves the collapse.
+//
+// ── The two authorities this file compares (DR-30) ──────────────────────────
+//
+// AUTHORITY A — THE RETURNED ENVELOPES. What the shipped typed writer
+//   (`handleAdmissionDisagreementDisposition`) hands back on each of the two
+//   dispatches. The retry is a genuinely NEW dispatch — fresh operationId, a
+//   LATER `resolvedAt` — so only the natural identity is stable across them.
+//
+// AUTHORITY B — THE DURABLE ROWS. What `eventStore.query(STREAM, …)` reads
+//   back off disk afterwards: the row count, `timestamp`, `sequence` and the
+//   stored `idempotencyKey`. This side never sees Authority A's in-memory
+//   value. It crosses the durability boundary and comes back through the
+//   store's own read path.
+//
+// The two sides do share a module graph — the writer appends THROUGH the
+// store — and that is stated plainly rather than hidden: what makes them
+// independent is that neither is computed from the other AT COMPARISON TIME.
+// Side B is re-read from bytes on disk by a query the writer never touches.
+// So they can disagree, in two concrete ways this file would catch:
+//
+//   • Drop the `idempotencyKey` (the exact T-31/T-32 regression this file
+//     backstops) and the retry appends a SECOND row: Authority A comes back
+//     with the retry's own `sequence`/`recordedAt`, while Authority B holds
+//     two rows whose first still says `FIRST_TIME`.
+//   • Mint the key with `randomUUID()`/`Date.now()` instead of the natural
+//     identity and the key recomputed in-test by
+//     `admissionDispositionIdempotencyKey(DISPOSITION_ID)` no longer matches
+//     the `idempotencyKey` on the row read back off disk.
+//
+// @oracle-sources: the envelopes the shipped typed writer returns on two independent dispatches, the durable rows re-read off disk by the file-backed event store
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';

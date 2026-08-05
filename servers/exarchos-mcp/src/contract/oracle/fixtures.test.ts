@@ -18,6 +18,44 @@
 // into a real registry instance through the registry's own `validateAction`,
 // bound through the real binding-table constructor, and driven through the real
 // dispatch caller-authorization scope. The oracle must catch it.
+//
+// ── The two authorities this file compares (DR-30) ──────────────────────────
+//
+// AUTHORITY A — THE DECLARATIONS. `TOOL_REGISTRY` in `src/registry.ts` is
+//   hand-authored data. Each action's `roles`, `annotations.readOnly`,
+//   `annotations.openWorld` and `outputSchema` are written by a human and say
+//   what the action PROMISES. `realActionDeclaration`, `registryRequiredRoles`
+//   and `registryDeclaredEffects` read that and nothing else — which is the
+//   whole point of DR-24, since the pre-DR-24 oracle read hard-coded empty
+//   arrays instead.
+//
+// AUTHORITY B — THE OBSERVED BEHAVIOR. The values the shipped handlers
+//   actually return, and the refusals they actually make, when they are
+//   invoked for real through the implementation-binding table's `load()`.
+//   Nothing on this side is computed from Authority A: the handler bodies
+//   under `src/tools/**` never read the registry's role list — they either
+//   consult the authorization boundary or they do not.
+//
+// They are therefore able to DISAGREE, and this file carries the
+// demonstration rather than asserting the agreement on trust:
+// `Oracle_RealHandlerSkipsAuthorization_IsCaught` registers a real action
+// whose declaration requires a restrictive role and whose real handler never
+// consults the authorization boundary. Authority A says "this caller may not";
+// Authority B serves the caller anyway; the oracle reports `fail`. The
+// enforcing twin in the same case shows the rule is discriminating, not
+// blanket.
+//
+// HONESTY NOTE — ONE ASSERTION HERE IS NOT A TWO-AUTHORITY CLAIM.
+// `AxisCoverageSeparatesNotObservedFromPassAcrossTheSuite` compares
+// `[...byAxis.keys()]` against `ORACLE_AXES`, but `axisCoverage()` builds its
+// rows with `ORACLE_AXES.map(...)`, so that single line is a census compared
+// against its own generator and cannot fail. It is registered as a known
+// defect (`dr24/axis-census-line-is-tautological` in
+// `test/integration/suite-invariants/registry.ts`) so it carries an owner and
+// an expiry instead of looking like evidence. The pass / observed /
+// notObserved counts asserted beside it ARE measured from real reports.
+//
+// @oracle-sources: ../../registry.ts, the values the shipped handlers actually return when invoked through the real implementation-binding table
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';

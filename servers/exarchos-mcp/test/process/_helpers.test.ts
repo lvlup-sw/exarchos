@@ -31,6 +31,23 @@
 //      sees a partially-written binary — only the complete previous file or
 //      the complete new one, because the write happens to a scratch temp
 //      path and only the final `rename()` exposes it.
+//
+// ── DR-30 scope note: why this file declares no authorities ─────────────────
+//
+// The suite-invariant sweep puts this file in scope through the
+// `fs-corpus-sweep` shape, on the strength of ONE `readdirSync`: the listing
+// at the end of `EnsureBinaryBuilt_NConcurrentCallers_BuildsExactlyOnceAndNeverOverlaps`
+// that proves no `.build-tmp-` scratch directory survived. That is a leak
+// check on a temp directory THIS TEST created moments earlier — not a coverage
+// claim over a corpus, and not a comparison between two sources of truth.
+//
+// So there is no second authority here to name, and naming one would be the
+// false declaration the rule exists to prevent: the only reference the listing
+// is checked against is the `.build-tmp-` prefix literal, copied by hand out
+// of `_helpers.ts` — one source wearing two names. The obligation is therefore
+// registered as an owned, expiring gap (`dr29/process-helpers-fs-sweep` in
+// `test/integration/suite-invariants/registry.ts`) rather than papered over
+// with an annotation this file cannot honour.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import * as fs from 'node:fs';

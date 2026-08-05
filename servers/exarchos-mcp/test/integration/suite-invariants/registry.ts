@@ -217,6 +217,17 @@ export const ACCEPTED_GAPS: readonly AcceptedGap[] = Object.freeze([
     why: 'T-36 predicted this exactly: "a future file could import `dispatch` directly and hand it an object literal, and nothing would fail." `makeHarness()` (line ~178) builds `{ stateDir, eventStore, enableTelemetry, projectConfig } as unknown as DispatchContext` instead of going through `createPublicRootHarness()`, so this T2 file does NOT drive the production composition root. This detector found it on its first corpus run; the exception exists only because T-40 is forbidden from editing T-37\'s files.',
     closedBy: 'DR-27/DR-28 follow-up: route `merge-idempotency.test.ts` through `_harness.ts`',
   },
+  {
+    id: 'dr29/process-helpers-fs-sweep',
+    kind: 'detector-exception',
+    files: ['servers/exarchos-mcp/test/process/_helpers.test.ts'],
+    suppresses: ['oracle-sources-missing'],
+    owner: 'T-38 owner (process tier / DR-29)',
+    expires: '2026-11-30',
+    why: "In scope through `fs-corpus-sweep` alone, and only because of ONE `readdirSync`: a listing of a temp directory the test itself created moments earlier, asserting no `.build-tmp-` scratch dir leaked. That is a leak check on the test's own scratch space, not a coverage claim over a corpus, so the file has no second authority to declare — the listing's only reference is the `.build-tmp-` prefix literal copied by hand out of `_helpers.ts`, i.e. one source wearing two names. Annotating it would be exactly the FALSE declaration this rule exists to prevent, which is worse than a registered gap. The shape is deliberately NOT narrowed to exclude it: `readdirSync` in a test is a legitimate silhouette, and trimming a matcher to fit newly-written code is how a guard erodes.",
+    closedBy:
+      "DR-29 follow-up: assert the leak check against a scratch-prefix constant exported from `_helpers.ts` (making it a real two-source claim), or move the leak check out of this file",
+  },
 
   // ── Known defects handed over by T-37, recorded so they expire ─────────
   {
@@ -248,6 +259,17 @@ export const ACCEPTED_GAPS: readonly AcceptedGap[] = Object.freeze([
     expires: '2026-11-30',
     why: 'T-36 measured that 107 of 121 registered `outputSchema`s are `EnvelopeSchema(z.unknown())`, so "envelope-conformant" degrades to "well-formed" for 88% of the surface. The invariant it recommended — an action whose `outputSchema` has an unconstrained `data` cannot be COUNTED as envelope-conformant — needs the schema registry, not the test corpus, so it is out of this meta-test\'s scan surface. Recorded, owned and expiring rather than dropped.',
     closedBy: 'DR-11 / contract-compiler work',
+  },
+  {
+    id: 'dr24/axis-census-line-is-tautological',
+    kind: 'known-defect',
+    files: ['servers/exarchos-mcp/src/contract/oracle/fixtures.test.ts'],
+    suppresses: [],
+    owner: 'evals',
+    expires: '2026-11-30',
+    why: "Found while annotating that file for DR-30, and recorded rather than annotated around. `AxisCoverageSeparatesNotObservedFromPassAcrossTheSuite` asserts `[...byAxis.keys()].sort()` equals `[...ORACLE_AXES].sort()`, but `axisCoverage()` builds its rows with `ORACLE_AXES.map(...)` — so that single line is a census compared against its own generator and cannot fail. It suppresses nothing: the file IS annotated and its declared authorities are real; this entry exists so the one vacuous line inside it carries an owner and an expiry instead of reading as evidence. The pass/observed/notObserved counts asserted beside it are measured from real reports and are unaffected.",
+    closedBy:
+      'DR-24 follow-up: derive the left side from the axes that actually produced verdicts across `suite.reports`, so an axis that stopped emitting reddens the case',
   },
 
   // ── The bulk pre-existing debt ──────────────────────────────────────────
