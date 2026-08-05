@@ -67,10 +67,10 @@ export interface ResolveEffectiveCatalogContext {
    */
   repoRoot?: string | undefined;
   /**
-   * Resolved `.exarchos.yml` config. Drives dev-catalog gating
-   * (`invariants.devCatalog`), the user `catalogs` paths, and per-invariant
-   * `overrides`. When omitted, no dev catalog is surfaced (default-disabled)
-   * and there are no user catalogs or overrides.
+   * Resolved `.exarchos.yml` config. Drives which catalogs are registered
+   * (`invariants.catalogs`, tier-tagged) and the per-invariant `overrides`.
+   * When omitted, nothing is registered, so no dev or user catalog is
+   * surfaced and there are no overrides.
    */
   config?: ExarchosConfigInput | undefined;
   /** SDLC phase to project for — e.g. `'ideate' | 'plan' | 'delegate'`. */
@@ -99,17 +99,6 @@ function defaultRepoRoot(): string {
 }
 
 /**
- * Config used to load *user-authored* catalog files. User catalogs are opt-in
- * by virtue of being listed in `invariants.catalogs`; the `devCatalog` gate is
- * about the built-in dev catalog's content, not the user's own files. We pass
- * a config that enables the loader so the user's explicitly-requested catalog
- * is read regardless of the dev gate.
- */
-const USER_CATALOG_LOAD_CONFIG: ExarchosConfigInput = {
-  invariants: { devCatalog: 'enabled' },
-};
-
-/**
  * Materialize the effective invariant catalog for one SDLC context (DR-7).
  *
  * Pure composition — see the module header for the pipeline and the
@@ -132,14 +121,19 @@ export function resolveEffectiveCatalog(
 
   // ── Layers 1 + 3 collapsed: registered file sources, tagged by tier ──
   //
-  // The dev catalog is no longer a hardcoded-path special case: it is just
-  // another registered source, discovered (and `devCatalog: 'enabled'`
-  // desugared) by `resolveCatalogSources` and tagged `tier: 'dev'`. User
-  // catalogs are tagged `tier: 'user'`. Both load through the SAME
-  // `loadInvariants` path with a gate-satisfying config (the dev catalog is
-  // gated on `devCatalog`; we satisfy that gate here so a registered dev
-  // source loads its INV-* content regardless of the consumer's own flag —
-  // registration IS the opt-in). See design §4.2 / §4.4.
+  // The dev catalog is no longer a hardcoded-path special case, and no longer
+  // a boolean special case either (DR-31): it is just another registered
+  // source, discovered by `resolveCatalogSources` and tagged `tier: 'dev'`.
+  // User catalogs are tagged `tier: 'user'`. Both load through the SAME
+  // `loadInvariants` path, and we hand that loader the caller's REAL config
+  // plus the root we resolved registrations against — so its own
+  // registration gate re-derives the same answer from the same authority.
+  //
+  // What used to be here: a synthesized `{ invariants: { devCatalog:
+  // 'enabled' } }` passed in place of the real config, purely to satisfy the
+  // loader's retired boolean gate for every source. That was DR-31 site 3 —
+  // a bypass that made the loader's gate unobservable through this path.
+  // Registration IS the opt-in now, so there is nothing to defeat.
   //
   // DR-9 degradation is uniform across both tiers: a missing or malformed
   // source folds into `loadWarnings` (naming the offending file) and the
@@ -167,7 +161,11 @@ export function resolveEffectiveCatalog(
     }
     let loaded: InvariantEntry[];
     try {
-      loaded = loadInvariants(resolved, undefined, USER_CATALOG_LOAD_CONFIG);
+      // `config ?? {}` — never let an absent config fall through to the
+      // loader's disk walk-up. The loop only runs for sources that came from
+      // this same config, so an undefined config yields no sources at all;
+      // pinning `{}` keeps that true by construction rather than by luck.
+      loaded = loadInvariants(resolved, { configRoot: repoRoot }, config ?? {});
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       loadWarnings.push(

@@ -687,7 +687,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are designing the fix based on the RCA. Before committing to a fix approach, surface a design-time Constraints section anchored to .exarchos/invariants.md (always-load entries, devCatalog-gated via .exarchos.yml invariants.devCatalog) per @skills/ideate/references/constraint-anchoring.md — the same shared source /ideate Phase 0 uses. Use exarchos_workflow update to record the fix design. Transition to debug-implement when the design is complete. Key decision: minimal targeted fix vs defensive fix with additional guards and validation. Anti-pattern: scope creep beyond the bug fix — resist adding unrelated improvements. Escalate: fix requires architectural change that cannot be contained to a targeted patch.',
+    'You are designing the fix based on the RCA. Before committing to a fix approach, surface a design-time Constraints section anchored to .exarchos/invariants.md (always-load entries; the catalog is loaded when it is registered under .exarchos.yml invariants.catalogs with tier: dev) per @skills/ideate/references/constraint-anchoring.md — the same shared source /ideate Phase 0 uses. Use exarchos_workflow update to record the fix design. Transition to debug-implement when the design is complete. Key decision: minimal targeted fix vs defensive fix with additional guards and validation. Anti-pattern: scope creep beyond the bug fix — resist adding unrelated improvements. Escalate: fix requires architectural change that cannot be contained to a targeted patch.',
 });
 
 register({
@@ -914,7 +914,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are writing the refactoring brief. Before committing to an approach, surface a design-time Constraints section anchored to .exarchos/invariants.md (always-load entries, devCatalog-gated via .exarchos.yml invariants.devCatalog) per @skills/ideate/references/constraint-anchoring.md — the same shared source /ideate Phase 0 uses. Use exarchos_workflow update to record the brief and select polish (small) or overhaul (large) track. Transition based on track selection. Key decision: polish track (<=5 files, cosmetic/DRY) vs overhaul track (>5 files, structural changes). Anti-pattern: choosing polish for structural changes that actually need the overhaul track. Escalate: scope is unclear after exploration, revisit explore phase.',
+    'You are writing the refactoring brief. Before committing to an approach, surface a design-time Constraints section anchored to .exarchos/invariants.md (always-load entries; the catalog is loaded when it is registered under .exarchos.yml invariants.catalogs with tier: dev) per @skills/ideate/references/constraint-anchoring.md — the same shared source /ideate Phase 0 uses. Use exarchos_workflow update to record the brief and select polish (small) or overhaul (large) track. Transition based on track selection. Key decision: polish track (<=5 files, cosmetic/DRY) vs overhaul track (>5 files, structural changes). Anti-pattern: choosing polish for structural changes that actually need the overhaul track. Escalate: scope is unclear after exploration, revisit explore phase.',
 });
 
 register({

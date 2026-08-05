@@ -164,11 +164,17 @@ describe('Debug workflow playbooks', () => {
   it('getPlaybook_DebugDesign_CompactGuidanceReferencesDesignTimeConstraints', () => {
     // #1498: the design phase is /debug's design-time surface; its
     // compactGuidance must point at the .exarchos/invariants.md Constraints
-    // step (devCatalog-gated) so the constraint survives a compacted resume.
+    // step so the constraint survives a compacted resume.
+    // DR-31/T-42: the guidance names the loading mechanism, which is now an
+    // `invariants.catalogs` registration, not the retired `devCatalog` boolean.
     const playbook = getPlaybook('debug', 'design')!;
     expect(playbook.compactGuidance).toContain('.exarchos/invariants.md');
     expect(playbook.compactGuidance.toLowerCase()).toContain('constraints');
-    expect(playbook.compactGuidance.toLowerCase()).toContain('devcatalog');
+    expect(playbook.compactGuidance.toLowerCase()).toContain(
+      'invariants.catalogs',
+    );
+    // The retired boolean must not be advertised to agents any more.
+    expect(playbook.compactGuidance.toLowerCase()).not.toContain('devcatalog');
   });
 
   it('getPlaybook_DebugImplement_HasDebugSkill', () => {
@@ -223,11 +229,17 @@ describe('Refactor workflow playbooks', () => {
   it('getPlaybook_RefactorBrief_CompactGuidanceReferencesDesignTimeConstraints', () => {
     // #1498: the brief phase is /refactor's design-time surface; its
     // compactGuidance must point at the .exarchos/invariants.md Constraints
-    // step (devCatalog-gated) so the constraint survives a compacted resume.
+    // step so the constraint survives a compacted resume.
+    // DR-31/T-42: the guidance names the loading mechanism, which is now an
+    // `invariants.catalogs` registration, not the retired `devCatalog` boolean.
     const playbook = getPlaybook('refactor', 'brief')!;
     expect(playbook.compactGuidance).toContain('.exarchos/invariants.md');
     expect(playbook.compactGuidance.toLowerCase()).toContain('constraints');
-    expect(playbook.compactGuidance.toLowerCase()).toContain('devcatalog');
+    expect(playbook.compactGuidance.toLowerCase()).toContain(
+      'invariants.catalogs',
+    );
+    // The retired boolean must not be advertised to agents any more.
+    expect(playbook.compactGuidance.toLowerCase()).not.toContain('devcatalog');
   });
 
   it('getPlaybook_PolishImplement_HasRefactorSkill', () => {

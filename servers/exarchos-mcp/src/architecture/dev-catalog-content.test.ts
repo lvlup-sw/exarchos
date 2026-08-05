@@ -35,7 +35,9 @@ import { rmrfAsync } from '../test-helpers/temp-dir.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const INVARIANTS_DOC = path.join(REPO_ROOT, '.exarchos/invariants.md');
-const ENABLED_CONFIG = { invariants: { devCatalog: 'enabled' as const } };
+const ENABLED_CONFIG = {
+  invariants: { catalogs: [{ path: INVARIANTS_DOC, tier: 'dev' as const }] },
+};
 
 function loadCatalog(): InvariantEntry[] {
   return loadInvariants(INVARIANTS_DOC, { scope: 'all' }, ENABLED_CONFIG);

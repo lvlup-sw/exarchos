@@ -501,7 +501,7 @@ describe('handleAdd — T9 commit', () => {
     const entries = loadInvariants(
       tmpCatalog,
       { scope: 'all' },
-      { invariants: { devCatalog: 'enabled' } },
+      { invariants: { catalogs: [{ path: tmpCatalog, tier: 'dev' }] } },
     );
     expect(entries.map((e) => e.id)).toEqual(['U-1', 'U-2']);
     await rmrfAsync(tmpDir);

@@ -11,21 +11,31 @@
  * asymmetry: it normalizes every registered file-source into a `CatalogSource`
  * tagged by `tier`, so the resolver can iterate one uniform list (design §4.2).
  *
- * ## Desugaring contract
+ * ## Normalization contract (DR-31)
  *
  *   - A bare-string `catalogs` entry → `{ path, tier: 'user' }` (legacy form).
  *   - A `{ path, tier }` object → as-is; an absent `tier` defaults to `'user'`.
- *   - `devCatalog: 'enabled'` → ALSO emit `{ path: DEV_CATALOG_PATH, tier:
- *     'dev' }` (back-compat sugar, design §4.3). Disabled/absent → no dev source.
- *   - Dedupe by resolved path: if `devCatalog: 'enabled'` AND an explicit
- *     `tier: dev` registration for the same path are both present, the result
- *     carries exactly ONE dev source (the explicit registration; the sugar does
- *     not double-register it).
+ *   - NOTHING else. Registration in `invariants.catalogs` is the ONLY way a
+ *     catalog enters discovery.
+ *
+ * ## What used to be here, and why it is gone (DR-31, site 2)
+ *
+ * This function previously ALSO desugared a repo-only boolean —
+ * `invariants.devCatalog: 'enabled'` → synthesize `{ path:
+ * '.exarchos/invariants.md', tier: 'dev' }`, with a `(path, tier: 'dev')`
+ * dedupe so the sugar and an explicit registration for the same path did not
+ * double-load. That branch made `resolveCatalogSources` a direct reader of the
+ * boolean, which is what DR-31 retires: it gave this repository a loading mode
+ * no consumer could reproduce from their own `.exarchos.yml`, and it meant one
+ * concern (which catalogs load) had two configuration authorities.
+ *
+ * The audience scoping the boolean carried is now carried by `tier: 'dev'` on
+ * an ordinary registration, so a repo opts its own catalog in exactly the way a
+ * consumer does. `devCatalog` may still legally APPEAR in a config (the schema
+ * still accepts it until DR-31's schema task); it simply has no effect here.
  *
  * The returned paths are NOT resolved against a repo root here — that is the
- * resolver's job (it may be absolute or relative). Dedupe compares the raw
- * `path` string, which is sufficient because the desugared dev path is a fixed
- * repo-relative constant that an explicit registration mirrors verbatim.
+ * resolver's job (it may be absolute or relative).
  */
 import type { ExarchosConfigInput } from '../config/exarchos-config-schema.js';
 
@@ -38,47 +48,18 @@ export interface CatalogSource {
 }
 
 /**
- * Repo-relative path the `devCatalog: 'enabled'` sugar desugars to. Mirrors the
- * path the resolver previously hardcoded in its Layer-1 block.
- */
-export const DEV_CATALOG_PATH = '.exarchos/invariants.md';
-
-/**
- * Normalize `invariants.catalogs` registrations + desugar `devCatalog` into a
- * single tier-tagged `CatalogSource[]`. See the module header for the full
- * desugaring + dedupe contract.
+ * Normalize `invariants.catalogs` registrations into a tier-tagged
+ * `CatalogSource[]`. See the module header for the full contract — in
+ * particular that registration is the ONLY opt-in (DR-31).
  */
 export function resolveCatalogSources(
   config: ExarchosConfigInput | undefined,
 ): CatalogSource[] {
-  const invariants = config?.invariants;
-  const registrations = invariants?.catalogs ?? [];
+  const registrations = config?.invariants?.catalogs ?? [];
 
-  const sources: CatalogSource[] = registrations.map((registration) =>
+  return registrations.map((registration) =>
     typeof registration === 'string'
       ? { path: registration, tier: 'user' }
       : { path: registration.path, tier: registration.tier ?? 'user' },
   );
-
-  // Desugar the legacy `devCatalog: 'enabled'` flag into a dev-tier source,
-  // unless an explicit DEV-tier registration already claims the same path
-  // (dedupe). The dedupe must be keyed on `(path, tier: 'dev')`, NOT path
-  // alone: a USER-tier registration sharing the dev path (legacy bare-string
-  // or `{ path, tier: 'user' }`) must NOT suppress the dev sugar — otherwise
-  // the dev catalog would load as USER tier and its reserved `INV-*` ids would
-  // be rejected by the reserved-namespace check (#1487 review).
-  if (invariants?.devCatalog === 'enabled') {
-    const existingIndex = sources.findIndex((s) => s.path === DEV_CATALOG_PATH);
-    if (existingIndex === -1) {
-      sources.push({ path: DEV_CATALOG_PATH, tier: 'dev' });
-    } else if (sources[existingIndex]?.tier !== 'dev') {
-      // A USER-tier registration sharing the dev path is upgraded IN PLACE to
-      // dev tier — not duplicated — so the catalog loads exactly once, as dev.
-      // (Pushing a second dev source would double-load the file; leaving it
-      // user-tier would get its INV-* ids rejected as a reserved namespace.)
-      sources[existingIndex] = { path: DEV_CATALOG_PATH, tier: 'dev' };
-    }
-  }
-
-  return sources;
 }
