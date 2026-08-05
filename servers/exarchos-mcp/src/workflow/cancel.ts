@@ -382,9 +382,13 @@ export async function handleCancel(
       eventStore: null,
       allowUniversalFinalTransition: true,
       // The same live shadow observer `tools.ts` wires onto the guarded
-      // transition path.
+      // transition path. DR-23 / T-31: the guard context is in pure-evaluation
+      // mode (`eventStore: null`) because THIS handler owns authoritative
+      // emission — but the shadow evidence is a separate, non-authoritative
+      // stream, so the observer is handed this handler's real store rather than
+      // the (deliberately null) context one.
       shadowObserver: (observation) =>
-        recordLiveTransition(observation, mutableState),
+        recordLiveTransition(observation, mutableState, eventStore),
     },
   );
 

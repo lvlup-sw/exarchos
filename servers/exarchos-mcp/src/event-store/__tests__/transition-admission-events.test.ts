@@ -213,9 +213,17 @@ describe('internal transition admission event schemas', () => {
 
     for (const [type, payload] of Object.entries(validEvents)) {
       expect(EventTypes).toContain(type);
-      const expectedSource = type === 'admission.evidence-recorded'
-        ? 'auto'
-        : 'planned';
+      // Admission events with a REAL automatic producer today. Everything else
+      // is still 'planned' (schema landed, producer not yet wired).
+      //   - admission.evidence-recorded: canonical gate runner (v2.12).
+      //   - admission.shadow-attempt / admission.disagreement-disposition:
+      //     the live shadow observer, on every guarded transition (DR-23/T-31).
+      const autoEmitted = new Set([
+        'admission.evidence-recorded',
+        'admission.shadow-attempt',
+        'admission.disagreement-disposition',
+      ]);
+      const expectedSource = autoEmitted.has(type) ? 'auto' : 'planned';
       expect(EVENT_EMISSION_REGISTRY[type as keyof typeof EVENT_EMISSION_REGISTRY])
         .toBe(expectedSource);
 

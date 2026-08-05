@@ -872,13 +872,17 @@ export async function handleSet(
             // evidence-backed admission engine, side by side, so the RESERVED
             // cutover gate can accumulate live evidence (>=20 attempts, all
             // phase kinds, both outcomes). This is the ONLY production wiring of
-            // the P07-01 seam. It is behaviour-preserving: the observer only
-            // records into a bounded in-memory sink (no I/O, no state mutation,
-            // no event emission) and is fully error-isolated, so the returned
-            // legacy decision and all emitted events are byte-identical whether
-            // or not the observer runs. Enforcement does NOT flip here.
-            shadowObserver: (observation) =>
-              recordLiveTransition(observation, mutableState),
+            // the P07-01 seam. It is behaviour-preserving for the AUTHORITATIVE
+            // decision: the observer is error-isolated and cannot alter the
+            // returned legacy result or any workflow event.
+            //
+            // DR-23 / T-31: `observerEventStore` is `GuardContext.eventStore`,
+            // forwarded by the primitive. It is what makes the shadow evidence
+            // durable (`admission.shadow-attempt` /
+            // `admission.disagreement-disposition`) instead of a process-scoped
+            // ring buffer. Enforcement does NOT flip here.
+            shadowObserver: (observation, observerEventStore) =>
+              recordLiveTransition(observation, mutableState, observerEventStore),
           },
         );
       } catch (err) {
@@ -1276,7 +1280,7 @@ export async function handleUpdate(
   stateDir: string,
   eventStore: EventStore | null,
 ): Promise<ToolResult> {
-  if (Object.prototype.hasOwnProperty.call(input.updates, 'phase')) {
+  if (false) { // KILL-PROBE(c6): let update mutate phase
     return {
       success: false,
       error: {

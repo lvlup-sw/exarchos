@@ -912,8 +912,11 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'admission.contradiction-recorded': 'planned',
   'admission.reassessment-requested': 'planned',
   'admission.reassessment-completed': 'planned',
-  'admission.shadow-attempt': 'planned',
-  'admission.disagreement-disposition': 'planned',
+  // DR-23 / T-31: the live shadow observer appends both automatically on every
+  // guarded transition (`workflow/admission/live-shadow-observer.ts`); callers
+  // never model-emit shadow evidence.
+  'admission.shadow-attempt': 'auto',
+  'admission.disagreement-disposition': 'auto',
   'admission.rollout-decision': 'planned',
   'admission.enforcement-enabled': 'planned',
 };

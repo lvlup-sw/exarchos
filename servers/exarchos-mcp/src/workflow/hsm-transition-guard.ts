@@ -317,11 +317,18 @@ export interface GuardContext {
    *   - ERROR-ISOLATED: any throw from the observer is swallowed — a shadow
    *     failure can never propagate into the production transition path;
    *   - PASSIVE: the observer receives the legacy outcome and cannot alter it.
+   *
+   * DR-23 / T-31 — the observer ALSO receives `context.eventStore`, so the live
+   * shadow evidence it records is durable rather than process-scoped. The store
+   * is handed over here, at the seam that already holds it, rather than through
+   * a module-level binding: hidden global state is not a wiring closure.
+   * Observers that only need the observation may ignore the second parameter.
    * All shadow adjudication, classification and recording live behind this seam
    * in `admission/shadow-decision.ts`, never in this primitive.
    */
   readonly shadowObserver?: (
     observation: LegacyTransitionObservation,
+    eventStore: EventStore | null,
   ) => void;
   /**
    * DR-7 (INV-9) — admit the HSM's UNIVERSAL final-state edges.
@@ -476,6 +483,12 @@ function resolveHSM(
  * observer is swallowed so a shadow failure can never propagate into the
  * production transition path. A no-op when no observer is wired (production
  * default), so behaviour is byte-identical.
+ *
+ * DR-23 / T-31: `context.eventStore` is forwarded so the observer can make its
+ * evidence DURABLE. This is the whole production wiring of the durable shadow
+ * substrate — if this argument stops being forwarded, the registered
+ * `admission.shadow-attempt` / `admission.disagreement-disposition` facts stop
+ * being written, and `live-shadow-observer.test.ts` fails.
  */
 function notifyShadowObserver(
   context: GuardContext,
@@ -483,7 +496,7 @@ function notifyShadowObserver(
 ): void {
   if (!context.shadowObserver) return;
   try {
-    context.shadowObserver(observation);
+    context.shadowObserver(observation, context.eventStore);
   } catch {
     // Intentionally swallowed — shadow observation is never authoritative.
   }

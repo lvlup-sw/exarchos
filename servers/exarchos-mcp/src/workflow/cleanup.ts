@@ -485,9 +485,12 @@ export async function handleCleanup(
       allowUniversalFinalTransition: true,
       // The SAME live shadow observer `tools.ts` wires onto the guarded
       // transition path, so cleanup's phase mutation is observed identically
-      // to every other one.
+      // to every other one. DR-23 / T-31: the guard context is in
+      // pure-evaluation mode (`eventStore: null`) because THIS handler owns
+      // authoritative emission — the non-authoritative shadow evidence is
+      // still durable, via this handler's real store.
       shadowObserver: (observation) =>
-        recordLiveTransition(observation, mutableState),
+        recordLiveTransition(observation, mutableState, eventStore),
     },
   );
 
