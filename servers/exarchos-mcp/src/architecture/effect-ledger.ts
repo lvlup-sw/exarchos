@@ -1,8 +1,6 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 
-import { maskLiteralsAndComments } from './delivery-safety.js';
-
 /**
  * P04-01 — effect ownership ledger (structural census).
  *
@@ -24,8 +22,8 @@ import { maskLiteralsAndComments } from './delivery-safety.js';
  * ── Effect classes ──────────────────────────────────────────────────────────
  * The scan classifies the three effect *primitives* that are statically
  * detectable from a module's import surface: `filesystem` (`node:fs`), `process`
- * (`node:child_process`), and `network` (`node:http|https|net|tls|dgram`,
- * `undici`, or a global `fetch`). The plan's other named effects — `vcs` and
+ * (`node:child_process`), and `network` (see {@link classifySpecifier} for the
+ * widened network subject). The plan's other named effects — `vcs` and
  * `install` — are process *owners*, not separate primitives: a `process`
  * occurrence under `vcs/**` is owned by the VCS effect owner, one under an
  * install module by the install owner. Ownership is therefore where `vcs` /
@@ -38,6 +36,81 @@ import { maskLiteralsAndComments } from './delivery-safety.js';
  * its ownership is declared at layer granularity; process and network are
  * declared at the crisp module/owner granularity their "one typed owner" mandate
  * warrants.
+ *
+ * ── DR-13: effect detection is not evadable by import shape ─────────────────
+ * The pre-DR-13 detector keyed off an exact specifier list
+ * (`node:http|https|net|tls|dgram`, `undici`) plus a bare `fetch(` regex. That
+ * is trivially evaded: `node:http2`, `axios`/`got`/`ws`/`node-fetch`, a private
+ * `@scope/transport` package and an aliased global were all invisible, so a
+ * module could perform network I/O and the census would stay green. The
+ * widening replaces the denylist with a CLOSED-WORLD subject:
+ *
+ *   1. the full set of network-capable runtime builtins
+ *      (`http`/`https`/`http2`/`net`/`tls`/`dgram`/`dns`, `node:`- or
+ *      `bun:`-prefixed or bare) — {@link NETWORK_BUILTIN};
+ *   2. a curated set of well-known third-party HTTP/socket clients, aligned
+ *      with the repo's existing `config/toolchains.ts` `third-party-http`
+ *      signature — {@link THIRD_PARTY_NETWORK_CLIENTS};
+ *   3. **every other bare package specifier that is not on the vetted-inert
+ *      allowlist** {@link INERT_DEPENDENCIES}. This is the rule that actually
+ *      closes the defect: a client can be published under ANY name, so the only
+ *      non-evadable rule is one that fails closed on names nobody has vetted;
+ *   4. remote-URL imports (`https://…`, `wss://…`), which fetch over the wire
+ *      by construction;
+ *   5. ambient network globals reached without an import — `fetch(…)`,
+ *      `globalThis.fetch`, `const f = fetch`, `const { fetch } = globalThis`,
+ *      `new WebSocket(…)` — see {@link AMBIENT_NETWORK_RULES}.
+ *
+ * Rule 3 deliberately inverts the list: an allowlist of *inert* dependencies
+ * grows only when a human consciously asserts "this package performs no I/O",
+ * whereas the old denylist grew only when someone remembered a client name. It
+ * is decidable HERE because the shipped bare-import surface is small and fixed
+ * (see {@link INERT_DEPENDENCIES}); it is not a general-purpose rule. The
+ * `network` classification it assigns is CONSERVATIVE, not a claim of fact — an
+ * unvetted package's effect surface is unknowable from source, so the ledger
+ * charges it to the widest primitive and carries the specifier in `evidence`
+ * (`unvetted-dependency:<pkg>`) so the diagnostic names exactly what was
+ * admitted. The fix is either to vet the package into {@link
+ * INERT_DEPENDENCIES} or to declare an owner for it.
+ *
+ * ── DR-13 trust boundary — what this scan does NOT see ──────────────────────
+ * DR-13's second acceptance criterion allows an evasion class to be scoped out
+ * *provided the boundary is documented explicitly*. These are scoped out, each
+ * because it is not soundly decidable from a single module's source text. They
+ * are stated here so the carve-out cannot silently grow, and each is pinned by a
+ * test in `effect-ledger.test.ts` so a future widening has to delete the pin:
+ *
+ *   - INJECTED CLIENTS. A client passed in as a constructor/function parameter
+ *     (`constructor(private http: HttpLike)`, `run(deps: { post: Poster })`) is
+ *     INVISIBLE and cannot be made visible by a source scan: the parameter's
+ *     effect surface is a property of the *caller*, which a per-module scan
+ *     never sees, and its type may be a structural interface with no effectful
+ *     import anywhere. The ledger's coverage of injection is INDIRECT: whichever
+ *     module constructs the real client must name it (rules 1–4) or reach an
+ *     ambient global (rule 5), and THAT module is the effect site. This is the
+ *     deliberate seam — the injection point is a port, the constructor is the
+ *     adapter, and the adapter is what the ledger owns.
+ *   - TRANSITIVE ATTRIBUTION. A re-export of an effect primitive IS detected —
+ *     `export { request } from 'node:https'` names the primitive, so the
+ *     re-exporting module is an effect site and needs an owner. What is NOT
+ *     detected is the *consumer* of that re-export: effects are attributed to
+ *     the module that names the primitive, never propagated along the import
+ *     graph. Attribution is intentionally per-module because that is where an
+ *     owner, an idempotency contract and a compensation contract can live.
+ *   - COMPUTED / STRING-INDEXED ACCESS. `globalThis['fet' + 'ch']`,
+ *     `Reflect.get(globalThis, name)` and a `fetch` reference smuggled through a
+ *     shape none of {@link AMBIENT_NETWORK_RULES} matches (e.g. the object
+ *     shorthand `const c = { fetch }`) are not matched. Computed member access
+ *     is undecidable in general; the shorthand is excluded on purpose because a
+ *     bare `fetch` identifier rule false-positives on ordinary property keys and
+ *     interface members.
+ *   - TEMPLATE-LITERAL INTERPOLATION. {@link maskNonCode} masks a template
+ *     literal whole, so an ambient-global call written inside `${…}` is masked
+ *     with it. Import-shape rules 1–4 are unaffected (they read the import
+ *     surface, not masked text).
+ *
+ * Everything above is a FALSE-NEGATIVE boundary, never a false positive: the
+ * census can under-report a smuggled effect, but it never invents one.
  */
 
 /** The three statically-detectable effect primitives. */
@@ -113,35 +186,212 @@ export function isScannableFile(name: string): boolean {
   );
 }
 
-const FS_SPEC = /^(?:node:)?fs(?:\/promises)?$/;
-const PROCESS_SPEC = /^(?:node:)?child_process$/;
-const NETWORK_SPEC = /^(?:node:)?(?:http|https|net|tls|dgram)$|^undici$/;
+const FS_SPEC = /^fs(?:\/promises)?$/;
+const PROCESS_SPEC = /^child_process$/;
 
-/** Classify an import specifier to an effect class, or undefined if inert. */
-function classifySpecifier(spec: string): EffectClass | undefined {
-  if (FS_SPEC.test(spec)) return 'filesystem';
-  if (PROCESS_SPEC.test(spec)) return 'process';
-  if (NETWORK_SPEC.test(spec)) return 'network';
-  return undefined;
+/**
+ * Network-capable runtime builtins (DR-13 rule 1), matched on the *unprefixed*
+ * module name so `node:http2`, `bun:http2` and a bare `http2` are all the same
+ * subject. `http2` and `dns` were the two the pre-DR-13 list missed outright.
+ * `dns` counts: name resolution is a packet on the wire and is the classic
+ * exfiltration channel for a process that is otherwise "offline".
+ */
+const NETWORK_BUILTIN = /^(?:http|https|http2|net|tls|dgram|dns)(?:\/promises)?$/;
+
+/** Remote-URL module specifiers (DR-13 rule 4) — importing one IS a fetch. */
+const REMOTE_URL_SPEC = /^(?:https?|wss?):\/\//;
+
+/**
+ * Runtime-builtin schemes. A specifier carrying one of these is resolved by the
+ * runtime, never by the package manager, so it is judged by {@link
+ * NETWORK_BUILTIN} / {@link FS_SPEC} / {@link PROCESS_SPEC} alone and is never
+ * an "unvetted dependency" (rule 3). `bun:sqlite` — the shipped SQLite
+ * substrate — is the live example.
+ */
+const BUILTIN_SCHEME = /^(node|bun):/;
+
+/**
+ * Node builtins reachable WITHOUT the `node:` prefix. Needed so the closed-world
+ * rule 3 does not mistake a bare `util` or `child_process` import (both live in
+ * the shipped tree) for an unvetted npm package. Subpath forms (`fs/promises`)
+ * normalise to their head segment before lookup.
+ */
+const NODE_BUILTINS: ReadonlySet<string> = new Set([
+  'assert', 'async_hooks', 'buffer', 'child_process', 'cluster', 'console',
+  'constants', 'crypto', 'dgram', 'diagnostics_channel', 'dns', 'domain',
+  'events', 'fs', 'http', 'http2', 'https', 'inspector', 'module', 'net', 'os',
+  'path', 'perf_hooks', 'process', 'punycode', 'querystring', 'readline',
+  'repl', 'stream', 'string_decoder', 'sys', 'timers', 'tls', 'trace_events',
+  'tty', 'url', 'util', 'v8', 'vm', 'wasi', 'worker_threads', 'zlib',
+]);
+
+/**
+ * Well-known third-party HTTP/socket clients (DR-13 rule 2). The membership list
+ * is the same vocabulary `config/toolchains.ts` already uses for its
+ * `third-party-http` hermetic-dependency signature, plus the socket clients that
+ * signature has no reason to name.
+ *
+ * For the *verdict* this set is subsumed by rule 3 (none of these is inert), and
+ * that is deliberate: the set exists so the diagnostic can say "axios" rather
+ * than "unvetted dependency", i.e. so a real client is named as a network
+ * primitive and not merely as an un-audited package. Keeping it separate also
+ * means a future narrowing of rule 3 cannot silently un-detect the named
+ * clients.
+ */
+const THIRD_PARTY_NETWORK_CLIENTS: ReadonlySet<string> = new Set([
+  'axios', 'got', 'ky', 'needle', 'node-fetch', 'phin', 'request', 'superagent',
+  'undici', 'unfetch', 'isomorphic-fetch', 'cross-fetch', 'bent', 'wreck',
+  'ws', 'socket.io-client', 'websocket', 'eventsource', 'grpc', '@grpc/grpc-js',
+]);
+
+/**
+ * The VETTED-INERT dependency allowlist — the closed world rule 3 is closed
+ * against. Every bare package specifier the shipped tree imports is listed here
+ * with the reason it performs no ambient I/O of its own; anything else is an
+ * `unvetted-dependency` network occurrence until a human vets it.
+ *
+ * This IS an exact-specifier list, but it grows in the SAFE direction: a
+ * forgotten entry fails the census (loud), whereas a forgotten entry in the old
+ * client denylist silently passed it. Match is on the PACKAGE name, so every
+ * subpath of a listed package (`@modelcontextprotocol/sdk/server/mcp.js`) is
+ * covered by one entry.
+ *
+ *   - `@modelcontextprotocol/sdk` — the MCP protocol SDK. It DOES own transport
+ *     I/O, but only over the stdio/in-memory transports this server constructs;
+ *     the server never gives it a network transport. Vetted, not ignored.
+ *   - `better-sqlite3` — embedded file-backed SQLite driver; the filesystem
+ *     effect it performs is already owned at `storage/` granularity. (The
+ *     `bun:sqlite` sibling needs no entry: it carries a builtin SCHEME and is
+ *     judged by {@link BUILTIN_SCHEME}, never by this allowlist.)
+ *   - `commander`  — argv parser; pure string/AST work.
+ *   - `gray-matter`— front-matter parser over a string the caller already read.
+ *   - `pino`       — structured logger writing to an injected stream.
+ *   - `vitest`     — the type-test / GWT-harness DSL imported by shipped
+ *                    `*.type-test.ts` and `projections/gwt.ts`; test infra.
+ *   - `yaml`, `yazl`, `zod` — YAML codec, in-memory zip writer, schema
+ *                    validator. All pure data transforms.
+ */
+export const INERT_DEPENDENCIES: ReadonlySet<string> = new Set([
+  '@modelcontextprotocol/sdk',
+  'better-sqlite3',
+  'commander',
+  'gray-matter',
+  'pino',
+  'vitest',
+  'yaml',
+  'yazl',
+  'zod',
+]);
+
+/**
+ * The npm package name of a bare specifier: `@scope/pkg/sub/x.js` → `@scope/pkg`,
+ * `pkg/sub` → `pkg`. Used so allowlist membership is per package, not per
+ * subpath.
+ */
+export function packageNameOf(spec: string): string {
+  const parts = spec.split('/');
+  if (spec.startsWith('@')) return parts.slice(0, 2).join('/');
+  return parts[0] ?? spec;
+}
+
+/**
+ * Classify an import specifier to an effect class, or undefined if inert.
+ * Returns the `evidence` string alongside the class so the closed-world rule can
+ * mark itself as a conservative judgement (`unvetted-dependency:<pkg>`) rather
+ * than masquerading as a named network primitive.
+ *
+ * Order matters: remote URLs first, then builtin schemes and builtin names (so
+ * `bun:sqlite` and a bare `util` are inert, not "unvetted"), then relative
+ * in-repo paths (inert — the imported module is scanned on its own account),
+ * then the curated client set, then the closed-world fallback.
+ */
+export function classifySpecifier(
+  spec: string,
+): { readonly effectClass: EffectClass; readonly evidence: string } | undefined {
+  const network = (evidence: string): { effectClass: EffectClass; evidence: string } => ({
+    effectClass: 'network',
+    evidence,
+  });
+
+  if (REMOTE_URL_SPEC.test(spec)) return network(spec);
+
+  const scheme = BUILTIN_SCHEME.exec(spec);
+  const bare = scheme === null ? spec : spec.slice(scheme[0].length);
+  const head = packageNameOf(bare);
+  if (scheme !== null || NODE_BUILTINS.has(head)) {
+    if (FS_SPEC.test(bare)) return { effectClass: 'filesystem', evidence: spec };
+    if (PROCESS_SPEC.test(bare)) return { effectClass: 'process', evidence: spec };
+    if (NETWORK_BUILTIN.test(bare)) return network(spec);
+    return undefined;
+  }
+
+  // Relative / absolute in-repo paths: the target module is scanned separately
+  // and owns its own effects (attribution is per module, never transitive).
+  if (spec.startsWith('.') || spec.startsWith('/')) return undefined;
+
+  const pkg = packageNameOf(spec);
+  if (THIRD_PARTY_NETWORK_CLIENTS.has(pkg)) return network(spec);
+  if (INERT_DEPENDENCIES.has(pkg)) return undefined;
+  return network(`unvetted-dependency:${pkg}`);
 }
 
 const IDENT_CHAR = /[A-Za-z0-9_$]/;
 const isIdentChar = (c: string | undefined): boolean => c !== undefined && IDENT_CHAR.test(c);
 const isSpace = (c: string | undefined): boolean => c !== undefined && /\s/.test(c);
 
+/** One import/export specifier occurrence at code position. */
+export interface ImportRef {
+  /** The literal specifier text (`node:fs`, `./x.js`, `axios`). */
+  readonly specifier: string;
+  /**
+   * True for `import type … from '…'` / `export type … from '…'`. Type-only
+   * statements are fully erased at compile time and carry NO runtime binding,
+   * so they perform no effect — `import type { Server } from 'node:http'` is
+   * not a network site.
+   */
+  readonly typeOnly: boolean;
+}
+
 /**
  * Extract every module specifier introduced by `from '…'`, `import '…'`,
- * `import('…')` or `require('…')` at CODE position. A comment/string aware walk
- * so a `from 'node:fs'` that appears *inside* a string literal or comment (e.g.
- * a lint pattern or doc example) is not mistaken for a real import.
+ * `import('…')` or `require('…')` at CODE position, tagged with whether the
+ * statement is type-only. A comment/string aware walk so a `from 'node:fs'`
+ * that appears *inside* a string literal or comment (e.g. a lint pattern or doc
+ * example) is not mistaken for a real import.
+ *
+ * Two lexer details matter for correctness, and both were WRONG in this walk
+ * before DR-13 (the same defect the DR-12 widening found in
+ * `vcs-ownership.stripComments`, which exists here as a near-duplicate copy):
+ *
+ *   - REGEX LITERALS. A regex such as `/(['"`])x\1/` contains quote characters
+ *     that are NOT string delimiters. Without regex awareness the walk enters a
+ *     phantom string at the `'`, and from there `//` stops being recognised as a
+ *     comment — so commented-out prose leaks in and a documented
+ *     `from 'node:http'` counts as a real import (false POSITIVE), while any
+ *     genuine import swallowed by the phantom string is missed (false NEGATIVE).
+ *     The `/`-in-operand-position heuristic is deliberately CONSERVATIVE: when
+ *     in doubt it treats `/` as division, which merely restores the old
+ *     behaviour instead of swallowing real code.
+ *   - LINE-BOUNDED QUOTES. `'`/`"` strings cannot span a raw newline in JS.
+ *     Terminating them at end-of-line caps any residual desync at one line
+ *     instead of letting it run to EOF. Template literals are exempt.
  */
-export function extractImportSpecifiers(source: string): string[] {
-  const specs: string[] = [];
+export function extractImports(source: string): ImportRef[] {
+  const refs: ImportRef[] = [];
   const n = source.length;
   let i = 0;
   let quote: string | null = null;
   let lineComment = false;
   let blockComment = false;
+  let regex = false;
+  let regexClass = false;
+  /** Last significant CODE character — decides regex-vs-division for `/`. */
+  let lastSignificant = '';
+  /** True while the current import/export statement carries a `type` modifier. */
+  let pendingTypeOnly = false;
+
+  const startsRegex = (): boolean =>
+    lastSignificant === '' || !/[A-Za-z0-9_$)\]]/.test(lastSignificant);
 
   const readStringAt = (start: number): { value: string; end: number } | undefined => {
     const q = source[start];
@@ -154,11 +404,18 @@ export function extractImportSpecifiers(source: string): string[] {
         j += 2;
         continue;
       }
+      // A specifier literal never spans a raw newline; bail rather than run away.
+      if (c === '\n' && q !== '`') return undefined;
       if (c === q) return { value: val, end: j };
       val += c;
       j += 1;
     }
     return undefined;
+  };
+
+  const record = (specifier: string): void => {
+    refs.push({ specifier, typeOnly: pendingTypeOnly });
+    pendingTypeOnly = false;
   };
 
   while (i < n) {
@@ -178,7 +435,28 @@ export function extractImportSpecifiers(source: string): string[] {
       i += 1;
       continue;
     }
+    if (regex) {
+      if (ch === '\\') {
+        i += 2;
+        continue;
+      }
+      // A raw newline cannot appear in a regex literal — bail out rather than
+      // run away, so a misjudged `/` costs at most one line.
+      if (ch === '\n') regex = false;
+      else if (ch === '[') regexClass = true;
+      else if (ch === ']') regexClass = false;
+      else if (ch === '/' && !regexClass) regex = false;
+      i += 1;
+      continue;
+    }
     if (quote !== null) {
+      // `'`/`"` are line-bounded in JS; a newline means the lexer desynced, so
+      // resynchronise instead of consuming the rest of the file as string body.
+      if (ch === '\n' && quote !== '`') {
+        quote = null;
+        i += 1;
+        continue;
+      }
       if (ch === '\\') {
         i += 2;
         continue;
@@ -197,40 +475,258 @@ export function extractImportSpecifiers(source: string): string[] {
       i += 2;
       continue;
     }
+    if (ch === '/' && startsRegex()) {
+      regex = true;
+      regexClass = false;
+      lastSignificant = ch;
+      i += 1;
+      continue;
+    }
     if (ch === '"' || ch === "'" || ch === '`') {
       quote = ch;
+      lastSignificant = ch;
       i += 1;
       continue;
     }
 
     // Code position: a keyword that introduces a specifier, at a word boundary.
     if (!isIdentChar(source[i - 1])) {
-      let kw: 'from' | 'import' | 'require' | null = null;
+      const isImport = source.startsWith('import', i) && !isIdentChar(source[i + 6]);
+      const isExport = source.startsWith('export', i) && !isIdentChar(source[i + 6]);
+      if (isImport || isExport) {
+        // A fresh import/export statement — re-derive its type-only status so a
+        // prior `export type X = Y;` never leaks into the next `from`.
+        pendingTypeOnly = false;
+        let p = i + 'import'.length;
+        while (isSpace(source[p])) p += 1;
+        if (source.startsWith('type', p) && !isIdentChar(source[p + 4])) pendingTypeOnly = true;
+
+        if (isImport) {
+          // Side-effect `import '…'` or dynamic `import('…')` — a value import.
+          let j = i + 'import'.length;
+          while (isSpace(source[j])) j += 1;
+          if (source[j] === '(') {
+            j += 1;
+            while (isSpace(source[j])) j += 1;
+          }
+          const str = readStringAt(j);
+          if (str !== undefined) {
+            record(str.value);
+            i = str.end + 1;
+            lastSignificant = source[i - 1] ?? '';
+            continue;
+          }
+        }
+        i += 'import'.length;
+        lastSignificant = 't';
+        continue;
+      }
+
+      let kw: 'from' | 'require' | null = null;
       if (source.startsWith('from', i) && !isIdentChar(source[i + 4])) kw = 'from';
-      else if (source.startsWith('import', i) && !isIdentChar(source[i + 6])) kw = 'import';
       else if (source.startsWith('require', i) && !isIdentChar(source[i + 7])) kw = 'require';
 
       if (kw !== null) {
         let j = i + kw.length;
         while (isSpace(source[j])) j += 1;
-        if ((kw === 'import' || kw === 'require') && source[j] === '(') {
+        if (kw === 'require' && source[j] === '(') {
           j += 1;
           while (isSpace(source[j])) j += 1;
         }
         const str = readStringAt(j);
         if (str !== undefined) {
-          specs.push(str.value);
+          record(str.value);
           i = str.end + 1;
+          lastSignificant = source[i - 1] ?? '';
           continue;
         }
       }
     }
+    if (ch !== undefined && !/\s/.test(ch)) lastSignificant = ch;
     i += 1;
   }
-  return specs;
+  return refs;
 }
 
-const FETCH_RE = /\bfetch\s*\(/;
+/**
+ * Every module specifier at code position, type-only ones included. Kept as the
+ * pre-DR-13 signature because `layer-boundaries-seam.ts` depends on the full
+ * import surface (a type-only cross-layer import is still a layer edge); the
+ * effect scan filters to value imports itself via {@link extractImports}.
+ */
+export function extractImportSpecifiers(source: string): string[] {
+  return extractImports(source).map((ref) => ref.specifier);
+}
+
+/**
+ * Replace every string, template, comment and REGEX-LITERAL span with spaces
+ * (newlines kept) so the ambient-global rules below see only real code while
+ * offsets stay aligned to the original source.
+ *
+ * A local copy rather than `delivery-safety.maskLiteralsAndComments` because
+ * that copy has no regex-literal awareness, and the ambient rules need it in
+ * both directions:
+ *
+ *   - a regex BODY must be masked, or this very module self-matches: it
+ *     contains `const AMBIENT_… = /…fetch\s*\(/` and would report itself as a
+ *     network effect under `architecture/`, which owns no network rule;
+ *   - a quote INSIDE a regex is not a string delimiter, so without regex
+ *     awareness the mask desyncs, `//` stops being a comment, and comment prose
+ *     leaks into the scan unmasked.
+ *
+ * The regex-vs-division judgement is the same conservative one as
+ * {@link extractImports}: ambiguity resolves toward division, which can only
+ * under-mask (restoring the old behaviour), never swallow real code.
+ *
+ * Extracting the three near-duplicate lexers in this package into one shared
+ * module is a known follow-up, deliberately NOT done here (it would touch
+ * modules outside this change's blast radius).
+ */
+export function maskNonCode(source: string): string {
+  const out: string[] = [];
+  const n = source.length;
+  let i = 0;
+  let quote: string | null = null;
+  let lineComment = false;
+  let blockComment = false;
+  let regex = false;
+  let regexClass = false;
+  let lastSignificant = '';
+
+  const blank = (ch: string | undefined): void => {
+    out.push(ch === '\n' ? '\n' : ' ');
+  };
+  const startsRegex = (): boolean =>
+    lastSignificant === '' || !/[A-Za-z0-9_$)\]]/.test(lastSignificant);
+
+  while (i < n) {
+    const ch = source[i] ?? '';
+    const next = source[i + 1];
+    if (lineComment) {
+      if (ch === '\n') lineComment = false;
+      blank(ch);
+      i += 1;
+      continue;
+    }
+    if (blockComment) {
+      if (ch === '*' && next === '/') {
+        blockComment = false;
+        out.push('  ');
+        i += 2;
+        continue;
+      }
+      blank(ch);
+      i += 1;
+      continue;
+    }
+    if (regex) {
+      blank(ch);
+      if (ch === '\\') {
+        if (i + 1 < n) blank(source[i + 1]);
+        i += 2;
+        continue;
+      }
+      if (ch === '\n') regex = false;
+      else if (ch === '[') regexClass = true;
+      else if (ch === ']') regexClass = false;
+      else if (ch === '/' && !regexClass) regex = false;
+      i += 1;
+      continue;
+    }
+    if (quote !== null) {
+      if (ch === '\n' && quote !== '`') {
+        quote = null;
+        out.push('\n');
+        i += 1;
+        continue;
+      }
+      blank(ch);
+      if (ch === '\\') {
+        if (i + 1 < n) blank(source[i + 1]);
+        i += 2;
+        continue;
+      }
+      if (ch === quote) quote = null;
+      i += 1;
+      continue;
+    }
+    if (ch === '/' && next === '/') {
+      lineComment = true;
+      out.push('  ');
+      i += 2;
+      continue;
+    }
+    if (ch === '/' && next === '*') {
+      blockComment = true;
+      out.push('  ');
+      i += 2;
+      continue;
+    }
+    if (ch === '/' && startsRegex()) {
+      regex = true;
+      regexClass = false;
+      out.push(' ');
+      lastSignificant = ch;
+      i += 1;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      out.push(' ');
+      lastSignificant = ch;
+      i += 1;
+      continue;
+    }
+    out.push(ch);
+    if (!/\s/.test(ch)) lastSignificant = ch;
+    i += 1;
+  }
+  return out.join('');
+}
+
+/**
+ * Ambient network globals reached WITHOUT an import (DR-13 rule 5). Judged on
+ * {@link maskNonCode} output, so a token in a string, comment or regex literal
+ * never counts.
+ *
+ * Each rule is a SHAPE, not a bare token, and each is false-positive-free on the
+ * live tree for a stated reason:
+ *
+ *   - `fetch(`               — a call. `fetchPrData(` / `getOrFetchRoots(` do
+ *                              not match (the negative lookahead requires a
+ *                              non-identifier after `fetch`, and the lookbehind
+ *                              rejects a `.fetch` member call).
+ *   - `globalThis.<global>`  — the reflective escape hatch. The live tree
+ *                              contains no `globalThis` at all.
+ *   - `= fetch`              — the alias binding DR-13 names (`const f = fetch`,
+ *                              `const f = fetch.bind(globalThis)`). Requires
+ *                              `fetch` immediately after `=`, so
+ *                              `= client.fetch` and `= fetchPrData(…)` do not
+ *                              match.
+ *   - `{ … fetch … } = globalThis` — the destructured form.
+ *   - `new WebSocket(`       — an ambient socket client, the import-free
+ *                              equivalent of the `ws` package.
+ *
+ * A bare `fetch` identifier rule was deliberately REJECTED: it matches ordinary
+ * property keys (`{ fetch: … }`) and interface members, which would make the
+ * ratchet unusable. That gap is stated in the module's trust boundary.
+ */
+const AMBIENT_NETWORK_RULES: readonly { readonly re: RegExp; readonly evidence: string }[] = [
+  { re: /(?<![\w$.])fetch\s*\(/, evidence: 'fetch' },
+  {
+    re: /(?<![\w$.])globalThis\s*\.\s*(?:fetch|WebSocket|EventSource|XMLHttpRequest)(?![\w$])/,
+    evidence: 'globalThis.fetch',
+  },
+  { re: /=\s*fetch(?![\w$])/, evidence: 'fetch (aliased binding)' },
+  {
+    re: /\{[^{}]*(?<![\w$.])fetch(?![\w$])[^{}]*\}\s*=\s*globalThis(?![\w$])/,
+    evidence: 'fetch (destructured from globalThis)',
+  },
+  {
+    re: /(?<![\w$.])new\s+(?:WebSocket|EventSource|XMLHttpRequest)\s*\(/,
+    evidence: 'new WebSocket',
+  },
+];
 
 /**
  * Enumerate the distinct effect classes a single module performs. Deduped to one
@@ -240,15 +736,22 @@ const FETCH_RE = /\bfetch\s*\(/;
 export function detectModuleEffects(module: string, source: string): EffectOccurrence[] {
   const found = new Map<EffectClass, string>();
 
-  for (const spec of extractImportSpecifiers(source)) {
-    const klass = classifySpecifier(spec);
-    if (klass !== undefined && !found.has(klass)) found.set(klass, spec);
+  for (const ref of extractImports(source)) {
+    // Type-only imports are erased at compile time — no runtime binding, no
+    // effect. `import type { Server } from 'node:http'` is not a network site.
+    if (ref.typeOnly) continue;
+    const hit = classifySpecifier(ref.specifier);
+    if (hit !== undefined && !found.has(hit.effectClass)) {
+      found.set(hit.effectClass, hit.evidence);
+    }
   }
 
-  // A global `fetch(` (no import) is a network effect too — judged on fully
-  // masked source so a `fetch(` in a string/comment is not counted.
-  if (!found.has('network') && FETCH_RE.test(maskLiteralsAndComments(source))) {
-    found.set('network', 'fetch');
+  // Ambient network globals (no import) are a network effect too — judged on
+  // fully masked source so a token in a string/comment/regex is not counted.
+  if (!found.has('network')) {
+    const masked = maskNonCode(source);
+    const ambient = AMBIENT_NETWORK_RULES.find((r) => r.re.test(masked));
+    if (ambient !== undefined) found.set('network', ambient.evidence);
   }
 
   return [...found.entries()]
