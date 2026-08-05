@@ -157,6 +157,12 @@ describe('Release workflow (task 2.7)', () => {
     // in `release.yml` is {binary, .sha512} per target, but this
     // assertion is order-independent so reasonable reorderings don't
     // break the gate while typos still do.
+    //
+    // DR-20 added the 11th asset: the Ed25519-signed release manifest
+    // (`exarchos-release-manifest.json`), produced by
+    // `scripts/build-release-manifest.ts` over the exact published bytes.
+    // Unlike the unsigned `.sha512` sidecars it also pins the source and
+    // contract identity, so it must never silently drop out of `files:`.
     const expectedAssets = [
       'dist/release/exarchos-linux-x64',
       'dist/release/exarchos-linux-x64.sha512',
@@ -168,6 +174,7 @@ describe('Release workflow (task 2.7)', () => {
       'dist/release/exarchos-darwin-arm64.sha512',
       'dist/release/exarchos-windows-x64.exe',
       'dist/release/exarchos-windows-x64.exe.sha512',
+      'dist/release/exarchos-release-manifest.json',
     ];
     expect(advertisedAssets.slice().sort()).toEqual(expectedAssets.slice().sort());
     expect(new Set(advertisedAssets).size).toBe(advertisedAssets.length);

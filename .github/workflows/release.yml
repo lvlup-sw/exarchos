@@ -6,7 +6,8 @@ name: Release
 #   1. `release` job      — npm publish of the installer package.
 #   2. `binary-matrix` +
 #      `publish-release`   — cross-compiled native binaries (5 targets)
-#                            + SHA-512 checksum sidecars attached to the
+#                            + SHA-512 checksum sidecars + an Ed25519-signed
+#                            release manifest (DR-20) attached to the
 #                            GitHub Release so the bootstrap scripts
 #                            (`scripts/get-exarchos.sh` / `.ps1`) can
 #                            fetch them by predictable URL.
@@ -109,8 +110,8 @@ jobs:
   #   2. `matrix.target` here    — release.yml binary-matrix (this job)
   #   3. `matrix.target`         — ci.yml binary-matrix (task 1.5 PR gate)
   #   4. `files:` list           — publish-release step below
-  #      (must enumerate each target's binary + .sha512 sidecar, keeping
-  #      the 10-asset count deterministic)
+  #      (must enumerate each target's binary + .sha512 sidecar, plus the
+  #      signed release manifest, keeping the 11-asset count deterministic)
   #
   # Enforcement gates:
   #   - `scripts/release-workflow.test.ts` — this file (list 2 + 4)
@@ -216,13 +217,25 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   # publish-release
   # ─────────────────────────────────────────────────────────────────────
-  # Downloads every per-target artifact produced by `binary-matrix` and
-  # attaches the collected 10 assets (5 binaries + 5 sha512 sidecars) to
-  # the GitHub Release associated with the current tag.
+  # Downloads every per-target artifact produced by `binary-matrix`,
+  # builds + SIGNS the DR-20 release manifest over those exact bytes, and
+  # attaches the collected 11 assets (5 binaries + 5 sha512 sidecars + the
+  # signed manifest) to the GitHub Release associated with the current tag.
   #
-  # The release body advertises the two bootstrap entry points so users
-  # can install directly from the Release page without copy-pasting from
-  # the README.
+  # ── Why the manifest and not just the .sha512 sidecars ───────────────
+  # A `.sha512` sidecar is UNSIGNED and self-referential: whoever can swap
+  # the binary can swap its sidecar. It only detects a corrupted download.
+  # `exarchos-release-manifest.json` is an Ed25519-signed record that also
+  # pins WHAT was built — the git commit + source-tree digest and the
+  # P03-01 frozen contract-authority digest — which are the same values
+  # `scripts/build-binary.ts` stamps into the binaries themselves. That is
+  # what lets an installer reject a source, contract, manifest or asset
+  # mismatch rather than merely a truncated download.
+  #
+  # OPERATIONAL PREREQUISITE: the `EXARCHOS_RELEASE_SIGNING_KEY` repository
+  # secret must hold a PKCS#8 PEM Ed25519 private key. The manifest step is
+  # fail-closed — an absent or empty secret aborts the release rather than
+  # publishing an unsigned or partially-verified one.
   # ─────────────────────────────────────────────────────────────────────
   publish-release:
     name: Publish GitHub Release assets
@@ -233,6 +246,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # The manifest builder is a TypeScript module that imports the
+      # `servers/exarchos-mcp/src/release/**` primitives, so it needs bun
+      # plus that workspace's dependencies (zod) resolvable on disk.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            servers/exarchos-mcp/package-lock.json
+
+      - name: Install root dependencies
+        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
+
+      - name: Install MCP server dependencies
+        working-directory: servers/exarchos-mcp
+        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
 
       - name: Download all binary-matrix artifacts
         uses: actions/download-artifact@v4
@@ -256,15 +291,47 @@ jobs:
           done
           echo "Collected assets:"
           ls -l dist/release/
-          # Invariant: the release-workflow shape test asserts exactly 10
-          # asset paths in the `files:` block below. If this count is
-          # ever off, the matrix or `files:` list drifted from TARGETS.
+          # Invariant: this count is taken BEFORE the signed manifest is
+          # generated, so it is still the 10 binary+sidecar assets the
+          # matrix produced. If it is ever off, the matrix or the `files:`
+          # list drifted from TARGETS.
           expected=10
           actual=$(find dist/release -maxdepth 1 -type f | wc -l)
           if [[ "$actual" -ne "$expected" ]]; then
-            echo "::error::expected ${expected} release assets (5 binaries + 5 .sha512 sidecars), found ${actual}"
+            echo "::error::expected ${expected} matrix assets (5 binaries + 5 .sha512 sidecars), found ${actual}"
             exit 1
           fi
+
+      - name: Build and sign the release manifest
+        # Digests the EXACT bytes that are about to be published (dist/release),
+        # embeds the source + contract identity, and signs the whole record with
+        # the publisher key. Fail-closed: a missing secret aborts the release.
+        #
+        # The CLI also prints the working-tree source state. This job runs no
+        # codegen, so it must print "clean"; a "::warning::Source state:
+        # modified" annotation here means the manifest is describing a checkout
+        # that does not match its own commit and the release should be halted.
+        env:
+          EXARCHOS_RELEASE_SIGNING_KEY: ${{ secrets.EXARCHOS_RELEASE_SIGNING_KEY }}
+        run: |
+          bun run scripts/build-release-manifest.ts \
+            --assets-dir dist/release \
+            --out dist/release/exarchos-release-manifest.json \
+            --key-id ${{ vars.EXARCHOS_RELEASE_KEY_ID || 'exarchos.release.v1' }} \
+            --private-key-env EXARCHOS_RELEASE_SIGNING_KEY
+
+      - name: Verify the manifest covers every published asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Adversarial shape check: 10 matrix assets + 1 signed manifest.
+          expected=11
+          actual=$(find dist/release -maxdepth 1 -type f | wc -l)
+          if [[ "$actual" -ne "$expected" ]]; then
+            echo "::error::expected ${expected} release assets (5 binaries + 5 .sha512 sidecars + 1 signed manifest), found ${actual}"
+            exit 1
+          fi
+          test -s dist/release/exarchos-release-manifest.json
 
       - name: Publish release assets
         # softprops/action-gh-release v1 is unmaintained and pre-Node-20.
@@ -291,8 +358,12 @@ jobs:
 
             ## Assets
 
-            5 cross-compiled binaries with SHA-512 checksums are attached below.
-          # The 10-asset manifest: 5 binaries + 5 sha512 sidecars.
+            5 cross-compiled binaries with SHA-512 checksums are attached below,
+            plus `exarchos-release-manifest.json` — an Ed25519-signed manifest
+            pinning the source commit, source-tree digest, frozen contract
+            authority and the raw-byte digest of every asset.
+          # The 11-asset manifest: 5 binaries + 5 sha512 sidecars + the
+          # signed release manifest.
           #
           # Order is {binary, .sha512} per target, targets ordered to
           # match `TARGETS` in `scripts/build-binary.ts`. Windows uses
@@ -300,10 +371,10 @@ jobs:
           # preserved in the sidecar name so the bootstrap scripts can
           # derive it by appending `.sha512` to the binary URL).
           #
-          # Adversarial shape check: the flatten step above counts
-          # files in `dist/release/` and aborts if the count diverges
-          # from 10, catching drift before `softprops/action-gh-release`
-          # uploads a partial release.
+          # Adversarial shape check: the verify step above counts files
+          # in `dist/release/` and aborts if the count diverges from 11,
+          # catching drift before `softprops/action-gh-release` uploads a
+          # partial release.
           files: |
             dist/release/exarchos-linux-x64
             dist/release/exarchos-linux-x64.sha512
@@ -315,5 +386,6 @@ jobs:
             dist/release/exarchos-darwin-arm64.sha512
             dist/release/exarchos-windows-x64.exe
             dist/release/exarchos-windows-x64.exe.sha512
+            dist/release/exarchos-release-manifest.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
