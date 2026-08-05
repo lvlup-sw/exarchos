@@ -130,6 +130,62 @@ EOF
     chmod +x "$FAKE_BIN/curl"
 }
 
+# ------------------------------------------------------------
+# DR-20 release-fixture helpers.
+#
+# Manifest verification is MANDATORY on the install path, so every scenario
+# that expects a successful install has to serve a manifest and a binary that
+# carries a build-identity banner.
+#
+# The *cryptographic* half (signature / source / contract / asset digest) is
+# delegated to the shipped verifier, and is covered end-to-end against a real
+# Ed25519-signed manifest by scripts/installer-verify.test.ts. Here the verifier
+# is a stub so that this harness keeps testing what it is for — platform
+# detection, checksums, PATH wiring — while still being forced through the
+# installer-native arms of the gate (banner presence, v2 marker, release
+# binding, source state), which the tests below exercise directly.
+# ------------------------------------------------------------
+
+# stage_release_fixture <fixtures-dir> <asset> <version> [sourceState] [marker]
+stage_release_fixture() {
+    local fixtures="$1" asset="$2" version="$3"
+    local state="${4:-clean}"
+    local marker="${5:-exarchos-build-identity/v2}"
+    local banner
+
+    banner='globalThis.__EXARCHOS_BUILD_IDENTITY__={"marker":"'"$marker"'"'
+    banner="$banner"',"version":"'"$version"'"'
+    banner="$banner"',"source":{"commit":"0123456789abcdef0123456789abcdef01234567","treeDigest":"sha256:1111111111111111111111111111111111111111111111111111111111111111"}'
+    if [[ "$marker" == "exarchos-build-identity/v2" ]]; then
+        banner="$banner"',"sourceState":"'"$state"'","modifiedPaths":[],"modifiedCount":0'
+    fi
+    banner="$banner"',"contract":{"digest":"sha256:2222222222222222222222222222222222222222222222222222222222222222","approvedBy":"P03-02","authorityCount":7}};'
+
+    {
+        printf '#!/bin/sh\necho "exarchos dummy %s"\n' "$version"
+        printf '%s\n' "$banner"
+    } > "$fixtures/$asset"
+    sha512sum "$fixtures/$asset" | awk '{print $1}' > "$fixtures/$asset.sha512"
+    printf '{"stub":"signed manifest — the real signature check is delegated"}\n' \
+        > "$fixtures/exarchos-release-manifest.json"
+}
+
+# mock_verifier <verdict-exit-code> → exports EXARCHOS_RELEASE_VERIFIER and
+# EXARCHOS_TRUST_ROOT_PEM_FILE for the scenarios below.
+mock_verifier() {
+    local verdict="${1:-0}"
+    cat > "$FAKE_BIN/stub-release-verify" <<EOF
+#!/usr/bin/env bash
+echo "stub verifier: verdict $verdict"
+exit $verdict
+EOF
+    chmod +x "$FAKE_BIN/stub-release-verify"
+    printf -- '-----BEGIN PUBLIC KEY-----\nstub\n-----END PUBLIC KEY-----\n' \
+        > "$FAKE_BIN/trust-root.pem"
+    VERIFIER_ENV_VERIFIER="$FAKE_BIN/stub-release-verify"
+    VERIFIER_ENV_PEM="$FAKE_BIN/trust-root.pem"
+}
+
 # ============================================================
 # TEST CASES
 # ============================================================
@@ -269,18 +325,19 @@ teardown
 setup
 FIXTURES="$TMPDIR_ROOT/fixtures"
 mkdir -p "$FIXTURES"
-# Create a dummy binary payload
-printf '#!/bin/sh\necho "exarchos dummy v2.9.0"\n' > "$FIXTURES/exarchos-linux-x64"
-# Generate a REAL matching sha512 (raw hex, no filename suffix)
-sha512sum "$FIXTURES/exarchos-linux-x64" | awk '{print $1}' > "$FIXTURES/exarchos-linux-x64.sha512"
+# Create a dummy binary payload + a matching signed-manifest fixture
+stage_release_fixture "$FIXTURES" "exarchos-linux-x64" "2.9.0"
 
 mock_uname "Linux" "x86_64"
 mock_curl "$FIXTURES"
+mock_verifier 0
 
 OUTPUT="$(
     HOME="$TEST_HOME" \
     EXARCHOS_INSTALL_DIR="$TEST_INSTALL" \
     EXARCHOS_LATEST_VERSION="v2.9.0" \
+    EXARCHOS_RELEASE_VERIFIER="$VERIFIER_ENV_VERIFIER" \
+    EXARCHOS_TRUST_ROOT_PEM_FILE="$VERIFIER_ENV_PEM" \
     PATH="$FAKE_BIN:$PATH" \
     bash "$SCRIPT_UNDER_TEST" 2>&1
 )" && EXIT_CODE=$? || EXIT_CODE=$?
@@ -305,17 +362,19 @@ teardown
 setup
 FIXTURES="$TMPDIR_ROOT/fixtures"
 mkdir -p "$FIXTURES"
-printf '#!/bin/sh\necho exarchos\n' > "$FIXTURES/exarchos-linux-x64"
-sha512sum "$FIXTURES/exarchos-linux-x64" | awk '{print $1}' > "$FIXTURES/exarchos-linux-x64.sha512"
+stage_release_fixture "$FIXTURES" "exarchos-linux-x64" "2.9.0"
 # Ensure empty bashrc exists
 touch "$TEST_HOME/.bashrc"
 
 mock_uname "Linux" "x86_64"
 mock_curl "$FIXTURES"
+mock_verifier 0
 
 HOME="$TEST_HOME" \
 EXARCHOS_INSTALL_DIR="$TEST_INSTALL" \
 EXARCHOS_LATEST_VERSION="v2.9.0" \
+EXARCHOS_RELEASE_VERIFIER="$VERIFIER_ENV_VERIFIER" \
+EXARCHOS_TRUST_ROOT_PEM_FILE="$VERIFIER_ENV_PEM" \
 PATH="$FAKE_BIN:$PATH" \
 bash "$SCRIPT_UNDER_TEST" >/dev/null 2>&1 && INSTALL_EXIT=$? || INSTALL_EXIT=$?
 
@@ -333,6 +392,8 @@ fi
 HOME="$TEST_HOME" \
 EXARCHOS_INSTALL_DIR="$TEST_INSTALL" \
 EXARCHOS_LATEST_VERSION="v2.9.0" \
+EXARCHOS_RELEASE_VERIFIER="$VERIFIER_ENV_VERIFIER" \
+EXARCHOS_TRUST_ROOT_PEM_FILE="$VERIFIER_ENV_PEM" \
 PATH="$FAKE_BIN:$PATH" \
 bash "$SCRIPT_UNDER_TEST" >/dev/null 2>&1 || true
 
@@ -385,18 +446,20 @@ teardown
 setup
 FIXTURES="$TMPDIR_ROOT/fixtures"
 mkdir -p "$FIXTURES"
-printf '#!/bin/sh\necho exarchos\n' > "$FIXTURES/exarchos-linux-x64"
-sha512sum "$FIXTURES/exarchos-linux-x64" | awk '{print $1}' > "$FIXTURES/exarchos-linux-x64.sha512"
+stage_release_fixture "$FIXTURES" "exarchos-linux-x64" "2.9.0"
 
 GH_PATH_FILE="$TMPDIR_ROOT/github_path"
 : > "$GH_PATH_FILE"
 
 mock_uname "Linux" "x86_64"
 mock_curl "$FIXTURES"
+mock_verifier 0
 
 HOME="$TEST_HOME" \
 EXARCHOS_INSTALL_DIR="$TEST_INSTALL" \
 EXARCHOS_LATEST_VERSION="v2.9.0" \
+EXARCHOS_RELEASE_VERIFIER="$VERIFIER_ENV_VERIFIER" \
+EXARCHOS_TRUST_ROOT_PEM_FILE="$VERIFIER_ENV_PEM" \
 GITHUB_PATH="$GH_PATH_FILE" \
 PATH="$FAKE_BIN:$PATH" \
 bash "$SCRIPT_UNDER_TEST" --github-actions >/dev/null 2>&1 && GH_EXIT=$? || GH_EXIT=$?
@@ -473,6 +536,168 @@ if (
     fail "GetExarchos_VerifyReleaseManifest_FailsClosedWhenVerifierMissing (unexpectedly passed)"
 else
     pass "GetExarchos_VerifyReleaseManifest_FailsClosedWhenVerifierMissing"
+fi
+teardown
+
+# ============================================================
+# TEST: DR-20 — the installer-native arms of the release gate
+#
+# The stub verifier below returns "verified" for every one of these, so the
+# ONLY thing that can reject each scenario is the installer's own check. That
+# makes these four independently load-bearing rather than a re-test of the
+# delegated verifier.
+# ============================================================
+
+# --- manifest missing → refuse, even though the sha512 sidecar matched -------
+setup
+FIXTURES="$TMPDIR_ROOT/fixtures"
+mkdir -p "$FIXTURES"
+stage_release_fixture "$FIXTURES" "exarchos-linux-x64" "2.9.0"
+rm -f "$FIXTURES/exarchos-release-manifest.json"
+mock_uname "Linux" "x86_64"
+mock_curl "$FIXTURES"
+mock_verifier 0
+
+OUTPUT="$(
+    HOME="$TEST_HOME" EXARCHOS_INSTALL_DIR="$TEST_INSTALL" \
+    EXARCHOS_LATEST_VERSION="v2.9.0" \
+    EXARCHOS_RELEASE_VERIFIER="$VERIFIER_ENV_VERIFIER" \
+    EXARCHOS_TRUST_ROOT_PEM_FILE="$VERIFIER_ENV_PEM" \
+    PATH="$FAKE_BIN:$PATH" \
+    bash "$SCRIPT_UNDER_TEST" 2>&1
+)" && EXIT_CODE=$? || EXIT_CODE=$?
+
+if [[ $EXIT_CODE -ne 0 ]] && [[ ! -e "$TEST_INSTALL/exarchos" ]] && \
+   grep -q "sha512 checksum verified" <<<"$OUTPUT" && \
+   grep -qi "manifest" <<<"$OUTPUT"; then
+    pass "GetExarchos_ManifestMissing_RefusesInstall"
+else
+    fail "GetExarchos_ManifestMissing_RefusesInstall (exit=$EXIT_CODE)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
+# --- no trust root at all → fail closed, never skip --------------------------
+setup
+FIXTURES="$TMPDIR_ROOT/fixtures"
+mkdir -p "$FIXTURES"
+stage_release_fixture "$FIXTURES" "exarchos-linux-x64" "2.9.0"
+mock_uname "Linux" "x86_64"
+mock_curl "$FIXTURES"
+mock_verifier 0
+
+OUTPUT="$(
+    HOME="$TEST_HOME" EXARCHOS_INSTALL_DIR="$TEST_INSTALL" \
+    EXARCHOS_LATEST_VERSION="v2.9.0" \
+    EXARCHOS_RELEASE_VERIFIER="$VERIFIER_ENV_VERIFIER" \
+    PATH="$FAKE_BIN:$PATH" \
+    bash "$SCRIPT_UNDER_TEST" 2>&1
+)" && EXIT_CODE=$? || EXIT_CODE=$?
+
+if [[ $EXIT_CODE -ne 0 ]] && [[ ! -e "$TEST_INSTALL/exarchos" ]] && \
+   grep -q "trust-root" <<<"$OUTPUT"; then
+    pass "GetExarchos_NoTrustRoot_FailsClosed"
+else
+    fail "GetExarchos_NoTrustRoot_FailsClosed (exit=$EXIT_CODE)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
+# --- a v1 build-identity banner is untrustworthy, not "clean" ----------------
+setup
+FIXTURES="$TMPDIR_ROOT/fixtures"
+mkdir -p "$FIXTURES"
+stage_release_fixture "$FIXTURES" "exarchos-linux-x64" "2.9.0" "clean" "exarchos-build-identity/v1"
+mock_uname "Linux" "x86_64"
+mock_curl "$FIXTURES"
+mock_verifier 0
+
+OUTPUT="$(
+    HOME="$TEST_HOME" EXARCHOS_INSTALL_DIR="$TEST_INSTALL" \
+    EXARCHOS_LATEST_VERSION="v2.9.0" \
+    EXARCHOS_RELEASE_VERIFIER="$VERIFIER_ENV_VERIFIER" \
+    EXARCHOS_TRUST_ROOT_PEM_FILE="$VERIFIER_ENV_PEM" \
+    PATH="$FAKE_BIN:$PATH" \
+    bash "$SCRIPT_UNDER_TEST" 2>&1
+)" && EXIT_CODE=$? || EXIT_CODE=$?
+
+if [[ $EXIT_CODE -ne 0 ]] && [[ ! -e "$TEST_INSTALL/exarchos" ]] && \
+   grep -q "build-identity" <<<"$OUTPUT"; then
+    pass "GetExarchos_V1BuildIdentity_RefusesInstall"
+else
+    fail "GetExarchos_V1BuildIdentity_RefusesInstall (exit=$EXIT_CODE)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
+# --- a validly-signed artifact for a DIFFERENT release is still wrong --------
+setup
+FIXTURES="$TMPDIR_ROOT/fixtures"
+mkdir -p "$FIXTURES"
+stage_release_fixture "$FIXTURES" "exarchos-linux-x64" "2.8.0"
+mock_uname "Linux" "x86_64"
+mock_curl "$FIXTURES"
+mock_verifier 0
+
+OUTPUT="$(
+    HOME="$TEST_HOME" EXARCHOS_INSTALL_DIR="$TEST_INSTALL" \
+    EXARCHOS_LATEST_VERSION="v2.9.0" \
+    EXARCHOS_RELEASE_VERIFIER="$VERIFIER_ENV_VERIFIER" \
+    EXARCHOS_TRUST_ROOT_PEM_FILE="$VERIFIER_ENV_PEM" \
+    PATH="$FAKE_BIN:$PATH" \
+    bash "$SCRIPT_UNDER_TEST" 2>&1
+)" && EXIT_CODE=$? || EXIT_CODE=$?
+
+if [[ $EXIT_CODE -ne 0 ]] && [[ ! -e "$TEST_INSTALL/exarchos" ]] && \
+   grep -q "release-binding" <<<"$OUTPUT"; then
+    pass "GetExarchos_ReleaseBindingMismatch_RefusesInstall"
+else
+    fail "GetExarchos_ReleaseBindingMismatch_RefusesInstall (exit=$EXIT_CODE)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
+# --- a MODIFIED-source artifact is refused unless explicitly allowed ---------
+setup
+FIXTURES="$TMPDIR_ROOT/fixtures"
+mkdir -p "$FIXTURES"
+stage_release_fixture "$FIXTURES" "exarchos-linux-x64" "2.9.0" "modified"
+mock_uname "Linux" "x86_64"
+mock_curl "$FIXTURES"
+mock_verifier 0
+
+OUTPUT="$(
+    HOME="$TEST_HOME" EXARCHOS_INSTALL_DIR="$TEST_INSTALL" \
+    EXARCHOS_LATEST_VERSION="v2.9.0" \
+    EXARCHOS_RELEASE_VERIFIER="$VERIFIER_ENV_VERIFIER" \
+    EXARCHOS_TRUST_ROOT_PEM_FILE="$VERIFIER_ENV_PEM" \
+    PATH="$FAKE_BIN:$PATH" \
+    bash "$SCRIPT_UNDER_TEST" 2>&1
+)" && EXIT_CODE=$? || EXIT_CODE=$?
+
+if [[ $EXIT_CODE -ne 0 ]] && [[ ! -e "$TEST_INSTALL/exarchos" ]] && \
+   grep -q "source-state" <<<"$OUTPUT"; then
+    pass "GetExarchos_ModifiedSourceState_RefusesInstall"
+else
+    fail "GetExarchos_ModifiedSourceState_RefusesInstall (exit=$EXIT_CODE)"
+    echo "  Output: $OUTPUT"
+fi
+
+# …and the documented escape hatch is the ONLY way through.
+OUTPUT="$(
+    HOME="$TEST_HOME" EXARCHOS_INSTALL_DIR="$TEST_INSTALL" \
+    EXARCHOS_LATEST_VERSION="v2.9.0" \
+    EXARCHOS_RELEASE_VERIFIER="$VERIFIER_ENV_VERIFIER" \
+    EXARCHOS_TRUST_ROOT_PEM_FILE="$VERIFIER_ENV_PEM" \
+    PATH="$FAKE_BIN:$PATH" \
+    bash "$SCRIPT_UNDER_TEST" --allow-modified-source 2>&1
+)" && EXIT_CODE=$? || EXIT_CODE=$?
+
+if [[ $EXIT_CODE -eq 0 ]] && [[ -x "$TEST_INSTALL/exarchos" ]]; then
+    pass "GetExarchos_ModifiedSourceState_AllowedWithFlag"
+else
+    fail "GetExarchos_ModifiedSourceState_AllowedWithFlag (exit=$EXIT_CODE)"
+    echo "  Output: $OUTPUT"
 fi
 teardown
 

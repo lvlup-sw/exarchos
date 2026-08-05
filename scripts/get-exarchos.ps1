@@ -37,6 +37,13 @@ Sentinel flag for the Pester test suite. When set, the script
 dot-sources its helper functions into the caller scope and returns
 without executing the main install body. Not intended for end users.
 
+.PARAMETER AllowModifiedSource
+Accept an artifact whose embedded build identity reports
+`sourceState=modified` — i.e. it was compiled from a working tree that
+did not match the commit it names. REFUSED by default: that is exactly
+the case where the signed manifest's source digest cannot vouch for the
+compiled bytes.
+
 .PARAMETER Help
 Print usage and exit 0.
 
@@ -62,8 +69,43 @@ param(
 
     [switch]$LoadOnly,
 
+    [switch]$AllowModifiedSource,
+
     [switch]$Help
 )
+
+# ---------------------------------------------------------------------------
+# Release verification constants (DR-20)
+# ---------------------------------------------------------------------------
+
+# The signed release manifest published alongside the binaries. Exported as
+# RELEASE_MANIFEST_FILENAME from scripts/build-release-manifest.ts — a WIRE
+# CONTRACT with the publishing workflow.
+$script:ReleaseManifestFilename = 'exarchos-release-manifest.json'
+
+# Build-identity banner marker stamped into every artifact by
+# scripts/build-binary.ts. v2 carries `sourceState`; a v1 artifact predates it
+# and is therefore UNTRUSTWORTHY rather than "assumed clean" — an omitted field
+# must never be able to downgrade a check.
+$script:BuildIdentityMarker = 'exarchos-build-identity/v2'
+
+# ---------------------------------------------------------------------------
+# PINNED PUBLISHER TRUST ROOT
+# ---------------------------------------------------------------------------
+# The Ed25519 PUBLIC key the release manifest's signature must chain to.
+#
+# It is pinned HERE, in the installer, and deliberately NOT published as a
+# release asset: shipping a verifying key next to the signature it verifies is
+# trust-on-first-use and buys nothing — whoever can replace the signature can
+# replace the key. Pinning is what makes the `manifest-signature` dimension
+# mean anything at all.
+#
+# Until the publisher key is pinned below, this installer FAILS CLOSED: it
+# refuses to install rather than silently skipping signature verification.
+# Replacing the sentinel is a release-engineering step (pin the SPKI PEM of the
+# public half of `EXARCHOS_RELEASE_SIGNING_KEY`).
+$script:PinnedTrustRootKeyId = 'exarchos.release.v1'
+$script:PinnedTrustRootPem = '__EXARCHOS_PUBLISHER_TRUST_ROOT_PEM_UNPINNED__'
 
 # ---------------------------------------------------------------------------
 # Library: small, pure helpers.
@@ -211,9 +253,14 @@ function Test-ManifestSignature {
     <#
     .SYNOPSIS
     MANIFEST-SIGNATURE dimension: delegate Ed25519 signature verification to the
-    tested TS core (servers/exarchos-mcp/.../release-verify-cli.js) via `node`.
-    Windows PowerShell (.NET Framework) has no Ed25519 primitive, so this is the
-    one dimension the shell cannot do natively.
+    shipped verifier (`dist/release-verify.js` / the `exarchos-release-verify`
+    bin, i.e. the tested `runReleaseVerify` core) via `node`. Windows PowerShell
+    (.NET Framework) has no Ed25519 primitive, so this is the one dimension the
+    shell cannot do natively.
+
+    The verifier checks all four dimensions in one fail-closed pass; its verdict
+    line (`release REJECTED [<reason>]: …`) is echoed so the operator sees WHICH
+    dimension failed.
 
     Fails CLOSED: returns $false when no runner or verifier is available — an
     unverifiable signature is treated exactly like a bad one.
@@ -229,26 +276,175 @@ function Test-ManifestSignature {
         [Parameter(Mandatory)][string]$AssetName,
         [Parameter(Mandatory)][string]$AssetPath
     )
-    $node = Get-Command node -ErrorAction SilentlyContinue
-    if ($null -eq $node -or -not (Test-Path $VerifierPath)) { return $false }
+    if (-not (Test-Path $VerifierPath)) { return $false }
 
-    & node $VerifierPath `
-        --manifest $ManifestPath `
-        --trust-root "$TrustRootKeyId=$TrustRootPubKeyPath" `
-        --expect-source $ExpectedSource `
-        --expect-contract $ExpectedContractDigest `
-        --asset "$AssetName=$AssetPath" | Out-Null
-    return ($LASTEXITCODE -eq 0)
+    $verifierArgs = @(
+        '--manifest', $ManifestPath,
+        '--trust-root', "$TrustRootKeyId=$TrustRootPubKeyPath",
+        '--expect-source', $ExpectedSource,
+        '--expect-contract', $ExpectedContractDigest,
+        '--asset', "$AssetName=$AssetPath"
+    )
+
+    if ($VerifierPath -like '*.js') {
+        $node = Get-Command node -ErrorAction SilentlyContinue
+        if ($null -eq $node) { return $false }
+        $output = & node $VerifierPath @verifierArgs 2>&1
+    } else {
+        $output = & $VerifierPath @verifierArgs 2>&1
+    }
+    $code = $LASTEXITCODE
+    foreach ($line in @($output)) { Write-Host "[exarchos] $line" }
+    return ($code -eq 0)
+}
+
+function Get-EmbeddedBuildIdentity {
+    <#
+    .SYNOPSIS
+    Recover the build identity that `scripts/build-binary.ts` stamped into an
+    artifact's RAW BYTES, or $null when the artifact carries none.
+
+    Streams the file in chunks (a released binary is ~100MB) decoding latin1 —
+    a lossless byte<->char mapping, so binary regions cannot corrupt the scan.
+    The search prefix INCLUDES the v2 marker, so a v1 (or forged older-format)
+    banner does not match and the caller rejects rather than treating a missing
+    `sourceState` as "clean".
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path)
+
+    if (-not (Test-Path $Path)) { return $null }
+
+    $prefix = 'globalThis.__EXARCHOS_BUILD_IDENTITY__={"marker":"' + $script:BuildIdentityMarker + '"'
+    $latin1 = [System.Text.Encoding]::GetEncoding(28591)
+    $chunk = 1048576
+    $window = $null
+    $carry = ''
+
+    $stream = [System.IO.File]::OpenRead($Path)
+    try {
+        $buffer = New-Object byte[] $chunk
+        while (($read = $stream.Read($buffer, 0, $chunk)) -gt 0) {
+            $text = $carry + $latin1.GetString($buffer, 0, $read)
+            $idx = $text.IndexOf($prefix, [System.StringComparison]::Ordinal)
+            if ($idx -ge 0) {
+                if (($text.Length - $idx) -ge 16384) {
+                    $window = $text.Substring($idx, 16384)
+                    break
+                }
+                # Match found near the end of the buffer — keep it and grow.
+                $carry = $text.Substring($idx)
+            } elseif ($text.Length -gt 65536) {
+                $carry = $text.Substring($text.Length - 65536)
+            } else {
+                $carry = $text
+            }
+        }
+    } finally {
+        $stream.Dispose()
+    }
+
+    if ($null -eq $window) {
+        $idx = $carry.IndexOf($prefix, [System.StringComparison]::Ordinal)
+        if ($idx -lt 0) { return $null }
+        $window = $carry.Substring($idx)
+    }
+
+    $commit = [regex]::Match($window, '"commit":"([^"]*)"')
+    $tree = [regex]::Match($window, '"treeDigest":"([^"]*)"')
+    $state = [regex]::Match($window, '"sourceState":"([^"]*)"')
+    $ver = [regex]::Match($window, '"version":"([^"]*)"')
+    # Anchored on `"contract":{"digest":` so it cannot be satisfied by the
+    # unrelated `treeDigest` field.
+    $contract = [regex]::Match($window, '"contract":\{"digest":"([^"]*)"')
+
+    foreach ($m in @($commit, $tree, $state, $ver, $contract)) {
+        if (-not $m.Success) { return $null }
+    }
+
+    return [pscustomobject]@{
+        Commit         = $commit.Groups[1].Value
+        TreeDigest     = $tree.Groups[1].Value
+        SourceState    = $state.Groups[1].Value
+        Version        = $ver.Groups[1].Value
+        ContractDigest = $contract.Groups[1].Value
+    }
+}
+
+function Resolve-ReleaseVerifier {
+    <#
+    .SYNOPSIS
+    Locate the shipped release verifier, or return $null.
+
+    Discovery order: explicit override, the package's own `dist/` (repo checkout
+    or an npm-installed @lvlup-sw/exarchos), then the `exarchos-release-verify`
+    bin that package.json exposes. It is NEVER downloaded from the release being
+    verified — fetching your verifier from the origin you are verifying is not
+    verification.
+    #>
+    [CmdletBinding()]
+    param([string]$ScriptRoot = '')
+
+    if (-not [string]::IsNullOrEmpty($env:EXARCHOS_RELEASE_VERIFIER)) {
+        if (Test-Path $env:EXARCHOS_RELEASE_VERIFIER) { return $env:EXARCHOS_RELEASE_VERIFIER }
+        return $null
+    }
+    if (-not [string]::IsNullOrEmpty($ScriptRoot)) {
+        $candidate = Join-Path $ScriptRoot '../dist/release-verify.js'
+        if (Test-Path $candidate) { return (Resolve-Path $candidate).Path }
+    }
+    $bin = Get-Command exarchos-release-verify -ErrorAction SilentlyContinue
+    if ($null -ne $bin) { return $bin.Source }
+    return $null
+}
+
+function Resolve-TrustRootPem {
+    <#
+    .SYNOPSIS
+    Materialize the publisher PUBLIC key the manifest signature must chain to,
+    returning a file path — or $null when none is available.
+
+    $null is FATAL to the caller: an unpinned installer refuses to install
+    rather than skipping signature verification.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$WorkDir)
+
+    if (-not [string]::IsNullOrEmpty($env:EXARCHOS_TRUST_ROOT_PEM_FILE)) {
+        if (Test-Path $env:EXARCHOS_TRUST_ROOT_PEM_FILE) { return $env:EXARCHOS_TRUST_ROOT_PEM_FILE }
+        return $null
+    }
+    if ($script:PinnedTrustRootPem -notlike '*BEGIN PUBLIC KEY*') { return $null }
+
+    $pemPath = Join-Path $WorkDir 'pinned-trust-root.pem'
+    Set-Content -Path $pemPath -Value $script:PinnedTrustRootPem -Encoding ascii
+    return $pemPath
 }
 
 function Invoke-ReleaseManifestVerification {
     <#
     .SYNOPSIS
-    Run all four fail-closed release-verification dimensions and throw on the
-    first failure. The full four-way logic (including the signature) lives in
-    the tested TS core; the shell-native checks here are defense-in-depth so a
-    tampered asset/source/contract is caught even if the signature step is
-    delegated. Every dimension is independently fatal.
+    The complete fail-closed release gate. Throws on the FIRST failing check, so
+    nothing is ever written to the install location for a release that did not
+    verify. Every check below is independently fatal:
+
+      1. build identity present  — a v2 `exarchos-build-identity` banner in the
+                                   downloaded bytes. Absent (or v1) is fatal.
+      2-5. signature, source,    — one delegated, fail-closed pass through the
+         contract, asset digest    shipped verifier. `--expect-source` /
+                                   `--expect-contract` come from the ARTIFACT's
+                                   own embedded identity, making this a
+                                   cross-check between two independent objects
+                                   (signed manifest vs. downloaded bytes), not a
+                                   self-comparison.
+      6. release binding         — a validly-signed OLDER release is still the
+                                   wrong one.
+      7. source state            — checked LAST, and only once the asset-digest
+                                   check has authenticated the bytes.
+
+    Steps 3/4/5 are additionally re-checked natively (Test-Manifest*) as
+    defense in depth, so a tampered source/contract/asset is caught even if the
+    delegated pass were ever weakened.
     #>
     [CmdletBinding()]
     param(
@@ -256,29 +452,53 @@ function Invoke-ReleaseManifestVerification {
         [Parameter(Mandatory)][string]$ManifestPath,
         [Parameter(Mandatory)][string]$TrustRootKeyId,
         [Parameter(Mandatory)][string]$TrustRootPubKeyPath,
-        [Parameter(Mandatory)][string]$ExpectedCommit,
-        [Parameter(Mandatory)][string]$ExpectedTreeDigest,
-        [Parameter(Mandatory)][string]$ExpectedContractDigest,
         [Parameter(Mandatory)][string]$AssetName,
-        [Parameter(Mandatory)][string]$AssetPath
+        [Parameter(Mandatory)][string]$AssetPath,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$ExpectedTag,
+        [switch]$AllowModifiedSource
     )
+
+    if (-not (Test-Path $ManifestPath)) {
+        throw "Release REJECTED [manifest-missing]: no signed $($script:ReleaseManifestFilename) was published for $ExpectedTag. Refusing to install an unverifiable release."
+    }
+
+    $identity = Get-EmbeddedBuildIdentity -Path $AssetPath
+    if ($null -eq $identity) {
+        throw "Release REJECTED [build-identity]: $AssetName carries no '$($script:BuildIdentityMarker)' build identity — its source and contract provenance cannot be established. Refusing to install."
+    }
+
     $manifest = Get-SignedManifest -Path $ManifestPath
 
     if (-not (Test-ManifestSignature -VerifierPath $VerifierPath -ManifestPath $ManifestPath `
             -TrustRootKeyId $TrustRootKeyId -TrustRootPubKeyPath $TrustRootPubKeyPath `
-            -ExpectedSource "$ExpectedCommit#$ExpectedTreeDigest" -ExpectedContractDigest $ExpectedContractDigest `
+            -ExpectedSource "$($identity.Commit)#$($identity.TreeDigest)" `
+            -ExpectedContractDigest $identity.ContractDigest `
             -AssetName $AssetName -AssetPath $AssetPath)) {
-        throw "Release manifest signature verification failed (or no verifier available). Refusing to install."
+        throw "Release REJECTED: the signed release manifest did not verify (signature / source / contract / asset digest). Refusing to install."
     }
-    if (-not (Test-ManifestSourceIdentity -Manifest $manifest -ExpectedCommit $ExpectedCommit -ExpectedTreeDigest $ExpectedTreeDigest)) {
-        throw "Release source identity mismatch. Refusing to install."
+    if (-not (Test-ManifestSourceIdentity -Manifest $manifest -ExpectedCommit $identity.Commit -ExpectedTreeDigest $identity.TreeDigest)) {
+        throw "Release REJECTED [source-mismatch]: the signed manifest describes a different source than the downloaded artifact. Refusing to install."
     }
-    if (-not (Test-ManifestContractIdentity -Manifest $manifest -ExpectedContractDigest $ExpectedContractDigest)) {
-        throw "Release contract identity mismatch. Refusing to install."
+    if (-not (Test-ManifestContractIdentity -Manifest $manifest -ExpectedContractDigest $identity.ContractDigest)) {
+        throw "Release REJECTED [contract-mismatch]: the signed manifest describes a different contract authority than the downloaded artifact. Refusing to install."
     }
     if (-not (Test-ManifestAssetDigest -Manifest $manifest -AssetName $AssetName -Path $AssetPath)) {
-        throw "Release asset digest mismatch for $AssetName. Refusing to install."
+        throw "Release REJECTED [asset-digest]: $AssetName does not match the digest in the signed manifest. Refusing to install."
     }
+
+    $expectedVersion = $ExpectedTag -replace '^v', ''
+    if (-not [string]::IsNullOrEmpty($expectedVersion) -and $identity.Version -ne $expectedVersion) {
+        throw "Release REJECTED [release-binding]: $AssetName declares version '$($identity.Version)' but release '$ExpectedTag' was requested. Refusing to install."
+    }
+
+    if ($identity.SourceState -ne 'clean') {
+        if (-not $AllowModifiedSource) {
+            throw "Release REJECTED [source-state]: $AssetName was built from a MODIFIED working tree (sourceState=$($identity.SourceState)); the manifest's source digest cannot vouch for these bytes. Re-run with -AllowModifiedSource to accept it anyway."
+        }
+        Write-Warning "[exarchos] artifact reports sourceState=$($identity.SourceState) — accepted only because -AllowModifiedSource was given"
+    }
+
+    Write-Host "[exarchos] Release manifest verified — signature, source, contract, asset digest, release binding and source state all match."
 }
 
 function Add-ToUserPath {
@@ -386,13 +606,45 @@ function Get-DownloadUrl {
         Write-Warning "[exarchos] -Tier $Tier is a stub in v2.9 — falling back to release tier"
     }
 
-    $base = 'https://github.com/lvlup-sw/exarchos/releases'
+    # `$env:EXARCHOS_RELEASE_BASE_URL` retargets the whole release URL space
+    # (internal mirrors; the DR-20 acceptance suite serves a real signed fixture
+    # release over loopback). Defaults to GitHub Releases.
+    $base = if ([string]::IsNullOrEmpty($env:EXARCHOS_RELEASE_BASE_URL)) {
+        'https://github.com/lvlup-sw/exarchos/releases'
+    } else {
+        $env:EXARCHOS_RELEASE_BASE_URL
+    }
 
     if ([string]::IsNullOrEmpty($Version)) {
         return "$base/latest/download/$AssetName"
     }
 
     return "$base/download/$Version/$AssetName"
+}
+
+function Resolve-LatestVersion {
+    <#
+    .SYNOPSIS
+    Resolve the latest release tag. Mirrors `get-exarchos.sh`'s
+    `resolve_latest_version`, including the hermetic
+    `$env:EXARCHOS_LATEST_VERSION` override.
+
+    The real install path NEEDS a concrete tag (not the `/latest/download`
+    alias) so the release-binding check has something to bind to: an artifact
+    whose embedded version disagrees with the tag being installed is a
+    rollback, and `latest` cannot detect one.
+    #>
+    [CmdletBinding()]
+    param()
+
+    if (-not [string]::IsNullOrEmpty($env:EXARCHOS_LATEST_VERSION)) {
+        return $env:EXARCHOS_LATEST_VERSION
+    }
+    $response = Invoke-RestMethod -Uri 'https://api.github.com/repos/lvlup-sw/exarchos/releases/latest' -UseBasicParsing -ErrorAction Stop
+    if ([string]::IsNullOrEmpty($response.tag_name)) {
+        throw 'Could not resolve the latest release tag from the GitHub API.'
+    }
+    return $response.tag_name
 }
 
 function Get-DefaultInstallDir {
@@ -435,6 +687,7 @@ function Write-Plan {
         [string]$AssetName,
         [string]$BinaryUrl,
         [string]$ChecksumUrl,
+        [string]$ManifestUrl,
         [string]$InstallDir,
         [string]$Tier,
         [string]$Version,
@@ -447,6 +700,7 @@ function Write-Plan {
     Write-Host "  asset        : $AssetName"
     Write-Host "  binary url   : $BinaryUrl"
     Write-Host "  checksum url : $ChecksumUrl"
+    Write-Host "  manifest url : $ManifestUrl"
     Write-Host "  install dir  : $InstallDir"
     if ($GithubActionsMode) {
         Write-Host "  PATH mode    : GITHUB_PATH ($env:GITHUB_PATH)"
@@ -475,7 +729,11 @@ function Install-Binary {
         [Parameter(Mandatory)][string]$AssetName,
         [Parameter(Mandatory)][string]$BinaryUrl,
         [Parameter(Mandatory)][string]$ChecksumUrl,
+        [Parameter(Mandatory)][string]$ManifestUrl,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$ExpectedTag,
         [Parameter(Mandatory)][string]$InstallDir,
+        [string]$ScriptRoot = '',
+        [switch]$AllowModifiedSource,
         [switch]$GithubActionsMode
     )
 
@@ -489,6 +747,7 @@ function Install-Binary {
     try {
         $tmpBinary = Join-Path $tmpRoot $AssetName
         $tmpSha = "$tmpBinary.sha512"
+        $tmpManifest = Join-Path $tmpRoot $script:ReleaseManifestFilename
 
         Write-Host "[exarchos] Downloading $AssetName..."
         Invoke-Download -Url $BinaryUrl -OutFile $tmpBinary
@@ -498,6 +757,42 @@ function Install-Binary {
         if (-not (Test-ChecksumMatches -BinaryPath $tmpBinary -Sha512Path $tmpSha)) {
             throw "Checksum mismatch for $AssetName. Refusing to install."
         }
+
+        # ── Signed release manifest verification (DR-20) — MANDATORY ────────
+        # The sidecar above only proves the bytes survived transport: it is
+        # served from the same origin as the binary, so anyone who can replace
+        # one can replace the other. Everything that makes this release *this*
+        # release is established below, before anything is installed.
+        $verifier = Resolve-ReleaseVerifier -ScriptRoot $ScriptRoot
+        if ($null -eq $verifier) {
+            throw "Release REJECTED [verifier-unavailable]: could not locate the release verifier (dist/release-verify.js or the exarchos-release-verify bin). Set `$env:EXARCHOS_RELEASE_VERIFIER. Refusing to install (fail-closed)."
+        }
+        $trustRootPem = Resolve-TrustRootPem -WorkDir $tmpRoot
+        if ($null -eq $trustRootPem) {
+            throw "Release REJECTED [trust-root-unavailable]: no publisher trust root is pinned in this installer and `$env:EXARCHOS_TRUST_ROOT_PEM_FILE was not supplied. The manifest signature cannot be verified. Refusing to install."
+        }
+        $trustRootKeyId = if ([string]::IsNullOrEmpty($env:EXARCHOS_TRUST_ROOT_KEY_ID)) {
+            $script:PinnedTrustRootKeyId
+        } else {
+            $env:EXARCHOS_TRUST_ROOT_KEY_ID
+        }
+
+        Write-Host "[exarchos] Verifying the signed release manifest..."
+        try {
+            Invoke-Download -Url $ManifestUrl -OutFile $tmpManifest
+        } catch {
+            throw "Release REJECTED [manifest-missing]: could not download $ManifestUrl ($($_.Exception.Message)). Releases without a signed manifest cannot be verified and are refused by design."
+        }
+
+        Invoke-ReleaseManifestVerification `
+            -VerifierPath $verifier `
+            -ManifestPath $tmpManifest `
+            -TrustRootKeyId $trustRootKeyId `
+            -TrustRootPubKeyPath $trustRootPem `
+            -AssetName $AssetName `
+            -AssetPath $tmpBinary `
+            -ExpectedTag $ExpectedTag `
+            -AllowModifiedSource:$AllowModifiedSource
 
         $finalName = 'exarchos.exe'
         $finalPath = Join-Path $InstallDir $finalName
@@ -555,14 +850,15 @@ try {
         $InstallDir
     }
 
-    $binaryUrl = Get-DownloadUrl -Version $Version -Tier $Tier -AssetName $target.AssetName
-    $checksumUrl = "$binaryUrl.sha512"
-
     if ($DryRun) {
+        # Keep -DryRun offline: no GitHub API round-trip, so air-gapped hosts
+        # can still print the plan. The `latest/download` alias stands in.
+        $binaryUrl = Get-DownloadUrl -Version $Version -Tier $Tier -AssetName $target.AssetName
         Write-Plan `
             -AssetName $target.AssetName `
             -BinaryUrl $binaryUrl `
-            -ChecksumUrl $checksumUrl `
+            -ChecksumUrl "$binaryUrl.sha512" `
+            -ManifestUrl (Get-DownloadUrl -Version $Version -Tier $Tier -AssetName $script:ReleaseManifestFilename) `
             -InstallDir $resolvedInstallDir `
             -Tier $Tier `
             -Version $Version `
@@ -570,11 +866,23 @@ try {
         exit 0
     }
 
+    # The real install path pins a CONCRETE tag so the release-binding check
+    # has something to bind to (see Resolve-LatestVersion).
+    $resolvedVersion = if ([string]::IsNullOrEmpty($Version)) { Resolve-LatestVersion } else { $Version }
+
+    $binaryUrl = Get-DownloadUrl -Version $resolvedVersion -Tier $Tier -AssetName $target.AssetName
+    $checksumUrl = "$binaryUrl.sha512"
+    $manifestUrl = Get-DownloadUrl -Version $resolvedVersion -Tier $Tier -AssetName $script:ReleaseManifestFilename
+
     Install-Binary `
         -AssetName $target.AssetName `
         -BinaryUrl $binaryUrl `
         -ChecksumUrl $checksumUrl `
+        -ManifestUrl $manifestUrl `
+        -ExpectedTag $resolvedVersion `
         -InstallDir $resolvedInstallDir `
+        -ScriptRoot $PSScriptRoot `
+        -AllowModifiedSource:$AllowModifiedSource `
         -GithubActionsMode:$GithubActions
 
     Write-Host "[exarchos] Next: run 'exarchos onboard' to wire skills + config (or 'exarchos doctor' to check)."

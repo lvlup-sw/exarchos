@@ -28,6 +28,12 @@
 #                          tagged GitHub Releases; staging/dev are stubs.
 #   --github-actions       Append install dir to \$GITHUB_PATH instead of
 #                          mutating user shell rc files.
+#   --allow-modified-source
+#                          Accept an artifact whose embedded build identity
+#                          reports sourceState=modified (built from a dirty
+#                          working tree). REFUSED by default: such an artifact
+#                          is exactly the case where the signed manifest's
+#                          source digest cannot vouch for the compiled bytes.
 #   -h | --help            Show this help text.
 #
 # ENVIRONMENT
@@ -36,12 +42,31 @@
 #                          Hermetic override for the "latest version" lookup
 #                          (skips the GitHub API call). Primarily used by
 #                          tests; also useful in air-gapped environments.
+#   EXARCHOS_RELEASE_BASE_URL
+#                          Override the release URL space (default
+#                          https://github.com/lvlup-sw/exarchos/releases).
+#                          For internal mirrors and the acceptance suite.
+#   EXARCHOS_RELEASE_VERIFIER
+#                          Path to the shipped release verifier
+#                          (dist/release-verify.js, or the
+#                          `exarchos-release-verify` bin). Overrides discovery.
+#   EXARCHOS_TRUST_ROOT_PEM_FILE
+#                          Path to the publisher Ed25519 PUBLIC key to verify
+#                          the release manifest against, replacing the key
+#                          pinned in this script. OPERATOR-supplied only —
+#                          never fetch this from the same origin as the
+#                          release (that would be trust-on-first-use and buys
+#                          nothing).
+#   EXARCHOS_TRUST_ROOT_KEY_ID
+#                          Key id that must appear in the manifest signature
+#                          (default: exarchos.release.v1).
 #   GITHUB_PATH            Path to GitHub Actions \$GITHUB_PATH file; only
 #                          honored when --github-actions is set.
 #
 # EXIT STATUS
 #   0   Success (install, dry-run, or --help)
-#   1   Generic failure (missing deps, download error, checksum mismatch, …)
+#   1   Generic failure (missing deps, download error, checksum mismatch,
+#       signed-manifest rejection, …)
 
 set -eu
 
@@ -54,6 +79,37 @@ readonly GITHUB_API_LATEST="https://api.github.com/repos/${EXARCHOS_REPO}/releas
 readonly MARKER_BEGIN="# >>> exarchos >>>"
 readonly MARKER_END="# <<< exarchos <<<"
 
+# The signed release manifest published alongside the binaries. Exported as
+# RELEASE_MANIFEST_FILENAME from scripts/build-release-manifest.ts — this is a
+# WIRE CONTRACT with the publishing workflow.
+readonly RELEASE_MANIFEST_FILENAME="exarchos-release-manifest.json"
+
+# The build-identity banner marker stamped into every artifact by
+# scripts/build-binary.ts. v2 carries `sourceState`; a v1 artifact predates it
+# and is therefore UNTRUSTWORTHY rather than "assumed clean" — an omitted field
+# must never be able to downgrade a check.
+readonly BUILD_IDENTITY_MARKER="exarchos-build-identity/v2"
+
+# ------------------------------------------------------------------
+# PINNED PUBLISHER TRUST ROOT
+# ------------------------------------------------------------------
+# The Ed25519 PUBLIC key the release manifest's signature must chain to.
+#
+# It is pinned HERE, in the installer, and deliberately NOT published as a
+# release asset: shipping a verifying key next to the signature it verifies is
+# trust-on-first-use and buys nothing — whoever can replace the signature can
+# replace the key. Pinning is what makes the `manifest-signature` dimension
+# mean anything at all.
+#
+# Until the publisher key is pinned below, this installer FAILS CLOSED: it
+# refuses to install rather than silently skipping signature verification.
+# Replacing the sentinel is a release-engineering step (see
+# `EXARCHOS_RELEASE_SIGNING_KEY` in .github/workflows/release.yml — pin the
+# SPKI PEM of its public half).
+readonly PINNED_TRUST_ROOT_KEY_ID="exarchos.release.v1"
+PINNED_TRUST_ROOT_PEM="__EXARCHOS_PUBLISHER_TRUST_ROOT_PEM_UNPINNED__"
+
+
 # ------------------------------------------------------------------
 # Logging
 # ------------------------------------------------------------------
@@ -63,17 +119,41 @@ err()   { printf '[exarchos] ERROR: %s\n' "$*" >&2; }
 die()   { err "$*"; exit 1; }
 
 # ------------------------------------------------------------------
-# Release manifest verification (P05-01)
+# Release manifest verification (P05-01 / DR-20)
 # ------------------------------------------------------------------
-# Verification primitives for the signed, source-linked release manifest.
-# Three of the four fail-closed dimensions (source identity, contract
-# identity, asset digest) plus the Ed25519 signature are verified by the
-# tested TS core (servers/exarchos-mcp/.../release-verify-cli.js): POSIX
-# shells have no portable Ed25519 primitive, so we delegate the whole
-# verdict rather than re-implement crypto here. `asset_sha256` is exposed
-# as a native, unit-testable primitive (it matches release-manifest.ts
-# `digestAssetBytes`). Wiring these into the live download flow lands with
-# the manifest-publishing pipeline (P05-02/P05-03/P05-05).
+# The fail-closed gate that runs on the REAL install path (see
+# `verify_release_or_die`, called from the download block below) before any
+# byte reaches the install location.
+#
+# Six independently fatal checks, in this order:
+#
+#   1. build identity present    — the artifact must carry a v2
+#                                  `exarchos-build-identity` banner. Absent, or
+#                                  a v1 banner, is a rejection: a missing field
+#                                  must never downgrade a later check.
+#   2/3/4/5. signature, source,  — delegated in ONE fail-closed pass to the
+#      contract, asset digest      shipped verifier (`dist/release-verify.js`,
+#                                  the tested `runReleaseVerify` core). POSIX
+#                                  shells have no portable Ed25519 primitive,
+#                                  so the whole verdict is delegated rather
+#                                  than crypto being re-implemented here. The
+#                                  `--expect-source` / `--expect-contract`
+#                                  values come from the ARTIFACT's own embedded
+#                                  identity, so this is a cross-check between
+#                                  two independent objects (signed manifest vs.
+#                                  downloaded bytes), not a self-comparison.
+#   6. release binding           — the artifact's embedded version must equal
+#                                  the release tag being installed, so a
+#                                  validly-signed OLDER release cannot be
+#                                  served in place of the requested one.
+#   7. source state              — checked LAST, and only once the asset-digest
+#                                  check has authenticated the bytes: a
+#                                  `modified` artifact was compiled from a
+#                                  working tree that did not match the commit
+#                                  the manifest vouches for.
+#
+# `asset_sha256` is exposed as a native, unit-testable primitive (it matches
+# release-manifest.ts `digestAssetBytes`).
 
 # asset_sha256 <file> → prints "sha256:<lowerhex>" over the RAW bytes.
 # Mirrors the installer's SHA-512 sidecar tooling detection but uses SHA-256
@@ -92,26 +172,170 @@ asset_sha256() {
     printf 'sha256:%s\n' "$_asset_hash"
 }
 
-# verify_release_manifest <verifier.js> <manifest> <keyId> <pubkey.pem> \
-#                         <commit#treeDigest> <contractDigest> <name> <asset>
-# Delegates the full four-way, fail-closed verdict to the tested TS core.
-# Returns the core's exit code (0 = verified). Fails CLOSED (non-zero) when
-# `node` or the verifier is unavailable — an unverifiable release is refused,
-# never silently trusted.
-verify_release_manifest() {
+# build_identity_window <artifact> → prints the banner text, or nothing.
+#
+# `tr -c '[:print:]' '\n'` splits the artifact's byte stream into printable
+# runs, so a 100MB single-"line" binary never has to be held as one grep line
+# and the (entirely printable) banner survives intact on a line of its own.
+# The match is a FIXED string including the v2 marker, so a v1 banner simply
+# does not match and the caller rejects.
+build_identity_window() {
+    LC_ALL=C tr -c '[:print:]' '\n' < "$1" 2>/dev/null \
+        | LC_ALL=C grep -a -m1 -F "globalThis.__EXARCHOS_BUILD_IDENTITY__={\"marker\":\"${BUILD_IDENTITY_MARKER}\"" \
+        || true
+}
+
+# identity_field <window> <key> → prints the string value of a top-level field.
+identity_field() {
+    printf '%s' "$1" \
+        | LC_ALL=C grep -o -E "\"$2\":\"[^\"]*\"" \
+        | head -n 1 \
+        | sed -E 's/^"[^"]*":"(.*)"$/\1/'
+}
+
+# identity_contract_digest <window> → prints `contract.digest`.
+# Anchored on `"contract":{"digest":` so it cannot be satisfied by the
+# unrelated `treeDigest` field.
+identity_contract_digest() {
+    printf '%s' "$1" \
+        | LC_ALL=C grep -o -E '"contract":\{"digest":"[^"]*"' \
+        | head -n 1 \
+        | sed -E 's/.*"digest":"([^"]*)"/\1/'
+}
+
+# resolve_release_verifier → prints a path to the shipped verifier, or fails.
+# Discovery order: explicit override, the package's own dist/ (repo checkout or
+# an npm-installed @lvlup-sw/exarchos), then the `exarchos-release-verify` bin
+# that package.json exposes. NEVER downloaded from the release being verified —
+# fetching your verifier from the origin you are verifying is not verification.
+resolve_release_verifier() {
+    if [ -n "${EXARCHOS_RELEASE_VERIFIER:-}" ]; then
+        [ -f "$EXARCHOS_RELEASE_VERIFIER" ] || return 1
+        printf '%s\n' "$EXARCHOS_RELEASE_VERIFIER"
+        return 0
+    fi
+    _script_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd)" || _script_dir=""
+    if [ -n "$_script_dir" ] && [ -f "${_script_dir}/../dist/release-verify.js" ]; then
+        printf '%s\n' "${_script_dir}/../dist/release-verify.js"
+        return 0
+    fi
+    if command -v exarchos-release-verify >/dev/null 2>&1; then
+        command -v exarchos-release-verify
+        return 0
+    fi
+    return 1
+}
+
+# resolve_trust_root_pem <workdir> → prints a path to the publisher PUBLIC key.
+# Fails (non-zero) when no key is pinned and none was supplied — an
+# unverifiable manifest is refused, never waved through.
+resolve_trust_root_pem() {
+    if [ -n "${EXARCHOS_TRUST_ROOT_PEM_FILE:-}" ]; then
+        if [ ! -f "$EXARCHOS_TRUST_ROOT_PEM_FILE" ]; then
+            err "EXARCHOS_TRUST_ROOT_PEM_FILE does not exist: $EXARCHOS_TRUST_ROOT_PEM_FILE"
+            return 1
+        fi
+        printf '%s\n' "$EXARCHOS_TRUST_ROOT_PEM_FILE"
+        return 0
+    fi
+    case "$PINNED_TRUST_ROOT_PEM" in
+        *"BEGIN PUBLIC KEY"*) ;;
+        *)
+            err "no publisher trust root is pinned in this installer"
+            err "hint: the release manifest signature cannot be verified without it — refusing to install"
+            err "hint: supply the publisher public key via EXARCHOS_TRUST_ROOT_PEM_FILE=<path to spki .pem>"
+            return 1
+            ;;
+    esac
+    _pem_path="${1}/pinned-trust-root.pem"
+    printf '%s\n' "$PINNED_TRUST_ROOT_PEM" > "$_pem_path"
+    printf '%s\n' "$_pem_path"
+}
+
+# run_release_verifier <verifier> <manifest> <keyId> <pubkey.pem> \
+#                      <commit#treeDigest> <contractDigest> <name> <asset>
+# Delegates the four-way, fail-closed verdict to the shipped verifier and
+# returns its exit code (0 = verified). `.js` is run under node; anything else
+# is executed directly (the npm bin shim).
+run_release_verifier() {
     _verifier="$1"; _manifest="$2"; _key_id="$3"; _pubkey="$4"
     _expect_source="$5"; _expect_contract="$6"; _asset_name="$7"; _asset_path="$8"
-    if ! command -v node >/dev/null 2>&1 || [ ! -f "$_verifier" ]; then
-        err "release manifest verifier unavailable (node/${_verifier}) — refusing to install (fail-closed)"
-        return 1
-    fi
-    node "$_verifier" \
+    case "$_verifier" in
+        *.js)
+            if ! command -v node >/dev/null 2>&1; then
+                err "the release verifier needs node on PATH — refusing to install (fail-closed)"
+                return 1
+            fi
+            set -- node "$_verifier"
+            ;;
+        *) set -- "$_verifier" ;;
+    esac
+    "$@" \
         --manifest "$_manifest" \
         --trust-root "${_key_id}=${_pubkey}" \
         --expect-source "$_expect_source" \
         --expect-contract "$_expect_contract" \
         --asset "${_asset_name}=${_asset_path}"
 }
+
+# Back-compat alias for the previous helper name (unit-tested by
+# get-exarchos.test.sh via EXARCHOS_LIB_ONLY).
+verify_release_manifest() {
+    run_release_verifier "$@"
+}
+
+# verify_release_or_die <workdir> <artifact> <manifest> <asset-name> <tag>
+# The complete gate. Any failure exits non-zero BEFORE anything is written to
+# the install location.
+verify_release_or_die() {
+    _vr_work="$1"; _vr_bin="$2"; _vr_manifest="$3"; _vr_asset="$4"; _vr_tag="$5"
+
+    if [ ! -f "$_vr_manifest" ]; then
+        die "release REJECTED [manifest-missing]: no signed ${RELEASE_MANIFEST_FILENAME} was published for ${_vr_tag} — refusing to install an unverifiable release"
+    fi
+
+    _vr_verifier="$(resolve_release_verifier)" || die "release REJECTED [verifier-unavailable]: could not locate the release verifier (dist/release-verify.js or the exarchos-release-verify bin); set EXARCHOS_RELEASE_VERIFIER — refusing to install (fail-closed)"
+    _vr_pem="$(resolve_trust_root_pem "$_vr_work")" || die "release REJECTED [trust-root-unavailable]: no publisher trust root to verify the manifest signature against"
+    _vr_key_id="${EXARCHOS_TRUST_ROOT_KEY_ID:-$PINNED_TRUST_ROOT_KEY_ID}"
+
+    # 1. Build identity — present, and stamped by the current (v2) format.
+    _vr_window="$(build_identity_window "$_vr_bin")"
+    if [ -z "$_vr_window" ]; then
+        die "release REJECTED [build-identity]: ${_vr_asset} carries no '${BUILD_IDENTITY_MARKER}' build identity — its source and contract provenance cannot be established"
+    fi
+    _vr_commit="$(identity_field "$_vr_window" commit)"
+    _vr_tree="$(identity_field "$_vr_window" treeDigest)"
+    _vr_state="$(identity_field "$_vr_window" sourceState)"
+    _vr_version="$(identity_field "$_vr_window" version)"
+    _vr_contract="$(identity_contract_digest "$_vr_window")"
+    if [ -z "$_vr_commit" ] || [ -z "$_vr_tree" ] || [ -z "$_vr_state" ] || \
+       [ -z "$_vr_version" ] || [ -z "$_vr_contract" ]; then
+        die "release REJECTED [build-identity]: ${_vr_asset} has an incomplete build identity"
+    fi
+
+    # 2-5. Signature + source + contract + asset digest, one fail-closed pass.
+    if ! run_release_verifier "$_vr_verifier" "$_vr_manifest" "$_vr_key_id" "$_vr_pem" \
+            "${_vr_commit}#${_vr_tree}" "$_vr_contract" "$_vr_asset" "$_vr_bin"; then
+        die "refusing to install ${_vr_asset}: the signed release manifest did not verify"
+    fi
+
+    # 6. Release binding — a validly-signed OLDER release is still the wrong one.
+    _vr_expected_version="${_vr_tag#v}"
+    if [ "$_vr_version" != "$_vr_expected_version" ]; then
+        die "release REJECTED [release-binding]: ${_vr_asset} declares version '${_vr_version}' but release '${_vr_tag}' was requested"
+    fi
+
+    # 7. Source state — meaningful only now that the bytes are authenticated.
+    if [ "$_vr_state" != "clean" ]; then
+        if [ "${ALLOW_MODIFIED_SOURCE:-0}" -ne 1 ]; then
+            die "release REJECTED [source-state]: ${_vr_asset} was built from a MODIFIED working tree (sourceState=${_vr_state}); the manifest's source digest cannot vouch for these bytes. Re-run with --allow-modified-source to accept it anyway."
+        fi
+        warn "artifact reports sourceState=${_vr_state} — accepted only because --allow-modified-source was given"
+    fi
+
+    log "release manifest verified — signature, source, contract, asset digest, release binding and source state all match"
+}
+
 
 # Library mode: when sourced with EXARCHOS_LIB_ONLY=1 (the shell-native test
 # harness does this), stop here so the verification/asset primitives are
@@ -128,6 +352,7 @@ DRY_RUN=0
 VERSION=""
 TIER="release"
 GITHUB_ACTIONS_MODE=0
+ALLOW_MODIFIED_SOURCE=0
 
 print_help() {
     sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
@@ -141,6 +366,7 @@ while [ $# -gt 0 ]; do
         --tier)           TIER="${2:-release}"; shift 2 ;;
         --tier=*)         TIER="${1#--tier=}"; shift ;;
         --github-actions) GITHUB_ACTIONS_MODE=1; shift ;;
+        --allow-modified-source) ALLOW_MODIFIED_SOURCE=1; shift ;;
         -h|--help)        print_help; exit 0 ;;
         *)                die "Unknown argument: $1 (use --help)" ;;
     esac
@@ -270,12 +496,15 @@ fi
 # Install location
 # ------------------------------------------------------------------
 INSTALL_DIR="${EXARCHOS_INSTALL_DIR:-$HOME/.local/bin}"
+RELEASE_BASE="${EXARCHOS_RELEASE_BASE_URL:-$GITHUB_RELEASES_BASE}"
 if [ -n "$RESOLVED_VERSION" ]; then
-    BINARY_URL="${GITHUB_RELEASES_BASE}/download/${RESOLVED_VERSION}/${ASSET_NAME}"
+    BINARY_URL="${RELEASE_BASE}/download/${RESOLVED_VERSION}/${ASSET_NAME}"
+    MANIFEST_URL="${RELEASE_BASE}/download/${RESOLVED_VERSION}/${RELEASE_MANIFEST_FILENAME}"
 else
     # Dry-run with no pinned version — print the latest/download alias so
     # the user can see the URL shape without paying for a network round-trip.
-    BINARY_URL="${GITHUB_RELEASES_BASE}/latest/download/${ASSET_NAME}"
+    BINARY_URL="${RELEASE_BASE}/latest/download/${ASSET_NAME}"
+    MANIFEST_URL="${RELEASE_BASE}/latest/download/${RELEASE_MANIFEST_FILENAME}"
 fi
 CHECKSUM_URL="${BINARY_URL}.sha512"
 BINARY_PATH="${INSTALL_DIR}/exarchos"
@@ -294,6 +523,7 @@ exarchos install plan
   Asset:        ${ASSET_NAME}
   Binary URL:   ${BINARY_URL}
   Checksum URL: ${CHECKSUM_URL}
+  Manifest URL: ${MANIFEST_URL}
   Install dir:  ${INSTALL_DIR}
   Binary path:  ${BINARY_PATH}
   PATH update:  $(if [ "$GITHUB_ACTIONS_MODE" -eq 1 ]; then echo "GITHUB_PATH (\$GITHUB_PATH)"; else echo "user shell rc files (.bashrc, .zshrc, fish config)"; fi)
@@ -345,6 +575,22 @@ if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
     die "refusing to install a binary that does not match its checksum"
 fi
 log "sha512 checksum verified"
+
+# ------------------------------------------------------------------
+# Signed release manifest verification (DR-20) — MANDATORY
+# ------------------------------------------------------------------
+# The sidecar above only proves the bytes survived transport: it is served
+# from the same origin as the binary, so anyone who can replace one can
+# replace the other. Everything that makes this release *this* release —
+# publisher signature, source provenance, contract authority, asset identity
+# and release binding — is established here, before anything is installed.
+TMP_MANIFEST="${TMP_WORK}/${RELEASE_MANIFEST_FILENAME}"
+if ! curl -fsSL -o "$TMP_MANIFEST" "$MANIFEST_URL"; then
+    err "failed to download the signed release manifest from $MANIFEST_URL"
+    err "hint: releases without ${RELEASE_MANIFEST_FILENAME} cannot be verified and are refused by design"
+    exit 1
+fi
+verify_release_or_die "$TMP_WORK" "$TMP_BIN" "$TMP_MANIFEST" "$ASSET_NAME" "$VERSION"
 
 # ------------------------------------------------------------------
 # Install

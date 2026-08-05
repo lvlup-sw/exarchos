@@ -3,8 +3,12 @@
   "version": "2.12.0-preview.3",
   "description": "Structure for agentic development — durable SDLC workflows, convergence gates, agent teams, and audit trails for Claude Code",
   "type": "module",
+  "bin": {
+    "exarchos-release-verify": "dist/release-verify.js"
+  },
   "files": [
     "dist/bin",
+    "dist/release-verify.js",
     "agents",
     "commands",
     "skills",
@@ -22,8 +26,9 @@
     "!**/trigger-tests"
   ],
   "scripts": {
-    "build": "npm run codegen:runtimes && tsc && npm run build:binary && npm run build:skills && npm run build:hooks",
+    "build": "npm run codegen:runtimes && tsc && npm run build:binary && npm run build:release-verifier && npm run build:skills && npm run build:hooks",
     "build:binary": "bun run scripts/build-binary.ts --all",
+    "build:release-verifier": "bun build servers/exarchos-mcp/src/release/release-verify-cli.ts --target=node --format=esm --banner \"#!/usr/bin/env node\" --outfile dist/release-verify.js",
     "codegen:runtimes": "bun run scripts/codegen-runtimes.ts",
     "runtimes:guard": "npm run codegen:runtimes && git diff --exit-code -- src/runtimes/embedded.ts || (echo 'src/runtimes/embedded.ts is out of sync with runtimes/*.yaml — run npm run codegen:runtimes' && exit 1)",
     "generate:agents": "tsx servers/exarchos-mcp/src/agents/generate-agents.ts",
