@@ -1280,7 +1280,7 @@ export async function handleUpdate(
   stateDir: string,
   eventStore: EventStore | null,
 ): Promise<ToolResult> {
-  if (false) { // KILL-PROBE(c6): let update mutate phase
+  if (Object.prototype.hasOwnProperty.call(input.updates, 'phase')) {
     return {
       success: false,
       error: {
