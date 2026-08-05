@@ -53,6 +53,23 @@ jobs:
               - 'skills-src/**'
               - 'skills/**'
               - 'runtimes/**'
+              # Projection roots (DR-22): these directories/files are part of
+              # the shipped surface (see `files` in package.json) and are
+              # regenerated + drift-checked by `skills:guard` / `hooks:guard`
+              # in the `test-root` job below. Without an entry here, a PR
+              # that ONLY touches one of these paths never flips `root` to
+              # 'true' — `test-root` (and both guards) never runs, and the
+              # deletion/mutation of a shipped agent, command alias, or hook
+              # passes CI green, unobserved (the gap this filter closes).
+              - 'agents/**'
+              - 'command-aliases/**'
+              - 'commands/**'
+              - 'hooks/**'
+              - 'hooks-src/**'
+              - 'binding/**'
+              - 'binding-src/**'
+              - '.claude-plugin/**'
+              - 'AGENTS.md'
               - 'package.json'
               - 'tsconfig.json'
               - '.github/workflows/ci.yml'
@@ -119,8 +136,23 @@ jobs:
       # fail if `git diff skills/` is non-empty. Prevents drift from
       # direct edits to generated files and from forgotten rebuilds
       # after a skills-src/ change. Depends on `dist/skills-guard.js`
-      # produced by the earlier `npm ci` (`prepare` → `tsc`).
+      # produced by the earlier `npm ci` (`prepare` → `tsc`). This also
+      # closes the DR-22 drift-guard requirement for `command-aliases/`
+      # and `agents/`: `runHooksGuard`'s sibling, `runSkillsGuard`,
+      # regenerates and diffs BOTH the `command-aliases/**` tree (from
+      # `commands/`) and every per-runtime `agents/**` output tree (from
+      # `servers/exarchos-mcp/src/agents/`) — see src/skills-guard.ts.
       - run: npm run skills:guard
+
+      # hooks:guard (DR-22) — rebuild the generated `hooks/` + `binding/`
+      # trees in-place from `hooks-src/` / `binding-src/` and fail if
+      # `git diff hooks/ binding/` is non-empty. Mirrors `skills:guard`
+      # above; without this step (and without `hooks/**` / `hooks-src/**`
+      # / `binding/**` / `binding-src/**` in the `changes.root` path
+      # filter above) a PR that deletes or mutates a shipped hook passed
+      # CI green, unobserved. Depends on `dist/hooks-guard.js` produced
+      # by the earlier `npm ci` (`prepare` → `tsc`).
+      - run: npm run hooks:guard
 
       # runtimes:guard — re-run `scripts/codegen-runtimes.ts` and fail
       # if `git diff src/runtimes/embedded.ts` is non-empty. The
