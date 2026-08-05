@@ -1574,7 +1574,9 @@ const workflowActions: readonly ToolAction[] = [
       message: z.string().min(1).describe('The friction report (required, non-empty).'),
       // ZodObject (not a union) so the CLI flag classifies as `object` and
       // `coerceFlags` JSON-parses `--sessionContext '{...}'` into the same
-      // shape the MCP arm receives (INV-2 parity; #1127 object-classification).
+      // shape the MCP wire receives (governing INV-2 — one registered schema
+      // is the contract every client derives from; #1127
+      // object-classification).
       sessionContext: z
         .object({
           workflow: z.string().optional(),

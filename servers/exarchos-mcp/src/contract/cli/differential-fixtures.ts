@@ -10,6 +10,18 @@
 // result the two surfaces cannot disagree — this table is the differential
 // witness the co-located test drives through BOTH surfaces.
 //
+// ─── SCOPE (DR-25 / T-34): this table is a RENDERING witness ─────────────────
+//
+// The co-located test drives these cases with `dispatch` REPLACED by `vi.mock`,
+// so what it witnesses is that the two RENDERERS agree about a `ToolResult` the
+// fixture itself supplies. It cannot witness HANDLER-level agreement, and must
+// not be read as doing so — that over-reading is exactly the vacuity DR-25
+// names. The real-handler witness (a registered composite driven over the real
+// Commander tree AND the real MCP server, compared end to end) lives in
+// `adapters/cli.test.ts` → `Cli_GeneratedClient_AgreesWithMcpViaRealHandler`.
+// The two are complementary: this table gives cheap breadth across every
+// failure family; that test gives depth through the real seam.
+//
 // Each case pins a `ToolResult` a real dispatch could return (success + one
 // representative from every failure family + the two bounded-wait codes),
 // together with a VALID CLI argv (passes the CLI-layer Zod so the mocked

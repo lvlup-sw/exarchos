@@ -137,7 +137,9 @@ export async function handleWorkflow(
       // Reject a negative (would block every nontrivial diff) or fractional
       // (meaningless for a count) budget in favour of the strict default (0) —
       // the same `isInteger && >= 0` contract `resolveMaxNoCoverage` and the
-      // guard's own NoCoverage-count check enforce (INV-2 parity).
+      // guard's own NoCoverage-count check enforce (governing INV-2 — the
+      // decision is single-sourced in the shared core, so every client
+      // inherits it; this is NOT a facade byte-parity claim).
       const maxNoCoverage =
         typeof maxNoCoverageRaw === 'number' &&
         Number.isInteger(maxNoCoverageRaw) &&

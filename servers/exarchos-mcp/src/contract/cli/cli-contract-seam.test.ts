@@ -64,10 +64,11 @@ describe('CLI-surface generation', () => {
 // ─── Collector 1: dispatch-seam containment (exit-proofs a + b) ──────────────
 
 describe('Dispatch-seam containment census', () => {
-  // Exit-proof (a): the LIVE tree has zero direct-dispatch paths — only the two
-  // authorized projections (the CLI client + the MCP wire) import the runtime
-  // `dispatch` value. This is also the genuine-findings gate: a new bypass
-  // anywhere in shipped source turns it red.
+  // Exit-proof (a): the LIVE tree's direct-dispatch paths are exactly the
+  // authorized projection surface — the MCP wire (a contract projection) plus
+  // any module a recorded DR-25 deviation covers (`adapters/cli.ts` today).
+  // This is also the genuine-findings gate: a new bypass anywhere in shipped
+  // source turns it red.
   it('LiveTree_OnlyAuthorizedProjectionsImportTheDispatchValue', async () => {
     const sites = await scanDispatchSites();
     expect(sites.map((s) => s.module)).toEqual([...AUTHORIZED_DISPATCH_PROJECTIONS].sort());

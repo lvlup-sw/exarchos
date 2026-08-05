@@ -4,6 +4,10 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getFullRegistry } from '../registry.js';
 import type { CompositeTool, ToolAction } from '../registry.js';
+// DR-25 / INV-2 — this is the DEVIATING import. See CLI_DIRECT_DISPATCH_DEVIATION
+// below: under the governing INV-2 framing the CLI is a GENERATED client of the
+// compiled contract, so reaching the runtime `dispatch` value directly is a
+// recorded, owned, expiring deviation rather than compliance.
 import { dispatch } from '../core/dispatch.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { deriveLocalOperatorIdentity } from '../dispatch/caller-identity.js';
@@ -39,6 +43,40 @@ import { prettyPrint, printError, toCliResult } from './cli-format.js';
 // inside the `mcp` sub-command action below so that cold-start for CLI mode
 // (e.g. `exarchos wf status`) does not pay the cost of loading the full MCP
 // SDK + tool-registration graph. See DR-5 / task 021 cold-start benchmark.
+
+// ─── DR-25: recorded deviation from the governing INV-2 ─────────────────────
+
+/**
+ * MACHINE-READABLE acknowledgement that this module deviates from the governing
+ * INV-2 framing — not a prose comment, and not a silent authorization.
+ *
+ * The governing framing makes the CLI a GENERATED client of the compiled
+ * contract, equal to the MCP surface BY CONSTRUCTION. This adapter is instead a
+ * hand-written Commander tree that imports the runtime `dispatch` value (line 7)
+ * and assembles `(tool, args)` itself at each api-action call site, so
+ * `contract/cli/generated/cli-surface.json` only DESCRIBES the surface it is
+ * supposed to generate.
+ *
+ * Generating the adapter is a substantial subprogram, so DR-25's explicitly
+ * acceptable fallback applies: the direct path is RECORDED as an accepted
+ * deviation with an owner and an expiry. The full governance record (rationale,
+ * retirement condition, tracking ref) lives in `CLI_CONTRACT_DEVIATIONS`
+ * (`contract/cli/cli-contract-seam.ts`); this export is the acknowledgement AT
+ * the deviation site, and `runDeviationLedgerCensus` fails closed if the two
+ * disagree, if the expiry passes, or if this export disappears while the
+ * `dispatch` import remains.
+ *
+ * Deleting this export does NOT remove the deviation — it turns the census RED.
+ * The deviation is retired by making the CLI genuinely generated, at which
+ * point the `dispatch` import goes away and the ledger row self-retires as
+ * STALE_DEVIATION.
+ */
+export const CLI_DIRECT_DISPATCH_DEVIATION = {
+  invariant: 'INV-2',
+  module: 'adapters/cli.ts',
+  owner: 'exarchos',
+  expires: '2027-02-28',
+} as const;
 
 // ─── Exit-Code Contract (DR-3: CLI/MCP Parity) ──────────────────────────────
 
@@ -487,7 +525,10 @@ export function buildCli(ctx: DispatchContext, options?: BuildCliOptions): Comma
 
         // Coerce through the canonical action schema (same path the auto
         // `wf feedback` subcommand uses) so `--session-context '{...}'` is
-        // JSON-parsed identically to the MCP arm (INV-2 parity).
+        // JSON-parsed identically to the MCP wire (governing INV-2 — the
+        // registered contract schema is the single authority both clients
+        // coerce against; agreement is constructed, not witnessed by a
+        // parity fixture).
         const flagOpts: Record<string, unknown> = { message };
         if (opts.sessionContext !== undefined) flagOpts.sessionContext = opts.sessionContext;
         const coerced = coerceFlags(flagOpts, feedbackAction.schema);
@@ -613,7 +654,8 @@ export function buildCli(ctx: DispatchContext, options?: BuildCliOptions): Comma
   // init) so an operator types `exarchos onboard` instead of
   // `exarchos orch onboard`. Under the hood it dispatches through
   // exarchos_orchestrate so the CLI and MCP paths share one handler
-  // (`handleOnboard`) and one validation gate (INV-2 parity).
+  // (`handleOnboard`) and one validation gate (governing INV-2 — behavior
+  // lives in the contract handler; this client carries presentation only).
   //
   // Flags auto-emit from the registered Zod schema via addFlagsFromSchema —
   // no hand-written flag table to drift. `surface` is NOT a flag here: the

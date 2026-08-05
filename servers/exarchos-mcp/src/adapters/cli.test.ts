@@ -75,12 +75,28 @@ import {
   createCliDispatchContext,
   runCli,
   CLI_EXIT_CODES,
+  CLI_DIRECT_DISPATCH_DEVIATION,
 } from './cli.js';
 import { dispatch } from '../core/dispatch.js';
 import { TOOL_REGISTRY, getFullRegistry } from '../registry.js';
 import type { CompositeTool } from '../registry.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { CommanderError } from 'commander';
+import {
+  auditCliContract,
+  collectDeviationAnnotations,
+  compileForCli,
+  deriveCliSurface,
+  runDeviationLedgerCensus,
+  scanDispatchSites,
+  AUTHORIZED_DISPATCH_PROJECTIONS,
+  CLI_CONTRACT_DEVIATIONS,
+  CONTRACT_PROJECTIONS,
+  type CliCommand,
+  type ContractDeviation,
+  type DeviationAnnotationSite,
+} from '../contract/cli/cli-contract-seam.js';
+import { CONTRACT_EXIT_CODES, exitCodeForError } from '../contract/error-families.js';
 
 // ─── Test Helpers ────────────────────────────────────────────────────────────
 
@@ -1099,5 +1115,373 @@ describe('CLI top-level promotion (DR-7)', () => {
         callerIdentity: expect.objectContaining({ kind: 'local-operator' }),
       }),
     );
+  });
+});
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  T-34 / DR-25 — the CLI/MCP relationship under the GOVERNING INV-2
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// The governing framing makes the CLI a GENERATED client of the compiled
+// contract, equal to the MCP surface BY CONSTRUCTION. Reality diverged on three
+// counts: this adapter imports the runtime `dispatch` value directly,
+// `cli-surface.json` is read only by drift guards, and CLI/MCP agreement was
+// asserted only over a MOCKED handler.
+//
+// DR-25 accepts either resolution. Generating the adapter is a substantial
+// subprogram, so this suite pins the OTHER one and makes it real:
+//
+//   1. `Cli_ApiAction_HasNoDirectDispatchPath` — no UNACKNOWLEDGED direct
+//      dispatch path remains. The CLI's path still exists, but it is admitted
+//      only by a governed, owned, unexpired ledger row that the adapter itself
+//      acknowledges; every way that record could rot fails the census closed.
+//   2. `Cli_GeneratedClient_AgreesWithMcpViaRealHandler` — agreement is proven
+//      through a REAL registered handler over BOTH seams (the real Commander
+//      tree and the real MCP server over a real transport), never a mock.
+// ───────────────────────────────────────────────────────────────────────────
+
+/** The live ledger row covering this adapter's direct dispatch path. */
+function cliDeviation(): ContractDeviation {
+  const row = CLI_CONTRACT_DEVIATIONS.find((d) => d.module === 'adapters/cli.ts');
+  if (!row) throw new Error('no recorded deviation for adapters/cli.ts');
+  return row;
+}
+
+/** A ledger row with one field overridden, for the kill arms. */
+function mutateDeviation(patch: Partial<ContractDeviation>): ContractDeviation[] {
+  return [{ ...cliDeviation(), ...patch }];
+}
+
+describe('DR-25: CLI api-action dispatch path is governed, not unacknowledged', () => {
+  it('Cli_ApiAction_HasNoDirectDispatchPath', async () => {
+    // ── The honest starting fact: the adapter DOES reach the shared handler
+    //    directly. The census must not be able to hide that.
+    const sites = await scanDispatchSites();
+    const moduleNames = sites.map((s) => s.module);
+    expect(moduleNames).toContain('adapters/cli.ts');
+
+    // ── The governing invariant: NO UNACKNOWLEDGED direct dispatch path. Every
+    //    live site is either a contract projection (the MCP wire) or covered by
+    //    a recorded deviation — and nothing else reaches the seam at all.
+    const annotations = await collectDeviationAnnotations();
+    expect(runDeviationLedgerCensus(sites, CLI_CONTRACT_DEVIATIONS, annotations)).toEqual([]);
+    expect([...moduleNames].sort()).toEqual([...AUTHORIZED_DISPATCH_PROJECTIONS].sort());
+    expect(CONTRACT_PROJECTIONS).not.toContain('adapters/cli.ts');
+
+    // ── The acknowledgement is machine-readable AT the deviation site, and the
+    //    ledger and the site agree (a prose comment would satisfy neither).
+    const row = cliDeviation();
+    expect(CLI_DIRECT_DISPATCH_DEVIATION).toEqual({
+      invariant: row.invariant,
+      module: row.module,
+      owner: row.owner,
+      expires: row.expires,
+    });
+
+    // ── The whole live census (all three collectors) is green.
+    const audit = await auditCliContract();
+    expect(audit.diagnostics).toEqual([]);
+    expect(audit.ok).toBe(true);
+  });
+
+  it('CliDeviation_IsOwnedJustifiedAndUnexpired', () => {
+    const row = cliDeviation();
+
+    // A named owner, a reason, a retirement condition and a tracking ref — an
+    // unowned or unjustified exception is theatre.
+    expect(row.owner.trim()).not.toBe('');
+    expect(row.invariant).toBe('INV-2');
+    expect(row.rationale.trim().length).toBeGreaterThan(0);
+    expect(row.retirement.trim().length).toBeGreaterThan(0);
+    expect(row.tracking).toContain('DR-25');
+
+    // A REAL deadline, still open. When it passes, the census fails closed and
+    // the deviation must be re-accepted explicitly or retired.
+    expect(row.expires).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(Date.parse(`${row.expires}T23:59:59.999Z`)).toBeGreaterThan(Date.now());
+  });
+
+  it('CliDeviation_EveryWayTheRecordCouldRot_FailsClosed', async () => {
+    const sites = await scanDispatchSites();
+    const annotations = await collectDeviationAnnotations();
+    const codes = (diags: readonly { readonly code: string }[]): string[] =>
+      diags.map((d) => d.code);
+
+    // (a) Drop the ledger entirely — the direct path becomes UNACKNOWLEDGED.
+    //     This is the arm that proves the acknowledgement is load-bearing: with
+    //     no record, the governing INV-2 is violated and the census says so.
+    const unrecorded = runDeviationLedgerCensus(sites, [], annotations);
+    expect(unrecorded).toContainEqual(
+      expect.objectContaining({
+        code: 'UNACKNOWLEDGED_INV2_DEVIATION',
+        module: 'adapters/cli.ts',
+      }),
+    );
+
+    // (b) A NEW bypass elsewhere is unacknowledged too — the ledger governs one
+    //     named module, it does not amnesty the whole tree.
+    const planted = runDeviationLedgerCensus(
+      [...sites, { module: 'cli-commands/rogue-direct-dispatch.ts' }],
+      CLI_CONTRACT_DEVIATIONS,
+      annotations,
+    );
+    expect(planted).toContainEqual(
+      expect.objectContaining({
+        code: 'UNACKNOWLEDGED_INV2_DEVIATION',
+        module: 'cli-commands/rogue-direct-dispatch.ts',
+      }),
+    );
+
+    // (c) A past expiry fails — the exception cannot run forever.
+    expect(
+      codes(runDeviationLedgerCensus(sites, mutateDeviation({ expires: '2020-01-01' }), annotations)),
+    ).toContain('EXPIRED_DEVIATION');
+
+    // (d) A malformed expiry fails — "someday" is not a deadline.
+    expect(
+      codes(runDeviationLedgerCensus(sites, mutateDeviation({ expires: 'when-generated' }), annotations)),
+    ).toContain('UNGOVERNED_DEVIATION');
+
+    // (e) A blank owner fails — nobody accountable means nobody retires it.
+    expect(
+      runDeviationLedgerCensus(sites, mutateDeviation({ owner: '  ' }), annotations),
+    ).toContainEqual(expect.objectContaining({ code: 'UNGOVERNED_DEVIATION', field: 'owner' }));
+
+    // (f) A blank rationale fails — an unexplained exception is laundering.
+    expect(
+      runDeviationLedgerCensus(sites, mutateDeviation({ rationale: '' }), annotations),
+    ).toContainEqual(expect.objectContaining({ code: 'UNGOVERNED_DEVIATION', field: 'rationale' }));
+
+    // (g) Stale cover fails — a row for a module that no longer reaches the
+    //     seam. This is the arm that RETIRES the ledger once the CLI really is
+    //     generated: the row turns red and must be deleted.
+    expect(
+      codes(
+        runDeviationLedgerCensus(
+          sites.filter((s) => s.module !== 'adapters/cli.ts'),
+          CLI_CONTRACT_DEVIATIONS,
+          annotations,
+        ),
+      ),
+    ).toContain('STALE_DEVIATION');
+
+    // (h) A missing site acknowledgement fails — the ledger alone is not
+    //     enough; the deviating module must own its deviation.
+    const unannotated: DeviationAnnotationSite[] = [
+      { module: 'adapters/cli.ts', annotation: undefined },
+    ];
+    expect(
+      codes(runDeviationLedgerCensus(sites, CLI_CONTRACT_DEVIATIONS, unannotated)),
+    ).toContain('DEVIATION_ANNOTATION_MISMATCH');
+
+    // (i) A site acknowledgement that DISAGREES with the ledger fails — the two
+    //     records cannot drift apart silently.
+    const drifted: DeviationAnnotationSite[] = [
+      {
+        module: 'adapters/cli.ts',
+        annotation: { ...CLI_DIRECT_DISPATCH_DEVIATION, expires: '2099-01-01' },
+      },
+    ];
+    expect(
+      codes(runDeviationLedgerCensus(sites, CLI_CONTRACT_DEVIATIONS, drifted)),
+    ).toContain('DEVIATION_ANNOTATION_MISMATCH');
+
+    // (j) Claiming the module is ALSO fully compliant fails — "compliance"
+    //     cannot be used to launder a known deviation (the pre-DR-25 shape,
+    //     where `adapters/cli.ts` simply sat in the authorized list).
+    expect(
+      codes(
+        runDeviationLedgerCensus(sites, CLI_CONTRACT_DEVIATIONS, annotations, new Date(), [
+          'adapters/mcp.ts',
+          'adapters/cli.ts',
+        ]),
+      ),
+    ).toContain('CONFLICTING_DEVIATION');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  T-34 / DR-25 — CLI ⇄ MCP agreement over a REAL registered handler
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// The pre-existing agreement proof (`contract/cli/differential-fixtures.test.ts`)
+// drives both surfaces with `dispatch` REPLACED by `vi.mock`. That harness can
+// only witness that two renderers agree about a value the test itself supplied —
+// it cannot witness handler-level agreement at all, which is exactly the vacuity
+// DR-25 names. This suite replaces the mock with the real thing:
+//
+//   • a REAL `core/dispatch` over a REAL `EventStore` in a REAL temp state dir,
+//     resolving the REAL registered `exarchos_workflow` composite handler;
+//   • the CLI seam driven through the REAL Commander tree (`buildCli`);
+//   • the MCP seam driven through the REAL `createMcpServer` over a REAL
+//     client/server transport pair — so `stampOnboardSurface`, per-action output
+//     validation and `toMcpResult` all run, not just `toEnvelope`;
+//   • BOTH invocations derived from the SAME compiled-contract descriptor, so
+//     `deriveCliSurface` stops being read only by the drift guard and becomes
+//     load-bearing in the agreement proof itself.
+//
+// `vi.mock` is hoisted and file-wide, so the real graph is obtained with
+// `doUnmock` + `resetModules` + dynamic import. This block is LAST in the file
+// for that reason: the module-registry reset must not disturb the suites above,
+// which hold bindings resolved at import time.
+// ───────────────────────────────────────────────────────────────────────────
+
+describe('DR-25: generated CLI client agrees with MCP through a real handler', () => {
+  it('Cli_GeneratedClient_AgreesWithMcpViaRealHandler', async () => {
+    // ── Escape the file-wide mocks and load the REAL graph.
+    const mockedDispatchCallsBefore = vi.mocked(dispatch).mock.calls.length;
+    vi.doUnmock('../core/dispatch.js');
+    vi.doUnmock('./cli-format.js');
+    vi.doUnmock('./mcp.js');
+    vi.resetModules();
+
+    const { buildCli: realBuildCli } = await import('./cli.js');
+    const { dispatch: realDispatch } = await import('../core/dispatch.js');
+    const { createMcpServer } = await import('./mcp.js');
+    const { EventStore } = await import('../event-store/store.js');
+    const { normalize } = await import('../__tests__/parity-harness.js');
+    const { makeTempDir, rmrfAsync } = await import('../test-helpers/temp-dir.js');
+    const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+    const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js');
+
+    // ── The contract descriptor BOTH seams are driven from. The CLI command
+    //    path (group + command name + required flags) and the MCP tool/action
+    //    pair are projections of one compiled action — neither arm is
+    //    hand-addressed, so they cannot silently target different actions.
+    const surface = deriveCliSurface(compileForCli());
+    const command: CliCommand | undefined = surface.commands.find(
+      (c) => c.actionId === 'exarchos_workflow.get',
+    );
+    expect(command, 'exarchos_workflow.get missing from the generated CLI surface').toBeDefined();
+    if (!command) return;
+
+    const [mcpTool] = command.actionId.split('.');
+    const requiredFlags = command.flags.filter((f) => f.required).map((f) => f.name);
+    // Pinned so a contract change that adds a required input fails HERE rather
+    // than silently degrading the comparison to a partial invocation.
+    expect(requiredFlags).toEqual(['feature-id']);
+
+    const stateDir = makeTempDir('inv2-real-handler-');
+    const realCtx = {
+      stateDir,
+      eventStore: new EventStore(stateDir),
+      enableTelemetry: false,
+    } as unknown as DispatchContext;
+
+    const savedExitCode = process.exitCode;
+    let client: InstanceType<typeof Client> | undefined;
+    let server: ReturnType<typeof createMcpServer> | undefined;
+
+    /** Drive the CLI seam exactly as the shipped binary does. */
+    const callCliSeam = async (
+      featureId: string,
+    ): Promise<{ envelope: Record<string, unknown>; exitCode: number }> => {
+      const program = realBuildCli(realCtx);
+      const chunks: string[] = [];
+      const stdoutSpy = vi
+        .spyOn(process.stdout, 'write')
+        .mockImplementation((chunk: unknown) => {
+          chunks.push(typeof chunk === 'string' ? chunk : String(chunk));
+          return true;
+        });
+      process.exitCode = undefined;
+      try {
+        await program.parseAsync([
+          'node',
+          'exarchos',
+          command.group,
+          command.commandName,
+          `--${requiredFlags[0]}`,
+          featureId,
+          '--json',
+        ]);
+      } finally {
+        stdoutSpy.mockRestore();
+      }
+      const exitCode = typeof process.exitCode === 'number' ? process.exitCode : 0;
+      process.exitCode = undefined;
+      const text = chunks.join('');
+      const firstBrace = text.indexOf('{');
+      expect(firstBrace, `CLI emitted no JSON envelope: ${text}`).toBeGreaterThanOrEqual(0);
+      return {
+        envelope: JSON.parse(text.slice(firstBrace)) as Record<string, unknown>,
+        exitCode,
+      };
+    };
+
+    try {
+      // ── Seed real state through the real handler (this is the workflow the
+      //    two seams will then read back).
+      const featureId = 'inv2-real-handler';
+      const seeded = await realDispatch(
+        'exarchos_workflow',
+        { action: 'init', featureId, workflowType: 'feature' },
+        realCtx,
+      );
+      expect(seeded.success, JSON.stringify(seeded.error)).toBe(true);
+
+      // ── Stand the REAL MCP server up over a REAL transport pair.
+      server = createMcpServer(realCtx);
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      client = new Client({ name: 'inv2-agreement-probe', version: '0.0.0' });
+      await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+      const callMcpSeam = async (id: string) =>
+        client!.callTool({ name: mcpTool!, arguments: { action: command.action, featureId: id } });
+
+      // Volatile-by-construction fields: `_perf` is a wall-clock measurement and
+      // the operation/correlation ids are freshly minted per dispatch. Everything
+      // else must be byte-identical across the two seams.
+      const stripVolatile = { dropKeys: new Set(['_perf']) };
+
+      // ── Twin 1: the success path over the real handler.
+      const cliOk = await callCliSeam(featureId);
+      const mcpOk = await callMcpSeam(featureId);
+
+      // Anti-vacuity: this is genuinely the registered composite handler's
+      // output — real materialized workflow state. The mocked `dispatch` this
+      // file installs returns `{ mocked: true }` and could never produce it.
+      const okData = cliOk.envelope.data as Record<string, unknown>;
+      expect(okData.featureId).toBe(featureId);
+      expect(okData.phase).toBe('plan');
+      expect(okData.workflowType).toBe('feature');
+      expect(okData).not.toHaveProperty('mocked');
+      // ...and the file-wide `dispatch` mock took no part in it: its call count
+      // is untouched by either seam, so neither arm short-circuited to the stub.
+      expect(vi.mocked(dispatch).mock.calls.length).toBe(mockedDispatchCallsBefore);
+
+      expect(normalize(cliOk.envelope, stripVolatile)).toEqual(
+        normalize(mcpOk.structuredContent, stripVolatile),
+      );
+      expect(cliOk.exitCode).toBe(CONTRACT_EXIT_CODES.SUCCESS);
+      expect(mcpOk.isError).toBe(false);
+
+      // ── Twin 2: the failure path over the same real handler. Agreement on the
+      //    happy path alone is weak — the error projection is where two
+      //    independently hand-written adapters actually drift.
+      const missingId = 'inv2-real-handler-absent';
+      const cliErr = await callCliSeam(missingId);
+      const mcpErr = await callMcpSeam(missingId);
+
+      expect(cliErr.envelope.success).toBe(false);
+      const errorCode = (cliErr.envelope.error as Record<string, unknown>).code as string;
+      expect(errorCode).toBe('STATE_NOT_FOUND');
+
+      expect(normalize(cliErr.envelope, stripVolatile)).toEqual(
+        normalize(mcpErr.structuredContent, stripVolatile),
+      );
+      expect(mcpErr.isError).toBe(true);
+      // The CLI's process exit code is resolved from the frozen contract
+      // authority, not a bespoke adapter table — so it agrees with MCP's
+      // failure discriminator by construction.
+      expect(cliErr.exitCode).toBe(exitCodeForError(errorCode));
+      expect(cliErr.exitCode).not.toBe(CONTRACT_EXIT_CODES.SUCCESS);
+    } finally {
+      process.exitCode = savedExitCode;
+      if (client) await client.close();
+      if (server) await server.close();
+      await rmrfAsync(stateDir);
+    }
   });
 });

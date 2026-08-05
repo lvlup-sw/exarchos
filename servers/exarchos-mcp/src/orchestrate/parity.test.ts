@@ -383,7 +383,8 @@ describe('exarchos_orchestrate CLI-vs-MCP parity', () => {
   });
 
   it('OrchestrateParity_CheckEventEmissions_ReviewRoutedAuto_CliAndMcp_ReturnEqualPayload', async () => {
-    // RC2 (#1395), INV-2 parity guard. After migrating `review.routed`
+    // RC2 (#1395) — a WITNESS for the governing INV-2 (equivalence by
+    // construction), not the invariant itself. After migrating `review.routed`
     // model → auto, both carriers must compute identical `_eventHints` for a
     // `review`-phase workflow: review.routed must NOT appear among the missing
     // hints on either arm. Driving the stream into `review` phase via two seed

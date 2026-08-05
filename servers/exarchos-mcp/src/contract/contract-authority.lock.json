@@ -1,8 +1,8 @@
 {
   "lockVersion": 1,
   "approved": true,
-  "approvedBy": "P03-02",
-  "note": "PROGRAM-03 contract authority freeze (P03-01, extended by P03-02 with the closed `contract-surface` authority). Regenerate with `npx tsx src/contract/authority-lock-cli.ts` after reviewing and approving the new authority digests, then commit this file.",
+  "approvedBy": "T-35 (DR-26)",
+  "note": "PROGRAM-03 contract authority freeze (P03-01, extended by P03-02 with the closed `contract-surface` authority; re-approved by T-35 / DR-26 after the invariant catalog was re-pointed to the GOVERNING framing of INV-2 (contract-client equivalence by construction, with the DR-25 CLI deviation recorded), INV-4 (standards-conformance plus thin shims), INV-7 (closed cross-process serialization claim, EFF-001) and INV-11 (lifecycle/placement by construction; spatial write confinement excluded and declared per-harness)). Regenerate with `npx tsx src/contract/authority-lock-cli.ts` after reviewing and approving the new authority digests, then commit this file.",
   "authorities": {
     "strategos-contracts": {
       "kind": "schema",
@@ -48,7 +48,7 @@
       "kind": "catalog",
       "version": "3",
       "versionSpec": "3",
-      "digest": "sha256:33bf991e1fa5061102f67451b3a39a2f678cdc42399377a7eb4d713278c3d89e",
+      "digest": "sha256:dc709b9e88e04e080b150c59e98ef2215c3a433d7133e58f1b1b55c77de80d60",
       "source": ".exarchos/invariants.md pinned at frontmatter schema-version",
       "approved": true
     },

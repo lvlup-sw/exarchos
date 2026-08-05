@@ -11,6 +11,13 @@
 // catalog, ActionId set, compatibility policy, MCP protocol/SDK version), the
 // verify test goes red; re-run this generator to review + approve the new
 // digests, then commit the updated lockfile.
+//
+// T-35 / DR-26 — the invariant catalog is one of those frozen authorities, and
+// its WORDING is a load-bearing input to generation: a stale framing in
+// `.exarchos/invariants.md` propagates into every generated artifact that
+// builds against the freeze. Re-approving the catalog therefore means running
+// THIS generator (never hand-editing a digest) so the recorded approval and the
+// recorded digest are produced by the same gesture.
 // ────────────────────────────────────────────────────────────────────────────
 
 import fs from 'node:fs';
@@ -20,11 +27,24 @@ import { buildAuthorityLock } from './authority-pin.js';
 
 const LOCK_NOTE =
   'PROGRAM-03 contract authority freeze (P03-01, extended by P03-02 with the ' +
-  'closed `contract-surface` authority). Regenerate with ' +
+  'closed `contract-surface` authority; re-approved by T-35 / DR-26 after the ' +
+  'invariant catalog was re-pointed to the GOVERNING framing of INV-2 ' +
+  '(contract-client equivalence by construction, with the DR-25 CLI deviation ' +
+  'recorded), INV-4 (standards-conformance plus thin shims), INV-7 (closed ' +
+  'cross-process serialization claim, EFF-001) and INV-11 (lifecycle/placement ' +
+  'by construction; spatial write confinement excluded and declared ' +
+  'per-harness)). Regenerate with ' +
   '`npx tsx src/contract/authority-lock-cli.ts` after reviewing and approving ' +
   'the new authority digests, then commit this file.';
 
-export function regenerateAuthorityLock(approvedBy = 'P03-02'): string {
+/**
+ * Who/what the freeze records as the approver of the CURRENT snapshot. Bump
+ * this when a new work package performs the review-and-approve gesture, so the
+ * lockfile carries the provenance of the approval rather than of the tool.
+ */
+export const CURRENT_APPROVER = 'T-35 (DR-26)';
+
+export function regenerateAuthorityLock(approvedBy = CURRENT_APPROVER): string {
   const paths = defaultSourcePaths();
   const live = collectLiveAuthorities(paths);
   const lock = buildAuthorityLock(live, { approvedBy, note: LOCK_NOTE });
