@@ -2,7 +2,7 @@
 
 This is the **single source of truth** for the "Constraints" step shared by `/ideate` (Phase 0), `/refactor` (brief phase), `/debug` (rca + design phases), and `/shepherd` (when evaluating PR feedback and composing fixes). Each surface loads this reference rather than duplicating the selection rules.
 
-**Goal:** Surface the architectural invariants relevant to the work *before* committing to an approach or a change, so it is anchored to load-bearing constraints rather than re-discovering them mid-flight. Design-time surfaces (`/ideate`, `/refactor`, `/debug`) anchor the *proposal* before choosing an approach; `/shepherd` anchors the *changes it composes to address feedback* — same selection rules and devCatalog gating, applied at evaluation time instead of design time.
+**Goal:** Surface the architectural invariants relevant to the work *before* committing to an approach or a change, so it is anchored to load-bearing constraints rather than re-discovering them mid-flight. Design-time surfaces (`/ideate`, `/refactor`, `/debug`) anchor the *proposal* before choosing an approach; `/shepherd` anchors the *changes it composes to address feedback* — same selection rules and catalog-registration gating, applied at evaluation time instead of design time.
 
 ## Source of truth
 
@@ -42,6 +42,6 @@ Anchored to .exarchos/invariants.md:
 
 The `summary` field of each catalog entry is the canonical one-sentence form — reuse it verbatim so the surfaced Constraints stay in sync with the catalog as it evolves.
 
-## Dev-only gating (v2)
+## Catalog-registration gating (v2)
 
-The catalog at `.exarchos/invariants.md` is **dev-invariants only** — invariants for Exarchos's own designers, not for consumers using Exarchos as a plugin. The loader surfaces entries only when `.exarchos.yml: invariants.devCatalog: enabled` (default disabled). When this flag is unset or `disabled`, the design-time Constraints step surfaces no section from the dev catalog — proceed directly to the clarifying/brief/design step. Consumer-facing SDLC invariants live in a separate (future) catalog; see `docs/proposals/2026-05-20-invariants-catalog-v2-spec.md` §1.1 and §10 for the audience-scope rationale.
+The catalog at `.exarchos/invariants.md` is **dev-invariants only** — invariants for Exarchos's own designers, not for consumers using Exarchos as a plugin. It surfaces only when it is **registered** under `.exarchos.yml: invariants.catalogs` (e.g. `{ path: .exarchos/invariants.md, tier: dev }`) — registration is the ONE AND ONLY opt-in; there is no separate boolean flag. When no catalog is registered, the design-time Constraints step surfaces no section from the dev catalog — proceed directly to the clarifying/brief/design step. Consumer-facing SDLC invariants live in a separate (future) catalog; see `docs/proposals/2026-05-20-invariants-catalog-v2-spec.md` §1.1 and §10 for the audience-scope rationale.

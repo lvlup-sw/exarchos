@@ -45,7 +45,7 @@ Use the returned guard requirements for the `explore → brief` transition to co
 
 Detailed capture of refactor intent (more thorough than polish).
 
-**Design-time Constraints (first):** Before committing to an approach, surface a **Constraints** section anchored to `.exarchos/invariants.md` (devCatalog-gated) per `@skills/ideate/references/constraint-anchoring.md` — the same single shared source of truth used by `/ideate`'s Phase 0. See `@skills/refactor/references/brief-template.md`.
+**Design-time Constraints (first):** Before committing to an approach, surface a **Constraints** section anchored to `.exarchos/invariants.md` (catalog-registration gated) per `@skills/ideate/references/constraint-anchoring.md` — the same single shared source of truth used by `/ideate`'s Phase 0. See `@skills/refactor/references/brief-template.md`.
 
 **Save brief and advance to overhaul-plan:**
 

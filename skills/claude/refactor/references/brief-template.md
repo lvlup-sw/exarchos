@@ -6,9 +6,9 @@ The brief captures refactor intent without the overhead of a full design documen
 
 ## Constraints (design-time, first)
 
-Before filling in the brief — i.e. *before* committing to an approach — surface a **Constraints** section anchored to the architectural invariants relevant to the refactor. This is the brief-phase design-time equivalent of `/ideate`'s Phase 0, and it uses the **same single shared source of truth** for the selection rules (`always-load` baseline vs `reference-only` on-demand vs `archivable` not-surfaced, the proposal-shape → anchor-invariant table, the emit format, and the devCatalog gating): see `@skills/ideate/references/constraint-anchoring.md`.
+Before filling in the brief — i.e. *before* committing to an approach — surface a **Constraints** section anchored to the architectural invariants relevant to the refactor. This is the brief-phase design-time equivalent of `/ideate`'s Phase 0, and it uses the **same single shared source of truth** for the selection rules (`always-load` baseline vs `reference-only` on-demand vs `archivable` not-surfaced, the proposal-shape → anchor-invariant table, the emit format, and the catalog-registration gating): see `@skills/ideate/references/constraint-anchoring.md`.
 
-Load `.exarchos/invariants.md` (entries marked `cost-of-load: always-load`) and emit the Constraints section before the Approach field, so the chosen approach is anchored to load-bearing constraints. This step is **devCatalog-gated** — when `.exarchos.yml: invariants.devCatalog: enabled` is unset or `disabled`, surface no Constraints section and proceed directly to the brief fields.
+Load `.exarchos/invariants.md` (entries marked `cost-of-load: always-load`) and emit the Constraints section before the Approach field, so the chosen approach is anchored to load-bearing constraints. This step is **catalog-registration gated** — when no catalog is registered under `.exarchos.yml: invariants.catalogs`, surface no Constraints section and proceed directly to the brief fields.
 
 ## Brief Fields
 
