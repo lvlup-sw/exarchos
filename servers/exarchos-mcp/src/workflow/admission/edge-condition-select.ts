@@ -9,8 +9,9 @@
  *
  *   - **zero-match** — every candidate is `false` ⇒ `{ outcome: 'no-match' }`.
  *   - **multi-match** — more than one candidate is `true`; the first in order
- *     is selected and the result flags `multiMatch: true` so the ambiguity is
- *     surfaced rather than hidden.
+ *     is selected and the result flags `multiMatch: true` (and names every
+ *     colliding candidate in `matchedEdgeIds`) so the ambiguity is surfaced
+ *     rather than hidden.
  *
  * Selection also fails closed (DR-9): if the highest-priority non-`false`
  * candidate is `indeterminate`, routing is `blocked` — the evaluator refuses to
@@ -48,6 +49,14 @@ export type EdgeSelection =
       readonly index: number;
       /** True when more than one candidate condition evaluated to `true`. */
       readonly multiMatch: boolean;
+      /**
+       * Every candidate whose condition evaluated to `true`, in priority order.
+       * `matchedEdgeIds.length > 1` is exactly `multiMatch` — the colliding
+       * candidates are named, not merely counted, so a caller can REPORT which
+       * outbound edges are simultaneously legal instead of silently resolving
+       * the ambiguity to whichever edge it happened to ask about.
+       */
+      readonly matchedEdgeIds: readonly string[];
     }
   | {
       readonly outcome: 'blocked';
@@ -77,10 +86,9 @@ export function selectEdge(
   facts: EdgeConditionFacts,
 ): EdgeSelection {
   const evaluations = evaluateEdgeCandidates(candidates, facts);
-  const matchCount = evaluations.reduce(
-    (count, evaluation) => (evaluation.outcome === 'true' ? count + 1 : count),
-    0,
-  );
+  const matchedEdgeIds = evaluations
+    .filter((evaluation) => evaluation.outcome === 'true')
+    .map((evaluation) => evaluation.edgeId);
 
   for (const evaluation of evaluations) {
     if (evaluation.outcome === 'false') continue;
@@ -89,7 +97,8 @@ export function selectEdge(
         outcome: 'selected',
         edgeId: evaluation.edgeId,
         index: evaluation.index,
-        multiMatch: matchCount > 1,
+        multiMatch: matchedEdgeIds.length > 1,
+        matchedEdgeIds,
       };
     }
     // First non-false candidate is indeterminate: fail closed.

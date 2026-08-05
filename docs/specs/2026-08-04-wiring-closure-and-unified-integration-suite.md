@@ -453,6 +453,31 @@ The decomposition maps every task to one or more DR-N from the section above.
 
 **Target:** Full — all 33 DR-N across five waves plus the four suite tiers.
 **Excluded:** Rewriting the 48 structural-closure packages; flipping the cutover gate; spatial write confinement; byte-reproducible binaries; retiring legacy guards (P07-05 stays deferred until its replacement gates CI).
+
+**Bounded deferrals under DR-35 (T-48).** Every DR-35 acceptance criterion is met
+mechanically — all four provenance deny reasons fire from the public root,
+`selectEvidence` runs on the wired admission path, `obligations.waivable` is
+`true` for gate obligations, and a scoped waiver applies to its declared subject
+and requirement and to nothing else. Two consequences of that design are
+deliberately *not* activated in this change and are recorded here rather than
+left implicit:
+
+- **No production producer yet files evidence under the translation's
+  requirement ids.** `edgeAdmissionScope(edge)` publishes the
+  `req:{gate,approval}:<id>:<workflowType>:<from>:<to>` identity and its
+  phase-attempt subject, but `orchestrate/gate-runner.ts` still records under
+  its own ids (`requirement:plan-coverage`, `verification-ladder:<gateClass>`).
+  Until a producer adopts the published scope, the recorded ledger is empty on
+  shipped workflows and every requirement falls back to the derived
+  attestation — i.e. observable behavior is unchanged today. *Owner: admission
+  runtime (DR-35 follow-up); tracked with DR-1's gate→task seam work.*
+- **Waiver-grant trust is declared out-of-band and is empty on the live path.**
+  `SHARED_TRANSLATION_AUTHORITY = createTranslationAuthority()` names no
+  `waiverGrantors`, so no waiver can apply through `recordLiveTransition` until
+  a deployment declares one. This is fail-closed by construction, not an
+  oversight: granting waiver authority is a trust decision, and self-asserted
+  grantors are exactly what P01-07 exists to reject. *Owner: admission runtime
+  (DR-35 follow-up), jointly with whoever owns capability resolution.*
 **Sequential phases:** the five waves are the plan's sequential phases (the playbook escalates plans over 20 tasks into phases; W1 gates W2–W5, which are mutually parallel).
 
 ### Traceability matrix (DR-N → tasks)

@@ -6,12 +6,18 @@
 //   1. PROJECTS the legacy state into the closed edge-condition fact vocabulary
 //      ({@link projectStateToFacts}) — the single place that reads legacy state
 //      shapes (`artifacts.plan`, `planReview.approved`, `_events`, …);
-//   2. MINTS genuine, schema-valid {@link AdmissionEvidenceV1} records from that
-//      projection — with real provenance (a producer, a content-addressed
-//      digest of the projected facts, a fresh timestamp) — never a scenario
-//      label; and
+//   2. RESOLVES the admission evidence for the edge's obligation. Recorded proof
+//      facts on the workflow's own event log ({@link projectRecordedAdmissionFacts})
+//      GOVERN any requirement they claim — they are selected by the P01-06
+//      `selectEvidence` and their provenance (freshness, authorization,
+//      well-formedness, contradictions) is EVALUATED. Only an unclaimed
+//      requirement falls back to a self-derived attestation minted from the
+//      projection, with real provenance (a producer, a content-addressed digest
+//      of the projected facts, the evaluation instant) — never a scenario label;
+//      and
 //   3. ADJUDICATES the edge through the real P06-04 {@link evaluatePolicy} over
-//      those requirements + evidence, composed with the P06-02 route condition.
+//      those requirements + evidence + contradictions + waivers, composed with
+//      the P06-02 route condition.
 //
 // This REPLACES the P07-01 interim shadow model (scenario → evidence-presence +
 // a hand-maintained `BYPASS_EVIDENCE_PRESENT` map feeding a single generic
@@ -38,6 +44,10 @@ import {
   type EdgeConditionFacts,
   type EdgeConditionOutcome,
 } from './edge-condition-evaluate.js';
+import {
+  selectEdge,
+  type EdgeCandidate,
+} from './edge-condition-select.js';
 import type {
   CompiledEdgeCondition,
   EdgeConditionNode,
@@ -54,14 +64,22 @@ import {
 } from './policy-authority.js';
 import type { ResolvedRequirements } from './requirement-strength.js';
 import {
+  selectEvidence,
+  type EvidenceContradiction,
+  type EvidenceSelectionDiagnostic,
+} from './select-evidence.js';
+import {
+  ADMISSION_EVENT_TYPES,
   AdmissionEvidenceV1Schema,
   AdmissionRequirementV1Schema,
   ContentDigestV1Schema,
   EvidenceSubjectV1Schema,
+  WaiverProvenanceV1Schema,
   type AdmissionEvidenceV1,
   type AdmissionRequirementV1,
   type ContentDigestV1,
   type EvidenceSubjectV1,
+  type WaiverProvenanceV1,
 } from './types.js';
 import {
   BUILT_IN_WORKFLOW_IR,
@@ -79,11 +97,43 @@ export const TRANSLATION_PROVIDER_VERSION = '1.0';
 export const TRANSLATION_POLICY_ID = 'policy.legacy-state-translation';
 
 /**
- * An authority that trusts the translation producer to issue gate AND approval
- * evidence. This is the out-of-band trust the shadow adjudication runs under —
- * it never lets a legacy state record authorize itself.
+ * The out-of-band trust grants the translation adjudication runs under.
+ *
+ * DR-35: the grant table used to be a CONSTANT that named exactly one principal
+ * — the translator itself — so `unauthorized` could never fire and no principal
+ * ever held {@link POLICY_CAPABILITY.GRANT_WAIVER}, which made the whole waiver
+ * branch of `evaluatePolicy` dead code. Both are now caller-declared, because
+ * both are genuine DEPLOYMENT trust decisions (P01-07): who may issue evidence
+ * for an admission obligation, and who may grant a waiver against one, are
+ * facts about the operator's directory, not about the record being judged.
  */
-export function createTranslationAuthority(): PolicyAuthority {
+export interface TranslationTrustOptions {
+  /**
+   * Principals — beyond the translator itself — trusted to issue GATE evidence
+   * for a translated obligation. Recorded evidence from any other producer is
+   * `unauthorized` and DENIES; that is the point.
+   */
+  readonly gateEvidenceIssuers?: readonly string[];
+  /** Principals trusted to issue APPROVAL evidence, beyond the translator. */
+  readonly approvalIssuers?: readonly string[];
+  /**
+   * Principals trusted to GRANT a waiver. Empty by default — fail closed: with
+   * no grantor, no recorded waiver can ever apply, so enabling waivers is an
+   * explicit, auditable act rather than a default.
+   */
+  readonly waiverGrantors?: readonly string[];
+}
+
+/**
+ * An authority that trusts the translation producer to issue gate AND approval
+ * evidence, plus whatever additional issuers / waiver grantors the trusted
+ * dispatch context declares. This is the out-of-band trust the shadow
+ * adjudication runs under — it never lets a legacy state record, a recorded
+ * evidence fact, or a waiver authorize itself.
+ */
+export function createTranslationAuthority(
+  options: TranslationTrustOptions = {},
+): PolicyAuthority {
   return createCapabilityAuthority([
     {
       principalId: TRANSLATION_PRODUCER_ID,
@@ -92,6 +142,18 @@ export function createTranslationAuthority(): PolicyAuthority {
         POLICY_CAPABILITY.ISSUE_APPROVAL,
       ],
     },
+    ...(options.gateEvidenceIssuers ?? []).map((principalId) => ({
+      principalId,
+      capabilities: [POLICY_CAPABILITY.ISSUE_GATE_EVIDENCE],
+    })),
+    ...(options.approvalIssuers ?? []).map((principalId) => ({
+      principalId,
+      capabilities: [POLICY_CAPABILITY.ISSUE_APPROVAL],
+    })),
+    ...(options.waiverGrantors ?? []).map((principalId) => ({
+      principalId,
+      capabilities: [POLICY_CAPABILITY.GRANT_WAIVER],
+    })),
   ]);
 }
 
@@ -104,15 +166,22 @@ export interface TranslationContext {
 }
 
 /**
- * A default translation context: trusts the translation producer, treats the
- * evaluation instant and all minted evidence as fresh (evidence is minted at
- * `evaluatedAt`, so it is never stale under a positive horizon).
+ * A default translation context: trusts the translation producer (plus any
+ * declared issuers / waiver grantors) and treats evidence older than an hour as
+ * stale.
+ *
+ * DR-35 — the freshness horizon is NOT decorative. The self-derived attestation
+ * the translation falls back to when nothing was recorded is stamped at
+ * `evaluatedAt` and so is trivially fresh, but RECORDED evidence
+ * ({@link projectRecordedAdmissionFacts}) carries the instant its producer
+ * stamped, which is what the horizon is actually measured against.
  */
 export function defaultTranslationContext(
   evaluatedAt: string,
+  options: TranslationTrustOptions = {},
 ): TranslationContext {
   return {
-    authority: createTranslationAuthority(),
+    authority: createTranslationAuthority(options),
     evaluatedAt,
     freshnessHorizonMs: 60 * 60 * 1000,
   };
@@ -665,7 +734,211 @@ export function factsDigest(facts: EdgeConditionFacts): ContentDigestV1 {
   return digestOf(canonical);
 }
 
-// ─── Evidence minting ──────────────────────────────────────────────────────────
+// ─── DR-35: the RECORDED admission ledger (provenance is EVALUATED) ───────────
+//
+// The translation used to be BOTH the producer and the judge of every piece of
+// evidence it evaluated: it minted a record from the very fact projection it
+// then judged, stamped `createdAt` at the evaluation instant, attributed the
+// record to the one principal the authority trusted, and built the subject to
+// match the requirement exactly. Five of the six sound deny reasons were
+// therefore unreachable BY CONSTRUCTION — `stale`, `unauthorized`, `malformed`
+// and `contradictory` could not fire, and with `waivable: false` hardcoded the
+// whole waiver branch of `evaluatePolicy` was dead code.
+//
+// The fix is not to delete the derived attestation (the legacy authority has no
+// evidence store, so the shadow differential needs SOMETHING to judge when
+// nothing was recorded) — it is to stop treating it as the ONLY source. A
+// workflow's own append-only event log already carries real admission proof
+// facts: `admission.evidence-recorded` (written by `orchestrate/gate-runner.ts`
+// with an EXTERNAL producer identity and its own `createdAt`),
+// `admission.contradiction-recorded` and `admission.waiver-recorded`.
+// `workflow/tools.ts` hydrates that log onto `state._events` from the real
+// event store BEFORE the guarded transition runs, so those facts reach this
+// module on the shipped path without any new plumbing.
+//
+// When the log CLAIMS a requirement, the recorded facts GOVERN it: they are run
+// through the P01-06 selector (`selectEvidence`, which is what makes
+// contradiction detection live) and their provenance is evaluated by
+// `evaluatePolicy` like any other third-party evidence. Only a requirement no
+// producer has claimed falls back to the derived attestation.
+
+/** The raw admission proof facts a legacy state's event log carries. */
+export interface RecordedAdmissionLedger {
+  /** `admission.evidence-recorded` payloads, unparsed (the selector diagnoses). */
+  readonly evidence: readonly unknown[];
+  /** `admission.contradiction-recorded` payloads, unparsed. */
+  readonly contradictionEvents: readonly unknown[];
+  /** Parsed `admission.waiver-recorded` lifecycle facts. */
+  readonly waivers: readonly WaiverProvenanceV1[];
+}
+
+/** A state whose log carries no admission proof facts at all. */
+export const EMPTY_RECORDED_LEDGER: RecordedAdmissionLedger = Object.freeze({
+  evidence: Object.freeze([]),
+  contradictionEvents: Object.freeze([]),
+  waivers: Object.freeze([]),
+});
+
+/**
+ * The `_events` envelope fields `hydrateEventsFromStore` adds around the stored
+ * `data` payload. It writes `{ type, timestamp, ...data, metadata: data }`, so
+ * the original payload is recoverable either from `metadata` or by dropping
+ * these keys — and it must be recovered, because the admission proof schemas are
+ * `.strict()` and would reject the envelope as malformed.
+ */
+const EVENT_ENVELOPE_KEYS: ReadonlySet<string> = new Set([
+  'type',
+  'timestamp',
+  'metadata',
+]);
+
+function eventPayload(entry: Record<string, unknown>): unknown {
+  const metadata = entry['metadata'];
+  if (isRecord(metadata)) return metadata;
+  const payload: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(entry)) {
+    if (!EVENT_ENVELOPE_KEYS.has(key)) payload[key] = value;
+  }
+  return payload;
+}
+
+/**
+ * Project the admission proof facts out of a legacy state's hydrated event log.
+ *
+ * Total and pure: a state with no `_events` (an affordance caller whose payload
+ * was stripped at a serialization boundary) yields the empty ledger, which is
+ * the fail-SAFE direction — the requirement falls back to the derived
+ * attestation rather than being denied on facts nobody supplied.
+ */
+export function projectRecordedAdmissionFacts(
+  state: Record<string, unknown>,
+): RecordedAdmissionLedger {
+  const evidence: unknown[] = [];
+  const contradictionEvents: unknown[] = [];
+  const waivers: WaiverProvenanceV1[] = [];
+
+  for (const entry of readEvents(state)) {
+    switch (eventType(entry)) {
+      case ADMISSION_EVENT_TYPES.EVIDENCE_RECORDED:
+        evidence.push(eventPayload(entry));
+        break;
+      case ADMISSION_EVENT_TYPES.CONTRADICTION_RECORDED:
+        contradictionEvents.push(eventPayload(entry));
+        break;
+      case ADMISSION_EVENT_TYPES.WAIVER_RECORDED: {
+        const payload = eventPayload(entry);
+        const parsed = WaiverProvenanceV1Schema.safeParse(
+          isRecord(payload) ? payload['provenance'] : undefined,
+        );
+        // A waiver fact that does not satisfy the contract grants NOTHING —
+        // dropping it is fail-closed, unlike dropping an evidence fact.
+        if (parsed.success) waivers.push(parsed.data);
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  return Object.freeze({
+    evidence: Object.freeze(evidence),
+    contradictionEvents: Object.freeze(contradictionEvents),
+    waivers: Object.freeze(waivers),
+  });
+}
+
+/** The ledger after P01-06 selection — what adjudication actually judges. */
+export interface ResolvedAdmissionLedger {
+  /** Canonical ACTIVE evidence (superseded / invalid chains already excluded). */
+  readonly activeEvidence: readonly AdmissionEvidenceV1[];
+  /** Contradictions detected by `selectEvidence` plus recorded ones. */
+  readonly contradictions: readonly EvidenceContradiction[];
+  /** Waiver lifecycle facts; only authorized, in-scope issuances ever apply. */
+  readonly waivers: readonly WaiverProvenanceV1[];
+  /**
+   * Every requirement id some recorded fact CLAIMS. A claimed requirement is
+   * governed by the recorded facts even when selection excluded all of them —
+   * otherwise a broken proof chain would be silently papered over by a
+   * self-derived attestation, which is precisely the defect DR-35 closes.
+   */
+  readonly claimedRequirementIds: ReadonlySet<string>;
+  /** Selector diagnostics (malformed / duplicate / cyclic records). */
+  readonly diagnostics: readonly EvidenceSelectionDiagnostic[];
+}
+
+const EMPTY_RESOLVED_LEDGER: ResolvedAdmissionLedger = Object.freeze({
+  activeEvidence: Object.freeze([]),
+  contradictions: Object.freeze([]),
+  waivers: Object.freeze([]),
+  claimedRequirementIds: Object.freeze(new Set<string>()),
+  diagnostics: Object.freeze([]),
+});
+
+/** Best-effort read of the requirement a raw evidence payload claims. */
+function claimedRequirementId(candidate: unknown): string | undefined {
+  if (!isRecord(candidate)) return undefined;
+  const evidence = candidate['evidence'];
+  if (!isRecord(evidence)) return undefined;
+  const requirementId = evidence['requirementId'];
+  return typeof requirementId === 'string' ? requirementId : undefined;
+}
+
+/**
+ * Run the P01-06 selector over a recorded ledger. This is the call that makes
+ * contradiction detection LIVE on the shipped admission path: two active
+ * records that disagree about the same (requirement, subject, attempt, policy)
+ * scope are reported as a contradiction, and `evaluatePolicy` denies the
+ * requirement `contradictory` rather than letting arrival order pick a winner.
+ */
+export function resolveRecordedLedger(
+  ledger: RecordedAdmissionLedger,
+): ResolvedAdmissionLedger {
+  if (
+    ledger.evidence.length === 0 &&
+    ledger.contradictionEvents.length === 0 &&
+    ledger.waivers.length === 0
+  ) {
+    return EMPTY_RESOLVED_LEDGER;
+  }
+
+  const selection = selectEvidence({
+    evidence: ledger.evidence,
+    contradictionEvents: ledger.contradictionEvents,
+  });
+  const claimed = new Set<string>();
+  for (const candidate of ledger.evidence) {
+    const requirementId = claimedRequirementId(candidate);
+    if (requirementId !== undefined) claimed.add(requirementId);
+  }
+
+  return Object.freeze({
+    activeEvidence: Object.freeze(
+      selection.activeEvidence.map((record) => record.evidence),
+    ),
+    contradictions: selection.contradictions,
+    waivers: ledger.waivers,
+    claimedRequirementIds: claimed,
+    diagnostics: selection.diagnostics,
+  });
+}
+
+/** Project + select in one step, from a legacy state's own event log. */
+function ledgerForState(
+  state: Record<string, unknown>,
+): ResolvedAdmissionLedger {
+  return resolveRecordedLedger(projectRecordedAdmissionFacts(state));
+}
+
+// ─── Evidence translation ──────────────────────────────────────────────────────
+
+/** Where the evidence a requirement was judged on actually came from. */
+export type EvidenceProvenanceSource =
+  /** Recorded proof facts from the workflow's own event log governed it. */
+  | 'recorded'
+  /** No producer claimed the requirement; the state projection attested it. */
+  | 'derived'
+  /** The edge carries no obligation, so there is nothing to evidence. */
+  | 'none';
 
 /** The genuine admission records translated from a single edge + legacy state. */
 export interface EdgeAdmissionTranslation {
@@ -677,14 +950,40 @@ export interface EdgeAdmissionTranslation {
    * `null` for a `none` obligation (pure routing / bounded-loop / universal).
    */
   readonly presence: EdgeConditionOutcome | null;
+  /** DR-35 — whether the evidence was RECORDED by a producer or self-derived. */
+  readonly evidenceProvenance: EvidenceProvenanceSource;
+  /** Contradictions governing this edge's requirements. */
+  readonly contradictions: readonly EvidenceContradiction[];
+  /** Waiver lifecycle facts offered against this edge's requirements. */
+  readonly waivers: readonly WaiverProvenanceV1[];
 }
 
-const NO_WAIVER_OBLIGATIONS: ResolvedRequirements = Object.freeze({
-  gates: [],
-  minimumApprovals: 0,
-  minimumCorroboratingSources: 0,
-  waivable: false,
-});
+function obligationsFor(waivable: boolean): ResolvedRequirements {
+  return Object.freeze({
+    gates: [],
+    minimumApprovals: 0,
+    minimumCorroboratingSources: 0,
+    waivable,
+  });
+}
+
+/** An edge with no obligation: nothing to discharge, so nothing to waive. */
+const NO_OBLIGATIONS: ResolvedRequirements = obligationsFor(false);
+
+/**
+ * A GATE obligation IS waivable — by an authorized, scoped, unexpired waiver
+ * and nothing else. The failure is never rewritten: `evaluatePolicy` keeps it in
+ * `recordedFailures` with `waived: true` and the waiver id, so an audit still
+ * sees the gate that did not pass.
+ */
+const GATE_OBLIGATIONS: ResolvedRequirements = obligationsFor(true);
+
+/**
+ * An APPROVAL obligation is NOT waivable. A waiver that could stand in for a
+ * required human approval would make the approval decorative — the strongest
+ * point of the `waivable` order (`false ≥ true`) is the right one here.
+ */
+const APPROVAL_OBLIGATIONS: ResolvedRequirements = obligationsFor(false);
 
 /**
  * Build the phase-attempt evidence subject through the SCHEMA, not through an
@@ -693,23 +992,70 @@ const NO_WAIVER_OBLIGATIONS: ResolvedRequirements = Object.freeze({
  * discriminant would flow into minted evidence and only surface later (or not at
  * all). `EvidenceSubjectV1Schema.parse` takes `unknown` and either returns a
  * genuinely valid subject or throws at the point of construction.
+ *
+ * DR-35 — the digest content-addresses the SUBJECT IDENTITY, not the current
+ * fact projection. It used to be `factsDigest(facts)`, which made the subject a
+ * moving target: only the translation itself could ever produce evidence whose
+ * subject matched, so `malformed` was unreachable and no external producer (or
+ * waiver) could name the attempt it was certifying. A stable identity makes both
+ * MATCHING and MISMATCHING genuinely possible, which is what the `malformed`
+ * check is for. The state-derived digest is still carried — on `contentDigest`,
+ * where it belongs.
  */
-function subjectFor(
-  phaseAttemptId: string,
-  digest: ContentDigestV1,
-): EvidenceSubjectV1 {
+function subjectFor(phaseAttemptId: string): EvidenceSubjectV1 {
   const candidate: unknown = {
     kind: 'phase-attempt',
     phaseAttemptId,
-    digest,
+    digest: digestOf(`phase-attempt|${phaseAttemptId}`),
   };
   return EvidenceSubjectV1Schema.parse(candidate);
 }
 
 /**
+ * The admission scope the translation judges ONE edge's obligation under: the
+ * requirement id it declares, the phase-attempt it declares it for, and the
+ * evidence subject a record must name to be well-formed against it. `undefined`
+ * for a `none` obligation — there is nothing to evidence.
+ *
+ * This is the PRODUCER-FACING half of DR-35. Recorded evidence only governs a
+ * requirement it can name, so a gate producer that wants its proof to be the
+ * one admission evaluates has to be able to compute this scope. Without it the
+ * recorded-evidence seam would be unusable from outside this module — a
+ * consumer with no reachable producer, which is the same "built but unreached"
+ * shape the change exists to close.
+ */
+export interface EdgeAdmissionScope {
+  readonly requirementId: string;
+  readonly phaseAttemptId: string;
+  readonly subject: EvidenceSubjectV1;
+  /** The policy the translation adjudicates the obligation under. */
+  readonly policyId: string;
+  readonly policyDigest: ContentDigestV1;
+}
+
+export function edgeAdmissionScope(
+  edge: WorkflowEdgeIR,
+): EdgeAdmissionScope | undefined {
+  const obligation = edge.obligation;
+  if (obligation.kind === 'none') return undefined;
+  const key = edgeKey(edge.workflowType, edge.from, edge.to);
+  const phaseAttemptId = `pa:${key}`;
+  return Object.freeze({
+    requirementId:
+      obligation.kind === 'gate'
+        ? `req:gate:${obligation.gateId}:${key}`
+        : `req:approval:${obligation.approvalClass}:${key}`,
+    phaseAttemptId,
+    subject: subjectFor(phaseAttemptId),
+    policyId: TRANSLATION_POLICY_ID,
+    policyDigest: digestOf(TRANSLATION_POLICY_ID),
+  });
+}
+
+/**
  * Translate one shared-IR edge + real legacy state into genuine admission
- * requirements and (minted) evidence. `none` obligations yield an empty
- * requirement set (an unconditional admission `allow`).
+ * requirements and evidence. `none` obligations yield an empty requirement set
+ * (an unconditional admission `allow`).
  */
 export function translateEdgeAdmission(
   edge: WorkflowEdgeIR,
@@ -717,7 +1063,7 @@ export function translateEdgeAdmission(
   ctx: TranslationContext,
 ): EdgeAdmissionTranslation {
   const facts = projectStateToFacts(state);
-  return translateEdgeAdmissionFromFacts(edge, facts, ctx);
+  return translateEdgeAdmissionFromFacts(edge, facts, ctx, ledgerForState(state));
 }
 
 /** Translate against a pre-computed fact projection (avoids re-projecting). */
@@ -725,39 +1071,90 @@ export function translateEdgeAdmissionFromFacts(
   edge: WorkflowEdgeIR,
   facts: EdgeConditionFacts,
   ctx: TranslationContext,
+  ledger: ResolvedAdmissionLedger = EMPTY_RESOLVED_LEDGER,
 ): EdgeAdmissionTranslation {
   const obligation = edge.obligation;
   if (obligation.kind === 'none') {
     return {
       requirements: [],
       evidence: [],
-      obligations: NO_WAIVER_OBLIGATIONS,
+      obligations: NO_OBLIGATIONS,
       presence: null,
+      evidenceProvenance: 'none',
+      contradictions: [],
+      waivers: [],
     };
   }
 
   const key = edgeKey(edge.workflowType, edge.from, edge.to);
-  const phaseAttemptId = `pa:${key}`;
+  // ONE authority for the scope: the same helper external producers call, so a
+  // recorded fact and the requirement it is judged against can never drift.
+  const scope = edgeAdmissionScope(edge);
+  if (scope === undefined) throw new Error('obligation without an admission scope');
   const fdigest = factsDigest(facts);
-  const subject = subjectFor(phaseAttemptId, fdigest);
   const presence = evaluateEdgeCondition(obligation.presence, facts);
 
   if (obligation.kind === 'gate') {
-    return translateGate(obligation, key, phaseAttemptId, subject, fdigest, presence, ctx);
+    return translateGate(obligation, key, scope, fdigest, presence, ctx, ledger);
   }
-  return translateApproval(obligation, key, phaseAttemptId, subject, fdigest, presence, ctx);
+  return translateApproval(obligation, key, scope, fdigest, presence, ctx, ledger);
+}
+
+/**
+ * The evidence a requirement is judged on, and where it came from.
+ *
+ * DR-35 — recorded facts GOVERN a requirement they claim, even when selection
+ * left nothing active (a duplicated id, a cyclic supersession chain, a
+ * schema-malformed record). Falling back to a self-derived attestation there
+ * would let a broken proof chain be papered over by the very component doing
+ * the judging; returning the (possibly empty) recorded set instead denies
+ * `missing`, which is the fail-closed answer.
+ */
+function evidenceForRequirement(
+  requirementId: string,
+  ledger: ResolvedAdmissionLedger,
+  derive: () => readonly AdmissionEvidenceV1[],
+): {
+  readonly evidence: readonly AdmissionEvidenceV1[];
+  readonly provenance: EvidenceProvenanceSource;
+} {
+  if (ledger.claimedRequirementIds.has(requirementId)) {
+    return {
+      evidence: ledger.activeEvidence.filter(
+        (record) => record.requirementId === requirementId,
+      ),
+      provenance: 'recorded',
+    };
+  }
+  return { evidence: derive(), provenance: 'derived' };
+}
+
+/** The contradictions and waivers that bear on one requirement id. */
+function scopedLedger(
+  requirementId: string,
+  ledger: ResolvedAdmissionLedger,
+): {
+  readonly contradictions: readonly EvidenceContradiction[];
+  readonly waivers: readonly WaiverProvenanceV1[];
+} {
+  return {
+    contradictions: ledger.contradictions.filter(
+      (contradiction) => contradiction.requirementId === requirementId,
+    ),
+    waivers: ledger.waivers,
+  };
 }
 
 function translateGate(
   obligation: Extract<EdgeObligation, { kind: 'gate' }>,
   key: string,
-  phaseAttemptId: string,
-  subject: EvidenceSubjectV1,
+  scope: EdgeAdmissionScope,
   fdigest: ContentDigestV1,
   presence: EdgeConditionOutcome,
   ctx: TranslationContext,
+  ledger: ResolvedAdmissionLedger,
 ): EdgeAdmissionTranslation {
-  const requirementId = `req:gate:${obligation.gateId}:${key}`;
+  const { requirementId, phaseAttemptId, subject } = scope;
   const requirement = AdmissionRequirementV1Schema.parse({
     contractVersion: '1.0',
     requirementId,
@@ -767,10 +1164,10 @@ function translateGate(
     gateId: obligation.gateId,
   });
 
-  const evidence: AdmissionEvidenceV1[] = [];
-  if (presence === 'true' || presence === 'indeterminate') {
+  const derive = (): readonly AdmissionEvidenceV1[] => {
+    if (presence !== 'true' && presence !== 'indeterminate') return [];
     const verdict = presence === 'true' ? 'pass' : 'indeterminate';
-    evidence.push(
+    return [
       AdmissionEvidenceV1Schema.parse({
         contractVersion: '1.0',
         evidenceId: `ev:gate:${obligation.gateId}:${key}`,
@@ -790,27 +1187,35 @@ function translateGate(
         kind: 'gate',
         verdict,
       }),
-    );
-  }
+    ];
+  };
+
+  const { evidence, provenance } = evidenceForRequirement(
+    requirementId,
+    ledger,
+    derive,
+  );
 
   return {
     requirements: [requirement],
     evidence,
-    obligations: NO_WAIVER_OBLIGATIONS,
+    obligations: GATE_OBLIGATIONS,
     presence,
+    evidenceProvenance: provenance,
+    ...scopedLedger(requirementId, ledger),
   };
 }
 
 function translateApproval(
   obligation: Extract<EdgeObligation, { kind: 'approval' }>,
   key: string,
-  phaseAttemptId: string,
-  subject: EvidenceSubjectV1,
+  scope: EdgeAdmissionScope,
   fdigest: ContentDigestV1,
   presence: EdgeConditionOutcome,
   ctx: TranslationContext,
+  ledger: ResolvedAdmissionLedger,
 ): EdgeAdmissionTranslation {
-  const requirementId = `req:approval:${obligation.approvalClass}:${key}`;
+  const { requirementId, phaseAttemptId, subject } = scope;
   const requirement = AdmissionRequirementV1Schema.parse({
     contractVersion: '1.0',
     requirementId,
@@ -821,11 +1226,11 @@ function translateApproval(
     minimumApprovals: obligation.minimumApprovals,
   });
 
-  const evidence: AdmissionEvidenceV1[] = [];
   // An approval verdict is two-valued (approved/rejected); a non-`true` presence
   // mints no attributable approval and therefore fails closed (deny/missing).
-  if (presence === 'true') {
-    evidence.push(
+  const derive = (): readonly AdmissionEvidenceV1[] => {
+    if (presence !== 'true') return [];
+    return [
       AdmissionEvidenceV1Schema.parse({
         contractVersion: '1.0',
         evidenceId: `ev:approval:${obligation.approvalClass}:${key}`,
@@ -852,14 +1257,132 @@ function translateApproval(
           role: 'legacy-approval-projection',
         },
       }),
-    );
-  }
+    ];
+  };
+
+  const { evidence, provenance } = evidenceForRequirement(
+    requirementId,
+    ledger,
+    derive,
+  );
 
   return {
     requirements: [requirement],
     evidence,
-    obligations: NO_WAIVER_OBLIGATIONS,
+    obligations: APPROVAL_OBLIGATIONS,
     presence,
+    evidenceProvenance: provenance,
+    ...scopedLedger(requirementId, ledger),
+  };
+}
+
+// ─── DR-34: route selection over the FULL outbound candidate set ──────────────
+//
+// Route legality used to be decided by evaluating ONE edge's condition in
+// isolation (`evaluateEdgeCondition(edge.routeCondition, facts)`). That left two
+// deterministic rules of the P06-02 selector (`selectEdge`) INERT on the shipped
+// path, because the only caller that ever ran the selector was the RESERVED
+// `runTransitionCommand`:
+//
+//   * MULTI-MATCH — a source phase with two simultaneously-true outbound
+//     conditions was silently resolved to whichever edge the caller happened to
+//     ask about, so an ambiguous topology looked exactly like an unambiguous
+//     one; and
+//   * FAIL-CLOSED (DR-9) — an `indeterminate` HIGHER-priority candidate was
+//     never seen, so a lower-priority edge FELL THROUGH it and was admitted
+//     while the legality of the edge above it was still unknown.
+//
+// The candidate set is now the outbound edges of the SAME source phase, in
+// declaration (= priority) order, handed to `selectEdge`. Both rules are live.
+
+/** Options shared by the edge-adjudication entry points. */
+export interface EdgeAdjudicationOptions {
+  /**
+   * The edge set the outbound route candidates are drawn from. Defaults to
+   * {@link BUILT_IN_WORKFLOW_IR}. A caller adjudicating a workflow authored
+   * OUTSIDE the built-in IR must pass its topology: without it the edge is its
+   * own only candidate and BOTH selector rules above are vacuous for that
+   * workflow — the precise "built but unreached" shape DR-34 exists to close.
+   */
+  readonly topology?: readonly WorkflowEdgeIR[];
+}
+
+/**
+ * The ordered route candidates for `edge`'s source phase. `edge`'s OWN compiled
+ * route condition is substituted for its key, so an authored or overridden edge
+ * is decided by the condition the caller handed in rather than by a same-keyed
+ * copy in `topology`; an edge whose source phase has no entry in `topology` is
+ * its own only candidate.
+ */
+function outboundRouteCandidates(
+  edge: WorkflowEdgeIR,
+  topology: readonly WorkflowEdgeIR[],
+): readonly EdgeCandidate[] {
+  const key = edgeKey(edge.workflowType, edge.from, edge.to);
+  const self: EdgeCandidate = { edgeId: key, condition: edge.routeCondition };
+  const outbound = topology.filter(
+    (candidate) =>
+      candidate.workflowType === edge.workflowType && candidate.from === edge.from,
+  );
+  if (outbound.length === 0) return [self];
+
+  let sawSelf = false;
+  const candidates = outbound.map((candidate): EdgeCandidate => {
+    const candidateKey = edgeKey(
+      candidate.workflowType,
+      candidate.from,
+      candidate.to,
+    );
+    if (candidateKey !== key) {
+      return { edgeId: candidateKey, condition: candidate.routeCondition };
+    }
+    sawSelf = true;
+    return self;
+  });
+  return sawSelf ? candidates : [...candidates, self];
+}
+
+/** The route legality of ONE edge, as decided by selection over its siblings. */
+interface EdgeRouteSelection {
+  /** Route legality for the queried edge under the selection. */
+  readonly outcome: EdgeConditionOutcome;
+  /** True when the source phase has MORE THAN ONE simultaneously-true route. */
+  readonly multiMatch: boolean;
+  /** Every simultaneously-legal outbound edge, in priority order. */
+  readonly matchedEdgeIds: readonly string[];
+}
+
+/**
+ * Decide `edge`'s route legality by running the P06-02 selector over the full
+ * outbound candidate set:
+ *
+ *   - `blocked` (a higher-priority candidate is `indeterminate`) ⇒ the queried
+ *     edge is `indeterminate` too. Routing out of this phase is UNKNOWN, so no
+ *     edge may fall through the unknown one (DR-9, fail closed).
+ *   - `no-match` ⇒ `false` — nothing leaving this phase is legal.
+ *   - `selected` ⇒ `true` iff the queried edge is one of the matching
+ *     candidates. Note the selected edge is not necessarily the ONLY legal one:
+ *     route legality composes with the admission verdict downstream, so a
+ *     lower-priority true edge stays routable and the ambiguity is REPORTED via
+ *     `multiMatch` / `matchedEdgeIds` instead of being resolved away silently.
+ */
+function selectEdgeRoute(
+  edge: WorkflowEdgeIR,
+  facts: EdgeConditionFacts,
+  topology: readonly WorkflowEdgeIR[],
+): EdgeRouteSelection {
+  const key = edgeKey(edge.workflowType, edge.from, edge.to);
+  const selection = selectEdge(outboundRouteCandidates(edge, topology), facts);
+  if (selection.outcome === 'blocked') {
+    return { outcome: 'indeterminate', multiMatch: false, matchedEdgeIds: [] };
+  }
+  if (selection.outcome === 'no-match') {
+    return { outcome: 'false', multiMatch: false, matchedEdgeIds: [] };
+  }
+  return {
+    outcome: selection.matchedEdgeIds.includes(key) ? 'true' : 'false',
+    multiMatch: selection.multiMatch,
+    matchedEdgeIds: selection.matchedEdgeIds,
   };
 }
 
@@ -875,21 +1398,51 @@ export function evaluateEdgeAdmission(
   ctx: TranslationContext,
 ): PolicyEvaluation {
   const t = translateEdgeAdmission(edge, state, ctx);
+  return evaluateTranslation(t, ctx);
+}
+
+/**
+ * Fold ONE translated edge into a policy verdict. Extracted so every entry point
+ * threads the SAME four inputs — requirements, the recorded active evidence, the
+ * detected contradictions and the offered waivers — instead of the two the
+ * pre-DR-35 body passed, which silently discarded the contradiction and waiver
+ * arms of `evaluatePolicy`.
+ */
+function evaluateTranslation(
+  t: EdgeAdmissionTranslation,
+  ctx: TranslationContext,
+): PolicyEvaluation {
   return evaluatePolicy({
     requirements: t.requirements,
     obligations: t.obligations,
     activeEvidence: t.evidence,
+    contradictions: t.contradictions,
+    waivers: t.waivers,
     authority: ctx.authority,
     evaluatedAt: ctx.evaluatedAt,
     freshnessHorizonMs: ctx.freshnessHorizonMs,
   });
 }
 
+/** The full route ∧ admission decision for one edge, ambiguity included. */
+export interface EdgeAdjudication {
+  /** The composed route ∧ admission verdict. */
+  readonly verdict: PolicyVerdict;
+  /** Route legality for this edge under selection over its full sibling set. */
+  readonly route: EdgeConditionOutcome;
+  /** DR-34 — the source phase has more than one simultaneously-legal route. */
+  readonly multiMatch: boolean;
+  /** DR-34 — every simultaneously-legal outbound edge, in priority order. */
+  readonly matchedEdgeIds: readonly string[];
+}
+
 /**
  * The full new-model decision for taking `edge`: the composition of the P06-02
  * ROUTE legality with the P06-04 admission verdict. A `false` route denies the
- * edge (it is not structurally legal); a leading `indeterminate` route fails
- * closed to `indeterminate`; a legal route defers to the admission verdict.
+ * edge (it is not structurally legal); an `indeterminate` route — including one
+ * inherited from a BLOCKED selection, where a higher-priority sibling's legality
+ * is unknown — fails closed to `indeterminate`; a legal route defers to the
+ * admission verdict.
  *
  * This is the "admission side" the shadow runner compares against the legacy
  * transition outcome — comparing legacy-transition against admission-only would
@@ -899,8 +1452,28 @@ export function adjudicateEdge(
   edge: WorkflowEdgeIR,
   state: Record<string, unknown>,
   ctx: TranslationContext,
+  options: EdgeAdjudicationOptions = {},
 ): PolicyVerdict {
-  return adjudicateEdgeFromFacts(edge, projectStateToFacts(state), ctx);
+  return adjudicateEdgeDecision(edge, state, ctx, options).verdict;
+}
+
+/**
+ * {@link adjudicateEdge} with the route-selection detail retained: the same
+ * verdict, plus the DR-34 ambiguity report the bare verdict cannot carry.
+ */
+export function adjudicateEdgeDecision(
+  edge: WorkflowEdgeIR,
+  state: Record<string, unknown>,
+  ctx: TranslationContext,
+  options: EdgeAdjudicationOptions = {},
+): EdgeAdjudication {
+  return adjudicateEdgeDecisionFromFacts(
+    edge,
+    projectStateToFacts(state),
+    ctx,
+    options.topology ?? BUILT_IN_WORKFLOW_IR,
+    ledgerForState(state),
+  );
 }
 
 /**
@@ -910,23 +1483,26 @@ export function adjudicateEdge(
  * of once per edge — and so both entry points share ONE decision body rather
  * than two copies that could drift.
  */
-function adjudicateEdgeFromFacts(
+function adjudicateEdgeDecisionFromFacts(
   edge: WorkflowEdgeIR,
   facts: EdgeConditionFacts,
   ctx: TranslationContext,
-): PolicyVerdict {
-  const route = evaluateEdgeCondition(edge.routeCondition, facts);
-  if (route === 'false') return 'deny';
-  if (route === 'indeterminate') return 'indeterminate';
-  const t = translateEdgeAdmissionFromFacts(edge, facts, ctx);
-  return evaluatePolicy({
-    requirements: t.requirements,
-    obligations: t.obligations,
-    activeEvidence: t.evidence,
-    authority: ctx.authority,
-    evaluatedAt: ctx.evaluatedAt,
-    freshnessHorizonMs: ctx.freshnessHorizonMs,
-  }).verdict;
+  topology: readonly WorkflowEdgeIR[],
+  ledger: ResolvedAdmissionLedger,
+): EdgeAdjudication {
+  const route = selectEdgeRoute(edge, facts, topology);
+  const ambiguity = {
+    multiMatch: route.multiMatch,
+    matchedEdgeIds: route.matchedEdgeIds,
+  };
+  if (route.outcome === 'false') {
+    return { verdict: 'deny', route: 'false', ...ambiguity };
+  }
+  if (route.outcome === 'indeterminate') {
+    return { verdict: 'indeterminate', route: 'indeterminate', ...ambiguity };
+  }
+  const t = translateEdgeAdmissionFromFacts(edge, facts, ctx, ledger);
+  return { verdict: evaluateTranslation(t, ctx).verdict, route: 'true', ...ambiguity };
 }
 
 // ─── DR-9: outbound-edge adjudication for affordance publication ───────────────
@@ -1030,6 +1606,14 @@ export interface OutboundEdgeVerdict {
    * treated as a denial — the facts to deny it were simply not supplied.
    */
   readonly undecidable: boolean;
+  /**
+   * DR-34 — `true` when MORE THAN ONE outbound edge of this source phase is
+   * simultaneously route-legal, so the topology does not by itself determine
+   * where the workflow goes next. Always `false` for an `undecidable` edge: the
+   * event log the route conditions may read was not supplied, so no honest
+   * ambiguity claim can be made about that selection.
+   */
+  readonly multiMatch: boolean;
 }
 
 export interface OutboundAdmissionOptions {
@@ -1040,12 +1624,20 @@ export interface OutboundAdmissionOptions {
    * than a spurious `deny` (silently hide a legal move) on event-gated edges.
    */
   readonly eventLogAvailable?: boolean;
+  /**
+   * The topology the outbound edges and their route candidates are drawn from.
+   * Defaults to {@link BUILT_IN_WORKFLOW_IR}.
+   */
+  readonly topology?: readonly WorkflowEdgeIR[];
 }
 
 /**
  * Adjudicate every shared-IR edge leaving `from` for `workflowType`, keyed by
  * target phase. The state is projected ONCE and each edge decided against that
- * projection through the same {@link adjudicateEdge} body.
+ * projection through the same {@link adjudicateEdge} body — which now selects
+ * over the FULL outbound candidate set (DR-34), so an ambiguous or
+ * indeterminate-blocked topology is reported here rather than silently
+ * resolved per edge.
  *
  * Returns an EMPTY map for a workflow type with no shared IR (a custom type
  * registered via `registerWorkflowType`) — absence of an IR edge means "no
@@ -1059,26 +1651,36 @@ export function adjudicateOutboundEdges(
   options: OutboundAdmissionOptions = {},
 ): ReadonlyMap<string, OutboundEdgeVerdict> {
   const eventLogAvailable = options.eventLogAvailable ?? false;
+  const topology = options.topology ?? BUILT_IN_WORKFLOW_IR;
   const verdicts = new Map<string, OutboundEdgeVerdict>();
-  const outbound = BUILT_IN_WORKFLOW_IR.filter(
+  const outbound = topology.filter(
     (edge) => edge.workflowType === workflowType && edge.from === from,
   );
   if (outbound.length === 0) return verdicts;
 
   const facts = projectStateToFacts(state);
+  // DR-35 — the recorded admission ledger is projected + selected ONCE for the
+  // whole outbound set, exactly like `facts`. An affordance caller whose payload
+  // no longer carries `_events` yields the empty ledger, so every requirement
+  // falls back to its derived attestation — the same fail-SAFE direction the
+  // `undecidable` arm below takes for event-gated route conditions.
+  const ledger = ledgerForState(state);
   for (const edge of outbound) {
     if (!eventLogAvailable && edgeDependsOnEventLog(edge)) {
       verdicts.set(edge.to, {
         to: edge.to,
         verdict: 'indeterminate',
         undecidable: true,
+        multiMatch: false,
       });
       continue;
     }
+    const decision = adjudicateEdgeDecisionFromFacts(edge, facts, ctx, topology, ledger);
     verdicts.set(edge.to, {
       to: edge.to,
-      verdict: adjudicateEdgeFromFacts(edge, facts, ctx),
+      verdict: decision.verdict,
       undecidable: false,
+      multiMatch: decision.multiMatch,
     });
   }
   return verdicts;

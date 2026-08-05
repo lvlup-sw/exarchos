@@ -511,7 +511,14 @@ function projectDecisionRecord(args: {
     requirementSetDigest: args.requirementSetDigest,
     inputDigest: args.inputDigest,
     evidenceIds: [...args.evidenceIds],
-    waiverIds: [] as string[],
+    // DR-35: the waivers the REAL evaluation applied, not a hardcoded `[]`. The
+    // waiver branch of `evaluatePolicy` is reachable now (a gate obligation is
+    // waivable), so an empty literal here would make the durable record claim
+    // "no waiver" while `waivedRequirementIds` below names waived requirements —
+    // an internal contradiction in the audit trail.
+    waiverIds: [...new Set(
+      (args.evaluation?.appliedWaiverIds ?? []).map((id) => String(id)),
+    )].sort(),
     decidedAt: args.decidedAt,
   };
   const satisfiedRequirementIds = evaluations
