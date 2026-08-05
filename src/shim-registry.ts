@@ -9,22 +9,65 @@
  * mechanism. When the runtime gains the capability (or the adapter is adopted /
  * retired), the shim must go away — it is not a permanent surface.
  *
+ * ## Discovery is STRUCTURAL, not opt-in (DR-14)
+ *
+ * The original discovery scanned for a hand-written `SHIM(...)` marker comment
+ * and nothing else. That mechanism can only see adapters whose author
+ * volunteered to declare one — the governed count and the REAL count were
+ * decoupled by construction. Concretely: the whole inventory was two rows for
+ * one self-declared, reserved-but-unadopted stub
+ * (`runtime/command-shim-emitter.ts`), while FIVE per-harness renderers
+ * (`agents/adapters/{claude,codex,copilot,cursor,opencode}.ts`) shipped
+ * ungoverned — not because they were exempt, but because none of them carries a
+ * marker. A detector that cannot see the surface it claims to govern is the
+ * DR-12/13/15 failure class.
+ *
+ * {@link discoverRenderers} replaces that with EVIDENCE-BASED discovery that
+ * hunts the artefact itself. A PER-HARNESS RENDERER is identified by its SHAPE,
+ * not by its name, its directory, or a comment:
+ *
+ *   1. it IMPORTS the `RuntimeAdapter` port type (alias-aware — renaming the
+ *      binding on import is still an import of the port); AND
+ *   2. it EXPORTS a declaration in an IMPLEMENTING POSITION for that port —
+ *      `export const X: <Port> = …` / `… & …`, `export class X implements
+ *      <Port>`, or `export … = { … } satisfies <Port>`; AND
+ *   3. it declares the RENDER member `lowerSpec` — the function that lowers a
+ *      canonical `AgentSpec` into runtime-specific file contents.
+ *
+ * All three must hold. That conjunction is what keeps the scan false-positive
+ * free on the live tree: the port module `adapters/types.ts` DECLARES
+ * `RuntimeAdapter` but never imports it (fails 1); the fan-out consumer
+ * `agents/generate-agents.ts` imports the port and calls `lowerSpec` but only
+ * ever mentions it inside a generic (`Record<Runtime, RuntimeAdapter>`), never
+ * in an implementing position (fails 2). Renaming a renderer, moving it, or
+ * omitting its marker cannot hide it.
+ *
+ * The `SHIM(...)` marker survives — SUPPLEMENTARY and human-facing:
+ * a stray marker with no registry row still FAILS, but a governed row is now
+ * backed by a marker OR by a structurally discovered renderer — so omitting the
+ * marker can no longer defeat the mechanism.
+ *
  * ## The ratchet
  *
- * Shims RATCHET DOWN, never silently up. Every shim must be:
- *   1. ENUMERATED in {@link SHIM_REGISTRY} with a capability REASON — the
- *      missing-capability id plus a well-formed approval issue ref and a
- *      non-empty owner — and an EXPIRY (`YYYY-MM-DD`).
- *   2. Self-declared in-source with a `SHIM(...)` marker comment so the tree
- *      can be scanned independently of the registry.
+ * Shims and renderers RATCHET DOWN, never silently up. Every one must be
+ * ENUMERATED in {@link SHIM_REGISTRY} with a capability REASON — an APPROVED
+ * missing-capability id (closed world: see {@link APPROVED_CAPABILITY_REASONS})
+ * plus a well-formed approval issue ref and a non-empty owner — and an EXPIRY
+ * (`YYYY-MM-DD`).
  *
- * {@link verifyShimRatchet} cross-checks the two:
+ * {@link verifyShimRatchet} cross-checks registry against tree:
+ *   - a discovered RENDERER with no matching registry entry FAILS (the DR-14
+ *     headline: a per-harness renderer added without an approved capability
+ *     reason and an expiry cannot pass);
  *   - a discovered marker with no matching registry entry FAILS (a shim was
  *     added without an approved capability reason + expiry — the count grew);
+ *   - a registry entry missing ANY governance field — id, file, runtime,
+ *     capability reason, issue, owner, expiry — FAILS;
  *   - a registry entry whose `expires` is in the past FAILS (deletion is due at
  *     expiry — the same enforcement philosophy as the `RESERVED(...)`
  *     module-intent gate in `scripts/check-module-intent.mjs`);
- *   - a registry entry with no marker on disk FAILS (a stale/dangling entry).
+ *   - a registry entry with neither a marker NOR a renderer on disk FAILS (a
+ *     stale/dangling entry — the cover outlived the thing it covered).
  *
  * The marker declares only *existence + coverage* (which runtimes, which
  * capability); the governance metadata (issue / owner / expiry) lives ONLY in
@@ -40,9 +83,10 @@
  * `+`-joined list). The trailing ` — note` after the close paren is not parsed.
  *
  * This module is pure over its inputs — {@link verifyShimRatchet} takes the
- * registry, the discovered set, and `now` explicitly — so the ratchet rules are
- * unit-testable without a filesystem. {@link discoverShims} is the thin,
- * injectable I/O adapter that produces the discovered set from the real tree.
+ * registry, the discovered sets, and `now` explicitly — so the ratchet rules are
+ * unit-testable without a filesystem. {@link discoverShims} and
+ * {@link discoverRenderers} are the thin, injectable I/O adapters that produce
+ * the discovered sets from the real tree.
  */
 
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
@@ -80,6 +124,28 @@ export interface DiscoveredShim {
   readonly raw: string;
 }
 
+/**
+ * A per-harness renderer discovered STRUCTURALLY — no marker required, and no
+ * marker able to suppress it. See {@link detectRenderer} for the shape rule.
+ */
+export interface DiscoveredRenderer {
+  /** POSIX repo-relative path to the renderer module. */
+  readonly file: string;
+  /**
+   * The runtime id the renderer declares (`runtime: 'cursor'` /
+   * `readonly runtime = 'copilot'`). Empty when the module declares
+   * none, or declares more than one — either way the ratchet fails loudly
+   * rather than guessing.
+   */
+  readonly runtime: string;
+  /** Local name the port type is bound to in this file (alias-aware). */
+  readonly port: string;
+  /** Name of the exported declaration that implements the port. */
+  readonly exportName: string;
+  /** The matched declaration text, for diagnostics. */
+  readonly evidence: string;
+}
+
 /** A single ratchet failure. */
 export interface ShimViolation {
   readonly kind:
@@ -88,6 +154,7 @@ export interface ShimViolation {
     | 'malformed'
     | 'missing-on-disk'
     | 'capability-mismatch'
+    | 'undeclared-runtime'
     | 'duplicate-id';
   readonly id?: string;
   readonly file?: string;
@@ -104,21 +171,62 @@ export interface ShimRatchetResult {
 // ─── The enumerated inventory ────────────────────────────────────────────────
 
 /**
- * The single authored list of approved capability-required thin shims.
+ * The CLOSED WORLD of approved capability reasons (DR-14, mirroring the DR-13
+ * allowlist inversion in `architecture/effect-ledger.ts`).
  *
- * Adding a shim to the tree WITHOUT a matching entry here fails
- * {@link verifyShimRatchet}. Each entry pins the missing capability that
- * justifies the adapter, an approval issue, an owner, and an expiry by which
- * the shim must be adopted, replaced by native support, or deleted.
+ * A registry row's `capability` names the missing runtime capability that
+ * justifies the adapter existing at all. Free text would make the field
+ * decoration: any string, including `''`, would "have a reason". Instead the
+ * field is validated against this explicit, justified list, so a row invented
+ * with an unapproved (or empty) reason FAILS rather than passing silently.
+ * Adding a reason here is a deliberate, reviewable act.
  *
- * Current inventory — the command-discovery shim (`command-shim-emitter.ts`)
- * lowers the canonical slash-command verbs into the instruction-file mechanism
- * of two runtimes that cannot autoload native `commands/*.md`:
- *   - Cursor  — `hasSlashCommands:false`; emits `.cursor/rules/exarchos-commands.md`.
- *   - Copilot — routes commands through `.github/copilot-instructions.md`.
- * Both share the file and the `#1590` reservation/expiry (the module is a
- * reserved-but-unadopted stub; the shim ratchet tracks it so it is deleted at
- * expiry if it stays unadopted — mirroring its `RESERVED(...)` marker).
+ *   - `slash-command-native`     — the runtime cannot autoload canonical
+ *     `commands/*.md`, so the verbs must be lowered into its instruction-file
+ *     mechanism.
+ *   - `agent-definition-native`  — the runtime has no native reader for the
+ *     canonical `AgentSpec`, so a per-harness renderer must lower it into that
+ *     runtime's proprietary agent-definition format (frontmatter shape, file
+ *     path, tool vocabulary). If a runtime ever consumes `AgentSpec` directly,
+ *     its renderer is deleted.
+ */
+export const APPROVED_CAPABILITY_REASONS: readonly string[] = [
+  'slash-command-native',
+  'agent-definition-native',
+];
+
+/**
+ * The single authored list of approved capability-required thin shims and
+ * per-harness renderers.
+ *
+ * Adding a shim marker OR a structurally discovered renderer to the tree
+ * WITHOUT a matching entry here fails {@link verifyShimRatchet}. Each entry
+ * pins the missing capability that justifies the adapter, an approval issue, an
+ * owner, and an expiry by which it must be adopted, replaced by native support,
+ * or deleted.
+ *
+ * ### Inventory notes (DR-14)
+ *
+ * Before DR-14 this inventory was TWO rows — both for the command-discovery
+ * shim, a reserved-but-unadopted stub — because discovery required a
+ * hand-written marker and only that one module carried one. The list below is
+ * reconciled against {@link discoverRenderers}, which finds renderers by shape:
+ *
+ *   - `command-shim-emitter.ts` (2 rows) — lowers the canonical slash-command
+ *     verbs into the instruction-file mechanism of two runtimes that cannot
+ *     autoload native `commands/*.md`:
+ *       * Cursor  — `hasSlashCommands:false`; emits `.cursor/rules/exarchos-commands.md`.
+ *       * Copilot — routes commands through `.github/copilot-instructions.md`.
+ *     Both share the file and the `#1590` reservation/expiry (the module is a
+ *     reserved-but-unadopted stub; the shim ratchet tracks it so it is deleted
+ *     at expiry if it stays unadopted — mirroring its `RESERVED(...)` marker).
+ *
+ *   - `agents/adapters/{claude,codex,opencode,cursor,copilot}.ts` (5 rows) —
+ *     the per-harness renderers, NEWLY REGISTERED (DR-14). Each lowers a
+ *     canonical `AgentSpec` into one runtime's proprietary agent-definition
+ *     file. None carries a `SHIM(...)` marker, which is exactly why the
+ *     marker-driven scan could not see any of them; they are discovered by the
+ *     port-implementation shape instead.
  */
 export const SHIM_REGISTRY: readonly ShimEntry[] = [
   {
@@ -139,6 +247,51 @@ export const SHIM_REGISTRY: readonly ShimEntry[] = [
     owner: 'exarchos',
     expires: '2027-01-31',
   },
+  {
+    id: 'claude-agent-renderer',
+    file: 'servers/exarchos-mcp/src/agents/adapters/claude.ts',
+    runtime: 'claude',
+    capability: 'agent-definition-native',
+    issue: '#1590',
+    owner: 'exarchos',
+    expires: '2027-06-30',
+  },
+  {
+    id: 'codex-agent-renderer',
+    file: 'servers/exarchos-mcp/src/agents/adapters/codex.ts',
+    runtime: 'codex',
+    capability: 'agent-definition-native',
+    issue: '#1590',
+    owner: 'exarchos',
+    expires: '2027-06-30',
+  },
+  {
+    id: 'copilot-agent-renderer',
+    file: 'servers/exarchos-mcp/src/agents/adapters/copilot.ts',
+    runtime: 'copilot',
+    capability: 'agent-definition-native',
+    issue: '#1590',
+    owner: 'exarchos',
+    expires: '2027-06-30',
+  },
+  {
+    id: 'cursor-agent-renderer',
+    file: 'servers/exarchos-mcp/src/agents/adapters/cursor.ts',
+    runtime: 'cursor',
+    capability: 'agent-definition-native',
+    issue: '#1590',
+    owner: 'exarchos',
+    expires: '2027-06-30',
+  },
+  {
+    id: 'opencode-agent-renderer',
+    file: 'servers/exarchos-mcp/src/agents/adapters/opencode.ts',
+    runtime: 'opencode',
+    capability: 'agent-definition-native',
+    issue: '#1590',
+    owner: 'exarchos',
+    expires: '2027-06-30',
+  },
 ];
 
 /**
@@ -153,6 +306,17 @@ export const SHIM_SCAN_ROOTS: readonly string[] = [
   'servers/exarchos-mcp/src/runtime',
   'servers/exarchos-mcp/src/agents/adapters',
 ];
+
+/**
+ * Source roots scanned by {@link discoverRenderers}. DELIBERATELY BROADER than
+ * {@link SHIM_SCAN_ROOTS}: the marker scan can afford a narrow, per-directory
+ * allowlist because a marker is a declaration you go out of your way to write,
+ * but a per-harness renderer is discovered against the author's convenience.
+ * Bounding renderer discovery to `agents/adapters/**` would re-introduce the
+ * very hole DR-14 closes — a renderer one directory over would be invisible.
+ * The whole product source tree is scanned instead.
+ */
+export const RENDERER_SCAN_ROOTS: readonly string[] = ['src', 'servers/exarchos-mcp/src'];
 
 /** This module's own repo-relative path — excluded from its own marker scan. */
 const SELF_PATH = 'src/shim-registry.ts';
@@ -306,6 +470,153 @@ export function discoverShims(opts: DiscoverShimsOptions): DiscoveredShim[] {
   return found;
 }
 
+// ─── Structural renderer discovery (DR-14) ───────────────────────────────────
+
+/**
+ * The port type a per-harness renderer implements (`agents/adapters/types.ts`).
+ * This is the SUBJECT of the shape rule, not a filename or directory list.
+ */
+export const RENDERER_PORT_TYPE = 'RuntimeAdapter';
+
+/**
+ * The RENDER member every per-harness renderer must declare — the function that
+ * lowers a canonical `AgentSpec` into runtime-specific file contents. Requiring
+ * it is what separates a renderer from a module that merely *holds* the port
+ * type in a generic.
+ */
+export const RENDERER_RENDER_MEMBER = 'lowerSpec';
+
+/** `import [type] { … } from '…'` — the named-binding block plus specifier. */
+const IMPORT_BLOCK_RE = /import\s+(?:type\s+)?\{([^}]*)\}\s*from\s*['"][^'"]+['"]/g;
+
+/** A single named import binding, optionally `type`-qualified and/or aliased. */
+const IMPORT_BINDING_RE = /^\s*(?:type\s+)?([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?\s*$/;
+
+/** `runtime: 'cursor'` / `readonly runtime = 'copilot'` (const-asserted). */
+const RUNTIME_ID_RE = /\bruntime\s*[:=]\s*['"]([A-Za-z0-9][\w.-]*)['"]/g;
+
+/** The render member in a DECLARING position (method, property, or shorthand). */
+const RENDER_MEMBER_RE = new RegExp(`\\b${RENDERER_RENDER_MEMBER}\\b\\s*[(,:}]`);
+
+/**
+ * Every local name the port type is bound to in this file. Alias-aware, so an
+ * aliased import of the port binding does not evade the shape rule. Returns
+ * `[]` when the file does not import the port at all — which is how the port
+ * module itself (`adapters/types.ts`, which DECLARES the interface) is kept out
+ * of the result set.
+ */
+function portLocalNames(source: string): string[] {
+  const names = new Set<string>();
+  for (const m of source.matchAll(IMPORT_BLOCK_RE)) {
+    for (const spec of (m[1] ?? '').split(',')) {
+      const binding = IMPORT_BINDING_RE.exec(spec);
+      if (!binding || binding[1] !== RENDERER_PORT_TYPE) continue;
+      names.add(binding[2] ?? binding[1]);
+    }
+  }
+  return [...names];
+}
+
+/** An exported declaration in an implementing position for `port`. */
+function implementingExport(
+  source: string,
+  port: string,
+): { exportName: string; evidence: string } | null {
+  // `export const X: Port = …` / `export const X: Port & { … } = …`
+  const asConst = new RegExp(
+    `export\\s+(?:const|let|var)\\s+([A-Za-z_$][\\w$]*)\\s*:\\s*${port}\\s*(?:&|=)`,
+  ).exec(source);
+  if (asConst) return { exportName: asConst[1] ?? '', evidence: asConst[0].trim() };
+
+  // `export [default] [abstract] class X … implements … Port`
+  const asClass = new RegExp(
+    `export\\s+(?:default\\s+)?(?:abstract\\s+)?class\\s+([A-Za-z_$][\\w$]*)[^{]*?\\bimplements\\b[^{]*?\\b${port}\\b`,
+  ).exec(source);
+  if (asClass) return { exportName: asClass[1] ?? '', evidence: asClass[0].trim() };
+
+  // `export const X = { … } satisfies Port` — no type annotation, but still an
+  // implementing position, so it must not be an escape hatch.
+  const asSatisfies = new RegExp(`\\bsatisfies\\s+${port}\\b`).exec(source);
+  if (asSatisfies) {
+    // Nearest PRECEDING export declaration, for a useful diagnostic name.
+    const before = [
+      ...source.slice(0, asSatisfies.index).matchAll(/export\s+(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/g),
+    ];
+    return {
+      exportName: before.at(-1)?.[1] ?? '(satisfies-expression)',
+      evidence: asSatisfies[0].trim(),
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Decide whether `source` IS a per-harness renderer, purely from its shape.
+ * Pure — no I/O. Returns `null` for anything that is not one.
+ *
+ * The rule is a CONJUNCTION of three independent structural facts (see the
+ * module header): the port is imported, an export sits in an implementing
+ * position for it, and the render member is declared. Any one of them alone is
+ * common enough to be a false positive; together they are satisfied on the live
+ * tree by exactly the five shipped renderers.
+ *
+ * The declared runtime id is extracted from the module's own
+ * `runtime: '<id>'` / `runtime = '<id>'` member. If the module declares no id,
+ * or declares several, `runtime` is `''` — the ratchet then reports
+ * `undeclared-runtime` rather than guessing a binding that governance would be
+ * keyed on.
+ */
+export function detectRenderer(source: string, file: string): DiscoveredRenderer | null {
+  if (!RENDER_MEMBER_RE.test(source)) return null;
+  for (const port of portLocalNames(source)) {
+    const impl = implementingExport(source, port);
+    if (!impl) continue;
+    const ids = new Set<string>();
+    for (const m of source.matchAll(RUNTIME_ID_RE)) if (m[1] !== undefined) ids.add(m[1]);
+    const runtime = ids.size === 1 ? ([...ids][0] ?? '') : '';
+    return { file, runtime, port, exportName: impl.exportName, evidence: impl.evidence };
+  }
+  return null;
+}
+
+/** Options for {@link discoverRenderers}. */
+export interface DiscoverRenderersOptions {
+  /** Absolute repo root. */
+  readonly repoRoot: string;
+  /** Repo-relative directories to scan. Defaults to {@link RENDERER_SCAN_ROOTS}. */
+  readonly roots?: readonly string[];
+  /** Override the filesystem surface (tests). */
+  readonly fs?: ShimDiscoveryFs;
+}
+
+/**
+ * Walk the configured roots and return every per-harness renderer found in
+ * production source, keyed by POSIX repo-relative path. Marker-INDEPENDENT: a
+ * renderer is reported whether or not anyone wrote a `SHIM(...)` marker in it,
+ * and a marker cannot conjure one. Results are de-duplicated (roots may nest)
+ * and sorted by path so output is stable.
+ */
+export function discoverRenderers(opts: DiscoverRenderersOptions): DiscoveredRenderer[] {
+  const fs = opts.fs ?? DEFAULT_FS;
+  const roots = opts.roots ?? RENDERER_SCAN_ROOTS;
+  const found = new Map<string, DiscoveredRenderer>();
+  for (const root of roots) {
+    const absRoot = join(opts.repoRoot, root);
+    for (const abs of fs.listTsFiles(absRoot)) {
+      const rel = toPosix(relative(opts.repoRoot, abs));
+      if (rel === SELF_PATH || found.has(rel)) continue;
+      const source = fs.readFile(abs);
+      // Cheap prefilter: the port name must appear at all. Keeps the scan from
+      // running three regexes over every file in the tree.
+      if (!source.includes(RENDERER_PORT_TYPE)) continue;
+      const renderer = detectRenderer(source, rel);
+      if (renderer) found.set(rel, renderer);
+    }
+  }
+  return [...found.values()].sort((a, b) => a.file.localeCompare(b.file));
+}
+
 // ─── Governance validation ───────────────────────────────────────────────────
 
 /** UTC midnight of a date, for a whole-day expiry comparison. */
@@ -320,15 +631,52 @@ interface GovernanceProblem {
 
 /**
  * Validate a registry entry's governance fields against `now`. Returns the list
- * of problems (empty ⇒ valid): a well-formed issue ref (`#<number>`), a
- * non-empty owner, and a CLEAN `YYYY-MM-DD` expiry that is a real calendar date
- * and not in the past.
+ * of problems (empty ⇒ valid).
+ *
+ * Every field a row is *supposed* to carry is checked HERE, not by convention:
+ * a non-empty id / file / runtime, an APPROVED capability reason (closed world
+ * — see {@link APPROVED_CAPABILITY_REASONS}), a well-formed issue ref
+ * (`#<number>`), a non-empty owner, and a CLEAN `YYYY-MM-DD` expiry that is a
+ * real calendar date and not in the past. The `ShimEntry` interface makes the
+ * fields required at COMPILE time; these checks make them required at RUN time
+ * too, so a row smuggled in through a cast or from JSON cannot ship blank.
  */
 export function validateEntryGovernance(
   entry: ShimEntry,
   now: Date,
 ): GovernanceProblem[] {
   const problems: GovernanceProblem[] = [];
+
+  if (!/\S/.test(entry.id)) {
+    problems.push({ kind: 'malformed', detail: 'id is required and must be non-empty' });
+  }
+
+  if (!/\S/.test(entry.file)) {
+    problems.push({ kind: 'malformed', detail: 'file is required and must be non-empty' });
+  }
+
+  if (!/\S/.test(entry.runtime)) {
+    problems.push({ kind: 'malformed', detail: 'runtime is required and must be non-empty' });
+  }
+
+  // The capability REASON. A blank or unrecognised reason is not a reason; the
+  // closed world is what stops the field decaying into free-text decoration.
+  if (!/\S/.test(entry.capability)) {
+    problems.push({
+      kind: 'malformed',
+      detail:
+        'capability reason is required — name the missing runtime capability ' +
+        `that justifies this adapter (one of: ${APPROVED_CAPABILITY_REASONS.join(', ')})`,
+    });
+  } else if (!APPROVED_CAPABILITY_REASONS.includes(entry.capability)) {
+    problems.push({
+      kind: 'malformed',
+      detail:
+        `capability reason ${JSON.stringify(entry.capability)} is not approved — ` +
+        `add it to APPROVED_CAPABILITY_REASONS with a justification, or use one ` +
+        `of: ${APPROVED_CAPABILITY_REASONS.join(', ')}`,
+    });
+  }
 
   if (!/^#\d+$/.test(entry.issue)) {
     problems.push({
@@ -375,24 +723,36 @@ const pairKey = (file: string, runtime: string): string => `${file}${PAIR_SEP}${
 export interface ShimRatchetInputs {
   readonly registry: readonly ShimEntry[];
   readonly discovered: readonly DiscoveredShim[];
+  /**
+   * Per-harness renderers discovered structurally (DR-14). Optional so the pure
+   * ratchet rules stay callable with a hand-built marker set — and omitting it
+   * cannot pass silently: a registry row backed only by a renderer then has
+   * NEITHER a marker nor a renderer on disk and fails `missing-on-disk`.
+   */
+  readonly renderers?: readonly DiscoveredRenderer[];
   readonly now: Date;
 }
 
 /**
- * The ratchet. Compares the enumerated registry against the shims discovered on
- * disk and validates each registry entry's governance. Never short-circuits —
- * a caller sees every violation in one pass.
+ * The ratchet. Compares the enumerated registry against the shims AND
+ * per-harness renderers discovered on disk, and validates each registry entry's
+ * governance. Never short-circuits — a caller sees every violation in one pass.
  *
  * Violation classes:
  *   - `duplicate-id`        — two registry entries share an id.
  *   - `malformed`/`expired` — a registry entry's governance is invalid / past.
- *   - `unregistered`        — a discovered (file, runtime) shim has no entry
- *                             (the count grew without an approved reason+expiry).
+ *   - `unregistered`        — a discovered renderer or (file, runtime) marker
+ *                             has no entry (the count grew without an approved
+ *                             capability reason + expiry).
+ *   - `undeclared-runtime`  — a discovered renderer declares no single runtime
+ *                             id, so governance cannot be keyed to it.
  *   - `capability-mismatch` — the marker's capability disagrees with the entry.
- *   - `missing-on-disk`     — a registry entry has no marker on disk (stale).
+ *   - `missing-on-disk`     — a registry entry has neither a marker nor a
+ *                             renderer on disk (stale cover).
  */
 export function verifyShimRatchet(inputs: ShimRatchetInputs): ShimRatchetResult {
   const { registry, discovered, now } = inputs;
+  const renderers = inputs.renderers ?? [];
   const violations: ShimViolation[] = [];
 
   // 0. Registry ids must be unique — a duplicate id makes remediation ambiguous.
@@ -424,8 +784,42 @@ export function verifyShimRatchet(inputs: ShimRatchetInputs): ShimRatchetResult 
   const regByPair = new Map<string, ShimEntry>();
   for (const e of registry) regByPair.set(pairKey(e.file, e.runtime), e);
 
-  // 2. Every discovered (file, runtime) pair must be registered, with a
-  //    matching capability. An unregistered pair is the "count grew" failure.
+  // 2. Every discovered RENDERER must be registered. This is the DR-14
+  //    headline and it does NOT depend on anyone remembering to write a
+  //    `SHIM(...)` marker: a per-harness renderer added anywhere under the
+  //    scanned roots without an approved capability reason and an expiry fails
+  //    here, on the strength of its own shape.
+  const rendererKeys = new Set<string>();
+  for (const r of renderers) {
+    if (r.runtime === '') {
+      violations.push({
+        kind: 'undeclared-runtime',
+        file: r.file,
+        detail:
+          `per-harness renderer ${r.file} (export '${r.exportName}') declares no single ` +
+          `runtime id — governance is keyed on (file, runtime), so add exactly one ` +
+          `\`runtime: '<id>'\` member`,
+      });
+      continue;
+    }
+    const key = pairKey(r.file, r.runtime);
+    rendererKeys.add(key);
+    if (regByPair.has(key)) continue;
+    violations.push({
+      kind: 'unregistered',
+      file: r.file,
+      runtime: r.runtime,
+      detail:
+        `per-harness renderer ${r.file} (runtime ${r.runtime}, export ` +
+        `'${r.exportName}' — ${r.evidence}) is not registered — add a ` +
+        `SHIM_REGISTRY entry with an approved capability reason (issue + owner) ` +
+        `and a future expiry, or delete the renderer`,
+    });
+  }
+
+  // 3. Every discovered (file, runtime) MARKER pair must be registered, with a
+  //    matching capability. The marker is supplementary after DR-14, but a
+  //    stray one still fails: it documents a shim nobody governs.
   const discoveredKeys = new Set<string>();
   for (const d of discovered) {
     for (const runtime of d.runtimes) {
@@ -456,19 +850,23 @@ export function verifyShimRatchet(inputs: ShimRatchetInputs): ShimRatchetResult 
     }
   }
 
-  // 3. Every registry entry must be backed by a marker on disk.
+  // 4. Every registry entry must be backed on disk by a marker OR a renderer.
+  //    Marker-OR-renderer is the T-21 demotion: a governed row no longer
+  //    *requires* a comment, so omitting one cannot defeat the mechanism —
+  //    but a row covering nothing at all is still a stale cover and fails.
   for (const e of registry) {
-    if (!discoveredKeys.has(pairKey(e.file, e.runtime))) {
-      violations.push({
-        kind: 'missing-on-disk',
-        id: e.id,
-        file: e.file,
-        runtime: e.runtime,
-        detail:
-          `registered shim '${e.id}' (${e.file}, runtime ${e.runtime}) has no ` +
-          `SHIM marker on disk — remove the stale registry entry or restore the marker`,
-      });
-    }
+    const key = pairKey(e.file, e.runtime);
+    if (discoveredKeys.has(key) || rendererKeys.has(key)) continue;
+    violations.push({
+      kind: 'missing-on-disk',
+      id: e.id,
+      file: e.file,
+      runtime: e.runtime,
+      detail:
+        `registered shim '${e.id}' (${e.file}, runtime ${e.runtime}) has neither a ` +
+        `SHIM marker nor a per-harness renderer on disk — remove the stale registry ` +
+        `entry or restore the artefact`,
+    });
   }
 
   return { ok: violations.length === 0, violations };
