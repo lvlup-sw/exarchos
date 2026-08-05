@@ -26,6 +26,7 @@
 
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 // The async default deliberately comes from `node:fs/promises` — the same module
 // every async caller here imports — rather than `node:fs`'s `fs.promises`. They
 // hit the same syscall but are DIFFERENT module references, and reaching around
@@ -35,7 +36,12 @@ import * as fs from 'node:fs';
 // default bypassed its crash-injection mock, and a test that asserts a failed
 // rename leaves the previous snapshot intact published the "crashed" payload
 // instead.
-import { rename as fsPromisesRename, unlink as fsPromisesUnlink } from 'node:fs/promises';
+import {
+  open as fsPromisesOpen,
+  rename as fsPromisesRename,
+  unlink as fsPromisesUnlink,
+  type FileHandle,
+} from 'node:fs/promises';
 
 /**
  * Attempts to publish a temp file over its target before giving up, and the
@@ -58,6 +64,173 @@ function isWindowsRenameRace(err: unknown): boolean {
 function publishBackoffMs(attempt: number): number {
   return 1 + Math.random() * Math.min(2 ** attempt, PUBLISH_BACKOFF_CAP_MS);
 }
+
+// ─── Directory durability (DR-16) ────────────────────────────────────────────
+
+/**
+ * THIS IS THE ONLY PLACE THAT EXPLAINS DIRECTORY DURABILITY. Everything below —
+ * and `install/atomic-promotion.ts`'s `renameDurable` — points here.
+ *
+ * `rename(2)` is atomic with respect to OBSERVERS: a concurrent reader sees the
+ * old name or the new name, never a half-moved path. That is the guarantee every
+ * docstring above this line is about, and it is NOT the same guarantee as
+ * durability. The new name lives in the *containing directory's* metadata, and
+ * nothing forces that metadata to stable storage. So a rename can be observed to
+ * succeed, the process can be told it succeeded, and a power loss can still lose
+ * it. fsync'ing the FILE (which {@link atomicWriteFile} already does) publishes
+ * the BYTES; only fsync'ing the DIRECTORY publishes the NAME.
+ *
+ * The distinction only becomes load-bearing when two renames are supposed to be
+ * ORDERED. A journal written before a backup rename constrains recovery only if
+ * the journal's directory entry reaches stable storage FIRST; without a
+ * directory fsync between them the two entries may land in either order, or
+ * neither. "Journal, then backup" then describes the source text rather than the
+ * disk — an ordering that is accidental rather than constructed, which is
+ * exactly the defect DR-16 exists to remove.
+ */
+
+/** What a parent-directory fsync attempt actually achieved. */
+export type DirectorySyncStatus =
+  /** The directory's own metadata reached stable storage. */
+  | 'synced'
+  /**
+   * The host declined a directory fsync outright. NOT "it failed" — see
+   * {@link DIRECTORY_SYNC_UNSUPPORTED_CODES}. The publish is still atomic; only
+   * the durability of the directory entry is unproven.
+   */
+  | 'unsupported';
+
+/**
+ * The typed, inspectable result of a directory fsync. Returned (never
+ * swallowed) so a degraded platform is VISIBLE to the caller and to tests
+ * instead of hiding behind a bare `catch {}`.
+ */
+export interface DirectorySyncOutcome {
+  readonly directory: string;
+  readonly status: DirectorySyncStatus;
+  /** errno explaining an `unsupported` result. */
+  readonly code?: string;
+}
+
+/**
+ * The exact errno set that means "this host cannot fsync a directory handle",
+ * as opposed to "the fsync failed and the caller must know".
+ *
+ * fsync on a directory fd is a POSIX idiom with no Windows equivalent. On win32
+ * `fs.openSync(dir, 'r')` SUCCEEDS and the subsequent `fs.fsyncSync(fd)` fails
+ * `EPERM` (measured on Node 24 / NTFS); other runtimes and filesystems report
+ * `EACCES`, `EISDIR`, `EINVAL`, or `ENOTSUP`/`EOPNOTSUPP`/`ENOSYS` for the same
+ * "not a thing here" condition.
+ *
+ * The list is deliberately CLOSED. `ENOENT` (the parent vanished), `ENOSPC`,
+ * `EIO`, `EROFS` and everything else propagate untouched, because each of those
+ * is a real fault that a blanket `catch {}` would convert into a silent claim of
+ * durability — the same class of defect as the accidental ordering this module
+ * is fixing.
+ */
+export const DIRECTORY_SYNC_UNSUPPORTED_CODES: readonly string[] = [
+  'EPERM',
+  'EACCES',
+  'EISDIR',
+  'EINVAL',
+  'ENOTSUP',
+  'EOPNOTSUPP',
+  'ENOSYS',
+];
+
+function unsupportedDirectorySyncCode(err: unknown): string | undefined {
+  const code = (err as NodeJS.ErrnoException | undefined)?.code;
+  return code !== undefined && DIRECTORY_SYNC_UNSUPPORTED_CODES.includes(code)
+    ? code
+    : undefined;
+}
+
+/** `unsupported` outcome for a platform/seam that declined, keeping `code` typed. */
+function unsupportedDirectorySync(directory: string, code: string): DirectorySyncOutcome {
+  return { directory, status: 'unsupported', code };
+}
+
+/**
+ * fsync `directory` itself, so directory entries created by a preceding rename
+ * are on stable storage. See the section docstring above for why that is a
+ * different guarantee from the rename's atomicity.
+ *
+ * Degrades EXPLICITLY: on a host that cannot fsync a directory handle the
+ * refusal is converted into an `unsupported` {@link DirectorySyncOutcome}
+ * carrying the errno, and only for the closed
+ * {@link DIRECTORY_SYNC_UNSUPPORTED_CODES} set. Every other error is rethrown.
+ */
+export function fsyncDirSync(directory: string): DirectorySyncOutcome {
+  let fd: number;
+  try {
+    fd = fs.openSync(directory, 'r');
+  } catch (err: unknown) {
+    const code = unsupportedDirectorySyncCode(err);
+    if (code === undefined) throw err;
+    return unsupportedDirectorySync(directory, code);
+  }
+  try {
+    fs.fsyncSync(fd);
+  } catch (err: unknown) {
+    const code = unsupportedDirectorySyncCode(err);
+    if (code === undefined) throw err;
+    return unsupportedDirectorySync(directory, code);
+  } finally {
+    try {
+      fs.closeSync(fd);
+    } catch {
+      /* best-effort — a failed close cannot un-sync what already synced */
+    }
+  }
+  return { directory, status: 'synced' };
+}
+
+/** Async {@link fsyncDirSync}, with identical degradation semantics. */
+export async function fsyncDir(directory: string): Promise<DirectorySyncOutcome> {
+  let handle: FileHandle;
+  try {
+    handle = await fsPromisesOpen(directory, 'r');
+  } catch (err: unknown) {
+    const code = unsupportedDirectorySyncCode(err);
+    if (code === undefined) throw err;
+    return unsupportedDirectorySync(directory, code);
+  }
+  try {
+    await handle.sync();
+  } catch (err: unknown) {
+    const code = unsupportedDirectorySyncCode(err);
+    if (code === undefined) throw err;
+    return unsupportedDirectorySync(directory, code);
+  } finally {
+    await handle.close().catch(() => undefined);
+  }
+  return { directory, status: 'synced' };
+}
+
+/**
+ * Proof token: the directory entry published by a completed rename has been
+ * pushed to stable storage (or the host explicitly declined — `directory.status`
+ * says which).
+ *
+ * A token, rather than a `void`, because it is what turns statement order into a
+ * CONSTRUCTED ordering: a step that must not begin until an earlier step is
+ * durable takes that step's barrier as a parameter, so the dependency is checked
+ * by the compiler and legible to a reader instead of resting on which line
+ * happens to come first. See `install/atomic-promotion.ts`.
+ */
+export interface DurabilityBarrier {
+  /** The path the rename published. */
+  readonly published: string;
+  /** Outcome of the parent-directory fsync that closed this barrier. */
+  readonly directory: DirectorySyncOutcome;
+}
+
+/** The synchronous directory-durability seam (`publishTempFileSync` / `atomicWriteFile`). */
+export interface PublishSyncIo {
+  syncDirectory(directory: string): DirectorySyncOutcome;
+}
+
+export const DEFAULT_PUBLISH_SYNC_IO: PublishSyncIo = { syncDirectory: fsyncDirSync };
 
 /**
  * Replace `target` with `tmpPath`, tolerating Windows' concurrent-rename race.
@@ -105,15 +278,28 @@ function publishBackoffMs(attempt: number): number {
  * note above for why that module and not `node:fs`'s `fs.promises`. `unlink` is
  * optional: a caller whose injected fs cannot delete (e.g. `McpJsonWriterFs`)
  * simply gets no cleanup, exactly as before.
+ *
+ * `syncDirectory` is the DR-16 durability seam and is likewise optional, because
+ * an injected fs may not be able to express a directory fsync at all (a seam
+ * that only exposes `rename` cannot open a directory handle). It is never
+ * silently *dropped*: the DEFAULT io always has one ({@link fsyncDir}), and the
+ * ordering DR-16 actually depends on is built on the SYNC path
+ * ({@link publishTempFileSync} / {@link DurabilityBarrier}), which always has one
+ * too. An injected seam without `syncDirectory` gets an atomic publish whose
+ * directory entry is not forced to disk — the same guarantee it had before this
+ * seam existed, and no weaker.
  */
 export interface PublishIo {
   rename(from: string, to: string): Promise<void>;
   unlink?(path: string): Promise<void>;
+  /** fsync the *directory* so the rename's entry is durable. See {@link fsyncDir}. */
+  syncDirectory?(directory: string): Promise<DirectorySyncOutcome>;
 }
 
 const DEFAULT_PUBLISH_IO: PublishIo = {
   rename: fsPromisesRename,
   unlink: fsPromisesUnlink,
+  syncDirectory: fsyncDir,
 };
 
 export async function publishTempFile(
@@ -124,6 +310,14 @@ export async function publishTempFile(
   for (let attempt = 0; ; attempt++) {
     try {
       await io.rename(tmpPath, target);
+      // DR-16: the bytes were fsync'd before the rename; the NAME is durable
+      // only once the parent directory is fsync'd too. Strictly after the
+      // rename — fsync'ing the directory first would prove nothing about an
+      // entry that does not exist yet, and a publish that never renamed must
+      // not claim a durable entry at all.
+      if (io.syncDirectory !== undefined) {
+        await io.syncDirectory(path.dirname(target));
+      }
       return;
     } catch (err) {
       if (!isWindowsRenameRace(err) || attempt >= PUBLISH_RETRY_LIMIT) {
@@ -150,11 +344,16 @@ export async function publishTempFile(
  * replace is actually in flight. Prefer the async form wherever the caller can
  * await.
  */
-export function publishTempFileSync(tmpPath: string, target: string): void {
+export function publishTempFileSync(
+  tmpPath: string,
+  target: string,
+  io: PublishSyncIo = DEFAULT_PUBLISH_SYNC_IO,
+): DurabilityBarrier {
   for (let attempt = 0; ; attempt++) {
     try {
       fs.renameSync(tmpPath, target);
-      return;
+      // DR-16 — see `publishTempFile` above and the section docstring.
+      return { published: target, directory: io.syncDirectory(path.dirname(target)) };
     } catch (err: unknown) {
       if (!isWindowsRenameRace(err) || attempt >= PUBLISH_RETRY_LIMIT) throw err;
       Atomics.wait(
@@ -167,7 +366,11 @@ export function publishTempFileSync(tmpPath: string, target: string): void {
   }
 }
 
-export function atomicWriteFile(target: string, content: string | Buffer): void {
+export function atomicWriteFile(
+  target: string,
+  content: string | Buffer,
+  io: PublishSyncIo = DEFAULT_PUBLISH_SYNC_IO,
+): DurabilityBarrier {
   const tmp = `${target}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`;
   const fd = fs.openSync(tmp, 'w');
   try {
@@ -195,7 +398,10 @@ export function atomicWriteFile(target: string, content: string | Buffer): void 
   fs.closeSync(fd);
 
   try {
-    publishTempFileSync(tmp, target);
+    // The barrier is produced by the publish, not re-derived here: the bytes are
+    // durable (fsync above), the name becomes durable inside the publish, and
+    // the caller receives the proof of both.
+    return publishTempFileSync(tmp, target, io);
   } catch (err: unknown) {
     try {
       fs.unlinkSync(tmp);

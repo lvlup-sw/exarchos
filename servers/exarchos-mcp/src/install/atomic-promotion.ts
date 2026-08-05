@@ -25,6 +25,19 @@
  *      Each rename is atomic, and a small on-disk JOURNAL records the three paths
  *      so that any interruption is deterministically recoverable.
  *
+ * ## Durable ordering (DR-16)
+ *
+ * Steps 1–3 above are a SEQUENCE, and a sequence of renames is only ordered on
+ * disk if each rename's directory entry is durable before the next one is made.
+ * `rename(2)` is atomic for observers but leaves the new name in the parent
+ * directory's unflushed metadata, so "journal, then backup, then tree" without a
+ * parent-directory fsync between the steps is a property of this source file and
+ * not of the filesystem. {@link renameDurable} and {@link DurabilityBarrier} are
+ * how that ordering is CONSTRUCTED here: each step returns a barrier, and the
+ * step that must not begin until it is durable takes that barrier as an
+ * argument. See `../utils/atomic-write.ts` for the underlying primitive and the
+ * full explanation.
+ *
  * ## Rollback and recovery (EFF-009)
  *
  * The promotion is atomic at the `rename(staging → target)` step: before it the
@@ -69,7 +82,13 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { atomicWriteFile, publishTempFileSync } from '../utils/atomic-write.js';
+import {
+  atomicWriteFile,
+  fsyncDirSync,
+  publishTempFileSync,
+  type DirectorySyncOutcome,
+  type DurabilityBarrier,
+} from '../utils/atomic-write.js';
 import {
   digestTree,
   type DigestEntry,
@@ -125,10 +144,22 @@ export interface PromotionIo {
   rename(from: string, to: string): void;
   /** Recursively remove a file or directory (`rm -rf`). */
   removeTree(target: string): void;
+  /**
+   * fsync `directory` ITSELF, so directory entries created by a preceding
+   * {@link rename} reach stable storage (DR-16 — see `renameDurable` and
+   * `../utils/atomic-write.ts`).
+   *
+   * Optional, and the omission is NOT a silent opt-out: an IO that does not
+   * supply one falls back to the real {@link fsyncDirSync}, so a test seam that
+   * only wants to fault a rename never quietly downgrades the durability of the
+   * promotion it is testing. Supply it to OBSERVE or fault the durability step.
+   */
+  syncDirectory?(directory: string): DirectorySyncOutcome;
 }
 
 /** The default IO, backed by synchronous `node:fs`. */
 export function defaultPromotionIo(): PromotionIo {
+  const syncDirectory = (directory: string): DirectorySyncOutcome => fsyncDirSync(directory);
   return {
     mkdirp: (directory) => {
       fs.mkdirSync(directory, { recursive: true });
@@ -150,12 +181,84 @@ export function defaultPromotionIo(): PromotionIo {
       // EPERM/EACCES directory-rename race with a bounded, jittered retry — a
       // bare `renameSync` flakes on NTFS when an indexer/AV briefly holds a
       // just-written tree open. Same-volume, so the rename stays atomic.
-      publishTempFileSync(from, to);
+      publishTempFileSync(from, to, { syncDirectory });
     },
     removeTree: (target) => {
       fs.rmSync(target, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     },
+    syncDirectory,
   };
+}
+
+// ─── Durable ordering (DR-16) ────────────────────────────────────────────────
+
+/**
+ * Rename, then make the resulting directory ENTRY durable, and hand back the
+ * proof.
+ *
+ * Why a returned token instead of two statements: the promotion's correctness
+ * rests on journal-before-backup-before-tree, and a bare statement sequence
+ * asserts that ordering only in the source text. `renameDurable` gives each step
+ * a {@link DurabilityBarrier}, and the next step takes the previous step's
+ * barrier as a PARAMETER (see {@link afterDurable}) — so the dependency is
+ * enforced by the compiler, checked at runtime, and visible to a reader, rather
+ * than being an accident of which line came first. That is the whole of DR-16.
+ *
+ * The fsync is unconditional even though {@link defaultPromotionIo}'s `rename`
+ * already syncs (it routes through `publishTempFileSync`): on the default path
+ * this is a second, near-free fsync of an already-clean directory, and it is the
+ * only way the barrier means the same thing for an INJECTED rename that syncs
+ * nothing.
+ */
+function renameDurable(from: string, to: string, io: PromotionIo): DurabilityBarrier {
+  io.rename(from, to);
+  return { published: to, directory: syncDirectoryVia(io, path.dirname(to)) };
+}
+
+/** Resolve the durability step: injected seam if present, real fsync otherwise. */
+function syncDirectoryVia(io: PromotionIo, directory: string): DirectorySyncOutcome {
+  return (io.syncDirectory ?? fsyncDirSync)(directory);
+}
+
+/**
+ * Consume a barrier: the caller is about to write into `directory` and asserts
+ * the step the barrier names is already durable there.
+ *
+ * Deliberately not a no-op parameter. A token that is merely *accepted* is a
+ * comment wearing a type; checking that it actually covers the directory the
+ * next step touches makes the precondition load-bearing at runtime too, so a
+ * refactor that threads the wrong barrier through fails loudly instead of
+ * type-checking into silence.
+ *
+ * EXPORTED so the precondition can be pinned directly. This is the one link in
+ * the DR-16 chain the compiler CANNOT check: every step's barrier has the same
+ * type, so threading the wrong one — a barrier from another promotion, or one
+ * whose fsync went somewhere else — type-checks perfectly and can only fail
+ * here. A guard against a mistake the type system cannot see is precisely the
+ * kind that rots unnoticed if nothing exercises it.
+ *
+ * Both halves are checked, and they are not redundant. `published` says where
+ * the rename LANDED; `directory.directory` says where the fsync ACTUALLY WENT.
+ * A seam that renames into one directory and fsyncs another satisfies the first
+ * and violates the second, and that combination is durability theatre — a
+ * barrier that reports success while proving nothing about the entry it names.
+ *
+ * Note on reachability: within one {@link StagePlan} the journal, backup and
+ * target all live in the same parent by construction, so the `published` half
+ * cannot be violated through {@link promoteTreeSync} today. It is checked (and
+ * tested directly) because that invariant is a property of `stagePlanFor`, not
+ * of this function's contract, and a future caller that breaks it should hit an
+ * error rather than a silently mis-ordered promotion.
+ */
+export function afterDurable(barrier: DurabilityBarrier, directory: string): void {
+  const covered = path.dirname(barrier.published);
+  if (covered !== directory || barrier.directory.directory !== directory) {
+    throw new PromotionError(
+      'PROMOTE_FAILED',
+      `durability barrier for ${barrier.published} covers ${covered} ` +
+        `(fsync'd ${barrier.directory.directory}), not ${directory}`,
+    );
+  }
 }
 
 /** Recursively enumerate file paths under `root`, POSIX-normalized and relative. */
@@ -223,7 +326,7 @@ function isPromotionJournal(value: unknown): value is PromotionJournal {
   );
 }
 
-function writeJournal(plan: StagePlan): void {
+function writeJournal(plan: StagePlan, io: PromotionIo): DurabilityBarrier {
   const journal: PromotionJournal = {
     target: plan.target,
     stagingDir: plan.stagingDir,
@@ -233,7 +336,15 @@ function writeJournal(plan: StagePlan): void {
   // Journal writes reuse the EFF-008 single-file atomic writer directly (not the
   // IO seam) — a torn journal would be as bad as a torn promotion, and the IO
   // seam's fault-injection is aimed at the tree, not its own recovery record.
-  atomicWriteFile(plan.journalPath, JSON.stringify(journal));
+  //
+  // DR-16: `atomicWriteFile` is tmp → fsync(file) → rename → fsync(parent dir),
+  // and returns the barrier proving both halves. Its directory fsync is routed
+  // through the promotion seam so the journal's durability step is observable
+  // (and faultable) at exactly the same seam the tree renames use — the journal
+  // must not be the one step whose durability nobody can see.
+  return atomicWriteFile(plan.journalPath, JSON.stringify(journal), {
+    syncDirectory: (directory) => syncDirectoryVia(io, directory),
+  });
 }
 
 function readJournal(plan: StagePlan, io: PromotionIo): PromotionJournal | undefined {
@@ -270,7 +381,11 @@ function recoverFromJournal(journal: PromotionJournal, io: PromotionIo): void {
     safeRemove(journal.backupDir, io);
     safeRemove(journal.stagingDir, io);
   } else if (io.exists(journal.backupDir)) {
-    io.rename(journal.backupDir, journal.target); // restore OLD — may throw (double-fault)
+    // Restore OLD — may throw (double-fault). Durable like every other tree
+    // rename: a restore whose directory entry is not on stable storage can be
+    // lost by a second crash, putting the destination back in the window this
+    // function exists to close.
+    renameDurable(journal.backupDir, journal.target, io);
     safeRemove(journal.stagingDir, io);
   } else {
     // Neither target nor backup: nothing to restore (target was newly created and
@@ -323,6 +438,16 @@ export interface PromotionReport {
   readonly promoted: boolean;
   /** True when a journal from a prior interrupted attempt was recovered first. */
   readonly recoveredPriorAttempt: boolean;
+  /**
+   * How the DR-16 parent-directory fsync fared for the COMMIT rename.
+   * `'synced'` on POSIX; `'unsupported'` (carrying the refusing errno) on hosts
+   * where fsync of a directory handle is not a thing — win32 reports `EPERM`.
+   *
+   * Reported rather than swallowed so a caller can tell "durably promoted" from
+   * "atomically promoted, durability unproven by the platform". A blanket
+   * `catch {}` here would recreate the exact defect DR-16 exists to remove.
+   */
+  readonly directoryDurability: DirectorySyncOutcome;
 }
 
 function stageEntries(plan: StagePlan, entries: readonly DigestEntry[], io: PromotionIo): void {
@@ -348,14 +473,19 @@ function readStagedEntries(plan: StagePlan, io: PromotionIo): DigestEntry[] {
  * runs {@link recoverFromJournal} in line (restoring OLD); if that recovery also
  * fails (a double fault — a simulated hard crash), the journal is left for a
  * subsequent retry to recover, and the original error is rethrown.
+ *
+ * The three steps are chained through {@link DurabilityBarrier}s rather than
+ * merely written in order — see {@link renameDurable}. `backupExistingTarget`
+ * cannot be called without the journal's barrier, and `promoteStagedTree` cannot
+ * be called without the backup's, so the disk-level ordering the recovery
+ * algorithm depends on is a compile-time fact here, not a convention.
  */
-function commitPromotion(plan: StagePlan, io: PromotionIo): void {
+function commitPromotion(plan: StagePlan, io: PromotionIo): DirectorySyncOutcome {
+  let committed: DurabilityBarrier;
   try {
-    writeJournal(plan);
-    if (io.exists(plan.target)) {
-      io.rename(plan.target, plan.backupDir);
-    }
-    io.rename(plan.stagingDir, plan.target); // COMMIT POINT — atomic
+    const journalBarrier = writeJournal(plan, io);
+    const backupBarrier = backupExistingTarget(plan, io, journalBarrier);
+    committed = promoteStagedTree(plan, io, backupBarrier);
   } catch (err) {
     try {
       recoverFromJournal(readJournal(plan, io) ?? journalFromPlan(plan), io);
@@ -373,6 +503,37 @@ function commitPromotion(plan: StagePlan, io: PromotionIo): void {
   // and a later recovery/retry cleans it.
   safeRemove(plan.backupDir, io);
   safeRemove(plan.journalPath, io);
+  return committed.directory;
+}
+
+/**
+ * Move any existing OLD tree aside. Takes the journal's barrier because it must
+ * not run until the journal's directory entry is durable: the journal is the
+ * ONLY record of where the old tree went, so a backup rename that reaches stable
+ * storage before the journal does leaves a crash with a vanished `target` and no
+ * instructions.
+ *
+ * Returns `undefined` when there was no old tree (first install) — there is then
+ * no backup entry to order the commit against.
+ */
+function backupExistingTarget(
+  plan: StagePlan,
+  io: PromotionIo,
+  journal: DurabilityBarrier,
+): DurabilityBarrier | undefined {
+  afterDurable(journal, path.dirname(plan.backupDir));
+  if (!io.exists(plan.target)) return undefined;
+  return renameDurable(plan.target, plan.backupDir, io);
+}
+
+/** The COMMIT POINT: atomic, and not begun until the backup entry is durable. */
+function promoteStagedTree(
+  plan: StagePlan,
+  io: PromotionIo,
+  backup: DurabilityBarrier | undefined,
+): DurabilityBarrier {
+  if (backup !== undefined) afterDurable(backup, path.dirname(plan.target));
+  return renameDurable(plan.stagingDir, plan.target, io);
 }
 
 function journalFromPlan(plan: StagePlan): PromotionJournal {
@@ -436,13 +597,14 @@ export function promoteTreeSync(
   }
 
   // 3. Promote.
-  commitPromotion(plan, io);
+  const directoryDurability = commitPromotion(plan, io);
 
   return {
     target: request.target,
     treeDigest: expected,
     promoted: true,
     recoveredPriorAttempt,
+    directoryDurability,
   };
 }
 
