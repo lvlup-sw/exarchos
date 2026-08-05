@@ -3,7 +3,7 @@ import { EventStore, SequenceConflictError } from './store.js';
 import { EVENT_DATA_SCHEMAS, type EventType, WorkflowEventBase } from './schemas.js';
 import { pickFields, toEventAck, type EventAck, type ToolResult } from '../format.js';
 import { buildValidatedEvent } from './event-factory.js';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { getDispatchContext } from '../dispatch/dispatch-context.js';
 import { getReservedEventAppendRegistration } from '../registry.js';
 
@@ -521,6 +521,82 @@ export type AdmissionDisagreementDispositionAction = z.infer<
   typeof AdmissionDisagreementDispositionActionSchema
 >;
 
+/** The claim-key namespace for typed disposition appends. */
+const ADMISSION_DISPOSITION_KEY_PREFIX = 'admission.disagreement-disposition:';
+
+/**
+ * Upper bound `WorkflowEventBase.idempotencyKey` places on a claim key
+ * (`z.string().min(1).max(200)`). `dispositionId` alone may be 256 chars, so
+ * the derivation below must be able to shrink without becoming ambiguous.
+ */
+const IDEMPOTENCY_KEY_MAX_LENGTH = 200;
+
+/**
+ * DR-36 / INV-8 — the claim key for one disagreement disposition.
+ *
+ * `dispositionId` IS the natural identity of the fact: the caller minted it to
+ * name this disposition, and two attempts to record the same disposition carry
+ * the same id. The key is therefore a pure, total function of that id —
+ * NOTHING random (no `randomUUID`), nothing wall-clock-derived — so a retried
+ * append recomputes the same key and collapses onto the stored row.
+ *
+ * Ids that would overflow the 200-char schema bound fold to a sha256 of the
+ * id, which is equally deterministic and keeps distinct ids distinct.
+ *
+ * INV-13 (intent-before / result-after): a disposition is a RESULT record of a
+ * human/agent adjudication that has already happened. It triggers no
+ * non-idempotent external effect, so there is no effect needing a preceding
+ * intent event — the claim key is the whole of its retry safety.
+ */
+export function admissionDispositionIdempotencyKey(dispositionId: string): string {
+  const natural = `${ADMISSION_DISPOSITION_KEY_PREFIX}${dispositionId}`;
+  if (natural.length <= IDEMPOTENCY_KEY_MAX_LENGTH) return natural;
+  const digest = createHash('sha256').update(dispositionId, 'utf8').digest('hex');
+  return `${ADMISSION_DISPOSITION_KEY_PREFIX}sha256:${digest}`;
+}
+
+/** The identifying fields a replay must reproduce byte-for-byte. */
+const DISPOSITION_CLAIM_FIELDS = [
+  'dispositionId',
+  'shadowAttemptId',
+  'disposition',
+  'rationale',
+] as const;
+
+/**
+ * DR-36 — the typed CONFLICT arm of the replay contract.
+ *
+ * A replay carrying the SAME `dispositionId` but a DIFFERENT payload is not a
+ * retry, it is a second, silently-different write hiding behind an existing
+ * claim. The store returns the canonical stored row for it (never a duplicate),
+ * and this turns that into an explicit refusal rather than a success envelope
+ * that misreports whose rationale actually landed.
+ */
+function dispositionReplayConflict(
+  requested: Omit<AdmissionDisagreementDispositionAction, 'stream'>,
+  persisted: { readonly data?: Record<string, unknown> | undefined },
+): ToolResult | undefined {
+  const stored = (persisted.data ?? {}) as Partial<
+    Record<(typeof DISPOSITION_CLAIM_FIELDS)[number], unknown>
+  >;
+  const divergent = DISPOSITION_CLAIM_FIELDS.filter(
+    (field) => stored[field] !== requested[field],
+  );
+  if (divergent.length === 0) return undefined;
+
+  return {
+    success: false,
+    error: {
+      code: 'IDEMPOTENCY_PAYLOAD_CONFLICT',
+      message:
+        `Disposition "${requested.dispositionId}" was already recorded with a ` +
+        `different payload (${divergent.join(', ')}); a silently-different ` +
+        'second write is refused. Mint a new dispositionId to record a new fact.',
+      action: 'handleAdmissionDisagreementDisposition',
+    },
+  };
+}
+
 /**
  * The v2.12 typed writer for disagreement dispositions.
  *
@@ -590,7 +666,14 @@ export async function handleAdmissionDisagreementDisposition(
         },
       },
     });
-    const event = await eventStore.appendValidated(stream, validatedEvent);
+    const event = await eventStore.appendValidated(stream, validatedEvent, {
+      // DR-36 / INV-8: the natural-identity claim key. A retry of the same
+      // disposition returns the STORED row (the store's cache-hit branch)
+      // instead of appending a second, indistinguishable fact.
+      idempotencyKey: admissionDispositionIdempotencyKey(fact.dispositionId),
+    });
+    const conflict = dispositionReplayConflict(fact, event);
+    if (conflict !== undefined) return conflict;
     return { success: true, data: toEventAck(event) };
   } catch (error) {
     if (error instanceof ZodError) {

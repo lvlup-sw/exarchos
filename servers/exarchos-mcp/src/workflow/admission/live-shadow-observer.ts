@@ -317,17 +317,30 @@ export const LIVE_SHADOW_OBSERVATION_SOURCE = 'live-shadow-observer';
 const SHADOW_POLICY_VERSION = TRANSLATION_PROVIDER_VERSION;
 
 /**
- * T-49 seam — natural-identity idempotency keys.
+ * DR-36 / INV-8 (T-49) — natural-identity idempotency keys.
  *
  * Every append below already has a NATURAL identity in hand (`shadowAttemptId`
- * for the attempt, `dispositionId` for the disposition — both derived from the
- * observed attempt, never random). T-49 turns this into
- * `{ idempotencyKey: naturalIdentity }`; nothing around the call has to change.
+ * for the attempt, `dispositionId` for the disposition). Both are a pure
+ * function of the observed attempt (see `attemptIdentity` in
+ * {@link emitShadowEvidence}): stream, edge key, phase-attempt id, legacy
+ * outcome, input digest and evaluation instant, hashed. NOTHING random and
+ * nothing wall-clock-only participates, so the SAME logical observation
+ * recomputes the SAME key and its append collapses onto the stored row
+ * instead of duplicating it.
+ *
+ * INV-13 (intent-before / result-after) is satisfied vacuously here: both
+ * facts are pure OBSERVATION records of an already-completed, side-effect-free
+ * adjudication. They describe no non-idempotent external effect, so there is
+ * no effect to bracket with a separate intent event — the retry-safety these
+ * events need is exactly the claim key returned below.
+ *
+ * The derived key stays well inside `WorkflowEventBase`'s 200-char
+ * `idempotencyKey` bound (`<prefix>:<64 hex>` ≤ 89 chars).
  */
 function evidenceAppendOptions(
-  _naturalIdentity: string,
+  naturalIdentity: string,
 ): ShadowEvidenceAppendOptions {
-  return {};
+  return { idempotencyKey: naturalIdentity };
 }
 
 // ─── Identity + digest derivation (deterministic, never random) ───────────────
